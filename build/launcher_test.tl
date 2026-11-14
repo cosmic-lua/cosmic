@@ -13,10 +13,15 @@ local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The host's shell, which runs the rendered launcher, and the programs
---- the launcher runs (core/launcher_cache_test.tl says which), each
---- granted where a host has it, under /bin or /usr/bin.
+--- the launcher runs ([`programs`]), each granted where a host has it,
+--- under /bin or /usr/bin; and the text of the modules that grant them,
+--- which a test here holds to that list.
 Test.policy{
   grants = {
+    { path = "build/launcher_test.tl", letters = "r" },
+    { path = "core/launcher_cache_test.tl", letters = "r" },
+    { path = "cosmic/signal_ignored_test.tl", letters = "r" },
+    { path = "build/test_policy_plan_tool_test.tl", letters = "r" },
     { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
     { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },
     { path = "/bin/mkdir", letters = "r" }, { path = "/usr/bin/mkdir", letters = "r" },
@@ -33,6 +38,11 @@ Test.policy{
     { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
   },
 }
+
+--- The host's programs the launcher runs on Linux, the shell that reads it first: the one list of them. A test
+--- below holds it to the launcher's own text, and the modules that run the launcher to it.
+local programs <const>: {string} = { "sh", "uname", "mkdir", "stat", "mktemp", "head", "rm", "wc", "dd", "chmod",
+  "id", "ln", "rmdir", "sha256sum" }
 
 local arm = "  'Linux x86_64') cosmic_os=Linux; cosmic_target_id=1; " ..
   "cosmic_configuration_id=1; cosmic_offset=0; cosmic_block=0; cosmic_stored=0; " ..
@@ -185,6 +195,110 @@ local function test_a_missing_flags_line_is_not_refused(tmp: string)
     return
   end
   assert_passed_the_cpu_check(launch(tmp, true, nil), tmp)
+end
+
+--- What a shell reads as a word to run that is no program of the host's: its own words.
+local shell_words <const>: {string:boolean} = {
+  ["case"] = true, esac = true, ["for"] = true, ["in"] = true, ["do"] = true, done = true, ["if"] = true,
+  ["then"] = true, ["elif"] = true, ["else"] = true, fi = true, ["while"] = true, ["until"] = true,
+  ["break"] = true, continue = true, ["return"] = true, exit = true, export = true, eval = true, exec = true,
+  command = true, printf = true, test = true, trap = true, umask = true, shift = true, set = true, unset = true,
+  read = true, cd = true, echo = true, ["true"] = true, ["false"] = true,
+}
+
+--- The programs the shell text `script` runs, as a set: the first word of each command that is no word of the
+--- shell's, no assignment, and no name of the launcher's own (every function and variable of it begins
+--- `portable_` or `cosmic_`). It reads the forms the launcher is written in, not the shell's grammar: a command
+--- begins a line, or follows `;`, `|`, `&`, a bracket or a keyword, after any `NAME=value` set for it alone. A
+--- form it does not read hides a program from it, so the test below also holds that it finds every program of
+--- the list, each of which the launcher runs in one of those forms.
+local function commands_of(script: string): mut {string:boolean}
+  local lines: mut {string} = {}
+  for line in (script:gsub("\\\n", " ") .. "\n"):gmatch("([^\n]*)\n") do
+    -- A comment, to the end of its line.
+    lines[#lines + 1] = line:gsub("^%s*#.*$", ""):gsub("%s#.*$", "")
+  end
+  -- A double-quoted word holds a command only in a `$(`, and is otherwise words to print; a single-quoted word
+  -- and a variable's expansion hold none.
+  local bare = table.concat(lines, "\n"):gsub('"[^"]*"', function(quoted: string): string
+    return if quoted:find("$(", 1, true) ~= nil then quoted:sub(2, -2) else "" end
+  end):gsub("'[^']*'", ""):gsub("%${[^}]*}", "")
+  -- The pattern that begins an arm of a `case`, up to its `)`.
+  local unarmed = ("\n" .. bare):gsub("\n(%s*)[%w_|*?.-]+%)", "\n%1")
+  local found: mut {string:boolean} = {}
+  for segment in unarmed:gmatch("[^\n;|&(){}`]+") do
+    local rest = segment:gsub("^%s+", "")
+    local stripped = true
+    while stripped do
+      stripped = false
+      -- A keyword a command follows, or a variable set for the command alone.
+      local after = rest:match("^if%s+(.*)$") or rest:match("^then%s+(.*)$") or rest:match("^else%s+(.*)$") or
+        rest:match("^elif%s+(.*)$") or rest:match("^while%s+(.*)$") or rest:match("^do%s+(.*)$") or
+        rest:match("^!%s+(.*)$") or rest:match("^[%a_][%w_]*=%S*%s+(.*)$")
+      if after ~= nil then
+        rest = after
+        stripped = true
+      end
+    end
+    local word = rest:match("^([%a_][%w_.-]*)%f[%s%z]")
+    if word ~= nil and shell_words[word] ~= true and word:find("^portable_") == nil and
+        word:find("^cosmic_") == nil and rest:find("^[%a_][%w_]*=") == nil then
+      found[word] = true
+    end
+  end
+  return found
+end
+
+--- The launcher runs the programs of the list and no other: each is found in its text, and nothing else is, but
+--- `shasum`, which it falls back to where there is no `sha256sum` (macOS, where no worker is sandboxed).
+local function test_the_launcher_runs_the_listed_programs_and_no_other()
+  local found = commands_of(launcher.render(arm .. "\n" .. arm64, false))
+  found["sh"] = true
+  local listed: mut {string:boolean} = { shasum = true }
+  for _, name in ipairs(programs) do
+    listed[name] = true
+    assert(found[name] == true, name .. " is listed, and the launcher's text runs it nowhere this test reads")
+  end
+  for name in pairs(found) do
+    assert(listed[name] == true, "the launcher runs " .. name .. ", which the list of its programs does not hold: " ..
+        "add it there and to the modules that grant them, or to the shell's words if it is one")
+  end
+end
+
+--- The absolute paths the module at `file` grants.
+local function granted(file: string): {string:boolean}
+  local out: mut {string:boolean} = {}
+  for path in assert(Fs.read(file), file):gmatch('{ path = "(/[^"]+)", letters = "r" }') do
+    out[path] = true
+  end
+  return out
+end
+
+--- The modules that run the launcher's every path grant each program of the list, under /bin and /usr/bin, and
+--- no other; those that start it on a core its cache holds grant some of them, and no other.
+local function test_the_modules_that_run_the_launcher_grant_its_programs()
+  local wanted: mut {string:boolean} = {}
+  for _, name in ipairs(programs) do
+    wanted["/bin/" .. name] = true
+    wanted["/usr/bin/" .. name] = true
+  end
+  for _, file in ipairs({ "build/launcher_test.tl", "core/launcher_cache_test.tl" }) do
+    local grants = granted(file)
+    for path in pairs(wanted) do
+      assert(grants[path] == true, file .. " does not grant " .. path .. ", which the launcher may run")
+    end
+    for path in pairs(grants) do
+      assert(wanted[path] == true, file .. " grants " .. path .. ", which is no program of the launcher's")
+    end
+  end
+  for _, file in ipairs({ "cosmic/signal_ignored_test.tl", "build/test_policy_plan_tool_test.tl" }) do
+    local count = 0
+    for path in pairs(granted(file)) do
+      count = count + 1
+      assert(wanted[path] == true, file .. " grants " .. path .. ", which is no program of the launcher's")
+    end
+    assert(count > 0, file .. " grants no program of the launcher's")
+  end
 end
 
 local function test_a_release_launcher_reads_only_proc_cpuinfo()
