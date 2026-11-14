@@ -364,6 +364,19 @@ local function test_getifaddrs_survives_every_refused_allocation()
   assert_c_heap(bytes, blocks, "getifaddrs under refusal")
 end
 
+--- `interfaces` holds libc's list in a guard as `getifaddrs` does. A
+--- worker whose sandbox refuses the list is refused it under refusal too.
+local function test_interfaces_survives_every_refused_allocation()
+  local listable = socket.interfaces() ~= nil
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local listed, why = socket.interfaces()
+    assert((listed ~= nil) == listable, why)
+  end)
+  assert(not listable or ended > 0, "the list's table allocates")
+  assert_c_heap(bytes, blocks, "interfaces under refusal")
+end
+
 --- The C heap counts what the core's C allocates and frees, and a
 --- refused C allocation is counted with Lua's.
 local function test_the_c_heap_counts_its_blocks_and_refusals()

@@ -76,6 +76,58 @@ function Example.datagram()
   assert(question.data == "ping" and answer.data == "pong")
 end
 
+--- The loopback interface's IPv4 address, which names it as the `via`
+--- of an IPv4 group, from [`Net.interfaces`]. A sandbox on Linux refuses
+--- the list, and 127.0.0.1 is the address a loopback has on every machine.
+local function loopback_address(): string
+  local listed = Net.interfaces()
+  if listed == nil then return "127.0.0.1" end
+  for _, interface in ipairs(listed) do
+    if interface.loopback and interface.up then
+      for _, address in ipairs(interface.addresses) do
+        if address.family == "ipv4" then return address.address end
+      end
+    end
+  end
+  return "127.0.0.1"
+end
+
+--- [`Net.interfaces`] lists the machine's interfaces, to pick the `via`
+--- of a multicast call from: an IPv4 group takes one of the interface's
+--- IPv4 addresses, an IPv6 group its `index`.
+function Example.interfaces()
+  local listed, why = Net.interfaces()
+  if listed == nil then
+    print("not listed here: " .. why)
+  else
+    for _, interface in ipairs(listed) do
+      print(interface.name, interface.index, interface.up, interface.multicast, #interface.addresses)
+    end
+  end
+  local via = loopback_address()
+  print(via)
+  assert(via:find("127.", 1, true) == 1, via)
+end
+
+--- Multicast: a socket that joins a group receives what any socket
+--- sends to the group at its port. Bound to the group and `shared`, it
+--- leaves the port to the other members on the machine. The sender needs
+--- no membership, only `set_multicast` to say which interface its
+--- datagrams leave by, here the loopback, and how far they go.
+function Example.multicast()
+  local via = loopback_address()
+  local group = "239.255.77.99"
+  local member <close> = assert(Net.datagram(Net.udp(group, 0), { shared = true }))
+  assert(member:join(group, via))
+  local sender <close> = assert(Net.datagram(Net.udp(via, 0)))
+  assert(sender:set_multicast({ via = via, hops = 1 }))
+  assert(sender:send("hello, group", Net.udp(group, assert(member.address.port))))
+  local packet = assert(member:receive(Clock.seconds(5)))
+  print(packet.data)
+  assert(packet.data == "hello, group")
+  assert(member:leave(group, via))
+end
+
 --- A server that serves each connection in a task of its own, in a
 --- task of [`Poll.run`]: while one connection waits to be read, the
 --- others are served.
