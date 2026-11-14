@@ -61,9 +61,9 @@ end
 ---   it reduces to: a y of 2^255 - 19 or more, or an x of 0 with the
 ---   sign bit set.
 --- - A key of small order is accepted. Under the neutral point as the
----   key, the signature of the neutral point and an S of 0 verifies for
----   every message, so a signature proves who signed only under a key
----   the caller has reason to trust.
+---   key, the signature whose R is the neutral point and whose S is 0
+---   verifies for every message, so a signature proves who signed only
+---   under a key the caller has reason to trust.
 ---
 ---     local ok = Sign.ed25519_verify(public, "message", signature)
 function Sign.ed25519_verify(public: string, message: string, signature: string): boolean
