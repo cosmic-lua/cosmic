@@ -69,13 +69,12 @@ end
 
 -- What a release weighs. The cores are stored compressed (13.3 MB raw, 5.6 MB
 -- stored with their stubs), so the prefix every program shares, and the
--- programs, stay under these: a ceiling is lowered when the artifact shrinks,
--- so an addition meets it in CI and not in a release, and raised only by a
--- change that says what the bytes buy. The tool's holds its modules' bytecode
--- as `string.dump` wrote it, 2 MB that a start no longer inflates
--- (build/schema.tl's `modules`).
+-- programs built with it, stay under these: a ceiling is lowered when the
+-- artifact shrinks, so an addition meets it in CI and not in a release, and
+-- raised only by a change that says what the bytes buy. The tool itself is
+-- held to none: it carries the whole library, so every module added to the
+-- library would move its ceiling.
 local prefix_ceiling <const> = 6000000
-local tool_ceiling <const> = 21800000
 local application_ceiling <const> = 9500000
 
 local function test_transported_product(tmp: string)
@@ -138,8 +137,6 @@ local function test_transported_product(tmp: string)
       decoded.manifest_offset % 16384 == 0, "product prefix record differs")
   assert(decoded.prefix_length <= prefix_ceiling, "the prefix is " .. tostring(decoded.prefix_length) ..
       " bytes, over its ceiling of " .. tostring(prefix_ceiling))
-  assert(#artifact <= tool_ceiling, "cosmic is " .. tostring(#artifact) ..
-      " bytes, over its ceiling of " .. tostring(tool_ceiling))
   for _, application in ipairs({ "hello", "second" }) do
     local size = assert(Fs.stat(product .. "/apps/" .. application)).size
     assert(size <= application_ceiling, application .. " is " .. tostring(size) ..

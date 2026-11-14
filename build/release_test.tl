@@ -14,6 +14,7 @@ local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local pinned_launcher = require("build.pinned_launcher")
 local release = require("build.release")
 
 --- `store`: a root the binary carries is read through
@@ -389,6 +390,48 @@ local function test_pin_writes_the_pin_once_the_bytes_check(tmp: string)
   local both = run({ "--pin", pin, "-o", path }, newest_then(sums(), source(newest), ok(binary)))
   assert(both.code == 0, both.err)
   assert(Fs.read(path) == binary)
+end
+
+--- `--launcher` sets a project up: the launcher [`build.pinned_launcher`]
+--- writes for the file's name, executable, and beside it the pin `--pin`
+--- writes, each only once the binary's bytes check.
+local function test_launcher_writes_the_script_and_its_pin(tmp: string)
+  local launcher = tmp .. "/bin/cosmic"
+  assert(Fs.mkdirs(tmp .. "/bin"))
+  local ran = run({ "--launcher", launcher }, newest_then(sums(), source(newest), ok(binary)))
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "", ran.out)
+  assert(Fs.read(launcher) == assert(pinned_launcher.script("cosmic")))
+  assert(assert(Fs.stat(launcher)).mode & 0x1ff == 0x1ed, "the launcher is not executable")
+  assert(Fs.read(launcher .. ".pin") == release.pin_text("next-" .. newest, newest, digest))
+  assert(#assert(Fs.list(tmp .. "/bin")) == 2, "only the launcher and its pin are kept")
+  local other = tmp .. "/bin/next"
+  failed(run({ "--launcher", other }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
+  assert(Fs.exists(other) == false and Fs.exists(other .. ".pin") == false)
+end
+
+--- A `--launcher` that could not be written whole is refused before any request, each for its own reason,
+--- and leaves no pin behind.
+local function test_a_launcher_it_cannot_write_is_refused(tmp: string)
+  local cases: {{string}} = {
+    { "give it or --pin, not both", "--launcher", tmp .. "/a", "--pin", tmp .. "/a.pin" },
+    { "nothing for -o, --cache, --pin or --launcher", "--list", "--launcher", tmp .. "/a" },
+    { "no -o, --cache, --pin or --launcher", "--json", "--launcher", tmp .. "/a" },
+    { "after --launcher", "--launcher", "" },
+    { "a launcher is named with", "--launcher", tmp .. "/a b" },
+    { "is a directory", "--launcher", tmp .. "/.." },
+    { "is a directory", "--launcher", tmp },
+    { "is a directory", "--launcher", tmp .. "/a/" },
+  }
+  for _, case in ipairs(cases) do
+    local words: mut {string} = {}
+    for at = 2, #case do words[#words + 1] = assert(case[at]) end
+    local ran = run(words, {})
+    assert(ran.code == 2, table.concat(words, " ") .. ": " .. tostring(ran.code) .. " " .. ran.err)
+    assert(ran.err:find(assert(case[1]), 1, true) ~= nil, ran.err)
+    assert(#ran.asked == 0, "a refused command line reached the network")
+  end
+  assert(#assert(Fs.list(tmp)) == 0, "a refused command line wrote a file")
 end
 
 local function test_list_prints_the_matches_newest_first()

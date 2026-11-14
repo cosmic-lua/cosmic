@@ -62,4 +62,25 @@ function Example.x25519()
   assert(message == "hello, bob")
 end
 
+--- A session's two ends, each sealing under its own key, both derived
+--- from one shared secret. Neither end handles a nonce. A message opens
+--- once, in its turn, and one that fails does not disturb the next.
+function Example.channel()
+  local secret = assert(Rand.entropy(32))
+  local to_server = Hash.hkdf("sha256", secret, "", "client to server", Cipher.key_length)
+  local to_client = Hash.hkdf("sha256", secret, "", "server to client", Cipher.key_length)
+  local client = Cipher.channel(to_server, to_client)
+  local server = Cipher.channel(to_client, to_server)
+
+  local request = client:seal("GET /status", "frame 1")
+  print(assert(server:open(request, "frame 1")))
+  print(assert(client:open(server:seal("200 ok"))))
+
+  local replayed, why = server:open(request, "frame 1")
+  print(replayed, why ~= "")
+  local second = client:seal("GET /status", "frame 2")
+  assert(second ~= request)
+  print(assert(server:open(second, "frame 2")))
+end
+
 return Example
