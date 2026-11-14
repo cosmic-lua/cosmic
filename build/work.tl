@@ -403,7 +403,9 @@ local version <const> = "35"
 --- per run, its `hits` every line the test hit, as [`build.test`]'s
 --- `take_hits` writes them, each module's lines beside the text they are
 --- numbered in (a pure store's import's by instruction, which the run that
---- stands on them places): one row per line hit would be millions a
+--- stands on them places), or, for a row another checkout's verdict
+--- brought, as the shared verdicts hold them, under a first line that
+--- says so ([`build.test`]'s `decode_kept`): one row per line hit would be millions a
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
 ---

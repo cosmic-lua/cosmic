@@ -1065,9 +1065,9 @@ end
 --- checkout reached under its declared key (`found`, whose lookup says to
 --- share it: [`test_key.lookup`]): as this run's own, with the lines that
 --- run hit, so a later run of this checkout stands on it without the
---- shared cache. Its row is kept as that run wrote it, the lines of a
---- module numbered in another text among them, so a later run standing
---- on it drops them and says so again.
+--- shared cache. Its row is kept as the shared verdicts hold it
+--- ([`test.decode_kept`]), the lines of a module numbered in another text
+--- among them, so a later run standing on it drops them and says so again.
 local function share(rec: Recording, m: Module, name: string, id: string,
                      found: test_key.Lookup)
   local key, elsewhere = assert(found.key), assert(found.elsewhere)
