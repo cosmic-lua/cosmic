@@ -868,7 +868,7 @@ end
 --- Why what `w` has written is too much, or "".
 local function too_much(w: Writing): string
   if w.size <= w.max_bytes then return "" end
-  return "plist: the value takes more than " .. tostring(w.max_bytes) .. " bytes"
+  return "plist: the value takes more bytes than max_bytes allows (" .. tostring(w.max_bytes) .. ")"
 end
 
 --- A dict's entries in the order they are written, each key checked with `fits`; nil and why when a key
