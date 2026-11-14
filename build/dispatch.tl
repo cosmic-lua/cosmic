@@ -253,6 +253,19 @@ local function usage_line(verb: string): string
   return table.concat(words, " ")
 end
 
+--- What a refusal of the mistyped verb `word` ends with when any of
+--- `verbs` is near it by [`Flags.nearest`]'s rule, as [`cosmic.flags`]
+--- ends its own: "; did you mean test?". "" when none is.
+local function meant(word: string, verbs: {string}): string
+  local found = require("cosmic.flags").nearest(word, verbs)
+  if #found == 0 then
+    return ""
+  elseif #found == 1 then
+    return "; did you mean " .. found[1] .. "?"
+  end
+  return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+end
+
 --- The index `cosmic help` prints: what `cosmic` is, the guides to
 --- start from, each verb's usage and purpose in the sections
 --- [`cosmic.cli.groups`] names, and where to read more.
@@ -698,7 +711,9 @@ local function help(argv: {string}, asked: string?): integer
       end
     end
     if not known then
-      log:complain("help: no such verb: " .. requested)
+      local topics: mut {string} = { "exit" }
+      for _, verb in ipairs(Cli.order) do topics[#topics + 1] = verb end
+      log:complain("help: no such verb: " .. requested .. meant(requested, topics))
       return 2
     end
     local specs = verb_list.specs()
@@ -857,7 +872,9 @@ function Dispatch.main(argv: {string}): integer
   -- default command for a first word that names none: a file run
   -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
   -- refuse as options) and `-e`, `--standalone` and `--version` are
-  -- verbs by no command name.
+  -- verbs by no command name. Until then a verb parses its own line, so
+  -- its refusal of a mistyped "--help" (`cosmic fix --hlep`) names
+  -- nothing, where Flags.dispatch's says "did you mean --help?".
   local command = Cli.verbs[verb]
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
@@ -953,7 +970,9 @@ function Dispatch.main(argv: {string}): integer
       log:complain("cosmic " .. verb .. " was removed: " .. retired)
       return 2
     end
-    log:complain("no such option: " .. verb)
+    local spelled: mut {string} = { "--help" }
+    for option in pairs(as_option) do spelled[#spelled + 1] = option end
+    log:complain("no such option: " .. verb .. meant(verb, spelled))
     log:complain("`cosmic help` is the whole discovery surface")
     return 2
   end
@@ -962,7 +981,15 @@ function Dispatch.main(argv: {string}): integer
   if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
     local exists, _ = Fs.exists(verb)
     if exists ~= true then
-      log:complain("no such verb or file: " .. verb .. "; see `cosmic help`")
+      -- The verbs typed by their names: a file run and the verbs spelled
+      -- as options are typed by none.
+      local untyped: mut {string:boolean} = { run = true }
+      for _, name in pairs(as_option) do untyped[name] = true end
+      local typed: mut {string} = {}
+      for _, known in ipairs(Cli.order) do
+        if untyped[known] == nil then typed[#typed + 1] = known end
+      end
+      log:complain("no such verb or file: " .. verb .. meant(verb, typed) .. "; see `cosmic help`")
       return 2
     end
   end

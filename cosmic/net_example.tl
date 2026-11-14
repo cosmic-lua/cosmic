@@ -77,32 +77,24 @@ function Example.datagram()
 end
 
 --- The loopback interface's IPv4 address, which names it as the `via`
---- of an IPv4 group, from [`Net.interfaces`]. A sandbox on Linux refuses
---- the list, and 127.0.0.1 is the address a loopback has on every machine.
+--- of an IPv4 group, from [`Net.interfaces`].
 local function loopback_address(): string
-  local listed = Net.interfaces()
-  if listed == nil then return "127.0.0.1" end
-  for _, interface in ipairs(listed) do
+  for _, interface in ipairs((assert(Net.interfaces()))) do
     if interface.loopback and interface.up then
       for _, address in ipairs(interface.addresses) do
         if address.family == "ipv4" then return address.address end
       end
     end
   end
-  return "127.0.0.1"
+  error("no loopback interface has an IPv4 address")
 end
 
 --- [`Net.interfaces`] lists the machine's interfaces, to pick the `via`
 --- of a multicast call from: an IPv4 group takes one of the interface's
 --- IPv4 addresses, an IPv6 group its `index`.
 function Example.interfaces()
-  local listed, why = Net.interfaces()
-  if listed == nil then
-    print("not listed here: " .. why)
-  else
-    for _, interface in ipairs(listed) do
-      print(interface.name, interface.index, interface.up, interface.multicast, #interface.addresses)
-    end
+  for _, interface in ipairs((assert(Net.interfaces()))) do
+    print(interface.name, interface.index, interface.up, interface.multicast, #interface.addresses)
   end
   local via = loopback_address()
   print(via)

@@ -46,7 +46,9 @@ unsigned cosmic_promise_named (const char *name);
 
 /* The socket families a filter lets a process make with socket(): the
  * bits of the `sockets` of [`cosmic_promises_apply`]. A socketpair of unix
- * sockets is always allowed, and netlink and packet sockets never. */
+ * sockets is always allowed. With COSMIC_HELD_NETWORK the inet bit also
+ * allows a NETLINK_ROUTE socket, which lists the interfaces; any other
+ * netlink socket and packet sockets never are. */
 #define COSMIC_SOCKETS_UNIX 0x1u
 #define COSMIC_SOCKETS_INET 0x2u
 
@@ -80,11 +82,23 @@ unsigned cosmic_promise_named (const char *name);
  *   ([`cosmic_promises_apply`] sets this itself for the latter).
  * - `COSMIC_HELD_PIDS`: getpgid, getsid, setpgid and capget take any pid. The
  *   process is in a pid namespace of its own, so a pid it names is a
- *   process of the sandbox or none. */
+ *   process of the sandbox or none.
+ * - `COSMIC_HELD_NETWORK`: beside inet sockets, socket(AF_NETLINK) of
+ *   NETLINK_ROUTE is allowed, over which a process reads the interfaces,
+ *   addresses, routes and neighbours of its network namespace. The process
+ *   can change none of them in a namespace it did not make, which the
+ *   kernel asks CAP_NET_ADMIN of that namespace's owner for: it lacks the
+ *   capability ([`cosmic_promises_apply`] sets this itself then), or it is
+ *   in a user namespace the start made, whose capabilities reach only a
+ *   network namespace made in it. In one it made (every child given inet
+ *   sockets is in one, and a `nest` child may make more) it may send the
+ *   kernel's route requests that change it, links, addresses, routes and
+ *   queueing among them, which reach nothing of the host's. */
 #define COSMIC_HELD_SIGNALS 0x1u
 #define COSMIC_HELD_UNIX 0x2u
 #define COSMIC_HELD_LIMITS 0x4u
 #define COSMIC_HELD_PIDS 0x8u
+#define COSMIC_HELD_NETWORK 0x10u
 
 /* Holds the calling process, for good, to `promises` and to making
  * sockets of the families `sockets` names: no_new_privs, and
