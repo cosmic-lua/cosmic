@@ -91,18 +91,20 @@
 ---
 --- A search with `txt_only` lists, too, the instances whose TXT record came and whose SRV record
 --- did not. Each is one of the 64 names that wait, and holds its place to the end of the search
---- where another name gives its up, so the search holds no more than without it: `limit`
+--- where another name gives up its own, so the search holds no more than without it: `limit`
 --- instances with an SRV record and 64 without, of which it now lists those with a TXT record,
---- `limit` + 64 instances at most and 12 KiB for each. Once 64 names are so kept, a name is
---- taken only with its SRV record in the same message, to the end of the search: a machine that
---- names 64 instances with a TXT record each keeps every other instance of that kind out. A name
---- with neither record draws a question for each of them, three times, out of the same total.
+--- `limit` + 64 instances at most and 12 KiB for each. They are those named before the search
+--- held `limit` instances with an SRV record, after which it takes no new name. Once 64 names
+--- are so kept, a name is taken only with its SRV record in the same message, to the end of the
+--- search: a machine that names 64 instances with a TXT record each keeps every other instance
+--- of that kind out. A name with neither record draws a question for each of them, three times,
+--- out of the same total.
 ---
 --- In a task of [`Poll.run`] a search waits through the run, so the other tasks go on: it also
 --- lets them run after every 16 datagrams, however fast those come. A cancelled task's search
 --- ends with nil and [`Poll.CANCELLED`], and answers no list: a failure carries no value. What
 --- it had found is given to `found`, which a cancelled browse calls, before it ends, with each
---- instance that has its SRV record and was not given yet, so a caller that may cancel a search
+--- instance it would have listed and had not given yet, so a caller that may cancel a search
 --- and wants what it found passes `found`. Anywhere else a search holds the thread until it
 --- ends, and ends with nil and "interrupted" when a [`cosmic.signal`] guard catches a signal.
 
@@ -192,8 +194,9 @@ local record Mdns
     --- `_device-info._tcp` says a machine's model in a TXT record and has no SRV record. Such an
     --- instance has "" for its host, 0 for its port and no address, is never whole and is given to
     --- `found` as the search ends. It has no place of `limit`: it is one of the 64 names that
-    --- wait for an SRV record, so a search lists 64 of them at most, past its `limit` ([`cosmic.mdns`]
-    --- has the bound).
+    --- wait for an SRV record, so a search lists 64 of them at most, past its `limit`
+    --- ([`cosmic.mdns`] has the bound). A search that holds `limit` instances with an SRV record
+    --- takes no new name, so it lists those of them that were named before then.
     txt_only?: boolean
     --- For [`Mdns.browse`]: called with each instance of the list once, in the task of the
     --- search. It is called as soon as the instance is whole, which is when its SRV record, its
@@ -811,8 +814,8 @@ end
 --- with one that is none, with no type or with more than 32, a socket that cannot be bound, which
 --- says the address and port first, a group that cannot be joined on any interface, which says
 --- the group first, a question no interface takes, or a wait that failed, with [`Poll.CANCELLED`]
---- for a cancelled task, whose search has called `opts.found` with each instance that has its SRV
---- record. The socket is closed however the search ends. Raises for an option out of range.
+--- for a cancelled task, whose search has called `opts.found` with each instance it would have
+--- listed. The socket is closed however the search ends. Raises for an option out of range.
 function Mdns.browse(service: string | {string}, opts?: Mdns.Options): {Mdns.Instance}?, string
   local written: {string}
   if service is string then written = { service } else written = service end
