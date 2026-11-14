@@ -44,10 +44,10 @@
 --- arithmetic around it is not constant in time: the client's exponent
 --- is a sum and a product of secrets, both sides reduce a product with
 --- the verifier, and the shared number is hashed without its leading
---- zero bytes, so its length shows. Each of these runs once for each
---- login, on values a fresh secret blinds. Proofs are compared with
---- [`Hash.equal`]. Nothing wipes a password, a secret or a key: they
---- are ordinary strings.
+--- zero bytes, so its length shows. Whoever can time one side's
+--- arithmetic that closely may learn something of the verifier or of
+--- the password's hash. Proofs are compared with [`Hash.equal`]. Nothing
+--- wipes a password, a secret or a key: they are ordinary strings.
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
@@ -66,7 +66,8 @@ local record Srp
     generator: string
   end
 
-  --- A hash function: the digest of `data`, always of one length.
+  --- A hash function: the digest of `data`, always of one length, from
+  --- 1 to 255 bytes.
   type Digest = function(data: string): string
 
   --- How numbers become bytes where they are hashed, which
@@ -149,10 +150,10 @@ local record Srp
     --- the server holds the verifier. nil and why when `client_proof`
     --- is wrong, which is what a wrong password looks like, when
     --- `client_public` is not a number from 1 to the prime less 1, or
-    --- when `u` is zero. Answer a client that failed with nothing
-    --- computed from the key, and make a new [`Srp.server`] for its next
-    --- attempt: the server's proof sent after a wrong one would let the
-    --- client try passwords against it at leisure.
+    --- when `u` is zero. A client that failed is answered with nothing
+    --- computed from the key, or it could try passwords against the
+    --- answer at leisure. Each proof tests one guess at the password:
+    --- the caller limits how many an identity gets.
     verify: function(self: Server, client_public: string, client_proof: string): Session?, string
   end
 
@@ -312,13 +313,16 @@ local function suite_of(parameters: Srp.Parameters, level: integer): Suite
   else
     digest = hash
   end
-  local generator_padded = assert(Bigint.pad(generator, #prime))
+  local multiplier = digest(prime .. assert(Bigint.pad(generator, #prime)))
+  if #multiplier < 1 or #multiplier > 255 then
+    error("srp: the hash must answer a digest of 1 to 255 bytes", level + 1)
+  end
   return {
     prime = prime,
     generator = generator,
     width = #prime,
     digest = digest,
-    multiplier = digest(prime .. generator_padded),
+    multiplier = multiplier,
     strips = parameters.rules == "srptools",
   }
 end

@@ -532,6 +532,17 @@ local function test_a_hash_given_as_a_function_computes_what_its_name_does()
   assert(assert(client:prove("salt", server.public)).proof == assert(named:prove("salt", server.public)).proof)
 end
 
+local function test_a_hash_must_answer_a_digest_an_exponent_can_be()
+  for _, length in ipairs({ 0, 256 }) do
+    local parameters: Srp.Parameters = {
+      group = small.group,
+      hash = function(_data: string): string return string.rep("d", length) end,
+      rules = "rfc5054",
+    }
+    Test.raises(function() Srp.client(parameters, "alice", "password123") end, "digest")
+  end
+end
+
 local function test_a_secret_must_be_a_number_an_exponent_can_be()
   local verifier = Srp.verifier(small, "alice", "password123", "salt")
   for _, secret in ipairs({ "", "\0", string.rep("\0", 32), string.rep("a", 513) }) do
