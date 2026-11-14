@@ -845,7 +845,7 @@ that does run runs in a process of its own:
   copy still running after fifteen minutes is ended, and the build does its work. the bytes written are the same;
   `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
-  one per processor at a time, with a fresh temporary directory, captured
+  one more than the processors at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. where
   a sandbox holds it, so that all a worker can write is the one directory it
   puts back between tests,

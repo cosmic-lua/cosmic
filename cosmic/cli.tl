@@ -961,7 +961,7 @@ local module: Module = {
             "parameter, return value and record field write against its type's kind, run every " ..
             "test, and report the values that fail one; a parameter declared under cosmic/ also " ..
             "fails the test that passes it (COSMIC_TEST_CHECK_TYPES=1)" },
-        ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
+        ["--jobs"] = { value = "n", about = "run n tests at once; by default one for each processor and one more" },
         ["--min"] = { value = "pct", about = "fail the run, as a failing test does (status 1), when the " ..
             "tree's line coverage, C included, is under pct percent; a run on standing verdicts " ..
             "has the lines they hit; needs a whole run (no selector, no --shard)" },

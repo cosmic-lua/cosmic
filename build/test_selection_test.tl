@@ -3,6 +3,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
@@ -258,6 +259,22 @@ end
     assert(hits:find("suite%." .. own .. " %x+\t"), test .. " lacks its module's load: " .. hits)
     assert(not hits:find("suite." .. other .. " ", 1, true), test .. " holds another module's load: " .. hits)
   end
+end
+
+--- A run that is given no `--jobs` runs one worker more than the processors at once, and one given it runs
+--- that many: the line of where the time went says the limit.
+local function test_a_run_has_a_worker_more_than_the_processors_unless_told(tmp: string)
+  local root = project(tmp)
+  local output = tmp .. "/default.out"
+  local result = invoke_words(root, output, { "--all", "suite/selected_test.tl" })
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("up to " .. tostring(Proc.cpu_count() + 1) .. " at a time;", 1, true), text)
+  output = tmp .. "/told.out"
+  result = invoke_words(root, output, { "--all", "--jobs", "2", "suite/selected_test.tl" })
+  text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("up to 2 at a time;", 1, true), text)
 end
 
 local function test_cli_fails_when_the_named_test_is_not_in_its_module(tmp: string)
