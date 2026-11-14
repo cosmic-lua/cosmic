@@ -5,6 +5,7 @@ local ErrorCatalog = require("build.error_catalog")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local schema = require("build.schema")
 
 Test.policy{}
@@ -45,13 +46,13 @@ local function database(with_codes: boolean, with_symbols?: boolean): Sqlite.Han
   return db
 end
 
-local function view(db: Sqlite.Handle): docs.View
+local function view(db: Sqlite.Handle): Doc.View
   return (assert(docs.view({ db })))
 end
 
 --- The element `i` of `list`, which a test expects to be there.
-local function entry_at(list: {docs.Entry}, i: integer): docs.Entry
-  local found: docs.Entry? = nil
+local function entry_at(list: {Doc.Entry}, i: integer): Doc.Entry
+  local found: Doc.Entry? = nil
   for at, entry in ipairs(list) do
     if at == i then
       found = entry
@@ -74,11 +75,11 @@ end
 
 local function test_a_code_is_answered_with_its_rule_why_and_fix()
   local db = database(true)
-  local found = assert(docs.lookup(view(db), "nil_not_allowed"))
+  local found = assert(Doc.lookup(view(db), "nil_not_allowed"))
   assert(found.exact and #found == 1 and found.named == 1)
   local entry = entry_at(found, 1)
   assert(entry.kind == "code" and entry.module == "lang.check" and entry.symbol == "nil_not_allowed")
-  local lines = assert(docs.render(view(db), entry))
+  local lines = assert(Doc.render(view(db), entry))
   assert(#lines == 5)
   assert(line_at(lines, 1) == "lang.check nil_not_allowed (lang/check_codes.tl)", line_at(lines, 1))
   assert(line_at(lines, 2) == "  type error of lang.check", line_at(lines, 2))
@@ -93,7 +94,7 @@ local function test_a_code_comes_before_the_symbols_that_share_its_name_on_a_dat
   local v = view(db)
   -- every code, whatever symbols are named alike: the code's row first, the enum member still reachable
   for _, e in ipairs(ErrorCatalog.emitted()) do
-    local found = assert(docs.lookup(v, e.code))
+    local found = assert(Doc.lookup(v, e.code))
     assert(found.exact and found.named >= 2, e.code .. ": " .. tostring(found.named))
     local first = entry_at(found, 1)
     assert(first.kind == "code" and first.symbol == e.code, e.code .. " is answered with " .. first.kind .. " " .. first.symbol)
@@ -104,18 +105,18 @@ local function test_a_code_comes_before_the_symbols_that_share_its_name_on_a_dat
     assert(reachable, e.code .. " hides its enum member")
   end
   -- names that are also a function and a field
-  local unclosed = assert(docs.lookup(v, "unclosed"))
+  local unclosed = assert(Doc.lookup(v, "unclosed"))
   assert(entry_at(unclosed, 1).kind == "code" and #unclosed == 3, tostring(#unclosed))
-  local semicolon = assert(docs.lookup(v, "semicolon"))
+  local semicolon = assert(Doc.lookup(v, "semicolon"))
   assert(entry_at(semicolon, 1).kind == "code" and #semicolon == 3, tostring(#semicolon))
-  local answer = assert(docs.answer(v, { "not_assignable" }))
+  local answer = assert(Doc.answer(v, { "not_assignable" }))
   assert(answer.found and line_at(answer.lines, 1) == "lang.check not_assignable (lang/check_codes.tl)", line_at(answer.lines, 1))
   db:close()
 end
 
 local function test_a_symbol_that_is_no_code_is_answered_as_before_on_a_database_that_holds_the_codes()
   local db = database(true, true)
-  local found = assert(docs.lookup(view(db), "Parser.unclosed"))
+  local found = assert(Doc.lookup(view(db), "Parser.unclosed"))
   assert(found.exact and #found == 1 and entry_at(found, 1).kind == "function")
   db:close()
 end
@@ -125,12 +126,12 @@ local function test_a_code_of_each_stage_is_answered_by_its_name()
   local v = view(db)
   for _, code in ipairs({ "unterminated_string", "expected_token", "unknown_variable", "member_missing", "match_missing",
       "missing_return", "unused_function", "method_dot", "class_nested_refused" }) do
-    local found = assert(docs.lookup(v, code))
+    local found = assert(Doc.lookup(v, code))
     assert(found.exact and #found == 1 and entry_at(found, 1).symbol == code, code)
-    local lines = assert(docs.render(v, entry_at(found, 1)))
+    local lines = assert(Doc.render(v, entry_at(found, 1)))
     assert(#lines >= 5, code .. " has " .. tostring(#lines) .. " lines")
   end
-  local answer = assert(docs.answer(v, { "duplicate_binding" }))
+  local answer = assert(Doc.answer(v, { "duplicate_binding" }))
   assert(answer.found and line_at(answer.lines, 1):find("^lang%.parser duplicate_binding %(lang/syntax_codes%.tl%)") ~= nil,
     line_at(answer.lines, 1))
   db:close()
@@ -138,7 +139,7 @@ end
 
 local function test_the_words_of_a_rule_find_the_codes_that_carry_them()
   local db = database(true)
-  local found = assert(docs.lookup(view(db), "arrays are dense"))
+  local found = assert(Doc.lookup(view(db), "arrays are dense"))
   assert(not found.exact and #found >= 1)
   local names = ""
   for _, entry in ipairs(found) do
@@ -151,8 +152,8 @@ end
 
 local function test_a_database_without_the_rows_answers_a_code_with_nothing_as_it_did()
   local without = database(false)
-  assert(#assert(docs.lookup(view(without), "nil_not_allowed")) == 0)
-  assert(#assert(docs.lookup(view(without), "a type admits nil only")) == 0)
+  assert(#assert(Doc.lookup(view(without), "nil_not_allowed")) == 0)
+  assert(#assert(Doc.lookup(view(without), "a type admits nil only")) == 0)
   without:close()
   -- a database built before the catalog had its index
   local old = assert(Sqlite.memory())
@@ -161,6 +162,6 @@ local function test_a_database_without_the_rows_answers_a_code_with_nothing_as_i
       assert(old:exec(statement))
     end
   end
-  assert(#assert(docs.lookup(view(old), "nil_not_allowed")) == 0)
+  assert(#assert(Doc.lookup(view(old), "nil_not_allowed")) == 0)
   old:close()
 end

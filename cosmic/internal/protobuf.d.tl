@@ -4,8 +4,8 @@
 --- @kind binding
 
 local record protobuf
-  -- The types cosmic/protobuf/init.tl names Field, Varint and Message and documents, declared here because a
-  -- declaration may require only declarations, and the Decoded below must say `is Message` where it is declared.
+  -- The types cosmic/protobuf/init.tl names Field, Varint, Message, Kind and Writer and documents, declared here because a
+  -- declaration may require only declarations, and the userdata below must say what they are where they are declared.
 
   -- One field as it is on the wire.
   record Field
@@ -34,6 +34,12 @@ local record protobuf
     -- `keep`, the fields it answers true for, by number and wire type: the bytes of the others are not copied,
     -- which is how a program takes the fields it does not know from a message it has read the rest of.
     fields: function(self: Message, keep?: function(number: integer, wire: integer): boolean): {Field}
+    -- The fields whose wire type does not fit their number, as `fields` lists them, or nil where every field
+    -- fits: `fits` holds, for a number,
+    -- a bit for each wire type that fits it (`1 << Protobuf.LEN`), and a number it does not hold fits none. With
+    -- `named`, a field of a number `fits` does not hold is passed over. It is how a schema finds what a message
+    -- holds that it does not declare, in one pass.
+    unfit: function(self: Message, fits: {integer: integer}, named?: boolean): {Field}?
     -- Whether any field has this number, of any wire type.
     has: function(self: Message, number: integer): boolean
     -- The wire types of the fields of this number, a bit for each: `1 << Protobuf.LEN` is set where one is
@@ -91,12 +97,96 @@ local record protobuf
     repeated_message: function(self: Message, number: integer): {Message}?, string
   end
 
+  -- What a packed field holds, for `packed`: named as the method that writes one such value.
+  enum Kind
+    "int"
+    "sint"
+    "fixed32"
+    "fixed64"
+    "float"
+    "double"
+  end
+
+  -- The bytes of a message being written, from [`Protobuf.writer`]. Each method but `encode` writes one field
+  -- after those before it and answers the writer, so calls chain. None raises for a field it cannot write: the first field that cannot be
+  -- written (a number that is no field's, a value past its type) is why `encode` fails, and the fields after
+  -- it are not written.
+  interface Writer
+    -- A varint field: an `int32`, `int64`, `uint32`, `uint64` or an `enum`. A negative value is ten bytes.
+    int: function(self: Writer, number: integer, value: integer): Writer
+    -- A varint field with its sign in the low bit, as `sint32` and `sint64` are: a small negative value
+    -- is a short one.
+    sint: function(self: Writer, number: integer, value: integer): Writer
+    -- A `bool`: the varint 1 or 0.
+    bool: function(self: Writer, number: integer, value: boolean): Writer
+    -- A 4-byte field, a `fixed32` or `sfixed32`: `value` is from -2147483648 to 4294967295.
+    fixed32: function(self: Writer, number: integer, value: integer): Writer
+    -- An 8-byte field, a `fixed64` or `sfixed64`.
+    fixed64: function(self: Writer, number: integer, value: integer): Writer
+    -- A `float`: `value` rounded to the nearest single, which for one past them all is the infinity of its
+    -- sign. A NaN is the bytes `00 00 c0 7f` whatever its sign and payload.
+    float: function(self: Writer, number: integer, value: number): Writer
+    -- A `double`. A NaN is the bytes `00 00 00 00 00 00 f8 7f` whatever its sign and payload.
+    double: function(self: Writer, number: integer, value: number): Writer
+    -- A length-delimited field of any bytes.
+    bytes: function(self: Writer, number: integer, value: string): Writer
+    -- A `string`: as `bytes`, and `value` must be UTF-8.
+    string: function(self: Writer, number: integer, value: string): Writer
+    -- An embedded message: the fields `child` holds now. Writing more to `child` afterwards changes
+    -- nothing here. A `child` that cannot be encoded is why this writer cannot.
+    message: function(self: Writer, number: integer, child: Writer): Writer
+    -- A packed repeated field: every value in one length-delimited field, each written as `kind` writes
+    -- one. An empty list writes no field, as the format has it. A value of an integer kind that is no
+    -- integer, or past its kind, cannot be written. A `bool` is packed as the "int" 1 or 0.
+    packed: function(self: Writer, number: integer, kind: Kind, values: {number}): Writer
+    -- Begins an embedded message in place: the fields written until `close` are its fields, and none of its
+    -- bytes is copied to a writer of its own. Messages open inside one another.
+    open: function(self: Writer, number: integer): Writer
+    -- Ends the embedded message the last `open` began. One that was not opened cannot be closed, and is why
+    -- `encode` fails.
+    close: function(self: Writer): Writer
+    -- Bytes that are fields already, such as [`Protobuf.encode`] answers, written as they are after the fields
+    -- so far. They are not read: bytes that are no fields make a message that is none.
+    append: function(self: Writer, bytes: string): Writer
+    -- Why the first field that could not be written could not, as `encode` answers it, or "" while every
+    -- field could.
+    trouble: function(self: Writer): string
+    -- The bytes of the fields written so far, or nil and why the first that could not be written could
+    -- not, or that a message is open. It may be called again after more fields. Two messages' bytes joined are
+    -- the bytes of the two merged.
+    encode: function(self: Writer): string?, string
+  end
+
+  -- A message being written. Writer above says what each method writes.
+  record Building is Writer
+    userdata
+
+    int: function(Building, number: integer, value: integer): Writer
+    sint: function(Building, number: integer, value: integer): Writer
+    bool: function(Building, number: integer, value: boolean): Writer
+    fixed32: function(Building, number: integer, value: integer): Writer
+    fixed64: function(Building, number: integer, value: integer): Writer
+    float: function(Building, number: integer, value: number): Writer
+    double: function(Building, number: integer, value: number): Writer
+    bytes: function(Building, number: integer, value: string): Writer
+    string: function(Building, number: integer, value: string): Writer
+    message: function(Building, number: integer, child: Writer): Writer
+    packed: function(Building, number: integer, kind: Kind, values: {number}): Writer
+    open: function(Building, number: integer): Writer
+    close: function(Building): Writer
+    append: function(Building, bytes: string): Writer
+    trouble: function(Building): string
+    encode: function(Building): string?, string
+  end
+
   -- A message that was read. Message above says what each method answers.
   record Decoded is Message
     userdata
 
     -- Every field, or those `keep` answers true for.
     fields: function(Decoded, keep?: function(number: integer, wire: integer): boolean): {Field}
+    -- The fields whose wire type does not fit their number.
+    unfit: function(Decoded, fits: {integer: integer}, named?: boolean): {Field}?
     -- Whether any field has the number.
     has: function(Decoded, number: integer): boolean
     -- The wire types of the number's fields, a bit for each.
@@ -136,6 +226,8 @@ local record protobuf
   -- The varint at byte `at` of `data` and the position after it, or nil
   -- and why there is none. Raises where `at` is under 1.
   read_varint: function(data: string, at: integer): Varint?, string
+  -- A writer of a message with no fields yet.
+  writer: function(): Building
 end
 
 return protobuf

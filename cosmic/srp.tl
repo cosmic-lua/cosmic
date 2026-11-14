@@ -38,23 +38,25 @@
 --- caller's own mistake raises (a group whose prime is even, a secret of
 --- no bytes), and so does the system's entropy source failing.
 ---
---- Secrets and time. The secret exponents go through
---- [`Bigint.powmod`] at a fixed width, which hides an exponent's value.
---- The arithmetic around it goes through [`cosmic.bigint`]'s functions
---- for secrets, at widths the parameters fix: the products with the
---- verifier, the sum and the difference modulo the prime, and the
---- client's exponent `a + u*x`. Their time depends on lengths alone
---- ([`cosmic.bigint`]'s doc says what that claim rests on). A server
---- checks a verifier's range in the same way.
+--- Secrets and time. A number that is secret, or computed from one into
+--- another secret, goes through [`cosmic.bigint`]'s functions for
+--- secrets, at widths the parameters fix: the powers of a secret base
+--- and those whose answer is secret, the products with the verifier, the
+--- sum and the difference modulo the prime, and the client's exponent
+--- `a + u*x`. Their time depends on lengths alone ([`cosmic.bigint`]'s
+--- doc says what that claim rests on). A server checks a verifier's
+--- range in the same way, and a secret is checked for zero with
+--- [`Hash.equal`].
 ---
---- Three things still show. [`Bigint.powmod`] answers a power in its
---- shortest form, so writing it at the prime's width shows how many
---- leading zero bytes the client's `g^x` and the server's `g^b` and
---- `v^u` had: none, 255 times in 256. It compares its base with the
---- prime before it starts, and the bases here are secret. And the shared number is hashed
---- without its leading zero bytes, as the hashing rules require, so its
---- length shows. Proofs are compared with [`Hash.equal`]. Nothing wipes
---- a password, a secret or a key: they are ordinary strings.
+--- Two things still show. The client's public value `g^a`, a public
+--- power of a public base, is [`Bigint.powmod`]'s, which hides the
+--- exponent's value at its fixed width and nothing else
+--- ([`cosmic.bigint`]'s doc says what of an exponent shows). And the
+--- shared number is hashed without its leading zero bytes, as the
+--- hashing rules require, so its length shows, and so does the time of
+--- taking those bytes off. Proofs are compared with [`Hash.equal`].
+--- Nothing wipes a password, a secret or a key: they are ordinary
+--- strings.
 
 local Bigint = require("cosmic.bigint")
 local Codec = require("cosmic.codec")
@@ -195,7 +197,7 @@ end
 local secret_length <const> = 64
 
 --- The most bytes of a secret a caller passes, so that the client's
---- exponent `a + u*x` stays an exponent [`Bigint.powmod`] takes.
+--- exponent `a + u*x` stays an exponent [`Bigint.expmod`] takes.
 local secret_most <const> = 512
 
 --- `number` with no leading zero byte, and one zero byte for zero.
@@ -356,7 +358,9 @@ local function exponent_of(secret: string?, level: integer): string
   if #secret < 1 or #secret > secret_most then
     error("srp: a secret must be from 1 to " .. String.counted(secret_most, "byte"), level + 1)
   end
-  if shortest(secret) == "\0" then error("srp: a secret must not be zero", level + 1) end
+  if Hash.equal(secret, string.rep("\0", #secret)) then
+    error("srp: a secret must not be zero", level + 1)
+  end
   return secret
 end
 
@@ -433,7 +437,7 @@ end
 ---     local verifier = Srp.verifier(parameters, "alice", "password123", salt)
 function Srp.verifier(parameters: Srp.Parameters, identity: string, password: string, salt: string): string
   local suite = suite_of(parameters, 2)
-  return padded(suite, Bigint.powmod(suite.generator, private_key(suite, identity, password, salt), suite.prime))
+  return Bigint.expmod(suite.generator, private_key(suite, identity, password, salt), suite.prime)
 end
 
 --- The client's side of one login as `identity`. `secret` is the
@@ -458,16 +462,13 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
       local u = scrambler(suite, public, theirs)
       if u == nil then return nil, "srp: the scrambling value is zero" end
       local x = private_key(suite, identity, password, salt)
-      -- TODO: the verifier comes out of powmod in its shortest form, and `base` goes into it as a public
-      -- base: take the one at the prime's width and pass the other as a secret once cosmic.bigint's powmod
-      -- answers at a fixed width and hides its base.
-      local verifier = padded(suite, Bigint.powmod(suite.generator, x, suite.prime))
+      local verifier = Bigint.expmod(suite.generator, x, suite.prime)
       local masked = Bigint.mulmod(suite.multiplier, verifier, suite.prime)
       local base = Bigint.submod(theirs, masked, suite.prime)
-      -- One width for every login, as powmod asks of a secret exponent:
+      -- One width for every login, as expmod asks of a secret exponent:
       -- a byte more than the longer of `a` and `u*x`.
       local power = Bigint.sum(exponent, Bigint.product(u, x))
-      local shared = Bigint.powmod(base, power, suite.prime)
+      local shared = shortest(Bigint.expmod(base, power, suite.prime))
       local key, proof, server_proof = proofs(suite, identity, salt, public, theirs, shared)
       expected = server_proof
       return { key = key, proof = proof }, ""
@@ -496,9 +497,7 @@ function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, 
   local exponent, public: string, string
   repeat
     exponent = exponent_of(secret, 2)
-    -- TODO: `g^b` comes out of powmod in its shortest form: take it at the prime's width once cosmic.bigint's
-    -- powmod answers at a fixed width.
-    local power = padded(suite, Bigint.powmod(suite.generator, exponent, suite.prime))
+    local power = Bigint.expmod(suite.generator, exponent, suite.prime)
     public = shortest(Bigint.addmod(masked, power, suite.prime))
     if public == "\0" and secret ~= nil then
       error("srp: the secret makes a public value of zero", 2)
@@ -514,12 +513,8 @@ function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, 
       end
       local u = scrambler(suite, theirs, public)
       if u == nil then return nil, "srp: the scrambling value is zero" end
-      -- TODO: `v^u` comes out of powmod in its shortest form, and `v` and `base` go into it as public bases:
-      -- take the one at the prime's width and pass the others as secrets once cosmic.bigint's powmod answers
-      -- at a fixed width and hides its base.
-      local scrambled = padded(suite, Bigint.powmod(v, u, suite.prime))
-      local base = Bigint.mulmod(theirs, scrambled, suite.prime)
-      local shared = Bigint.powmod(base, exponent, suite.prime)
+      local base = Bigint.mulmod(theirs, Bigint.expmod(v, u, suite.prime), suite.prime)
+      local shared = shortest(Bigint.expmod(base, exponent, suite.prime))
       local key, expected, proof = proofs(suite, identity, salt, theirs, public, shared)
       if not Hash.equal(client_proof, expected) then
         return nil, "srp: the client's proof is wrong"

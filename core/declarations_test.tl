@@ -274,7 +274,7 @@ local makers: {string: function(raw: {string: any}): Made} = {
     return { instances = { Null = raw["null"] }, release = nothing }
   end,
   protobuf = function(raw: {string: any}): Made
-    return { instances = { Decoded = call(raw["decode"], "\x08\x01", 100, 65536) }, release = nothing }
+    return { instances = { Decoded = call(raw["decode"], "\x08\x01", 100, 65536), Building = call(raw["writer"]) }, release = nothing }
   end,
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`

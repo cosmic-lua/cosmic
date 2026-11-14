@@ -6,7 +6,7 @@
 --- row, a row names no code, or a row leaves a part of the rule out.
 ---
 --- [`ErrorCatalog.insert`] writes a row per code to the `catalog` table ([`build.schema`]) with the kind `code`, the module
---- that emits it as `module` and the code as `symbol`, so that `cosmic docs <code>` ([`build.docs`]) answers with the rule,
+--- that emits it as `module` and the code as `symbol`, so that `cosmic docs <code>` ([`cosmic.doc`]) answers with the rule,
 --- why the language holds it and the fix. The `message` is left NULL: the guidance of an uncaught run-time error
 --- ([`cosmic.errors`]) matches that column alone, and a code's words are no message of a running program.
 ---

@@ -11,11 +11,11 @@
 --- - Four functions stand beside it in a protocol's formulas: they
 ---   multiply, add, subtract ([`Bigint.sub`] refuses a negative
 ---   difference) and reduce.
---- - Six more are that arithmetic for secrets, each in a time and at a
----   width that the lengths of its arguments fix: [`Bigint.mulmod`],
----   [`Bigint.addmod`], [`Bigint.submod`] and [`Bigint.reduce`] modulo a
----   public number, [`Bigint.product`] and [`Bigint.sum`] with no
----   modulus.
+--- - Seven more are that arithmetic for secrets, each in a time and at
+---   a width that the lengths of its arguments fix: [`Bigint.expmod`],
+---   [`Bigint.mulmod`], [`Bigint.addmod`], [`Bigint.submod`] and
+---   [`Bigint.reduce`] modulo a public number, [`Bigint.product`] and
+---   [`Bigint.sum`] with no modulus.
 --- - [`Bigint.compare`] orders two numbers.
 ---
 ---     local shared = Bigint.powmod(their_public, my_secret, prime)
@@ -42,17 +42,19 @@
 --- bytes is answered at once. The library has no blinding to ask for.
 --- Its modulus is public: the setup that depends on it divides. Its
 --- base is public too: it is compared with the modulus, and reduced by
---- a division when it is not below it.
+--- a division when it is not below it. [`Bigint.expmod`] is the
+--- exponentiation that hides its base and its answer's size as well.
 ---
---- The six functions for secrets hide the values of their operands, the
---- modulus excepted. Each does the same work for every operand of one
+--- The seven functions for secrets hide the values of their operands,
+--- the modulus excepted. Each does the same work for every operand of one
 --- string length, leading zero bytes counted, and answers a string
 --- whose length the arguments' lengths fix, so neither the time nor the
 --- answer's length says anything of a value. Between reading the bytes
 --- and writing them, they call only what the library documents as
 --- constant in time in its operands' values (a multiplication by one
---- word added in, a subtraction, Montgomery's multiplication and a
---- conditional copy), and decide nothing by a value themselves. That
+--- word added in, a subtraction, Montgomery's multiplication, a
+--- conditional copy and, for [`Bigint.expmod`], the exponentiation for a
+--- secret exponent), and decide nothing by a value themselves. That
 --- rests on the library's documentation and on reading the code, not on
 --- a measurement, and nothing checks the instructions a compiler made
 --- of it. The limbs they work in are wiped before they are freed. What
@@ -125,12 +127,29 @@ function Bigint.mod(a: string, modulus: string): string
   return raw.mod(a, modulus)
 end
 
+--- `base` to the power `exponent`, modulo `modulus`, which is odd, for a
+--- secret base and exponent: the power in exactly as many bytes as
+--- `modulus` has, zero bytes on the left. It is [`Bigint.powmod`]'s
+--- number, and zero to the power zero is one. The time taken depends on
+--- the lengths of `base` and `exponent` and on the modulus, not on their
+--- values, so pass a secret exponent at the fixed width its protocol
+--- gives it; its length counts by whole 8-byte words. The base may be
+--- any number within [`Bigint.operand_bytes`], and the exponent within
+--- [`Bigint.modulus_bytes`]. Raises on a modulus that is zero or even,
+--- and on a number over its limit.
+---
+---     local shared = Bigint.expmod(their_public, my_secret, prime)
+function Bigint.expmod(base: string, exponent: string, modulus: string): string
+  return raw.expmod(base, exponent, modulus)
+end
+
 --- `a` modulo `modulus`, for a secret `a`: the remainder in exactly as
 --- many bytes as `modulus` has, zero bytes on the left. The time taken
 --- depends on the length of `a` and on the modulus, not on the value of
 --- `a` (the module's doc says what shows). It takes longer than
---- [`Bigint.mod`], a step for each bit of `a`. Raises on a zero modulus
---- and on a number over its limit.
+--- [`Bigint.mod`]: a step for each stretch of `a` nearly as long as the
+--- modulus, or, modulo an even number or a short one, a step for each
+--- bit of `a`. Raises on a zero modulus and on a number over its limit.
 ---
 ---     local digit = Bigint.reduce(hashed, order)
 function Bigint.reduce(a: string, modulus: string): string

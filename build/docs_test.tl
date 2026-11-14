@@ -5,11 +5,12 @@ local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local dataset = require("build.dataset")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local rebuild = require("build.rebuild")
 local sys = require("cosmic.sys")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local support = require("build.test_support_fixture")
 
 --- Whether the tree is cosmic's own. No test here reads the binary's
@@ -83,7 +84,7 @@ local function database(rows: {{string}}, uses: {{string}},
   return db
 end
 
-local function view(databases: {Sqlite.Handle}): docs.View
+local function view(databases: {Sqlite.Handle}): Doc.View
   return (assert(docs.view(databases)))
 end
 
@@ -148,7 +149,7 @@ end
 --- A symbol as declared is found by name, with its use count.
 local function test_looks_up_a_symbol_as_declared(dir: string)
   local db = built(dir, fs_tree())
-  local found, trouble = docs.lookup(view({ db }), "Fs.read")
+  local found, trouble = Doc.lookup(view({ db }), "Fs.read")
   local exact = found ~= nil and found.exact
   assert(found ~= nil, trouble)
   assert(exact, "a declared name was not an exact match")
@@ -174,18 +175,18 @@ local function test_a_function_exported_under_another_name_is_documented_on_its_
     "local M: Found = { match = matched }",
     "",
     "return M") })
-  local found, trouble = docs.lookup(view({ db }), "build.ast.found.match")
+  local found, trouble = Doc.lookup(view({ db }), "build.ast.found.match")
   assert(found ~= nil, trouble)
   local entry = found[1]
   assert(entry ~= nil, "no entry")
-  local text = table.concat(assert(docs.render(view({ db }), entry)), "\n")
+  local text = table.concat(assert(Doc.render(view({ db }), entry)), "\n")
   assert(text:find("Whether `pattern` is not empty.", 1, true), text)
 end
 
 --- A symbol's last name alone finds every symbol ending in it.
 local function test_looks_up_a_symbol_by_its_last_name(dir: string)
   local db = built(dir, fs_tree())
-  local found = assert(docs.lookup(view({ db }), "read"))
+  local found = assert(Doc.lookup(view({ db }), "read"))
   assert(#found == 1 and support.nth(found, 1).source_symbol == "Fs.read", tostring(#found))
 end
 
@@ -193,9 +194,9 @@ end
 --- the module declares.
 local function test_looks_up_a_module_and_lists_its_symbols(dir: string)
   local db = built(dir, fs_tree())
-  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.fs"))
   assert(#found == 1 and support.nth(found, 1).kind == "module", tostring(#found))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   assert(lines[1] == "cosmic.fs (cosmic/fs.tl)", lines[1])
   assert(lines[2] == "  Files and directories.", lines[2])
   assert(lines[3] == "", lines[3])
@@ -235,8 +236,8 @@ local function test_a_module_listing_says_what_each_call_does(dir: string)
       "",
       "return Fs"),
   }))
-  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local read = assert(support.nth(lines, 5):match("^  function Fs%.read%(path: string%): string%?, string %-%- (.*)$"),
     lines[5])
   assert(read:find("^word word") ~= nil and read:find("…", 1, true) ~= nil and not read:find("second", 1, true),
@@ -260,8 +261,8 @@ local function test_a_module_page_with_no_call_points_at_nothing(dir: string)
     "end",
     "",
     "return consts") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.consts"))
-  local text = table.concat(assert(docs.render(view({ db }), support.nth(found, 1))), "\n")
+  local found = assert(Doc.lookup(view({ db }), "cosmic.consts"))
+  local text = table.concat(assert(Doc.render(view({ db }), support.nth(found, 1))), "\n")
   assert(not text:find("own page", 1, true), text)
 end
 
@@ -285,8 +286,8 @@ local function test_a_module_listing_shows_signatures(dir: string)
     "end",
     "",
     "return Fs") }))
-  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local text = table.concat(lines, "\n")
   assert(text:find("  function Fs.read(path: string, opts?: Fs.Opts): string?, string",
     1, true), text)
@@ -322,8 +323,8 @@ local function test_a_module_listing_shows_function_typed_fields(dir: string)
     "end",
     "",
     "return calls") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local text = table.concat(lines, "\n")
   assert(text:find("\n  function calls.exists(path: string): boolean, string, integer",
     1, true), text)
@@ -351,8 +352,8 @@ local function test_a_module_listing_shows_a_multi_line_field_signature(dir: str
     "end",
     "",
     "return calls") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local text = table.concat(lines, "\n")
   assert(text:find("  function calls.exists(path: string): boolean", 1, true), text)
   assert(text:find("\n  function calls.gen(input: string, env: string, options: any): string",
@@ -376,8 +377,8 @@ local function test_a_module_listing_lists_data_fields_under_their_record(dir: s
     "end",
     "",
     "return calls") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local text = table.concat(lines, "\n")
   assert(text:find("  function calls.exists(path: string): boolean", 1, true), text)
   assert(not text:find("function calls.limit", 1, true) and
@@ -401,8 +402,8 @@ local function test_a_module_listing_shows_an_optional_field(dir: string)
     "end",
     "",
     "return calls") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.calls"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.calls"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local text = table.concat(lines, "\n")
   assert(text:find("\n  record calls\n    limit?: integer -- The most it takes.\n" ..
       "    name: string\n    [\"a b\"]?: {string}", 1, true), text)
@@ -423,15 +424,15 @@ local function test_a_module_listing_shows_its_metamethods(dir: string)
     "end",
     "",
     "return callable") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.callable"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.callable"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local text = table.concat(lines, "\n")
   assert(text:find("\n  __call: function(callable, string): boolean",
     1, true), text)
   assert(not text:find("__close", 1, true), text)
-  local call = assert(docs.lookup(view({ db }), "callable.__call"))
+  local call = assert(Doc.lookup(view({ db }), "callable.__call"))
   assert(#call == 1 and support.nth(call, 1).kind == "metamethod", tostring(#call))
-  local rendered = assert(docs.render(view({ db }), support.nth(call, 1)))
+  local rendered = assert(Doc.render(view({ db }), support.nth(call, 1)))
   assert(table.concat(rendered, "\n"):find("Calls the module.", 1, true))
 end
 
@@ -447,12 +448,12 @@ local function test_a_short_module_name_finds_the_public_module(dir: string)
       "",
       "return fs"),
   }))
-  local plain = assert(docs.lookup(view({ db }), "fs"))
+  local plain = assert(Doc.lookup(view({ db }), "fs"))
   assert(plain.exact and #plain == 1, tostring(#plain))
   assert(support.nth(plain, 1).kind == "module" and support.nth(plain, 1).module == "cosmic.fs", support.nth(plain, 1).module)
-  local full = assert(docs.lookup(view({ db }), "cosmic.fs"))
+  local full = assert(Doc.lookup(view({ db }), "cosmic.fs"))
   assert(#full == 1 and support.nth(full, 1).module == "cosmic.fs", tostring(#full))
-  local read = assert(docs.lookup(view({ db }), "read"))
+  local read = assert(Doc.lookup(view({ db }), "read"))
   assert(#read == 1 and support.nth(read, 1).source_symbol == "Fs.read", tostring(#read))
 end
 
@@ -498,7 +499,7 @@ local function test_a_modules_member_in_full_is_exact(dir: string)
   })
   local function exact(query: string): {string}
     local out: mut {string} = {}
-    for _, entry in ipairs((assert(docs.exact(view({ db }), query)))) do
+    for _, entry in ipairs((assert(Doc.exact(view({ db }), query)))) do
       out[#out + 1] = entry.module .. " " .. entry.symbol
     end
     return out
@@ -509,7 +510,7 @@ local function test_a_modules_member_in_full_is_exact(dir: string)
   assert(grow == "cosmic.thing Module.Box.grow", grow)
   -- `cosmic docs` reads a module's last name as a caller's alias does.
   for _, query in ipairs({ "cosmic.thing.order", "Thing.order", "thing.order" }) do
-    local found = assert(docs.lookup(view({ db }), query))
+    local found = assert(Doc.lookup(view({ db }), query))
     assert(found.exact and #found == 1 and support.nth(found, 1).source_symbol == "Module.order",
       query .. ": " .. tostring(#found))
   end
@@ -517,7 +518,7 @@ local function test_a_modules_member_in_full_is_exact(dir: string)
   local ok = table.concat(exact("cosmic.thing.ok"), ", ")
   assert(ok == "", ok)
   for _, query in ipairs({ "cosmic.thing.ok", "Thing.ok" }) do
-    local found = assert(docs.lookup(view({ db }), query))
+    local found = assert(Doc.lookup(view({ db }), query))
     assert(not found.exact or #found == 0 or support.nth(found, 1).source_symbol ~= "Result.ok", query)
   end
   assert(db:close())
@@ -553,7 +554,7 @@ local function test_uses_of_a_typed_values_member_are_that_modules(dir: string)
   })
   for _, query in ipairs({ "cosmic.thing.order", "Thing.order" }) do
     local listed: mut {string} = {}
-    for _, use in ipairs((assert(docs.uses(view({ db }), query)))) do
+    for _, use in ipairs((assert(Doc.uses(view({ db }), query)))) do
       listed[#listed + 1] = use.module .. " " .. use.from_file .. ":" .. tostring(use.line) ..
         (if use.link then " link" else "" end)
     end
@@ -561,8 +562,8 @@ local function test_uses_of_a_typed_values_member_are_that_modules(dir: string)
     assert(got == "cosmic.thing build/boot.tl:4 link, cosmic.thing build/boot.tl:5" or
         got == "cosmic.thing build/boot.tl:5, cosmic.thing build/boot.tl:4 link", query .. ": " .. got)
   end
-  local page = table.concat(assert(docs.render(view({ db }),
-    support.nth(assert(docs.lookup(view({ db }), "Thing.order")), 1))), "\n")
+  local page = table.concat(assert(Doc.render(view({ db }),
+    support.nth(assert(Doc.lookup(view({ db }), "Thing.order")), 1))), "\n")
   assert(page:find("used in 1 place and linked from 1; cosmic uses cosmic.thing.order", 1, true),
     page)
   assert(db:close())
@@ -592,12 +593,12 @@ local function test_a_short_module_name_leads_and_its_verb_is_a_see_also(dir: st
       "",
       "return module"),
   })
-  local found = assert(docs.lookup(view({ db }), "test"))
+  local found = assert(Doc.lookup(view({ db }), "test"))
   assert(found.exact and #found == 1, tostring(#found))
   local first, verb = assert(found[1]), assert(found.verb)
   assert(first.module == "cosmic.test" and first.kind == "module", first.module)
   assert(verb.source_symbol == "Cli.test")
-  local answer = assert(docs.answer(view({ db }), { "test" }))
+  local answer = assert(Doc.answer(view({ db }), { "test" }))
   local text = table.concat(answer.lines, "\n")
   local module_at = assert(text:find("cosmic.test (", 1, true))
   local also_at = assert(text:find("See also: the command `cosmic test`", 1, true), text)
@@ -615,11 +616,11 @@ local function test_a_non_library_module_of_a_verbs_name_keeps_the_verb_first(di
     ["cosmic/cli.tl"] = source("--- Verbs.", "", "local record Cli", "  --- Runs SQL.", "  sql: string", "end", "",
       "local module: Cli = { sql = \"x\" }", "", "return module"),
   })
-  local found = assert(docs.lookup(view({ db }), "sql"))
+  local found = assert(Doc.lookup(view({ db }), "sql"))
   local verb, tool = assert(found[1]), assert(found[2])
   assert(#found == 2 and verb.source_symbol == "Cli.sql" and tool.module == "build.sql", tostring(#found))
   assert(found.verb == nil)
-  local text = table.concat(assert(docs.answer(view({ db }), { "sql" })).lines, "\n")
+  local text = table.concat(assert(Doc.answer(view({ db }), { "sql" })).lines, "\n")
   assert(not text:find("See also", 1, true), text)
   assert(db:close())
 end
@@ -634,7 +635,7 @@ local function test_every_shared_verb_and_module_name_leads_with_the_module(dir:
       ["cosmic/cli.tl"] = source("--- Verbs.", "", "local record Cli", "  --- The verb.", verb, "end", "",
         "local module: Cli = { " .. name .. " = \"x\" }", "", "return module"),
     })
-    local found = assert(docs.lookup(view({ db }), name))
+    local found = assert(Doc.lookup(view({ db }), name))
     assert(assert(found[1]).module == "cosmic." .. name and found.verb ~= nil, name)
     assert(db:close())
   end
@@ -697,7 +698,7 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
       "",
       "return onrecord"),
   }))
-  local index = assert(docs.index(view({ db })))
+  local index = assert(Doc.index(view({ db })))
   local lines: mut {string} = {}
   for _, summary in ipairs(index) do
     lines[#lines + 1] = summary.module .. "|" .. summary.text
@@ -708,7 +709,7 @@ local function test_the_index_lists_every_module_by_its_first_sentence(dir: stri
       "cosmic.hash|Digests.\nlib.bare|\nlib.onrecord|Said on the record.\n" ..
       "lib.ontype|Said on a type.\n" ..
       "lib.sentence|Reads, e.g. a file, with `a. b` inside.\nlib.tworec|", all)
-  local public = assert(docs.index((assert(docs.view({ db }, { true })))))
+  local public = assert(Doc.index((assert(docs.view({ db }, { true })))))
   assert(#public == 2 and public[1].module == "cosmic.fs" and
       public[2].module == "cosmic.hash", tostring(#public))
 end
@@ -740,7 +741,7 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
     ["cosmic/http/server.tl"] = source("--- A server.", "--- @public", "local record S", "end", "return S"),
   })
   local both = assert(docs.view({ db, library }, { false, true }))
-  local lines = assert(docs.answer(both, {})).lines
+  local lines = assert(Doc.answer(both, {})).lines
   local shown: mut {string} = {}
   for _, line in ipairs(lines) do
     local module = line:match("^(%S+)")
@@ -763,7 +764,7 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
     "rules.returns.open  Open.",
     "rules.returns.paths  (private to rules/returns/) Paths.",
   }, "\n"), all)
-  local records = assert(docs.records(both, {})).lines
+  local records = assert(Doc.records(both, {})).lines
   local marked = 0
   for _, line in ipairs(records) do
     local object = assert(Json.decode_object(line))
@@ -782,7 +783,7 @@ local function test_the_index_marks_a_module_private_to_its_package(dir: string)
     assert(object["module"] ~= "cosmic.http.wire", line)
   end
   assert(marked == 4, tostring(marked))
-  for _, summary in ipairs((assert(docs.index(both)))) do
+  for _, summary in ipairs((assert(Doc.index(both)))) do
     assert(summary.closed == "", "the index itself judges no mark: " .. summary.module)
   end
 end
@@ -794,7 +795,7 @@ local function test_the_index_leaves_off_a_mark_it_cannot_judge()
     { "pkg.init", "", "module", "", "A package.", "pkg/init.tl", "1" },
     { "pkg.part", "", "module", "", "A part.", "pkg/part.tl", "1" },
   }, {})
-  local lines = assert(docs.answer(view({ db }), {})).lines
+  local lines = assert(Doc.answer(view({ db }), {})).lines
   local all = table.concat(lines, "\n")
   assert(all:find("pkg.part", 1, true) ~= nil and all:find("(private", 1, true) == nil, all)
 end
@@ -824,15 +825,15 @@ local function test_a_module_listing_leaves_out_private_functions(dir: string)
     "end",
     "",
     "return Fs") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   assert(lines[4] == "  record Stat", lines[4])
   assert(lines[5] == "  record Fs", lines[5])
   assert(lines[6] == "  function Fs.stat(path: string): Stat", lines[6])
   assert(lines[7] == "  a symbol's own page has its whole doc and its examples: cosmic docs Fs.stat",
     lines[7])
   assert(lines[8] == nil, lines[8])
-  local helper = assert(docs.lookup(view({ db }), "write_all"))
+  local helper = assert(Doc.lookup(view({ db }), "write_all"))
   assert(#helper == 1 and support.nth(helper, 1).symbol == "write_all", tostring(#helper))
 end
 
@@ -865,7 +866,7 @@ local function test_a_short_module_name_keeps_its_symbols(dir: string)
       "",
       "return string"),
   })
-  local found = assert(docs.lookup(view({ db }), "string"))
+  local found = assert(Doc.lookup(view({ db }), "string"))
   assert(found.exact and #found == 2 and found.named == 2, tostring(#found))
   assert(support.nth(found, 1).module == "cosmic.string" and support.nth(found, 1).kind == "module", support.nth(found, 1).module)
   assert(support.nth(found, 2).source_symbol == "Shape.string", support.nth(found, 2).source_symbol)
@@ -882,13 +883,13 @@ local function test_a_short_module_name_skips_test_example_and_internal(dir: str
       "return E"),
   })
   for _, name in ipairs({ "only", "fs_test", "thing_example", "example", "test" }) do
-    local found = assert(docs.lookup(view({ db }), name))
+    local found = assert(Doc.lookup(view({ db }), name))
     for _, entry in ipairs(found) do
       assert(entry.kind ~= "module" or found.exact == false,
         name .. " answered module " .. entry.module)
     end
   end
-  local fs = assert(docs.lookup(view({ db }), "fs"))
+  local fs = assert(Doc.lookup(view({ db }), "fs"))
   assert(#fs >= 1 and support.nth(fs, 1).module == "cosmic.fs", support.nth(fs, 1).module)
 end
 
@@ -901,7 +902,7 @@ local function test_a_short_module_name_finds_a_projects_module(dir: string)
     ["cosmic/util.tl"] = source("--- Library helpers.", "", "local record Lib", "end",
       "", "return Lib"),
   })
-  local found = assert(docs.lookup(view({ db }), "util"))
+  local found = assert(Doc.lookup(view({ db }), "util"))
   assert(#found == 2 and support.nth(found, 1).module == "myproj.util" and
       support.nth(found, 2).module == "cosmic.util", tostring(#found))
 end
@@ -910,9 +911,9 @@ end
 --- symbols only, and a qualified name answers by its symbol.
 local function test_a_capitalized_name_takes_the_symbol_route(dir: string)
   local db = built(dir, fs_tree())
-  local found = assert(docs.lookup(view({ db }), "Fs"))
+  local found = assert(Doc.lookup(view({ db }), "Fs"))
   assert(#found == 1 and support.nth(found, 1).kind == "record", tostring(#found))
-  local qualified = assert(docs.lookup(view({ db }), "Fs.read"))
+  local qualified = assert(Doc.lookup(view({ db }), "Fs.read"))
   assert(#qualified == 1 and support.nth(qualified, 1).source_symbol == "Fs.read")
 end
 
@@ -932,8 +933,8 @@ local function test_the_listing_keeps_a_colon_and_its_example_together(dir: stri
       "end",
       "",
       "return Fs") })
-    local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
-    return (assert(docs.render(view({ db }), support.nth(found, 1))))
+    local found = assert(Doc.lookup(view({ db }), "cosmic.fs"))
+    return (assert(Doc.render(view({ db }), support.nth(found, 1))))
   end
   local function at(lines: {string}, needle: string): integer
     for i, line in ipairs(lines) do
@@ -972,8 +973,8 @@ local function test_the_listing_follows_a_multi_block_example(dir: string)
     "end",
     "",
     "return Fs") })
-  local found = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "cosmic.fs"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local text = table.concat(lines, "\n")
   local l2 = text:find("l2", 1, true)
   local listing = text:find("function Fs.read(", 1, true)
@@ -986,14 +987,14 @@ end
 --- required, and a name nothing matches finds nothing.
 local function test_searches_the_documentation_for_words(dir: string)
   local db = built(dir, fs_tree())
-  local words = assert(docs.lookup(view({ db }), "whole file"))
+  local words = assert(Doc.lookup(view({ db }), "whole file"))
   local exact = words.exact
   assert(words ~= nil) -- checked: compare_disjoint
   assert(not exact)
   assert(#words == 2, tostring(#words))
-  local one = assert(docs.lookup(view({ db }), "parent directory"))
+  local one = assert(Doc.lookup(view({ db }), "parent directory"))
   assert(#one == 1 and support.nth(one, 1).source_symbol == "Fs.write")
-  local none = assert(docs.lookup(view({ db }), "nothing_like_this"))
+  local none = assert(Doc.lookup(view({ db }), "nothing_like_this"))
   assert(#none == 0)
 end
 
@@ -1002,9 +1003,9 @@ end
 --- those with at least half of them, and never on one word alone.
 local function test_a_search_stems_and_offers_the_closest_when_none_has_every_word(dir: string)
   local db = built(dir, fs_tree())
-  local stemmed = assert(docs.lookup(view({ db }), "writing"))
+  local stemmed = assert(Doc.lookup(view({ db }), "writing"))
   assert(support.nth(stemmed, 1).source_symbol == "Fs.write", tostring(support.nth(stemmed, 1).source_symbol))
-  local some = assert(docs.lookup(view({ db }), "create parent unheard whole"))
+  local some = assert(Doc.lookup(view({ db }), "create parent unheard whole"))
   assert(some.closest and not some.exact)
   assert(support.nth(some, 1).source_symbol == "Fs.write", support.nth(some, 1).source_symbol)
   local seen: mut {string:boolean} = {}
@@ -1013,14 +1014,14 @@ local function test_a_search_stems_and_offers_the_closest_when_none_has_every_wo
     seen[entry.source_symbol] = true
   end
   assert(seen["Fs.read"] == nil, "one word of four is not enough")
-  local junk = assert(docs.lookup(view({ db }), "unheard whole"))
+  local junk = assert(Doc.lookup(view({ db }), "unheard whole"))
   assert(#junk == 0, "one of two words is not enough")
-  local whole = assert(docs.lookup(view({ db }), "whole file"))
+  local whole = assert(Doc.lookup(view({ db }), "whole file"))
   assert(support.nth(whole, 1).symbol == "read", "a member comes before its module: " .. support.nth(whole, 1).symbol)
 end
 
 --- The lines of `answer` as one text, for a search of it.
-local function answered(answer: docs.Answer): string
+local function answered(answer: Doc.Answer): string
   return table.concat(answer.lines, "\n")
 end
 
@@ -1029,16 +1030,16 @@ end
 --- something too ("read", "write") -- are still searched for together.
 local function test_several_qualified_names_are_each_looked_up(dir: string)
   local db = built(dir, fs_tree())
-  local both = assert(docs.answer(view({ db }), { "Fs.write", "Fs.read" }))
+  local both = assert(Doc.answer(view({ db }), { "Fs.write", "Fs.read" }))
   local text = answered(both)
   assert(both.found and both.said == "2 named", both.said)
   assert(not text:find("No exact symbol match", 1, true), text)
   local write = text:find("cosmic.fs Fs.write (", 1, true)
   local read = text:find("cosmic.fs Fs.read (", 1, true)
   assert(write ~= nil and read ~= nil and write < read, text)
-  local bare = assert(docs.answer(view({ db }), { "read", "write" }))
+  local bare = assert(Doc.answer(view({ db }), { "read", "write" }))
   assert(bare.said == "nothing named or documented as 'read write'", bare.said)
-  local missing = assert(docs.answer(view({ db }), { "Fs.read", "Nope.unheard" }))
+  local missing = assert(Doc.answer(view({ db }), { "Fs.read", "Nope.unheard" }))
   assert(not missing.found, missing.said)
   assert(missing.said == "nothing named or documented as 'Nope.unheard', 1 named", missing.said)
   assert(answered(missing):find("cosmic.fs Fs.read (", 1, true), answered(missing))
@@ -1046,11 +1047,11 @@ local function test_several_qualified_names_are_each_looked_up(dir: string)
     answered(missing))
 end
 
---- `--json` prints the entries a lookup finds, as [`docs.answer`] would
+--- `--json` prints the entries a lookup finds, as [`Doc.answer`] would
 --- show them, one JSON object per line, qualified names in the order given.
 local function test_records_are_one_json_object_per_entry(dir: string)
   local db = built(dir, fs_tree())
-  local both = assert(docs.records(view({ db }), { "Fs.write", "Fs.read" }))
+  local both = assert(Doc.records(view({ db }), { "Fs.write", "Fs.read" }))
   local lines = both.lines
   assert(both.found and #lines == 2, tostring(#lines))
   local write = assert(Json.decode_object(support.nth(lines, 1)))
@@ -1059,7 +1060,7 @@ local function test_records_are_one_json_object_per_entry(dir: string)
   assert(read["symbol"] == "Fs.read" and read["exact"] == true, support.nth(lines, 2))
   assert(read["file"] == "cosmic/fs.tl" and math.type(read["line"]) == "integer", support.nth(lines, 2))
   assert(type(read["signature"]) == "string" and type(read["text"]) == "string", support.nth(lines, 2))
-  local missing = assert(docs.records(view({ db }), { "Fs.read", "Nope.unheard" }))
+  local missing = assert(Doc.records(view({ db }), { "Fs.read", "Nope.unheard" }))
   assert(not missing.found, "a query that finds nothing fails the run")
 end
 
@@ -1073,9 +1074,9 @@ local function test_records_carry_an_examples_code_and_unlink_text(dir: string)
     ["cosmic/linked.tl"] = source("--- Wraps [`Fs.read`] for callers.", "", "local record Linked", "end", "",
       "return Linked"),
   }))
-  local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local shown = assert(docs.render(view({ db }), support.nth(read, 1)))
-  local found = assert(docs.records(view({ db }), { "file", "back" }))
+  local read = assert(Doc.lookup(view({ db }), "Fs.read"))
+  local shown = assert(Doc.render(view({ db }), support.nth(read, 1)))
+  local found = assert(Doc.records(view({ db }), { "file", "back" }))
   local code: string? = nil
   for _, line in ipairs(found.lines) do
     local object = assert(Json.decode_object(line))
@@ -1086,7 +1087,7 @@ local function test_records_carry_an_examples_code_and_unlink_text(dir: string)
   for line in code:gmatch("[^\n]+") do
     assert(table.concat(shown, "\n"):find("    " .. line, 1, true), line)
   end
-  local module = assert(docs.records(view({ db }), { "cosmic.linked" }))
+  local module = assert(Doc.records(view({ db }), { "cosmic.linked" }))
   assert(#module.lines > 0, "the module is found")
   for _, line in ipairs(module.lines) do
     assert(not line:find("[`", 1, true), line)
@@ -1098,8 +1099,8 @@ end
 --- for the word.
 local function test_records_list_the_modules_as_the_page_does(dir: string)
   local db = built(dir, fs_tree())
-  local all = assert(docs.records(view({ db }), {}))
-  local library = assert(docs.records(view({ db }), { "cosmic" }))
+  local all = assert(Doc.records(view({ db }), {}))
+  local library = assert(Doc.records(view({ db }), { "cosmic" }))
   assert(all.found and library.found)
   local names: mut {string} = {}
   for _, line in ipairs(all.lines) do
@@ -1107,7 +1108,7 @@ local function test_records_list_the_modules_as_the_page_does(dir: string)
     assert(object["kind"] == "module" and object["symbol"] == "", line)
     names[#names + 1] = tostring(object["module"])
   end
-  assert(#names == #assert(docs.index(view({ db }))), table.concat(names, ","))
+  assert(#names == #assert(Doc.index(view({ db }))), table.concat(names, ","))
   assert(#library.lines > 0 and #library.lines < #all.lines,
     tostring(#library.lines) .. " of " .. tostring(#all.lines))
   for _, line in ipairs(library.lines) do
@@ -1120,7 +1121,7 @@ end
 --- query answers a row per function.
 local function test_records_load_as_a_table_sql_can_filter(dir: string)
   local db = built(dir, fs_tree())
-  local records = assert(docs.records(view({ db }), { "Fs.read", "Fs.write" }))
+  local records = assert(Doc.records(view({ db }), { "Fs.read", "Fs.write" }))
   local handle = assert(Sqlite.memory())
   assert(dataset.load_text(handle, "docs", "ndjson",
     table.concat(records.lines, "\n") .. "\n"))
@@ -1150,11 +1151,11 @@ local function test_cosmic_alone_lists_the_standard_library(dir: string)
       "",
       "return Tool"),
   }))
-  local all = assert(docs.answer(view({ db }), {}))
+  local all = assert(Doc.answer(view({ db }), {}))
   assert(all.found and all.said == "4 modules", all.said)
   assert(answered(all):find("build.tool  A tool of the tree's own.", 1, true), answered(all))
   for _, word in ipairs({ "cosmic", "cosmic." }) do
-    local answer = assert(docs.answer(view({ db }), { word }))
+    local answer = assert(Doc.answer(view({ db }), { word }))
     local text = answered(answer)
     assert(answer.found and answer.said == "1 module", answer.said)
     assert(text:find("cosmic.fs  Files and directories.", 1, true), text)
@@ -1176,7 +1177,7 @@ local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
   end
   lines[#lines + 1] = "return Many"
   local db = built(dir, { ["cosmic/many.tl"] = source(table.unpack(lines)) })
-  local answer = assert(docs.answer(view({ db }), { "sentinel" }))
+  local answer = assert(Doc.answer(view({ db }), { "sentinel" }))
   local text = answered(answer)
   assert(answer.found and answer.said == "8 found", answer.said)
   assert(text:find("No exact symbol match for 'sentinel'", 1, true), text)
@@ -1189,7 +1190,7 @@ local function test_a_search_shows_five_whole_and_lists_the_rest(dir: string)
   end
   assert(whole == 5 and listed == 3, tostring(whole) .. " whole, " .. tostring(listed) .. " listed:\n" .. text)
   assert(text:find("3 more; narrow the search", 1, true), text)
-  local near = assert(docs.answer(view({ db }), { "sentinel", "number", "unheard" }))
+  local near = assert(Doc.answer(view({ db }), { "sentinel", "number", "unheard" }))
   assert(answered(near):find("No entry has every word of 'sentinel number unheard'; closest matches:",
     1, true), answered(near))
 end
@@ -1244,19 +1245,19 @@ local function test_a_qualified_miss_answers_from_its_qualifier(dir: string)
       "",
       "return Proc"),
   })
-  local near = assert(docs.lookup(view({ db }), "Fs.parent"))
+  local near = assert(Doc.lookup(view({ db }), "Fs.parent"))
   assert(not near.exact)
   assert(#near == 1 and support.nth(near, 1).source_symbol == "Fs.write", tostring(#near))
-  local all = assert(docs.lookup(view({ db }), "Fs.slurp"))
+  local all = assert(Doc.lookup(view({ db }), "Fs.slurp"))
   assert(#all == 2 and support.nth(all, 1).source_symbol == "Fs.read" and
       support.nth(all, 2).source_symbol == "Fs.write", tostring(#all))
-  local which = assert(docs.lookup(view({ db }), "Proc.which"))
+  local which = assert(Doc.lookup(view({ db }), "Proc.which"))
   assert(#which == 1 and support.nth(which, 1).source_symbol == "Proc.find", tostring(#which))
   -- "file" is in Fs's documentation too; Proc's qualifier keeps it out.
-  local file = assert(docs.lookup(view({ db }), "Proc.file"))
+  local file = assert(Doc.lookup(view({ db }), "Proc.file"))
   assert(#file == 1 and support.nth(file, 1).source_symbol == "Proc.find", tostring(#file))
   -- A private helper is not something the qualifier offers.
-  local bytes = assert(docs.lookup(view({ db }), "Fs.bytes"))
+  local bytes = assert(Doc.lookup(view({ db }), "Fs.bytes"))
   for _, entry in ipairs(bytes) do
     assert(entry.symbol ~= "copy_bytes", "a private helper was offered")
   end
@@ -1302,11 +1303,11 @@ local function test_a_search_ranks_what_a_function_stands_in_for(dir: string)
       "",
       "return Env"),
   })
-  local which = assert(docs.lookup(view({ db }), "which"))
+  local which = assert(Doc.lookup(view({ db }), "which"))
   assert(support.nth(which, 1).source_symbol == "Proc.find", support.nth(which, 1).source_symbol)
   -- Both spell `name` as code, but as their parameter: neither is
   -- boosted over the shorter match.
-  local name = assert(docs.lookup(view({ db }), "name variable"))
+  local name = assert(Doc.lookup(view({ db }), "name variable"))
   assert(support.nth(name, 1).source_symbol == "Env.names", support.nth(name, 1).source_symbol)
 end
 
@@ -1314,7 +1315,7 @@ end
 --- search leaves it out rather than finding nothing.
 local function test_a_search_leaves_out_one_letter_words(dir: string)
   local db = built(dir, fs_tree())
-  local found = assert(docs.lookup(view({ db }), "parent directory -p"))
+  local found = assert(Doc.lookup(view({ db }), "parent directory -p"))
   assert(#found == 1 and support.nth(found, 1).source_symbol == "Fs.write", tostring(#found))
   -- A query of nothing else still searches for what it has.
   local lone = built(dir, { ["cosmic/fs.tl"] = source(
@@ -1326,7 +1327,7 @@ local function test_a_search_leaves_out_one_letter_words(dir: string)
     "end",
     "",
     "return Fs") })
-  local x = assert(docs.lookup(view({ lone }), "x -"))
+  local x = assert(Doc.lookup(view({ lone }), "x -"))
   assert(#x == 1, tostring(#x))
 end
 
@@ -1334,15 +1335,15 @@ end
 --- line by line, and how it is used.
 local function test_renders_a_symbol(dir: string)
   local db = built(dir, fs_tree())
-  local found = assert(docs.lookup(view({ db }), "Fs.write"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "Fs.write"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   assert(lines[1] == "cosmic.fs Fs.write (cosmic/fs.tl:13)", lines[1])
   assert(lines[2] == "  function Fs.write(path: string, data: string): boolean, string", lines[2])
   assert(lines[3] == "  Writes the whole of a file.", lines[3])
   assert(lines[4] == "  Creates no parent directory.", lines[4])
   assert(#lines == 4, tostring(#lines))
-  local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local read_lines = assert(docs.render(view({ db }), support.nth(read, 1)))
+  local read = assert(Doc.lookup(view({ db }), "Fs.read"))
+  local read_lines = assert(Doc.render(view({ db }), support.nth(read, 1)))
   assert(read_lines[#read_lines] == "  used in 2 places; cosmic uses Fs.read",
     read_lines[#read_lines])
 end
@@ -1372,13 +1373,13 @@ local function test_a_link_renders_as_its_code_span(dir: string)
       "",
       "return Box"),
   })
-  local found = assert(docs.lookup(view({ db }), "Box.grow"))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local found = assert(Doc.lookup(view({ db }), "Box.grow"))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   local shown = table.concat(lines, "\n", 3, 6)
   local want = "  Grows a box as `Box.shrink` shrinks one; see [the guide][g], and\n" ..
     "  `` [`x`] `` as written.\n\n  [g]: doc/guide.md"
   assert(shown == want, shown)
-  local index = assert(docs.index(view({ db })))
+  local index = assert(Doc.index(view({ db })))
   assert(support.nth(index, 1).text == "Boxes, which `Box.grow` grows.", support.nth(index, 1).text)
 end
 
@@ -1393,8 +1394,8 @@ local function test_renders_a_symbols_example(dir: string)
     ["cosmic/fs_example.tl"] = fs_example("read", "Reads a file back.",
       "  print(Fs.read(\"x\"))"),
   }))
-  local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local lines = assert(docs.render(view({ db }), support.nth(read, 1)))
+  local read = assert(Doc.lookup(view({ db }), "Fs.read"))
+  local lines = assert(Doc.render(view({ db }), support.nth(read, 1)))
   assert(lines[#lines - 6] == "  example read (cosmic/fs_example.tl:8):",
     lines[#lines - 6])
   assert(lines[#lines - 5] == "  Reads a file back.", lines[#lines - 5])
@@ -1404,8 +1405,8 @@ local function test_renders_a_symbols_example(dir: string)
   assert(lines[#lines - 1] == "      print(Fs.read(\"x\"))", lines[#lines - 1])
   assert(lines[#lines] == "    end", lines[#lines])
 
-  local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local module_lines = assert(docs.render(view({ db }), support.nth(module, 1)))
+  local module = assert(Doc.lookup(view({ db }), "cosmic.fs"))
+  local module_lines = assert(Doc.render(view({ db }), support.nth(module, 1)))
   assert(module_lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(3 uses, 1 example)",
     module_lines[5])
@@ -1435,8 +1436,8 @@ local function test_many_examples_for_one_symbol(dir: string)
       "",
       "return Example"),
   }))
-  local read = assert(docs.lookup(view({ db }), "Fs.read"))
-  local lines = assert(docs.render(view({ db }), support.nth(read, 1)))
+  local read = assert(Doc.lookup(view({ db }), "Fs.read"))
+  local lines = assert(Doc.render(view({ db }), support.nth(read, 1)))
   local headers: mut {string} = {}
   for _, line in ipairs(lines) do
     if line:match("^  example ") then
@@ -1447,8 +1448,8 @@ local function test_many_examples_for_one_symbol(dir: string)
   assert(headers[1] == "  example basic (cosmic/fs_example.tl:6):", headers[1])
   assert(headers[2] == "  example missing_file (cosmic/fs_example.tl:10):", headers[2])
 
-  local module = assert(docs.lookup(view({ db }), "cosmic.fs"))
-  local module_lines = assert(docs.render(view({ db }), support.nth(module, 1)))
+  local module = assert(Doc.lookup(view({ db }), "cosmic.fs"))
+  local module_lines = assert(Doc.render(view({ db }), support.nth(module, 1)))
   assert(module_lines[5] == "  function Fs.read(path: string): string?, string -- The whole of a file.  " ..
       "(4 uses, 2 examples)",
     module_lines[5])
@@ -1464,9 +1465,9 @@ local function test_a_topic_example_pairs_with_its_module(dir: string)
     ["cosmic/fs_config_example.tl"] = fs_example("read", "Reads a config file.",
       "  print(Fs.read(\"bb\"))"),
   }))
-  local read = assert(docs.lookup(view({ db }), "Fs.read"))
+  local read = assert(Doc.lookup(view({ db }), "Fs.read"))
   local headers: mut {string} = {}
-  for _, line in ipairs((assert(docs.render(view({ db }), support.nth(read, 1))))) do
+  for _, line in ipairs((assert(Doc.render(view({ db }), support.nth(read, 1))))) do
     if line:match("^  example ") then headers[#headers + 1] = line end
   end
   assert(#headers == 2, table.concat(headers, " | "))
@@ -1542,15 +1543,15 @@ local function test_examples_list_by_file_then_line()
       { { text = row[1] }, { integer = math.tointeger(tonumber(row[2])) } }))
   end
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))
-  local read = assert(docs.lookup(view({ db }), "Fs.read"))
+  local read = assert(Doc.lookup(view({ db }), "Fs.read"))
   local headers: mut {string} = {}
-  for _, line in ipairs((assert(docs.render(view({ db }), support.nth(read, 1))))) do
+  for _, line in ipairs((assert(Doc.render(view({ db }), support.nth(read, 1))))) do
     if line:match("^  example ") then headers[#headers + 1] = line end
   end
   assert(#headers == 2, table.concat(headers, " | "))
   assert(headers[1] == "  example read (cosmic/fs_example.tl:5):", headers[1])
   assert(headers[2] == "  example read (cosmic/fs_tls_example.tl:1):", headers[2])
-  local searched = assert(docs.lookup(view({ db }), "sentinel"))
+  local searched = assert(Doc.lookup(view({ db }), "sentinel"))
   assert(#searched == 2, tostring(#searched))
   assert(support.nth(searched, 1).file == "cosmic/fs_example.tl", support.nth(searched, 1).file)
   assert(support.nth(searched, 2).file == "cosmic/fs_tls_example.tl", support.nth(searched, 2).file)
@@ -1588,14 +1589,14 @@ local function test_examples_do_not_match_a_shorter_symbol_sharing_a_prefix(dir:
       "",
       "return Example"),
   })
-  local hex = assert(docs.lookup(view({ db }), "Hash.hex"))
+  local hex = assert(Doc.lookup(view({ db }), "Hash.hex"))
   assert(#hex == 1 and support.nth(hex, 1).examples == 0, tostring(support.nth(hex, 1).examples))
-  for _, line in ipairs((assert(docs.render(view({ db }), support.nth(hex, 1))))) do
+  for _, line in ipairs((assert(Doc.render(view({ db }), support.nth(hex, 1))))) do
     assert(not line:match("^  example "),
       "Hash.hex wrongly matched an example for Hash.hex_sha256: " .. line)
   end
 
-  local hex_sha256 = assert(docs.lookup(view({ db }), "Hash.hex_sha256"))
+  local hex_sha256 = assert(Doc.lookup(view({ db }), "Hash.hex_sha256"))
   assert(#hex_sha256 == 1 and support.nth(hex_sha256, 1).examples == 1)
 end
 
@@ -1607,14 +1608,14 @@ local function test_searches_finds_a_word_only_in_an_example(dir: string)
     ["cosmic/fs_example.tl"] = fs_example("read", "Reads a digest.",
       "  print(Hash.hex_sha256(Fs.read(\"x\")))"),
   }))
-  local found = assert(docs.lookup(view({ db }), "hex_sha256"))
+  local found = assert(Doc.lookup(view({ db }), "hex_sha256"))
   local exact = found.exact
   assert(found ~= nil) -- checked: compare_disjoint
   assert(not exact)
   assert(#found == 1 and support.nth(found, 1).module == "cosmic.fs" and
       support.nth(found, 1).symbol == "Example.read",
     tostring(#found))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   assert(lines[1] == "cosmic.fs example read (cosmic/fs_example.tl:8)", lines[1])
   assert(table.concat(lines, "\n"):find("Hash.hex_sha256(Fs.read", 1, true) ~= nil)
 
@@ -1622,11 +1623,11 @@ local function test_searches_finds_a_word_only_in_an_example(dir: string)
     ["cosmic/fs_example.tl"] = fs_example("read",
       "Demonstrates reading a config file.", ""),
   }))
-  local by_text = assert(docs.lookup(view({ db2 }), "config"))
+  local by_text = assert(Doc.lookup(view({ db2 }), "config"))
   assert(#by_text == 1 and support.nth(by_text, 1).module == "cosmic.fs" and
       support.nth(by_text, 1).symbol == "Example.read",
     tostring(#by_text))
-  local text_lines = assert(docs.render(view({ db2 }), support.nth(by_text, 1)))
+  local text_lines = assert(Doc.render(view({ db2 }), support.nth(by_text, 1)))
   assert(table.concat(text_lines, "\n"):find(
     "Demonstrates reading a config file.", 1, true) ~= nil)
 end
@@ -1638,10 +1639,10 @@ local function test_search_keeps_docs_and_example_identities(dir: string)
     ["cosmic/fs_example.tl"] = fs_example("read_config", "Reads a whole config file.",
       "  Fs.read(\"config\")"),
   }))
-  local found = assert(docs.lookup(view({ db }), "whole config"))
+  local found = assert(Doc.lookup(view({ db }), "whole config"))
   assert(#found == 1, "expected one example result")
   assert(support.nth(found, 1).symbol == "Example.read_config", support.nth(found, 1).symbol)
-  local rendered = table.concat(assert(docs.render(view({ db }), support.nth(found, 1))), "\n")
+  local rendered = table.concat(assert(Doc.render(view({ db }), support.nth(found, 1))), "\n")
   assert(rendered:find("function Example.read_config()", 1, true) ~= nil, rendered)
 end
 
@@ -1654,21 +1655,21 @@ local function test_example_search_obeys_module_ownership(dir: string)
   local binary = built(dir, fs_tree({
     ["cosmic/fs_example.tl"] = fs_example("old_read", "legacy sentinel contract", ""),
   }))
-  local current = assert(docs.lookup(view({ project, binary }), "current sentinel"))
+  local current = assert(Doc.lookup(view({ project, binary }), "current sentinel"))
   assert(#current == 1)
-  assert(table.concat(assert(docs.render(view({ project, binary }), support.nth(current, 1))), "\n"):
+  assert(table.concat(assert(Doc.render(view({ project, binary }), support.nth(current, 1))), "\n"):
       find("Example.new_read", 1, true) ~= nil)
-  assert(#assert(docs.lookup(view({ project, binary }), "legacy sentinel")) == 0)
+  assert(#assert(Doc.lookup(view({ project, binary }), "legacy sentinel")) == 0)
 end
 
 --- The uses of a symbol, by either name.
 local function test_lists_uses(dir: string)
   local db = built(dir, fs_tree())
-  local found = assert(docs.uses(view({ db }), "read"))
+  local found = assert(Doc.uses(view({ db }), "read"))
   assert(#found == 2 and found[1].from_file == "build/boot.tl", tostring(#found))
   assert(support.nth(found, 1).line == 3, tostring(support.nth(found, 1).line))
-  assert(#assert(docs.uses(view({ db }), "Fs.read")) == 2)
-  assert(#assert(docs.uses(view({ db }), "Fs.write")) == 0)
+  assert(#assert(Doc.uses(view({ db }), "Fs.read")) == 2)
+  assert(#assert(Doc.uses(view({ db }), "Fs.write")) == 0)
 end
 
 --- A name spelled from a module's record down is a use of the member
@@ -1682,18 +1683,18 @@ local function test_a_qualified_name_lists_only_its_own_uses()
     { "cosmic.stream", "Writer.write", "build.test", "build/test.tl", "20" },
     { "cosmic.zip", "Writer.add_file", "build.boot", "build/boot.tl", "30" },
   })
-  local writer = assert(docs.uses(view({ db }), "Stream.Writer.write"))
+  local writer = assert(Doc.uses(view({ db }), "Stream.Writer.write"))
   assert(#writer == 1 and writer[1].module == "cosmic.stream", tostring(#writer))
-  local fs = assert(docs.uses(view({ db }), "Fs.write"))
+  local fs = assert(Doc.uses(view({ db }), "Fs.write"))
   assert(#fs == 1 and fs[1].module == "cosmic.fs", tostring(#fs))
-  local method = assert(docs.uses(view({ db }), "Fs:write"))
+  local method = assert(Doc.uses(view({ db }), "Fs:write"))
   assert(#method == 1 and method[1].module == "cosmic.fs", tostring(#method))
-  assert(#assert(docs.uses(view({ db }), "write")) == 2, "a last name finds both")
+  assert(#assert(Doc.uses(view({ db }), "write")) == 2, "a last name finds both")
   -- `Writer` is no module's own record here, so it is a use of the
   -- [`Writer.write`] recorded as such and of no bare `write`.
-  assert(#assert(docs.uses(view({ db }), "Writer.write")) == 1)
-  assert(#assert(docs.uses(view({ db }), "Zip.Writer.add_file")) == 1)
-  assert(#assert(docs.uses(view({ db }), "cosmic.Zip.Writer.add_file")) == 0,
+  assert(#assert(Doc.uses(view({ db }), "Writer.write")) == 1)
+  assert(#assert(Doc.uses(view({ db }), "Zip.Writer.add_file")) == 1)
+  assert(#assert(Doc.uses(view({ db }), "cosmic.Zip.Writer.add_file")) == 0,
     "one name past the record, and no more")
 end
 
@@ -1724,7 +1725,7 @@ local function test_a_qualifier_names_the_module_it_is_a_use_of(dir: string)
   })
   local function modules(query: string): string
     local out: mut {string} = {}
-    for _, use in ipairs((assert(docs.uses(view({ db }), query)))) do
+    for _, use in ipairs((assert(Doc.uses(view({ db }), query)))) do
       out[#out + 1] = use.module
     end
     return table.concat(out, ",")
@@ -1736,7 +1737,7 @@ local function test_a_qualifier_names_the_module_it_is_a_use_of(dir: string)
   assert(modules("read") == "cosmic.fs,cosmic.csv,cosmic.csv", modules("read"))
   assert(modules("Sys.read") == "", modules("Sys.read"))
   -- What `docs` counts is what `uses` lists.
-  local found = assert(docs.lookup(view({ db }), "Csv.read"))
+  local found = assert(Doc.lookup(view({ db }), "Csv.read"))
   assert(support.nth(found, 1).uses == 2, tostring(support.nth(found, 1).uses))
 end
 
@@ -1763,22 +1764,22 @@ local function test_a_nested_record_method_meets_its_uses(dir: string)
   local caller = database({}, {
     { "app.thing", "Box.grow", "app.main", "app/main.tl", "3" },
   }, { "app.main" })
-  local found = assert(docs.lookup(view({ thing, caller }), "Box.grow"))
+  local found = assert(Doc.lookup(view({ thing, caller }), "Box.grow"))
   assert(found.exact and #found == 1, tostring(#found))
   assert(support.nth(found, 1).source_symbol == "Thing.Box:grow", support.nth(found, 1).source_symbol)
   assert(support.nth(found, 1).uses == 1, tostring(support.nth(found, 1).uses))
   -- A method is called with `:`, and found spelled so too.
   for _, query in ipairs({ "Thing.Box:grow", "Box:grow" }) do
-    local called = assert(docs.lookup(view({ thing }), query))
+    local called = assert(Doc.lookup(view({ thing }), query))
     assert(called.exact and #called == 1, query)
   end
-  local lid = assert(docs.lookup(view({ thing }), "Lid:open"))
+  local lid = assert(Doc.lookup(view({ thing }), "Lid:open"))
   assert(lid.exact and #lid == 1 and support.nth(lid, 1).symbol == "Box.Lid.open", "Lid:open")
   -- `cosmic docs` points at `cosmic uses <source_symbol>`, which must answer.
   for _, query in ipairs({ "Thing.Box.grow", "Thing.Box:grow", "Box:grow", "grow" }) do
-    assert(#assert(docs.uses(view({ thing, caller }), query)) == 1, query)
+    assert(#assert(Doc.uses(view({ thing, caller }), query)) == 1, query)
   end
-  assert(#assert(docs.uses(view({ thing, caller }), "Lid:grow")) == 0)
+  assert(#assert(Doc.uses(view({ thing, caller }), "Lid:grow")) == 0)
 end
 
 --- An earlier database owns a module as a whole: symbols removed by the
@@ -1795,9 +1796,9 @@ local function test_an_earlier_database_hides_a_module_in_a_later_one(dir: strin
     "",
     "return Fs") })
   local binary = built(dir, fs_tree())
-  local read = assert(docs.lookup(view({ project, binary }), "read"))
+  local read = assert(Doc.lookup(view({ project, binary }), "read"))
   assert(#read == 1 and support.nth(read, 1).text == "The project's own.", tostring(#read))
-  local write = assert(docs.lookup(view({ project, binary }), "Fs.write"))
+  local write = assert(Doc.lookup(view({ project, binary }), "Fs.write"))
   for _, entry in ipairs(write) do
     assert(entry.source_symbol ~= "Fs.write",
       "a removed symbol reappeared from the older module")
@@ -1813,8 +1814,8 @@ local function test_an_undocumented_module_hides_old_docs_and_examples(dir: stri
     ["cosmic/fs_example.tl"] = fs_example("read", "legacy example", "  Fs.read(\"x\")"),
   }))
   local layered = view({ project, binary })
-  assert(#assert(docs.lookup(layered, "Fs.read")) == 0)
-  assert(#assert(docs.lookup(layered, "legacy example")) == 0)
+  assert(#assert(Doc.lookup(layered, "Fs.read")) == 0)
+  assert(#assert(Doc.lookup(layered, "legacy example")) == 0)
 end
 
 --- Uses belong to their calling module. Independent callers in later
@@ -1850,12 +1851,12 @@ local function test_uses_merge_active_calling_modules(dir: string)
       "",
       "Api.call()"),
   })
-  local found = assert(docs.uses(view({ project, binary }), "Api.call"))
+  local found = assert(Doc.uses(view({ project, binary }), "Api.call"))
   assert(#found == 2, tostring(#found))
   assert(support.nth(found, 1).from_file == "app/main.tl" and support.nth(found, 1).line == 9,
     support.nth(found, 1).from_file .. ":" .. tostring(support.nth(found, 1).line))
   assert(support.nth(found, 2).from_file == "lib/helper.tl", support.nth(found, 2).from_file)
-  local entry = assert(docs.lookup(view({ project, binary }), "Api.call"))[1]
+  local entry = assert(Doc.lookup(view({ project, binary }), "Api.call"))[1]
   assert(entry ~= nil and entry.uses == 2, tostring(entry and entry.uses))
 end
 
@@ -1918,8 +1919,8 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
   })
 
   local everything = assert(docs.view({ db }))
-  assert(#assert(docs.lookup(everything, "read")) == 3)
-  assert(#assert(docs.uses(everything, "read")) == 2)
+  assert(#assert(Doc.lookup(everything, "read")) == 3)
+  assert(#assert(Doc.uses(everything, "read")) == 2)
 
   -- A module's own row, whose source spelling is empty, is among what
   -- its name matches.
@@ -1927,15 +1928,15 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
       symbols.named_where("d"), { { text = "cosmic.fs" } }))
   assert(#own == 1 and own[1]:text(1) == "module", tostring(#own))
   local public = assert(docs.view({ db }, { true }))
-  local found = assert(docs.lookup(public, "read"))
+  local found = assert(Doc.lookup(public, "read"))
   assert(#found == 1 and support.nth(found, 1).module == "cosmic.fs", tostring(#found))
   assert(support.nth(found, 1).uses == 1, "only the standard library's own use counts: " .. tostring(support.nth(found, 1).uses))
-  assert(#assert(docs.lookup(public, "build.importer")) == 0, "the build is not a public module")
-  local searched = assert(docs.lookup(public, "whole file"))
+  assert(#assert(Doc.lookup(public, "build.importer")) == 0, "the build is not a public module")
+  local searched = assert(Doc.lookup(public, "whole file"))
   assert(#searched == 1 and support.nth(searched, 1).module == "cosmic.fs", tostring(#searched))
-  local referring = assert(docs.uses(public, "Fs.read"))
+  local referring = assert(Doc.uses(public, "Fs.read"))
   assert(#referring == 1 and referring[1].from_module == "cosmic.hash")
-  local listed = assert(docs.render(public, support.nth(assert(docs.lookup(public, "cosmic.fs")), 1)))
+  local listed = assert(Doc.render(public, support.nth(assert(Doc.lookup(public, "cosmic.fs")), 1)))
   assert(support.nth(listed, #listed):find("Fs.read", 1, true) ~= nil, listed[#listed])
 end
 
@@ -1965,9 +1966,9 @@ local function test_public_use_count_matches_list_across_project_collision(dir: 
     "",
     "return Fs") })
   local layered = assert(docs.view({ project, binary }, { false, true }))
-  local entry = support.nth(assert(docs.lookup(layered, "Helper.run")), 1)
+  local entry = support.nth(assert(Doc.lookup(layered, "Helper.run")), 1)
   assert(entry.uses == 0, tostring(entry.uses))
-  assert(#assert(docs.uses(layered, "Helper.run")) == 0)
+  assert(#assert(Doc.uses(layered, "Helper.run")) == 0)
 end
 
 --- A module that is only a declaration -- [`cosmic.sys`], generated from
@@ -1983,9 +1984,9 @@ local function test_a_declared_module_is_found_without_a_line()
   }
   local db = database(rows, {}, {})
   assert(db:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
-  local found = assert(docs.lookup(view({ db }), "lstat"))
+  local found = assert(Doc.lookup(view({ db }), "lstat"))
   assert(#found == 1 and support.nth(found, 1).module == "cosmic.sys", tostring(#found))
-  local lines = assert(docs.render(view({ db }), support.nth(found, 1)))
+  local lines = assert(Doc.render(view({ db }), support.nth(found, 1)))
   assert(lines[1] == "cosmic.sys syscalls.lstat (core/syscalls.h)", lines[1])
 end
 
@@ -2002,7 +2003,7 @@ local function test_an_undocumented_declaration_does_not_hide_a_documented_one()
   }
   local documented = database(rows, {}, {})
   assert(documented:exec("INSERT INTO decls (path, source) VALUES ('cosmic.sys', '')"))
-  local found = assert(docs.lookup(view({ copy, documented }), "lstat"))
+  local found = assert(Doc.lookup(view({ copy, documented }), "lstat"))
   assert(#found == 1 and support.nth(found, 1).line == 154, tostring(#found))
 end
 
@@ -2019,7 +2020,7 @@ local function test_an_unreadable_own_database_is_left_out(dir: string)
   assert(sys.chdir(before))
   assert(#sources.handles == 1 and sources.handles[1] == store, tostring(#sources.handles))
   local looked = assert(docs.view(sources.handles, sources.public))
-  local found = assert(docs.lookup(looked, "Fs.read"))
+  local found = assert(Doc.lookup(looked, "Fs.read"))
   assert(#found > 0 and found.exact)
 end
 
@@ -2049,15 +2050,15 @@ local function test_a_record_page_lists_its_fields_and_an_enum_its_values(dir: s
     "",
     "return Thing") })
   local looked = view({ db })
-  local options = assert(docs.lookup(looked, "Thing.Options"))
-  local shown = table.concat(assert(docs.render(looked, support.nth(options, 1))), "\n")
+  local options = assert(Doc.lookup(looked, "Thing.Options"))
+  local shown = table.concat(assert(Doc.render(looked, support.nth(options, 1))), "\n")
   assert(shown:find("  fields:\n    count: integer -- How many to make.\n    label: string",
     1, true), shown)
-  local shape = assert(docs.lookup(looked, "Thing.Shape"))
-  shown = table.concat(assert(docs.render(looked, support.nth(shape, 1))), "\n")
+  local shape = assert(Doc.lookup(looked, "Thing.Shape"))
+  shown = table.concat(assert(Doc.render(looked, support.nth(shape, 1))), "\n")
   assert(shown:find("  values:\n    \"round\"\n    \"flat\"", 1, true), shown)
-  local page = assert(docs.lookup(looked, "cosmic.thing"))
-  shown = table.concat(assert(docs.render(looked, support.nth(page, 1))), "\n")
+  local page = assert(Doc.lookup(looked, "cosmic.thing"))
+  shown = table.concat(assert(Doc.render(looked, support.nth(page, 1))), "\n")
   assert(shown:find("\n  record Thing.Options\n    count: integer -- How many to make.\n" ..
       "    label: string", 1, true), shown)
 end
@@ -2099,25 +2100,25 @@ local function test_a_public_source_hides_a_modules_own_symbols(dir: string)
     "return Thing") })
   local public = assert(docs.view({ db }, { true }))
   for _, name in ipairs({ "Cursor", "Cursor.at", "step", "Options._cache" }) do
-    local found = assert(docs.lookup(public, name))
+    local found = assert(Doc.lookup(public, name))
     assert(#found == 0 or support.nth(found, 1).source_symbol ~= name, name)
   end
-  local options = assert(docs.lookup(public, "Thing.Options"))
-  local shown = table.concat(assert(docs.render(public, support.nth(options, 1))), "\n")
+  local options = assert(Doc.lookup(public, "Thing.Options"))
+  local shown = table.concat(assert(Doc.render(public, support.nth(options, 1))), "\n")
   assert(shown:find("    count: integer", 1, true) ~= nil and not shown:find("_cache", 1, true), shown)
-  local page = assert(docs.lookup(public, "cosmic.thing"))
-  shown = table.concat(assert(docs.render(public, support.nth(page, 1))), "\n")
+  local page = assert(Doc.lookup(public, "cosmic.thing"))
+  shown = table.concat(assert(Doc.render(public, support.nth(page, 1))), "\n")
   assert(not shown:find("Cursor", 1, true) and not shown:find("_cache", 1, true), shown)
   -- A public function is not hidden by a private one of the same name.
   assert(shown:find("function Thing.walk(): string", 1, true), shown)
-  local walked = assert(docs.lookup(public, "walk"))
+  local walked = assert(Doc.lookup(public, "walk"))
   assert(#walked == 1 and support.nth(walked, 1).source_symbol == "Thing.walk", tostring(#walked))
 
   local own = view({ db })
-  assert(#assert(docs.lookup(own, "Cursor")) == 1)
-  assert(#assert(docs.lookup(own, "step")) == 1)
-  page = assert(docs.lookup(own, "cosmic.thing"))
-  shown = table.concat(assert(docs.render(own, support.nth(page, 1))), "\n")
+  assert(#assert(Doc.lookup(own, "Cursor")) == 1)
+  assert(#assert(Doc.lookup(own, "step")) == 1)
+  page = assert(Doc.lookup(own, "cosmic.thing"))
+  shown = table.concat(assert(Doc.render(own, support.nth(page, 1))), "\n")
   assert(not shown:find("Cursor", 1, true), shown)
 end
 
@@ -2144,11 +2145,11 @@ local function test_a_count_of_one_is_singular(dir: string)
       "return text"),
   })
   local looked = view({ db })
-  local page = assert(docs.lookup(looked, "cosmic.fs"))
-  local text = table.concat(assert(docs.render(looked, support.nth(page, 1))), "\n")
+  local page = assert(Doc.lookup(looked, "cosmic.fs"))
+  local text = table.concat(assert(Doc.render(looked, support.nth(page, 1))), "\n")
   assert(text:find("(1 use)", 1, true) ~= nil and not text:find("1 uses", 1, true), text)
-  local read = assert(docs.lookup(looked, "Fs.read"))
-  text = table.concat(assert(docs.render(looked, support.nth(read, 1))), "\n")
+  local read = assert(Doc.lookup(looked, "Fs.read"))
+  text = table.concat(assert(Doc.render(looked, support.nth(read, 1))), "\n")
   assert(text:find("used in 1 place;", 1, true), text)
 end
 
@@ -2172,13 +2173,13 @@ local function test_a_module_page_truncates_a_long_field_note(dir: string)
     "",
     "return Thing") })
   local looked = view({ db })
-  local page = assert(docs.lookup(looked, "cosmic.thing"))
-  local shown = table.concat(assert(docs.render(looked, support.nth(page, 1))), "\n")
+  local page = assert(Doc.lookup(looked, "cosmic.thing"))
+  local shown = table.concat(assert(Doc.render(looked, support.nth(page, 1))), "\n")
   local line = assert(shown:match("\n    (count: integer[^\n]*)"))
   assert(#line < 130 and line:sub(-3) == "…", line)
   assert(not line:find("end.", 1, true), line)
-  local options = assert(docs.lookup(looked, "Thing.Options"))
-  shown = table.concat(assert(docs.render(looked, support.nth(options, 1))), "\n")
+  local options = assert(Doc.lookup(looked, "Thing.Options"))
+  shown = table.concat(assert(Doc.render(looked, support.nth(options, 1))), "\n")
   assert(shown:find("word end.", 1, true), shown)
 end
 
@@ -2191,8 +2192,8 @@ local function test_an_example_shows_the_requires_it_uses(dir: string)
       "  print(Fs.read(\"x\"))"),
   }))
   local looked = view({ db })
-  local page = table.concat(assert(docs.render(looked,
-    support.nth(assert(docs.lookup(looked, "Fs.read")), 1))), "\n")
+  local page = table.concat(assert(Doc.render(looked,
+    support.nth(assert(Doc.lookup(looked, "Fs.read")), 1))), "\n")
   local at = assert(page:find("    local Fs = require(\"cosmic.fs\")\n", 1, true), page)
   local body = assert(page:find("    function Example.read()", 1, true), page)
   assert(at < body, page)
@@ -2221,7 +2222,7 @@ local function test_examples_rank_by_name_and_are_capped(dir: string)
       "\nreturn Example\n",
   }))
   local looked = view({ db })
-  local shown = assert(docs.render(looked, support.nth(assert(docs.lookup(looked, "Fs.read")), 1)))
+  local shown = assert(Doc.render(looked, support.nth(assert(Doc.lookup(looked, "Fs.read")), 1)))
   local headers: mut {string} = {}
   local more = ""
   for _, line in ipairs(shown) do
@@ -2278,16 +2279,16 @@ local function test_a_top_level_call_is_carried_by_the_first_example(dir: string
       "return Example"),
   })
   local looked = view({ db })
-  local page = table.concat(assert(docs.render(looked,
-    support.nth(assert(docs.lookup(looked, "Thing.declare")), 1))), "\n")
+  local page = table.concat(assert(Doc.render(looked,
+    support.nth(assert(Doc.lookup(looked, "Thing.declare")), 1))), "\n")
   assert(page:find("example first", 1, true), page)
   assert(page:find("    Thing.declare{ value = \"x\" }\n", 1, true), page)
   assert(page:find("    local Thing = require(\"cosmic.thing\")\n", 1, true), page)
   assert(page:find("    local Fs = require", 1, true), page)
   assert(not page:find("example second", 1, true), page)
   -- Another symbol the same first example shows is not one the call is about.
-  local other = table.concat(assert(docs.render(looked,
-    support.nth(assert(docs.lookup(looked, "Thing.other")), 1))), "\n")
+  local other = table.concat(assert(Doc.render(looked,
+    support.nth(assert(Doc.lookup(looked, "Thing.other")), 1))), "\n")
   assert(other:find("example first", 1, true) ~= nil and not other:find("Thing.declare", 1, true), other)
   assert(other:find("local Thing = require", 1, true) and other:find("local Fs = require", 1, true), other)
 end
@@ -2315,7 +2316,7 @@ local function test_example_ranking_reads_whole_names_and_method_calls(dir: stri
       "return Example"),
   }))
   local looked = view({ db })
-  local shown = assert(docs.render(looked, support.nth(assert(docs.lookup(looked, "Fs.read")), 1)))
+  local shown = assert(Doc.render(looked, support.nth(assert(Doc.lookup(looked, "Fs.read")), 1)))
   local headers: mut {string} = {}
   for _, line in ipairs(shown) do
     if line:match("^  example ") then headers[#headers + 1] = line end
@@ -2375,7 +2376,7 @@ local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
   })
   local looked = assert(docs.view({ db }, { true }))
   local function page(query: string): string
-    return table.concat(assert(docs.render(looked, support.nth(assert(docs.lookup(looked, query)), 1))), "\n")
+    return table.concat(assert(Doc.render(looked, support.nth(assert(Doc.lookup(looked, query)), 1))), "\n")
   end
   local box = page("Thing.Box")
   assert(box:find("  methods:\n    grow(n: integer): boolean -- Grows the box by `n`.", 1, true), box)
@@ -2386,9 +2387,9 @@ local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
   local named = page("Thing.Named")
   assert(named:find("    own: string -- Its own.", 1, true), named)
   assert(named:find("  inherited fields:\n    label: string -- The label.", 1, true), named)
-  local grow = assert(docs.lookup(looked, "Thing.Box.grow"))
+  local grow = assert(Doc.lookup(looked, "Thing.Box.grow"))
   assert(#grow == 1 and support.nth(grow, 1).source_symbol == "Thing.Box.grow", tostring(#grow))
-  local depth = assert(docs.lookup(looked, "Thing.Config.depth"))
+  local depth = assert(Doc.lookup(looked, "Thing.Config.depth"))
   assert(#depth == 1 and support.nth(depth, 1).signature == "depth: integer", tostring(#depth))
 end
 
@@ -2481,7 +2482,7 @@ local function test_a_type_takes_members_through_a_required_module(dir: string)
   })
   local looked = assert(docs.view({ db }, { true }))
   local function page(query: string): string
-    return table.concat(assert(docs.render(looked, support.nth(assert(docs.lookup(looked, query)), 1))), "\n")
+    return table.concat(assert(Doc.render(looked, support.nth(assert(Doc.lookup(looked, query)), 1))), "\n")
   end
   local entry = page("User.Entry")
   assert(entry:find("  fields:\n    path: string -- Its path.", 1, true), entry)
@@ -2490,7 +2491,7 @@ local function test_a_type_takes_members_through_a_required_module(dir: string)
   assert(item:find("    size: integer -- Its size.", 1, true), item)
   assert(item:find("  inherited fields:\n    path: string -- Its path.", 1, true), item)
   local function found(query: string): string
-    local rows = assert(docs.lookup(looked, query))
+    local rows = assert(Doc.lookup(looked, query))
     local out: mut {string} = {}
     for _, row in ipairs(rows) do
       out[#out + 1] = row.module .. " " .. row.source_symbol .. " " .. row.signature
@@ -2526,15 +2527,15 @@ local function test_a_public_source_answers_for_what_its_database_records(_: str
   }, {}, nil, { "cosmic.fs", "greet" })
   local public = assert(docs.view({ db }, { true }))
   local listed: mut {string} = {}
-  for _, summary in ipairs((assert(docs.index(public)))) do listed[#listed + 1] = summary.module end
+  for _, summary in ipairs((assert(Doc.index(public)))) do listed[#listed + 1] = summary.module end
   assert(table.concat(listed, " ") == "cosmic.fs greet", table.concat(listed, " "))
-  assert(#assert(docs.lookup(public, "veil")) == 0, "a module the database does not record answers")
-  assert(#assert(docs.lookup(public, "cosmic.hidden")) == 0, "a module the database does not record is found by name")
-  local found = assert(docs.lookup(public, "salutation"))
+  assert(#assert(Doc.lookup(public, "veil")) == 0, "a module the database does not record answers")
+  assert(#assert(Doc.lookup(public, "cosmic.hidden")) == 0, "a module the database does not record is found by name")
+  local found = assert(Doc.lookup(public, "salutation"))
   assert(#found == 1 and support.nth(found, 1).source_symbol == "Greet.hello", tostring(#found))
   -- Read as the tree's own, the same database answers for everything.
   local own = assert(docs.view({ db }))
-  assert(#assert(docs.lookup(own, "veil")) == 1)
+  assert(#assert(Doc.lookup(own, "veil")) == 1)
 end
 
 --- A project's own public modules are not the standard library's. In a
@@ -2550,14 +2551,14 @@ local function test_a_project_s_public_module_is_not_the_library_s(dir: string)
     ["cosmic/fs.tl"] = source("--- Files.", "", "local record Fs", "end", "", "return Fs"),
   })
   local seen = assert(docs.view({ project, binary }, { false, true }))
-  local found = assert(docs.lookup(seen, "sql"))
+  local found = assert(Doc.lookup(seen, "sql"))
   local got: mut {string} = {}
   for _, entry in ipairs(found) do
     got[#got + 1] = entry.module .. "|" .. entry.symbol .. "|" .. entry.source_symbol
   end
   assert(support.nth(found, 1).source_symbol == "Cli.sql", "the verb comes first: " .. table.concat(got, ", "))
   assert(found.verb == nil, "a project's module of a verb's name stands in for the verb")
-  local library = assert(docs.answer(seen, { "cosmic" }))
+  local library = assert(Doc.answer(seen, { "cosmic" }))
   local text = table.concat(library.lines, "\n")
   assert(library.said == "2 modules", library.said)
   assert(text:find("cosmic.fs", 1, true) ~= nil and text:find("The project's queries", 1, true) == nil, text)
@@ -2579,18 +2580,18 @@ local function test_a_public_source_lists_and_finds_a_user_guide(_: string)
   }, {}, { "cosmic.fs" })
   local public = assert(docs.view({ db }, { true }))
   local listed: mut {string} = {}
-  for _, summary in ipairs((assert(docs.index(public)))) do
+  for _, summary in ipairs((assert(Doc.index(public)))) do
     listed[#listed + 1] = summary.module .. "|" .. summary.text
   end
   -- Position alone makes a guide public: `newcomer` is named nowhere.
   assert(table.concat(listed, "\n") == "cosmic.fs|Files.\n" ..
       "doc.guides.newcomer|A guide no list names.\n" ..
       "doc.guides.quickstart|A tour of the library.", table.concat(listed, "\n"))
-  local found = assert(docs.lookup(public, "quickstart"))
+  local found = assert(Doc.lookup(public, "quickstart"))
   assert(#found == 1 and support.nth(found, 1).module == "doc.guides.quickstart", tostring(#found))
-  local lines = table.concat(assert(docs.render(public, support.nth(found, 1))), "\n")
+  local lines = table.concat(assert(Doc.render(public, support.nth(found, 1))), "\n")
   assert(lines:find("## first step", 1, true) ~= nil, lines)
-  assert(#assert(docs.lookup(public, "portable-runtime")) == 0, "an internal guide is public")
+  assert(#assert(Doc.lookup(public, "portable-runtime")) == 0, "an internal guide is public")
 end
 
 --- The helpers an example carries show between its requires and its
@@ -2616,8 +2617,8 @@ local function test_an_example_page_shows_its_helpers_above_the_function(dir: st
       "return Example"),
   }))
   local looked = view({ db })
-  local page = table.concat(assert(docs.render(looked,
-    support.nth(assert(docs.lookup(looked, "Fs.read")), 1))), "\n")
+  local page = table.concat(assert(Doc.render(looked,
+    support.nth(assert(Doc.lookup(looked, "Fs.read")), 1))), "\n")
   assert(page:find('    local Fs = require("cosmic.fs")\n\n    local function path(): string\n' ..
       '      return "x"\n    end\n\n    function Example.read()', 1, true), page)
 end
@@ -2661,14 +2662,14 @@ local function test_helpers_stay_when_the_calls_are_dropped(dir: string)
       "return Example"),
   })
   local looked = view({ db })
-  local other = table.concat(assert(docs.render(looked,
-    support.nth(assert(docs.lookup(looked, "Thing.other")), 1))), "\n")
+  local other = table.concat(assert(Doc.render(looked,
+    support.nth(assert(Doc.lookup(looked, "Thing.other")), 1))), "\n")
   assert(not other:find("Thing.declare", 1, true), other)
   assert(other:find('    local Thing = require("cosmic.thing")\n\n    local function again()', 1, true), other)
 end
 
 --- What a lookup answers, an entry to a line, in order.
-local function listed(found: docs.Lookup): string
+local function listed(found: Doc.Lookup): string
   local lines: mut {string} = { tostring(found.exact) }
   for _, entry in ipairs(found) do
     lines[#lines + 1] = entry.module .. " " .. entry.symbol .. " " .. entry.source_symbol ..
@@ -2721,22 +2722,22 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     local out: mut {string} = {}
     local looked = assert(docs.view({ db }, { public }))
     for _, query in ipairs(queries) do
-      local found, trouble = docs.lookup(looked, query)
+      local found, trouble = Doc.lookup(looked, query)
       out[#out + 1] = query .. ": " .. (if found ~= nil then listed(found) else "nil " .. trouble end)
     end
     return out
   end
   local public = assert(docs.view({ db }, { true }))
-  local read = assert(docs.lookup(public, "Fs.read"))
+  local read = assert(Doc.lookup(public, "Fs.read"))
   assert(read.exact and #read == 1 and support.nth(read, 1).module == "cosmic.fs", listed(read))
-  local page = assert(docs.lookup(public, "cosmic.fs"))
+  local page = assert(Doc.lookup(public, "cosmic.fs"))
   assert(page.exact and #page == 1 and support.nth(page, 1).kind == "module", listed(page))
   local indexed_public, indexed_private = every(true), every(false)
   local names = assert(Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
   local present: mut {string: boolean} = {}
   for _, row in ipairs(names) do present[row:text(1)] = true end
-  assert(present["docs_by_last_name"] == true and present[schema.local_index] == true, table.concat(
+  assert(present["docs_by_last_name"] == true and present[symbols.local_index] == true, table.concat(
     (function(): {string}
       local all: mut {string} = {}
       for name in pairs(present) do all[#all + 1] = name end
@@ -2813,7 +2814,7 @@ local function test_a_module_whose_prose_says_the_word_beats_members_that_take_i
     { "cosmic.sqlite", "Sqlite.Handle", "type", "type Handle = raw.Handle", "An open database.",
       "cosmic/sqlite.tl", "5" },
   }, {})
-  local found = assert(docs.lookup(view({ db }), "Db"))
+  local found = assert(Doc.lookup(view({ db }), "Db"))
   local first = assert(found[1])
   assert(first.module == "cosmic.sqlite" and first.symbol == "", first.module .. " " .. first.symbol)
   assert(db:close())
@@ -2833,7 +2834,7 @@ local function test_a_module_that_mentions_the_word_late_does_not_lead_the_membe
     { "cosmic.web.session.sqlite", "", "module", "", "The SQLite store of sessions.\n\nEach write is one transaction.",
       "cosmic/web/session/sqlite.tl", "1" },
   }, {})
-  local found = assert(docs.lookup(view({ db }), "transaction"))
+  local found = assert(Doc.lookup(view({ db }), "transaction"))
   local first = assert(found[1])
   assert(first.source_symbol == "Sqlite.transact", first.module .. " " .. first.source_symbol)
   assert(db:close())
@@ -2846,7 +2847,7 @@ local function test_a_guide_section_that_only_has_a_longer_word_is_not_offered()
   local db = database({
     { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
   }, {})
-  local found = assert(docs.lookup(view({ db }), "sort"))
+  local found = assert(Doc.lookup(view({ db }), "sort"))
   for _, entry in ipairs(found) do
     assert(entry.kind ~= "section", entry.source_symbol)
   end
@@ -2861,7 +2862,7 @@ local function test_a_short_word_matches_whole_words_and_a_repeated_heading_is_n
   local db = database({
     { "doc.guides.language", "", "module", "", page, "doc/guides/language.md", "1" },
   }, {})
-  local found = assert(docs.lookup(view({ db }), "db"))
+  local found = assert(Doc.lookup(view({ db }), "db"))
   assert(#found == 1, tostring(#found))
   assert(assert(found[1]).source_symbol == "doc.guides.language#again-1", assert(found[1]).source_symbol)
   assert(db:close())
@@ -2886,8 +2887,8 @@ local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
     { "cosmic.a", "A.three", "function", "function A.three()", "Narrowing three.", "cosmic/a.tl", "3" },
     { "cosmic.a", "A.four", "function", "function A.four()", "Narrowing four.", "cosmic/a.tl", "4" },
   }, {})
-  local narrowing = assert(docs.lookup(view({ db }), "narrowing"))
-  local section: docs.Entry? = nil
+  local narrowing = assert(Doc.lookup(view({ db }), "narrowing"))
+  local section: Doc.Entry? = nil
   for _, entry in ipairs(narrowing) do
     if entry.kind == "section" and section == nil then section = entry end
   end
@@ -2896,7 +2897,7 @@ local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
     section.kind .. " " .. section.source_symbol)
   assert(section.text:find("branch it guards", 1, true) ~= nil and not section.text:find("fixed unless", 1, true),
     section.text)
-  local discard = assert(docs.lookup(view({ db }), "discard result"))
+  local discard = assert(Doc.lookup(view({ db }), "discard result"))
   assert(assert(discard[1]).source_symbol == "doc.guides.language#discarding-a-result-on-purpose",
     assert(discard[1]).source_symbol)
   local seen = 0
@@ -2904,8 +2905,231 @@ local function test_a_search_finds_the_section_of_a_guide_that_says_the_word()
     if entry.source_symbol == "doc.guides.language#narrowing" then seen = seen + 1 end
   end
   assert(seen == 1, "a section is offered once, not " .. tostring(seen))
-  local text = table.concat(assert(docs.answer(view({ db }), { "narrowing" })).lines, "\n")
+  local text = table.concat(assert(Doc.answer(view({ db }), { "narrowing" })).lines, "\n")
   assert(text:find("doc.guides.language#narrowing (doc/guides/language.md)", 1, true), text)
   assert(text:find("A test narrows a value", 1, true) ~= nil and not text:find("Rules of the language", 1, true), text)
   assert(db:close())
+end
+
+--- A program's commands, as its tree documents them: a record whose fields are the commands.
+local function commands_tree(): {string: string}
+  return {
+    ["ledger/commands.tl"] = source(
+      "--- What the ledger does.",
+      "local record Commands",
+      "  --- Writes an entry down.",
+      "  add: function()",
+      "  --- Lists what was written.",
+      "  list: function()",
+      "end",
+      "return Commands"),
+  }
+end
+
+--- The commands a view shows the options of are the caller's, not the tool's verbs: a view of a program's
+--- database, told which row documents its `add`, shows that command's options under the row and finds it by a
+--- word only they hold.
+local function test_a_view_shows_and_searches_the_options_of_the_commands_it_is_given(dir: string)
+  local db = built(dir, commands_tree())
+  local seen = assert(Doc.view({ db }))
+  seen.commands = {
+    { name = "spend", module = "ledger.commands", symbol = "add", options = "  --amount <cents>  what was spent" },
+    { name = "list", module = "ledger.commands", symbol = "list" },
+  }
+  local found = assert(Doc.lookup(seen, "Commands.add"))
+  assert(#found == 1, tostring(#found))
+  local page = table.concat(assert(Doc.render(seen, support.nth(found, 1))), "\n")
+  assert(page:find("\n  options:\n    --amount <cents>  what was spent", 1, true), page)
+  local searched = assert(Doc.lookup(seen, "spent"))
+  assert(#searched == 1 and support.nth(searched, 1).source_symbol == "Commands.add", tostring(#searched))
+  -- A command with no options shows none, and no word finds it by them.
+  local bare = assert(Doc.lookup(seen, "Commands.list"))
+  local plain = table.concat(assert(Doc.render(seen, support.nth(bare, 1))), "\n")
+  assert(not plain:find("options:", 1, true), plain)
+  -- The list of every module marks what the view's own judge says of each.
+  seen.marks = function(_: Sqlite.Handle): {string: string}
+    return { ["ledger.commands"] = "private to ledger/" }
+  end
+  local index = table.concat(assert(Doc.answer(seen, {})).lines, "\n")
+  assert(index:find("ledger.commands  (private to ledger/) What the ledger does.", 1, true), index)
+  assert(db:close())
+end
+
+--- A view given no commands and no marks answers from the rows alone: the same row has no options under it, no
+--- word of them finds it, and the list of every module marks none.
+local function test_a_view_given_nothing_of_the_tool_answers_from_the_rows_alone(dir: string)
+  local db = built(dir, commands_tree())
+  local seen = assert(Doc.view({ db }))
+  local found = assert(Doc.lookup(seen, "Commands.add"))
+  local page = table.concat(assert(Doc.render(seen, support.nth(found, 1))), "\n")
+  assert(page:find("Writes an entry down.", 1, true) ~= nil and not page:find("options:", 1, true), page)
+  assert(#assert(Doc.lookup(seen, "spent")) == 0, "a word of no row was found")
+  local index = table.concat(assert(Doc.answer(seen, {})).lines, "\n")
+  assert(index:find("ledger.commands  What the ledger does.", 1, true), index)
+  assert(db:close())
+end
+
+--- A test's pure store holds no documentation, and a view of it raises, naming the declaration that gives the
+--- test the text.
+local function test_a_view_of_a_pure_store_raises_naming_store_text()
+  local db = database({}, {})
+  assert(db:exec("DROP TABLE docs"))
+  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('pure_store', X'31')", {}))
+  local ok, raised = pcall(Doc.view, { db })
+  assert(not ok and tostring(raised):find("store_text = true", 1, true) ~= nil, tostring(raised))
+  -- A database that lacks the table and is no test's store is a trouble to report, not a raise.
+  assert(Sqlite.run(db, "DELETE FROM meta WHERE key = 'pure_store'", {}))
+  local seen, trouble = Doc.view({ db })
+  assert(seen == nil and trouble:find("docs", 1, true) ~= nil, trouble)
+  assert(db:close())
+end
+
+--- A module whose documentation holds the words a misspelled query means.
+local function ledger_tree(): {string: string}
+  return {
+    ["ledger/entries.tl"] = source(
+      "--- The entries of a ledger.",
+      "local record Entries",
+      "end",
+      "--- Reconciles the entries against a bank statement.",
+      "function Entries.settle() end",
+      "--- Applies a policy to every entry of the database, or raises.",
+      "function Entries.govern() end",
+      "--- Compares one entry with another.",
+      "function Entries.weigh() end",
+      "--- Compresses the old entries, and compresses them again.",
+      "function Entries.pack() end",
+      "--- Squeezes what the pack left, in the house style.",
+      "function Entries.press() end",
+      "return Entries"),
+    ["ledger/bank.tl"] = source(
+      "--- A bank, which holds accounts.",
+      "local record Bank",
+      "end",
+      "return Bank"),
+  }
+end
+
+--- The one entry `found` holds, by its name as its file declares it.
+local function only(found: Doc.Lookup): string
+  assert(#found == 1, tostring(#found) .. " entries")
+  return support.nth(found, 1).source_symbol
+end
+
+--- A word no documentation holds is looked up again as the nearest word one does: the lookup finds the row,
+--- says what it looked up, and the page and the JSON record say so too.
+local function test_a_misspelled_word_finds_the_documentation_of_the_word_meant(dir: string)
+  local db = built(dir, ledger_tree())
+  local seen = view({ db })
+  local found = assert(Doc.lookup(seen, "reconclies"))
+  assert(only(found) == "Entries.settle" and not found.exact and found.respelled == "reconciles",
+    tostring(found.respelled))
+  local answer = assert(Doc.answer(seen, { "reconclies" }))
+  local page = table.concat(answer.lines, "\n")
+  assert(answer.found and page:find("Nothing named or documented as 'reconclies'; showing 'reconciles':\n", 1, true) == 1,
+    page)
+  local records = assert(Doc.records(seen, { "reconclies" }))
+  assert(support.nth(records.lines, 1):find('"respelled":"reconciles"', 1, true) ~= nil, support.nth(records.lines, 1))
+  -- A word found as given is looked up as given, in whatever form the index stems alike.
+  for _, given in ipairs({ "reconciles", "reconciling" }) do
+    local as_given = assert(Doc.lookup(seen, given))
+    assert(only(as_given) == "Entries.settle" and as_given.respelled == nil, given)
+  end
+  -- A capital letter is no misspelling.
+  assert(assert(Doc.lookup(seen, "Reconclies")).respelled == "reconciles")
+  assert(db:close())
+end
+
+--- The word meant is a whole word of the documentation, not the stem its index lists it under, so the lookup
+--- of it finds what the stem alone would not ("database" is indexed as "databas", "policy" as "polici",
+--- "raises" as "rais"), and one misspelled word of several is put right among the others.
+local function test_a_misspelling_is_put_right_as_a_whole_word(dir: string)
+  local db = built(dir, ledger_tree())
+  local seen = view({ db })
+  for misspelled, meant in pairs({ databse = "database", polcy = "policy", riases = "raises" }) do
+    local found = assert(Doc.lookup(seen, misspelled))
+    assert(only(found) == "Entries.govern" and found.respelled == meant, misspelled .. ": " .. tostring(found.respelled))
+  end
+  local both = assert(Doc.lookup(seen, "bnak statement"))
+  assert(only(both) == "Entries.settle" and both.respelled == "bank statement", tostring(both.respelled))
+  assert(db:close())
+end
+
+--- A word put right is looked up as that word alone would be, by name before by search: the module a bare
+--- name ends answers its misspelling as it answers the name.
+local function test_a_word_put_right_is_looked_up_as_the_word_itself(dir: string)
+  local db = built(dir, ledger_tree())
+  local seen = view({ db })
+  local named = assert(Doc.lookup(seen, "bank"))
+  local respelled = assert(Doc.lookup(seen, "bnak"))
+  assert(named.exact and support.nth(named, 1).module == "ledger.bank", "the name does not lead with its module")
+  assert(respelled.respelled == "bank" and respelled.exact and #respelled == #named and
+      support.nth(respelled, 1).module == "ledger.bank", tostring(#respelled))
+  -- Where the words put right are carried by no one row, the rows that carry some of them answer.
+  local some = assert(Doc.lookup(seen, "sqeezes house statement"))
+  assert(some.respelled == "squeezes house statement" and some.closest and
+      support.nth(some, 1).source_symbol == "Entries.press", tostring(#some))
+  local page = table.concat(assert(Doc.answer(seen, { "sqeezes", "house", "statement" })).lines, "\n")
+  assert(page:find("No entry has every word of 'squeezes house statement'; closest matches:", 1, true) ~= nil, page)
+  assert(db:close())
+end
+
+--- Nothing is respelled that should not be: a word too far from every word documented, a word too short to
+--- say which was meant, a word a search never requires, and a name with an underscore or a digit, which is code and is
+--- looked up as written though a word within reach of it is documented.
+local function test_a_word_out_of_reach_or_written_as_code_is_not_respelled(dir: string)
+  local db = built(dir, ledger_tree())
+  local seen = view({ db })
+  for _, query in ipairs({ "zzqqxx", "bk", "bnk", "bnak_", "bnak2", "statemnt_" }) do
+    local found = assert(Doc.lookup(seen, query))
+    assert(#found == 0 and found.respelled == nil, query .. ": " .. tostring(#found) .. " " .. tostring(found.respelled))
+  end
+  assert(db:close())
+end
+
+--- A database that lists no words has none to offer: a misspelled word finds nothing in it.
+local function test_a_database_that_lists_no_words_respells_none()
+  local db = database({ { "ledger.entries", "settle", "function", "", "Reconciles the entries.", "ledger/entries.tl", "4" } }, {})
+  local seen = view({ db })
+  assert(#assert(Doc.lookup(seen, "reconclies")) == 0, "a word was respelled from words no build listed")
+  assert(db:exec("INSERT INTO docs_words (word, rows) VALUES ('reconciles', 1)"))
+  assert(assert(Doc.lookup(seen, "reconclies")).respelled == "reconciles")
+  assert(db:exec("DROP TABLE docs_words"))
+  assert(#assert(Doc.lookup(seen, "reconclies")) == 0, "a word was respelled from no list of words")
+  assert(db:close())
+end
+
+--- A hand-made database of one documented function whose text is `written`, listing `words` as a build would.
+local function listing(module: string, written: string, words: {string: integer}): Sqlite.Handle
+  local db = database({ { module, "f", "function", "", written, "x.tl", "1" } }, {})
+  for word, rows in pairs(words) do
+    assert(Sqlite.run(db, "INSERT INTO docs_words (word, rows) VALUES (?1, ?2)", { { text = word }, { integer = rows } }))
+  end
+  return db
+end
+
+--- The word meant is the one the fewest edits away; of several as near, the one more rows carry, then the
+--- first by spelling.
+local function test_the_nearest_word_is_the_one_fewest_edits_away_then_the_commonest()
+  local db = listing("app.till", "A cash cast case compares compress.",
+    { cash = 5, cast = 5, case = 2, compares = 1, compress = 9 })
+  local seen = view({ db })
+  -- "comparse" is one swap from "compares" and two edits from "compress", which more rows carry.
+  assert(assert(Doc.lookup(seen, "comparse")).respelled == "compares")
+  -- "casz" is one edit from all three: "case" has fewer rows, and "cash" is spelled before "cast".
+  assert(assert(Doc.lookup(seen, "casz")).respelled == "cash")
+  assert(db:exec("UPDATE docs_words SET rows = 6 WHERE word = 'cast'"))
+  assert(assert(Doc.lookup(seen, "casz")).respelled == "cast")
+  assert(db:close())
+end
+
+--- The rows that carry a word are counted over every database, so a word two databases each hold a little of
+--- is meant before one a single database holds more of.
+local function test_the_rows_that_carry_a_word_are_counted_over_every_database()
+  local first = listing("app.one", "A form and a fort.", { form = 2, fort = 3 })
+  local second = listing("app.two", "A form again.", { form = 2 })
+  local found = assert(Doc.lookup(view({ first, second }), "forx"))
+  assert(found.respelled == "form", tostring(found.respelled))
+  assert(first:close())
+  assert(second:close())
 end

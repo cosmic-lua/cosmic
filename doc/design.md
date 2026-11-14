@@ -295,9 +295,10 @@ and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
 exact, and reads RFC 8259 unless a caller names JSON5 for the one
 read. it reads; the core's own C walks the document into Lua values and
 writes JSON back, with yyjson printing each float's shortest form.
-Reading the Protocol Buffers wire format moved to C, and writing it is still Teal: a decoder written by hand on the Teal reader took
-180 µs for an 845-byte message of a hundred fields and takes 35 µs on the core's, and nanopb is fuzzed upstream
-(OSS-Fuzz). nanopb reads each key, varint and length, and the core's own C indexes the fields and answers each
+The Protocol Buffers wire format moved to C on both halves: for an 845-byte message of a hundred fields, a decoder
+written by hand on the Teal reader took 180 µs and takes 35 µs on the core's, and the same message written field by field 75 µs and 25 µs.
+nanopb, which is fuzzed upstream (OSS-Fuzz), reads; the writer is the core's own C, a varint and a copy for each
+field, held to the bytes the reference implementation writes. nanopb reads each key, varint and length, and the core's own C indexes the fields and answers each
 by its number and type ([`cosmic.protobuf`]); its generated structures are not used. A varint whose tenth byte
 holds more than the 64th bit is refused, as nanopb refuses it.
 XML starts in C on the same half: expat is fuzzed upstream (OSS-Fuzz),
@@ -1323,7 +1324,7 @@ checkout's `o/`, which an older tool wrote and the build now ignores.
 every directory name is singular: `doc`, not `docs`; `patch`, not
 `patches`. the rule reaches module paths too, since a module that
 grows past one file becomes a directory of the same name:
-`cosmic.docs` is `cosmic.doc` for exactly this reason. the one
+`cosmic.docs` is [`cosmic.doc`] for exactly this reason. the one
 deliberate exception is a CLI verb, `cosmic docs`, since a verb
 names an action and reads differently from a module naming a thing.
 
@@ -1522,6 +1523,7 @@ in [roadmap.md](roadmap.md).
 [`build/embed.tl`]: ../build/embed.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
+[`cosmic.doc`]: ../cosmic/doc.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.protobuf`]: ../cosmic/protobuf/init.tl

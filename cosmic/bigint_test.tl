@@ -571,7 +571,7 @@ local function drawn(seed: string, count: integer): string
   return table.concat(blocks):sub(1, count)
 end
 
---- Holds the six functions for secrets to the plain ones on `x`, `y` and
+--- Holds the seven functions for secrets to the plain ones on `x`, `y` and
 --- the modulus `modulus`, which is not zero: the same numbers, at the
 --- widths the arguments fix.
 local function assert_agreement(x: string, y: string, modulus: string)
@@ -584,6 +584,7 @@ local function assert_agreement(x: string, y: string, modulus: string)
   assert(Bigint.submod(x, y, modulus) == wide(difference, width), where)
   if assert(modulus:byte(-1)) % 2 == 1 then
     assert(Bigint.mulmod(x, y, modulus) == wide(Bigint.mod(Bigint.mul(x, y), modulus), width), where)
+    assert(Bigint.expmod(x, y, modulus) == wide(Bigint.powmod(x, y, modulus), width), where)
   end
   assert(Bigint.product(x, y) == wide(Bigint.mul(x, y), #x + #y), where)
   assert(Bigint.sum(x, y) == wide(Bigint.add(x, y), math.max(#x, #y) + 1), where)
@@ -741,6 +742,29 @@ local function test_arithmetic_for_secrets_agrees_with_the_plain_functions_acros
   end
 end
 
+local function test_arithmetic_for_secrets_agrees_with_the_plain_functions_at_every_count_of_limbs()
+  -- An odd modulus of two limbs or more is reduced by digits of one limb
+  -- fewer, and the constant that does it is a power whose exponent is
+  -- that count: every count to 20 limbs, and operands of fewer digits
+  -- than, as many as and more than a whole number of them.
+  for limbs = 1, 20 do
+    for _, short in ipairs{ 0, 3, 7 } do
+      local length = limbs * 8 - short
+      local modulus = drawn(("limbs %d %d"):format(limbs, short), length)
+      local odd = "\129" .. modulus:sub(2, -2) .. string.char(assert(modulus:byte(-1)) | 1)
+      if length == 1 then odd = "\129" end
+      for _, x_length in ipairs{ length - 9, length - 8, length, length + 1, 2 * length, 3 * length + 5 } do
+        if x_length >= 0 then
+          local x = drawn(("x %d %d"):format(length, x_length), x_length)
+          local y = drawn(("y %d %d"):format(length, x_length), (x_length * 7 + 3) % 40)
+          assert_agreement(x, y, odd)
+          assert_agreement(string.rep("\255", x_length), odd, odd)
+        end
+      end
+    end
+  end
+end
+
 local function test_arithmetic_for_secrets_raises_on_a_zero_modulus()
   local why = Test.raises(function() Bigint.reduce(a, zero) end, "the modulus is zero")
   assert(why:find("bad argument #2 to 'reduce'", 1, true), why)
@@ -804,4 +828,80 @@ local function test_arithmetic_for_secrets_raises_on_a_number_over_its_limit()
   assert(why:find("bad argument #2 to 'reduce'", 1, true), why)
   -- The limit counts the bytes given: zero, written too long, is refused.
   Test.raises(function() Bigint.sum(string.rep("\0", Bigint.operand_bytes + 1), one) end, says)
+end
+
+local function test_expmod_matches_python_at_each_width()
+  assert(Bigint.expmod(v256_base, v256_exponent, p256) == v256_power)
+  assert(Bigint.expmod("\2", v2048_exponent, p2048) == v2048_power)
+  assert(Bigint.expmod("\5", g5_exponent, p3072) == wide(g5_power, #p3072), "the generator to a 256-bit exponent")
+  assert(Bigint.expmod(v3072_base, v3072_exponent, p3072) == wide(v3072_power, #p3072))
+  assert(Bigint.expmod(composite_base, composite_exponent, composite) == wide(composite_power, #composite),
+    "an odd modulus that is not prime")
+end
+
+local function test_expmod_reduces_a_base_that_is_not_below_the_modulus()
+  assert(Bigint.expmod(wide_base, wide_exponent, p2048) == wide(wide_power, #p2048))
+  assert(Bigint.expmod(p2048, "\3", p2048) == string.rep("\0", #p2048), "the modulus itself is zero modulo it")
+  assert(Bigint.expmod(Bigint.add(p256, "\2"), "\5", p256) == wide("\32", #p256), "p + 2 is 2 modulo p")
+  assert(Bigint.expmod(s_wide, s_b, p3072) == wide(Bigint.powmod(s_wide, s_b, p3072), #p3072))
+end
+
+local function test_expmod_answers_at_the_modulus_width_whatever_the_power()
+  local zeros = string.rep("\0", 24)
+  assert(Bigint.expmod(zeros .. v256_base, zeros .. v256_exponent, p256) == v256_power,
+    "leading zero bytes of a base and an exponent change no number")
+  assert(Bigint.expmod(v256_base, v256_exponent, zeros .. p256) == zeros .. v256_power)
+  assert(Bigint.expmod("\4", "\13", n("01f1")) == n("01bd"), "4^13 mod 497 is 445")
+  assert(Bigint.expmod("\2", "\10", n("0000000003e9")) == n("000000000017"), "2^10 mod 1001 is 23")
+  assert(Bigint.expmod("\2", "\3", p3072) == wide("\8", #p3072), "a small power is not a short answer")
+end
+
+local function test_expmod_at_the_edges_of_its_exponent_and_modulus()
+  local unit, nothing = wide(one, #p256), string.rep("\0", #p256)
+  assert(Bigint.expmod(v256_base, zero, p256) == unit, "anything to the power zero is one")
+  assert(Bigint.expmod(v256_base, "", p256) == unit, "the empty exponent is zero")
+  assert(Bigint.expmod(zero, zero, p256) == unit, "zero to the power zero is one, as powmod has it")
+  assert(Bigint.expmod("", "", p256) == unit)
+  assert(Bigint.expmod(zero, v256_exponent, p256) == nothing)
+  assert(Bigint.expmod(one, v256_exponent, p256) == unit)
+  assert(Bigint.expmod(v256_base, one, p256) == v256_base)
+  assert(Bigint.expmod(v256_base, v256_exponent, one) == zero, "everything is zero modulo one")
+  assert(Bigint.expmod(v256_base, zero, one) == zero)
+  assert(Bigint.expmod(v256_base, "", "\0\1") == "\0\0")
+  assert(Bigint.expmod("\2", "\2", "\3") == one, "the smallest odd modulus above one")
+  -- Fermat: a^(p-1) is 1 modulo a prime p that does not divide a.
+  assert(Bigint.expmod(v256_base, assert(Bigint.sub(p256, one)), p256) == unit)
+  assert(Bigint.expmod(assert(Bigint.sub(p256, one)), "\2", p256) == unit, "minus one, squared")
+end
+
+local function test_expmod_at_the_limits()
+  -- As powmod's: 2 has order 8192 modulo 2^8192 - 1, and 8192 divides
+  -- 2^8191, so 2 to the power 2^8191 + 5 is 2^5.
+  local mersenne = string.rep("\255", Bigint.modulus_bytes)
+  local exponent = "\128" .. string.rep("\0", Bigint.modulus_bytes - 2) .. "\5"
+  assert(Bigint.expmod("\2", exponent, mersenne) == wide("\32", Bigint.modulus_bytes))
+  assert(Bigint.expmod(string.rep("\255", Bigint.operand_bytes), one, mersenne) ==
+      string.rep("\0", Bigint.modulus_bytes), "a base of the operand limit")
+  assert(Hash.digest("sha256", Bigint.expmod(drawn("v", Bigint.operand_bytes), one, mersenne)) == lim_mod,
+    "a base of the operand limit whose two halves differ")
+end
+
+local function test_expmod_raises_on_an_even_or_zero_modulus_and_a_number_over_its_limit()
+  local why = Test.raises(function() Bigint.expmod("\3", "\5", "\8") end, "the modulus is even")
+  assert(why:find("bad argument #3 to 'expmod'", 1, true), why)
+  Test.raises(function() Bigint.expmod("\3", "\5", "\2") end, "the modulus is even")
+  Test.raises(function() Bigint.expmod("\3", "\5", s_even) end, "the modulus is even")
+  Test.raises(function() Bigint.expmod("\3", "\5", zero) end, "the modulus is zero")
+  Test.raises(function() Bigint.expmod("\3", "\5", "") end, "the modulus is zero")
+  Test.raises(function() Bigint.expmod("\3", "\5", "\0\0\0") end, "the modulus is zero")
+  local long = string.rep("\1", Bigint.modulus_bytes + 1)
+  why = Test.raises(function()
+    Bigint.expmod(string.rep("\1", Bigint.operand_bytes + 1), one, "\3")
+  end,
+    "the number is longer than 2048 bytes")
+  assert(why:find("bad argument #1 to 'expmod'", 1, true), why)
+  why = Test.raises(function() Bigint.expmod(one, long, "\3") end, "the number is longer than 1024 bytes")
+  assert(why:find("bad argument #2 to 'expmod'", 1, true), why)
+  why = Test.raises(function() Bigint.expmod(one, one, long) end, "the number is longer than 1024 bytes")
+  assert(why:find("bad argument #3 to 'expmod'", 1, true), why)
 end

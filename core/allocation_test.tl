@@ -845,10 +845,31 @@ local function test_protobuf_leaves_nothing_whenever_an_allocation_fails()
     assert(merged:int(2) == 7 and #assert(message:repeated_message(2)) == 2)
     assert(#assert(message:repeated_double(3)) == 2 and #assert(message:repeated_int(4)) == 2)
     assert(#message:repeated_bytes(2) == 2 and #message:fields() == 6)
+    assert(#assert(message:unfit({})) == 6 and message:unfit({}, true) == nil)
     assert(assert(Protobuf.read_varint("\x05")).value == 5)
   end)
   assert(ended > 0, "a message, each string and each list is an allocation")
   assert_c_heap(held, blocks, "reading a message under refusal")
+end
+
+--- A writer's bytes are a userdata of Lua's, replaced by a greater one as fields are written: a refusal while they
+--- grow raises as Lua's own does, and the core's heap holds nothing of a writer.
+local function test_a_protobuf_writer_leaves_nothing_whenever_an_allocation_fails()
+  collectgarbage("collect")
+  local held, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local child = Protobuf.writer():string(1, ("a"):rep(200)):sint(2, -7)
+    local writer = Protobuf.writer():int(1, 5):message(2, child):packed(3, "double", { 1.5, 2.5 })
+      :packed(4, "int", { 1, 2 }):bytes(5, ("b"):rep(500)):fixed32(6, 1):fixed64(7, 1):float(8, 1.5):double(9, 1.5)
+      :bool(10, true)
+    writer:message(11, writer)
+    writer:open(12):bytes(1, ("c"):rep(300)):open(2):int(1, 1):close():close():append(("d"):rep(100))
+    assert(writer:trouble() == "")
+    assert(#assert(writer:encode()) > 700)
+  end)
+  assert(ended > 0, "a writer, its bytes and what it answers are allocations")
+  collectgarbage("collect")
+  assert_c_heap(held, blocks, "writing a message under refusal")
 end
 
 --- Monocypher allocates nothing: a key pair and a signature are worked out
@@ -896,6 +917,7 @@ local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
   -- core's own each, under a guard of its own.
   ended = AllocationFixture.under_every_failure(function()
     local product = Bigint.mulmod("\5", "\200\200", prime)
+    assert(Bigint.expmod("\5", "\200\200", prime) == assert(Bigint.pad(Bigint.powmod("\5", "\200\200", prime), #prime)))
     local sum = Bigint.addmod(product, prime, prime)
     assert(sum == product and Bigint.reduce(sum, prime) == product)
     assert(Bigint.submod(sum, product, prime) == string.rep("\0", #prime))

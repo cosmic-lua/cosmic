@@ -11,6 +11,7 @@ local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local importer = require("build.importer")
 local Hash = require("cosmic.hash")
 local GrammarMode = require("build.grammar_mode")
@@ -1238,7 +1239,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   assert(table.concat(got, ", ") == want, table.concat(got, ", "))
   local view = assert(docs.view({ shipped }))
   for _, query in ipairs({ "Shapes.Box.area", "Box.area", "area" }) do
-    local uses = assert(docs.uses(view, query))
+    local uses = assert(Doc.uses(view, query))
     local lines: mut {string} = {}
     for _, use in ipairs(uses) do
       lines[#lines + 1] = use.from_file .. ":" .. tostring(use.line)
@@ -1246,7 +1247,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
     assert(table.concat(lines, " ") == "main.tl:7 main.tl:8",
       query .. ": " .. table.concat(lines, " "))
   end
-  local tally = assert(docs.uses(view, "Counter.Tally.bump"))
+  local tally = assert(Doc.uses(view, "Counter.Tally.bump"))
   assert(#tally == 1 and tally[1].line == 10, tostring(#tally))
   assert(shipped:close())
   work.close(handle)
@@ -1825,7 +1826,7 @@ local function identity_fixture(case: string): string
     ["cosmic/fs.tl"] = module_requiring({}),
     ["cosmic/removed.tl"] = module_requiring({}),
     ["build/importer.tl"] = module_requiring({ "build.analysis_schema", "build.plans", "build.withheld", "build.tree",
-      "build.work", "build.positions", "build.symbols", "build.caches" }),
+      "build.work", "build.positions", "cosmic.internal.symbols", "build.caches" }),
     ["build/plans.tl"] = module_requiring({ "build.withheld", "build.bind" }),
     ["build/derivation.tl"] = module_requiring({ "build.analysis_schema", "build.cache_names", "build.bind" }),
     ["build/analysis_schema.tl"] = module_requiring({}),
@@ -1837,7 +1838,7 @@ local function identity_fixture(case: string): string
     ["build/work.tl"] = module_requiring({ "build.analysis_schema", "build.todo_scan" }),
     ["build/todo_scan.tl"] = module_requiring({}),
     ["build/positions.tl"] = module_requiring({}),
-    ["build/symbols.tl"] = module_requiring({}),
+    ["cosmic/internal/symbols.tl"] = module_requiring({}),
     ["build/caches.tl"] = module_requiring({ "cosmic.fs", "build.cache_names", "build.zig" }),
     ["build/zig.tl"] = module_requiring({ "cosmic.fs" }),
   }
@@ -1882,7 +1883,7 @@ local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   local original = identities_of(root)
   assert(identities_of(root)[1] == original[1], "a second open moved the identity")
   for _, path in ipairs({ "build/importer.tl", "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
-      "build/symbols.tl", "build/caches.tl", "build/zig.tl",
+      "cosmic/internal/symbols.tl", "build/caches.tl", "build/zig.tl",
       "cosmic/fs.tl", "cosmic/removed.tl" }) do
     edit(root, path)
     local after = identities_of(root)
@@ -1985,6 +1986,8 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.work"] = "stages the tree and keeps the records; " ..
       "the schema a parse's rows are shaped by is build.analysis_schema's",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.library_record"] = "reads what the binary records of the library for that check of positions, which fails a " ..
+      "whole build before any key is looked up, and stores nothing",
     ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
       "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
@@ -2046,7 +2049,7 @@ local function test_the_writer_modules_are_closed_under_require()
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs({ "build.writer", "build.identity", "build.schema", "build.bom",
-      "build.roots", "build.tree", "build.bind", "build.symbols",
+      "build.roots", "build.tree", "build.bind", "cosmic.internal.symbols",
       "cosmic.sqlite", "cosmic.codec", "cosmic.store" }) do
     assert(covered[name] == true, name .. " is not in the writer's identity: " ..
         table.concat(modules, ", "))
@@ -2072,6 +2075,8 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
+    ["build.library_record"] = "reads what the binary records of the library for the importer's check of positions, " ..
+      "which refuses a build and fills no row",
     ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",

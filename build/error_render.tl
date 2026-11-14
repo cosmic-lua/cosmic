@@ -26,7 +26,7 @@ local Driver = require("build.driver")
 local ParseDerive = require("build.parse_derive")
 local RemovedFix = require("build.removed_fix")
 local Sqlite = require("cosmic.sqlite")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 
 local record ErrorRender
   --- The databases a pointer looks a name up in, and whether each is read as the public standard library, asked for only

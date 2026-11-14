@@ -1,9 +1,10 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local fixture = require("build.docs_fixture")
 local link_resolve = require("build.link_resolve")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 local links = require("build.links")
 local Node = require("build.syntax_node")
 local SyntaxLinks = require("build.syntax_links")
@@ -976,7 +977,7 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
       "",
       "return other"),
   })
-  local context = links.context(dir, function(): docs.View?, string
+  local context = links.context(dir, function(): Doc.View?, string
     return docs.view({ db })
   end, function(): string? return nil end)
   same(checked(context, dir .. "/a.md", "markdown", lines(
@@ -1025,7 +1026,7 @@ local function test_one_declaration_is_one_answer_and_two_spelled_alike_are_told
   assert(Fs.mkdirs(dir .. "/lib/rundb"))
   for path, text in pairs(files) do assert(Fs.write(dir .. "/" .. path, text)) end
   local db = fixture.database(dir, files)
-  local context = links.context(dir, function(): docs.View?, string
+  local context = links.context(dir, function(): Doc.View?, string
     return docs.view({ db })
   end, function(): string? return nil end)
   same(checked(context, dir .. "/a.md", "markdown", lines(
@@ -1071,7 +1072,7 @@ local function test_a_member_through_a_required_modules_type_resolves(dir: strin
       "",
       "return User"),
   })
-  local context = links.context(dir, function(): docs.View?, string
+  local context = links.context(dir, function(): Doc.View?, string
     return docs.view({ db })
   end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(
@@ -1108,7 +1109,7 @@ local function test_a_module_typed_by_another_record_answers_its_fields(dir: str
       "",
       "return module"),
   })
-  local context = links.context(dir, function(): docs.View?, string
+  local context = links.context(dir, function(): Doc.View?, string
     return docs.view({ db })
   end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(

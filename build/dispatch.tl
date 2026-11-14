@@ -38,7 +38,7 @@ local log = logger.log
 local function verb_help(verbs: {string}, binary_only?: boolean): {string: string}
   local Cli = require("cosmic.cli")
   local docs = require("build.docs")
-  local link_text = require("build.link_text")
+  local link_text = require("cosmic.internal.link_text")
   local sources: docs.Sources
   if binary_only == true then
     local handles = require("cosmic.store").databases()
@@ -60,7 +60,7 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
   for _, verb in ipairs(verbs) do
     names[#names + 1] = "Cli." .. verb
   end
-  local found, trouble = docs.named_all(view, names)
+  local found, trouble = require("cosmic.doc").named_all(view, names)
   for _, verb in ipairs(verbs) do
     local symbol = "Cli." .. verb
     local text: string? = nil
