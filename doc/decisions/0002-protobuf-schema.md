@@ -221,7 +221,7 @@ fields from the root, which is built only on failure: `protobuf: Protocol.conten
 
 ### cost
 
-measured on the slice with a stand-in for the wire codec, a 951-byte message, six runs on a shared host whose times
+measured on the slice with a stand-in for the wire codec, a 951-byte message, five runs on a shared host whose times
 moved by a third between runs. the ratios below are the spread of those runs:
 
 - the code the build writes costs what careful hand-written code costs: from 8% faster to 17% slower to encode, and
