@@ -223,7 +223,7 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing and HMAC; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
+hashing, HMAC, authenticated encryption and X25519; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
 regex engine, both planned; the syscall table; the database VFS and the
 entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
@@ -352,8 +352,9 @@ is a reserved name: a path under `cosmic.internal.` never satisfies
 an ordinary `require`, for any caller, which is stronger than
 positional privacy and is where every raw C binding that is not
 itself the public surface belongs, not only these three: the process
-table behind [`cosmic.child`] and [`cosmic.proc`], and the hash table
-behind [`cosmic.hash`], are the same shape. `internal` means not
+table behind [`cosmic.child`] and [`cosmic.proc`], the hash table
+behind [`cosmic.hash`], and the cipher table behind [`cosmic.cipher`],
+are the same shape. `internal` means not
 declared or documented for a program to use, not unreachable. Teal
 modules live there too, as `cosmic/internal/<name>.tl`, the machinery
 cosmic's own modules share and a user should not see. They are ordinary
@@ -1163,7 +1164,11 @@ PSA API, with randomness from the OS rather than the library's own
 entropy and DRBG modules. [`cosmic.hash`] is the Teal face of it, the
 raw [`cosmic.internal.hash`] table's `digest`, `hmac` and streaming
 hasher the bindings, and every SQLite
-handle knows the same functions, so a query hashes in place. the TLS
+handle knows the same functions, so a query hashes in place. the
+crypto subtree serves authenticated encryption (ChaCha20-Poly1305) and X25519 key
+agreement the same way: [`cosmic.cipher`] over the raw
+[`cosmic.internal.cipher`] table, each key in a PSA key slot for one
+computation. the TLS
 1.2 and 1.3 client under [`cosmic.http`] (curl over c-ares and mbedtls)
 comes from the same library and the same configuration: one header,
 [`core/mbedtls_cosmic_config.h`], which every file that includes an
@@ -1426,6 +1431,7 @@ in [roadmap.md](roadmap.md).
 [`core/syscalls.h`]: ../core/syscalls.h
 [`cosmic.archive`]: ../cosmic/archive.tl
 [`cosmic.child`]: ../cosmic/child.tl
+[`cosmic.cipher`]: ../cosmic/cipher.tl
 [`cosmic.clock`]: ../cosmic/clock.tl
 [`cosmic.env`]: ../cosmic/env.tl
 [`cosmic.errors`]: ../cosmic/errors.tl
@@ -1433,6 +1439,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.hash`]: ../cosmic/hash.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
+[`cosmic.internal.cipher`]: ../cosmic/internal/cipher.d.tl
 [`cosmic.internal.errors`]: ../cosmic/internal/errors.d.tl
 [`cosmic.internal.hash`]: ../cosmic/internal/hash.d.tl
 [`cosmic.internal.process`]: ../core/process.h
