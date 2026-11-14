@@ -2546,7 +2546,9 @@ local function test_a_project_s_public_module_is_not_the_library_s(dir: string)
   local seen = assert(docs.view({ project, binary }, { false, true }))
   local found = assert(docs.lookup(seen, "sql"))
   local got: mut {string} = {}
-  for _, entry in ipairs(found) do got[#got + 1] = entry.module .. "|" .. entry.symbol .. "|" .. entry.source_symbol end
+  for _, entry in ipairs(found) do
+    got[#got + 1] = entry.module .. "|" .. entry.symbol .. "|" .. entry.source_symbol
+  end
   assert(support.nth(found, 1).source_symbol == "Cli.sql", "the verb comes first: " .. table.concat(got, ", "))
   assert(found.verb == nil, "a project's module of a verb's name stands in for the verb")
   local library = assert(docs.answer(seen, { "cosmic" }))
