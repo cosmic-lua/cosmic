@@ -52,11 +52,11 @@ local function test_cosmic_s_own_tool_is_named_and_copied(tmp: string)
   local tool = support.build_dir(root) .. "/bin/cosmic"
   assert(Fs.mkdirs(Fs.dirname(tool)))
   assert(Fs.write(tool, "#!/bin/sh\necho the tool\n", 0x1ed))
-  local named, trouble = embed.own_tool(root)
+  local named, trouble = embed.tree_tool(root)
   assert(named == tool, trouble)
   assert(Fs.exists(root .. "/cosmic") == false, "with no out, nothing is written")
   local out = tmp .. "/dist/nested"
-  local again, copy_trouble = embed.own_tool(root, out)
+  local again, copy_trouble = embed.tree_tool(root, out)
   assert(again == tool, copy_trouble)
   assert(assert(Fs.read(out .. "/cosmic")) == assert(Fs.read(tool)), "the copy differs from the tool")
   assert(assert(Fs.stat(out .. "/cosmic")).mode & 0x49 == 0x49, "the copy is not executable")
@@ -67,11 +67,34 @@ local function test_cosmic_s_own_tree_with_no_tool_names_the_boot(tmp: string)
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root))
   local out = tmp .. "/dist"
-  local named, trouble = embed.own_tool(root, out)
+  local named, trouble = embed.tree_tool(root, out)
   assert(named == nil, "a tool was named where there is none")
   assert(trouble:find(support.build_dir(root) .. "/bin/cosmic", 1, true) ~= nil and
       trouble:find("bin/zig build boot", 1, true) ~= nil, trouble)
   assert(Fs.exists(out) == false, "a directory was made for a copy that was not written")
+end
+
+--- The verb in cosmic's own tree answers for the tool and builds no program: `--out` gets the copy, and what
+--- chooses among a project's programs (`--host`, `--roots`, a path) is refused as a command line, writing nothing.
+local function test_build_in_cosmic_s_own_tree_takes_out_alone(tmp: string)
+  local root = tmp .. "/tree"
+  assert(Fs.mkdirs(root .. "/core") and Fs.mkdirs(root .. "/cmd/hello"))
+  assert(Fs.write(root .. "/cmd/hello/main.tl", "return function(): integer return 0 end\n"))
+  local tool = support.build_dir(root) .. "/bin/cosmic"
+  assert(Fs.mkdirs(Fs.dirname(tool)))
+  assert(Fs.write(tool, "#!/bin/sh\necho the tool\n", 0x1ed))
+  local own = assert(tree.built_from(root))
+  for _, words in ipairs({ { "--host" }, { "--roots", "mozilla" }, { "cmd/hello" } }) do
+    local argv = { "build", "--out", tmp .. "/refused" }
+    for _, word in ipairs(words) do argv[#argv + 1] = word end
+    assert(embed.run(argv, root, own) == 2, table.concat(words, " ") .. " was taken")
+  end
+  assert(Fs.exists(tmp .. "/refused") == false, "a refused command line wrote a copy")
+  assert(embed.run({ "build", "--out", tmp .. "/dist" }, root, own) == 0)
+  assert(assert(Fs.read(tmp .. "/dist/cosmic")) == assert(Fs.read(tool)), "the copy differs from the tool")
+  assert(Fs.exists(support.build_dir(root) .. "/bin/hello") == false, "a program of the tree was built")
+  assert(Fs.remove(tool))
+  assert(embed.run({ "build" }, root, own) == 1, "a tree with no tool answered for one")
 end
 
 --- A tool booted for the host's core alone makes no portable program: it

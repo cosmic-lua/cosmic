@@ -15,7 +15,7 @@
 ---
 --- cosmic's own tree is not embedded this way: `bin/zig build boot`
 --- builds the tool, and `cosmic build` there prints its path
---- ([`embed.own_tool`]).
+--- ([`embed.tree_tool`]).
 
 local build_paths = require("build.paths")
 local Cli = require("cosmic.cli")
@@ -792,13 +792,16 @@ end
 --- checkout's build directory, so it is held to no tree ([`tree.own_tool`]): it runs a project as a release does,
 --- with the cores the tool carries. Nil and why where there is no tool or the copy cannot be written.
 --- @param out a directory, made if missing, to write the copy to
-function embed.own_tool(root: string, out?: string): string?, string
+function embed.tree_tool(root: string, out?: string): string?, string
   local tool = build_paths.resolve(root).tool
-  local program, read_trouble = Fs.read(tool)
-  if program == nil then
-    return nil, "no tool at " .. tool .. " (" .. read_trouble .. "); run bin/zig build boot"
+  local st, stat_trouble = Fs.stat(tool)
+  if st == nil or st.kind ~= "file" then
+    return nil, "no tool at " .. tool .. " (" .. (if st == nil then stat_trouble else "not a file" end) ..
+      "); run bin/zig build boot"
   end
   if out ~= nil then
+    local program, read_trouble = Fs.read(tool)
+    if program == nil then return nil, read_trouble end
     local made, made_trouble = Fs.mkdirs(out)
     if not made then return nil, "--out " .. out .. " cannot be created: " .. made_trouble end
     local copied, copy_trouble = Fs.write(out .. "/cosmic", program, 0x1ed)
@@ -819,7 +822,7 @@ local function run_own(argv: {string}, root: string, parsed: Flags.Parsed, out: 
   end
   local code = require("build.reboot").stale_exit(argv, false, root)
   if code ~= nil then return code end
-  local tool, trouble = embed.own_tool(root, out)
+  local tool, trouble = embed.tree_tool(root, out)
   if tool == nil then
     log:complain("build: " .. trouble)
     return 1
@@ -843,7 +846,9 @@ end
 --- refusals and the programs not made are named, the earlier executable of each such program is removed
 --- (it would run old code), and the exit status is [`exit_status.uncompiled`]. In cosmic's own tree it prints
 --- the tool ([`run_own`]).
-local function run(argv: {string}): integer
+--- @param at the tree's root, the working directory by default
+--- @param carried the `built_from` the tool carries, as [`tree.standing`] takes it
+function embed.run(argv: {string}, at?: string, carried?: string): integer
   local started = Clock.monotonic_ns()
   local parsed, parse_trouble = Flags.parse(argv, 2, assert(Cli.verbs.build.spec)) -- checked: map_field
   if parsed == nil then
@@ -856,7 +861,7 @@ local function run(argv: {string}): integer
     log:complain("build: --roots takes minimal or mozilla, not " .. roots:sub(1, 40))
     return 2
   end
-  local root, root_trouble = Fs.absolute(".")
+  local root, root_trouble = Fs.absolute(at or ".")
   if root == nil then
     log:complain(root_trouble)
     return 1
@@ -871,7 +876,7 @@ local function run(argv: {string}): integer
     end
     out = directory
   end
-  local standing, standing_trouble = tree.standing(root)
+  local standing, standing_trouble = tree.standing(root, carried)
   if standing == nil then
     log:complain(standing_trouble)
     return 1
@@ -879,7 +884,7 @@ local function run(argv: {string}): integer
   if standing.own then return run_own(argv, root, parsed, out, started) end
   local outcome: importer.Outcome = { refused = false }
   local report: embed.Report = { unbuilt = {}, removed = {}, refusal = "" }
-  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, nil, outcome, out,
+  local names, trouble = embed.tree(root, host, narrow.paths(root, parsed.words), roots, carried, outcome, out,
     report)
   -- The refusals are named whatever else happens; a failure to read, stage or write is 1 and outranks them
   -- ([`exit_status.uncompiled`] is for a run that failed only because a file did not compile).
@@ -919,7 +924,7 @@ embed.spec = {
   name = "build",
   guide = "none: builds a program for shipping, which doc/guides/portable-runtime.md covers; the quickstart does not",
   tests = { "build.embed_test", "build.embed_tool_test", "build.embed_portable_tool_test" },
-  run = function(argv: {string}): integer return run(argv) end,
+  run = function(argv: {string}): integer return embed.run(argv) end,
   bare = false,
   takes = "the files or directories to act on",
 }
