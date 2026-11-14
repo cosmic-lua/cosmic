@@ -35,6 +35,10 @@ local function test_a_mistyped_verb_is_named(tmp: string)
   assert(far.stderr == "cosmic: no such verb or file: frobnicate; see `cosmic help`\n", far.stderr)
   local eval = cosmic(tmp, { "evla" })
   assert(eval.stderr == "cosmic: no such verb or file: evla; see `cosmic help`\n", eval.stderr)
+  -- A verb spelled as an option is the guess for a mistyped option.
+  local version = cosmic(tmp, { "--versoin" })
+  assert(version.code == 2 and version.stderr:find(
+    "cosmic: no such option: --versoin; did you mean --version?\n", 1, true) == 1, version.stderr)
 end
 
 --- A test's worker is cosmic's main's to start (cmd/cosmic/main.tl),

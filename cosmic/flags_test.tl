@@ -539,6 +539,9 @@ local function test_a_refusal_names_what_was_probably_meant()
     local got, why = Flags.parse({ "fix", case.word }, 2, described)
     assert(got == nil and why == case.why, why)
   end
+  -- A spec that names no "--help" has none to mean.
+  local _, unhelped = Flags.parse({ "--hlep" }, 1, described)
+  assert(unhelped == "no such option: --hlep", unhelped)
   local commands: {string:Flags.Command} = {
     build = { spec = { ["--jobs"] = true }, usage = "[options] <target>" },
     clean = {},
@@ -547,6 +550,9 @@ local function test_a_refusal_names_what_was_probably_meant()
     { line = { "biuld" }, why = "no such command: biuld; did you mean build?" },
     { line = { "help", "claen" }, why = "no such command: claen; did you mean clean?" },
     { line = { "deploy" }, why = "no such command: deploy" },
+    -- What dispatch answers itself is named as a command's own is.
+    { line = { "hlep" }, why = "no such command: hlep; did you mean help?" },
+    { line = { "clean", "--hlep" }, why = "clean: no such option: --hlep; did you mean --help?; usage: prog clean" },
     { line = { "build", "--jbos", "2" },
       why = "build: no such option: --jbos; did you mean --jobs?; usage: prog build [options] <target>" },
     { line = { "clean", "--jobs" }, why = "clean: no such option: --jobs; usage: prog clean" },

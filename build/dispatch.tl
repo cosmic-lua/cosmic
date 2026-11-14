@@ -872,7 +872,9 @@ function Dispatch.main(argv: {string}): integer
   -- default command for a first word that names none: a file run
   -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
   -- refuse as options) and `-e`, `--standalone` and `--version` are
-  -- verbs by no command name.
+  -- verbs by no command name. Until then a verb parses its own line, so
+  -- its refusal of a mistyped "--help" (`cosmic fix --hlep`) names
+  -- nothing, where Flags.dispatch's says "did you mean --help?".
   local command = Cli.verbs[verb]
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
@@ -968,7 +970,9 @@ function Dispatch.main(argv: {string}): integer
       log:complain("cosmic " .. verb .. " was removed: " .. retired)
       return 2
     end
-    log:complain("no such option: " .. verb)
+    local spelled: mut {string} = { "--help" }
+    for option in pairs(as_option) do spelled[#spelled + 1] = option end
+    log:complain("no such option: " .. verb .. meant(verb, spelled))
     log:complain("`cosmic help` is the whole discovery surface")
     return 2
   end

@@ -221,56 +221,23 @@ local function keys<V>(map: {string:V}): {string}
   return out
 end
 
---- Parses command line options. Reads `argv` from slot `from` on: 1
---- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
---- `spec` maps each option, written as it is typed ("--check", "-v"), to
---- whether it takes a value: `true` or `false`, or a [`Flags.Option`], which
---- takes one when it names its `value`. The value is the next word, or
---- what follows "=" in the same word for a "--" option or a one-dash
---- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
---- "--" ends the options: every word after it is a word even when it
---- begins with "-", as a negative number must. A file run as `cosmic
---- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
---- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
---- words. Write `cosmic f.tl --email x`.
----
---- A word with one "-" that the spec does not name whole is a cluster of
---- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
---- letter that takes a value takes the rest of the word ("-n3", "-vn3";
---- "-n=3" is "=3", as getopt has it) or, at the word's end, the next
---- word ("-vn 3"). A letter in a cluster is one ASCII letter or digit;
---- a spec may name "-foo" or "-é" whole, and then that word is that
---- option, never a cluster.
----
---- Answers nil and why for an option the spec does not name ("no such
---- option: --chek; did you mean --check?", the names [`Flags.nearest`]
---- answers for it, when any is near), a value
---- given to one that takes none, an option the spec marks `required` that
---- the line does not give ("--jobs is required"; the first by name when
---- several are missing), or one whose value is missing: the end
---- of the line, or a next word that looks like an option -- one that
---- begins with "-" and is not a lone "-" or a number `tonumber` reads
---- ("-1", "-0.5"; not "-inf") -- so a mistyped option ("--jobs --chek")
---- is never read as a value. A value that begins with "-" is given in
---- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
---- not an option ("x", "-", "--"), or that holds an "=" no word could
---- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
---- @param argv {string} The command line: the words after the program's name, as typed
---- @param from integer The first slot to read
---- @param spec {string:boolean|Option} Each option, and whether it takes a value
---- @return Parsed | nil What the line held
---- @return string Why it was refused, or "" when it was not
-function Flags.parse(argv: {string}, from: integer,
-                     spec: {string:boolean | Flags.Option}): Flags.Parsed?, string
+--- [`Flags.parse`], for it and for [`Flags.dispatch`], whose commands take
+--- options no spec names ("--help"): `also` holds those, for a refusal to
+--- name beside the spec's when a mistyped option is near one.
+local function read(argv: {string}, from: integer, spec: {string:boolean | Flags.Option},
+                    also: {string}): Flags.Parsed?, string
   for name in pairs(spec) do
     if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) ~= nil then
-      error("flags: " .. name .. " is not an option a spec can name", 2)
+      error("flags: " .. name .. " is not an option a spec can name", 3)
     end
     local entry = spec[name]
     if entry is Flags.Option and entry.value == "" then -- checked: is_on_record
-      error("flags: " .. name .. "'s value name is empty", 2)
+      error("flags: " .. name .. "'s value name is empty", 3)
     end
   end
+  local known: mut {string} = {}
+  for name in pairs(spec) do known[#known + 1] = name end
+  for _, name in ipairs(also) do known[#known + 1] = name end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
   local cursor: integer = from
   local function flag(name: string)
@@ -320,7 +287,7 @@ function Flags.parse(argv: {string}, from: integer,
       if name == nil then name = word end
       local entry = spec[name]
       if entry == nil then
-        return nil, "no such option: " .. name .. meant(name, keys(spec))
+        return nil, "no such option: " .. name .. meant(name, known)
       elseif takes_value(entry) then
         local trouble = valued(name, value, if #name > 2 then "=" else "" end)
         if trouble ~= "" then
@@ -332,7 +299,7 @@ function Flags.parse(argv: {string}, from: integer,
         flag(name)
       end
     elseif spec[word:sub(1, 2)] == nil then
-      return nil, "no such option: " .. word .. meant(word, keys(spec))
+      return nil, "no such option: " .. word .. meant(word, known)
     else
       local at = 2
       while at <= #word do
@@ -342,9 +309,9 @@ function Flags.parse(argv: {string}, from: integer,
         if letter == "=" then
           return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
         elseif not letter:match("^%w$") then
-          return nil, "no such option: " .. word .. meant(word, keys(spec))
+          return nil, "no such option: " .. word .. meant(word, known)
         elseif entry == nil then
-          return nil, "no such option: " .. name .. " in " .. word .. meant(word, keys(spec))
+          return nil, "no such option: " .. name .. " in " .. word .. meant(word, known)
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
           local trouble = valued(name, if rest ~= "" then rest else nil end, "")
@@ -371,6 +338,50 @@ function Flags.parse(argv: {string}, from: integer,
     return nil, first .. " is required"
   end
   return parsed, ""
+end
+
+--- Parses command line options. Reads `argv` from slot `from` on: 1
+--- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
+--- `spec` maps each option, written as it is typed ("--check", "-v"), to
+--- whether it takes a value: `true` or `false`, or a [`Flags.Option`], which
+--- takes one when it names its `value`. The value is the next word, or
+--- what follows "=" in the same word for a "--" option or a one-dash
+--- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
+--- "--" ends the options: every word after it is a word even when it
+--- begins with "-", as a negative number must. A file run as `cosmic
+--- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
+--- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
+--- words. Write `cosmic f.tl --email x`.
+---
+--- A word with one "-" that the spec does not name whole is a cluster of
+--- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
+--- letter that takes a value takes the rest of the word ("-n3", "-vn3";
+--- "-n=3" is "=3", as getopt has it) or, at the word's end, the next
+--- word ("-vn 3"). A letter in a cluster is one ASCII letter or digit;
+--- a spec may name "-foo" or "-é" whole, and then that word is that
+--- option, never a cluster.
+---
+--- Answers nil and why for an option the spec does not name ("no such
+--- option: --chek; did you mean --check?", the names [`Flags.nearest`]
+--- answers for it, when any is near), a value
+--- given to one that takes none, an option the spec marks `required` that
+--- the line does not give ("--jobs is required"; the first by name when
+--- several are missing), or one whose value is missing: the end
+--- of the line, or a next word that looks like an option -- one that
+--- begins with "-" and is not a lone "-" or a number `tonumber` reads
+--- ("-1", "-0.5"; not "-inf") -- so a mistyped option ("--jobs --chek")
+--- is never read as a value. A value that begins with "-" is given in
+--- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
+--- not an option ("x", "-", "--"), or that holds an "=" no word could
+--- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
+--- @param argv {string} The command line: the words after the program's name, as typed
+--- @param from integer The first slot to read
+--- @param spec {string:boolean|Option} Each option, and whether it takes a value
+--- @return Parsed | nil What the line held
+--- @return string Why it was refused, or "" when it was not
+function Flags.parse(argv: {string}, from: integer,
+                     spec: {string:boolean | Flags.Option}): Flags.Parsed?, string
+  return read(argv, from, spec, {})
 end
 
 --- How many characters `text` shows as: its UTF-8 characters, or its
@@ -535,7 +546,8 @@ end
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
 --- hold -- an option before the command is one; "no such command: biuld;
---- did you mean build?" where [`Flags.nearest`] answers any -- or a line the
+--- did you mean build?" where [`Flags.nearest`] answers any, of the
+--- commands and "help", as of a command's options and "--help" -- or a line the
 --- command's spec refuses, or a command with no `run`. A line the spec
 --- refuses is answered with the command's name, the refusal and its usage
 --- line -- "build: --jobs is required; usage: prog build [options] <file>"
@@ -596,13 +608,15 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   local command = commands[name]
   if command == nil then
-    return nil, "no such command: " .. name .. meant(name, keys(commands))
+    local known: mut {string} = { "help" }
+    for held in pairs(commands) do known[#known + 1] = held end
+    return nil, "no such command: " .. name .. meant(name, known)
   end
   local spec = command.spec or {}
   if Flags.asks_help(argv, from + 1, spec) then
     return { code = 0, help = Flags.help(command, program .. " " .. name) }, ""
   end
-  local parsed, why = Flags.parse(argv, from + 1, spec)
+  local parsed, why = read(argv, from + 1, spec, { "--help" })
   if parsed == nil then
     local usage_line = Flags.help(command, program .. " " .. name):match("^[^\n]*") or ""
     return nil, name .. ": " .. why .. "; " .. usage_line
