@@ -16,7 +16,18 @@
     # main takes changes only through the merge queue, which waits on
     # the `ci` check for the queued merge commit.
     merge_group: {},
-    workflow_dispatch: {},
+    # A dispatch with `fixed_point` also runs the fixed-point regression,
+    # as Sunday's scheduled run does (COSMIC_CI_FIXED_POINT below).
+    workflow_dispatch: {
+      inputs: {
+        fixed_point: {
+          description: "Run the fixed-point regression on every leg",
+          type: "boolean",
+          required: false,
+          default: false,
+        },
+      },
+    },
     # Every day, the run that tests macOS and publishes a prerelease
     # (prerelease.yml): every leg and job, on the verdicts main's pushes
     # left. On Sundays (the second line), also every test run whatever
@@ -83,8 +94,9 @@
         COSMIC_CI_CHECKED_SUITE: "skip",
         COSMIC_CI_FORMAT: "skip",
         # The slowest fixture, the same on every platform (some 275 s on
-        # the x86-64 legs): the weekly run (Sunday's) alone (phase_fixtures).
-        COSMIC_CI_FIXED_POINT: "${{ github.event.schedule == '41 3 * * 0' && 'run' || 'skip' }}",
+        # the x86-64 legs): the weekly run (Sunday's) and a dispatch that
+        # asks for it (`fixed_point`) alone (phase_fixtures).
+        COSMIC_CI_FIXED_POINT: "${{ (github.event.schedule == '41 3 * * 0' || inputs.fixed_point) && 'run' || 'skip' }}",
         # The small fixtures run beside the self-driven one, within one
         # worker budget of the leg's processors (phase_fixtures,
         # `fixture_lanes`): the two Linux legs whose fixture step the

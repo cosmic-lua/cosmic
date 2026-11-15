@@ -1933,7 +1933,8 @@ local function phase_fixtures(p: PlatformContext): integer
   -- (about 275 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
   -- why), and what it checks, that the compiler compiles itself to
   -- itself, is the same on every platform. So no gating run runs it (ci.yml sets
-  -- COSMIC_CI_FIXED_POINT=skip); main's scheduled run runs it on every
+  -- COSMIC_CI_FIXED_POINT=skip); main's Sunday scheduled run, and a
+  -- dispatch with ci.yml's `fixed_point` input, run it on every
   -- leg.
   if Env.get("COSMIC_CI_FIXED_POINT") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: fixed-point-regression: skipped on this leg " ..
