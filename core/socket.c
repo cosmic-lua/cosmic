@@ -33,6 +33,8 @@
 #include <sys/proc_info.h>
 #endif
 #if defined(__linux__)
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <netpacket/packet.h>
 #endif
 
@@ -1102,7 +1104,13 @@ static void interfaces_release (void *resource) {
 /* The index of the interface `name` of `list`, 0 where the system names
  * none. Linux reads it from the interface's link-layer entry: its
  * if_nametoindex is an ioctl, which a sandboxed process's filter refuses.
- * An address's entry may be named by its label, the interface's name and
+ * A link with no hardware address (a tun device such as tailscale0 or a
+ * WireGuard interface, ARPHRD_NONE) has no link-layer address in its
+ * entry, since musl's getifaddrs gives one only from an IFLA_ADDRESS of at
+ * most 24 bytes, so its index is
+ * asked of the kernel by name over a NETLINK_ROUTE socket, which the
+ * filter lets through wherever it lets getifaddrs's own through. An
+ * address's entry may be named by its label, the interface's name and
  * then ":" and an alias ("eth0:1"), which is the interface's all the same. */
 static lua_Integer interface_named (const struct ifaddrs *list, const char *name) {
 #if defined(__linux__)
@@ -1113,7 +1121,45 @@ static lua_Integer interface_named (const struct ifaddrs *list, const char *name
       return ((const struct sockaddr_ll *)entry->ifa_addr)->sll_ifindex;
     }
   }
-  return 0;
+  /* TODO: give this a test that reaches it on every Linux leg, once a
+   * test's sandbox can make a link with no hardware address (a tun device):
+   * CI's links all have one, so only a host with such a link (tailscale0)
+   * enters it, through cosmic/net_multicast_test.tl. */
+  if (size >= IFNAMSIZ) return 0;
+  struct {
+    struct nlmsghdr header;
+    struct ifinfomsg link;
+    char attribute[RTA_SPACE(IFNAMSIZ)];
+  } request;
+  memset(&request, 0, sizeof request);
+  struct rtattr *named = (struct rtattr *)request.attribute;
+  named->rta_type = IFLA_IFNAME;
+  named->rta_len = (unsigned short)RTA_LENGTH(size + 1);
+  memcpy(RTA_DATA(named), name, size);
+  request.header.nlmsg_len = NLMSG_LENGTH(sizeof request.link) + RTA_ALIGN(named->rta_len);
+  request.header.nlmsg_type = RTM_GETLINK;
+  request.header.nlmsg_flags = NLM_F_REQUEST;
+  request.link.ifi_family = AF_UNSPEC;
+  int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+  if (fd < 0) return 0;
+  /* The answer is one RTM_NEWLINK, or an NLMSG_ERROR where no link has the
+   * name; only its header and ifinfomsg are read, and the attributes after
+   * them are cut off. The kernel queues it before send returns, so the
+   * receive does not wait for one that is not there. */
+  union {
+    struct nlmsghdr header;
+    char bytes[NLMSG_SPACE(sizeof(struct ifinfomsg))];
+  } reply;
+  ssize_t got = -1;
+  if (send(fd, &request, request.header.nlmsg_len, 0) == (ssize_t)request.header.nlmsg_len) {
+    do {
+      got = recv(fd, &reply, sizeof reply, MSG_DONTWAIT);
+    } while (got < 0 && errno == EINTR);
+  }
+  close(fd);
+  if (got < (ssize_t)NLMSG_LENGTH(sizeof(struct ifinfomsg)) || reply.header.nlmsg_type != RTM_NEWLINK)
+    return 0;
+  return ((const struct ifinfomsg *)NLMSG_DATA(&reply.header))->ifi_index;
 #else
   (void)list;
   return (lua_Integer)if_nametoindex(name);
