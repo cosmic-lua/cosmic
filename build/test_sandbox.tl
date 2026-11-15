@@ -211,7 +211,12 @@ local parent_place <const> = "/tree-up"
 --- ([`build.test_key`]'s `worker_environment`), a worker of `effective`
 --- may read: the pinned ones and those it declares, as the runner has
 --- them, with TMPDIR its scratch directory, the one it can write to, and
---- COSMIC_BUILD_HOME beneath it.
+--- COSMIC_BUILD_HOME beneath it. TZ is "UTC" for a worker that does not
+--- declare it: with TZ unset, [`cosmic.time`] reads the host's zone from
+--- /etc/localtime, which an unsandboxed worker can read and its key does
+--- not hold, so a test would print another time on another host. One that
+--- declares TZ has the runner's, and reads the host's zone where it also
+--- declares /etc/localtime ([`cosmic.time`]'s example does both).
 local function passed(environment: {string:string},
                       effective: test_inputs.Effective): mut {string:string}
   local out: mut {string:string} = {}
@@ -222,6 +227,7 @@ local function passed(environment: {string:string},
   out["COSMIC_TEST_NOEXEC"], out["COSMIC_TEST_PARENT"] = nil, nil
   if effective.noexec_ready == true then out["COSMIC_TEST_NOEXEC"] = "/noexec" end
   if #(effective.parent or {}) > 0 then out["COSMIC_TEST_PARENT"] = parent_place end
+  if effective.env["TZ"] ~= true then out["TZ"] = "UTC" end
   out["TMPDIR"] = test_sandbox.scratch
   out["COSMIC_BUILD_HOME"] = build_home
   -- The cores of its own a worker that declares the `bootstrap` cache
