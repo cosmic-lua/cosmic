@@ -271,10 +271,10 @@ end
 --- [`cosmic.cli.groups`] names, and where to read more.
 local function index_help(): string
   -- TODO: write the index through Flags.program_help, which lists every
-  -- command with its `about`, in sections by `group`, in the order and
-  -- with the prose around them that a Flags.Program gives. It waits on
-  -- that help showing a usage per command in place of its name, as
-  -- `cosmic help` shows each verb today.
+  -- command with its `about`, in sections by `group`, in the order
+  -- [`Flags.Documented.groups`] gives and with its `intro` and `closing`
+  -- around them. It waits on that help taking a usage per command in place
+  -- of its name, as `cosmic help` shows each verb today.
   local Cli = require("cosmic.cli")
   local width = 0
   for _, verb in ipairs(Cli.order) do

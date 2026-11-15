@@ -665,6 +665,43 @@ local function test_dispatch_raises_for_a_see_that_names_no_other_command()
   assert(assert(Flags.dispatch({ "build", "-h" }, 1, helped, "prog")).help == "usage: prog build\n\nsee also: help")
 end
 
+--- The sections of a program's help come in the order the program gives their titles, a title it does not give
+--- after them by name, and the help of a program that says where its documentation is says how to search it.
+local function test_the_programs_help_orders_its_sections_as_told()
+  local commands: {string:Flags.Command} = {
+    add = { about = "adds", group = "Writing" },
+    list = { about = "lists", group = "Reading" },
+    audit = { about = "audits", group = "Checks" },
+    zap = { about = "zaps", group = "Aftermath" },
+  }
+  local ran = assert(Flags.dispatch({ "--help" }, 1, commands, "prog", { groups = { "Writing", "Reading" } }))
+  local last = 0
+  for _, title in ipairs({ "Writing", "Reading", "Aftermath", "Checks" }) do
+    local at = assert(ran.help:find("\n" .. title .. ":\n", 1, true), title .. ": " .. ran.help)
+    assert(at > last, title .. " is out of its place: " .. ran.help)
+    last = at
+  end
+  local closing = "\nRun `prog docs <words>` to search the documentation, `prog docs` to list it."
+  assert(ran.help:sub(-#closing) == closing, ran.help)
+  -- A program that says nothing of its documentation has the titles by name, no `docs`, and the help it had.
+  local plain = assert(Flags.dispatch({ "--help" }, 1, commands, "prog"))
+  assert(assert(plain.help:find("\nAftermath:\n", 1, true)) < assert(plain.help:find("\nWriting:\n", 1, true)))
+  assert(not plain.help:find("docs", 1, true), plain.help)
+  local ran_docs, why = Flags.dispatch({ "docs" }, 1, commands, "prog")
+  assert(ran_docs == nil and why == "no such command: docs", why)
+end
+
+--- A program with a command of its own named `docs` runs it, whatever it says of its documentation.
+local function test_a_command_named_docs_is_the_programs_own()
+  local commands: {string:Flags.Command} = {
+    docs = { about = "opens the manual", run = function(_: Flags.Parsed): integer return 7 end },
+  }
+  local ran = assert(Flags.dispatch({ "docs", "x" }, 1, commands, "prog", { groups = {} }))
+  assert(ran.code == 7 and ran.help == "")
+  local help = assert(Flags.dispatch({ "help" }, 1, commands, "prog", { groups = {} }))
+  assert(not help.help:find("search the documentation", 1, true), help.help)
+end
+
 local wide: Flags.Command = {
   about = "Counts the lines of each file.",
   usage = "[options] <file>...",
@@ -729,9 +766,9 @@ local function test_help_wraps_an_option_past_the_width()
 end
 
 local function test_program_help_takes_an_order_an_intro_topics_and_a_closing()
-  local program: Flags.Program = {
+  local program: Flags.Documented = {
     intro = "Counts what files hold.",
-    order = { "Reports", "Counting" },
+    groups = { "Reports", "Counting" },
     topics = { globs = { about = "How a file is named by a pattern.", text = "A glob names files.", see = { "count" } } },
     closing = "`prog help <command or topic>` says more.",
   }
@@ -759,16 +796,14 @@ local function test_program_help_takes_an_order_an_intro_topics_and_a_closing()
   assert(assert(Flags.dispatch({ "help" }, 1, paged, "prog", program)).help == index)
   -- With none of it, the index is the one dispatch answers with none.
   assert(Flags.program_help("prog", paged) == assert(Flags.dispatch({ "--help" }, 1, paged, "prog")).help)
-  assert(Flags.program_help("prog", paged, {}) == Flags.program_help("prog", paged))
+  -- Given at all, the index says how to search the documentation.
+  assert(Flags.program_help("prog", paged, {}) == Flags.program_help("prog", paged) ..
+      "\nRun `prog docs <words>` to search the documentation, `prog docs` to list it.")
   -- An order that leaves a title out lists it after, by title; a closing
   -- of "" ends with the last section.
-  local partial = Flags.program_help("prog", paged, { order = { "Reports" }, closing = "" })
+  local partial = Flags.program_help("prog", paged, { groups = { "Reports" }, closing = "" })
   assert(partial:find("Reports:.*Counting:.*other commands:") ~= nil, partial)
   assert(partial:sub(-#"Says which build this is.") == "Says which build this is.", partial)
-  Test.raises(function() Flags.program_help("prog", paged, { order = { "Nope" } }) end,
-    "the order names a group no command is in: Nope")
-  Test.raises(function() Flags.program_help("prog", paged, { order = { "Reports", "Reports" } }) end,
-    "the order names a group twice: Reports")
 end
 
 local function test_program_help_wraps_what_a_command_does_past_the_width()
@@ -779,7 +814,7 @@ local function test_program_help_wraps_what_a_command_does_past_the_width()
   -- With no width the index is unwrapped.
   assert(Flags.program_help("p", commands) ==
       "usage: p <command>\n\ncommands:\n  a  Short.\n  b  A longer line on what this does, past the width.")
-  assert(Flags.program_help("p", commands, { width = 30 }) == table.concat({
+  assert(Flags.program_help("p", commands, { width = 30, closing = "" }) == table.concat({
     "usage: p <command>",
     "",
     "commands:",
@@ -799,7 +834,7 @@ local function test_dispatch_answers_a_topic_and_lets_see_name_one()
   local commands: {string:Flags.Command} = {
     pair = { about = "Pairs with a device.", see = { "pairing" }, run = run },
   }
-  local program: Flags.Program = {
+  local program: Flags.Documented = {
     topics = {
       pairing = { about = "how a device is paired with", text = "Once, for each protocol.", see = { "pair", "exit" } },
       exit = { text = "0 is success." },
@@ -829,7 +864,7 @@ end
 
 local function test_dispatch_raises_for_a_topic_that_clashes_or_sees_nothing()
   local commands: {string:Flags.Command} = { pair = {}, scan = { see = { "pairing" } } }
-  local function topics(named: {string:Flags.Topic}): Flags.Program
+  local function topics(named: {string:Flags.Topic}): Flags.Documented
     return { topics = named }
   end
   Test.raises(function() Flags.dispatch({ "pair" }, 1, commands, "prog") end,
@@ -842,6 +877,10 @@ local function test_dispatch_raises_for_a_topic_that_clashes_or_sees_nothing()
     Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = {}, help = {} }))
   end,
     "the topic help is named as a command is")
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = {}, docs = {} }))
+  end,
+    "the topic docs is named as a command is")
   Test.raises(function()
     Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = { see = { "nope" } } }))
   end,
@@ -886,40 +925,30 @@ end
 
 local function test_a_name_too_wide_with_nothing_beside_it_stands_alone()
   local commands: {string:Flags.Command} = { a = { about = "First." } }
-  local program: Flags.Program = { topics = { [string.rep("t", 90)] = {} } }
+  local program: Flags.Documented = { topics = { [string.rep("t", 90)] = {} }, closing = "" }
   local long = string.rep("t", 90)
   -- Unwrapped, every row shares the widest name's column; within a width,
   -- the name with nothing beside it stands alone and the rest keep theirs.
   assert(Flags.program_help("p", commands, program) ==
       "usage: p <command>\n\ncommands:\n  a" .. string.rep(" ", 89) .. "  First.\n\ntopics:\n  " .. long)
-  assert(Flags.program_help("p", commands, { topics = program.topics, width = 80 }) ==
+  assert(Flags.program_help("p", commands, { topics = program.topics, width = 80, closing = "" }) ==
       "usage: p <command>\n\ncommands:\n  a  First.\n\ntopics:\n  " .. long)
 end
 
-local function test_dispatch_raises_for_a_bad_order_or_topic_whatever_the_line()
+local function test_dispatch_raises_for_a_topic_named_nothing_whatever_the_line()
   local ran = 0
   local function run(_: Flags.Parsed): integer
     ran = ran + 1
     return 0
   end
-  local commands: {string:Flags.Command} = { build = { run = run, group = "Making" } }
-  Test.raises(function()
-    Flags.dispatch({ "build" }, 1, commands, "prog", { order = { "Nope" } })
-  end,
-    "the order names a group no command is in: Nope")
-  Test.raises(function() Flags.dispatch({ "build" }, 1, commands, "prog", { order = { "" } }) end,
-    "the order names a group no command is in: ")
-  Test.raises(function()
-    Flags.dispatch({ "build" }, 1, commands, "prog", { order = { "Making", "Making" } })
-  end,
-    "the order names a group twice: Making")
+  local commands: {string:Flags.Command} = { build = { run = run } }
   Test.raises(function()
     Flags.dispatch({ "build" }, 1, commands, "prog", { topics = { [""] = {} } })
   end,
     "a topic's name is empty")
   assert(ran == 0)
   -- A topic may see "help", which dispatch answers itself.
-  local program: Flags.Program = { topics = { usage = { text = "How to ask.", see = { "help" } } } }
+  local program: Flags.Documented = { topics = { usage = { text = "How to ask.", see = { "help" } } } }
   assert(assert(Flags.dispatch({ "help", "usage" }, 1, commands, "prog", program)).help ==
       "usage\n\nHow to ask.\n\nsee also: help")
   local _, why = Flags.dispatch({ "help", "usage", "more" }, 1, commands, "prog", program)
@@ -937,7 +966,7 @@ local function test_a_program_s_own_help_command_answers_help_with_topics()
       end,
     },
   }
-  local program: Flags.Program = { topics = { pairing = { text = "Once." } } }
+  local program: Flags.Documented = { topics = { pairing = { text = "Once." } } }
   local ran = assert(Flags.dispatch({ "help", "pairing" }, 1, commands, "prog", program))
   assert(ran.code == 0 and ran.help == "" and asked[1] == "pairing")
 end

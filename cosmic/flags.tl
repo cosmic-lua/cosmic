@@ -25,11 +25,12 @@
 --- [`Flags.help`] writes a command's help from it. [`Flags.dispatch`] reads a
 --- command first -- `prog build --jobs 4` -- parses the rest with that
 --- command's own spec, and answers `--help` from the same descriptions.
---- A [`Flags.Program`] adds what a program's help holds beyond its
+--- A [`Flags.Documented`] adds what a program's help holds beyond its
 --- commands -- topics, the order of its groups, the text around its
 --- index -- for [`Flags.dispatch`] and [`Flags.program_help`] alike.
 
 local Distance = require("cosmic.internal.distance")
+local type Doc = require("cosmic.doc")
 
 local record Flags
   --- One option described, for a spec to name and [`Flags.help`] to show.
@@ -123,32 +124,32 @@ local record Flags
     see?: {string}
   end
 
-  --- What a program's help says beyond its commands, for
-  --- [`Flags.program_help`] and [`Flags.dispatch`]. Every field may be
-  --- nil, and a program that gives none, or no record, has the help it
-  --- would have without.
-  record Program
-    --- What follows the index's usage line, before its sections: a
-    --- paragraph or more, printed as written.
+  --- What [`Flags.dispatch`] reads of the program's documentation, for a program that documents its commands
+  --- as it documents its code: in doc comments, which the build indexes and the built program carries. Given
+  --- one, even an empty one, the program answers `docs`.
+  record Documented
+    --- The module whose record documents the commands: the doc comment on its field `add` is the page of the
+    --- command `add`, shown after what [`Flags.help`] writes of it. The record may be the commands themselves,
+    --- each field a [`Flags.Command`], which the program then hands to [`Flags.dispatch`] by name. A command
+    --- with no such field has that help alone, as every command has where the documentation holds no such
+    --- module: one a directory keeps to itself or under `internal/`, whose documentation no program carries.
+    pages?: string
+    --- The titles of the sections of the program's help ([`Flags.Command`]'s `group`), in the order to show
+    --- them; a title not among them follows, those in order by title. In order by title when nil.
+    groups?: {string}
+    --- What follows the index's usage line, before its sections: a paragraph or more, printed as written.
     intro?: string
-    --- The group titles of the index in the order they are listed in.
-    --- A title no command names, or one given twice, raises; titles
-    --- left out follow, in order by title. In order by title when nil.
-    order?: {string}
-    --- The program's topics, by the word `help` takes for each. A name
-    --- that is "", a command's, or "help" raises. A program with a
-    --- command named "help" answers `prog help` itself, so
-    --- [`Flags.dispatch`] prints no topic for it: that command can, with
+    --- The program's topics, by the word `help` takes for each. A name that is "", a command's, "help", or
+    --- "docs" where [`Flags.dispatch`] answers it raises. A program with a command named "help" answers
+    --- `prog help` itself, so [`Flags.dispatch`] prints no topic for it: that command can, with
     --- [`Flags.topic_help`].
     topics?: {string:Topic}
-    --- What the index ends with, printed as written, in place of the line
-    --- that says how to ask for a command's options; "" for nothing
-    --- there. That line when nil.
+    --- What the index ends with, printed as written, in place of the lines that say how to ask for a
+    --- command's options and how to search the documentation; "" for nothing there. Those lines when nil.
     closing?: string
-    --- The columns a line of help may reach, for a command's examples
-    --- and options and the index alike, laid out as [`Flags.help`] lays
-    --- out examples. When nil, examples keep within 80 and the rest are
-    --- not wrapped.
+    --- The columns a line of help may reach, for a command's examples and options and the index alike,
+    --- laid out as [`Flags.help`] lays out examples. When nil, examples keep within 80 and the rest are not
+    --- wrapped.
     width?: integer
   end
 end
@@ -659,26 +660,6 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
   return table.concat(parts, "\n")
 end
 
---- Why `order` cannot order the groups of `commands`: a title no command
---- names (or ""), or one given twice; "" when it can.
-local function order_trouble(commands: {string:Flags.Command}, order: {string}): string
-  local held: mut {string:boolean} = {}
-  for _, command in pairs(commands) do
-    local title = command.group
-    if title ~= nil and title ~= "" then held[title] = true end
-  end
-  local placed: mut {string:boolean} = {}
-  for _, title in ipairs(order) do
-    if held[title] == nil then
-      return "the order names a group no command is in: " .. title
-    elseif placed[title] == true then
-      return "the order names a group twice: " .. title
-    end
-    placed[title] = true
-  end
-  return ""
-end
-
 --- A topic's page, as `prog help <topic>` prints it: its name and
 --- `about` ("pairing: how a device is paired with"), its `text`, and
 --- its `see` names after "see also:". Each part is left out where it is
@@ -716,13 +697,15 @@ end
 --- none come last, under "other commands:". Where any command takes
 --- options, it ends with a line that says how to ask for a command's.
 ---
---- `about` adds to that, each field where given: `intro` after the usage
---- line, the sections in its `order`, its `topics` under "topics:" after
---- the commands, by name, and its `closing` in place of the last line.
---- One column holds every section's names, topics' among them, and where
---- `width` is given what each does is laid out within it as
---- [`Flags.help`] lays out examples. A title of `order` that no command
---- names, or one given twice, raises.
+--- `documented` adds to that, each field where given: `intro` after the
+--- usage line, the sections in the order of its `groups`, its `topics`
+--- under "topics:" after the commands, by name, and its `closing` in
+--- place of the last lines. Given at all, and where `commands` holds no
+--- `docs`, the index ends with a line that says how to search the
+--- documentation, which [`Flags.dispatch`] then answers. One column holds
+--- every section's names, topics' among them, and where `width` is given
+--- what each does is laid out within it as [`Flags.help`] lays out
+--- examples.
 ---
 ---     usage: prog <command> [options]
 ---
@@ -740,14 +723,14 @@ end
 ---     `prog help <command or topic>` says more.
 --- @param program string What the help calls the program
 --- @param commands {string:Command} Each command, by the word that names it
---- @param about? Program What the help says beyond the commands
+--- @param documented? Documented What the help says beyond the commands
 --- @return string The help, without a newline after the last line
 function Flags.program_help(program: string, commands: {string:Flags.Command},
-                            about?: Flags.Program): string
-  local told: Flags.Program = about or {}
+                            documented?: Flags.Documented): string
+  local told: Flags.Documented = documented or {}
   local names: mut {string} = {}
   local sections: mut {string: mut {Row}} = {}
-  local named: mut {string} = {}
+  local titles: mut {string} = {}
   local every: mut {Row} = {}
   local any_options = false
   for name in pairs(commands) do names[#names + 1] = name end
@@ -762,28 +745,24 @@ function Flags.program_help(program: string, commands: {string:Flags.Command},
       local rows = sections[title]
       if rows == nil then
         sections[title] = { row }
-        if title ~= "" then named[#named + 1] = title end
+        if title ~= "" then titles[#titles + 1] = title end
       else
         rows[#rows + 1] = row
       end
       every[#every + 1] = row
     end
   end
-  table.sort(named)
-  local order = told.order or {}
-  local trouble = order_trouble(commands, order)
-  if trouble ~= "" then
-    error("flags: " .. trouble, 2)
+  -- The titles the caller orders come first, in its order.
+  local placed: mut {string: integer} = {}
+  for place, title in ipairs(told.groups or {}) do
+    if placed[title] == nil then placed[title] = place end
   end
-  local titles: mut {string} = {}
-  local placed: mut {string:boolean} = {}
-  for _, title in ipairs(order) do
-    placed[title] = true
-    titles[#titles + 1] = title
-  end
-  for _, title in ipairs(named) do
-    if placed[title] == nil then titles[#titles + 1] = title end
-  end
+  table.sort(titles, function(a: string, b: string): boolean
+    local at_a, at_b = placed[a], placed[b]
+    if at_a ~= nil and at_b ~= nil then return at_a < at_b end
+    if at_a ~= nil or at_b ~= nil then return at_a ~= nil end
+    return a < b
+  end)
   local topic_rows: mut {Row} = {}
   local topics = told.topics or {}
   for _, name in ipairs(sorted(keys(topics))) do
@@ -823,9 +802,16 @@ function Flags.program_help(program: string, commands: {string:Flags.Command},
       lines[#lines + 1] = ""
       lines[#lines + 1] = closing
     end
-  elseif any_options then
+    return table.concat(lines, "\n")
+  end
+  if any_options then
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Run `" .. program .. " <command> --help` for a command's options."
+  end
+  if documented ~= nil and commands["docs"] == nil then
+    if not any_options then lines[#lines + 1] = "" end
+    lines[#lines + 1] = "Run `" .. program .. " docs <words>` to search the documentation, `" .. program ..
+      " docs` to list it."
   end
   return table.concat(lines, "\n")
 end
@@ -852,6 +838,94 @@ function Flags.asks_help(argv: {string}, from: integer,
   return false
 end
 
+--- The program's documentation as [`cosmic.doc`] answers from it: the rows of the program's own store, with each
+--- command a field of the pages record documents shown with its options. The modules are required here, when
+--- a program asks, so one that never asks loads neither; its build carries both all the same.
+local function documentation(program: string, commands: {string:Flags.Command},
+                             documented: Flags.Documented): Doc.View?, string
+  local library = require("cosmic.doc")
+  local view, trouble = library.program(require("cosmic.store").databases(), program)
+  if view == nil then
+    return nil, trouble
+  end
+  local pages = documented.pages
+  if pages == nil then
+    return view, ""
+  end
+  local described: mut {Doc.Command} = {}
+  for _, name in ipairs(sorted(keys(commands))) do
+    local row, row_trouble = library.member(view, pages, name)
+    if row == nil and row_trouble ~= "" then
+      return nil, row_trouble
+    end
+    if row ~= nil then
+      local command = commands[name]
+      local spec = command and command.spec
+      local options = if spec ~= nil and next(spec) ~= nil then Flags.options(spec) else nil end
+      described[#described + 1] = { name = name, module = row.module, symbol = row.symbol, options = options }
+    end
+  end
+  view.commands = described
+  return view, ""
+end
+
+--- The help of the command `name`: what [`Flags.help`] writes of it, then the doc comment of its field of the
+--- pages record, where `documented` names one and the field has a comment.
+local function command_help(program: string, name: string, commands: {string:Flags.Command},
+                            documented?: Flags.Documented): string?, string
+  local help = Flags.help(assert(commands[name]), program .. " " .. name, documented and documented.width)
+  local pages = documented and documented.pages
+  if documented == nil or pages == nil then
+    return help, ""
+  end
+  local view, trouble = documentation(program, commands, documented)
+  if view == nil then
+    return nil, trouble
+  end
+  local library = require("cosmic.doc")
+  local row, row_trouble = library.member(view, pages, name)
+  if row == nil and row_trouble ~= "" then
+    return nil, row_trouble
+  end
+  local comment = if row ~= nil then library.shown(row.text) else "" end
+  return if comment ~= "" then help .. "\n\n" .. comment else help end, ""
+end
+
+--- The help of the `docs` command [`Flags.dispatch`] answers itself.
+local function docs_help(program: string): string
+  return "usage: " .. program .. " docs [words...]\n\n" ..
+    "What the program's documentation says of the words: a module or a symbol by its name, or the pages\n" ..
+    "that hold the words. With no words, every module there is."
+end
+
+--- What `prog docs <words...>` answers: the page [`cosmic.doc`] writes of the words from the program's own
+--- documentation, or nil and why when they name and find nothing. It takes no option but `--help`.
+local function docs_answer(argv: {string}, from: integer, program: string, commands: {string:Flags.Command},
+                           documented: Flags.Documented): Flags.Dispatched?, string
+  if Flags.asks_help(argv, from, {}) then
+    return { code = 0, help = docs_help(program) }, ""
+  end
+  local parsed, why = read(argv, from, {}, { "--help" })
+  if parsed == nil then
+    return nil, "docs: " .. why .. "; usage: " .. program .. " docs [words...]"
+  end
+  local view, trouble = documentation(program, commands, documented)
+  if view == nil then
+    return nil, "docs: " .. trouble
+  end
+  local answer, answer_trouble = require("cosmic.doc").answer(view, parsed.words)
+  if answer == nil then
+    return nil, "docs: " .. answer_trouble
+  end
+  if not answer.found then
+    return nil, "docs: " .. answer.said
+  end
+  local lines: mut {string} = {}
+  for _, line in ipairs(answer.lines) do lines[#lines + 1] = line end
+  while lines[#lines] == "" do lines[#lines] = nil end
+  return { code = 0, help = table.concat(lines, "\n") }, ""
+end
+
 --- Runs the command named at `argv[from]`: parses the words after it
 --- with that command's spec, as `Flags.parse(argv, from + 1, spec)`
 --- would, and answers what its `run` answers. Answers nil and why, run
@@ -866,8 +940,8 @@ end
 --- first line of a multi-line `usage` is shown. Empty
 --- `commands` raises, as does a command whose `see` names itself or no
 --- command of `commands` ("help" is one, held or not) or topic of
---- `about`'s, a topic whose `see` names itself or neither, or a topic
---- named as a command is or "help", whatever the line: a caller's
+--- `documented`'s, a topic whose `see` names itself or neither, or a
+--- topic named "" or as a command is, whatever the line: a caller's
 --- mistake, met by its first run. The first such command by name is the
 --- one named, then the first such topic.
 ---
@@ -879,11 +953,23 @@ end
 --- before any "--" -- even as what would be an option's value, which
 --- [`Flags.parse`] refuses anyway. Each command's help is [`Flags.help`]'s,
 --- from its spec, `usage`, `about`, `examples` and `see`; the program's
---- is [`Flags.program_help`]'s, from `commands` and `about`. `help`
---- given more than one word is refused. Where `about` holds topics, `prog
---- help <topic>` answers [`Flags.topic_help`]'s page, and a word `help`
---- is given that is neither is refused as "no such command or topic",
---- with the names of both near it.
+--- is [`Flags.program_help`]'s, from `commands` and `documented`. `help`
+--- given more than one word is refused. Where `documented` holds topics,
+--- `prog help <topic>` answers [`Flags.topic_help`]'s page, and a word
+--- `help` is given that is neither is refused as "no such command or
+--- topic", with the names of both near it.
+---
+--- With `documented`, the program answers from its own documentation, which
+--- `cosmic build` carries in it ([`Flags.Documented`]). A command's help
+--- ends with the doc comment of its field of the `pages` record. `docs`,
+--- where `commands` holds no command of that name, answers what
+--- [`cosmic.doc`] writes of the words after it: a module or a symbol the
+--- program documents, by name, else the doc comments and guides that hold
+--- the words, a misspelled word put right; with no words, every module
+--- documented. Words that name and find nothing are refused, as a command
+--- that is none is. The program's help says `docs` is there, and orders
+--- its sections as `groups` gives them, within its `width`. A test of either reads the
+--- documentation, so it declares `Test.policy { store_text = true }`.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
 ---     if ran == nil then Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
@@ -895,46 +981,41 @@ end
 --- @param program string What help calls the program ("prog" in `prog build
 ---   --help`): not read from `argv`, which holds the words after the program's
 ---   name
---- @param about? Program What the program's help says beyond its commands:
----   its topics, the order of its groups, the text around its index and
----   the width help is laid out in
+--- @param documented Documented | nil Where the program's documentation is, its topics, and how its help is
+---   ordered, worded and laid out; nil for a program that answers from its commands' records alone
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
 function Flags.dispatch(argv: {string}, from: integer,
                         commands: {string:Flags.Command}, program: string,
-                        about?: Flags.Program): Flags.Dispatched?, string
+                        documented?: Flags.Documented): Flags.Dispatched?, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
   end
-  local told: Flags.Program = about or {}
-  local topics = told.topics or {}
-  local width = told.width
+  local topics = documented and documented.topics or {}
   for _, held in ipairs(sorted(keys(commands))) do
     local command = commands[held]
     local see = if command ~= nil then command.see else nil end
     if see ~= nil then
       for _, other in ipairs(see) do
-        if other == held or (commands[other] == nil and other ~= "help" and topics[other] == nil) then
+        local answered = other == "help" or (other == "docs" and documented ~= nil) or topics[other] ~= nil
+        if other == held or (commands[other] == nil and not answered) then
           error("flags: " .. held .. "'s see names no other command: " .. other, 2)
         end
       end
     end
   end
-  local trouble = order_trouble(commands, told.order or {})
-  if trouble ~= "" then
-    error("flags: " .. trouble, 2)
-  end
   for _, held in ipairs(sorted(keys(topics))) do
     if held == "" then
       error("flags: a topic's name is empty", 2)
-    elseif commands[held] ~= nil or held == "help" then
+    elseif commands[held] ~= nil or held == "help" or (held == "docs" and documented ~= nil) then
       error("flags: the topic " .. held .. " is named as a command is", 2)
     end
     local topic = topics[held]
     local see = if topic ~= nil then topic.see else nil end
     if see ~= nil then
       for _, other in ipairs(see) do
-        if other == held or (commands[other] == nil and other ~= "help" and topics[other] == nil) then
+        local answered = other == "help" or other == "docs" or topics[other] ~= nil
+        if other == held or (commands[other] == nil and not answered) then
           error("flags: the topic " .. held .. "'s see names no other command or topic: " .. other, 2)
         end
       end
@@ -950,22 +1031,32 @@ function Flags.dispatch(argv: {string}, from: integer,
       return nil, if next(topics) ~= nil then "help: one command or topic at a time" else "help: one command at a time" end
     end
     if asked == nil then
-      return { code = 0, help = Flags.program_help(program, commands, told) }, ""
+      return { code = 0, help = Flags.program_help(program, commands, documented) }, ""
     end
     local asked_command = commands[asked]
-    if asked_command == nil then
-      local asked_topic = topics[asked]
-      if asked_topic ~= nil then
-        return { code = 0, help = Flags.topic_help(asked_topic, asked) }, ""
-      elseif next(topics) ~= nil then
-        local known: mut {string} = {}
-        for held in pairs(commands) do known[#known + 1] = held end
-        for held in pairs(topics) do known[#known + 1] = held end
-        return nil, "no such command or topic: " .. asked .. meant(asked, known)
-      end
-      return nil, "no such command: " .. asked .. meant(asked, keys(commands))
+    if asked_command == nil and asked == "docs" and documented ~= nil then
+      return { code = 0, help = docs_help(program) }, ""
     end
-    return { code = 0, help = Flags.help(asked_command, program .. " " .. asked, width) }, ""
+    local asked_topic = topics[asked]
+    if asked_command == nil and asked_topic ~= nil then
+      return { code = 0, help = Flags.topic_help(asked_topic, asked) }, ""
+    end
+    if asked_command == nil then
+      local held: mut {string} = {}
+      if documented ~= nil then held[#held + 1] = "docs" end
+      for other in pairs(commands) do held[#held + 1] = other end
+      for other in pairs(topics) do held[#held + 1] = other end
+      local what = if next(topics) ~= nil then "no such command or topic: " else "no such command: " end
+      return nil, what .. asked .. meant(asked, held)
+    end
+    local asked_help, asked_trouble = command_help(program, asked, commands, documented)
+    if asked_help == nil then
+      return nil, "help: " .. asked_trouble
+    end
+    return { code = 0, help = asked_help }, ""
+  end
+  if name == "docs" and documented ~= nil and commands["docs"] == nil then
+    return docs_answer(argv, from + 1, program, commands, documented)
   end
   if name == nil then
     local names: mut {string} = {}
@@ -976,12 +1067,17 @@ function Flags.dispatch(argv: {string}, from: integer,
   local command = commands[name]
   if command == nil then
     local known: mut {string} = { "help" }
+    if documented ~= nil and commands["docs"] == nil then known[#known + 1] = "docs" end
     for held in pairs(commands) do known[#known + 1] = held end
     return nil, "no such command: " .. name .. meant(name, known)
   end
   local spec = command.spec or {}
   if Flags.asks_help(argv, from + 1, spec) then
-    return { code = 0, help = Flags.help(command, program .. " " .. name, width) }, ""
+    local help, help_trouble = command_help(program, name, commands, documented)
+    if help == nil then
+      return nil, name .. ": " .. help_trouble
+    end
+    return { code = 0, help = help }, ""
   end
   local parsed, why = read(argv, from + 1, spec, { "--help" })
   if parsed == nil then
