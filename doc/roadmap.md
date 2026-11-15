@@ -388,8 +388,8 @@ promises lean on come first:
   - In [`cosmic.protobuf.schema`], which declares a message once as a record:
     map fields (`{string: T}`, written in key order) and `oneof` groups; two
     records that hold each other, which the build
-    refuses and a codec declared before it is defined would allow; a field's
-    declared default; and a `.proto` file read to write the records and the
+    refuses and a codec declared before it is defined would allow; a default
+    of an enum field; and a `.proto` file read to write the records and the
     `message_of` calls.
   - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
     proto2 writes. A group has no length: its end is found by reading every
