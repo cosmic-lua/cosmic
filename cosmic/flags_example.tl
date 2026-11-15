@@ -222,4 +222,84 @@ function Example.pages()
   }, "\n"))
 end
 
+--- A program's index with more than its commands, as
+--- [`Flags.dispatch`] answers it from a [`Flags.Documented`]: an opening, the
+--- groups in an order of its own, topics that `help` prints and `see` may
+--- name, and a last line of its own. [`Flags.program_help`] writes the
+--- same index, and [`Flags.topic_help`] the same page, for a program that
+--- reads its own line or has a `help` command of its own.
+function Example.topics()
+  local commands: {string:Flags.Command} = {
+    report = { about = "Totals a ledger file.", group = "Reading", see = { "formats" } },
+    add = { about = "Adds an amount to a ledger file.", group = "Writing" },
+  }
+  local formats: Flags.Topic = {
+    about = "The files a ledger reads.",
+    text = "A ledger is a CSV file: a date, an amount and a note on each line.",
+    see = { "report" },
+  }
+  local program: Flags.Documented = {
+    before = "usage: ledger <command>\n\nKeeps a ledger in plain files.",
+    groups = { "Writing", "Reading" },
+    topics = { formats = formats },
+    after = "`ledger help <command or topic>` says more.",
+  }
+  local index = assert(Flags.dispatch({ "help" }, 1, commands, "ledger", program)).help
+  print(index)
+  assert(index == table.concat({
+    "usage: ledger <command>",
+    "",
+    "Keeps a ledger in plain files.",
+    "",
+    "Writing:",
+    "  add      Adds an amount to a ledger file.",
+    "",
+    "Reading:",
+    "  report   Totals a ledger file.",
+    "",
+    "topics:",
+    "  formats  The files a ledger reads.",
+    "",
+    "`ledger help <command or topic>` says more.",
+  }, "\n"))
+  assert(Flags.program_help("ledger", commands, program) == index)
+  local page = assert(Flags.dispatch({ "help", "formats" }, 1, commands, "ledger", program)).help
+  print(page)
+  assert(page == table.concat({
+    "formats: The files a ledger reads.",
+    "",
+    "A ledger is a CSV file: a date, an amount and a note on each line.",
+    "",
+    "see also: report",
+  }, "\n"))
+  assert(Flags.topic_help(formats, "formats") == page)
+end
+
+--- An example too wide to share a column: what it does goes on the line
+--- under it, and wraps, so the page keeps within [`Flags.help`]'s width,
+--- 80 columns unless another is given.
+function Example.wrapping()
+  local sync: Flags.Command = {
+    about = "Copies a ledger to another machine.",
+    usage = "[options] <file> <host>",
+    examples = {
+      { line = "may.csv backup", about = "copy it" },
+      { line = "--via jump.example.com --retries 5 may.csv backup.example.com", about = "copy it through another host, trying up to five times" },
+    },
+  }
+  local page = Flags.help(sync, "ledger sync")
+  print(page)
+  assert(page == table.concat({
+    "usage: ledger sync [options] <file> <host>",
+    "",
+    "Copies a ledger to another machine.",
+    "",
+    "examples:",
+    "  ledger sync may.csv backup  copy it",
+    "  ledger sync --via jump.example.com --retries 5 may.csv backup.example.com",
+    "                              copy it through another host, trying up to five",
+    "                              times",
+  }, "\n"))
+end
+
 return Example -- checked: export_not_declared
