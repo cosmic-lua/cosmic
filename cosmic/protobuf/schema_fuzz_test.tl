@@ -1,7 +1,8 @@
 --- Fuzz properties for [`cosmic.protobuf.schema`], whose readers take the bytes anyone sends: `decode` never
 --- raises and answers a record or a reason and never both, a record it answers is written, and what was written
 --- reads back and is written again as the same bytes. They hold for a record that drops what it does not
---- understand and for one that keeps it. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
+--- understand and for one that keeps it, and for a decode that is lenient. `FUZZ_SEED` and `FUZZ_ITERS` pick
+--- the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
 local Protobuf = require("cosmic.protobuf")
@@ -43,6 +44,7 @@ local record Every
   leaves: {Leaf}
   kids: {Every}
   count: integer
+  level: integer
 end
 
 --- The same numbers in a record that keeps what it does not understand.
@@ -65,6 +67,7 @@ local EVERY <const> = Schema.message_of("Every", {
   sints = Schema.sint(15), floats = Schema.float(16, { packed = true }), doubles = 17,
   bools = Schema.field(18, { packed = true }), texts = Schema.string(19), colors = Schema.enum(20, COLOR, { packed = true }),
   leaves = Schema.message(21, LEAF), kids = Schema.self(22), count = Schema.field(23, { implicit = true }),
+  level = Schema.sint(24, { default = -5 }),
 })
 local KEPT <const> = Schema.message_of("Kept", {
   int = 1, text = Schema.string(11), color = Schema.enum(12, COLOR), leaf = Schema.message(13, LEAF), ints = 14,
@@ -127,9 +130,9 @@ end
 
 --- What holds of one codec over `input`: it answers a record or a reason, and a record goes to bytes and back to
 --- the same bytes.
-local function settles<T>(codec: Schema.Codec<T>, input: string): boolean, string
+local function settles<T>(codec: Schema.Codec<T>, input: string, opts?: Schema.DecodeOptions): boolean, string
   -- A raise fails the property: [`Fuzz.run`] runs the check protected.
-  local value, why = codec:decode(input)
+  local value, why = codec:decode(input, opts)
   if value == nil then
     if why == "" then return false, "decode answered neither a record nor a reason" end
     return true, ""
@@ -137,7 +140,7 @@ local function settles<T>(codec: Schema.Codec<T>, input: string): boolean, strin
   if why ~= "" then return false, "decode answered a record and a reason: " .. why end
   local bytes, trouble = codec:encode(value)
   if bytes == nil then return false, "what was read is not written: " .. trouble end
-  local again, unread = codec:decode(bytes)
+  local again, unread = codec:decode(bytes, opts)
   if again == nil then return false, "what was written is not read: " .. unread end
   local rewritten, unwritten = codec:encode(again)
   if rewritten == nil then return false, "what was read twice is not written: " .. unwritten end
@@ -185,6 +188,40 @@ local function test_a_record_that_keeps_loses_no_field_it_does_not_name(tmp: str
             before:fixed64(number) ~= after:fixed64(number) or before:fixed32(number) ~= after:fixed32(number) then
           return false, ("field %d, which the record does not name, did not come through"):format(number)
         end
+      end
+      return true, ""
+    end,
+  })
+end
+
+local function test_a_lenient_decode_reads_any_bytes_and_round_trips_what_it_accepts(tmp: string)
+  Fuzz.run({
+    name = "protobuf schema, lenient",
+    dir = tmp,
+    gen = gen_bytes,
+    check = function(input: string): boolean, string
+      local dropped, why = settles(EVERY, input, { lenient = true })
+      if not dropped then return false, why end
+      -- A record that keeps is lenient by itself, but the leaf it holds drops, and is read leniently through it.
+      return settles(KEPT, input, { lenient = true })
+    end,
+  })
+end
+
+local function test_a_lenient_decode_reads_what_a_strict_one_reads_as_it_does(tmp: string)
+  Fuzz.run({
+    name = "protobuf schema, lenient and strict",
+    dir = tmp,
+    gen = gen_bytes,
+    check = function(input: string): boolean, string
+      local strict = EVERY:decode(input)
+      if strict == nil then return true, "" end
+      local lenient, why = EVERY:decode(input, { lenient = true })
+      if lenient == nil then
+        return false, "a lenient decode fails what a strict one reads: " .. why
+      end
+      if EVERY:encode(lenient) ~= EVERY:encode(strict) then
+        return false, "a lenient decode reads other values than a strict one where both read"
       end
       return true, ""
     end,

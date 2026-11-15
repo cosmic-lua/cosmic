@@ -383,6 +383,148 @@ local function test_a_record_that_drops_fails_a_misfit_field_beside_one_that_fit
     embedded)
 end
 
+local record Envelope
+  type: integer
+  name?: string
+  ratio: number
+  on: boolean
+  label: string
+end
+
+local ENVELOPE <const> = Schema.message_of("Envelope", {
+  type = Schema.field(1, { default = 0 }), name = 2, ratio = Schema.field(3, { default = 0.5 }),
+  on = Schema.field(4, { default = true }), label = Schema.string(5, { default = "none" }),
+})
+
+local function test_a_field_with_a_default_reads_as_it_where_absent()
+  local empty = assert(ENVELOPE:decode(""))
+  assert(empty.type == 0 and empty.name == nil and empty.ratio == 0.5 and empty.on == true and empty.label == "none")
+  local given = assert(ENVELOPE:decode((assert(Protobuf.writer():int(1, 7):bool(4, false):string(5, "x"):encode()))))
+  assert(given.type == 7 and given.on == false and given.label == "x" and given.ratio == 0.5)
+end
+
+local function test_a_field_with_a_default_is_written_at_its_default_too()
+  local record Typed
+    type: integer
+    name?: string
+  end
+  local TYPED <const> = Schema.message_of("Typed", { type = Schema.field(1, { default = 0 }), name = 2 })
+  assert(assert(TYPED:encode({ type = 0 })) == "\x08\x00")
+  assert(assert(TYPED:decode("")).type == 0)
+  local wire = assert(Protobuf.decode((assert(ENVELOPE:encode({ type = 0, ratio = 0.5, on = true, label = "none" })))))
+  assert(wire:int(1) == 0 and wire:double(3) == 0.5 and wire:bool(4) == true and wire:string(5) == "none")
+end
+
+local function test_a_field_with_a_default_still_fails_bytes_it_cannot_take()
+  local text, why = ENVELOPE:decode((assert(Protobuf.writer():bytes(5, "\xff"):encode())))
+  assert(text == nil and why == "protobuf: Envelope.label (field 5): not UTF-8", why)
+  local misfit, other = ENVELOPE:decode((assert(Protobuf.writer():bytes(1, "x"):encode())))
+  assert(misfit == nil and other == "protobuf: Envelope.type (field 1): it has another wire type than its encoding",
+    other)
+end
+
+local record State
+  id: integer
+  state?: integer
+  title?: string
+  kind: integer
+  track?: Track
+  tracks: {Track}
+end
+
+local STATE <const> = Schema.message_of("State", {
+  id = 1, state = 6, title = Schema.string(7), kind = Schema.field(8, { default = 3 }),
+  track = Schema.message(9, TRACK), tracks = Schema.message(10, TRACK),
+})
+
+local LENIENT <const>: Schema.DecodeOptions = { lenient = true }
+
+local function test_a_lenient_decode_passes_over_a_field_of_another_wire_type()
+  local bytes = assert(Protobuf.writer():int(1, 4):bytes(6, "not a varint"):string(7, "t"):fixed32(8, 1):encode())
+  local strict, why = STATE:decode(bytes)
+  assert(strict == nil and why == "protobuf: State.state (field 6): it has another wire type than its encoding", why)
+  local state = assert(STATE:decode(bytes, LENIENT))
+  assert(state.id == 4 and state.state == nil and state.title == "t", "the misfit is nil and the rest is read")
+  assert(state.kind == 3, "a field with a default that is passed over reads as its default")
+  local wire = assert(Protobuf.decode((assert(STATE:encode(state)))))
+  assert(wire:wires(6) == 0, "nothing is kept of what was passed over, and nothing written back")
+  assert(wire:int(8) == 3 and wire:fixed32(8) == nil)
+end
+
+local function test_a_lenient_decode_reads_the_field_that_fits_beside_one_that_does_not()
+  local state = assert(STATE:decode((assert(Protobuf.writer():int(1, 1):int(6, 2):bytes(6, "x"):encode())), LENIENT))
+  assert(state.state == 2)
+end
+
+local function test_a_lenient_decode_is_lenient_in_every_message_it_holds()
+  local misfit = assert(Protobuf.writer():int(1, 5):string(6, "not a bool"):encode())
+  local bytes = assert(Protobuf.writer():int(1, 1):bytes(9, misfit):bytes(10, misfit):encode())
+  local strict, why = STATE:decode(bytes)
+  assert(strict == nil and why == "protobuf: State.track.title (field 1): it has another wire type than its encoding",
+    why)
+  local state = assert(STATE:decode(bytes, LENIENT))
+  local track = assert(state.track)
+  assert(track.title == nil and track.live == nil)
+  assert(#state.tracks == 1 and assert(state.tracks[1]).title == nil)
+  local stacked = assert(Protobuf.writer():string(1, "s"):bytes(10, misfit):encode())
+  assert(assert(SHELF:decode(stacked, LENIENT)).tracks[1] ~= nil, "a repeated message is read leniently too")
+end
+
+local function test_a_lenient_decode_still_fails_a_required_field_with_no_default()
+  local state, why = STATE:decode((assert(Protobuf.writer():bytes(1, "x"):encode())), LENIENT)
+  assert(state == nil and why == "protobuf: State.id (field 1): it has another wire type than its encoding", why)
+  local required, no_artist = REQUIRED:decode((assert(Protobuf.writer():int(1, 2):int(2, 1):encode())), LENIENT)
+  assert(required == nil and no_artist == "protobuf: Required.artist (field 2): it has another wire type than its " ..
+      "encoding", no_artist)
+end
+
+local function test_a_lenient_decode_of_a_record_that_keeps_still_holds_and_writes_back()
+  local bytes = assert(Protobuf.writer():bytes(3, "not a varint"):encode())
+  local relayed = assert(RELAYED:decode(bytes, LENIENT))
+  assert(relayed.count == nil and #assert(relayed.rest).held == 1)
+  assert(assert(Protobuf.decode((assert(RELAYED:encode(relayed))))):bytes(3) == "not a varint")
+end
+
+local function test_a_lenient_decode_keeps_the_wire_codecs_bounds()
+  local bytes = assert(Protobuf.writer():string(1, "leaf"):encode())
+  for _ = 1, 5 do
+    bytes = assert(Protobuf.writer():string(1, "s"):bytes(11, bytes):encode())
+  end
+  local back, why = SHELF:decode(bytes, { max_depth = 3, lenient = true })
+  assert(back == nil and why:find("nests deeper than 3 messages", 1, true) ~= nil, why)
+end
+
+local function test_a_record_that_keeps_reads_a_misfit_field_with_a_default_as_the_default()
+  local record Kept
+    type: integer
+    rest?: Schema.Unknown
+  end
+  local KEPT <const> = Schema.message_of("Kept", { type = Schema.field(1, { default = 2 }) })
+  local kept = assert(KEPT:decode((assert(Protobuf.writer():bytes(1, "x"):encode()))))
+  assert(kept.type == 2 and #assert(kept.rest).held == 1)
+  local wire = assert(Protobuf.decode((assert(KEPT:encode(kept)))))
+  assert(wire:int(1) == 2 and wire:bytes(1) == nil, "the field is written, and what was held for it is not")
+end
+
+local function test_a_lenient_decode_reaches_a_message_that_drops_through_one_that_keeps()
+  local record Wrapper
+    track?: Track
+    rest?: Schema.Unknown
+  end
+  local WRAPPER <const> = Schema.message_of("Wrapper", { track = Schema.message(1, TRACK) })
+  local bytes = assert(Protobuf.writer():bytes(1, (assert(Protobuf.writer():int(1, 5):encode()))):encode())
+  local strict, why = WRAPPER:decode(bytes)
+  assert(strict == nil and why == "protobuf: Wrapper.track.title (field 1): it has another wire type than its encoding",
+    why)
+  local wrapped = assert(WRAPPER:decode(bytes, LENIENT))
+  assert(assert(wrapped.track).title == nil)
+end
+
+local function test_a_lenient_decode_reads_a_misfit_string_with_a_default_as_the_default()
+  local envelope = assert(ENVELOPE:decode((assert(Protobuf.writer():int(5, 1):fixed64(1, 2):encode())), LENIENT))
+  assert(envelope.label == "none" and envelope.type == 0)
+end
+
 local function test_the_misfit_named_is_the_least_number_whatever_the_order_of_the_bytes()
   -- Field 6, a bool, as bytes, before field 1, a string, as a varint.
   local track, why = TRACK:decode((assert(Protobuf.writer():bytes(6, "x"):int(1, 5):int(99, 1):encode())))

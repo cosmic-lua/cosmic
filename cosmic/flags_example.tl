@@ -223,9 +223,9 @@ function Example.pages()
 end
 
 --- A program's index with more than its commands, as
---- [`Flags.dispatch`] answers it from a [`Flags.Documented`]: an intro, the
+--- [`Flags.dispatch`] answers it from a [`Flags.Documented`]: an opening, the
 --- groups in an order of its own, topics that `help` prints and `see` may
---- name, and a closing line of its own. [`Flags.program_help`] writes the
+--- name, and a last line of its own. [`Flags.program_help`] writes the
 --- same index, and [`Flags.topic_help`] the same page, for a program that
 --- reads its own line or has a `help` command of its own.
 function Example.topics()
@@ -239,10 +239,10 @@ function Example.topics()
     see = { "report" },
   }
   local program: Flags.Documented = {
-    intro = "Keeps a ledger in plain files.",
+    before = "usage: ledger <command>\n\nKeeps a ledger in plain files.",
     groups = { "Writing", "Reading" },
     topics = { formats = formats },
-    closing = "`ledger help <command or topic>` says more.",
+    after = "`ledger help <command or topic>` says more.",
   }
   local index = assert(Flags.dispatch({ "help" }, 1, commands, "ledger", program)).help
   print(index)

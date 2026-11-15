@@ -702,6 +702,144 @@ local function test_a_command_named_docs_is_the_programs_own()
   assert(not help.help:find("search the documentation", 1, true), help.help)
 end
 
+--- A word that begins with "-" and a digit is a word, not an option: a negative number needs no "--" before
+--- it. Where the spec names an option that begins with a digit, such a word is an option as before.
+local function test_a_negative_number_is_a_word_unless_the_spec_names_a_digit_option()
+  local got = assert(Flags.parse({ "-5", "--jobs", "2", "-0.5", "-90m" }, 1, { ["--jobs"] = true }))
+  assert(table.concat(got.words, " ") == "-5 -0.5 -90m" and got.values["--jobs"] == "2", table.concat(got.words, " "))
+  local numbered = assert(Flags.parse({ "-1", "x" }, 1, { ["-1"] = false }))
+  assert(numbered.set["-1"] == true and table.concat(numbered.words, " ") == "x")
+  local refused, why = Flags.parse({ "-5" }, 1, { ["-1"] = false })
+  assert(refused == nil and why:find("no such option: -5", 1, true) == 1, why)
+  -- A letter after the dash is an option still.
+  local lettered, lettered_why = Flags.parse({ "-x5" }, 1, {})
+  assert(lettered == nil and lettered_why:find("no such option: -x5", 1, true) == 1, lettered_why)
+end
+
+--- A program whose commands are not all typed by a name: one by an option's spelling, one by no word at all,
+--- which a first word that names no other runs, and which keeps its words for itself.
+local function odd_commands(seen: mut {string}): mut {string:Flags.Command}
+  return {
+    version = { about = "says which", typed = "--version", run = function(_: Flags.Parsed): integer
+      seen[#seen + 1] = "version"
+      return 0
+    end },
+    run = {
+      about = "runs a file", typed = "", usage = "<file> [args...]", spec = { ["--quiet"] = false },
+      rest = function(argv: {string}, from: integer): integer?
+        for slot = from, #argv do
+          local word = argv[slot]
+          if word ~= nil and word:sub(1, 1) ~= "-" then return slot end
+        end
+        return nil
+      end,
+      run = function(got: Flags.Parsed): integer
+        local said = "run " .. table.concat(got.rest or {}, " ") .. (if got.set["--quiet"] == true then " quietly" else "" end)
+        seen[#seen + 1] = said
+        return 3
+      end,
+    },
+    check = { about = "checks", spec = { ["--all"] = false }, run = function(got: Flags.Parsed): integer
+      local said = "check " .. table.concat(got.words, " ") .. "/" .. tostring(#(got.rest or {}))
+      seen[#seen + 1] = said
+      return 0
+    end },
+  }
+end
+
+--- A command is run by the word it says it is typed as, and not by its name; the command typed by no word runs
+--- for a first word that names none, with the words it keeps unread by its spec.
+local function test_a_command_runs_by_its_spelling_or_by_no_word()
+  local seen: mut {string} = {}
+  local commands = odd_commands(seen)
+  assert(assert(Flags.dispatch({ "--version" }, 1, commands, "prog")).code == 0)
+  assert(assert(Flags.dispatch({ "check", "--all", "x" }, 1, commands, "prog")).code == 0)
+  -- The file's own options are not the command's: `--all` after the file is kept, where the spec has none.
+  assert(assert(Flags.dispatch({ "f.tl", "--all", "-5" }, 1, commands, "prog")).code == 3)
+  assert(assert(Flags.dispatch({ "--quiet", "f.tl", "--quiet" }, 1, commands, "prog")).code == 3)
+  assert(table.concat(seen, "; ") == "version; check x/0; run f.tl --all -5; run f.tl --quiet quietly",
+    table.concat(seen, "; "))
+  -- A command typed another way is not run by its name: `version` is a file to run here.
+  assert(assert(Flags.dispatch({ "version" }, 1, commands, "prog")).code == 3 and seen[#seen] == "run version")
+  -- Its help calls it as it is typed, and an option before the file that it lacks is refused with that usage.
+  local help = assert(Flags.dispatch({ "f.tl", "--help" }, 1, commands, "prog"))
+  assert(help.help == "", "the file's own --help was read as the command's")
+  local asked = assert(Flags.dispatch({ "--help", "f.tl" }, 1, commands, "prog"))
+  assert(asked.help:find("usage: prog <command>", 1, true) == 1, asked.help)
+  local refused, why = Flags.dispatch({ "--loud", "f.tl" }, 1, commands, "prog")
+  assert(refused == nil and why == "run: no such option: --loud; usage: prog <file> [args...]", why)
+  assert(assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help:find("usage: prog --version", 1, true) == 1)
+end
+
+--- Without a command typed by no word, a first word that names none is refused, and a mistyped spelling is
+--- named.
+local function test_a_spelling_is_among_the_names_a_mistyped_command_meant()
+  local commands = odd_commands({})
+  commands["run"] = nil
+  local refused, why = Flags.dispatch({ "--versoin" }, 1, commands, "prog")
+  assert(refused == nil and why == "no such command: --versoin; did you mean --version?", why)
+end
+
+--- Two commands typed alike are the caller's mistake, met by its first run.
+local function test_two_commands_typed_alike_raise()
+  local commands: {string:Flags.Command} = {
+    a = { typed = "go", run = function(_: Flags.Parsed): integer return 0 end },
+    go = { run = function(_: Flags.Parsed): integer return 0 end },
+  }
+  local ok, raised = pcall(Flags.dispatch, { "go" }, 1, commands, "prog")
+  assert(not ok and tostring(raised):find("a and go are typed alike: go", 1, true) ~= nil, tostring(raised))
+end
+
+--- The program's help lists each command as it is typed, in the order given, between the text given to open
+--- and to close it.
+local function test_the_programs_help_lists_usages_in_order_between_its_own_words()
+  local commands = odd_commands({})
+  local ran = assert(Flags.dispatch({ "help" }, 1, commands, "prog",
+    { usages = true, order = { "run", "version" }, before = "prog -- a program", after = "More: prog help <command>" }))
+  assert(ran.help == table.concat({
+    "prog -- a program",
+    "",
+    "commands:",
+    "  prog <file> [args...]  runs a file",
+    "  prog --version         says which",
+    "  prog check [options]   checks",
+    "",
+    "More: prog help <command>",
+  }, "\n"), ran.help)
+end
+
+--- A command is asked about by the word that runs it or by its name, a program with none given names the words
+--- that run its commands, and a word that begins with a dash and a digit may be an option's value.
+local function test_help_and_refusals_name_commands_as_they_are_typed()
+  local commands = odd_commands({})
+  local by_word = assert(Flags.dispatch({ "help", "--version" }, 1, commands, "prog"))
+  assert(by_word.help == assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help and
+      by_word.help:find("usage: prog --version", 1, true) == 1, by_word.help)
+  commands["run"] = nil
+  local none, why = Flags.dispatch({}, 1, commands, "prog")
+  assert(none == nil and why == "needs a command: --version, check", why)
+  local missed, missed_why = Flags.dispatch({ "help", "--versoin" }, 1, commands, "prog")
+  assert(missed == nil and missed_why == "no such command: --versoin; did you mean --version?", missed_why)
+  local listed = assert(Flags.dispatch({ "help" }, 1, commands, "prog")).help
+  assert(listed:find("\n  --version  says which", 1, true) ~= nil, listed)
+  local valued = assert(Flags.parse({ "--zone", "-90m", "x" }, 1, { ["--zone"] = true }))
+  assert(valued.values["--zone"] == "-90m" and valued.words[1] == "x")
+end
+
+--- A command typed as a word that asks for help, and one whose own words begin before its first, are the
+--- caller's mistakes.
+local function test_a_command_typed_as_help_or_keeping_words_before_its_own_raises()
+  local run = function(_: Flags.Parsed): integer return 0 end
+  local typed_help: {string:Flags.Command} = { a = { typed = "--help", run = run } }
+  local ok, raised = pcall(Flags.dispatch, { "a" }, 1, typed_help, "prog")
+  assert(not ok and tostring(raised):find("a is typed as --help, which asks for help", 1, true) ~= nil, tostring(raised))
+  local early: {string:Flags.Command} = {
+    b = { run = run, rest = function(_: {string}, _: integer): integer? return 1 end },
+  }
+  local fine, said = pcall(Flags.dispatch, { "b", "x" }, 1, early, "prog")
+  assert(not fine and tostring(said):find("b's rest begins at slot 1, before its first word", 1, true) ~= nil, tostring(said))
+end
+
 local wide: Flags.Command = {
   about = "Counts the lines of each file.",
   usage = "[options] <file>...",
@@ -765,12 +903,12 @@ local function test_help_wraps_an_option_past_the_width()
       "  -v                say more")
 end
 
-local function test_program_help_takes_an_order_an_intro_topics_and_a_closing()
+local function test_program_help_takes_a_group_order_an_opening_topics_and_an_ending()
   local program: Flags.Documented = {
-    intro = "Counts what files hold.",
+    before = "usage: prog <command> [options]\n\nCounts what files hold.",
     groups = { "Reports", "Counting" },
     topics = { globs = { about = "How a file is named by a pattern.", text = "A glob names files.", see = { "count" } } },
-    closing = "`prog help <command or topic>` says more.",
+    after = "`prog help <command or topic>` says more.",
   }
   local index = Flags.program_help("prog", paged, program)
   assert(index == table.concat({
@@ -799,11 +937,10 @@ local function test_program_help_takes_an_order_an_intro_topics_and_a_closing()
   -- Given at all, the index says how to search the documentation.
   assert(Flags.program_help("prog", paged, {}) == Flags.program_help("prog", paged) ..
       "\nRun `prog docs <words>` to search the documentation, `prog docs` to list it.")
-  -- An order that leaves a title out lists it after, by title; a closing
-  -- of "" ends with the last section.
-  local partial = Flags.program_help("prog", paged, { groups = { "Reports" }, closing = "" })
+  -- An order that leaves a title out lists it after, by title.
+  local partial = Flags.program_help("prog", paged, { groups = { "Reports" }, after = "end" })
   assert(partial:find("Reports:.*Counting:.*other commands:") ~= nil, partial)
-  assert(partial:sub(-#"Says which build this is.") == "Says which build this is.", partial)
+  assert(partial:sub(-#"Says which build this is.\n\nend") == "Says which build this is.\n\nend", partial)
 end
 
 local function test_program_help_wraps_what_a_command_does_past_the_width()
@@ -814,7 +951,7 @@ local function test_program_help_wraps_what_a_command_does_past_the_width()
   -- With no width the index is unwrapped.
   assert(Flags.program_help("p", commands) ==
       "usage: p <command>\n\ncommands:\n  a  Short.\n  b  A longer line on what this does, past the width.")
-  assert(Flags.program_help("p", commands, { width = 30, closing = "" }) == table.concat({
+  assert(Flags.program_help("p", commands, { width = 30, after = "end" }) == table.concat({
     "usage: p <command>",
     "",
     "commands:",
@@ -822,6 +959,8 @@ local function test_program_help_wraps_what_a_command_does_past_the_width()
     "  b  A longer line on what",
     "     this does, past the",
     "     width.",
+    "",
+    "end",
   }, "\n"))
 end
 
@@ -925,14 +1064,14 @@ end
 
 local function test_a_name_too_wide_with_nothing_beside_it_stands_alone()
   local commands: {string:Flags.Command} = { a = { about = "First." } }
-  local program: Flags.Documented = { topics = { [string.rep("t", 90)] = {} }, closing = "" }
+  local program: Flags.Documented = { topics = { [string.rep("t", 90)] = {} }, after = "end" }
   local long = string.rep("t", 90)
   -- Unwrapped, every row shares the widest name's column; within a width,
   -- the name with nothing beside it stands alone and the rest keep theirs.
   assert(Flags.program_help("p", commands, program) ==
-      "usage: p <command>\n\ncommands:\n  a" .. string.rep(" ", 89) .. "  First.\n\ntopics:\n  " .. long)
-  assert(Flags.program_help("p", commands, { topics = program.topics, width = 80, closing = "" }) ==
-      "usage: p <command>\n\ncommands:\n  a  First.\n\ntopics:\n  " .. long)
+      "usage: p <command>\n\ncommands:\n  a" .. string.rep(" ", 89) .. "  First.\n\ntopics:\n  " .. long .. "\n\nend")
+  assert(Flags.program_help("p", commands, { topics = program.topics, width = 80, after = "end" }) ==
+      "usage: p <command>\n\ncommands:\n  a  First.\n\ntopics:\n  " .. long .. "\n\nend")
 end
 
 local function test_dispatch_raises_for_a_topic_named_nothing_whatever_the_line()

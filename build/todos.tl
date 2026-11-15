@@ -987,6 +987,7 @@ todos.spec = {
   bare = false,
   reads = true,
   recheck_on_refusal = false,
+  own_line = true,
   takes = "the files or directories to act on",
 }
 

@@ -36,6 +36,7 @@ Migrate.spec = {
   tests = { "build.migrate_test" },
   run = function(argv: {string}): integer return Migrate.main(argv) end,
   bare = true,
+  own_line = true,
   takes = "nothing: the verb was removed",
   exits = "`migrate` says that it was removed and exits 2, whatever it is given.",
   passthrough = "it does nothing but say it was removed, so there is no pass or fail to hold it to (build/migrate_test.tl)",

@@ -32,19 +32,31 @@
 --- Presence is the field's own declaration. `f?: T` is nil where the field is absent and is not written when nil.
 --- `f: T` must be there: `decode` fails without it, and it is always written. `f: {T}` is an empty array where
 --- absent, and `f?: {T}` nil. `{ implicit = true }` on a field declared `f: T` is proto3's field with no presence:
---- absent reads as zero, `""` or false, and that value is not written.
+--- absent reads as zero, `""` or false, and that value is not written. `{ default = 0 }` on a field declared `f: T`
+--- reads as proto2's `[default = 0]` does: absent reads as the default. Unlike proto2's, which has presence, the
+--- field is always written, the default too. The default is a literal of the field's type: an integer, a
+--- number, a boolean or a string.
 ---
 --- A record that declares a field of [`Unknown`] keeps what it does not understand, so that a program which
 --- decodes a message, changes a field and encodes it loses nothing of the rest: a field whose number the call
 --- does not name, a field of a named number that arrives with another wire type, and an enum number the enum
 --- does not name. The last two leave their field nil, and are written back while it is still nil; one of a
 --- repeated field is always written back. A field declared `f: T` has no nil to be left as, so either fails
---- `decode` for it. A record with no such field drops the first and the third and fails
---- `decode` for the second.
+--- `decode` for it; a field of another wire type does not where the field has a default, which it reads as, and
+--- what was held for it is not written, since the field is. A record with no such field drops the first and the
+--- third and fails `decode` for the second.
+---
+--- `decode` with `{ lenient = true }` ([`DecodeOptions`]) passes over a field of a named number that arrives with
+--- another wire type, in that message and every one it holds, and reads the rest, as the reference implementations
+--- do. The field reads as though it were absent: nil, its default, or zero where it is `implicit`. It is for a
+--- schema that may be wrong about a field, such as one worked out from what a device sends. The reference
+--- implementations keep such a field as an unknown one; a record with no [`Unknown`] keeps nothing of it and
+--- writes nothing of it back, and a record with one holds it as without the option. A required field with no
+--- default still fails for it.
 ---
 --- `decode` never raises, whatever the bytes, under the wire codec's bounds. It answers nil and the first thing that did not fit, by the path of
 --- fields from the root: `protobuf: Album.tracks[2].title (field 1): not UTF-8`. The bounds are the wire
---- codec's ([`Protobuf.Options`]), and an option that is no integer of 1 or more raises, as [`Protobuf.decode`]
+--- codec's ([`Protobuf.Options`]), and a bound that is no integer of 1 or more raises, as [`Protobuf.decode`]
 --- raises for it. `encode` answers nil and why for a record the schema cannot write, such as an integer outside a
 --- `fixed32`. A record that holds itself through its own fields, which no `decode` answers, has no bytes: `encode`
 --- of one does not return.
@@ -59,6 +71,22 @@ local record Schema
     packed?: boolean
     --- Read an absent field as zero, `""` or false, and do not write that value (default false).
     implicit?: boolean
+    --- What an absent field of a field declared `f: T` reads as; the field is always written. A literal of the
+    --- field's type, written in the call: an integer, a number, a boolean or a string (default none: the field
+    --- must be there). The build reads it from the call.
+    default?: number | boolean | string
+  end
+
+  --- What a codec's `decode` may be told. Every field is optional.
+  record DecodeOptions
+    --- How deep messages may nest, as [`Protobuf.Options`]' `max_depth`.
+    max_depth?: integer
+    --- How many fields one message may hold, as [`Protobuf.Options`]' `max_fields`.
+    max_fields?: integer
+    --- Pass over a field of a named number that arrives with another wire type, here and in every message this
+    --- one holds, where without it `decode` fails (default false). A record that keeps what it does not
+    --- understand holds such a field with the option or without it.
+    lenient?: boolean
   end
 
   --- A field's entry in the table of [`message_of`]: its number and how it is encoded. The build reads the call
@@ -96,11 +124,11 @@ local record Schema
     --- The bytes of `value`, or nil and why the schema cannot write it.
     encode: function(self: Codec<T>, value: T): string?, string
     --- The message in `bytes`, which may come from anywhere, or nil and the first thing that did not fit. It
-    --- never raises for any bytes. `opts` are [`Protobuf.decode`]'s.
-    decode: function(self: Codec<T>, bytes: string, opts?: Protobuf.Options): T?, string
+    --- never raises for any bytes.
+    decode: function(self: Codec<T>, bytes: string, opts?: DecodeOptions): T?, string
     --- What the build wrote to read the record: the record of a message that was read, or nil and a failure with
-    --- no root, a path from this message and why.
-    read: function(message: Protobuf.Message): T?, string
+    --- no root, a path from this message and why. `lenient` is [`DecodeOptions`]' (default false).
+    read: function(message: Protobuf.Message, lenient?: boolean): T?, string
     --- What the build wrote to write the record: its bytes, or nil and a failure with no root. With `into`, the
     --- writing of the message that holds this one, the fields go to it in place and the answer is "".
     write: function(value: T, into?: Writing): string?, string
@@ -125,6 +153,8 @@ local record Schema
     message: Protobuf.Message
     --- Whether the record keeps what it does not understand.
     keeps: boolean
+    --- Whether a field of a named number and another wire type is passed over, in the messages this one holds too.
+    lenient: boolean
     --- What becomes the record's [`Unknown`]: its `fields`.
     unknown: mut {Protobuf.Field}
     --- What becomes the record's [`Unknown`]: its `held`.
@@ -150,20 +180,20 @@ local record Schema
     plan: function(wires: {integer: integer}, names: {integer: string}): Plan
     --- A reading of `message`. `enums` says of each enum field's number whether the enum names a number. Where
     --- the record keeps, what it does not understand is set aside; where it drops, a field of a named number
-    --- and another wire type is the reading's failure.
+    --- and another wire type is the reading's failure, unless the reading is `lenient`.
     open: function(message: Protobuf.Message, plan: Plan, enums: {integer: function(integer): boolean},
-      keeps: boolean): Reading
+      keeps: boolean, lenient: boolean): Reading
     --- `value`, a required field's, or `zero` and a failure where it is nil.
     need: function<V>(r: Reading, number: integer, field: string, value: V?, zero: V): V
     --- A field held to UTF-8: its text, or nil, and a failure where its bytes are no UTF-8.
     text: function(r: Reading, number: integer, field: string): string?
     --- An embedded message, read by `read`, or nil where the number has none.
     message: function<T>(r: Reading, number: integer, field: string,
-      read: function(Protobuf.Message): T?, string): T?
+      read: function(Protobuf.Message, lenient?: boolean): T?, string): T?
     --- A required enum field: the value `named`, or `first` and a failure where the field is missing or the enum
     --- names no such number. `first` is a value of the enum, which stands where there is none to answer.
     need_enum: function<E>(r: Reading, number: integer, field: string, named: E?, first: E): E
-    --- `value`, or `zero` where it is nil: a field with no presence.
+    --- `value`, or `zero` where it is nil: a field with no presence, or with a default, which `zero` is then.
     or_zero: function<V>(value: V?, zero: V): V
     --- Why a required message is not there: the reading's failure, or that the field is missing.
     missing: function(r: Reading, number: integer, field: string): string
@@ -181,7 +211,7 @@ local record Schema
     enums: function<E>(r: Reading, number: integer, field: string, name: function(integer?): E?): {E}
     --- A repeated embedded message, each read by `read`.
     messages: function<T>(r: Reading, number: integer, field: string,
-      read: function(Protobuf.Message): T?, string): {T}
+      read: function(Protobuf.Message, lenient?: boolean): T?, string): {T}
     --- `values`, or nil where it is empty: an optional repeated field.
     some: function<V>(values: {V}): {V}?
     --- What the record keeps, or nil where the message held nothing of the kind.
@@ -253,7 +283,9 @@ local record Schema
   --- key a field of the record. The build refuses, where the call is: a field with no number, a number with no
   --- field, a number given twice, outside 1 to 536870911 or among the 19000 to 19999 the format reserves, an
   --- encoding that does not fit the field's type, a field of a type that has none (a function, a union, a
-  --- generic), a field named by a keyword, a record that is also an array or implements an interface, two
+  --- generic), a field named by a keyword, a default on a field not declared `f: T` of a number, a boolean or a
+  --- string, a default that is no literal of its field's type (or no `float`'s value), a default beside
+  --- `implicit`, a record that is also an array or implements an interface, two
   --- records that hold each other, more than 150 required embedded messages, and, in a record that keeps what
   --- it does not understand, a repeated enum (declare `{integer}`).
   ---
@@ -264,7 +296,7 @@ local record Schema
   --- it did not complete (through another name, in a chunk loaded by hand, in the Lua `cosmic compile` writes)
   --- raises here.
   message_of: function<T>(name: string, fields: {string: integer | Entry}, write?: function(T, into?: Writing): string?, string,
-    read?: function(Protobuf.Message): T?, string): Codec<T>
+    read?: function(Protobuf.Message, lenient?: boolean): T?, string): Codec<T>
 
   --- The field's own encoding, with options.
   field: function(number: integer, options?: Options): Entry
@@ -342,10 +374,15 @@ local function plan(wires: {integer: integer}, names: {integer: string}): Schema
 end
 
 local function open(message: Protobuf.Message, planned: Schema.Plan,
-                    enums: {integer: function(integer): boolean}, keeps: boolean): Schema.Reading
+                    enums: {integer: function(integer): boolean}, keeps: boolean, lenient: boolean): Schema.Reading
   local wires = planned.wires
   local bad = ""
   if not keeps then
+    -- A lenient reading passes over a misfit with nothing more: every read by number passes over a field of
+    -- another wire type than it asks for.
+    if lenient then
+      return { message = message, keeps = false, lenient = true, unknown = NONE, held = NONE, bad = bad }
+    end
     -- The least number, as the fields are declared, whatever the order of the bytes.
     local odd = message:unfit(planned.fits, true)
     if odd ~= nil then
@@ -355,7 +392,7 @@ local function open(message: Protobuf.Message, planned: Schema.Plan,
       end
       bad = trouble(assert(planned.names[least]), least, MISFIT)
     end
-    return { message = message, keeps = false, unknown = NONE, held = NONE, bad = bad }
+    return { message = message, keeps = false, lenient = false, unknown = NONE, held = NONE, bad = bad }
   end
   local unknown: mut {Protobuf.Field} = {}
   local held: mut {Protobuf.Field} = {}
@@ -377,7 +414,7 @@ local function open(message: Protobuf.Message, planned: Schema.Plan,
       end
     end
   end
-  return { message = message, keeps = true, unknown = unknown, held = held, bad = bad }
+  return { message = message, keeps = true, lenient = lenient, unknown = unknown, held = held, bad = bad }
 end
 
 --- Why a required field has no value: none of its number is there, or those that are have another wire type,
@@ -406,14 +443,14 @@ local function embedded(r: Schema.Reading, number: integer): boolean
 end
 
 local function message<T>(r: Schema.Reading, number: integer, field: string,
-                          read: function(Protobuf.Message): T?, string): T?
+                          read: function(Protobuf.Message, lenient?: boolean): T?, string): T?
   if not embedded(r, number) then return nil end
   local inner, why = r.message:message(number)
   if inner == nil then
     fail_wire(r, field, number, why)
     return nil
   end
-  local value, bad = read(inner)
+  local value, bad = read(inner, r.lenient)
   if value == nil then fail_below(r, field, bad) end
   return value
 end
@@ -510,11 +547,11 @@ local function enums<E>(r: Schema.Reading, number: integer, field: string, name:
 end
 
 local function messages<T>(r: Schema.Reading, number: integer, field: string,
-                           read: function(Protobuf.Message): T?, string): {T}
+                           read: function(Protobuf.Message, lenient?: boolean): T?, string): {T}
   local out: mut {T} = {}
   local inner, why = r.message:repeated_message(number)
   for i, each in ipairs(list(r, number, field, inner, why)) do
-    local value, bad = read(each)
+    local value, bad = read(each, r.lenient)
     if value == nil then
       fail_below(r, ("%s[%d]"):format(field, i), bad)
       return {}
@@ -783,17 +820,23 @@ local function codec_encode<T>(self: Schema.Codec<T>, value: T): string?, string
   return bytes, ""
 end
 
-local function codec_decode<T>(self: Schema.Codec<T>, bytes: string, opts?: Protobuf.Options): T?, string
-  local decoded, why = Protobuf.decode(bytes, opts)
+local function codec_decode<T>(self: Schema.Codec<T>, bytes: string, opts?: Schema.DecodeOptions): T?, string
+  local bounds: Protobuf.Options? = nil
+  local lenient = false
+  if opts ~= nil then
+    bounds = { max_depth = opts.max_depth, max_fields = opts.max_fields }
+    lenient = opts.lenient == true
+  end
+  local decoded, why = Protobuf.decode(bytes, bounds)
   if decoded == nil then return nil, "protobuf: " .. self.name .. ": " .. bare(why) end
-  local value, bad = self.read(decoded)
+  local value, bad = self.read(decoded, lenient)
   if value == nil then return nil, "protobuf: " .. self.name .. bad end
   return value, ""
 end
 
 local function message_of<T>(name: string, _fields: {string: integer | Schema.Entry},
                              write?: function(T, into?: Schema.Writing): string?, string,
-                             read?: function(Protobuf.Message): T?, string): Schema.Codec<T>
+                             read?: function(Protobuf.Message, lenient?: boolean): T?, string): Schema.Codec<T>
   if write == nil or read == nil then
     error(UNRESOLVED:format("message_of", name, "message_of"), 2)
   end

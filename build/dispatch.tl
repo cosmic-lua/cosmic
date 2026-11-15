@@ -15,6 +15,7 @@ local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
 local logger = require("build.logger")
 local type verb_spec = require("build.verb_spec")
+local type flags = require("cosmic.flags")
 
 local log = logger.log
 
@@ -230,29 +231,6 @@ local as_option: {string:string} = {
   ["--version"] = "version",
 }
 
---- What the index shows of `verb`'s command line: `cosmic`, what names
---- the verb there, and the verb's own `usage`. A file run is named by
---- the file, and `--standalone`, `-e` and `--version` by their spelling.
-local function usage_line(verb: string): string
-  local typed = verb
-  if verb == "run" then
-    typed = ""
-  end
-  for spelled, name in pairs(as_option) do
-    if name == verb then typed = spelled end
-  end
-  local words: mut {string} = { "cosmic" }
-  if typed ~= "" then words[#words + 1] = typed end
-  local command = assert(require("cosmic.cli").verbs[verb], "the index lists the verbs of Cli.verbs")
-  local usage = command.usage
-  if usage == nil then
-    local spec = command.spec
-    usage = if spec ~= nil and next(spec) ~= nil then "[options]" else "" end
-  end
-  if usage ~= "" then words[#words + 1] = usage end
-  return table.concat(words, " ")
-end
-
 --- What a refusal of the mistyped verb `word` ends with when any of
 --- `verbs` is near it by [`Flags.nearest`]'s rule, as [`cosmic.flags`]
 --- ends its own: "; did you mean test?". "" when none is.
@@ -268,44 +246,50 @@ end
 
 --- The index `cosmic help` prints: what `cosmic` is, the guides to
 --- start from, each verb's usage and purpose in the sections
---- [`cosmic.cli.groups`] names, and where to read more.
+--- [`cosmic.cli.groups`] names, and where to read more. It is the help
+--- [`Flags.dispatch`] writes of a program whose commands are the verbs,
+--- each listed as it is typed: a file run by the file, and
+--- `--standalone`, `-e` and `--version` by their spelling.
 local function index_help(): string
-  -- TODO: write the index through Flags.program_help, which lists every
-  -- command with its `about`, in sections by `group`, in the order
-  -- [`Flags.Documented.groups`] gives and with its `intro` and `closing`
-  -- around them. It waits on that help taking a usage per command in place
-  -- of its name, as `cosmic help` shows each verb today.
   local Cli = require("cosmic.cli")
-  local width = 0
-  for _, verb in ipairs(Cli.order) do
-    width = math.max(width, #usage_line(verb))
-  end
-  local lines = {
-    "cosmic -- a runtime for self-contained command-line software",
-    "",
-    "cosmic runs Teal and Lua programs with a standard library that needs",
-    "nothing installed, and builds them into single executables. Its",
-    "verbs run code, work on a project, do quick jobs at the shell, and",
-    "look things up.",
-    "",
-    "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
-    "library, and `cosmic docs doc.guides.project` builds a project with",
-    "a module, tests, an example, a record with methods and a program",
-    "with commands.",
-  }
+  local Flags = require("cosmic.flags")
+  local titles: mut {string} = {}
+  local order: mut {string} = {}
+  local group_of: mut {string: string} = {}
   for _, group in ipairs(Cli.groups) do
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = assert(group[1], "a group of Cli.groups opens with its title") .. ":"
+    local title = assert(group[1], "a group of Cli.groups opens with its title")
+    titles[#titles + 1] = title
     for slot, verb in ipairs(group) do
       if slot > 1 then
-        local usage = usage_line(verb)
-        local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
-        lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) .. assert(command.about)
+        order[#order + 1] = verb
+        group_of[verb] = title
       end
     end
   end
-  for _, line in ipairs({
+  local typed: mut {string: string} = { run = "" }
+  for spelled, name in pairs(as_option) do typed[name] = spelled end
+  local commands: mut {string: Flags.Command} = {}
+  for _, verb in ipairs(order) do
+    local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
+    commands[verb] = { spec = command.spec, about = assert(command.about), usage = command.usage,
+      group = group_of[verb], typed = typed[verb] }
+  end
+  local index = assert(Flags.dispatch({ "--help" }, 1, commands, "cosmic", {
+    groups = titles, order = order, usages = true,
+    before = table.concat({
+      "cosmic -- a runtime for self-contained command-line software",
       "",
+      "cosmic runs Teal and Lua programs with a standard library that needs",
+      "nothing installed, and builds them into single executables. Its",
+      "verbs run code, work on a project, do quick jobs at the shell, and",
+      "look things up.",
+      "",
+      "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
+      "library, and `cosmic docs doc.guides.project` builds a project with",
+      "a module, tests, an example, a record with methods and a program",
+      "with commands.",
+    }, "\n"),
+    after = table.concat({
       "More:",
       "  cosmic help <verb>       a verb's full text, with its options",
       "  cosmic help exit         exit codes and summaries",
@@ -314,10 +298,19 @@ local function index_help(): string
       "",
       "Lua's io, os and debug are absent (print stays): `cosmic docs",
       "cosmic.removed` names what replaces each.",
-  }) do
-    lines[#lines + 1] = line
-  end
-  return table.concat(lines, "\n") .. "\n"
+    }, "\n"),
+  }))
+  return index.help .. "\n"
+end
+
+--- Why Flags.dispatch refuses the line `own` of the verb `verb`, whose options `command` names, or "" where it
+--- takes it: "test: no such option: --jbs; did you mean --jobs?; usage: cosmic test [options] [path...]".
+--- Nothing is run: the verb reads its own line after.
+local function line_refusal(verb: string, command: flags.Command, own: {string}): string
+  local vetted: flags.Command = { spec = command.spec, usage = command.usage,
+    run = function(_: flags.Parsed): integer return 0 end }
+  local ran, why = require("cosmic.flags").dispatch(own, 1, { [verb] = vetted }, "cosmic")
+  return if ran == nil then why else "" end
 end
 
 --- The tree a file run builds, and why it is that one.
@@ -864,18 +857,15 @@ function Dispatch.main(argv: {string}): integer
   local sys = require("cosmic.sys")
   local verb = if word == nil or word == "-h" or word == "--help" then "help" else word end
   local chosen = spec_of(verb)
-  -- TODO: dispatch through Flags.dispatch, with each verb a Flags.Command
-  -- whose `run` takes the Flags.Parsed. It waits on two things in Flags.
-  -- Flags.parse must read a negative number as a word where the spec
-  -- declares no digit option: `time` and `rand` set one aside before
-  -- parsing (build/time.tl's `protect`, build/rand.tl's `marked`), which
-  -- Flags.dispatch's parse would refuse. Flags.dispatch must take a
-  -- default command for a first word that names none: a file run
-  -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
-  -- refuse as options) and `-e`, `--standalone` and `--version` are
-  -- verbs by no command name. Until then a verb parses its own line, so
-  -- its refusal of a mistyped "--help" (`cosmic fix --hlep`) names
-  -- nothing, where Flags.dispatch's says "did you mean --help?".
+  -- TODO: give each verb the line Flags.dispatch read, a Flags.Command whose `run` takes the Flags.Parsed, and
+  -- delete each verb's own parse of it. Flags.dispatch reads the line of a verb typed by its name already
+  -- ([`line_refusal`]), so their refusals are one rule's; until the verbs take what it read, a line is parsed
+  -- twice, to the same result. It waits on two things. Most verbs offer `run(argv, io?)` to their tests, which
+  -- would each hand over a parsed line instead; and a verb that says more of its usage than one line (`time`,
+  -- `rand`, `sql`: a line a subcommand) needs Flags.dispatch to end a refusal with the verb's own words. A
+  -- `fresh` verb and `todos` keep reading their own lines whatever is done: they rebuild a stale tool first.
+  -- `-e`, `--standalone` and `--version` stay outside Flags.dispatch on purpose: they load neither cosmic.flags
+  -- nor cosmic.cli (build/dispatch_tool_test.tl holds `-e` to it), being what runs when the tree cannot build.
   local command = Cli.verbs[verb]
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
@@ -889,9 +879,13 @@ function Dispatch.main(argv: {string}): integer
       end
     end
   end
+  -- Whether the verb is typed by its name, and so is a command Flags.dispatch reads the line of: `help`, a file
+  -- run and the verbs spelled as options read their own.
+  local typed_by_name = chosen ~= nil and verb ~= "help" and verb ~= "run" and verb:sub(1, 1) ~= "-"
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
+    typed_by_name = false
     local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
     chosen = {
@@ -946,7 +940,16 @@ function Dispatch.main(argv: {string}): integer
         return stale
       end
     end
-    local code = chosen.run(argv)
+    -- The verb's line is read by Flags.dispatch first, as a program's command is, so every verb refuses a
+    -- mistyped option alike, naming the one meant and its usage; the verb then reads the line it was given.
+    local code = 2
+    local vetted = command ~= nil and typed_by_name and chosen.fresh ~= true and chosen.own_line ~= true
+    local refusal = if command ~= nil and vetted then line_refusal(verb, command, own) else "" end
+    if refusal ~= "" then
+      log:complain(refusal)
+    else
+      code = chosen.run(argv)
+    end
     if code == 2 and not chosen.bare and chosen.fresh ~= true and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale

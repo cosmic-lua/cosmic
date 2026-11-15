@@ -91,6 +91,9 @@ local function test_help_is_the_verbs_before_the_program_and_the_programs_after(
   -- argument and prints it back.
   local program = cosmic(tmp, { "sandbox", "--system", "--", "sh", "-c", 'echo "$1"', "x", "--help" })
   assert(program.code == 0 and program.out == "--help\n", tostring(program.code) .. program.out .. program.err)
+  -- With no `--` either: the words from the program on are the program's, an option no verb has among them.
+  local bare = cosmic(tmp, { "sandbox", "--system", "sh", "-c", 'echo "$1"', "x", "--zzqq" })
+  assert(bare.code == 0 and bare.out == "--zzqq\n", tostring(bare.code) .. bare.out .. bare.err)
 end
 
 local function test_fd_hands_the_callers_descriptor_to_the_program(tmp: string)

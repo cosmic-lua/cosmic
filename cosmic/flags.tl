@@ -60,6 +60,9 @@ local record Flags
     given: mut {string}
     --- Every other word, in order.
     words: mut {string}
+    --- The words the command keeps for itself, unread, in order: set by [`Flags.dispatch`] for a command that
+    --- says which they are ([`Flags.Command`]'s `rest`), nil for any other and from [`Flags.parse`].
+    mut rest?: {string}
   end
 
   --- What [`Flags.dispatch`] did.
@@ -103,6 +106,14 @@ local record Flags
     --- ("Reports"); under "commands:" when nil or "", or "other
     --- commands:" where another command names a section.
     group?: string
+    --- The word that runs the command where that is not its name in `commands`: an option's spelling
+    --- ("--version"), or "" for the command a first word that names no other runs, that word being the first
+    --- of its own (a file to run). [`Flags.dispatch`] raises where two commands are typed alike.
+    typed?: string
+    --- The slot of the line from which the words are the command's own, read by no spec: those of a program
+    --- it starts, say, whose options are not its options. Given the line and the slot of its first word after
+    --- the command; nil where the line holds none. They are the `rest` of what `run` is given.
+    rest?: function(argv: {string}, from: integer): integer?
     --- Runs the command with what its line held, answering its exit
     --- status. None for a command only described, as [`cosmic.cli`]'s
     --- verbs are, which [`Flags.dispatch`] refuses to run.
@@ -137,19 +148,24 @@ local record Flags
     --- The titles of the sections of the program's help ([`Flags.Command`]'s `group`), in the order to show
     --- them; a title not among them follows, those in order by title. In order by title when nil.
     groups?: {string}
-    --- What follows the index's usage line, before its sections: a paragraph or more, printed as written.
-    intro?: string
-    --- The program's topics, by the word `help` takes for each. A name that is "", a command's, "help",
-    --- "docs", or one that begins with "-" raises. A program with a command named "help" answers
-    --- `prog help` itself, so [`Flags.dispatch`] prints no topic for it: that command can, with
-    --- [`Flags.topic_help`].
+    --- The commands, by name, in the order to list them in their sections; one not among them follows, those
+    --- in order by name. In order by name when nil.
+    order?: {string}
+    --- Whether the program's help lists each command as its line is typed, the usage [`Flags.help`] opens
+    --- with ("prog count [options] <file>"), in place of its name.
+    usages?: boolean
+    --- What the program's help opens with, in place of its usage line.
+    before?: string
+    --- What the program's help ends with, in place of the lines that say how to read more.
+    after?: string
+    --- The program's topics, by the word `help` takes for each, listed under "topics:" after the commands.
+    --- A name that is "", a command's or the word one is typed as, "help", "docs", or one that begins with
+    --- "-" raises. A program with a command named "help" answers `prog help` itself, so [`Flags.dispatch`]
+    --- prints no topic for it: that command can, with [`Flags.topic_help`].
     topics?: {string:Topic}
-    --- What the index ends with, printed as written, in place of the lines that say how to ask for a
-    --- command's options and how to search the documentation; "" for nothing there. Those lines when nil.
-    closing?: string
     --- The columns a line of help may reach, at least 1, for a command's examples and options and the index
     --- alike, laid out as [`Flags.help`] lays out examples. When nil, examples keep within 80 and the rest
-    --- are not wrapped. `intro`, `closing` and a topic's text are printed as written.
+    --- are not wrapped. `before`, `after` and a topic's text are printed as written.
     width?: integer
   end
 end
@@ -281,6 +297,11 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   local known: mut {string} = {}
   for name in pairs(spec) do known[#known + 1] = name end
   for _, name in ipairs(also) do known[#known + 1] = name end
+  -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
+  local digits = false
+  for name in pairs(spec) do
+    if name:match("^%-%d") ~= nil then digits = true end
+  end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
   local cursor: integer = from
   local function flag(name: string)
@@ -296,7 +317,7 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       value = argv[cursor]
       if value == nil then
         return name .. " needs a value"
-      elseif looks_like_option(value) then
+      elseif looks_like_option(value) and (digits or value:match("^%-%d") == nil) then
         return name .. " needs a value, not " .. value .. "; give one that " ..
           "begins with \"-\" as " .. name .. same .. value
       end
@@ -321,7 +342,7 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   local options = true
   while argv[cursor] ~= nil do
     local word = argv[cursor]
-    if not options or word == "-" or word:sub(1, 1) ~= "-" then
+    if not options or word == "-" or word:sub(1, 1) ~= "-" or (not digits and word:match("^%-%d") ~= nil) then
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
       options = false
@@ -391,7 +412,10 @@ end
 --- what follows "=" in the same word for a "--" option or a one-dash
 --- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
 --- "--" ends the options: every word after it is a word even when it
---- begins with "-", as a negative number must. A file run as `cosmic
+--- begins with "-". A word that begins with "-" and a digit ("-5",
+--- "-0.5", "-90m") is a word too, a negative number or a span of time,
+--- and may be an option's value; where the spec names any option that
+--- begins so ("-1"), every such word is read as an option. A file run as `cosmic
 --- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
 --- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
 --- words. Write `cosmic f.tl --email x`.
@@ -411,8 +435,9 @@ end
 --- the line does not give ("--jobs is required"; the first by name when
 --- several are missing), or one whose value is missing: the end
 --- of the line, or a next word that looks like an option -- one that
---- begins with "-" and is not a lone "-" or a number `tonumber` reads
---- ("-1", "-0.5"; not "-inf") -- so a mistyped option ("--jobs --chek")
+--- begins with "-" and is not a lone "-", a number `tonumber` reads
+--- ("-1", "-0.5"; not "-inf") or a word that begins with "-" and a digit
+--- ("-90m") -- so a mistyped option ("--jobs --chek")
 --- is never read as a value. A value that begins with "-" is given in
 --- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
 --- not an option ("x", "-", "--"), or that holds an "=" no word could
@@ -590,6 +615,32 @@ function Flags.options(spec: {string:boolean | Flags.Option}): string
   return table.concat(row_lines(rows, row_width(rows)), "\n")
 end
 
+--- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
+--- its `usage`, "[options]" where it gives none and takes any.
+local function typed_line(program: string, name: string, command: Flags.Command): string
+  local words: mut {string} = { program }
+  local typed = command.typed or name
+  if typed ~= "" then words[#words + 1] = typed end
+  local spec = command.spec or {}
+  local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
+  if usage ~= "" then words[#words + 1] = usage end
+  return table.concat(words, " ")
+end
+
+--- The word `command`, held as `name`, is listed by: the word that runs it, or "<" and its name and ">" for the
+--- command no word names.
+local function shown(name: string, command: Flags.Command): string
+  local typed = command.typed or name
+  return if typed ~= "" then typed else "<" .. name .. ">" end
+end
+
+--- What help calls `command`, held as `name`: `program` and the word that runs it, or `program` alone for the
+--- command no word names.
+local function called(program: string, name: string, command: Flags.Command): string
+  local typed = command.typed or name
+  return if typed ~= "" then program .. " " .. typed else program end
+end
+
 --- A command's help, written from its record: the usage line, `about`
 --- when given, and each option the command's `spec` names with its
 --- value's name and what it does, as a [`Flags.Option`] describes it:
@@ -707,19 +758,18 @@ end
 --- none come last, under "other commands:". Where any command takes
 --- options, it ends with a line that says how to ask for a command's.
 ---
---- `documented` adds to that, each field where given: `intro` after the
---- usage line, the sections in the order of its `groups`, its `topics`
---- under "topics:" after the commands, by name, and its `closing` in
---- place of the last lines. Given at all, and where `commands` holds no
---- `docs`, the index ends with a line that says how to search the
---- documentation, which [`Flags.dispatch`] then answers. One column holds
---- every section's names, topics' among them, and where `width` is given
---- what each does is laid out within it as [`Flags.help`] lays out
---- examples.
+--- `documented` changes that as its fields say ([`Flags.Documented`]): the
+--- sections in the order of its `groups` and the commands in its `order`,
+--- each listed as typed where `usages` is set, `before` in place of the
+--- usage line, its `topics` under "topics:" after the commands, by name,
+--- and `after` in place of the last lines. Given at all, and where
+--- `commands` holds no `docs`, the index ends with a line that says how to
+--- search the documentation, which [`Flags.dispatch`] then answers. One
+--- column holds every section's names, topics' among them, and where
+--- `width` is given what each does is laid out within it as
+--- [`Flags.help`] lays out examples; a width below 1 raises.
 ---
 ---     usage: prog <command> [options]
----
----     Counts what files hold.
 ---
 ---     Counting:
 ---       count    Counts the lines of each file.
@@ -737,9 +787,8 @@ end
 --- @return string The help, without a newline after the last line
 function Flags.program_help(program: string, commands: {string:Flags.Command},
                             documented?: Flags.Documented): string
-  local told: Flags.Documented = documented or {}
-  local told_width = told.width
-  if told_width ~= nil and told_width < 1 then
+  local wrap = documented and documented.width
+  if wrap ~= nil and wrap < 1 then
     error("flags: help's width is not a positive number of columns", 2)
   end
   local names: mut {string} = {}
@@ -748,14 +797,25 @@ function Flags.program_help(program: string, commands: {string:Flags.Command},
   local every: mut {Row} = {}
   local any_options = false
   for name in pairs(commands) do names[#names + 1] = name end
-  table.sort(names)
+  -- The commands the caller orders come first, in its order.
+  local listed: mut {string: integer} = {}
+  for place, name in ipairs(documented and documented.order or {}) do
+    if listed[name] == nil then listed[name] = place end
+  end
+  table.sort(names, function(a: string, b: string): boolean
+    local at_a, at_b = listed[a], listed[b]
+    if at_a ~= nil and at_b ~= nil then return at_a < at_b end
+    if at_a ~= nil or at_b ~= nil then return at_a ~= nil end
+    return a < b
+  end)
+  local usages = documented ~= nil and documented.usages == true
   for _, name in ipairs(names) do
     local command = commands[name]
     if command ~= nil then
       local spec = command.spec
       if spec ~= nil and next(spec) ~= nil then any_options = true end
       local title = command.group or ""
-      local row: Row = { head = name, about = command.about }
+      local row: Row = { head = if usages then typed_line(program, name, command) else shown(name, command) end, about = command.about }
       local rows = sections[title]
       if rows == nil then
         sections[title] = { row }
@@ -768,7 +828,7 @@ function Flags.program_help(program: string, commands: {string:Flags.Command},
   end
   -- The titles the caller orders come first, in its order.
   local placed: mut {string: integer} = {}
-  for place, title in ipairs(told.groups or {}) do
+  for place, title in ipairs(documented and documented.groups or {}) do
     if placed[title] == nil then placed[title] = place end
   end
   table.sort(titles, function(a: string, b: string): boolean
@@ -778,27 +838,22 @@ function Flags.program_help(program: string, commands: {string:Flags.Command},
     return a < b
   end)
   local topic_rows: mut {Row} = {}
-  local topics = told.topics or {}
+  local topics = documented and documented.topics or {}
   for _, name in ipairs(sorted(keys(topics))) do
     local topic = topics[name]
     local row: Row = { head = name, about = if topic ~= nil then topic.about else nil end }
     topic_rows[#topic_rows + 1] = row
     every[#every + 1] = row
   end
-  local wrap = told.width
-  local column = row_column(every, wrap)
+  local width = row_column(every, wrap)
   local lines: mut {string} = {
-    "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end),
+    documented and documented.before or
+      "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end),
   }
-  local intro = told.intro
-  if intro ~= nil and intro ~= "" then
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = intro
-  end
   local function section(heading: string, rows: {Row})
     lines[#lines + 1] = ""
     lines[#lines + 1] = heading .. ":"
-    for _, line in ipairs(row_lines(rows, column, wrap)) do lines[#lines + 1] = line end
+    for _, line in ipairs(row_lines(rows, width, wrap)) do lines[#lines + 1] = line end
   end
   for _, title in ipairs(titles) do
     section(title, sections[title] or {})
@@ -810,12 +865,10 @@ function Flags.program_help(program: string, commands: {string:Flags.Command},
   if #topic_rows > 0 then
     section("topics", topic_rows)
   end
-  local closing = told.closing
-  if closing ~= nil then
-    if closing ~= "" then
-      lines[#lines + 1] = ""
-      lines[#lines + 1] = closing
-    end
+  local after = documented and documented.after
+  if after ~= nil then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = after
     return table.concat(lines, "\n")
   end
   if any_options then
@@ -891,7 +944,8 @@ end
 --- pages record, where `documented` names one and the field has a comment.
 local function command_help(program: string, name: string, commands: {string:Flags.Command},
                             documented?: Flags.Documented): string?, string
-  local help = Flags.help(assert(commands[name]), program .. " " .. name, documented and documented.width)
+  local described = assert(commands[name])
+  local help = Flags.help(described, called(program, name, described), documented and documented.width)
   local pages = documented and documented.pages
   if documented == nil or pages == nil then
     return help, ""
@@ -959,9 +1013,9 @@ end
 --- `commands` raises, as does a command whose `see` names itself or no
 --- command of `commands` ("help" is one, held or not) or topic of
 --- `documented`'s, a topic whose `see` names itself or neither, or a
---- topic named "", as a command is, or as an option is, whatever the line: a caller's
---- mistake, met by its first run. The first such command by name is the
---- one named, then the first such topic.
+--- topic named "", as a command is, or as an option is, whatever the
+--- line: a caller's mistake, met by its first run. The first such
+--- command by name is the one named, then the first such topic.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the
 --- caller to print -- when the command is "--help" or "-h", or "help"
@@ -971,11 +1025,25 @@ end
 --- before any "--" -- even as what would be an option's value, which
 --- [`Flags.parse`] refuses anyway. Each command's help is [`Flags.help`]'s,
 --- from its spec, `usage`, `about`, `examples` and `see`; the program's
---- is [`Flags.program_help`]'s, from `commands` and `documented`. `help`
---- given more than one word is refused. Where `documented` holds topics,
---- `prog help <topic>` answers [`Flags.topic_help`]'s page, and a word
---- `help` is given that is neither is refused as "no such command or
---- topic", with the names of both near it.
+--- lists every command's `about`, in order by name: under "commands:",
+--- or, where any command names a `group`, each group under its title, the
+--- titles in order, and the rest last under "other commands:", as
+--- [`Flags.program_help`] writes it. `help` given more than one word is
+--- refused. Where `documented` holds topics, `prog help <topic>` answers
+--- [`Flags.topic_help`]'s page, and a word `help` is given that is neither
+--- is refused as "no such command or topic", with the names of both near it.
+---
+--- A command is run by its name in `commands`, or by the word it says it is
+--- typed as ([`Flags.Command`]'s `typed`), and then not by its name: an
+--- option's spelling ("--version"), or no word at all, which is the command
+--- a first word that names no other runs, that word being the first of its
+--- own ("prog notes.txt"). With such a command no first word is refused as
+--- no command, a mistyped one among them, and a file named "help" is not
+--- run. Help calls a command as it is typed, and `help` takes that word or
+--- the name. A command's `rest` says from which slot the words are its
+--- own, which its spec does not read and its `run` is given as `rest`.
+--- Two commands typed alike raise, as does one typed as "help", "-h" or
+--- "--help", and a `rest` that begins before the command's first word.
 ---
 --- With `documented`, the program answers from its own documentation, which
 --- `cosmic build` carries in it ([`Flags.Documented`]). A command's help
@@ -986,7 +1054,9 @@ end
 --- the words, a misspelled word put right; with no words, every module
 --- documented. Words that name and find nothing are refused, as a command
 --- that is none is. The program's help says `docs` is there, and orders
---- its sections as `groups` gives them, within its `width`. A test of either reads the
+--- its sections as `groups` gives them and its commands as `order` does,
+--- lists each as it is typed where `usages` is set, and opens and ends
+--- with `before` and `after` where they are given, within its `width`. A test of either reads the
 --- documentation, so it declares `Test.policy { store_text = true }`.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
@@ -999,8 +1069,8 @@ end
 --- @param program string What help calls the program ("prog" in `prog build
 ---   --help`): not read from `argv`, which holds the words after the program's
 ---   name
---- @param documented Documented | nil Where the program's documentation is, its topics, and how its help is
----   ordered, worded and laid out; nil for a program that answers from its commands' records alone
+--- @param documented Documented | nil Where the program's documentation is and how its help is ordered; nil for a
+---   program that answers from its commands' records alone
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
 function Flags.dispatch(argv: {string}, from: integer,
@@ -1010,8 +1080,19 @@ function Flags.dispatch(argv: {string}, from: integer,
     error("flags: dispatch needs a command to choose among", 2)
   end
   local topics = documented and documented.topics or {}
+  local spelled: mut {string: string} = {}
   for _, held in ipairs(sorted(keys(commands))) do
     local command = commands[held]
+    local typed = if command ~= nil then command.typed or held else held end
+    local alike = spelled[typed]
+    if alike ~= nil then
+      error("flags: " .. alike .. " and " .. held .. " are typed alike: " ..
+          (if typed ~= "" then typed else "by no word" end), 2)
+    end
+    spelled[typed] = held
+    if typed == "help" and held ~= "help" or typed == "-h" or typed == "--help" then
+      error("flags: " .. held .. " is typed as " .. typed .. ", which asks for help", 2)
+    end
     local see = if command ~= nil then command.see else nil end
     if see ~= nil then
       for _, other in ipairs(see) do
@@ -1025,7 +1106,7 @@ function Flags.dispatch(argv: {string}, from: integer,
   for _, held in ipairs(sorted(keys(topics))) do
     if held == "" then
       error("flags: a topic's name is empty", 2)
-    elseif commands[held] ~= nil or held == "help" or held == "docs" then
+    elseif commands[held] ~= nil or spelled[held] ~= nil or held == "help" or held == "docs" then
       error("flags: the topic " .. held .. " is named as a command is", 2)
     elseif held:sub(1, 1) == "-" then
       error("flags: the topic " .. held .. " is named as an option is, which help takes for none", 2)
@@ -1053,6 +1134,11 @@ function Flags.dispatch(argv: {string}, from: integer,
     if asked == nil then
       return { code = 0, help = Flags.program_help(program, commands, documented) }, ""
     end
+    -- A command is asked about by the word that runs it, or by its name: the command no word runs has no other.
+    for _, held in ipairs(sorted(keys(commands))) do
+      local other = commands[held]
+      if other ~= nil and other.typed == asked and asked ~= "" then asked = held end
+    end
     local asked_command = commands[asked]
     if asked_command == nil and asked == "docs" and documented ~= nil then
       return { code = 0, help = docs_help(program) }, ""
@@ -1064,7 +1150,10 @@ function Flags.dispatch(argv: {string}, from: integer,
     if asked_command == nil then
       local held: mut {string} = {}
       if documented ~= nil then held[#held + 1] = "docs" end
-      for other in pairs(commands) do held[#held + 1] = other end
+      for other, command in pairs(commands) do
+        local typed = command.typed or other
+        held[#held + 1] = if typed ~= "" then typed else other end
+      end
       for other in pairs(topics) do held[#held + 1] = other end
       local what = if next(topics) ~= nil then "no such command or topic: " else "no such command: " end
       return nil, what .. asked .. meant(asked, held)
@@ -1080,34 +1169,77 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   if name == nil then
     local names: mut {string} = {}
-    for known in pairs(commands) do names[#names + 1] = known end
+    for known, other in pairs(commands) do
+      local typed = other.typed or known
+      if typed ~= "" then names[#names + 1] = typed end
+    end
     table.sort(names)
     return nil, "needs a command: " .. table.concat(names, ", ")
   end
   local command = commands[name]
+  -- The slot of the command's first word: after its name, or the word itself where no command is named.
+  local first = from + 1
+  if command ~= nil and command.typed ~= nil then
+    -- A command typed another way is not run by its name in `commands`.
+    command = nil
+  end
+  if command == nil then
+    local unnamed: string? = nil
+    for _, held in ipairs(sorted(keys(commands))) do
+      local other = commands[held]
+      if other ~= nil and other.typed == name then
+        command, name = other, held
+      elseif other ~= nil and other.typed == "" then
+        unnamed = held
+      end
+    end
+    if command == nil and unnamed ~= nil then
+      command, name, first = commands[unnamed], unnamed, from
+    end
+  end
   if command == nil then
     local known: mut {string} = { "help" }
     if documented ~= nil and commands["docs"] == nil then known[#known + 1] = "docs" end
-    for held in pairs(commands) do known[#known + 1] = held end
+    for held, other in pairs(commands) do
+      local typed = other.typed or held
+      if typed ~= "" then known[#known + 1] = typed end
+    end
     return nil, "no such command: " .. name .. meant(name, known)
   end
+  -- The words the command keeps are not its spec's to read.
+  local own = argv
+  local kept: {string} = {}
+  local keeps = command.rest
+  local at = if keeps ~= nil then keeps(argv, first) else nil end
+  if at ~= nil and at < first then
+    error("flags: " .. name .. "'s rest begins at slot " .. tostring(at) .. ", before its first word", 2)
+  end
+  if at ~= nil then
+    local before: mut {string} = {}
+    local after: mut {string} = {}
+    for slot, word in ipairs(argv) do
+      if slot < at then before[#before + 1] = word else after[#after + 1] = word end
+    end
+    own, kept = before, after
+  end
   local spec = command.spec or {}
-  if Flags.asks_help(argv, from + 1, spec) then
+  if Flags.asks_help(own, first, spec) then
     local help, help_trouble = command_help(program, name, commands, documented)
     if help == nil then
       return nil, name .. ": " .. help_trouble
     end
     return { code = 0, help = help }, ""
   end
-  local parsed, why = read(argv, from + 1, spec, { "--help" })
+  local parsed, why = read(own, first, spec, { "--help" })
   if parsed == nil then
-    local usage_line = Flags.help(command, program .. " " .. name):match("^[^\n]*") or ""
+    local usage_line = Flags.help(command, called(program, name, command)):match("^[^\n]*") or ""
     return nil, name .. ": " .. why .. "; " .. usage_line
   end
   local run = command.run
   if run == nil then
     return nil, name .. ": the command has no run"
   end
+  if keeps ~= nil then parsed.rest = kept end
   return { code = run(parsed), help = "" }, ""
 end
 
