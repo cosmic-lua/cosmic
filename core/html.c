@@ -118,7 +118,10 @@ static bool attr_escaped (unsigned char c) {
  * two bytes make. And no byte of 0x80 or more is a delimiter in any
  * attribute syntax. The cost is the page's encoding: the markup is
  * UTF-8, as a template's is. Bytes that are not UTF-8 pass as they are,
- * and a browser reads each as U+FFFD. */
+ * and a browser reads each as U+FFFD. `+`, `-` and `~` pass too, so a
+ * page read as UTF-7 or HZ could find a `<` in them, as it could in
+ * `escape`'s text: a page here is UTF-8, and the HTML standard forbids
+ * UTF-7 to a browser. */
 static int html_escape_attr (lua_State *L) {
   size_t len;
   const char *s = luaL_checklstring(L, 1, &len);

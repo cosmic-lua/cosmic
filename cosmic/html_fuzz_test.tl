@@ -147,6 +147,10 @@ local function test_escape_attr_ends_at_its_quote_and_reads_back(tmp: string)
       if out:find("[%z\1-\31<>`\127]") then
         return false, "a control, bracket or backtick left in " .. out
       end
+      local bare = out:gsub("&amp;", ""):gsub("&quot;", ""):gsub("&lt;", ""):gsub("&gt;", ""):gsub("&#%d+;", "")
+      if bare:find("&", 1, true) then
+        return false, "an & that begins none of the references written in " .. out
+      end
       for number in out:gmatch("&#(%d+);") do
         local code = math.tointeger(number) or 999
         if #number > 3 or not (code < 32 or code == 39 or code == 96 or code == 127) then

@@ -492,12 +492,8 @@ end
 
 --- Reads CSS escapes as a parser does: `\` and one to six hex digits and
 --- an optional single space is that code point, `\` and any other
---- character is that character. `text` is attribute text, so any decimal
---- character reference in it is decoded first.
-local function css_unescape(text: string): string
-  local plain = text:gsub("&#(%d+);", function(code: string): string
-    return string.char(tonumber(code) as integer) -- checked: cast_refused
-  end)
+--- character is that character.
+local function css_unescape(plain: string): string
   local out: mut {string} = {}
   local i = 1
   while i <= #plain do

@@ -855,7 +855,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         end
         for piece in out:gmatch("\3([^\4]*)\4") do
           Fuzz.label("attr")
-          if piece:gsub("&#%d+;", ""):gsub("&%a+;", ""):find("[%z\1-\31&<>\"'`\127]") then
+          if piece:gsub("&#%d+;", ""):gsub("&amp;", ""):gsub("&quot;", ""):gsub("&lt;", ""):gsub("&gt;", ""):find("[%z\1-\31&<>\"'`\127]") then
             return false, "a byte that can end a value or begin a reference in: " .. piece
           end
         end
