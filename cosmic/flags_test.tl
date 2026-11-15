@@ -1178,3 +1178,53 @@ local function test_help_wraps_a_command_s_about_at_the_width_given()
   assert(assert(Flags.dispatch({ "help", "count" }, 1, commands, "prog", { width = 40 })).help ==
       Flags.help(command, "prog count", 40))
 end
+
+--- `help` answers a page of its own where the program has no `help` command, and is a word a mistyped one is
+--- put right to, by `help` and as a command alike.
+local function test_dispatch_answers_help_of_help_and_names_it_to_a_mistyped_word()
+  local commands: {string:Flags.Command} = { pair = { about = "Pairs." } }
+  local asked = assert(Flags.dispatch({ "help", "help" }, 1, commands, "prog")).help
+  assert(asked == "usage: prog help [command]\n\nWhat a command is and how to use it; with none, every command there is.",
+    asked)
+  local program: Flags.Documented = { topics = { pairing = { text = "Once." } } }
+  local with_topics = assert(Flags.dispatch({ "help", "help" }, 1, commands, "prog", program)).help
+  assert(with_topics:find("usage: prog help [command or topic]\n", 1, true) == 1, with_topics)
+  local _, why = Flags.dispatch({ "help", "hlep" }, 1, commands, "prog")
+  assert(why == "no such command: hlep; did you mean help?", why)
+  _, why = Flags.dispatch({ "help", "hlep" }, 1, commands, "prog", program)
+  assert(why == "no such command or topic: hlep; did you mean help?", why)
+  _, why = Flags.dispatch({ "hlep" }, 1, commands, "prog")
+  assert(why == "no such command: hlep; did you mean help?", why)
+  -- `docs` has its page beside `help`'s where the program answers it.
+  local docs = assert(Flags.dispatch({ "help", "docs" }, 1, commands, "prog", program)).help
+  assert(docs:find("usage: prog docs [words...]", 1, true) == 1, docs)
+  -- A program's own `help` command answers `help help` itself.
+  local told: mut {string} = {}
+  local own: {string:Flags.Command} = {
+    help = { run = function(got: Flags.Parsed): integer
+      local words = table.concat(got.words, " ")
+      told[#told + 1] = words
+      return 0
+    end },
+  }
+  local ran = assert(Flags.dispatch({ "help", "help" }, 1, own, "prog"))
+  assert(ran.help == "" and told[1] == "help", tostring(told[1]))
+end
+
+--- A topic names a guide or gives a text, not both, and a guide by a name a file of `doc/guides/` has.
+local function test_dispatch_raises_for_a_topic_whose_guide_is_no_guide()
+  local commands: {string:Flags.Command} = { pair = {} }
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", { topics = { pairing = { text = "Once.", guide = "pairing" } } })
+  end,
+    "the topic pairing gives both a text and a guide")
+  for _, name in ipairs({ "", "internal.pairing", "internal/pairing" }) do
+    Test.raises(function()
+      Flags.dispatch({ "pair" }, 1, commands, "prog", { topics = { pairing = { guide = name } } })
+    end,
+      "the topic pairing's guide is no guide's name: " .. name)
+  end
+  -- The index lists a guide's topic by its about, read from no store.
+  local index = Flags.program_help("prog", commands, { topics = { pairing = { guide = "pairing", about = "Once." } } })
+  assert(index:find("\ntopics:\n  pairing  Once.\n", 1, true) ~= nil, index)
+end

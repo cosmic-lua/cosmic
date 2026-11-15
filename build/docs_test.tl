@@ -2955,6 +2955,32 @@ local function test_a_view_shows_and_searches_the_options_of_the_commands_it_is_
   assert(db:close())
 end
 
+--- A command's help (its about, usage line and examples) is searched with its row and shown under it, in the
+--- order its help prints it: those whose row, about or usage carry the words come before those that needed an
+--- example, and a word every usage holds, the program's name, finds none.
+local function test_a_view_searches_and_shows_what_a_command_s_help_says(dir: string)
+  local db = built(dir, commands_tree())
+  local seen = assert(Doc.view({ db }))
+  seen.program = "books"
+  seen.commands = {
+    { name = "add", module = "ledger.commands", symbol = "add", usage = "books add <cents>",
+      examples = "  books add 250  note a coffee" },
+    { name = "list", module = "ledger.commands", symbol = "list", about = "show every coffee",
+      usage = "books list\n  books list --all" },
+  }
+  local searched = assert(Doc.lookup(seen, "coffee"))
+  assert(#searched == 2 and support.nth(searched, 1).source_symbol == "Commands.list" and
+      support.nth(searched, 2).source_symbol == "Commands.add", tostring(#searched))
+  assert(#assert(Doc.lookup(seen, "books")) == 0, "the program's name found its commands")
+  local add = table.concat(assert(Doc.render(seen, support.nth(assert(Doc.lookup(seen, "Commands.add")), 1))), "\n")
+  assert(add:find("Writes an entry down.\n  usage: books add <cents>\n  examples:\n    books add 250  note a coffee",
+    1, true) ~= nil, add)
+  local list = table.concat(assert(Doc.render(seen, support.nth(assert(Doc.lookup(seen, "Commands.list")), 1))), "\n")
+  assert(list:find("\n  usage: books list\n      books list --all\n  show every coffee", 1, true) ~= nil and
+      not list:find("examples:", 1, true), list)
+  assert(db:close())
+end
+
 --- A view given no commands and no marks answers from the rows alone: the same row has no options under it, no
 --- word of them finds it, and the list of every module marks none.
 local function test_a_view_given_nothing_of_the_tool_answers_from_the_rows_alone(dir: string)

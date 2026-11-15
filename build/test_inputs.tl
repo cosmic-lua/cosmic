@@ -10,7 +10,9 @@
 ---   the build's module graph has them, or the declaration file of one
 ---   only a declaration answers for;
 --- - every fuzz corpus (`testdata/fuzz/`, where [`build.fuzz`] looks),
----   when the closure holds [`build.fuzz`]; and
+---   when the closure holds [`build.fuzz`];
+--- - the tree's public guides (`doc/guides/*.md`), for a module that
+---   declares `store_text`, as modules of its closure; and
 --- - a pinned environment, `pinned_env`: what the fuzzer reads of it, and what a process of this program needs.
 ---
 --- Its module declares the rest in a [`cosmic.test`] `policy`, which the
@@ -252,6 +254,19 @@ local function closure(m: Module, by_path: {string:Module},
   end
   if declared ~= nil and declared.lua then
     hold(test_inputs.lua_loads)
+  end
+  -- A test that reads its store's text may read its tree's documentation, whose public guides are modules no
+  -- module requires: it holds them, so its store answers for them as the built program does, and its key moves
+  -- with an edit to one.
+  if declared ~= nil and declared.store_text == true then
+    local guides: mut {string} = {}
+    for name in pairs(by_path) do
+      -- A guide directly under `doc/guides/`, as [`cosmic.internal.symbols`]'s `is_public_guide` has it, which
+      -- this module, loaded by every worker, does not require.
+      if name:match("^doc%.guides%.[^.]+$") ~= nil then guides[#guides + 1] = name end
+    end
+    table.sort(guides)
+    hold(guides)
   end
   table.sort(files)
   table.sort(names)
