@@ -91,11 +91,7 @@ local function test_the_tag_carries_the_nonce_the_headers_middleware_drew()
     local page = get(client, "/")
     local page_headers_content_security_policy = assert(page.headers["content-security-policy"], "expected page.headers[\"content-security-policy\"]")
     local nonce = assert(page_headers_content_security_policy:match("'nonce%-([%w_-]+)'"))
-    -- A byte that is no letter or digit is written as a character reference.
-    local written = nonce:gsub("[_-]", function(byte: string): string
-      return ("&#%d;"):format(assert(byte:byte()))
-    end)
-    assert(page.body == '<html><body><p>hi</p><script src="/_web/dev.js" nonce="' .. written ..
+    assert(page.body == '<html><body><p>hi</p><script src="/_web/dev.js" nonce="' .. nonce ..
         '" defer></script></body></html>', page.body)
     local second = get(client, "/").headers["content-security-policy"]
     assert(second ~= page.headers["content-security-policy"], "each request draws its own nonce")

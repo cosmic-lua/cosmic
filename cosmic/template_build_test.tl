@@ -124,7 +124,10 @@ local function test_a_template_and_its_data_build_and_render(tmp: string)
     ["page.tmpl"] = HEAD .. '<h1>{{.title}}</h1>{{.h}}<a href="{{.url}}">x</a>\n' })
   assert(lua ~= nil, trouble)
   local out = rendered(lua, "page", { title = "a<b", h = Html.trust("<i>"), url = "/x" })
-  assert(out == '\n<h1>a&lt;b</h1><i><a href="' .. Html.raw_attr(Html.escape_attr("/x")) .. '">x</a>\n', out)
+  assert(out == '\n<h1>a&lt;b</h1><i><a href="/x">x</a>\n', out)
+  -- A URL in a quoted value is written as it reads, with only its `&` an entity.
+  local absolute = rendered(lua, "page", { title = "", h = Html.trust(""), url = "https://example.com/a.jpg?w=1&h=2" })
+  assert(absolute == '\n<h1></h1><a href="https://example.com/a.jpg?w=1&amp;h=2">x</a>\n', absolute)
 end
 
 local function test_a_slot_of_the_wrong_safe_type_is_an_error_on_the_templates_line(tmp: string)
@@ -213,8 +216,8 @@ end
 local function test_a_template_of_the_tree_is_a_module_the_tree_requires()
   local out = Html.raw(profile_page.render(sample.profile("Ada <3", "javascript:alert(1)")))
   assert(out:find("<h1>Ada &lt;3</h1>", 1, true), out)
-  assert(out:find(Html.raw_attr(Html.escape_attr("about:invalid")), 1, true), out)
-  assert(out:find(Html.raw_attr(Html.escape_attr("/home")), 1, true), out)
+  assert(out:find('"about:invalid"', 1, true), out)
+  assert(out:find('"/home"', 1, true), out)
   assert(not out:find("javascript", 1, true), out)
 end
 

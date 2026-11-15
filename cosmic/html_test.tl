@@ -52,25 +52,45 @@ local function test_escape_keeps_every_other_byte()
   assert(Html.raw(Html.escape("&amp;")) == "&amp;amp;")
 end
 
-local function test_escape_attr_encodes_every_ascii_byte_but_letters_and_digits()
+--- The references `escape_attr` writes for an ASCII byte: the five of
+--- [`Html.escape`], the backtick, and the controls. Every other ASCII byte
+--- is kept.
+local ATTR_REFERENCES: {string: string} = {
+  ["&"] = "&amp;", ['"'] = "&quot;", ["'"] = "&#39;", ["<"] = "&lt;", [">"] = "&gt;", ["`"] = "&#96;",
+}
+
+local function test_escape_attr_references_quotes_ampersand_brackets_backtick_and_controls()
   for byte = 0, 127 do
     local c = string.char(byte)
     local out = Html.raw_attr(Html.escape_attr(c))
-    if c:find("^%w$") then
-      assert(out == c, "a letter or digit changed: " .. tostring(byte))
-    else
-      assert(out == "&#" .. tostring(byte) .. ";", tostring(byte) .. " became " .. out)
+    local expected = ATTR_REFERENCES[c]
+    if expected == nil and (byte < 32 or byte == 127) then
+      expected = "&#" .. tostring(byte) .. ";"
     end
+    assert(out == (expected or c), tostring(byte) .. " became " .. out)
   end
   assert(Html.raw_attr(Html.escape_attr("a b\"c'd=e<f>g`h&i")) ==
-      "a&#32;b&#34;c&#39;d&#61;e&#60;f&#62;g&#96;h&#38;i")
+      "a b&quot;c&#39;d=e&lt;f&gt;g&#96;h&amp;i")
+  assert(Html.raw_attr(Html.escape_attr("tab\tnl\ncr\r\0")) == "tab&#9;nl&#10;cr&#13;&#0;")
+end
+
+--- A value with no byte to escape is its own escape: a path or a URL
+--- reads as it is.
+local function test_escape_attr_keeps_a_url_readable()
+  for _, url in ipairs({ "/images/sputters.jpg", "https://example.com/a/b?c=d#e", "mailto:a@b.c", "a b",
+      "x=1;y=2", "50%", "\\h" }) do
+    assert(Html.raw_attr(Html.escape_attr(url)) == url, url)
+  end
+  assert(Html.raw_attr(Html.escape_attr("/a?b=c&d=e")) == "/a?b=c&amp;d=e")
+  -- An entity already there is escaped like any text.
+  assert(Html.raw_attr(Html.escape_attr("&amp;&#47;")) == "&amp;amp;&amp;#47;")
 end
 
 --- A byte of 0x80 or more passes, so a UTF-8 character is not made into
 --- the characters its bytes would be as code points.
 local function test_escape_attr_keeps_utf8_whole()
   local text = "caf\xc3\xa9 \xe2\x82\xac"
-  assert(Html.raw_attr(Html.escape_attr(text)) == "caf\xc3\xa9&#32;\xe2\x82\xac")
+  assert(Html.raw_attr(Html.escape_attr(text)) == text)
   assert(Html.raw_attr(Html.escape_attr("\xff\xfe")) == "\xff\xfe")
 end
 
@@ -276,7 +296,7 @@ end
 
 local function test_href_does_not_escape_the_url()
   assert(Html.raw_url(Html.href("/a?b=c&d=\"e\"<f>")) == "/a?b=c&d=\"e\"<f>")
-  assert(Html.raw_attr(Html.escape_attr(Html.raw_url(Html.href("/a?b=c&d")))) == "&#47;a&#63;b&#61;c&#38;d")
+  assert(Html.raw_attr(Html.escape_attr(Html.raw_url(Html.href("/a?b=c&d")))) == "/a?b=c&amp;d")
 end
 
 local function test_trust_url_keeps_the_string_as_it_is()
@@ -472,12 +492,8 @@ end
 
 --- Reads CSS escapes as a parser does: `\` and one to six hex digits and
 --- an optional single space is that code point, `\` and any other
---- character is that character. `text` is attribute text, so the character
---- references the escaper writes are decoded first.
-local function css_unescape(text: string): string
-  local plain = text:gsub("&#(%d+);", function(code: string): string
-    return string.char(tonumber(code) as integer) -- checked: cast_refused
-  end)
+--- character is that character.
+local function css_unescape(plain: string): string
   local out: mut {string} = {}
   local i = 1
   while i <= #plain do
@@ -508,18 +524,18 @@ end
 
 local function test_escape_css_attr_escapes_what_a_selector_would_read()
   assert(css_attr_of("row") == "row")
-  assert(css_attr_of("x, body") == "x&#92;2c&#32;&#92;20&#32;body")
-  assert(css_attr_of("a.b#c") == "a&#92;2e&#32;b&#92;23&#32;c")
-  assert(css_attr_of("row-123") == "row&#45;123")
-  assert(css_attr_of("a_b") == "a&#95;b")
-  assert(css_attr_of("123") == "&#92;31&#32;23")
-  assert(css_attr_of("-1") == "&#45;&#92;31&#32;")
-  assert(css_attr_of("-") == "&#92;2d&#32;")
-  assert(css_attr_of("--") == "&#45;&#45;")
+  assert(css_attr_of("x, body") == "x\\2c \\20 body")
+  assert(css_attr_of("a.b#c") == "a\\2e b\\23 c")
+  assert(css_attr_of("row-123") == "row-123")
+  assert(css_attr_of("a_b") == "a_b")
+  assert(css_attr_of("123") == "\\31 23")
+  assert(css_attr_of("-1") == "-\\31 ")
+  assert(css_attr_of("-") == "\\2d ")
+  assert(css_attr_of("--") == "--")
   assert(css_attr_of("a\0b") == "a\xef\xbf\xbdb")
-  assert(css_attr_of("\1\127") == "&#92;1&#32;&#92;7f&#32;")
+  assert(css_attr_of("\1\127") == "\\1 \\7f ")
   assert(css_attr_of("caf\xc3\xa9") == "caf\xc3\xa9")
-  assert(css_attr_of(42) == "&#92;34&#32;2")
+  assert(css_attr_of(42) == "\\34 2")
   assert(css_attr_of("") == "")
 end
 
@@ -554,8 +570,8 @@ local function test_escape_css_attr_reads_as_the_spec_css_escape()
     assert(css_unescape(expected) == css_unescape(css_escape(input)), ("%q"):format(input))
   end
   -- The one place the text differs: CSS.escape's `\-` and `\ ` are not hex.
-  assert(css_attr_of("-") == "&#92;2d&#32;")
-  assert(css_attr_of("a b") == "a&#92;20&#32;b")
+  assert(css_attr_of("-") == "\\2d ")
+  assert(css_attr_of("a b") == "a\\20 b")
 end
 
 local function test_escape_css_attr_is_css_escape_then_escape_attr()
