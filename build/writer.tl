@@ -545,7 +545,7 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
     return false, trouble
   end
   -- A text row reads NULL as "" and never as null, so whether a cached
-  -- variant is NULL (not worth keeping) is asked of SQLite in columns 7
+  -- variant is NULL (not worth compressing) is asked of SQLite in columns 7
   -- and 8; read as "", it would ship as an empty encoding.
   for _, row in ipairs(files) do
     local path, data, sha256 = row:text(1), row:text(2), row:text(3)

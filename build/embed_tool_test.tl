@@ -713,10 +713,10 @@ end
 --- the type, hash, gzip and zstd they are served by, and a built program serves
 --- them from there, not from a directory beside it: run from a directory
 --- with a decoy `static/`, it answers the embedded bytes. A file not worth
---- compressing has no variants, and a warm build (an edited module, the
---- compressed cache kept) ships it so too, not as empty variants the static
---- handler would serve as an empty zstd body. One build of each serves the
---- checks, as it is the slow part.
+--- compressing has no variants on a warm build (an edited module, the
+--- compressed cache kept) as on a cold one, so the static handler serves
+--- its bytes and no empty zstd body. A cold and a warm build run the same
+--- checks, as a build is the slow part.
 local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/site"))
   assert(Fs.write(tmp .. "/cmd/site/main.tl", static_main))
