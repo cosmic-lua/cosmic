@@ -860,11 +860,12 @@ function Dispatch.main(argv: {string}): integer
   -- TODO: give each verb the line Flags.dispatch read, a Flags.Command whose `run` takes the Flags.Parsed, and
   -- delete each verb's own parse of it. Flags.dispatch reads the line of a verb typed by its name already
   -- ([`line_refusal`]), so their refusals are one rule's; until the verbs take what it read, a line is parsed
-  -- twice. Three kinds of verb are left out of that reading and come with this: a file run, `-e`, `--standalone`
-  -- and `--version`, which Flags.dispatch can run by a spelling or by no word (`typed`) with a program's words
-  -- unread (`rest`); a `fresh` verb and `todos`, which must rebuild a stale tool before the line is refused
-  -- (the rebuild then moves ahead of the dispatch); and `help`. Nothing blocks it; it is a change to every
-  -- verb, made apart from this one.
+  -- twice, to the same result. It waits on two things. Most verbs offer `run(argv, io?)` to their tests, which
+  -- would each hand over a parsed line instead; and a verb that says more of its usage than one line (`time`,
+  -- `rand`, `sql`: a line a subcommand) needs Flags.dispatch to end a refusal with the verb's own words. A
+  -- `fresh` verb and `todos` keep reading their own lines whatever is done: they rebuild a stale tool first.
+  -- `-e`, `--standalone` and `--version` stay outside Flags.dispatch on purpose: they load neither cosmic.flags
+  -- nor cosmic.cli (build/dispatch_tool_test.tl holds `-e` to it), being what runs when the tree cannot build.
   local command = Cli.verbs[verb]
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
