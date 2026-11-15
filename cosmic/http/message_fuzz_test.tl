@@ -127,10 +127,14 @@ local record Reader
 end
 
 --- A reader of `kind` (`request`, `response` or `either`), of
---- `protocol`, or of RTSP/1.0 and HTTP/1.1 where that is `both`.
+--- `protocol`, of RTSP/1.0 and HTTP/1.1 where that is `both`, or of
+--- HTTP/1.1 with `lengthless = "empty"` where it is `HTTP/1.1 empty`.
 local function new_reader(kind: string, protocol: string): Reader
   local opts: Message.Options = { ...LIMITS, protocol = protocol }
   if protocol == "both" then opts = { ...LIMITS, protocols = { "RTSP/1.0", "HTTP/1.1" } } end
+  -- HTTP read with `lengthless = "empty"`, so that where a message with
+  -- no length ends is held to every split too.
+  if protocol == "HTTP/1.1 empty" then opts = { ...LIMITS, lengthless = "empty" } end
   if kind == "either" then
     local reader = Message.reader(opts)
     return {
@@ -236,7 +240,7 @@ local function gen_bytes(src: Fuzz.Source): string
   end
   local data = table.concat(parts)
   if src:int(0, 2) == 0 then data = Fuzz.mutate(src, data, 4) end
-  local packed: mut {string} = { kind, Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.1", "RTSP/1.0", "both" }), data }
+  local packed: mut {string} = { kind, Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.1", "RTSP/1.0", "both", "HTTP/1.1 empty" }), data }
   while Fuzz.more(src, #packed - 3, 12) do
     local size = tostring(src:int(1, 24))
     packed[#packed + 1] = size
@@ -252,7 +256,7 @@ local function unpacked(input: string): string, string, string, {integer}
     sizes[#sizes + 1] = math.max(1, math.tointeger(tonumber(fields[i])) or 1)
   end
   local protocol, kind = "HTTP/1.1", "request"
-  for _, name in ipairs({ "RTSP/1.0", "both" }) do
+  for _, name in ipairs({ "RTSP/1.0", "both", "HTTP/1.1 empty" }) do
     if fields[2] == name then protocol = name end
   end
   for _, name in ipairs({ "response", "either" }) do
@@ -311,7 +315,16 @@ local function test_either_kind_reads_as_its_kind_does(tmp: string)
           local function same(got: Answer): boolean
             return read.status == got.status and read.reason == got.reason
           end
-          if not same(asked) and not same(answered) then
+          -- A first word that is neither a protocol nor a method is
+          -- refused as neither kind, which no reader of one kind says.
+          -- ... and only where the first word, past blank lines, is so.
+          local word = data:sub(at):gsub("^[\r\n]*", ""):match("^[^ \r\n]*") or ""
+          local neither = read.status == "refused" and asked.status == "refused" and
+            answered.status == "refused" and not word:find("^%u+/%d%.%d$") and
+            not word:find("^[!#$%%&'*+%-.^_`|~%w]+$") and
+            read.reason == "the first line is neither a request line nor a status line"
+          if neither then Fuzz.label("neither kind") end
+          if not same(asked) and not same(answered) and not neither then
             return false, ("at %d, either answered %s %q"):format(at, read.status, read.reason)
           end
           Fuzz.label("refused")
@@ -327,7 +340,7 @@ local function test_either_kind_reads_as_its_kind_does(tmp: string)
       end
       return true, ""
     end,
-    requires = { "request", "response", "refused" },
+    requires = { "request", "response", "refused", "neither kind" },
   })
 end
 
@@ -439,6 +452,14 @@ local function test_a_written_message_reads_back(tmp: string)
         end
         answer = response_answer(read)
         Fuzz.label("response")
+        if body == nil and not bodiless then
+          -- Read as one that names no length has no body, it is its head.
+          local empty = Message.response_reader({ protocol = protocol, lengthless = "empty" }):feed(text)
+          if empty.status ~= "done" or assert(empty.response).body ~= "" or empty.consumed ~= #text then
+            return false, "lengthless = \"empty\" did not end the response at its head"
+          end
+          Fuzz.label("lengthless")
+        end
         if protocol == "RTSP/1.0" and body == nil and not bodiless then
           Fuzz.label("rtsp with no length")
         end
@@ -496,6 +517,6 @@ local function test_a_written_message_reads_back(tmp: string)
       return true, ""
     end,
     requires = { "request", "response", "body", "rtsp", "refused body", "to the end of the stream", "fields",
-      "rtsp with no length" },
+      "rtsp with no length", "lengthless" },
   })
 end
