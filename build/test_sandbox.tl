@@ -215,8 +215,10 @@ local parent_place <const> = "/tree-up"
 --- declare it: with TZ unset, [`cosmic.time`] reads the host's zone from
 --- /etc/localtime, which an unsandboxed worker can read and its key does
 --- not hold, so a test would print another time on another host. One that
---- declares TZ has the runner's, and reads the host's zone where it also
---- declares /etc/localtime ([`cosmic.time`]'s example does both).
+--- declares TZ has the runner's, and with it unset may read the host's
+--- zone: unsandboxed, or sandboxed where it declares /etc/localtime or the
+--- `system` profile, which gives it ([`cosmic.time`]'s example declares
+--- both TZ and the file).
 local function passed(environment: {string:string},
                       effective: test_inputs.Effective): mut {string:string}
   local out: mut {string:string} = {}
@@ -256,6 +258,8 @@ end
 ---   unless the test says otherwise for it;
 --- - COSMIC_TEST_SANDBOX is unset: a `cosmic test` a test starts says for
 ---   itself whether it must sandbox;
+--- - TZ is "UTC" for a module that does not declare it (`passed`), run
+---   sandboxed or not;
 --- - HOME is `worker_home`, in its scratch directory, and
 ---   XDG_CACHE_HOME unset, for a module that declares no host cache. This
 ---   program's core, which a portable cosmic the worker starts looks for

@@ -130,6 +130,12 @@ cache (`/cache/...`), which it finds by the host's. So a verdict stands
 for a run started from another home, with another PATH. A test that
 needs another value of one sets it for the process it starts.
 
+Every worker, sandboxed or not, has `TZ=UTC` unless its module declares
+`env = { "TZ" }`. With TZ unset, [`cosmic.time`] takes the host's zone from
+/etc/localtime, which an unsandboxed worker could read and its key would
+not hold. A test of the host's zone declares TZ and grants /etc/localtime,
+as [`cosmic/time_example.tl`] does.
+
 Where the kernel cannot (macOS, a host without user namespaces or
 Landlock) or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed. The
 run says so and why. It trusts the declaration. An undeclared read
@@ -1168,8 +1174,10 @@ Other rules:
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl
+[`cosmic.time`]: ../cosmic/time.tl
 [`cosmic.vector`]: ../cosmic/vector.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
+[`cosmic/time_example.tl`]: ../cosmic/time_example.tl
 [`Coverage.native_functions`]: ../cosmic/coverage.tl
 [`declared_key.dispatched`]: ../build/declared_key.tl
 [`declared_key.host_cpu`]: ../build/declared_key.tl
