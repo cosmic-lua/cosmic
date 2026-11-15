@@ -18,8 +18,10 @@ end
 --- value the program wrote.
 function Example.escape_attr()
   local title: Html.SafeAttr = Html.escape_attr('say "hi" & leave')
-  print(Html.raw_attr(title)) -- say&#32;&#34;hi&#34;&#32;&#38;&#32;leave
-  assert(Html.raw_attr(title) == "say&#32;&#34;hi&#34;&#32;&#38;&#32;leave")
+  print(Html.raw_attr(title)) -- say &quot;hi&quot; &amp; leave
+  assert(Html.raw_attr(title) == "say &quot;hi&quot; &amp; leave")
+  -- A URL needs nothing escaped but its `&`.
+  assert(Html.raw_attr(Html.escape_attr("/images/a.jpg?w=2&h=3")) == "/images/a.jpg?w=2&amp;h=3")
   assert(Html.raw_attr(Html.trust_attr("fixed")) == "fixed")
 end
 
@@ -47,8 +49,8 @@ end
 --- value cannot end the identifier and select another element.
 function Example.escape_css_attr()
   local target = Html.escape_css_attr("x, body")
-  print(Html.raw_attr(target)) -- x&#92;2c&#32;&#92;20&#32;body
-  assert(Html.raw_attr(target) == "x&#92;2c&#32;&#92;20&#32;body")
+  print(Html.raw_attr(target)) -- x\2c \20 body
+  assert(Html.raw_attr(target) == "x\\2c \\20 body")
 end
 
 --- JSON for an attribute such as `hx-vals` is encoded by `json`, and a

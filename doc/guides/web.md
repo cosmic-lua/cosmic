@@ -689,7 +689,7 @@ local function test_page_and_fragment()
   local page = client:get("/")
   assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true) ~= nil)
   assert(page.body:find("/_web/htmx-", 1, true), "the page loads htmx")
-  assert(page.body:find("&#47;static&#47;app&#46;%x+&#46;css"), "and the stylesheet by its fingerprint")
+  assert(page.body:find("/static/app%.%x+%.css"), "and the stylesheet by its fingerprint")
   local fragment = client:get("/", { headers = { ["HX-Request"] = "true" } })
   assert(fragment.status == 200 and not fragment.body:find("<html", 1, true))
 end

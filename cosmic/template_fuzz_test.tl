@@ -605,12 +605,17 @@ local function esc(s: any): string
   return (s:gsub("[&<>\"']", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&#34;", ["'"] = "&#39;" }))
 end
 
+--- The entities the core's [`escape_attr`] writes; every other byte it
+--- escapes (a backtick, a control) is a decimal reference.
+local ATTR_ENTITIES <const>: {string: string} = { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&quot;",
+  ["'"] = "&#39;" }
+
 local function esc_attr(s: any): string
   if not s is string then
     return ""
   end
-  return (s:gsub("[\0-\47\58-\64\91-\96\123-\127]", function(c: string): string
-    return "&#" .. tostring(String.byte_at(c, 1)) .. ";"
+  return (s:gsub("[%z\1-\31&<>\"'`\127]", function(c: string): string
+    return ATTR_ENTITIES[c] or "&#" .. tostring(String.byte_at(c, 1)) .. ";"
   end))
 end
 
@@ -717,7 +722,7 @@ end
 --- names the tests use.
 local NAMED <const>: {string: string} = {
   sol = "/", bsol = "\\", Tab = "\t", NewLine = "\n", period = ".", colon = ":", amp = "&", quest = "?", num = "#",
-  lpar = "(", rpar = ")", excl = "!",
+  lpar = "(", rpar = ")", excl = "!", lt = "<", gt = ">", quot = '"',
 }
 
 --- `value` with its character references decoded and the bytes a URL
@@ -850,8 +855,8 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         end
         for piece in out:gmatch("\3([^\4]*)\4") do
           Fuzz.label("attr")
-          if piece:gsub("&#%d+;", ""):find("[^%w\128-\255]") then
-            return false, "a byte that can end a value in: " .. piece
+          if piece:gsub("&#%d+;", ""):gsub("&%a+;", ""):find("[%z\1-\31&<>\"'`\127]") then
+            return false, "a byte that can end a value or begin a reference in: " .. piece
           end
         end
         -- A part holds only unreserved bytes and %XX, so it cannot end the
@@ -893,9 +898,7 @@ local function test_a_value_cannot_get_out_of_where_a_slot_puts_it(tmp: string)
         -- parser drops removed) is not protocol-relative, which `href` refuses.
         for value, after in out:gmatch("\3&#5;([^\4]*)\4([^\"']*)") do
           Fuzz.label("assembled url")
-          local url = (value .. after):gsub("&#(%d+);", function(n: string): string
-            return string.char(assert(math.tointeger(assert(tonumber(n)) % 256)))
-          end):gsub("[\t\n\r]", "")
+          local url = decoded(value .. after)
           if url:find("^[/\\][/\\]") then
             return false, "an assembled URL is protocol-relative: " .. url
           end

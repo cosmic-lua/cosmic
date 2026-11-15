@@ -31,8 +31,8 @@ local record html
 
   -- The string, with `& < > " '` made entities.
   escape: function(s: string): SafeHtml
-  -- The string with every ASCII byte but a letter or digit made a numeric
-  -- character reference; bytes of 0x80 or more pass through. For a
+  -- The string with `& " ' < >` made entities and a backtick, C0 control
+  -- or DEL a decimal character reference; every other byte passes. For a
   -- quoted attribute value.
   escape_attr: function(s: string): SafeAttr
   -- The string as markup, unchecked.
@@ -59,8 +59,8 @@ local record html
   -- The string as a URL if it is a relative reference with no scheme,
   -- else "about:invalid".
   local_href: function(s: string): SafeUrl
-  -- The string, or the number's text, escaped as CSS identifier text and
-  -- then as an attribute value.
+  -- The string, or the number's text, escaped as CSS identifier text, which
+  -- holds nothing a quoted attribute value must escape.
   escape_css_attr: function(s: string | number): SafeAttr
   -- The string as JSON text, unchecked.
   trust_json: function(s: string): SafeJson

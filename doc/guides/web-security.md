@@ -303,11 +303,7 @@ local function test_the_nonce_in_the_policy_is_the_one_in_the_tags()
   assert(page.headers["x-content-type-options"] == "nosniff" and page.headers["x-frame-options"] == "DENY")
   local policy = page.headers["content-security-policy"] or ""
   local nonce = assert(policy:match("'nonce%-([%w_-]+)'"))
-  -- The page writes a byte that is no letter or digit as a character reference.
-  local written = nonce:gsub("[_-]", function(byte: string): string
-    return ("&#%d;"):format(assert(byte:byte()))
-  end)
-  assert(page.body:find('nonce="' .. written .. '"', 1, true))
+  assert(page.body:find('nonce="' .. nonce .. '"', 1, true))
 end
 
 local function test_hsts_is_for_https_and_only_when_asked()

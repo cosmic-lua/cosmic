@@ -1,15 +1,15 @@
 --- Fuzz properties for [`cosmic.html`], whose escapers take any bytes: the
 --- text escaper leaves none of the characters that open markup and is
---- undone by reading its five entities; the attribute escaper leaves
---- only letters, digits, character references and bytes of 0x80 or more,
---- and is undone by reading its references; and `concat` is the join
+--- undone by reading its five entities; the attribute escaper's output,
+--- read between either quote by the standard's tokenizer, ends at that
+--- quote and reads back as its input; and `concat` is the join
 --- of its parts' strings; and `href` answers `about:invalid` or a URL
 --- with no control byte or edge space whose scheme a browser would see is
 --- http, https or mailto, or that is relative and no host.
 --- `url_part` writes only unreserved bytes and `%XX`, reads back as its
 --- input (but for a whole `.` or `..`) and agrees with [`Url.escape`];
---- `escape_css_attr` leaves no backslash, quote or delimiter, only
---- letters, digits, character references and bytes of 0x80 or more.
+--- `escape_css_attr` leaves only identifier text and hex escapes, which
+--- need no attribute escaping.
 --- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -67,14 +67,75 @@ local function test_escape_leaves_no_markup_and_reads_back(tmp: string)
   })
 end
 
---- `text` with its decimal character references read back.
-local function unescape_attr(text: string): string
-  return (text:gsub("&#(%d+);", function(digits: string): string
-    return string.char(math.tointeger(digits) or 0)
-  end))
+--- The named references [`read_quoted`] knows: those `escape_attr` writes.
+local NAMED <const>: {string: string} = { amp = "&", quot = '"', lt = "<", gt = ">" }
+
+--- How a value ended, as [`read_quoted`] tells it.
+local record Quoted
+  --- The value as the browser holds it, references decoded.
+  value: string
+  --- The byte after the closing quote, or 0 where the text ran out
+  --- first or a reference was one this reader cannot decode.
+  after: integer
+  --- What went wrong, or "".
+  why: string
 end
 
-local function test_escape_attr_leaves_only_letters_digits_references_and_high_bytes(tmp: string)
+--- The text at the start of `s` read as the HTML standard's tokenizer
+--- reads the value of an attribute in `quote` (`"` or `'`), from the
+--- states "attribute value (double-quoted)" and "(single-quoted)" (13.2.5.36
+--- and 13.2.5.37) and the character reference states (13.2.5.72 to
+--- 13.2.5.80): the quote ends it, `&` begins a reference, NUL is U+FFFD,
+--- and every other byte is kept. A numeric reference of 0 is U+FFFD and any
+--- other below 0x80 is that byte (the C1 table starts at 0x80). A named one
+--- is decoded only from `NAMED` with its `;`; any other `&` and a letter or
+--- `#` is refused, so a reference this reader does not know fails the check
+--- rather than reading wrong. `&` before anything else is kept as itself, as
+--- the standard keeps it.
+local function read_quoted(s: string, quote: string): Quoted
+  local out: mut {string} = {}
+  local i = 1
+  while i <= #s do
+    local c = s:sub(i, i)
+    if c == quote then
+      return { value = table.concat(out), after = i + 1, why = "" }
+    elseif c == "\0" then
+      out[#out + 1] = "\xef\xbf\xbd"
+      i = i + 1
+    elseif c == "&" then
+      local reference, digits = s:match("^(&#[xX]?)(%x+);", i)
+      local name = s:match("^&(%w+);", i)
+      local named = if name ~= nil then NAMED[name] else nil end
+      if reference ~= nil and digits ~= nil and (reference ~= "&#" or digits:find("^%d+$") ~= nil) then
+        local code = tonumber(digits, if reference == "&#" then 10 else 16 end)
+        if code == nil or code >= 128 then
+          return { value = table.concat(out), after = 0, why = "a reference past ASCII: " .. s:sub(i, i + 9) }
+        end
+        out[#out + 1] = if code == 0 then "\xef\xbf\xbd" else string.char(math.tointeger(code) or 0) end
+        i = i + #reference + #digits + 1
+      elseif name ~= nil and named ~= nil then
+        out[#out + 1] = named
+        i = i + #name + 2
+      elseif s:find("^&[%w#]", i) then
+        return { value = table.concat(out), after = 0, why = "a reference this reader does not know: " .. s:sub(i, i + 9) }
+      else
+        out[#out + 1] = c
+        i = i + 1
+      end
+    else
+      out[#out + 1] = c
+      i = i + 1
+    end
+  end
+  return { value = table.concat(out), after = 0, why = "the text ran out inside the value" }
+end
+
+--- `escape_attr`'s output put between double quotes and between single
+--- quotes, with markup after it, is read by the standard's tokenizer as a
+--- value that ends at the closing quote and holds the input (a NUL as
+--- U+FFFD), and holds no `<`, `>` or backtick a looser reader could take
+--- for markup or a quote.
+local function test_escape_attr_ends_at_its_quote_and_reads_back(tmp: string)
   Fuzz.run({
     name = "html escape attr",
     dir = tmp,
@@ -83,16 +144,24 @@ local function test_escape_attr_leaves_only_letters_digits_references_and_high_b
     shares = { encoded = 0.5 },
     check = function(input: string): boolean, string
       local out = Html.raw_attr(Html.escape_attr(input))
-      local bare = out:gsub("&#%d+;", "")
-      if bare:find("[^%w\128-\255]") then return false, "a byte left that is neither in " .. out end
+      if out:find("[%z\1-\31<>`\127]") then
+        return false, "a control, bracket or backtick left in " .. out
+      end
       for number in out:gmatch("&#(%d+);") do
-        if #number > 3 or (math.tointeger(number) or 999) > 127 then
-          return false, "a reference outside ASCII in " .. out
+        local code = math.tointeger(number) or 999
+        if #number > 3 or not (code < 32 or code == 39 or code == 96 or code == 127) then
+          return false, "a reference to a byte that needs none in " .. out
         end
       end
-      local back = unescape_attr(out)
-      if back ~= input then return false, "read back as " .. back end
-      if input:find("[^%w\128-\255]") then Fuzz.label("encoded") else Fuzz.label("plain") end
+      local expected = input:gsub("%z", "\xef\xbf\xbd")
+      for _, quote in ipairs({ '"', "'" }) do
+        local tail = quote .. ' x="y"><b>'
+        local read = read_quoted(out .. tail, quote)
+        if read.why ~= "" then return false, read.why .. " in " .. out end
+        if read.after ~= #out + 2 then return false, "the value ended early in " .. out end
+        if read.value ~= expected then return false, "read back as " .. read.value end
+      end
+      if input:find("[%z\1-\31&<>\"'`\127]") then Fuzz.label("encoded") else Fuzz.label("plain") end
       if input == "" then Fuzz.label("empty") end
       if input:find("[\128-\255]") then Fuzz.label("high") end
       return true, ""
@@ -269,13 +338,15 @@ local function test_escape_css_attr_leaves_no_delimiter(tmp: string)
     shares = { escaped = 0.5 },
     check = function(input: string): boolean, string
       local out = Html.raw_attr(Html.escape_css_attr(input))
-      local bare = out:gsub("&#%d+;", "")
-      if bare:find("[^%w\128-\255]") then return false, "a byte left that is neither in " .. out end
-      -- A hex escape is a reference to `\`, its digits and a reference to a space.
-      for _ in out:gmatch("&#92;") do
-        if not out:find("&#92;%x%x?&#32;") then
-          return false, "a backslash with no hex escape in " .. out
-        end
+      if out:find("[^%w_ \\%-\128-\255]") then
+        return false, "a byte left that is not CSS identifier text in " .. out
+      end
+      if Html.raw_attr(Html.escape_attr(out)) ~= out then
+        return false, "not its own attribute escape: " .. out
+      end
+      -- Every backslash begins a hex escape that a space ends.
+      if out:gsub("\\%x%x? ", ""):find("[\\ ]") then
+        return false, "a backslash or space outside a hex escape in " .. out
       end
       if input:find("[^%w\128-\255]") then Fuzz.label("escaped") else Fuzz.label("plain") end
       if input == "" then Fuzz.label("empty") end
