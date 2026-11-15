@@ -411,3 +411,26 @@ local function test_db_counts_the_closure_stores_alone(tmp: string)
   local whole = verbs_fixture.expect(tree, "db", { "db" }, 0).stdout
   assert(whole:find("1 closure store, 3 bytes", 1, true), whole)
 end
+
+--- Every verb refuses a mistyped option by one rule, Flags.dispatch's: it names the option meant, `--help`
+--- among them, and how the verb is typed; and it exits 2 with nothing on standard output.
+local function test_a_verb_refuses_a_mistyped_option_naming_the_one_meant_and_its_usage(tmp: string)
+  verbs_fixture.write_tree(tmp)
+  for verb, mistyped in pairs({ fix = "--hlep", docs = "--jsno", test = "--jbos", hash = "--hlp" }) do
+    local refused = verbs_fixture.run(tmp, { verb, mistyped })
+    local first = "cosmic: " .. verb .. ": no such option: " .. mistyped .. "; did you mean "
+    assert(refused.code == 2 and refused.stdout == "" and refused.stderr:find(first, 1, true) == 1 and
+        refused.stderr:find("; usage: cosmic " .. verb, 1, true) ~= nil, verb .. ": " .. refused.stdout .. refused.stderr)
+  end
+  local helped = verbs_fixture.run(tmp, { "fix", "--hlep" })
+  assert(helped.stderr:find("did you mean --help?", 1, true) ~= nil, helped.stderr)
+end
+
+--- A negative number or span of time is a word of a verb's line, with no `--` before it.
+local function test_a_verb_takes_a_negative_number_as_a_word(tmp: string)
+  verbs_fixture.write_tree(tmp)
+  local earlier = verbs_fixture.run(tmp, { "time", "add", "2026-01-31", "-1d" })
+  assert(earlier.code == 0 and earlier.stdout == "2026-01-30T00:00:00+00:00\n", earlier.stdout .. earlier.stderr)
+  local drawn = verbs_fixture.run(tmp, { "rand", "int", "--seed", "1", "-5", "-5" })
+  assert(drawn.code == 0 and drawn.stdout == "-5\n", drawn.stdout .. drawn.stderr)
+end
