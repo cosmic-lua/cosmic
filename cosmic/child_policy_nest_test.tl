@@ -2,22 +2,22 @@
 --- program that builds a sandbox of its own, in a root of its own, held
 --- by that root instead of Landlock, which the kernel would have refuse
 --- every mount. The kernel's own verdict on live children: a stand-in
---- (build/stand_in.tl) that starts a sandboxed child of its own. They need
+--- (build/stand_in.tl) started under the policy. They need
 --- a host that lets a sandbox nest (`requires`): where the platform has none
 --- they are not applicable, and where this host gives no seccomp each skips
 --- itself (Test.skip). The refusals that come before a child, which hold on
 --- every platform, are in cosmic/child_policy_anywhere_test.tl; what a
 --- program inside makes of the namespace and mount calls themselves, in
---- cosmic/child_policy_nest_calls_test.tl.
+--- cosmic/child_policy_nest_calls_test.tl; and what Landlock holds beside a
+--- root (a sandbox the stand-in starts of its own, a directory handed
+--- without `nest`), in cosmic/child_policy_nest_landlock_test.tl, which
+--- requires it.
 
 local Child = require("cosmic.child")
-local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sandbox = require("cosmic.sandbox")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local searchable = require("build.searchable")
-local stand_in = require("build.stand_in")
 local ChildPolicy = require("build.child_policy_fixture")
 
 --- The temporary directory, which a start's root is built in, and `nests`,
@@ -28,55 +28,6 @@ Test.policy{
   promises = { "nest" },
   requires = { "nest" },
 }
-
---- What a program left and how it ended.
-local record Outcome
-  code: integer
-  said: string
-end
-
---- Runs `argv` under `policy`, starting in `cwd`: its output (stderr beside
---- stdout) and how it ended. Skips the test where the host
---- gives no sandbox; fails it where the start is refused for another reason.
-local function under(argv: {string}, policy: Sandbox.Policy, cwd: string,
-                     fds?: {integer:integer | string}): Outcome
-  local result, why = Child.run(argv,
-    { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
-  if result == nil then
-    assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-    Test.skip(why)
-  end
-  local held = assert(result, "Test.skip ends the test where the start is refused")
-  return { code = held.code or -1, said = held.stdout or "" }
-end
-
---- A stand-in, a working directory holding `ro/a`, a directory `rw` beside
---- it and one, `extra`, that only the first sandbox is given, and the
---- grants of the stand-in and the directories.
-local record Place
-  probe: string
-  work: string
-  extra: string
-  scratch: string
-  grants: {Sandbox.Grant}
-end
-
-local function placed(tmp: string): Place
-  -- Real paths, which a root binds a grant at and mountinfo names.
-  local base = assert(sys.realpath(searchable.open(tmp)))
-  local probe = assert(stand_in.build(base .. "/stand-in"))
-  local work = base .. "/work"
-  assert(Fs.mkdirs(work .. "/ro") and Fs.mkdirs(work .. "/rw") and Fs.mkdirs(base .. "/extra"))
-  assert(Fs.write(work .. "/ro/a", "alpha\n") and Fs.write(base .. "/extra/e", "epsilon\n"))
-  -- Where a start of the program's own builds the root it makes.
-  local scratch = base .. "/scratch"
-  assert(Fs.mkdirs(scratch))
-  searchable.share(scratch)
-  searchable.share(work .. "/rw")
-  return { probe = probe, work = work, extra = base .. "/extra", scratch = scratch,
-    grants = { { path = probe, letters = "rx" }, { path = work, letters = "r" },
-      { path = work .. "/rw", letters = "rwc" } } }
-end
 
 --- The mount at `point` in a /proc/self/mountinfo `text`: its per-mount options.
 local function options_at(text: string, point: string): string?
@@ -92,20 +43,20 @@ local function options_at(text: string, point: string): string?
 end
 
 local function test_nest_holds_files_by_the_root_alone(tmp: string)
-  local at = placed(tmp)
+  local at = ChildPolicy.nest_placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
-  local read = under({ at.probe, "cat ro/a" }, policy, at.work)
+  local read = ChildPolicy.under(at.probe, policy, at.work, "cat ro/a")
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
   -- Not granted, so not there; read-only where not granted `w`.
-  local other = under({ at.probe, "cat " .. at.extra .. "/e" }, policy, at.work)
+  local other = ChildPolicy.under(at.probe, policy, at.work, "cat " .. at.extra .. "/e")
   assert(other.code == 1 and other.said:find("No such file or directory", 1, true) ~= nil, other.said)
-  local ro = under({ at.probe, "create ro/b x" }, policy, at.work)
+  local ro = ChildPolicy.under(at.probe, policy, at.work, "create ro/b x")
   assert(ro.code == 1 and ro.said:find("Read-only file system", 1, true) ~= nil, ro.said)
-  local rw = under({ at.probe, "create rw/b x && cat rw/b" }, policy, at.work)
+  local rw = ChildPolicy.under(at.probe, policy, at.work, "create rw/b x && cat rw/b")
   assert(rw.code == 0 and rw.said == "x\n", tostring(rw.code) .. ": " .. rw.said)
   -- What Landlock refused to run is held by the mount: a grant without `x`
   -- is noexec, read-only or not, and the program's own is not.
-  local mounts = under({ at.probe, "cat /proc/self/mountinfo" }, policy, at.work)
+  local mounts = ChildPolicy.under(at.probe, policy, at.work, "cat /proc/self/mountinfo")
   assert(mounts.code == 0, mounts.said)
   local read_only = options_at(mounts.said, at.work)
   assert(read_only ~= nil and read_only:find("ro", 1, true) ~= nil and read_only:find("noexec", 1, true) ~= nil,
@@ -115,14 +66,13 @@ local function test_nest_holds_files_by_the_root_alone(tmp: string)
     tostring(writable))
   local program = options_at(mounts.said, at.probe)
   assert(program ~= nil and not program:find("noexec", 1, true), tostring(program))
-  local held = under({ at.probe, "status-field Seccomp" }, policy, at.work)
+  local held = ChildPolicy.under(at.probe, policy, at.work, "status-field Seccomp")
   assert(held.said:find("Seccomp:\t2", 1, true), held.said)
 end
 
 local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
-  local at = placed(tmp)
+  local at = ChildPolicy.nest_placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
-  local plain: Sandbox.Policy = { isolate = { "file" }, grants = at.grants }
   local dir = assert(sys.open(at.extra, sys.O_RDONLY))
   local reading = assert(sys.open(at.extra .. "/e", sys.O_RDONLY))
   local writing = assert(sys.open(at.extra .. "/e", sys.O_WRONLY))
@@ -144,7 +94,6 @@ local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
   assert(start(policy, { [3] = both }) == "")
   -- A pipe has no path to reach.
   assert(start(policy, { [3] = "capture" }) == "")
-  assert(start(plain, { [3] = dir }) == "")
   sys.close(dir)
   sys.close(reading)
   sys.close(writing)
@@ -160,7 +109,7 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
     Test.skip("this start retains no descriptor of the runtime's own to refuse")
     return
   end
-  local at = placed(tmp)
+  local at = ChildPolicy.nest_placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
   local handle, why = Child.start({ at.probe, "print hi" },
     { policy = policy, cwd = at.work, fds = launched.fds })
@@ -169,61 +118,4 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
   end
   assert(handle == nil and why:find("retains of its own", 1, true) ~= nil and -- checked: or_mix
       why:find("nest", 1, true), tostring(why))
-end
-
-local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: string)
-  local at = placed(tmp)
-  local dir = assert(sys.open(at.extra, sys.O_RDONLY))
-  local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "fork" }, grants = at.grants }
-  local ran = under({ at.probe, "cat /proc/self/fd/3/e" }, policy, at.work, { [3] = dir })
-  sys.close(dir)
-  assert(ran.code == 1 and ran.said:find("Permission denied", 1, true) ~= nil, tostring(ran.code) .. ": " .. ran.said)
-end
-
---- Where a start of the program's own meets its host: the directory a root
---- is built in is in TMPDIR, which the sandbox grants.
-local function nested(at: Place): Sandbox.Policy
-  return { isolate = { "file" }, promises = { "fork", "nest" }, set_env = { TMPDIR = at.scratch },
-    grants = ChildPolicy.with(at.grants, { path = at.scratch, letters = "rwc" },
-      { path = at.extra, letters = "r" }) }
-end
-
-local function test_a_nested_sandbox_is_confined_to_its_own_grants(tmp: string)
-  local at = placed(tmp)
-  local policy = nested(at)
-  -- The first sandbox reads the extra directory, the stand-in's own sandbox,
-  -- granted the stand-in and the working directory, does not.
-  local own = under({ at.probe, "cat " .. at.extra .. "/e" }, policy, at.work)
-  assert(own.code == 0 and own.said == "epsilon\n", tostring(own.code) .. ": " .. own.said)
-  local ran = under({ at.probe, "run-isolated " .. at.probe .. " cat ro/a" }, policy, at.work)
-  assert(ran.code == 0, ran.said)
-  assert(ran.said == "exit 0\nalpha\n", ran.said)
-  local hidden = under({ at.probe, "run-isolated " .. at.probe .. " cat " .. at.extra .. "/e" },
-    policy, at.work)
-  assert(hidden.code == 0, hidden.said)
-  assert(hidden.said:find("exit 1\n", 1, true) == 1 and -- checked: or_mix
-      hidden.said:find("No such file or directory", 1, true), hidden.said)
-  -- Nor is the scratch it was built in, nor the first sandbox's rw directory.
-  local scratch = under({ at.probe, "run-isolated " .. at.probe .. " present " .. at.scratch },
-    policy, at.work)
-  assert(scratch.said:find("exit 1\n", 1, true) == 1 and scratch.said:find("not there", 1, true) ~= nil,
-    scratch.said)
-end
-
---- A start of the program's own with a network namespace of its own brings its
---- loopback up with a socket pair and the interface ioctls, which `nest` lets
---- through.
-local function test_a_nested_sandbox_with_a_network_of_its_own_brings_its_loopback_up(tmp: string)
-  local at = placed(tmp)
-  local ran = under({ at.probe, "run-looped " .. at.probe .. " print hi" },
-    nested(at), at.work)
-  assert(ran.code == 0 and ran.said == "exit 0\nhi\n", tostring(ran.code) .. ": " .. ran.said)
-end
-
-local function test_a_nested_sandbox_needs_nest(tmp: string)
-  local at = placed(tmp)
-  local ran = under({ at.probe, "run-isolated " .. at.probe .. " print hi" },
-    { ...nested(at), promises = { "fork" } }, at.work)
-  assert(ran.code == 0, ran.said)
-  assert(ran.said:find("namespace was refused", 1, true), ran.said)
 end
