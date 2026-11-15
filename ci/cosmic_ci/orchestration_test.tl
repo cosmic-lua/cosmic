@@ -1204,7 +1204,7 @@ end
 --- The fixed-point regression, the slowest fixture on every leg, runs
 --- only on the weekly scheduled run, Sunday's, and on a dispatch that
 --- asks for it with `fixed_point` (COSMIC_CI_FIXED_POINT).
-local function test_the_fixed_point_fixture_runs_only_on_the_weekly_run()
+local function test_the_fixed_point_fixture_runs_on_the_weekly_run_and_when_asked()
   local _, env = platform_legs_and_env()
   local value = assert(env["COSMIC_CI_FIXED_POINT"], "ci.yml's platform job sets no COSMIC_CI_FIXED_POINT")
   assert(value == "${{ (github.event.schedule == '41 3 * * 0' || inputs.fixed_point) && 'run' || 'skip' }}",
