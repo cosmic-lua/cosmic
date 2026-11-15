@@ -734,13 +734,13 @@ local function odd_commands(seen: mut {string}): mut {string:Flags.Command}
         return nil
       end,
       run = function(got: Flags.Parsed): integer
-        local said = "run " .. table.concat(got.rest, " ") .. (if got.set["--quiet"] == true then " quietly" else "" end)
+        local said = "run " .. table.concat(got.rest or {}, " ") .. (if got.set["--quiet"] == true then " quietly" else "" end)
         seen[#seen + 1] = said
         return 3
       end,
     },
     check = { about = "checks", spec = { ["--all"] = false }, run = function(got: Flags.Parsed): integer
-      local said = "check " .. table.concat(got.words, " ") .. "/" .. tostring(#got.rest)
+      local said = "check " .. table.concat(got.words, " ") .. "/" .. tostring(#(got.rest or {}))
       seen[#seen + 1] = said
       return 0
     end },

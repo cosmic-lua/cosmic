@@ -57,9 +57,9 @@ local record Flags
     given: mut {string}
     --- Every other word, in order.
     words: mut {string}
-    --- The words the command keeps for itself, unread ([`Flags.Command`]'s `rest`), in order; none where it
-    --- keeps none.
-    rest: mut {string}
+    --- The words the command keeps for itself, unread, in order: set by [`Flags.dispatch`] for a command that
+    --- says which they are ([`Flags.Command`]'s `rest`), nil for any other and from [`Flags.parse`].
+    mut rest?: {string}
   end
 
   --- What [`Flags.dispatch`] did.
@@ -275,7 +275,7 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   for name in pairs(spec) do
     if name:match("^%-%d") ~= nil then digits = true end
   end
-  local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {}, rest = {} }
+  local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
   local cursor: integer = from
   local function flag(name: string)
     parsed.set[name] = true
@@ -997,7 +997,7 @@ function Flags.dispatch(argv: {string}, from: integer,
   if run == nil then
     return nil, name .. ": the command has no run"
   end
-  for _, word in ipairs(kept) do parsed.rest[#parsed.rest + 1] = word end
+  if keeps ~= nil then parsed.rest = kept end
   return { code = run(parsed), help = "" }, ""
 end
 
