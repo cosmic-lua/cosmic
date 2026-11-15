@@ -97,7 +97,7 @@ end
 --- it slowly: the write waits for room as the reader makes it.
 local function test_a_write_goes_whole_into_a_slow_reader(tmp: string)
   local reader, writer = fifo(tmp, "slow")
-  local body = string.rep("0123456789abcdef", 1 << 16)
+  local body = string.rep("0123456789abcdef", support.OVER_A_PIPE // 16)
   local received: mut {string} = {}
   Poll.run(function()
     local taking = Poll.spawn(function()
@@ -126,7 +126,7 @@ end
 local function test_a_write_that_expires_reports_the_bytes_written(tmp: string)
   local reader, writer = fifo(tmp, "full")
   local w = Stream.to_fd(writer, { nonblocking = true, timeout_ns = Clock.ms(60) })
-  local body = string.rep("0123456789abcdef", 1 << 16)
+  local body = string.rep("0123456789abcdef", support.OVER_A_PIPE // 16)
   local before = Clock.monotonic_ns()
   local ok, why = w:write(body)
   local elapsed = Clock.monotonic_ns() - before
@@ -163,7 +163,7 @@ end
 --- the Writer usable; any other failure ends it.
 local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   local reader, writer = fifo(tmp, "hook")
-  local body = string.rep("0123456789abcdef", 1 << 15)
+  local body = string.rep("0123456789abcdef", support.OVER_A_PIPE // 16)
   local seen: mut {string} = {}
   local asked = 0
   local calls: integer = 0
@@ -181,7 +181,7 @@ local function test_a_wait_the_caller_gives_replaces_the_poll(tmp: string)
   table.insert(seen, drained(reader))
   assert(calls > 0 and table.concat(seen) == body)
   fail = Poll.CANCELLED
-  local filled = string.rep("x", 1 << 17)
+  local filled = string.rep("x", support.OVER_A_PIPE)
   local ok, why = w:write(filled)
   assert(not ok and why == Poll.CANCELLED, tostring(why))
   asked = calls
