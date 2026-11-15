@@ -10,20 +10,23 @@
 --- levels; and the mask of the lowest penalty, scored as the standard
 --- says, unless one is named. The text is put in byte mode, one segment,
 --- as its bytes. UTF-8 is carried as it is, with no ECI header: the
---- standard's default for byte mode is ISO-8859-1, but phone cameras and
---- the common readers take valid UTF-8 as UTF-8. Numeric, alphanumeric and kanji
---- modes, ECI, structured append and Micro QR are not made, so a code of
---- digits alone is a little larger than one a mode-switching encoder
---- would make.
+--- standard's default for byte mode is ISO-8859-1, but phone cameras
+--- and the common readers take valid UTF-8 as UTF-8. Numeric,
+--- alphanumeric and kanji modes, ECI, structured append and Micro QR are
+--- not made, so a code of digits alone is a little larger than one a
+--- mode-switching encoder would make.
 ---
 --- The most a code holds is 2953 bytes at level L, 2331 at M, 1663 at Q
 --- and 1273 at H (version 40). More than that, or more than a version a
 --- caller allows, is refused with nil and why. A mask outside 0 to 7 or
 --- a version outside 1 to 40 is the caller's mistake, and raises.
 ---
---- For the same text and options it makes the same code, module for
---- module, as Project Nayuki's QR Code generator, whose algorithm it
---- follows.
+--- It makes the same code, module for module, as Project Nayuki's QR
+--- Code generator, whose algorithm it follows, given the text as one
+--- byte segment at the same level, without raising the level, and with
+--- the same mask or none named.
+
+local String = require("cosmic.string")
 
 local record Qr
   --- An error correction level: the share of a code's codewords that can
@@ -52,25 +55,16 @@ local record Qr
   record Code
     --- 1 to 40; `size` is `version * 4 + 17`.
     version: integer
+    --- The modules a side.
     size: integer
+    --- The error correction level it was drawn at.
     level: Qr.Level
     --- The mask it was drawn with, 0 to 7.
     mask: integer
-    --- The dark modules, by `y * size + x` from the top left at 0.
+    --- The modules by `y * size + x` from the top left at 0, true where
+    --- dark; a light one may be false or absent. Read it with [`Qr.dark`].
     modules: {integer: boolean}
   end
-
-  --- The QR code of `text`'s bytes, or nil and why where no allowed
-  --- version holds them at the level.
-  encode: function(text: string, options?: Qr.Options): Qr.Code?, string
-  --- Whether the module at `x`, `y` of `code` (from the top left, at 0)
-  --- is dark. One outside the code is light, as its quiet zone is.
-  dark: function(code: Qr.Code, x: integer, y: integer): boolean
-  --- `code` as an SVG image, a module a unit, with the four modules of
-  --- light border the standard asks for. The dark modules are filled
-  --- with `colour` (`"#000"` where nil) on `background` (`"#fff"`); each
-  --- is an SVG paint, put in an attribute escaped.
-  svg: function(code: Qr.Code, colour?: string, background?: string): string
 end
 
 -- By level, then version: error correction codewords per block, and blocks.
@@ -430,6 +424,8 @@ local function interleave(data: Bytes, version: integer, s: Shape): Bytes
   return all
 end
 
+--- The QR code of `text`'s bytes and "", or nil and why where no
+--- allowed version holds them at the level.
 function Qr.encode(text: string, options?: Qr.Options): Qr.Code?, string
   local level: Qr.Level = options and options.level or "M"
   local s = shape(level)
@@ -450,8 +446,8 @@ function Qr.encode(text: string, options?: Qr.Options): Qr.Code?, string
   end
   if version == 0 then
     local most = (data_codewords(max_version, s) * 8 - 4 - count_bits(max_version)) // 8
-    return nil, ("qr: %d bytes are more than a version %d code holds at level %s (%d)"):format(#text,
-      max_version, level, most)
+    return nil, ("qr: the text is %s, and a version %d code at level %s holds %d"):format(
+      String.counted(#text, "byte"), max_version, level, most)
   end
   -- The bits: byte mode, the count, the bytes, a terminator, and padding.
   local capacity = data_codewords(version, s)
@@ -495,6 +491,8 @@ function Qr.encode(text: string, options?: Qr.Options): Qr.Code?, string
   return { version = version, size = size, level = level, mask = mask, modules = g.dark }, ""
 end
 
+--- Whether the module at `x`, `y` of `code` (from the top left, at 0)
+--- is dark. One outside the code is light, as its quiet zone is.
 function Qr.dark(code: Qr.Code, x: integer, y: integer): boolean
   if x < 0 or y < 0 or x >= code.size or y >= code.size then return false end
   return code.modules[y * code.size + x] == true
@@ -506,6 +504,10 @@ local function attribute(value: string): string
   return (value:gsub('[&<>"]', ESCAPES))
 end
 
+--- `code` as an SVG image, a module a unit, with the four modules of
+--- light border the standard asks for. The dark modules are filled
+--- with `colour` (`"#000"` where nil) on `background` (`"#fff"`), each
+--- an SVG paint, escaped for the attribute it goes in.
 function Qr.svg(code: Qr.Code, colour?: string, background?: string): string
   local border = 4
   local side = code.size + border * 2

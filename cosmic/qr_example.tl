@@ -16,7 +16,7 @@ function Example.encode()
 
   local small, why = Qr.encode(string.rep("a", 100), { level = "H", max_version = 5 })
   print(small, why)
-  assert(small == nil and why == "qr: 100 bytes are more than a version 5 code holds at level H (44)")
+  assert(small == nil and why == "qr: the text is 100 bytes, and a version 5 code at level H holds 44")
 end
 
 --- UTF-8 goes in as its bytes, which is how phones read it back. Every
