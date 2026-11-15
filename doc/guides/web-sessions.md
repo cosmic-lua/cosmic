@@ -37,13 +37,14 @@ A page of "your devices" needs the sessions a user holds, without their
 cookies. [`SessionSqlite.list`] answers the live ones, all or one user's,
 the one seen last first. Each has a public id, which is not a credential and
 which a regeneration keeps, and [`SessionSqlite.destroy_id`] ends the session
-it names: check that the user may end it first, as the id is shown.
+it names: check that the user may end it first, as the id is shown, or pass
+the user as `subject`, which ends it only where it is theirs.
 `session:label("M's iPad")` gives a session a name to show beside it, and
 [`SessionSqlite.label`] renames one by its id. [`SessionSqlite.info`] answers
 the request's own session (from `session:id()`), to mark it on the page.
 
 With `seen_interval`, the store notes when and from which client address
-each session was last used, after a request that reads it, at most once per
+each session was last used, after a request that reads or saves it, at most once per
 interval: a page that polls every second writes once a minute with
 `seen_interval = 60`. Without it nothing is noted. A table an earlier version
 made gains the columns, and each of its sessions a public id, the first time
@@ -267,8 +268,10 @@ local function test_a_user_lists_their_sessions_and_ends_one_by_its_id()
   phone:post("/login")
   local now = Clock.now_ns() // 1000000000
   local mine = assert(SessionSqlite.list(store, now, { subject = "ada" }))
-  assert(#mine == 2 and mine[1].seen_at ~= nil, "a login reads the session, so it is seen")
-  assert(SessionSqlite.destroy_id(store, mine[1].id) == 1)
+  local first = assert(mine[1])
+  assert(#mine == 2 and first.seen_at ~= nil, "a login saves the session, so it is seen")
+  assert(SessionSqlite.destroy_id(store, first.id, "grace") == 0, "not grace's to end")
+  assert(SessionSqlite.destroy_id(store, first.id, "ada") == 1)
   local left = { laptop:get("/me"):text(), phone:get("/me"):text() }
   table.sort(left)
   assert(left[1] == "ada" and left[2] == "anonymous")

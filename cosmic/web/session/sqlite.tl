@@ -19,7 +19,7 @@
 --- "your devices" with a label each ([`Handle:label`]) and when and from
 --- where each was last seen. Last-seen is noted only with
 --- `seen_interval`, at most once per interval for a session, after a
---- request that read it.
+--- request that read or saved it.
 ---
 --- **Sqlite blocks the thread.** A session query runs inside the handler's
 --- task and no other connection is served meanwhile. A point lookup or
@@ -306,21 +306,23 @@ local function save_session(self: Session.Store, previous: string, data: Session
     if label == "" then label = nil end
     local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
     if text == nil then return false, "cannot encode the session: " .. encode_why end
-    if row ~= nil and changes.regenerated ~= true then
-      return Sqlite.run(store.db,
-        ("UPDATE %s SET data = ?2, subject = ?3, touched = ?4, expires = ?5, label = ?6 WHERE id_hash = ?1"):
-          format(store.table),
-        { hash_of(previous), { text = text }, text_value(subject), { integer = now }, { integer = data.expires },
-          text_value(label) })
-    end
-    local id, id_why = new_id()
-    if id == nil then return false, id_why end
-    minted[1] = id
+    -- A row without a public id was written by an earlier version running
+    -- beside this one after the migration: it gets one at its next save.
     if public_id == nil then
       local fresh, public_why = new_public_id()
       if fresh == nil then return false, public_why end
       public_id = fresh
     end
+    if row ~= nil and changes.regenerated ~= true then
+      return Sqlite.run(store.db,
+        ("UPDATE %s SET data = ?2, subject = ?3, touched = ?4, expires = ?5, label = ?6, public_id = ?7 " ..
+          "WHERE id_hash = ?1"):format(store.table),
+        { hash_of(previous), { text = text }, text_value(subject), { integer = now }, { integer = data.expires },
+          text_value(label), { text = public_id } })
+    end
+    local id, id_why = new_id()
+    if id == nil then return false, id_why end
+    minted[1] = id
     if row ~= nil then
       local gone, gone_why = Sqlite.run(store.db, ("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous) })
@@ -391,13 +393,17 @@ function SessionSqlite.list(store: Session.Store, now: integer, opts?: SessionSq
   local b = backing(store)
   local o: SessionSqlite.ListOptions = opts or {}
   local params: mut {Sqlite.Value} = { { integer = now } }
-  local where = "expires > ?1"
+  -- A row an earlier version wrote after the migration has no public id
+  -- until its next save, and cannot be shown or ended by one.
+  local where = "expires > ?1 AND public_id IS NOT NULL"
   local subject = o.subject
   if subject ~= nil then
     params[#params + 1] = { text = subject }
     where = where .. " AND subject = ?2"
   end
-  params[#params + 1] = { integer = o.limit or 100 }
+  local limit = o.limit or 100
+  if limit < 1 then error("session: limit is a number of sessions, at least 1", 2) end
+  params[#params + 1] = { integer = limit }
   local rows, why = Sqlite.rows(b.db,
     ("SELECT %s FROM %s WHERE %s ORDER BY coalesce(seen_at, created) DESC, created DESC, public_id LIMIT ?%d"):
       format(INFO_COLUMNS, b.table, where, #params), params)
@@ -418,7 +424,7 @@ end
 function SessionSqlite.info(store: Session.Store, token: string, now: integer): SessionSqlite.Info?, string
   local b = backing(store)
   if not is_id(token) then return nil, "" end
-  local rows, why = Sqlite.rows(b.db, ("SELECT %s FROM %s WHERE id_hash = ?1 AND expires > ?2"):
+  local rows, why = Sqlite.rows(b.db, ("SELECT %s FROM %s WHERE id_hash = ?1 AND expires > ?2 AND public_id IS NOT NULL"):
       format(INFO_COLUMNS, b.table), { hash_of(token), { integer = now } })
   if rows == nil then return nil, "sessions: " .. why end
   local row = rows[1]
@@ -426,35 +432,50 @@ function SessionSqlite.info(store: Session.Store, token: string, now: integer): 
   return info_of(row), ""
 end
 
+--- `sql` and `params` narrowed to the sessions of `subject`, where given.
+local function scoped(sql: string, params: {Sqlite.Value}, subject?: string): string, {Sqlite.Value}
+  if subject == nil then return sql, params end
+  local out: mut {Sqlite.Value} = {}
+  for _, value in ipairs(params) do out[#out + 1] = value end
+  out[#out + 1] = { text = subject }
+  return ("%s AND subject = ?%d"):format(sql, #out), out
+end
+
 --- Revokes the session whose public id is `id` (from [`SessionSqlite.list`]):
 --- "forget this device". Answers how many, 0 or 1. An app checks that the
---- user may end that session first: the id is shown, not secret.
+--- user may end that session first, as the id is shown, not secret, or
+--- passes `subject`, which ends it only where it is that user's.
 --- @param store Session.Store The store
 --- @param id string The public id
+--- @param subject string | nil Only a session bound to this user
 --- @return integer | nil The count
 --- @return string Why none, or ""
-function SessionSqlite.destroy_id(store: Session.Store, id: string): integer?, string
+function SessionSqlite.destroy_id(store: Session.Store, id: string, subject?: string): integer?, string
   local b = backing(store)
-  local ok, why = Sqlite.run(b.db, ("DELETE FROM %s WHERE public_id = ?1"):format(b.table), { { text = id } })
+  local sql, params = scoped(("DELETE FROM %s WHERE public_id = ?1"):format(b.table), { { text = id } }, subject)
+  local ok, why = Sqlite.run(b.db, sql, params)
   if not ok then return nil, "sessions: " .. why end
   return b.db:changes(), ""
 end
 
 --- Gives the session whose public id is `id` the label `text`, or removes
 --- it with "": renaming a device from a list. Answers how many, 0 or 1.
---- Raises for a label [`Handle:label`] refuses.
+--- Raises for a label [`Handle:label`] refuses. With `subject`, only a
+--- session bound to that user.
 --- @param store Session.Store The store
 --- @param id string The public id
 --- @param text string The label
+--- @param subject string | nil Only a session bound to this user
 --- @return integer | nil The count
 --- @return string Why none, or ""
-function SessionSqlite.label(store: Session.Store, id: string, text: string): integer?, string
+function SessionSqlite.label(store: Session.Store, id: string, text: string, subject?: string): integer?, string
   local b = backing(store)
-  if #text > Session.MAX_LABEL or not utf8.len(text) then
+  if type(text) ~= "string" or #text > Session.MAX_LABEL or not utf8.len(text) then
     error("session: a label is UTF-8 text no longer than Session.MAX_LABEL (" .. tostring(Session.MAX_LABEL) .. ")", 2)
   end
-  local ok, why = Sqlite.run(b.db, ("UPDATE %s SET label = ?2 WHERE public_id = ?1"):format(b.table),
-    { { text = id }, text_value(if text == "" then nil else text end) })
+  local sql, params = scoped(("UPDATE %s SET label = ?2 WHERE public_id = ?1"):format(b.table),
+    { { text = id }, text_value(if text == "" then nil else text end) }, subject)
+  local ok, why = Sqlite.run(b.db, sql, params)
   if not ok then return nil, "sessions: " .. why end
   return b.db:changes(), ""
 end
@@ -538,8 +559,8 @@ function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): S
     db:busy_timeout(Clock.ms(250))
   end
   local seen_interval = o.seen_interval
-  if seen_interval ~= nil and seen_interval < 0 then
-    error("session: seen_interval is a number of seconds, at least 0", 2)
+  if seen_interval ~= nil and seen_interval < 1 then
+    error("session: seen_interval is a number of seconds, at least 1", 2)
   end
   local ok, why = migrate(db, name)
   if not ok then return nil, "sessions: " .. why end

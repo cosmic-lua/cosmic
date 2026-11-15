@@ -245,10 +245,17 @@ local function test_list_answers_live_sessions_with_public_ids_and_never_a_token
   end
   local ipad = assert(by_label["M's iPad"])
   assert(ipad.subject == "ada" and assert(by_label[""]).subject == nil)
-  local text = assert(Json.encode(listed as Json.Value)) -- checked: cast_refused
+  local fields: mut {string} = {}
+  for _, info in ipairs(listed) do
+    for _, field in ipairs({ info.id, info.subject or "", info.label or "", info.seen_from or "" }) do
+      fields[#fields + 1] = field
+    end
+  end
+  local text = table.concat(fields, " ")
   for _, token in ipairs({ ada, anonymous }) do
+    local hash = Hash.sha256(token)
     assert(text:find(token, 1, true) == nil, "a listing holds no token")
-    assert(text:find(Codec.base64url(Hash.sha256(token)), 1, true) == nil)
+    assert(text:find(hash, 1, true) == nil and text:find(Codec.base64url(hash), 1, true) == nil)
   end
   local mine = assert(SessionSqlite.list(store, 450, { subject = "ada" }))
   assert(#mine == 1 and assert(mine[1]).id == ipad.id)
@@ -287,7 +294,10 @@ local function test_destroy_id_revokes_that_session_alone()
   local one = create(store, { a = 1 })
   local two = create(store, { b = 2 })
   local info = assert(SessionSqlite.info(store, one, 500))
-  assert(SessionSqlite.destroy_id(store, info.id) == 1)
+  bind(store, one, "ada")
+  assert(SessionSqlite.destroy_id(store, info.id, "grace") == 0, "another user's session is not ended")
+  assert(SessionSqlite.label(store, info.id, "x", "grace") == 0)
+  assert(SessionSqlite.destroy_id(store, info.id, "ada") == 1)
   assert(store:load(one, 500, "session") == nil and store:load(two, 500, "session") ~= nil)
   assert(SessionSqlite.destroy_id(store, info.id) == 0 and SessionSqlite.destroy_id(store, one) == 0,
     "a token is not a public id")
@@ -337,6 +347,9 @@ CREATE INDEX web_sessions_subject ON web_sessions (subject) WHERE subject IS NOT
   end
   local listed = assert(SessionSqlite.list(store, 500))
   assert(#listed == 2 and #assert(listed[1]).id == 16 and assert(listed[1]).id ~= assert(listed[2]).id)
+  local indexed = assert(Sqlite.rows(db,
+    "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'web_sessions_public_id' AND sql LIKE '%UNIQUE%'"))
+  assert(assert(indexed[1]):integer(1) == 1, "the public ids are unique")
   assert(SessionSqlite.store(db), "a second open finds nothing to do")
   local again = assert(SessionSqlite.list(store, 500))
   assert(assert(again[1]).id == assert(listed[1]).id, "the ids are kept")
@@ -405,4 +418,37 @@ local function test_without_seen_interval_nothing_is_noted()
   assert(client:get("/status"):text() == "ada")
   assert(writes_of(db) == writes)
   assert(assert(assert(SessionSqlite.list(store, now))[1]).seen_at == nil)
+end
+
+local function test_two_requests_that_loaded_the_same_old_note_write_it_once()
+  local store, db = open({ seen_interval = 60 })
+  local id = create(store, { a = 1 })
+  local first = assert(store:load(id, 500, "session"))
+  local second = assert(store:load(id, 500, "session"))
+  local seen = assert(store.seen)
+  local writes = writes_of(db)
+  seen(store, id, first, 500, "10.0.0.1")
+  seen(store, id, second, 501, "10.0.0.2")
+  assert(writes_of(db) == writes + 1, "the second found the note already made")
+  local info = assert(SessionSqlite.info(store, id, 502))
+  assert(info.seen_at == 500 and info.seen_from == "10.0.0.1")
+end
+
+local function test_a_row_an_earlier_version_wrote_after_the_migration_gets_an_id_at_its_next_save()
+  local store, db = open()
+  local token = Codec.base64url(("c"):rep(32))
+  assert(Sqlite.run(db, "INSERT INTO web_sessions (id_hash, data, created, touched, expires) VALUES (?1, '{}', 100, 100, 1000)",
+    { { blob = Hash.sha256(token) } }))
+  assert(#assert(SessionSqlite.list(store, 500)) == 0 and SessionSqlite.info(store, token, 500) == nil,
+    "a row with no public id is not listed, and does not break the list")
+  assert(store:save(token, assert(store:load(token, 500, "session")), changed({ b = 2 }), 500, "session") == token)
+  assert(#assert(assert(SessionSqlite.info(store, token, 501)).id) == 16)
+end
+
+local function test_a_seen_interval_or_a_limit_below_one_is_refused()
+  local ok, why = pcall(SessionSqlite.store, assert(Sqlite.memory()), { seen_interval = 0 })
+  assert(not ok and tostring(why):find("at least 1", 1, true) ~= nil)
+  local store = open()
+  local listed, list_why = pcall(SessionSqlite.list, store, 100, { limit = 0 })
+  assert(not listed and tostring(list_why):find("at least 1", 1, true) ~= nil)
 end

@@ -2,6 +2,7 @@
 --- the symbol each one demonstrates and run by `cosmic test` like any other
 --- test.
 
+local Clock = require("cosmic.clock")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
@@ -105,6 +106,48 @@ function Example.logout_everywhere()
   -- Rows past their expiry are swept by a save; a lifespan task can sweep on a timer.
   print(SessionSqlite.sweep(store, 0))
   assert(SessionSqlite.sweep(store, 0) == 0)
+end
+
+--- A page of "your devices": [`SessionSqlite.list`] answers a user's
+--- sessions with a label each and when and from where each was last seen,
+--- never a token; [`SessionSqlite.info`] finds the request's own, and
+--- [`SessionSqlite.destroy_id`] forgets one by its public id.
+function Example.devices()
+  local store = assert(SessionSqlite.store(assert(Sqlite.memory()), { seen_interval = 60 }))
+  local app = Web.app{
+    routes = {
+      Web.post("/pair/:name", function(req: Web.Request): Web.Response
+        local session = Session.of(req)
+        session:regenerate()
+        session:bind_subject("home")
+        session:label(assert(req.params["name"]))
+        return Web.text("paired")
+      end),
+      Web.get("/devices", function(req: Web.Request): Web.Response
+        local now = Clock.now_ns() // 1000000000
+        local mine = SessionSqlite.info(store, Session.of(req):id(), now)
+        local lines: mut {string} = {}
+        for _, device in ipairs((assert(SessionSqlite.list(store, now, { subject = "home" })))) do
+          local this = if mine ~= nil and mine.id == device.id then " (this one)" else "" end
+          lines[#lines + 1] = (device.label or device.id) .. this
+        end
+        return Web.text(table.concat(lines, "\n"))
+      end),
+    },
+    middleware = { Session.middleware{ store = store } },
+  }
+  local ipad, phone = Web.test_client(app), Web.test_client(app)
+  ipad:post("/pair/iPad")
+  phone:post("/pair/phone")
+  print(ipad:get("/devices"):text())
+  local listed = assert(SessionSqlite.list(store, Clock.now_ns() // 1000000000, { subject = "home" }))
+  for _, device in ipairs(listed) do
+    if device.label == "phone" then
+      assert(SessionSqlite.label(store, device.id, "old phone", "home") == 1)
+      assert(SessionSqlite.destroy_id(store, device.id, "home") == 1)
+    end
+  end
+  assert(ipad:get("/devices"):text() == "iPad (this one)")
 end
 
 return Example -- checked: export_not_declared

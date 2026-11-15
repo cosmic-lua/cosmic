@@ -124,9 +124,9 @@ local record Session
     --- client address `from` ("" where none is known), for a store that
     --- keeps when each session was last seen. `data` is the session as the
     --- request loaded it, so a store can skip a note it made recently. The
-    --- middleware calls it after a request that read a session and was
-    --- not a 500; a store that fails to note it loses the note, not the
-    --- request.
+    --- middleware calls it after a request that read or saved a session
+    --- and was not a 500; a store that fails to note it loses the note, not
+    --- the request.
     seen?: function(Store, token: string, data: Data, now: integer, from: string)
   end
 
