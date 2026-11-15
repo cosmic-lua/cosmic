@@ -12,16 +12,13 @@
 --- A qualified name that names nothing (Proc.which) answers from what
 --- its qualifier offers, and a search ranks first the functions whose
 --- documentation names its first word as what they stand in for.
---
--- TODO: the hints a page ends with name the tool (`cosmic docs <module>`, `cosmic uses`), which a program's
--- user cannot run. Take the words from the view once [`Flags.dispatch`] answers a program's `docs` command and
--- knows the program's name; nothing but the tool asks a view until then.
 
 local Json = require("cosmic.json")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local alias_members = require("cosmic.internal.alias_members")
+local Distance = require("cosmic.internal.distance")
 local link_text = require("cosmic.internal.link_text")
 local symbols = require("cosmic.internal.symbols")
 
@@ -70,6 +67,10 @@ local record Doc
     mut bound?: {string: string}
     --- The commands of the program that answers, none unless the caller sets them.
     mut commands: {Command}
+    --- The program that answers, as its user types it, where it is not the tool ([`Doc.program`]): a page's
+    --- hints name its `docs` command, and no page counts the uses and links of a symbol, a program having no
+    --- command that lists them. Nil for the tool.
+    mut program?: string
     --- Who alone may require each module of a database of the tree's own, by module, as [`Doc.Summary`]'s
     --- `closed` says it: what the list of every module marks. Nil marks none.
     mut marks?: function(db: Sqlite.Handle): {string: string}
@@ -132,6 +133,9 @@ local record Doc
     --- Whether no entry carries every word of the query, and these carry
     --- some of them (see `closest`).
     closest: boolean
+    --- The query as it was looked up, where a word of it that no documentation holds was taken for the
+    --- nearest word one does; nil where the query was looked up as given.
+    mut respelled?: string
     --- The verb `cosmic <query>` when the query names a library module of
     --- the same name: [`page`] ends the module's entries with a line
     --- pointing to it, and it is not one of the entries. Nil otherwise.
@@ -1488,6 +1492,15 @@ end
 
 local function effective_counts(view: Doc.View, entries: {Doc.Entry}): boolean, string
   for _, entry in ipairs(entries) do
+    if view.program ~= nil then
+      -- A program's user has no `uses` to follow a count with, so its pages give none.
+      entry.uses, entry.links = 0, 0
+    end
+  end
+  if view.program ~= nil then
+    return true, ""
+  end
+  for _, entry in ipairs(entries) do
     local used, used_trouble = used_as(view, entry)
     if used == nil and used_trouble ~= "" then
       return false, used_trouble
@@ -1533,6 +1546,65 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, st
   end
   return { databases = databases, public = scope, owners = owners,
     use_counts = {}, link_counts = {}, value_records = {}, public_modules = {}, commands = {} }, ""
+end
+
+--- A view of a program's own documentation, for the program to answer its users from: `databases` are its
+--- store's, each a public source, so only the modules any module may require answer. The standard library's
+--- answer nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
+--- of a database that documents the standard library, which is the tool's own and no program's. So the built
+--- program answers from what `cosmic build` put in it, and the same program run from its source by the tool
+--- answers from the project's last build, which the tool's store holds beside its own. A database that
+--- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
+--- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and why when a database cannot be read;
+--- raises on a test's store that withholds the documentation, naming `store_text`.
+function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command}): Doc.View?, string
+  local documented: mut {Sqlite.Handle} = {}
+  local public: mut {boolean} = {}
+  for _, db in ipairs(databases) do
+    local holds, holds_trouble = has_docs(db)
+    if holds == nil then
+      return nil, holds_trouble
+    end
+    if holds then
+      documented[#documented + 1] = db
+      public[#public + 1] = true
+    else
+      refuse_pure(db)
+    end
+  end
+  local view, trouble = Doc.view(documented, public)
+  if view == nil then
+    return nil, trouble
+  end
+  -- The databases that document the standard library, by index: the tool's own.
+  --
+  -- TODO: tell the tool's guides from the project's in a store that holds both, as a test's does: there the
+  -- project's guides answer nothing either. It waits on a guide's row saying whose tree it is of, as
+  -- `public_modules` says of a module.
+  local of_library: mut {integer: boolean} = {}
+  for index, db in ipairs(documented) do
+    local recorded, recorded_trouble = symbols.public_modules(db)
+    if recorded == nil then
+      return nil, recorded_trouble
+    end
+    for module in pairs(recorded) do
+      if symbols.is_library_module(module) then of_library[index] = true end
+    end
+  end
+  local owners: mut {string: integer} = {}
+  for module, owner in pairs(view.owners) do
+    local guide = module:sub(1, 11) == "doc.guides."
+    if not symbols.is_library_module(module) and not (guide and of_library[owner] == true) then
+      owners[module] = owner
+    end
+  end
+  return { databases = view.databases, public = view.public, owners = owners, use_counts = {}, link_counts = {},
+    value_records = {}, public_modules = {}, commands = commands or {}, program = program }, ""
+end
+
+--- What a reader types to ask `view`'s documentation: the tool's `cosmic docs`, or the program's own.
+local function docs_command(view: Doc.View): string
+  return (view.program or "cosmic") .. " docs"
 end
 
 --- The command of `view` that `entry` documents, or nil.
@@ -1620,6 +1692,103 @@ local function by_options(view: Doc.View, query: string,
   return out, ""
 end
 
+--- Whether some database of `view` documents `word`, in any form the index stems alike ("reads" for "reading").
+local function documented_word(view: Doc.View, word: string): boolean?, string
+  for _, db in ipairs(view.databases) do
+    local documented, documented_trouble = has_docs(db)
+    if documented == nil then
+      return nil, documented_trouble
+    end
+    if documented then
+      local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM docs_fts WHERE docs_fts MATCH ?1 LIMIT 1",
+        { text('"' .. word .. '"') })
+      if rows == nil then
+        return nil, trouble
+      end
+      if #rows > 0 then
+        return true, ""
+      end
+    end
+  end
+  return false, ""
+end
+
+--- The word of the documentation a mistyped `word` most likely meant, or "" when none is within reach
+--- ([`Distance.reach`]): of the words the databases of `view` list (`docs_words`), the one the fewest edits from
+--- `word`, then the one more rows carry, counted over every database, then by spelling. A `word` under four
+--- letters has none, being near too many. A word a search never
+--- requires ([`STOP_WORDS`]) is no answer, and a database written before it listed its words offers none. The
+--- words are those of every row, a public source's private rows among them: a word only those hold is searched
+--- for and finds nothing, and none of them is shown.
+local function nearest_word(view: Doc.View, word: string): string?, string
+  local lower = word:lower()
+  local reach = Distance.reach(lower)
+  -- A word of three letters is one edit from too many others for the nearest to be the one meant.
+  if reach == 0 or #lower < 4 then
+    return "", ""
+  end
+  local carried: mut {string: integer} = {}
+  for _, db in ipairs(view.databases) do
+    local listed, listed_trouble = Sqlite.text_rows(db,
+      "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs_words'")
+    if listed == nil then
+      return nil, listed_trouble
+    end
+    if #listed > 0 then
+      local rows, trouble = Sqlite.text_rows(db,
+        "SELECT word, rows FROM docs_words WHERE length(word) BETWEEN ?1 AND ?2",
+        { { integer = #lower - reach }, { integer = #lower + reach } })
+      if rows == nil then
+        return nil, trouble
+      end
+      for _, row in ipairs(rows) do
+        local listed_word = row:text(1)
+        carried[listed_word] = (carried[listed_word] or 0) + (math.tointeger(tonumber(row:text(2))) or 0)
+      end
+    end
+  end
+  local best, best_far, best_rows = "", reach + 1, 0
+  for listed_word, rows in pairs(carried) do
+    if STOP_WORDS[listed_word] ~= true and listed_word ~= lower then
+      local far = Distance.between(lower, listed_word, reach)
+      if far < best_far or (far == best_far and far <= reach and
+          (rows > best_rows or (rows == best_rows and listed_word < best))) then
+        best, best_far, best_rows = listed_word, far, rows
+      end
+    end
+  end
+  return best, ""
+end
+
+--- `query` with each word no documentation holds taken for the nearest word one does ([`nearest_word`]), or ""
+--- when no word of it changes. Only a word of letters is respelled: a name with a digit or an underscore is
+--- code, which is looked up as written.
+local function respelled(view: Doc.View, query: string): string?, string
+  local words: mut {string} = {}
+  local changed = false
+  for _, word in ipairs(query_words(query)) do
+    local kept = word
+    if word:match("^%a+$") ~= nil then
+      local known, known_trouble = documented_word(view, word)
+      if known == nil then
+        return nil, known_trouble
+      end
+      if not known then
+        local near, near_trouble = nearest_word(view, word)
+        if near == nil then
+          return nil, near_trouble
+        end
+        if near ~= "" then
+          kept = near
+          changed = true
+        end
+      end
+    end
+    words[#words + 1] = kept
+  end
+  return if changed then table.concat(words, " ") else "" end, ""
+end
+
 --- The lookups of a member that call one another and are called before they are defined, as functions of one
 --- record declared first: what a dotted query names through a type alias, in full, or from a module's last name,
 --- and what a removed name answers.
@@ -1640,7 +1809,10 @@ end
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
 ---   options do (see [`by_options`]).
-local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string
+--- - Where nothing carries them, what the words a misspelling of them meant
+---   name or are documented by (see [`respelled`]), then the rows that carry
+---   some of them.
+local function lookup_names(view: Doc.View, query: string, as_respelled?: boolean): Doc.Lookup?, string
   -- A bare lowercase name that ends a public module's name is that
   -- module (`json` is `cosmic.json`, not the internal record `json`);
   -- the symbols it names exactly follow the module (`string` is
@@ -1821,6 +1993,28 @@ local function lookup_names(view: Doc.View, query: string): Doc.Lookup?, string
         return nil, ruled_trouble
       end
       found = ruled
+    end
+    if #found == 0 then
+      -- Nothing holds the words as given: look up the words a misspelling of them meant, as that query alone
+      -- would be, its closest matches among them.
+      local again = ""
+      if as_respelled ~= true then
+        local meant, meant_trouble = respelled(view, query)
+        if meant == nil then
+          return nil, meant_trouble
+        end
+        again = meant
+      end
+      if again ~= "" then
+        local meant, meant_trouble = lookup_names(view, again, true)
+        if meant == nil then
+          return nil, meant_trouble
+        end
+        if #meant > 0 then
+          meant.respelled = again
+          return meant, ""
+        end
+      end
     end
     if #found == 0 then
       local near, near_trouble = across(view,
@@ -2689,6 +2883,9 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
     local best: Doc.Entry?
     for _, item in ipairs(declared) do
       if is_call(item) and (best == nil or points_better(item, best)) then best = item end
+      if view.program ~= nil then
+        item.uses, item.links = 0, 0
+      end
       index[#index + 1] = "  " .. listed(item)
       for _, member in ipairs(under[item.source_symbol] or {}) do
         if listed_symbols[member.symbol] ~= true then
@@ -2779,7 +2976,7 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
       "; cosmic uses " .. entry.module
   end
   if pointed ~= nil then
-    lines[#lines + 1] = "  a symbol's own page has its whole doc and its examples: cosmic docs " ..
+    lines[#lines + 1] = "  a symbol's own page has its whole doc and its examples: " .. docs_command(view) .. " " ..
       pointed
   end
   if entry.symbol ~= "" then
@@ -2857,11 +3054,16 @@ end
 local function page(view: Doc.View, found: Doc.Lookup,
                     query: string): {string}?, string
   local lines: mut {string} = {}
+  local meant = found.respelled
+  if meant ~= nil then
+    lines[#lines + 1] = "Nothing named or documented as '" .. query .. "'; showing '" .. meant .. "':"
+    lines[#lines + 1] = ""
+  end
   if found.closest then
-    lines[#lines + 1] = "No entry has every word of '" .. query .. "'; closest matches:"
+    lines[#lines + 1] = "No entry has every word of '" .. (meant or query) .. "'; closest matches:"
     lines[#lines + 1] = ""
   elseif not found.exact then
-    lines[#lines + 1] = "No exact symbol match for '" .. query ..
+    lines[#lines + 1] = "No exact symbol match for '" .. (meant or query) ..
       "'; showing related documentation:"
     lines[#lines + 1] = ""
   end
@@ -2878,8 +3080,9 @@ local function page(view: Doc.View, found: Doc.Lookup,
     local verb = found.verb
     if verb ~= nil and index == found.modules then
       lines[#lines + 1] = ""
-      lines[#lines + 1] = "See also: the command `cosmic " .. query .. "` (`cosmic docs " ..
-        verb.source_symbol .. "`, `cosmic help " .. query .. "`)."
+      local program = view.program or "cosmic"
+      lines[#lines + 1] = "See also: the command `" .. program .. " " .. query .. "` (`" .. docs_command(view) .. " " ..
+        verb.source_symbol .. "`, `" .. program .. " help " .. query .. "`)."
     end
   end
   if #found > whole then
@@ -2935,6 +3138,17 @@ function Doc.asked(words: {string}): {string}?
     end
   end
   return words
+end
+
+--- The queries `words` ask of `view`, as [`Doc.asked`] names them; a program's view has no list of the standard
+--- library, so `cosmic` is a word to it like any other.
+local function asked_of(view: Doc.View, words: {string}): {string}?
+  local asked = Doc.asked(words)
+  local query = table.concat(words, " ")
+  if asked == nil and view.program ~= nil and query ~= "" then
+    return { query }
+  end
+  return asked
 end
 
 --- `index` with each `closed` judged (the view's `marks`), for a module of a database of the tree's own only: a public
@@ -2996,14 +3210,14 @@ end
 --- Nil and why when a database cannot be read.
 function Doc.answer(view: Doc.View, words: {string}): Doc.Answer?, string
   local query = table.concat(words, " ")
-  local asked = Doc.asked(words)
+  local asked = asked_of(view, words)
   if asked == nil then
     local index, index_trouble = modules_asked(view, words)
     if index == nil then
       return nil, index_trouble
     end
-    local hint = "`cosmic docs <module>` shows one, with what it offers; " ..
-      "`cosmic docs <words>` searches them all."
+    local hint = "`" .. docs_command(view) .. " <module>` shows one, with what it offers; `" ..
+      docs_command(view) .. " <words>` searches them all."
     if query ~= "" then
       hint = "`cosmic docs <module>` shows one (cosmic.fs, or fs), with what it " ..
         "offers; `cosmic docs Fs.read` a symbol; `cosmic docs <words>` searches."
@@ -3066,7 +3280,9 @@ end
 ---   and `text`, with `file` and `line` where it has them (a guide's
 ---   section or a code entry has no line, and the key is absent), and `verb`
 ---   (the command `cosmic <query>`, which the page points to) on the last
----   module entry of a query that names one;
+---   module entry of a query that names one, and `respelled` (the query as
+---   it was searched for) where a misspelled word of it was taken for the
+---   nearest the documentation holds;
 --- - no words, or `cosmic`, name no query: each module the page lists, as
 ---   `kind` "module", with its `text` the first sentence, and `closed`
 ---   ([`Doc.Summary`]) where not every module may require it.
@@ -3078,7 +3294,7 @@ end
 function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answer?, string
   local lines: mut {string} = {}
   local all = true
-  local asked = Doc.asked(words)
+  local asked = asked_of(view, words)
   if asked == nil then
     local index, trouble = modules_asked(view, words)
     if index == nil then
@@ -3129,6 +3345,8 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
       if found.verb ~= nil and index == found.modules then
         object["verb"] = asking
       end
+      local searched_as = found.respelled
+      if searched_as ~= nil then object["respelled"] = searched_as end
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then
@@ -3138,6 +3356,41 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
     end
   end
   return { lines = lines, found = all, said = "" }, ""
+end
+
+--- The row that documents `module`'s member `name`: a field of the record the module returns, or a function it
+--- offers; else, where the module's own row does not say what it returns (a module with no doc comment of its
+--- own has none), the field or function of that name its file declares, the least nested first. Nil and ""
+--- where the view holds no such member; nil and why when a database cannot be read.
+function Doc.member(view: Doc.View, module: string, name: string): Doc.Entry?, string
+  local found, trouble = member_of(view, module, name)
+  if found == nil then
+    return nil, trouble
+  end
+  if #found > 0 then
+    return found[1], ""
+  end
+  local declared, declared_trouble = across(view,
+    function(db: Sqlite.Handle, public: boolean): {Doc.Entry}?, string
+      local rows, rows_trouble = Sqlite.text_rows(db,
+        "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
+          "(d.symbol = ?2 OR d.source_symbol GLOB '*.' || ?2) AND " .. symbols.shown_in(db, "d", public) ..
+          " ORDER BY length(d.source_symbol), d.id LIMIT 1",
+        { text(module), text(name) })
+      if rows == nil then
+        return nil, rows_trouble
+      end
+      return entries_of(rows), ""
+    end, entry_module)
+  if declared == nil then
+    return nil, declared_trouble
+  end
+  return declared[1], ""
+end
+
+--- `comment`, a doc comment, as a reader is shown it: a link as its code span alone.
+function Doc.shown(comment: string): string
+  return String.trim(link_text.unlinked(comment))
 end
 
 return Doc

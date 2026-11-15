@@ -70,18 +70,18 @@ local FIELDS <const> = "{ id = 1, name = Schema.string(2), ratio = Schema.float(
 
 local function test_each_field_is_written_and_read_by_its_kind()
   local source, why = resolved(module_of(RECORD, 'Schema.message_of("R", ' .. FIELDS .. ")"))
-  has(source, why, "function pb_write(pb_v: R): string?, string")
+  has(source, why, "function pb_write(pb_v: R, pb_into?: Schema.Writing): string?, string")
   has(source, why, "function pb_read(pb_m: Schema.Message, pb_l?: boolean): R?, string")
-  has(source, why, 'Schema.build.put_int(pb_o, 1, pb_v.id)')
-  has(source, why, 'Schema.build.put_string(pb_o, 2, pb_v.name)')
-  has(source, why, 'Schema.build.put_float(pb_o, 3, pb_v.ratio)')
-  has(source, why, 'Schema.build.put_enum(pb_o, 5, pb_v.kind, KIND.number)')
-  has(source, why, 'Schema.build.put_message(pb_o, 6, "inner", pb_v.inner, INNER.write)')
-  has(source, why, 'Schema.build.put_numbers(pb_o, 7, "int", pb_v.sizes, true)')
-  has(source, why, 'Schema.build.put_messages(pb_o, 8, "kids", pb_v.kids, pb_write)')
-  has(source, why, 'id = Schema.build.need(pb_r, 1, "id", pb_m:int(1), 0)')
+  has(source, why, 'pb_b.put_int(pb_o, 1, pb_v.id)')
+  has(source, why, 'pb_b.put_string(pb_o, 2, pb_v.name)')
+  has(source, why, 'pb_b.put_float(pb_o, 3, pb_v.ratio)')
+  has(source, why, 'pb_b.put_enum(pb_o, 5, pb_v.kind, KIND.number)')
+  has(source, why, 'pb_b.put_message(pb_o, 6, "inner", pb_v.inner, INNER.write)')
+  has(source, why, 'pb_b.put_numbers(pb_o, 7, "int", pb_v.sizes, true)')
+  has(source, why, 'pb_b.put_messages(pb_o, 8, "kids", pb_v.kids, pb_write)')
+  has(source, why, 'id = pb_b.need(pb_r, 1, "id", pb_m:int(1), 0)')
   has(source, why, "kind = KIND.name(pb_m:int(5))")
-  has(source, why, 'kids = Schema.build.messages(pb_r, 8, "kids", pb_read)')
+  has(source, why, 'kids = pb_b.messages(pb_r, 8, "kids", pb_read)')
   -- A packed field's number takes a length-delimited field too.
   has(source, why, "[7] = 8")
   has(source, why, '[7] = "sizes"')
@@ -174,14 +174,14 @@ end
 local function test_a_field_with_a_default_reads_as_it_where_absent_and_is_always_written()
   local main = module_of(DEFAULTED, defaulted())
   local source, why = resolved(main)
-  has(source, why, "type = Schema.build.or_zero(pb_m:int(1), 0)")
-  has(source, why, "low = Schema.build.or_zero(pb_m:sint(2), -9)")
-  has(source, why, "ratio = Schema.build.or_zero(pb_m:float(3), 1.0)")
-  has(source, why, "scale = Schema.build.or_zero(pb_m:double(4), -2.5)")
-  has(source, why, "on = Schema.build.or_zero(pb_m:bool(5), true)")
-  has(source, why, 'name = Schema.build.or_zero(Schema.build.text(pb_r, 6, "name"), "caf\\195\\169")')
-  has(source, why, 'blob = Schema.build.or_zero(pb_m:bytes(7), "a\\010\\034b")')
-  has(source, why, "Schema.build.put_int(pb_o, 1, pb_v.type)")
+  has(source, why, "type = pb_b.or_zero(pb_m:int(1), 0)")
+  has(source, why, "low = pb_b.or_zero(pb_m:sint(2), -9)")
+  has(source, why, "ratio = pb_b.or_zero(pb_m:float(3), 1.0)")
+  has(source, why, "scale = pb_b.or_zero(pb_m:double(4), -2.5)")
+  has(source, why, "on = pb_b.or_zero(pb_m:bool(5), true)")
+  has(source, why, 'name = pb_b.or_zero(pb_b.text(pb_r, 6, "name"), "caf\\195\\169")')
+  has(source, why, 'blob = pb_b.or_zero(pb_m:bytes(7), "a\\010\\034b")')
+  has(source, why, "pb_b.put_int(pb_o, 1, pb_v.type)")
   local _, before = main:gsub("\n", "\n")
   local _, after = assert(source):gsub("\n", "\n")
   assert(before == after, "a default of a newline adds no line")
@@ -216,12 +216,12 @@ end
 
 local function test_a_default_at_the_edges_is_written_as_the_same_value()
   local main = module_of(DEFAULTED, defaulted("type", "Schema.field(1, { default = 0x8000000000000000 })"))
-  has(resolved(main), "the least integer", "type = Schema.build.or_zero(pb_m:int(1), math.mininteger)")
+  has(resolved(main), "the least integer", "type = pb_b.or_zero(pb_m:int(1), math.mininteger)")
   local blob = module_of(DEFAULTED, defaulted("blob", "Schema.field(7, { default = '\\\\\\0009\\255' })"))
   has(resolved(blob), "a backslash, a NUL before a digit and a byte past 127",
-    'blob = Schema.build.or_zero(pb_m:bytes(7), "\\092\\0009\\255")')
+    'blob = pb_b.or_zero(pb_m:bytes(7), "\\092\\0009\\255")')
   local tiny = module_of(DEFAULTED, defaulted("scale", "Schema.field(4, { default = 1e22 })"))
-  has(resolved(tiny), "a number with an exponent", "scale = Schema.build.or_zero(pb_m:double(4), 1e+22)")
+  has(resolved(tiny), "a number with an exponent", "scale = pb_b.or_zero(pb_m:double(4), 1e+22)")
 end
 
 local function test_a_field_of_a_type_with_no_encoding_is_refused()
@@ -254,9 +254,9 @@ local function test_a_record_that_keeps_takes_no_number_for_it_and_no_repeated_e
     "rest: a field of Unknown is optional")
   local source, why = resolved(module_of("local record R\n  id?: integer\n  rest?: Schema.Unknown\nend",
     'Schema.message_of("R", { id = 1 })'))
-  has(source, why, "Schema.build.open(pb_m, pb_p, pb_e, true, pb_l == true)")
-  has(source, why, "rest = Schema.build.unknown(pb_r)")
-  has(source, why, "Schema.build.close(pb_o, pb_v.rest, { [1] = pb_v.id ~= nil })")
+  has(source, why, "pb_b.open(pb_m, pb_p, pb_e, true, pb_l == true)")
+  has(source, why, "rest = pb_b.unknown(pb_r)")
+  has(source, why, "pb_b.close(pb_o, pb_v.rest, { [1] = pb_v.id ~= nil })")
   -- A record that keeps reads a field with no check of its wire type: `open` set the others aside.
   has(source, why, "id = pb_m:int(1)")
 end
@@ -284,7 +284,7 @@ local function test_a_codec_is_named_and_not_made_in_the_entry()
   refused(declared, 'Schema.message_of("R", { inner = Schema.message(1, make()) })',
     "inner: Schema.message takes its codec by name")
   local source, why = resolved(module_of(declared, 'Schema.message_of("R", { inner = Schema.message(1, M.codecs.INNER) })'))
-  has(source, why, 'Schema.build.message(pb_r, 1, "inner", M . codecs . INNER.read)')
+  has(source, why, 'pb_b.message(pb_r, 1, "inner", M . codecs . INNER.read)')
 end
 
 local function test_two_records_that_hold_each_other_are_refused_by_name()
@@ -308,7 +308,7 @@ local function test_a_record_of_many_required_messages_is_refused_and_a_record_o
   refused("local record Inner\nend\nlocal record R\n" .. table.concat(fields, "\n") .. "\nend",
     'Schema.message_of("R", { ' .. table.concat(numbers, ", ") .. " })", "151 required embedded messages")
   local source, why = resolved(module_of("local record R\nend", 'Schema.message_of("R", {})'))
-  has(source, why, "function pb_write(_pb_v: R): string?, string")
+  has(source, why, "function pb_write(_pb_v: R, pb_into?: Schema.Writing): string?, string")
 end
 
 local function test_a_module_that_does_not_bind_the_schema_module_has_nothing_to_resolve()

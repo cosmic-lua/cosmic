@@ -987,12 +987,13 @@ end
 
 --- The statements that leave the tables of text-derived rows out of a pure store ([`closure_store.write`]), the
 --- virtual tables first. Each moves with a comment, a blank line or a moved line of the module it describes: `docs`,
---- `examples`, `links` and `uses` hold its comments, examples and lines, `places` the line and column of each name,
+--- `examples`, `links` and `uses` hold its comments, examples and lines, `docs_words` the words of the comments, `places` the line and column of each name,
 --- and `catalog` the lines of the error sites its modules document (its `code` rows, the checker's static data, are
 --- of no test that reads module text). `stubs` stays: it holds the rows of the modules a test names
 --- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
 --- reader that would otherwise answer a missing table as a missing hint ([`cosmic.internal.symbols`]).
 local withheld_tables: {string} = {
+  "DROP TABLE main.docs_words",
   "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
   "DROP TABLE main.docs", "DROP TABLE main.catalog", "DROP TABLE main.examples", "DROP TABLE main.links",
   "DROP TABLE main.uses", "DROP TABLE main.places",

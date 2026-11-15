@@ -43,6 +43,8 @@ local Lexer = require("lang.lexer")
 local LuaTail = require("build.lua_tail")
 local Node = require("build.syntax_node")
 local ProjectRefusals = require("build.project_refusals")
+local library_record = require("build.library_record")
+local positions = require("build.positions")
 local Receivers = require("build.syntax_receivers")
 local Report = require("build.syntax_report")
 local Stub = require("build.syntax_stub")
@@ -147,6 +149,11 @@ local record Pipeline
   --- The `cosmic.*` modules of the running binary, each its stub or its source ([`build.standard_text`]), a declaration
   --- ([`cosmic.sys`]) as one.
   carried: function(): Driver.Provider
+
+  --- What a file checked alone is told of a `require` of the module `name` where the standard library keeps it to its
+  --- directory ([`positions.kept`] over what the binary records, read once), and nil of any other: what
+  --- [`ProjectRefusals.places`] takes, since no check of positions runs over a lone file.
+  kept: function(name: string): string?
 
   --- [`Pipeline.carried`] widened to every module of the running binary, the tool's own beside the standard library's
   --- ([`build.standard_text`]'s `own`): what `cosmic -e` types its chunk against.
@@ -324,6 +331,22 @@ function Pipeline.carried(): Driver.Provider
     end
     return found.text
   end, declared)
+end
+
+--- What the binary records of the library as [`Pipeline.kept`] last read it; `read` once it has been asked.
+local record Recorded
+  mut read: boolean
+  mut library: positions.Library?
+end
+
+local recorded: Recorded = { read = false, library = nil }
+
+function Pipeline.kept(name: string): string?
+  if not recorded.read then
+    recorded.library = library_record.read()
+    recorded.read = true
+  end
+  return positions.kept(name, recorded.library)
 end
 
 function Pipeline.carried_own(): Driver.Provider
@@ -697,6 +720,7 @@ local function generated_of(m: Module, built: Pipeline.Built, facts?: boolean, j
       lines[#lines + 1] = ErrorRender.line(m.file, w)
     end
     if built.project == true then
+      -- No `kept` is given: the check of positions has refused a tree's module that requires a kept one before this.
       for _, line in ipairs(ProjectRefusals.check(m.file, result.chunk, result.scoped)) do
         lines[#lines + 1] = line
       end
@@ -940,7 +964,7 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
       told[#told + 1] = ErrorRender.line(file, w)
     end
     if options.project == true then
-      for _, line in ipairs(ProjectRefusals.check(file, result.chunk, result.scoped)) do
+      for _, line in ipairs(ProjectRefusals.check(file, result.chunk, result.scoped, Pipeline.kept)) do
         told[#told + 1] = line
       end
     end

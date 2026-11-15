@@ -796,6 +796,13 @@ local class Canned is Protobuf.Writer
     return self
   end
 
+  function open(self, _number: integer): Protobuf.Writer return self end
+  function close(self): Protobuf.Writer return self end
+  function append(self, _bytes: string): Protobuf.Writer return self end
+  function trouble(self): string
+    return if self.bytes_held == nil then "canned: nothing held" else "" end
+  end
+
   function encode(self): string?, string
     if self.bytes_held == nil then return nil, "canned: nothing held" end
     return self.bytes_held, ""
@@ -819,6 +826,67 @@ local function test_the_first_trouble_of_a_field_is_its_values_and_then_its_numb
   unwritable(Protobuf.writer():int(1 << 29, 1):string(1, "\xff"), "^protobuf: 536870912 is no field number")
   local troubled = Protobuf.writer():int(0, 1)
   unwritable(Protobuf.writer():int(1, 1):message(2, troubled), "^protobuf: 0 is no field number")
+end
+
+local function test_a_message_opened_in_place_is_the_bytes_of_one_embedded()
+  local inner = Protobuf.writer():string(1, "a"):int(2, 7)
+  local embedded = written(Protobuf.writer():int(1, 5):message(2, inner):int(3, 1))
+  assert(written(Protobuf.writer():int(1, 5):open(2):string(1, "a"):int(2, 7):close():int(3, 1)) == embedded)
+  assert(written(Protobuf.writer():open(4):close()) == "2200", "an empty message is a length of 0")
+  -- A length of two bytes, of three and of four, which take the place of the same link.
+  for _, size in ipairs({ 127, 128, 16383, 16384, 70000, 2097152 }) do
+    local text = ("x"):rep(size)
+    local child = Protobuf.writer():bytes(1, text)
+    assert(written(Protobuf.writer():open(9):bytes(1, text):close():int(1, 1)) ==
+        written(Protobuf.writer():message(9, child):int(1, 1)), tostring(size))
+  end
+end
+
+local function test_messages_open_inside_one_another()
+  local writer = Protobuf.writer()
+  for depth = 1, 200 do writer:open(depth):int(1, depth) end
+  for _ = 1, 200 do writer:close() end
+  local message = assert(Protobuf.decode(assert(writer:encode()), { max_depth = 300 }))
+  for depth = 1, 200 do
+    message = assert(message:message(depth))
+    assert(message:int(1) == depth)
+  end
+end
+
+local function test_a_message_left_open_or_closed_unopened_cannot_be_encoded()
+  local open = Protobuf.writer():int(1, 1):open(2):int(1, 1)
+  unwritable(open, "^protobuf: a message was opened and not closed$")
+  assert(open:trouble() == "", "it is no trouble of a field: the message may yet be closed")
+  unwritable(Protobuf.writer():message(1, open), "^protobuf: a message was opened and not closed$")
+  assert(written(open:close()) == "080112020801")
+  unwritable(Protobuf.writer():int(1, 1):close(), "^protobuf: a message was closed that was not opened$")
+  unwritable(Protobuf.writer():open(0):int(1, 1):close(), "^protobuf: 0 is no field number")
+  local troubled = Protobuf.writer():open(1):string(1, "\xff"):close():int(2, 2)
+  assert(troubled:trouble() == "protobuf: field 1: a string that is not UTF-8")
+end
+
+local function test_append_writes_fields_as_they_are()
+  local fields = assert(Protobuf.encode({ { number = 7, wire = Protobuf.VARINT, value = 1 } }))
+  assert(written(Protobuf.writer():int(1, 1):append(fields):append(""):int(2, 2)) == "080138011002")
+  assert(written(Protobuf.writer():open(3):append(fields):close()) == "1a023801")
+  unwritable(Protobuf.writer():int(0, 1):append(fields), "is no field number")
+end
+
+local function test_unfit_lists_the_fields_of_another_wire_type_than_their_numbers()
+  -- Field 1 a varint, 2 length-delimited, 3 a varint, 1 again as 4 bytes.
+  local message = decoded("0801" .. "120161" .. "1807" .. "0d01000000")
+  local varint <const> = 1 << Protobuf.VARINT
+  local len <const> = 1 << Protobuf.LEN
+  assert(message:unfit({ [1] = varint | 1 << Protobuf.FIXED32, [2] = len, [3] = varint }) == nil)
+  local odd = assert(message:unfit({ [1] = varint, [2] = len }))
+  assert(#odd == 2 and assert(odd[1]).number == 3 and assert(odd[2]).number == 1)
+  assert(assert(odd[2]).wire == Protobuf.FIXED32 and assert(odd[2]).value == 1)
+  local named = assert(message:unfit({ [1] = varint, [2] = len }, true))
+  assert(#named == 1 and assert(named[1]).number == 1, "a number that is not named is passed over")
+  assert(message:unfit({ [1] = varint | 1 << Protobuf.FIXED32 }, true) == nil)
+  local all = assert(message:unfit({}))
+  assert(#all == 4)
+  assert(decoded(""):unfit({}) == nil)
 end
 
 local function test_encode_refuses_a_field_that_is_none()

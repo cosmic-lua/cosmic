@@ -1,6 +1,7 @@
 --- What the databases the running binary carries record of the standard library's modules, as the position check
---- asks it ([`positions.check`]). It is a module of its own so that neither [`build.positions`], which reads no
---- database, nor the code the compiler's identity holds requires the other for it.
+--- asks it ([`positions.check`]) and a file checked alone is told by it ([`build.pipeline`]'s `kept`). It is a module
+--- of its own so that [`build.positions`] reads no database, and so that the compiler's identity
+--- ([`build.identity`]'s `compiler_roots`) holds neither; the code the checker's readers hash does hold it.
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")

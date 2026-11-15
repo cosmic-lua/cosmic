@@ -444,37 +444,37 @@ local record Gen
 end
 
 --- The expression that reads the field, for the record's literal.
-local function read_of(g: Gen, p: Planned): string
-  local S, e, kind = g.schema, p.entry, p.kind
+local function read_of(_g: Gen, p: Planned): string
+  local e, kind = p.entry, p.kind
   local n, f = tostring(e.number), quoted(e.name)
   local w = assert(WIRES[kind])
   local codec_read = if e.helper == "self" then "pb_read" else e.codec .. ".read" end
   if p.shape.repeated then
     local list: string
     if kind == "bool" then
-      list = ("%s.build.bools(pb_r, %s, %s)"):format(S, n, f)
+      list = ("pb_b.bools(pb_r, %s, %s)"):format(n, f)
     elseif kind == "bytes" then
-      list = ("%s.build.all_bytes(pb_r, %s, %s)"):format(S, n, f)
+      list = ("pb_b.all_bytes(pb_r, %s, %s)"):format(n, f)
     elseif kind == "string" then
-      list = ("%s.build.texts(pb_r, %s, %s)"):format(S, n, f)
+      list = ("pb_b.texts(pb_r, %s, %s)"):format(n, f)
     elseif kind == "enum" then
-      list = ("%s.build.enums(pb_r, %s, %s, %s.name)"):format(S, n, f, e.codec)
+      list = ("pb_b.enums(pb_r, %s, %s, %s.name)"):format(n, f, e.codec)
     elseif kind == "message" then
-      list = ("%s.build.messages(pb_r, %s, %s, %s)"):format(S, n, f, codec_read)
+      list = ("pb_b.messages(pb_r, %s, %s, %s)"):format(n, f, codec_read)
     elseif kind == "float" or kind == "double" then
-      list = ("%s.build.numbers(pb_r, %s, %s, %s)"):format(S, n, f, quoted(kind))
+      list = ("pb_b.numbers(pb_r, %s, %s, %s)"):format(n, f, quoted(kind))
     else
-      list = ("%s.build.integers(pb_r, %s, %s, %s)"):format(S, n, f, quoted(kind))
+      list = ("pb_b.integers(pb_r, %s, %s, %s)"):format(n, f, quoted(kind))
     end
-    if p.shape.optional then return ("%s.build.some(%s)"):format(S, list) end
+    if p.shape.optional then return ("pb_b.some(%s)"):format(list) end
     return list
   end
   if kind == "message" then
-    return ("%s.build.message(pb_r, %s, %s, %s)"):format(S, n, f, codec_read)
+    return ("pb_b.message(pb_r, %s, %s, %s)"):format(n, f, codec_read)
   end
   local raw: string
   if kind == "string" then
-    raw = ("%s.build.text(pb_r, %s, %s)"):format(S, n, f)
+    raw = ("pb_b.text(pb_r, %s, %s)"):format(n, f)
   elseif kind == "enum" then
     raw = ("pb_m:int(%s)"):format(n)
   else
@@ -484,20 +484,20 @@ local function read_of(g: Gen, p: Planned): string
     if not p.shape.optional then
       local decl = assert(p.shape.decl, "an enum's shape holds its declaration")
       local values = assert(decl.body, "an enum that was planned has a body").values
-      return ("%s.build.need_enum(pb_r, %s, %s, %s.name(%s), %s)"):format(S, n, f, e.codec, raw,
+      return ("pb_b.need_enum(pb_r, %s, %s, %s.name(%s), %s)"):format(n, f, e.codec, raw,
         quoted((assert(values[1], "an enum that was planned has a value"))))
     end
     return ("%s.name(%s)"):format(e.codec, raw)
   end
   if p.shape.optional then return raw end
-  if e.implicit then return ("%s.build.or_zero(%s, %s)"):format(S, raw, w.zero) end
-  if p.default ~= "" then return ("%s.build.or_zero(%s, %s)"):format(S, raw, p.default) end
-  return ("%s.build.need(pb_r, %s, %s, %s, %s)"):format(S, n, f, raw, w.zero)
+  if e.implicit then return ("pb_b.or_zero(%s, %s)"):format(raw, w.zero) end
+  if p.default ~= "" then return ("pb_b.or_zero(%s, %s)"):format(raw, p.default) end
+  return ("pb_b.need(pb_r, %s, %s, %s, %s)"):format(n, f, raw, w.zero)
 end
 
 --- The statement that writes the field.
-local function write_of(g: Gen, p: Planned): string
-  local S, e, kind = g.schema, p.entry, p.kind
+local function write_of(_g: Gen, p: Planned): string
+  local e, kind = p.entry, p.kind
   local n, f = tostring(e.number), quoted(e.name)
   local w = assert(WIRES[kind])
   local value = "pb_v." .. e.name
@@ -505,27 +505,27 @@ local function write_of(g: Gen, p: Planned): string
   local packed = tostring(e.packed)
   if p.shape.repeated then
     if kind == "bool" then
-      return ("%s.build.put_bools(pb_o, %s, %s, %s)"):format(S, n, value, packed)
+      return ("pb_b.put_bools(pb_o, %s, %s, %s)"):format(n, value, packed)
     end
-    if kind == "bytes" then return ("%s.build.put_all_bytes(pb_o, %s, %s)"):format(S, n, value) end
+    if kind == "bytes" then return ("pb_b.put_all_bytes(pb_o, %s, %s)"):format(n, value) end
     if kind == "string" then
-      return ("%s.build.put_all_strings(pb_o, %s, %s)"):format(S, n, value)
+      return ("pb_b.put_all_strings(pb_o, %s, %s)"):format(n, value)
     end
     if kind == "enum" then
-      return ("%s.build.put_enums(pb_o, %s, %s, %s.number, %s)"):format(S, n, value, e.codec, packed)
+      return ("pb_b.put_enums(pb_o, %s, %s, %s.number, %s)"):format(n, value, e.codec, packed)
     end
     if kind == "message" then
-      return ("%s.build.put_messages(pb_o, %s, %s, %s, %s)"):format(S, n, f, value, codec_write)
+      return ("pb_b.put_messages(pb_o, %s, %s, %s, %s)"):format(n, f, value, codec_write)
     end
-    return ("%s.build.put_numbers(pb_o, %s, %s, %s, %s)"):format(S, n, quoted(kind), value, packed)
+    return ("pb_b.put_numbers(pb_o, %s, %s, %s, %s)"):format(n, quoted(kind), value, packed)
   end
   if kind == "enum" then
-    return ("%s.build.put_enum(pb_o, %s, %s, %s.number)"):format(S, n, value, e.codec)
+    return ("pb_b.put_enum(pb_o, %s, %s, %s.number)"):format(n, value, e.codec)
   end
   if kind == "message" then
-    return ("%s.build.put_message(pb_o, %s, %s, %s, %s)"):format(S, n, f, value, codec_write)
+    return ("pb_b.put_message(pb_o, %s, %s, %s, %s)"):format(n, f, value, codec_write)
   end
-  local put = ("%s.build.%s(pb_o, %s, %s)"):format(S, w.put, n, value)
+  local put = ("pb_b.%s(pb_o, %s, %s)"):format(w.put, n, value)
   if e.implicit then return ("if %s ~= %s then %s end"):format(value, w.zero, put) end
   return put
 end
@@ -553,8 +553,8 @@ local function functions_of(g: Gen, planned: {Planned}): string
     if p.kind == "message" and not p.shape.repeated and not p.shape.optional then
       -- A required message has no value to stand for it where it is missing, so it is read before the literal.
       local held = "pb_q" .. tostring(i)
-      needed[#needed + 1] = ("local %s = %s if %s == nil then return nil, %s.build.missing(pb_r, %d, %s) end"):format(
-        held, read_of(g, p), held, S, e.number, quoted(e.name))
+      needed[#needed + 1] = ("local %s = %s if %s == nil then return nil, pb_b.missing(pb_r, %d, %s) end"):format(
+        held, read_of(g, p), held, e.number, quoted(e.name))
       reads[#reads + 1] = ("%s = %s"):format(e.name, held)
     else
       reads[#reads + 1] = ("%s = %s"):format(e.name, read_of(g, p))
@@ -572,23 +572,26 @@ local function functions_of(g: Gen, planned: {Planned}): string
     end
     present[#present + 1] = ("[%d] = %s"):format(e.number, said)
   end
-  if g.keeps then reads[#reads + 1] = ("%s = %s.build.unknown(pb_r)"):format(g.unknown, S) end
+  if g.keeps then reads[#reads + 1] = ("%s = pb_b.unknown(pb_r)"):format(g.unknown) end
   local close = if g.keeps then
-    ("%s.build.close(pb_o, pb_v.%s, { %s })"):format(S, g.unknown, table.concat(present, ", ")) else
-    ("%s.build.close(pb_o)"):format(S) end
+    ("pb_b.close(pb_o, pb_v.%s, { %s })"):format(g.unknown, table.concat(present, ", ")) else
+    "pb_b.close(pb_o)" end
   -- A record of no fields has nothing to read of its value.
   local value = if #planned == 0 and not g.keeps then "_pb_v" else "pb_v" end
-  local write = ("(function(): function(%s): string?, string local function pb_write(%s: %s): string?, string " ..
-    "local pb_o = %s.build.writer() %s return %s end return pb_write end)()"):format(R, value, R, S,
+  local write = ("(function(): function(%s, into?: %s.Writing): string?, string " ..
+    "local pb_b <const> = %s.build " ..
+    "local function pb_write(%s: %s, pb_into?: %s.Writing): string?, string " ..
+    "local pb_o = pb_b.writer(pb_into) %s return %s end return pb_write end)()"):format(R, S, S, value, R, S,
       table.concat(writes, " "), close)
   local read = ("(function(): function(%s.Message, lenient?: boolean): %s?, string " ..
-    "local pb_p <const> = %s.build.plan({ %s }, { %s }) " ..
+    "local pb_b <const> = %s.build " ..
+    "local pb_p <const> = pb_b.plan({ %s }, { %s }) " ..
     "local pb_e <const>: {integer: function(integer): boolean} = { %s } " ..
     "local function pb_read(pb_m: %s.Message, pb_l?: boolean): %s?, string " ..
-    "local pb_r = %s.build.open(pb_m, pb_p, pb_e, %s, pb_l == true) %s " ..
-    "local pb_t: %s = { %s } return %s.build.done(pb_r, pb_t) end return pb_read end)()"):format(S, R, S,
-      table.concat(wires, ", "), table.concat(names, ", "), table.concat(named, ", "), S, R, S, tostring(g.keeps),
-      table.concat(needed, " "), R, table.concat(reads, ", "), S)
+    "local pb_r = pb_b.open(pb_m, pb_p, pb_e, %s, pb_l == true) %s " ..
+    "local pb_t: %s = { %s } return pb_b.done(pb_r, pb_t) end return pb_read end)()"):format(S, R, S,
+      table.concat(wires, ", "), table.concat(names, ", "), table.concat(named, ", "), S, R, tostring(g.keeps),
+      table.concat(needed, " "), R, table.concat(reads, ", "))
   return ", " .. write .. ", " .. read
 end
 

@@ -664,3 +664,40 @@ local function test_dispatch_raises_for_a_see_that_names_no_other_command()
   assert(assert(Flags.dispatch({ "build" }, 1, helped, "prog")).code == 0 and ran == 1)
   assert(assert(Flags.dispatch({ "build", "-h" }, 1, helped, "prog")).help == "usage: prog build\n\nsee also: help")
 end
+
+--- The sections of a program's help come in the order the program gives their titles, a title it does not give
+--- after them by name, and the help of a program that says where its documentation is says how to search it.
+local function test_the_programs_help_orders_its_sections_as_told()
+  local commands: {string:Flags.Command} = {
+    add = { about = "adds", group = "Writing" },
+    list = { about = "lists", group = "Reading" },
+    audit = { about = "audits", group = "Checks" },
+    zap = { about = "zaps", group = "Aftermath" },
+  }
+  local ran = assert(Flags.dispatch({ "--help" }, 1, commands, "prog", { groups = { "Writing", "Reading" } }))
+  local last = 0
+  for _, title in ipairs({ "Writing", "Reading", "Aftermath", "Checks" }) do
+    local at = assert(ran.help:find("\n" .. title .. ":\n", 1, true), title .. ": " .. ran.help)
+    assert(at > last, title .. " is out of its place: " .. ran.help)
+    last = at
+  end
+  local closing = "\nRun `prog docs <words>` to search the documentation, `prog docs` to list it."
+  assert(ran.help:sub(-#closing) == closing, ran.help)
+  -- A program that says nothing of its documentation has the titles by name, no `docs`, and the help it had.
+  local plain = assert(Flags.dispatch({ "--help" }, 1, commands, "prog"))
+  assert(assert(plain.help:find("\nAftermath:\n", 1, true)) < assert(plain.help:find("\nWriting:\n", 1, true)))
+  assert(not plain.help:find("docs", 1, true), plain.help)
+  local ran_docs, why = Flags.dispatch({ "docs" }, 1, commands, "prog")
+  assert(ran_docs == nil and why == "no such command: docs", why)
+end
+
+--- A program with a command of its own named `docs` runs it, whatever it says of its documentation.
+local function test_a_command_named_docs_is_the_programs_own()
+  local commands: {string:Flags.Command} = {
+    docs = { about = "opens the manual", run = function(_: Flags.Parsed): integer return 7 end },
+  }
+  local ran = assert(Flags.dispatch({ "docs", "x" }, 1, commands, "prog", { groups = {} }))
+  assert(ran.code == 7 and ran.help == "")
+  local help = assert(Flags.dispatch({ "help" }, 1, commands, "prog", { groups = {} }))
+  assert(not help.help:find("search the documentation", 1, true), help.help)
+end
