@@ -1,6 +1,7 @@
 --- Fuzz properties for [`cosmic.protobuf`], whose decoder takes the bytes anyone sends: it never raises, it
 --- answers a message or a reason and never both, every read of what it accepts answers or says why, and what it
---- accepts is written back and read again as the same fields. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- accepts is written back and read again as the same fields; [`Protobuf.describe`] is as total, and answers where
+--- decode does. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
@@ -230,18 +231,21 @@ local function read_all(message: Protobuf.Message, walk: Walk): string
   return ""
 end
 
+--- Bytes of any kind: noise, a deep message, and messages as a writer writes them, whole or mutated.
+local function gen_input(src: Fuzz.Source): string
+  local kind = src:int(0, 7)
+  if kind == 0 then return Fuzz.bytes(src, 48) end
+  if kind <= 2 then return Fuzz.mutate(src, DEEP, src:int(0, 2)) end
+  -- A length-delimited field that is no packed varints: its last has no end.
+  if kind == 3 then return gen_message(src) .. "\x0a\x03\x01\x02\x80" end
+  return Fuzz.mutate(src, gen_message(src), if kind == 4 then 0 else 3 end)
+end
+
 local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: string)
   Fuzz.run({
     name = "protobuf decode",
     dir = tmp,
-    gen = function(src: Fuzz.Source): string
-      local kind = src:int(0, 7)
-      if kind == 0 then return Fuzz.bytes(src, 48) end
-      if kind <= 2 then return Fuzz.mutate(src, DEEP, src:int(0, 2)) end
-      -- A length-delimited field that is no packed varints: its last has no end.
-      if kind == 3 then return gen_message(src) .. "\x0a\x03\x01\x02\x80" end
-      return Fuzz.mutate(src, gen_message(src), if kind == 4 then 0 else 3 end)
-    end,
+    gen = gen_input,
     check = function(input: string): boolean, string
       local message, why = Protobuf.decode(input)
       local trouble = shape_trouble("decode", message == nil, why)
@@ -283,6 +287,44 @@ local function test_decode_is_total_and_what_it_reads_is_written_back(tmp: strin
     requires = { "refused", "read", "past max_fields", "read an embedded message", "refused an embedded message",
       "past max_depth", "read a packed field", "refused a packed field" },
     shares = { refused = 0.1, read = 0.2, ["read an embedded message"] = 0.05 },
+  })
+end
+
+local function test_describe_is_total_and_answers_where_decode_does(tmp: string)
+  Fuzz.run({
+    name = "protobuf describe",
+    dir = tmp,
+    gen = gen_input,
+    check = function(input: string): boolean, string
+      local bounds: {Protobuf.Options} = { {}, { indent = "  " }, { max_depth = 3, max_fields = 3 } }
+      for _, opts in ipairs(bounds) do
+        local ok, answer, _ = pcall(Protobuf.describe, input, opts)
+        if not ok then return false, "describe raised: " .. tostring(answer) end
+        local shown, why = Protobuf.describe(input, opts)
+        local trouble = shape_trouble("describe", shown == nil, why)
+        if trouble ~= "" then return false, trouble end
+        if (shown == nil) ~= (Protobuf.decode(input, opts) == nil) then
+          return false, "describe and decode disagree on whether the bytes are a message"
+        end
+        if shown == nil then
+          Fuzz.label("refused")
+        elseif opts.indent ~= nil then
+          if shown ~= "" and shown:sub(-1) ~= "\n" then return false, "a line does not end" end
+        else
+          if shown:sub(1, 1) ~= "{" or shown:sub(-1) ~= "}" then
+            return false, "not between braces: " .. shown
+          end
+          -- Each byte is shown once at most, in a few characters.
+          if #shown > 8 * #input + 2 then
+            return false, ("%d bytes shown in %d"):format(#input, #shown)
+          end
+          -- Before any quote, so that no text is taken for a message.
+          Fuzz.label(if shown:find('^{[^"]-: {') ~= nil then "an embedded message" else "described" end)
+        end
+      end
+      return true, ""
+    end,
+    requires = { "refused", "described", "an embedded message" },
   })
 end
 

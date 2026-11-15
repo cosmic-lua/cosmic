@@ -999,3 +999,117 @@ local function test_wires_names_the_wire_types_a_number_has_and_fields_keeps_wha
   assert(first.number == 1 and first.value == 5 and second.number == 3 and second.value == "kept")
   assert(#message:fields() == 4, "with no `keep`, every field is answered")
 end
+
+--- The bits of `value` as a double, and as a float, for a fixed field.
+local function double_bits(value: number): integer
+  local bits: integer = string.unpack("<i8", string.pack("<d", value))
+  return bits
+end
+
+local function float_bits(value: number): integer
+  local bits: integer = string.unpack("<I4", string.pack("<f", value))
+  return bits
+end
+
+--- The message a device might send: an embedded one of every kind of field, bytes that are no text, an empty
+--- field and text of two lines.
+local function described_vector(): string
+  local inner = Protobuf.writer():string(1, "Case of the Sputters"):int(2, 24):fixed64(3, double_bits(660.5))
+    :fixed32(4, float_bits(1.0))
+  local bytes = assert(Protobuf.writer():int(1, 4):message(9, inner):bytes(10, "\255\254\253"):bytes(11, "")
+      :string(12, "two\nlines"):encode())
+  return bytes
+end
+
+local function test_describe_shows_each_field_by_what_it_looks_like()
+  local shown = Protobuf.describe(described_vector())
+  assert(shown ==
+      '{1: 4, 9: {1: "Case of the Sputters", 2: 24, 3: 660.5, 4: 1.0}, 10: <fffefd>, 11: "", 12: "two\\nlines"}',
+    shown)
+  assert(Protobuf.describe("") == "{}")
+  assert(Protobuf.describe(bytes_of("08ffffffffffffffffff01")) == "{1: -1}", "a varint is signed")
+  local quotes = assert(Protobuf.writer():string(1, 'say "hi"\t\\ \r é'):encode())
+  assert(Protobuf.describe(quotes) == '{1: "say \\"hi\\"\\t\\\\ \\r é"}', Protobuf.describe(quotes))
+end
+
+local function test_describe_with_indent_writes_a_line_for_each_field()
+  local shown = Protobuf.describe(described_vector(), { indent = "  " })
+  assert(shown == table.concat({
+    "1: 4",
+    "9 {",
+    '  1: "Case of the Sputters"',
+    "  2: 24",
+    "  3: 660.5",
+    "  4: 1.0",
+    "}",
+    "10: <fffefd>",
+    '11: ""',
+    '12: "two\\nlines"',
+    "",
+  }, "\n"), shown)
+  assert(Protobuf.describe("", { indent = "  " }) == "")
+end
+
+local function test_describe_guesses_text_before_a_message_and_a_message_before_bytes()
+  -- "(x" is also the message {5: 120}: text wins.
+  assert(Protobuf.describe(bytes_of("0a022878")) == '{1: "(x"}')
+  assert(Protobuf.describe(bytes_of("28")) == nil, "the bytes alone are no message")
+  -- An empty message is empty text.
+  local empty = assert(Protobuf.writer():message(3, Protobuf.writer()):encode())
+  assert(Protobuf.describe(empty) == '{3: ""}')
+  -- Invalid UTF-8 that is a message is the message.
+  assert(Protobuf.describe(bytes_of("0a0308ff01")) == "{1: {1: 255}}")
+  -- A C1 control character is no text.
+  assert(Protobuf.describe(bytes_of("0a026162")) == '{1: "ab"}' and Protobuf.describe(bytes_of("0a02c285")) == "{1: <c285>}")
+end
+
+local function test_describe_shows_a_packed_field_as_bytes_or_the_message_it_reads_as()
+  local packed = assert(Protobuf.writer():packed(4, "int", { 1, 2, 3 }):packed(5, "double", { 0.5 }):encode())
+  assert(Protobuf.describe(packed) == "{4: <010203>, 5: <000000000000e03f>}", Protobuf.describe(packed))
+  -- The varints 8 and 150 are also the field 1 of 150.
+  local looks = assert(Protobuf.writer():packed(4, "int", { 8, 150 }):encode())
+  assert(Protobuf.describe(looks) == "{4: {1: 150}}", Protobuf.describe(looks))
+end
+
+local function test_describe_shows_a_fixed_field_as_a_number_where_it_looks_like_one()
+  local w = Protobuf.writer():fixed32(1, 7):fixed64(2, -1):double(3, 0.1):float(4, 0.1):double(5, 0 / 0)
+    :double(6, 1e20):double(7, -0.0):fixed32(8, 0):float(9, 1e-7):double(10, 12345678.9)
+  local bytes = assert(w:encode())
+  local shown = Protobuf.describe(bytes)
+  assert(shown == "{1: 0x00000007, 2: 0xffffffffffffffff, 3: 0.1, 4: 0.1, 5: 0x7ff8000000000000, " ..
+      "6: 0x4415af1d78b58c40, 7: -0.0, 8: 0.0, 9: 0x33d6bf95, 10: 12345678.9}", shown)
+end
+
+--- Field 1 of a message, inside field 1 of a message, and so on, `levels` deep: the innermost holds 0 in field 1.
+local function nested_messages(levels: integer): string
+  local bytes = assert(Protobuf.writer():int(1, 0):encode())
+  for _ = 2, levels do
+    bytes = assert(Protobuf.writer():bytes(1, bytes):encode())
+  end
+  return bytes
+end
+
+local function test_describe_shows_a_message_past_the_bounds_as_bytes()
+  local three = nested_messages(3)
+  assert(Protobuf.describe(three) == "{1: {1: {1: 0}}}")
+  assert(Protobuf.describe(three, { max_depth = 2 }) == "{1: {1: <0800>}}", Protobuf.describe(three, { max_depth = 2 }))
+  assert(Protobuf.describe(three, { max_depth = 1 }) == "{1: <0a020800>}")
+  local deep = Protobuf.describe(nested_messages(150))
+  assert(deep ~= nil and select(2, deep:gsub("{", "")) == 100, "the default depth is 100")
+  local very_deep = nested_messages(2000)
+  local very = assert(Protobuf.describe(very_deep, { max_depth = 3000 }))
+  assert(select(2, very:gsub("{", "")) == 1000, "a description nests 1000 deep at most")
+
+  local many = assert(Protobuf.writer():int(1, 1):int(2, 2):int(3, 3):encode())
+  local outer = assert(Protobuf.writer():bytes(1, many):encode())
+  assert(Protobuf.describe(outer, { max_fields = 2 }) == "{1: <080110021803>}")
+  local none, why = Protobuf.describe(many, { max_fields = 2 })
+  assert(none == nil and why:find("^protobuf: ") ~= nil)
+end
+
+local function test_describe_answers_nil_and_why_for_bytes_that_are_no_message()
+  for _, hex in ipairs({ "ff", "0a05", "0b", "00", "0f01", "08808080808080808080ff01" }) do
+    local shown, why = Protobuf.describe(bytes_of(hex))
+    assert(shown == nil and why:find("^protobuf: ") ~= nil, hex)
+  end
+end
