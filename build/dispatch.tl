@@ -858,11 +858,13 @@ function Dispatch.main(argv: {string}): integer
   local verb = if word == nil or word == "-h" or word == "--help" then "help" else word end
   local chosen = spec_of(verb)
   -- TODO: give each verb the line Flags.dispatch read, a Flags.Command whose `run` takes the Flags.Parsed, and
-  -- delete each verb's own parse of it (23 modules call Flags.parse on their line). Flags.dispatch reads every
-  -- verb's line already ([`line_refusal`]), so the refusals are one rule's; until the verbs take what it read,
-  -- a line is parsed twice. A file run, `-e`, `--standalone` and `--version` come with it: Flags.dispatch runs
-  -- a command by its spelling or by no word (`typed`) and leaves a program's words unread (`rest`). Nothing
-  -- blocks it; it is a change to every verb, made apart from this one.
+  -- delete each verb's own parse of it. Flags.dispatch reads the line of a verb typed by its name already
+  -- ([`line_refusal`]), so their refusals are one rule's; until the verbs take what it read, a line is parsed
+  -- twice. Three kinds of verb are left out of that reading and come with this: a file run, `-e`, `--standalone`
+  -- and `--version`, which Flags.dispatch can run by a spelling or by no word (`typed`) with a program's words
+  -- unread (`rest`); a `fresh` verb and `todos`, which must rebuild a stale tool before the line is refused
+  -- (the rebuild then moves ahead of the dispatch); and `help`. Nothing blocks it; it is a change to every
+  -- verb, made apart from this one.
   local command = Cli.verbs[verb]
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
@@ -940,7 +942,8 @@ function Dispatch.main(argv: {string}): integer
     -- The verb's line is read by Flags.dispatch first, as a program's command is, so every verb refuses a
     -- mistyped option alike, naming the one meant and its usage; the verb then reads the line it was given.
     local code = 2
-    local refusal = if command ~= nil and typed_by_name then line_refusal(verb, command, own) else "" end
+    local vetted = command ~= nil and typed_by_name and chosen.fresh ~= true and chosen.own_line ~= true
+    local refusal = if command ~= nil and vetted then line_refusal(verb, command, own) else "" end
     if refusal ~= "" then
       log:complain(refusal)
     else

@@ -807,3 +807,35 @@ local function test_the_programs_help_lists_usages_in_order_between_its_own_word
     "More: prog help <command>",
   }, "\n"), ran.help)
 end
+
+--- A command is asked about by the word that runs it or by its name, a program with none given names the words
+--- that run its commands, and a word that begins with a dash and a digit may be an option's value.
+local function test_help_and_refusals_name_commands_as_they_are_typed()
+  local commands = odd_commands({})
+  local by_word = assert(Flags.dispatch({ "help", "--version" }, 1, commands, "prog"))
+  assert(by_word.help == assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help and
+      by_word.help:find("usage: prog --version", 1, true) == 1, by_word.help)
+  commands["run"] = nil
+  local none, why = Flags.dispatch({}, 1, commands, "prog")
+  assert(none == nil and why == "needs a command: --version, check", why)
+  local missed, missed_why = Flags.dispatch({ "help", "--versoin" }, 1, commands, "prog")
+  assert(missed == nil and missed_why == "no such command: --versoin; did you mean --version?", missed_why)
+  local listed = assert(Flags.dispatch({ "help" }, 1, commands, "prog")).help
+  assert(listed:find("\n  --version  says which", 1, true) ~= nil, listed)
+  local valued = assert(Flags.parse({ "--zone", "-90m", "x" }, 1, { ["--zone"] = true }))
+  assert(valued.values["--zone"] == "-90m" and valued.words[1] == "x")
+end
+
+--- A command typed as a word that asks for help, and one whose own words begin before its first, are the
+--- caller's mistakes.
+local function test_a_command_typed_as_help_or_keeping_words_before_its_own_raises()
+  local run = function(_: Flags.Parsed): integer return 0 end
+  local typed_help: {string:Flags.Command} = { a = { typed = "--help", run = run } }
+  local ok, raised = pcall(Flags.dispatch, { "a" }, 1, typed_help, "prog")
+  assert(not ok and tostring(raised):find("a is typed as --help, which asks for help", 1, true) ~= nil, tostring(raised))
+  local early: {string:Flags.Command} = {
+    b = { run = run, rest = function(_: {string}, _: integer): integer? return 1 end },
+  }
+  local fine, said = pcall(Flags.dispatch, { "b", "x" }, 1, early, "prog")
+  assert(not fine and tostring(said):find("b's rest begins at slot 1, before its first word", 1, true) ~= nil, tostring(said))
+end

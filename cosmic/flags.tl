@@ -270,6 +270,11 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   local known: mut {string} = {}
   for name in pairs(spec) do known[#known + 1] = name end
   for _, name in ipairs(also) do known[#known + 1] = name end
+  -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
+  local digits = false
+  for name in pairs(spec) do
+    if name:match("^%-%d") ~= nil then digits = true end
+  end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {}, rest = {} }
   local cursor: integer = from
   local function flag(name: string)
@@ -285,7 +290,7 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       value = argv[cursor]
       if value == nil then
         return name .. " needs a value"
-      elseif looks_like_option(value) then
+      elseif looks_like_option(value) and (digits or value:match("^%-%d") == nil) then
         return name .. " needs a value, not " .. value .. "; give one that " ..
           "begins with \"-\" as " .. name .. same .. value
       end
@@ -306,11 +311,6 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
   local function whole(word: string): boolean
     local name = word:match("^(%-[^=]+)=")
     return name ~= nil and #name > 2 and spec[name] ~= nil
-  end
-  -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
-  local digits = false
-  for name in pairs(spec) do
-    if name:match("^%-%d") ~= nil then digits = true end
   end
   local options = true
   while argv[cursor] ~= nil do
@@ -387,7 +387,8 @@ end
 --- "--" ends the options: every word after it is a word even when it
 --- begins with "-". A word that begins with "-" and a digit ("-5",
 --- "-0.5", "-90m") is a word too, a negative number or a span of time,
---- unless the spec names an option that begins so ("-1"). A file run as `cosmic
+--- and may be an option's value; where the spec names any option that
+--- begins so ("-1"), every such word is read as an option. A file run as `cosmic
 --- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
 --- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
 --- words. Write `cosmic f.tl --email x`.
@@ -407,8 +408,9 @@ end
 --- the line does not give ("--jobs is required"; the first by name when
 --- several are missing), or one whose value is missing: the end
 --- of the line, or a next word that looks like an option -- one that
---- begins with "-" and is not a lone "-" or a number `tonumber` reads
---- ("-1", "-0.5"; not "-inf") -- so a mistyped option ("--jobs --chek")
+--- begins with "-" and is not a lone "-", a number `tonumber` reads
+--- ("-1", "-0.5"; not "-inf") or a word that begins with "-" and a digit
+--- ("-90m") -- so a mistyped option ("--jobs --chek")
 --- is never read as a value. A value that begins with "-" is given in
 --- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
 --- not an option ("x", "-", "--"), or that holds an "=" no word could
@@ -511,6 +513,13 @@ local function typed_line(program: string, name: string, command: Flags.Command)
   return table.concat(words, " ")
 end
 
+--- The word `command`, held as `name`, is listed by: the word that runs it, or "<" and its name and ">" for the
+--- command no word names.
+local function shown(name: string, command: Flags.Command): string
+  local typed = command.typed or name
+  return if typed ~= "" then typed else "<" .. name .. ">" end
+end
+
 --- What help calls `command`, held as `name`: `program` and the word that runs it, or `program` alone for the
 --- command no word names.
 local function called(program: string, name: string, command: Flags.Command): string
@@ -611,7 +620,7 @@ local function commands_help(program: string, commands: {string:Flags.Command}, 
       local spec = command.spec
       if spec ~= nil and next(spec) ~= nil then any_options = true end
       local title = command.group or ""
-      local row: Row = { head = if usages then typed_line(program, name, command) else name end, about = command.about }
+      local row: Row = { head = if usages then typed_line(program, name, command) else shown(name, command) end, about = command.about }
       local rows = sections[title]
       if rows == nil then
         sections[title] = { row }
@@ -808,6 +817,18 @@ end
 --- or, where any command names a `group`, each group under its title, the
 --- titles in order, and the rest last under "other commands:". `help` given more than one word is refused.
 ---
+--- A command is run by its name in `commands`, or by the word it says it is
+--- typed as ([`Flags.Command`]'s `typed`), and then not by its name: an
+--- option's spelling ("--version"), or no word at all, which is the command
+--- a first word that names no other runs, that word being the first of its
+--- own ("prog notes.txt"). With such a command no first word is refused as
+--- no command, a mistyped one among them, and a file named "help" is not
+--- run. Help calls a command as it is typed, and `help` takes that word or
+--- the name. A command's `rest` says from which slot the words are its
+--- own, which its spec does not read and its `run` is given as `rest`.
+--- Two commands typed alike raise, as does one typed as "help", "-h" or
+--- "--help", and a `rest` that begins before the command's first word.
+---
 --- With `documented`, the program answers from its own documentation, which
 --- `cosmic build` carries in it ([`Flags.Documented`]). A command's help
 --- ends with the doc comment of its field of the `pages` record. `docs`,
@@ -817,7 +838,9 @@ end
 --- the words, a misspelled word put right; with no words, every module
 --- documented. Words that name and find nothing are refused, as a command
 --- that is none is. The program's help says `docs` is there, and orders
---- its sections as `groups` gives them. A test of either reads the
+--- its sections as `groups` gives them and its commands as `order` does,
+--- lists each as it is typed where `usages` is set, and opens and ends
+--- with `before` and `after` where they are given. A test of either reads the
 --- documentation, so it declares `Test.policy { store_text = true }`.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
@@ -850,6 +873,9 @@ function Flags.dispatch(argv: {string}, from: integer,
           (if typed ~= "" then typed else "by no word" end), 2)
     end
     spelled[typed] = held
+    if typed == "help" and held ~= "help" or typed == "-h" or typed == "--help" then
+      error("flags: " .. held .. " is typed as " .. typed .. ", which asks for help", 2)
+    end
     local see = if command ~= nil then command.see else nil end
     if see ~= nil then
       for _, other in ipairs(see) do
@@ -872,6 +898,11 @@ function Flags.dispatch(argv: {string}, from: integer,
     if asked == nil then
       return { code = 0, help = commands_help(program, commands, documented) }, ""
     end
+    -- A command is asked about by the word that runs it, or by its name: the command no word runs has no other.
+    for _, held in ipairs(sorted(keys(commands))) do
+      local other = commands[held]
+      if other ~= nil and other.typed == asked and asked ~= "" then asked = held end
+    end
     local asked_command = commands[asked]
     if asked_command == nil and asked == "docs" and documented ~= nil then
       return { code = 0, help = docs_help(program) }, ""
@@ -879,7 +910,10 @@ function Flags.dispatch(argv: {string}, from: integer,
     if asked_command == nil then
       local held: mut {string} = {}
       if documented ~= nil then held[#held + 1] = "docs" end
-      for other in pairs(commands) do held[#held + 1] = other end
+      for other, command in pairs(commands) do
+        local typed = command.typed or other
+        held[#held + 1] = if typed ~= "" then typed else other end
+      end
       return nil, "no such command: " .. asked .. meant(asked, held)
     end
     local asked_help, asked_trouble = command_help(program, asked, commands, documented)
@@ -893,7 +927,10 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   if name == nil then
     local names: mut {string} = {}
-    for known in pairs(commands) do names[#names + 1] = known end
+    for known, other in pairs(commands) do
+      local typed = other.typed or known
+      if typed ~= "" then names[#names + 1] = typed end
+    end
     table.sort(names)
     return nil, "needs a command: " .. table.concat(names, ", ")
   end
@@ -932,6 +969,9 @@ function Flags.dispatch(argv: {string}, from: integer,
   local kept: {string} = {}
   local keeps = command.rest
   local at = if keeps ~= nil then keeps(argv, first) else nil end
+  if at ~= nil and at < first then
+    error("flags: " .. name .. "'s rest begins at slot " .. tostring(at) .. ", before its first word", 2)
+  end
   if at ~= nil then
     local before: mut {string} = {}
     local after: mut {string} = {}
