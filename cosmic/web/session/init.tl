@@ -77,6 +77,9 @@ local record Session
     --- Set by a store that read the session under a key it is retiring: the
     --- middleware saves it again, signed by the newest.
     stale?: boolean
+    --- When a store that notes use ([`Store.seen`]) last noted this
+    --- session in use, in seconds since the epoch; nil where it never has.
+    seen_at?: integer
   end
 
   --- What a request changed, for a store that merges instead of
@@ -94,6 +97,9 @@ local record Session
     --- The user the session is bound to, for a store that can find
     --- sessions by it; nil when not bound.
     mut subject?: string
+    --- The label the session was given, "" to remove it; nil when not
+    --- changed.
+    mut label?: string
   end
 
   --- Where a session is kept. `cookie` is the name of the session cookie
@@ -114,6 +120,14 @@ local record Session
     --- Whether `destroy` revokes: false for a signed cookie, which
     --- lives until it expires wherever it was copied.
     revocable: boolean
+    --- Notes that the session `token` names was used at `now`, from the
+    --- client address `from` ("" where none is known), for a store that
+    --- keeps when each session was last seen. `data` is the session as the
+    --- request loaded it, so a store can skip a note it made recently. The
+    --- middleware calls it after a request that read a session and was
+    --- not a 500; a store that fails to note it loses the note, not the
+    --- request.
+    seen?: function(Store, token: string, data: Data, now: integer, from: string)
   end
 
   --- What [`Session.middleware`] takes.
@@ -187,6 +201,11 @@ local record Session
     --- Binds the session to a user, so a store that can ([`cosmic.web.session.sqlite`])
     --- ends all of one user's sessions at once; a no-op on a signed cookie.
     bind_subject: function(Handle, subject: string)
+    --- Gives the session a label to show in a list of sessions ("M's
+    --- iPad"), or removes it with ""; a no-op on a signed cookie. Raises for
+    --- a label that is not UTF-8 or is longer than [`Session.MAX_LABEL`]
+    --- bytes.
+    label: function(Handle, text: string)
   end
 
   --- The key the middleware keeps the request's [`Session.Handle`] under.
@@ -200,10 +219,13 @@ local record Session
   --- that holds the values (16): `set` refuses a deeper value and a store
   --- refuses to save, or to load, one.
   MAX_DEPTH: integer
+  --- The longest label a session may be given, in bytes (200).
+  MAX_LABEL: integer
 end
 
 Session.KEY = Request.key("session")
 Session.MAX_DEPTH = 16
+Session.MAX_LABEL = 200
 Session.CSRF_KEY = "_csrf"
 
 local DAY <const> = 86400
@@ -389,7 +411,7 @@ local function make_handle(st: State): Session.Handle
       if next(st.data.values) == nil and not st.valid then return end
       st.data.values = {}
       st.changes = { set = {}, removed = {}, cleared = true, regenerated = st.changes.regenerated,
-        subject = st.changes.subject }
+        subject = st.changes.subject, label = st.changes.label }
       mark(st)
     end,
     regenerate = function(_: Session.Handle)
@@ -459,6 +481,15 @@ local function make_handle(st: State): Session.Handle
       end
       if not st.opts.store.revocable then return end
       st.changes.subject = subject
+      mark(st)
+    end,
+    label = function(_: Session.Handle, text: string)
+      writable(st)
+      if type(text) ~= "string" or #text > Session.MAX_LABEL or not utf8.len(text) then
+        error("session: a label is UTF-8 text no longer than Session.MAX_LABEL (" .. tostring(Session.MAX_LABEL) .. ")", 0)
+      end
+      if not st.opts.store.revocable then return end
+      st.changes.label = text
       mark(st)
     end,
   }
@@ -557,6 +588,7 @@ function Session.middleware(opts: Session.Options): Types.Middleware
         st.data.expires = st.now + max_age
         st.dirty = true
       end
+      local kept = if st.valid then st.token else "" end
       if st.dirty then
         if opts.same_site == "None" and not secure then
           error("session: same_site = \"None\" needs a Secure cookie, and this request came over http; " ..
@@ -564,12 +596,18 @@ function Session.middleware(opts: Session.Options): Types.Middleware
         end
         local token, save_why = opts.store:save(st.token, st.data, st.changes, st.now, cookie)
         if token == nil then error("session: " .. save_why, 0) end
+        kept = token
         local attrs = attributes(opts, secure)
         attrs.max_age = math.max(st.data.expires - st.now, 1)
         local ok, format_why = Cookies.set(res, cookie, token, attrs)
         if not ok then error("session: " .. format_why, 0) end
       elseif st.invalidated or st.bad_cookie then
         expire(res, cookie, opts, secure)
+      end
+      local seen = opts.store.seen
+      if seen ~= nil and kept ~= "" then
+        local client = req.client
+        seen(opts.store, kept, st.data, st.now, if client ~= nil then client.host else "" end)
       end
       return res
     end

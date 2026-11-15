@@ -681,3 +681,25 @@ local function test_regenerate_drops_the_csrf_secret_and_keeps_the_rest()
   client:post("/regenerate")
   assert(client:get("/peek").body == "-/ada")
 end
+
+local function test_a_label_is_bounded_text_and_a_no_op_on_a_signed_cookie()
+  local reasons: mut {string} = {}
+  local app = Web.app{
+    middleware = { Session.middleware(options(cookie_store())) },
+    routes = { Web.post("/l", function(req: Web.Request): Web.Response
+      local session = Session.of(req)
+      for _, text in ipairs({ "bad \xff", ("x"):rep(Session.MAX_LABEL + 1) }) do
+        local ran, why = pcall(function() session:label(text) end)
+        table.insert(reasons, if ran then "no error" else tostring(why) end)
+      end
+      session:label(("x"):rep(Session.MAX_LABEL))
+      return Web.text("ok")
+    end) },
+  }
+  local res = Web.test_client(app):post("/l")
+  assert(res.status == 200 and #set_cookies(res) == 0, "a label alone changes nothing a cookie keeps")
+  assert(#reasons == 2)
+  for _, why in ipairs(reasons) do
+    assert(why:find("session: a label is UTF-8 text", 1, true), why)
+  end
+end

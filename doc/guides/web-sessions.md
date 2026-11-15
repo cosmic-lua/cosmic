@@ -31,6 +31,24 @@ next page: at most 10 are kept, of at most 500 bytes each.
   serving thread: a point lookup is microseconds, but give the sessions a
   database of their own if another process writes to the file.
 
+## listing and ending sessions
+
+A page of "your devices" needs the sessions a user holds, without their
+cookies. [`SessionSqlite.list`] answers the live ones, all or one user's,
+the one seen last first. Each has a public id, which is not a credential and
+which a regeneration keeps, and [`SessionSqlite.destroy_id`] ends the session
+it names: check that the user may end it first, as the id is shown.
+`session:label("M's iPad")` gives a session a name to show beside it, and
+[`SessionSqlite.label`] renames one by its id. [`SessionSqlite.info`] answers
+the request's own session (from `session:id()`), to mark it on the page.
+
+With `seen_interval`, the store notes when and from which client address
+each session was last used, after a request that reads it, at most once per
+interval: a page that polls every second writes once a minute with
+`seen_interval = 60`. Without it nothing is noted. A table an earlier version
+made gains the columns, and each of its sessions a public id, the first time
+it is opened.
+
 ## keys come from the environment
 
 A signed cookie needs a key, and a key is never in source.
@@ -180,6 +198,7 @@ the name a browser holds to `Secure`, path `/` and no domain; without it,
 local Greet = require("greet")
 local Secret = require("cosmic.web.secret")
 local SessionCookie = require("cosmic.web.session.cookie")
+local Clock = require("cosmic.clock")
 local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
@@ -239,6 +258,21 @@ local function test_login_gives_the_session_a_new_id_and_logout_ends_it()
   client:post("/logout")
   assert(client:get("/me"):text() == "anonymous")
 end
+
+local function test_a_user_lists_their_sessions_and_ends_one_by_its_id()
+  local store = assert(SessionSqlite.store((assert(Sqlite.memory())), { seen_interval = 60 }))
+  local laptop = Web.test_client(Greet.app{ store = store })
+  local phone = Web.test_client(Greet.app{ store = store })
+  laptop:post("/login")
+  phone:post("/login")
+  local now = Clock.now_ns() // 1000000000
+  local mine = assert(SessionSqlite.list(store, now, { subject = "ada" }))
+  assert(#mine == 2 and mine[1].seen_at ~= nil, "a login reads the session, so it is seen")
+  assert(SessionSqlite.destroy_id(store, mine[1].id) == 1)
+  local left = { laptop:get("/me"):text(), phone:get("/me"):text() }
+  table.sort(left)
+  assert(left[1] == "ada" and left[2] == "anonymous")
+end
 ```
 
 `cosmic test` builds the project and runs the file. The next block does it
@@ -263,7 +297,7 @@ print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passe
 ```
 
 ```output
-test: 7 tests passed
+test: 8 tests passed
 ```
 
 [`cosmic.child`]: ../../cosmic/child.tl
@@ -273,4 +307,8 @@ test: 7 tests passed
 [`Session.middleware`]: ../../cosmic/web/session/init.tl
 [`Session.of`]: ../../cosmic/web/session/init.tl
 [`SessionCookie.store`]: ../../cosmic/web/session/cookie.tl
+[`SessionSqlite.destroy_id`]: ../../cosmic/web/session/sqlite.tl
+[`SessionSqlite.info`]: ../../cosmic/web/session/sqlite.tl
+[`SessionSqlite.label`]: ../../cosmic/web/session/sqlite.tl
+[`SessionSqlite.list`]: ../../cosmic/web/session/sqlite.tl
 [`SessionSqlite.store`]: ../../cosmic/web/session/sqlite.tl
