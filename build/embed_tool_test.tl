@@ -1196,12 +1196,19 @@ local record Commands
   ring: Flags.Command
   --- Prints the day's journal, the newest sale last.
   journal: Flags.Command
+  --- Takes back the last sale.
+  void: Flags.Command
 end
 
 local commands: Commands = {
   ring = {
     about = "ring up a sale", usage = "[options] <item>", group = "Sales", see = { "docs" },
     spec = { ["--cents"] = { value = "n", about = "what it cost" } },
+    examples = { { line = "--cents 250 espresso", about = "ring up a coffee" } },
+    run = function(_: Flags.Parsed): integer return 0 end,
+  },
+  void = {
+    about = "strike the receipt out", group = "Sales",
     run = function(_: Flags.Parsed): integer return 0 end,
   },
   journal = {
@@ -1222,8 +1229,9 @@ end
 
 --- Runs the till with `argv`, its commands documented by the record that holds them.
 function Till.run(argv: {string}): Flags.Dispatched?, string
-  return Flags.dispatch(argv, 1, { ring = Commands.ring, journal = Commands.journal }, "till",
-    { pages = "commands", groups = { "Sales", "Reports" } })
+  return Flags.dispatch(argv, 1, { ring = Commands.ring, journal = Commands.journal, void = Commands.void }, "till",
+    { pages = "commands", groups = { "Sales", "Reports" },
+      topics = { closing = { guide = "closing", about = "how the day ends", see = { "journal" } } } })
 end
 
 return Till
@@ -1248,10 +1256,40 @@ end
 
 --- A test of the till's help, which reads the documentation its store is given of the modules it requires.
 local till_test = [[
+local Commands = require("commands")
+local Doc = require("cosmic.doc")
+local Flags = require("cosmic.flags")
+local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local Till = require("till")
 
 Test.policy { store_text = true }
+
+local function test_a_topic_s_page_is_its_guide()
+  local ran = assert(Till.run({ "help", "closing" }))
+  assert(ran.help == "closing: how the day ends\n\nAt the end of the day, reconcile the journal against the drawer." ..
+    "\n\nsee also: journal", ran.help)
+  local missing, why = Flags.dispatch({ "help", "opening" }, 1, { ring = Commands.ring }, "till",
+    { pages = "commands", topics = { opening = { guide = "opening" } } })
+  assert(missing == nil and why == "help: the topic opening's guide, doc/guides/opening.md, is not in the documentation",
+    why)
+end
+
+local function test_the_project_s_guides_answer_in_its_store()
+  local view = assert(Doc.program(Store.databases(), "till"))
+  local found = assert(Doc.lookup(view, "doc.guides.closing"))
+  assert(#found == 1 and found.exact, tostring(#found))
+  assert(Doc.guide(view, "closing") == "At the end of the day, reconcile the journal against the drawer.")
+end
+
+local function test_docs_finds_a_command_by_its_example_and_its_about()
+  local example = assert(Till.run({ "docs", "espresso" }))
+  assert(example.help:find("Commands.ring", 1, true) ~= nil and
+    example.help:find("\n  examples:\n    till ring --cents 250 espresso  ring up a coffee", 1, true) ~= nil, example.help)
+  local about = assert(Till.run({ "docs", "strike" }))
+  assert(about.help:find("Commands.void", 1, true) ~= nil and
+    about.help:find("\n  usage: till void\n  strike the receipt out", 1, true) ~= nil, about.help)
+end
 
 local function test_the_help_of_a_command_ends_with_its_page()
   local ran = assert(Till.run({ "help", "journal" }))
@@ -1301,6 +1339,9 @@ local function test_a_built_program_answers_help_and_docs_from_the_documentation
     "options:",
     "  --cents <n>  what it cost",
     "",
+    "examples:",
+    "  till ring --cents 250 espresso  ring up a coffee",
+    "",
     "see also: docs",
     "",
     "Rings up a sale and writes it to the day's journal. The amount is in",
@@ -1320,7 +1361,7 @@ local function test_a_built_program_answers_help_and_docs_from_the_documentation
   assert(docs_help:find("usage: till docs [words...]", 1, true) == 1 and
       docs_help == till(tmp, { "docs", "--help" }).stdout, docs_help)
   assert(till(tmp, { "docz" }).stderr == "till: no such command: docz; did you mean docs?\n")
-  assert(till(tmp, { "help", "docz" }).stderr == "till: no such command: docz; did you mean docs?\n")
+  assert(till(tmp, { "help", "docz" }).stderr == "till: no such command or topic: docz; did you mean docs?\n")
   -- It takes words, and refuses an option it does not have.
   local optioned = till(tmp, { "docs", "--json", "journal" })
   assert(optioned.code == 2 and assert(optioned.stderr):find("docs: no such option: --json", 1, true) ~= nil,
@@ -1338,6 +1379,19 @@ local function test_a_built_program_answers_help_and_docs_from_the_documentation
   local module = assert(till(tmp, { "docs", "commands" }).stdout)
   assert(not named:find("cosmic", 1, true) and not module:find("cosmic uses", 1, true) and
       not module:find(" use)", 1, true) and not module:find("used in", 1, true), named .. module)
+  -- A topic's page is the guide it names, and the index lists it.
+  local topic = till(tmp, { "help", "closing" })
+  assert(topic.code == 0 and topic.stdout ==
+      "closing: how the day ends\n\nAt the end of the day, reconcile the journal against the drawer.\n\n" ..
+      "see also: journal\n", tostring(topic.stdout) .. tostring(topic.stderr))
+  assert(index:find("\ntopics:\n  closing  how the day ends\n", 1, true) ~= nil, index)
+  -- A word of a command's example or of its about finds the command, its page showing them.
+  local by_example = assert(till(tmp, { "docs", "espresso" }).stdout)
+  assert(by_example:find("Commands.ring", 1, true) ~= nil and
+      by_example:find("\n  examples:\n    till ring --cents 250 espresso  ring up a coffee", 1, true) ~= nil, by_example)
+  local by_about = assert(till(tmp, { "docs", "strike" }).stdout)
+  assert(by_about:find("Commands.void", 1, true) ~= nil and by_about:find("strike the receipt out", 1, true) ~= nil,
+    by_about)
   -- Words are searched for in the comments and the guides, and a misspelled one is put right.
   local searched = assert(till(tmp, { "docs", "reconcile", "drawer" }).stdout)
   assert(searched:find("doc.guides.closing (doc/guides/closing.md)", 1, true) ~= nil, searched)
@@ -1362,6 +1416,9 @@ local function test_a_program_run_from_its_source_answers_from_the_projects_docu
   assert(help.code == 0 and help.stdout ==
       "usage: till journal\n\nprint the day's sales\n\nPrints the day's journal, the newest sale last.\n",
     help.stdout .. help.stderr)
+  local topic = verbs_fixture.run(tmp, { "cmd/till/main.tl", "help", "closing" })
+  assert(topic.code == 0 and topic.stdout:find("\n\nAt the end of the day, reconcile", 1, true) ~= nil,
+    topic.stdout .. topic.stderr)
   for _, query in ipairs({ "quickstart", "Fs.read", "cosmic.flags" }) do
     local missed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", query })
     assert(missed.code == 2 and missed.stdout == "" and
@@ -1378,5 +1435,5 @@ end
 local function test_a_projects_test_of_its_help_reads_the_documentation_it_declares(tmp: string)
   write_till(tmp)
   local ran = verbs_fixture.run(tmp, { "test" })
-  assert(ran.code == 0 and ran.stdout:find("2 tests passed", 1, true) ~= nil, ran.stdout .. ran.stderr)
+  assert(ran.code == 0 and ran.stdout:find("5 tests passed", 1, true) ~= nil, ran.stdout .. ran.stderr)
 end
