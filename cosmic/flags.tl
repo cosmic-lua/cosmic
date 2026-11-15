@@ -139,17 +139,17 @@ local record Flags
     groups?: {string}
     --- What follows the index's usage line, before its sections: a paragraph or more, printed as written.
     intro?: string
-    --- The program's topics, by the word `help` takes for each. A name that is "", a command's, "help", or
-    --- "docs" where [`Flags.dispatch`] answers it raises. A program with a command named "help" answers
+    --- The program's topics, by the word `help` takes for each. A name that is "", a command's, "help",
+    --- "docs", or one that begins with "-" raises. A program with a command named "help" answers
     --- `prog help` itself, so [`Flags.dispatch`] prints no topic for it: that command can, with
     --- [`Flags.topic_help`].
     topics?: {string:Topic}
     --- What the index ends with, printed as written, in place of the lines that say how to ask for a
     --- command's options and how to search the documentation; "" for nothing there. Those lines when nil.
     closing?: string
-    --- The columns a line of help may reach, for a command's examples and options and the index alike,
-    --- laid out as [`Flags.help`] lays out examples. When nil, examples keep within 80 and the rest are not
-    --- wrapped.
+    --- The columns a line of help may reach, at least 1, for a command's examples and options and the index
+    --- alike, laid out as [`Flags.help`] lays out examples. When nil, examples keep within 80 and the rest
+    --- are not wrapped. `intro`, `closing` and a topic's text are printed as written.
     width?: integer
   end
 end
@@ -448,13 +448,19 @@ local function row_width(rows: {Row}): integer
   return width
 end
 
---- How many columns a row's line takes with its head padded to `column`.
+--- How many columns a row's lines take with its head padded to `column`:
+--- what it does follows the head, and a line of it after a newline stands
+--- as written, from the line's start.
 local function row_reach(row: Row, column: integer): integer
   local about = row.about
   if about == nil or about == "" then
     return 2 + columns(row.head)
   end
-  return 2 + column + 2 + columns(about)
+  local reach = 0
+  for line in (about .. "\n"):gmatch("([^\n]*)\n") do
+    reach = if reach == 0 then 2 + column + 2 + columns(line) else math.max(reach, columns(line)) end
+  end
+  return reach
 end
 
 --- The column what `rows` do starts at, counted from the end of the
@@ -509,7 +515,8 @@ end
 --- to `column` where what it does follows. With `wrap`, a row whose line
 --- would pass that many columns has what it does wrapped at them, under
 --- the column, beginning on a line of its own after a head wider than
---- the column; a row that fits is left as it is written.
+--- the column; a row that fits, one whose words run over lines of their
+--- own, and one that says only spaces are left as they are written.
 local function row_lines(rows: {Row}, column: integer, wrap?: integer): {string}
   local lines: mut {string} = {}
   local indent = string.rep(" ", 2 + column + 2)
@@ -517,7 +524,8 @@ local function row_lines(rows: {Row}, column: integer, wrap?: integer): {string}
     local about = row.about
     if about == nil or about == "" then
       lines[#lines + 1] = "  " .. row.head
-    elseif wrap == nil or (columns(row.head) <= column and row_reach(row, column) <= wrap) then
+    elseif wrap == nil or about:find("\n", 1, true) ~= nil or about:find("%S") == nil or
+        (columns(row.head) <= column and row_reach(row, column) <= wrap) then
       lines[#lines + 1] = "  " .. row.head .. string.rep(" ", column - columns(row.head)) .. "  " .. about
     else
       local beside = columns(row.head) <= column
@@ -625,12 +633,14 @@ end
 --- @param name string What the usage line calls it: the program, and the
 ---   command's own word after it when it has one ("prog count"); not
 ---   empty, or this raises
---- @param width? integer The columns a line may reach: an example's 80,
----   and an option's unbounded, when nil
+--- @param width? integer The columns a line may reach, at least 1, or
+---   this raises: an example's 80, and an option's unbounded, when nil
 --- @return string The help
 function Flags.help(command: Flags.Command, name: string, width?: integer): string
   if name == "" then
     error("flags: help's name is empty", 2)
+  elseif width ~= nil and width < 1 then
+    error("flags: help's width is not a positive number of columns", 2)
   end
   local spec = command.spec or {}
   local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
@@ -728,6 +738,10 @@ end
 function Flags.program_help(program: string, commands: {string:Flags.Command},
                             documented?: Flags.Documented): string
   local told: Flags.Documented = documented or {}
+  local told_width = told.width
+  if told_width ~= nil and told_width < 1 then
+    error("flags: help's width is not a positive number of columns", 2)
+  end
   local names: mut {string} = {}
   local sections: mut {string: mut {Row}} = {}
   local titles: mut {string} = {}
@@ -861,7 +875,11 @@ local function documentation(program: string, commands: {string:Flags.Command},
     if row ~= nil then
       local command = commands[name]
       local spec = command and command.spec
-      local options = if spec ~= nil and next(spec) ~= nil then Flags.options(spec) else nil end
+      local options = if spec ~= nil and next(spec) ~= nil then
+        table.concat(laid_out(option_rows(spec), documented.width), "\n")
+        else
+        nil
+        end
       described[#described + 1] = { name = name, module = row.module, symbol = row.symbol, options = options }
     end
   end
@@ -941,7 +959,7 @@ end
 --- `commands` raises, as does a command whose `see` names itself or no
 --- command of `commands` ("help" is one, held or not) or topic of
 --- `documented`'s, a topic whose `see` names itself or neither, or a
---- topic named "" or as a command is, whatever the line: a caller's
+--- topic named "", as a command is, or as an option is, whatever the line: a caller's
 --- mistake, met by its first run. The first such command by name is the
 --- one named, then the first such topic.
 ---
@@ -1007,8 +1025,10 @@ function Flags.dispatch(argv: {string}, from: integer,
   for _, held in ipairs(sorted(keys(topics))) do
     if held == "" then
       error("flags: a topic's name is empty", 2)
-    elseif commands[held] ~= nil or held == "help" or (held == "docs" and documented ~= nil) then
+    elseif commands[held] ~= nil or held == "help" or held == "docs" then
       error("flags: the topic " .. held .. " is named as a command is", 2)
+    elseif held:sub(1, 1) == "-" then
+      error("flags: the topic " .. held .. " is named as an option is, which help takes for none", 2)
     end
     local topic = topics[held]
     local see = if topic ~= nil then topic.see else nil end

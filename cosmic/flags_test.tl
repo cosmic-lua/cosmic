@@ -970,3 +970,45 @@ local function test_a_program_s_own_help_command_answers_help_with_topics()
   local ran = assert(Flags.dispatch({ "help", "pairing" }, 1, commands, "prog", program))
   assert(ran.code == 0 and ran.help == "" and asked[1] == "pairing")
 end
+
+local function test_a_row_written_over_lines_of_its_own_is_left_as_written()
+  local first, second = string.rep("a", 40), "    " .. string.rep("b", 40)
+  local lined: Flags.Command = { examples = { { line = "x", about = first .. "\n" .. second } } }
+  assert(Flags.help(lined, "prog") == "usage: prog\n\nexamples:\n  prog x  " .. first .. "\n" .. second)
+  -- Beside a row too wide for the width, it keeps its lines and its indent.
+  local long = string.rep("z", 90)
+  local beside: Flags.Command = {
+    examples = { { line = "x", about = first .. "\n" .. second }, { line = long, about = " " } },
+  }
+  assert(Flags.help(beside, "prog") == table.concat({
+    "usage: prog", "", "examples:", "  prog x  " .. first, second, "  prog " .. long .. "   ",
+  }, "\n"))
+end
+
+local function test_a_width_below_one_and_a_topic_named_as_an_option_raise()
+  Test.raises(function() Flags.help({}, "prog", 0) end, "help's width is not a positive number of columns")
+  Test.raises(function() Flags.program_help("prog", paged, { width = -1 }) end,
+    "help's width is not a positive number of columns")
+  local commands: {string:Flags.Command} = { pair = {} }
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", { topics = { ["-h"] = {} } })
+  end,
+    "the topic -h is named as an option is")
+end
+
+local function test_a_help_command_of_the_program_s_own_can_print_a_topic()
+  local pairing: Flags.Topic = { about = "how", text = "", see = {} }
+  local topics: {string:Flags.Topic} = { pairing = pairing }
+  local printed: mut {string} = {}
+  local function help(got: Flags.Parsed): integer
+    local topic = topics[got.words[1] or ""]
+    if topic == nil then return 2 end
+    local page = Flags.topic_help(topic, assert(got.words[1]))
+    printed[#printed + 1] = page
+    return 0
+  end
+  local commands: {string:Flags.Command} = { help = { run = help } }
+  local ran = assert(Flags.dispatch({ "help", "pairing" }, 1, commands, "prog", { topics = topics }))
+  -- An empty text and see-also are left out of the page.
+  assert(ran.code == 0 and printed[1] == "pairing: how", printed[1])
+end
