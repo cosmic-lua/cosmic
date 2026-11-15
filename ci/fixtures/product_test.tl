@@ -73,9 +73,18 @@ end
 -- artifact shrinks, so an addition meets it in CI and not in a release, and
 -- raised only by a change that says what the bytes buy. The tool itself is
 -- held to none: it carries the whole library, so every module added to the
--- library would move its ceiling.
+-- library would move its ceiling. A program carries every `cosmic.*` module
+-- and declaration too (embed.database, in the main tree's build/embed.tl), so
+-- its ceiling moves with the library: 9,500,000 held until the flags' help and docs (#3749,
+-- #3751), cosmic.protobuf.schema's defaults (#3750) and cosmic.http.message's
+-- protocols (#3753) brought hello to 9,527,344 bytes; 9,700,000 leaves a
+-- little under 2% for the modules after them.
+--
+-- TODO: lower the application ceiling once a program carries only the
+-- `cosmic.*` modules of its closure, which waits on embed.database
+-- computing that closure (see its TODO on the web assets).
 local prefix_ceiling <const> = 6000000
-local application_ceiling <const> = 9500000
+local application_ceiling <const> = 9700000
 
 local function test_transported_product(tmp: string)
   local product = Fixture.placed("product")
