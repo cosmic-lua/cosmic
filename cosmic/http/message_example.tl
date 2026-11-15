@@ -37,9 +37,9 @@ function Example.request_reader()
 end
 
 --- A client's side: a response whose head names no length runs to the
---- end of the stream, which `finish` says; the answer to a HEAD is its
---- head alone, whatever length it names. Each `Set-Cookie` is kept
---- apart in `values`.
+--- end of the stream, which `finish` says, unless the reader is told
+--- otherwise; the answer to a HEAD is its head alone, whatever length it
+--- names. Each `Set-Cookie` is kept apart in `values`.
 function Example.response_reader()
   local reader = Message.response_reader()
   assert(reader:feed("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\nto the").status == "more")
@@ -52,6 +52,11 @@ function Example.response_reader()
 
   local head = Message.response_reader({ head_only = true }):feed("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
   assert(head.status == "done" and assert(head.response).headers["content-length"] == "1000")
+
+  -- A peer that names no length where it sends no body, on a connection
+  -- it keeps open, is read with `lengthless = "empty"`.
+  local bare = Message.response_reader({ lengthless = "empty" }):feed("HTTP/1.1 200 OK\r\n\r\n")
+  assert(bare.status == "done" and assert(bare.response).body == "")
 
   -- What two readers could read differently is refused, never guessed.
   local smuggled = Message.response_reader():feed(

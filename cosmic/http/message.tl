@@ -18,11 +18,12 @@
 --- bytes, of all fed, that it took) and `next` (where in the last chunk
 --- fed the bytes after it start, which are the next message's: feed the
 --- chunk from there to a new reader), or `refused` and why. `finish`
---- says the stream ended: it answers an HTTP response that is read to
---- the end of the stream, `empty` where no message began (nothing came,
---- or blank lines alone), and a refusal where one was cut short. An
---- answer but `more` is final, and every later call gives it again, its `next`
---- still a position in the chunk that decided it.
+--- says the stream ended: it answers a response that is read to the
+--- end of the stream (an HTTP one that names no length, unless
+--- `lengthless` says otherwise), `empty` where no message began (nothing
+--- came, or blank lines alone), and a refusal where one was cut short.
+--- An answer but `more` is final, and every later call gives it again,
+--- its `next` still a position in the chunk that decided it.
 ---
 --- The bytes are not trusted. A reader never raises on them, does work
 --- linear in the bytes fed, holds no more than its limits allow
@@ -55,8 +56,11 @@
 --- a request has no body, and so has a response of any protocol but
 --- HTTP, as RTSP has it (RFC 2326 12.14, RFC 7826 18.17); an HTTP
 --- response's body is then every byte up to the end of the stream (RFC
---- 9112 6.3). A response with a status below 200, 204 or 304, and one
---- read with `head_only`, has no body whatever its headers say.
+--- 9112 6.3). A reader made with `lengthless` frames such a response
+--- as it is told, whatever its protocol: AirPlay's HTTP/1.1 answers name
+--- no length where they have no body, on a connection kept open. A
+--- response with a status below 200, 204 or 304, and one read with
+--- `head_only`, has no body whatever its headers say.
 ---
 --- The protocol is a parameter: a reader made with `protocol =
 --- "RTSP/1.0"` reads RTSP/1.0 messages and no other, and the default,
@@ -80,6 +84,14 @@ local record Message
     "done"
     "refused"
     "empty"
+  end
+
+  --- How a response that names neither a length nor chunks is framed.
+  enum Lengthless
+    --- It has no body: its head is all of it.
+    "empty"
+    --- Its body is every byte up to the end of the stream.
+    "to close"
   end
 
   --- Which kind of message was read.
@@ -110,6 +122,10 @@ local record Message
     --- Of a response alone: the response answers a HEAD, or a CONNECT
     --- that was accepted, so its head is all of it.
     head_only?: boolean
+    --- Of a response alone: how one that names neither a length nor
+    --- chunks is framed, in place of what its protocol says (`to close`
+    --- for HTTP, `empty` for any other).
+    lengthless?: Lengthless
   end
 
   --- A request read.
@@ -252,8 +268,9 @@ local record Message
     fields?: {Field}
     --- The body. Its size is written as `Content-Length` unless the
     --- headers or fields give one, which must be its size and is written
-    --- where they put it; with none given, the one written goes last. nil
-    --- writes no body and no `Content-Length` but one they give.
+    --- where they put it; with none given, the one written goes last, so
+    --- `""` writes `Content-Length: 0`. nil writes no body and no
+    --- `Content-Length` but one they give.
     body?: string
   end
 
@@ -274,8 +291,8 @@ local record Message
     --- takes none but `""`, which is none: no `Content-Length` is added
     --- to it, and one the headers or fields give is written as given. A
     --- reader takes any other HTTP response written with neither a body
-    --- nor a length to run to the end of the stream: give `""` for an
-    --- empty one.
+    --- nor a length to run to the end of the stream, unless it is made
+    --- with `lengthless = "empty"`: give `""` for an empty one.
     body?: string
   end
 end
@@ -298,6 +315,7 @@ local record Settings
   max_headers: integer
   body_bytes: integer
   head_only: boolean
+  lengthless?: Message.Lengthless
   --- The kind of message read; nil reads either, as its first line says.
   kind?: Message.Kind
 end
@@ -405,6 +423,7 @@ local function settings(opts: Message.Options?, kind: Message.Kind?): Settings
     max_headers = bound("max_headers", o.max_headers, 100),
     body_bytes = bound("body_bytes", o.body_bytes, 1024 * KIB),
     head_only = o.head_only == true,
+    lengthless = o.lengthless,
     kind = kind,
   }
 end
@@ -499,6 +518,12 @@ local function machine(set: Settings): Machine
       protocol = name
       st.first, st.second, st.third = name, status, rest:sub(2)
     else
+      -- A reader of either kind whose first word is no method has met
+      -- neither kind: describing the request line would mislead, as for
+      -- `HTTP/2 200 OK`.
+      if set.kind == nil and not wire.token(text:match("^[^ ]*") or "") then
+        return refuse("the first line is neither a request line nor a status line")
+      end
       local method, target, name = text:match("^([^ ]+) ([^ ]+) ([^ ]+)$")
       if method == nil or target == nil or name == nil then
         return refuse("the request line is not method, target and protocol")
@@ -555,7 +580,9 @@ local function machine(set: Settings): Machine
       return nil
     end
     if length == nil then
-      if not st.response or protocol:sub(1, 5) ~= "HTTP/" then return done(after) end
+      if not st.response then return done(after) end
+      local framing = set.lengthless or (if protocol:sub(1, 5) == "HTTP/" then "to close" else "empty" end)
+      if framing == "empty" then return done(after) end
       st.phase = "end"
       return nil
     end
@@ -758,8 +785,9 @@ end
 
 --- A reader of one response, for the side that asked. Its `opts` are
 --- [`Message.request_reader`]'s, with `head_only` for the answer to a
---- HEAD; the caller says when the stream ends, with `finish`, which is
---- where an HTTP response that names no length ends.
+--- HEAD and `lengthless` for a peer that names no length where it sends
+--- no body; the caller says when the stream ends, with `finish`, which
+--- is where a response read to the end of the stream ends.
 function Message.response_reader(opts?: Message.Options): Message.ResponseReader
   local reader = machine(settings(opts, "response"))
   local last: mut {Message.ResponseRead} = {}
@@ -785,9 +813,8 @@ end
 --- or a side that passes over what it is asked while it waits for an
 --- answer. Its first line says which kind it is: a status line starts
 --- with a protocol, and a method is never one. A first line whose first
---- word is no protocol is read as a request line, so a malformed status
---- line (`HTTP/2 200 OK`) is refused for what a request line holds. Its
---- `opts` are
+--- word is neither a protocol nor a method (`HTTP/2 200 OK`) is refused
+--- as neither kind. Its `opts` are
 --- [`Message.response_reader`]'s, `head_only` holding of a response
 --- alone, and a message is framed as the reader of its own kind would.
 function Message.reader(opts?: Message.Options): Message.Reader

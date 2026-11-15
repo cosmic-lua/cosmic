@@ -163,6 +163,30 @@ local function test_a_response_of_rtsp_with_no_length_has_no_body()
   assert(assert(http:finish().response).body == "all")
 end
 
+--- `lengthless` frames a response that names no length as it is told,
+--- whatever its protocol: AirPlay's HTTP answers have no body there.
+local function test_lengthless_frames_a_response_that_names_no_length()
+  local empty: Message.Options = { lengthless = "empty" }
+  local text = "HTTP/1.1 200 OK\r\n\r\nHTTP/1.1 470 Connection Authorization Required\r\n\r\n"
+  local read = Message.response_reader(empty):feed(text)
+  assert(read.status == "done" and assert(read.response, read.reason).body == "" and read.next == 20,
+    tostring(read.next))
+  local second = assert(Message.response_reader(empty):feed(text, read.next).response)
+  assert(second.status == 470 and second.body == "")
+  assert(response_text(response_in_pieces(text, 1, empty)) == response_text(read))
+  -- A length is still read, and a request is not framed by it.
+  assert(assert(response("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok", empty).response).body == "ok")
+  local post = assert(request("POST / HTTP/1.1\r\nContent-Length: 1\r\n\r\nx", empty).request)
+  assert(post.body == "x")
+  -- "to close" runs any protocol's response to the stream's end.
+  local closing = Message.response_reader({ protocol = "RTSP/1.0", lengthless = "to close" })
+  assert(closing:feed("RTSP/1.0 200 OK\r\nCSeq: 1\r\n\r\nrest").status == "more")
+  assert(assert(closing:finish().response).body == "rest")
+  -- A reader of either kind takes it too.
+  local either = Message.reader({ lengthless = "empty" }):feed("HTTP/1.1 200 OK\r\n\r\nGET / HTTP/1.1\r\n\r\n")
+  assert(either.kind == "response" and either.next == 20)
+end
+
 local function test_a_response_that_takes_no_body_ends_at_its_head()
   for _, status in ipairs({ "100", "101", "204", "304" }) do
     local text = "HTTP/1.1 " .. status .. " X\r\nContent-Length: 5\r\n\r\nNEXT!"
@@ -576,6 +600,10 @@ local function test_a_reader_of_either_kind_reads_requests_and_responses()
     return whole.reason
   end
   assert(either_refusal("nonsense\r\n") == "the request line is not method, target and protocol")
+  local neither = "the first line is neither a request line nor a status line"
+  assert(either_refusal("HTTP/2 200 OK\r\n") == neither)
+  assert(either_refusal(" GET / HTTP/1.1\r\n") == neither)
+  assert(either_refusal("G(T / HTTP/1.1\r\n") == neither)
   assert(either_refusal("HTTP/1.1 20 OK\r\n") == "the status line is not protocol, status and reason")
   assert(either_refusal("HTTP/1.1 / HTTP/1.1\r\n") == "the status line is not protocol, status and reason")
   assert(either_refusal("RTSP/1.0 200 OK\r\n") == "the protocol is not HTTP/1.0 or HTTP/1.1")
@@ -590,6 +618,9 @@ local function test_a_request_is_written_from_its_parts()
   assert(text == "POST /a?b HTTP/1.1\r\nAccept: */*\r\nHost: h.test\r\nX-List: 1\r\nX-List: 2\r\n" ..
       "Content-Length: 5\r\n\r\nhello", text)
   assert(Message.format_request({ method = "GET", target = "/" }) == "GET / HTTP/1.1\r\n\r\n")
+  -- An empty body is written as one, with its length; nil writes none.
+  assert(Message.format_request({ method = "POST", target = "/", body = "" }) ==
+      "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
   local given = assert(Message.format_request({ method = "PUT", target = "/", body = "ab",
     headers = { ["content-length"] = "2" } }))
   assert(given == "PUT / HTTP/1.1\r\ncontent-length: 2\r\n\r\nab", given)
