@@ -1,6 +1,7 @@
 --- Small helpers the tests of the tree each need: an element they know is
 --- there, a list that holds a string, a fresh build directory, the open
---- descriptors, a named pipe and a small project. Test support.
+--- descriptors, a named pipe, more bytes than a pipe holds and a small
+--- project. Test support.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
@@ -13,11 +14,19 @@ local record test_support_fixture
     reader: integer
     writer: integer
   end
+  --- More bytes than a pipe or a fifo holds unread on any host the tests
+  --- run on, 4 MiB, for a test that means to fill one: Linux gives a pipe
+  --- (a fifo is one) 16 pages,
+  --- 64 KiB where a page is 4 KiB, 256 KiB where it is 16 KiB (as on a
+  --- Raspberry Pi 5) and 1 MiB where it is 64 KiB; macOS, at most 64 KiB.
+  OVER_A_PIPE: integer
   --- What a callback leaves for the case that ran it: empty until set.
   record Cell<T>
     mut value?: T
   end
 end
+
+test_support_fixture.OVER_A_PIPE = 4 << 20
 
 --- The element of `list` at `index`, which the case knows is there.
 --- @param list the list

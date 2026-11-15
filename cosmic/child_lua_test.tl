@@ -17,6 +17,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local fixture = require("build.child_lua_fixture")
+local support = require("build.test_support_fixture")
 
 --- What the tests read: /proc, where a test finds a child's processes;
 --- and the program itself, started past its launcher so that no host
@@ -346,14 +347,17 @@ end
 --- Unread output is held up to `capture_limit`, and then the child
 --- waits for the reader: nothing is dropped.
 local function test_a_streamed_output_holds_the_child_at_its_limit()
-  local h = assert(Child.start(lua(FS .. 'for _ = 1, 20000 do assert(Fs.put(1, "0123456789")) end',
-    nil, { stdout = "stream", capture_limit = 100 })))
+  -- More than the pipe holds, which would otherwise take it all unread.
+  local chunks = support.OVER_A_PIPE // 1024
+  local h = assert(Child.start(lua(FS .. 'for _ = 1, ' .. tostring(chunks) ..
+      ' do assert(Fs.put(1, string.rep("0123456789abcdef", 64))) end',
+    nil, { stdout = "stream", capture_limit = 1 << 16 })))
   local deadline = Clock.monotonic_ns() + Clock.ms(300)
   while Clock.monotonic_ns() < deadline do
     assert(not assert(h:try_wait()).finished, "the child ran past its reader")
     Clock.sleep_ns(Clock.ms(10))
   end
-  assert(read_all(assert(h.stdout_stream)) == string.rep("0123456789", 20000))
+  assert(read_all(assert(h.stdout_stream)) == string.rep("0123456789abcdef", 64 * chunks))
   assert(assert(h:wait(Clock.seconds(5))).ok)
 end
 
