@@ -1621,9 +1621,10 @@ function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Do
     value_records = {}, public_modules = {}, commands = commands or {}, program = program }, ""
 end
 
---- The text of the guide `name` of `view`'s documentation, `doc/guides/<name>.md`, as a reader is shown it ([`Doc.shown`]):
---- what follows its title. A guide under `doc/guides/internal/`, or one the view does not answer for (the tool's, in
---- [`Doc.program`]'s view), is none. Nil and "" where there is none; nil and why when a database cannot be read.
+--- The text of the guide `name` of `view`'s documentation, `doc/guides/<name>.md`, as a reader is shown it
+--- ([`Doc.shown`]): what follows its title. A guide under `doc/guides/internal/`, or one the view does not answer
+--- for (the tool's, in [`Doc.program`]'s view), is none. Nil and "" where there is none; nil and why when a
+--- database cannot be read, so a caller tells the two apart by the second.
 function Doc.guide(view: Doc.View, name: string): string?, string
   local module = "doc.guides." .. name
   local owner = view.owners[module]
@@ -1685,7 +1686,9 @@ end
 --- `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They come after what the index found, as the lesser
 --- match: most of what a verb's options say is said again, closer, by the code they drive. Those whose row,
 --- `about` and `usage` carry the words come first, then those that needed their options or examples, each in the
---- order of the rows. A command `found` already holds is not repeated.
+--- order of the rows; where no command says more than its options, as the tool's verbs do, all are in the order
+--- of the rows. A usage or example line is matched without the program's name it opens with, which every one
+--- holds. A command `found` already holds is not repeated.
 local function by_help(view: Doc.View, query: string,
                        found: {Doc.Entry}): {Doc.Entry}?, string
   local wanted: mut {string} = {}
@@ -1720,6 +1723,32 @@ local function by_help(view: Doc.View, query: string,
     end
     return true
   end
+  -- A line a command is typed as opens with the program's name and the command's word, which every such line
+  -- holds alike: what a search matches of it is the rest.
+  local function typed_rest(lines?: string): string
+    if lines == nil then
+      return ""
+    end
+    local out: mut {string} = {}
+    for line in String.lines(lines) do
+      local rest = line
+      local program = view.program
+      if program ~= nil and rest:sub(1, #program + 3) == "  " .. program .. " " then
+        rest = rest:sub(#program + 4)
+      elseif program ~= nil and rest:sub(1, #program + 1) == program .. " " then
+        rest = rest:sub(#program + 2)
+      end
+      out[#out + 1] = rest
+    end
+    return table.concat(out, "\n")
+  end
+  -- The tool's verbs say nothing but their options: they keep the order of their rows, as they always have.
+  local ranked = false
+  for _, command in ipairs(view.commands) do
+    if command.about ~= nil or command.usage ~= nil or command.examples ~= nil then
+      ranked = true
+    end
+  end
   local first: mut {Doc.Entry} = {}
   local after: mut {Doc.Entry} = {}
   for _, entry in ipairs(fields) do
@@ -1729,11 +1758,11 @@ local function by_help(view: Doc.View, query: string,
     if command ~= nil and held[key] ~= true then
       held[key] = true
       local said = entry.source_symbol .. "\n" .. entry.signature .. "\n" .. entry.text .. "\n" ..
-        (command.about or "") .. "\n" .. (command.usage or "")
+        (command.about or "") .. "\n" .. typed_rest(command.usage)
       if carries(tokens_of(said)) then
         first[#first + 1] = entry
-      elseif carries(tokens_of(said .. "\n" .. (command.options or "") .. "\n" .. (command.examples or ""))) then
-        after[#after + 1] = entry
+      elseif carries(tokens_of(said .. "\n" .. (command.options or "") .. "\n" .. typed_rest(command.examples))) then
+        if ranked then after[#after + 1] = entry else first[#first + 1] = entry end
       end
     end
   end

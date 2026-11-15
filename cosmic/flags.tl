@@ -1089,8 +1089,8 @@ end
 --- `prog help <topic>` answers [`Flags.topic_help`]'s page, its text read
 --- from the program's guide where the topic names one ([`Flags.Topic`]'s
 --- `guide`), and a word `help` is given that is neither is refused as "no
---- such command or topic", with the names near it of both, "help" and
---- "docs" among them.
+--- such command or topic", with the names near it of both, "help" among
+--- them, and "docs" where the program answers it.
 ---
 --- A command is run by its name in `commands`, or by the word it says it is
 --- typed as ([`Flags.Command`]'s `typed`), and then not by its name: an
