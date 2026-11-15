@@ -156,8 +156,14 @@ local function run_fixed_point_case(tmp: string, name: string, file: string,
 
   local path = tree .. "/" .. file
   local original = Fixture.read(path)
+  -- Each rebuild compiles in the one process (COSMIC_COMPILE_COPIES=1):
+  -- the runner already gives each case a processor of its own, so a
+  -- rebuild's copies (build.compile_fanout, one a processor) only take
+  -- processors from the other cases. Four compiler cases' stages run at
+  -- once on a four-core host take 130 s with them and 78 s without.
   local base = Fixture.environment({
-    COSMIC_PORTABLE_CACHE = case_root .. "/cache" })
+    COSMIC_PORTABLE_CACHE = case_root .. "/cache",
+    COSMIC_COMPILE_COPIES = "1" })
   local shared = base
   if shares then
     shared = Maps.with(base, { COSMIC_BUILD_CACHE = Fixture.required("COSMIC_FIXTURE_SHARED_COMPILES") })
