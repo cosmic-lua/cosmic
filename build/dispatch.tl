@@ -857,18 +857,12 @@ function Dispatch.main(argv: {string}): integer
   local sys = require("cosmic.sys")
   local verb = if word == nil or word == "-h" or word == "--help" then "help" else word end
   local chosen = spec_of(verb)
-  -- TODO: dispatch through Flags.dispatch, with each verb a Flags.Command
-  -- whose `run` takes the Flags.Parsed. It waits on two things in Flags.
-  -- Flags.parse must read a negative number as a word where the spec
-  -- declares no digit option: `time` and `rand` set one aside before
-  -- parsing (build/time.tl's `protect`, build/rand.tl's `marked`), which
-  -- Flags.dispatch's parse would refuse. Flags.dispatch must take a
-  -- default command for a first word that names none: a file run
-  -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
-  -- refuse as options) and `-e`, `--standalone` and `--version` are
-  -- verbs by no command name. Until then a verb parses its own line, so
-  -- its refusal of a mistyped "--help" (`cosmic fix --hlep`) names
-  -- nothing, where Flags.dispatch's says "did you mean --help?".
+  -- TODO: give each verb the line Flags.dispatch read, a Flags.Command whose `run` takes the Flags.Parsed, and
+  -- delete each verb's own parse of it (23 modules call Flags.parse on their line). Flags.dispatch reads every
+  -- verb's line already ([`line_refusal`]), so the refusals are one rule's; until the verbs take what it read,
+  -- a line is parsed twice. A file run, `-e`, `--standalone` and `--version` come with it: Flags.dispatch runs
+  -- a command by its spelling or by no word (`typed`) and leaves a program's words unread (`rest`). Nothing
+  -- blocks it; it is a change to every verb, made apart from this one.
   local command = Cli.verbs[verb]
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
@@ -888,6 +882,7 @@ function Dispatch.main(argv: {string}): integer
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
+    typed_by_name = false
     local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
     chosen = {
