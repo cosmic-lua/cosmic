@@ -76,6 +76,44 @@ function Example.format_request()
   assert(response.headers["cseq"] == "2" and response.body == "v=0\r\n")
   -- A reader asked for RTSP reads nothing else.
   assert(Message.response_reader({ protocol = "RTSP/1.0" }):feed("HTTP/1.1 200 OK\r\n\r\n").status == "refused")
+
+  -- A peer that reads an order is given fields, written as listed, the
+  -- Content-Length where it is put.
+  local setup = assert(Message.format_request({
+    method = "SETUP", target = "rtsp://cam.test/stream", protocol = "RTSP/1.0", body = "1234",
+    fields = {
+      { name = "User-Agent", value = "cam/1" }, { name = "Content-Length", value = "4" },
+      { name = "CSeq", value = "3" },
+    },
+  }))
+  print((setup:gsub("\r\n", "|")))
+  assert(setup == "SETUP rtsp://cam.test/stream RTSP/1.0\r\nUser-Agent: cam/1\r\nContent-Length: 4\r\nCSeq: 3\r\n\r\n1234")
+end
+
+--- A connection that carries HTTP and RTSP, requests and responses: one
+--- reader of either kind and both protocols reads each message, saying
+--- which it is. An RTSP response that names no length has no body, so
+--- the next message follows its head.
+function Example.reader()
+  local bytes = "GET /info HTTP/1.1\r\nCSeq: 1\r\n\r\n" ..
+    "RTSP/1.0 200 OK\r\nCSeq: 3\r\n\r\n" ..
+    "POST /event RTSP/1.0\r\nContent-Length: 2\r\n\r\nhi"
+  local opts: Message.Options = { protocols = { "RTSP/1.0", "HTTP/1.1" } }
+  local seen: mut {string} = {}
+  local at = 1
+  while at <= #bytes do
+    local read = Message.reader(opts):feed(bytes, at)
+    assert(read.status == "done", read.reason)
+    local request, response = read.request, read.response
+    if request ~= nil then
+      seen[#seen + 1] = "request " .. request.method .. " " .. request.protocol
+    elseif response ~= nil then
+      seen[#seen + 1] = "response " .. tostring(response.status) .. " " .. response.protocol
+    end
+    at = read.next
+  end
+  print(table.concat(seen, ", "))
+  assert(table.concat(seen, ", ") == "request GET HTTP/1.1, response 200 RTSP/1.0, request POST RTSP/1.0")
 end
 
 --- A response written from its parts: the body's size is its
