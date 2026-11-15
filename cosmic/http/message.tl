@@ -2,8 +2,10 @@
 --- a channel it encrypts itself, a socket it was handed, or a protocol
 --- with HTTP's message grammar under another name, as RTSP/1.0 is.
 --- [`cosmic.http`] and [`cosmic.http.server`] own theirs. A reader here
---- is fed the bytes as they arrive and answers one message, and
---- [`Message.format_request`] and [`Message.format_response`] write one.
+--- is fed the bytes as they arrive and answers one message (a request,
+--- a response, or with [`Message.reader`] either, as its first line
+--- says), and [`Message.format_request`] and [`Message.format_response`]
+--- write one.
 --- Nothing here opens, reads or writes a connection.
 ---
 ---     local reader = Message.request_reader()
@@ -16,8 +18,8 @@
 --- bytes, of all fed, that it took) and `next` (where in the last chunk
 --- fed the bytes after it start, which are the next message's: feed the
 --- chunk from there to a new reader), or `refused` and why. `finish`
---- says the stream ended: it answers a response that is read to the end
---- of the stream, `empty` where no message began (nothing came, or blank
+--- says the stream ended: it answers an HTTP response that is read to
+--- the end of the stream, `empty` where no message began (nothing came, or blank
 --- lines alone), and a refusal where one was cut short. An answer but
 --- `more` is final, and every later call gives it again, its `next`
 --- still a position in the chunk that decided it.
@@ -33,7 +35,7 @@
 --- - a first line that is not `method target protocol` or `protocol
 ---   status reason`, a method that is no token, a target that holds a
 ---   byte outside visible ASCII, a status that is not three digits from
----   100, and a protocol other than the one asked for;
+---   100, and a protocol other than those asked for;
 --- - a header line that is folded, has no `:`, has a name that is no
 ---   token (a space before the `:` too) or a value that holds a control
 ---   byte other than a tab;
@@ -50,17 +52,22 @@
 ---
 --- A message's body is the `Content-Length` bytes after its head, or
 --- its chunks decoded (the trailers checked and dropped). With neither,
---- a request has no body, and a response's body is every byte up to the
---- end of the stream. A response with a status below 200, 204 or 304,
---- and one read with `head_only`, has no body whatever its headers say.
+--- a request has no body, and so has a response of any protocol but
+--- HTTP, as RTSP has it (RFC 2326 12.14, RFC 7826 18.17); an HTTP
+--- response's body is then every byte up to the end of the stream (RFC
+--- 9112 6.3). A response with a status below 200, 204 or 304, and one
+--- read with `head_only`, has no body whatever its headers say.
 ---
 --- The protocol is a parameter: a reader made with `protocol =
 --- "RTSP/1.0"` reads RTSP/1.0 messages and no other, and the default,
---- HTTP/1.1, reads HTTP/1.0 too. Only the name differs: methods and
---- headers keep HTTP's grammar, and nothing else of another protocol is
---- read (RTSP's interleaved binary frames are not). A reader holds no
---- rule of HTTP above the message: a server that needs one `Host`, or a
---- target of a given form, checks it in what the reader answers.
+--- HTTP/1.1, reads HTTP/1.0 too. One made with `protocols = {"RTSP/1.0",
+--- "HTTP/1.1"}` reads any of them, as a connection that carries both
+--- does, and each message is framed by the protocol it names, which the
+--- message read holds. Only the name differs: methods and headers keep
+--- HTTP's grammar, and nothing else of another protocol is read (RTSP's
+--- interleaved binary frames are not). A reader holds no rule of HTTP
+--- above the message: a server that needs one `Host`, or a target of a
+--- given form, checks it in what the reader answers.
 --- @public
 
 local String = require("cosmic.string")
@@ -75,12 +82,22 @@ local record Message
     "empty"
   end
 
+  --- Which kind of message was read.
+  enum Kind
+    "request"
+    "response"
+  end
+
   --- What a reader is made with.
   record Options
     --- The protocol's name and version, "HTTP/1.1" when nil. A reader of
     --- "HTTP/1.1" reads "HTTP/1.0" messages too; any other reads its own
     --- alone.
     protocol?: string
+    --- In place of `protocol`, the names of every protocol read, each as
+    --- `protocol` would read it: `{"RTSP/1.0", "HTTP/1.1"}` reads RTSP/1.0,
+    --- HTTP/1.1 and HTTP/1.0. Giving both, or an empty list, raises.
+    protocols?: {string}
     --- Most bytes of a head, with the blank lines before it, and of the
     --- head with a chunked body's extensions and trailers (64 KiB).
     head_bytes?: integer
@@ -90,7 +107,7 @@ local record Message
     max_headers?: integer
     --- Most bytes of a body, once decoded (1 MiB).
     body_bytes?: integer
-    --- A response reader only: the response answers a HEAD, or a CONNECT
+    --- Of a response alone: the response answers a HEAD, or a CONNECT
     --- that was accepted, so its head is all of it.
     head_only?: boolean
   end
@@ -159,6 +176,25 @@ local record Message
     reason: string
   end
 
+  --- What a [`Message.Reader`] answers.
+  record Read
+    --- How far the bytes have decided it.
+    status: Status
+    --- When `done`, which kind the message is: `request` is set for a
+    --- request and `response` for a response.
+    kind?: Kind
+    --- The request, when `done` with one.
+    request?: Request
+    --- The response, when `done` with one.
+    response?: Response
+    --- As [`Message.RequestRead.consumed`].
+    consumed: integer
+    --- As [`Message.RequestRead.next`].
+    next: integer
+    --- When `refused`, why; "" otherwise.
+    reason: string
+  end
+
   --- Reads one request from the bytes fed to it.
   record RequestReader
     --- Feeds the next bytes, `chunk` from the position `from` (1 when
@@ -179,6 +215,22 @@ local record Message
     finish: function(ResponseReader): ResponseRead
   end
 
+  --- Reads one message of either kind from the bytes fed to it.
+  record Reader
+    --- As [`Message.RequestReader.feed`].
+    feed: function(Reader, chunk: string, from?: integer): Read
+    --- As [`Message.ResponseReader.finish`].
+    finish: function(Reader): Read
+  end
+
+  --- A header line to write, in [`Message.RequestParts.fields`].
+  record Field
+    --- A token: `CSeq`, `Content-Type`.
+    name: string
+    --- The value, one line's.
+    value: string
+  end
+
   --- A request to write.
   record RequestParts
     --- A token: `GET`, `DESCRIBE`.
@@ -192,9 +244,16 @@ local record Message
     --- value. `Content-Length` and `Transfer-Encoding` are one value
     --- each, never a list.
     headers?: {string: string | {string}}
+    --- Header lines written in the order given, before those of
+    --- `headers`, for a peer that reads an order: `{ { name = "CSeq",
+    --- value = "3" } }`. A name may repeat, but `Content-Length` and
+    --- `Transfer-Encoding` are each given at most once across `fields`
+    --- and `headers`.
+    fields?: {Field}
     --- The body. Its size is written as `Content-Length` unless the
-    --- headers give one, which must be its size. nil writes no body and
-    --- no `Content-Length` but one the headers give.
+    --- headers or fields give one, which must be its size and is written
+    --- where they put it; with none given, the one written goes last. nil
+    --- writes no body and no `Content-Length` but one they give.
     body?: string
   end
 
@@ -209,10 +268,12 @@ local record Message
     protocol?: string
     --- As [`Message.RequestParts.headers`].
     headers?: {string: string | {string}}
+    --- As [`Message.RequestParts.fields`].
+    fields?: {Field}
     --- As [`Message.RequestParts.body`]. A status below 200, 204 or 304
     --- takes none but `""`, which is none: no `Content-Length` is added
-    --- to it, and one the headers give is written as given. A reader
-    --- takes any other response written with neither a body nor a
+    --- to it, and one the headers or fields give is written as given. A reader
+    --- takes any other HTTP response written with neither a body nor a
     --- length to run to the end of the stream: give `""` for an empty
     --- one.
     body?: string
@@ -237,18 +298,20 @@ local record Settings
   max_headers: integer
   body_bytes: integer
   head_only: boolean
-  --- Whether responses are read, not requests.
-  response: boolean
+  --- The kind of message read; nil reads either, as its first line says.
+  kind?: Message.Kind
 end
 
---- What either reader answers, before it is a
---- [`Message.RequestRead`] or a [`Message.ResponseRead`].
-local record Read
+--- What any reader answers, before it is a [`Message.RequestRead`], a
+--- [`Message.ResponseRead`] or a [`Message.Read`].
+local record Outcome
   status: Message.Status
   consumed: integer
   next: integer
   reason: string
-  --- When `done`: the first line's three parts, in the order sent.
+  --- When `done`: the message's kind, and its first line's three parts,
+  --- in the order sent.
+  kind?: Message.Kind
   first?: string
   second?: string
   third?: string
@@ -276,8 +339,10 @@ local LINE_PHASE <const>: {Phase:boolean} = {
 
 --- A reader's state.
 local record State
-  mut final?: Read
+  mut final?: Outcome
   mut phase: Phase
+  --- Whether the message is a response, which the first line settles.
+  mut response: boolean
   --- Bytes of the message taken so far.
   mut taken: integer
   --- The unfinished line's pieces, and their bytes.
@@ -305,7 +370,7 @@ local record State
   mut body_size: integer
 end
 
-local MORE <const>: Read = { status = "more", consumed = 0, next = 1, reason = "" }
+local MORE <const>: Outcome = { status = "more", consumed = 0, next = 1, reason = "" }
 
 --- The integer `value` of the option `name`, or `default`; raises where
 --- it is below 1.
@@ -315,16 +380,24 @@ local function bound(name: string, value: integer?, default: integer): integer
   return value
 end
 
---- `opts` as [`Settings`]; raises on a protocol that is no name and
---- version, and on a limit below 1.
-local function settings(opts: Message.Options?, response: boolean): Settings
+--- `opts` as [`Settings`] of a reader of `kind`; raises on a protocol
+--- that is no name and version, on `protocol` and `protocols` both or
+--- an empty list, and on a limit below 1.
+local function settings(opts: Message.Options?, kind: Message.Kind?): Settings
   local o: Message.Options = opts or {}
-  local protocol = o.protocol or "HTTP/1.1"
-  if not protocol:find(PROTOCOL) then
-    error(("http: the protocol %q is not a name and version, as HTTP/1.1 is"):format(protocol), 3)
+  local protocols = o.protocols or { o.protocol or "HTTP/1.1" }
+  if o.protocols ~= nil and o.protocol ~= nil then
+    error("http: give protocol or protocols, not both", 3)
   end
-  local accepted: mut {string:boolean} = { [protocol] = true }
-  if protocol == "HTTP/1.1" then accepted["HTTP/1.0"] = true end
+  if #protocols == 0 then error("http: protocols is empty", 3) end
+  local accepted: mut {string:boolean} = {}
+  for _, protocol in ipairs(protocols) do
+    if not protocol:find(PROTOCOL) then
+      error(("http: the protocol %q is not a name and version, as HTTP/1.1 is"):format(protocol), 3)
+    end
+    accepted[protocol] = true
+    if protocol == "HTTP/1.1" then accepted["HTTP/1.0"] = true end
+  end
   return {
     accepted = accepted,
     head_bytes = bound("head_bytes", o.head_bytes, 64 * KIB),
@@ -332,37 +405,37 @@ local function settings(opts: Message.Options?, response: boolean): Settings
     max_headers = bound("max_headers", o.max_headers, 100),
     body_bytes = bound("body_bytes", o.body_bytes, 1024 * KIB),
     head_only = o.head_only == true,
-    response = response,
+    kind = kind,
   }
 end
 
---- A reader of either kind of message.
+--- The reader under all three: of `set.kind`, or of either kind.
 local record Machine
-  feed: function(chunk: string, from: integer): Read
-  finish: function(): Read
+  feed: function(chunk: string, from: integer): Outcome
+  finish: function(): Outcome
 end
 
 --- A reader held to `set`.
 local function machine(set: Settings): Machine
   local st: State = {
-    phase = "start", taken = 0, pieces = {}, line_size = 0, budget = 0, budget_reason = "", spent = 0,
+    phase = "start", response = set.kind == "response", taken = 0, pieces = {}, line_size = 0, budget = 0, budget_reason = "", spent = 0,
     first = "", second = "", third = "", values = {}, names = {}, count = 0, left = 0, body = {},
     body_size = 0,
   }
 
-  local function settle(answer: Read): Read
+  local function settle(answer: Outcome): Outcome
     st.final = answer
     st.pieces = {}
     return answer
   end
 
-  local function refuse(why: string): Read
+  local function refuse(why: string): Outcome
     return settle({ status = "refused", consumed = 0, next = 1, reason = why })
   end
 
   --- The message, read whole, the bytes after it at `after` of the
   --- chunk fed.
-  local function done(after: integer): Read
+  local function done(after: integer): Outcome
     local headers: mut {string:string} = {}
     for _, name in ipairs(st.names) do
       local list = st.values[name]
@@ -371,7 +444,8 @@ local function machine(set: Settings): Machine
       end
     end
     return settle({
-      status = "done", consumed = st.taken, next = after, reason = "", first = st.first, second = st.second,
+      status = "done", consumed = st.taken, next = after, reason = "",
+      kind = if st.response then "response" else "request" end, first = st.first, second = st.second,
       third = st.third, headers = headers, values = st.values, body = table.concat(st.body),
     })
   end
@@ -408,9 +482,14 @@ local function machine(set: Settings): Machine
   local OVER_BODY <const> = "the body is longer than " .. String.counted(set.body_bytes, "byte")
 
   --- What the first line decides: a refusal, or nil to go on.
-  local function first_line(text: string): Read?
+  local function first_line(text: string): Outcome?
     local protocol: string
-    if set.response then
+    if set.kind == nil then
+      -- A status line starts with a protocol, which holds a `/` that no
+      -- method may: the first word tells the kinds apart.
+      st.response = (text:match("^[^ ]*") or ""):find(PROTOCOL) ~= nil
+    end
+    if st.response then
       local name, status, rest = text:match("^([^ ]+) (%d%d%d)(.*)$")
       if name == nil or status == nil or rest == nil or (rest ~= "" and rest:sub(1, 1) ~= " ") then
         return refuse("the status line is not protocol, status and reason")
@@ -444,15 +523,15 @@ local function machine(set: Settings): Machine
   --- What the head, read whole, says of the body: an answer, or nil
   --- where a body follows, `phase` set for it. `after` is where the
   --- chunk fed goes on after the head.
-  local function framed(after: integer): Read?
+  local function framed(after: integer): Outcome?
     st.spent = st.taken
     local te, cl = st.values["transfer-encoding"], st.values["content-length"]
     if te ~= nil and cl ~= nil then
       return refuse("a message holds both Content-Length and Transfer-Encoding")
     end
+    local protocol = if st.response then st.first else st.third end
     local length: integer? = nil
     if te ~= nil then
-      local protocol = if set.response then st.first else st.third end
       if protocol ~= "HTTP/1.1" then
         return refuse("a message that is not HTTP/1.1 holds Transfer-Encoding")
       end
@@ -465,7 +544,7 @@ local function machine(set: Settings): Machine
       if size == nil then return refuse(why) end
       length = size
     end
-    if set.response then
+    if st.response then
       local status = st.second
       if set.head_only or status < "200" or status == "204" or status == "304" then
         return done(after)
@@ -476,7 +555,7 @@ local function machine(set: Settings): Machine
       return nil
     end
     if length == nil then
-      if not set.response then return done(after) end
+      if not st.response or protocol:sub(1, 5) ~= "HTTP/" then return done(after) end
       st.phase = "end"
       return nil
     end
@@ -488,7 +567,7 @@ local function machine(set: Settings): Machine
 
   --- What a whole line, without its LF, decides: an answer, or nil to
   --- go on. `after` is where the chunk fed goes on after the line.
-  local function line(raw: string, after: integer): Read?
+  local function line(raw: string, after: integer): Outcome?
     if raw:sub(-1) ~= "\r" then return refuse("a line ends in a bare LF") end
     local text = raw:sub(1, -2)
     if text:find("\r", 1, true) then return refuse("a line holds a bare CR") end
@@ -544,7 +623,7 @@ local function machine(set: Settings): Machine
 
   head_line()
 
-  local function feed(chunk: string, from: integer): Read
+  local function feed(chunk: string, from: integer): Outcome
     local final = st.final
     if final ~= nil then return final end
     local size = #chunk
@@ -594,7 +673,7 @@ local function machine(set: Settings): Machine
     return MORE
   end
 
-  local function finish(): Read
+  local function finish(): Outcome
     local final = st.final
     if final ~= nil then return final end
     if st.phase == "end" then return done(1) end
@@ -608,7 +687,7 @@ local function machine(set: Settings): Machine
 end
 
 --- `read` as what a request reader answers.
-local function request_read(read: Read): Message.RequestRead
+local function request_read(read: Outcome): Message.RequestRead
   local method, target, protocol, headers, values, body =
     read.first, read.second, read.third, read.headers, read.values, read.body
   if read.status ~= "done" or method == nil or target == nil or protocol == nil or headers == nil or
@@ -623,7 +702,7 @@ local function request_read(read: Read): Message.RequestRead
 end
 
 --- `read` as what a response reader answers.
-local function response_read(read: Read): Message.ResponseRead
+local function response_read(read: Outcome): Message.ResponseRead
   local protocol, status, reason, headers, values, body =
     read.first, math.tointeger(tonumber(read.second or "")), read.third, read.headers, read.values, read.body
   if read.status ~= "done" or protocol == nil or status == nil or reason == nil or headers == nil or
@@ -637,16 +716,30 @@ local function response_read(read: Read): Message.ResponseRead
   }
 end
 
+--- `read` as what a reader of either kind answers.
+local function either_read(read: Outcome): Message.Read
+  if read.kind == "request" then
+    local got = request_read(read)
+    return { status = got.status, kind = "request", request = got.request, consumed = got.consumed,
+      next = got.next, reason = got.reason }
+  elseif read.kind == "response" then
+    local got = response_read(read)
+    return { status = got.status, kind = "response", response = got.response, consumed = got.consumed,
+      next = got.next, reason = got.reason }
+  end
+  return { status = read.status, consumed = 0, next = 1, reason = read.reason }
+end
+
 --- A reader of one request, for the side of a connection that is asked:
 --- a request with neither a `Content-Length` nor chunks has no body.
 --- `opts` are the defaults when nil; an option that is not what
 --- [`Message.Options`] says raises.
 function Message.request_reader(opts?: Message.Options): Message.RequestReader
-  local reader = machine(settings(opts, false))
+  local reader = machine(settings(opts, "request"))
   local last: mut {Message.RequestRead} = {}
   --- One record for each answer of the machine, so a final answer is the
   --- same value at every call.
-  local function answer(read: Read): Message.RequestRead
+  local function answer(read: Outcome): Message.RequestRead
     local kept = last[1]
     if kept ~= nil and read.status ~= "more" then return kept end
     local out = request_read(read)
@@ -666,11 +759,11 @@ end
 --- A reader of one response, for the side that asked. Its `opts` are
 --- [`Message.request_reader`]'s, with `head_only` for the answer to a
 --- HEAD; the caller says when the stream ends, with `finish`, which is
---- where a response that names no length ends.
+--- where an HTTP response that names no length ends.
 function Message.response_reader(opts?: Message.Options): Message.ResponseReader
-  local reader = machine(settings(opts, true))
+  local reader = machine(settings(opts, "response"))
   local last: mut {Message.ResponseRead} = {}
-  local function answer(read: Read): Message.ResponseRead
+  local function answer(read: Outcome): Message.ResponseRead
     local kept = last[1]
     if kept ~= nil and read.status ~= "more" then return kept end
     local out = response_read(read)
@@ -687,20 +780,65 @@ function Message.response_reader(opts?: Message.Options): Message.ResponseReader
   }
 end
 
---- The message of `first` line, `headers` and `body` as bytes, or nil
---- and why it cannot be written. `bodiless` is a response whose status
---- takes no body, `chunkable` a message of HTTP/1.1.
-local function written(first: string, headers: {string: string | {string}}, body: string?,
-                       bodiless: boolean, chunkable: boolean): string?, string
+--- A reader of one message of either kind, for a connection whose
+--- requests and responses share a stream (each side asks the other),
+--- or a side that passes over what it is asked while it waits for an
+--- answer. Its first line says which kind it is: a status line starts
+--- with a protocol, and a method is never one. A first line whose first
+--- word is no protocol is read as a request line, so a malformed status
+--- line (`HTTP/2 200 OK`) is refused for what a request line holds. Its
+--- `opts` are
+--- [`Message.response_reader`]'s, `head_only` holding of a response
+--- alone, and a message is framed as the reader of its own kind would.
+function Message.reader(opts?: Message.Options): Message.Reader
+  local reader = machine(settings(opts, nil))
+  local last: mut {Message.Read} = {}
+  local function answer(read: Outcome): Message.Read
+    local kept = last[1]
+    if kept ~= nil and read.status ~= "more" then return kept end
+    local out = either_read(read)
+    if read.status ~= "more" then last[1] = out end
+    return out
+  end
+  return {
+    feed = function(_: Message.Reader, chunk: string, from?: integer): Message.Read
+      return answer(reader.feed(chunk, from or 1))
+    end,
+    finish = function(_: Message.Reader): Message.Read
+      return answer(reader.finish())
+    end,
+  }
+end
+
+--- A header line to be written, from fields or headers.
+local record Line
+  name: string
+  value: string | {string}
+end
+
+--- The message of `first` line, `fields` then `headers`, and `body` as
+--- bytes, or nil and why it cannot be written. `bodiless` is a response
+--- whose status takes no body, `chunkable` a message of HTTP/1.1.
+local function written(first: string, fields: {Message.Field}, headers: {string: string | {string}},
+                       body: string?, bodiless: boolean, chunkable: boolean): string?, string
+  local header_lines: mut {Line} = {}
+  for _, field in ipairs(fields) do
+    header_lines[#header_lines + 1] = { name = field.name, value = field.value }
+  end
   local names: mut {string} = {}
+  for name in pairs(headers) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    header_lines[#header_lines + 1] = { name = name, value = assert(headers[name]) }
+  end
   local given: string? = nil
   local coded = false
-  for name in pairs(headers) do
+  for _, header in ipairs(header_lines) do
+    local name, value = header.name, header.value
     if not wire.token(name) then return nil, ("header %q: its name is no token"):format(name) end
     local lower = name:lower()
     if lower == "content-length" then
       if given ~= nil then return nil, "Content-Length is given twice" end
-      local value = headers[name]
       if value is string and value:find("^%d+$") ~= nil and #value <= 18 then
         given = value
       else
@@ -713,12 +851,10 @@ local function written(first: string, headers: {string: string | {string}}, body
         return nil, "a body is written by its Content-Length: give no body with Transfer-Encoding"
       end
       if not chunkable then return nil, "Transfer-Encoding goes with HTTP/1.1 alone" end
-      local value = headers[name]
       if not (value is string and value:lower() == "chunked") then
         return nil, "the Transfer-Encoding is not chunked alone"
       end
     end
-    names[#names + 1] = name
   end
   if coded and given ~= nil then
     return nil, "Content-Length and Transfer-Encoding are both given"
@@ -727,11 +863,10 @@ local function written(first: string, headers: {string: string | {string}}, body
   if given ~= nil and body ~= nil and not bodiless and math.tointeger(tonumber(given)) ~= #body then
     return nil, ("the Content-Length is %s, but the body is %s"):format(given, String.counted(#body, "byte"))
   end
-  table.sort(names)
   local lines: mut {string} = { first }
-  for _, name in ipairs(names) do
-    local value = headers[name]
-    local list: {string} = if value is string then { value } else value or {} end
+  for _, header in ipairs(header_lines) do
+    local name, value = header.name, header.value
+    local list: {string} = if value is string then { value } else value end
     for _, entry in ipairs(list) do
       if wire.controls(entry) then
         return nil, ("header %s: its value holds a control byte"):format(name)
@@ -761,8 +896,8 @@ function Message.format_request(parts: Message.RequestParts): string?, string
   if not parts.target:find(TARGET) then
     return nil, "the target holds a byte outside visible ASCII"
   end
-  return written(parts.method .. " " .. parts.target .. " " .. protocol, parts.headers or {}, parts.body, false,
-    protocol == "HTTP/1.1")
+  return written(parts.method .. " " .. parts.target .. " " .. protocol, parts.fields or {}, parts.headers or {},
+    parts.body, false, protocol == "HTTP/1.1")
 end
 
 --- `parts` as the bytes of a response, or nil and why it cannot be
@@ -780,8 +915,8 @@ function Message.format_response(parts: Message.ResponseParts): string?, string
   local reason = parts.reason or wire.reason(status)
   if wire.controls(reason) then return nil, "the reason phrase holds a control byte" end
   local bodiless = status < 200 or status == 204 or status == 304
-  return written(("%s %d %s"):format(protocol, status, reason), parts.headers or {}, parts.body, bodiless,
-    protocol == "HTTP/1.1")
+  return written(("%s %d %s"):format(protocol, status, reason), parts.fields or {}, parts.headers or {},
+    parts.body, bodiless, protocol == "HTTP/1.1")
 end
 
 return Message

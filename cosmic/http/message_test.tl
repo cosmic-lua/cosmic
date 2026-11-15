@@ -144,6 +144,25 @@ local function test_a_response_with_no_length_runs_to_the_end_of_the_stream()
   assert(read.next == 1)
 end
 
+--- RTSP names no body by naming no length (RFC 2326 12.14, RFC 7826
+--- 18.17): such a response ends at its head, where an HTTP one would
+--- wait for the stream's end.
+local function test_a_response_of_rtsp_with_no_length_has_no_body()
+  local rtsp: Message.Options = { protocol = "RTSP/1.0" }
+  local text = "RTSP/1.0 200 OK\r\nCSeq: 3\r\n\r\nRTSP/1.0 200 OK\r\nCSeq: 4\r\nContent-Length: 2\r\n\r\nok"
+  local read = Message.response_reader(rtsp):feed(text)
+  local got = assert(read.response, read.reason)
+  assert(read.status == "done" and got.body == "" and got.headers["cseq"] == "3")
+  assert(read.consumed == 28 and read.next == 29, tostring(read.next))
+  local second = assert(Message.response_reader(rtsp):feed(text, read.next).response)
+  assert(second.headers["cseq"] == "4" and second.body == "ok")
+  assert(response_text(response_in_pieces(text, 1, rtsp)) == response_text(read))
+  -- HTTP's own rule is kept where HTTP is read.
+  local http = Message.response_reader({ protocols = { "RTSP/1.0", "HTTP/1.1" } })
+  assert(http:feed("HTTP/1.1 200 OK\r\n\r\nall").status == "more")
+  assert(assert(http:finish().response).body == "all")
+end
+
 local function test_a_response_that_takes_no_body_ends_at_its_head()
   for _, status in ipairs({ "100", "101", "204", "304" }) do
     local text = "HTTP/1.1 " .. status .. " X\r\nContent-Length: 5\r\n\r\nNEXT!"
@@ -199,6 +218,22 @@ local function test_a_protocol_not_asked_for_is_refused()
   assert(response_refusal("HTTP/1.1 200 OK\r\n\r\n", rtsp) == "the protocol is not RTSP/1.0")
   assert(assert(request("GET / HTTP/1.0\r\n\r\n").request).protocol == "HTTP/1.0")
   assert(refusal("GET / HTTP/1.1\r\n\r\n", { protocol = "HTTP/1.0" }) == "the protocol is not HTTP/1.0")
+end
+
+--- One connection may carry HTTP and RTSP: a reader of both reads each
+--- message by the protocol it names.
+local function test_a_reader_of_several_protocols_reads_each()
+  local both: Message.Options = { protocols = { "RTSP/1.0", "HTTP/1.1" } }
+  local info = assert(request("GET /info HTTP/1.1\r\n\r\n", both).request)
+  assert(info.protocol == "HTTP/1.1")
+  assert(assert(request("GET /info HTTP/1.0\r\n\r\n", both).request).protocol == "HTTP/1.0")
+  local setup = assert(request("SETUP rtsp://h.test/1 RTSP/1.0\r\nCSeq: 1\r\n\r\n", both).request)
+  assert(setup.protocol == "RTSP/1.0" and setup.method == "SETUP")
+  assert(refusal("GET / HTTP/2.0\r\n\r\n", both) == "the protocol is not HTTP/1.0 or HTTP/1.1 or RTSP/1.0")
+  assert(refusal("GET / HTTP/1.0\r\n\r\n", { protocols = { "RTSP/1.0" } }) == "the protocol is not RTSP/1.0")
+  -- Chunks go with HTTP/1.1 alone, whatever else the reader takes.
+  assert(refusal("POST / RTSP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", both) ==
+      "a message that is not HTTP/1.1 holds Transfer-Encoding")
 end
 
 local function test_a_malformed_first_line_is_refused()
@@ -483,6 +518,68 @@ local function test_options_that_are_not_what_they_say_raise()
   assert(not ok and tostring(why):find("body_bytes must be positive", 1, true) ~= nil, tostring(why))
   ok, why = pcall(Message.request_reader, { max_headers = -1 })
   assert(not ok and tostring(why):find("max_headers must be positive", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Message.reader, { protocol = "RTSP/1.0", protocols = { "RTSP/1.0" } })
+  assert(not ok and tostring(why):find("not both", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Message.response_reader, { protocols = {} })
+  assert(not ok and tostring(why):find("protocols is empty", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Message.request_reader, { protocols = { "HTTP/1.1", "rtsp" } })
+  assert(not ok and tostring(why):find("is not a name and version", 1, true) ~= nil, tostring(why))
+end
+
+--- A reader of either kind tells requests and responses apart by their
+--- first line, and frames each as the reader of its kind would.
+local function test_a_reader_of_either_kind_reads_requests_and_responses()
+  local opts: Message.Options = { protocols = { "RTSP/1.0", "HTTP/1.1" } }
+  local bytes = "GET /info HTTP/1.1\r\n\r\n" ..
+    "RTSP/1.0 200 OK\r\nCSeq: 3\r\n\r\n" ..
+    "POST /event RTSP/1.0\r\nContent-Length: 2\r\n\r\nhi" ..
+    "HTTP/1.1 204 No Content\r\n\r\n"
+  local seen: mut {string} = {}
+  local at = 1
+  while at <= #bytes do
+    local read = Message.reader(opts):feed(bytes, at)
+    assert(read.status == "done", read.reason)
+    if read.kind == "request" then
+      local got = assert(read.request)
+      assert(read.response == nil)
+      seen[#seen + 1] = got.method .. " " .. got.protocol .. " " .. got.body
+    else
+      local got = assert(read.response)
+      assert(read.kind == "response" and read.request == nil)
+      seen[#seen + 1] = tostring(got.status) .. " " .. got.protocol .. " " .. got.body
+    end
+    at = read.next
+  end
+  assert(table.concat(seen, "|") == "GET HTTP/1.1 |200 RTSP/1.0 |POST RTSP/1.0 hi|204 HTTP/1.1 ",
+    table.concat(seen, "|"))
+  -- An HTTP response that names no length still runs to the stream's end.
+  local reader = Message.reader()
+  assert(reader:feed("HTTP/1.1 200 OK\r\n\r\nto the").status == "more")
+  local ended = reader:finish()
+  assert(ended.kind == "response" and assert(ended.response).body == "to the")
+  -- head_only holds of a response alone.
+  local head = Message.reader({ head_only = true })
+  assert(assert(head:feed("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n").response).body == "")
+  local post = Message.reader({ head_only = true }):feed("POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc")
+  assert(assert(post.request).body == "abc")
+  -- A refusal names no kind, and each kind's grammar is held.
+  local function either_refusal(text: string): string
+    local whole = Message.reader():feed(text)
+    assert(whole.status == "refused" and whole.kind == nil and whole.request == nil and whole.response == nil)
+    local bytewise = Message.reader()
+    local read = bytewise:feed(text:sub(1, 1))
+    for i = 2, #text do
+      if read.status ~= "more" then break end
+      read = bytewise:feed(text:sub(i, i))
+    end
+    assert(read.reason == whole.reason, read.reason)
+    return whole.reason
+  end
+  assert(either_refusal("nonsense\r\n") == "the request line is not method, target and protocol")
+  assert(either_refusal("HTTP/1.1 20 OK\r\n") == "the status line is not protocol, status and reason")
+  assert(either_refusal("HTTP/1.1 / HTTP/1.1\r\n") == "the status line is not protocol, status and reason")
+  assert(either_refusal("RTSP/1.0 200 OK\r\n") == "the protocol is not HTTP/1.0 or HTTP/1.1")
+  assert(Message.reader():finish().status == "empty")
 end
 
 local function test_a_request_is_written_from_its_parts()
@@ -499,6 +596,50 @@ local function test_a_request_is_written_from_its_parts()
   local rtsp = assert(Message.format_request({ method = "PLAY", target = "rtsp://cam.test/stream",
     protocol = "RTSP/1.0", headers = { CSeq = "4", Session = "12345678" } }))
   assert(rtsp == "PLAY rtsp://cam.test/stream RTSP/1.0\r\nCSeq: 4\r\nSession: 12345678\r\n\r\n", rtsp)
+end
+
+--- Fields are written in the order given, for a peer that reads one; a
+--- Content-Length among them stays where it is put.
+local function test_fields_are_written_in_the_order_given()
+  local setup = assert(Message.format_request({
+    method = "SETUP", target = "rtsp://h.test/1", protocol = "RTSP/1.0", body = "bplx",
+    fields = {
+      { name = "User-Agent", value = "AirPlay/1" }, { name = "Content-Type", value = "application/x-plist" },
+      { name = "Content-Length", value = "4" }, { name = "CSeq", value = "3" },
+    },
+  }))
+  assert(setup == "SETUP rtsp://h.test/1 RTSP/1.0\r\nUser-Agent: AirPlay/1\r\nContent-Type: application/x-plist\r\n" ..
+      "Content-Length: 4\r\nCSeq: 3\r\n\r\nbplx", setup)
+  -- With no length given, the one written goes last; headers follow
+  -- the fields, in name order, and a field's name may repeat.
+  local mixed = assert(Message.format_request({ method = "POST", target = "/", body = "ab",
+    fields = { { name = "Z", value = "1" }, { name = "A", value = "2" }, { name = "Z", value = "3" } },
+    headers = { Y = "4", B = { "5", "6" } } }))
+  assert(mixed == "POST / HTTP/1.1\r\nZ: 1\r\nA: 2\r\nZ: 3\r\nB: 5\r\nB: 6\r\nY: 4\r\nContent-Length: 2\r\n\r\nab",
+    mixed)
+  local reply = assert(Message.format_response({ status = 200, protocol = "RTSP/1.0",
+    fields = { { name = "CSeq", value = "3" }, { name = "Audio-Latency", value = "0" } } }))
+  assert(reply == "RTSP/1.0 200 OK\r\nCSeq: 3\r\nAudio-Latency: 0\r\n\r\n", reply)
+  assert(assert(Message.response_reader({ protocol = "RTSP/1.0" }):feed(reply).response).headers["cseq"] == "3")
+  -- What the headers are held to, fields are too, and across both.
+  local function why(parts: Message.RequestParts): string
+    local text, reason = Message.format_request(parts)
+    assert(text == nil, "written: " .. tostring(text))
+    return reason
+  end
+  local length: Message.Field = { name = "Content-Length", value = "2" }
+  assert(why({ method = "PUT", target = "/", body = "abc", fields = { length } }) ==
+      "the Content-Length is 2, but the body is 3 bytes")
+  assert(why({ method = "PUT", target = "/", body = "ab", fields = { length, length } }) ==
+      "Content-Length is given twice")
+  assert(why({ method = "PUT", target = "/", body = "ab", fields = { length },
+    headers = { ["content-length"] = "2" } }) == "Content-Length is given twice")
+  assert(why({ method = "PUT", target = "/", fields = { { name = "Transfer-Encoding", value = "chunked" } },
+    headers = { ["transfer-encoding"] = "chunked" } }) == "Transfer-Encoding is given twice")
+  assert(why({ method = "GET", target = "/", fields = { { name = "A B", value = "1" } } })
+      :find("its name is no token", 1, true))
+  assert(why({ method = "GET", target = "/", fields = { { name = "A", value = "1\r\nB: 2" } } })
+      :find("control byte", 1, true))
 end
 
 local function test_a_response_is_written_from_its_parts()
