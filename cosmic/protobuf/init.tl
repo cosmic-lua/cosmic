@@ -6,7 +6,8 @@
 --- [`Protobuf.decode`] reads the fields of a message and [`Protobuf.writer`] builds the bytes of one.
 --- [`Protobuf.encode`] writes a list of fields as they were read, for the fields a program passes on without
 --- knowing them. [`Protobuf.varint`] and [`Protobuf.read_varint`] are the format's integer alone, which also
---- frames the messages of a stream.
+--- frames the messages of a stream. [`Protobuf.describe`] shows a message for a person, as `protoc --decode_raw`
+--- does, guessing what each field holds.
 ---
 --- The four wire types and the types of a `.proto` file each holds:
 ---
@@ -56,6 +57,9 @@ local record Protobuf
     --- every part merged into it. The elements of a packed field are not counted: a `repeated_` read
     --- answers one for each byte of the field at most.
     max_fields?: integer
+    --- For [`Protobuf.describe`] alone: each field on a line of its own, an embedded message's fields this
+    --- much further in than the message. Nil (the default) writes the message on one line.
+    indent?: string
   end
 
   --- What a packed field holds, for `packed`: named as the method that writes one such value. One of
@@ -304,6 +308,131 @@ function Protobuf.encode(fields: {Protobuf.Field}): string?, string
     out[#out + 1] = body
   end
   return table.concat(out), ""
+end
+
+--- Whether `data` reads as text: UTF-8 with no control character (C0, DEL or C1) but a tab, a line feed or a
+--- carriage return.
+local function is_text(data: string): boolean
+  return utf8.len(data) ~= nil and data:find("[%z\1-\8\11\12\14-\31\127]") == nil and
+    data:find("\xc2[\x80-\x9f]") == nil
+end
+
+--- How deep a description guesses embedded messages at most, whatever `max_depth` says: each level is a frame of
+--- the stack and a copy of the bytes, and no message a person reads nests this deep.
+local DESCRIBE_DEPTH <const> = 1000
+
+local ESCAPES <const>: {string:string} = { ['"'] = '\\"', ["\\"] = "\\\\", ["\n"] = "\\n", ["\r"] = "\\r",
+  ["\t"] = "\\t" }
+
+local HEX <const>: mut {string:string} = {}
+for byte = 0, 255 do HEX[string.char(byte)] = ("%02x"):format(byte) end
+
+--- A float or double in the fewest digits that read back as `bits`, where it is 0 or of a magnitude from 1e-6 to
+--- 1e15; else the bits in hexadecimal, as an integer kept in a fixed field almost always falls outside that.
+local function fixed_text(bits: integer, wide: boolean): string
+  local float = if wide then "<d" else "<f" end
+  local unsigned = if wide then bits else bits & 0xffffffff end
+  local packed = string.pack(if wide then "<i8" else "<I4" end, unsigned)
+  local value = string.unpack(float, packed)
+  if value is number and (value == 0 or (math.abs(value) >= 1e-6 and math.abs(value) < 1e15)) then
+    local most = if wide then 17 else 9 end
+    for digits = if wide then 15 else 6 end, most do
+      local text = ("%." .. tostring(digits) .. "g"):format(value)
+      local back = tonumber(text)
+      if digits == most or (back ~= nil and string.pack(float, back) == packed) then
+        if text:find("[.e]") == nil then text = text .. ".0" end
+        return text
+      end
+    end
+  end
+  return (if wide then "0x%016x" else "0x%08x" end):format(unsigned)
+end
+
+--- The bounds of a description, and how deep it is.
+local record Describing
+  max_depth: integer
+  max_fields: integer
+  indent: string?
+end
+
+--- The message in `data`, `depth` deep, described, or nil and why it is none.
+local function describe_message(data: string, depth: integer, d: Describing): string?, string
+  local message, why = Raw.decode(data, d.max_depth, d.max_fields)
+  if message == nil then return nil, why end
+  local indent = d.indent
+  local pad = if indent == nil then "" else indent:rep(depth - 1) end
+  local parts: mut {string} = {}
+  for _, field in ipairs(message:fields()) do
+    local value = field.value
+    local number = tostring(field.number)
+    local shown: string? = nil
+    if value is string then
+      local text = is_text(value)
+      local inner: string? = nil
+      if not text and depth < d.max_depth and depth < DESCRIBE_DEPTH then
+        local described, _ = describe_message(value, depth + 1, d)
+        inner = described
+      end
+      if text then
+        shown = '"' .. (value:gsub('["\\\n\r\t]', ESCAPES)) .. '"'
+      elseif inner ~= nil and indent ~= nil then
+        parts[#parts + 1] = pad .. number .. " {\n" .. inner .. pad .. "}\n"
+      elseif inner ~= nil then
+        shown = inner
+      else
+        shown = "<" .. (value:gsub(".", HEX)) .. ">"
+      end
+    elseif field.wire == FIXED64 or field.wire == FIXED32 then
+      shown = fixed_text(value, field.wire == FIXED64)
+    else
+      shown = tostring(value)
+    end
+    if shown ~= nil then
+      parts[#parts + 1] = if indent == nil then number .. ": " .. shown else pad .. number .. ": " .. shown .. "\n" end
+    end
+  end
+  if indent ~= nil then return table.concat(parts), "" end
+  return "{" .. table.concat(parts, ", ") .. "}", ""
+end
+
+--- The message in the bytes `data`, which may come from anywhere, for a person to read, as `protoc --decode_raw`
+--- shows one: or nil and why the bytes are no message, as [`Protobuf.decode`] refuses them. It never raises for
+--- any bytes; it raises for an option [`Protobuf.decode`] raises for, and for an `indent` that is no string.
+---
+--- Each field is its number, a colon and its value, in the order of the bytes. On one line (the default) a
+--- message is its fields between braces, a comma between two: `{1: 150, 2: "Ada"}`. With `indent`, each field
+--- is a line, and an embedded message is its number and `{` on a line, its fields further in, and `}`, as
+--- `protoc` prints one; a message of no fields is "".
+---
+--- With no schema a field is what it looks like, and that can be wrong:
+---
+--- - A varint is its 64 bits as a signed integer: a negative `int32` or `int64` is shown as it is, a `uint64`
+---   above 9223372036854775807 negative, a `bool` as 0 or 1, and a `sint` as its zigzag form (-1 is 1).
+--- - A fixed field is the floating-point number of its bits (a `float` for 4 bytes, a `double` for 8), with a
+---   point or an exponent so it is told from a varint, where that number is 0 or of a magnitude from 1e-6 to
+---   1e15; else its bits in hexadecimal, `0x` and 8 or 16 digits. An integer kept in one is almost always
+---   outside that range, and a float almost always inside, but either may be shown as the other.
+--- - A length-delimited field is text where its bytes read as text: UTF-8 with no control character (C0, DEL or
+---   C1) but a tab, a line feed or a carriage return, between double quotes, with `"`, `\` and those three escaped. Else it is
+---   the embedded message it reads as. Else its bytes in hexadecimal between angle brackets, `<0a01>`. So
+---   empty bytes, an empty string and an empty message are all `""`; a message whose bytes all happen to be
+---   printable is shown as text; and a packed repeated field is shown as bytes, or as a message where its
+---   bytes happen to read as one.
+---
+--- The bounds are [`Protobuf.Options`]': no message holds more than `max_fields` fields, and messages nest
+--- `max_depth` deep at most, the described one counted, and 1000 deep at most whatever `max_depth` says. An
+--- embedded message past any of these is shown as bytes, not refused. Time and memory grow with the bytes and how deep they nest: an embedded message's bytes are copied
+--- once for each message around them.
+function Protobuf.describe(data: string, opts?: Protobuf.Options): string?, string
+  local o: Protobuf.Options = opts or {}
+  if o.indent ~= nil and type(o.indent) ~= "string" then
+    error("protobuf: indent must be a string", 2)
+  end
+  return describe_message(data, 1, {
+    max_depth = bound("max_depth", o.max_depth, Protobuf.default_depth),
+    max_fields = bound("max_fields", o.max_fields, Protobuf.default_fields),
+    indent = o.indent,
+  })
 end
 
 --- `value` as a varint, 1 to 10 bytes: the fewest that hold it, and ten for a negative one. Before a

@@ -168,4 +168,18 @@ function Example.stream()
   assert(#ids == 3 and ids[3] == 300 and buffered == "")
 end
 
+--- A message from a peer whose schema is not at hand is shown by what its fields look like, to find what is in
+--- it. Text is quoted, an embedded message is braced, and a fixed field that looks like a number is one. With
+--- `indent` it is a line a field, as `protoc --decode_raw` prints it.
+function Example.describe()
+  local point = Protobuf.writer():int(1, 3):double(2, 0.25)
+  local bytes = assert(Protobuf.writer():string(1, "probe"):message(2, point):bytes(3, "\0\1"):encode())
+  local shown = assert(Protobuf.describe(bytes))
+  print(shown)
+  assert(shown == '{1: "probe", 2: {1: 3, 2: 0.25}, 3: <0001>}')
+  local lines = assert(Protobuf.describe(bytes, { indent = "  " }))
+  print(lines)
+  assert(lines == '1: "probe"\n2 {\n  1: 3\n  2: 0.25\n}\n3: <0001>\n')
+end
+
 return Example
