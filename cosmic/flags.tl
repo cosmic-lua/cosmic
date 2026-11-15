@@ -669,11 +669,13 @@ end
 ---     see also: words
 ---
 --- The examples keep within `width` columns where their words allow, 80
---- when nil, and so do the options where `width` is given. Where every
---- line of a section fits beside the widest head, the section is laid
---- out as above. Otherwise what a row does is wrapped, in a column as wide
---- as the widest head of a row that fits alone, and a head wider than
---- that has a line of its own with what it does on the lines under it:
+--- when nil, and so do `about` and the options where `width` is given.
+--- An `about` past the width is wrapped at it, unless it runs over lines
+--- of its own or says only spaces, which are left as written. Where every
+--- line of a section fits beside the widest head, the section is laid out
+--- as above. Otherwise what a row does is wrapped, in a column as wide as
+--- the widest head of a row that fits alone, and a head wider than that
+--- has a line of its own with what it does on the lines under it:
 ---
 ---     examples:
 ---       prog count notes.txt  the lines of one file
@@ -685,7 +687,8 @@ end
 ---   command's own word after it when it has one ("prog count"); not
 ---   empty, or this raises
 --- @param width? integer The columns a line may reach, at least 1, or
----   this raises: an example's 80, and an option's unbounded, when nil
+---   this raises: an example's 80, and an option's and `about`'s
+---   unbounded, when nil
 --- @return string The help
 function Flags.help(command: Flags.Command, name: string, width?: integer): string
   if name == "" then
@@ -698,6 +701,10 @@ function Flags.help(command: Flags.Command, name: string, width?: integer): stri
   local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
   local about = command.about
   if about ~= nil and about ~= "" then
+    if width ~= nil and columns(about) > width and about:find("\n", 1, true) == nil and
+        about:find("%S") ~= nil then
+      about = table.concat(wrapped(about, width), "\n")
+    end
     parts[#parts + 1] = "\n" .. about
   end
   if next(spec) ~= nil then

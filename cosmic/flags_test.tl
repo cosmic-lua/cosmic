@@ -1151,3 +1151,30 @@ local function test_a_help_command_of_the_program_s_own_can_print_a_topic()
   -- An empty text and see-also are left out of the page.
   assert(ran.code == 0 and printed[1] == "pairing: how", printed[1])
 end
+
+local function test_help_wraps_a_command_s_about_at_the_width_given()
+  local long = "Counts the lines of each file given, and the words and bytes of each where asked, then the total."
+  local command: Flags.Command = { about = long }
+  -- With no width it is left as written, however long.
+  assert(Flags.help(command, "prog count") == "usage: prog count\n\n" .. long)
+  assert(Flags.help(command, "prog count", 40) == table.concat({
+    "usage: prog count",
+    "",
+    "Counts the lines of each file given, and",
+    "the words and bytes of each where asked,",
+    "then the total.",
+  }, "\n"))
+  -- One exactly as wide as the width fits; a word wider than it has a line of its own.
+  local forty = string.rep("x", 40)
+  assert(Flags.help({ about = forty }, "p", 40) == "usage: p\n\n" .. forty)
+  assert(Flags.help({ about = "a " .. forty .. "x b" }, "p", 40) == "usage: p\n\na\n" .. forty .. "x\nb")
+  -- One that fits, runs over lines of its own, or says only spaces is left as written.
+  assert(Flags.help({ about = string.rep(" ", 50) }, "p", 40) == "usage: p\n\n" .. string.rep(" ", 50))
+  assert(Flags.help({ about = "Counts  lines." }, "prog count", 40) == "usage: prog count\n\nCounts  lines.")
+  local lined = string.rep("a", 50) .. "\n" .. string.rep("b", 50)
+  assert(Flags.help({ about = lined }, "prog count", 40) == "usage: prog count\n\n" .. lined)
+  -- Dispatch lays a command's page out at the program's width.
+  local commands: {string:Flags.Command} = { count = command }
+  assert(assert(Flags.dispatch({ "help", "count" }, 1, commands, "prog", { width = 40 })).help ==
+      Flags.help(command, "prog count", 40))
+end
