@@ -83,27 +83,51 @@ static bool is_ascii_alphanumeric (unsigned char c) {
          (c >= 'a' && c <= 'z');
 }
 
-/* `escape_attr`: an allowlist. Every ASCII byte but a letter or a digit
- * becomes a decimal character reference, so the value holds no quote,
- * `<`, `>`, `&` or other delimiter that could end a quoted value or
- * open markup. It is for quoted values only: an empty result in an
- * unquoted position leaves no value, and the next attribute is read as
- * its value.
+/* Whether `escape_attr` writes `c` as a reference: the five `escape`
+ * makes entities, the backtick, and the C0 controls and DEL.
+ *
+ * In a double-quoted attribute value (HTML, "Attribute value
+ * (double-quoted) state") only `"` ends the value and only `&` opens a
+ * character reference; NUL is a parse error read as U+FFFD. The
+ * single-quoted state is the same with `'`. So `&`, `"` and `'` are what
+ * keep the value inside its quotes, in either. `<` and `>` end nothing
+ * there and are escaped so the text is also safe where a reader takes it
+ * for markup, and the backtick because old Internet Explorer took it for
+ * a quote. A control is a reference so the value reads back as it was:
+ * the input stream turns a literal CR into LF, and a literal NUL is a
+ * parse error, while `&#13;` and `&#0;` are read as a reference is
+ * (`&#0;` as U+FFFD, as the literal would be). */
+static bool attr_escaped (unsigned char c) {
+  return text_entity(c) != NULL || c == '`' || c < 0x20 || c == 0x7f;
+}
+
+/* `escape_attr`: the string with each byte [`attr_escaped`] names as a
+ * reference, `&amp;`, `&quot;`, `&#39;`, `&lt;` and `&gt;` for the five
+ * `escape` writes and a decimal one (`&#96;`, `&#9;`) for the rest. Every
+ * other byte passes: a space, `/`, `:`, `=` and `?` mean nothing in a
+ * quoted value, so a URL reads as it is. The value a browser reads back
+ * is the string, byte for byte.
+ *
+ * It is for quoted values only. In an unquoted one a space or a `>` ends
+ * the value, and an empty result leaves no value, so the next attribute
+ * is read as its value. [`cosmic.template`] refuses a slot there.
  *
  * A byte of 0x80 or more passes through. A reference per byte would be
  * wrong: the bytes of one UTF-8 character are not code points, and
  * `&#195;&#169;` reads as two Latin-1 characters, not the "e acute" the
- * two bytes make. And no UTF-8 byte of 0x80 or more is a delimiter in
- * any attribute syntax. The cost is the page's encoding: the markup is
+ * two bytes make. And no byte of 0x80 or more is a delimiter in any
+ * attribute syntax. The cost is the page's encoding: the markup is
  * UTF-8, as a template's is. Bytes that are not UTF-8 pass as they are,
- * and a browser reads each as U+FFFD. */
+ * and a browser reads each as U+FFFD. `+`, `-` and `~` pass too, so a
+ * page read as UTF-7 or HZ could find a `<` in them, as it could in
+ * `escape`'s text: a page here is UTF-8, and the HTML standard forbids
+ * UTF-7 to a browser. */
 static int html_escape_attr (lua_State *L) {
   size_t len;
   const char *s = luaL_checklstring(L, 1, &len);
   bool plain = true;
   for (size_t i = 0; plain && i < len; i++) {
-    unsigned char c = (unsigned char)s[i];
-    plain = c >= 0x80 || is_ascii_alphanumeric(c);
+    plain = !attr_escaped((unsigned char)s[i]);
   }
   if (plain) {
     lua_pushvalue(L, 1);
@@ -113,29 +137,34 @@ static int html_escape_attr (lua_State *L) {
     size_t kept = 0;
     for (size_t i = 0; i < len; i++) {
       unsigned char c = (unsigned char)s[i];
-      if (c >= 0x80 || is_ascii_alphanumeric(c)) {
+      if (!attr_escaped(c)) {
         continue;
       }
       luaL_addlstring(&b, s + kept, i - kept);
-      /* "&#" and up to three digits and ";": the longest, "&#127;",
-       * is six bytes. */
-      char *at = luaL_prepbuffsize(&b, 8);
-      char digits[3];
-      int count = 0;
-      for (unsigned v = c; v > 0; v /= 10) {
-        digits[count++] = (char)('0' + v % 10);
+      const char *entity = text_entity(c);
+      if (entity != NULL) {
+        luaL_addstring(&b, entity);
+      } else {
+        /* "&#" and up to three digits and ";": the longest, "&#127;",
+         * is six bytes. */
+        char *at = luaL_prepbuffsize(&b, 8);
+        char digits[3];
+        int count = 0;
+        for (unsigned v = c; v > 0; v /= 10) {
+          digits[count++] = (char)('0' + v % 10);
+        }
+        size_t n = 0;
+        at[n++] = '&';
+        at[n++] = '#';
+        if (count == 0) {
+          at[n++] = '0';
+        }
+        while (count > 0) {
+          at[n++] = digits[--count];
+        }
+        at[n++] = ';';
+        luaL_addsize(&b, n);
       }
-      size_t n = 0;
-      at[n++] = '&';
-      at[n++] = '#';
-      if (count == 0) {
-        at[n++] = '0';
-      }
-      while (count > 0) {
-        at[n++] = digits[--count];
-      }
-      at[n++] = ';';
-      luaL_addsize(&b, n);
       kept = i + 1;
     }
     luaL_addlstring(&b, s + kept, len - kept);
@@ -465,40 +494,48 @@ static bool is_ascii_digit (unsigned char c) {
 }
 
 /* Adds `\` and the code of `c` in lowercase hex and a space, as CSS reads
- * a character it must escape, with the backslash and the space written
- * as character references for an attribute. */
+ * a character it must escape. */
 static void add_css_escape (luaL_Buffer *b, unsigned char c) {
   static const char hex[] = "0123456789abcdef";
-  luaL_addstring(b, "&#92;");
+  luaL_addchar(b, '\\');
   if (c >= 16) {
     luaL_addchar(b, hex[c >> 4]);
   }
   luaL_addchar(b, hex[c & 15]);
-  luaL_addstring(b, "&#32;");
+  luaL_addchar(b, ' ');
 }
 
-/* `escape_css_attr`: `CSS.escape` of the string, then `escape_attr` of
- * that, in one pass, so the result goes in a quoted attribute as it is.
- * Letters, digits and bytes of 0x80 or more pass; `-` and `_` pass as CSS
- * and are character references as attribute text. A digit first, or
- * after a leading `-`, a lone `-`, and every other ASCII byte is a hex
- * escape; NUL is U+FFFD. Where `CSS.escape` writes a backslash and the
- * character (`\-`, `\ `, `\.`) this writes the hex form, which a CSS
- * parser reads as the same character and which needs no rule for where
- * the character stands. The escape ends in a space, so a literal space
- * after the slot is a second space and stays a combinator. The slot may
- * be mid-identifier, where escaping a leading digit does no harm. */
+/* Whether `escape_css_attr` keeps byte `i` of the `len` bytes at `s` as
+ * it is: a byte of 0x80 or more, `_`, a `-` that is not the whole
+ * string, and a letter or digit but for a digit that leads the
+ * identifier (first, or after a leading `-`). */
+static bool css_kept (const char *s, size_t len, size_t i) {
+  unsigned char c = (unsigned char)s[i];
+  bool leads_identifier = i == 0 || (i == 1 && s[0] == '-');
+  return c >= 0x80 || c == '_' || (c == '-' && len > 1) ||
+         (is_ascii_alphanumeric(c) && !(is_ascii_digit(c) && leads_identifier));
+}
+
+/* `escape_css_attr`: `CSS.escape` of the string, so the result goes in a
+ * quoted attribute as it is. What [`css_kept`] names passes; NUL is
+ * U+FFFD, and every other ASCII byte is a hex escape. Where `CSS.escape`
+ * writes a backslash and the character (`\-`, `\ `, `\.`) this writes
+ * the hex form, which a CSS parser reads as the same character and which
+ * needs no rule for where the character stands. The escape ends in a
+ * space, so a literal space after the slot is a second space and stays a
+ * combinator. The slot may be mid-identifier, where escaping a leading
+ * digit does no harm.
+ *
+ * The result holds only letters, digits, `-`, `_`, `\`, spaces and bytes
+ * of 0x80 or more, none of which [`attr_escaped`] names, so it is its own
+ * `escape_attr` and needs no attribute escaping of its own. */
 static int html_escape_css_attr (lua_State *L) {
   check_text(L);
   size_t len;
   const char *s = lua_tolstring(L, 1, &len);
   bool plain = true;
   for (size_t i = 0; plain && i < len; i++) {
-    unsigned char c = (unsigned char)s[i];
-    plain = c >= 0x80 || is_ascii_alphanumeric(c);
-  }
-  if (plain && len > 0 && is_ascii_digit((unsigned char)s[0])) {
-    plain = false;
+    plain = css_kept(s, len, i);
   }
   if (plain) {
     lua_pushvalue(L, 1);
@@ -507,16 +544,10 @@ static int html_escape_css_attr (lua_State *L) {
     luaL_buffinit(L, &b);
     for (size_t i = 0; i < len; i++) {
       unsigned char c = (unsigned char)s[i];
-      bool leads_identifier = i == 0 || (i == 1 && s[0] == '-');
-      if (c == 0) {
-        luaL_addstring(&b, "\xef\xbf\xbd");
-      } else if (c == '_') {
-        luaL_addstring(&b, "&#95;");
-      } else if (c == '-' && len > 1) {
-        luaL_addstring(&b, "&#45;");
-      } else if (c >= 0x80 || (is_ascii_alphanumeric(c) &&
-                               !(is_ascii_digit(c) && leads_identifier))) {
+      if (css_kept(s, len, i)) {
         luaL_addchar(&b, (char)c);
+      } else if (c == 0) {
+        luaL_addstring(&b, "\xef\xbf\xbd");
       } else {
         add_css_escape(&b, c);
       }

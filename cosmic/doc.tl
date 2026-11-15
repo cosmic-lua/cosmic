@@ -25,7 +25,8 @@ local symbols = require("cosmic.internal.symbols")
 local record Doc
   --- A command of the program that answers, which a row of `docs` documents: `cosmic test`, documented by the
   --- `test` field of [`cosmic.cli`]'s record. A lookup of `name` that also names a module points to the command,
-  --- its row's page shows `options` under it, and a search reads `options` with the row's own text.
+  --- its row's page shows its `usage`, `about`, `options` and `examples` under it, and a search reads them with
+  --- the row's own text.
   record Command
     --- The word that runs it.
     name: string
@@ -35,6 +36,12 @@ local record Doc
     symbol: string
     --- Its options as its help prints them, nil for a command that takes none.
     options?: string
+    --- Its one line on what it does, as its help prints it; nil for none.
+    about?: string
+    --- The line it is typed as, as its help's usage line has it ("prog pair [options] <device>"); nil for none.
+    usage?: string
+    --- Its examples as its help prints them, a line each; nil for none.
+    examples?: string
   end
   --- One ordered database view and the owner of every module in it.
   record View
@@ -1551,7 +1558,9 @@ end
 --- A view of a program's own documentation, for the program to answer its users from: `databases` are its
 --- store's, each a public source, so only the modules any module may require answer. The standard library's
 --- answer nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
---- of a database that documents the standard library, which is the tool's own and no program's. So the built
+--- the tool carries, which is a guide's row in a database that documents the standard library without the
+--- guide's module. A test's store, which declares `store_text`, holds its tree's public guides as modules, so
+--- there they answer as they do in the built program. So the built
 --- program answers from what `cosmic build` put in it, and the same program run from its source by the tool
 --- answers from the project's last build, which the tool's store holds beside its own. A database that
 --- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
@@ -1576,12 +1585,11 @@ function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Do
   if view == nil then
     return nil, trouble
   end
-  -- The databases that document the standard library, by index: the tool's own.
-  --
-  -- TODO: tell the tool's guides from the project's in a store that holds both, as a test's does: there the
-  -- project's guides answer nothing either. It waits on a guide's row saying whose tree it is of, as
-  -- `public_modules` says of a module.
+  -- The databases that document the standard library, by index: the tool's own, and a test's store, which holds
+  -- the library's rows its closure requires beside its tree's. Of the guides each holds, by index, those whose
+  -- module it holds too: a tree's own guides are modules of it, where the tool carries only their rows.
   local of_library: mut {integer: boolean} = {}
+  local own_guides: mut {integer: {string: boolean}} = {}
   for index, db in ipairs(documented) do
     local recorded, recorded_trouble = symbols.public_modules(db)
     if recorded == nil then
@@ -1590,16 +1598,49 @@ function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Do
     for module in pairs(recorded) do
       if symbols.is_library_module(module) then of_library[index] = true end
     end
+    if of_library[index] == true then
+      local rows, rows_trouble = Sqlite.text_rows(db, "SELECT path FROM modules WHERE " ..
+          symbols.guide_module("path"))
+      if rows == nil then
+        return nil, rows_trouble
+      end
+      local held: mut {string: boolean} = {}
+      for _, row in ipairs(rows) do held[row:text(1)] = true end
+      own_guides[index] = held
+    end
   end
   local owners: mut {string: integer} = {}
   for module, owner in pairs(view.owners) do
     local guide = module:sub(1, 11) == "doc.guides."
-    if not symbols.is_library_module(module) and not (guide and of_library[owner] == true) then
+    local tools = guide and of_library[owner] == true and (own_guides[owner] or {})[module] ~= true
+    if not symbols.is_library_module(module) and not tools then
       owners[module] = owner
     end
   end
   return { databases = view.databases, public = view.public, owners = owners, use_counts = {}, link_counts = {},
     value_records = {}, public_modules = {}, commands = commands or {}, program = program }, ""
+end
+
+--- The text of the guide `name` of `view`'s documentation, `doc/guides/<name>.md`, as a reader is shown it
+--- ([`Doc.shown`]): what follows its title. A guide under `doc/guides/internal/`, or one the view does not answer
+--- for (the tool's, in [`Doc.program`]'s view), is none. Nil and "" where there is none; nil and why when a
+--- database cannot be read, so a caller tells the two apart by the second.
+function Doc.guide(view: Doc.View, name: string): string?, string
+  local module = "doc.guides." .. name
+  local owner = view.owners[module]
+  if owner == nil or not symbols.is_public_guide(module) then
+    return nil, ""
+  end
+  local rows, trouble = Sqlite.text_rows(database_of(view, owner),
+    "SELECT text FROM docs WHERE module = ?1 AND symbol = '' ORDER BY id LIMIT 1", { text(module) })
+  if rows == nil then
+    return nil, trouble
+  end
+  local row = rows[1]
+  if row == nil then
+    return nil, ""
+  end
+  return Doc.shown(row:text(1)), ""
 end
 
 --- What a reader types to ask `view`'s documentation: the tool's `cosmic docs`, or the program's own.
@@ -1638,17 +1679,18 @@ local function tokens_of(written: string): string
   return " " .. String.trim(spaced) .. " "
 end
 
---- The verbs whose symbol, prose and options together carry every word
---- of `query`, as `Cli.<verb>` entries: the search reads doc comments,
---- and a command's options are data ([`Doc.Command`]'s `options`), so what one does is
---- matched here instead, against the options of the binary answering,
---- as `render` shows them. Each word is a phrase, as [`fts_query`] quotes
---- it: `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They
---- come after what the index found, as the lesser match: most of what a
---- verb's options say is said again, closer, by the code they drive. A
---- verb `found` already holds is not repeated.
-local function by_options(view: Doc.View, query: string,
-                          found: {Doc.Entry}): {Doc.Entry}?, string
+--- The commands whose symbol, prose and help together carry every word of `query`, as the entries that document
+--- them (`Cli.<verb>` for the tool's): the search reads doc comments, and what a command's help says -- its
+--- `about`, `usage`, `options` and `examples` ([`Doc.Command`]) -- is data, so it is matched here instead, as the
+--- binary answering has it and `render` shows it. Each word is a phrase, as [`fts_query`] quotes it:
+--- `COSMIC_TEST_TIMEOUT` must be those three tokens in a row. They come after what the index found, as the lesser
+--- match: most of what a verb's options say is said again, closer, by the code they drive. Those whose row,
+--- `about` and `usage` carry the words come first, then those that needed their options or examples, each in the
+--- order of the rows; where no command says more than its options, as the tool's verbs do, all are in the order
+--- of the rows. A usage or example line is matched without the program's name it opens with, which every one
+--- holds. A command `found` already holds is not repeated.
+local function by_help(view: Doc.View, query: string,
+                       found: {Doc.Entry}): {Doc.Entry}?, string
   local wanted: mut {string} = {}
   for quoted in (fts_query(query) .. " "):gmatch('"([^"]*)" ') do
     local phrase = tokens_of(quoted)
@@ -1660,7 +1702,7 @@ local function by_options(view: Doc.View, query: string,
   local commands: mut {string: Doc.Command} = {}
   local names: mut {string} = {}
   for _, command in ipairs(view.commands) do
-    if command.options ~= nil then
+    if command.options ~= nil or command.about ~= nil or command.usage ~= nil or command.examples ~= nil then
       names[#names + 1] = command.symbol
       commands[command.module .. "\n" .. command.symbol] = command
     end
@@ -1675,21 +1717,57 @@ local function by_options(view: Doc.View, query: string,
   end
   local held: mut {string:boolean} = {}
   for _, entry in ipairs(found) do held[entry.module .. "\n" .. entry.symbol] = true end
-  local out: mut {Doc.Entry} = {}
-  for _, entry in ipairs(fields) do
-    -- A row of the name that documents no command has no options to speak of.
-    local command = commands[entry.module .. "\n" .. entry.symbol]
-    if command ~= nil and held[entry.module .. "\n" .. entry.symbol] ~= true then
-      local spoken = tokens_of(entry.source_symbol .. "\n" .. entry.signature .. "\n" ..
-          entry.text .. "\n" .. (command.options or ""))
-      local all = true
-      for _, phrase in ipairs(wanted) do
-        if not spoken:find(phrase, 1, true) then all = false end
+  local function carries(spoken: string): boolean
+    for _, phrase in ipairs(wanted) do
+      if not spoken:find(phrase, 1, true) then return false end
+    end
+    return true
+  end
+  -- A line a command is typed as opens with the program's name and the command's word, which every such line
+  -- holds alike: what a search matches of it is the rest.
+  local function typed_rest(lines?: string): string
+    if lines == nil then
+      return ""
+    end
+    local out: mut {string} = {}
+    for line in String.lines(lines) do
+      local rest = line
+      local program = view.program
+      if program ~= nil and rest:sub(1, #program + 3) == "  " .. program .. " " then
+        rest = rest:sub(#program + 4)
+      elseif program ~= nil and rest:sub(1, #program + 1) == program .. " " then
+        rest = rest:sub(#program + 2)
       end
-      if all then out[#out + 1] = entry end
+      out[#out + 1] = rest
+    end
+    return table.concat(out, "\n")
+  end
+  -- The tool's verbs say nothing but their options: they keep the order of their rows, as they always have.
+  local ranked = false
+  for _, command in ipairs(view.commands) do
+    if command.about ~= nil or command.usage ~= nil or command.examples ~= nil then
+      ranked = true
     end
   end
-  return out, ""
+  local first: mut {Doc.Entry} = {}
+  local after: mut {Doc.Entry} = {}
+  for _, entry in ipairs(fields) do
+    -- A row of the name that documents no command has no help to speak of.
+    local key = entry.module .. "\n" .. entry.symbol
+    local command = commands[key]
+    if command ~= nil and held[key] ~= true then
+      held[key] = true
+      local said = entry.source_symbol .. "\n" .. entry.signature .. "\n" .. entry.text .. "\n" ..
+        (command.about or "") .. "\n" .. typed_rest(command.usage)
+      if carries(tokens_of(said)) then
+        first[#first + 1] = entry
+      elseif carries(tokens_of(said .. "\n" .. (command.options or "") .. "\n" .. typed_rest(command.examples))) then
+        if ranked then after[#after + 1] = entry else first[#first + 1] = entry end
+      end
+    end
+  end
+  for _, entry in ipairs(after) do first[#first + 1] = entry end
+  return first, ""
 end
 
 --- Whether some database of `view` documents `word`, in any form the index stems alike ("reads" for "reading").
@@ -1808,7 +1886,7 @@ end
 --- - for a qualified name that names nothing, what its qualifier offers
 ---   (see `scoped`);
 --- - the documentation that carries all its words, and the verbs whose
----   options do (see [`by_options`]).
+---   help does (see [`by_help`]).
 --- - Where nothing carries them, what the words a misspelling of them meant
 ---   name or are documented by (see [`respelled`]), then the rows that carry
 ---   some of them.
@@ -1905,7 +1983,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     local answers: mut {Doc.Entry} = {}
     for _, entry in ipairs(exact) do answers[#answers + 1] = entry end
     if query:match("^%u[%u%d_]*$") ~= nil then
-      local verbs, verbs_trouble = by_options(view, query, exact)
+      local verbs, verbs_trouble = by_help(view, query, exact)
       if verbs == nil then
         return nil, verbs_trouble
       end
@@ -1982,7 +2060,7 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
       return nil, search_trouble
     end
     found = searched_found
-    local verbs, verbs_trouble = by_options(view, query, found)
+    local verbs, verbs_trouble = by_help(view, query, found)
     if verbs == nil then
       return nil, verbs_trouble
     end
@@ -2960,15 +3038,32 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
   end
   if #inherited > 0 and lines[#lines] ~= "" then lines[#lines + 1] = "" end
   for _, line in ipairs(inherited) do lines[#lines + 1] = line end
-  -- A command's options are data ([`Doc.Command`]), not prose: shown under
-  -- its field as `cosmic help <verb>` shows them, and searched by
-  -- [`by_options`].
+  -- What a command's help says is data ([`Doc.Command`]), not prose: shown under its field in the order its help
+  -- shows it, and searched by [`by_help`].
   local command = command_of(view, entry)
-  local options = command and command.options
-  if options ~= nil then
-    lines[#lines + 1] = "  options:"
-    for line in String.lines(options) do
-      lines[#lines + 1] = "  " .. line
+  if command ~= nil then
+    local usage, about, options, examples = command.usage, command.about, command.options, command.examples
+    if usage ~= nil and usage ~= "" then
+      local prefix = "  usage: "
+      for line in String.lines(usage) do
+        lines[#lines + 1] = prefix .. line
+        prefix = "    "
+      end
+    end
+    if about ~= nil and about ~= "" then
+      for line in String.lines(about) do lines[#lines + 1] = "  " .. line end
+    end
+    if options ~= nil then
+      lines[#lines + 1] = "  options:"
+      for line in String.lines(options) do
+        lines[#lines + 1] = "  " .. line
+      end
+    end
+    if examples ~= nil and examples ~= "" then
+      lines[#lines + 1] = "  examples:"
+      for line in String.lines(examples) do
+        lines[#lines + 1] = "  " .. line
+      end
     end
   end
   if entry.links > 0 and entry.symbol == "" then
