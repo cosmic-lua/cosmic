@@ -1164,7 +1164,12 @@ local function test_help_wraps_a_command_s_about_at_the_width_given()
     "the words and bytes of each where asked,",
     "then the total.",
   }, "\n"))
-  -- One that fits, or runs over lines of its own, is left as written.
+  -- One exactly as wide as the width fits; a word wider than it has a line of its own.
+  local forty = string.rep("x", 40)
+  assert(Flags.help({ about = forty }, "p", 40) == "usage: p\n\n" .. forty)
+  assert(Flags.help({ about = "a " .. forty .. "x b" }, "p", 40) == "usage: p\n\na\n" .. forty .. "x\nb")
+  -- One that fits, runs over lines of its own, or says only spaces is left as written.
+  assert(Flags.help({ about = string.rep(" ", 50) }, "p", 40) == "usage: p\n\n" .. string.rep(" ", 50))
   assert(Flags.help({ about = "Counts  lines." }, "prog count", 40) == "usage: prog count\n\nCounts  lines.")
   local lined = string.rep("a", 50) .. "\n" .. string.rep("b", 50)
   assert(Flags.help({ about = lined }, "prog count", 40) == "usage: prog count\n\n" .. lined)
