@@ -21,6 +21,19 @@ local function test_a_worker_is_given_only_the_variables_it_may_read()
   assert(env["COSMIC_SANDBOX"] == nil, "only what is pinned or declared is given")
 end
 
+--- A worker's zone is UTC, sandboxed or not, whatever the runner's TZ and whatever /etc/localtime names on the
+--- host, which a worker run unsandboxed could read; one whose module declares TZ has the runner's, or none.
+local function test_a_worker_s_zone_is_utc_unless_it_declares_tz()
+  local inputs = TestInputsFixture.effective({})
+  assert(test_sandbox.environment({}, inputs)["TZ"] == "UTC")
+  assert(test_sandbox.environment({ TZ = "America/Los_Angeles" }, inputs)["TZ"] == "UTC")
+  assert(test_sandbox.unenforced_view({ TZ = "America/Los_Angeles" }, inputs)["TZ"] == "UTC")
+  assert(test_sandbox.unenforced_environment({}, inputs, "/scratch", "/tree")["TZ"] == "UTC")
+  local declared = { ...TestInputsFixture.effective({}), env = { TZ = true } }
+  assert(test_sandbox.environment({ TZ = "Europe/Paris" }, declared)["TZ"] == "Europe/Paris")
+  assert(test_sandbox.unenforced_view({}, declared)["TZ"] == nil)
+end
+
 --- The variables a sandboxed worker may read that name the host, or how
 --- the run was started.
 local function host_named(): mut {string:boolean}
