@@ -40,6 +40,11 @@ local record verb_spec
     --- that must never stage the tree to ask (`sql`). A bare verb, and a
     --- `fresh` one, which was asked about before it ran, never are.
     recheck_on_refusal?: boolean
+    --- True when the verb's line is its own to read, and [`build/dispatch.tl`] does not have Flags.dispatch
+    --- refuse it first: a verb that rebuilds a stale tool before it reads its line (`todos`), since a stale
+    --- tool would refuse an option the tree added, or one that answers the same whatever it is given
+    --- (`migrate`). A `fresh` verb's line is its own too, for the first reason.
+    own_line?: boolean
     --- True when a failure, too, ends in a summary on stderr: what the run
     --- found nothing of (`db`, `docs`, `uses`, `todos`) or what is left to
     --- fix (`fix`). Another verb summarizes only a run that passed; a

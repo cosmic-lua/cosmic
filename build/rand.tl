@@ -64,7 +64,6 @@ local Clock = require("cosmic.clock")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
-local String = require("cosmic.string")
 
 --- The `cosmic rand` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -144,32 +143,6 @@ local record Request
   words: mut {string}
 end
 
---- The prefix that keeps a negative number from being read as an option.
-local NEGATIVE <const> = "\1"
-
---- `argv` with each negative integer bound of `int` marked so `Flags`
---- reads it as a word, not an option: `cosmic rand int -5 5` works
---- without a `--`. An option's value is left alone.
-local function marked(argv: {string}): {string}
-  local marked_at: mut {integer: string} = {}
-  if argv[2] == "int" then
-    local slot = 3
-    while argv[slot] ~= nil do
-      local word = argv[slot]
-      if word == "--" then break end
-      if word == "-n" or word == "--seed" then
-        slot = slot + 1
-      elseif word:match("^%-%d+$") then
-        marked_at[slot] = NEGATIVE .. word
-      end
-      slot = slot + 1
-    end
-  end
-  local out: mut {string} = {}
-  for key, word in ipairs(argv) do out[#out + 1] = marked_at[key] or word end
-  return out
-end
-
 --- The options `command` takes, for refusing the rest.
 local allowed: {string:{string:boolean}} = {
   uuid = { ["--v4"] = true, ["--v7"] = true, ["-n"] = true },
@@ -191,7 +164,7 @@ local function arguments(argv: {string}): Request?, string
   if allowed_here == nil then
     return nil, "no such subcommand: " .. command
   end
-  local parsed, trouble = Flags.parse(marked(argv), 3, spec)
+  local parsed, trouble = Flags.parse(argv, 3, spec)
   if parsed == nil then return nil, trouble end
   for _, name in ipairs(parsed.given) do
     if allowed_here[name] ~= true then
@@ -203,9 +176,6 @@ local function arguments(argv: {string}): Request?, string
   end
   local request: Request = { command = command, version = 4, bytes = 32, encoding = "base64url", mean = 0.0, stddev = 1.0, scale = 1.0, words = {} }
   for _, word in ipairs(parsed.words) do
-    if command == "int" and String.starts_with(word, NEGATIVE) then
-      word = word:sub(#NEGATIVE + 1)
-    end
     request.words[#request.words + 1] = word
   end
   if parsed.set["--v4"] == true and parsed.set["--v7"] == true then
