@@ -891,6 +891,30 @@ local function test_static_files_are_compressed_once_per_content(tmp: string)
   assert(Fs.read(tmp .. "/gone.db") == Fs.read(tmp .. "/fresh.db"), "a cached write differs from an uncached one")
 end
 
+--- A warm write ships a file not worth compressing as a cold one does,
+--- with NULL variants, not the empty ones a text read of its NULL cached
+--- row would give: the projection is the bytes a cold write of an equal
+--- tree gives.
+local function test_a_warm_write_keeps_null_variants_null(tmp: string)
+  for _, name in ipairs({ "cold", "warm" }) do
+    support.write_project(tmp .. "/" .. name, "world")
+    write_static(tmp .. "/" .. name, ("a { color: red }\n"):rep(200))
+  end
+  write_projection(tmp .. "/cold", tmp .. "/cold.db")
+  local handle = assert(work.open(tmp .. "/warm"))
+  write_again(handle, tmp .. "/first.db")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'logo.png' AND gzip IS NULL AND zstd IS NULL") == "1",
+    "the cache holds no NULL row for the image")
+  write_again(handle, tmp .. "/warm.db")
+  assert(work.close(handle))
+  local db = assert(Sqlite.open(tmp .. "/warm.db"))
+  assert(scalar(db, "SELECT gzip IS NULL AND zstd IS NULL FROM payload WHERE path = 'logo.png'") == "1",
+    "a warm write shipped empty variants")
+  assert(scalar(db, "SELECT count(*) FROM payload WHERE gzip = '' OR zstd = ''") == "0", "a warm write shipped empty variants")
+  assert(db:close())
+  assert(Fs.read(tmp .. "/warm.db") == Fs.read(tmp .. "/cold.db"), "a warm write differs from a cold one")
+end
+
 --- A tree with no `static/` has an empty payload.
 local function test_a_tree_without_static_has_no_payload(tmp: string)
   support.write_project(tmp .. "/p", "world")

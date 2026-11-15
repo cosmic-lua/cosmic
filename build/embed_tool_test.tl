@@ -685,7 +685,9 @@ end
 local static_main = [[
 local Assets = require("cosmic.web.assets")
 local Sqlite = require("cosmic.sqlite")
+local StaticFiles = require("cosmic.web.static")
 local Store = require("cosmic.store")
+local Web = require("cosmic.web")
 
 return function(): integer
   for _, handle in ipairs(Store.databases()) do
@@ -700,6 +702,9 @@ return function(): integer
   local css = assert(source:get("css/app.css"))
   local logo = assert(source:get("logo.png"))
   print(source:dynamic(), #source:paths(), css.size, css.type, css.gzip ~= nil, css.zstd ~= nil, logo.size, logo.gzip, logo.zstd)
+  local client = Web.test_client(Web.app{ routes = { StaticFiles.mount("/static", { source = source }) } })
+  local served = client:get("/static/logo.png", { headers = { ["Accept-Encoding"] = "zstd, gzip" } })
+  print("served", served.status, served.headers["content-encoding"], #served.body)
   return 0
 end
 ]]
@@ -707,8 +712,11 @@ end
 --- The files under `static/` go into the program's database whole, with
 --- the type, hash, gzip and zstd they are served by, and a built program serves
 --- them from there, not from a directory beside it: run from a directory
---- with a decoy `static/`, it answers the embedded bytes. One build
---- serves both checks, as it is the slow part.
+--- with a decoy `static/`, it answers the embedded bytes. A file not worth
+--- compressing has no variants on a warm build (an edited module, the
+--- compressed cache kept) as on a cold one, so the static handler serves
+--- its bytes and no empty zstd body. A cold and a warm build run the same
+--- checks, as a build is the slow part.
 local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/site"))
   assert(Fs.write(tmp .. "/cmd/site/main.tl", static_main))
@@ -721,13 +729,22 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   local elsewhere = tmp .. "/elsewhere"
   assert(Fs.mkdirs(elsewhere .. "/static/css"))
   assert(Fs.write(elsewhere .. "/static/css/app.css", "DECOY"))
-  local r = assert(Child.run({ support.build_dir(tmp) .. "/bin/site" }, {
-    cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out = assert(r.stdout)
-  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\t1\n" ..
-      "payload\tlogo.png\timage/png\t6\t0\t0\n", 1, true), out)
-  assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\ttrue\t6\tnil\tnil\n", 1, true), out)
+  local function check(build: string)
+    local r = assert(Child.run({ support.build_dir(tmp) .. "/bin/site" }, {
+      cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+    assert(r.ok, build .. ": exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+    local out = assert(r.stdout)
+    assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\t1\n" ..
+        "payload\tlogo.png\timage/png\t6\t0\t0\n", 1, true), build .. ": " .. out)
+    assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\ttrue\t6\tnil\tnil\n", 1, true),
+      build .. ": " .. out)
+    assert(out:find("served\t200\tnil\t6\n", 1, true), build .. ": " .. out)
+  end
+  check("cold")
+  assert(Fs.write(tmp .. "/cmd/site/main.tl", static_main .. "-- edited\n"))
+  local again, again_trouble = embed.tree(tmp, true)
+  assert(again ~= nil and again[1] == "site", again_trouble)
+  check("warm")
 end
 
 --- A project written in the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs.

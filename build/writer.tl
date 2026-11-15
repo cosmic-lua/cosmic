@@ -536,21 +536,25 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
     return false, prune_trouble
   end
   local files, trouble = Sqlite.text_rows(db,
-    "SELECT substr(f.path, 8), f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd " ..
+    "SELECT substr(f.path, 8), f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd, " ..
+      "c.gzip IS NULL, c.zstd IS NULL " ..
       "FROM files f LEFT JOIN compressed c ON c.path = substr(f.path, 8) AND c.sha256 = f.sha256 " ..
       "AND c.rules = ?1 AND c.core = " .. deflating_core ..
       " WHERE f.path GLOB 'static/*' ORDER BY f.path", { text(rules) })
   if files == nil then
     return false, trouble
   end
+  -- A text row reads NULL as "" and never as null, so whether a cached
+  -- variant is NULL (not worth compressing) is asked of SQLite in columns 7
+  -- and 8; read as "", it would ship as an empty encoding.
   for _, row in ipairs(files) do
     local path, data, sha256 = row:text(1), row:text(2), row:text(3)
     local null: Sqlite.Value = {}
     local packed: string? = nil
     local zstd: string? = nil
     if row:text(4) == "1" then
-      packed = if row:is_null(5) then nil else row:text(5) end
-      zstd = if row:is_null(6) then nil else row:text(6) end
+      packed = if row:text(7) == "1" then nil else row:text(5) end
+      zstd = if row:text(8) == "1" then nil else row:text(6) end
     else
       local gzip_trouble = ""
       local zstd_trouble = ""
