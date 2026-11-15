@@ -1,6 +1,7 @@
 --- What the tests of [`Child.start`]'s `policy` on a live child share
 --- (cosmic/child_policy_*_test.tl): when a start's refusal is the host
---- giving no sandbox, and a stand-in run under a policy. Test support.
+--- giving no sandbox, a stand-in run under a policy, and the place the
+--- tests of `nest` run one in. Test support.
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
@@ -21,6 +22,19 @@ local record child_policy_fixture
   record Place
     probe: string
     work: string
+  end
+
+  --- What a test of `nest` starts a stand-in in ([`nest_placed`]): the
+  --- stand-in, a working directory holding `ro/a`, a directory `rw` beside
+  --- it and one, `extra`, that only the first sandbox is given, the
+  --- directory a start of the stand-in's own builds its root in, and the
+  --- grants of the stand-in and the working directories.
+  record NestPlace
+    probe: string
+    work: string
+    extra: string
+    scratch: string
+    grants: {Sandbox.Grant}
   end
 end
 
@@ -45,10 +59,12 @@ end
 --- @param policy the policy to start it under
 --- @param cwd the directory it starts in
 --- @param script what it is told to do
+--- @param fds the descriptors it is handed, as [`Child.start`]'s `fds`
 --- @return how it ended
-function child_policy_fixture.under(program: string, policy: Sandbox.Policy, cwd: string, script: string): child_policy_fixture.Outcome
+function child_policy_fixture.under(program: string, policy: Sandbox.Policy, cwd: string, script: string,
+                                    fds?: {integer:integer | string}): child_policy_fixture.Outcome
   local result, why = Child.run({ program, script },
-    { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout" })
+    { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
     assert(child_policy_fixture.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
@@ -95,6 +111,28 @@ function child_policy_fixture.placed(tmp: string): child_policy_fixture.Place
   assert(Fs.mkdirs(work))
   assert(sys.chmod(work, octal("755")))
   return { probe = probe, work = work }
+end
+
+--- Builds a [`NestPlace`] in `tmp`, by the real paths a root binds a grant
+--- at and mountinfo names.
+--- @param tmp the test's temporary directory
+--- @return the place
+function child_policy_fixture.nest_placed(tmp: string): child_policy_fixture.NestPlace
+  local base = assert(sys.realpath(searchable.open(tmp)))
+  local probe = assert(stand_in.build(base .. "/stand-in"))
+  local work = base .. "/work"
+  assert(Fs.mkdirs(work .. "/ro"))
+  assert(Fs.mkdirs(work .. "/rw"))
+  assert(Fs.mkdirs(base .. "/extra"))
+  assert(Fs.write(work .. "/ro/a", "alpha\n"))
+  assert(Fs.write(base .. "/extra/e", "epsilon\n"))
+  local scratch = base .. "/scratch"
+  assert(Fs.mkdirs(scratch))
+  searchable.share(scratch)
+  searchable.share(work .. "/rw")
+  return { probe = probe, work = work, extra = base .. "/extra", scratch = scratch,
+    grants = { { path = probe, letters = "rx" }, { path = work, letters = "r" },
+      { path = work .. "/rw", letters = "rwc" } } }
 end
 
 --- A copy of `grants` with `more` after them.

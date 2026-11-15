@@ -2,20 +2,20 @@
 --- `tool` is given the program at its own name, and opens it there;
 --- and a call that would change the artifact through a descriptor link
 --- is refused before it changes anything. Its own module, since a
---- `tool` test runs again on every edit to the tree.
+--- `tool` test runs again on every edit to the tree. The same race under
+--- a policy, which only Landlock holds, is
+--- core/artifact_fd_policy_tool_test.tl's.
 
 local sys = require("cosmic.sys")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Proc = require("cosmic.proc")
-local Sandbox = require("cosmic.sandbox")
-local searchable = require("build.searchable")
-local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Clock = require("cosmic.clock")
 local _net = require("cosmic.net")
 local test_child = require("build.test_child")
+local ArtifactFd = require("build.artifact_fd_fixture")
 local unix_socket = require("build.unix_socket")
 local type raw_socket = require("cosmic.internal.socket")
 
@@ -23,27 +23,6 @@ Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" },
   grants = { { path = "o/bin", letters = "rx" } } }
 
 local socket = require("cosmic.internal.socket")
-
---- The program a relaunch starts again.
-local function program_of(relaunch: Proc.Relaunch): string
-  local program = assert(relaunch.argv[1], "a relaunch names its program")
-  return program
-end
-
---- This start's relaunch, skipping the test where it has none (a host
---- program, which no start of the core relaunches).
-local function relaunch_or_skip(): Proc.Relaunch
-  local relaunch, _ = Proc.relaunch()
-  if relaunch == nil then Test.skip("this program has no relaunch to try") end
-  local found = assert(relaunch, "Test.skip ends the test where there is no relaunch")
-  return found
-end
-
---- The descriptor a relaunch hands its child in `slot`.
-local function fd_of(relaunch: Proc.Relaunch, slot: integer): integer
-  local fd = assert(relaunch.fds[slot], "a relaunch hands a descriptor in slot " .. tostring(slot))
-  return fd
-end
 
 --- The child of the test below, run in a copy of the artifact: it sends the file in `args[2]` over the channel in `args[1]`.
 test_child.register("send_file", function(args: {string}): integer
@@ -65,7 +44,7 @@ end
 --- is refused (core/syscalls_fs.c's `artifact_through_descriptor`,
 --- whose walk refusing descriptor links finds it by its own name).
 local function test_a_tool_opens_the_program_by_its_own_name()
-  relaunch_or_skip()
+  ArtifactFd.relaunch_or_skip()
   local program = assert(Proc.executable())
   local fd, trouble = sys.open(program, sys.O_RDONLY)
   assert(fd ~= nil, "a tool could not open " .. program .. ": " .. tostring(trouble))
@@ -80,10 +59,10 @@ end
 --- so does a relaunch, which starts it again there
 --- (build/test_sandbox.tl's `program_name`).
 local function test_a_tool_has_the_tree_s_own_program_in_the_tree()
-  local relaunch = relaunch_or_skip()
+  local relaunch = ArtifactFd.relaunch_or_skip()
   if sys.getcwd() ~= "/tree" then Test.skip("this worker's root is not the sandbox's /tree") end
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
-  local artifact = sys.stat("/proc/self/fd/" .. tostring(fd_of(relaunch, slot)))
+  local slot = ArtifactFd.slot_of(relaunch, "COSMIC_PORTABLE_ARTIFACT_FD")
+  local artifact = sys.stat("/proc/self/fd/" .. tostring(ArtifactFd.fd_of(relaunch, slot)))
   local own = sys.stat("/tree/o/bin/cosmic")
   if artifact == nil or own == nil or artifact.dev ~= own.dev or artifact.ino ~= own.ino then
     Test.skip("another program runs the tree's tests: it keeps its own name")
@@ -134,19 +113,19 @@ said("utimensat", touched, touch_errno)
 --- the link's own, which a change leaves the file's alone; on macOS,
 --- whose /dev/fd/<n> is no link, it is refused.
 local function test_a_change_through_the_artifact_descriptor_changes_nothing(tmp: string)
-  local relaunch = relaunch_or_skip()
+  local relaunch = ArtifactFd.relaunch_or_skip()
   local copy = tmp .. "/artifact"
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
   assert(sys.chmod(copy, 493))
   local before = assert(sys.stat(copy))
   local digest = Hash.hex_sha256((assert(Fs.read(copy))))
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
-  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer -- checked: cast_refused
+  local slot = ArtifactFd.slot_of(relaunch, "COSMIC_PORTABLE_ARTIFACT_FD")
+  local core_slot = ArtifactFd.slot_of(relaunch, "COSMIC_PORTABLE_CORE_FD")
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
-  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e", probe }, {
-    env = env, fds = { [slot] = opened, [core_slot] = fd_of(relaunch, core_slot) },
+  local result = assert(Child.run({ ArtifactFd.program_of(relaunch), "--artifact", copy, "-e", probe }, {
+    env = env, fds = { [slot] = opened, [core_slot] = ArtifactFd.fd_of(relaunch, core_slot) },
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
@@ -168,9 +147,9 @@ end
 --- The walk (core/syscalls_fs.c's `walk_without_descriptor_links`)
 --- follows each.
 local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
-  local relaunch = relaunch_or_skip()
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
-  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer -- checked: cast_refused
+  local relaunch = ArtifactFd.relaunch_or_skip()
+  local slot = ArtifactFd.slot_of(relaunch, "COSMIC_PORTABLE_ARTIFACT_FD")
+  local core_slot = ArtifactFd.slot_of(relaunch, "COSMIC_PORTABLE_CORE_FD")
   local copy = tmp .. "/artifact"
   assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
   assert(sys.chmod(copy, 493))
@@ -188,178 +167,17 @@ local function test_the_artifact_reached_by_names_is_not_refused(tmp: string)
   local env: mut {string: string} = {}
   for name, value in pairs(relaunch.env) do env[name] = value end
   local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
+  local result = assert(Child.run({ ArtifactFd.program_of(relaunch), "--artifact", copy, "-e",
     table.concat(script, "\n") }, { env = env, fds = { [slot] = opened,
-      [core_slot] = fd_of(relaunch, core_slot) }, stdout = "capture", stderr = "capture",
+      [core_slot] = ArtifactFd.fd_of(relaunch, core_slot) }, stdout = "capture", stderr = "capture",
       timeout_ns = Clock.seconds(30) }))
   assert(sys.close(opened))
   assert(result.ok, tostring(result.stderr))
   assert(tostring(result.stdout) == string.rep("open\n", #names), tostring(result.stdout))
 end
 
---- What the flipping child runs: a link at `LINK` swapped, again and
---- again, between a plain file and the artifact's descriptor link, each
---- time by a rename of a fresh link over it, until `STOP` is there,
---- and then left leading to the plain file. It says "flipping" once it
---- has swapped the link both ways.
-local flipper <const> = [==[
-local sys = require("cosmic.sys")
-local link, plain, through, stop = LINK, PLAIN, THROUGH, STOP
-local spare = link .. ".next"
-local i = 0
-while true do
-  i = i + 1
-  if i % 64 == 0 and sys.stat(stop) ~= nil then break end
-  sys.unlink(spare)
-  assert(sys.symlink(if i % 2 == 0 then plain else through end, spare))
-  assert(sys.rename(spare, link))
-  if i == 2 then print("flipping") end
-end
--- Left leading to the plain file, where what the run read is judged.
-sys.unlink(spare)
-assert(sys.symlink(plain, spare))
-assert(sys.rename(spare, link))
-]==]
-
---- What the calling child runs: a chmod, and an open that truncates,
---- of the link as it flips, each many times, counting what each did.
---- It starts once the flipper is flipping, and goes on past `least`
---- calls until each call has met both ends, for up to `bound_ns`: on a
---- busy or single processor the flipper may not run while `least` calls
---- are made. The bound stays under the run's timeout, and that under
---- CI's 10 s per-test deadline, so an end never met fails the
---- assertions below rather than the clock.
---- The chmod keeps the owner's access: a walk that meets a link as a
---- rename replaces it can end at the link's directory (Linux 6.18
---- does, a few times in 100000), which it changes too.
-local caller <const> = [==[
-local Clock = require("cosmic.clock")
-local sys = require("cosmic.sys")
-local link, stop = LINK, STOP
-local counts: mut {string:integer} = {
-  ["chmod done"] = 0, ["chmod refused"] = 0, ["truncate done"] = 0, ["truncate refused"] = 0,
-}
-local function said(what: string, ok: (integer | boolean)?, errno: integer)
-  if ok is integer then sys.close(ok) end
-  if ok == nil or ok == false then
-    if errno == sys.EACCES then counts[what .. " refused"] = assert(counts[what .. " refused"]) + 1 end
-  else
-    counts[what .. " done"] = assert(counts[what .. " done"]) + 1
-  end
-end
-local function met(): boolean
-  for _, what in ipairs({ "chmod", "truncate" }) do
-    if counts[what .. " done"] == 0 or counts[what .. " refused"] == 0 then return false end
-  end
-  return true
-end
-local least <const>, bound_ns <const> = 20000, 5 * 1000000000
-local deadline, i = Clock.monotonic_ns() + bound_ns, 0
-while i < least or (not met() and Clock.monotonic_ns() < deadline) do
-  i = i + 1
-  local ok, _, errno = sys.chmod(link, 448)
-  said("chmod", ok, errno)
-  local fd, _, open_errno = sys.open(link, sys.O_WRONLY | sys.O_TRUNC)
-  said("truncate", fd, open_errno)
-end
-local made = assert(sys.open(stop, sys.O_CREAT | sys.O_WRONLY, 420))
-sys.close(made)
-for _, what in ipairs({ "chmod", "truncate" }) do
-  print(what .. " " .. tostring(counts[what .. " done"]) .. " " .. tostring(counts[what .. " refused"]))
-end
-]==]
-
---- `script` with each `NAME` in `values` put as the string literal of
---- its value.
-local function filled(script: string, values: {string:string}): string
-  return (script:gsub("%u+", function(name: string): string
-    local value = values[name]
-    return value ~= nil and string.format("%q", value) or name -- checked: and_ternary
-  end))
-end
-
---- A link swapped between the check that refuses the artifact's
---- descriptor and the call that acts changes nothing either: a chmod
---- acts on the file the check held (core/syscalls_fs.c's
---- `probe_file`), and an open that truncates truncates only once the
---- file it opened is judged. The link flips, in another process,
---- between a plain file and /proc/self/fd/<the artifact>, while the
---- child calls through it; both ends are met, and the artifact -- a copy
---- the test made -- keeps its bytes and mode.
-local function swapped_link_changes_nothing(tmp: string, policy?: Sandbox.Policy)
-  local relaunch = relaunch_or_skip()
-  local slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_ARTIFACT_FD"])) as integer -- checked: cast_refused
-  local through = "/proc/self/fd/" .. slot
-  if sys.stat(through) == nil then
-    Test.skip("the race is Linux's: this host has no /proc/self/fd")
-  end
-  local core_slot = math.tointeger(tonumber(relaunch.env["COSMIC_PORTABLE_CORE_FD"])) as integer -- checked: cast_refused
-  local copy = tmp .. "/artifact"
-  assert(Fs.write(copy, (assert(Fs.read((assert(Proc.executable())))))))
-  assert(sys.chmod(copy, 493))
-  local before = assert(sys.stat(copy))
-  local digest = Hash.hex_sha256((assert(Fs.read(copy))))
-  local plain, link, stop = tmp .. "/plain", tmp .. "/link", tmp .. "/stop"
-  assert(Fs.write(plain, "text"))
-  assert(sys.symlink(plain, link))
-  local values = { LINK = link, PLAIN = plain, THROUGH = through, STOP = stop }
-  local env: mut {string: string} = {}
-  for name, value in pairs(relaunch.env) do env[name] = value end
-  if policy ~= nil then policy.set_env = env end -- checked: field_fixed
-  local opened = assert(sys.open(copy, sys.O_RDONLY))
-  local fds = { [slot] = opened, [core_slot] = fd_of(relaunch, core_slot) }
-  local flipping = assert(Child.start({ program_of(relaunch), "--artifact", copy, "-e",
-    filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "stream",
-      stderr = "capture" }))
-  local said = Stream.lines(assert(flipping.stdout_stream)):read()
-  if said ~= "flipping" then
-    local ended, why = flipping:wait(Clock.seconds(2))
-    error("the flipper did not start: " .. tostring(said) .. "\n" ..
-        (ended ~= nil and tostring(ended.stderr) or why)) -- checked: and_ternary
-  end
-  local result = assert(Child.run({ program_of(relaunch), "--artifact", copy, "-e",
-    filled(caller, values) }, { env = policy == nil and env or nil, fds = fds, stdout = "capture", -- checked: and_ternary
-      stderr = "capture", policy = policy, timeout_ns = Clock.seconds(7) }))
-  if Fs.exists(stop) ~= true then assert(Fs.write(stop, "")) end
-  local flipped = assert(flipping:wait())
-  assert(sys.close(opened))
-  assert(result.ok, tostring(result.stderr))
-  assert(flipped.ok, tostring(flipped.stderr))
-  local after = assert(sys.stat(copy))
-  local out = tostring(result.stdout)
-  assert(Hash.hex_sha256((assert(Fs.read(copy)))) == digest and after.size == before.size,
-    "a truncation through a swapped link reached the artifact:\n" .. out)
-  assert(after.mode == before.mode, "a chmod through a swapped link reached the artifact:\n" .. out)
-  for _, what in ipairs({ "chmod", "truncate" }) do
-    local done, refused = out:match(what .. " (%d+) (%d+)\n")
-    local met_done, met_refused = tonumber(done), tonumber(refused)
-    assert(met_done ~= nil and met_done > 0 and met_refused ~= nil and met_refused > 0,
-      what .. " did not meet both ends of the link:\n" .. out)
-  end
-end
-
 local function test_a_link_swapped_after_the_check_changes_nothing(tmp: string)
-  swapped_link_changes_nothing(tmp)
-end
-
---- The same under a promises filter, which answers openat2 ENOSYS
---- (core/promises.c): the check holds without it, judging the walk it
---- makes part by part (`walk_without_descriptor_links`) rather than a
---- name resolved again after the call. "fattr" lets the chmod through.
-local function test_a_link_swapped_after_the_check_changes_nothing_under_promises(tmp: string)
-  local relaunch = relaunch_or_skip()
-  -- A root runner's policy child is a user of its own, which owns none of
-  -- these: the test's directory is opened to it. The core, in a cache
-  -- of the host's, is not this test's to chmod.
-  local core = sys.stat(program_of(relaunch))
-  if sys.getuid() == 0 and (core == nil or core.mode & 5 ~= 5) then
-    Test.skip("the core " .. program_of(relaunch) .. " is not open to the user a root runner's policy " ..
-        "child runs as")
-    return
-  end
-  searchable.share(searchable.open(tmp))
-  swapped_link_changes_nothing(tmp, { promises = { "fattr" }, grants = {
-    { path = program_of(relaunch), letters = "rx" }, { path = tmp, letters = "rwc" } } })
+  ArtifactFd.swapped_link_changes_nothing(tmp)
 end
 
 --- The source number alone does not protect rights: another open of
@@ -401,7 +219,7 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   -- send this ordinary file; the original receiver must judge it again.
   local words = test_child.words(tmp, "core.artifact_fd_tool_test", "send_file",
     { tostring(channel_slot), tostring(file_slot) })
-  local argv: mut {string} = { program_of(relaunch), "--artifact", copy }
+  local argv: mut {string} = { ArtifactFd.program_of(relaunch), "--artifact", copy }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local child = assert(Child.start(argv,
     { env = env, fds = fds, stdout = "capture", stderr = "capture" }))

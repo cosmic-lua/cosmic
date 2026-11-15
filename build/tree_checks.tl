@@ -117,8 +117,6 @@ allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its onl
 allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..
   "clock, and build/importer_test.tl of times it chooses"
 
-allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
-
 allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
 allowed["build.test_key.requirements"] = "the names a module requires of its host, `loopback` derived from its declared addresses, which `ask_host` asks and a test holds to the derivation"
 allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
