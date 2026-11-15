@@ -19,9 +19,9 @@
 --- fed the bytes after it start, which are the next message's: feed the
 --- chunk from there to a new reader), or `refused` and why. `finish`
 --- says the stream ended: it answers an HTTP response that is read to
---- the end of the stream, `empty` where no message began (nothing came, or blank
---- lines alone), and a refusal where one was cut short. An answer but
---- `more` is final, and every later call gives it again, its `next`
+--- the end of the stream, `empty` where no message began (nothing came,
+--- or blank lines alone), and a refusal where one was cut short. An
+--- answer but `more` is final, and every later call gives it again, its `next`
 --- still a position in the chunk that decided it.
 ---
 --- The bytes are not trusted. A reader never raises on them, does work
@@ -272,10 +272,10 @@ local record Message
     fields?: {Field}
     --- As [`Message.RequestParts.body`]. A status below 200, 204 or 304
     --- takes none but `""`, which is none: no `Content-Length` is added
-    --- to it, and one the headers or fields give is written as given. A reader
-    --- takes any other HTTP response written with neither a body nor a
-    --- length to run to the end of the stream: give `""` for an empty
-    --- one.
+    --- to it, and one the headers or fields give is written as given. A
+    --- reader takes any other HTTP response written with neither a body
+    --- nor a length to run to the end of the stream: give `""` for an
+    --- empty one.
     body?: string
   end
 end

@@ -308,8 +308,11 @@ local function test_either_kind_reads_as_its_kind_does(tmp: string)
           if read.status == "done" then
             return false, ("at %d, either read what neither kind reads"):format(at)
           end
-          if read.status ~= asked.status and read.status ~= answered.status then
-            return false, ("at %d, either answered %s"):format(at, read.status)
+          local function same(got: Answer): boolean
+            return read.status == got.status and read.reason == got.reason
+          end
+          if not same(asked) and not same(answered) then
+            return false, ("at %d, either answered %s %q"):format(at, read.status, read.reason)
           end
           Fuzz.label("refused")
           return true, ""
