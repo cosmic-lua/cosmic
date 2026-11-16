@@ -51,6 +51,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Json = require("cosmic.json")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
@@ -432,6 +433,21 @@ local function rewrite(tree: string, path: string): integer?, string
   return from_archive(tree, pin, path)
 end
 
+--- The timestamp of the feed state `body` holds, as digits, and "": its
+--- top-level `timestamp`, wherever the object puts that member. nil and
+--- why when `body` is no JSON object or holds no integer timestamp.
+function Vendor.feed_timestamp(body: string): string?, string
+  local state, trouble = Json.decode_object(body)
+  if state == nil then
+    return nil, "is no JSON object: " .. trouble
+  end
+  local timestamp = state["timestamp"]
+  if timestamp is integer and timestamp >= 0 then
+    return tostring(timestamp), ""
+  end
+  return nil, "names no timestamp for its state"
+end
+
 --- `text`, a feed PIN, naming the snapshot `body` of the feed's state at
 --- `timestamp`: its `version` that timestamp, its `url` the feed's with
 --- `_expected` asking for it, its `sha256` the body's. No text, and why,
@@ -500,9 +516,9 @@ local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
   if body == nil then
     return 0, read_trouble
   end
-  local timestamp = body:match('"timestamp"%s*:%s*(%d+)%s*,%s*"changes"')
+  local timestamp, timestamp_trouble = Vendor.feed_timestamp(body)
   if timestamp == nil then
-    return 0, pin.feed .. ": names no timestamp for its state"
+    return 0, pin.feed .. ": " .. timestamp_trouble
   end
   local rewritten = Vendor.feed_pin(text, timestamp, body)
   if rewritten.text == "" then
