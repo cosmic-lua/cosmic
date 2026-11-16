@@ -4,6 +4,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local analysis_schema = require("build.analysis_schema")
 local bind = require("build.bind")
 local tree = require("build.tree")
 
@@ -206,26 +207,28 @@ function identity.skip_in_own_tree(entry: string, name: string): boolean
   return identity.skip_input(entry, name)
 end
 
---- Whether `file` is under the top-level `static/` directory
---- ([`cosmic.layout`]'s `static`): an asset the project carries verbatim,
---- whatever its extension, never a module.
+--- Whether `file` is a static asset ([`cosmic.layout`]'s `static`), under
+--- `static/` or a program's `cmd/<name>/static/`
+--- ([`analysis_schema.static_asset`]): an asset the project carries
+--- verbatim, whatever its extension, never a module.
 function identity.is_static(file: string): boolean
-  return file:sub(1, 7) == "static/"
+  return analysis_schema.static_asset(file) ~= nil
 end
 
 --- The most bytes of a static asset the build embeds: the cost is memory
 --- at run time, where an embedded file is read whole.
 local static_limit <const> = 16 * 1024 * 1024
 
---- The longest path of a static asset, relative to `static/`.
+--- The longest path of a static asset, relative to its `static/`.
 local static_path_limit <const> = 255
 
---- Why `file`, a path under `static/`, of `size` bytes, cannot be carried,
+--- Why `file`, a static asset of `size` bytes, cannot be carried,
 --- or nil when it can: too big, a name that needs escaping in every URL
 --- and tag the app writes (a control byte, `\`, `%`, `?` or `#`), or a
 --- path too long. The reason leads with the file's own path.
 function identity.static_refusal(file: string, size: integer): string?
-  local name = file:sub(8)
+  local asset = analysis_schema.static_asset(file)
+  local name = if asset ~= nil then asset.path else file end
   if size > static_limit then
     return ("%s: %d MiB is past the %d MiB limit for an embedded asset; serve it from disk " ..
       "or object storage"):format(file, (size + 1048575) // 1048576, static_limit // 1048576)

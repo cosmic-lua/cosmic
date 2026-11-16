@@ -284,10 +284,11 @@ local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows?
   return nil
 end
 
---- A source of the files under the project's `static/`, carried in the
---- executable's database (its `payload` table). A file is read once and
---- kept for the life of the process, so its memory is the total of
---- `static/`. A program built without `static/` holds none.
+--- A source of the project's static files the executable carries in its
+--- database (its `payload` table): those under its own `cmd/<name>/static/`
+--- and those under `static/` it holds none of at the same path. A file is
+--- read once and kept for the life of the process, so its memory is the
+--- total of those files. A program built with neither holds none.
 --- @return Assets.Source The source
 function Assets.embedded(): Assets.Source
   local held: mut {string:Assets.Asset} = {}
@@ -330,6 +331,12 @@ end
 -- test. Seal the project's payload with the closure store, or leave `main`
 -- out of a test's meta; until then a test gives its app [`Assets.memory`]
 -- or [`Assets.directory`].
+
+-- TODO: lay a program's own `cmd/<name>/static/` over `static/` for a
+-- program run from its source and in the development mode (`dev`, and
+-- [`Dev.static`]), as a built one carries them ([`build.embed`]): from disk,
+-- it serves `static/` alone. It waits on [`Assets.default`] knowing which
+-- program runs, which a program run from source does not record.
 
 --- Whether this program is a built executable, which carries its own
 --- database with its main module recorded: the `cosmic` tool and a script

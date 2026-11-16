@@ -575,6 +575,24 @@ local function test_nothing_under_static_is_chosen(tmp: string)
   end
 end
 
+--- A program's own `cmd/<name>/static/` is carried verbatim as `static/` is; a module beside it is the program's and
+--- chosen.
+local function test_nothing_under_a_programs_own_static_is_chosen(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/static/docs"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/a.tl", "this is   not Teal {{\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/p.tmpl", "{{ unclosed\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/docs/readme.md", "[dead](nowhere.md)\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", "return 1\n"))
+  local every = assert(chosen(tmp, {}))
+  assert(#every.files == 1 and every.files[1] == "cmd/spam/main.tl", table.concat(every.files, " "))
+  assert(#every.templates == 0 and #every.checked == 0 and #every.refused == 0)
+  for _, path in ipairs({ tmp .. "/cmd/spam/static", tmp .. "/cmd/spam/static/a.tl", tmp .. "/cmd/spam/static/docs/readme.md" }) do
+    local named = assert(chosen(tmp, { path }))
+    assert(#named.files == 0 and #named.templates == 0 and #named.checked == 0, path)
+    assert(#named.refused == 1 and named.refused[1]:find("carried verbatim", 1, true) ~= nil, path)
+  end
+end
+
 --- `ci/` is a project of its own, which the tree's run does not check: a path named in or below it is refused, saying where to
 --- check it, and not reported as a file with nothing to fix. A project outside cosmic's own tree has no such directory.
 local function test_a_path_in_a_tree_of_its_own_is_refused_not_passed_as_checked(tmp: string)

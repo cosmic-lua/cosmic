@@ -443,7 +443,7 @@ local function signature_sql(): string
     "coalesce((SELECT group_concat(name || ' ' || sha256, char(10) ORDER BY name) " ..
     "FROM web_assets), '') || char(10) || " ..
     "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) ORDER BY path) " ..
-    "FROM files WHERE path GLOB 'static/*'), '') || char(10) || ?1 || " ..
+    "FROM files WHERE " .. AnalysisSchema.static_files("path") .. "), '') || char(10) || ?1 || " ..
     "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
 end
 
@@ -512,19 +512,21 @@ end
 
 --- Drops the rows of `compressed` that this write cannot use: another
 --- core's, another [`mime_digest`]'s, and those of a file the tree no
---- longer holds as it was (the path and the SHA-256 name a row).
+--- longer holds as it was (the file's path in the tree and the SHA-256 name a
+--- row).
 local prune_compressed <const> =
   "DELETE FROM compressed WHERE core <> " .. deflating_core ..
-  " OR rules <> ?1 OR NOT EXISTS (SELECT 1 FROM files f WHERE f.path = 'static/' || compressed.path " ..
+  " OR rules <> ?1 OR NOT EXISTS (SELECT 1 FROM files f WHERE f.path = compressed.path " ..
   "AND f.sha256 = compressed.sha256)"
 
---- Writes the files under `static/` as the `payload` rows a program reads
---- them from: the path below `static/`, the bytes, their SHA-256 as staged,
+--- Writes the static assets ([`AnalysisSchema.static_asset`]) as the
+--- `payload` rows a program reads them from: the program each is for, the
+--- path below its `static/`, the bytes, their SHA-256 as staged,
 --- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] and zstd
 --- [`Mime.zstd`] find worth keeping. All are functions of the path and bytes
 --- alone, so the projection stays a function of the tree.
 ---
---- The pair is kept in `compressed` by path, SHA-256, the rules
+--- The pair is kept in `compressed` by the file's path in the tree, SHA-256, the rules
 --- ([`mime_digest`]) and the core that compressed it, as `deflated` keeps a
 --- source's, so a write compresses only a file whose bytes are new; a cached
 --- row is what [`Mime.gzip`] and [`Mime.zstd`] would give, so the projection
@@ -536,11 +538,11 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
     return false, prune_trouble
   end
   local files, trouble = Sqlite.text_rows(db,
-    "SELECT substr(f.path, 8), f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd, " ..
+    "SELECT f.path, f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd, " ..
       "c.gzip IS NULL, c.zstd IS NULL " ..
-      "FROM files f LEFT JOIN compressed c ON c.path = substr(f.path, 8) AND c.sha256 = f.sha256 " ..
+      "FROM files f LEFT JOIN compressed c ON c.path = f.path AND c.sha256 = f.sha256 " ..
       "AND c.rules = ?1 AND c.core = " .. deflating_core ..
-      " WHERE f.path GLOB 'static/*' ORDER BY f.path", { text(rules) })
+      " WHERE " .. AnalysisSchema.static_files("f.path") .. " ORDER BY f.path", { text(rules) })
   if files == nil then
     return false, trouble
   end
@@ -548,7 +550,12 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
   -- variant is NULL (not worth compressing) is asked of SQLite in columns 7
   -- and 8; read as "", it would ship as an empty encoding.
   for _, row in ipairs(files) do
-    local path, data, sha256 = row:text(1), row:text(2), row:text(3)
+    local file, data, sha256 = row:text(1), row:text(2), row:text(3)
+    local asset = AnalysisSchema.static_asset(file)
+    if asset == nil then
+      return false, file .. ": the condition the rows were read by holds a file that is no static asset"
+    end
+    local program, path = asset.program, asset.path
     local null: Sqlite.Value = {}
     local packed: string? = nil
     local zstd: string? = nil
@@ -569,22 +576,22 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
         local kept, kept_trouble = Sqlite.run(db,
           "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
             "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
-          { text(path), text(sha256), text(rules),
+          { text(file), text(sha256), text(rules),
             if packed ~= nil then blob(packed) else null end,
             if zstd ~= nil then blob(zstd) else null end })
         if not kept then
-          return false, "static/" .. path .. ": " .. kept_trouble
+          return false, file .. ": " .. kept_trouble
         end
       end
     end
     local ok, failure = Sqlite.run(db,
-      "INSERT INTO out.payload (path, data, sha256, type, gzip, zstd) " ..
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      "INSERT INTO out.payload (program, path, data, sha256, type, gzip, zstd) " ..
+        "VALUES (?7, ?1, ?2, ?3, ?4, ?5, ?6)",
       { text(path), blob(data), text(sha256), text(Mime.of(path)),
         if packed ~= nil then blob(packed) else null end,
-        if zstd ~= nil then blob(zstd) else null end })
+        if zstd ~= nil then blob(zstd) else null end, text(program) })
     if not ok then
-      return false, "static/" .. path .. ": " .. failure
+      return false, file .. ": " .. failure
     end
   end
   return true, ""
@@ -1310,7 +1317,7 @@ local carry: {string} = {
   "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",
   "INSERT INTO main.members SELECT * FROM whole.members ORDER BY module, ordinal",
   "INSERT INTO main.origins SELECT * FROM whole.origins ORDER BY module",
-  "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
+  "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY program, path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",
   "INSERT INTO main.web_assets SELECT * FROM whole.web_assets ORDER BY name",

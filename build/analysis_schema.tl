@@ -26,18 +26,50 @@ local record analysis_schema
   --- came from: rows in them are only ever as right as the code that
   --- derived them.
   mut tables: {string}
+
+  --- A static asset ([`analysis_schema.static_asset`]).
+  record StaticAsset
+    --- The program it is for: "" for one under `static/`, every program's, and `<name>` for one under
+    --- `cmd/<name>/static/`.
+    program: string
+    --- Its path below that `static/` ("css/app.css").
+    path: string
+  end
 end
 
 --- Where a build reads no module from, as `GLOB` patterns of a path
---- below the root: a site's static files, and the programs a `testdata`
---- directory holds for other projects. The `inputs` view leaves the Teal
---- there out, and [`build.derivation`] the templates.
-local apart <const>: {string} = { "static/*", "testdata/*", "*/testdata/*" }
+--- below the root: the programs a `testdata` directory holds for other
+--- projects. A static asset ([`analysis_schema.static_asset`]) is none
+--- either. The `inputs` view leaves the Teal there out, and
+--- [`build.derivation`] the templates.
+local apart <const>: {string} = { "testdata/*", "*/testdata/*" }
+
+--- The static asset ([`cosmic.layout`]'s `static`) the file `path`, below
+--- the root, is, or nil when it is none: `static/css/app.css` is the asset
+--- `css/app.css` of every program, whose program is "", and
+--- `cmd/spam/static/css/app.css` is the asset `css/app.css` of `spam` alone,
+--- which it holds in place of the other.
+function analysis_schema.static_asset(path: string): analysis_schema.StaticAsset?
+  if path:sub(1, 7) == "static/" and #path > 7 then return { program = "", path = path:sub(8) } end
+  local name, asset = path:match("^cmd/([^/]+)/static/(.+)$")
+  if name ~= nil and asset ~= nil then return { program = name, path = asset } end
+  return nil
+end
+
+--- The SQL condition under which the path in `column` is a static asset, as
+--- [`analysis_schema.static_asset`] says: under `static/`, or under
+--- `static/` of a directory directly under `cmd/`.
+function analysis_schema.static_files(column: string): string
+  local rest = "substr(" .. column .. ", 5)"
+  return "(" .. column .. " GLOB 'static/?*' OR (" .. column .. " GLOB 'cmd/?*/static/?*' AND instr(" .. rest ..
+    ", '/') = instr(" .. rest .. ", '/static/')))"
+end
 
 --- The SQL that holds the path in `column` outside every pattern of
---- [`apart`], an `AND <column> NOT GLOB '<pattern>'` each.
+--- [`apart`], an `AND <column> NOT GLOB '<pattern>'` each, and outside the
+--- static assets.
 function analysis_schema.outside_apart(column: string): string
-  local out: mut {string} = {}
+  local out: mut {string} = { "AND NOT " .. analysis_schema.static_files(column) }
   for _, pattern in ipairs(apart) do
     out[#out + 1] = "AND " .. column .. " NOT GLOB '" .. pattern .. "'"
   end
@@ -50,10 +82,11 @@ local function globbed(glob: string, path: string): boolean
 end
 
 --- Whether a build reads the file `path`, a path below the root, as a
---- module: Teal or a template, outside [`apart`], each
+--- module: Teal or a template, no static asset, and outside [`apart`], each
 --- pattern matched as `GLOB` matches it, its `*` any run of characters.
 function analysis_schema.is_module_file(path: string): boolean
   if path:match("%.tl$") == nil and path:match("%.tmpl$") == nil then return false end
+  if analysis_schema.static_asset(path) ~= nil then return false end
   for _, pattern in ipairs(apart) do
     if globbed(pattern, path) then return false end
   end

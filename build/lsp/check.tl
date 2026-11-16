@@ -534,7 +534,7 @@ local function checked_of(checker: Checker, document: Document): Checked
   -- A document the refusal names is told that alone, at its first line ([`source.refusal`]); every other is told the stage's
   -- text before what its own check finds. A file the build does not read is told none, as the refusal is not of it: a fixture
   -- under `testdata/` ([`build.tree_program.skipped`]), and, not checked here at all, a file of a tree of its own ([`apart`]) such
-  -- as `ci/` from the root, one that is no module file (`static/`), and one outside the root ([`unread`]).
+  -- as `ci/` from the root, one that is no module file (a static asset), and one outside the root ([`unread`]).
   local told = source.refusal(checker.source, document.name, text)
   local banner = source.banner(checker.source)
   local function with_banner(found: {plan.Refusal}): {plan.Refusal}
