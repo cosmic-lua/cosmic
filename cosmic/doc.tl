@@ -1570,8 +1570,8 @@ end
 -- TODO: answer, for a `cmd/<name>/main.tl` run from its source, as that
 -- program built would ([`build.embed`]): the documentation of what it
 -- carries, and its own guides in place of the project's. Run from source it
--- answers for the whole project's last build. It waits on the run recording
--- which program it is, which a source run does not yet.
+-- answers for the whole project's last build, though the run records which
+-- program it is ([`cosmic.internal.source_run`]'s `main`). Nothing blocks it.
 function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command}): Doc.View?, string
   local documented: mut {Sqlite.Handle} = {}
   local public: mut {boolean} = {}
