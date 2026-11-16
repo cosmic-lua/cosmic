@@ -81,15 +81,30 @@ local function test_refusals_name_where()
   assert(why == "xml: line 1, column 10: duplicate attribute", why)
 end
 
---- The billion laughs: expat's amplification limit refuses the expansion
---- before it is built.
-local function test_entity_expansion_is_bounded()
+--- The billion laughs: nine entities, each ten references to the one
+--- before, the last 3 GB of "lol" once expanded.
+local function laughs(): string
   local lines: mut {string} = { '<!DOCTYPE l [<!ENTITY l0 "lol">' }
   for i = 1, 9 do
     lines[#lines + 1] = string.format('<!ENTITY l%d "%s">', i, string.rep("&l" .. tostring(i - 1) .. ";", 10))
   end
   lines[#lines + 1] = "]><l>&l9;</l>"
-  local why = refused(table.concat(lines))
+  return table.concat(lines)
+end
+
+--- The billion laughs: expat's amplification limit refuses the expansion
+--- before it is built.
+local function test_entity_expansion_is_bounded()
+  local why = refused(laughs())
+  assert(why:match("amplification") ~= nil, why)
+end
+
+--- The amplification limit refuses an entity from its size before
+--- expanding it: none of the text reaches the parser, so a text limit
+--- below the limit's 8 MiB threshold is never met. Expat before 2.10.0
+--- expanded until the limit tripped, and met this one first.
+local function test_entity_expansion_is_refused_before_any_text()
+  local why = refused(laughs(), { max_text = 1 << 20 })
   assert(why:match("amplification") ~= nil, why)
 end
 
