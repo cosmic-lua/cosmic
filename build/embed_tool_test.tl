@@ -1724,7 +1724,8 @@ local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: 
   local opening = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", "float" })
   assert(opening.code == 0 and opening.stdout:find("doc.guides.opening", 1, true) ~= nil,
     opening.stdout .. opening.stderr)
-  for _, query in ipairs({ "Scrambling", "hens", "eggs" }) do
+  -- Nor a code of the checker, which the tool documents and no built program carries.
+  for _, query in ipairs({ "Scrambling", "hens", "eggs", "not_assignable" }) do
     local missed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", query })
     assert(missed.code == 2 and missed.stdout == "" and
         missed.stderr:find("nothing named or documented as '" .. query .. "'", 1, true) ~= nil,
