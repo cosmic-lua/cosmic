@@ -206,24 +206,48 @@ local record Readable
 end
 
 --- The modules `source`, the text of the module file `file`, names as the `pages` of a [`Flags.Documented`]: each
---- string literal written as the `pages` field of a table literal, as `{ pages = "commands" }` names `commands`,
---- whether the table is an argument of [`Flags.dispatch`] itself or a local it is handed. Such a name reaches its
---- module by no `require`, so [`embed.database`] carries and documents it beside the closure of main. A field of
---- that name in a table that is no `Documented`, naming a module of the project, carries and documents that module
---- all the same. A file that does not parse names none.
+--- string written as the `pages` field of a table literal (`{ pages = "commands" }`), or held there by a local the
+--- file binds to a string (`local PAGES <const> = "commands"`, then `{ pages = PAGES }`); the fields of a
+--- `Documented` are fixed, so no later assignment sets one. Such a name reaches its module by no `require`, so
+--- [`embed.database`] carries and documents it beside the closure of main. A field of that name in a table that is
+--- no `Documented`, naming a module of the project, has that module carried and documented all the same, as has each
+--- string a local of that name is bound to anywhere in the file, whatever its scope. A name made at run time, or held
+--- by another module, names none: it is not known before the program runs. A file that does not parse names none.
 ---
---- TODO: follow a `pages` that is no string literal in a table literal (a
---- constant, a name built at run time, `documented.pages = "x"`): the
---- program carries no module for it, and its commands have no page, which
---- the build does not say. It waits on the checker telling the build the
---- value a `Documented` table's `pages` holds.
+--- TODO: follow a name another module holds (`{ pages = Names.pages }`):
+--- the program carries no module for it, and the build does not say. It
+--- waits on the checker telling the build the value of another module's
+--- field.
 local function pages_named(source: string, file: string): {string}
   local chunk, _ = SyntaxNode.parse(source, file, "tl")
   local out: mut {string} = {}
   if chunk == nil then return out end
+  -- The strings each local name is bound to where a string literal is its value (`local name = "text"`), every
+  -- such binding of the name in the file; one bound to anything else adds nothing.
+  local bound: mut {string: mut {string}} = {}
   SyntaxNode.walk(chunk, function(node: Ast.Node)
-    if node.kind == "Named" and node.name == "pages" and node.value.kind == "String" then
-      out[#out + 1] = node.value.value
+    if node.kind == "Local" then
+      for index, binding in ipairs(node.bindings) do
+        local value = node.values[index]
+        if value ~= nil and value.kind == "String" then
+          local strings = bound[binding.name] or {}
+          strings[#strings + 1] = value.value
+          bound[binding.name] = strings
+        end
+      end
+    end
+  end)
+  --- Adds what `value` names: a string, or the strings a local of its name is bound to.
+  local function add(value: Ast.Exp)
+    if value.kind == "String" then
+      out[#out + 1] = value.value
+    elseif value.kind == "Name" then
+      for _, held in ipairs(bound[value.text] or {}) do out[#out + 1] = held end
+    end
+  end
+  SyntaxNode.walk(chunk, function(node: Ast.Node)
+    if node.kind == "Named" and node.name == "pages" then
+      add(node.value)
     end
   end)
   return out
