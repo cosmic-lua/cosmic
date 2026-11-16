@@ -11,6 +11,10 @@ local record source_run
   --- The project's last build the run attaches, by its absolute path, which [`cosmic.doc`] opens a connection of
   --- its own to, to scope a program's documentation to it (the store's are read-only); nil where `script` is.
   mut projection?: string
+  --- The module the program names as its pages ([`Flags.Documented`]), once [`Flags.dispatch`] is handed one, which
+  --- [`cosmic.errors`] answers an error's guidance from as the program's build carries it; nil before, and in any run
+  --- that is no source run.
+  mut pages?: string
 end
 
 local state: source_run = {}

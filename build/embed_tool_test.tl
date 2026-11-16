@@ -1734,9 +1734,20 @@ local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_
       "",
     }, "\n")))
   end
+  assert(Fs.write(tmp .. "/paged.tl", table.concat({
+    "--- The pages, which no module requires.",
+    "local record paged",
+    "end",
+    "--- Fails, as the pages do.",
+    "function paged.fail(): string?, string",
+    '  return nil, "the till ran out of receipts"',
+    "end",
+    "return paged",
+    "",
+  }, "\n")))
   assert(embed.tree(tmp, true))
   local projection = support.build_dir(tmp) .. "/cosmic.db"
-  local main, built = source_run.main, source_run.projection
+  local main, built, pages = source_run.main, source_run.projection, source_run.pages
   local ok, err = pcall(function()
     source_run.main = "cmd.spam.main"
     source_run.projection = projection
@@ -1754,11 +1765,14 @@ local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_
     assert(support.nth(cataloged, 1):text(1) == "0", "the catalog holds no other program's row")
     assert(Errors.guidance_in(db, "the hens refused their coop") == nil, "no other program's guidance answers")
     assert(Errors.guidance_in(db, "the drawer jammed shut") ~= nil, "its own does")
+    assert(Errors.guidance_in(db, "the till ran out of receipts") == nil, "a module it does not carry answers none")
+    source_run.pages = "paged"
+    assert(Errors.guidance_in(db, "the till ran out of receipts") ~= nil, "the module it names as its pages does")
     source_run.main = nil
     assert(Errors.guidance_in(db, "the hens refused their coop") ~= nil, "every program's answers another run")
     db:close()
   end)
-  source_run.main, source_run.projection = main, built
+  source_run.main, source_run.projection, source_run.pages = main, built, pages
   assert(ok, tostring(err))
 end
 

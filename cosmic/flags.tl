@@ -30,6 +30,7 @@
 --- index -- for [`Flags.dispatch`] and [`Flags.program_help`] alike.
 
 local Distance = require("cosmic.internal.distance")
+local source_run = require("cosmic.internal.source_run")
 local type Doc = require("cosmic.doc")
 
 local record Flags
@@ -1144,6 +1145,10 @@ function Flags.dispatch(argv: {string}, from: integer,
                         documented?: Flags.Documented): Flags.Dispatched?, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
+  end
+  -- The module the program names as its pages, which a run from source answers an error's guidance from.
+  if documented ~= nil and documented.pages ~= nil and source_run.script ~= nil then
+    source_run.pages = documented.pages
   end
   local topics = documented and documented.topics or {}
   local spelled: mut {string: string} = {}

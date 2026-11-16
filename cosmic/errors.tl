@@ -146,10 +146,9 @@ end
 --- would bury the message. A message Lua itself wrote
 --- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
 --- has none: the catalog is for the messages cosmic's own code raises.
---- [`Errors.guidance`] asks each database the store holds in turn. Where `handle` is the project's last build a
---- `cmd/<name>/main.tl` run from its source attaches ([`cosmic.internal.source_run`]), only the rows of the modules
---- the program carries built answer ([`build.embed`]): those its main requires, directly or not, and those under its
---- own `cmd/<name>/`, as its build carries their catalog and no other program's.
+--- [`Errors.guidance`] asks each database the store holds in turn. A program run from its source
+--- (`cosmic cmd/spam/main.tl`) is answered by the rows of the modules it would carry built alone, as the built program
+--- is, and by none of another program's.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   if lua_wrote(message) then
     return nil
@@ -158,7 +157,10 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   if query == nil then
     return nil
   end
-  -- The program's modules, where the run is a program's main run from source and `handle` holds that main.
+  -- The program's modules, where the run is a program's main run from source (cosmic.internal.source_run) and
+  -- `handle` holds that main: those its main requires, directly or not, those under its own `cmd/<name>/`, and the
+  -- module it names as its pages, as build.embed carries them; build.embed and cosmic.doc's scope_to_program hold
+  -- the same rule, which a change to one changes in all. A build that does not hold the main is answered whole.
   local carried = ""
   local main = source_run.main
   local name = if main ~= nil then main:match("^cmd%.([^%.]+)%.main$") else nil end
@@ -167,10 +169,13 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
     local held, _ = Sqlite.text_rows(handle, "SELECT 1 FROM main.modules WHERE path = ?1", { { text = main } })
     if held ~= nil and #held > 0 then
       carried = " AND catalog.module IN (WITH RECURSIVE carried(path) AS (SELECT ?2 UNION SELECT path FROM " ..
-        "main.modules WHERE kind = 'module' AND substr(path, 1, length(?3)) = ?3 UNION SELECT i.requires FROM " ..
+        "main.modules WHERE kind = 'module' AND substr(path, 1, length(?3)) = ?3 UNION SELECT path FROM " ..
+        "main.modules WHERE path = ?4 AND kind = 'module' AND instr('/' || file, '/internal/') = 0 AND " ..
+        "(path NOT GLOB 'cmd.*' OR substr(path, 1, length(?3)) = ?3) UNION SELECT i.requires FROM " ..
         "main.imports i JOIN carried c ON i.path = c.path) SELECT path FROM carried)"
       values[#values + 1] = { text = main }
       values[#values + 1] = { text = "cmd." .. name .. "." }
+      values[#values + 1] = { text = source_run.pages or "" }
     end
   end
   local rows, _ = Sqlite.text_rows(handle,
