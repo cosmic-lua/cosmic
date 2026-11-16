@@ -1575,6 +1575,12 @@ end
 --- stand in for the stored ones in every statement here that does not name its schema. `db` itself for any
 --- other run, and for a database that does not hold the main (the tool's own). Nil and why where the build cannot
 --- be read so.
+--
+-- TODO: scope `examples_fts` and `catalog_fts` too: run from source, an
+-- example is read only of a module the program documents, but ranked by the
+-- whole project's examples, and an error's guidance is matched against every
+-- program's catalog. It waits on `examples` and `catalog` being filled in
+-- `temp` from the program's rows, as `docs` is here.
 local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
   local main = source_run.main
   local projection = source_run.projection
