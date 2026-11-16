@@ -9,6 +9,8 @@ local Headers = require("cosmic.web.headers")
 local Html = require("cosmic.html")
 local Net = require("cosmic.net")
 local Test = require("cosmic.test")
+local source_run = require("cosmic.internal.source_run")
+local sys = require("cosmic.sys")
 local Web = require("cosmic.web")
 
 Test.policy{}
@@ -192,6 +194,35 @@ local function test_the_stream_tells_the_boot_then_what_moved_under_static(tmp: 
     assert(assert(res.stream):close())
   end)
   assert(app.stream_count == 0)
+end
+
+--- Where `static` is left out, the stream follows a program's own
+--- `cmd/<name>/static/` beside `static/` too, as [`Dev.static`] serves it laid
+--- over: a stylesheet edited there is swapped, not reloaded.
+local function test_the_stream_follows_a_programs_own_static_directory(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/static") and Fs.mkdirs(tmp .. "/cmd/spam/static"))
+  put(tmp .. "/static/app.css", "a{}", 1000000)
+  put(tmp .. "/cmd/spam/static/own.css", "b{}", 1000000)
+  local was = assert(Fs.absolute("."))
+  local main = source_run.main
+  local ok, err = pcall(function()
+    assert(sys.chdir(tmp))
+    source_run.main = "cmd.spam.main"
+    local app = Dev.app({ routes = { Dev.static("/static", { enabled = true }) }, sink = quiet() },
+      { enabled = true, interval_ns = 5000000, boot = "7" })
+    Web.with_client(app, function(client: Web.TestClient)
+      assert(get(client, "/static/own.css").body == "b{}" and get(client, "/static/app.css").body == "a{}")
+      local res = get(client, "/_web/dev/events", { stream = true })
+      read_until(res, "data: 7")
+      put(tmp .. "/cmd/spam/static/own.css", "b{color:red}", 1000001)
+      local css = read_until(res, "event: css")
+      assert(css:find("own.css", 1, true) ~= nil and not css:find("event: reload", 1, true), css)
+      assert(assert(res.stream):close())
+    end)
+  end)
+  source_run.main = main
+  assert(sys.chdir(was))
+  assert(ok, tostring(err))
 end
 
 local function test_a_stream_ends_when_the_app_stops(tmp: string)

@@ -4,6 +4,8 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
+local source_run = require("cosmic.internal.source_run")
+local sys = require("cosmic.sys")
 
 Test.policy{}
 
@@ -140,6 +142,44 @@ local function test_default_of_a_built_program_serves_only_what_it_carries(tmp: 
     local dev = Assets.default({ dev = true, root = tmp, log = logged })
     assert(assert(dev:get("a.txt")).data == "x", "dev still reads the directory")
   end)
+end
+
+--- From disk, with no root given, a program's own `cmd/<name>/static/` is
+--- laid over `static/`, as a built one carries them: in dev, and for a
+--- `cmd/<name>/main.tl` run from its source, which the run records. A root
+--- given is read alone, and a run that is no program's main reads
+--- `static/` alone.
+local function test_default_lays_a_programs_own_directory_over_static_from_disk(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/static"))
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/static"))
+  assert(Fs.write(tmp .. "/static/app.css", "shared"))
+  assert(Fs.write(tmp .. "/static/logo.png", "logo"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/app.css", "spam's"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/only.txt", "spam alone"))
+  local was = assert(Fs.absolute("."))
+  local main = source_run.main
+  local lines: mut {string} = {}
+  local logged = function(text: string) lines[#lines + 1] = text end
+  local ok, err = pcall(function()
+    assert(sys.chdir(tmp))
+    source_run.main = "cmd.spam.main"
+    as_program("", function()
+      for _, source in ipairs({ Assets.default({ dev = true }), Assets.default({ log = logged }) }) do
+        assert(assert(source:get("app.css")).data == "spam's" and assert(source:get("logo.png")).data == "logo")
+        assert(assert(source:get("only.txt")).data == "spam alone")
+        assert(table.concat(source:paths(), " ") == "app.css logo.png only.txt", table.concat(source:paths(), " "))
+      end
+      assert(#lines == 1 and lines[1]:find('"cmd/spam/static" over "static"', 1, true) ~= nil, lines[1])
+      local given = Assets.default({ dev = true, root = "static" })
+      assert(assert(given:get("app.css")).data == "shared" and given:get("only.txt") == nil, "a root given is read alone")
+      source_run.main = "notes"
+      local other = Assets.default({ dev = true })
+      assert(assert(other:get("app.css")).data == "shared" and other:get("only.txt") == nil, "no program, no overlay")
+    end)
+  end)
+  source_run.main = main
+  assert(sys.chdir(was))
+  assert(ok, tostring(err))
 end
 
 local function test_directory_refuses_a_hidden_file_as_paths_does(tmp: string)

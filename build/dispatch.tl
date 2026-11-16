@@ -569,7 +569,10 @@ local function run(file: string, argv: {string}): integer
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
   -- What [`Proc.relaunch`] answers as `script`, so the program can start itself again.
-  require("cosmic.internal.source_run").script = tree_root.file
+  local source_run = require("cosmic.internal.source_run")
+  source_run.script = tree_root.file
+  -- What [`Assets.default`] reads to serve a program's own `cmd/<name>/static/` from disk, as a built one carries it.
+  source_run.main = name
   local load_module = require("build.load_module")
   local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then

@@ -34,8 +34,9 @@
 --- `cosmic app.tl`, compares the files' sizes and times every 300 ms, and
 --- replaces the process on a change, SIGTERM first, so the app's graceful
 --- stop runs. Templates compile into modules when the tree is built, so a
---- restart is what a template edit needs; files under `static/` are served
---- from disk and so never restart anything. Files the supervisor does not
+--- restart is what a template edit needs; files under `static/`, and under
+--- a program's own `cmd/<name>/static/`, are served from disk and so never
+--- restart anything. Files the supervisor does not
 --- follow into (`node_modules`, build output) are named in `ignore`.
 --- @public
 
@@ -64,7 +65,8 @@ local record Dev
     --- `1`, and for nothing else).
     enabled?: boolean
     --- The directory the page's stylesheets come from and whose changes
-    --- the browser follows ("static" by default).
+    --- the browser follows ("static" by default, with the program's own
+    --- `cmd/<name>/static/` beside it: [`Assets.own_static`]).
     static?: string
     --- How often the open event streams look at `static` (250 ms by
     --- default).
@@ -92,8 +94,10 @@ local record Dev
     --- against a file's or directory's name, one with it against its path
     --- from the watched directory, and one that begins with "/" against
     --- that path from its start. By default the hidden files, databases
-    --- and their journals, editors' backups, `node_modules` and the root's
-    --- `static` directory (see `static`). Giving `ignore` replaces that list.
+    --- and their journals, editors' backups, `node_modules`, the root's
+    --- `static` directory (see `static`) and, where `static` is left out,
+    --- each program's own `cmd/<name>/static`. Giving `ignore` replaces that
+    --- list.
     ignore?: {string}
     --- The directory (from the watched root) whose changes the browser
     --- follows without a restart and the default `ignore` leaves out:
@@ -391,9 +395,8 @@ end
 -- per interval; replace them with one shared scanner (or the inotify
 -- binding at the TODO above) that feeds every stream.
 --- The stream a page's script listens to: the process's boot token first,
---- then what moves under `static`.
-local function events(req: Types.Request, boot: string, static: string, interval_ns: integer): Types.Response
-  local roots = { static }
+--- then what moves under the directories of `roots`.
+local function events(req: Types.Request, boot: string, roots: {string}, interval_ns: integer): Types.Response
   local ignored = ignorer({ ".*" })
   local first, _ = scan(roots, ignored, true)
   local source: Watch = {
@@ -454,7 +457,7 @@ end
 --- The middleware of development mode: the script, its event stream, and
 --- the tag in the pages. The two paths answer only a host the app trusts;
 --- a page already swapped in by htmx (`HX-Request`) gets no second tag.
-local function reload(boot: string, static: string, interval_ns: integer): Types.Middleware
+local function reload(boot: string, static: {string}, interval_ns: integer): Types.Middleware
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
       local ours = req.method == "GET" and (req.path == "/_web/dev.js" or req.path == "/_web/dev/events")
@@ -502,8 +505,12 @@ function Dev.app(spec: Types.AppSpec, opts?: Dev.Options): Types.App
   if type(spec) ~= "table" then error("web: app takes a table", 2) end
   local given: Dev.Options = opts or {}
   local hosts = spec.trusted_hosts or LOCAL_HOSTS
+  -- The directories whose changes the browser follows: `static`, and where it is left out, the program's own beside it.
+  local followed: mut {string} = { given.static or "static" }
+  local own = if given.static == nil then Assets.own_static() else nil end
+  if own ~= nil then followed[#followed + 1] = own end
   local stack: mut {Types.Middleware} = {
-    reload(boot_of(opts), given.static or "static", given.interval_ns or DEFAULT_INTERVAL_NS),
+    reload(boot_of(opts), followed, given.interval_ns or DEFAULT_INTERVAL_NS),
   }
   for _, layer in ipairs(spec.middleware or {}) do stack[#stack + 1] = layer end
   return App.new({
@@ -517,7 +524,9 @@ end
 
 --- A route serving `static/` under `prefix` ("/static" by default),
 --- named "static" ([`StaticFiles.mount`]): from disk and never cached in
---- development mode, the program's own files otherwise.
+--- development mode, the program's own files otherwise. From disk, a
+--- program's own `cmd/<name>/static/` is laid over `static/` where
+--- `opts.static` is left out, as [`Assets.default`] lays it.
 --- @param prefix string | nil Where the files are mounted
 --- @param opts Options | nil Whether development mode is on, and where `static` is
 --- @return Types.Route The route
@@ -525,9 +534,9 @@ function Dev.static(prefix?: string, opts?: Dev.Options): Types.Route
   checked_options(opts, 3)
   local mount = prefix or "/static"
   if not is_enabled(opts) then return StaticFiles.mount(mount) end
-  local root = opts and opts.static or "static"
   return StaticFiles.mount(mount, {
-    source = Assets.directory(root), cache_control = "no-store", immutable_control = "no-store",
+    source = Assets.default({ dev = true, root = opts and opts.static }), cache_control = "no-store",
+    immutable_control = "no-store",
   })
 end
 
@@ -577,6 +586,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
     local built: mut {string} = {}
     for _, glob in ipairs(DEFAULT_IGNORE) do built[#built + 1] = glob end
     built[#built + 1] = "/" .. (given.static or "static")
+    if given.static == nil then built[#built + 1] = "/cmd/*/static" end
     ignore = built
   end
   local ignored = ignorer(ignore)

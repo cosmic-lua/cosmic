@@ -82,7 +82,8 @@ local record Layout
   --- A file under a program's own `cmd/<name>/static/` is that program's
   --- alone: `cmd/spam/static/css/app.css` is the asset `css/app.css` of
   --- `spam`, which it carries in place of `static/css/app.css`, and no other
-  --- program carries it. Such a `static/` directory is never a module
+  --- program carries it. Run from its source (`cosmic cmd/spam/main.tl`), a
+  --- program serves the same files from disk, its own laid over the shared. Such a `static/` directory is never a module
   --- namespace: a `.tl` or `.tmpl` under it is an asset, not a module, so it
   --- is not compiled, tested or required. There is no configuration: a mount's URL is named in the
   --- router, not in the file layout. The build refuses a file past 16 MiB,
