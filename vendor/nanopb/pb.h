@@ -57,6 +57,16 @@
 /* #define PB_C99_STATIC_ASSERT 1 */
 /* #define PB_NO_STATIC_ASSERT 1 */
 
+/* Limit for depth of recursive message structure */
+/* #define PB_MESSAGE_NESTING_MAX 10 */
+
+/* Enable support for legacy callbacks inside oneofs when decoding.
+ * Depending on message structure, this may be unsafe if decoded data
+ * is untrusted. This is disabled by default since nanopb-0.4.9.3.
+ * Prefer using submsg_callback, no_unions or callback_function generator
+ * options instead. See GHSA-p24j-vqcp-x988 for details. */
+/* #define PB_ENABLE_UNSAFE_DECODE_ONEOF_CALLBACKS 1 */
+
 /******************************************************************
  * You usually don't need to change anything below this line.     *
  * Feel free to look around and use the defined macros, though.   *
@@ -65,7 +75,7 @@
 
 /* Version of the nanopb library. Just in case you want to check it in
  * your own program. */
-#define NANOPB_VERSION "nanopb-0.4.9.1"
+#define NANOPB_VERSION "nanopb-0.4.9.3"
 
 /* Include all the system headers needed by nanopb. You will need the
  * definitions of the following:
@@ -127,13 +137,17 @@ extern "C" {
 #endif
 
 /* Detect endianness */
+#if !defined(CHAR_BIT) && defined(__CHAR_BIT__)
+#define CHAR_BIT __CHAR_BIT__
+#endif
+
 #ifndef PB_LITTLE_ENDIAN_8BIT
 #if ((defined(__BYTE_ORDER) && __BYTE_ORDER == __LITTLE_ENDIAN) || \
      (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__) || \
       defined(__LITTLE_ENDIAN__) || defined(__ARMEL__) || \
       defined(__THUMBEL__) || defined(__AARCH64EL__) || defined(_MIPSEL) || \
       defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM)) \
-     && CHAR_BIT == 8
+     && defined(CHAR_BIT) && CHAR_BIT == 8
 #define PB_LITTLE_ENDIAN_8BIT 1
 #endif
 #endif
@@ -374,7 +388,14 @@ PB_STATIC_ASSERT(sizeof(uint64_t) == 2 * sizeof(uint32_t), UINT64_T_WRONG_SIZE)
  * Note that actual structs used will have a different length of bytes array.
  */
 #define PB_BYTES_ARRAY_T(n) struct { pb_size_t size; pb_byte_t bytes[n]; }
-#define PB_BYTES_ARRAY_T_ALLOCSIZE(n) ((size_t)n + offsetof(pb_bytes_array_t, bytes))
+/* Size to allocate for a bytes array holding n bytes. Never less than the
+ * struct itself, so a pb_bytes_array_t pointer into the allocation stays
+ * inside it for small n (gcc -Warray-bounds complains otherwise).
+ */
+#define PB_BYTES_ARRAY_T_ALLOCSIZE(n) \
+    (((size_t)(n) + offsetof(pb_bytes_array_t, bytes)) < sizeof(pb_bytes_array_t) \
+        ? sizeof(pb_bytes_array_t) \
+        : ((size_t)(n) + offsetof(pb_bytes_array_t, bytes)))
 
 struct pb_bytes_array_s {
     pb_size_t size;
@@ -759,20 +780,20 @@ struct pb_extension_s {
  */
 
 #define PB_FIELDINFO_1(tag, type, data_offset, data_size, size_offset, array_size) \
-    (0 | (((tag) << 2) & 0xFF) | ((type) << 8) | (((uint32_t)(data_offset) & 0xFF) << 16) | \
+    (0 | (((uint32_t)(tag) << 2) & 0xFF) | ((type) << 8) | (((uint32_t)(data_offset) & 0xFF) << 16) | \
      (((uint32_t)(size_offset) & 0x0F) << 24) | (((uint32_t)(data_size) & 0x0F) << 28)),
 
 #define PB_FIELDINFO_2(tag, type, data_offset, data_size, size_offset, array_size) \
-    (1 | (((tag) << 2) & 0xFF) | ((type) << 8) | (((uint32_t)(array_size) & 0xFFF) << 16) | (((uint32_t)(size_offset) & 0x0F) << 28)), \
+    (1 | (((uint32_t)(tag) << 2) & 0xFF) | ((type) << 8) | (((uint32_t)(array_size) & 0xFFF) << 16) | (((uint32_t)(size_offset) & 0x0F) << 28)), \
     (((uint32_t)(data_offset) & 0xFFFF) | (((uint32_t)(data_size) & 0xFFF) << 16) | (((uint32_t)(tag) & 0x3c0) << 22)),
 
 #define PB_FIELDINFO_4(tag, type, data_offset, data_size, size_offset, array_size) \
-    (2 | (((tag) << 2) & 0xFF) | ((type) << 8) | (((uint32_t)(array_size) & 0xFFFF) << 16)), \
+    (2 | (((uint32_t)(tag) << 2) & 0xFF) | ((type) << 8) | (((uint32_t)(array_size) & 0xFFFF) << 16)), \
     ((uint32_t)(int_least8_t)(size_offset) | (((uint32_t)(tag) << 2) & 0xFFFFFF00)), \
     (data_offset), (data_size),
 
 #define PB_FIELDINFO_8(tag, type, data_offset, data_size, size_offset, array_size) \
-    (3 | (((tag) << 2) & 0xFF) | ((type) << 8)), \
+    (3 | (((uint32_t)(tag) << 2) & 0xFF) | ((type) << 8)), \
     ((uint32_t)(int_least8_t)(size_offset) | (((uint32_t)(tag) << 2) & 0xFFFFFF00)), \
     (data_offset), (data_size), (array_size), 0, 0, 0,
 
