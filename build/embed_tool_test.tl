@@ -476,6 +476,59 @@ local function test_each_program_carries_only_what_its_main_requires(tmp: string
   assert(examples == "0", "no example of a module it does not carry: " .. examples)
 end
 
+--- A module a carried one names by a string literal as its `pages`, which no `require` reaches, is carried with
+--- what it requires and documented, wherever it sits (here in a closed directory, whose module is no public one),
+--- so the commands it documents keep their pages: named in a table handed to [`Flags.dispatch`] by name, as in the
+--- call itself. Another program's module, and a name the project holds no module of, is no module to carry.
+local function test_a_pages_module_no_module_requires_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.mkdirs(tmp .. "/store"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Flags = require("cosmic.flags")',
+    "return function(argv: {string}): integer",
+    "  local commands: {string:Flags.Command} = { fry = { about = \"fry it\", run = function(_: Flags.Parsed): integer return 0 end } }",
+    '  local documented: Flags.Documented = { pages = "store.pages" }',
+    "  local ran, _ = Flags.dispatch(argv, 1, commands, \"spam\", documented)",
+    '  local _, _ = Flags.dispatch(argv, 1, commands, "spam", { pages = "nowhere" })',
+    '  local _, _ = Flags.dispatch(argv, 1, commands, "spam", { pages = "cmd.eggs.theirs" })',
+    "  if ran == nil then return 2 end",
+    "  if ran.help ~= \"\" then print(ran.help) end",
+    "  return ran.code",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/cmd/eggs/theirs.tl", "--- Eggs's own.\nlocal record theirs\nend\nreturn theirs\n"))
+  assert(Fs.write(tmp .. "/store/init.tl", "--- The store.\nlocal record store\nend\nreturn store\n"))
+  assert(Fs.write(tmp .. "/store/pages.tl", table.concat({
+    "--- Spam's pages, which no module requires.",
+    'local helper = require("store.helper")',
+    "local record pages",
+    "  --- Fries the spam, " .. "golden.",
+    "  fry: integer",
+    "end",
+    "local p: pages = { fry = helper.n }",
+    "return p",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/helper.tl", "local record helper\n  n: integer\nend\nlocal h: helper = { n = 1 }\nreturn h\n"))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules: mut {string} = {}
+  for _, row in ipairs(rows_of(path, "SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")) do
+    modules[#modules + 1] = row:text(1)
+  end
+  assert(table.concat(modules, " ") == "cmd.spam.main store.helper store.pages", table.concat(modules, " "))
+  local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'store.pages' AND symbol = 'pages.fry'")
+  assert(support.nth(documented, 1):text(1) == "1", "the pages module's field is documented")
+  -- Run from its source, it answers so too.
+  local help = verbs_fixture.run(tmp, { "cmd/spam/main.tl", "help", "fry" })
+  assert(help.code == 0 and help.stdout:find("Fries the spam, golden.", 1, true) ~= nil, help.stdout .. help.stderr)
+end
+
 --- A test or example file is only a kind by its name: one the program
 --- itself requires, directly or through another module, is carried,
 --- or the executable would build and then fail to load it.

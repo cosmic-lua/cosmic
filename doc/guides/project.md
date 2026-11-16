@@ -361,10 +361,12 @@ as `cosmic docs` answers for the standard library. `groups`, beside
 
 `cosmic build` puts into each program the modules its main requires,
 directly or through another module, and every module under its own
-`cmd/<name>/` but a test or an example, and no other: one program does not
-carry another's main or what only that one requires. It puts in the
-documentation of those of them that any module may require, and of those
-under the program's own `cmd/<name>/`, so the built file answers alone; a
+`cmd/<name>/` but a test or an example, and the module a table literal
+names by a string as its `pages` (`{ pages = "commands" }`), and no other: one
+program does not carry another's main or what only that one requires. It puts
+in the documentation of those of them that any module may require, of those
+under the program's own `cmd/<name>/`, and of its pages module, so the built
+file answers alone; a
 module under `internal/`, or one a directory other than its own keeps to
 itself, stays out of it. It carries the guides under `doc/guides/`, and a
 guide under `cmd/<name>/doc/guides/` in place of the one of the same name.

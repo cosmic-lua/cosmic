@@ -3,11 +3,12 @@
 --- `cosmic` beside it. The database holds the standard library, the error
 --- catalog, the bill of materials and the name of the main module, and of the
 --- project's modules those its main requires, directly or through another
---- module, and those under its own `cmd/<name>/`, a test or an example aside:
---- no other program's ([`embed.database`]). It holds the
---- project's documentation too, for the program's users to read: the docs,
---- uses, links and examples of the modules it carries that any module may
---- require or that sit under its own `cmd/<name>/` ([`documented_modules`]),
+--- module, those under its own `cmd/<name>/`, a test or an example aside, and
+--- the module it names as its pages ([`pages_named`]): no other program's
+--- ([`embed.database`]). It holds the project's documentation too, for the
+--- program's users to read: the docs, uses, links and examples of the modules
+--- it carries that any module may require, that sit under its own
+--- `cmd/<name>/` or that it names as its pages ([`documented_modules`]),
 --- and the project's guides, a program's own `cmd/<name>/doc/guides/<guide>.md`
 --- among them in place of the project's of the same name.
 ---
@@ -36,6 +37,8 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local GrammarMode = require("build.grammar_mode")
+local type Ast = require("lang.ast")
+local SyntaxNode = require("build.syntax_node")
 local importer = require("build.importer")
 local rebuild_lock = require("build.rebuild_lock")
 local exit_status = require("build.exit_status")
@@ -202,6 +205,30 @@ local record Readable
   own_guide_prefix: string
 end
 
+--- The modules `source`, the text of the module file `file`, names as the `pages` of a [`Flags.Documented`]: each
+--- string literal written as the `pages` field of a table literal, as `{ pages = "commands" }` names `commands`,
+--- whether the table is an argument of [`Flags.dispatch`] itself or a local it is handed. Such a name reaches its
+--- module by no `require`, so [`embed.database`] carries and documents it beside the closure of main. A field of
+--- that name in a table that is no `Documented`, naming a module of the project, carries and documents that module
+--- all the same. A file that does not parse names none.
+---
+--- TODO: follow a `pages` that is no string literal in a table literal (a
+--- constant, a name built at run time, `documented.pages = "x"`): the
+--- program carries no module for it, and its commands have no page, which
+--- the build does not say. It waits on the checker telling the build the
+--- value a `Documented` table's `pages` holds.
+local function pages_named(source: string, file: string): {string}
+  local chunk, _ = SyntaxNode.parse(source, file, "tl")
+  local out: mut {string} = {}
+  if chunk == nil then return out end
+  SyntaxNode.walk(chunk, function(node: Ast.Node)
+    if node.kind == "Named" and node.name == "pages" and node.value.kind == "String" then
+      out[#out + 1] = node.value.value
+    end
+  end)
+  return out
+end
+
 --- The prefix of the import paths under the program `main`'s own
 --- `cmd/<name>/` ("cmd.spam."), or nil when `main` is no `cmd.<name>.main`.
 local function own_prefix(main: string): string?
@@ -215,15 +242,17 @@ end
 --- records as public, and each module under the program's own
 --- `cmd/<name>/` but the main itself, a test, an example and one under an
 --- `internal/` directory: only that program can require them, so its users
---- read them as they read a public one. And each guide, a Markdown file
+--- read them as they read a public one; and each it names as its pages
+--- ([`pages_named`]) wherever it sits, which the program names to be read. And each guide, a Markdown file
 --- directly under `doc/guides/` or the program's own `cmd/<name>/doc/guides/`,
 --- its own in place of one of the project's of the same name.
-local function documented_modules(out: Sqlite.Handle, main: string, own: string): Readable?, string
+local function documented_modules(out: Sqlite.Handle, main: string, own: string, paged: {string}): Readable?, string
   local rows, trouble = Sqlite.text_rows(out,
     "SELECT m.path, p.file, m.path IN (SELECT path FROM project.public_modules) FROM main.modules m " ..
       "JOIN project.modules p ON p.path = m.path WHERE m.path IN (SELECT path FROM project.public_modules) OR " ..
-      "(substr(m.path, 1, length(?1)) = ?1 AND m.path <> ?2 AND p.kind = 'module') ORDER BY m.path",
-    { text(own), text(main) })
+      "(substr(m.path, 1, length(?1)) = ?1 AND m.path <> ?2 AND p.kind = 'module') OR " ..
+      "(m.path IN carray(?3) AND p.kind = 'module') ORDER BY m.path",
+    { text(own), text(main), { texts = paged } })
   if rows == nil then
     return nil, trouble
   end
@@ -505,26 +534,74 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- example is a root beside main, whether main requires it or not: no
     -- other program may require it, and a module [`Flags.Documented`]'s
     -- `pages` names by a string alone is often one.
-    -- TODO: say so where a `pages` module outside `cmd/<name>/` that the
-    -- program does not carry leaves its commands with no page, which now
-    -- happens silently. It waits on the build reading the `pages` of a
-    -- [`Flags.dispatch`] call, a string it does not read yet.
+    -- A module a carried one names as the `pages` of a `.dispatch` call
+    -- ([`pages_named`]) is a root too, with what it requires, until none is
+    -- named that the program does not carry: the call reaches it by a string,
+    -- and without it the commands it documents would have no page.
     local own = own_prefix(main)
     if own == nil then
       return false, main .. " is not a cmd.<name>.main"
     end
-    local carried, carried_trouble = Sqlite.run(out,
-      "WITH RECURSIVE carried(path) AS (SELECT ?1 UNION SELECT path FROM project.modules " ..
-        "WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
-        "UNION SELECT i.requires FROM project.imports i " ..
-        "JOIN carried c ON i.path = c.path) " ..
-        "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
-        "SELECT " .. module_column_list .. " FROM project.modules " ..
-        "WHERE path IN (SELECT path FROM carried) ORDER BY path", { text(main), text(own) })
-    if not carried then
-      return false, carried_trouble
+    local carry = "WITH RECURSIVE carried(path) AS (SELECT value FROM carray(?1) UNION SELECT path FROM " ..
+      "project.modules WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
+      "UNION SELECT i.requires FROM project.imports i " ..
+      "JOIN carried c ON i.path = c.path) " ..
+      "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
+      "SELECT " .. module_column_list .. " FROM project.modules " ..
+      "WHERE path IN (SELECT path FROM carried) ORDER BY path"
+    local pages_roots: mut {string} = { main }
+    local read_list: mut {string} = {}
+    local paged: mut {string} = {}
+    local paged_set: mut {string: boolean} = {}
+    while #pages_roots > 0 do
+      local carried, carried_trouble = Sqlite.run(out, carry, { { texts = pages_roots }, text(own) })
+      if not carried then
+        return false, carried_trouble
+      end
+      local sources, sources_trouble = Sqlite.text_rows(out,
+        "SELECT m.path, p.file, CAST(inflate(p.source) AS TEXT) FROM main.modules m JOIN project.modules p " ..
+          "ON p.path = m.path WHERE length(p.source) > 0 AND m.path NOT IN carray(?1) ORDER BY m.path",
+        { { texts = read_list } })
+      if sources == nil then
+        return false, sources_trouble
+      end
+      local named: mut {string: boolean} = {}
+      for _, row in ipairs(sources) do
+        local path = row:text(1)
+        read_list[#read_list + 1] = path
+        local source = row:text(3)
+        if source:find("pages", 1, true) ~= nil then
+          for _, name in ipairs(pages_named(source, row:text(2))) do named[name] = true end
+        end
+      end
+      pages_roots = {}
+      for name in pairs(named) do
+        -- A module of the project's, and none a program would not carry for its own: no test, no example, no
+        -- module under `internal/` and none of another program's `cmd/<name>/`. [`cosmic.doc`]'s
+        -- `scope_to_program` holds a run from source to the same rule.
+        local held, held_trouble = Sqlite.text_rows(out,
+          "SELECT 1 FROM project.modules WHERE path = ?1 AND kind = 'module' AND " ..
+            "instr('/' || file, '/internal/') = 0 AND (path NOT GLOB 'cmd.*' OR substr(path, 1, length(?2)) = ?2)",
+          { text(name), text(own) })
+        if held == nil then
+          return false, held_trouble
+        end
+        if #held > 0 then
+          if paged_set[name] == nil then
+            paged_set[name] = true
+            paged[#paged + 1] = name
+          end
+          local carried_already, already_trouble = Sqlite.text_rows(out, "SELECT 1 FROM main.modules WHERE path = ?1",
+            { text(name) })
+          if carried_already == nil then
+            return false, already_trouble
+          end
+          if #carried_already == 0 then pages_roots[#pages_roots + 1] = name end
+        end
+      end
+      table.sort(pages_roots)
     end
-    local readable, readable_trouble = documented_modules(out, main, own)
+    local readable, readable_trouble = documented_modules(out, main, own, paged)
     if readable == nil then
       return false, readable_trouble
     end
