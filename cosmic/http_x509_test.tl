@@ -43,15 +43,15 @@ local function certificate(value: string): string
   return der(0x30, tbs .. ecdsa_sha256 .. der(0x03, "\0" .. der(0x30, der(0x02, "\1") .. der(0x02, "\1"))))
 end
 
+-- TODO: check that `SEQUENCE { INTEGER 1 }` reads as cA FALSE, not only
+-- that it reads, once cosmic.http answers a certificate's basicConstraints
+-- or the tests have a TLS server to verify a chain against.
+
 --- A basicConstraints of `cA TRUE`, an empty one, and one of
 --- `SEQUENCE { INTEGER n }` (RFC 5280's pathLenConstraint with no cA)
 --- are read; two INTEGERs, an empty SEQUENCE followed by a `cA TRUE` it
 --- does not hold (which 4.1.0 read as cA TRUE), and bytes after the
 --- SEQUENCE are not.
-
--- TODO: check that `SEQUENCE { INTEGER 1 }` reads as cA FALSE, not only
--- that it reads, once cosmic.http answers a certificate's basicConstraints
--- or the tests have a TLS server to verify a chain against.
 local function test_which_basic_constraints_are_read()
   for label, value in pairs({
       ["cA TRUE"] = "\x30\x03\x01\x01\xff",

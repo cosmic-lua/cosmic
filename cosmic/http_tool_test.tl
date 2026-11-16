@@ -286,6 +286,7 @@ end
   local shown = answer:gsub(".", function(c: string): string
     return ("%02x"):format(assert(c:byte()))
   end)
-  assert(answer:byte(1) == 0x15 and answer:byte(7) == 70,
+  -- An alert record: type 21, a 2-byte body, level fatal (2), protocol_version (70).
+  assert(answer:byte(1) == 0x15 and answer:sub(4, 5) == "\0\2" and answer:byte(6) == 2 and answer:byte(7) == 70,
     "answered " .. shown .. "; the client said: " .. tostring(result.stdout))
 end
