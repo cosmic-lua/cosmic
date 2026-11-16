@@ -1775,6 +1775,26 @@ local function test_a_fixture_is_given_its_legs_promises(tmp: string)
     "the fixture changed the promises it was given")
 end
 
+--- A fixture whose time grows toward its bound is warned of from 75% of
+--- it, before a run fails there: the fixed-point regression gave no sign
+--- until it failed. Its time is said in whole seconds and a share
+--- rounded down.
+local function test_a_fixtures_time_is_said_against_its_bound()
+  local Orchestration = require("cosmic_ci.orchestration")
+  local s = Clock.seconds(1)
+  local under = Orchestration.bound_lines("some-regression", 329 * s + 999, 440 * s)
+  assert(#under == 1 and under[1] == "fixture: some-regression: took 329 s of its 440 s bound (74%)",
+    table.concat(under, "|"))
+  local near = Orchestration.bound_lines("some-regression", 378 * s, 440 * s)
+  assert(#near == 2 and near[1] == "fixture: some-regression: took 378 s of its 440 s bound (85%)",
+    table.concat(near, "|"))
+  assert(near[2]:find("^::warning::fixture some%-regression took 378 s of its 440 s bound %(85%%%)") ~= nil, near[2])
+  assert(#Orchestration.bound_lines("some-regression", 330 * s, 440 * s) == 2, "75% is warned of")
+  local past = Orchestration.bound_lines("some-regression", 500 * s, 440 * s)
+  local first = assert(past[1])
+  assert(first:find("(113%)", 1, true) ~= nil, first)
+end
+
 --- A fixture's figures reach the job's log, each line with the fixture's
 --- name, in the order of their files, and a fixture with none says nothing.
 local function test_a_fixtures_figures_are_said_with_its_name(tmp: string)
