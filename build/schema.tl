@@ -359,7 +359,8 @@ function schema.rebuild(qualifier: string): {string}
       ") VALUES ('rebuild')"
   end
   -- The words of `docs`, whole: `docs_fts` lists only their stems, which are not words to show a reader or to
-  -- search for again. An index of the same text unstemmed, made and dropped here, counts them.
+  -- search for again. An index of the same text unstemmed, made and dropped here, counts them. [`cosmic.doc`]'s
+  -- `scope_to_program` counts a program's words the same way, for a run from source: a change here is one there.
   for _, statement in ipairs({
       "DELETE FROM " .. qualifier .. "docs_words",
       "CREATE VIRTUAL TABLE temp.docs_whole USING fts5(symbol, signature, text, content='', tokenize='unicode61')",

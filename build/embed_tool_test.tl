@@ -1614,7 +1614,7 @@ local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: 
   write_till(tmp)
   assert(Fs.mkdirs(tmp .. "/cmd/eggs/doc/guides"))
   assert(Fs.mkdirs(tmp .. "/cmd/till/doc/guides"))
-  assert(Fs.write(tmp .. "/eggs.tl", "--- Scrambling, which only eggs requires.\nlocal record eggs\nend\nreturn eggs\n"))
+  assert(Fs.write(tmp .. "/eggs.tl", "--- Scrambling, which only eggs requires; it flouts the rules.\nlocal record eggs\nend\nreturn eggs\n"))
   assert(Fs.write(tmp .. "/cmd/eggs/main.tl",
     'local _eggs = require("eggs")\nreturn function(): integer return 0 end\n'))
   assert(Fs.write(tmp .. "/cmd/eggs/doc/guides/closing.md", "# Closing the coop\n\nShut the hens in.\n"))
@@ -1633,8 +1633,14 @@ local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: 
     opening.stdout .. opening.stderr)
   for _, query in ipairs({ "Scrambling", "hens", "eggs" }) do
     local missed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", query })
-    assert(missed.code == 2 and missed.stdout == "", query .. ": " .. missed.stdout .. missed.stderr)
+    assert(missed.code == 2 and missed.stdout == "" and
+        missed.stderr:find("nothing named or documented as '" .. query .. "'", 1, true) ~= nil,
+      query .. ": " .. missed.stdout .. missed.stderr)
   end
+  -- A word only another program's documentation uses is no word of its own: it is put right to one of its own.
+  local respelled = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", "flout" })
+  assert(respelled.code == 0 and respelled.stdout:find("showing 'float'", 1, true) ~= nil and
+      respelled.stdout:find("doc.guides.opening", 1, true) ~= nil, respelled.stdout .. respelled.stderr)
 end
 
 --- A test of the project that asks its program for help reads the documentation of the modules it requires.
