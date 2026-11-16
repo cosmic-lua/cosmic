@@ -476,6 +476,46 @@ local function test_each_program_carries_only_what_its_main_requires(tmp: string
   assert(examples == "0", "no example of a module it does not carry: " .. examples)
 end
 
+--- A module a carried one names only as the `pages` of a `.dispatch` call, which no `require` reaches, is carried
+--- with what it requires and documented, so the commands it documents keep their pages; one named so that the
+--- project does not hold is no module to carry.
+local function test_a_pages_module_no_module_requires_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Flags = require("cosmic.flags")',
+    "return function(argv: {string}): integer",
+    "  local commands: {string:Flags.Command} = { fry = { about = \"fry it\", run = function(_: Flags.Parsed): integer return 0 end } }",
+    '  local ran, _ = Flags.dispatch(argv, 1, commands, "spam", { pages = "pages" })',
+    '  local _, _ = Flags.dispatch(argv, 1, commands, "spam", { pages = "nowhere" })',
+    "  return if ran == nil then 2 else ran.code end",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/pages.tl", table.concat({
+    "--- Spam's pages, which no module requires.",
+    'local helper = require("helper")',
+    "local record pages",
+    "  --- Fries the spam, " .. "golden.",
+    "  fry: integer",
+    "end",
+    "local p: pages = { fry = helper.n }",
+    "return p",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/helper.tl", "local record helper\n  n: integer\nend\nlocal h: helper = { n = 1 }\nreturn h\n"))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules: mut {string} = {}
+  for _, row in ipairs(rows_of(path, "SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")) do
+    modules[#modules + 1] = row:text(1)
+  end
+  assert(table.concat(modules, " ") == "cmd.spam.main helper pages", table.concat(modules, " "))
+  local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'pages' AND symbol = 'pages.fry'")
+  assert(support.nth(documented, 1):text(1) == "1", "the pages module's field is documented")
+end
+
 --- A test or example file is only a kind by its name: one the program
 --- itself requires, directly or through another module, is carried,
 --- or the executable would build and then fail to load it.

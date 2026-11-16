@@ -36,6 +36,10 @@ local clock = require("build.clock")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local GrammarMode = require("build.grammar_mode")
+local type Ast = require("lang.ast")
+local Lexer = require("lang.lexer")
+local Parser = require("lang.parser")
+local SyntaxNode = require("build.syntax_node")
 local importer = require("build.importer")
 local rebuild_lock = require("build.rebuild_lock")
 local exit_status = require("build.exit_status")
@@ -200,6 +204,30 @@ local record Readable
   own_guides: {string}
   --- The prefix of the modules of `own_guides` (`cmd.<name>.doc.guides.`).
   own_guide_prefix: string
+end
+
+--- The modules `source`, the text of the module file `file`, names as the `pages` of a `.dispatch` call
+--- ([`Flags.Documented`]): a string literal as the `pages` field of a table written among the call's arguments,
+--- as `Flags.dispatch(argv, 1, commands, "till", { pages = "commands" })` names `commands`. Such a name reaches its
+--- module by no `require`, so [`embed.database`] carries it beside the closure of main. A file that does not
+--- parse names none.
+local function pages_named(source: string, file: string): {string}
+  local parsed = Parser.parse(Lexer.lex(source, file), file, "tl")
+  local out: mut {string} = {}
+  SyntaxNode.walk(parsed.chunk, function(node: Ast.Node)
+    if node.kind == "Call" and node.callee.kind == "Field" and node.callee.name == "dispatch" then
+      for _, given in ipairs(node.args) do
+        if given.kind == "Table" then
+          for _, item in ipairs(given.items) do
+            if item.kind == "Named" and item.name == "pages" and item.value.kind == "String" then
+              out[#out + 1] = item.value.value
+            end
+          end
+        end
+      end
+    end
+  end)
+  return out
 end
 
 --- The prefix of the import paths under the program `main`'s own
@@ -505,24 +533,56 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- example is a root beside main, whether main requires it or not: no
     -- other program may require it, and a module [`Flags.Documented`]'s
     -- `pages` names by a string alone is often one.
-    -- TODO: say so where a `pages` module outside `cmd/<name>/` that the
-    -- program does not carry leaves its commands with no page, which now
-    -- happens silently. It waits on the build reading the `pages` of a
-    -- [`Flags.dispatch`] call, a string it does not read yet.
+    -- A module a carried one names as the `pages` of a `.dispatch` call
+    -- ([`pages_named`]) is a root too, with what it requires, until none is
+    -- named that the program does not carry: the call reaches it by a string,
+    -- and without it the commands it documents would have no page.
     local own = own_prefix(main)
     if own == nil then
       return false, main .. " is not a cmd.<name>.main"
     end
-    local carried, carried_trouble = Sqlite.run(out,
-      "WITH RECURSIVE carried(path) AS (SELECT ?1 UNION SELECT path FROM project.modules " ..
-        "WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
-        "UNION SELECT i.requires FROM project.imports i " ..
-        "JOIN carried c ON i.path = c.path) " ..
-        "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
-        "SELECT " .. module_column_list .. " FROM project.modules " ..
-        "WHERE path IN (SELECT path FROM carried) ORDER BY path", { text(main), text(own) })
-    if not carried then
-      return false, carried_trouble
+    local carry = "WITH RECURSIVE carried(path) AS (SELECT value FROM carray(?1) UNION SELECT path FROM " ..
+      "project.modules WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
+      "UNION SELECT i.requires FROM project.imports i " ..
+      "JOIN carried c ON i.path = c.path) " ..
+      "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
+      "SELECT " .. module_column_list .. " FROM project.modules " ..
+      "WHERE path IN (SELECT path FROM carried) ORDER BY path"
+    local pages_roots: mut {string} = { main }
+    local read: mut {string: boolean} = {}
+    while #pages_roots > 0 do
+      local carried, carried_trouble = Sqlite.run(out, carry, { { texts = pages_roots }, text(own) })
+      if not carried then
+        return false, carried_trouble
+      end
+      local sources, sources_trouble = Sqlite.text_rows(out,
+        "SELECT m.path, p.file, CAST(inflate(p.source) AS TEXT) FROM main.modules m JOIN project.modules p " ..
+          "ON p.path = m.path WHERE length(p.source) > 0 ORDER BY m.path")
+      if sources == nil then
+        return false, sources_trouble
+      end
+      local named: mut {string: boolean} = {}
+      for _, row in ipairs(sources) do
+        local path = row:text(1)
+        local source = row:text(3)
+        if read[path] == nil then
+          read[path] = true
+          if source:find("pages", 1, true) ~= nil then
+            for _, name in ipairs(pages_named(source, row:text(2))) do named[name] = true end
+          end
+        end
+      end
+      pages_roots = {}
+      for name in pairs(named) do
+        local held, held_trouble = Sqlite.text_rows(out,
+          "SELECT 1 FROM project.modules WHERE path = ?1 AND path NOT IN (SELECT path FROM main.modules)",
+          { text(name) })
+        if held == nil then
+          return false, held_trouble
+        end
+        if #held > 0 then pages_roots[#pages_roots + 1] = name end
+      end
+      table.sort(pages_roots)
     end
     local readable, readable_trouble = documented_modules(out, main, own)
     if readable == nil then
