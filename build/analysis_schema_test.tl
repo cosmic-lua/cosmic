@@ -174,3 +174,29 @@ local function test_support_is_the_top_level_test_directory()
   assert(not analysis_schema.is_support("testdata/x.tl"))
   assert(not analysis_schema.is_support("tests/x.tl"))
 end
+
+--- A static asset is the same file to [`analysis_schema.static_asset`] and to the SQL of
+--- [`analysis_schema.static_files`]: under `static/`, or under `static/` of a directory directly under `cmd/`, and
+--- never the directory alone or a `static/` deeper under a program.
+local function test_the_sql_and_teal_static_assets_agree(_: string)
+  local cases: {{string}} = {
+    { "static/app.css", "", "app.css" }, { "static/css/a.css", "", "css/a.css" },
+    { "cmd/spam/static/app.css", "spam", "app.css" }, { "cmd/a_b/static/x/y.tl", "a_b", "x/y.tl" },
+    { "cmd/spam/static/static/z", "spam", "static/z" },
+    { "static/" }, { "static" }, { "cmd/spam/static/" }, { "cmd/static/x" }, { "cmd//static/x" },
+    { "cmd/spam/sub/static/x" }, { "x/static/y" }, { "Static/y" }, { "cmd/spam/Static/y" },
+  }
+  local db = assert(Sqlite.memory())
+  for _, case in ipairs(cases) do
+    local path = assert(case[1])
+    local asset = analysis_schema.static_asset(path)
+    if asset == nil then
+      assert(case[2] == nil, path .. ": no asset")
+    else
+      assert(asset.program == case[2] and asset.path == case[3], path .. ": " .. asset.program .. " " .. asset.path)
+    end
+    local rows = assert(Sqlite.text_rows(db, "SELECT " .. analysis_schema.static_files("?1"), { { text = path } }))
+    local expected = if asset ~= nil then "1" else "0" end
+    assert(assert(rows[1]):text(1) == expected, path .. ": the SQL says otherwise")
+  end
+end

@@ -881,7 +881,7 @@ local function test_static_files_are_compressed_once_per_content(tmp: string)
 
   assert(Fs.remove(tmp .. "/p/static/other.css"))
   write_again(handle, tmp .. "/gone.db")
-  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'other.css'") == "0",
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'static/other.css'") == "0",
     "a row no file uses was kept")
   assert(work.close(handle))
 
@@ -903,7 +903,7 @@ local function test_a_warm_write_keeps_null_variants_null(tmp: string)
   write_projection(tmp .. "/cold", tmp .. "/cold.db")
   local handle = assert(work.open(tmp .. "/warm"))
   write_again(handle, tmp .. "/first.db")
-  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'logo.png' AND gzip IS NULL AND zstd IS NULL") == "1",
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'static/logo.png' AND gzip IS NULL AND zstd IS NULL") == "1",
     "the cache holds no NULL row for the image")
   write_again(handle, tmp .. "/warm.db")
   assert(work.close(handle))

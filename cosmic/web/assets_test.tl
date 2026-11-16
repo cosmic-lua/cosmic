@@ -160,7 +160,7 @@ local function test_default_lays_a_programs_own_directory_over_static_from_disk(
   local main = source_run.main
   local lines: mut {string} = {}
   local logged = function(text: string) lines[#lines + 1] = text end
-  local ok, err = pcall(function(): any
+  local ok, err = pcall(function()
     assert(sys.chdir(tmp))
     source_run.main = "cmd.spam.main"
     as_program("", function()
@@ -176,7 +176,6 @@ local function test_default_lays_a_programs_own_directory_over_static_from_disk(
       local other = Assets.default({ dev = true })
       assert(assert(other:get("app.css")).data == "shared" and other:get("only.txt") == nil, "no program, no overlay")
     end)
-    return nil -- checked: any_use
   end)
   source_run.main = main
   assert(sys.chdir(was))

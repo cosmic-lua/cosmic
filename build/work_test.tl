@@ -989,6 +989,60 @@ local function test_stage_refuses_assets_that_differ_only_in_case(tmp: string)
   assert(trouble:find("static/App.css", 1, true) and trouble:find("static/app.css", 1, true))
 end
 
+--- A program's own `cmd/<name>/static/` is staged as `static/` is: its
+--- files are inputs, a `.tl` under it is noted as no module, and the
+--- `inputs` view reads no module from it. A `static/` deeper under the
+--- program is none: its Teal is the program's module as any other is.
+local function test_stage_takes_a_programs_own_static_files(tmp: string)
+  local staged = assert(stage_files(tmp, {
+    ["cmd/spam/static/app.css"] = "a{}", ["cmd/spam/static/notes.tl"] = "x", ["cmd/spam/sub/static/deep.tl"] = "return 1\n",
+    ["cmd/spam/main.tl"] = "return function(): integer return 0 end\n",
+  }))
+  assert(#staged.notes == 1 and support.nth(staged.notes, 1):find("^cmd/spam/static/notes%.tl: ") ~= nil,
+    table.concat(staged.notes, "\n"))
+  local db = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT file FROM inputs WHERE file GLOB 'cmd/*' ORDER BY file"))
+  local files: mut {string} = {}
+  for i, row in ipairs(rows) do files[i] = row:text(1) end
+  assert(table.concat(files, " ") == "cmd/spam/main.tl cmd/spam/sub/static/deep.tl", table.concat(files, " "))
+  assert(db:close())
+end
+
+--- Assets one program would carry together may not differ only in case: a
+--- program's own and a shared one. Two programs' own never meet, and a
+--- program's own at the very path of a shared one is laid over it.
+local function test_stage_refuses_a_programs_asset_that_differs_from_a_shared_one_only_in_case(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/probe"))
+  assert(Fs.write(tmp .. "/probe/A", "a"))
+  assert(Fs.write(tmp .. "/probe/a", "b"))
+  if #assert(Fs.list(tmp .. "/probe")) < 2 then
+    Test.skip("this file system folds case, so two names that differ only in case are one file")
+  end
+  local staged, trouble = stage_files(tmp .. "/clash", { ["static/App.css"] = "a", ["cmd/spam/static/app.css"] = "b" })
+  assert(staged == nil and trouble:find("only in case", 1, true) ~= nil, tostring(trouble))
+  assert(trouble:find("static/App.css", 1, true) and trouble:find("cmd/spam/static/app.css", 1, true), trouble)
+  assert(stage_files(tmp .. "/apart", { ["cmd/eggs/static/App.css"] = "a", ["cmd/spam/static/app.css"] = "b" }),
+    "two programs' own assets never meet")
+  assert(stage_files(tmp .. "/over", { ["static/app.css"] = "a", ["cmd/spam/static/app.css"] = "b" }),
+    "a program's own asset is laid over the shared one")
+end
+
+--- A working database an older tool made holds the `inputs` view as it
+--- defined it then; opening it makes the view again as the schema defines
+--- it now, so a moved rule of what is no module takes hold.
+local function test_opening_a_database_remakes_a_view_of_another_definition(tmp: string)
+  assert(stage_files(tmp, { ["main.tl"] = "return 1\n" }))
+  local path = support.build_dir(tmp) .. "/build.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("DROP VIEW inputs; CREATE VIEW inputs AS SELECT 1 AS file"))
+  assert(db:close())
+  assert(stage_files(tmp, {}))
+  db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "SELECT file FROM inputs ORDER BY file"))
+  assert(#rows == 1 and support.nth(rows, 1):text(1) == "main.tl", "the view is the schema's again")
+  assert(db:close())
+end
+
 --- A link inside the project is followed; one that leaves it would make
 --- the executable depend on a file the checkout lacks.
 local function test_stage_refuses_an_asset_linked_from_outside_the_project(tmp: string)

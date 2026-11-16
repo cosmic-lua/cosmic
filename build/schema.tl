@@ -148,18 +148,23 @@ local tables: {Definition} = {
                   source BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- A project's static assets ([`Layout.static`]), one row per
-  -- file under `static/`: `path` relative to it ("css/app.css"), the
+  -- file: the program it is for, "" for one under `static/`, which is every
+  -- program's, and `<name>` for one under `cmd/<name>/static/`; `path`
+  -- relative to that `static/` ("css/app.css"), the
   -- bytes, their lowercase hex SHA-256, the Content-Type
   -- ([`cosmic.mime`]), the gzip of the bytes when that is worth
   -- sending ([`Mime.gzip`]), else NULL, and their zstd when that is
   -- ([`Mime.zstd`]), else NULL. [`cosmic.web.assets`] reads it from the
-  -- program's own database.
-  { name = "payload", body = [[(path TEXT PRIMARY KEY,
+  -- program's own database, where every row is "", the program's own laid
+  -- over the shared ones ([`build.embed`]).
+  { name = "payload", body = [[(program TEXT NOT NULL DEFAULT '',
+                  path TEXT NOT NULL,
                   data BLOB NOT NULL,
                   sha256 TEXT NOT NULL,
                   type TEXT NOT NULL,
                   gzip BLOB,
-                  zstd BLOB) WITHOUT ROWID]] },
+                  zstd BLOB,
+                  PRIMARY KEY (program, path)) WITHOUT ROWID]] },
 
   -- The IANA time zone database, one TZif file per zone name, which
   -- [`cosmic.time`] reads where the host has no zone files of its own.

@@ -205,7 +205,7 @@ local function test_the_stream_follows_a_programs_own_static_directory(tmp: stri
   put(tmp .. "/cmd/spam/static/own.css", "b{}", 1000000)
   local was = assert(Fs.absolute("."))
   local main = source_run.main
-  local ok, err = pcall(function(): any
+  local ok, err = pcall(function()
     assert(sys.chdir(tmp))
     source_run.main = "cmd.spam.main"
     local app = Dev.app({ routes = { Dev.static("/static", { enabled = true }) }, sink = quiet() },
@@ -219,7 +219,6 @@ local function test_the_stream_follows_a_programs_own_static_directory(tmp: stri
       assert(css:find("own.css", 1, true) ~= nil and not css:find("event: reload", 1, true), css)
       assert(assert(res.stream):close())
     end)
-    return nil -- checked: any_use
   end)
   source_run.main = main
   assert(sys.chdir(was))

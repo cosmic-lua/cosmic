@@ -74,11 +74,15 @@ local record Layout
   --- a template and never rewrites it
   templates: string
   --- a static asset: any file under the top-level `static/` directory is
-  --- carried verbatim in the project's executable and served by
+  --- carried verbatim in every executable of the project and served by
   --- [`cosmic.web.static`]. `static/css/app.css` is the asset `css/app.css`.
-  --- A `static/` directory is never a module namespace: a `.tl` or `.tmpl`
-  --- under it is an asset, not a module, so it is not compiled, tested or
-  --- required. There is no configuration: a mount's URL is named in the
+  --- A file under a program's own `cmd/<name>/static/` is that program's
+  --- alone: `cmd/spam/static/css/app.css` is the asset `css/app.css` of
+  --- `spam`, which it carries in place of `static/css/app.css`, and no other
+  --- program carries it. Run from its source (`cosmic cmd/spam/main.tl`), a
+  --- program serves the same files from disk, its own laid over the shared. Such a `static/` directory is never a module
+  --- namespace: a `.tl` or `.tmpl` under it is an asset, not a module, so it
+  --- is not compiled, tested or required. There is no configuration: a mount's URL is named in the
   --- router, not in the file layout. The build refuses a file past 16 MiB,
   --- a name holding a control byte or any of `\ % ? #`, a path past 255
   --- bytes, two names that differ only in case, and a link that leaves the

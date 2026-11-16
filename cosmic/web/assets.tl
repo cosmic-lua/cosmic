@@ -286,10 +286,11 @@ local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows?
   return nil
 end
 
---- A source of the files under the project's `static/`, carried in the
---- executable's database (its `payload` table). A file is read once and
---- kept for the life of the process, so its memory is the total of
---- `static/`. A program built without `static/` holds none.
+--- A source of the project's static files the executable carries in its
+--- database (its `payload` table): those under its own `cmd/<name>/static/`
+--- and those under `static/` it holds none of at the same path. A file is
+--- read once and kept for the life of the process, so its memory is the
+--- total of those files. A program built with neither holds none.
 --- @return Assets.Source The source
 function Assets.embedded(): Assets.Source
   local held: mut {string:Assets.Asset} = {}
