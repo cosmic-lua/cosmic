@@ -1184,8 +1184,8 @@ end
 
 --- The entries of the catalog rows of kind `code` ([`build.error_catalog`]) that `where` selects, from the first database
 --- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row. None in a
---- program's own view ([`Doc.program`]): the codes are the checker's, which the tool documents and no built program
---- carries, so the same program run from its source answers none either.
+--- program's own view ([`Doc.program`]): its users are asked about the program, not the checker the tool documents,
+--- so it answers no code, built or run from its source.
 local function coded_entries(view: Doc.View, join: string, where: string, binds: {Sqlite.Value},
                              limit: integer): mut {Doc.Entry}?, string
   if view.program ~= nil then
@@ -2285,7 +2285,8 @@ end
 
 --- What `query` names, as [`lookup_names`] answers, and ahead of it the row of the code of the checker it is, when it is
 --- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
---- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone.
+--- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone. A program's
+--- own view ([`Doc.program`]) answers no code.
 function Doc.lookup(view: Doc.View, query: string): Doc.Lookup?, string
   local rule, rule_trouble = coded(view, query)
   if rule == nil then
