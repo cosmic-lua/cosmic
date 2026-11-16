@@ -262,8 +262,11 @@ local function closure(m: Module, by_path: {string:Module},
     local guides: mut {string} = {}
     for name in pairs(by_path) do
       -- A guide directly under `doc/guides/`, as [`cosmic.internal.symbols`]'s `is_public_guide` has it, which
-      -- this module, loaded by every worker, does not require.
-      if name:match("^doc%.guides%.[^.]+$") ~= nil then guides[#guides + 1] = name end
+      -- this module, loaded by every worker, does not require; or a program's own, which its built program carries in
+      -- that one's place ([`build.embed`]).
+      if name:match("^doc%.guides%.[^.]+$") ~= nil or name:match("^cmd%.[^.]+%.doc%.guides%.[^.]+$") ~= nil then
+        guides[#guides + 1] = name
+      end
     end
     table.sort(guides)
     hold(guides)

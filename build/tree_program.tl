@@ -305,7 +305,13 @@ end
 
 function TreeProgram.derived_of(root: string): {{string}}?, string
   local out: mut {{string}} = {}
-  for _, dir in ipairs({ "doc/guides", "doc/guides/internal" }) do
+  -- The guides, as [`build.derivation`] reads them: the project's, and each program's own under `cmd/<name>/`.
+  local dirs: mut {string} = { "doc/guides", "doc/guides/internal" }
+  local programs, _ = Fs.list(root .. "/cmd")
+  for _, name in ipairs(programs or {}) do
+    if name:sub(1, 1) ~= "." then dirs[#dirs + 1] = "cmd/" .. name .. "/doc/guides" end
+  end
+  for _, dir in ipairs(dirs) do
     local guides, _ = Fs.list(root .. "/" .. dir)
     for _, name in ipairs(guides or {}) do
       local file = dir .. "/" .. name

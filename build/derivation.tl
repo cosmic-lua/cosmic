@@ -62,8 +62,9 @@ local analysis_tables = analysis_schema.tables
 
 --- A doc guide's import path, the same dotted-name convention every
 --- `.tl` file gets: [`doc/guides/quickstart.md`] compiles as
---- [`doc.guides.quickstart`], and a guide under `doc/guides/internal/` as
---- `doc.guides.internal.<name>`.
+--- [`doc.guides.quickstart`], a guide under `doc/guides/internal/` as
+--- `doc.guides.internal.<name>`, and a program's own
+--- `cmd/<name>/doc/guides/<guide>.md` as `cmd.<name>.doc.guides.<guide>`.
 local function import_path_of_doc(file: string): string
   return (file:gsub("%.md$", ""):gsub("/", "."))
 end
@@ -78,7 +79,9 @@ local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal)
   local guides, trouble = Sqlite.text_rows(db,
     "SELECT path, data, sha256 FROM files " ..
       "WHERE ((path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*') OR " ..
-      "(path GLOB 'doc/guides/internal/*.md' AND path NOT GLOB 'doc/guides/internal/*/*')) " ..
+      "(path GLOB 'doc/guides/internal/*.md' AND path NOT GLOB 'doc/guides/internal/*/*') OR " ..
+      "(path GLOB 'cmd/?*/doc/guides/?*.md' AND instr(substr(path, 5), '/') = instr(substr(path, 5), '/doc/guides/') " ..
+      "AND path NOT GLOB 'cmd/*/doc/guides/*/*')) " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if guides == nil then
     return false, trouble
