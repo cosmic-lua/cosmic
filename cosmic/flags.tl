@@ -150,8 +150,9 @@ local record Flags
     --- with no such field has that help alone, as every command has where the documentation holds no such
     --- module. A built program documents a module it carries that any module may require, or one under its own
     --- `cmd/<name>/`, which it carries whether its main requires it or not (a test or an example aside); it carries
-    --- another where its main requires it, or where a module it carries names it as `pages` in the table literal of a
-    --- `dispatch` call (`{ pages = "commands" }`), and never the documentation of one under `internal/`.
+    --- another where its main requires it, and documents the module a module it carries names as `pages` by a string
+    --- literal (`{ pages = "commands" }`), which it carries for that, but a test, an example, one under `internal/`
+    --- and one of another program's `cmd/<name>/`.
     pages?: string
     --- The titles of the sections of the program's help ([`Flags.Command`]'s `group`), in the order to show
     --- them; a title not among them follows, those in order by title. In order by title when nil.
@@ -929,7 +930,7 @@ end
 local function documentation(program: string, commands: {string:Flags.Command},
                              documented: Flags.Documented): Doc.View?, string
   local library = require("cosmic.doc")
-  local view, trouble = library.program(require("cosmic.store").databases(), program)
+  local view, trouble = library.program(require("cosmic.store").databases(), program, nil, documented.pages)
   if view == nil then
     return nil, trouble
   end

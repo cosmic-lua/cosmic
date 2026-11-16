@@ -1579,7 +1579,7 @@ end
 -- words. It waits on the words and the index being made of the rows of the
 -- temporary `docs`, as the program's own build makes them of the rows it
 -- carries.
-local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
+local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handle?, string
   local main = source_run.main
   local projection = source_run.projection
   if main == nil or projection == nil then return db, "" end
@@ -1597,6 +1597,11 @@ local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
   end
   local own = "cmd." .. name .. "."
   local own_guides = own .. "doc.guides."
+  -- The module the program names as its pages, which its build carries for being named
+  -- ([`build.embed`]'s `pages_named`) where it is the project's, and none a program would not carry for its own.
+  local paged = "(m.path = " .. sql_literal(pages or "") .. " AND m.kind = 'module' AND " ..
+    "instr('/' || m.file, '/internal/') = 0 AND (m.path NOT GLOB 'cmd.*' OR substr(m.path, 1, " .. tostring(#own) ..
+    ") = " .. sql_literal(own) .. "))"
   local docs_columns, columns_trouble = Sqlite.text_rows(opened, "SELECT name FROM pragma_table_info('docs', 'main')")
   if docs_columns == nil then return failed(columns_trouble) end
   local names: mut {string} = {}
@@ -1622,11 +1627,12 @@ local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
     "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
     "WITH RECURSIVE carried(path) AS (SELECT " .. sql_literal(main) .. " UNION SELECT path FROM main.modules " ..
       "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) ..
+      " UNION SELECT m.path FROM main.modules m WHERE " .. paged ..
       " UNION SELECT i.requires FROM main.imports i JOIN carried c ON i.path = c.path) " ..
       "INSERT INTO temp.public_modules (path) SELECT m.path FROM main.modules m " ..
       "WHERE m.path IN (SELECT path FROM carried) AND (m.path IN (SELECT path FROM main.public_modules) OR " ..
       "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) .. " AND m.path <> " .. sql_literal(main) ..
-      " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0)) ORDER BY m.path",
+      " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0) OR " .. paged .. ") ORDER BY m.path",
   }
   -- The stored table and its indexes, made again in `temp`.
   for _, row in ipairs(definitions) do
@@ -1663,8 +1669,10 @@ end
 --- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
 --- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and why when a database cannot be read;
 --- raises on a test's store that withholds the documentation, naming `store_text`. A `cmd/<name>/main.tl` run
---- from its source answers as it would built ([`scope_to_program`]).
-function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command}): Doc.View?, string
+--- from its source answers as it would built ([`scope_to_program`]), `pages` the module its commands' pages are
+--- read from ([`Flags.Documented`]), which a build carries for being named.
+function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command},
+                     pages?: string): Doc.View?, string
   local documented: mut {Sqlite.Handle} = {}
   local public: mut {boolean} = {}
   for _, db in ipairs(databases) do
@@ -1673,7 +1681,7 @@ function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Do
       return nil, holds_trouble
     end
     if holds then
-      local in_scope, scope_trouble = scope_to_program(db)
+      local in_scope, scope_trouble = scope_to_program(db, pages)
       if in_scope == nil then
         return nil, scope_trouble
       end
