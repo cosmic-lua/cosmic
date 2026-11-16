@@ -208,13 +208,15 @@ end
 --- The modules `source`, the text of the module file `file`, names as the `pages` of a [`Flags.Documented`]: each
 --- string literal written as the `pages` field of a table literal, as `{ pages = "commands" }` names `commands`,
 --- whether the table is an argument of [`Flags.dispatch`] itself or a local it is handed. Such a name reaches its
---- module by no `require`, so [`embed.database`] carries it beside the closure of main. A field of that name in a
---- table that is no `Documented` only carries one more module of the project. A file that does not parse names none.
+--- module by no `require`, so [`embed.database`] carries and documents it beside the closure of main. A field of
+--- that name in a table that is no `Documented`, naming a module of the project, carries and documents that module
+--- all the same. A file that does not parse names none.
 ---
---- TODO: follow a `pages` that is no string literal (a constant, a name
---- built at run time): the program carries no module for it, and its
---- commands have no page, which the build does not say. It waits on the
---- checker telling the build the value a `Documented` table's `pages` holds.
+--- TODO: follow a `pages` that is no string literal in a table literal (a
+--- constant, a name built at run time, `documented.pages = "x"`): the
+--- program carries no module for it, and its commands have no page, which
+--- the build does not say. It waits on the checker telling the build the
+--- value a `Documented` table's `pages` holds.
 local function pages_named(source: string, file: string): {string}
   local chunk, _ = SyntaxNode.parse(source, file, "tl")
   local out: mut {string} = {}
@@ -575,7 +577,8 @@ function embed.database(project: string, main: string, roots?: string): string?,
       pages_roots = {}
       for name in pairs(named) do
         -- A module of the project's, and none a program would not carry for its own: no test, no example, no
-        -- module under `internal/` and none of another program's `cmd/<name>/`.
+        -- module under `internal/` and none of another program's `cmd/<name>/`. [`cosmic.doc`]'s
+        -- `scope_to_program` holds a run from source to the same rule.
         local held, held_trouble = Sqlite.text_rows(out,
           "SELECT 1 FROM project.modules WHERE path = ?1 AND kind = 'module' AND " ..
             "instr('/' || file, '/internal/') = 0 AND (path NOT GLOB 'cmd.*' OR substr(path, 1, length(?2)) = ?2)",

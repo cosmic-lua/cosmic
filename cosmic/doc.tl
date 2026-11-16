@@ -1598,7 +1598,8 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   local own = "cmd." .. name .. "."
   local own_guides = own .. "doc.guides."
   -- The module the program names as its pages, which its build carries for being named
-  -- ([`build.embed`]'s `pages_named`) where it is the project's, and none a program would not carry for its own.
+  -- ([`build.embed`]'s `pages_named`) where it is the project's, and none a program would not carry for its own:
+  -- the rule [`embed.database`] holds a build to, which a change to one changes in both.
   local paged = "(m.path = " .. sql_literal(pages or "") .. " AND m.kind = 'module' AND " ..
     "instr('/' || m.file, '/internal/') = 0 AND (m.path NOT GLOB 'cmd.*' OR substr(m.path, 1, " .. tostring(#own) ..
     ") = " .. sql_literal(own) .. "))"
