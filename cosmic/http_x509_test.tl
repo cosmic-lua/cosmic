@@ -1,8 +1,8 @@
---- cosmic.http's TLS stack reads a certificate's basicConstraints
---- strictly: a `SEQUENCE { INTEGER n }` there is refused rather than read
---- as cA = (n != 0), which mbedtls 4.1.0 and before did (CVE-2026-49300),
---- so a certificate another X.509 implementation reads as an end entity
---- is never taken for a CA.
+--- cosmic.http's TLS stack reads a certificate's basicConstraints as
+--- RFC 5280 says: a `SEQUENCE { INTEGER n }` there is a pathLenConstraint
+--- with cA absent, so FALSE, never cA = (n != 0) as mbedtls 4.1.0 and
+--- before read it (CVE-2026-49300). mbedtls 4.1.1 refused that form;
+--- 4.1.2 reads it, as an end entity.
 
 local Codec = require("cosmic.codec")
 local Http = require("cosmic.http")
@@ -43,25 +43,31 @@ local function certificate(value: string): string
   return der(0x30, tbs .. ecdsa_sha256 .. der(0x03, "\0" .. der(0x30, der(0x02, "\1") .. der(0x02, "\1"))))
 end
 
---- A basicConstraints of `cA TRUE` is read; one of `SEQUENCE { INTEGER 1 }`
---- (RFC 5280's pathLenConstraint with no cA, which mbedtls 4.1.0 read as
---- cA TRUE), `INTEGER 0`, an empty SEQUENCE followed by a `cA TRUE` it
---- does not hold (which 4.1.0 also read as cA TRUE), and one with bytes
---- after its SEQUENCE are not.
-local function test_a_basic_constraints_that_starts_with_an_integer_is_refused()
-  local ok, why = Http.check_certificate(certificate("\x30\x03\x01\x01\xff"))
-  assert(ok and why == "", "the control certificate is unreadable: " .. tostring(why))
-  ok, why = Http.check_certificate(certificate("\x30\x00"))
-  assert(ok and why == "", "an empty basicConstraints is unreadable: " .. tostring(why))
+--- A basicConstraints of `cA TRUE`, an empty one, and one of
+--- `SEQUENCE { INTEGER n }` (RFC 5280's pathLenConstraint with no cA)
+--- are read; two INTEGERs, an empty SEQUENCE followed by a `cA TRUE` it
+--- does not hold (which 4.1.0 read as cA TRUE), and bytes after the
+--- SEQUENCE are not.
+-- TODO: check that `SEQUENCE { INTEGER 1 }` reads as cA FALSE, not only
+-- that it reads, once cosmic.http answers a certificate's basicConstraints
+-- or the tests have a TLS server to verify a chain against.
+local function test_a_basic_constraints_is_read_as_rfc_5280_says()
+  for label, value in pairs({
+      ["cA TRUE"] = "\x30\x03\x01\x01\xff",
+      ["an empty SEQUENCE"] = "\x30\x00",
+      ["INTEGER 1"] = "\x30\x03\x02\x01\x01",
+      ["INTEGER 0"] = "\x30\x03\x02\x01\x00",
+  }) do
+    local ok, why = Http.check_certificate(certificate(value))
+    assert(ok and why == "", label .. " is unreadable: " .. tostring(why))
+  end
   local refused: {string: string} = {
-    ["INTEGER 1"] = "\x30\x03\x02\x01\x01",
-    ["INTEGER 0"] = "\x30\x03\x02\x01\x00",
     ["INTEGER 1 then a path length"] = "\x30\x06\x02\x01\x01\x02\x01\x00",
     ["cA TRUE after an empty SEQUENCE"] = "\x30\x00\x01\x01\xff",
     ["bytes after the SEQUENCE"] = "\x30\x03\x01\x01\xff\x05\x00",
   }
   for label, value in pairs(refused) do
-    ok, why = Http.check_certificate(certificate(value))
+    local ok, why = Http.check_certificate(certificate(value))
     assert(not ok and why ~= "", label .. " is read as a certificate")
   end
 end
