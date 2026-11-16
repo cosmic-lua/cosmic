@@ -153,8 +153,9 @@ local record Flags
     --- `cmd/<name>/`, which it carries whether its main requires it or not (a test or an example aside); it carries
     --- another where its main requires it, and documents the module a module it carries names as `pages` by a string
     --- (`{ pages = "commands" }`, or a local bound to that string and written there), which it carries
-    --- for that, but a test, an example, one under `internal/` and one of another program's `cmd/<name>/`. A name made
-    --- at run time, or held by another module, is not known to the build, which carries no module for it.
+    --- for that, but a test, an example, one under `internal/` and one of another program's `cmd/<name>/`; a field of
+    --- a module it requires that binds it so names it too (`{ pages = Names.pages }`). A name made at run time is not
+    --- known to the build, which carries no module for it.
     pages?: string
     --- The titles of the sections of the program's help ([`Flags.Command`]'s `group`), in the order to show
     --- them; a title not among them follows, those in order by title. In order by title when nil.
