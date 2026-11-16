@@ -517,7 +517,9 @@ end
 
 --- A route serving `static/` under `prefix` ("/static" by default),
 --- named "static" ([`StaticFiles.mount`]): from disk and never cached in
---- development mode, the program's own files otherwise.
+--- development mode, the program's own files otherwise. From disk, a
+--- program's own `cmd/<name>/static/` is laid over `static/` where
+--- `opts.static` is left out, as [`Assets.default`] lays it.
 --- @param prefix string | nil Where the files are mounted
 --- @param opts Options | nil Whether development mode is on, and where `static` is
 --- @return Types.Route The route
@@ -525,9 +527,9 @@ function Dev.static(prefix?: string, opts?: Dev.Options): Types.Route
   checked_options(opts, 3)
   local mount = prefix or "/static"
   if not is_enabled(opts) then return StaticFiles.mount(mount) end
-  local root = opts and opts.static or "static"
   return StaticFiles.mount(mount, {
-    source = Assets.directory(root), cache_control = "no-store", immutable_control = "no-store",
+    source = Assets.default({ dev = true, root = opts and opts.static }), cache_control = "no-store",
+    immutable_control = "no-store",
   })
 end
 

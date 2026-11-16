@@ -835,6 +835,28 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   check("warm")
 end
 
+--- A program run from its source serves its own `cmd/<name>/static/` laid
+--- over `static/` from disk, as its built executable carries them: the run
+--- records which program it is.
+local function test_a_program_run_from_its_source_lays_its_own_static_files_over_the_shared_ones(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/static"))
+  assert(Fs.mkdirs(tmp .. "/static"))
+  assert(Fs.write(tmp .. "/static/app.css", "shared"))
+  assert(Fs.write(tmp .. "/static/logo.png", "logo"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/app.css", "spam's"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Assets = require("cosmic.web.assets")',
+    "return function(): integer",
+    "  local source = Assets.default({ log = function(_: string) end })",
+    '  print(assert(source:get("app.css")).data, assert(source:get("logo.png")).data)',
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  local ran = verbs_fixture.run(tmp, { "cmd/spam/main.tl" })
+  assert(ran.code == 0 and ran.stdout == "spam's\tlogo\n", ran.stdout .. ran.stderr)
+end
+
 --- A project written in the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs.
 local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_new_checker(tmp: string)
   local root = tmp .. "/new"
