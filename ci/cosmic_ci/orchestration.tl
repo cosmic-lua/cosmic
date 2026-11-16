@@ -420,6 +420,41 @@ function Orchestration.say_figures(name: string, directory: string, to?: integer
   return said
 end
 
+--- The share of its bound, in percent, from which a fixture's time is
+--- warned of: below the bound, so the growth shows on a run that passes.
+local bound_warn_percent <const> = 75
+
+--- What a fixture called `name` that took `elapsed_ns` of its bound
+--- `bound_ns` says of that: a line naming both and the share, and from
+--- `bound_warn_percent` a second line, a warning GitHub shows on the
+--- run's page (`::warning::`). Whole seconds, the share rounded down.
+function Orchestration.bound_lines(name: string, elapsed_ns: integer, bound_ns: integer): {string}
+  assert(bound_ns > 0, "a fixture's bound is more than nothing")
+  local second = Clock.seconds(1)
+  local share = elapsed_ns * 100 // bound_ns
+  local said = tostring(elapsed_ns // second) .. " s of its " .. tostring(bound_ns // second) ..
+    " s bound (" .. tostring(share) .. "%)"
+  local lines: mut {string} = { "fixture: " .. name .. ": took " .. said }
+  if share >= bound_warn_percent then
+    lines[#lines + 1] = "::warning::fixture " .. name .. " took " .. said ..
+      "; it fails at its bound, so make it cheaper or raise the bound before it does"
+  end
+  return lines
+end
+
+--- Says [`Orchestration.bound_lines`] on stderr, and puts a warning on
+--- the run's summary page too. Fails nothing: the log is for reading.
+local function say_bound(name: string, started_ns: integer, bound_ns: integer)
+  local lines = Orchestration.bound_lines(name, Clock.monotonic_ns() - started_ns, bound_ns)
+  for _, line in ipairs(lines) do
+    local _, _ = Fs.put(Fs.stderr, line .. "\n")
+  end
+  local warning = lines[2]
+  if warning ~= nil then
+    pcall(ContextEnv.summarize, warning:gsub("^::warning::", "") .. "\n")
+  end
+end
+
 local function logged(c: Context, phase: string, command: {string}, out: string,
                       err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
   local status = operation(c, phase, command, timeout, cwd, env, out, err)
@@ -507,11 +542,11 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 -- alpine-x86_64 on October 30 and on both x86-64 legs on October 31,
 -- where those stages compiled the tree cold twice and the identity
 -- cases' parsed it again after.
--- TODO: the compiler cases still compile the whole tree cold, so the
--- file's cost follows the tree (about 5% a day the week of October 3) and
--- these bounds will be passed again: report the group's elapsed time
--- against its bound from [`fixture_run_spec`], so the growth shows before
--- it fails a run.
+-- The compiler cases still compile the whole tree cold, so the file's
+-- cost follows the tree (about 5% a day the week of October 3) and these
+-- bounds will be passed again. Each fixture says its time against its
+-- bound, and warns from 75% of it ([`Orchestration.bound_lines`]), so the
+-- growth shows on a run that passes.
 local fixed_point_test_timeout_ns <const> = Clock.seconds(440)
 local fixed_point_per_test_timeout_s <const> = "340"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
@@ -800,6 +835,8 @@ end
 --- What a fixture group has prepared, once it has started.
 local record FixtureHeld
   mut prepared?: Prepared
+  --- When its run was started ([`Clock.monotonic_ns`]).
+  mut started_ns?: integer
 end
 
 --- Makes the fixture `spec`'s project (a group's own where `group` is
@@ -844,8 +881,10 @@ end
 
 local function fixture_run_spec(c: Context, work: string, spec: FixtureSpec): integer
   local prepared = prepare_fixture(c, work, spec)
+  local started_ns = Clock.monotonic_ns()
   local status = logged(c, "fixture: " .. spec.name, prepared.command,
     prepared.out, prepared.err, spec.timeout_ns, prepared.project, prepared.env)
+  say_bound(spec.name, started_ns, spec.timeout_ns)
   Orchestration.say_figures(spec.name, prepared.figures)
   record_suite(c, "fixture " .. spec.name, status, prepared.out)
   return status
@@ -873,6 +912,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
     start = function(): Runner.Running
       local made = prepare_fixture(c, work, spec, spec.source, jobs)
       held.prepared = made
+      held.started_ns = Clock.monotonic_ns()
       local runner, request = request_for(c, made.command, spec.timeout_ns,
         made.project, made.env, made.out, made.err)
       return Runner.spawn(runner, "fixture: " .. spec.name, request)
@@ -883,6 +923,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       if outcome.code == 0 then
         assert(replay_ok, "could not replay retained output")
       end
+      say_bound(spec.name, assert(held.started_ns), spec.timeout_ns)
       Orchestration.say_figures(spec.name, made.figures)
       record_suite(c, "fixture " .. spec.name, outcome.code, made.out)
       return outcome.code
