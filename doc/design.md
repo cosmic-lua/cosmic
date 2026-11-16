@@ -469,8 +469,11 @@ input to the build, never to the runtime. one database holds:
   body, which compiles and runs like any other test, says how -- one
   assertion mechanism for code, not a second, output-diffing one only
   doc guides need.
-- **payload**: for an embed-built executable, the files under the
-  project's `static/` directory: `path` relative to it,
+- **payload**: for an embed-built executable, the project's static
+  files: those under its own `cmd/<name>/static/`, and those under
+  `static/` it holds none of at the same path. `program` is "" in a
+  program's database (a projection names the program a row is for),
+  `path` is relative to that `static/`,
   `data`, the lowercase hex `sha256`, the Content-Type `type`, `gzip`,
   the gzip of `data` when that is worth sending, else NULL, and `zstd`,
   its zstd at level 19 under the same rule (a compressible type, over

@@ -941,9 +941,10 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     -- A table an older tool made, of each compile's bytecode deflated, which no projection carries. Left
     -- where another run holds the database: it is dead weight and no more, and the next open takes it out.
     local _, _ = db:exec("DROP TABLE IF EXISTS deflated_bytecode")
-    -- A view an older tool made to another definition (`inputs`, as [`build.analysis_schema`]'s `apart` moved) is
-    -- made again, dropped and created in one transaction, so a run reading it meets one definition or the other and
-    -- never none. `CREATE VIEW IF NOT EXISTS` alone would keep the old one for good.
+    -- A view whose stored text is not the schema's is made again, dropped and created in one transaction, so a run
+    -- reading it meets one definition or the other and never none: `CREATE VIEW IF NOT EXISTS` alone would keep the
+    -- other for good. The transaction is begun as the run's is ([`begin_waiting`]), so an open that waits for no
+    -- other run answers "busy" where one holds the file.
     for _, statement in ipairs(work.schema) do
       local name = statement:match("^CREATE VIEW IF NOT EXISTS (%S+) AS")
       if name ~= nil then
@@ -953,7 +954,10 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
         local now = (statement:gsub("^CREATE VIEW IF NOT EXISTS ", "CREATE VIEW ", 1))
         local row = stored[1]
         if row ~= nil and row:text(1) ~= now then
-          local remade, remade_trouble = db:exec("BEGIN IMMEDIATE; DROP VIEW " .. name .. "; " .. statement .. "; COMMIT")
+          local begun, begin_trouble = begin_waiting(db, path, wait, doing)
+          if begun == nil then return nil, begin_trouble end
+          if begun == "busy" then return "busy", "" end
+          local remade, remade_trouble = db:exec("DROP VIEW " .. name .. "; " .. statement .. "; COMMIT")
           if not remade then
             local _, _ = db:exec("ROLLBACK")
             return nil, remade_trouble
@@ -1688,13 +1692,14 @@ end
 
 --- Why the static asset `file` of `root` (whose real path is `real_root`)
 --- cannot be carried, or nil: what [`identity.static_refusal`] refuses by
---- name and size, a path as an asset that differs only in case from another
---- staged one one program would carry with it (`seen`, by the lowercase
---- path as an asset, then by program, its file: a tree must build the same
---- on a case-insensitive disk), and a link that leads out of the project,
---- which would make the executable depend on files outside the checkout.
---- Two programs' own assets never meet, and one of a program's own at the
---- path of a shared one is laid over it.
+--- name and size, a path as an asset that differs only in case from that of
+--- an asset staged before it which a program would carry beside it (a tree
+--- must build the same on a case-insensitive disk), and a link that leads
+--- out of the project, which would make the executable depend on files
+--- outside the checkout. `seen` maps each lowercase path as an asset to the
+--- file staged at it for each program ("" for a shared one). Two programs'
+--- own assets never meet, and one of a program's own at the path of a
+--- shared one is laid over it.
 local function static_refusal(root: string, real_root: string, file: string, size: integer,
                               seen: mut {string: mut {string:string}}): string?
   local refusal = identity.static_refusal(file, size)
@@ -1705,7 +1710,11 @@ local function static_refusal(root: string, real_root: string, file: string, siz
   local lowered = asset.path:lower()
   local held: mut {string:string} = seen[lowered] or {}
   seen[lowered] = held
-  for other, earlier in pairs(held) do
+  local programs: mut {string} = {}
+  for other in pairs(held) do programs[#programs + 1] = other end
+  table.sort(programs)
+  for _, other in ipairs(programs) do
+    local earlier = assert(held[other], "a program listed holds a file")
     local spelled = analysis_schema.static_asset(earlier)
     if (spelled == nil or spelled.path ~= asset.path) and (other == program or other == "" or program == "") then
       return ("%s: differs from %s only in case; rename one, so the tree builds the same on a " ..

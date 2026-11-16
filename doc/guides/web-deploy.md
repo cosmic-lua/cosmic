@@ -16,7 +16,8 @@ touches are explained in [the sessions](web-sessions.md) and
 
 `cosmic build` writes the program of `cmd/hello/main.tl` (the name of its
 directory) into the build directory, with every file under `static/` and the
-htmx files inside it. `cosmic build --host` makes a native executable for
+htmx files inside it (and those under `cmd/hello/static/`, which `hello` alone
+carries, each in place of a file of the same path under `static/`). `cosmic build --host` makes a native executable for
 the machine it runs on, which needs no shell. Nothing is read from the
 source tree at run time, so the executable can be copied alone to the
 server.
