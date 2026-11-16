@@ -224,6 +224,13 @@ end
 --- field to ([`strings_of_field`]): answered as references, each module and field, which [`embed.database`] reads.
 --- A name made at run time names none: it is not known before the program runs. A file that does not parse names
 --- none.
+---
+--- TODO: follow a name a module reaches less directly: a field of a
+--- module bound by more than its `require` (`require("names").pages`), a
+--- field the other module takes from a third (`{ docs_module =
+--- Other.docs_module }`), a field of a field (`Names.a.b`). The program
+--- carries no module for it, and the build does not say. It waits on the
+--- checker telling the build the value an expression holds.
 local function pages_named(source: string, file: string): {string}, {PagesField}
   local chunk, _ = SyntaxNode.parse(source, file, "tl")
   local out: mut {string} = {}
@@ -276,8 +283,8 @@ end
 
 --- The strings the module file `file`, of text `source`, binds its field `field` to: each string written as that field
 --- of a table literal (`{ pages = "commands" }`), or assigned to it (`names.pages = "commands"`), or held there by a
---- local the file binds to a string. More than one where the file binds it more than once, all of them; none where it
---- binds it to anything else, or does not parse.
+--- local the file binds to a string, or written as a keyed field (`["pages"] = "commands"`). More than one where the
+--- file binds it more than once, all of them; none where it binds it to anything else, or does not parse.
 local function strings_of_field(source: string, file: string, field: string): {string}
   local chunk, _ = SyntaxNode.parse(source, file, "tl")
   local out: mut {string} = {}
@@ -305,6 +312,8 @@ local function strings_of_field(source: string, file: string, field: string): {s
   end
   SyntaxNode.walk(chunk, function(node: Ast.Node)
     if node.kind == "Named" and node.name == field then
+      add(node.value)
+    elseif node.kind == "Keyed" and node.key.kind == "String" and node.key.value == field then
       add(node.value)
     elseif node.kind == "Assign" then
       for index, target in ipairs(node.targets) do
