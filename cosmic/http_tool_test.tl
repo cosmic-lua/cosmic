@@ -213,3 +213,79 @@ local function test_request_sends_a_delete(tmp: string)
   assert(not request:lower():find("content-length", 1, true), request)
   assert(said == "200 done", said)
 end
+
+--- The bytes of a TLS record from `conn`: its 5-byte header, then as
+--- many bytes as the header says, with whatever `pending` already holds.
+local function tls_record(conn: Net.Conn, pending: string): string
+  local got = pending
+  while #got < 5 do got = got .. assert(conn:read()) end
+  local length = string.unpack(">I2", got, 4)
+  while #got < 5 + length do got = got .. assert(conn:read()) end
+  return got:sub(1, 5 + length)
+end
+
+--- A TLS 1.2 ServerHello that answers `hello`, a ClientHello record,
+--- with `version` as its legacy_version: the ClientHello's session id,
+--- the first ECDHE suite it offers, no compression and no extensions.
+local function server_hello(hello: string, version: integer): string
+  -- The record header is 5 bytes and the handshake header 4, then the
+  -- client's version (2) and random (32): the session id's length is at 44.
+  local at = 44
+  local id_length = assert(hello:byte(at), "a ClientHello cut short")
+  local session_id = hello:sub(at + 1, at + id_length)
+  at = at + 1 + id_length
+  local suites_length = string.unpack(">I2", hello, at)
+  local offered: mut {integer: boolean} = {}
+  for i = at + 2, at + 1 + suites_length, 2 do offered[string.unpack(">I2", hello, i)] = true end
+  local suite = 0
+  for _, ecdhe in ipairs({ 0xC02B, 0xC02F, 0xC02C, 0xC030, 0xCCA9, 0xCCA8 }) do
+    if suite == 0 and offered[ecdhe] == true then suite = ecdhe end
+  end
+  assert(suite ~= 0, "the client offers no ECDHE suite")
+  local body = string.pack(">I2", version) .. string.rep("\1", 32) .. string.char(id_length) .. session_id ..
+    string.pack(">I2", suite) .. "\0"
+  local handshake = "\2" .. string.pack(">I3", #body) .. body
+  return "\x16\x03\x03" .. string.pack(">I2", #handshake) .. handshake
+end
+
+--- A TLS 1.2 ServerHello whose legacy_version is TLS 1.3's (0x0304) is
+--- refused for its version, with a protocol_version alert (70). mbedtls
+--- 4.1.1 took the version (CVE-2026-115490), so a server that answered to
+--- fit could finish a handshake with no ephemeral secret in its keys;
+--- this one it refused only later, with handshake_failure (40).
+local function test_a_tls_1_2_server_hello_naming_tls_1_3_is_refused(tmp: string)
+  local script = tmp .. "/hello.tl"
+  assert(Fs.write(script, [[
+local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Http = require("cosmic.http")
+return function(argv: {string}): integer
+  local _, trouble = Http.open((argv[1] or ""), { timeout_ns = Clock.seconds(10) })
+  local _, _ = Fs.put(Fs.stdout, trouble)
+  return 0
+end
+]]))
+  local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
+  local url = "https://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/"
+  local started = this_program.program({ "--standalone", script, url }, { stdout = "capture", stderr = "capture" })
+  local child <close> = assert(Child.start(started.argv, started.options))
+  local conn <close> = assert(server:accept())
+  local hello = tls_record(conn, "")
+  assert(hello:byte(1) == 0x16 and hello:byte(6) == 1, "not a ClientHello")
+  assert(conn:write(server_hello(hello, 0x0304)))
+  conn:set_timeout(Clock.seconds(5))
+  local answer = ""
+  while #answer < 7 do
+    local more, _ = conn:read()
+    if more == nil or more == "" then break end
+    answer = answer .. more
+  end
+  conn:close()
+  local result = assert(child:wait(Clock.seconds(20)))
+  assert(result.code == 0, tostring(result.stderr))
+  local shown = answer:gsub(".", function(c: string): string
+    return ("%02x"):format(assert(c:byte()))
+  end)
+  assert(answer:byte(1) == 0x15 and answer:byte(7) == 70,
+    "answered " .. shown .. "; the client said: " .. tostring(result.stdout))
+end

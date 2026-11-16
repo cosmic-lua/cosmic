@@ -48,10 +48,11 @@ end
 --- are read; two INTEGERs, an empty SEQUENCE followed by a `cA TRUE` it
 --- does not hold (which 4.1.0 read as cA TRUE), and bytes after the
 --- SEQUENCE are not.
+
 -- TODO: check that `SEQUENCE { INTEGER 1 }` reads as cA FALSE, not only
 -- that it reads, once cosmic.http answers a certificate's basicConstraints
 -- or the tests have a TLS server to verify a chain against.
-local function test_a_basic_constraints_is_read_as_rfc_5280_says()
+local function test_which_basic_constraints_are_read()
   for label, value in pairs({
       ["cA TRUE"] = "\x30\x03\x01\x01\xff",
       ["an empty SEQUENCE"] = "\x30\x00",
