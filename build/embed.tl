@@ -208,11 +208,11 @@ end
 --- The modules `source`, the text of the module file `file`, names as the `pages` of a [`Flags.Documented`]: each
 --- string written as the `pages` field of a table literal (`{ pages = "commands" }`), or held there by a local the
 --- file binds to a string (`local PAGES <const> = "commands"`, then `{ pages = PAGES }`); the fields of a
---- `Documented` are fixed, so no later assignment sets one. Such a name reaches its module by
---- no `require`, so [`embed.database`] carries and documents it beside the closure of main. A field of that name in a
---- table that is no `Documented`, naming a module of the project, carries and documents that module all the same, as
---- does each string a local of that name is bound to anywhere in the file. A name made at run time, or held by
---- another module, names none: it is not known before the program runs. A file that does not parse names none.
+--- `Documented` are fixed, so no later assignment sets one. Such a name reaches its module by no `require`, so
+--- [`embed.database`] carries and documents it beside the closure of main. A field of that name in a table that is
+--- no `Documented`, naming a module of the project, has that module carried and documented all the same, as has each
+--- string a local of that name is bound to anywhere in the file, whatever its scope. A name made at run time, or held
+--- by another module, names none: it is not known before the program runs. A file that does not parse names none.
 ---
 --- TODO: follow a name another module holds (`{ pages = Names.pages }`):
 --- the program carries no module for it, and the build does not say. It
@@ -222,7 +222,8 @@ local function pages_named(source: string, file: string): {string}
   local chunk, _ = SyntaxNode.parse(source, file, "tl")
   local out: mut {string} = {}
   if chunk == nil then return out end
-  -- The strings each local name is bound to, as written: `local name = "text"`, one value a name.
+  -- The strings each local name is bound to where a string literal is its value (`local name = "text"`), every
+  -- such binding of the name in the file; one bound to anything else adds nothing.
   local bound: mut {string: mut {string}} = {}
   SyntaxNode.walk(chunk, function(node: Ast.Node)
     if node.kind == "Local" then

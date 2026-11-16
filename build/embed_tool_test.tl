@@ -530,7 +530,7 @@ local function test_a_pages_module_no_module_requires_is_carried(tmp: string)
 end
 
 --- A pages module named by a local bound to its name, constant or not, is carried and documented as one written
---- in the table is: the build reads the string the file binds.
+--- in the table is: the build reads the string the file binds. One a call makes names none.
 local function test_a_pages_module_named_by_a_local_is_carried(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/spam"))
   assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
@@ -542,12 +542,14 @@ local function test_a_pages_module_named_by_a_local_is_carried(tmp: string)
     "  local ran, _ = Flags.dispatch(argv, 1, commands, \"spam\", documented)",
     '  local named = "by_local"',
     "  local _, _ = Flags.dispatch(argv, 1, commands, \"spam\", { pages = named })",
+    '  local made = tostring("by_call")',
+    "  local _, _ = Flags.dispatch(argv, 1, commands, \"spam\", { pages = made })",
     "  if ran == nil then return 2 end",
     "  return ran.code",
     "end",
     "",
   }, "\n")))
-  for _, name in ipairs({ "by_constant", "by_local" }) do
+  for _, name in ipairs({ "by_constant", "by_local", "by_call" }) do
     assert(Fs.write(tmp .. "/" .. name .. ".tl", "--- Named " .. name .. ".\nlocal record m\n  --- Fries.\n  fry: integer\nend\n" ..
         "local v: m = { fry = 1 }\nreturn v\n"))
   end
