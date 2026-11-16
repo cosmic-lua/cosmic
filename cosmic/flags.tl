@@ -149,8 +149,8 @@ local record Flags
     --- each field a [`Flags.Command`], which the program then hands to [`Flags.dispatch`] by name. A command
     --- with no such field has that help alone, as every command has where the documentation holds no such
     --- module. A built program documents a module it carries that any module may require, or one under its own
-    --- `cmd/<name>/`, which it always carries; it carries another only where its main requires it, and never the
-    --- documentation of one under `internal/`.
+    --- `cmd/<name>/`, which it carries whether its main requires it or not (a test or an example aside); it carries
+    --- another only where its main requires it, and never the documentation of one under `internal/`.
     pages?: string
     --- The titles of the sections of the program's help ([`Flags.Command`]'s `group`), in the order to show
     --- them; a title not among them follows, those in order by title. In order by title when nil.

@@ -361,11 +361,12 @@ as `cosmic docs` answers for the standard library. `groups`, beside
 
 `cosmic build` puts into each program the modules its main requires,
 directly or through another module, and every module under its own
-`cmd/<name>/`, and no other: one program does not carry another's main or
-what only that one requires. It puts in the documentation of those of them
-that any module may require, and of those under the program's own
-`cmd/<name>/`, so the built file answers alone; a module under
-`internal/`, or one another directory keeps to itself, stays out of it. Run from its source (`cosmic cmd/tally/main.tl docs`), the program
+`cmd/<name>/` but a test or an example, and no other: one program does not
+carry another's main or what only that one requires. It puts in the
+documentation of those of them that any module may require, and of those
+under the program's own `cmd/<name>/`, so the built file answers alone; a
+module under `internal/`, or one a directory other than its own keeps to
+itself, stays out of it. Run from its source (`cosmic cmd/tally/main.tl docs`), the program
 answers from the project's last build. A test that asks for a command's help or for `docs`
 reads the documentation of the modules it requires, and says so with
 `Test.policy { store_text = true }`.

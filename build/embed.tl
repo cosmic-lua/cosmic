@@ -1,9 +1,10 @@
 --- Building a project into portable executables: one file each, the retained
---- multi-core prefix with a database behind it that holds the project's modules
---- its main requires, directly or through another module, and those under its
---- own `cmd/<name>/`, and no other, the
---- standard library, the error catalog, the bill of materials, and the name of
---- the main module, so it runs on its own with no `cosmic` beside it. It holds the
+--- multi-core prefix with a database behind it, so it runs on its own with no
+--- `cosmic` beside it. The database holds the standard library, the error
+--- catalog, the bill of materials and the name of the main module, and of the
+--- project's modules those its main requires, directly or through another
+--- module, and those under its own `cmd/<name>/`, a test or an example aside:
+--- no other program's ([`embed.database`]). It holds the
 --- project's documentation too, for the program's users to read: the docs,
 --- uses, links and examples of the modules it carries that any module may
 --- require or that sit under its own `cmd/<name>/` ([`documented_modules`]),
@@ -31,7 +32,6 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local clock = require("build.clock")
-local AnalysisSchema = require("build.analysis_schema")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local GrammarMode = require("build.grammar_mode")
@@ -206,11 +206,10 @@ end
 --- The modules of the project attached to `out` whose documentation the
 --- program `main` carries, of those `out` holds already: each its project
 --- records as public, and each module under the program's own
---- `cmd/<name>/` but the main itself, which only that program can require,
---- so its users read them as they read a public one. A module under an
---- `internal/` directory and test support stay out there too, as
---- [`build.writer`]'s `fill_public` keeps them out of the public ones. And
---- each guide, a Markdown file directly under `doc/guides/`.
+--- `cmd/<name>/` but the main itself, a test, an example and one under an
+--- `internal/` directory: only that program can require them, so its users
+--- read them as they read a public one. And each guide, a Markdown file
+--- directly under `doc/guides/`.
 local function documented_modules(out: Sqlite.Handle, main: string, own: string): Readable?, string
   local rows, trouble = Sqlite.text_rows(out,
     "SELECT m.path, p.file, m.path IN (SELECT path FROM project.public_modules) FROM main.modules m " ..
@@ -223,7 +222,7 @@ local function documented_modules(out: Sqlite.Handle, main: string, own: string)
   local public: mut {string} = {}
   for _, row in ipairs(rows) do
     local file = row:text(2)
-    if row:text(3) == "1" or (not AnalysisSchema.is_support(file) and ("/" .. file):find("/internal/", 1, true) == nil) then
+    if row:text(3) == "1" or ("/" .. file):find("/internal/", 1, true) == nil then
       public[#public + 1] = row:text(1)
     end
   end
@@ -388,9 +387,10 @@ function embed.database(project: string, main: string, roots?: string): string?,
       return false, copy_trouble
     end
     -- The browser-side files [`cosmic.web`] serves under /_web/.
-    -- TODO: carry them only for a project whose closure requires
-    -- cosmic.web, as Store.seal does for the zones, once embed.database
-    -- computes that closure.
+    -- TODO: carry them only for a program whose closure requires
+    -- cosmic.web, as Store.seal does for the zones: the closure of main
+    -- below follows the project's edges, and would follow the binary's
+    -- `imports` too. Nothing blocks it.
     -- A binary written before `web_assets` existed has no such table:
     -- the program then carries none, and cosmic.web.htmx says to rebuild.
     local has_web, web_trouble = Sqlite.text_rows(binary,
@@ -461,20 +461,24 @@ function embed.database(project: string, main: string, roots?: string): string?,
       return false, attach_trouble
     end
     -- The project's modules that `main` requires, directly or through
-    -- another module, and those under its own `cmd/<name>/` (below), and no
-    -- other: another program's main and what only
-    -- it requires are that program's, and a test or example no carried
-    -- module requires is the project's to keep. A test or example file a
+    -- another module, and those under its own `cmd/<name>/`, and no other:
+    -- another program's main and what only it requires are that program's,
+    -- and a test or example no carried module requires is the project's to
+    -- keep. A test or example file a
     -- carried module requires is carried, since the program cannot load
     -- without it; its kind is only its file name. An import edge and a
     -- catalog row go with the module they are about.
     -- An edge exists for a `require` of a literal name, `pcall(require,
     -- "<name>")` included (build.syntax_node's requires), and the parser
     -- refuses a computed name, so every file a program loads is carried.
-    -- Every module under the program's own `cmd/<name>/` is a root beside
-    -- main, whether main requires it or not: no other program may require
-    -- it, and a module [`Flags.Documented`]'s `pages` names by a string
-    -- alone is often one.
+    -- Every module under the program's own `cmd/<name>/` but a test or an
+    -- example is a root beside main, whether main requires it or not: no
+    -- other program may require it, and a module [`Flags.Documented`]'s
+    -- `pages` names by a string alone is often one.
+    -- TODO: say so where a `pages` module outside `cmd/<name>/` that the
+    -- program does not carry leaves its commands with no page, which now
+    -- happens silently. It waits on the build reading the `pages` of a
+    -- [`Flags.dispatch`] call, a string it does not read yet.
     local own = own_prefix(main)
     if own == nil then
       return false, main .. " is not a cmd.<name>.main"
