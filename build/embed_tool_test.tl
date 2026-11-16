@@ -10,6 +10,7 @@
 
 local Child = require("cosmic.child")
 local Doc = require("cosmic.doc")
+local Errors = require("cosmic.errors")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -1698,16 +1699,29 @@ local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: 
       respelled.stdout:find("doc.guides.opening", 1, true) ~= nil, respelled.stdout .. respelled.stderr)
 end
 
---- Run from its source, a program's view searches and ranks the examples of what it documents alone: its
---- connection to the project's last build holds those rows, and an index of them, in place of every program's.
+--- Run from its source, a program's view searches and ranks the examples of what it documents alone, and the
+--- catalog of what it carries: its connection to the project's last build holds those rows, and an index of them, in
+--- place of every program's. An error's guidance is matched against the catalog of what it carries alone too.
 local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_documents(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/spam"))
   assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
   assert(Fs.write(tmp .. "/cmd/spam/main.tl", 'local _shared = require("shared")\nreturn function(): integer return 0 end\n'))
   assert(Fs.write(tmp .. "/cmd/eggs/main.tl", 'local _eggs = require("eggs")\nreturn function(): integer return 0 end\n'))
   for _, name in ipairs({ "shared", "eggs" }) do
-    assert(Fs.write(tmp .. "/" .. name .. ".tl", "--- " .. name .. ".\nlocal record m\n  --- A field.\n  n: integer\nend\n" ..
-        "local v: m = { n = 1 }\nreturn v\n"))
+    assert(Fs.write(tmp .. "/" .. name .. ".tl", table.concat({
+      "--- " .. name .. ".",
+      "local record m",
+      "  --- A field.",
+      "  n: integer",
+      "end",
+      "local v: m = { n = 1 }",
+      "--- Fails, as " .. name .. " does.",
+      "function m.fail(): string?, string",
+      '  return nil, "' .. (if name == "eggs" then "the hens refused their coop" else "the drawer jammed shut" end) .. '"',
+      "end",
+      "return v",
+      "",
+    }, "\n")))
     assert(Fs.write(tmp .. "/" .. name .. "_example.tl", table.concat({
       'local m = require("' .. name .. '")',
       "local record Example",
@@ -1734,6 +1748,15 @@ local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_
     local indexed = assert(Sqlite.text_rows(scoped,
       "SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'eggs'"))
     assert(support.nth(indexed, 1):text(1) == "0", "the index holds no other program's example")
+    local cataloged = assert(Sqlite.text_rows(scoped,
+      "SELECT count(*) FROM catalog_fts JOIN catalog c ON c.id = catalog_fts.rowid WHERE catalog_fts MATCH 'hens' " ..
+        "AND c.module = 'eggs'"))
+    assert(support.nth(cataloged, 1):text(1) == "0", "the catalog holds no other program's row")
+    assert(Errors.guidance_in(db, "the hens refused their coop") == nil, "no other program's guidance answers")
+    assert(Errors.guidance_in(db, "the drawer jammed shut") ~= nil, "its own does")
+    source_run.main = nil
+    assert(Errors.guidance_in(db, "the hens refused their coop") ~= nil, "every program's answers another run")
+    db:close()
   end)
   source_run.main, source_run.projection = main, built
   assert(ok, tostring(err))

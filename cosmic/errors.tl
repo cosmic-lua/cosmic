@@ -7,6 +7,7 @@
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local errors = require("cosmic.internal.errors")
+local source_run = require("cosmic.internal.source_run")
 
 local record Errors
 end
@@ -145,7 +146,10 @@ end
 --- would bury the message. A message Lua itself wrote
 --- (`attempt to ...`, `module '...' not found`, `bad argument #n to ...`)
 --- has none: the catalog is for the messages cosmic's own code raises.
---- [`Errors.guidance`] asks each database the store holds in turn.
+--- [`Errors.guidance`] asks each database the store holds in turn. Where `handle` is the project's last build a
+--- `cmd/<name>/main.tl` run from its source attaches ([`cosmic.internal.source_run`]), only the rows of the modules
+--- the program carries built answer ([`build.embed`]): those its main requires, directly or not, and those under its
+--- own `cmd/<name>/`, as its build carries their catalog and no other program's.
 function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   if lua_wrote(message) then
     return nil
@@ -154,13 +158,28 @@ function Errors.guidance_in(handle: Sqlite.Handle, message: string): string?
   if query == nil then
     return nil
   end
+  -- The program's modules, where the run is a program's main run from source and `handle` holds that main.
+  local carried = ""
+  local main = source_run.main
+  local name = if main ~= nil then main:match("^cmd%.([^%.]+)%.main$") else nil end
+  local values: mut {Sqlite.Value} = { { text = query } }
+  if main ~= nil and name ~= nil then
+    local held, _ = Sqlite.text_rows(handle, "SELECT 1 FROM main.modules WHERE path = ?1", { { text = main } })
+    if held ~= nil and #held > 0 then
+      carried = " AND catalog.module IN (WITH RECURSIVE carried(path) AS (SELECT ?2 UNION SELECT path FROM " ..
+        "main.modules WHERE kind = 'module' AND substr(path, 1, length(?3)) = ?3 UNION SELECT i.requires FROM " ..
+        "main.imports i JOIN carried c ON i.path = c.path) SELECT path FROM carried)"
+      values[#values + 1] = { text = main }
+      values[#values + 1] = { text = "cmd." .. name .. "." }
+    end
+  end
   local rows, _ = Sqlite.text_rows(handle,
     "SELECT catalog.text, catalog.message, catalog.symbol, catalog.file, " ..
       "catalog.line, catalog.text IS NULL " ..
       "FROM main.catalog_fts JOIN main.catalog " ..
       "ON catalog.id = catalog_fts.rowid " ..
-      "WHERE catalog_fts MATCH ?1 ORDER BY bm25(catalog_fts) LIMIT 1",
-    { { text = query } })
+      "WHERE catalog_fts MATCH ?1" .. carried .. " ORDER BY bm25(catalog_fts) LIMIT 1",
+    values)
   if rows == nil then
     -- A test's pure store leaves the catalog out ([`build.closure_store`]): that is no database without guidance, which
     -- answers none, but a store a test was not given the text of, and the lookup says so.

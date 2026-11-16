@@ -1570,9 +1570,10 @@ end
 --- the one it names as its pages (`pages`), documented wherever it sits, as its build carries it.
 ---
 --- The store's connections only read, so this opens one of its own to the build and fills, in its `temp`
---- schema, a `public_modules` and a `docs` of those rows and an `examples` of the examples of those modules, as
---- its build carries them, each with the stored table's indexes; and the index of each (`docs_fts`,
---- `examples_fts`) and the words `docs_words` of that `docs`, as the program's build makes them of the rows it carries ([`build.schema`]'s `rebuild`), so a word
+--- schema, a `public_modules` and a `docs` of those rows, an `examples` of the examples of those modules and a
+--- `catalog` of the rows of every module it carries, as its build carries them, each with the stored table's
+--- indexes; and the index of each (`docs_fts`, `examples_fts`, `catalog_fts`) and the words `docs_words` of that
+--- `docs`, as the program's build makes them of the rows it carries ([`build.schema`]'s `rebuild`), so a word
 --- is searched, ranked and put right among them alone. They stand in for the stored ones in every statement here
 --- that does not name its schema. `db` itself for any other run, and for a database that does not hold the main
 --- (the tool's own). Nil and why where the build cannot be read so.
@@ -1616,12 +1617,12 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
     end
   end
   local indexes, indexes_trouble = Sqlite.text_rows(opened,
-    "SELECT name, sql FROM main.sqlite_master WHERE name IN ('docs_fts', 'docs_words', 'examples_fts') " ..
-      "ORDER BY name")
+    "SELECT name, sql FROM main.sqlite_master WHERE name IN ('catalog_fts', 'docs_fts', 'docs_words', " ..
+      "'examples_fts') ORDER BY name")
   if indexes == nil then return failed(indexes_trouble) end
   local statements: mut {string} = {}
-  for _, dropped in ipairs({ "docs_fts", "docs_words", "examples_fts", "public_modules", "carried", "docs",
-      "examples" }) do
+  for _, dropped in ipairs({ "catalog_fts", "docs_fts", "docs_words", "examples_fts", "public_modules", "carried",
+      "catalog", "docs", "examples" }) do
     statements[#statements + 1] = "DROP TABLE IF EXISTS temp." .. dropped
   end
   for _, made in ipairs({
@@ -1642,7 +1643,7 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
     statements[#statements + 1] = made
   end
   -- Each stored table and its indexes, made again in `temp`.
-  for _, table_name in ipairs({ "docs", "examples" }) do
+  for _, table_name in ipairs({ "catalog", "docs", "examples" }) do
     local definitions, definitions_trouble = Sqlite.text_rows(opened,
       "SELECT type, sql FROM main.sqlite_master WHERE tbl_name = ?1 AND type IN ('table', 'index') AND " ..
         "sql IS NOT NULL ORDER BY type = 'index', name", { text(table_name) })
@@ -1656,11 +1657,18 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
       end
     end
   end
-  -- The examples of the modules it documents, as its build carries them ([`build.embed`]'s `copy_documentation`).
-  -- The catalog needs no scope here: a program's view reads only the checker's codes of it, which the tool's own
-  -- database holds and a project's does not.
+  -- The examples of the modules it documents, and the catalog of every module it carries, as its build carries
+  -- them ([`build.embed`]'s `copy_documentation`, and its catalog of the modules it carries).
+  --
+  -- TODO: answer no code of the checker run from source, as the program
+  -- built answers none: `till docs not_assignable` still names
+  -- `lang.check not_assignable`, which the tool's own database documents
+  -- and no built program carries. It waits on Doc.program leaving out the
+  -- tool's modules beside `cosmic.*`, as it leaves out the library's.
   statements[#statements + 1] = "INSERT INTO temp.examples SELECT * FROM main.examples " ..
     "WHERE module IN (SELECT path FROM temp.public_modules) ORDER BY id"
+  statements[#statements + 1] = "INSERT INTO temp.catalog SELECT * FROM main.catalog " ..
+    "WHERE module IN (SELECT path FROM temp.carried) ORDER BY id"
   -- The rows the program carries: those of each module it documents, its own guides' own rows under the guide's
   -- name, and the project's guides' own rows it has none of its own in place of.
   statements[#statements + 1] = "INSERT INTO temp.docs (" .. table.concat(names, ", ") .. ") SELECT " ..
