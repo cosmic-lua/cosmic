@@ -434,8 +434,9 @@ local function rewrite(tree: string, path: string): integer?, string
 end
 
 --- The timestamp of the feed state `body` holds, as digits, and "": its
---- top-level `timestamp`, wherever the object puts that member. nil and
---- why when `body` is no JSON object or holds no integer timestamp.
+--- top-level `timestamp`, in any member order. Nil and why when `body` is
+--- no JSON object (a duplicate member is refused) or holds no integer
+--- timestamp. build/onecrl.tl's [`onecrl.timestamp`] reads it the same way.
 function Vendor.feed_timestamp(body: string): string?, string
   local state, trouble = Json.decode_object(body)
   if state == nil then
