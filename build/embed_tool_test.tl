@@ -1608,8 +1608,8 @@ local function test_a_program_run_from_its_source_answers_from_the_projects_docu
 end
 
 --- Run from its source beside another program, a program answers as it would built: neither the other's
---- module nor its guide, which stands in for the project's of that name in that one alone, and its own guide
---- under the guide's name, in place of the project's.
+--- module nor its guide, which stands in for the project's of that name in that one alone, and its own guides
+--- under the guide's name, one in place of the project's of the same name.
 local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: string)
   write_till(tmp)
   assert(Fs.mkdirs(tmp .. "/cmd/eggs/doc/guides"))
@@ -1619,17 +1619,19 @@ local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: 
     'local _eggs = require("eggs")\nreturn function(): integer return 0 end\n'))
   assert(Fs.write(tmp .. "/cmd/eggs/doc/guides/closing.md", "# Closing the coop\n\nShut the hens in.\n"))
   assert(Fs.write(tmp .. "/cmd/till/doc/guides/opening.md", "# Opening the till\n\nCount the float first.\n"))
+  assert(Fs.write(tmp .. "/cmd/till/doc/guides/closing.md", "# Closing this till\n\nCount the drawer twice.\n"))
   local listed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs" })
   assert(listed.code == 0 and listed.stdout:find("doc.guides.closing  ", 1, true) ~= nil and
       listed.stdout:find("doc.guides.opening  ", 1, true) ~= nil and not listed.stdout:find("eggs", 1, true) and
       not listed.stdout:find("cmd.till.doc", 1, true), listed.stdout .. listed.stderr)
   local closing = verbs_fixture.run(tmp, { "cmd/till/main.tl", "help", "closing" })
-  assert(closing.code == 0 and closing.stdout:find("reconcile the journal", 1, true) ~= nil and
-      not closing.stdout:find("hens", 1, true), closing.stdout .. closing.stderr)
+  assert(closing.code == 0 and closing.stdout:find("Count the drawer twice.", 1, true) ~= nil and
+      not closing.stdout:find("reconcile the journal", 1, true) and not closing.stdout:find("hens", 1, true),
+    closing.stdout .. closing.stderr)
   local opening = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", "float" })
   assert(opening.code == 0 and opening.stdout:find("doc.guides.opening", 1, true) ~= nil,
     opening.stdout .. opening.stderr)
-  for _, query in ipairs({ "Scrambling", "hens" }) do
+  for _, query in ipairs({ "Scrambling", "hens", "eggs" }) do
     local missed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", query })
     assert(missed.code == 2 and missed.stdout == "", query .. ": " .. missed.stdout .. missed.stderr)
   end

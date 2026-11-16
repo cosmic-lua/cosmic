@@ -1561,22 +1561,24 @@ local function sql_literal(value: string): string
   return "'" .. (value:gsub("'", "''")) .. "'"
 end
 
---- A connection of its own to the project's last build a `cmd/<name>/main.tl` run from its source attaches
---- ([`cosmic.internal.source_run`]'s `main` and `projection`), in place of `db`, the store's, when `db` is that
---- build, with its documentation scoped to what that program carries built ([`build.embed`]),
---- so it answers as it would built: the docs of the modules it carries (those its main requires, directly or
---- not, and each under its own `cmd/<name>/` but a test or an example) that any module may require or that sit
---- under its own `cmd/<name>/` (the main and one under `internal/` aside); its own guides, each in place of the
---- project's of its name, and no other program's. It creates, in that connection's `temp` schema (the store's
---- connections write nothing), a `public_modules` and a `docs` that stand in for the stored ones in every statement
---- here that does not name its schema, so no other statement changes. `db` itself for any other run, and for a
---- database that does not hold the main (the tool's own). Nil and why where the build cannot be read so.
+--- Answers the documentation of the project's last build as a `cmd/<name>/main.tl` run from its source would
+--- carry it built ([`build.embed`]), in place of `db`, the store's connection to that build. The run names the
+--- program and the build ([`cosmic.internal.source_run`]'s `main` and `projection`). What it carries: the docs of
+--- each module it carries that any module may require, or that sits under its own `cmd/<name>/` (the main, a
+--- test, an example and one under `internal/` aside), and the guides, its own in place of the project's of the
+--- same name. A module it carries is one its main requires, directly or not, or one under its own `cmd/<name>/`.
+---
+--- The store's connections only read, so this opens one of its own to the build and fills, in its `temp`
+--- schema, a `public_modules` and a `docs` of those rows, with the stored table's indexes. They stand in for
+--- the stored ones in every statement here that does not name its schema. `db` itself for any other run, and
+--- for a database that does not hold the main (the tool's own). Nil and why where the build cannot be read so.
 --
--- TODO: scope `docs_words` too, the words a misspelling is put right to:
--- run from source, a program can still offer a word of another program's
--- documentation, then find nothing under it. It waits on the word list
--- being made of the rows of `docs` the view answers for, as the program's
--- own build makes it of the rows it carries.
+-- TODO: scope `docs_words` and `docs_fts` too: run from source, a program can
+-- still offer a word of another program's documentation to put a misspelling
+-- right to, or take one for documented, and ranks by the whole project's
+-- words. It waits on the words and the index being made of the rows of the
+-- temporary `docs`, as the program's own build makes them of the rows it
+-- carries.
 local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
   local main = source_run.main
   local projection = source_run.projection
@@ -1586,27 +1588,37 @@ local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
   local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM main.modules WHERE path = ?1", { text(main) })
   if held == nil then return nil, held_trouble end
   if #held == 0 then return db, "" end
+  -- Opened by its path, as the store attached it: a build that replaced the file since is read in its place.
   local opened, open_trouble = Sqlite.open(projection)
   if opened == nil then return nil, projection .. ": " .. open_trouble end
-  db = opened
+  local function failed(trouble: string): Sqlite.Handle?, string
+    local _, _ = opened:close()
+    return nil, trouble
+  end
   local own = "cmd." .. name .. "."
   local own_guides = own .. "doc.guides."
-  local docs_columns, columns_trouble = Sqlite.text_rows(db, "SELECT name FROM pragma_table_info('docs', 'main')")
-  if docs_columns == nil then return nil, columns_trouble end
+  local docs_columns, columns_trouble = Sqlite.text_rows(opened, "SELECT name FROM pragma_table_info('docs', 'main')")
+  if docs_columns == nil then return failed(columns_trouble) end
+  local names: mut {string} = {}
   local selected: mut {string} = {}
   for _, column in ipairs(docs_columns) do
     local column_name = column:text(1)
+    names[#names + 1] = column_name
     if column_name == "module" then
-      selected[#selected + 1] = "CASE WHEN symbol = '' AND substr(module, 1, " .. tostring(#own_guides) .. ") = " ..
+      selected[#selected + 1] = "CASE WHEN substr(module, 1, " .. tostring(#own_guides) .. ") = " ..
         sql_literal(own_guides) .. " THEN 'doc.guides.' || substr(module, " .. tostring(#own_guides + 1) ..
-        ") ELSE module END AS module"
+        ") ELSE module END"
     else
       selected[#selected + 1] = column_name
     end
   end
-  local statements: {string} = {
+  local definitions, definitions_trouble = Sqlite.text_rows(opened,
+    "SELECT type, sql FROM main.sqlite_master WHERE tbl_name = 'docs' AND type IN ('table', 'index') AND " ..
+      "sql IS NOT NULL ORDER BY type = 'index', name")
+  if definitions == nil then return failed(definitions_trouble) end
+  local statements: mut {string} = {
     "DROP TABLE IF EXISTS temp.public_modules",
-    "DROP VIEW IF EXISTS temp.docs",
+    "DROP TABLE IF EXISTS temp.docs",
     "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
     "WITH RECURSIVE carried(path) AS (SELECT " .. sql_literal(main) .. " UNION SELECT path FROM main.modules " ..
       "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) ..
@@ -1615,17 +1627,29 @@ local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
       "WHERE m.path IN (SELECT path FROM carried) AND (m.path IN (SELECT path FROM main.public_modules) OR " ..
       "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) .. " AND m.path <> " .. sql_literal(main) ..
       " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0)) ORDER BY m.path",
-    "CREATE TEMP VIEW docs AS SELECT " .. table.concat(selected, ", ") .. " FROM main.docs d " ..
-      "WHERE NOT (d.symbol = '' AND d.module GLOB 'cmd.*.doc.guides.*' AND substr(d.module, 1, " ..
-      tostring(#own_guides) .. ") <> " .. sql_literal(own_guides) .. ") AND NOT (d.symbol = '' AND " ..
-      symbols.guide_module("d.module") .. " AND EXISTS (SELECT 1 FROM main.docs o WHERE o.symbol = '' AND " ..
-      "o.module = " .. sql_literal(own_guides) .. " || substr(d.module, 12)))",
   }
-  for _, statement in ipairs(statements) do
-    local ok, trouble = Sqlite.run(db, statement, {})
-    if not ok then return nil, trouble end
+  -- The stored table and its indexes, made again in `temp`.
+  for _, row in ipairs(definitions) do
+    local sql = row:text(2)
+    if row:text(1) == "table" then
+      statements[#statements + 1] = (sql:gsub("^CREATE TABLE", "CREATE TEMP TABLE", 1))
+    else
+      statements[#statements + 1] = (sql:gsub("^CREATE (%a* ?)INDEX ", "CREATE %1INDEX temp.", 1))
+    end
   end
-  return db, ""
+  -- The rows the program carries: those of each module it documents, its own guides' own rows under the guide's
+  -- name, and the project's guides' own rows it has none of its own in place of.
+  statements[#statements + 1] = "INSERT INTO temp.docs (" .. table.concat(names, ", ") .. ") SELECT " ..
+    table.concat(selected, ", ") .. " FROM main.docs d WHERE d.module IN (SELECT path FROM temp.public_modules) OR " ..
+    "(d.symbol = '' AND substr(d.module, 1, " .. tostring(#own_guides) .. ") = " .. sql_literal(own_guides) ..
+    " AND instr(substr(d.module, " .. tostring(#own_guides + 1) .. "), '.') = 0) OR (d.symbol = '' AND " ..
+    symbols.guide_module("d.module") .. " AND NOT EXISTS (SELECT 1 FROM main.docs o WHERE o.symbol = '' AND " ..
+    "o.module = " .. sql_literal(own_guides) .. " || substr(d.module, 12))) ORDER BY d.id"
+  for _, statement in ipairs(statements) do
+    local ok, trouble = Sqlite.run(opened, statement, {})
+    if not ok then return failed(trouble) end
+  end
+  return opened, ""
 end
 
 --- A view of a program's own documentation, for the program to answer its users from: `databases` are its
