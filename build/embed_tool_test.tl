@@ -529,6 +529,41 @@ local function test_a_pages_module_no_module_requires_is_carried(tmp: string)
   assert(help.code == 0 and help.stdout:find("Fries the spam, golden.", 1, true) ~= nil, help.stdout .. help.stderr)
 end
 
+--- A pages module named by a local bound to its name, constant or not, is carried and documented as one written
+--- in the table is: the build reads the string the file binds.
+local function test_a_pages_module_named_by_a_local_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Flags = require("cosmic.flags")',
+    'local PAGES <const> = "by_constant"',
+    "return function(argv: {string}): integer",
+    "  local commands: {string:Flags.Command} = { fry = { about = \"fry it\", run = function(_: Flags.Parsed): integer return 0 end } }",
+    "  local documented: Flags.Documented = { pages = PAGES }",
+    "  local ran, _ = Flags.dispatch(argv, 1, commands, \"spam\", documented)",
+    '  local named = "by_local"',
+    "  local _, _ = Flags.dispatch(argv, 1, commands, \"spam\", { pages = named })",
+    "  if ran == nil then return 2 end",
+    "  return ran.code",
+    "end",
+    "",
+  }, "\n")))
+  for _, name in ipairs({ "by_constant", "by_local" }) do
+    assert(Fs.write(tmp .. "/" .. name .. ".tl", "--- Named " .. name .. ".\nlocal record m\n  --- Fries.\n  fry: integer\nend\n" ..
+        "local v: m = { fry = 1 }\nreturn v\n"))
+  end
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules: mut {string} = {}
+  for _, row in ipairs(rows_of(path, "SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")) do
+    modules[#modules + 1] = row:text(1)
+  end
+  assert(table.concat(modules, " ") == "by_constant by_local cmd.spam.main", table.concat(modules, " "))
+  local documented = rows_of(path, "SELECT count(DISTINCT module) FROM docs WHERE module IN ('by_constant', 'by_local')")
+  assert(support.nth(documented, 1):text(1) == "2", "both are documented")
+end
+
 --- A test or example file is only a kind by its name: one the program
 --- itself requires, directly or through another module, is carried,
 --- or the executable would build and then fail to load it.
