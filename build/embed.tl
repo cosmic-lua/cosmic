@@ -205,25 +205,90 @@ local record Readable
   own_guide_prefix: string
 end
 
+--- A field of another module a `pages` names ([`pages_named`]), whose value [`strings_of_field`] reads.
+local record PagesField
+  --- The module, by the name its file `require`s it by.
+  module: string
+  --- The field's name.
+  field: string
+end
+
 --- The modules `source`, the text of the module file `file`, names as the `pages` of a [`Flags.Documented`]: each
 --- string written as the `pages` field of a table literal (`{ pages = "commands" }`), or held there by a local the
 --- file binds to a string (`local PAGES <const> = "commands"`, then `{ pages = PAGES }`); the fields of a
 --- `Documented` are fixed, so no later assignment sets one. Such a name reaches its module by no `require`, so
 --- [`embed.database`] carries and documents it beside the closure of main. A field of that name in a table that is
 --- no `Documented`, naming a module of the project, has that module carried and documented all the same, as has each
---- string a local of that name is bound to anywhere in the file, whatever its scope. A name made at run time, or held
---- by another module, names none: it is not known before the program runs. A file that does not parse names none.
+--- string a local of that name is bound to anywhere in the file, whatever its scope. A field of a module the file
+--- requires (`local Names = require("names")`, then `{ pages = Names.pages }`) names what that module binds the
+--- field to ([`strings_of_field`]): answered as references, each module and field, which [`embed.database`] reads.
+--- A name made at run time names none: it is not known before the program runs. A file that does not parse names
+--- none.
 ---
---- TODO: follow a name another module holds (`{ pages = Names.pages }`):
---- the program carries no module for it, and the build does not say. It
---- waits on the checker telling the build the value of another module's
---- field.
-local function pages_named(source: string, file: string): {string}
+--- TODO: follow a name a module reaches less directly: a field of a
+--- module bound by more than its `require` (`require("names").pages`), a
+--- field the other module takes from a third (`{ docs_module =
+--- Other.docs_module }`), a field of a field (`Names.a.b`). The program
+--- carries no module for it, and the build does not say. It waits on the
+--- checker telling the build the value an expression holds.
+local function pages_named(source: string, file: string): {string}, {PagesField}
+  local chunk, _ = SyntaxNode.parse(source, file, "tl")
+  local out: mut {string} = {}
+  local fields: mut {PagesField} = {}
+  if chunk == nil then return out, fields end
+  -- The strings each local name is bound to where a string literal is its value (`local name = "text"`), every
+  -- such binding of the name in the file; one bound to anything else adds nothing.
+  local bound: mut {string: mut {string}} = {}
+  -- And the module each local name is bound to by a `require` of a literal name (`local Names = require("names")`).
+  local required: mut {string: mut {string}} = {}
+  SyntaxNode.walk(chunk, function(node: Ast.Node)
+    if node.kind == "Local" then
+      for index, binding in ipairs(node.bindings) do
+        local value = node.values[index]
+        if value ~= nil and value.kind == "String" then
+          local strings = bound[binding.name] or {}
+          strings[#strings + 1] = value.value
+          bound[binding.name] = strings
+        elseif value ~= nil and value.kind == "Call" and value.callee.kind == "Name" and
+            value.callee.text == "require" then
+          local first = value.args[1]
+          if first ~= nil and first.kind == "String" then
+            local modules = required[binding.name] or {}
+            modules[#modules + 1] = first.value
+            required[binding.name] = modules
+          end
+        end
+      end
+    end
+  end)
+  --- Adds what `value` names: a string, or the strings a local of its name is bound to.
+  local function add(value: Ast.Exp)
+    if value.kind == "String" then
+      out[#out + 1] = value.value
+    elseif value.kind == "Name" then
+      for _, held in ipairs(bound[value.text] or {}) do out[#out + 1] = held end
+    elseif value.kind == "Field" and value.object.kind == "Name" then
+      for _, module in ipairs(required[value.object.text] or {}) do
+        fields[#fields + 1] = { module = module, field = value.name }
+      end
+    end
+  end
+  SyntaxNode.walk(chunk, function(node: Ast.Node)
+    if node.kind == "Named" and node.name == "pages" then
+      add(node.value)
+    end
+  end)
+  return out, fields
+end
+
+--- The strings the module file `file`, of text `source`, binds its field `field` to: each string written as that field
+--- of a table literal (`{ pages = "commands" }`), or assigned to it (`names.pages = "commands"`), or held there by a
+--- local the file binds to a string, or written as a keyed field (`["pages"] = "commands"`). More than one where the
+--- file binds it more than once, all of them; none where it binds it to anything else, or does not parse.
+local function strings_of_field(source: string, file: string, field: string): {string}
   local chunk, _ = SyntaxNode.parse(source, file, "tl")
   local out: mut {string} = {}
   if chunk == nil then return out end
-  -- The strings each local name is bound to where a string literal is its value (`local name = "text"`), every
-  -- such binding of the name in the file; one bound to anything else adds nothing.
   local bound: mut {string: mut {string}} = {}
   SyntaxNode.walk(chunk, function(node: Ast.Node)
     if node.kind == "Local" then
@@ -237,7 +302,7 @@ local function pages_named(source: string, file: string): {string}
       end
     end
   end)
-  --- Adds what `value` names: a string, or the strings a local of its name is bound to.
+  --- Adds what `value` holds: a string, or the strings a local of its name is bound to.
   local function add(value: Ast.Exp)
     if value.kind == "String" then
       out[#out + 1] = value.value
@@ -246,8 +311,15 @@ local function pages_named(source: string, file: string): {string}
     end
   end
   SyntaxNode.walk(chunk, function(node: Ast.Node)
-    if node.kind == "Named" and node.name == "pages" then
+    if node.kind == "Named" and node.name == field then
       add(node.value)
+    elseif node.kind == "Keyed" and node.key.kind == "String" and node.key.value == field then
+      add(node.value)
+    elseif node.kind == "Assign" then
+      for index, target in ipairs(node.targets) do
+        local value = node.values[index]
+        if value ~= nil and target.kind == "Field" and target.name == field then add(value) end
+      end
     end
   end)
   return out
@@ -595,7 +667,23 @@ function embed.database(project: string, main: string, roots?: string): string?,
         read_list[#read_list + 1] = path
         local source = row:text(3)
         if source:find("pages", 1, true) ~= nil then
-          for _, name in ipairs(pages_named(source, row:text(2))) do named[name] = true end
+          local names, fields = pages_named(source, row:text(2))
+          for _, name in ipairs(names) do named[name] = true end
+          -- A field of another module of the project's: what that module binds it to.
+          for _, field in ipairs(fields) do
+            local held, held_trouble = Sqlite.text_rows(out,
+              "SELECT file, CAST(inflate(source) AS TEXT) FROM project.modules WHERE path = ?1 AND length(source) > 0",
+              { text(field.module) })
+            if held == nil then
+              return false, held_trouble
+            end
+            local row_of = held[1]
+            if row_of ~= nil then
+              for _, name in ipairs(strings_of_field(row_of:text(2), row_of:text(1), field.field)) do
+                named[name] = true
+              end
+            end
+          end
         end
       end
       pages_roots = {}
