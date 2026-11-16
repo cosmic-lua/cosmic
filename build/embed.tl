@@ -1,6 +1,7 @@
 --- Building a project into portable executables: one file each, the retained
 --- multi-core prefix with a database behind it that holds the project's modules
---- its main requires, directly or through another module, and no other, the
+--- its main requires, directly or through another module, and those under its
+--- own `cmd/<name>/`, and no other, the
 --- standard library, the error catalog, the bill of materials, and the name of
 --- the main module, so it runs on its own with no `cosmic` beside it. It holds the
 --- project's documentation too, for the program's users to read: the docs,
@@ -30,6 +31,7 @@ local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local clock = require("build.clock")
+local AnalysisSchema = require("build.analysis_schema")
 local artifact = require("build.artifact")
 local type raw_store = require("cosmic.internal.store")
 local GrammarMode = require("build.grammar_mode")
@@ -186,30 +188,45 @@ end
 
 --- What of the attached project's documentation a program carries.
 local record Readable
-  --- Each module whose docs the program carries, which it records as public
-  --- in its own `public_modules`: those it answers `docs` for.
+  --- Each module whose docs it carries, recorded in its own `public_modules`
+  --- as those its `docs` answers for.
   public: {string}
   --- Each guide, by the module it compiles as (`doc.guides.<name>`).
   guides: {string}
+end
+
+--- The prefix of the import paths under the program `main`'s own
+--- `cmd/<name>/` ("cmd.spam."), or nil when `main` is no `cmd.<name>.main`.
+local function own_prefix(main: string): string?
+  local name = main:match("^cmd%.([^%.]+)%.main$")
+  if name == nil then return nil end
+  return "cmd." .. name .. "."
 end
 
 --- The modules of the project attached to `out` whose documentation the
 --- program `main` carries, of those `out` holds already: each its project
 --- records as public, and each module under the program's own
 --- `cmd/<name>/` but the main itself, which only that program can require,
---- so its users read them as they read a public one. And each guide, a
---- Markdown file directly under `doc/guides/`.
-local function documented_modules(out: Sqlite.Handle, main: string): Readable?, string
-  local own = (main:gsub("main$", ""))
+--- so its users read them as they read a public one. A module under an
+--- `internal/` directory and test support stay out there too, as
+--- [`build.writer`]'s `fill_public` keeps them out of the public ones. And
+--- each guide, a Markdown file directly under `doc/guides/`.
+local function documented_modules(out: Sqlite.Handle, main: string, own: string): Readable?, string
   local rows, trouble = Sqlite.text_rows(out,
-    "SELECT path FROM main.modules m WHERE path IN (SELECT path FROM project.public_modules) OR " ..
-      "(substr(path, 1, length(?1)) = ?1 AND path <> ?2 AND EXISTS (SELECT 1 FROM project.modules p " ..
-      "WHERE p.path = m.path AND p.kind = 'module')) ORDER BY path", { text(own), text(main) })
+    "SELECT m.path, p.file, m.path IN (SELECT path FROM project.public_modules) FROM main.modules m " ..
+      "JOIN project.modules p ON p.path = m.path WHERE m.path IN (SELECT path FROM project.public_modules) OR " ..
+      "(substr(m.path, 1, length(?1)) = ?1 AND m.path <> ?2 AND p.kind = 'module') ORDER BY m.path",
+    { text(own), text(main) })
   if rows == nil then
     return nil, trouble
   end
   local public: mut {string} = {}
-  for _, row in ipairs(rows) do public[#public + 1] = row:text(1) end
+  for _, row in ipairs(rows) do
+    local file = row:text(2)
+    if row:text(3) == "1" or (not AnalysisSchema.is_support(file) and ("/" .. file):find("/internal/", 1, true) == nil) then
+      public[#public + 1] = row:text(1)
+    end
+  end
   local found, guide_trouble = Sqlite.text_rows(out,
     "SELECT path, file FROM project.modules WHERE file GLOB 'doc/guides/*.md' ORDER BY path")
   if found == nil then
@@ -444,7 +461,8 @@ function embed.database(project: string, main: string, roots?: string): string?,
       return false, attach_trouble
     end
     -- The project's modules that `main` requires, directly or through
-    -- another module, and no other: another program's main and what only
+    -- another module, and those under its own `cmd/<name>/` (below), and no
+    -- other: another program's main and what only
     -- it requires are that program's, and a test or example no carried
     -- module requires is the project's to keep. A test or example file a
     -- carried module requires is carried, since the program cannot load
@@ -453,17 +471,26 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- An edge exists for a `require` of a literal name, `pcall(require,
     -- "<name>")` included (build.syntax_node's requires), and the parser
     -- refuses a computed name, so every file a program loads is carried.
+    -- Every module under the program's own `cmd/<name>/` is a root beside
+    -- main, whether main requires it or not: no other program may require
+    -- it, and a module [`Flags.Documented`]'s `pages` names by a string
+    -- alone is often one.
+    local own = own_prefix(main)
+    if own == nil then
+      return false, main .. " is not a cmd.<name>.main"
+    end
     local carried, carried_trouble = Sqlite.run(out,
-      "WITH RECURSIVE carried(path) AS (SELECT ?1 " ..
+      "WITH RECURSIVE carried(path) AS (SELECT ?1 UNION SELECT path FROM project.modules " ..
+        "WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
         "UNION SELECT i.requires FROM project.imports i " ..
         "JOIN carried c ON i.path = c.path) " ..
         "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
         "SELECT " .. module_column_list .. " FROM project.modules " ..
-        "WHERE path IN (SELECT path FROM carried) ORDER BY path", { text(main) })
+        "WHERE path IN (SELECT path FROM carried) ORDER BY path", { text(main), text(own) })
     if not carried then
       return false, carried_trouble
     end
-    local readable, readable_trouble = documented_modules(out, main)
+    local readable, readable_trouble = documented_modules(out, main, own)
     if readable == nil then
       return false, readable_trouble
     end

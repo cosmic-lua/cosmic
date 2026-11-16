@@ -391,11 +391,27 @@ end
 --- Each program carries what its own main requires and the documentation of
 --- that alone: `spam` leaves out `eggs`'s main and the module only `eggs`
 --- requires, and their docs, though `eggs.tl` is public. A module under
---- `cmd/spam/` is `spam`'s own to document, as a public one is, and none of
---- `eggs`'s; the main itself is documented by neither.
+--- `cmd/spam/` is `spam`'s own to carry and document, as a public one is,
+--- whether main requires it or not (a `pages` module is named by a string
+--- alone), and none of `eggs`'s; the main itself is documented by neither,
+--- nor a module under `cmd/spam/internal/`. A public module no main requires
+--- is in neither program.
 local function test_each_program_carries_only_what_its_main_requires(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/internal"))
   assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.write(tmp .. "/loose.tl", "--- No main requires it.\nlocal record loose\nend\nreturn loose\n"))
+  assert(Fs.write(tmp .. "/eggs_example.tl", table.concat({
+    'local _eggs = require("eggs")',
+    "local record Example",
+    "end",
+    "--- Cracks one.",
+    "function Example.crack()",
+    "end",
+    "return Example",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/cmd/spam/pages.tl", "--- Spam's pages, which main never requires.\nlocal record pages\nend\nreturn pages\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/internal/secret.tl", "--- Spam's secret.\nlocal record secret\nend\nreturn secret\n"))
   assert(Fs.write(tmp .. "/shared.tl", "--- Shared by both.\nlocal record shared\nend\nreturn shared\n"))
   assert(Fs.write(tmp .. "/eggs.tl", "--- Only eggs requires it.\nlocal record eggs\nend\nreturn eggs\n"))
   assert(Fs.write(tmp .. "/cmd/spam/commands.tl", table.concat({
@@ -437,13 +453,17 @@ local function test_each_program_carries_only_what_its_main_requires(tmp: string
     return table.concat(out, " ")
   end
   local modules = listed("SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")
-  assert(modules == "cmd.spam.commands cmd.spam.main shared", "spam's main and what it requires: " .. modules)
+  assert(modules == "cmd.spam.commands cmd.spam.internal.secret cmd.spam.main cmd.spam.pages shared",
+    "spam's main, what it requires and its own modules: " .. modules)
   local imports = listed("SELECT DISTINCT path FROM imports WHERE path NOT LIKE 'cosmic.%' ORDER BY path")
   assert(imports == "cmd.spam.main", "the edges of what it carries alone: " .. imports)
   local recorded = listed("SELECT path FROM public_modules ORDER BY path")
-  assert(recorded == "cmd.spam.commands shared", "its own module and the public one it carries: " .. recorded)
+  assert(recorded == "cmd.spam.commands cmd.spam.pages shared",
+    "its own modules and the public one it carries: " .. recorded)
   local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
-  assert(documented == "cmd.spam.commands shared", "the docs of those alone: " .. documented)
+  assert(documented == "cmd.spam.commands cmd.spam.pages shared", "the docs of those alone: " .. documented)
+  local examples = listed("SELECT count(*) FROM examples")
+  assert(examples == "0", "no example of a module it does not carry: " .. examples)
 end
 
 --- A test or example file is only a kind by its name: one the program
