@@ -632,7 +632,10 @@ end
 Run it with `TASKS_KEYS=$(cosmic -e 'print(require("cosmic.web.secret").generate())') cosmic dev.tl`.
 Because the supervisor sets `COSMIC_WEB_DEV=1` the app, built by
 [`Dev.app`], is in development mode: it shows a fault's stack, serves
-`static/` from disk with `Cache-Control: no-store`, adds a script to every
+`static/` from disk with `Cache-Control: no-store` (a program run as
+`cosmic cmd/<name>/main.tl` lays its own `cmd/<name>/static/` over it, as
+its built executable does; `app.tl` is no program's main and has none), adds
+a script to every
 page that reloads the browser when the process is replaced and swaps the
 stylesheets when only a `.css` file changed, and carries the page's CSP
 nonce on that script's tag. An app that shows source paths to whoever asks

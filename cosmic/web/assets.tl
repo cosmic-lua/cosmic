@@ -375,8 +375,11 @@ end
 --- The directory of this program's own static files, against the working
 --- directory (`cmd/spam/static` for `spam`), or nil when the program is no
 --- `cmd/<name>/main.tl`: a built one by the main it records, one run from
---- its source by the module it is ([`cosmic.internal.source_run`]).
-local function own_root(): string?
+--- its source by the module it is. A file run that is no program's main
+--- (`cosmic app.tl`, as [`Dev.supervise`] starts by default) has none, though
+--- the project holds programs: which one it serves is not known.
+--- @return string|nil The directory, or nil
+function Assets.own_static(): string?
   local main = source_run.main or Store.meta("main")
   if main == nil then return nil end
   local name = main:match("^cmd%.([^%.]+)%.main$")
@@ -385,10 +388,10 @@ local function own_root(): string?
 end
 
 --- The directory source for an app, `root` ("static" when nil), and over
---- it, when `root` is nil, the program's own directory ([`own_root`]).
+--- it, when `root` is nil, the program's own directory ([`Assets.own_static`]).
 local function from_disk(root?: string): Assets.Source
   local shared = Assets.directory(root or "static")
-  local own = if root == nil then own_root() else nil end
+  local own = if root == nil then Assets.own_static() else nil end
   if own == nil then return shared end
   return layered(Assets.directory(own), shared)
 end
@@ -410,7 +413,7 @@ function Assets.default(opts?: Assets.DefaultOptions): Assets.Source
   local log = opts and opts.log or function(text: string)
     local _, _ = Fs.put(Fs.stderr, text .. "\n")
   end
-  local own = if given == nil then own_root() else nil end
+  local own = if given == nil then Assets.own_static() else nil end
   local said = ("%q"):format(given or "static")
   if own ~= nil then said = ("%q over %s"):format(own, said) end
   log(("web: not a built program; serving %s from disk"):format(said))
