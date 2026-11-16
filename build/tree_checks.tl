@@ -1160,6 +1160,26 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
   return out, ""
 end
 
+--- The test modules granted the zig cache (`caches = { "zig" }`) that do not require `pinned_zig`, one finding each,
+--- as the working database `build` holds their declarations. The cache is granted to start the pinned zig, as a
+--- check of the core's C does: where zig is not installed (a seeded boot) such a module fails each test on a start
+--- of bin/zig its worker cannot make, where the requirement skips it, naming the fix.
+--- @param build the working database
+--- @return the findings, or nil and why the declarations cannot be read
+function tree_checks.unguarded_zig(build: Sqlite.Handle): {string}?, string
+  local rows, trouble = Sqlite.text_rows(build,
+    "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
+      "WHERE t.field = 'caches' AND t.value = 'zig' AND NOT EXISTS (SELECT 1 FROM test_inputs r " ..
+      "WHERE r.source_hash = t.source_hash AND r.field = 'requires' AND r.value = 'pinned_zig') ORDER BY i.path")
+  if rows == nil then return nil, "reading the declared caches: " .. trouble end
+  local out: mut {string} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = row:text(1) .. " is granted the zig cache and does not require pinned_zig: add " ..
+      "requires = { \"pinned_zig\" } to its Test.policy, so it skips where zig is not installed"
+  end
+  return out, ""
+end
+
 --- The test modules that run a program the portable launcher starts, or
 --- open the store, or require a portable host, by the module's path:
 --- the ones whose key holds the launcher, as the working database `build`

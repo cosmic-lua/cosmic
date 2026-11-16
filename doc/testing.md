@@ -508,6 +508,12 @@ module is skipped there, naming the requirement; every CI leg promises it,
 since CI boots `-Dboot-cores=all`. Run `bin/zig build boot -Dboot-cores=all`
 to run them.
 
+A test that checks the core's C through [`build.c`] declares
+`requires = { "pinned_zig" }`. A seeded boot takes a release core and
+installs no zig, and the [`bin/zig`] a check falls back to cannot start in
+a sandboxed worker, so the module is skipped there, naming the
+requirement and the fix. Run `bin/zig version` to install the pinned zig.
+
 A test of what only the checked (sanitized) core reaches, such as a
 refused allocation or a fault point, declares `requires = { "checked" }`.
 Every other core finds it not applicable. The checked leg promises it.
@@ -1123,6 +1129,7 @@ Other rules:
 
 [`bin/cosmic`]: ../bin/cosmic
 [`bin/zig`]: ../bin/zig
+[`build.c`]: ../build/c/init.tl
 [`build.checker_declarations`]: ../build/checker_declarations.tl
 [`build.closure_store`]: ../build/closure_store.tl
 [`build.code_walk`]: ../build/code_walk.tl

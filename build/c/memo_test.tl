@@ -27,6 +27,7 @@ Test.policy{
     { path = "/cache/zig", letters = "rwxc" },
   },
   env = { "COSMIC_BOOTSTRAP", "COSMIC_ZIG" },
+  requires = { "pinned_zig" },
 }
 
 local root = assert(Fs.absolute("."))
@@ -68,7 +69,7 @@ local function kept(store: Sqlite.Handle): integer
   local rows, why = Sqlite.rows(store, "SELECT count(*) FROM check_memo WHERE kind = 'c'")
   assert(rows ~= nil, tostring(why) .. ": the check kept no memo, which it does for a stand-in toolchain; " ..
       "COSMIC_BOOTSTRAP or COSMIC_ZIG is probably set in this run when it should not be (an entry point, a wrapper or a " ..
-      "caller leaking it), or the pinned zig is not installed on this host")
+      "caller leaking it)")
   return assert(math.tointeger(assert(rows[1]):integer(1)))
 end
 

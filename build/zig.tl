@@ -364,6 +364,18 @@ function Zig.pinned_install(root: string, cache: string): Zig.Install?, string
   return { path = cache .. "/" .. name, pin = pin, host = host }, ""
 end
 
+--- The pinned zig's program under `cache`, where it is installed: what
+--- starts zig without [`bin/zig`], which would fetch it first. Nil and why
+--- where it is not installed or the pin cannot be read ([`pinned_install`]).
+function Zig.pinned_program(root: string, cache: string): string?, string
+  local install, trouble = Zig.pinned_install(root, cache)
+  if install == nil then return nil, trouble end
+  local zig = install.path .. "/zig"
+  local there, _ = Fs.exists(zig)
+  if there ~= true then return nil, zig .. " is not there" end
+  return zig, ""
+end
+
 --- The name a patched zig library is given ([`patched_lib`]): the first
 --- 16 hex digits of the sha256 of each record's name and the sha256 of
 --- its bytes, in name order, `records` mapping each name to its bytes.

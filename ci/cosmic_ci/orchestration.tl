@@ -705,6 +705,24 @@ function Orchestration.noexec_fixture(target: string): boolean
   return target == "x86_64-linux-musl" or target == "aarch64-linux-musl"
 end
 
+--- The requirements a leg promises that the pinned driver's `cosmic test` does not know: a fixture runs on that
+--- driver, and a held run there refuses a promise it cannot read (COSMIC_TEST_PROMISES), failing the fixture before it
+--- starts. No fixture requires them.
+-- TODO: drop this and [`driver_promises`] once ci/cosmic-driver.pin names a release whose `cosmic test` knows
+-- `pinned_zig`.
+local DRIVER_UNKNOWN <const>: {string:boolean} = { pinned_zig = true }
+
+--- `env` without the promises of [`DRIVER_UNKNOWN`].
+local function driver_promises(env: {string:string}): {string:string}
+  local list = env["COSMIC_TEST_PROMISES"]
+  if list == nil then return env end
+  local kept: mut {string} = {}
+  for name in list:gmatch("[^,]+") do
+    if DRIVER_UNKNOWN[name] ~= true then kept[#kept + 1] = name end
+  end
+  return Maps.with(env, { COSMIC_TEST_PROMISES = table.concat(kept, ",") })
+end
+
 --- `env`, an operation's environment, made a fixture's `cosmic test`'s:
 --- its temporary files under `tmpdir`.
 ---
@@ -745,7 +763,7 @@ end
 --- their own, made afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
                                compiles: string, verdicts?: string): {string:string}
-  local made = Maps.with(env, { TMPDIR = tmpdir, COSMIC_BUILD_CACHE = compiles })
+  local made = Maps.with(driver_promises(env), { TMPDIR = tmpdir, COSMIC_BUILD_CACHE = compiles })
   if verdicts ~= nil then
     return Orchestration.shares(Maps.with(made, { COSMIC_VERDICT_CACHE = verdicts }))
   end

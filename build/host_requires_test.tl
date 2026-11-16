@@ -203,7 +203,7 @@ local function test_classes()
       "portable", "checked" }) do
     assert(host_names.class(name) == "platform", name)
   end
-  for _, name in ipairs({ "root", "path:/etc", "program:sh", "all_cores", "loopback", "unix_socket" }) do
+  for _, name in ipairs({ "root", "path:/etc", "program:sh", "all_cores", "pinned_zig", "loopback", "unix_socket" }) do
     assert(host_names.class(name) == "host", name)
   end
 end
@@ -566,6 +566,25 @@ local function test_all_cores_follows_the_cores_the_tool_carries()
   local only = ask(host_with(sandbox, nil, nil, function(): boolean return true end), "all_cores")
   assert(only.kind == "skipped", only.kind .. only.why)
   assert(only.why:find("-Dboot-cores=all", 1, true) ~= nil, only.why)
+end
+
+--- `pinned_zig` answers what the runner's probe of the zig answers: its key where a worker can start the zig, a skip
+--- with the probe's reason where not, on every platform (never n/a: a check of the C runs everywhere), and a raise
+--- where the runner hands no probe in, never a present that would fail every check.
+local function test_pinned_zig_follows_the_runners_probe_of_the_zig()
+  local asked = 0
+  local installed = ask(host_requires.new({ linux = false, pinned_zig = function(): string?, string
+    asked = asked + 1
+    return "0.16.0-x86_64-linux-0123456789abcdef", ""
+  end }), "pinned_zig")
+  assert(installed.kind == "present" and installed.class == "host", installed.why)
+  assert(installed.key == "0.16.0-x86_64-linux-0123456789abcdef" and asked == 1, installed.key)
+  local missing = ask(host_requires.new({ pinned_zig = function(): string?, string
+    return nil, "not installed; run bin/zig version"
+  end }), "pinned_zig")
+  assert(missing.kind == "skipped" and missing.key == "", missing.kind)
+  assert(missing.why == "not installed; run bin/zig version", missing.why)
+  Test.raises(function() ask(host_requires.new(), "pinned_zig") end, "needs the runner's probe of the zig")
 end
 
 --- `checked` is present on the checked core the runner says it is, and not

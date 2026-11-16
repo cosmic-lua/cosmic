@@ -12,12 +12,9 @@ local tree = require("build.c.tree")
 --- tree, and the pinned zig, which a check starts itself where it is
 --- installed ([`build.c`]'s `compiler`): no script and no program of the
 --- host's runs. The bootstrap cosmic a check falls back to where zig is
---- not installed is build/c/bootstrap_test.tl's.
--- TODO: skip these where the compiler is not in the worker's sandbox,
--- rather than fail each on its start: a host whose pinned zig is not
--- installed yet, which a worker cannot fetch offline, or a COSMIC_ZIG
--- outside the zig cache. It waits on a requirement that names the zig a
--- check starts (build/host_names.tl has none).
+--- not installed is build/c/bootstrap_test.tl's; a sandboxed worker cannot
+--- start bin/zig, which runs it, so the tests require a zig they can start
+--- (`pinned_zig`), and skip where there is none, as after a seeded boot.
 Test.policy{
   grants = {
     { path = "bin/zig.pin", letters = "r" },
@@ -37,6 +34,7 @@ Test.policy{
     { path = "/cache/zig", letters = "rwxc" },
   },
   env = { "COSMIC_BOOTSTRAP", "COSMIC_ZIG" },
+  requires = { "pinned_zig" },
 }
 
 local root = assert(Fs.absolute("."))

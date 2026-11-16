@@ -35,6 +35,11 @@
 ---   runner answers from the tool's prefix): only such a tool makes a
 ---   portable program. What tests one is skipped where it is not, saying
 ---   so, and a leg that promises `all_cores` fails the run that skips;
+--- - `pinned_zig`: a test's worker can start the zig a check of the core's
+---   C starts (the runner's probe, handed in as [`Context`]'s
+---   [`pinned_zig`], which reads the zig pin and cache this module cannot):
+---   where it is not installed a check falls back to bin/zig, which a
+---   sandboxed worker cannot start or let fetch;
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket,
 ---   without asserting permission to bind a path or connect to a peer;
@@ -196,6 +201,11 @@ local record host_requires
     --- whole prefix, which this module cannot reach. Nil is a tool of every
     --- core.
     host_only?: function(): boolean
+    --- What a check of the core's C would start for zig, where a worker can
+    --- start it: the text a key holds of it, or nil and why not
+    --- ([`pinned_zig`]). Without it [`pinned_zig`] raises, since a wrong
+    --- "present" fails every check it runs.
+    pinned_zig?: function(): string?, string
     --- Whether the platform is Linux, which is the platform's own answer
     --- ([`confine.sandbox_platform`]) where nil. A test of the runner
     --- sets it false to make every Linux requirement not applicable on a
@@ -565,6 +575,16 @@ local table_of: {string:Entry} = {
         return absent("this tool carries the host's core alone; boot it with bin/zig build boot -Dboot-cores=all")
       end
       return present("all")
+    end },
+  pinned_zig = {
+    probe = function(_: string, host: host_requires.Host): Found
+      local ask = host.context.pinned_zig
+      if ask == nil then
+        error("host_requires: `pinned_zig` needs the runner's probe of the zig in the context", 0)
+      end
+      local key, why = ask()
+      if key == nil then return absent(why) end
+      return present(key)
     end },
   root = {
     probe = function(_: string, _: host_requires.Host): Found

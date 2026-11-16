@@ -892,6 +892,22 @@ local function test_the_declared_requirements_are_read_by_module()
   local _, _ = db:close()
 end
 
+--- A module granted the zig cache starts the pinned zig, so it must require `pinned_zig`: one that does not is a
+--- finding, and one that does, or is granted another cache, is not.
+local function test_a_module_granted_the_zig_cache_requires_pinned_zig()
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  assert(db:exec("CREATE TABLE inputs (path TEXT, source_hash TEXT)"))
+  assert(db:exec("CREATE TABLE test_inputs (source_hash TEXT, ordinal INTEGER, field TEXT, value TEXT)"))
+  assert(db:exec("INSERT INTO inputs VALUES ('m.a_test', 'h1'), ('m.b_test', 'h2'), ('m.c_test', 'h3')"))
+  assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'caches', 'zig'), ('h2', 1, 'caches', 'zig'), " ..
+      "('h2', 2, 'requires', 'pinned_zig'), ('h3', 1, 'caches', 'bootstrap')"))
+  local found = assert(tree_checks.unguarded_zig(db))
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(support.nth(found, 1):find("m.a_test is granted the zig cache and does not require pinned_zig", 1, true),
+    found[1])
+  local _, _ = db:close()
+end
+
 --- A test that declares `tool` or `store`, or `requires` "portable", is
 --- the portable launcher's to read; the unsealed modules are those.
 local function test_the_unsealed_modules_are_those_declaring_a_launcher_reader()

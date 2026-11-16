@@ -2048,12 +2048,14 @@ end
 --- worker can be sandboxed here, which a requirement of it asks.
 --- `sandboxed_workers` is whether this run's workers run sandboxed (the
 --- runner's `choose_sandbox` outcome, settled before this is called), which
---- `loopback` answers from where workers are sandboxed. The host
---- asked, or nil where no module requires anything.
+--- `loopback` answers from where workers are sandboxed. `pinned_zig`
+--- answers the requirement of that name ([`host_requires.Context`]'s
+--- `pinned_zig`). The host asked, or nil where no module requires anything.
 function test_key.ask_host(rec: Recording, modules: {Module},
                            sandbox: function(): host_requires.Sandbox, held: boolean,
                            promises: {string}, leg: string,
-                           sandboxed_workers: boolean): host_requires.Host?
+                           sandboxed_workers: boolean,
+                           pinned_zig: function(): string?, string): host_requires.Host?
   local host: host_requires.Host? = nil
   for _, m in ipairs(modules) do
     local names = test_key.requirements(m)
@@ -2077,6 +2079,7 @@ function test_key.ask_host(rec: Recording, modules: {Module},
           portable = portable,
           checked = checked,
           host_only = host_only,
+          pinned_zig = pinned_zig,
           linux = linux,
           sandbox = sandbox,
           sandboxed_workers = sandboxed_workers,

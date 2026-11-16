@@ -230,26 +230,36 @@ end
 --- pin): a confined compiler, given the cache to read and no network, could not fetch it, and every check would fail
 --- with the fetch's error. The fetch is bin/cosmic-bootstrap's own (`--raw-path`), run unconfined with `variables`;
 --- bin/cosmic has run it already wherever it started the check, so this is a run that did not. Answers its path, or nil
---- and why where it is not there after.
+--- and why where it is not there after: where the script could not start (a test's sandbox that is not given it, or
+--- the `sh` it runs on), why names the script and the start's error, not a fetch that never ran.
 function c.bootstrap_cosmic(root: string, variables: {string:string}, digest: string): string?, string
+  local dir, _ = Fs.cache_dir("bootstrap", { environment = variables, make = false })
+  local path = if dir ~= nil then dir .. "/cosmic-" .. digest else nil end
   local function cached(): string?
-    local dir, _ = Fs.cache_dir("bootstrap", { environment = variables, make = false })
-    if dir == nil then return nil end
-    local path = dir .. "/cosmic-" .. digest
+    if path == nil then return nil end
     local st, _ = Fs.stat(path)
     if st == nil then return nil end
     return path
   end
   local found = cached()
   if found ~= nil then return found, "" end
-  local result, trouble = Child.run({ root .. "/bin/cosmic-bootstrap", "--raw-path" }, {
+  local script = root .. "/bin/cosmic-bootstrap"
+  local result, trouble = Child.run({ script, "--raw-path" }, {
     env = variables, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(600),
   })
   found = cached()
   if found ~= nil then return found, "" end
-  local said = trouble
-  if result ~= nil then said = ((result.stderr or ""):gsub("%s+$", "")) end
-  local why = "the bootstrap cosmic ci/cosmic-driver.pin names is not cached, and bin/cosmic-bootstrap could not fetch it"
+  local why = "the bootstrap cosmic ci/cosmic-driver.pin names is not cached" ..
+    (if path ~= nil then " at " .. path else "" end)
+  if result == nil then
+    local there, _ = Fs.exists(script)
+    why = why .. ", and " .. script .. ", which fetches it, could not start" ..
+      (if there ~= true then " (it is not there)" else "" end)
+    if trouble ~= "" then why = why .. ": " .. trouble end
+    return nil, why
+  end
+  why = why .. ", and bin/cosmic-bootstrap could not fetch it"
+  local said = ((result.stderr or ""):gsub("%s+$", ""))
   if said ~= "" then why = why .. ": " .. said end
   return nil, why
 end
@@ -301,14 +311,43 @@ local function compiler(root: string, variables: {string:string}): string, boole
   local named = variables["COSMIC_ZIG"]
   if named ~= nil and named ~= "" then return named, true end
   local cache, _ = Fs.cache_dir("zig", { environment = variables, make = false })
-  local install: Zig.Install? = nil
-  if cache ~= nil then install, _ = Zig.pinned_install(root, cache) end
-  if install ~= nil then
-    local zig = install.path .. "/zig"
-    local there, _ = Fs.exists(zig)
-    if there == true then return zig, true end
+  if cache ~= nil then
+    local zig, _ = Zig.pinned_program(root, cache)
+    if zig ~= nil then return zig, true end
   end
   return root .. "/bin/zig", false
+end
+
+--- What a test's worker would start for zig in a check ([`compiler`]), as the runner answers the requirement
+--- `pinned_zig` ([`build.host_requires`]): the text a verdict key holds of it, or nil and why a worker cannot start it.
+--- That is a COSMIC_ZIG `variables` names, which a sandboxed worker (`sandboxed`) sees only under the zig cache its
+--- policy grants, else the pinned zig installed there. Where neither, a check would start [`bin/zig`], which a
+--- sandboxed worker cannot start (no `sh`, no bin/cosmic-bootstrap) and an offline one cannot let fetch.
+function c.worker_zig(root: string, variables: {string:string}, sandboxed: boolean): string?, string
+  local install_it = "run bin/zig version, or bin/zig build boot with COSMIC_BOOT_SEED=0, to install it " ..
+    "(a seeded boot takes a release core and installs none)"
+  local cache, trouble = Fs.cache_dir("zig", { environment = variables, make = false })
+  local named = variables["COSMIC_ZIG"]
+  if named ~= nil and named ~= "" then
+    local there, _ = Fs.exists(named)
+    if there ~= true then return nil, "COSMIC_ZIG names " .. named .. ", which is not there" end
+    if sandboxed then
+      local real, _ = Fs.absolute(named)
+      local cache_real: string? = nil
+      if cache ~= nil then cache_real, _ = Fs.absolute(cache) end
+      if real == nil or cache_real == nil or real:sub(1, #cache_real + 1) ~= cache_real .. "/" then
+        return nil, "COSMIC_ZIG names " .. named .. ", outside the zig cache (" .. (cache or trouble) ..
+          ") a sandboxed worker is given"
+      end
+    end
+    return "COSMIC_ZIG " .. named, ""
+  end
+  if cache == nil then return nil, "there is no zig cache (" .. trouble .. "); " .. install_it end
+  local zig, why = Zig.pinned_program(root, cache)
+  if zig == nil then
+    return nil, "the pinned zig bin/zig.pin names is not installed (" .. why .. "); " .. install_it
+  end
+  return Fs.basename(Fs.dirname(zig)), ""
 end
 
 --- `env`, a compiler's environment, with every cache it writes in `deps`, the check's own directory, which its
