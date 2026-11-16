@@ -359,8 +359,11 @@ comments and its guides (`doc/guides/*.md`), a misspelled word put right,
 as `cosmic docs` answers for the standard library. `groups`, beside
 `pages`, orders the sections of the program's help.
 
-`cosmic build` puts into the program the documentation of the project's
-modules that any module may require, so the built file answers alone; a
+`cosmic build` puts into each program the modules its main requires,
+directly or through another module, and no other: one program does not
+carry another's main or what only that one requires. It puts in the
+documentation of those of them that any module may require, and of those
+under the program's own `cmd/<name>/`, so the built file answers alone; a
 module under `internal/`, or one a directory keeps to itself, stays out
 of it. Run from its source (`cosmic cmd/tally/main.tl docs`), the program
 answers from the project's last build. A test that asks for a command's help or for `docs`
