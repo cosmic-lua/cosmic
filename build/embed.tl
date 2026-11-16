@@ -525,10 +525,10 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- the program's own database: those under the program's own
     -- `cmd/<name>/static/`, and those under `static/` it holds none of at
     -- the same path, every row the program's ("").
-    local own = "'" .. ((name_of(main) or ""):gsub("'", "''")) .. "'"
+    local program = "'" .. ((name_of(main) or ""):gsub("'", "''")) .. "'"
     project_rows[#project_rows + 1] = "INSERT INTO payload (program, path, data, sha256, type, gzip, zstd) " ..
-      "SELECT '', path, data, sha256, type, gzip, zstd FROM project.payload p WHERE p.program = " .. own ..
-      " OR (p.program = '' AND NOT EXISTS (SELECT 1 FROM project.payload o WHERE o.program = " .. own ..
+      "SELECT '', path, data, sha256, type, gzip, zstd FROM project.payload p WHERE p.program = " .. program ..
+      " OR (p.program = '' AND NOT EXISTS (SELECT 1 FROM project.payload o WHERE o.program = " .. program ..
       " AND o.path = p.path)) ORDER BY path"
     for _, rebuild in ipairs(schema.rebuild("")) do project_rows[#project_rows + 1] = rebuild end
     for _, statement in ipairs(project_rows) do
