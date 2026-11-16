@@ -1,7 +1,7 @@
-version 4.1.1
-url https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2
-sha256 3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c
-strip mbedtls-4.1.1/
+version 4.1.2
+url https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.2/mbedtls-4.1.2.tar.bz2
+sha256 392215e5e4846df04e2f4c4516079303bd73edde837d8f3e68fb4d4d7ddf0126
+strip mbedtls-4.1.2/
 keep LICENSE
 keep tf-psa-crypto/LICENSE
 keep tf-psa-crypto/include/**
