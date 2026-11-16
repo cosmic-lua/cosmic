@@ -9,6 +9,7 @@
 --- hold. What writes no executable is in `embed_test.tl`.
 
 local Child = require("cosmic.child")
+local Doc = require("cosmic.doc")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -19,6 +20,7 @@ local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
 local Test = require("cosmic.test")
+local source_run = require("cosmic.internal.source_run")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local support = require("build.test_support_fixture")
@@ -1694,6 +1696,47 @@ local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: 
   local respelled = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", "flout" })
   assert(respelled.code == 0 and respelled.stdout:find("showing 'float'", 1, true) ~= nil and
       respelled.stdout:find("doc.guides.opening", 1, true) ~= nil, respelled.stdout .. respelled.stderr)
+end
+
+--- Run from its source, a program's view searches and ranks the examples of what it documents alone: its
+--- connection to the project's last build holds those rows, and an index of them, in place of every program's.
+local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_documents(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", 'local _shared = require("shared")\nreturn function(): integer return 0 end\n'))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", 'local _eggs = require("eggs")\nreturn function(): integer return 0 end\n'))
+  for _, name in ipairs({ "shared", "eggs" }) do
+    assert(Fs.write(tmp .. "/" .. name .. ".tl", "--- " .. name .. ".\nlocal record m\n  --- A field.\n  n: integer\nend\n" ..
+        "local v: m = { n = 1 }\nreturn v\n"))
+    assert(Fs.write(tmp .. "/" .. name .. "_example.tl", table.concat({
+      'local m = require("' .. name .. '")',
+      "local record Example",
+      "end",
+      "--- Reads the field of " .. name .. ".",
+      "function Example.read()",
+      "  assert(m.n == 1)",
+      "end",
+      "return Example",
+      "",
+    }, "\n")))
+  end
+  assert(embed.tree(tmp, true))
+  local projection = support.build_dir(tmp) .. "/cosmic.db"
+  local main, built = source_run.main, source_run.projection
+  local ok, err = pcall(function()
+    source_run.main = "cmd.spam.main"
+    source_run.projection = projection
+    local db = assert(Sqlite.open(projection))
+    local view = assert(Doc.program({ db }, "spam"))
+    local scoped = assert(view.databases[1])
+    local modules = assert(Sqlite.text_rows(scoped, "SELECT group_concat(DISTINCT module) FROM examples"))
+    assert(support.nth(modules, 1):text(1) == "shared", "the examples of what it documents alone")
+    local indexed = assert(Sqlite.text_rows(scoped,
+      "SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'eggs'"))
+    assert(support.nth(indexed, 1):text(1) == "0", "the index holds no other program's example")
+  end)
+  source_run.main, source_run.projection = main, built
+  assert(ok, tostring(err))
 end
 
 --- A test of the project that asks its program for help reads the documentation of the modules it requires.

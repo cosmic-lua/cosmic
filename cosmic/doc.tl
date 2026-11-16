@@ -1570,18 +1570,12 @@ end
 --- the one it names as its pages (`pages`), documented wherever it sits, as its build carries it.
 ---
 --- The store's connections only read, so this opens one of its own to the build and fills, in its `temp`
---- schema, a `public_modules` and a `docs` of those rows, with the stored table's indexes, and the index
---- `docs_fts` and the words `docs_words` of that `docs`, as the program's build makes them of the rows it
---- carries ([`build.schema`]'s `rebuild`), so a word is searched, ranked and put right among them alone. They
---- stand in for the stored ones in every statement here that does not name its schema. `db` itself for any
---- other run, and for a database that does not hold the main (the tool's own). Nil and why where the build cannot
---- be read so.
---
--- TODO: scope `examples_fts` and `catalog_fts` too: run from source, an
--- example is read only of a module the program documents, but ranked by the
--- whole project's examples, and an error's guidance is matched against every
--- program's catalog. It waits on `examples` and `catalog` being filled in
--- `temp` from the program's rows, as `docs` is here.
+--- schema, a `public_modules` and a `docs` of those rows and an `examples` of the examples of those modules, as
+--- its build carries them, each with the stored table's indexes; and the index of each (`docs_fts`,
+--- `examples_fts`) and the words `docs_words` of that `docs`, as the program's build makes them of the rows it carries ([`build.schema`]'s `rebuild`), so a word
+--- is searched, ranked and put right among them alone. They stand in for the stored ones in every statement here
+--- that does not name its schema. `db` itself for any other run, and for a database that does not hold the main
+--- (the tool's own). Nil and why where the build cannot be read so.
 local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handle?, string
   local main = source_run.main
   local projection = source_run.projection
@@ -1621,37 +1615,52 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
       selected[#selected + 1] = column_name
     end
   end
-  local definitions, definitions_trouble = Sqlite.text_rows(opened,
-    "SELECT type, sql FROM main.sqlite_master WHERE tbl_name = 'docs' AND type IN ('table', 'index') AND " ..
-      "sql IS NOT NULL ORDER BY type = 'index', name")
-  if definitions == nil then return failed(definitions_trouble) end
   local indexes, indexes_trouble = Sqlite.text_rows(opened,
-    "SELECT name, sql FROM main.sqlite_master WHERE name IN ('docs_fts', 'docs_words') ORDER BY name")
+    "SELECT name, sql FROM main.sqlite_master WHERE name IN ('docs_fts', 'docs_words', 'examples_fts') " ..
+      "ORDER BY name")
   if indexes == nil then return failed(indexes_trouble) end
-  local statements: mut {string} = {
-    "DROP TABLE IF EXISTS temp.docs_fts",
-    "DROP TABLE IF EXISTS temp.docs_words",
-    "DROP TABLE IF EXISTS temp.public_modules",
-    "DROP TABLE IF EXISTS temp.docs",
-    "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
-    "WITH RECURSIVE carried(path) AS (SELECT " .. sql_literal(main) .. " UNION SELECT path FROM main.modules " ..
-      "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) ..
-      " UNION SELECT m.path FROM main.modules m WHERE " .. paged ..
-      " UNION SELECT i.requires FROM main.imports i JOIN carried c ON i.path = c.path) " ..
+  local statements: mut {string} = {}
+  for _, dropped in ipairs({ "docs_fts", "docs_words", "examples_fts", "public_modules", "carried", "docs",
+      "examples" }) do
+    statements[#statements + 1] = "DROP TABLE IF EXISTS temp." .. dropped
+  end
+  for _, made in ipairs({
+      "CREATE TEMP TABLE carried (path TEXT PRIMARY KEY) WITHOUT ROWID",
+      "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
+      "WITH RECURSIVE carried(path) AS (SELECT " .. sql_literal(main) .. " UNION SELECT path FROM main.modules " ..
+        "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) ..
+        " UNION SELECT m.path FROM main.modules m WHERE " .. paged ..
+        " UNION SELECT i.requires FROM main.imports i JOIN carried c ON i.path = c.path) " ..
+        "INSERT INTO temp.carried (path) SELECT path FROM main.modules WHERE path IN (SELECT path FROM carried) " ..
+        "ORDER BY path",
       "INSERT INTO temp.public_modules (path) SELECT m.path FROM main.modules m " ..
-      "WHERE m.path IN (SELECT path FROM carried) AND (m.path IN (SELECT path FROM main.public_modules) OR " ..
-      "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) .. " AND m.path <> " .. sql_literal(main) ..
-      " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0) OR " .. paged .. ") ORDER BY m.path",
-  }
-  -- The stored table and its indexes, made again in `temp`.
-  for _, row in ipairs(definitions) do
-    local sql = row:text(2)
-    if row:text(1) == "table" then
-      statements[#statements + 1] = (sql:gsub("^CREATE TABLE", "CREATE TEMP TABLE", 1))
-    else
-      statements[#statements + 1] = (sql:gsub("^CREATE (%a* ?)INDEX ", "CREATE %1INDEX temp.", 1))
+        "WHERE m.path IN (SELECT path FROM temp.carried) AND (m.path IN (SELECT path FROM main.public_modules) OR " ..
+        "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) .. " AND m.path <> " ..
+        sql_literal(main) .. " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0) OR " .. paged ..
+        ") ORDER BY m.path",
+  }) do
+    statements[#statements + 1] = made
+  end
+  -- Each stored table and its indexes, made again in `temp`.
+  for _, table_name in ipairs({ "docs", "examples" }) do
+    local definitions, definitions_trouble = Sqlite.text_rows(opened,
+      "SELECT type, sql FROM main.sqlite_master WHERE tbl_name = ?1 AND type IN ('table', 'index') AND " ..
+        "sql IS NOT NULL ORDER BY type = 'index', name", { text(table_name) })
+    if definitions == nil then return failed(definitions_trouble) end
+    for _, row in ipairs(definitions) do
+      local sql = row:text(2)
+      if row:text(1) == "table" then
+        statements[#statements + 1] = (sql:gsub("^CREATE TABLE", "CREATE TEMP TABLE", 1))
+      else
+        statements[#statements + 1] = (sql:gsub("^CREATE (%a* ?)INDEX ", "CREATE %1INDEX temp.", 1))
+      end
     end
   end
+  -- The examples of the modules it documents, as its build carries them ([`build.embed`]'s `copy_documentation`).
+  -- The catalog needs no scope here: a program's view reads only the checker's codes of it, which the tool's own
+  -- database holds and a project's does not.
+  statements[#statements + 1] = "INSERT INTO temp.examples SELECT * FROM main.examples " ..
+    "WHERE module IN (SELECT path FROM temp.public_modules) ORDER BY id"
   -- The rows the program carries: those of each module it documents, its own guides' own rows under the guide's
   -- name, and the project's guides' own rows it has none of its own in place of.
   statements[#statements + 1] = "INSERT INTO temp.docs (" .. table.concat(names, ", ") .. ") SELECT " ..
@@ -1660,13 +1669,14 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
     " AND instr(substr(d.module, " .. tostring(#own_guides + 1) .. "), '.') = 0) OR (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. " AND NOT EXISTS (SELECT 1 FROM main.docs o WHERE o.symbol = '' AND " ..
     "o.module = " .. sql_literal(own_guides) .. " || substr(d.module, 12))) ORDER BY d.id"
-  -- The index and the words of those rows: the stored `docs_fts` made again in `temp`, where its content table
-  -- `docs` is the one above, and the words counted as [`build.schema`]'s `rebuild` counts them, unstemmed.
+  -- The index of each and the words of those rows: each stored index made again in `temp`, where its content
+  -- table is the one above, and the words counted as [`build.schema`]'s `rebuild` counts them, unstemmed.
   for _, row in ipairs(indexes) do
+    local index_name = row:text(1)
     local sql = row:text(2)
-    if row:text(1) == "docs_fts" then
+    if index_name ~= "docs_words" then
       statements[#statements + 1] = (sql:gsub("^CREATE VIRTUAL TABLE ", "CREATE VIRTUAL TABLE temp.", 1))
-      statements[#statements + 1] = "INSERT INTO temp.docs_fts (docs_fts) VALUES ('rebuild')"
+      statements[#statements + 1] = "INSERT INTO temp." .. index_name .. " (" .. index_name .. ") VALUES ('rebuild')"
     else
       statements[#statements + 1] = (sql:gsub("^CREATE TABLE", "CREATE TEMP TABLE", 1))
       for _, counting in ipairs({
