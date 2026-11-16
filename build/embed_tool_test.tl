@@ -569,6 +569,45 @@ local function test_a_pages_module_named_by_a_local_is_carried(tmp: string)
   assert(support.nth(documented, 1):text(1) == "2", "both are documented")
 end
 
+--- A pages module named by a field of another module the program requires (`{ pages = Names.docs_module }`) is
+--- carried and documented: the build reads the string that module binds the field to.
+local function test_a_pages_module_named_by_another_modules_field_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Flags = require("cosmic.flags")',
+    'local Names = require("names")',
+    "return function(argv: {string}): integer",
+    "  local commands: {string:Flags.Command} = { fry = { about = \"fry it\", run = function(_: Flags.Parsed): integer return 0 end } }",
+    "  local ran, _ = Flags.dispatch(argv, 1, commands, \"spam\", { pages = Names.docs_module })",
+    "  if ran == nil then return 2 end",
+    "  return ran.code",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/names.tl", table.concat({
+    "--- The names the program reads.",
+    "local record names",
+    "  docs_module: string",
+    "end",
+    'local n: names = { docs_module = "by_module" }',
+    "return n",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/by_module.tl", "--- Named by another module.\nlocal record m\n  --- Fries.\n  fry: integer\nend\n" ..
+      "local v: m = { fry = 1 }\nreturn v\n"))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules: mut {string} = {}
+  for _, row in ipairs(rows_of(path, "SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")) do
+    modules[#modules + 1] = row:text(1)
+  end
+  assert(table.concat(modules, " ") == "by_module cmd.spam.main names", table.concat(modules, " "))
+  local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'by_module' AND symbol = 'm.fry'")
+  assert(support.nth(documented, 1):text(1) == "1", "it is documented")
+end
+
 --- A test or example file is only a kind by its name: one the program
 --- itself requires, directly or through another module, is carried,
 --- or the executable would build and then fail to load it.
