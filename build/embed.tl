@@ -1,10 +1,14 @@
 --- Building a project into portable executables: one file each, the retained
---- multi-core prefix with a database behind it that holds the project's modules
---- but not its tests or examples, the standard library, the error catalog, the
---- bill of materials, and the name of the main module, so it runs on its own
---- with no `cosmic` beside it. It holds the project's documentation too, for
---- the program's users to read: the docs, uses, links and examples of the
---- modules any module may require ([`public_modules`]), and its guides.
+--- multi-core prefix with a database behind it, so it runs on its own with no
+--- `cosmic` beside it. The database holds the standard library, the error
+--- catalog, the bill of materials and the name of the main module, and of the
+--- project's modules those its main requires, directly or through another
+--- module, and those under its own `cmd/<name>/`, a test or an example aside:
+--- no other program's ([`embed.database`]). It holds the
+--- project's documentation too, for the program's users to read: the docs,
+--- uses, links and examples of the modules it carries that any module may
+--- require or that sit under its own `cmd/<name>/` ([`documented_modules`]),
+--- and the project's guides.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
 --- as `kind = "main"`, and `cosmic build` writes `bin/<name>` in its build directory for
@@ -184,23 +188,44 @@ end
 
 --- What of the attached project's documentation a program carries.
 local record Readable
-  --- Each module the project's projection records as public
-  --- ([`build.writer`]): one any module of it may require.
+  --- Each module whose docs it carries, recorded in its own `public_modules`
+  --- as those its `docs` answers for.
   public: {string}
   --- Each guide, by the module it compiles as (`doc.guides.<name>`).
   guides: {string}
 end
 
---- The modules of the project attached to `out` whose documentation its
---- users read: those its projection records as public, and each guide, a
---- Markdown file directly under `doc/guides/`.
-local function public_modules(out: Sqlite.Handle): Readable?, string
-  local rows, trouble = Sqlite.text_rows(out, "SELECT path FROM project.public_modules ORDER BY path")
+--- The prefix of the import paths under the program `main`'s own
+--- `cmd/<name>/` ("cmd.spam."), or nil when `main` is no `cmd.<name>.main`.
+local function own_prefix(main: string): string?
+  local name = main:match("^cmd%.([^%.]+)%.main$")
+  if name == nil then return nil end
+  return "cmd." .. name .. "."
+end
+
+--- The modules of the project attached to `out` whose documentation the
+--- program `main` carries, of those `out` holds already: each its project
+--- records as public, and each module under the program's own
+--- `cmd/<name>/` but the main itself, a test, an example and one under an
+--- `internal/` directory: only that program can require them, so its users
+--- read them as they read a public one. And each guide, a Markdown file
+--- directly under `doc/guides/`.
+local function documented_modules(out: Sqlite.Handle, main: string, own: string): Readable?, string
+  local rows, trouble = Sqlite.text_rows(out,
+    "SELECT m.path, p.file, m.path IN (SELECT path FROM project.public_modules) FROM main.modules m " ..
+      "JOIN project.modules p ON p.path = m.path WHERE m.path IN (SELECT path FROM project.public_modules) OR " ..
+      "(substr(m.path, 1, length(?1)) = ?1 AND m.path <> ?2 AND p.kind = 'module') ORDER BY m.path",
+    { text(own), text(main) })
   if rows == nil then
     return nil, trouble
   end
   local public: mut {string} = {}
-  for _, row in ipairs(rows) do public[#public + 1] = row:text(1) end
+  for _, row in ipairs(rows) do
+    local file = row:text(2)
+    if row:text(3) == "1" or ("/" .. file):find("/internal/", 1, true) == nil then
+      public[#public + 1] = row:text(1)
+    end
+  end
   local found, guide_trouble = Sqlite.text_rows(out,
     "SELECT path, file FROM project.modules WHERE file GLOB 'doc/guides/*.md' ORDER BY path")
   if found == nil then
@@ -217,11 +242,11 @@ end
 
 --- Copies into `out` the documentation of the attached project that
 --- `readable` names, as the tool carries the standard library's
---- ([`build.writer`]'s `carry`): which modules are public, every doc row of a public module and each
---- guide's own row, each example of a public module, and each use and each
---- link to a symbol whose two ends are public, so where a module the
---- project keeps to itself calls a function is not told; and the names a
---- public module binds its requires to, which say what a type it aliases
+--- ([`build.writer`]'s `carry`): which modules are documented, every doc row of one and each
+--- guide's own row, each example of one, and each use and each
+--- link to a symbol whose two ends are documented, so where a module the
+--- program keeps to itself, or does not carry, calls a function is not told; and the names a
+--- documented module binds its requires to, which say what a type it aliases
 --- is.
 --
 -- TODO: carry the rows of a type a public module aliases from a module
@@ -272,7 +297,7 @@ end
 --- projection at `project` joined with what the running binary holds
 --- that a program needs at run time -- every `cosmic.*` module, every
 --- declaration, the error catalog, the time zones -- the project's
---- documentation that its users read ([`public_modules`]), the bill of
+--- documentation that its users read ([`documented_modules`]), the bill of
 --- materials it ships under, and `main` naming the module the
 --- executable runs. Written beside the projection, then vacuumed, so
 --- the bytes are a function of the two databases and nothing else.
@@ -362,9 +387,10 @@ function embed.database(project: string, main: string, roots?: string): string?,
       return false, copy_trouble
     end
     -- The browser-side files [`cosmic.web`] serves under /_web/.
-    -- TODO: carry them only for a project whose closure requires
-    -- cosmic.web, as Store.seal does for the zones, once embed.database
-    -- computes that closure.
+    -- TODO: carry them only for a program whose closure requires
+    -- cosmic.web, as Store.seal does for the zones: the closure of main
+    -- below follows the project's edges, and would follow the binary's
+    -- `imports` too. Nothing blocks it.
     -- A binary written before `web_assets` existed has no such table:
     -- the program then carries none, and cosmic.web.htmx says to rebuild.
     local has_web, web_trouble = Sqlite.text_rows(binary,
@@ -434,7 +460,41 @@ function embed.database(project: string, main: string, roots?: string): string?,
     if not attached then
       return false, attach_trouble
     end
-    local readable, readable_trouble = public_modules(out)
+    -- The project's modules that `main` requires, directly or through
+    -- another module, and those under its own `cmd/<name>/`, and no other:
+    -- another program's main and what only it requires are that program's,
+    -- and a test or example no carried module requires is the project's to
+    -- keep. A test or example file a
+    -- carried module requires is carried, since the program cannot load
+    -- without it; its kind is only its file name. An import edge and a
+    -- catalog row go with the module they are about.
+    -- An edge exists for a `require` of a literal name, `pcall(require,
+    -- "<name>")` included (build.syntax_node's requires), and the parser
+    -- refuses a computed name, so every file a program loads is carried.
+    -- Every module under the program's own `cmd/<name>/` but a test or an
+    -- example is a root beside main, whether main requires it or not: no
+    -- other program may require it, and a module [`Flags.Documented`]'s
+    -- `pages` names by a string alone is often one.
+    -- TODO: say so where a `pages` module outside `cmd/<name>/` that the
+    -- program does not carry leaves its commands with no page, which now
+    -- happens silently. It waits on the build reading the `pages` of a
+    -- [`Flags.dispatch`] call, a string it does not read yet.
+    local own = own_prefix(main)
+    if own == nil then
+      return false, main .. " is not a cmd.<name>.main"
+    end
+    local carried, carried_trouble = Sqlite.run(out,
+      "WITH RECURSIVE carried(path) AS (SELECT ?1 UNION SELECT path FROM project.modules " ..
+        "WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
+        "UNION SELECT i.requires FROM project.imports i " ..
+        "JOIN carried c ON i.path = c.path) " ..
+        "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
+        "SELECT " .. module_column_list .. " FROM project.modules " ..
+        "WHERE path IN (SELECT path FROM carried) ORDER BY path", { text(main), text(own) })
+    if not carried then
+      return false, carried_trouble
+    end
+    local readable, readable_trouble = documented_modules(out, main, own)
     if readable == nil then
       return false, readable_trouble
     end
@@ -442,24 +502,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     if not documented then
       return false, documented_trouble
     end
-    -- The project's own modules, but not its tests or examples: a
-    -- program never runs those, and they are the project's to keep.
-    -- A test or example file a carried module requires is carried
-    -- anyway, since the program cannot load without it; its kind is
-    -- only its file name. An import edge and a catalog row go with the
-    -- module they are about.
-    -- An edge exists for a `require` of a literal name, `pcall(require,
-    -- "<name>")` included (build.syntax_node's requires), and the parser
-    -- refuses a computed name, so every file a program loads is carried.
     local project_rows: mut {string} = {
-      "WITH RECURSIVE carried(path) AS (" ..
-        "SELECT path FROM project.modules " ..
-        "WHERE kind NOT IN ('test', 'example') " ..
-        "UNION SELECT i.requires FROM project.imports i " ..
-        "JOIN carried c ON i.path = c.path) " ..
-        "INSERT OR IGNORE INTO modules (" .. module_column_list .. ") " ..
-        "SELECT " .. module_column_list .. " FROM project.modules " ..
-        "WHERE path IN (SELECT path FROM carried) ORDER BY path",
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
         "WHERE path IN (SELECT path FROM main.modules) " ..
         "ORDER BY path, requires",
