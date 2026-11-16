@@ -1569,16 +1569,12 @@ end
 --- same name. A module it carries is one its main requires, directly or not, or one under its own `cmd/<name>/`.
 ---
 --- The store's connections only read, so this opens one of its own to the build and fills, in its `temp`
---- schema, a `public_modules` and a `docs` of those rows, with the stored table's indexes. They stand in for
---- the stored ones in every statement here that does not name its schema. `db` itself for any other run, and
---- for a database that does not hold the main (the tool's own). Nil and why where the build cannot be read so.
---
--- TODO: scope `docs_words` and `docs_fts` too: run from source, a program can
--- still offer a word of another program's documentation to put a misspelling
--- right to, or take one for documented, and ranks by the whole project's
--- words. It waits on the words and the index being made of the rows of the
--- temporary `docs`, as the program's own build makes them of the rows it
--- carries.
+--- schema, a `public_modules` and a `docs` of those rows, with the stored table's indexes, and the index
+--- `docs_fts` and the words `docs_words` of that `docs`, as the program's build makes them of the rows it
+--- carries ([`build.schema`]'s `rebuild`), so a word is searched, ranked and put right among them alone. They
+--- stand in for the stored ones in every statement here that does not name its schema. `db` itself for any
+--- other run, and for a database that does not hold the main (the tool's own). Nil and why where the build cannot
+--- be read so.
 local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
   local main = source_run.main
   local projection = source_run.projection
@@ -1616,7 +1612,12 @@ local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
     "SELECT type, sql FROM main.sqlite_master WHERE tbl_name = 'docs' AND type IN ('table', 'index') AND " ..
       "sql IS NOT NULL ORDER BY type = 'index', name")
   if definitions == nil then return failed(definitions_trouble) end
+  local indexes, indexes_trouble = Sqlite.text_rows(opened,
+    "SELECT name, sql FROM main.sqlite_master WHERE name IN ('docs_fts', 'docs_words') ORDER BY name")
+  if indexes == nil then return failed(indexes_trouble) end
   local statements: mut {string} = {
+    "DROP TABLE IF EXISTS temp.docs_fts",
+    "DROP TABLE IF EXISTS temp.docs_words",
     "DROP TABLE IF EXISTS temp.public_modules",
     "DROP TABLE IF EXISTS temp.docs",
     "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
@@ -1645,6 +1646,32 @@ local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
     " AND instr(substr(d.module, " .. tostring(#own_guides + 1) .. "), '.') = 0) OR (d.symbol = '' AND " ..
     symbols.guide_module("d.module") .. " AND NOT EXISTS (SELECT 1 FROM main.docs o WHERE o.symbol = '' AND " ..
     "o.module = " .. sql_literal(own_guides) .. " || substr(d.module, 12))) ORDER BY d.id"
+  -- The index and the words of those rows: the stored `docs_fts` made again in `temp`, where its content table
+  -- `docs` is the one above, and the words counted as [`build.schema`]'s `rebuild` counts them, unstemmed.
+  for _, row in ipairs(indexes) do
+    local sql = row:text(2)
+    if row:text(1) == "docs_fts" then
+      statements[#statements + 1] = (sql:gsub("^CREATE VIRTUAL TABLE ", "CREATE VIRTUAL TABLE temp.", 1))
+      statements[#statements + 1] = "INSERT INTO temp.docs_fts (docs_fts) VALUES ('rebuild')"
+    else
+      statements[#statements + 1] = (sql:gsub("^CREATE TABLE", "CREATE TEMP TABLE", 1))
+      for _, counting in ipairs({
+          "DROP TABLE IF EXISTS temp.scoped_whole_words",
+          "DROP TABLE IF EXISTS temp.scoped_whole",
+          "CREATE VIRTUAL TABLE temp.scoped_whole USING fts5(symbol, signature, text, content='', " ..
+            "tokenize='unicode61')",
+          "INSERT INTO temp.scoped_whole (rowid, symbol, signature, text) SELECT id, symbol, signature, text " ..
+            "FROM temp.docs ORDER BY id",
+          "CREATE VIRTUAL TABLE temp.scoped_whole_words USING fts5vocab('temp', 'scoped_whole', 'row')",
+          "INSERT INTO temp.docs_words (word, rows) SELECT term, doc FROM temp.scoped_whole_words " ..
+            "WHERE length(term) >= 3 AND term NOT GLOB '*[^a-z]*' ORDER BY term",
+          "DROP TABLE temp.scoped_whole_words",
+          "DROP TABLE temp.scoped_whole",
+      }) do
+        statements[#statements + 1] = counting
+      end
+    end
+  end
   for _, statement in ipairs(statements) do
     local ok, trouble = Sqlite.run(opened, statement, {})
     if not ok then return failed(trouble) end
