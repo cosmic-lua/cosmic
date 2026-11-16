@@ -941,6 +941,26 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     -- A table an older tool made, of each compile's bytecode deflated, which no projection carries. Left
     -- where another run holds the database: it is dead weight and no more, and the next open takes it out.
     local _, _ = db:exec("DROP TABLE IF EXISTS deflated_bytecode")
+    -- A view an older tool made to another definition (`inputs`, as [`build.analysis_schema`]'s `apart` moved) is
+    -- made again, dropped and created in one transaction, so a run reading it meets one definition or the other and
+    -- never none. `CREATE VIEW IF NOT EXISTS` alone would keep the old one for good.
+    for _, statement in ipairs(work.schema) do
+      local name = statement:match("^CREATE VIEW IF NOT EXISTS (%S+) AS")
+      if name ~= nil then
+        local stored, stored_trouble = Sqlite.text_rows(db,
+          "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?1", { text(name) })
+        if stored == nil then return nil, stored_trouble end
+        local now = (statement:gsub("^CREATE VIEW IF NOT EXISTS ", "CREATE VIEW ", 1))
+        local row = stored[1]
+        if row ~= nil and row:text(1) ~= now then
+          local remade, remade_trouble = db:exec("BEGIN IMMEDIATE; DROP VIEW " .. name .. "; " .. statement .. "; COMMIT")
+          if not remade then
+            local _, _ = db:exec("ROLLBACK")
+            return nil, remade_trouble
+          end
+        end
+      end
+    end
   end
   if fresh then
     local begun, begin_trouble = begin_waiting(db, path, wait, doing)
@@ -1668,21 +1688,31 @@ end
 
 --- Why the static asset `file` of `root` (whose real path is `real_root`)
 --- cannot be carried, or nil: what [`identity.static_refusal`] refuses by
---- name and size, a spelling that differs from another staged one only in
---- case (`seen`, by lowercase spelling: a tree must build the same on a
---- case-insensitive disk), and a link that leads out of the project, which
---- would make the executable depend on files outside the checkout.
+--- name and size, a path as an asset that differs only in case from another
+--- staged one one program would carry with it (`seen`, by the lowercase
+--- path as an asset, then by program, its file: a tree must build the same
+--- on a case-insensitive disk), and a link that leads out of the project,
+--- which would make the executable depend on files outside the checkout.
+--- Two programs' own assets never meet, and one of a program's own at the
+--- path of a shared one is laid over it.
 local function static_refusal(root: string, real_root: string, file: string, size: integer,
-                              seen: mut {string:string}): string?
+                              seen: mut {string: mut {string:string}}): string?
   local refusal = identity.static_refusal(file, size)
   if refusal ~= nil then return refusal end
-  local lowered = file:lower()
-  local earlier = seen[lowered]
-  if earlier ~= nil and earlier ~= file then
-    return ("%s: differs from %s only in case; rename one, so the tree builds the same on a " ..
-      "case-insensitive disk"):format(file, earlier)
+  local asset = analysis_schema.static_asset(file)
+  if asset == nil then return nil end
+  local program = asset.program
+  local lowered = asset.path:lower()
+  local held: mut {string:string} = seen[lowered] or {}
+  seen[lowered] = held
+  for other, earlier in pairs(held) do
+    local spelled = analysis_schema.static_asset(earlier)
+    if (spelled == nil or spelled.path ~= asset.path) and (other == program or other == "" or program == "") then
+      return ("%s: differs from %s only in case; rename one, so the tree builds the same on a " ..
+        "case-insensitive disk"):format(file, earlier)
+    end
   end
-  seen[lowered] = file
+  held[program] = file
   local real, trouble = Fs.absolute(root .. "/" .. file)
   if real == nil then return trouble end
   if real:sub(1, #real_root + 1) ~= real_root .. "/" then
@@ -1861,7 +1891,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   -- The real path of `root`, once a static asset asks for it, and the
   -- static paths seen by their lowercase spelling.
   local real_root: string? = nil
-  local static_seen: mut {string:string} = {}
+  local static_seen: mut {string: mut {string:string}} = {}
   -- The text of each file of `linked` read here, by path.
   local texts: mut {string:string} = {}
 
@@ -1918,7 +1948,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
         staged.read = staged.read + 1
         if write_files and identity.is_static(file) and
             (file:match("%.tl$") ~= nil or file:match("%.tmpl$") ~= nil) then
-          local note = file .. ": under static/, so it is carried as an asset and is no module"
+          local note = file .. ": a static asset, so it is carried as an asset and is no module"
           staged.notes[#staged.notes + 1] = note
           log:complain(note)
         end

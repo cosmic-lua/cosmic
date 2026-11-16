@@ -193,7 +193,8 @@ end
 
 --- What is never a file to fix: the build's own output, the upstream
 --- sources and the records that patch them, the C core, the one shell
---- script that fetches zig, a project's static assets, and anything hidden.
+--- script that fetches zig, a project's static assets (and a program's own,
+--- under `cmd/<name>/static/`: [`skip`]), and anything hidden.
 local not_source: {string:boolean} = {
   ["o"] = true,
   ["static"] = true,
@@ -236,7 +237,7 @@ local refused_on_purpose <const>: string = "testdata/projects/fork_only"
 
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry
-  if not_source[first] == true then
+  if not_source[first] == true or entry:match("^cmd/[^/]+/static$") ~= nil or entry:match("^cmd/[^/]+/static/") ~= nil then
     return true
   end
   if entry == refused_on_purpose or String.starts_with(entry, refused_on_purpose .. "/") then
@@ -471,7 +472,14 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
   local refused: mut {string} = {}
   local alone_out: mut {string} = {}
   local seen: mut {string: boolean} = {}
-  local static_root, _ = Fs.absolute(root .. "/static")
+  local real_root, _ = Fs.absolute(root)
+  --- Whether the real path `real` is a static directory of the project or under one: `static/`, or a program's own
+  --- `cmd/<name>/static/` ([`identity.is_static`]).
+  local function under_static(real: string): boolean
+    if real_root == nil or real:sub(1, #real_root + 1) ~= real_root .. "/" then return false end
+    local relative = real:sub(#real_root + 2)
+    return relative == "static" or relative:match("^cmd/[^/]+/static$") ~= nil or identity.is_static(relative)
+  end
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
     local real: string? = nil
@@ -481,9 +489,8 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     end
     if what == nil then
       refused[#refused + 1] = missing
-    elseif static_root ~= nil and real ~= nil and
-        (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
-      refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
+    elseif real ~= nil and under_static(real) then
+      refused[#refused + 1] = path .. ": a static asset, which is carried verbatim, not laid out"
     elseif own and real ~= nil and foreign_tree_in(root, real) ~= nil then
       refused[#refused + 1] = path .. ": " .. foreign_refusal(assert(foreign_tree_in(root, real)))
     elseif what.kind == "dir" then

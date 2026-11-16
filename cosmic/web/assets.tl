@@ -331,6 +331,12 @@ end
 -- out of a test's meta; until then a test gives its app [`Assets.memory`]
 -- or [`Assets.directory`].
 
+-- TODO: lay a program's own `cmd/<name>/static/` over `static/` for a
+-- program run from its source, as a built one carries them
+-- ([`build.embed`]): run from source, it serves `static/` alone. It waits
+-- on [`Assets.default`] knowing which program runs, which a program run
+-- from source does not record.
+
 --- Whether this program is a built executable, which carries its own
 --- database with its main module recorded: the `cosmic` tool and a script
 --- it runs record none.

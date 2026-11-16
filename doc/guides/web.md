@@ -35,7 +35,9 @@ conventions added.
 
 Every file under `static/` is a public asset. `cosmic build` carries
 them in the executable and [`cosmic.web.static`] serves them; run from
-source, the same code serves the directory. A `.tmpl` file is a typed
+source, the same code serves the directory. A project of several programs
+gives one its own files under `cmd/<name>/static/`, which that program
+alone carries, each in place of a file of the same path under `static/`. A `.tmpl` file is a typed
 template, built into a module of the same path.
 
 ## templates

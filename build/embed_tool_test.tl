@@ -747,6 +747,37 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   check("warm")
 end
 
+--- A program carries the files under its own `cmd/<name>/static/` laid over
+--- `static/`: its own at the path of a shared one in its place, and the
+--- other shared ones beside it. Another program carries the shared ones
+--- alone, none of the first's own.
+local function test_a_programs_own_static_files_are_laid_over_the_shared_ones(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/static/css"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.mkdirs(tmp .. "/static/css"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/static/css/app.css", "shared"))
+  assert(Fs.write(tmp .. "/static/logo.png", "logo"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/css/app.css", "spam's"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/only.txt", "spam alone"))
+  assert(embed.tree(tmp, true))
+  local function payload(main: string): string
+    local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", main))
+    local path = tmp .. "/" .. main .. ".db"
+    assert(Fs.write(path, database))
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, "SELECT program, path, data FROM payload ORDER BY path")) do
+      out[#out + 1] = "[" .. row:text(1) .. "] " .. row:text(2) .. "=" .. row:text(3)
+    end
+    return table.concat(out, ", ")
+  end
+  local spam = payload("cmd.spam.main")
+  assert(spam == "[] css/app.css=spam's, [] logo.png=logo, [] only.txt=spam alone", spam)
+  local eggs = payload("cmd.eggs.main")
+  assert(eggs == "[] css/app.css=shared, [] logo.png=logo", eggs)
+end
+
 --- A project written in the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs.
 local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_new_checker(tmp: string)
   local root = tmp .. "/new"
