@@ -231,7 +231,7 @@ end
 --- with the fetch's error. The fetch is bin/cosmic-bootstrap's own (`--raw-path`), run unconfined with `variables`;
 --- bin/cosmic has run it already wherever it started the check, so this is a run that did not. Answers its path, or nil
 --- and why where it is not there after: where the script could not start (a test's sandbox that is not given it, or
---- the `sh` it runs on), why says so and names the script, not a fetch that never ran.
+--- the `sh` it runs on), why names the script and the start's error, not a fetch that never ran.
 function c.bootstrap_cosmic(root: string, variables: {string:string}, digest: string): string?, string
   local dir, _ = Fs.cache_dir("bootstrap", { environment = variables, make = false })
   local path = if dir ~= nil then dir .. "/cosmic-" .. digest else nil end
@@ -324,8 +324,8 @@ end
 --- policy grants, else the pinned zig installed there. Where neither, a check would start [`bin/zig`], which a
 --- sandboxed worker cannot start (no `sh`, no bin/cosmic-bootstrap) and an offline one cannot let fetch.
 function c.worker_zig(root: string, variables: {string:string}, sandboxed: boolean): string?, string
-  local install_it = "a seeded boot takes a release core and installs no zig: run bin/zig version, " ..
-    "or bin/zig build boot with COSMIC_BOOT_SEED=0, to install it"
+  local install_it = "run bin/zig version, or bin/zig build boot with COSMIC_BOOT_SEED=0, to install it " ..
+    "(a seeded boot takes a release core and installs none)"
   local cache, trouble = Fs.cache_dir("zig", { environment = variables, make = false })
   local named = variables["COSMIC_ZIG"]
   if named ~= nil and named ~= "" then

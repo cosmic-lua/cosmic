@@ -43,6 +43,8 @@ local function test_no_pinned_zig_installed_is_absent_and_says_how_to_install_it
   assert(key == nil, tostring(key))
   assert(why:find("is not installed", 1, true) ~= nil, why)
   assert(why:find("COSMIC_BOOT_SEED=0", 1, true) ~= nil, why)
+  -- An unsandboxed worker could not start bin/zig either: a check confines that compile offline.
+  assert(c.worker_zig(root, variables, false) == nil)
 end
 
 --- With the pinned zig installed, the requirement is present, keyed by the install's name, sandboxed or not.

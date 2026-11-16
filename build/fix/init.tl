@@ -1469,14 +1469,17 @@ local function find_unbuilt(ctx: Fix)
 end
 
 --- What the CI legs' promises say against the requirements the tree's
---- test modules declare ([`tree_checks.promises`]), the declarations read
---- from the working database the projection just wrote.
+--- test modules declare ([`tree_checks.promises`]), and the modules granted
+--- the zig cache with no `pinned_zig` ([`tree_checks.unguarded_zig`]), the
+--- declarations read from the working database the projection just wrote.
 local function promise_findings(root: string): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
   if build == nil then return { "tree checks: " .. open_trouble } end
   local declared, declared_trouble = tree_checks.requirements(build)
+  local unguarded, unguarded_trouble = tree_checks.unguarded_zig(build)
   local _, _ = build:close()
   if declared == nil then return { "tree checks: " .. declared_trouble } end
+  if unguarded == nil then return { "tree checks: " .. unguarded_trouble } end
   for key, name in pairs(c_functions.prerequisites()) do
     declared["C function " .. key] = { name } -- checked: view_written
   end
@@ -1486,6 +1489,7 @@ local function promise_findings(root: string): {string}
   for _, line in ipairs(tree_checks.promises(declared, legs)) do
     out[#out + 1] = "promises: " .. line
   end
+  for _, line in ipairs(unguarded) do out[#out + 1] = "requirements: " .. line end
   return out
 end
 
