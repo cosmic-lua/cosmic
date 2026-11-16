@@ -20,6 +20,7 @@ local String = require("cosmic.string")
 local alias_members = require("cosmic.internal.alias_members")
 local Distance = require("cosmic.internal.distance")
 local link_text = require("cosmic.internal.link_text")
+local source_run = require("cosmic.internal.source_run")
 local symbols = require("cosmic.internal.symbols")
 
 local record Doc
@@ -1555,6 +1556,78 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, st
     use_counts = {}, link_counts = {}, value_records = {}, public_modules = {}, commands = {} }, ""
 end
 
+--- The text of `value` as an SQL string literal.
+local function sql_literal(value: string): string
+  return "'" .. (value:gsub("'", "''")) .. "'"
+end
+
+--- A connection of its own to the project's last build a `cmd/<name>/main.tl` run from its source attaches
+--- ([`cosmic.internal.source_run`]'s `main` and `projection`), in place of `db`, the store's, when `db` is that
+--- build, with its documentation scoped to what that program carries built ([`build.embed`]),
+--- so it answers as it would built: the docs of the modules it carries (those its main requires, directly or
+--- not, and each under its own `cmd/<name>/` but a test or an example) that any module may require or that sit
+--- under its own `cmd/<name>/` (the main and one under `internal/` aside); its own guides, each in place of the
+--- project's of its name, and no other program's. It creates, in that connection's `temp` schema (the store's
+--- connections write nothing), a `public_modules` and a `docs` that stand in for the stored ones in every statement
+--- here that does not name its schema, so no other statement changes. `db` itself for any other run, and for a
+--- database that does not hold the main (the tool's own). Nil and why where the build cannot be read so.
+--
+-- TODO: scope `docs_words` too, the words a misspelling is put right to:
+-- run from source, a program can still offer a word of another program's
+-- documentation, then find nothing under it. It waits on the word list
+-- being made of the rows of `docs` the view answers for, as the program's
+-- own build makes it of the rows it carries.
+local function scope_to_program(db: Sqlite.Handle): Sqlite.Handle?, string
+  local main = source_run.main
+  local projection = source_run.projection
+  if main == nil or projection == nil then return db, "" end
+  local name = main:match("^cmd%.([^%.]+)%.main$")
+  if name == nil then return db, "" end
+  local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM main.modules WHERE path = ?1", { text(main) })
+  if held == nil then return nil, held_trouble end
+  if #held == 0 then return db, "" end
+  local opened, open_trouble = Sqlite.open(projection)
+  if opened == nil then return nil, projection .. ": " .. open_trouble end
+  db = opened
+  local own = "cmd." .. name .. "."
+  local own_guides = own .. "doc.guides."
+  local docs_columns, columns_trouble = Sqlite.text_rows(db, "SELECT name FROM pragma_table_info('docs', 'main')")
+  if docs_columns == nil then return nil, columns_trouble end
+  local selected: mut {string} = {}
+  for _, column in ipairs(docs_columns) do
+    local column_name = column:text(1)
+    if column_name == "module" then
+      selected[#selected + 1] = "CASE WHEN symbol = '' AND substr(module, 1, " .. tostring(#own_guides) .. ") = " ..
+        sql_literal(own_guides) .. " THEN 'doc.guides.' || substr(module, " .. tostring(#own_guides + 1) ..
+        ") ELSE module END AS module"
+    else
+      selected[#selected + 1] = column_name
+    end
+  end
+  local statements: {string} = {
+    "DROP TABLE IF EXISTS temp.public_modules",
+    "DROP VIEW IF EXISTS temp.docs",
+    "CREATE TEMP TABLE public_modules (path TEXT PRIMARY KEY) WITHOUT ROWID",
+    "WITH RECURSIVE carried(path) AS (SELECT " .. sql_literal(main) .. " UNION SELECT path FROM main.modules " ..
+      "WHERE kind = 'module' AND substr(path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) ..
+      " UNION SELECT i.requires FROM main.imports i JOIN carried c ON i.path = c.path) " ..
+      "INSERT INTO temp.public_modules (path) SELECT m.path FROM main.modules m " ..
+      "WHERE m.path IN (SELECT path FROM carried) AND (m.path IN (SELECT path FROM main.public_modules) OR " ..
+      "(substr(m.path, 1, " .. tostring(#own) .. ") = " .. sql_literal(own) .. " AND m.path <> " .. sql_literal(main) ..
+      " AND m.kind = 'module' AND instr('/' || m.file, '/internal/') = 0)) ORDER BY m.path",
+    "CREATE TEMP VIEW docs AS SELECT " .. table.concat(selected, ", ") .. " FROM main.docs d " ..
+      "WHERE NOT (d.symbol = '' AND d.module GLOB 'cmd.*.doc.guides.*' AND substr(d.module, 1, " ..
+      tostring(#own_guides) .. ") <> " .. sql_literal(own_guides) .. ") AND NOT (d.symbol = '' AND " ..
+      symbols.guide_module("d.module") .. " AND EXISTS (SELECT 1 FROM main.docs o WHERE o.symbol = '' AND " ..
+      "o.module = " .. sql_literal(own_guides) .. " || substr(d.module, 12)))",
+  }
+  for _, statement in ipairs(statements) do
+    local ok, trouble = Sqlite.run(db, statement, {})
+    if not ok then return nil, trouble end
+  end
+  return db, ""
+end
+
 --- A view of a program's own documentation, for the program to answer its users from: `databases` are its
 --- store's, each a public source, so only the modules any module may require answer. The standard library's
 --- answer nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
@@ -1565,13 +1638,8 @@ end
 --- answers from the project's last build, which the tool's store holds beside its own. A database that
 --- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
 --- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and why when a database cannot be read;
---- raises on a test's store that withholds the documentation, naming `store_text`.
---
--- TODO: answer, for a `cmd/<name>/main.tl` run from its source, as that
--- program built would ([`build.embed`]): the documentation of what it
--- carries, and its own guides in place of the project's. Run from source it
--- answers for the whole project's last build, though the run records which
--- program it is ([`cosmic.internal.source_run`]'s `main`). Nothing blocks it.
+--- raises on a test's store that withholds the documentation, naming `store_text`. A `cmd/<name>/main.tl` run
+--- from its source answers as it would built ([`scope_to_program`]).
 function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command}): Doc.View?, string
   local documented: mut {Sqlite.Handle} = {}
   local public: mut {boolean} = {}
@@ -1581,7 +1649,11 @@ function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Do
       return nil, holds_trouble
     end
     if holds then
-      documented[#documented + 1] = db
+      local in_scope, scope_trouble = scope_to_program(db)
+      if in_scope == nil then
+        return nil, scope_trouble
+      end
+      documented[#documented + 1] = in_scope
       public[#public + 1] = true
     else
       refuse_pure(db)

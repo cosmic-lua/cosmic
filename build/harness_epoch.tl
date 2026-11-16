@@ -83,7 +83,8 @@ harness_epoch.library = {
   ["cosmic.hash"] = "`build.paths` names a project's build directory by the SHA-256 of " ..
     "its root (`hex_sha256`), where the worker finds its tree's and builds its own",
   ["cosmic.internal.source_run"] = "cosmic.proc requires it for the file a source run runs, which " ..
-    "`relaunch` names, and cosmic.web.assets for the module it is; a worker is no source run, so it " ..
+    "`relaunch` names, and cosmic.web.assets and cosmic.doc for the module it is and the build it attaches; " ..
+    "a worker is no source run, so it " ..
     "holds none there",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running; and finds a program a module requires " ..

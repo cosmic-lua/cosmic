@@ -573,6 +573,7 @@ local function run(file: string, argv: {string}): integer
   source_run.script = tree_root.file
   -- What [`Assets.default`] reads to serve a program's own `cmd/<name>/static/` from disk, as a built one carries it.
   source_run.main = name
+  source_run.projection = database
   local load_module = require("build.load_module")
   local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then
