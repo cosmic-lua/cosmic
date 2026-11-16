@@ -367,7 +367,8 @@ documentation of those of them that any module may require, and of those
 under the program's own `cmd/<name>/`, so the built file answers alone; a
 module under `internal/`, or one a directory other than its own keeps to
 itself, stays out of it. It carries the guides under `doc/guides/`, and a
-guide under `cmd/<name>/doc/guides/` in place of the one of the same name. Run from its source (`cosmic cmd/tally/main.tl docs`), the program
+guide under `cmd/<name>/doc/guides/` in place of the one of the same name.
+Run from its source (`cosmic cmd/tally/main.tl docs`), the program
 answers from the project's last build. A test that asks for a command's help or for `docs`
 reads the documentation of the modules it requires, and says so with
 `Test.policy { store_text = true }`.

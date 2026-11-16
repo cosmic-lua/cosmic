@@ -192,8 +192,8 @@ local record Readable
   --- Each module whose docs it carries, recorded in its own `public_modules`
   --- as those its `docs` answers for.
   public: {string}
-  --- Each guide of the project's it carries, by the module it compiles as (`doc.guides.<name>`): those the
-  --- program has none of its own of by the name.
+  --- Each guide under `doc/guides/` it carries, by the module it compiles as (`doc.guides.<name>`): those whose
+  --- name no guide of the program's own takes.
   guides: {string}
   --- Each of the program's own guides, by the module it compiles as (`cmd.<name>.doc.guides.<guide>`), carried
   --- as `doc.guides.<guide>`.
