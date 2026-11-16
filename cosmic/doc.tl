@@ -1183,9 +1183,14 @@ local function has_catalog(db: Sqlite.Handle): boolean?, string
 end
 
 --- The entries of the catalog rows of kind `code` ([`build.error_catalog`]) that `where` selects, from the first database
---- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row.
+--- that holds any: the rule behind a code of the checker, its reason and its fix, in the text of the row. None in a
+--- program's own view ([`Doc.program`]): its users are asked about the program, not the checker the tool documents,
+--- so it answers no code, built or run from its source.
 local function coded_entries(view: Doc.View, join: string, where: string, binds: {Sqlite.Value},
                              limit: integer): mut {Doc.Entry}?, string
+  if view.program ~= nil then
+    return {}, ""
+  end
   for _, db in ipairs(view.databases) do
     local held, held_trouble = has_catalog(db)
     if held == nil then
@@ -1659,12 +1664,6 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   end
   -- The examples of the modules it documents, and the catalog of every module it carries, as its build carries
   -- them ([`build.embed`]'s `copy_documentation`, and its catalog of the modules it carries).
-  --
-  -- TODO: answer no code of the checker run from source, as the program
-  -- built answers none: `till docs not_assignable` still names
-  -- `lang.check not_assignable`, which the tool's own database documents
-  -- and no built program carries. It waits on Doc.program leaving out the
-  -- tool's modules beside `cosmic.*`, as it leaves out the library's.
   statements[#statements + 1] = "INSERT INTO temp.examples SELECT * FROM main.examples " ..
     "WHERE module IN (SELECT path FROM temp.public_modules) ORDER BY id"
   statements[#statements + 1] = "INSERT INTO temp.catalog SELECT * FROM main.catalog " ..
@@ -2286,7 +2285,8 @@ end
 
 --- What `query` names, as [`lookup_names`] answers, and ahead of it the row of the code of the checker it is, when it is
 --- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
---- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone.
+--- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone. A program's
+--- own view ([`Doc.program`]) answers no code.
 function Doc.lookup(view: Doc.View, query: string): Doc.Lookup?, string
   local rule, rule_trouble = coded(view, query)
   if rule == nil then
