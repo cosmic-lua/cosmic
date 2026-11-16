@@ -61,7 +61,10 @@ local record Layout
   --- `cosmic docs doc.guides.<name>`, and a program built from the
   --- project carries it for its users. One under doc/guides/internal/ is
   --- for those working on the project: `cosmic docs` answers for it there,
-  --- and no program carries it. A guide's name holds no dot
+  --- and no program carries it. A program's own guide,
+  --- `cmd/<name>/doc/guides/<guide>.md`, is a test too, and that program
+  --- alone carries it, as the guide `<guide>` in place of the project's of
+  --- that name. A guide's name holds no dot
   guides: string
   --- a typed template: a `<name>.tmpl` file is a module the build makes
   --- of it ([`cosmic.template`]), imported by its path like a `.tl` file:

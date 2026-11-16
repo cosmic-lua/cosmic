@@ -8,7 +8,8 @@
 --- project's documentation too, for the program's users to read: the docs,
 --- uses, links and examples of the modules it carries that any module may
 --- require or that sit under its own `cmd/<name>/` ([`documented_modules`]),
---- and the project's guides.
+--- and the project's guides, a program's own `cmd/<name>/doc/guides/<guide>.md`
+--- among them in place of the project's of the same name.
 ---
 --- A binary is a directory under `cmd/`: `cmd/<name>/main.tl` compiles
 --- as `kind = "main"`, and `cosmic build` writes `bin/<name>` in its build directory for
@@ -191,8 +192,14 @@ local record Readable
   --- Each module whose docs it carries, recorded in its own `public_modules`
   --- as those its `docs` answers for.
   public: {string}
-  --- Each guide, by the module it compiles as (`doc.guides.<name>`).
+  --- Each guide of the project's it carries, by the module it compiles as (`doc.guides.<name>`): those the
+  --- program has none of its own of by the name.
   guides: {string}
+  --- Each of the program's own guides, by the module it compiles as (`cmd.<name>.doc.guides.<guide>`), carried
+  --- as `doc.guides.<guide>`.
+  own_guides: {string}
+  --- The prefix of the modules of `own_guides` (`cmd.<name>.doc.guides.`).
+  own_guide_prefix: string
 end
 
 --- The prefix of the import paths under the program `main`'s own
@@ -209,7 +216,8 @@ end
 --- `cmd/<name>/` but the main itself, a test, an example and one under an
 --- `internal/` directory: only that program can require them, so its users
 --- read them as they read a public one. And each guide, a Markdown file
---- directly under `doc/guides/`.
+--- directly under `doc/guides/` or the program's own `cmd/<name>/doc/guides/`,
+--- its own in place of one of the project's of the same name.
 local function documented_modules(out: Sqlite.Handle, main: string, own: string): Readable?, string
   local rows, trouble = Sqlite.text_rows(out,
     "SELECT m.path, p.file, m.path IN (SELECT path FROM project.public_modules) FROM main.modules m " ..
@@ -227,17 +235,30 @@ local function documented_modules(out: Sqlite.Handle, main: string, own: string)
     end
   end
   local found, guide_trouble = Sqlite.text_rows(out,
-    "SELECT path, file FROM project.modules WHERE file GLOB 'doc/guides/*.md' ORDER BY path")
+    "SELECT path, file FROM project.modules WHERE file GLOB 'doc/guides/*.md' OR file GLOB 'cmd/*/doc/guides/*.md' " ..
+      "ORDER BY path")
   if found == nil then
     return nil, guide_trouble
   end
+  local prefix = own .. "doc.guides."
+  local own_dir = "cmd/" .. own:sub(5, -2) .. "/doc/guides/"
+  local own_guides: mut {string} = {}
+  local named: mut {string: boolean} = {}
+  for _, row in ipairs(found) do
+    local file = row:text(2)
+    if file:sub(1, #own_dir) == own_dir and file:sub(#own_dir + 1):match("^[^/]+%.md$") ~= nil and
+        row:text(1):sub(1, #prefix) == prefix then
+      own_guides[#own_guides + 1] = row:text(1)
+      named[row:text(1):sub(#prefix + 1)] = true
+    end
+  end
   local guides: mut {string} = {}
   for _, row in ipairs(found) do
-    if row:text(2):match("^doc/guides/[^/]+%.md$") ~= nil then
+    if row:text(2):match("^doc/guides/[^/]+%.md$") ~= nil and named[row:text(1):sub(12)] == nil then
       guides[#guides + 1] = row:text(1)
     end
   end
-  return { public = public, guides = guides }, ""
+  return { public = public, guides = guides, own_guides = own_guides, own_guide_prefix = prefix }, ""
 end
 
 --- Copies into `out` the documentation of the attached project that
@@ -267,6 +288,15 @@ local function copy_documentation(out: Sqlite.Handle, readable: Readable): boole
       "SELECT module, symbol, source_symbol, exported, kind, signature, text, file, line FROM project.docs d " ..
       "WHERE d.module IN carray(?1) OR (d.symbol = '' AND d.module IN carray(?2)) ORDER BY id",
     { public, guides })
+  if not ok then
+    return false, trouble
+  end
+  -- The program's own guides, each under the name of the project's it stands in for.
+  ok, trouble = Sqlite.run(out,
+    "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
+      "SELECT 'doc.guides.' || substr(module, length(?2) + 1), symbol, source_symbol, exported, kind, signature, " ..
+      "text, file, line FROM project.docs d WHERE d.symbol = '' AND d.module IN carray(?1) ORDER BY id",
+    { { texts = readable.own_guides }, text(readable.own_guide_prefix) })
   if not ok then
     return false, trouble
   end

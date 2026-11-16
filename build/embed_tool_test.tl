@@ -866,6 +866,41 @@ local function test_a_programs_own_static_files_are_laid_over_the_shared_ones(tm
   assert(eggs == "[] css/app.css=shared, [] logo.png=logo", eggs)
 end
 
+--- A program carries its own `cmd/<name>/doc/guides/<guide>.md` as the
+--- guide `<guide>`, in place of the project's of that name, beside the
+--- project's others; another program carries the project's alone. Each own
+--- guide is a test of the project's as any guide is.
+local function test_a_programs_own_guides_stand_in_for_the_projects(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/doc/guides"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.mkdirs(tmp .. "/doc/guides"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/doc/guides/start.md", "# start\n\nThe project's start.\n"))
+  assert(Fs.write(tmp .. "/doc/guides/later.md", "# later\n\nThe project's later.\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/doc/guides/start.md", "# start\n\nSpam's start.\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/doc/guides/frying.md", "# frying\n\nSpam alone fries.\n"))
+  assert(embed.tree(tmp, true))
+  local kinds = rows_of(support.build_dir(tmp) .. "/cosmic.db",
+    "SELECT kind FROM modules WHERE path = 'cmd.spam.doc.guides.frying'")
+  assert(#kinds == 1 and support.nth(kinds, 1):text(1) == "test", "an own guide is a test of the project's")
+  local function guides(main: string): string
+    local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", main))
+    local path = tmp .. "/" .. main .. ".db"
+    assert(Fs.write(path, database))
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, "SELECT module, text FROM docs WHERE symbol = '' ORDER BY module")) do
+      out[#out + 1] = row:text(1) .. "=" .. ((row:text(2):match("\n\n([^\n]*)")) or row:text(2))
+    end
+    return table.concat(out, ", ")
+  end
+  local spam = guides("cmd.spam.main")
+  assert(spam == "doc.guides.frying=Spam alone fries., doc.guides.later=The project's later., " ..
+      "doc.guides.start=Spam's start.", spam)
+  local eggs = guides("cmd.eggs.main")
+  assert(eggs == "doc.guides.later=The project's later., doc.guides.start=The project's start.", eggs)
+end
+
 --- A project written in the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs.
 local function test_a_project_in_the_new_grammar_becomes_an_executable_with_the_new_checker(tmp: string)
   local root = tmp .. "/new"

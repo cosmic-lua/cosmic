@@ -1566,6 +1566,11 @@ end
 --- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
 --- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and why when a database cannot be read;
 --- raises on a test's store that withholds the documentation, naming `store_text`.
+-- TODO: answer, for a `cmd/<name>/main.tl` run from its source, as that
+-- program built would ([`build.embed`]): the documentation of what it
+-- carries, and its own guides in place of the project's. Run from source it
+-- answers for the whole project's last build. It waits on the run recording
+-- which program it is, which a source run does not yet.
 function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command}): Doc.View?, string
   local documented: mut {Sqlite.Handle} = {}
   local public: mut {boolean} = {}

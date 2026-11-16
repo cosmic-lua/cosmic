@@ -154,12 +154,13 @@ local function is_vendor_pin(entry: string): boolean
 end
 
 --- Whether `file` is a doc this tree extracts runnable examples from --
---- exactly `doc/guides/*.md` and `doc/guides/internal/*.md`, never a
---- markdown file anywhere else in the tree ([`doc/design.md`],
---- [`doc/roadmap.md`], and [`doc/writing.md`] are prose with no examples,
---- and stay out of scope on purpose).
+--- exactly `doc/guides/*.md`, `doc/guides/internal/*.md` and a program's
+--- own `cmd/<name>/doc/guides/*.md`, never a markdown file anywhere else in
+--- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/writing.md`]
+--- are prose with no examples, and stay out of scope on purpose).
 local function is_doc_guide(file: string): boolean
-  return file:match("^doc/guides/[^/]+%.md$") ~= nil or file:match("^doc/guides/internal/[^/]+%.md$") ~= nil
+  return file:match("^doc/guides/[^/]+%.md$") ~= nil or file:match("^doc/guides/internal/[^/]+%.md$") ~= nil or
+    file:match("^cmd/[^/]+/doc/guides/[^/]+%.md$") ~= nil
 end
 
 --- The walk's predicates take the entry's bare name second, so what
@@ -259,7 +260,7 @@ function identity.is_input(file: string, own_tree: boolean): boolean
   if String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl") then
     return true
   end
-  if first == "doc" then
+  if first == "doc" or first == "cmd" then
     return is_doc_guide(file)
   end
   return false
