@@ -49,7 +49,19 @@ local function test_a_bootstrap_cosmic_that_cannot_be_had_is_said(tmp: string)
     COSMIC_BOOTSTRAP_ATTEMPTS = "1", https_proxy = "http://127.0.0.1:9", HTTPS_PROXY = "http://127.0.0.1:9",
   }, pinned_digest())
   assert(found == nil, tostring(found))
-  assert(why:find("not cached, and bin/cosmic-bootstrap could not fetch it: ", 1, true) ~= nil, why)
+  assert(why:find(", and bin/cosmic-bootstrap could not fetch it: ", 1, true) ~= nil, why)
   -- The script's own refusal, not a start that failed: it ran, tried once, and said so.
   assert(why:find("(after 1 attempt)", 1, true) ~= nil, why)
+end
+
+--- A bin/cosmic-bootstrap that cannot start, as in a test's sandbox that is not given it, is said as a start that
+--- failed, naming the script, not as a fetch that never ran: here a root that holds no script.
+local function test_a_bootstrap_script_that_cannot_start_is_said_so(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cache") and Fs.mkdirs(tmp .. "/root"))
+  local found, why = c.bootstrap_cosmic(tmp .. "/root", { HOME = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
+    pinned_digest())
+  assert(found == nil, tostring(found))
+  assert(why:find(tmp .. "/root/bin/cosmic-bootstrap, which fetches it, could not start (it is not there)", 1, true) ~=
+      nil, why)
+  assert(why:find("could not fetch", 1, true) == nil, why)
 end

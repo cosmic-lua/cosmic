@@ -131,6 +131,7 @@ local clock = require("build.clock")
 local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
+local c_check = require("build.c")
 local dispatch_sites = require("build.dispatch_sites")
 local importer = require("build.importer")
 local Refusals = require("build.refusals")
@@ -2965,7 +2966,9 @@ local function require_of_host(ctx: Run): integer?
     local answer = ctx.sandbox_answer or sandbox_here()
     ctx.sandbox_answer = answer
     return { ok = answer.ok, why = answer.why, broken = answer.broken }
-  end, ctx.held == true, ctx.promises or {}, ctx.leg or "", ctx.sandboxed == true)
+  end, ctx.held == true, ctx.promises or {}, ctx.leg or "", ctx.sandboxed == true, function(): string?, string
+    return c_check.worker_zig(assert(ctx.root), Env.all(), ctx.sandboxed == true)
+  end)
   ctx.c_unavailable = {}
   if ctx.own_tree == true and ctx.whole == true and host ~= nil then
     -- The probe below runs later, when `host` may have been assigned.

@@ -27,6 +27,7 @@ Test.policy{
     { path = "/cache/zig", letters = "rwxc" },
   },
   env = { "COSMIC_BOOTSTRAP", "COSMIC_ZIG" },
+  requires = { "pinned_zig" },
 }
 
 local root = assert(Fs.absolute("."))
