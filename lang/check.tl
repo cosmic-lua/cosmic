@@ -826,11 +826,18 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
     end
   end
   if value and decl.kind == "integer_enum" then
-    -- The table of an integer enum holds its members, each a value of the enum.
-    local member = ctx.store:named(decl, {}, false)
+    -- The table of an integer enum holds its members, each a value of the enum, and two functions: `of` answers the
+    -- member an integer is, or nil, and `name` the name of a member. No member takes either name
+    -- ([`lang.declarations`]).
+    local store = ctx.store
+    local member = store:named(decl, {}, false)
     for _, v in ipairs(body.values) do
       index.by_name[v] = { { type = member, mut = false, method = false } }
     end
+    local of = store:fn({ params = { { type = store.integer } }, rets = { { items = { store:optional(member) } } } })
+    local name = store:fn({ params = { { type = member } }, rets = { { items = { store.string } } } })
+    index.by_name["of"] = { { type = of, mut = false, method = false } }
+    index.by_name["name"] = { { type = name, mut = false, method = false } }
   end
   if value then
     for name, f in pairs(ctx.program.statics[decl] or {}) do

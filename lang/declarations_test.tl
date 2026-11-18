@@ -150,6 +150,12 @@ local CASES <const>: {Case} = {
     fix = "give `B` an integer of its own",
   },
   {
+    code = "repeated_value",
+    source = "local enum E: integer\n  of = 0\nend\n",
+    msg = "the member `of` of the integer enum `E` has the name of a function of its table",
+    fix = "rename the member: the table's `of` and `name` are its functions",
+  },
+  {
     code = "type_arguments",
     source = "local record R<T>\n  f: T\nend\nlocal x: R\n",
     msg = "`R` takes 1 type argument, not 0",

@@ -430,7 +430,8 @@ Declarations.catalog = {
   {
     code = "repeated_value", rule = "distinct names",
     why = "an enum is the set of its values, so a value written twice is one value; an integer enum's members are " ..
-      "told apart by their names and by their integers, so neither is written twice",
+      "told apart by their names and by their integers, so neither is written twice, and no member takes the name of " ..
+      "the table's functions `of` and `name`",
     fix = "remove the second <value>, or give it a name or an integer of its own",
   },
   {
@@ -2225,7 +2226,11 @@ local function enter_enum(ctx: Ctx, node: Ast.Enum)
     local held = first[v.value]
     local n = v.number
     local same = if n ~= nil then numbered[n] else nil end
-    if held ~= nil and n ~= nil then
+    if n ~= nil and (v.value == "of" or v.value == "name") then
+      report_at(ctx, "repeated_value", v, "the member " .. quoted(v.value) .. " of the integer enum " .. quoted(decl.name) ..
+          " has the name of a function of its table", "rename the member: the table's " .. quoted("of") .. " and " ..
+          quoted("name") .. " are its functions", nil)
+    elseif held ~= nil and n ~= nil then
       report_at(ctx, "repeated_value", v, "the member " .. quoted(v.value) .. " is written twice in the integer enum " ..
           quoted(decl.name), "remove the second " .. quoted(v.value) .. ", or give it a name of its own", nil,
         place_of(ctx, held))

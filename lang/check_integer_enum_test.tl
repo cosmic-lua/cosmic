@@ -129,3 +129,30 @@ print(Messages.name(Messages.State.UNKNOWN), n)
   refused("local Messages = require(\"messages\")\nprint(Messages.State.PLAYNG)\n", "field_unknown",
     { "`Messages.State` has no field `PLAYNG`, nearest `PLAYING`" }, { messages = MESSAGES })
 end
+
+local function test_of_answers_the_member_an_integer_is_or_nil_and_name_a_members_name()
+  Programs.stands(HEAD .. [[
+local function decoded(n: integer): string
+  local s = State.of(n)
+  if s == nil then
+    return "unknown"
+  end
+  return State.name(s)
+end
+print(decoded(1), decoded(-1), decoded(9), State.name(State.PAUSED))
+]], "PLAYING\tLOST\tunknown\tPAUSED")
+  refused(HEAD .. "local s: State = State.of(1)\nprint(s)\n", "nil_not_allowed", { "`State.of(1)` is `State?`" })
+  refused(HEAD .. "print(State.name(1))\n", "not_assignable", { "where `State` is wanted as argument 1 of `State.name`" })
+end
+
+local function test_of_and_name_are_read_through_a_record_of_another_module()
+  local r = Programs.run([[
+local Messages = require("messages")
+local s: Messages.State? = Messages.State.of(1)
+if s ~= nil then
+  print(Messages.State.name(s))
+end
+]], { messages = MESSAGES })
+  local first = r.errors[1]
+  assert(#r.errors == 0, if first ~= nil then first.msg else "" end)
+end

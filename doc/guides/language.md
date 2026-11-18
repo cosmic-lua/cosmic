@@ -184,6 +184,31 @@ print(label(State.PLAYING), wire, State.STOPPED + 1)
 playing	2	1
 ```
 
+An integer that comes from outside, such as a field a decoder read off the wire, becomes a member through the table's
+function `of`: `E.of(n)` answers the member `n` is, or nil where it is none, so the caller decides what an unknown integer
+means. `E.name(v)` answers the name of a member. No member is called `of` or `name` (`repeated_value`).
+
+```teal
+local enum State: integer
+  STOPPED = 0
+  PLAYING = 1
+end
+
+local function described(n: integer): string
+  local s = State.of(n)
+  if s == nil then
+    return "unknown " .. tostring(n)
+  end
+  return State.name(s)
+end
+
+print(described(1), described(7))
+```
+
+```output
+PLAYING	unknown 7
+```
+
 An integer enum declared inside a record is read through the record's table, here and in a module that requires it:
 `Messages.State.PLAYING` for `enum State: integer` inside `record Messages`. An enum of strings (`enum E "a" "b" end`)
 has no table, since its values are the strings themselves.

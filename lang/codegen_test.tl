@@ -2002,7 +2002,7 @@ local function test_an_integer_enum_read_as_a_value_is_the_table_of_its_members(
     "end",
     "local u: Unread = 0",
     "return { State.ON, State.LOST, M.Code.OK, u }"), [[
-local State = { OFF = 0, ON = 1, LOST = -2 }
+local State = (function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; t.name = function(v) return names[v] end; return t end)({ OFF = 0, ON = 1, LOST = -2 }, { [0] = "OFF", [1] = "ON", [-2] = "LOST" })
 
 
 
@@ -2010,7 +2010,7 @@ local State = { OFF = 0, ON = 1, LOST = -2 }
 
 
 
-local M = { Code = { OK = 200 }, Inner = { Deep = { X = 7 } } }
+local M = { Code = (function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; t.name = function(v) return names[v] end; return t end)({ OK = 200 }, { [200] = "OK" }), Inner = { Deep = (function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; t.name = function(v) return names[v] end; return t end)({ X = 7 }, { [7] = "X" }) } }
 
 
 
@@ -2031,4 +2031,16 @@ local function test_the_least_integer_is_written_so_that_it_reads_back_an_intege
     "end",
     "return Edge.LEAST, math.type(Edge.LEAST)"))
   assert(least == math.mininteger and kind == "integer", tostring(least) .. " " .. tostring(kind))
+end
+
+local function test_the_table_of_an_integer_enum_answers_the_member_an_integer_is_and_a_members_name()
+  -- `1.0` reaches `of` only from untyped code; it answers the member's own integer.
+  local known, unknown, name, kind = run(program(
+    "local enum State: integer",
+    "  OFF = 0",
+    "  ON = 1",
+    "end",
+    "return State.of(1), State.of(7), State.name(State.ON), math.type(State.of(1.0))"))
+  assert(known == 1 and unknown == nil and name == "ON" and kind == "integer",
+    tostring(known) .. " " .. tostring(unknown) .. " " .. tostring(name) .. " " .. tostring(kind))
 end

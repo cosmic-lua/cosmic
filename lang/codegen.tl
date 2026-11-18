@@ -1343,19 +1343,26 @@ block = function(b: Ast.Block): Output -- checked: not_assigned
   return out
 end
 
---- The table of the integer enum `node`, `{ A = 0, B = 1 }`, its members in the order written.
+--- The table of the integer enum `node`: its members in the order written, and the functions `of`, which answers the
+--- member an integer is (the member's own integer, so a float such as `1.0` answers `1`) or nil, and `name`, which
+--- answers a member's name. Both read a table of the names by integer
+--- written beside the members, so the table names no global:
+--- `(function(t, names) ... return t end)({ A = 0 }, { [0] = "A" })`.
 local function integer_enum_table(node: Ast.Enum): string
-  local pieces: mut {string} = {}
+  local members: mut {string} = {}
+  local names: mut {string} = {}
   for _, v in ipairs(node.values) do
     local n = v.number or 0
     -- The text of the least integer reads back as a float, so it is written as the name Lua gives it.
     local written = if n == math.mininteger then "math.mininteger" else string.format("%d", n) end
-    pieces[#pieces + 1] = " " .. v.value .. " = " .. written
+    members[#members + 1] = " " .. v.value .. " = " .. written
+    names[#names + 1] = " [" .. written .. "] = " .. string.format("%q", v.value)
   end
-  if #pieces == 0 then
-    return "{}"
+  local function table_of(pieces: {string}): string
+    return if #pieces == 0 then "{}" else "{" .. table.concat(pieces, ",") .. " }" end
   end
-  return "{" .. table.concat(pieces, ",") .. " }"
+  return "(function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; " ..
+    "t.name = function(v) return names[v] end; return t end)(" .. table_of(members) .. ", " .. table_of(names) .. ")"
 end
 
 --- The nested records and integer enums of `members`, written as the table `{ A = {}, B = { C = {} }, E = { X = 0 } }`.
