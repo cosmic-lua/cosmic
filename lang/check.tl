@@ -8395,7 +8395,14 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
     text = text .. "." .. s.path[i].text -- checked: nil_not_allowed
   end
   local ft = function_type(ctx, s.fn, nil, quoted(text))
-  if owner.tag ~= "invalid" then
+  if (owner.tag == "named") and owner.value and owner.decl.kind == "integer_enum" then
+    -- The table of an integer enum is made whole where it is declared: a statement would replace `of` or `name` at run
+    -- time with a function the checker does not read as theirs.
+    report(ctx, "field_fixed", s, quoted(text) .. " defines a function in the table of the integer enum " ..
+        quoted(owner.decl.name) .. ", which holds its members, `of` and `name` and nothing more",
+      "declare the function beside the enum (`local function ...`), and call " .. quoted(owner.decl.name .. ".of") ..
+        " or " .. quoted(owner.decl.name .. ".name") .. " in it", { show(ctx, owner) })
+  elseif owner.tag ~= "invalid" then
     local field_type: Type = owner
     for i = 2, #s.path do
       local part = s.path[i]

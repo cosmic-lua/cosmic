@@ -155,4 +155,19 @@ end
 ]], { messages = MESSAGES })
   local first = r.errors[1]
   assert(#r.errors == 0, if first ~= nil then first.msg else "" end)
+  local ran = Programs.execute([[
+local Messages = require("messages")
+local s = Messages.State.of(1)
+if s ~= nil then
+  print(Messages.State.name(s), Messages.State.of(5))
+end
+]], false, { messages = MESSAGES })
+  assert(ran.ran and table.concat(ran.printed, "|") == "PLAYING\tnil", ran.fault or table.concat(ran.printed, "|"))
+end
+
+local function test_no_statement_defines_a_function_in_the_table()
+  refused(HEAD .. "function State.of(_n: integer): State?\n  return State.PLAYING\nend\nprint(State.of(9))\n", "field_fixed",
+    { "`State.of` defines a function in the table of the integer enum `State`", "declare the function beside the enum" })
+  refused(HEAD .. "function State.extra(): integer\n  return 1\nend\n", "field_fixed",
+    { "`State.extra` defines a function in the table of the integer enum `State`" })
 end

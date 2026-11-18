@@ -2025,12 +2025,13 @@ return { State.ON, State.LOST, M.Code.OK, u }]])
 end
 
 local function test_the_least_integer_is_written_so_that_it_reads_back_an_integer()
-  local least, kind = run(program(
+  local least, kind, found, name = run(program(
     "local enum Edge: integer",
     "  LEAST = -0x8000000000000000",
     "end",
-    "return Edge.LEAST, math.type(Edge.LEAST)"))
-  assert(least == math.mininteger and kind == "integer", tostring(least) .. " " .. tostring(kind))
+    "return Edge.LEAST, math.type(Edge.LEAST), Edge.of(math.mininteger), Edge.name(Edge.LEAST)"))
+  assert(least == math.mininteger and kind == "integer" and found == math.mininteger and name == "LEAST",
+    tostring(least) .. " " .. tostring(kind) .. " " .. tostring(found) .. " " .. tostring(name))
 end
 
 local function test_the_table_of_an_integer_enum_answers_the_member_an_integer_is_and_a_members_name()

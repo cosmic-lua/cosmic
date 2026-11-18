@@ -1343,11 +1343,10 @@ block = function(b: Ast.Block): Output -- checked: not_assigned
   return out
 end
 
---- The table of the integer enum `node`: its members in the order written, and the functions `of`, which answers the
---- member an integer is (the member's own integer, so a float such as `1.0` answers `1`) or nil, and `name`, which
---- answers a member's name. Both read a table of the names by integer
---- written beside the members, so the table names no global:
---- `(function(t, names) ... return t end)({ A = 0 }, { [0] = "A" })`.
+--- The table of the integer enum `node`: its members in the order written, and two functions. `of` answers the member
+--- an integer is, or nil: the member's own integer, so a float such as `1.0` answers `1`. `name` answers a member's
+--- name. Both read a table of the names by integer, written beside the members, so the table names no global but `math`
+--- for the least integer: `(function(t, names) ... return t end)({ A = 0 }, { [0] = "A" })`.
 local function integer_enum_table(node: Ast.Enum): string
   local members: mut {string} = {}
   local names: mut {string} = {}
