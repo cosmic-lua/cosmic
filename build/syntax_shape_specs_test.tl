@@ -206,6 +206,8 @@ end
 
 local function test_a_union_of_two_types_is_refused_by_name()
   refused("local record R\n  v: string | integer\nend", "R.v", "a union of more than one type has no shape")
+  refused("local record R\n  enum Code: integer\n    OK = 0\n  end\n  code: Code\nend", "R.code",
+    "an integer enum has no shape yet")
   refused("local record R\n  v: (string | integer)?\nend", "R.v", "a union of more than one type has no shape")
 end
 

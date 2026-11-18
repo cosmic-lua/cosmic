@@ -2291,6 +2291,9 @@ end
 local function nested_integer_enum(ctx: Ctx, decl: Decl, name: string): Decl?
   -- TODO: read an integer enum nested in a nested record (`M.Inner.E`), once a nested record is a value: the code
   -- generator writes its table, and no read reaches it today.
+  --
+  -- TODO: read an integer enum nested in a generic record or class, once the code generator writes the nested tables of
+  -- one: its table is `{}` today, so the read is refused as a field the record does not declare.
   if (decl.kind ~= "record" and decl.kind ~= "class") or (decl.arity or 0) ~= 0 then
     return nil
   end
@@ -2373,7 +2376,7 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   if (t.tag == "named") and t.decl.kind == "integer_enum" and not t.value then
     report(ctx, "field_unknown", node, owner .. " is an integer enum, whose values are integers and have no fields: " ..
         quoted(name) .. " is not one",
-      "read a member from the enum's table, `" .. t.decl.name .. "." .. name .. "`, or compare the value with `==` to one",
+      "compare the value with `==` to a member (`" .. t.decl.name .. ".NAME`), or pass it where an `integer` is wanted",
       { show(ctx, t) })
     return
   end
