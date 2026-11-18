@@ -152,6 +152,42 @@ print(#plugin, plugin[1], plugin.name, plugin.run())
 
 A call with a string in place of its arguments, `f "x"`, is not in the grammar (`string_call`): write `f("x")`.
 
+## an enum of integers
+
+`enum E: integer` declares named integers, such as the values of a wire format. Each member is `NAME = n`, `n` an integer
+literal or its negation. The declaration gives two things: the type `E`, and the table `E` of its members. `E.NAME` is a
+value of `E`. A misspelled member is refused where it is written (`field_unknown`), with the nearest name. A name or an
+integer written twice is refused (`repeated_value`).
+
+A value of `E` is an `integer` wherever one is wanted, and every operator takes it as one. An integer is not a value of
+`E`, so a function that takes an `E` gets a member. The enum's table is not a value of `E` (`declaration_value`).
+
+```teal
+local enum State: integer
+  STOPPED = 0
+  PLAYING = 1
+  PAUSED = 2
+end
+
+local function label(s: State): string
+  if s == State.PLAYING then
+    return "playing"
+  end
+  return "not playing"
+end
+
+local wire: integer = State.PAUSED
+print(label(State.PLAYING), wire, State.STOPPED + 1)
+```
+
+```output
+playing	2	1
+```
+
+An integer enum declared inside a record is read through the record's table, here and in a module that requires it:
+`Messages.State.PLAYING` for `enum State: integer` inside `record Messages`. An enum of strings (`enum E "a" "b" end`)
+has no table, since its values are the strings themselves.
+
 ## choosing a module by name
 
 `require(name)` with a computed name is refused (`computed_require`), so that the build sees every module a program

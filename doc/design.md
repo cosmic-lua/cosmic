@@ -1086,7 +1086,7 @@ declared to differ, a generator change ahead of the pin; a file listed that does
 the compiler's identity, so in every compile's key, and in the tool's boot hash, so an edit to one boots the tool.
 
 the grammar is Teal's, made smaller and explicit. a declaration is `local record R`, `local class C`, `local interface
-I`, `local enum E` or `type X = require("m")`; a module returns one of them, or a local declared with its type. an
+I`, `local enum E` (of strings, or `local enum E: integer` of named integers, whose name is also the table of them) or `type X = require("m")`; a module returns one of them, or a local declared with its type. an
 optional type is `T?` and an optional field `name?: T`; `T | nil` is refused. a field is fixed unless declared `mut`,
 and a collection parameter is a view unless declared `mut {T}`. there are no casts (`as`), no `;`, no `goto` but a continue,
 no `setmetatable` (a class's methods are written as methods and the compiler writes its metatable), no `global`, no `#!`

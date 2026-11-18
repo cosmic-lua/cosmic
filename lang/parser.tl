@@ -1931,12 +1931,59 @@ local function parse_supers(owner: string): {Ast.TypeName}, Ast.Type
   return supers, array
 end
 
+--- The rest of `enum name: integer`, from the `:`: each member is `NAME = n`, `n` an integer literal or its negation.
+local function parse_integer_enum(first: integer, at: integer, scope: Ast.Scope?, name: Ast.Binding, desc: string): Decl
+  advance()
+  if S.text == "integer" and S.kind == "identifier" then
+    advance()
+  else
+    report("expected_token", S.pos, "expected `integer` after `enum " .. name.name .. ":`, found " .. shown(S.pos),
+      "write `enum " .. name.name .. ": integer`, or leave out `:` for an enum of strings")
+  end
+  local values: mut {Ast.EnumValue} = {}
+  while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(at) do
+    local vfirst = S.pos
+    local member = if S.kind == "identifier" then S.text else "NAME" end
+    local number: integer? = nil
+    if S.kind == "identifier" and peek_text(1) == "=" then
+      advance()
+      advance()
+      local negative = S.text == "-"
+      if negative then
+        advance()
+      end
+      if S.kind == "integer" then
+        local read = math.tointeger(S.tokens.number[S.pos])
+        if read ~= nil then
+          number = if negative then -read else read end
+        end
+        advance()
+      end
+    end
+    if number ~= nil then
+      values[#values + 1] = { kind = "EnumValue", id = 0, first = vfirst, last = S.pos - 1, value = member, number = number, doc = doc_of(vfirst) }
+    else
+      report("expected_token", S.pos, "expected a member `NAME = n` of the enum `" .. name.name .. "`, found " .. shown(S.pos),
+        "write each member as a name, `=` and an integer literal: `" .. member .. " = 0`, and `end` after the last")
+      while not (S.kind == "identifier" and peek_text(1) == "=") and S.text ~= "end" and S.kind ~= "$EOF$" and
+          not begins_statement(at) do
+        advance()
+      end
+    end
+  end
+  close("end", at, desc)
+  return { kind = "Enum", id = 0, first = first, last = S.pos - 1, scope = scope, name = name, numeric = true, values = values }
+end
+
 --- The rest of a declaration of `word` (`record`, `interface`, `class` or
 --- `enum`) called `name`, which began at the token `first` and whose word is
 --- the token `at`.
 local function parse_declaration_body(word: string, first: integer, at: integer, scope: Ast.Scope?,
                                       name: Ast.Binding): Decl
   local desc = "`" .. word .. " " .. name.name .. "`"
+  if word == "enum" and S.text == ":" then
+    return parse_integer_enum(first, at, scope, name, desc)
+  end
   if word == "enum" then
     local values: mut {Ast.EnumValue} = {}
     while S.text ~= "end" and S.kind ~= "$EOF$" and not begins_statement(at) do

@@ -429,8 +429,9 @@ Declarations.catalog = {
   },
   {
     code = "repeated_value", rule = "distinct names",
-    why = "an enum is the set of its values, so a value written twice is one value",
-    fix = "remove the second <value>",
+    why = "an enum is the set of its values, so a value written twice is one value; an integer enum's members are " ..
+      "told apart by their names and by their integers, so neither is written twice",
+    fix = "remove the second <value>, or give it a name or an integer of its own",
   },
   {
     code = "type_arguments", rule = "type arguments",
@@ -580,7 +581,8 @@ local DECL_KINDS <const>: {string: Types.DeclKind} = {
 }
 
 local KIND_WORDS <const>: {Types.DeclKind: string} = {
-  record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata record",
+  record = "record", class = "class", interface = "interface", enum = "enum", integer_enum = "integer enum",
+  userdata = "userdata record",
 }
 
 --- The key of a declaration in the program's tables.
@@ -844,7 +846,8 @@ local function key_refusal(k: Type): Declarations.Code?
   elseif k.tag == "number" then
     return "float_key"
   elseif (k.tag == "named") then
-    if k.decl.kind == "record" or k.decl.kind == "class" or k.decl.kind == "interface" or k.decl.kind == "userdata" or k.decl.kind == "enum" then
+    if k.decl.kind == "record" or k.decl.kind == "class" or k.decl.kind == "interface" or k.decl.kind == "userdata" or k.decl.kind == "enum" or
+        k.decl.kind == "integer_enum" then
       return nil
     end
   end
@@ -1539,6 +1542,8 @@ local function decl_kind(node: Ast.Node): Types.DeclKind?
       end
     end
     return "record"
+  elseif (node.kind == "Enum") and node.numeric == true then
+    return "integer_enum"
   end
   return DECL_KINDS[node.kind]
 end
@@ -2215,12 +2220,26 @@ local function enter_enum(ctx: Ctx, node: Ast.Enum)
   end
   local values: mut {string} = {}
   local first: mut {string: Ast.Node} = {}
+  local numbered: mut {integer: Ast.EnumValue} = {}
   for _, v in ipairs(node.values) do
     local held = first[v.value]
-    if held ~= nil then
+    local n = v.number
+    local same = if n ~= nil then numbered[n] else nil end
+    if held ~= nil and n ~= nil then
+      report_at(ctx, "repeated_value", v, "the member " .. quoted(v.value) .. " is written twice in the integer enum " ..
+          quoted(decl.name), "remove the second " .. quoted(v.value) .. ", or give it a name of its own", nil,
+        place_of(ctx, held))
+    elseif held ~= nil then
       report_at(ctx, "repeated_value", v, "the value " .. quoted(v.value) .. " is written twice in the enum " .. quoted(decl.name),
         "remove the second " .. quoted(v.value) .. ": an enum is the set of its values", nil, place_of(ctx, held))
+    elseif same ~= nil and n ~= nil then
+      report_at(ctx, "repeated_value", v, "the members " .. quoted(same.value) .. " and " .. quoted(v.value) ..
+          " of the integer enum " .. quoted(decl.name) .. " are both " .. tostring(n),
+        "give " .. quoted(v.value) .. " an integer of its own: a value of the enum names one member", nil, place_of(ctx, same))
     else
+      if n ~= nil then
+        numbered[n] = v
+      end
       first[v.value] = v
       values[#values + 1] = v.value
     end

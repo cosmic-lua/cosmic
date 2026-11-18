@@ -471,6 +471,24 @@ local function test_the_values_of_an_enum_are_listed_in_order_and_each_carries_i
     table.concat(values, "|"))
 end
 
+local function test_a_member_of_an_integer_enum_is_its_name_and_its_integer()
+  local found = analyzed(lines(
+    "local enum Code: integer",
+    "  --- All is well.",
+    "  OK = 0",
+    "  LOST = -2",
+    "end",
+    "local enum Mode \"a\" end"))
+  local signatures: mut {string} = {}
+  for _, entry in ipairs(found.docs) do
+    if entry.kind == "value" then
+      signatures[#signatures + 1] = entry.symbol .. ":" .. entry.signature .. ":" .. entry.text
+    end
+  end
+  assert(table.concat(signatures, "|") == "Code.OK:OK = 0:All is well.|Code.LOST:LOST = -2:|Mode.a:\"a\":",
+    table.concat(signatures, "|"))
+end
+
 --- The doc comment is the run above the declaration that is not the end of a line of code.
 local function test_a_comment_after_code_is_no_doc_comment_of_what_follows()
   local found = analyzed(lines(

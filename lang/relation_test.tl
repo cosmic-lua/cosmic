@@ -1447,3 +1447,19 @@ local function test_a_rest_step_names_a_position_inside_the_parameters()
   local r = refused(w, given, wanted, "union_none", "rest 2")
   assert(first_step(r).index == 2)
 end
+
+local function test_an_integer_enum_is_below_integer_and_number_and_no_integer_is_below_it()
+  local w = world()
+  local s = w.store
+  local decl = s:declare("integer_enum", "m", { "Code" }, 0)
+  s:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = { "OK", "LOST" } })
+  local code, color = s:named(decl), named(w, "Color")
+  assert(below(w, code, s.integer))
+  assert(below(w, code, s.number))
+  assert(below(w, code, s:optional(s.integer)))
+  assert(below(w, code, s:union({ s.integer, s.string })))
+  refused(w, s.integer, code, "mismatch")
+  refused(w, code, s.string, "mismatch")
+  refused(w, code, color, "nominal")
+  refused(w, s:named(decl, {}, true), s.integer, "mismatch")
+end

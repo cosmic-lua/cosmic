@@ -7,6 +7,7 @@
 ---
 --- * `integer`: "integer"; `number`: "number"
 --- * `string`: "string"; an enum: "string", and its values in `strings`
+--- * an integer enum: "integer"; its table of members, a declaration used as a value: "table"
 --- * `boolean`, `true`, `false`: "boolean"
 --- * `nil`, and a union that holds `nil`: "nil"
 --- * an array, a map, a record, a declaration used as a value: "table"
@@ -117,6 +118,8 @@ local function add(seen: Seen, t: Types.Type)
           seen.strings[#seen.strings + 1] = value
         end
       end
+    elseif kind == "integer_enum" and not current.value then
+      seen.found["integer"] = true
     elseif kind == "userdata" and not current.value and #current.decl.names == 1 and
         THREADS[current.decl.name] == true then
       seen.unchecked = true

@@ -138,6 +138,18 @@ local CASES <const>: {Case} = {
     fix = "remove the second `x`: an enum is the set of its values",
   },
   {
+    code = "repeated_value",
+    source = "local enum E: integer\n  A = 0\n  A = 1\nend\n",
+    msg = "the member `A` is written twice in the integer enum `E`",
+    fix = "remove the second `A`, or give it a name of its own",
+  },
+  {
+    code = "repeated_value",
+    source = "local enum E: integer\n  A = 0\n  B = 0\nend\n",
+    msg = "the members `A` and `B` of the integer enum `E` are both 0",
+    fix = "give `B` an integer of its own",
+  },
+  {
     code = "type_arguments",
     source = "local record R<T>\n  f: T\nend\nlocal x: R\n",
     msg = "`R` takes 1 type argument, not 0",

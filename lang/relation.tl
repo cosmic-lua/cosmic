@@ -767,6 +767,8 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
     return leaf(j, why, "nominal", a, b)
   elseif b.tag == "string" and a.decl.kind == "enum" then
     return nil
+  elseif (b.tag == "integer" or b.tag == "number") and a.decl.kind == "integer_enum" then
+    return nil
   elseif (b.tag == "array") then
     local part = array_part_of(j, a)
     if part == nil then

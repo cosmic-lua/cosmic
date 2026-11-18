@@ -31,9 +31,9 @@
 ---
 --- **Union normal form.** [`Store.union`] flattens nested unions, drops `never`
 --- and duplicates, keeps `nil` as a flag beside the other members, and lets `any`
---- absorb the rest (`invalid` absorbs `any`). Three pairs collapse: `integer`
---- into `number`, an enum into `string`, and `true` with `false` into
---- `boolean`. A union of one member is that member, and a union of no member
+--- absorb the rest (`invalid` absorbs `any`). These collapse: `integer`
+--- into `number`, an enum into `string`, an integer enum into `integer` or
+--- `number`, and `true` with `false` into `boolean`. A union of one member is that member, and a union of no member
 --- and a nil flag is `nil`. The members are in the order of their [`Types.digest`],
 --- which depends on structure alone, so the order is the same in every store.
 --- No other subsumption is searched for.
@@ -89,6 +89,7 @@ local record Types
     "class"
     "interface"
     "enum"
+    "integer_enum"
     "userdata"
     "alias"
   end
@@ -550,7 +551,8 @@ local ATOMS <const>: {Atom_tag} = {
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
-  record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata", alias = "alias",
+  record = "record", class = "class", interface = "interface", enum = "enum", integer_enum = "integer_enum",
+  userdata = "userdata", alias = "alias",
 }
 
 --- The most a type may nest, in a store and in text being decoded, whose innermost type counts
@@ -1198,6 +1200,7 @@ local function union_of(store: Store, members: {Type}): Type
     g.members[#g.members + 1] = store.boolean
   end
   local has_number, has_string, has_boolean = seen[store.number.id], seen[store.string.id], seen[store.boolean.id]
+  local has_integer = seen[store.integer.id]
   local kept: mut {Type} = {}
   for _, m in ipairs(g.members) do
     local covered = false
@@ -1205,8 +1208,10 @@ local function union_of(store: Store, members: {Type}): Type
       covered = true
     elseif has_boolean == true and (m.id == yes.id or m.id == no.id) then
       covered = true
-    elseif has_string == true and (m.tag == "named") then
-      covered = m.decl.kind == "enum"
+    elseif has_string == true and (m.tag == "named") and m.decl.kind == "enum" then
+      covered = true
+    elseif (has_number == true or has_integer == true) and (m.tag == "named") then
+      covered = m.decl.kind == "integer_enum"
     end
     if not covered then
       kept[#kept + 1] = m
@@ -1667,7 +1672,7 @@ end
 --- `body` as the store keeps it: copied, with an omittable field typed `T?`. Raises where it does
 --- not suit `decl`, or lists `decl` itself.
 local function normal_body(store: Store, decl: Decl, body: Body): Body
-  local is_enum = decl.kind == "enum"
+  local is_enum = decl.kind == "enum" or decl.kind == "integer_enum"
   local is_alias = decl.kind == "alias"
   if is_enum and (#body.tparams > 0 or #body.supers > 0 or #body.fields > 0 or #body.methods > 0 or
       body.array ~= nil) then

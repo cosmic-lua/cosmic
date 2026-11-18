@@ -241,3 +241,13 @@ local function test_aliases_that_name_each_other_in_their_unions_end()
     alias = w.store:union({ use_a, w.store.string }) })
   same(spec(use_a), "integer|string")
 end
+
+local function test_an_integer_enum_is_an_integer_and_its_table_a_table()
+  local w = world()
+  local s = w.store
+  local decl = s:declare("integer_enum", "m", { "Code" }, 0)
+  s:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = { "OK" } })
+  same(spec(s:named(decl)), "integer")
+  same(spec(s:optional(s:named(decl))), "integer|nil")
+  same(spec(s:named(decl, {}, true)), "table")
+end

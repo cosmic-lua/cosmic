@@ -1193,3 +1193,29 @@ local function test_the_parts_of_a_type_are_the_types_its_text_holds()
   local f = s:fn({ params = { { type = s.integer } }, rest = s.string, rets = { { items = { s.boolean }, tail = s.number } } })
   assert(#Types.parts(f) == 4)
 end
+
+--- An integer enum of the store `s`, declared and defined with the members `names`.
+local function integer_enum(s: Types.Store, name: string, names: mut {string}): Types.Decl
+  local decl = s:declare("integer_enum", "m", { name }, 0)
+  s:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = names })
+  return decl
+end
+
+local function test_an_integer_enum_holds_its_member_names_collapses_into_integer_and_round_trips()
+  local s = Types.new()
+  local code = integer_enum(s, "Code", { "OK", "LOST" })
+  local t = s:named(code)
+  assert(s:union({ t, s.integer }) == s.integer, "an integer enum collapses into integer")
+  assert(s:union({ t, s.number }) == s.number, "an integer enum collapses into number")
+  assert(#a_union(s:union({ t, s.string })).members == 2, "an integer enum does not collapse into string")
+  local text = Types.encode_declaration(code)
+  same(text, '(decl integer_enum "m" "Code" (tparams) (supers) (fields) (elements) (methods) (values "OK" "LOST"))')
+  local second = Types.new(loading_from(s))
+  local there, why = second:decode_declaration(text)
+  assert(there ~= nil and there.kind == "integer_enum", why)
+  same(Types.encode_declaration(there), text)
+  assert(raises(function()
+    local bad = s:declare("integer_enum", "m", { "Bad" }, 0)
+    s:define(bad, { tparams = {}, supers = {}, fields = { { name = "f", type = s.integer } }, methods = {}, values = {} })
+  end, "an enum holds values and nothing else"))
+end
