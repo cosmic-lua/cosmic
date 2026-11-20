@@ -139,7 +139,8 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
   local lines = 0
   for _ in all:gmatch("\n") do lines = lines + 1 end
-  -- A line a verb, and the headings, guides and pointers around them.
+  -- A line a verb, and about 30 more: the guides, a heading and a blank
+  -- line a group, and the closing pointers.
   assert(lines <= #Cli.order + 32, tostring(lines) .. " lines:\n" .. all)
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]

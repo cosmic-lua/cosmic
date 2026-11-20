@@ -70,6 +70,11 @@ local function test_the_options_reach_the_drawing()
   assert(written.code == 0 and written.out == "" and written.written["code.svg"] == Qr.svg(code) .. "\n")
 end
 
+local function test_a_text_that_starts_with_a_dash_follows_two_dashes()
+  local ran = run({ "--", "-x" })
+  assert(ran.code == 0 and ran.out == Qr.text((assert(Qr.encode("-x")))), ran.err)
+end
+
 local function test_a_text_too_large_is_exit_1()
   local ran = run({ "--max-version", "1", string.rep("a", 15) })
   assert(ran.code == 1 and ran.out == "", ran.out)

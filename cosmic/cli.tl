@@ -572,7 +572,8 @@ local record Cli
   --- `cosmic qr https://example.com/` prints a code,
   --- `echo https://example.com/ | cosmic qr --invert` one for a light
   --- terminal, and `cosmic qr --svg code.svg --level H https://example.com/`
-  --- writes an image. A program draws its own with [`cosmic.qr`].
+  --- writes an image. A text that starts with `-` follows `--`
+  --- (`cosmic qr -- -x`). A program draws its own with [`cosmic.qr`].
   --- Its standard output is the code, and it prints no summary. Exits 0
   --- when it printed or wrote, 1 when the text is too large for a code
   --- of the allowed versions at the level, 2 for a command line or an

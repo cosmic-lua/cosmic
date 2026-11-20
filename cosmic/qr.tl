@@ -544,13 +544,6 @@ function Qr.dark(code: Qr.Code, x: integer, y: integer): boolean
   return code.modules[y * code.size + x] == true
 end
 
---- The modules a side of `code` with a quiet zone of `quiet` modules
---- around it (default 4): the side of what [`Qr.svg`] draws, and of
---- what [`Qr.text`] draws in characters.
-function Qr.size(code: Qr.Code, quiet?: integer): integer
-  return code.size + 2 * (quiet or 4)
-end
-
 --- `value`, which must be an integer from `lo` to `hi`, or `default`
 --- where nil; a caller's mistake raises.
 local function bounded(value: integer?, default: integer, lo: integer, hi: integer, what: string): integer
@@ -559,6 +552,14 @@ local function bounded(value: integer?, default: integer, lo: integer, hi: integ
     error(("qr: %s is %d to %d, not %s"):format(what, lo, hi, tostring(value)), 3)
   end
   return value
+end
+
+--- The modules a side of `code` with a quiet zone of `quiet` modules
+--- around it (default 4; 0 to 16, or it raises): the side of what
+--- [`Qr.svg`] and [`Qr.text`] draw, in modules. [`Qr.text`] draws a module
+--- a character wide, or two with `ascii`.
+function Qr.size(code: Qr.Code, quiet?: integer): integer
+  return code.size + 2 * bounded(quiet, 4, 0, 16, "a quiet zone")
 end
 
 -- The half blocks by what each half of a cell shows: ink above, ink below.

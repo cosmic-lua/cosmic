@@ -184,8 +184,8 @@ local function test_options_that_are_the_callers_mistake_raise()
 end
 
 --- The codes the drawings are held to: versions 1, 2, 7 (the first with
---- version information), 10, 27 and 40, each a different side and, with
---- an even or odd quiet zone, an odd or even count of rows.
+--- version information), 10, 27 and 40. Every side drawn is odd, so the
+--- half blocks' last line always holds a row alone.
 local function codes(): {Qr.Code}
   local found: mut {Qr.Code} = {}
   for _, n in ipairs({ 14, 20, 122, 213, 1125, 2331 }) do
@@ -237,7 +237,7 @@ local function reads_back(code: Qr.Code, text: string, quiet: integer, invert: b
   local side = Qr.size(code, quiet)
   local name = ("version %d, quiet %d, invert %s, ascii %s"):format(code.version, quiet, invert, ascii)
   local ink, rows = inked(text, side, ascii)
-  assert(rows == (if ascii then side else side + side % 2 end), ("%s: %d rows"):format(name, rows))
+  assert(side % 2 == 1 and rows == (if ascii then side else side + 1 end), ("%s: %d rows"):format(name, rows))
   for y = 0, side - 1 do
     for x = 0, side - 1 do
       local want = Qr.dark(code, x - quiet, y - quiet) == invert
@@ -284,6 +284,7 @@ local function test_a_quiet_zone_or_scale_out_of_range_raises()
     function(): string return Qr.svg(code, { quiet = -1 }) end,
     function(): string return Qr.svg(code, { scale = 0 }) end,
     function(): string return Qr.svg(code, { scale = 1001 }) end,
+    function(): string return tostring(Qr.size(code, -1)) end,
   }
   for i, call in ipairs(bad) do
     local ok, err = pcall(call)

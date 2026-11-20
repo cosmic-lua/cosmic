@@ -39,10 +39,10 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.qr.spec or {} -- checked: literal_needs_type, map_field
+local spec = assert(assert(Cli.verbs["qr"]).spec)
 
 local usage = "cosmic qr [--level L|M|Q|H] [--max-version N] [--quiet N] [--invert] [--ascii] " ..
-  "[--svg <file|-> [--scale N] [--title T]] [text...]"
+  "[--svg <file|-> [--scale N] [--title T]] [--] [text...]"
 
 local LEVELS <const>: {string: Qr.Level} = { L = "L", M = "M", Q = "Q", H = "H" }
 
