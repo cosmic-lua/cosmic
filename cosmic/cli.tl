@@ -551,6 +551,33 @@ local record Cli
   --- 1 when the entropy source failed, 2 for a command line, a file or a
   --- request it refuses, or a failed write to standard output
   rand: string
+  --- `cosmic qr [options] [text...]`: the QR code of a text, to show an
+  --- address to a phone with nothing installed. The text is the words,
+  --- joined by spaces, or, with none, standard input less one newline at
+  --- its end. It prints the code for the terminal in half blocks (`▀`,
+  --- `▄`, `█`), two rows of modules a line, with the standard's quiet
+  --- zone of four modules (`--quiet N`, 0 to 16). As it is, the blocks
+  --- show the light modules, for light text on a dark ground, the common
+  --- terminal; `--invert` draws the dark modules instead, for a light
+  --- ground or paper. A reader needs dark modules on light, so if a phone
+  --- does not take it, try the other. `--ascii` draws each module as `##`
+  --- or two spaces, a line a row, for a font with no block characters.
+  --- `--svg <file|->` writes an SVG image to the file, or prints it,
+  --- 8 pixels a module (`--scale N`, 1 to 1000) with a `viewBox`, so it
+  --- shows at a size and scales without blurring; `--title T` names what it
+  --- shows for a screen reader. `--level L|M|Q|H` is the error correction
+  --- (default M: 15% of the code can be lost), and `--max-version N`
+  --- refuses a text that needs a code of more than N (1 to 40, default
+  --- 40) to keep it small enough to scan. Examples:
+  --- `cosmic qr https://example.com/` prints a code,
+  --- `echo https://example.com/ | cosmic qr --invert` one for a light
+  --- terminal, and `cosmic qr --svg code.svg --level H https://example.com/`
+  --- writes an image. A program draws its own with [`cosmic.qr`].
+  --- Its standard output is the code, and it prints no summary. Exits 0
+  --- when it printed or wrote, 1 when the text is too large for a code
+  --- of the allowed versions at the level, 2 for a command line or an
+  --- input it refuses, or a failed write
+  qr: string
   --- `cosmic time <now|convert|between|add> ...`: the clock and calendar
   --- the same on every host, where GNU and BSD `date` differ. Zones are
   --- the IANA names of the tz database the binary carries. `now` prints
@@ -936,7 +963,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", qr = "qr", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", release = "release", sandbox = "sandbox", help = "help",
   },
   verbs = {
@@ -1168,6 +1195,20 @@ local module: Module = {
         ["--scale"] = { value = "t", about = "gamma: the scale, above 0 (default 1)" },
       },
     },
+    qr = {
+      about = "a QR code of a text, for the terminal or as an SVG",
+      usage = "[options] [text...]",
+      spec = {
+        ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
+        ["--max-version"] = { value = "n", about = "the largest code, 1 to 40 (default 40)" },
+        ["--quiet"] = { value = "n", about = "the light border in modules, 0 to 16 (default 4)" },
+        ["--invert"] = { about = "draw the dark modules, for a light terminal or paper" },
+        ["--ascii"] = { about = "draw with `##` and spaces, not block characters" },
+        ["--svg"] = { value = "file|-", about = "write an SVG image to the file, or print it" },
+        ["--scale"] = { value = "n", about = "svg: pixels a module, 1 to 1000 (default 8)" },
+        ["--title"] = { value = "text", about = "svg: what it shows, for a screen reader" },
+      },
+    },
     docs = {
       about = "a symbol's or module's docs, or a search",
       usage = "[words...]",
@@ -1268,11 +1309,11 @@ local module: Module = {
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db", "lsp", "migrate" },
-    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
+    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh", "release" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "compile", "docs", "uses", "todos",
     "bom", "refresh", "release", "sandbox", "help" },
 }
 

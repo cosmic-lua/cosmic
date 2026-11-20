@@ -1,9 +1,12 @@
---- QR codes (ISO/IEC 18004 Model 2) for text: [`Qr.encode`] makes one and
---- [`Qr.svg`] draws it.
+--- QR codes (ISO/IEC 18004 Model 2) for text: [`Qr.encode`] makes one,
+--- [`Qr.text`] draws it for a terminal and [`Qr.svg`] draws it as an image.
 ---
 ---     local code = assert(Qr.encode("https://example.com/"))
 ---     print(code.version, code.size)  -- 2  25
----     print(Qr.svg(code))             -- <svg ...>
+---     print(Qr.text(code))            -- half blocks, for a dark terminal
+---     print(Qr.svg(code))             -- <svg ... width="264" ...>
+---
+--- `cosmic qr <text>` does the same from a shell (`cosmic help qr`).
 ---
 --- What it makes: versions 1 to 40 (21 to 177 modules a side), the
 --- smallest that holds the text; any of the four error correction
@@ -18,8 +21,13 @@
 ---
 --- The most a code holds is 2953 bytes at level L, 2331 at M, 1663 at Q
 --- and 1273 at H (version 40). More than that, or more than a version a
---- caller allows, is refused with nil and why. A mask outside 0 to 7 or
---- a version outside 1 to 40 is the caller's mistake, and raises.
+--- caller allows, is refused with nil and why. A mask outside 0 to 7, a
+--- version outside 1 to 40 or a quiet zone or scale out of range is the
+--- caller's mistake, and raises.
+---
+--- A reader needs dark modules on a light ground, with a light quiet
+--- zone around the code: four modules wide by the standard, and many
+--- readers take less.
 ---
 --- It makes the same code, module for module, as Project Nayuki's QR
 --- Code generator, whose algorithm it follows, given the text as one
@@ -50,12 +58,50 @@ local record Qr
     max_version?: integer
   end
 
+  --- What [`Qr.text`] may be told.
+  record TextOptions
+    --- The light border around the code, in modules (default 4, the
+    --- standard's; 0 to 16).
+    quiet?: integer
+    --- Draw the dark modules with the characters, in place of the light
+    --- ones and the quiet zone. Leave it off for a terminal of light text
+    --- on a dark ground, the common case: the characters then show the
+    --- light modules, and the terminal's ground shows the dark ones. Set
+    --- it for a terminal of dark text on a light ground, and for paper.
+    invert?: boolean
+    --- ASCII alone, for a terminal or a font without block characters:
+    --- each module is two characters, `##` or two spaces, and each row a
+    --- line, so the code is twice as tall in lines.
+    ascii?: boolean
+  end
+
+  --- What [`Qr.svg`] may be told. The image is deterministic: the same
+  --- code and options give the same bytes.
+  record SvgOptions
+    --- The light border around the code, in modules (default 4, the
+    --- standard's; 0 to 16).
+    quiet?: integer
+    --- The pixels a module takes in the image's `width` and `height`
+    --- (default 8; 1 to 1000). The image scales without blurring either
+    --- way: its `viewBox` is a unit a module.
+    scale?: integer
+    --- The SVG paint of the dark modules (default `"#000"`).
+    dark?: string
+    --- The SVG paint of the ground (default `"#fff"`); `"none"` leaves
+    --- the ground out, transparent. A reader still needs it light.
+    light?: string
+    --- What the image shows, for a screen reader: an SVG `<title>`
+    --- and `aria-label`. None when nil.
+    title?: string
+  end
+
   --- A QR code: `size` modules a side, with no quiet zone. [`Qr.dark`]
   --- says which are dark.
   record Code
     --- 1 to 40; `size` is `version * 4 + 17`.
     version: integer
-    --- The modules a side.
+    --- The modules a side, without the quiet zone: what to size a
+    --- drawing by. [`Qr.size`] adds a quiet zone.
     size: integer
     --- The error correction level it was drawn at.
     level: Qr.Level
@@ -498,30 +544,107 @@ function Qr.dark(code: Qr.Code, x: integer, y: integer): boolean
   return code.modules[y * code.size + x] == true
 end
 
+--- The modules a side of `code` with a quiet zone of `quiet` modules
+--- around it (default 4): the side of what [`Qr.svg`] draws, and of
+--- what [`Qr.text`] draws in characters.
+function Qr.size(code: Qr.Code, quiet?: integer): integer
+  return code.size + 2 * (quiet or 4)
+end
+
+--- `value`, which must be an integer from `lo` to `hi`, or `default`
+--- where nil; a caller's mistake raises.
+local function bounded(value: integer?, default: integer, lo: integer, hi: integer, what: string): integer
+  if value == nil then return default end
+  if math.type(value) ~= "integer" or value < lo or value > hi then
+    error(("qr: %s is %d to %d, not %s"):format(what, lo, hi, tostring(value)), 3)
+  end
+  return value
+end
+
+-- The half blocks by what each half of a cell shows: ink above, ink below.
+local HALVES <const>: {string} = { " ", "\u{2584}", "\u{2580}", "\u{2588}" }
+
+--- `code` as text for a terminal, each line ended by a newline. Each
+--- character holds two rows of modules, with the half blocks `▀`, `▄`
+--- and `█` and a space, so the code is about square in most fonts; a
+--- last row alone has nothing below it. The quiet zone is drawn too.
+--- Without `invert`, the characters show the light modules, for a dark
+--- terminal ([`Qr.TextOptions`] says which to choose).
+function Qr.text(code: Qr.Code, options?: Qr.TextOptions): string
+  local quiet = bounded(options and options.quiet, 4, 0, 16, "a quiet zone")
+  local invert = options ~= nil and options.invert == true
+  local side = Qr.size(code, quiet)
+  -- Whether a module of the drawing, quiet zone and all, takes ink.
+  local function ink(x: integer, y: integer): boolean
+    if y >= side then return false end
+    return Qr.dark(code, x - quiet, y - quiet) == invert
+  end
+  local lines: mut {string} = {}
+  if options ~= nil and options.ascii == true then
+    for y = 0, side - 1 do
+      local line: mut {string} = {}
+      for x = 0, side - 1 do line[#line + 1] = if ink(x, y) then "##" else "  " end end
+      lines[#lines + 1] = table.concat(line) .. "\n"
+    end
+  else
+    for y = 0, side - 1, 2 do
+      local line: mut {string} = {}
+      for x = 0, side - 1 do
+        line[#line + 1] = HALVES[(if ink(x, y) then 2 else 0 end) + (if ink(x, y + 1) then 1 else 0 end) + 1] or " "
+      end
+      lines[#lines + 1] = table.concat(line) .. "\n"
+    end
+  end
+  return table.concat(lines)
+end
+
 local ESCAPES <const>: {string: string} = { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&quot;" }
 
 local function attribute(value: string): string
   return (value:gsub('[&<>"]', ESCAPES))
 end
 
---- `code` as an SVG image, a module a unit, with the four modules of
---- light border the standard asks for. The dark modules are filled
---- with `colour` (`"#000"` where nil) on `background` (`"#fff"`), each
---- an SVG paint, escaped for the attribute it goes in.
-function Qr.svg(code: Qr.Code, colour?: string, background?: string): string
-  local border = 4
-  local side = code.size + border * 2
+--- `code` as an SVG image with its quiet zone, `width` and `height` in
+--- pixels and a `viewBox` of a unit a module, so it shows at a size a
+--- reader can take and scales without blurring. The dark modules are one
+--- path, a rectangle for each run of them in a row, drawn with crisp
+--- edges. Each paint and the title are escaped for where they go.
+function Qr.svg(code: Qr.Code, options?: Qr.SvgOptions): string
+  local quiet = bounded(options and options.quiet, 4, 0, 16, "a quiet zone")
+  local scale = bounded(options and options.scale, 8, 1, 1000, "a scale")
+  local dark = options and options.dark or "#000"
+  local light = options and options.light or "#fff"
+  local title = options and options.title
+  local side = Qr.size(code, quiet)
   local path: mut {string} = {}
   for y = 0, code.size - 1 do
-    for x = 0, code.size - 1 do
+    local x = 0
+    while x < code.size do
       if Qr.dark(code, x, y) then
-        path[#path + 1] = ("M%d,%dh1v1h-1z"):format(x + border, y + border)
+        local run = 1
+        while Qr.dark(code, x + run, y) do run = run + 1 end
+        path[#path + 1] = ("M%d,%dh%dv1h-%dz"):format(x + quiet, y + quiet, run, run)
+        x = x + run
+      else
+        x = x + 1
       end
     end
   end
-  return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" shape-rendering="crispEdges">' ..
-    '<rect width="100%%" height="100%%" fill="%s"/><path d="%s" fill="%s"/></svg>'):format(side, side,
-      attribute(background or "#fff"), table.concat(path), attribute(colour or "#000"))
+  local parts: mut {string} = {
+    ('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" ' ..
+      'shape-rendering="crispEdges"'):format(side * scale, side * scale, side, side),
+  }
+  if title ~= nil then
+    parts[#parts + 1] = (' role="img" aria-label="%s"><title>%s</title>'):format(attribute(title), attribute(title))
+  else
+    parts[#parts + 1] = ">"
+  end
+  if light ~= "none" then
+    parts[#parts + 1] = ('<rect width="100%%" height="100%%" fill="%s"/>'):format(attribute(light))
+  end
+  parts[#parts + 1] = ('<path d="%s" fill="%s"/>'):format(table.concat(path), attribute(dark))
+  parts[#parts + 1] = "</svg>"
+  return table.concat(parts)
 end
 
 return Qr
