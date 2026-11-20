@@ -8,9 +8,10 @@ local Fixture = require("build.qr_fixture")
 local Qr = require("cosmic.qr")
 local Test = require("cosmic.test")
 
-Test.policy{ grants = { { path = "testdata/qr/vectors.txt", letters = "r" } } }
+Test.policy{ grants = { { path = "testdata/qr/vectors.txt", letters = "r" },
+  { path = "testdata/qr/segments.txt", letters = "r" } } }
 
---- A case of testdata/qr/vectors.txt.
+--- A case of testdata/qr/vectors.txt or segments.txt.
 local record Vector
   text: string
   level: Qr.Level
@@ -41,10 +42,10 @@ local function vector(lines: {string}): Vector
   }
 end
 
-local function vectors(): {Vector}
+local function vectors(path?: string): {Vector}
   local found: mut {Vector} = {}
   local lines: mut {string} = {}
-  local text = assert(Fs.read("testdata/qr/vectors.txt"))
+  local text = assert(Fs.read(path or "testdata/qr/vectors.txt"))
   for line in (text .. "\n"):gmatch("([^\n]*)\n") do
     if line == "" then
       if #lines > 0 then found[#found + 1] = vector(lines) end
@@ -351,4 +352,169 @@ local function test_the_svg_path_covers_each_dark_module_once_in_runs_of_a_row()
       assert(runs == want_runs, ("%d runs of %d"):format(runs, want_runs))
     end
   end
+end
+
+--- `v`'s modules as the rows [`Qr.decode`] reads, with a quiet zone of 2.
+local function vector_rows(v: Vector): {{boolean}}
+  local rows: mut {{boolean}} = {}
+  local blank: mut {boolean} = {}
+  for _ = 1, #v.rows + 4 do blank[#blank + 1] = false end
+  rows[#rows + 1] = blank
+  rows[#rows + 1] = blank
+  for _, hex in ipairs(v.rows) do
+    local cells: mut {boolean} = { false, false }
+    for x = 0, #v.rows - 1 do
+      local digit = assert(math.tointeger(tonumber(hex:sub(x // 4 + 1, x // 4 + 1), 16)))
+      cells[#cells + 1] = (digit >> (3 - x % 4)) & 1 == 1
+    end
+    cells[#cells + 1] = false
+    cells[#cells + 1] = false
+    rows[#rows + 1] = cells
+  end
+  rows[#rows + 1] = blank
+  rows[#rows + 1] = blank
+  return rows
+end
+
+local function reads_as(v: Vector, name: string)
+  local read, why = Qr.decode(vector_rows(v))
+  assert(read ~= nil, ("%s: %s"):format(name, why))
+  assert(read.text == v.text, name)
+  assert(read.code.version == v.version and read.code.level == v.level and read.code.mask == v.drawn, name)
+  assert(read.corrected == 0, name)
+end
+
+local function test_decode_reads_the_reference_encoders_byte_codes()
+  for _, v in ipairs(vectors()) do
+    reads_as(v, ("%d bytes at %s, mask %d"):format(#v.text, v.level, v.mask))
+  end
+end
+
+local function test_decode_reads_numeric_alphanumeric_mixed_and_eci_segments()
+  local cases = vectors("testdata/qr/segments.txt")
+  assert(#cases == 13, #cases)
+  for _, v in ipairs(cases) do reads_as(v, v.text:sub(1, 30)) end
+end
+
+--- A copy of `rows` with the modules `flip` names (`x, y` from 1) flipped.
+local function damaged(rows: {{boolean}}, flip: function(x: integer, y: integer): boolean): {{boolean}}
+  local copy: mut {{boolean}} = {}
+  for y, cells in ipairs(rows) do
+    local r: mut {boolean} = {}
+    for x, v in ipairs(cells) do r[#r + 1] = v ~= flip(x, y) end
+    copy[#copy + 1] = r
+  end
+  return copy
+end
+
+local function test_every_drawing_reads_back_at_each_level_and_mask()
+  for _, level in ipairs({ "L", "M", "Q", "H" }) do
+    assert(level is Qr.Level)
+    for mask = 0, 7 do
+      local text = ("level %s, mask %d: https://example.com/?q=%d"):format(level, mask, mask)
+      local code = assert(Qr.encode(text, { level = level, mask = mask }))
+      local function holds(how: string, read: Qr.Decoded?, why: string)
+        assert(read ~= nil, ("%s%d %s: %s"):format(level, mask, how, why))
+        assert(read.text == text and read.code.level == level and read.code.mask == mask, how)
+      end
+      for _, quiet in ipairs({ 4, 1, 0 }) do
+        holds("rows", Qr.decode(Qr.rows(code, quiet)))
+        holds("svg", Qr.read(Qr.svg(code, { quiet = quiet })))
+        for _, invert in ipairs({ false, true }) do
+          for _, ascii in ipairs({ false, true }) do
+            holds(("text, quiet %d, invert %s, ascii %s"):format(quiet, invert, ascii),
+              Qr.read(Qr.text(code, { quiet = quiet, invert = invert, ascii = ascii })))
+          end
+        end
+      end
+      -- A grid of light on dark reads too.
+      holds("light on dark", Qr.decode(damaged(Qr.rows(code), function(_: integer, _: integer): boolean
+        return true
+      end)))
+    end
+  end
+end
+
+local function test_every_drawing_reads_back_at_large_versions()
+  for _, code in ipairs(codes()) do
+    local text = string.rep("q", #assert(Qr.decode(Qr.rows(code))).text)
+    assert(assert(Qr.read(Qr.text(code))).text == text, code.version)
+    assert(assert(Qr.read(Qr.text(code, { invert = true, quiet = 0 }))).text == text, code.version)
+    assert(assert(Qr.read(Qr.svg(code))).text == text, code.version)
+  end
+end
+
+local function test_text_a_terminal_mangled_still_reads()
+  local code = assert(Qr.encode("https://example.com/"))
+  -- Spaces dropped at the ends of lines, CRLF, and blank lines around it.
+  local drawn = Qr.text(code, { invert = true })
+  local mangled = "\n\n" .. drawn:gsub(" +\n", "\n"):gsub("\n", "\r\n") .. "\n  \n"
+  assert(assert(Qr.read(mangled)).text == "https://example.com/")
+end
+
+local function test_damage_within_the_level_is_mended_and_past_it_refused()
+  local code = assert(Qr.encode("damaged", { level = "H" }))
+  local rows = Qr.rows(code, 0)
+  -- Version 1 at H: 17 error correction codewords mend 8. A 7 by 7 square
+  -- at 10 spoils 8 codewords, and a 9 by 9 square more.
+  local function square(n: integer): function(x: integer, y: integer): boolean
+    return function(x: integer, y: integer): boolean
+      return x >= 10 and x < 10 + n and y >= 10 and y < 10 + n
+    end
+  end
+  local mended = assert(Qr.decode(damaged(rows, square(7))))
+  assert(mended.text == "damaged" and mended.corrected == 8, mended.corrected)
+  local none, why = Qr.decode(damaged(rows, square(9)))
+  assert(none == nil and why == "qr: block 1 of the version 1 code at level H has more errors than it can mend", why)
+  -- The format information beside the top left finder lost to light.
+  local function first_copy(x: integer, y: integer): boolean
+    return ((y == 9 and x <= 9 and x ~= 7) or (x == 9 and y <= 8 and y ~= 7)) and assert(rows[y])[x] == true
+  end
+  local lost = assert(Qr.decode(damaged(rows, first_copy)))
+  assert(lost.text == "damaged" and lost.code.mask == code.mask and lost.code.level == "H")
+  -- Three bits of each copy wrong.
+  local three = assert(Qr.decode(damaged(rows, function(x: integer, y: integer): boolean
+    return (x == 9 and y <= 3) or (y == 9 and x >= 19 and x <= 21)
+  end)))
+  assert(three.text == "damaged" and three.code.mask == code.mask and three.code.level == "H")
+  -- Versions whose blocks differ in length: a few modules spoiled in each.
+  local mixed: {{integer | string}} = { { 80, "Q" }, { 300, "H" }, { 1000, "M" } }
+  for _, case in ipairs(mixed) do
+    local n, level = case[1], case[2]
+    assert(n is integer and level is Qr.Level)
+    local text = string.rep("m", n)
+    local big = assert(Qr.encode(text, { level = level }))
+    local spoiled = assert(Qr.decode(damaged(Qr.rows(big, 0), function(x: integer, y: integer): boolean
+      return (x * 7 + y * 13) % 97 == 0 and x > 9 and y > 9
+    end)))
+    assert(spoiled.text == text and spoiled.corrected > 0, ("version %d"):format(big.version))
+  end
+end
+
+local function test_what_is_no_code_is_refused_with_why()
+  local code = assert(Qr.encode("x"))
+  local cases: {{string}} = {
+    { "", "qr: the text draws nothing" },
+    { "hello\n", 'qr: line 1 holds "he", where a module is ## or two spaces' },
+    { "\u{2588}x\n", "qr: line 1 holds U+0078, which no code draws" },
+    { '<svg viewBox="0 0 10 12"></svg>', "qr: the SVG has no square viewBox of a module a unit" },
+    { '<svg viewBox="0 0 29 29"><path d="M0,0h3v1h-3zL1,1"/></svg>', "qr: the SVG's path is not the runs of modules Qr.svg draws" },
+    { '<svg viewBox="0 0 29 29"><path d="M27,0h3v1h-3z"/></svg>', "qr: the SVG's path holds M27,0h3v1h-3z, which is no run of modules inside it" },
+    { "  \n  \n", "qr: the text draws nothing" },
+    { "  ##\n####\n", "qr: a code is 21 to 177 modules a side, 4 apart, not 2" },
+  }
+  for _, case in ipairs(cases) do
+    local read, why = Qr.read(case[1] or "")
+    assert(read == nil and why == case[2], why)
+  end
+  local none, why = Qr.decode({ { false, false }, { false, false } })
+  assert(none == nil and why == "qr: no module is dark", why)
+  local wide, wide_why = Qr.decode({ { true, true, true } })
+  assert(wide == nil and wide_why == "qr: the dark modules span 3 by 1, not a square", wide_why)
+  -- The format information blanked in both copies leaves no level to read by.
+  local blank, blank_why = Qr.decode(damaged(Qr.rows(code, 0), function(x: integer, y: integer): boolean
+    return ((y == 9 and (x <= 9 or x >= 14)) or (x == 9 and (y <= 9 or y >= 15))) and
+      assert(Qr.rows(code, 0)[y])[x] == true
+  end))
+  assert(blank == nil and blank_why == "qr: the format information is unreadable", blank_why)
 end

@@ -573,11 +573,17 @@ local record Cli
   --- `echo https://example.com/ | cosmic qr --invert` one for a light
   --- terminal, and `cosmic qr --svg code.svg --level H https://example.com/`
   --- writes an image. A text that starts with `-` follows `--`
-  --- (`cosmic qr -- -x`). A program draws its own with [`cosmic.qr`].
-  --- Its standard output is the code, and it prints no summary. Exits 0
-  --- when it printed or wrote, 1 when the text is too large for a code
-  --- of the allowed versions at the level, 2 for a command line or an
-  --- input it refuses, or a failed write
+  --- (`cosmic qr -- -x`). `--read [file|-]` reads a code back: the text
+  --- or SVG that `cosmic qr` drew, either way round and with any quiet
+  --- zone, from the file or standard input, mending what its level
+  --- allows, and prints what it holds and a newline (`cosmic qr hello |
+  --- cosmic qr --read` prints `hello`). It reads those drawings, not
+  --- photos or other programs' images. A program draws and reads its own
+  --- with [`cosmic.qr`]. Its standard output is the code, or the text
+  --- read, and it prints no summary. Exits 0 when it printed or wrote, 1
+  --- when the text is too large for a code of the allowed versions at the
+  --- level or a drawing holds no code it can read, 2 for a command line
+  --- or an input it refuses, or a failed write
   qr: string
   --- `cosmic time <now|convert|between|add> ...`: the clock and calendar
   --- the same on every host, where GNU and BSD `date` differ. Zones are
@@ -1197,7 +1203,7 @@ local module: Module = {
       },
     },
     qr = {
-      about = "a QR code of a text, for the terminal or as an SVG",
+      about = "a QR code of a text, for the terminal or as an SVG, or read one back",
       usage = "[options] [text...]",
       spec = {
         ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
@@ -1208,6 +1214,7 @@ local module: Module = {
         ["--svg"] = { value = "file|-", about = "write an SVG image to the file, or print it" },
         ["--scale"] = { value = "n", about = "svg: pixels a module, 1 to 1000 (default 8)" },
         ["--title"] = { value = "text", about = "svg: what it shows, for a screen reader" },
+        ["--read"] = { about = "read back a code `cosmic qr` drew, from a file or standard input" },
       },
     },
     docs = {
