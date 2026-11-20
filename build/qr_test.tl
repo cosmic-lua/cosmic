@@ -33,6 +33,11 @@ local function run(words: {string}, stdin?: string, write_fails?: boolean): Ran
       written[path] = data
       return true, ""
     end,
+    read = function(path: string): string?, string
+      local data = written[path]
+      if data == nil then return nil, path .. ": no such file" end
+      return data, ""
+    end,
   })
   return ran
 end
@@ -100,4 +105,36 @@ end
 local function test_a_write_that_fails_is_exit_2()
   local ran = run({ "--svg", "code.svg", "x" }, nil, true)
   assert(ran.code == 2 and ran.err == "cosmic: qr: code.svg: no room\n", ran.err)
+end
+
+local function test_read_prints_the_text_of_each_drawing()
+  local text = "https://example.com/ ✓"
+  local drawings: {{string}} = { { "--invert" }, { "--ascii", "--quiet", "0" }, {} }
+  for _, words in ipairs(drawings) do
+    local argv: mut {string} = {}
+    for _, word in ipairs(words) do argv[#argv + 1] = word end
+    argv[#argv + 1] = text
+    local drawn = run(argv)
+    local read = run({ "--read" }, drawn.out)
+    assert(read.code == 0 and read.out == text .. "\n" and read.err == "", read.err)
+    local dashed = run({ "--read", "-" }, drawn.out)
+    assert(dashed.code == 0 and dashed.out == text .. "\n", dashed.err)
+  end
+  local svg = run({ "--svg", "-", "--level", "H", text })
+  local from_svg = run({ "--read" }, svg.out)
+  assert(from_svg.code == 0 and from_svg.out == text .. "\n", from_svg.err)
+end
+
+local function test_read_refuses_options_and_what_is_no_code()
+  local refused: {{string}} = { { "--read", "--invert" }, { "--read", "--svg", "-" }, { "--read", "a", "b" },
+    { "--read", "" }, { "--read", "--level", "H" } }
+  for _, words in ipairs(refused) do
+    local ran = run(words, "")
+    assert(ran.code == 2 and ran.out == "" and ran.err:find("^cosmic: qr: ") ~= nil, table.concat(words, " "))
+  end
+  local missing = run({ "--read", "nosuch.svg" })
+  assert(missing.code == 2 and missing.err == "cosmic: qr: nosuch.svg: no such file\n", missing.err)
+  local none = run({ "--read" }, "not a code\n")
+  assert(none.code == 1 and none.out == "", none.out)
+  assert(none.err == 'cosmic: qr: line 1 holds "no", where a module is ## or two spaces\n', none.err)
 end

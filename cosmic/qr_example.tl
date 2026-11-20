@@ -62,4 +62,37 @@ function Example.svg()
   assert(svg:find("<rect", 1, true) == nil and svg:find("<title>example.com</title>", 1, true) ~= nil)
 end
 
+--- Read back a code a terminal or a page shows: text [`Qr.text`] drew,
+--- either way round, with or without its quiet zone, or an SVG [`Qr.svg`]
+--- drew. A photo is no drawing: read it with a camera's own reader.
+function Example.read()
+  local code = assert(Qr.encode("https://example.com/"))
+  local read = assert(Qr.read(Qr.text(code, { invert = true, quiet = 1 })))
+  print(read.text, read.code.version, read.code.level)
+  assert(read.text == "https://example.com/" and read.corrected == 0)
+  assert(assert(Qr.read(Qr.svg(code))).text == "https://example.com/")
+
+  local none, why = Qr.read("not a code\n")
+  print(none, why)
+  assert(none == nil and why ~= "")
+end
+
+--- Modules as rows of booleans, true where dark: [`Qr.rows`] gives them,
+--- and [`Qr.decode`] reads them, mending what the level allows. Here a
+--- square of modules is spoiled, and level H's error correction mends it.
+function Example.decode()
+  local code = assert(Qr.encode("mended", { level = "H" }))
+  local rows: mut {{boolean}} = {}
+  for y, row in ipairs(Qr.rows(code, 0)) do
+    local spoiled: mut {boolean} = {}
+    for x, dark in ipairs(row) do
+      spoiled[#spoiled + 1] = dark ~= (x >= 10 and x < 15 and y >= 10 and y < 15)
+    end
+    rows[#rows + 1] = spoiled
+  end
+  local read = assert(Qr.decode(rows))
+  print(read.text, read.corrected)
+  assert(read.text == "mended" and read.corrected > 0)
+end
+
 return Example

@@ -107,8 +107,9 @@ terminal, and `echo https://example.com/ | cosmic qr` reads the text from
 standard input. The blocks show the light modules, for a dark terminal;
 `--invert` suits a light one, and `--ascii` a font with no block
 characters. `cosmic qr --svg code.svg https://example.com/` writes an image
-instead (`--svg -` prints it). `cosmic help qr` has the rest. A program
-draws its own with [`Qr.text`] and [`Qr.svg`].
+instead (`--svg -` prints it), and `cosmic qr --read code.svg` reads either
+drawing back. `cosmic help qr` has the rest. A program draws its own with
+[`Qr.text`] and [`Qr.svg`], and reads one with [`Qr.read`].
 
 ## questions about a data file
 
@@ -449,6 +450,7 @@ A function declared `: number` may still
 [`Json.set`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Qr.read`]: ../../cosmic/qr.tl
 [`Qr.svg`]: ../../cosmic/qr.tl
 [`Qr.text`]: ../../cosmic/qr.tl
 [`Rand.uuid`]: ../../cosmic/rand.tl
