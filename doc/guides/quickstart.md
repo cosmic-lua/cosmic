@@ -100,6 +100,16 @@ unless you name `--seed` to replay `int`, `pick`, `shuffle`, `normal` or
 `gamma`, which is not secret. `cosmic help
 rand` has the rest. A program draws a UUID of its own with [`Rand.uuid`].
 
+## a QR code of an address
+
+`cosmic qr https://example.com/` prints a code a phone can scan from the
+terminal, and `echo https://example.com/ | cosmic qr` reads the text from
+standard input. The blocks show the light modules, for a dark terminal;
+`--invert` suits a light one, and `--ascii` a font with no block
+characters. `cosmic qr --svg code.svg https://example.com/` writes an image
+instead (`--svg -` prints it). `cosmic help qr` has the rest. A program
+draws its own with [`Qr.text`] and [`Qr.svg`].
+
 ## questions about a data file
 
 A question about a data file -- what is in it, how many of these it
@@ -439,6 +449,8 @@ A function declared `: number` may still
 [`Json.set`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Qr.svg`]: ../../cosmic/qr.tl
+[`Qr.text`]: ../../cosmic/qr.tl
 [`Rand.uuid`]: ../../cosmic/rand.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
 [`Store.seal`]: ../../cosmic/store.tl

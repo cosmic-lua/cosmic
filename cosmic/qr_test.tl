@@ -183,36 +183,172 @@ local function test_options_that_are_the_callers_mistake_raise()
   end
 end
 
+--- The codes the drawings are held to: versions 1, 2, 7 (the first with
+--- version information), 10, 27 and 40. Every side drawn is odd, so the
+--- half blocks' last line always holds a row alone.
+local function codes(): {Qr.Code}
+  local found: mut {Qr.Code} = {}
+  for _, n in ipairs({ 14, 20, 122, 213, 1125, 2331 }) do
+    found[#found + 1] = assert(Qr.encode(string.rep("q", n), { mask = 0 }))
+  end
+  return found
+end
+
+-- The half blocks by whether each puts ink above, and below.
+local ABOVE <const>: {string: boolean} = { [" "] = false, ["\u{2580}"] = true, ["\u{2584}"] = false, ["\u{2588}"] = true }
+local BELOW <const>: {string: boolean} = { [" "] = false, ["\u{2580}"] = false, ["\u{2584}"] = true, ["\u{2588}"] = true }
+
+--- The modules `text` puts ink on, by `y * side + x`, read back from its
+--- characters, and the count of its rows; raises on a line of the wrong
+--- width or a character not drawn.
+local function inked(text: string, side: integer, ascii: boolean): {integer: boolean}, integer
+  local ink: mut {integer: boolean} = {}
+  local y = 0
+  for line in text:gmatch("([^\n]*)\n") do
+    if ascii then
+      assert(#line == side * 2, ("row %d is %d bytes"):format(y, #line))
+      for x = 0, side - 1 do
+        local cell = line:sub(x * 2 + 1, x * 2 + 2)
+        assert(cell == "##" or cell == "  ", cell)
+        ink[y * side + x] = cell == "##"
+      end
+      y = y + 1
+    else
+      local x = 0
+      for _, point in utf8.codes(line) do
+        local char = utf8.char(point)
+        local above, below = ABOVE[char], BELOW[char]
+        assert(above ~= nil and below ~= nil, ("U+%04X"):format(point))
+        ink[y * side + x] = above
+        ink[(y + 1) * side + x] = below
+        x = x + 1
+      end
+      assert(x == side, ("line %d is %d characters"):format(y // 2, x))
+      y = y + 2
+    end
+  end
+  assert(#text > 0 and text:sub(-1) == "\n")
+  return ink, y
+end
+
+--- `text` read back is `code` with a quiet zone of `quiet`: ink on each
+--- light module when not inverted, on each dark one when inverted.
+local function reads_back(code: Qr.Code, text: string, quiet: integer, invert: boolean, ascii: boolean)
+  local side = Qr.size(code, quiet)
+  local name = ("version %d, quiet %d, invert %s, ascii %s"):format(code.version, quiet, invert, ascii)
+  local ink, rows = inked(text, side, ascii)
+  assert(side % 2 == 1 and rows == (if ascii then side else side + 1 end), ("%s: %d rows"):format(name, rows))
+  for y = 0, side - 1 do
+    for x = 0, side - 1 do
+      local want = Qr.dark(code, x - quiet, y - quiet) == invert
+      assert(ink[y * side + x] == want, ("%s: module %d, %d"):format(name, x, y))
+    end
+  end
+  -- A last row alone has nothing below it.
+  for x = 0, side - 1 do assert(ink[side * side + x] ~= true, name) end
+end
+
+local function test_text_reads_back_as_the_modules_with_the_quiet_zone()
+  for _, code in ipairs(codes()) do
+    for _, quiet in ipairs({ 4, 1, 0 }) do
+      for _, invert in ipairs({ false, true }) do
+        local options: Qr.TextOptions = { quiet = quiet, invert = invert }
+        reads_back(code, Qr.text(code, options), quiet, invert, false)
+        options = { quiet = quiet, invert = invert, ascii = true }
+        reads_back(code, Qr.text(code, options), quiet, invert, true)
+      end
+    end
+    reads_back(code, Qr.text(code), 4, false, false)
+  end
+end
+
+local function test_text_without_invert_draws_the_quiet_zone_and_inverted_does_not()
+  local code = assert(Qr.encode("x"))
+  local plain, inverted = Qr.text(code), Qr.text(code, { invert = true })
+  local full = ("\u{2588}"):rep(Qr.size(code)) .. "\n"
+  assert(plain:sub(1, #full) == full, plain)
+  assert(inverted:sub(1, Qr.size(code) + 1) == (" "):rep(Qr.size(code)) .. "\n", inverted)
+end
+
+local function test_the_size_is_the_side_with_its_quiet_zone()
+  for _, code in ipairs(codes()) do
+    assert(Qr.size(code) == code.size + 8 and Qr.size(code, 0) == code.size and Qr.size(code, 2) == code.size + 4)
+  end
+end
+
+local function test_a_quiet_zone_or_scale_out_of_range_raises()
+  local code = assert(Qr.encode("x"))
+  local bad: {function(): string} = {
+    function(): string return Qr.text(code, { quiet = -1 }) end,
+    function(): string return Qr.text(code, { quiet = 17 }) end,
+    function(): string return Qr.svg(code, { quiet = -1 }) end,
+    function(): string return Qr.svg(code, { scale = 0 }) end,
+    function(): string return Qr.svg(code, { scale = 1001 }) end,
+    function(): string return tostring(Qr.size(code, -1)) end,
+  }
+  for i, call in ipairs(bad) do
+    local ok, err = pcall(call)
+    assert(not ok and tostring(err):find("qr: ", 1, true) ~= nil, ("%d: %s"):format(i, tostring(err)))
+  end
+end
+
 local function test_the_same_text_is_the_same_svg_and_paints_are_escaped()
   local a, b = assert(Qr.encode("https://example.com/")), assert(Qr.encode("https://example.com/"))
   assert(Qr.svg(a) == Qr.svg(b))
-  local svg = Qr.svg(a, "#101418", "#ffffff")
+  local svg = Qr.svg(a, { dark = "#101418", light = "#ffffff" })
   assert(svg:find('viewBox="0 0 33 33"', 1, true) ~= nil and svg:find('fill="#101418"', 1, true) ~= nil, svg)
   assert(svg:find('fill="#ffffff"', 1, true) ~= nil)
-  local escaped = Qr.svg(a, 'red"/><script>', "a&b")
+  local escaped = Qr.svg(a, { dark = 'red"/><script>', light = "a&b", title = "<b>&" })
   assert(escaped:find("<script>", 1, true) == nil and escaped:find("red&quot;/&gt;&lt;script&gt;", 1, true) ~= nil)
   assert(escaped:find('fill="a&amp;b"', 1, true) ~= nil)
+  assert(escaped:find('role="img" aria-label="&lt;b&gt;&amp;"><title>&lt;b&gt;&amp;</title>', 1, true) ~= nil, escaped)
 end
 
-local function test_the_svg_path_has_a_square_per_dark_module_inside_the_border()
+local function test_the_svg_has_a_size_in_pixels_and_a_ground_that_can_be_left_out()
   local code = assert(Qr.encode("https://example.com/"))
-  local want: mut {string: boolean} = {}
-  local dark = 0
-  for y = 0, code.size - 1 do
-    for x = 0, code.size - 1 do
-      if Qr.dark(code, x, y) then
-        dark = dark + 1
-        want[("M%d,%dh1v1h-1z"):format(x + 4, y + 4)] = true
+  local svg = Qr.svg(code)
+  assert(svg:find('^<svg xmlns="http://www.w3.org/2000/svg" width="264" height="264" viewBox="0 0 33 33" ' ..
+      'shape%-rendering="crispEdges"><rect width="100%%" height="100%%" fill="#fff"/><path d="M4,4h7v1h%-7z'), svg)
+  assert(svg:find("<title>", 1, true) == nil and svg:find("aria", 1, true) == nil)
+  local bare = Qr.svg(code, { quiet = 0, scale = 3, light = "none" })
+  assert(bare:find('width="75" height="75" viewBox="0 0 25 25"', 1, true) ~= nil, bare)
+  assert(bare:find("<rect", 1, true) == nil and bare:find('d="M0,0h7v1h-7z', 1, true) ~= nil, bare)
+end
+
+--- The rectangles of `svg`'s path, read back into the modules they cover.
+local function covered(svg: string): {integer: boolean}, integer
+  local d = assert(svg:match(' d="([^"]*)"'))
+  local seen: mut {integer: boolean} = {}
+  local runs = 0
+  local read: mut {string} = {}
+  for whole, x, y, w, back in d:gmatch("(M(%d+),(%d+)h(%d+)v1h%-(%d+)z)") do
+    read[#read + 1] = whole
+    assert(w == back, w .. " " .. back)
+    local x0, y0, n = assert(math.tointeger(x)), assert(math.tointeger(y)), assert(math.tointeger(w))
+    for i = 0, n - 1 do
+      assert(seen[y0 * 1000 + x0 + i] == nil, "a module drawn twice")
+      seen[y0 * 1000 + x0 + i] = true
+    end
+    runs = runs + 1
+  end
+  assert(table.concat(read) == d, d)
+  return seen, runs
+end
+
+local function test_the_svg_path_covers_each_dark_module_once_in_runs_of_a_row()
+  for _, code in ipairs(codes()) do
+    for _, quiet in ipairs({ 4, 0, 2 }) do
+      local seen, runs = covered(Qr.svg(code, { quiet = quiet }))
+      local want_runs = 0
+      for y = 0, code.size - 1 do
+        for x = 0, code.size - 1 do
+          local dark = Qr.dark(code, x, y)
+          assert((seen[(y + quiet) * 1000 + x + quiet] == true) == dark, ("%d, %d"):format(x, y))
+          if dark and not Qr.dark(code, x - 1, y) then want_runs = want_runs + 1 end
+        end
       end
+      -- Each run is one rectangle: none is split, and none crosses a light module.
+      assert(runs == want_runs, ("%d runs of %d"):format(runs, want_runs))
     end
   end
-  local svg = Qr.svg(code)
-  local drawn = 0
-  for square in svg:gmatch("M%d+,%d+h1v1h%-1z") do
-    assert(want[square] == true, square)
-    drawn = drawn + 1
-  end
-  assert(drawn == dark and dark > 0, ("%d of %d"):format(drawn, dark))
-  -- The first square is the top left finder's corner, four modules in.
-  assert(svg:find('d="M4,4h1v1h-1z', 1, true) ~= nil)
 end
