@@ -80,6 +80,10 @@ cases = [
     ("eci utf-8", [("E", "26"), ("B", "snö ☃")], "L"),
     ("numeric, version 10", [("N", "9" * 600)], "L"),
     ("alphanumeric, version 32", [("A", "COSMIC QR " * 150)], "Q"),
+    ("numeric, version 30", [("N", "2718281828" * 400)], "L"),
+    ("alphanumeric, version 12", [("A", "QR CODE " * 50)], "M"),
+    ("eci in two bytes", [("E", "899"), ("B", "two-byte eci")], "M"),
+    ("eci in three bytes", [("E", "20000"), ("B", "three-byte eci")], "M"),
 ]
 MAKE = {"N": N, "A": A, "B": lambda t: B(t.encode()), "E": lambda t: QrSegment.make_eci(int(t))}
 out = sys.stdout

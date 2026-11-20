@@ -392,7 +392,7 @@ end
 
 local function test_decode_reads_numeric_alphanumeric_mixed_and_eci_segments()
   local cases = vectors("testdata/qr/segments.txt")
-  assert(#cases == 9, #cases)
+  assert(#cases == 13, #cases)
   for _, v in ipairs(cases) do reads_as(v, v.text:sub(1, 30)) end
 end
 
@@ -477,6 +477,18 @@ local function test_damage_within_the_level_is_mended_and_past_it_refused()
     return (x == 9 and y <= 3) or (y == 9 and x >= 19 and x <= 21)
   end)))
   assert(three.text == "damaged" and three.code.mask == code.mask and three.code.level == "H")
+  -- Versions whose blocks differ in length: a few modules spoiled in each.
+  local mixed: {{integer | string}} = { { 80, "Q" }, { 300, "H" }, { 1000, "M" } }
+  for _, case in ipairs(mixed) do
+    local n, level = case[1], case[2]
+    assert(n is integer and level is Qr.Level)
+    local text = string.rep("m", n)
+    local big = assert(Qr.encode(text, { level = level }))
+    local spoiled = assert(Qr.decode(damaged(Qr.rows(big, 0), function(x: integer, y: integer): boolean
+      return (x * 7 + y * 13) % 97 == 0 and x > 9 and y > 9
+    end)))
+    assert(spoiled.text == text and spoiled.corrected > 0, ("version %d"):format(big.version))
+  end
 end
 
 local function test_what_is_no_code_is_refused_with_why()

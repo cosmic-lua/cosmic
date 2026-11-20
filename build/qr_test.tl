@@ -134,6 +134,10 @@ local function test_read_refuses_options_and_what_is_no_code()
   end
   local missing = run({ "--read", "nosuch.svg" })
   assert(missing.code == 2 and missing.err == "cosmic: qr: nosuch.svg: no such file\n", missing.err)
+  for _, empty in ipairs({ "", " \n\n" }) do
+    local ran = run({ "--read" }, empty)
+    assert(ran.code == 2 and ran.err == "cosmic: qr: there is nothing to read\n", ran.err)
+  end
   local none = run({ "--read" }, "not a code\n")
   assert(none.code == 1 and none.out == "", none.out)
   assert(none.err == 'cosmic: qr: line 1 holds "no", where a module is ## or two spaces\n', none.err)

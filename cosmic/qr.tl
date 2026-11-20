@@ -26,6 +26,11 @@
 --- version outside 1 to 40 or a quiet zone or scale out of range is the
 --- caller's mistake, and raises.
 ---
+--- [`Qr.read`] reads back the SVG and text this draws, and [`Qr.decode`]
+--- a grid of modules, from any encoder: numeric, alphanumeric, byte and
+--- ECI segments. Kanji, structured append, FNC1 and Micro QR are refused,
+--- and so is an image: a photo or a screenshot is no grid.
+---
 --- A reader needs dark modules on a light ground, with a light quiet
 --- zone around the code: four modules wide by the standard, and many
 --- readers take less.
@@ -124,6 +129,9 @@ local record Qr
     --- level, mask and modules.
     code: Qr.Code
     --- How many codewords error correction mended: 0 for a clean code.
+    --- A code spoiled well past what its level mends is refused all but
+    --- always, but Reed-Solomon can mend it into another valid block, so
+    --- a text read from a badly damaged code is not certain.
     corrected: integer
   end
 end
@@ -797,14 +805,15 @@ local function distance(a: integer, b: integer): integer
   return n
 end
 
---- The level and mask of `g`'s format information, read from both
---- copies and taken as the valid word nearest either, within the three
---- bit errors its code mends; nil where none is that near.
+--- A code's format information: its level and mask.
 local record Format
   level: Qr.Level
   mask: integer
 end
 
+--- The level and mask of `g`'s format information, read from both
+--- copies and taken as the valid word nearest either, within the three
+--- bit errors its code mends; nil where none is that near.
 local function read_format(g: Grid): Format?
   local function bit(x: integer, y: integer, i: integer): integer
     return if is_dark(g, x, y) then 1 << i else 0 end
@@ -827,14 +836,15 @@ local function read_format(g: Grid): Format?
   return found
 end
 
---- The data codewords of `all`, the codewords as read: undoes
---- [`interleave`], mending each block, and how many codewords it mended;
---- nil and why where a block has more errors than it can mend.
+--- A code's data codewords, and how many codewords were mended.
 local record Opened
   data: Bytes
   mended: integer
 end
 
+--- The data codewords of `all`, the codewords as read: undoes
+--- [`interleave`], mending each block, and how many codewords it mended;
+--- nil and why where a block has more errors than it can mend.
 local function deinterleave(all: Bytes, version: integer, s: Shape): Opened?, string
   local blocks_n, ecc_len = s.blocks[version] or 1, s.ecc[version] or 0
   local raw = raw_modules(version) // 8

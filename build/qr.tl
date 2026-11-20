@@ -136,7 +136,7 @@ local standard: verb.Io = {
   out = bare.out,
   err = bare.err,
   stdin = function(): string?, string
-    return bare.stdin_text("no text given and standard input is a terminal; give the text or pipe it in")
+    return bare.stdin_text("standard input is a terminal; give the text or a file, or pipe it in")
   end,
   write = function(path: string, data: string): boolean, string return Fs.write(path, data) end,
   read = function(path: string): string?, string return Fs.read(path) end,
@@ -153,6 +153,10 @@ local function read_back(to: verb.Io, complain: function(line: string), file: st
   end
   if drawing == nil then
     complain(why)
+    return bare.refused
+  end
+  if drawing:match("^%s*$") ~= nil then
+    complain("there is nothing to read")
     return bare.refused
   end
   local read, read_why = Qr.read(drawing)
