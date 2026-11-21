@@ -64,6 +64,7 @@ local function test_a_request_goes_over_the_socket_with_the_urls_host(tmp: strin
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
   local got = assert(Http.get("http://files.test:8080/hello?x=1", { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) }))
@@ -82,6 +83,7 @@ local function test_a_redirect_is_not_followed_over_the_socket_unless_asked(tmp:
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
   local via = Net.unix((argv[1] or ""))
@@ -104,6 +106,7 @@ end
 local download_prelude = [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local function destination(sock: string): string
   return (sock:gsub("/s%.sock$", "/out"))
@@ -116,6 +119,7 @@ local function test_open_streams_a_body_over_the_socket(tmp: string)
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 return function(argv: {string}): integer
@@ -135,6 +139,7 @@ local function test_open_does_not_follow_a_redirect_over_the_socket(tmp: string)
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
   local response = assert(Http.open("http://files.test/moved", { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) }))

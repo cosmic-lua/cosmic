@@ -55,7 +55,7 @@ local sleeping, AGAIN = child_tool_fixture.sleeping, child_lua_fixture.AGAIN
 --- sandbox of its own is in cosmic/child_sandbox_tool_test.tl.
 local function test_a_timeout_ends_a_child_that_catches_nothing()
   local r = assert(Child.run(lua(sleeping(100000), nil,
-    { timeout_ns = Clock.ms(200), process_group = false }), { timeout_ns = Child.FOREVER }))
+    { timeout_ns = Clock.ms(200), process_group = false })))
   assert(r.timed_out and r.signal == sys.SIGTERM, "ended by " .. tostring(r.signal))
 end
 
@@ -112,7 +112,7 @@ return function(argv: {string}): integer
   local words = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
   words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
-    "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
+    "', { timeout_ns = -1, process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
     "if pid == nil or ready == nil then return 2 end " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
   words[#words + 1] = (argv[1] or "")
@@ -220,7 +220,7 @@ local function test_a_sandboxed_child_is_refused_where_the_platform_has_no_sandb
   local reads = confine.itself()
   reads[#reads + 1] = tmp
   local r, trouble = Child.run(lua("local _ = 1", nil,
-    { timeout_ns = Child.FOREVER, cwd = tmp, sandbox = { unveil = { reads = reads }, offline = true } }), { timeout_ns = Child.FOREVER })
+    { timeout_ns = Child.FOREVER, cwd = tmp, sandbox = { unveil = { reads = reads }, offline = true } }))
   assert(r == nil, "a child started in a sandbox where the platform has none")
   -- Only as a kernel that cannot sandbox refuses.
   local refused = false

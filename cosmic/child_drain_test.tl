@@ -332,7 +332,7 @@ local function escaped(script: string): Child.Handle
   local chunk = [[
 local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
-local program = require("build.this_program").program({ "-e", ... }, { process_group = false })
+local program = require("build.this_program").program({ "-e", ... }, { timeout_ns = -1, process_group = false })
 assert(Child.start(program.argv, program.options))
 sys.exit(0)
 ]]

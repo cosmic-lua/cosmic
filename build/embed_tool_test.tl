@@ -1104,7 +1104,7 @@ return function(): integer
   local flight = "\22\3\3" .. string.pack(">I2", #records) .. records
   local roots, why = Http.default_roots()
   print(roots or why)
-  local _, refused = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { flight } })
+  local _, refused = Http.open("https://cosmic.test/", { timeout_ns = 60000000000, script = { flight } })
   print((refused:gsub("\n", " ")))
   return 0
 end

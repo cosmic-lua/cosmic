@@ -264,7 +264,7 @@ end
 local function test_a_wait_in_a_task_ends_its_child_at_the_timeout()
   local timed: Child.Result? = nil
   local ticks = ticking(function()
-    local h <close> = assert(Child.start(lua(sleep(100000)), { timeout_ns = Child.FOREVER }))
+    local h <close> = assert(Child.start(lua(sleep(100000))))
     timed = assert(h:wait(Clock.ms(200)))
   end)
   local ended = assert(timed, "the wait never answered")
@@ -475,7 +475,7 @@ local function test_a_run_killed_in_its_cleanup_ends_its_child_and_guard(tmp: st
   local answer: string? = nil
   Poll.run(function()
     local victim = Poll.spawn(function()
-      local _, _ = Child.run(lua(holding_term(report)), { timeout_ns = Child.FOREVER })
+      local _, _ = Child.run(lua(holding_term(report)))
     end)
     pid = reported_pid(report)
     victim:cancel()
@@ -531,8 +531,8 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
   local first: integer? = nil
   local cancelled: string? = nil
   local ticks = ticking(function()
-    local slow <close> = assert(Child.start(lua(sleep(100000)), { timeout_ns = Child.FOREVER }))
-    local quick <close> = assert(Child.start(lua(sleep(200)), { timeout_ns = Child.FOREVER }))
+    local slow <close> = assert(Child.start(lua(sleep(100000))))
+    local quick <close> = assert(Child.start(lua(sleep(200))))
     local done = assert(Child.wait_any({ slow, quick }))
     first = if done.pid == quick.pid then 1 else 2 end
     local waiter = Poll.spawn(function()
@@ -620,7 +620,7 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
   Poll.run(function()
     -- The child outlives the write, and its handle's close ends it: one
     -- that exited first would fail the write with EPIPE instead.
-    local h <close> = assert(Child.start(lua(sleep(100000), { timeout_ns = Child.FOREVER, stdin = "stream" }), { timeout_ns = Child.FOREVER }))
+    local h <close> = assert(Child.start(lua(sleep(100000), { timeout_ns = Child.FOREVER, stdin = "stream" })))
     local stream = assert(h.stdin_stream)
     local writer = Poll.spawn(function()
       wrote, why = stream:write(string.rep("x", 1 << 20))
@@ -664,9 +664,9 @@ local function test_two_tasks_settle_one_child_once()
   local answers: mut {integer: Child.Result} = {}
   local closed: boolean? = nil
   Poll.run(function()
-    local h <close> = assert(Child.start(lua("return 3"), { timeout_ns = Child.FOREVER }))
+    local h <close> = assert(Child.start(lua("return 3")))
     assert(assert(h:wait(Clock.seconds(30))).code == 3)
-    local again <close> = assert(Child.start(lua("return 4"), { timeout_ns = Child.FOREVER }))
+    local again <close> = assert(Child.start(lua("return 4")))
     -- Exited, its status unclaimed: so both `try_wait`s find it finished.
     exited_unreaped(again)
     local tasks: mut {Poll.Task} = {}
@@ -679,7 +679,7 @@ local function test_two_tasks_settle_one_child_once()
       end)
     end
     for _, task in ipairs(tasks) do assert(task:join()) end
-    local third <close> = assert(Child.start(lua(sleep(100)), { timeout_ns = Child.FOREVER }))
+    local third <close> = assert(Child.start(lua(sleep(100))))
     local waiter = Poll.spawn(function() answers[3] = assert(third:wait()) end)
     local closer = Poll.spawn(function() closed = third:close() end)
     assert(waiter:join())

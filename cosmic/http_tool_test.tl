@@ -77,6 +77,7 @@ local function interrupted(tmp: string, body: string,
   local script = tmp .. "/client.tl"
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
+local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local Signal = require("cosmic.signal")
 return function(argv: {string}): integer
@@ -161,7 +162,7 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 return function(argv: {string}): integer
   local body = argv[3]
-  local got, trouble = Http.request((argv[1] or ""), (argv[2] or ""), if body ~= nil then { body = body } else {} end)
+  local got, trouble = Http.request((argv[1] or ""), (argv[2] or ""), if body ~= nil then { timeout_ns = 60000000000, body = body } else { timeout_ns = 60000000000 } end)
   local _, _ = Fs.put(Fs.stdout, if got ~= nil then tostring(got.status) .. " " .. got.body else trouble end)
   return 0
 end

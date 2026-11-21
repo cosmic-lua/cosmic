@@ -29,6 +29,7 @@ local function test_the_client_and_the_server_agree(tmp: string)
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   local base = (argv[1] or "")
   local said: mut {string} = {}
@@ -96,6 +97,7 @@ local function test_a_name_joined_unescaped_reaches_the_server_escaped(tmp: stri
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   local said: mut {string} = {}
   for _, name in ipairs({ "two words.txt", "caf\xc3\xa9.txt", "two%20words.txt", "a=b&c;d?e=f" }) do
