@@ -918,3 +918,16 @@ local function test_a_record_with_several_bounds_holds_a_parameter_passed_on_to_
   local both = Programs.run(set .. "local function f<K is Key & Ordered>(s: Sorted<K>) print(s) end\n")
   assert(#both.before == 0, table.concat(both.before, " "))
 end
+
+--- A parameter bounded by two interfaces is below an interface whose fields they have together, and one passed on to a
+--- parameter bounded by more is told the bounds to write.
+local function test_a_parameter_with_two_interface_bounds_meets_an_interface_of_their_fields()
+  local both = PERSON .. "local interface Card\n  title: string\n  age: integer\nend\n" ..
+    "local function show_card<C is Card>(c: C): string\n  return c.title\nend\n" ..
+    "local function pass<T is Titled & Aged>(t: T): string\n  return show_card(t)\nend\n"
+  stands(both .. "local record Book\n  title: string\n  age: integer\nend\nlocal b: Book = { title = \"b\", age = 1 }\n" ..
+      "print(pass(b))\n", "b")
+  local one = Programs.run(PERSON .. "local function pass<T is Titled>(t: T): string\n  return label(t)\nend\n")
+  local e = Array.at(one.errors, 1)
+  assert(e.code == "bound_unmet" and e.fix == "bound `T` by `Aged` where it is declared (`<T is Aged & Titled>`)", e.fix)
+end

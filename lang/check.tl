@@ -2688,9 +2688,12 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
         return member_read(ctx, node, assert(bounds[1]), name)
       end
       report(ctx, "not_indexable", node, "the type parameter " .. tq(ctx, t) .. " has no field " .. quoted(name) ..
-          ": none of its bounds, " .. quoted(Types.bounds_text(bounds, function(b: Type): string return show(ctx, b) end)) ..
+          ": none of its bounds, " .. quoted(Types.bounds_text(bounds, function(b: Type): string
+            return show(ctx, b)
+          end)) ..
           ", declares it",
-        "bound it by an interface that declares " .. quoted(name) .. " as well (`T is A & I`)", { show(ctx, t) })
+        "bound it by an interface that declares " .. quoted(name) .. " as well (`<" .. show(ctx, t) .. " is " ..
+          Types.bounds_text(bounds, function(b: Type): string return show(ctx, b) end) .. " & I>`)", { show(ctx, t) })
       return ctx.invalid
     end
     report(ctx, "not_indexable", node, "the type parameter " .. tq(ctx, t) .. " has no field " .. quoted(name),
@@ -5569,7 +5572,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           local held = Generics.value(sub, k)
           if held ~= nil then solved[#solved + 1] = held end
         end
-        -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bound.
+        -- The instance is taken only if every type parameter is solved, none conflicts, and each meets its bounds.
         local meets = #solved == #given_fn.tparams and #sub.conflicts == 0
         -- Whether the callee's own declaration gives the function every parameter type, whatever its type parameters
         -- are: nothing the call passes can change a type found for the function, and no bound it fails can be met here.
@@ -5585,31 +5588,31 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         for k, tp in ipairs(given_fn.tparams) do
           local held = solved[k]
           for _, bound in ipairs(tp.bounds or {}) do
-          if meets and held ~= nil and not below(ctx, held, bound) then
-            local wanted_bound = "`is " .. show(ctx, bound) .. "`"
-            local fix = if Types.builtin_bound(bound) then "pass a function over " .. Types.bound_meets(bound.tag) else
-              "pass a type that declares " .. wanted_bound end
-            -- Only a type the program declares can be given the interface.
-            local declarable = not Types.builtin_bound(bound) and held.tag == "named" and (held.decl.kind == "record" or
-              held.decl.kind == "class" or held.decl.kind == "interface")
-            if declarable then
-              fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
+            if meets and held ~= nil and not below(ctx, held, bound) then
+              local wanted_bound = "`is " .. show(ctx, bound) .. "`"
+              local fix = if Types.builtin_bound(bound) then "pass a function over " .. Types.bound_meets(bound.tag) else
+                "pass a type that declares " .. wanted_bound end
+              -- Only a type the program declares can be given the interface.
+              local declarable = not Types.builtin_bound(bound) and held.tag == "named" and (held.decl.kind == "record" or
+                held.decl.kind == "class" or held.decl.kind == "interface")
+              if declarable then
+                fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
+              end
+              local why = tq(ctx, held) .. (if Types.builtin_bound(bound) then " does not meet " .. quoted(bound.tag) else
+                " does not declare " .. wanted_bound end)
+              if fixed and not declarable and held.tag ~= "var" then
+                -- No declaration gives this type the interface, and the call cannot pass another.
+                why = "the declaration of " .. quoted(callee) .. " gives it " .. tq(ctx, held) .. ", so this argument cannot " ..
+                  "satisfy the bound here"
+                fix = "pass a function whose type parameter is not bounded by " .. tq(ctx, bound)
+              end
+              said[#said + 1] = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
+                " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
+                tq(ctx, bound) .. ", and " .. why
+              fixes[#fixes + 1] = fix
+              shown[#shown + 1] = show(ctx, held)
+              shown[#shown + 1] = show(ctx, bound)
             end
-            local why = tq(ctx, held) .. (if Types.builtin_bound(bound) then " does not meet " .. quoted(bound.tag) else
-              " does not declare " .. wanted_bound end)
-            if fixed and not declarable and held.tag ~= "var" then
-              -- No declaration gives this type the interface, and the call cannot pass another.
-              why = "the declaration of " .. quoted(callee) .. " gives it " .. tq(ctx, held) .. ", so this argument cannot " ..
-                "satisfy the bound here"
-              fix = "pass a function whose type parameter is not bounded by " .. tq(ctx, bound)
-            end
-            said[#said + 1] = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(k - 1)) ..
-              " of the function passed as argument " .. tostring(i) .. " of " .. quoted(callee) .. ", which is bounded by " ..
-              tq(ctx, bound) .. ", and " .. why
-            fixes[#fixes + 1] = fix
-            shown[#shown + 1] = show(ctx, held)
-            shown[#shown + 1] = show(ctx, bound)
-          end
           end
         end
         if #said > 0 then meets = false end
@@ -5709,49 +5712,49 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
   for i, tp in ipairs(c.tparams) do
     local held = given[i]
     for _, bound in ipairs(tp.bounds or {}) do
-    if held.tag ~= "invalid" and not below(ctx, held, bound) then -- checked: nil_not_allowed
-      local builtin = Types.builtin_bound(bound)
-      local lacking = Calls.lacking(ctx, held, bound)
-      local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
-        ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) ..
-        (if builtin and held.tag == "var" then " is not bounded by it" elseif builtin then
-          (if bound.tag == "Ordered" then " is not a type whose values are all numbers or all strings" else
-            " is not " .. Types.bound_meets(bound.tag) end) elseif lacking ~= nil then
-          " has no field " .. quoted(lacking) .. " as it declares" else " neither lists it nor has its fields" end)
-      problems[#problems + 1] = msg
-      if loud and builtin and held.tag == "var" then
-        local held_name = show(ctx, held)
-        local scope = if (held.tag == "var") then ctx.bounds[#ctx.bounds - held.depth] else nil end
-        local own_param = if scope ~= nil and (held.tag == "var") then scope[held.index + 1] else nil end
-        local own = if own_param ~= nil then own_param.bounds else nil end
-        local wanted: mut {Type} = {}
-        for _, b in ipairs(own or {}) do
-          wanted[#wanted + 1] = b
+      if held.tag ~= "invalid" and not below(ctx, held, bound) then -- checked: nil_not_allowed
+        local builtin = Types.builtin_bound(bound)
+        local lacking = Calls.lacking(ctx, held, bound)
+        local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
+          ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) ..
+          (if held.tag == "var" then " is not bounded by it" elseif builtin then
+            (if bound.tag == "Ordered" then " is not a type whose values are all numbers or all strings" else
+              " is not " .. Types.bound_meets(bound.tag) end) elseif lacking ~= nil then
+            " has no field " .. quoted(lacking) .. " as it declares" else " neither lists it nor has its fields" end)
+        problems[#problems + 1] = msg
+        if loud and held.tag == "var" then
+          local held_name = show(ctx, held)
+          local scope = if (held.tag == "var") then ctx.bounds[#ctx.bounds - held.depth] else nil end
+          local own_param = if scope ~= nil and (held.tag == "var") then scope[held.index + 1] else nil end
+          local own = if own_param ~= nil then own_param.bounds else nil end
+          local wanted: mut {Type} = {}
+          for _, b in ipairs(own or {}) do
+            wanted[#wanted + 1] = b
+          end
+          wanted[#wanted + 1] = bound
+          report(ctx, "bound_unmet", node, msg, "bound " .. quoted(held_name) .. " by " .. tq(ctx, bound) ..
+              " where it is declared (`<" .. held_name .. " is " .. Types.bounds_text(assert(Types.bounds(wanted)),
+                function(b: Type): string return show(ctx, b) end) .. ">`)", { held_name, show(ctx, bound) })
+        elseif loud and builtin then
+          report(ctx, "bound_unmet", node, msg,
+            if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
+              bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" else
+              "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
+                "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
+        elseif loud then
+          -- Only a type the program declares, or a type variable of the caller, can be given the interface.
+          local declarable = held.tag == "var" or (held.tag == "named" and (held.decl.kind == "record" or
+            held.decl.kind == "class" or held.decl.kind == "interface"))
+          report(ctx, "bound_unmet", node, msg,
+            (if declarable and lacking ~= nil then "declare `" .. lacking .. "` in " .. tq(ctx, held) ..
+                ", as the interface does, or pass a type that has it" elseif declarable then
+              "declare the fields of " .. tq(ctx, bound) .. " in " .. tq(ctx, held) .. ", or pass a type that has them" else
+              "pass a type that has the fields of " .. tq(ctx, bound) end),
+            { show(ctx, held), show(ctx, bound) })
         end
-        wanted[#wanted + 1] = bound
-        report(ctx, "bound_unmet", node, msg, "bound " .. quoted(held_name) .. " by " .. quoted(bound.tag) ..
-            " where it is declared (`<" .. held_name .. " is " .. Types.bounds_text(assert(Types.bounds(wanted)),
-              function(b: Type): string return show(ctx, b) end) .. ">`)", { held_name, show(ctx, bound) })
-      elseif loud and builtin then
-        report(ctx, "bound_unmet", node, msg,
-          if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
-            bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" else
-            "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
-              "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
-      elseif loud then
-        -- Only a type the program declares, or a type variable of the caller, can be given the interface.
-        local declarable = held.tag == "var" or (held.tag == "named" and (held.decl.kind == "record" or
-          held.decl.kind == "class" or held.decl.kind == "interface"))
-        report(ctx, "bound_unmet", node, msg,
-          (if declarable and lacking ~= nil then "declare `" .. lacking .. "` in " .. tq(ctx, held) ..
-              ", as the interface does, or pass a type that has it" elseif declarable then
-            "declare the fields of " .. tq(ctx, bound) .. " in " .. tq(ctx, held) .. ", or pass a type that has them" else
-            "pass a type that has the fields of " .. tq(ctx, bound) end),
-          { show(ctx, held), show(ctx, bound) })
+        Calls.replace_type(given, i, ctx.invalid)
+        break
       end
-      Calls.replace_type(given, i, ctx.invalid)
-      break
-    end
     end
   end
   if #problems > 0 and not loud then

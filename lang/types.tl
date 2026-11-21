@@ -261,7 +261,7 @@ local record Types
 
   --- A type parameter of a function type or a declaration, and its bounds: nil for none, else each an interface used
   --- with no arguments or a built-in bound, every one of which a type argument meets (`T is A & B`). A store holds
-  --- them in the order of their text, each once ([`Types.bounds`]).
+  --- them sorted by how they display, each once ([`Types.bounds`]).
   record TParam
     bounds?: {Type}
   end
@@ -528,13 +528,13 @@ local record Types
 
   --- Whether a map may be keyed by `t`: `integer`, `string`, `boolean`, an enum, or a record, class, interface or
   --- userdata, each equal to a key only by one rule (the value, or the identity of the table or userdata). A type
-  --- parameter is read by its bound, and so is not one here.
+  --- parameter is read by its bounds, and so is not one here.
   keys_a_map: function(t: Type): boolean
 
   --- What meets the built-in bound `tag`, for a message: "a number type or a string type" for `Ordered`.
   bound_meets: function(tag: string): string
 
-  --- The bounds `list` as a store holds them: nil for none, else in the order of their text, each once.
+  --- The bounds `list` as a store holds them: nil for none, else sorted by how they display (then by digest), each once.
   bounds: function(list: {Type}?): {Type}?
 
   --- The bounds `list` as written after `is`, `A & B`, with `show` writing each.
@@ -914,7 +914,7 @@ function Types.bounds(list: {Type}?): {Type}?
     if a ~= b then
       return a < b
     end
-    return x.digest < y.digest
+    return Types.digest(x) < Types.digest(y)
   end)
   return out
 end
@@ -1552,10 +1552,10 @@ end
 Types.Store.fn = function(self: Store, spec: FnSpec): Type -- checked: field_unknown
   local tparams: mut {TParam} = {}
   for i, tp in ipairs(spec.tparams or {}) do
-    local bounds = Types.bounds(tp.bounds)
-    for _, bound in ipairs(bounds or {}) do
+    for _, bound in ipairs(tp.bounds or {}) do
       bound_ok(self, bound)
     end
+    local bounds = Types.bounds(tp.bounds)
     tparams[i] = { bounds = bounds }
   end
   local params: mut {Param} = {}
@@ -1838,9 +1838,11 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
   local made: Body = { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} }
   local roots: mut {Type} = {}
   for _, tp in ipairs(body.tparams) do
+    for _, bound in ipairs(tp.bounds or {}) do
+      bound_ok(store, bound)
+    end
     local bounds = Types.bounds(tp.bounds)
     for _, bound in ipairs(bounds or {}) do
-      bound_ok(store, bound)
       roots[#roots + 1] = bound
     end
     if not is_binding_name(tp.name) then

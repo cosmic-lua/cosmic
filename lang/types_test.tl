@@ -1045,6 +1045,29 @@ local function test_a_bound_is_an_interface_with_no_arguments()
   assert(t == nil and why:find("bounded by an interface", 1, true) ~= nil, why)
 end
 
+--- Several bounds are a set: a store holds them sorted by how they display, each once, so their order and a repeat make
+--- one type, and the text of a function or a declaration reads back as the type it was.
+local function test_several_bounds_are_a_set_and_read_back()
+  local w = world()
+  local s = w.store
+  local reader = named(w, "Stream.Reader")
+  local function generic(bounds: {Types.Type}): Types.Type
+    return s:fn({ tparams = { { bounds = bounds } }, params = { { type = s:var(0, 0) } } })
+  end
+  local both = generic({ s:atom("Ordered"), reader, s:atom("Key") })
+  assert(generic({ s:atom("Key"), reader, s:atom("Ordered"), reader }) == both)
+  local text = Types.encode(both)
+  same(text, '(fn (tp (and Key Ordered (ref "cosmic.stream" "Stream.Reader"))) ((var 0 0)) (rets ()))')
+  same(shown(both), "function<T is Key & Ordered & Stream.Reader>(T)")
+  local back, why = s:decode('(fn (tp (and (ref "cosmic.stream" "Stream.Reader") Ordered Key Ordered)) ((var 0 0)) (rets ()))')
+  assert(back == both, why)
+  local r = s:declare("record", "m", { "Sorted" }, 1)
+  s:define(r, { tparams = { { name = "K", bounds = { s:atom("Ordered"), s:atom("Key") } } }, supers = {}, fields = {},
+    methods = {}, values = {} })
+  local decl_text = Types.encode_declaration(r)
+  assert(decl_text:find('(tparams (tparam "K" Key Ordered))', 1, true) ~= nil, decl_text)
+end
+
 -- shared parts -----------------------------------------------------------------------------------
 
 --- `Pair<t, t>` made `n` times over `integer`: n + 1 types that hold 2^n.

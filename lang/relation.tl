@@ -51,7 +51,8 @@
 ---   place, else from what the type wanted answers, and each meeting its bound
 ---   ([`lang.generics`]). The function with those types in is then compared as any other. A
 ---   generic function type wanted is met only by itself.
---- - A type variable is below itself and its bound. The bound is read from the
+--- - A type variable is below itself and what one of its bounds is below, or an interface whose fields its interface
+---   bounds have together. The bounds are read from the
 ---   binders [`Relation.Judge.enter`] has entered.
 --- - `any` is below `any` and nothing below it but `never`.
 ---
@@ -93,7 +94,7 @@ local record Relation
   ---   not an interface. `not_listed`: the target is an interface the source's declaration
   ---   neither lists nor has each field of; `field` is the first field it lacks.
   ---   `declaration_value`: a declaration used as a value, the table of its
-  ---   functions, where a value of it is wanted, or the reverse. `variable`: a type variable, below only itself and its bound.
+  ---   functions, where a value of it is wanted, or the reverse. `variable`: a type variable, below only itself and its bounds.
   --- - `nil`: the source is `nil` and the target admits none. `number_for_integer`: a `number`
   ---   where an `integer` is wanted. `never_target`: nothing is below `never`.
   --- - `any_source`: the data of `any` is no other type. `any_sink`: a value reaches `any` only as
@@ -271,9 +272,6 @@ local record Relation
   --- The binder of a declaration: its type parameters and their bounds. Raises where the
   --- declaration has no body.
   binder: function(decl: Types.Decl): {Types.TParam}
-
-  --- Whether `a` meets every one of `bounds`, the bounds of a type parameter, under the binders `j` has entered.
-  meets: function(j: Judge, a: Type, bounds: {Type}): boolean
 
   --- The type of a field of `x`, an interface, as `self_type` has it: `x`'s arguments put in and the receiver of a
   --- function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
@@ -939,6 +937,58 @@ local function conforms(j: Relation.Judge, a: Named, b: Named, why: boolean, clo
   return nil
 end
 
+--- Whether the type variable `a`, bounded by `bounds`, conforms to the interface `b` through the fields of its interface
+--- bounds together: each field of `b`, and of the interfaces it lists, is a field of one of them as [`conforms`] holds a
+--- field. `T is Titled & Aged` is below an interface of `title` and `age`.
+local function conforms_through(j: Relation.Judge, a: Var, bounds: {Type}, b: Named, why: boolean): Relation.Refusal?
+  defined(b)
+  local wanted: mut {Named} = { b }
+  local receivers: mut {integer: boolean} = { [b.id] = true }
+  for _, x in ipairs(closure_of(j, b).list) do
+    if (x.tag == "named") then
+      wanted[#wanted + 1] = x
+      receivers[x.id] = true
+    end
+  end
+  local bbody = b.decl.body
+  if bbody ~= nil and bbody.array ~= nil then
+    return leaf(j, why, "variable", a, b)
+  end
+  for _, x in ipairs(wanted) do
+    local xbody = x.decl.body
+    local fields: {Types.Field} = if xbody ~= nil then xbody.fields else {} end
+    for _, f in ipairs(fields) do
+      local ok = false
+      local named = false
+      for _, bound in ipairs(bounds) do
+        if (bound.tag == "named") and not ok then
+          defined(bound)
+          local listed = Relation.as_listed(j.store, x, f.type, bound)
+          local expected = if listed ~= nil then with_receiver_of(j.store, listed, receivers, bound) else nil end
+          for _, s in ipairs(supplied(j, bound, f.name)) do
+            named = true
+            local same = expected ~= nil and (s.type == expected or s.type.tag == "invalid" or expected.tag == "invalid")
+            if same and s.mut == (f.mut == true) and s.omittable == (f.omittable == true) then
+              ok = true
+              break
+            end
+          end
+        end
+      end
+      if not ok then
+        if not why then
+          return j.none
+        end
+        return {
+          code = "not_listed", path = {}, sub = a, super = b, lists = {},
+          field = { name = f.name, type = f.type, mut = f.mut, omittable = f.omittable }, has_name = named,
+        }
+      end
+    end
+  end
+  return nil
+end
+
 --- For the solver: each field of the interface `b` and of those it lists, as `b` declares it and as `a` has it, in
 --- pairs; nil where `a` is no record, class or interface, or lacks a field by name.
 local function field_pairs(j: Relation.Judge, b: Named, a: Named): {Type}?
@@ -1256,7 +1306,7 @@ end
 
 --- The generic function `a` where the function type `b` is wanted: `a` with its type parameters taken from what `b` is
 --- called with and answers, below `b`. Each parameter of `a` is solved from the parameter of `b` in its place (the value
---- `b` passes is the one `a` takes), else from the values `b` answers, and has to meet its bound.
+--- `b` passes is the one `a` takes), else from the values `b` answers, and has to meet its bounds.
 local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Relation.Refusal?
   local solver = Generics.new(j.store, a, hooks_of(j))
   for i, p in ipairs(a.params) do
@@ -1348,6 +1398,13 @@ local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relat
       first = r
     end
   end
+  if #bounds > 1 and (b.tag == "named") and b.decl.kind == "interface" and #b.args == 0 then
+    local r = conforms_through(j, a, bounds, b, why)
+    if r == nil then
+      return nil
+    end
+    return r
+  end
   return through(why, "bound", nil, (assert(first, "a type parameter with bounds has one")))
 end
 
@@ -1355,7 +1412,7 @@ end
 --- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
 --- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
 --- raises: a union of a number and a string is none. `Numeric` is below `Ordered`. `Key` holds the types a map is
---- keyed by ([`Types.keys_a_map`]), an interface among them. A type variable is below a bound where its own bound is.
+--- keyed by ([`Types.keys_a_map`]), an interface among them. A type variable is below a bound where one of its own bounds is.
 local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if (a.tag == "var") then
     return from_var(j, a, b, why)
@@ -1605,15 +1662,6 @@ function Relation.binder(decl: Types.Decl): {Types.TParam}
     out[i] = { bounds = tp.bounds }
   end
   return out
-end
-
-function Relation.meets(j: Relation.Judge, a: Type, bounds: {Type}): boolean
-  for _, bound in ipairs(bounds) do
-    if not j:subtype(a, bound) then
-      return false
-    end
-  end
-  return true
 end
 
 function Relation.trace(r: Relation.Refusal): string

@@ -1511,7 +1511,9 @@ local function lower_collection_parts(ctx: Ctx, t: Ast.Type, mutable: boolean): 
       report_at(ctx, "key_type", t.key, "a map is not keyed by " .. key_word(key, binder_names(ctx.frames)) ..
           ": it may be `number`, a union or a function, which no key is",
         "bound " .. quoted(name) .. " by `Key` where it is declared (`<" .. name .. " is " ..
-          Types.bounds_text(assert(Types.bounds(with_key)), function(b: Type): string return show(ctx, b) end) .. ">`): " ..
+          Types.bounds_text(assert(Types.bounds(with_key)), function(b: Type): string
+            return show(ctx, b)
+          end) .. ">`): " ..
           Types.bound_meets("Key") .. " meets it", { name })
       return store.invalid
     elseif refusal ~= nil then
