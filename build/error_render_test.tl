@@ -269,3 +269,36 @@ local function test_the_fix_of_a_removed_name_beats_the_pointer_of_an_argument()
   assert(ErrorRender.pointers(result, marked(false), hints) == POINTER)
   db:close()
 end
+
+--- A report a person reads shows the source line under each line that names a place and a code, with a caret under the
+--- column that keeps the tabs before it and counts a UTF-8 letter once, also after `fix`'s prefix; a line of a file it cannot
+--- read, a line past the file's end, a template's line and a line that names no code are left as they are, and so is the
+--- report's last line break.
+local function test_annotated_shows_the_source_line_under_each_place()
+  local files: {string: string} = { ["m.tl"] = "local a = 1\n\tprint(area(q))\nlocal é = x\n", ["p.tmpl"] = "{{x}}\n" }
+  local function read(name: string): string?
+    return files[name]
+  end
+  local report = "m.tl: the compiler refused it\n" ..
+    "m.tl:2:8: `q` is `Sq` (not_assignable): list it\n" ..
+    "m.tl:9:1: past the end (arity): fix\n" ..
+    "gone.tl:1:1: no file (arity): fix\n" ..
+    "p.tmpl:1:3: a template's (arity): fix\n" ..
+    "fix: FAIL  m.tl:3:12: after a prefix and a wide letter (unknown_variable): fix\n" ..
+    "m.tl: 1 error of not_assignable in its bodies on line 2; follow the fix above\n"
+  local want = "m.tl: the compiler refused it\n" ..
+    "m.tl:2:8: `q` is `Sq` (not_assignable): list it\n" ..
+    "  2 | \tprint(area(q))\n" ..
+    "    | \t      ^\n" ..
+    "m.tl:9:1: past the end (arity): fix\n" ..
+    "gone.tl:1:1: no file (arity): fix\n" ..
+    "p.tmpl:1:3: a template's (arity): fix\n" ..
+    "fix: FAIL  m.tl:3:12: after a prefix and a wide letter (unknown_variable): fix\n" ..
+    "  3 | local é = x\n" ..
+    "    |           ^\n" ..
+    "m.tl: 1 error of not_assignable in its bodies on line 2; follow the fix above\n"
+  local got = ErrorRender.annotated(report, read)
+  assert(got == want, got)
+  local bare = ErrorRender.annotated("m.tl:1:7: one (unknown_variable): fix", read)
+  assert(bare == "m.tl:1:7: one (unknown_variable): fix\n  1 | local a = 1\n    |       ^", bare)
+end

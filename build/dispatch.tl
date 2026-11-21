@@ -518,7 +518,10 @@ local function run(file: string, argv: {string}): integer
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local hinted = with_tree_hint(with_standalone_hint(compile_trouble, file, name), tree_root)
     local _, _ = work.close(handle)
-    log:complain(hinted)
+    log:complain(require("build.error_render").annotated(hinted, function(named: string): string?
+      local text, _ = require("cosmic.fs").read(root .. "/" .. named)
+      return text
+    end))
     return if outcome.refused then exit_status.uncompiled else 1 end
   end
   local written, write_trouble =

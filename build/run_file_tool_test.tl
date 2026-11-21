@@ -108,6 +108,10 @@ local function test_a_broken_required_file_still_stops_a_file_run(tmp: string)
     assert(result.code == 4 and result.stdout == "", said)
     assert((result.stderr or ""):find(refusal, 1, true) ~= nil and
         (result.stderr or ""):find("left out", 1, true) == nil, said)
+    -- A person reads the refusal: the source line is under it, a caret under the column.
+    local shown = if files["bad.tl"] == SYNTAX_ERROR then "  1 | local function f(...x: string) end\n    |                     ^" else
+      '  1 | local n: integer = "s"\n    |                    ^' end
+    assert((result.stderr or ""):find(shown, 1, true) ~= nil, said)
   end
 end
 
