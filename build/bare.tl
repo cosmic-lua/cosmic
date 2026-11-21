@@ -1,5 +1,5 @@
 --- What the bare verbs (`json`, `hash`, `codec`, `archive`, `fetch`,
---- `time`, `rand`, `qr`: the specs with `bare = true`, build/verb_spec.tl) share:
+--- `time`, `rand`, `qr`, `acme`: the specs with `bare = true`, build/verb_spec.tl) share:
 --- the standard output and error a run writes to, the complaint line's
 --- `cosmic: <verb>: ` prefix, the exit codes every one of them answers,
 --- the refusal to read a terminal, the escape that keeps a name or a
