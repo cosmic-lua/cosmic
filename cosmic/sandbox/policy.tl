@@ -95,7 +95,11 @@ local record rules
     --- "*" for any. A host is a DNS name, an IPv4 address or an IPv6 address
     --- in brackets, and a name is read lower-case without a final dot; a
     --- pattern, an underscore and anything else the relay's readers refuse
-    --- is refused here too ([`cosmic.relay.grant`]).
+    --- is refused here too ([`cosmic.relay.grant`]). A target may name
+    --- nodes of the machine's tailnet instead: `tag:db:5432` grants every
+    --- address of each peer tagged `tag:db`, and `user:will@example.com:*`
+    --- of each untagged peer that user owns, as tailscaled lists them when
+    --- the sandbox starts ([`cosmic.sandbox.tailnet`]).
     connect?: {string}
     --- The addresses of 127/8 it uses inside its own network.
     loopback?: {string}
@@ -309,7 +313,16 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, target in ipairs(p.connect or {}) do
-    local _, why = Grant.parse(target)
+    local tailnet, wrong = Grant.tailnet(target)
+    if tailnet == nil and wrong ~= "" then
+      return at({ "connect", i }, "\"" .. target .. "\" is not a tailnet target: " .. wrong ..
+          " (tag:<tag>:<port> or user:<login>:<port>, the port from 1 to 65535 or \"*\" for any)")
+    end
+    local why = ""
+    if tailnet == nil then
+      local _, wrong_target = Grant.parse(target)
+      why = wrong_target
+    end
     if why ~= "" then
       return at({ "connect", i }, "\"" .. target .. "\" is not a target the relay can use: " ..
           why .. " (host:port, the host a name, an IPv4 address, an IPv6 address in " ..
@@ -718,6 +731,19 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
     user = user, group = group, database = database,
   }
   return result, ""
+end
+
+--- `p` with `connect` in place of its own: what [`Child.start`] runs a
+--- merged policy as once its tailnet targets are resolved
+--- ([`cosmic.sandbox.tailnet`]).
+function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
+  local result: rules.Policy = {
+    grants = p.grants, isolate = p.isolate, promises = p.promises,
+    connect = connect, loopback = p.loopback, env = p.env, set_env = p.set_env,
+    set_env_digests = p.set_env_digests, tmp = p.tmp, limits = p.limits,
+    user = p.user, group = p.group, database = p.database, profiles = p.profiles,
+  }
+  return result
 end
 
 return rules

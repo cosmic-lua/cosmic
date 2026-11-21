@@ -195,10 +195,14 @@ allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS ser
 
 allowed["cosmic.internal.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
-for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_upstream", "table", "public",
+for _, name in ipairs({ "name_servers", "upstream_addresses", "resolved_upstream", "table", "public",
     "loopback_listeners" }) do
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
     "`direct_handover`, which are composed from it, each tested over fixtures of its own"
+end
+for _, name in ipairs({ "named", "resolved" }) do
+  allowed["cosmic.sandbox.tailnet." .. name] = "tested directly: a step of `tailnet.policy`, " ..
+    "checked over fixture statuses with no stand-in daemon"
 end
 for _, name in ipairs({ "dropped_violations", "most_kept", "fact", "cross" }) do
   allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
