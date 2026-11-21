@@ -610,6 +610,27 @@ local record Cli
   --- the server or a challenge refused the issue or a request failed, 2
   --- for a command line, a key file or a write it refuses
   acme: string
+  --- `cosmic tailscale <status|whois|cert|ping> ...`: the machine's own
+  --- Tailscale node, asked through tailscaled's LocalAPI with no
+  --- `tailscale` binary. `status` prints this node and each peer, a line
+  --- each: its address, MagicDNS name, owner or tags, OS and how traffic
+  --- reaches it, and exits 1 for a node that is not running. `whois
+  --- <address|name>` prints the node an address of the
+  --- tailnet belongs to, its user and the capabilities the policy's grants
+  --- give it here. `cert [domain]` writes the certificate of one of the
+  --- node's names (the first by default) to `<domain>.crt` and its key to
+  --- `<domain>.key`, mode 0600, or to `--cert-file` and `--key-file` (`-`
+  --- for standard output); `--min-validity 30d` has the daemon renew one
+  --- that expires sooner first. `ping <address|name>` prints the round trip and
+  --- the path it took (`--kind disco|ICMP|TSMP|peerapi`). `--json` prints
+  --- the answer as JSON; `--socket <path>` names the daemon's socket.
+  --- Examples: `cosmic tailscale status`, `cosmic tailscale whois
+  --- 100.101.102.103`, `cosmic tailscale cert`. A program asks the daemon
+  --- with [`cosmic.tailscale`]. It prints no summary. Exits 0 when it
+  --- answered, 1 when the daemon could not be asked or refused, the node
+  --- is not running, or no node has the address or name, 2 for a command
+  --- line or a write it refuses
+  tailscale: string
   --- `cosmic time <now|convert|between|add> ...`: the clock and calendar
   --- the same on every host, where GNU and BSD `date` differ. Zones are
   --- the IANA names of the tz database the binary carries. `now` prints
@@ -995,7 +1016,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", qr = "qr", acme = "acme", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", qr = "qr", acme = "acme", tailscale = "tailscale", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", release = "release", sandbox = "sandbox", help = "help",
   },
   verbs = {
@@ -1260,6 +1281,18 @@ local module: Module = {
         ["--out"] = { value = "file", about = "issue: write the chain here, not to standard output" },
       },
     },
+    tailscale = {
+      about = "this machine's Tailscale node: its status, a peer's identity, a certificate",
+      usage = "<status|whois|cert|ping> [options] [address|domain]",
+      spec = {
+        ["--socket"] = { value = "path", about = "the daemon's socket, where it is not where it is looked for" },
+        ["--json"] = { about = "status, whois, ping: the answer as JSON" },
+        ["--cert-file"] = { value = "file", about = "cert: write the chain here (default <domain>.crt; -: standard output)" },
+        ["--key-file"] = { value = "file", about = "cert: write the key here (default <domain>.key; -: standard output)" },
+        ["--min-validity"] = { value = "duration", about = "cert: renew first one that expires within this, such as 30d" },
+        ["--kind"] = { value = "kind", about = "ping: disco (default), ICMP, TSMP or peerapi" },
+      },
+    },
     docs = {
       about = "a symbol's or module's docs, or a search",
       usage = "[words...]",
@@ -1360,11 +1393,11 @@ local module: Module = {
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db", "lsp", "migrate" },
-    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "compile" },
+    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh", "release" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "compile", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile", "docs", "uses", "todos",
     "bom", "refresh", "release", "sandbox", "help" },
 }
 

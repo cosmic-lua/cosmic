@@ -558,13 +558,13 @@ end
 --- Fails the body for good: `state` says how, `why` what every later
 --- read answers.
 local function fail(self: BodyReader, state: wire.BodyState, why: string): nil, string
-  self.state, self.failure = state, why -- checked: field_unknown
+  self.state, self.failure = state, why
   return nil, why
 end
 
 --- [`fail`], answered as a step that did not go.
 local function stopped(self: BodyReader, state: wire.BodyState, why: string): boolean, string
-  self.state, self.failure = state, why -- checked: field_unknown
+  self.state, self.failure = state, why
   return false, why
 end
 
@@ -640,7 +640,7 @@ local function trailers(self: BodyReader): boolean, string
     local text, why = meta_line(self)
     if text == nil then return false, why end
     if text == "" then
-      self.state = "done" -- checked: field_unknown
+      self.state = "done"
       return true, ""
     end
     self.head.spent = self.head.spent + #text + 2
@@ -654,7 +654,7 @@ local function trailers(self: BodyReader): boolean, string
   end
 end
 
-local class BodyReader is wire.Body -- declared: interface_disagrees*4
+local class BodyReader is wire.Body -- declared: interface_disagrees
   input: wire.Input
   limits: wire.Limits
   head: wire.Head
@@ -670,16 +670,16 @@ local class BodyReader is wire.Body -- declared: interface_disagrees*4
   function read(self, max_bytes?: integer): string?, string
     if self.closed then return nil, "http: the request body is closed" end
     if self.failure ~= "" then return nil, self.failure end
-    if self.state == "done" then return nil, "" end -- checked: field_unknown
+    if self.state == "done" then return nil, "" end
     local most = max_bytes or CHUNK
     if most < 1 then error("http: read's max_bytes must be positive", 2) end
-    if not self.touched then -- checked: field_unknown
-      self.touched = true -- checked: field_unknown
+    if not self.touched then
+      self.touched = true
       if self.on_first_read ~= nil then self.on_first_read() end -- checked: field_unknown*2 -- untyped: call
     end
     if not self.head.chunked then
       if self.left == 0 then
-        self.state = "done" -- checked: field_unknown
+        self.state = "done"
         return nil, ""
       end
       local piece, why = take(self.input, math.min(most, self.left))
@@ -688,7 +688,7 @@ local class BodyReader is wire.Body -- declared: interface_disagrees*4
       end
       self.left = self.left - #piece
       self.total = self.total + #piece
-      if self.left == 0 then self.state = "done" end -- checked: field_unknown
+      if self.left == 0 then self.state = "done" end
       return piece, ""
     end
     while true do
@@ -728,12 +728,12 @@ local class BodyReader is wire.Body -- declared: interface_disagrees*4
     -- Read past a close: the server discards what the handler left.
     local closed = self.closed
     self.closed = false
-    while self.state == "open" do -- checked: field_unknown
+    while self.state == "open" do
       local piece, _ = self:read()
       if piece == nil then break end
     end
     self.closed = closed
-    return self.state == "done" -- checked: field_unknown
+    return self.state == "done"
   end
 end
 
@@ -744,9 +744,9 @@ function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
                    on_first_read?: function()): wire.Body
   local r: BodyReader = {
     input = input, limits = limits, head = head, left = head.length or 0,
-    phase = "size", total = 0, failure = "", closed = false, touched = false, -- checked: literal_unknown
+    phase = "size", total = 0, failure = "", closed = false, touched = false,
     on_first_read = on_first_read, -- checked: literal_unknown
-    state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end, -- checked: literal_unknown
+    state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end, skip = nil,
   }
   return r
 end

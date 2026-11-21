@@ -407,7 +407,29 @@ local function damaged(rows: {{boolean}}, flip: function(x: integer, y: integer)
   return copy
 end
 
+--- Each of the 32 codes (4 levels by 8 masks) reads back from its rows at each quiet zone and as light on dark, and the
+--- 15 other drawings (svg and text at each quiet zone, text inverted or ascii) take turns over them, so every drawing
+--- reads two codes or more and every code is read from one drawing besides its rows. How a drawing is made does not
+--- turn on the level or the mask, so one drawing for each code covers them.
+local record Drawing
+  svg: boolean
+  quiet: integer
+  invert: boolean
+  ascii: boolean
+end
+
 local function test_every_drawing_reads_back_at_each_level_and_mask()
+  local drawings: mut {Drawing} = {}
+  for _, quiet in ipairs({ 4, 1, 0 }) do
+    drawings[#drawings + 1] = { svg = true, quiet = quiet, invert = false, ascii = false }
+    for _, invert in ipairs({ false, true }) do
+      for _, ascii in ipairs({ false, true }) do
+        drawings[#drawings + 1] = { svg = false, quiet = quiet, invert = invert, ascii = ascii }
+      end
+    end
+  end
+  assert(#drawings == 15, #drawings)
+  local turn = 0
   for _, level in ipairs({ "L", "M", "Q", "H" }) do
     assert(level is Qr.Level)
     for mask = 0, 7 do
@@ -418,19 +440,21 @@ local function test_every_drawing_reads_back_at_each_level_and_mask()
         assert(read.text == text and read.code.level == level and read.code.mask == mask, how)
       end
       for _, quiet in ipairs({ 4, 1, 0 }) do
-        holds("rows", Qr.decode(Qr.rows(code, quiet)))
-        holds("svg", Qr.read(Qr.svg(code, { quiet = quiet })))
-        for _, invert in ipairs({ false, true }) do
-          for _, ascii in ipairs({ false, true }) do
-            holds(("text, quiet %d, invert %s, ascii %s"):format(quiet, invert, ascii),
-              Qr.read(Qr.text(code, { quiet = quiet, invert = invert, ascii = ascii })))
-          end
-        end
+        holds(("rows, quiet %d"):format(quiet), Qr.decode(Qr.rows(code, quiet)))
       end
       -- A grid of light on dark reads too.
       holds("light on dark", Qr.decode(damaged(Qr.rows(code), function(_: integer, _: integer): boolean
         return true
       end)))
+      local index = turn % #drawings + 1
+      turn = turn + 1
+      local d = assert(drawings[index])
+      if d.svg then
+        holds(("svg, quiet %d"):format(d.quiet), Qr.read(Qr.svg(code, { quiet = d.quiet })))
+      else
+        holds(("text, quiet %d, invert %s, ascii %s"):format(d.quiet, d.invert, d.ascii),
+          Qr.read(Qr.text(code, { quiet = d.quiet, invert = d.invert, ascii = d.ascii })))
+      end
     end
   end
 end

@@ -884,10 +884,11 @@ static struct transfer *transfer_of (CURL *easy) {
   return t;
 }
 
-/* What curl's mbedtls verify callback (patch/curl/05-distrust-after.txt)
- * adds to the flags of `crt`, at `depth` of a chain `easy`'s handshake
- * verifies, from Mozilla's root store and OneCRL, recording on the
- * transfer what it refused for its message:
+/* The flags Mozilla's root store and OneCRL add to those of `crt`, at
+ * `depth` of a chain a handshake verifies, root first, recording in
+ * `revoked` (of `size` bytes, "" until then) the subject of the first
+ * certificate refused as revoked, and in `*root` the distrusted root
+ * that refused the server's own:
  * - MBEDTLS_X509_BADCERT_REVOKED for any certificate of the chain OneCRL
  *   revokes ([`is_revoked`]);
  * - MBEDTLS_X509_BADCERT_OTHER for the server's certificate (depth 0)
@@ -895,13 +896,13 @@ static struct transfer *transfer_of (CURL *easy) {
  *   certificate issued after a date and this one's notBefore is past
  *   it. A root the server presents as its own certificate is held to its
  *   own date. */
-uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth) {
+static uint32_t distrust_flags (const mbedtls_x509_crt *crt, int depth, char *revoked_subject,
+                                size_t size, const struct distrusted **root_out) {
   uint32_t flags = 0;
   if (revoked_count > 0 && is_revoked(crt)) {
-    struct transfer *t = transfer_of(easy);
-    if (t != NULL && t->revoked[0] == '\0' &&
-        mbedtls_x509_dn_gets(t->revoked, sizeof t->revoked, &crt->subject) < 0) {
-      snprintf(t->revoked, sizeof t->revoked, "%s", "(a subject mbedtls cannot word)");
+    if (revoked_subject != NULL && revoked_subject[0] == '\0' &&
+        mbedtls_x509_dn_gets(revoked_subject, size, &crt->subject) < 0) {
+      snprintf(revoked_subject, size, "%s", "(a subject mbedtls cannot word)");
     }
     flags |= MBEDTLS_X509_BADCERT_REVOKED;
   }
@@ -924,9 +925,33 @@ uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth
   snprintf(issued, sizeof issued, "%04d%02d%02d%02d%02d%02d", from->year, from->mon,
            from->day, from->hour, from->min, from->sec);
   if (strcmp(issued, root->after) <= 0) return flags;
-  struct transfer *t = transfer_of(easy);
-  if (t != NULL) t->distrusted = root;
+  *root_out = root;
   return flags | MBEDTLS_X509_BADCERT_OTHER;
+}
+
+/* What curl's mbedtls verify callback (patch/curl/05-distrust-after.txt)
+ * adds to the flags of `crt`, at `depth` of a chain `easy`'s handshake
+ * verifies ([`distrust_flags`]), recording on the transfer what it
+ * refused for its message. */
+uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth) {
+  struct transfer *t = transfer_of(easy);
+  const struct distrusted *root = NULL;
+  uint32_t flags = distrust_flags(crt, depth, t != NULL ? t->revoked : NULL,
+                                  t != NULL ? sizeof t->revoked : 0, &root);
+  if (t != NULL && root != NULL) t->distrusted = root;
+  return flags;
+}
+
+uint32_t cosmic_roots_distrust (const mbedtls_x509_crt *crt, int depth,
+                                struct cosmic_distrust_note *note) {
+  const struct distrusted *root = NULL;
+  uint32_t flags = distrust_flags(crt, depth, note->revoked, sizeof note->revoked, &root);
+  if (root != NULL && note->distrusted[0] == '\0') {
+    snprintf(note->distrusted, sizeof note->distrusted,
+             "the CA root \"%s\" is trusted for no server certificate issued after %s UTC, "
+             "as Mozilla's root store says, and this one was", root->label, root->after);
+  }
+  return flags;
 }
 
 /* Pushes `t`'s failure: curl's message, and for a peer whose chain

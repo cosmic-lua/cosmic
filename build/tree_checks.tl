@@ -116,6 +116,8 @@ allowed["cosmic.tls.leaf"] = "what a program reads of a certificate it holds, it
   "Certs.load reads leaves through the same local, so nothing in the tree calls it but its test"
 allowed["cosmic.tls.static"] = "the source of certificates a program holds already, for Net.serve's `tls`; the " ..
   "tree's own servers take theirs from tailscaled, so only its tests serve static pairs"
+allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
+  "the tree's own clients speak through cosmic.http, so only its tests make one"
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
 
 allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..

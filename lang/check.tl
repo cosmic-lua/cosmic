@@ -910,7 +910,7 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
     index.by_name[m.name] = list
   end
   if not value then
-    -- An interface that lists another has the fields it leaves out from it (a record or class declares every one).
+    -- A declaration that lists an interface has the fields it leaves out from it.
     for _, f in ipairs(Declarations.inherited(ctx.store, ctx.judge, decl)) do
       index.by_name[f.name] = { { type = f.type, mut = f.mut == true, method = false } }
     end
@@ -1937,6 +1937,23 @@ function TableLiterals.reach_fix(ctx: Ctx, decl: Decl, function_name: string): s
   return function_name
 end
 
+--- The fields of a value of `decl`: those it declares, then those it has from the interfaces it lists
+--- ([`Declarations.inherited`]).
+function TableLiterals.fields_of(ctx: Ctx, decl: Types.Decl): {Types.Field}
+  local body = decl.body
+  local out: mut {Types.Field} = {}
+  if body == nil then
+    return out
+  end
+  for _, f in ipairs(body.fields) do
+    out[#out + 1] = f
+  end
+  for _, f in ipairs(Declarations.inherited(ctx.store, ctx.judge, decl)) do
+    out[#out + 1] = f
+  end
+  return out
+end
+
 --- A literal checked against a record or a class: each field given once and none the declaration lacks, every field
 --- that is not omittable given (a class names every field), each value checked against its field. A literal of a
 --- class of this module is noted for the code generator, which writes the class literal; the table of a class of
@@ -2016,7 +2033,7 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local missing: mut {string} = {}
   local first_missing: Types.Field? = nil
   local optional_field: Types.Field? = nil
-  for _, f in ipairs(body.fields) do
+  for _, f in ipairs(TableLiterals.fields_of(ctx, n.decl)) do
     if (is_class or f.omittable ~= true) and given[f.name] ~= true and not copied then
       missing[#missing + 1] = quoted(f.name)
       if first_missing == nil then first_missing = f end
@@ -2310,7 +2327,7 @@ function TableLiterals.table_literal(ctx: Ctx, e: Ast.Table, expected: Type?): T
       return made
     end
     local fields: mut {string} = {}
-    for _, f in ipairs(body.fields) do
+    for _, f in ipairs(TableLiterals.fields_of(ctx, made.decl)) do
       fields[#fields + 1] = f.name
     end
     ctx.spreads[e.id] = fields
@@ -3463,14 +3480,10 @@ end
 --- them, and the values of the enums.
 function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
   local first = list[1]
-  local body: Types.Body? = nil
-  if first ~= nil and (first.tag == "named") then
-    body = first.decl.body
-  end
-  if body == nil then
+  if first == nil or not ((first.tag == "named")) or first.decl.body == nil then
     return nil, nil
   end
-  for _, f in ipairs(body.fields) do
+  for _, f in ipairs(TableLiterals.fields_of(ctx, first.decl)) do
     local values: mut {string} = {}
     local seen: mut {string: boolean} = {}
     local apart = true

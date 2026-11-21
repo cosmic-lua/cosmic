@@ -1,13 +1,39 @@
--- The TLS server at the Lua boundary, as the core provides it through
--- mbedtls (core/tls.c): a configuration of certificate and key pairs,
--- and a session of one over an accepted socket.
+-- TLS at the Lua boundary, as the core provides it through mbedtls
+-- (core/tls.c): a server's configuration of certificate and key pairs,
+-- a client's of the roots it verifies a server against, and a session
+-- of either over a socket.
 --- @kind binding
 
 local record tls
-  -- A server configuration, TLS 1.2 and 1.3. The collector frees it,
-  -- once no session of it is left.
+  -- A configuration, a server's or a client's, TLS 1.2 and 1.3. The
+  -- collector frees it, once no session of it is left.
   record Config
     userdata
+  end
+
+  -- What the peer's certificate says of itself.
+  record Peer
+    -- The certificate, DER.
+    der: string
+    -- Its SubjectPublicKeyInfo, DER.
+    public_key: string
+    -- Its subject and issuer, as mbedtls words a name
+    -- ("CN=example.com, O=Example"); "" where it cannot.
+    subject: string
+    issuer: string
+    -- Its serial number, as colon-separated hex bytes.
+    serial: string
+    -- Its Subject Alternative Names: DNS names, IP addresses as text,
+    -- URIs, and email addresses.
+    names: {string}
+    addresses: {string}
+    uris: {string}
+    emails: {string}
+    -- When it starts and stops being valid, in seconds since the epoch.
+    not_before: integer
+    not_after: integer
+    -- Whether its chain was verified, and passed.
+    verified: boolean
   end
 
   -- What a session's handshake settled.
@@ -18,11 +44,14 @@ local record tls
     -- configuration has.
     alpn?: string
     -- The name the client asked for (SNI); nil where it named none, or
-    -- one with a byte no host name has.
+    -- one with a byte no host name has. On a client's session, the name
+    -- it verified the server against.
     server_name?: string
+    -- The peer's certificate; nil where it presented none.
+    peer?: Peer
   end
 
-  -- A server session over a socket it does not own. A call that does
+  -- A session over a socket it does not own. A call that does
   -- not finish answers nil (or false), why, and what stopped it: READ
   -- or WRITE, why "", where it waits for the socket to be ready so,
   -- before the same call is made again; ENDED, why "", where the peer
@@ -79,8 +108,19 @@ local record tls
   -- where a pair cannot be read or its key is not its certificate's.
   -- Raises on arguments of the wrong shape.
   config: function(pairs: {Pair}, alpn?: {string}): Config?, string
-  -- A session of config over the socket fd.
-  session: function(config: Config, fd: integer): Session?, string
+  -- A client configuration that verifies a server's chain against the
+  -- PEM certificates of roots, or verifies nothing where roots is
+  -- false; offers the ALPN protocols of alpn, as `config` does; and
+  -- presents identity to a server that asks for a certificate. Nil and
+  -- why where roots holds no certificate it reads, or identity cannot
+  -- be read or its key is not its certificate's.
+  client: function(roots: string | boolean, alpn?: {string}, identity?: Pair): Config?, string
+  -- A session of config over the socket fd: a client's asks for
+  -- server_name and verifies the server's certificate names it, where
+  -- config verifies (an IP address is matched against the certificate's
+  -- IP addresses, and sent as no name). Raises on a client's verifying
+  -- session with no server_name, and on one for a server's config.
+  session: function(config: Config, fd: integer, server_name?: string): Session?, string
   -- What the first certificate of a PEM chain says of itself.
   leaf: function(pem: string): Leaf?, string
 end
