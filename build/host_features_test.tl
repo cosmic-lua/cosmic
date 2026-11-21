@@ -87,9 +87,11 @@ local function test_a_host_is_named_by_its_kernel_and_keys_its_features(tmp: str
   write("cpuinfo", "flags : sse a b_2 avx avx2\n")
   seen("a feature more", false, true)
   write("osrelease", "6.17.0-1023-azure\n")
-  seen("another kernel", true, false)
+  seen("another build of the kernel's series", false, false)
   write("version", "#23-Ubuntu SMP\n")
-  seen("another build of it", true, false)
+  seen("another version string", false, false)
+  write("osrelease", "6.18.0-1001-aws\n")
+  seen("another series", true, false)
   assert(Fs.remove(tmp .. "/cpuinfo"))
   seen("no features at all", false, true)
 end

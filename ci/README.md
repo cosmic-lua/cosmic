@@ -499,9 +499,11 @@ a Linux leg its image and how it is started (all of it
 `leg-container.sh`'s and `seccomp-profile.sh`'s, which are hashed), and
 the engine's version; on macOS the runner's image label. Not ci.yml,
 whose every edit would move it. The verdict cache is also named by the
-kernel's release and version ([`cosmic_ci/host_id.tl`]), which can differ
-between runners of one leg: named by the container alone, a run restored
-another runner's cache and none of its verdicts stood. The processor's
+series of the kernel's release ([`cosmic_ci/host_id.tl`]), as every key
+holds it: `7.0` of both `7.0.0-1014-aws` and `7.0.0-1017-azure`, the
+builds ubuntu-24.04 runners land on, so those runners share one cache
+and their verdicts. A build or version string of one series is in
+neither the name nor a key. The processor's
 features are in neither the name nor a key, but for the key of a module
 that declares `cpu_features` (doc/testing.md, "processor features"), so
 runners of other processors restore one cache; the step logs the kernel
