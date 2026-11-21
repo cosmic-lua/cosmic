@@ -56,7 +56,7 @@ local function host(tmp: string, machine: string, cpuinfo: string):
     packages = { write("packages", "p1") },
     system = { write("os", "o1"), write("osrelease", "6.17.0-1022-azure\n"),
       write("version", "#22-Ubuntu SMP\n") },
-    machine = machine,
+    sysname = "Linux", machine = machine,
     status = write("status", "Uid: 1 1 1 1\n"), own_proc = true, host_id = "h", uid = 1,
   }
   local names: mut {string:boolean} = {}
