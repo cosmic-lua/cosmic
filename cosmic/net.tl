@@ -26,7 +26,8 @@
 --- most the object's timeout (no limit by default; [`set_timeout`]
 --- changes it), failing with [`Poll.TIMEOUT`], and ends with
 --- "interrupted", within a tenth of a second, when the innermost open
---- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do.
+--- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do
+--- outside a task.
 ---
 --- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to connect, to
 --- accept, to read or to write waits through the run, so its other
@@ -1490,8 +1491,8 @@ end
 --- [`Child.run`] in a protocol holds a guard inside the server's, so a
 --- signal ends its child as it would anywhere, and a run begun after
 --- the signal runs to its end. A wait that holds the thread rather than
---- waiting through the run ([`Http.get`]'s, `h:wait` on a child a
---- protocol started) reads the server's guard, and ends at a signal.
+--- waiting through the run (`h:wait` on a child a protocol started)
+--- reads the server's guard, and ends at a signal.
 function Net.serve(spec: Net.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then
@@ -1567,8 +1568,8 @@ end
 --- a run is in progress, and in a run of its own otherwise, which ends
 --- once every task `body` spawned has. The connections are served only
 --- while `body` waits through the run -- a [`cosmic.net`] wait, a
---- [`Poll.delay`], a join -- so a call in it that holds the thread
---- ([`Http.get`]) is never answered.
+--- [`Poll.delay`], a join, [`Http.get`] -- so a call in it that holds
+--- the thread is never answered.
 ---
 --- Unlike [`Net.serve`] it holds no failure apart: what `serve` raises
 --- ends the run, as any task's error does, and so does a failure to

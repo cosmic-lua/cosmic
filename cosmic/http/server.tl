@@ -1003,14 +1003,10 @@ end
 ---
 --- Every handler runs in the task of its connection, and the server
 --- serves the next only while one waits on the run: a read of
---- `req.body`, a [`cosmic.net`] wait, [`Poll.delay`]. A handler that
---- blocks the thread -- [`Http.get`] to another server, a
+--- `req.body`, a [`cosmic.net`] wait, [`Http.get`] to another server,
+--- [`Poll.delay`]. A handler that blocks the thread -- a
 --- [`cosmic.sqlite`] query, a long computation -- stalls every
 --- connection until it returns.
--- TODO: drive curl's multi handle from Poll.run's loop (a socket and
--- timer callback per handle, waited on as a Net.Conn's descriptor is),
--- so Http.open, Http.get and Http.request in a handler wait through the
--- run rather than holding every connection.
 function Server.serve(spec: Server.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then

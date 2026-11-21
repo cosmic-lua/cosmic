@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -758,6 +759,8 @@ static size_t header_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
 
 /* ---- the pump: one wait-and-perform step ------------------------- */
 
+static CURLMcode pump_step (const char **which);
+
 /* Waits (at most a second) for any transfer on the shared multi handle
  * to have something to do, then does it. Since every transfer shares
  * the handle, driving one drives them all; whichever finishes is marked
@@ -788,6 +791,23 @@ static CURLMcode pump_once (const char **which) {
     *which = "curl_multi_poll";
     return mc;
   }
+  return pump_step(which);
+}
+
+/* Undoes the write callback's pause. Clearing the flag first matters:
+ * curl may call the callback, which may pause again, from inside
+ * curl_easy_pause. */
+static void resume (struct transfer *t) {
+  if (!t->paused || t->easy == NULL) return;
+  t->paused = 0;
+  curl_easy_pause(t->easy, CURLPAUSE_CONT);
+}
+
+/* One step of the shared multi handle with no wait: the scripted
+ * connections' turn, then curl's, each finished transfer marked done
+ * through its CURLINFO_PRIVATE pointer. */
+static CURLMcode pump_step (const char **which) {
+  CURLMcode mc;
   for (struct script *s = live_scripts; s != NULL; s = s->next) {
     script_step(s);
   }
@@ -815,14 +835,6 @@ static CURLMcode pump_once (const char **which) {
   return CURLM_OK;
 }
 
-/* Undoes the write callback's pause. Clearing the flag first matters:
- * curl may call the callback, which may pause again, from inside
- * curl_easy_pause. */
-static void resume (struct transfer *t) {
-  if (!t->paused || t->easy == NULL) return;
-  t->paused = 0;
-  curl_easy_pause(t->easy, CURLPAUSE_CONT);
-}
 
 /* curl's own message, without the newline it sometimes ends with.
  * TODO: a transport failure's message still carries libc's words for
@@ -1399,6 +1411,7 @@ static int http_open (lua_State *L) {
   size_t pin_len = 0;
   r.pin = opt_string(L, "pin", &pin_len); /* index 9 */
   r.follow = opt_boolean(L, "follow", 1);
+  int wait = opt_boolean(L, "wait", 1);
   r.verbose = opt_boolean(L, "verbose", 0);
   r.redirect_protocols = opt_redirect_protocols(L);
   r.max_redirects = opt_integer(L, "max_redirects", 10, MAX_REDIRECTS);
@@ -1515,6 +1528,12 @@ static int http_open (lua_State *L) {
     transfer_release(t);
     return MULTI_FAILED(L, "curl_multi_add_handle", mc);
   }
+  /* With `wait = false` the caller waits: it pumps (`pump_fds`, `pump`)
+   * until `ready`, then asks `settled`. */
+  if (!wait) {
+    lua_settop(L, 10);
+    return cosmic_succeeded(L);
+  }
   while (!t->ready) {
     if (cosmic_signal_caught()) {
       transfer_release(t);
@@ -1538,11 +1557,109 @@ static int http_open (lua_State *L) {
   return cosmic_succeeded(L);
 }
 
+/* pump_fds(): what the shared multi handle waits on, for a caller that
+ * waits itself (a task of Poll.run) rather than in pump_once: a list of
+ * descriptors, a list of the poll(2) events each waits for (POLLIN,
+ * POLLOUT), and how long curl's own timers let the caller wait, in
+ * milliseconds, -1 for no limit. The scripted transport's connections
+ * are among the descriptors. The caller then calls `pump`. */
+static int http_pump_fds (lua_State *L) {
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_Integer n = 0;
+  for (struct script *s = live_scripts; s != NULL; s = s->next) {
+    for (size_t i = 0; i < s->opened; i++) {
+      struct scripted *c = &s->conns[i];
+      if (c->fd < 0) continue;
+      n++;
+      lua_pushinteger(L, c->fd);
+      lua_rawseti(L, -3, n);
+      lua_pushinteger(L, POLLIN | (c->written < c->reply_len ? POLLOUT : 0));
+      lua_rawseti(L, -2, n);
+    }
+  }
+  long timeout_ms = -1;
+  if (shared_multi != NULL) {
+    unsigned need = 0;
+    CURLMcode mc = curl_multi_waitfds(shared_multi, NULL, 0, &need);
+    if (mc != CURLM_OK) return MULTI_FAILED(L, "curl_multi_waitfds", mc);
+    if (need > 0) {
+      /* A userdata, so the lua_rawseti below, which can raise, leaks
+       * nothing; it sits under the two lists until the return. */
+      struct curl_waitfd *fds = lua_newuserdatauv(L, need * sizeof *fds, 0);
+      lua_insert(L, -3);
+      unsigned got = 0;
+      mc = curl_multi_waitfds(shared_multi, fds, need, &got);
+      if (mc != CURLM_OK) return MULTI_FAILED(L, "curl_multi_waitfds", mc);
+      for (unsigned i = 0; i < got && i < need; i++) {
+        short events = 0;
+        if (fds[i].events & (CURL_WAIT_POLLIN | CURL_WAIT_POLLPRI)) events |= POLLIN;
+        if (fds[i].events & CURL_WAIT_POLLOUT) events |= POLLOUT;
+        n++;
+        lua_pushinteger(L, fds[i].fd);
+        lua_rawseti(L, -3, n);
+        lua_pushinteger(L, events);
+        lua_rawseti(L, -2, n);
+      }
+    }
+    mc = curl_multi_timeout(shared_multi, &timeout_ms);
+    if (mc != CURLM_OK) return MULTI_FAILED(L, "curl_multi_timeout", mc);
+  }
+  lua_pushinteger(L, timeout_ms);
+  return 3;
+}
+
+/* pump(): does what the shared multi handle has to do now, without
+ * waiting, as pump_once does after its wait: true and "", or nil and
+ * the multi handle's failure. */
+static int http_pump (lua_State *L) {
+  if (shared_multi == NULL) return cosmic_done(L);
+  const char *which = NULL;
+  CURLMcode mc = pump_step(&which);
+  if (mc != CURLM_OK) return MULTI_FAILED(L, which, mc);
+  return cosmic_done(L);
+}
+
+/* handle:ready(): whether the final response's headers are known, or
+ * the transfer is over: an `open` with `wait = false` is pumped until
+ * it is. */
+static int handle_ready (lua_State *L) {
+  struct transfer *t = checked(L);
+  lua_pushboolean(L, t->ready);
+  return 1;
+}
+
+/* handle:settled(): once ready, true and "", or, where the transfer
+ * failed before any header arrived, nil, why and its code, as `open`
+ * answers when it waits itself. */
+static int handle_settled (lua_State *L) {
+  struct transfer *t = checked(L);
+  if (t->done && t->result != CURLE_OK && !t->headed && t->body_len == 0) {
+    lua_pushnil(L);
+    push_transfer_error(L, t);
+    lua_pushstring(L, transfer_code(t->result));
+    return 3;
+  }
+  return cosmic_done(L);
+}
+
+/* handle:waiting(): whether `read` would have to pump before it could
+ * answer, with no body held and the transfer not over. It resumes a
+ * paused transfer first, as `read` does, so that pumping can fill the
+ * body. */
+static int handle_waiting (lua_State *L) {
+  struct transfer *t = checked(L);
+  if (t->body_len == 0) resume(t);
+  lua_pushboolean(L, t->body_len == 0 && !t->done);
+  return 1;
+}
+
 static const luaL_Reg handle_methods[] = {
   {"status", handle_status}, {"url", handle_url},
   {"headers", handle_headers}, {"read", handle_read},
   {"sent", handle_sent},     {"connections", handle_connections},
-  {"close", handle_close},
+  {"close", handle_close},   {"ready", handle_ready},
+  {"settled", handle_settled}, {"waiting", handle_waiting},
   {NULL, NULL},
 };
 
@@ -1666,6 +1783,8 @@ static const luaL_Reg module[] = {
   {"roots", http_roots},
   {"public_key", http_public_key},
   {"check_certificate", http_check_certificate},
+  {"pump_fds", http_pump_fds},
+  {"pump", http_pump},
   {NULL, NULL},
 };
 
