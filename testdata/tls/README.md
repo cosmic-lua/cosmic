@@ -31,5 +31,5 @@ openssl ca -batch -config ca.cnf -cert ca.pem -keyfile ca.key -in a.csr -extfile
   -startdate 20200101000000Z -enddate 20200201000000Z -out c.pem
 ```
 
-[`cosmic.tls`]: ../../cosmic/tls.tl
 [`cosmic.net`]: ../../cosmic/net.tl
+[`cosmic.tls`]: ../../cosmic/tls.tl

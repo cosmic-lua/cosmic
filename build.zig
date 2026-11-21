@@ -207,7 +207,7 @@ const mbedtls_config = [_][]const u8{
 };
 
 /// The TLS 1.2/1.3 client and server and X.509 chain sources under
-/// mbedtls's own `library/`. The server sources serve `cosmic.net`'s TLS
+/// mbedtls's own `library/`. The server sources serve [`cosmic.net`]'s TLS
 /// listeners (core/tls.c). Session-cache/ticket/cookie, DTLS, CRL and
 /// certificate-writing sources are left out: nothing here resumes from a
 /// ticket or writes a certificate.
