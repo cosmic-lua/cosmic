@@ -88,8 +88,9 @@ end
 local class Certs
   --- Internal: what obtains the pairs. No caller reads it.
   source: Source
-  --- Internal: the options. No caller reads them.
+  --- Internal: the protocols ALPN offers. No caller reads them.
   alpn?: {string}
+  --- Internal: the first wait after a failed renewal. No caller reads it.
   retry_ns: integer
   --- Internal: the newest configuration, once one is loaded.
   mut current?: raw_tls.Config

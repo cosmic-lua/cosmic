@@ -250,3 +250,28 @@ local function test_a_handshake_sent_a_byte_at_a_time_is_cut_off()
   })
   assert(lasted < Clock.seconds(2), "the dripping client was held " .. tostring(lasted // 1000000) .. " ms")
 end
+
+--- A protocol of [`Net.serve`] that handshakes before it reads knows what
+--- the handshake settled, and a connection in the clear answers no
+--- `tls`.
+local function test_a_protocol_handshakes_first_and_reads_what_it_settled(tmp: string)
+  local said = ""
+  assert(Net.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    tls = Tls.certs(Tls.static({ A }), { alpn = { "http/1.1" } }),
+    timeout_ns = Clock.seconds(20),
+    serve = function(conn: Net.Conn)
+      assert(conn:handshake())
+      local info = assert(conn:tls())
+      local body = info.version .. " " .. (info.alpn or "-") .. " " .. (info.server_name or "-")
+      local head = ""
+      while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
+      assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#body) .. "\r\nConnection: close\r\n\r\n" .. body))
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      said = fetched(tmp, assert(Array.at(addresses, 1).port), { "localhost" })
+      server:stop()
+    end,
+  })
+  assert(said == "200 TLSv1.3 http/1.1 localhost", said)
+end

@@ -137,3 +137,17 @@ local function test_a_renewal_asks_for_half_the_life_and_a_cancel_ends_keep()
   assert(#asked == 2 and asked[2] == life // 2, tostring(asked[2]))
   assert(#reports == 0, table.concat(reports, "; "))
 end
+
+--- A configuration no session holds is freed by the collector, and the
+--- pairs loaded after it are served.
+local function test_a_replaced_configuration_is_collected()
+  local certs = Tls.certs(Tls.static({ { cert = fixture("a.pem"), key = fixture("a.key") } }))
+  assert(certs:load())
+  local before = collectgarbage("count")
+  for _ = 1, 20 do assert(certs:load()) end
+  collectgarbage("collect")
+  collectgarbage("collect")
+  -- Twenty configurations held would be more than this.
+  assert(collectgarbage("count") - before < 64, "the replaced configurations were collected")
+  assert(certs:config() ~= nil)
+end

@@ -57,7 +57,9 @@ local Types = require("cosmic.web.types")
 
 --- Where [`Tailnet.serving`] serves an app, and what it presents.
 local record Reached
+  --- Each of the node's tailnet addresses, at the port.
   listeners: {Net.Address}
+  --- The node's certificate, from its daemon, kept current.
   certs: Tls.Certs
 end
 
