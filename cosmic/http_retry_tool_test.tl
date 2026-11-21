@@ -36,7 +36,7 @@ return function(argv: {string}): integer
     "Connection: close\r\n\r\n"
   local began = Clock.monotonic_ns()
   assert(Fs.write(marker, ""))
-  local got, why = Http.get("http://cosmic.test/", {
+  local got, why = Http.get("http://cosmic.test/", { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2 },
     script = { reply, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" },
   })
@@ -49,7 +49,7 @@ end
 ]]))
   local marker = tmp .. "/marker"
   local started = this_program.program({ "--standalone", script, marker },
-    { stdout = "capture", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   for _ = 1, 2000 do
     if Fs.stat(marker) ~= nil then break end

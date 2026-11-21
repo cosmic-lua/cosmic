@@ -264,8 +264,10 @@ local record Options
   process_group?: boolean
   --- How long the child may run, from its start, before it is ended as an
   --- expired [`Handle.wait`] ends it -- SIGTERM, a grace period, then
-  --- SIGKILL, its group included -- its Result `timed_out`. Nil for no
-  --- limit, not 0, which ends it at the first wait on it. [`Child.run`]'s
+  --- SIGKILL, its group included -- its Result `timed_out`. Every start
+  --- states it, so that no child waits for good unseen: [`Child.FOREVER`]
+  --- for a child meant to run until it is ended (a session, a server),
+  --- never 0, which ends it at the first wait on it. [`Child.run`]'s
   --- wait ends the child at it. A started child is ended for it by
   --- whatever waits on it once it has passed: its handle's `wait` (with a
   --- timeout of its own or not), [`try_wait`], [`Child.wait_any`], or a
@@ -275,7 +277,7 @@ local record Options
   --- until something waits, or its handle closes. [`Handle.drain`], which
   --- ends no process, does not end it either: a loop over it asks
   --- [`try_wait`] to have the deadline kept.
-  timeout_ns?: integer
+  timeout_ns: integer
   --- What the child is held to (see [`Sandbox`]); nil for nothing.
   sandbox?: Sandbox
   --- A [`cosmic.sandbox`] policy the child is held to, met or the start
@@ -1910,7 +1912,13 @@ local record Child
   type Stdin = Stdin
   type Stdout = Stdout
   type Stderr = Stderr
+
+  --- The [`Options.timeout_ns`] of a child that runs until it is ended:
+  --- no limit.
+  FOREVER: integer
 end
+
+Child.FOREVER = -1
 
 --- The status a shell reports for a child that ended as `result` says:
 --- its exit status, or 128 plus the number of the signal that ended it.
@@ -1948,8 +1956,17 @@ local function without_nul(value: string, name: string)
   if value:find("\0", 1, true) then error("child: " .. name .. " contains a NUL byte", 4) end
 end
 
+--- Whether `value` is nil: of what the types say is there, which a Lua
+--- caller may leave out.
+local function unstated(value: any): boolean
+  return value == nil
+end
+
 local function validate(argv: {string}, opts: Options)
   if #argv == 0 then error("child: argv is empty", 3) end
+  if unstated(opts) then
+    error("child: opts is required, with timeout_ns: a limit, or Child.FOREVER for none", 3)
+  end
   for i, value in ipairs(argv) do
     without_nul(value, "argv[" .. tostring(i) .. "]")
   end
@@ -1990,7 +2007,12 @@ local function validate(argv: {string}, opts: Options)
   if capture_limit ~= nil and (capture_limit < 1 or capture_limit > INT_MAX) then
     error("child: capture_limit is out of range", 3)
   end
-  Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
+  if unstated(opts.timeout_ns) then
+    error("child: opts.timeout_ns is required: a limit in nanoseconds, or Child.FOREVER for none", 3)
+  end
+  if opts.timeout_ns ~= Child.FOREVER then
+    Poll.checked_ns(opts.timeout_ns, "child", "timeout_ns", 3)
+  end
   local logged = opts.relay_log
   if logged is integer and (logged < 0 or logged > INT_MAX) then
     error("child: relay_log must be \"null\", \"inherit\" or a descriptor", 3)
@@ -3978,7 +4000,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
   end
   local deadline: integer?
   local timeout = opts.timeout_ns
-  if timeout ~= nil then deadline = now() + timeout end
+  if timeout ~= Child.FOREVER then deadline = now() + timeout end
   local h = make_handle(pid, grouped, opts.capture_limit or DEFAULT_CAPTURE_LIMIT, deadline)
   if held ~= nil and held.tmp ~= "" then h._tmp = held.tmp end
   if held ~= nil and held.seatbelt == true then h._seatbelt = held.sandbox.seatbelt end -- checked: field_fixed
@@ -4076,8 +4098,7 @@ end
 --- does a wait once the child's `timeout_ns`, counted from here, has
 --- passed. Nothing ends it for `timeout_ns` while nothing waits on it
 --- ([`Options.timeout_ns`]).
-function Child.start(argv: {string}, opts?: Options): Handle?, string
-  opts = opts or {}
+function Child.start(argv: {string}, opts: Options): Handle?, string
   validate(argv, opts)
   return start(argv, opts)
 end
@@ -4316,8 +4337,7 @@ end
 --- nil and "child: signal guard: ..." when its guard cannot be opened.
 --- In a task of [`Poll.run`] that is cancelled, it ends the child, as a
 --- timeout would, and answers nil and [`Poll.CANCELLED`].
-function Child.run(argv: {string}, opts?: Options): Result?, string
-  opts = opts or {}
+function Child.run(argv: {string}, opts: Options): Result?, string
   validate(argv, opts)
   if opts.stdin == "stream" or opts.stdout == "stream" or opts.stderr == "stream" then
     error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)

@@ -208,7 +208,7 @@ local Test = require("cosmic.test")
 Test.policy { loopback = { HOSTS } }
 
 local function test_refused()
-  local response, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
+  local response, trouble = Http.open("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
   assert(response == nil and trouble ~= "")
   if PROBE then error("NAME in " .. tostring((Fs.readlink("/proc/self/ns/net"))) .. " |") end
 end
@@ -269,7 +269,7 @@ local function started(args: {string}): Child.Result?, string
     argv[#argv + 1] = assert(Proc.executable())
   end
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  return Child.run(argv, { env = env, fds = fds })
+  return Child.run(argv, { timeout_ns = Child.FOREVER, env = env, fds = fds })
 end
 ]]
   assert(Fs.write(root .. "/suite/tool_test.tl", started .. [[
@@ -288,7 +288,7 @@ local function test_is_refused_the_tool()
   -- The program is not given it at all, and its core is refused it,
   -- the artifact's descriptor with it.
   local relaunch = assert(Proc.relaunch())
-  local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" })
+  local result, trouble = Child.run({ assert(Proc.executable()), "-e", "" }, { timeout_ns = Child.FOREVER })
   assert(result == nil, "the program ran undeclared")
   -- Not there at all, or, for a worker on a sealed database, whose
   -- program's name is its core's, not run.
@@ -305,10 +305,10 @@ local function test_is_refused_the_tool()
     assert(not ok, "the program's core ran undeclared")
     assert(tostring(why):find("retained artifact descriptor", 1, true), tostring(why))
   end
-  local core, core_trouble = Child.run({ assert(relaunch.argv[1]), "-e", "" })
+  local core, core_trouble = Child.run({ assert(relaunch.argv[1]), "-e", "" }, { timeout_ns = Child.FOREVER })
   assert(core == nil, "the program's core ran undeclared")
   assert(core_trouble:find("ermission denied", 1, true), core_trouble)
-  local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" })
+  local exe, exe_trouble = Child.run({ "/proc/self/exe", "-e", "" }, { timeout_ns = Child.FOREVER })
   assert(exe == nil, "the program ran through /proc/self/exe")
   local _ = exe_trouble
 end
@@ -462,7 +462,7 @@ local function run_then(tmp: string, root: string, env: {string:string}, out: st
   local fd = assert(Fs.open_write(out))
   local args: mut {string} = { "test" }
   for _, word in ipairs(words) do args[#args + 1] = word end
-  local started = this_program.program(args, {
+  local started = this_program.program(args, { timeout_ns = Child.FOREVER,
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })
   local handle = assert(Child.start(started.argv, started.options))

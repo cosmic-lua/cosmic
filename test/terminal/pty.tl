@@ -68,13 +68,13 @@ elseif arg[1] == "inherited" then
   local program = { "/bin/sh", "-c", "exit 0" }
   local case = arg[2]
   local streams: {integer} = { 1 }
-  local opts: Child.Options = { policy = { profiles = { "system" } } }
+  local opts: Child.Options = { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } } }
   local slot = "stdio[0]"
   if case == "stderr" then
     streams, slot = { 0, 1 }, "stdio[2]"
   elseif case == "alias" then
     -- stderr is stdout's, which is the terminal this process holds.
-    streams, slot, opts = { 0 }, "stdio[1]", { policy = { profiles = { "system" } }, stderr = "stdout" }
+    streams, slot, opts = { 0 }, "stdio[1]", { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } }, stderr = "stdout" }
   end
   local child, refusal = Child.start_on_pty(program, opts, { streams = streams })
   assert(child == nil, "a terminal this process holds reached a policy child")
@@ -91,7 +91,7 @@ else
     -- The pty is the child's own terminal, as the start that opens one makes it: the
     -- shell holds it on every standard stream and as its controlling terminal.
     local on_pty = assert(Child.start_on_pty({ "/bin/sh", "-c",
-      "test -t 0 && test -t 1 && test -t 2 && printf controlling-terminal >/dev/tty" }, {},
+      "test -t 0 && test -t 1 && test -t 2 && printf controlling-terminal >/dev/tty" }, { timeout_ns = Child.FOREVER },
       { streams = { 0, 1, 2 }, keep_slave = true }))
     -- The slave stays open until the output is read: macOS drops what the
     -- master has not read when the last slave descriptor closes.
@@ -103,14 +103,14 @@ else
 
     pty = assert(sys.openpty())
     for number = 0, 2 do
-      local options: Child.Options = { policy = { profiles = { "system" } },
+      local options: Child.Options = { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } },
         stdin = if number == 0 then pty.slave else "null" end,
         stdout = if number == 1 then pty.slave else "null" end,
         stderr = if number == 2 then pty.slave else "null" end }
       local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, options)
       assert_terminal_refusal(child, trouble, "stdio[" .. tostring(number) .. "]")
     end
-    local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, {
+    local child, trouble = Child.start({ "/bin/sh", "-c", "exit 0" }, { timeout_ns = Child.FOREVER,
       policy = { profiles = { "system" } },
       stdin = "null", stdout = "null", stderr = "null", fds = { [3] = pty.slave } })
     assert_terminal_refusal(child, trouble, "fds[3]")
@@ -125,7 +125,7 @@ else
     local program = { "/bin/sh", "-c", "test -t 0 && test -t 1 && test -t 2 && printf held-terminal" }
     -- Started in the root, which the profile lets a program read: a shell in
     -- a directory it does not grant prints a getcwd error on macOS.
-    local held_policy: Child.Options = { policy = { profiles = { "system" } }, cwd = "/" }
+    local held_policy: Child.Options = { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } }, cwd = "/" }
     local function refused_on_pty(opts: Child.Options, streams: {integer}, slot: string)
       local held: Child.Options = { env = opts.env, stdin = opts.stdin, input = opts.input, stdout = opts.stdout,
         stderr = opts.stderr, fds = opts.fds, capture_limit = opts.capture_limit, process_group = opts.process_group,
@@ -134,12 +134,12 @@ else
       assert(started == nil)
       assert_terminal_refusal(nil, refusal, slot)
     end
-    refused_on_pty({ stdin = real.slave }, { 1 }, "stdio[0]")
-    refused_on_pty({ stdout = real.slave }, { 0 }, "stdio[1]")
-    refused_on_pty({ stderr = real.slave }, { 0 }, "stdio[2]")
-    refused_on_pty({ stdout = "null", stderr = "null", fds = { [3] = real.slave } },
+    refused_on_pty({ timeout_ns = Child.FOREVER, stdin = real.slave }, { 1 }, "stdio[0]")
+    refused_on_pty({ timeout_ns = Child.FOREVER, stdout = real.slave }, { 0 }, "stdio[1]")
+    refused_on_pty({ timeout_ns = Child.FOREVER, stderr = real.slave }, { 0 }, "stdio[2]")
+    refused_on_pty({ timeout_ns = Child.FOREVER, stdout = "null", stderr = "null", fds = { [3] = real.slave } },
       { 0 }, "fds[3]")
-    local also, also_why = pcall(Child.start_on_pty, program, { stdin = real.slave }, { streams = { 0 } })
+    local also, also_why = pcall(Child.start_on_pty, program, { timeout_ns = Child.FOREVER, stdin = real.slave }, { streams = { 0 } })
     assert(not also and tostring(also_why):find("takes no stdin, input, stdout or stderr of its own", 1, true) ~= nil,
       tostring(also_why))
 
@@ -158,9 +158,9 @@ else
         error(said, 0)
       end
     end
-    inherited("stdin", { stdin = real.slave, stdout = "capture", stderr = "capture" })
-    inherited("stderr", { stdin = "null", stdout = "capture", stderr = real.slave })
-    inherited("alias", { stdin = "null", stdout = real.slave, stderr = "capture" })
+    inherited("stdin", { timeout_ns = Child.FOREVER, stdin = real.slave, stdout = "capture", stderr = "capture" })
+    inherited("stderr", { timeout_ns = Child.FOREVER, stdin = "null", stdout = "capture", stderr = real.slave })
+    inherited("alias", { timeout_ns = Child.FOREVER, stdin = "null", stdout = real.slave, stderr = "capture" })
     assert(sys.close(real.slave))
     assert(sys.close(real.master))
 
@@ -176,7 +176,7 @@ else
     -- controlling terminal), stderr a pipe of its own.
     local mixed = assert(Child.start_on_pty({ "/bin/sh", "-c",
       "test -t 1 && ! test -t 0 && ! test -t 2 && printf out && printf err >&2" },
-      { policy = { profiles = { "system" } }, cwd = "/", stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
+      { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } }, cwd = "/", stdin = "null", stderr = "capture" }, { streams = { 1 }, keep_slave = true }))
     assert(Poll.readable(mixed.master, Clock.seconds(5)))
     assert((assert(sys.read(mixed.master, 100))) == "out")
     local done = assert(mixed.child:wait())

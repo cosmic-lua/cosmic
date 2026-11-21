@@ -7,6 +7,11 @@ local Proc = require("cosmic.proc")
 local Seams = require("cosmic_ci.seams")
 local Test = require("cosmic.test")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
+-- names a release whose Child has it: ci/ runs on that release, where a
+-- limit must be stated for the tree's checker yet FOREVER is not there.
+local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
+
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -227,7 +232,7 @@ local function driver(tmp: string, command: string,
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R", assert(Fs.absolute("cosmic_ci")),
-    project })).ok)
+    project }, { timeout_ns = CEILING_NS })).ok)
   return (assert(Child.run({ assert(Proc.executable()),
     project .. "/cosmic_ci/driver.tl", command }, { cwd = project, env = env,
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })))

@@ -40,7 +40,7 @@ end
 --- host gives no Landlock or seccomp; fails the test where the start is
 --- refused for another reason.
 local function under(program: string, policy: Sandbox.Policy, script: string, opts?: Child.Options): Outcome
-  local options: Child.Options = { ...(opts or {}), policy = policy, stdout = "capture", stderr = "stdout" }
+  local options: Child.Options = { ...(opts or { timeout_ns = Child.FOREVER }), policy = policy, stdout = "capture", stderr = "stdout" }
   local result, why = Child.run({ program, script }, options)
   if result == nil then
     assert(unsandboxable(why), "the start was refused: " .. why)
@@ -77,16 +77,16 @@ local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: st
   assert(Fs.mkdirs(tmp .. "/work/ro") and Fs.mkdirs(tmp .. "/work/shut"))
   assert(Fs.write(tmp .. "/work/ro/a", "alpha\n") and Fs.write(tmp .. "/work/shut/b", "beta\n"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = "ro", letters = "r" } }) }
-  local read = under(probe, policy, "cat ro/a", { cwd = tmp .. "/work" })
+  local read = under(probe, policy, "cat ro/a", { timeout_ns = Child.FOREVER, cwd = tmp .. "/work" })
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
-  local shut = under(probe, policy, "cat shut/b", { cwd = tmp .. "/work" })
+  local shut = under(probe, policy, "cat shut/b", { timeout_ns = Child.FOREVER, cwd = tmp .. "/work" })
   assert(shut.code == 1 and shut.said:find(DENIED, 1, true) ~= nil, shut.said)
 end
 
 local function test_a_grant_of_a_path_that_is_not_there_fails_naming_it(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }) }
-  local result, why = Child.run({ probe, "print hi" }, { policy = policy })
+  local result, why = Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(result == nil)
   if unsandboxable(why) then
     Test.skip(why)
@@ -107,7 +107,7 @@ local function test_an_interpreter_that_is_granted_too_runs_the_script(tmp: stri
   assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
   local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "rx" },
     { path = probe, letters = "rx" } } }
-  local ran, trouble = Child.run({ tmp .. "/scripts/run" }, { policy = policy, stdout = "capture" })
+  local ran, trouble = Child.run({ tmp .. "/scripts/run" }, { timeout_ns = Child.FOREVER, policy = policy, stdout = "capture" })
   if ran == nil then
     assert(unsandboxable(trouble), trouble)
     Test.skip(trouble)
@@ -122,7 +122,7 @@ local function test_a_program_named_through_a_link_is_granted_by_what_it_leads_t
   assert(Fs.symlink(probe, tmp .. "/bin/tool"))
   -- Named through a link, the grant it needs is of what the link leads to.
   local result, trouble = Child.run({ tmp .. "/bin/tool", "print hi" },
-    { policy = { grants = itself(probe) }, stdout = "capture" })
+    { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) }, stdout = "capture" })
   if result == nil then
     assert(unsandboxable(trouble), trouble)
     Test.skip(trouble)
@@ -188,7 +188,7 @@ local function test_tmp_is_removed_after_a_child_ended_for_its_timeout(tmp: stri
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local policy: Sandbox.Policy = { grants = itself(probe), tmp = true }
   local handle, why = Child.start({ probe, "write $TMPDIR/f x; sleep-forever" },
-    { policy = policy, stdout = "null", stderr = "null" })
+    { timeout_ns = Child.FOREVER, policy = policy, stdout = "null", stderr = "null" })
   if handle == nil then
     assert(unsandboxable(why), why)
     Test.skip(why)
@@ -203,7 +203,7 @@ end
 local function test_a_start_that_fails_leaves_no_tmp_behind(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/absent", letters = "r" } }), tmp = true }
-  local none, why = Child.start({ probe, "print hi" }, { policy = policy })
+  local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(none == nil)
   if unsandboxable(why) then
     Test.skip(why)
@@ -241,7 +241,7 @@ local function test_a_limit_above_this_processs_hard_limit_fails_the_start(tmp: 
     held = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
   end
   local policy: Sandbox.Policy = { grants = itself(probe), limits = { open_files = held.hard + 1 } }
-  local none, why = Child.start({ probe, "print hi" }, { policy = policy })
+  local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy })
   if none ~= nil then
     -- A process that may raise its hard limit (root) is given what it asked.
     local result = assert(none:wait())
@@ -287,9 +287,9 @@ local function test_only_the_descriptors_named_reach_the_program(tmp: string)
   local kept = assert(sys.open(tmp .. "/f", sys.O_RDONLY))
   local dropped = assert(sys.open(tmp .. "/f", sys.O_RDONLY))
   local policy: Sandbox.Policy = { grants = itself(probe) }
-  local named = under(probe, policy, "fd-closed 3", { fds = { [3] = kept } })
+  local named = under(probe, policy, "fd-closed 3", { timeout_ns = Child.FOREVER, fds = { [3] = kept } })
   -- The descriptor this process has open and does not name is shut in the child.
-  local unnamed = under(probe, policy, "fd-closed " .. tostring(dropped), { fds = { [3] = kept } })
+  local unnamed = under(probe, policy, "fd-closed " .. tostring(dropped), { timeout_ns = Child.FOREVER, fds = { [3] = kept } })
   local _, _ = sys.close(kept), sys.close(dropped)
   -- fd-closed ends with status 1 for a descriptor that is open.
   assert(named.code == 1, "descriptor 3 should be open: " .. named.said)
@@ -300,7 +300,7 @@ local function test_the_tmp_directory_is_absolute_and_usable_from_another_direct
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
   local out = under(probe, { grants = itself(probe), tmp = true },
-    "env-of TMPDIR; write $TMPDIR/note hi; cat $TMPDIR/note", { cwd = tmp .. "/elsewhere" })
+    "env-of TMPDIR; write $TMPDIR/note hi; cat $TMPDIR/note", { timeout_ns = Child.FOREVER, cwd = tmp .. "/elsewhere" })
   assert(out.code == 0, out.said)
   assert(out.said:find("^TMPDIR=/") and out.said:find("\nhi\n", 1, true), out.said)
 end

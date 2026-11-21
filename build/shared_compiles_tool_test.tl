@@ -319,7 +319,7 @@ local function test_two_builds_writing_at_once_keep_both(tmp: string)
   for index, name in ipairs({ "one", "two" }) do
     local fd = assert(Fs.open_write(tmp .. "/" .. name .. ".out"))
     outputs[index] = fd
-    local started = this_program.program({ "test" }, {
+    local started = this_program.program({ "test" }, { timeout_ns = Child.FOREVER,
       cwd = tmp .. "/" .. name, env = env, stdout = fd, stderr = fd, process_group = true,
     })
     handles[index] = assert(Child.start(started.argv, started.options))
@@ -367,7 +367,7 @@ assert(db:exec("COMMIT"))
 assert(db:close())
 return 0
 ]], path, held)
-  local started = this_program.program({ "-e", chunk }, { process_group = true })
+  local started = this_program.program({ "-e", chunk }, { timeout_ns = Child.FOREVER, process_group = true })
   local handle = assert(Child.start(started.argv, started.options))
   local waited = 0
   while Fs.exists(held) ~= true do

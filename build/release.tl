@@ -378,7 +378,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     -- The API's answer names the digest each download is checked
     -- against, so it trusts the minimal roots (and $SSL_CERT_FILE's),
     -- not every root the binary carries, as `cosmic refresh` does.
-    return { script = script, headers = headers, follow = headers == nil, sha256 = sha256,
+    return { timeout_ns = Http.FOREVER, script = script, headers = headers, follow = headers == nil, sha256 = sha256,
       redirect_protocols = https_only, cancelled = cancelled or never, roots = "minimal" }
   end
 

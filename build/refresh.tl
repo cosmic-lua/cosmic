@@ -232,7 +232,7 @@ refresh.tzdata_rules = {
 --- the running binary carries, since what it fetches is what a binary
 --- trusts next, and nothing checks it but the connection it came over.
 function refresh.fetching(): Http.Options
-  return { roots = "minimal" }
+  return { timeout_ns = Http.FOREVER, roots = "minimal" }
 end
 
 --- The body `url` answers, refusing anything but a 2xx.
@@ -258,7 +258,7 @@ local cacert: refresh.Dataset = {
       if #pages == 50 then
         return nil, nss_tags .. ": lists more than 50 pages of tags"
       end
-      local got, trouble = Http.get(page, { headers = github_headers, roots = refresh.fetching().roots })
+      local got, trouble = Http.get(page, { timeout_ns = Clock.seconds(60), headers = github_headers, roots = refresh.fetching().roots })
       if got == nil then
         return nil, page .. ": " .. trouble
       end
@@ -411,7 +411,7 @@ local tzdata: refresh.Dataset = {
     end
     source.path = scratch .. "/tzdata-sdist"
     local ok, download_trouble = Http.download(source.url, source.path,
-      { sha256 = source.sha256, roots = refresh.fetching().roots })
+      { timeout_ns = Http.FOREVER, sha256 = source.sha256, roots = refresh.fetching().roots })
     if not ok then
       return nil, source.url .. ": " .. download_trouble
     end

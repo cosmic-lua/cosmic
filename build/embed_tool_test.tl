@@ -884,7 +884,7 @@ local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   local executable = assert(Proc.executable())
   local started, why = Child.start({ executable, "x" },
-    { policy = { database = { path = argv[1] or "", sha256 = nil } } })
+    { timeout_ns = Child.FOREVER, policy = { database = { path = argv[1] or "", sha256 = nil } } })
   print(started == nil, why)
   return 0
 end
@@ -1104,7 +1104,7 @@ return function(): integer
   local flight = "\22\3\3" .. string.pack(">I2", #records) .. records
   local roots, why = Http.default_roots()
   print(roots or why)
-  local _, refused = Http.open("https://cosmic.test/", { script = { flight } })
+  local _, refused = Http.open("https://cosmic.test/", { timeout_ns = 60000000000, script = { flight } })
   print((refused:gsub("\n", " ")))
   return 0
 end

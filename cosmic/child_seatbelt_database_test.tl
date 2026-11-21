@@ -80,7 +80,7 @@ end
 local function test_a_database_that_is_not_there_fails_the_start(tmp: string)
   SeatbeltFixture.macos_only()
   local executable = assert(Proc.executable())
-  local result, why = Child.run({ executable, executable }, { policy = { profiles = { "system" },
+  local result, why = Child.run({ executable, executable }, { timeout_ns = Child.FOREVER, policy = { profiles = { "system" },
     database = { path = tmp .. "/absent.db" } }, stdout = "capture", stderr = "capture" })
   assert(result == nil and why:find("absent.db", 1, true) ~= nil, tostring(why))
 end

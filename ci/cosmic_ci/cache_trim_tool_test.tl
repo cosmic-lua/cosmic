@@ -6,6 +6,11 @@ local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
+-- names a release whose Child has it: ci/ runs on that release, where a
+-- limit must be stated for the tree's checker yet FOREVER is not there.
+local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
+
 -- These tests start this program, which a worker on a sealed database does
 -- not have whole.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -16,7 +21,7 @@ local function test_cancellation_cleans_snapshot_before_driver_redelivery(tmp: s
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project))
   local here = assert(Fs.absolute("."))
-  assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project })).ok)
+  assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project }, { timeout_ns = CEILING_NS })).ok)
   local restored, ready, output = tmp .. "/restored.db", tmp .. "/ready", tmp .. "/output"
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
     assert(Fs.write(restored .. suffix, "owned"))
@@ -35,7 +40,7 @@ error("the original signal was swallowed")
 ]=]):format("echo ready > '" .. ready .. "'; sleep 30", restored, tmp .. "/cache.db", output)
   assert(Fs.write(project .. "/cancel.tl", script))
   local handle <close> = assert(Child.start({ assert(Proc.executable()), project .. "/cancel.tl" },
-    { cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
+    { timeout_ns = CEILING_NS, cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while Fs.read(ready) == nil and Clock.monotonic_ns() < deadline do
     Clock.sleep_ns(Clock.ms(10))
@@ -54,7 +59,7 @@ local function test_wrapper_maintenance_does_not_build_a_broken_candidate(tmp: s
   local project, candidate = tmp .. "/driver", tmp .. "/broken-candidate"
   assert(Fs.mkdirs(project) and Fs.mkdirs(candidate .. "/build"))
   local here = assert(Fs.absolute("."))
-  assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project })).ok)
+  assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project }, { timeout_ns = CEILING_NS })).ok)
   assert(Fs.write(candidate .. "/cosmic.tl", "invalid candidate source"))
   assert(Fs.write(candidate .. "/build/boot.tl", "invalid bootstrap source"))
   local script = ([=[
@@ -75,7 +80,7 @@ end
 ]=]):format(candidate, candidate .. "/does-not-exist", candidate .. "/missing/cache.db")
   assert(Fs.write(project .. "/check.tl", script))
   local result = assert(Child.run({ assert(Proc.executable()), project .. "/check.tl" },
-    { cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
+    { timeout_ns = CEILING_NS, cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
   assert(Fs.stat(candidate .. "/o") == nil and Fs.stat(candidate .. "/missing") == nil)
 end

@@ -34,6 +34,7 @@ request has not been tried against a live one. Check the field names
 against the provider's documentation.
 
 ```teal
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Http = require("cosmic.http")
@@ -65,7 +66,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
     return nil, "embeddings: no texts"
   end
   local body = assert(Json.encode({ model = model, input = texts, encoding_format = "base64" }))
-  local reply, why = Http.request("POST", "https://api.openai.com/v1/embeddings", {
+  local reply, why = Http.request("POST", "https://api.openai.com/v1/embeddings", { timeout_ns = Clock.seconds(60),
     headers = { ["Authorization"] = "Bearer " .. key, ["Content-Type"] = "application/json" },
     body = body,
   })

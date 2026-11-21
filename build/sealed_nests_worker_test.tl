@@ -58,7 +58,7 @@ print("confined")
   local artifact = Array.at(relaunch.argv, 3)
   reads[#reads + 1] = artifact
   confine.must_confine({ reads = reads })
-  local result, trouble = Child.run(argv, { env = relaunch.env, fds = relaunch.fds,
+  local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds,
     stdout = "capture", stderr = "capture" })
   confine.confine(nil)
   assert(result ~= nil, tostring(trouble))

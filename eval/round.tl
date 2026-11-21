@@ -20,6 +20,11 @@ local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once
+-- ci/cosmic-driver.pin names a release whose Child has it: this file runs
+-- standalone on that release. Until then a ceiling no run reaches.
+local CEILING_NS <const> = Clock.minutes(24 * 60)
+
 local record Round
   --- What the command line asked for.
   record Options
@@ -344,7 +349,7 @@ local function real_system(): Round.System
     start = function(argv: {string}, log: string): integer?
       local fd, _ = Fs.open_write(log)
       if fd == nil then return nil end
-      local handle, _ = Child.start(argv, { stdout = fd, stderr = fd, stdin = "null" })
+      local handle, _ = Child.start(argv, { stdout = fd, stderr = fd, stdin = "null", timeout_ns = CEILING_NS })
       if handle == nil then
         local _, _ = Fs.close(fd)
         return nil

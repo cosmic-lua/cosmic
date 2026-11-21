@@ -3,12 +3,16 @@
 --- (`Content-Encoding`: zstd, gzip or deflate) is asked for and decoded
 --- only when `opts.decompress` says so.
 ---
----     local got = assert(Http.get("https://example.com/"))
+---     local got = assert(Http.get("https://example.com/", { timeout_ns = Clock.seconds(30) }))
 ---     if got.status // 100 ~= 2 then error("HTTP " .. got.status .. ": " .. got.body) end
 ---     local put = assert(Http.request("PUT", "https://example.com/item",
----       { headers = { ["Content-Type"] = "text/plain" }, body = "new" }))
+---       { timeout_ns = Clock.seconds(30), headers = { ["Content-Type"] = "text/plain" }, body = "new" }))
 ---     local ok, trouble = Http.download(
----       "https://example.com/big.zip", "big.zip", { sha256 = "..." })
+---       "https://example.com/big.zip", "big.zip", { timeout_ns = Clock.minutes(10), sha256 = "..." })
+---
+--- Every request states `timeout_ns`, how long the whole of it may take
+--- ([`Http.FOREVER`] for a stream meant to run until it is closed): a
+--- request left to wait for good is a fault no one sees.
 ---
 --- [`Http.open`] blocks until the final response's headers have arrived
 --- (following every redirect `opts.follow` allows) and hands back a
@@ -167,7 +171,8 @@ local record Http
   --- seconds) fails, and so does a transfer that moves fewer than
   --- `low_speed_bytes` (default 1) per second for `low_speed_ns`
   --- (default 60 seconds) straight; 0 turns either check off.
-  --- `timeout_ns` bounds the whole request and has no default. The
+  --- `timeout_ns` bounds the whole request, and every request states
+  --- it ([`Http.FOREVER`] for no bound): one without it raises. The
   --- transfer counts them in milliseconds, and `low_speed_ns` in whole
   --- seconds, each rounded up, so no span but 0 is read as none.
   --- `sha256`, `sha512` and `sha3_256` are read only by
@@ -283,8 +288,10 @@ local record Http
     via?: Net.Address
     --- How long connecting may take, in nanoseconds; 30 seconds by default.
     connect_timeout_ns?: integer
-    --- How long the whole request may take, in nanoseconds; no limit by default.
-    timeout_ns?: integer
+    --- How long the whole request may take, in nanoseconds, above 0;
+    --- [`Http.FOREVER`] for no limit. Every request states it, so that
+    --- none waits for good unseen.
+    timeout_ns: integer
     --- The transfer rate, in bytes per second, under which a request
     --- is too slow; 1 by default and 0 turns the check off.
     low_speed_bytes?: integer
@@ -400,7 +407,13 @@ local record Http
     headers: {string:string}
   end
 
+  --- The [`Http.Options.timeout_ns`] of a request meant to run until it is
+  --- closed (a stream of events): no limit on the whole request. The
+  --- connect limit and the stall guard (`low_speed_bytes`) still hold.
+  FOREVER: integer
 end
+
+Http.FOREVER = -1
 
 --- The roots `opts.roots = "minimal"` trusts: those of the CAs that
 --- issue for most of the web (Let's Encrypt, DigiCert, Sectigo,
@@ -716,7 +729,7 @@ end
 ---
 --- A loop over items makes one pacer before it and passes it, with a
 --- `retry`, to each call: `local api = Http.pacer(Clock.ms(250))`, then
---- `Http.get(base .. id, { pace = api, retry = { attempts = 3 } })`.
+--- `Http.get(base .. id, { timeout_ns = Clock.seconds(30), pace = api, retry = { attempts = 3 } })`.
 ---
 --- A call and each of its retry attempts is one request to a pacer; the
 --- redirect hops followed inside one open are not paced; to pace each,
@@ -742,15 +755,26 @@ local function pace_of(opts: Http.Options, level: integer): PacerObject?
   error("http: opts.pace must be made by Http.pacer", level)
 end
 
+--- Whether `value` is nil: of what the types say is there, which a Lua
+--- caller may leave out.
+local function absent(value: any): boolean
+  return value == nil
+end
+
 --- `opts` as the raw module reads them: its spans in the milliseconds
 --- (and, for `low_speed_ns`, the seconds) it counts them in, its `pin`
 --- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
 --- chooses ([`Trust.chosen`], [`Trust.pem`]); or nil and why when those cannot
 --- be made. `method`, when given, stands in for `opts.method`. `first`,
 --- when given, is the entry of `opts.script` the request starts at.
-local function raw_options(given: Http.Options?, method?: string,
+local function raw_options(given: Http.Options, method?: string,
                            trusting?: boolean, first?: integer): raw_http.Options?, string
-  local opts: Http.Options = given or {}
+  local opts: Http.Options = given
+  if absent(opts.timeout_ns) or opts.timeout_ns == 0 then
+    error("http: opts.timeout_ns is required: how long the whole request may take, in nanoseconds, above 0, " ..
+        "or Http.FOREVER",
+      CALLER - 1)
+  end
   local via = opts.via
   local follow = opts.follow
   if via ~= nil then
@@ -792,6 +816,12 @@ local function raw_options(given: Http.Options?, method?: string,
   end
   local script = opts.script
   if first ~= nil and script ~= nil then script = { table.unpack(script, first) } end
+  -- FOREVER is no limit. Counted here: an `if` expression in the literal
+  -- would add a call level, and a refusal would not be raised at `CALLER`.
+  local whole_ms: integer? = nil
+  if opts.timeout_ns ~= Http.FOREVER then
+    whole_ms = counted(opts.timeout_ns, MS, math.maxinteger, "timeout_ns")
+  end
   return { -- checked: literal_shape
     unix_socket = via and via.path,
     method = method or opts.method,
@@ -801,7 +831,7 @@ local function raw_options(given: Http.Options?, method?: string,
     max_redirects = opts.max_redirects,
     redirect_protocols = opts.redirect_protocols,
     connect_timeout_ms = counted(opts.connect_timeout_ns, MS, math.maxinteger, "connect_timeout_ns"),
-    timeout_ms = counted(opts.timeout_ns, MS, math.maxinteger, "timeout_ns"),
+    timeout_ms = whole_ms,
     low_speed_bytes = opts.low_speed_bytes,
     low_speed_seconds = counted(opts.low_speed_ns, SECOND, 65535 * SECOND, "low_speed_ns"),
     verbose = opts.verbose,
@@ -957,10 +987,19 @@ local function take_turn(pacer: PacerObject, cancelled: (function(): boolean)?):
   return true
 end
 
+--- Raises, blaming the caller of a public entry point, where `opts` is
+--- missing: a Lua caller is not type-checked. [`raw_options`] holds its
+--- `timeout_ns`.
+local function stated(opts: Http.Options)
+  if absent(opts) then
+    error("http: opts is required, with timeout_ns: how long the whole request may take", 3)
+  end
+end
+
 --- [`Http.open`]'s work, which each public entry point that opens
 --- calls itself (`CALLER`); `method`, when given, stands in for
 --- `opts.method`.
-local function opened(url: string, opts: Http.Options?, method: string?): Response?, string
+local function opened(url: string, opts: Http.Options, method: string?): Response?, string
   local sent, refused = sendable(url)
   if sent == nil then
     return nil, refused
@@ -970,9 +1009,9 @@ local function opened(url: string, opts: Http.Options?, method: string?): Respon
   if raw == nil then
     return nil, unmade
   end
-  local policy = retry_of(opts or {}, CALLER - 1)
-  local pacer = pace_of(opts or {}, CALLER - 1)
-  local cancelled = opts and opts.cancelled
+  local policy = retry_of(opts, CALLER - 1)
+  local pacer = pace_of(opts, CALLER - 1)
+  local cancelled = opts.cancelled
   local attempt = 1
   -- The entry of `opts.script` the attempt starts at: every open starts
   -- its script over, so each is handed the entries after the last
@@ -984,7 +1023,7 @@ local function opened(url: string, opts: Http.Options?, method: string?): Respon
     end
     local handle, trouble, code = http.open(url, raw)
     if handle == nil then
-      if opts ~= nil and opts.via ~= nil then
+      if opts.via ~= nil then
         return nil, socket_trouble(opts.via, trouble, code)
       end
       return nil, trouble
@@ -1002,11 +1041,11 @@ local function opened(url: string, opts: Http.Options?, method: string?): Respon
       end
     end
     if not again then
-      if opts ~= nil and opts.decompress == true then return decoded(respond(handle)) end
+      if opts.decompress == true then return decoded(respond(handle)) end
       return respond(handle), ""
     end
     attempt = attempt + 1
-    if opts ~= nil and opts.script ~= nil then
+    if opts.script ~= nil then
       raw, unmade = raw_options(opts, method, true, first)
       if raw == nil then return nil, unmade end
     end
@@ -1041,7 +1080,8 @@ end
 --- in through [`Url.escape`], a path segment or query value at a time.
 --- A space or control byte in the host or user info fails, naming
 --- the byte; a user name or password goes in through [`Url.escape`].
-function Http.open(url: string, opts?: Http.Options): Response?, string
+function Http.open(url: string, opts: Http.Options): Response?, string
+  stated(opts)
   local response, trouble = opened(url, opts, nil)
   if response == nil then
     return nil, trouble
@@ -1056,14 +1096,15 @@ end
 --- `result.status`. An `opts.method` other than "GET", or an
 --- `opts.body`, raises, naming [`Http.request`], which sends any method
 --- and a body.
-function Http.get(url: string, opts?: Http.Options): Http.Body?, string
-  local method = opts and opts.method
+function Http.get(url: string, opts: Http.Options): Http.Body?, string
+  stated(opts)
+  local method = opts.method
   if method ~= nil and method ~= "GET" then
     error(("http: Http.get sends a GET, not %q; send another method with Http.request(method, url, opts)"):
         format(method), 2)
   end
-  if opts ~= nil and opts.body ~= nil then
-    error("http: Http.get sends no body; send one with Http.request(method, url, { body = ... })", 2)
+  if opts.body ~= nil then
+    error("http: Http.get sends no body; send one with Http.request(method, url, { timeout_ns = ..., body = ... })", 2)
   end
   local response, trouble = opened(url, opts, nil)
   if response == nil then
@@ -1083,25 +1124,26 @@ end
 --- `application/x-www-form-urlencoded` without one, as curl sends it.
 ---
 ---     local put = assert(Http.request("PUT", "https://example.com/items/1",
----       { headers = { ["Content-Type"] = "application/json" }, body = '{"n":1}' }))
----     local gone = assert(Http.request("DELETE", "https://example.com/items/1"))
+---       { timeout_ns = Clock.seconds(30), headers = { ["Content-Type"] = "application/json" }, body = '{"n":1}' }))
+---     local gone = assert(Http.request("DELETE", "https://example.com/items/1", { timeout_ns = Clock.seconds(30) }))
 ---     print(put.status, gone.status)
 ---
 --- An empty `method`, an `opts.method` that differs from it, or an
 --- `opts.body` with "GET" or "HEAD" raises: the request would not be
 --- the one asked for.
-function Http.request(method: string, url: string, opts?: Http.Options): Http.Body?, string
+function Http.request(method: string, url: string, opts: Http.Options): Http.Body?, string
+  stated(opts)
   if method == nil or method == "" then -- checked: compare_disjoint
     error("http: Http.request's method is empty; name one, as \"GET\" or \"PUT\"", 2)
   end
-  local given = opts and opts.method
+  local given = opts.method
   if given ~= nil and given ~= method then
     error(("http: Http.request was given %q and opts.method %q; leave opts.method out"):
         format(method, given), 2)
   end
   -- core/http.c's set_method drops a body sent with HEAD, and sends one
   -- with GET as a POST (its TODO says when that changes).
-  if opts ~= nil and opts.body ~= nil and (method == "GET" or method == "HEAD") then
+  if opts.body ~= nil and (method == "GET" or method == "HEAD") then
     error(("http: Http.request sends no body with %s"):format(method), 2)
   end
   local response, trouble = opened(url, opts, method)
@@ -1160,8 +1202,7 @@ local pending_mt: metatable<PendingDownload> = { -- checked: literal_missing
 --- [`Http.download_result`]'s work, which each public entry point that
 --- downloads calls itself (`CALLER`).
 local function downloading(url: string, path: string,
-                           opts: Http.Options?): Http.DownloadResult
-  opts = opts or {}
+                           opts: Http.Options): Http.DownloadResult
   local record Given
     algorithm: Hash.Algorithm
     wanted: string
@@ -1243,7 +1284,8 @@ end
 --- caught signal says it) included.
 --- Returns a classified outcome; [`Http.download`] gives the same operation
 --- as a boolean and reason, including the caller URL on an HTTP rejection.
-function Http.download_result(url: string, path: string, opts?: Http.Options): Http.DownloadResult
+function Http.download_result(url: string, path: string, opts: Http.Options): Http.DownloadResult
+  stated(opts)
   local result = downloading(url, path, opts)
   return result
 end
@@ -1253,7 +1295,8 @@ end
 --- `true, ""`, or `false` and a reason. An HTTP rejection's reason starts
 --- with `url`; a checksum mismatch names `path`, the algorithm and both
 --- digests. Other failures retain their underlying reason.
-function Http.download(url: string, path: string, opts?: Http.Options): boolean, string
+function Http.download(url: string, path: string, opts: Http.Options): boolean, string
+  stated(opts)
   local result = downloading(url, path, opts)
   if result.kind == "downloaded" then return true, "" end
   if result.kind == "http_status" then
@@ -1282,7 +1325,7 @@ end
 --- certificate. Raises when there was no memory to read it.
 ---
 ---     local pin = assert(Http.public_key_pin(assert(Fs.read("server.pem"))))
----     local got = assert(Http.get("https://internal.example/", { pin = pin }))
+---     local got = assert(Http.get("https://internal.example/", { timeout_ns = Clock.seconds(30), pin = pin }))
 function Http.public_key_pin(cert: string): string?, string
   local spki, why = http.public_key(cert)
   if spki == nil then

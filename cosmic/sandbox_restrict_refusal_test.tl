@@ -78,7 +78,7 @@ say("absent_fd", Sandbox.restrict({}, { fds = { fd, 40 } }))
 assert(sys.close(fd))
 say("missing", Sandbox.restrict({ grants = { { path = %q, letters = "r" } },
   limits = { cpu_seconds = 7 } }))
-local running = assert(Child.start({ %q, "sleep-forever" }, { process_group = false }))
+local running = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 say("child", Sandbox.restrict({}))
 assert(running:close())
 say("cpu", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "7 ")

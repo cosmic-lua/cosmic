@@ -28,7 +28,7 @@ end
 local function test_a_first_request_does_not_wait()
   local pacer = Http.pacer(Clock.seconds(30))
   local began = Clock.monotonic_ns()
-  local got = assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   assert(got.status == 200, tostring(got.status))
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "the first request waited")
 end
@@ -36,8 +36,8 @@ end
 local function test_two_requests_through_one_pacer_are_an_interval_apart()
   local pacer = Http.pacer(Clock.ms(200))
   local began = Clock.monotonic_ns()
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local took = Clock.monotonic_ns() - began
   assert(took >= Clock.ms(200), "the second request did not wait: " .. tostring(took))
   assert(took < Clock.seconds(5), "the second request waited too long: " .. tostring(took))
@@ -46,11 +46,11 @@ end
 local function test_a_pacer_spaces_every_entry_point(tmp: string)
   local pacer = Http.pacer(Clock.ms(100))
   local began = Clock.monotonic_ns()
-  local response = assert(Http.open(url, { pace = pacer, script = ok_script() }))
+  local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   response:close()
-  assert(Http.request("PUT", url, { pace = pacer, script = ok_script() }))
-  assert(Http.download(url, tmp .. "/one", { pace = pacer, script = ok_script() }))
-  local result = Http.download_result(url, tmp .. "/two", { pace = pacer, script = ok_script() })
+  assert(Http.request("PUT", url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
+  assert(Http.download(url, tmp .. "/one", { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
+  local result = Http.download_result(url, tmp .. "/two", { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() })
   assert(result.kind == "downloaded", result.reason)
   assert(Fs.stat(tmp .. "/two") ~= nil)
   local took = Clock.monotonic_ns() - began
@@ -60,17 +60,17 @@ end
 
 local function test_two_pacers_do_not_wait_on_each_other()
   local slow, other = Http.pacer(Clock.seconds(30)), Http.pacer(Clock.seconds(30))
-  assert(Http.get(url, { pace = slow, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = slow, script = ok_script() }))
   local began = Clock.monotonic_ns()
-  assert(Http.get(url, { pace = other, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = other, script = ok_script() }))
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "a pacer waited on another's request")
 end
 
 local function test_a_request_without_pace_does_not_wait_on_a_pacer()
   local pacer = Http.pacer(Clock.seconds(30))
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local began = Clock.monotonic_ns()
-  assert(Http.get(url, { script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), script = ok_script() }))
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "an unpaced request waited")
 end
 
@@ -81,7 +81,7 @@ end
 local function test_a_retry_waits_the_longer_of_its_wait_and_the_interval()
   local pacer = Http.pacer(Clock.ms(400))
   local began = Clock.monotonic_ns()
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     pace = pacer, retry = { attempts = 2, backoff_ns = Clock.ms(600) },
     script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
   }))
@@ -96,7 +96,7 @@ end
 local function test_every_retry_attempt_is_paced()
   local pacer = Http.pacer(Clock.ms(200))
   local began = Clock.monotonic_ns()
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     pace = pacer, retry = { attempts = 3, backoff_ns = 0 },
     script = {
       reply(1, "503 Service Unavailable", ""),
@@ -112,9 +112,9 @@ end
 
 local function test_cancelled_ends_a_pacer_wait_at_once()
   local pacer = Http.pacer(Clock.seconds(30))
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local began = Clock.monotonic_ns()
-  local got, why = Http.get(url, {
+  local got, why = Http.get(url, { timeout_ns = Clock.seconds(60),
     pace = pacer, script = ok_script(), cancelled = function(): boolean return true end,
   })
   assert(got == nil and why == "interrupted", tostring(why))
@@ -123,9 +123,9 @@ end
 
 local function test_cancelled_during_a_pacer_wait_stops_waiting()
   local pacer = Http.pacer(Clock.seconds(30))
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local began = Clock.monotonic_ns()
-  local got, why = Http.get(url, {
+  local got, why = Http.get(url, { timeout_ns = Clock.seconds(60),
     pace = pacer, script = ok_script(),
     cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(300) end,
   })
@@ -141,13 +141,13 @@ end
 local function test_an_interrupted_wait_does_not_mark_a_start()
   local pacer = Http.pacer(Clock.seconds(1))
   local began = Clock.monotonic_ns()
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
-  local _, why = Http.get(url, {
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
+  local _, why = Http.get(url, { timeout_ns = Clock.seconds(60),
     pace = pacer, script = ok_script(),
     cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(500) end,
   })
   assert(why == "interrupted", tostring(why))
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local took = Clock.monotonic_ns() - began
   assert(took >= Clock.ms(980), "the third request did not wait: " .. tostring(took))
   assert(took < Clock.ms(1400), "the interrupted wait marked a start: " .. tostring(took))
@@ -159,9 +159,9 @@ local function test_a_refused_connection_counts_as_a_start()
   local pacer = Http.pacer(Clock.ms(300))
   local began = Clock.monotonic_ns()
   -- Nothing binds port 1, so the connection is refused.
-  local response, why = Http.get("http://127.0.0.1:1/", { pace = pacer })
+  local response, why = Http.get("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), pace = pacer })
   assert(response == nil and why ~= "", tostring(why))
-  assert(Http.get(url, { pace = pacer, script = ok_script() }))
+  assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
   local took = Clock.monotonic_ns() - began
   assert(took >= Clock.ms(300), "the request after a refusal did not wait: " .. tostring(took))
   assert(took < Clock.seconds(5), tostring(took))
@@ -171,7 +171,9 @@ local function test_an_interval_of_zero_never_waits()
   local pacer = Http.pacer(0)
   assert(pacer.interval_ns == 0)
   local began = Clock.monotonic_ns()
-  for _ = 1, 3 do assert(Http.get(url, { pace = pacer, script = ok_script() })) end
+  for _ = 1, 3 do
+    assert(Http.get(url, { timeout_ns = Clock.seconds(60), pace = pacer, script = ok_script() }))
+  end
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "a pacer of 0 waited")
 end
 
@@ -191,7 +193,7 @@ end
 local function test_a_pace_that_is_no_pacer_raises_naming_the_option(tmp: string)
   local fake: Fake = { interval_ns = 0 }
   local function opts(): Http.Options
-    return { pace = fake, script = ok_script() }
+    return { timeout_ns = Clock.seconds(60), pace = fake, script = ok_script() }
   end
   local entries: {string:function()} = {
     open = function() local _ = Http.open(url, opts()) end,
@@ -239,19 +241,19 @@ local function test_a_pace_of_the_wrong_lua_type_raises_naming_the_option(tmp: s
   for _, literal in ipairs({ '"x"', "5", "1.5", "true" }) do
     local entries: {string:function(Http.Pacer)} = {
       open = function(pace: Http.Pacer)
-        local _ = Http.open(url, { pace = pace, script = ok_script() })
+        local _ = Http.open(url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       get = function(pace: Http.Pacer)
-        local _ = Http.get(url, { pace = pace, script = ok_script() })
+        local _ = Http.get(url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       request = function(pace: Http.Pacer)
-        local _ = Http.request("PUT", url, { pace = pace, script = ok_script() })
+        local _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       download = function(pace: Http.Pacer)
-        local _ = Http.download(url, tmp .. "/never", { pace = pace, script = ok_script() })
+        local _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
       download_result = function(pace: Http.Pacer)
-        local _ = Http.download_result(url, tmp .. "/never", { pace = pace, script = ok_script() })
+        local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), pace = pace, script = ok_script() })
       end,
     }
     for name, entry in pairs(entries) do

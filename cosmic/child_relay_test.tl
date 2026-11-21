@@ -357,7 +357,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 return function(argv: {string}): integer
-  local started, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
+  local started, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
     database = { path = (argv[1] or ""), sha256 = nil }, connect = { "127.0.0.2:9" } }, stdout = "null", stderr = "null" })
   local pid = sys.getpid()
   local running: mut {string} = {}
@@ -425,7 +425,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 return function(argv: {string}): integer
   local log: Child.RelayLog = if argv[4] == "inherit" then "inherit" else "null" end
-  local result, why = Child.run({ assert(Proc.executable()), "flows", (argv[2] or ""), (argv[3] or "") }, {
+  local result, why = Child.run({ assert(Proc.executable()), "flows", (argv[2] or ""), (argv[3] or "") }, { timeout_ns = Child.FOREVER,
     policy = { database = { path = (argv[1] or ""), sha256 = nil }, connect = { "127.0.0.2:" .. (argv[2] or "") } },
     stdout = "capture", stderr = "capture", relay_log = log })
   assert(result, why)

@@ -17,7 +17,7 @@ for i = 1, 1000 do
   assert(Fs.append("log", string.format("%s:%04d\n", name, i)))
 end
 ]]
-  local started = this_program.program({ "-e", script }, {
+  local started = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER,
     env = this_program.environment(), cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture",
   })

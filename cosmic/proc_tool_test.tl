@@ -78,7 +78,7 @@ local probe = ...
 if probe == nil then return 2 end
 -- Feeding a child its input is what makes this process ignore
 -- SIGPIPE, so a write to a child that has gone cannot end it.
-local fed = assert(Child.start({ probe, "exit 0" }, { input = "" }))
+local fed = assert(Child.start({ probe, "exit 0" }, { timeout_ns = Child.FOREVER, input = "" }))
 assert(fed:wait())
 local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
 assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")
@@ -110,7 +110,7 @@ local function becomes(tmp: string, probe: string, exec: string): string
   return r.stdout or ""
 end
 
---- `Proc.exec(argv, { env })` is `Child.start(argv, { env })`'s, with the
+--- `Proc.exec(argv, { env })` is `Child.start(argv, { timeout_ns = limit, env })`'s, with the
 --- process replaced: argv[1] the program, `env` its whole environment
 --- and, left out, this process's own.
 local function test_exec_takes_argv_and_the_whole_environment(tmp: string)

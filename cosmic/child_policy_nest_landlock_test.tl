@@ -31,7 +31,7 @@ local function test_a_handed_directory_is_held_by_landlock_without_nest(tmp: str
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "fork" }, grants = at.grants }
   -- Started with no promise at all, the directory is taken.
   local plain, plain_why = Child.start({ at.probe, "print hi" },
-    { policy = { isolate = { "file" }, grants = at.grants }, cwd = at.work, fds = { [3] = dir } })
+    { timeout_ns = Child.FOREVER, policy = { isolate = { "file" }, grants = at.grants }, cwd = at.work, fds = { [3] = dir } })
   assert(plain ~= nil, plain_why)
   local _, _ = plain:close()
   local ran = ChildPolicy.under(at.probe, policy, at.work, "cat /proc/self/fd/3/e", { [3] = dir })

@@ -110,7 +110,7 @@ end
 -- pid 0 (its binding refuses 0 as out of range): today a program has
 -- neither, and /proc/self/stat, which names both, is Linux's alone.
 local function build_with_stand_in(tmp: string, script: string, group: boolean): Child.Result
-  local started = this_program.program({ "--standalone", script, "build" }, {
+  local started = this_program.program({ "--standalone", script, "build" }, { timeout_ns = Child.FOREVER,
     env = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
     stdout = "capture", stderr = "capture",
   })
@@ -165,7 +165,7 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   local env: mut {string:string} = { COSMIC_ZIG = "zig-for-test", PATH = tmp, XDG_CACHE_HOME = tmp .. "/cache" }
   local build_home = Env.get("COSMIC_BUILD_HOME")
   if build_home ~= nil then env["COSMIC_BUILD_HOME"] = build_home end
-  local started = this_program.program({ "--standalone", script, "build", "boot" }, {
+  local started = this_program.program({ "--standalone", script, "build", "boot" }, { timeout_ns = Child.FOREVER,
     env = env,
     stdout = "capture", stderr = "capture",
   })

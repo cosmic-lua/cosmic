@@ -376,6 +376,37 @@ print(word)
 hello
 ```
 
+## a type has an interface by having its fields
+
+An interface names fields that values of many types share. A record, class or interface is a `Named` when it has
+each field `Named` declares, of exactly that type, `mut` where the interface's is and omittable where the interface's
+is. A function field takes the value as its first parameter, so a class has it as a method. Writing `is Named` after
+the name is optional: it says the type is meant to conform, and the checker then reports a missing field where the type
+is declared (`interface_disagrees`), not where a value is passed. Two records, or two classes, with the same fields stay
+two types: only an interface is met by fields.
+
+```teal
+local interface Named
+  name: string
+end
+
+local record Dog
+  name: string
+  legs: integer
+end
+
+local function greet(n: Named): string
+  return "hello, " .. n.name
+end
+
+local d: Dog = { name = "rex", legs = 4 }
+print(greet(d))
+```
+
+```output
+hello, rex
+```
+
 ## comparing and adding values of a type parameter
 
 A type parameter ranges over every type, so a generic body may not apply `<` or `+` to its values (`generic_op`). A

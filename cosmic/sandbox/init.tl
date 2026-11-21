@@ -3,7 +3,7 @@
 --- names the paths a program reads, writes, runs and creates, the system
 --- calls it makes, the environment it sees and the resources it spends;
 --- what it does not name is refused. [`Child.start`] runs a child under
---- one (`Child.start(argv, { policy = p })`), and a policy is met or the
+--- one (`Child.start(argv, { timeout_ns = limit, policy = p })`), and a policy is met or the
 --- program does not start: there is no best-effort mode.
 ---
 --- - [`Sandbox.merge`] joins policies into one: it resolves `profiles`,

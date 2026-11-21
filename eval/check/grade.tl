@@ -35,6 +35,11 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once
+-- ci/cosmic-driver.pin names a release whose Child has it: this file runs
+-- standalone on that release. Until then a ceiling no run reaches.
+local CEILING_NS <const> = Clock.minutes(24 * 60)
+
 local record Grader
   --- How many tests and examples passed.
   record Evidence
@@ -670,8 +675,9 @@ local function serves(g: Grade, args: {string}, log?: string): Served?
   local what = g.name .. " " .. table.concat(args, " ")
   local out_path = g.logs .. "/" .. (log or "check-serve.out")
   local out = assert(Fs.open_write(out_path))
+  -- The server runs until the grade ends it; the ceiling only stops one left behind.
   local options: Child.Options = { cwd = g.empty, env = {}, stdout = out, stderr = out,
-    stdin = if g.null_stdin then "null" else nil end }
+    stdin = if g.null_stdin then "null" else nil end, timeout_ns = CEILING_NS }
   local server, trouble = Child.start(argv_of(g, args), options)
   local _, _ = Fs.close(out)
   if server == nil then
@@ -1344,7 +1350,7 @@ local function jobs_interrupt(g: Grade, w: string): integer
   local args = { "run", "w/term.json" }
   local started = Clock.monotonic_ns()
   local handle, trouble = Child.start(argv_of(g, args), { cwd = g.empty, env = {},
-    stdout = "capture", stderr = "capture", stdin = "null", process_group = false })
+    stdout = "capture", stderr = "capture", stdin = "null", process_group = false, timeout_ns = CEILING_NS })
   if handle == nil then
     fail(g, label(g, args) .. " did not start: " .. trouble)
     return 0

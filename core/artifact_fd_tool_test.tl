@@ -222,7 +222,7 @@ local function test_descriptor_receive_refuses_and_closes_an_artifact_alias(tmp:
   local argv: mut {string} = { ArtifactFd.program_of(relaunch), "--artifact", copy }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local child = assert(Child.start(argv,
-    { env = env, fds = fds, stdout = "capture", stderr = "capture" }))
+    { timeout_ns = Child.FOREVER, env = env, fds = fds, stdout = "capture", stderr = "capture" }))
   assert(sys.close(file))
   assert(sys.close(copy_fd))
   local result = assert(child:wait(Clock.seconds(5)))

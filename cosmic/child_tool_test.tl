@@ -75,7 +75,7 @@ local function this(chunk: string, word?: string): {string}
 end
 return function(argv: {string}): integer
   local _, _ = Fs.close(11)
-  local invalid, _ = Child.start(this(""), { stdout = 11, env = relaunch.env, fds = relaunch.fds })
+  local invalid, _ = Child.start(this(""), { timeout_ns = Child.FOREVER, stdout = 11, env = relaunch.env, fds = relaunch.fds })
   if invalid ~= nil then
     local _, _ = invalid:close()
     return 20
@@ -87,7 +87,7 @@ return function(argv: {string}): integer
   assert(fd == 0)
   local result = assert(Child.run(this("local Fs = require('cosmic.fs') " ..
     "local expected = ... if Fs.take(0, 64) == expected then return 0 end return 1", "stdin's own"),
-    { stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
+    { timeout_ns = Child.FOREVER, stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
   return if result.ok then 0 else 21 end
 end
 ]]))
@@ -112,12 +112,12 @@ return function(argv: {string}): integer
   local words = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
   words[#words + 1] = AGAIN .. "local h = again('" .. ]] .. string.format("%q", sleeping(30000)) .. [[ ..
-    "', { process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
+    "', { timeout_ns = -1, process_group = false }) local Fs = require('cosmic.fs') local pid, ready = ... " ..
     "if pid == nil or ready == nil then return 2 end " ..
     "assert(Fs.write(pid, tostring(h.pid))) assert(Fs.write(ready, 'ready')) h:wait()"
   words[#words + 1] = (argv[1] or "")
   words[#words + 1] = (argv[2] or "")
-  local result, trouble = Child.run(words, { env = relaunch.env, fds = relaunch.fds })
+  local result, trouble = Child.run(words, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds })
   if not result then error(trouble) end
   local finished = assert(result)
   return finished.code or 1
@@ -125,7 +125,7 @@ end
 ]]))
   local fd, diagnostic = output(tmp, "driver.log")
   local started = this_program.program({ fixture, descendant_path, ready },
-    { stdout = fd, stderr = fd, process_group = false })
+    { timeout_ns = Child.FOREVER, stdout = fd, stderr = fd, process_group = false })
   local driver = assert(Child.start(started.argv, started.options))
   -- The driver is a nested cosmic that compiles its fixture before it
   -- spawns anything; on the checked core, on a loaded runner, that has
@@ -175,7 +175,7 @@ return function(): integer
   local argv = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = "require('cosmic.sys').close(0) require('cosmic.clock').sleep_ns(5000000000)"
-  local h = assert(Child.start(argv, { stdin = "stream", env = relaunch.env, fds = relaunch.fds }))
+  local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, stdin = "stream", env = relaunch.env, fds = relaunch.fds }))
   local stdin = assert(h.stdin_stream)
   local chunk = string.rep("x", 1 << 20)
   local ok, trouble = true, ""
@@ -203,7 +203,7 @@ local function test_stopping_a_reaped_child_names_the_module()
   local argv = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = "local _ = 1"
-  local h = assert(Child.start(argv, { env = relaunch.env, fds = relaunch.fds }))
+  local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds }))
   assert(h:wait())
   local stopped, why = h:stop()
   assert(stopped == false and why == "child: process already reaped", tostring(why))
@@ -220,7 +220,7 @@ local function test_a_sandboxed_child_is_refused_where_the_platform_has_no_sandb
   local reads = confine.itself()
   reads[#reads + 1] = tmp
   local r, trouble = Child.run(lua("local _ = 1", nil,
-    { cwd = tmp, sandbox = { unveil = { reads = reads }, offline = true } }))
+    { timeout_ns = Child.FOREVER, cwd = tmp, sandbox = { unveil = { reads = reads }, offline = true } }))
   assert(r == nil, "a child started in a sandbox where the platform has none")
   -- Only as a kernel that cannot sandbox refuses.
   local refused = false
@@ -252,7 +252,7 @@ local function this(chunk: string): Child.Handle
   local words: mut {string} = { table.unpack(relaunch.argv) }
   words[#words + 1] = "-e"
   words[#words + 1] = chunk
-  return (assert(Child.start(words, { env = relaunch.env, fds = relaunch.fds })))
+  return (assert(Child.start(words, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds })))
 end
 return function(argv: {string}): integer
   do

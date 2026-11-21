@@ -605,7 +605,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
       command = { program, "app.tl" }
     end
     start = function(env: {string:string}): Child.Handle?, string
-      return Child.start(command, { env = env })
+      return Child.start(command, { timeout_ns = Child.FOREVER, env = env })
     end
   end
   local first, why = scan(roots, ignored)

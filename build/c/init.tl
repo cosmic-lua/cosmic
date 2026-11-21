@@ -669,7 +669,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
         -- A compile the memo answered is not run.
         if results[next_job] == nil then
           local handle, trouble = Child.start(
-            command(root, zig, nth(files, job.file), cwd, nth(c.variants, job.variant)), {
+            command(root, zig, nth(files, job.file), cwd, nth(c.variants, job.variant)), { timeout_ns = Child.FOREVER,
               cwd = cwd, env = env, stdout = "capture", stderr = "capture",
               capture_limit = limit or dump_limit,
             })

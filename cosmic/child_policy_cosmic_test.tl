@@ -32,7 +32,7 @@ Test.policy{
 local function ran(args: {string}, policy: Sandbox.Policy, cwd: string): Child.Result
   local argv: mut {string} = { (assert(Proc.executable())) }
   for _, word in ipairs(args) do argv[#argv + 1] = word end
-  local result, why = Child.run(argv, { policy = policy, cwd = cwd, stdout = "capture",
+  local result, why = Child.run(argv, { timeout_ns = Child.FOREVER, policy = policy, cwd = cwd, stdout = "capture",
     stderr = "capture" })
   if result == nil then
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
@@ -64,7 +64,7 @@ end
 local function test_this_program_ungranted_is_refused(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
-    { policy = { grants = { { path = work, letters = "rwc" } } }, cwd = work })
+    { timeout_ns = Child.FOREVER, policy = { grants = { { path = work, letters = "rwc" } } }, cwd = work })
   assert(result == nil and why:find("sandbox:", 1, true) ~= nil, tostring(why))
 end
 
@@ -78,7 +78,7 @@ local function test_a_descriptor_the_relaunch_hands_on_is_refused(tmp: string)
     return
   end
   local result, why = Child.run({ assert(Proc.executable()), work .. "/run.tl" },
-    { policy = { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } },
+    { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" }, grants = { { path = work, letters = "rwc" } } },
       cwd = work, fds = { [taken] = 0 } })
   assert(result == nil and why:find("relaunch", 1, true) ~= nil, tostring(why))
 end
@@ -86,7 +86,7 @@ end
 local function test_this_program_under_nest_is_refused(tmp: string)
   local work = scripted(tmp, 'print("ran")\n')
   local result, why = Child.run({ (assert(Proc.executable())), work .. "/run.tl" },
-    { policy = { profiles = { "cosmic" }, isolate = { "file" }, promises = { "nest" },
+    { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" }, isolate = { "file" }, promises = { "nest" },
       grants = { { path = work, letters = "rwc" } } }, cwd = work })
   assert(result == nil and why:find("nest", 1, true) ~= nil and why:find("artifact and core", 1, true) ~= nil,
     tostring(why))

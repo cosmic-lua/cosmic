@@ -78,7 +78,7 @@ local function test_nest_hands_no_directory_nor_half_open_file(tmp: string)
   local writing = assert(sys.open(at.extra .. "/e", sys.O_WRONLY))
   local both = assert(sys.open(at.extra .. "/e", sys.O_RDWR))
   local function start(held: Sandbox.Policy, fds: {integer:integer | string}): string
-    local handle, why = Child.start({ at.probe, "print hi" }, { policy = held, cwd = at.work, fds = fds })
+    local handle, why = Child.start({ at.probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = held, cwd = at.work, fds = fds })
     if handle ~= nil then
       local _, _ = handle:close()
       return ""
@@ -112,7 +112,7 @@ local function test_nest_refuses_the_runtimes_own_descriptors_rather_than_raisin
   local at = ChildPolicy.nest_placed(tmp)
   local policy: Sandbox.Policy = { isolate = { "file" }, promises = { "nest" }, grants = at.grants }
   local handle, why = Child.start({ at.probe, "print hi" },
-    { policy = policy, cwd = at.work, fds = launched.fds })
+    { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, fds = launched.fds })
   if handle ~= nil then
     local _, _ = handle:close()
   end

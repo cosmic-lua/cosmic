@@ -629,7 +629,7 @@ local function options(endpoint: Endpoint, default_ns: integer, method: string, 
     headers = headers,
     body = body,
     via = if via.kind == "unix" then via else nil end,
-    timeout_ns = if limit == 0 then nil else limit end,
+    timeout_ns = if limit == 0 then Http.FOREVER else limit end,
     low_speed_bytes = if limit == 0 then 0 else nil end,
     follow = false,
   }

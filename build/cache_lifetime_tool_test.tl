@@ -38,7 +38,7 @@ local function test_a_test_run_prunes_a_stale_build_directory(tmp: string)
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
-  local started = this_program.program({ "test" }, {
+  local started = this_program.program({ "test" }, { timeout_ns = Child.FOREVER,
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })
   local h = assert(Child.start(started.argv, started.options))

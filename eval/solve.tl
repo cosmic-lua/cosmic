@@ -18,6 +18,11 @@ local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once
+-- ci/cosmic-driver.pin names a release whose Child has it: this file runs
+-- standalone on that release. Until then a ceiling no run reaches.
+local CEILING_NS <const> = Clock.minutes(24 * 60)
+
 local record Solve
   --- What a run was asked for on the command line.
   record Options
@@ -354,7 +359,7 @@ function Solve.main(argv: {string}): integer
   -- that, in place of this probe.
   local probe, probe_trouble = Child.run(Solve.proc_probe(Proc.pid()), { env = {},
     cwd = arena .. "/project", stdin = "null", stdout = "null", stderr = "null",
-    sandbox = { unveil = unveil } })
+    sandbox = { unveil = unveil }, timeout_ns = CEILING_NS })
   if probe == nil then
     complain(probe_trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
     return 2

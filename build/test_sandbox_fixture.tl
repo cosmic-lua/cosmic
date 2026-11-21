@@ -136,7 +136,7 @@ local function test_view(tmp: string)
   -- What a process it starts sees, with the worker's environment.
   local child = assert(Child.run({ "bin/probe",
     "cat-quiet suite/data.txt; cat-quiet suite/secret.txt; print /$DECLARED_VAR/$UNDECLARED_VAR" },
-    { stdout = "capture" }))
+    { timeout_ns = Child.FOREVER, stdout = "capture" }))
   error(table.concat({ "seen", here, tmp,
     tostring((Fs.read(here .. "/suite/data.txt"))),
     tostring((Fs.read(here .. "/suite/secret.txt"))),
