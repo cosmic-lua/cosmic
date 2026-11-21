@@ -9,6 +9,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sign = require("cosmic.sign")
+local rsa_fixture = require("build.rsa_fixture")
 
 local BASE <const> = "https://acme.test"
 
@@ -52,8 +53,31 @@ local function fixed(content: string): string
   return string.rep("\0", 32 - #trimmed) .. trimmed
 end
 
---- What a CSR says: the public point, the DNS names, and whether its
---- signature verifies under that point.
+--- sha256WithRSAEncryption and rsaEncryption, each with its NULL
+--- parameters (RFC 4055 section 5, RFC 3279 section 2.3.1).
+local RSA_SHA256 <const> = "\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x0b\x05\x00"
+local RSA_ENCRYPTION <const> = "\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00"
+
+--- The DER INTEGER of the unsigned big-endian `bytes`, a zero in front
+--- where its top bit is set.
+local function der_integer(bytes: string): string
+  local body = if (bytes:byte(1) or 0) >= 0x80 then "\0" .. bytes else bytes end
+  local length = if #body < 0x80 then string.char(#body)
+    elseif #body < 0x100 then "\x81" .. string.char(#body)
+    else "\x82" .. string.char(#body >> 8, #body & 0xff)
+    end
+  return "\x02" .. length .. body
+end
+
+--- The DER RSAPublicKey of the JWK members `n` and `e`.
+local function rsa_public(n: string, e: string): string
+  local numbers = der_integer(n) .. der_integer(e)
+  return "\x30\x82" .. string.char(#numbers >> 8, #numbers & 0xff) .. numbers
+end
+
+--- What a CSR says: the public key (a P-256 point, or a DER
+--- RSAPublicKey), the DNS names, and whether its signature verifies
+--- under that key.
 local record Request
   public: string
   names: {string}
@@ -66,9 +90,12 @@ local function read_csr(csr: string): Request
   local parts = elements(outer)
   local info, signature_bits = assert(parts[1]), assert(parts[3])
   -- The DER of each identifier, spelled out here rather than built by
-  -- the encoder under test: ecdsa-with-SHA256, id-ecPublicKey with
-  -- prime256v1, extensionRequest and subjectAltName.
-  assert(assert(parts[2]).whole == "\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02", "ecdsa-with-SHA256")
+  -- the encoder under test: ecdsa-with-SHA256 or sha256WithRSAEncryption,
+  -- id-ecPublicKey with prime256v1 or rsaEncryption, extensionRequest
+  -- and subjectAltName.
+  local algorithm = assert(parts[2]).whole
+  local rsa = algorithm == RSA_SHA256
+  assert(rsa or algorithm == "\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02", "ecdsa-with-SHA256")
   local fields = elements(info.content)
   assert(assert(fields[1]).whole == "\x02\x01\x00", "version 0")
   assert(assert(fields[4]).tag == 0xa0, "attributes are [0]")
@@ -81,8 +108,12 @@ local function read_csr(csr: string): Request
     common_name = assert(attribute[2]).content
   end
   local spki = elements(assert(fields[3]).content)
-  assert(assert(spki[1]).whole == "\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01" ..
-      "\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07", "id-ecPublicKey, prime256v1")
+  if rsa then
+    assert(assert(spki[1]).whole == RSA_ENCRYPTION, "rsaEncryption")
+  else
+    assert(assert(spki[1]).whole == "\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01" ..
+        "\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07", "id-ecPublicKey, prime256v1")
+  end
   local public = assert(spki[2]).content:sub(2)
   local names: mut {string} = {}
   local attribute = elements(assert(elements(assert(fields[4]).content)[1]).content)
@@ -99,6 +130,14 @@ local function read_csr(csr: string): Request
       assert(name.tag == 0x82, "a dNSName")
       names[#names + 1] = name.content
     end
+  end
+  if rsa then
+    return {
+      public = public,
+      names = names,
+      common_name = common_name,
+      verified = Sign.rsa_verify(public, info.whole, signature_bits.content:sub(2)),
+    }
   end
   local _, sequence, _ = read_der(signature_bits.content:sub(2), 1)
   local integers = elements(sequence)
@@ -246,7 +285,6 @@ local function new_server(): Server
     local protected_text = text(jws["protected"])
     local payload_text = text(jws["payload"])
     local header = assert(Json.decode_object((assert(Codec.unbase64url(protected_text)))))
-    assert(text(header["alg"]) == "ES256", "alg")
     assert(text(header["url"]) == url, "the protected url is the request's")
     local n = text(header["nonce"])
     if server.refuse_nonces > 0 then
@@ -268,9 +306,19 @@ local function new_server(): Server
       jwk = server.account
     end
     if jwk == nil then return nil, nil, problem(400, "accountDoesNotExist", "no account") end
-    local public = "\4" .. assert(Codec.unbase64url(text(jwk["x"]))) .. assert(Codec.unbase64url(text(jwk["y"])))
     local signature = assert(Codec.unbase64url(text(jws["signature"])))
-    if not Sign.p256_verify(public, protected_text .. "." .. payload_text, signature) then
+    local signed = protected_text .. "." .. payload_text
+    local verified = false
+    if text(jwk["kty"]) == "RSA" then
+      assert(text(header["alg"]) == "RS256", "an RSA key signs as RS256")
+      local public = rsa_public(assert(Codec.unbase64url(text(jwk["n"]))), (assert(Codec.unbase64url(text(jwk["e"])))))
+      verified = Sign.rsa_verify(public, signed, signature)
+    else
+      assert(text(header["alg"]) == "ES256", "an EC key signs as ES256")
+      local public = "\4" .. assert(Codec.unbase64url(text(jwk["x"]))) .. assert(Codec.unbase64url(text(jwk["y"])))
+      verified = Sign.p256_verify(public, signed, signature)
+    end
+    if not verified then
       return nil, nil, problem(400, "malformed", "bad signature")
     end
     if payload_text == "" then return {}, "", nil end
@@ -610,6 +658,74 @@ local function test_a_p256_key_signs_jws_as_es256()
   assert(key.alg == "ES256" and key.jwk["kty"] == "EC" and key.jwk["crv"] == "P-256")
   assert(assert(Codec.unbase64url(assert(key.jwk["y"]))) == public:sub(34, 65))
   assert(Sign.p256_verify(public, "m", key.sign("m")))
+end
+
+local function test_an_rsa_key_signs_jws_as_rs256()
+  local secret = rsa_fixture.FIRST
+  local key = Acme.rsa_key(secret)
+  local public = Sign.rsa_public(secret)
+  assert(key.alg == "RS256" and key.jwk["kty"] == "RSA" and key.jwk["e"] == "AQAB")
+  local n = assert(Codec.unbase64url(assert(key.jwk["n"])))
+  assert(#n == 256 and (n:byte(1) or 0) >= 0x80, "n is the 2048-bit modulus, with no zero in front")
+  assert(rsa_public(n, "\1\0\1") == public)
+  assert(Sign.rsa_verify(public, "m", key.sign("m")))
+  assert(key.x509_sign("m") == key.sign("m"))
+end
+
+--- RFC 7638 section 3.1: the thumbprint of its RSA key, from the members
+--- `e`, `kty` and `n` in that order.
+local function test_an_rsa_thumbprint_matches_rfc_7638()
+  local key: Acme.Key = {
+    alg = "RS256",
+    jwk = {
+      e = "AQAB",
+      kty = "RSA",
+      n = "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4" ..
+        "n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0z" ..
+        "gdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csF" ..
+        "Cur-kEgU8awapJzKnqDKgw",
+    },
+    spki = "",
+    signature_algorithm = "",
+    sign = function(_message: string): string return "" end,
+    x509_sign = function(_message: string): string return "" end,
+  }
+  assert(Acme.thumbprint(key) == "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs", Acme.thumbprint(key))
+end
+
+local function test_issue_takes_rsa_account_and_certificate_keys()
+  local server = new_server()
+  local client = client_of(server, Acme.rsa_key(rsa_fixture.FIRST))
+  assert(client:account({ terms_agreed = true }) == BASE .. "/acct/1")
+  local secret = rsa_fixture.SECOND
+  local chain, why = client:issue({ "example.com" }, {
+    key = Acme.rsa_key(secret),
+    present = function(c: Acme.Challenge): boolean, string
+      assert(c.key_authorization == c.token .. "." .. client.thumbprint)
+      return true, ""
+    end,
+  })
+  assert(chain ~= nil, why)
+  local csr = read_csr(server.csr)
+  assert(csr.verified, "the request's RSA signature verifies under its own key")
+  assert(csr.public == Sign.rsa_public(secret), "the request carries the certificate key")
+  assert(#csr.names == 1 and csr.names[1] == "example.com")
+end
+
+local function test_an_rsa_certificate_key_may_sign_for_a_p256_account()
+  local server = new_server()
+  local client = client_of(server)
+  local chain, why = client:issue({ "example.com" }, {
+    key = Acme.rsa_key(rsa_fixture.FIRST),
+    present = function(_c: Acme.Challenge): boolean, string return true, "" end,
+  })
+  assert(chain ~= nil, why)
+  assert(read_csr(server.csr).verified)
+end
+
+local function test_an_rsa_key_raises_on_a_bad_secret()
+  local made, why = pcall(Acme.rsa_key, "not a key")
+  assert(not made and tostring(why):find("sign: not an RSA secret", 1, true) ~= nil, tostring(why))
 end
 
 local function test_a_finalize_that_is_still_processing_is_waited_out()
