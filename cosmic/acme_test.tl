@@ -9,6 +9,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sign = require("cosmic.sign")
+local rsa_fixture = require("build.rsa_fixture")
 
 local BASE <const> = "https://acme.test"
 
@@ -660,7 +661,7 @@ local function test_a_p256_key_signs_jws_as_es256()
 end
 
 local function test_an_rsa_key_signs_jws_as_rs256()
-  local secret = Sign.rsa_secret()
+  local secret = rsa_fixture.FIRST
   local key = Acme.rsa_key(secret)
   local public = Sign.rsa_public(secret)
   assert(key.alg == "RS256" and key.jwk["kty"] == "RSA" and key.jwk["e"] == "AQAB")
@@ -694,9 +695,9 @@ end
 
 local function test_issue_takes_rsa_account_and_certificate_keys()
   local server = new_server()
-  local client = client_of(server, Acme.rsa_key(Sign.rsa_secret()))
+  local client = client_of(server, Acme.rsa_key(rsa_fixture.FIRST))
   assert(client:account({ terms_agreed = true }) == BASE .. "/acct/1")
-  local secret = Sign.rsa_secret()
+  local secret = rsa_fixture.SECOND
   local chain, why = client:issue({ "example.com" }, {
     key = Acme.rsa_key(secret),
     present = function(c: Acme.Challenge): boolean, string
@@ -715,7 +716,7 @@ local function test_an_rsa_certificate_key_may_sign_for_a_p256_account()
   local server = new_server()
   local client = client_of(server)
   local chain, why = client:issue({ "example.com" }, {
-    key = Acme.rsa_key(Sign.rsa_secret()),
+    key = Acme.rsa_key(rsa_fixture.FIRST),
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
   })
   assert(chain ~= nil, why)

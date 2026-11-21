@@ -161,8 +161,7 @@ end
 --- up to seconds for 4096 bits. Raises on other bits, and when the
 --- entropy source fails.
 ---
----     local secret = Sign.rsa_secret()
----     local stronger = Sign.rsa_secret(3072)
+---     local secret = Sign.rsa_secret() -- 2048 bits; Sign.rsa_secret(4096) for 4096
 function Sign.rsa_secret(bits?: integer): string
   return raw.rsa_secret(bits)
 end

@@ -27,6 +27,7 @@
 --- also requires the children file in this process's mounted /proc.
 
 local AllocationFixture = require("build.allocation_fixture")
+local rsa_fixture = require("build.rsa_fixture")
 local Bigint = require("cosmic.bigint")
 local Cipher = require("cosmic.cipher")
 local Codec = require("cosmic.codec")
@@ -912,7 +913,7 @@ end
 --- to repeat once for every allocation the walk refuses, and it makes no
 --- allocation of the core's own before its answer's string.
 local function test_rsa_signing_leaves_nothing_whenever_an_allocation_fails()
-  local secret = Sign.rsa_secret()
+  local secret = rsa_fixture.FIRST
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = AllocationFixture.under_every_failure(function()
