@@ -975,9 +975,8 @@ local function walk_typeparams(list: {Ast.TypeParam})
     local p = list[i]
     declare(p.name, "typeparam", p.name.first, true, nil, false) -- checked: nil_not_allowed*2
   end
-  for i = 1, #list do
-    local constraint = list[i].constraint -- checked: nil_not_allowed
-    if constraint ~= nil then
+  for _, p in ipairs(list) do
+    for _, constraint in ipairs(p.constraints) do
       ty(constraint)
     end
   end

@@ -214,7 +214,7 @@ local function test_a_generic_function_names_its_variables_by_binder_and_bound()
   local s = w.store
   local a = s:var(0, 0)
   same(shown(s:fn({ tparams = { {} }, params = { { type = s:array(a) }, { type = a } } })), "function<T>({T}, T)")
-  same(shown(s:fn({ tparams = { { bound = named(w, "Stream.Reader") }, {} },
+  same(shown(s:fn({ tparams = { { bounds = { named(w, "Stream.Reader") } }, {} },
     params = { { type = s:var(0, 1) } }, rets = { { items = { s:var(0, 0) } } } })),
     "function<T is Stream.Reader, U>(U): T")
   local inner = s:fn({ tparams = { {} }, params = { { type = s:var(1, 0) }, { type = s:var(0, 0) } } })
@@ -291,7 +291,7 @@ local function test_equal_parts_make_one_object_for_each_form()
   twice(function(): Types.Type return s:var(1, 2) end)
   twice(function(): Types.Type return named(w, "Pair", { s.string, s.integer }) end)
   twice(function(): Types.Type
-    return s:fn({ tparams = { { bound = named(w, "Stream.Reader") } }, params = { { type = s:var(0, 0), omittable = true } },
+    return s:fn({ tparams = { { bounds = { named(w, "Stream.Reader") } } }, params = { { type = s:var(0, 0), omittable = true } },
       rest = s.string, rets = { { items = { s.integer }, tail = s.string } } })
   end)
 end
@@ -562,7 +562,7 @@ local function test_the_text_of_each_form_is_the_draft_s()
   same(Types.encode(s:optional(s.string)), "(union string nil)")
   same(Types.encode(named(w, "Pair", { s.string, s.integer })), '(ref "m" "Pair" string integer)')
   same(Types.encode(s:var(1, 2)), "(var 1 2)")
-  same(Types.encode(s:fn({ tparams = { { bound = reader } }, params = { { type = s:var(0, 0) } },
+  same(Types.encode(s:fn({ tparams = { { bounds = { reader } } }, params = { { type = s:var(0, 0) } },
     rets = { { items = { s:var(0, 0) } } } })), '(fn (tp (ref "cosmic.stream" "Stream.Reader")) ((var 0 0)) (rets ((var 0 0))))')
   same(Types.encode(s:fn({ tparams = { {} }, params = { { type = s.string, omittable = true } }, rest = s.integer,
     rets = { { items = { s.string }, tail = s.integer } } })),
@@ -614,7 +614,7 @@ local function test_text_decodes_to_the_same_type_in_the_store_and_in_another()
   local samples = {
     s.integer, s:optional(s.string), s:map(s.string, s:array(named(w, "Node"), true), true),
     named(w, "Pair", { s.string, named(w, "List", { named(w, "Tree") }) }),
-    s:fn({ tparams = { { bound = named(w, "Stream.Reader") }, {} }, params = { { type = s:var(0, 1), omittable = true } },
+    s:fn({ tparams = { { bounds = { named(w, "Stream.Reader") } }, {} }, params = { { type = s:var(0, 1), omittable = true } },
       rest = s:var(0, 0), rets = { { items = { s:atom("true"), s:var(0, 0) } }, { items = { s:atom("false"), s.any } } } }),
     s:union({ named(w, "File"), named(w, "Color"), s.integer, s:atom("nil") }),
   }
@@ -1027,7 +1027,7 @@ local function test_a_bound_is_an_interface_with_no_arguments()
   local w = world()
   local s = w.store
   local function bounded(bound: Types.Type)
-    local _ = s:fn({ tparams = { { bound = bound } } })
+    local _ = s:fn({ tparams = { { bounds = { bound } } } })
   end
   bounded(named(w, "Stream.Reader"))
   assert(raises(function() bounded(s.string) end, "bounded by an interface"))
@@ -1039,10 +1039,33 @@ local function test_a_bound_is_an_interface_with_no_arguments()
   assert(raises(function() bounded(s:named(iface, { s.integer })) end, "no arguments"))
   local r = s:declare("record", "m", { "B" })
   assert(raises(function()
-    s:define(r, { tparams = { { name = "T", bound = named(w, "Node") } }, supers = {}, fields = {}, methods = {}, values = {} })
+    s:define(r, { tparams = { { name = "T", bounds = { named(w, "Node") } } }, supers = {}, fields = {}, methods = {}, values = {} })
   end, "bounded by an interface"))
   local t, why = s:decode('(fn (tp (ref "m" "Node")) () (rets ()))')
   assert(t == nil and why:find("bounded by an interface", 1, true) ~= nil, why)
+end
+
+--- Several bounds are a set: a store holds them sorted by how they display, each once, so their order and a repeat make
+--- one type, and the text of a function or a declaration reads back as the type it was.
+local function test_several_bounds_are_a_set_and_read_back()
+  local w = world()
+  local s = w.store
+  local reader = named(w, "Stream.Reader")
+  local function generic(bounds: {Types.Type}): Types.Type
+    return s:fn({ tparams = { { bounds = bounds } }, params = { { type = s:var(0, 0) } } })
+  end
+  local both = generic({ s:atom("Ordered"), reader, s:atom("Key") })
+  assert(generic({ s:atom("Key"), reader, s:atom("Ordered"), reader }) == both)
+  local text = Types.encode(both)
+  same(text, '(fn (tp (and Key Ordered (ref "cosmic.stream" "Stream.Reader"))) ((var 0 0)) (rets ()))')
+  same(shown(both), "function<T is Key & Ordered & Stream.Reader>(T)")
+  local back, why = s:decode('(fn (tp (and (ref "cosmic.stream" "Stream.Reader") Ordered Key Ordered)) ((var 0 0)) (rets ()))')
+  assert(back == both, why)
+  local r = s:declare("record", "m", { "Sorted" }, 1)
+  s:define(r, { tparams = { { name = "K", bounds = { s:atom("Ordered"), s:atom("Key") } } }, supers = {}, fields = {},
+    methods = {}, values = {} })
+  local decl_text = Types.encode_declaration(r)
+  assert(decl_text:find('(tparams (tparam "K" Key Ordered))', 1, true) ~= nil, decl_text)
 end
 
 -- shared parts -----------------------------------------------------------------------------------
@@ -1225,7 +1248,7 @@ local function test_a_builtin_bound_is_encoded_and_decoded()
   local s = Types.new()
   local names: {Types.Atom_tag} = { "Ordered", "Numeric" }
   for _, name in ipairs(names) do
-    local made = s:fn({ tparams = { { bound = s:atom(name) } }, params = { { type = s:var(0, 0) } } })
+    local made = s:fn({ tparams = { { bounds = { s:atom(name) } } }, params = { { type = s:var(0, 0) } } })
     local text = Types.encode(made)
     assert(text:find("(tp " .. name .. ")", 1, true) ~= nil, text)
     assert(s:decode(text) == made, text)

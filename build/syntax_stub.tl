@@ -388,8 +388,7 @@ local function reached(program: Declarations.Program, module: string): Reached
       walk(named)
     end
     for _, param in ipairs(body.tparams) do
-      local bound = param.bound
-      if bound ~= nil then
+      for _, bound in ipairs(param.bounds or {}) do
         walk(bound)
       end
     end

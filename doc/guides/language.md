@@ -493,4 +493,32 @@ print(by_length[3], by_length[4])
 fig	pear
 ```
 
+## several bounds
+
+A type parameter may have several bounds, written `T is A & B`. A type argument meets each of them, and the body
+takes what each gives: the fields of each interface, `<` from `Ordered`, a map key from `Key`. The bounds are a set,
+so `A & B` and `B & A` are one type. Where a type parameter is passed on to one bounded by more, the fix names the
+bounds to write.
+
+```teal
+local function unique_sorted<T is Ordered & Key>(xs: {T}): {T}
+  local seen: mut {T: boolean} = {}
+  local out: mut {T} = {}
+  for _, x in ipairs(xs) do
+    if seen[x] ~= true then
+      seen[x] = true
+      out[#out + 1] = x
+    end
+  end
+  table.sort(out, function(a: T, b: T): boolean return a < b end)
+  return out
+end
+
+print(table.concat(unique_sorted({ "pear", "fig", "pear" }), " "))
+```
+
+```output
+fig pear
+```
+
 [`cosmic.array`]: ../../cosmic/array.tl

@@ -246,8 +246,8 @@ end
 --- without a bound, then two bounded by other interfaces.
 local function binders(w: World): {{Types.TParam}}
   return {
-    { { bound = use(w, "Stream.Reader") }, {} },
-    { { bound = use(w, "Event") }, { bound = use(w, "Ordered") } },
+    { { bounds = { use(w, "Stream.Reader") } }, {} },
+    { { bounds = { use(w, "Event") } }, { bounds = { use(w, "Ordered") } } },
   }
 end
 
