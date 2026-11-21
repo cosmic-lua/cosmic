@@ -112,10 +112,8 @@ allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the hos
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
-allowed["cosmic.tls.leaf"] = "what a program reads of a certificate it holds, its names and when it ends; " ..
-  "Certs.load reads leaves through the same local, so nothing in the tree calls it but its test"
-allowed["cosmic.tls.static"] = "the source of certificates a program holds already, for Net.serve's `tls`; the " ..
-  "tree's own servers take theirs from tailscaled, so only its tests serve static pairs"
+allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept current for a server, " ..
+  "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
   "the tree's own clients speak through cosmic.http, so only its tests make one"
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
