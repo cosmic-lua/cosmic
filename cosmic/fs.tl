@@ -76,10 +76,11 @@ local record Fs
     abort: function(Staged): boolean, string
   end
 
-  --- What [`Fs.cache_dir`] reads.
+  --- What [`Fs.cache_dir`], [`Fs.program_cache_dir`] and
+  --- [`Fs.data_dir`] read.
   record CacheOptions
-    --- The variables to read (`XDG_CACHE_HOME`, `HOME`), by name; the
-    --- process's own when nil.
+    --- The variables to read (`XDG_CACHE_HOME` or `XDG_DATA_HOME`, and
+    --- `HOME`), by name; the process's own when nil.
     environment?: {string:string}
     --- Whether to make and check the directory; true when nil. False
     --- answers the name alone.
@@ -355,8 +356,11 @@ local function unslashed(path: string): string
 end
 
 --- Creates a directory and every missing directory above it, as
---- `mkdir -p` does.
-function Fs.mkdirs(path: string): boolean, string
+--- `mkdir -p` does. Each directory it makes gets `mode` (less the
+--- umask, as `mkdir(2)` gives it) as it is made, so a private one is
+--- never open to others for a moment; [`sys.mkdir`]'s default where nil.
+--- A directory that is already there keeps its mode.
+function Fs.mkdirs(path: string, mode?: integer): boolean, string
   path = unslashed(path)
   if path == "" then
     return true, ""
@@ -370,12 +374,17 @@ function Fs.mkdirs(path: string): boolean, string
   end
   local parent = path:match("^(.*)/[^/]+$")
   if parent ~= nil and parent ~= "" then
-    local ok, trouble = Fs.mkdirs(parent)
+    local ok, trouble = Fs.mkdirs(parent, mode)
     if not ok then
       return false, trouble
     end
   end
-  local made, why, number = sys.mkdir(path)
+  local made, why, number: boolean, string, integer
+  if mode ~= nil then
+    made, why, number = sys.mkdir(path, mode)
+  else
+    made, why, number = sys.mkdir(path)
+  end
   if made then
     return true, ""
   end
@@ -429,23 +438,67 @@ local function private_dir(path: string): boolean, string
   return true, ""
 end
 
---- The base [`Fs.cache_dir`] puts `cosmic` under.
-local function cache_base(environment?: {string:string}): string?, string
+--- The XDG base directory `variable` names in `environment` (the
+--- process's own where nil), or `home_default` under `HOME`. A value
+--- that is not an absolute path is not one, as the XDG spec says, and
+--- is passed over; with neither absolute this is nil and why, naming
+--- `what`.
+local function xdg_base(environment: {string:string}?, variable: string, home_default: string,
+                        what: string): string?, string
   local function get(name: string): string
     if environment ~= nil then
       return environment[name] or ""
     end
     return Env.get_or(name, "")
   end
-  local base = get("XDG_CACHE_HOME")
+  local base = get(variable)
   if base:sub(1, 1) ~= "/" then
     local home = get("HOME")
     if home:sub(1, 1) ~= "/" then
-      return nil, "fs: no cache directory: neither XDG_CACHE_HOME nor HOME is an absolute path"
+      return nil, "fs: no " .. what .. " directory: neither " .. variable .. " nor HOME is an absolute path"
     end
-    base = home .. "/.cache"
+    base = home .. "/" .. home_default
   end
   return base, ""
+end
+
+--- The last of `names`, each a path under `base` below the one before.
+--- With `opts.make` false it is the name alone. Otherwise `base` is made
+--- where missing, and refused where another user owns it (root aside).
+--- Each of `names` is made 0700 where missing, and refused where another
+--- user owns it or its group or others may write to it.
+local function own_dir(base: string, names: {string}, opts?: Fs.CacheOptions): string?, string
+  local last = base .. "/" .. assert(names[#names])
+  if opts ~= nil and opts.make == false then
+    return last, ""
+  end
+  local made, trouble = Fs.mkdirs(base)
+  if not made then
+    return nil, trouble
+  end
+  local st, strouble = Fs.stat(base)
+  if st == nil then
+    return nil, strouble
+  end
+  if st.uid ~= sys.getuid() and st.uid ~= 0 then
+    return nil, base .. ": owned by another user"
+  end
+  for _, name in ipairs(names) do
+    local ok, ptrouble = private_dir(base .. "/" .. name)
+    if not ok then
+      return nil, ptrouble
+    end
+  end
+  return last, ""
+end
+
+--- Nil and why for a `name` that is not one directory's name: empty,
+--- `.`, `..`, or holding a slash.
+local function refused_name(name: string): string?
+  if name == "" or name == "." or name == ".." or name:find("/", 1, true) ~= nil then
+    return "fs: " .. string.format("%q", name) .. " is not the name of one directory"
+  end
+  return nil
 end
 
 --- `$XDG_CACHE_HOME/cosmic/<tool>`, or `$HOME/.cache/cosmic/<tool>`
@@ -459,35 +512,52 @@ end
 --- the variables to read, by default the process's own. With
 --- `opts.make` false only the name is answered, from the environment
 --- alone: nothing is made, looked at or checked, so the directory may
---- not be there.
+--- not be there. A program's own cache, outside `cosmic/`, is
+--- [`Fs.program_cache_dir`].
 function Fs.cache_dir(tool: string, opts?: Fs.CacheOptions): string?, string
   local environment = if opts ~= nil then opts.environment else nil end
-  local base, base_trouble = cache_base(environment)
+  local base, base_trouble = xdg_base(environment, "XDG_CACHE_HOME", ".cache", "cache")
   if base == nil then
     return nil, base_trouble
   end
-  local dir = base .. "/cosmic"
-  if opts ~= nil and opts.make == false then
-    return dir .. "/" .. tool, ""
+  return own_dir(base, { "cosmic", "cosmic/" .. tool }, opts)
+end
+
+--- `$XDG_CACHE_HOME/<name>`, or `$HOME/.cache/<name>`, the cache of the
+--- program named `name`, held to what [`Fs.cache_dir`] holds its
+--- directories to: made 0700 when missing, and refused where it, or the
+--- base (root aside), is another user's, or it is writable by its group
+--- or by others.
+--- `name` is one directory's name. `opts` are [`Fs.cache_dir`]'s.
+function Fs.program_cache_dir(name: string, opts?: Fs.CacheOptions): string?, string
+  local refused = refused_name(name)
+  if refused ~= nil then return nil, refused end
+  local environment = if opts ~= nil then opts.environment else nil end
+  local base, base_trouble = xdg_base(environment, "XDG_CACHE_HOME", ".cache", "cache")
+  if base == nil then
+    return nil, base_trouble
   end
-  local made, trouble = Fs.mkdirs(base)
-  if not made then
-    return nil, trouble
+  return own_dir(base, { name }, opts)
+end
+
+--- `$XDG_DATA_HOME/<name>`, or `$HOME/.local/share/<name>` when
+--- `XDG_DATA_HOME` is unset, empty or not absolute: where the program
+--- named `name` keeps what it keeps (its databases, its credentials).
+--- It is made 0700 when missing, and refused, as [`Fs.cache_dir`]
+--- refuses its own, where it or the base (root aside) is another user's, or it is
+--- writable by its group or by others: nil and why, as with neither
+--- variable naming an absolute path. `name` is one directory's name.
+--- `opts` are [`Fs.cache_dir`]'s: with `opts.make` false the name
+--- alone.
+function Fs.data_dir(name: string, opts?: Fs.CacheOptions): string?, string
+  local refused = refused_name(name)
+  if refused ~= nil then return nil, refused end
+  local environment = if opts ~= nil then opts.environment else nil end
+  local base, base_trouble = xdg_base(environment, "XDG_DATA_HOME", ".local/share", "data")
+  if base == nil then
+    return nil, base_trouble
   end
-  local st, strouble = Fs.stat(base)
-  if st == nil then
-    return nil, strouble
-  end
-  if st.uid ~= sys.getuid() and st.uid ~= 0 then
-    return nil, base .. ": owned by another user"
-  end
-  for _, path in ipairs({ dir, dir .. "/" .. tool }) do
-    local ok, ptrouble = private_dir(path)
-    if not ok then
-      return nil, ptrouble
-    end
-  end
-  return dir .. "/" .. tool, ""
+  return own_dir(base, { name }, opts)
 end
 
 --- Removes a name: the path operation corresponding to os.remove, or

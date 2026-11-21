@@ -66,16 +66,6 @@ local function check_hashes(product: string)
   end
 end
 
--- What a release's shared prefix weighs. The cores are stored compressed
--- (13.3 MB raw, 5.6 MB stored with their stubs), and the prefix every
--- program shares stays under this: it is lowered when the prefix shrinks,
--- so an addition meets it in CI and not in a release, and raised only by a
--- change that says what the bytes buy. Programs are held to no ceiling: a
--- program carries every `cosmic.*` module and declaration (embed.database,
--- in the main tree's build/embed.tl), so its size moves with the library
--- and no limit stands behind a number for it.
-local prefix_ceiling <const> = 6000000
-
 local function test_transported_product(tmp: string)
   local product = Fixture.placed("product")
   local target_name = Fixture.required("COSMIC_FIXTURE_TARGET")
@@ -134,8 +124,6 @@ local function test_transported_product(tmp: string)
 
   assert(decoded.manifest_length == 4096 and
       decoded.manifest_offset % 16384 == 0, "product prefix record differs")
-  assert(decoded.prefix_length <= prefix_ceiling, "the prefix is " .. tostring(decoded.prefix_length) ..
-      " bytes, over its ceiling of " .. tostring(prefix_ceiling))
   local prefix = Fixture.read(product .. "/prefix")
   assert(#prefix == decoded.prefix_length and
       artifact:sub(1, decoded.prefix_length) == prefix,

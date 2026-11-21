@@ -2,6 +2,7 @@
 --- `scheme://host[:port]` a browser sends in its Origin header, and the one a
 --- `Referer` or the request itself names, each reduced to one spelling so
 --- that two names of one origin are equal and nothing else is.
+--- @public
 
 local Types = require("cosmic.web.types")
 
