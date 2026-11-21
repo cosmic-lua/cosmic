@@ -1937,10 +1937,6 @@ function TableLiterals.reach_fix(ctx: Ctx, decl: Decl, function_name: string): s
   return function_name
 end
 
---- A literal checked against a record or a class: each field given once and none the declaration lacks, every field
---- that is not omittable given (a class names every field), each value checked against its field. A literal of a
---- class of this module is noted for the code generator, which writes the class literal; the table of a class of
---- another module is out of reach, so it is refused.
 --- The fields of a value of `decl`: those it declares, then those it has from the interfaces it lists
 --- ([`Declarations.inherited`]).
 function TableLiterals.fields_of(ctx: Ctx, decl: Types.Decl): {Types.Field}
@@ -1958,6 +1954,10 @@ function TableLiterals.fields_of(ctx: Ctx, decl: Types.Decl): {Types.Field}
   return out
 end
 
+--- A literal checked against a record or a class: each field given once and none the declaration lacks, every field
+--- that is not omittable given (a class names every field), each value checked against its field. A literal of a
+--- class of this module is noted for the code generator, which writes the class literal; the table of a class of
+--- another module is out of reach, so it is refused.
 function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   local body = n.decl.body
   local index = members_index(ctx, n.decl, false)
@@ -3480,14 +3480,10 @@ end
 --- them, and the values of the enums.
 function Tests.tag_field(ctx: Ctx, list: {Type}): string?, {string}?
   local first = list[1]
-  local body: Types.Body? = nil
-  if first ~= nil and (first.tag == "named") then
-    body = first.decl.body
-  end
-  if body == nil then
+  if first == nil or not ((first.tag == "named")) or first.decl.body == nil then
     return nil, nil
   end
-  for _, f in ipairs(body.fields) do
+  for _, f in ipairs(TableLiterals.fields_of(ctx, first.decl)) do
     local values: mut {string} = {}
     local seen: mut {string: boolean} = {}
     local apart = true

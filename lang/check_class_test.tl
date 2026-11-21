@@ -88,6 +88,13 @@ local function test_a_record_or_class_has_the_fields_of_the_interfaces_it_lists_
   accepted(head .. "local p: Page = { name = \"a\", seen = 0, title = \"t\" }\nlocal n: string = p.name\n" ..
       "p.seen = p.seen + 1\nlocal t: string = p.title\nlocal o: string? = p.note\nlocal x: Named = p\n")
   refused(head .. "local p: Page = { name = \"a\", seen = 0 }\n", "literal_missing", "leaves out `title`")
+  -- A spread copies them.
+  accepted(head .. "local p: Page = { name = \"a\", seen = 0, title = \"t\" }\nlocal q: Page = { ...p, title = \"u\" }\n" ..
+      "local n: string = q.name\n")
+  -- A tag it has from the interface tells the members of a union apart.
+  accepted("local enum K\n  \"a\"\nend\nlocal enum L\n  \"c\"\nend\nlocal interface J\n  kind: K\nend\n" ..
+      "local record R is J\nend\nlocal record S\n  kind: L\nend\nlocal u: R | S = { kind = \"a\" }\n" ..
+      "if u.kind == \"a\" then\n  local r: R = u\nend\n")
   refused(head .. "local p: Page = { name = \"a\", seen = 0, title = \"t\" }\nlocal n: integer = p.name\n", "not_assignable")
   refused(head .. "local p: Page = { name = \"a\", seen = 0, title = \"t\" }\np.name = \"b\"\n", "field_fixed")
   -- The arguments of a listing are put in.

@@ -407,7 +407,8 @@ hello, rex
 
 Writing `is Named` after the name is optional. It brings the interface's fields in: a record has each field it leaves
 out, as the interface declares it, and a literal of the record gives the field a value. A class has each data field it
-leaves out, but writes a method for each function field itself. A field the type does declare must be the interface's
+leaves out, and each function field that is `mut` or omittable, but writes a method for each other function field
+itself. A field the type does declare must be the interface's
 exactly, and a method a class lacks is reported where the class is declared (`interface_disagrees`), not where a value
 is passed.
 

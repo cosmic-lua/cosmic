@@ -803,8 +803,8 @@ function Relation.as_listed(store: Store, x: Named, field_type: Type, self_type:
 end
 
 --- Whether a declaration `decl` that lists an interface declaring `f`, and leaves `f` out, has it from the interface:
---- an interface or a record has each such field, and a class each but a fixed function field, which it meets with a
---- method of its own.
+--- an interface or a record has each such field, and a class each but a function field that is neither `mut` nor
+--- omittable, which it meets with a method of its own.
 function Relation.brought_in(decl: Types.Decl, f: Types.Field): boolean
   return decl.kind ~= "class" or f.mut == true or f.type.tag ~= "fn"
 end
