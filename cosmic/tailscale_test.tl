@@ -1,7 +1,8 @@
 --- [`cosmic.tailscale`] against a stand-in tailscaled: a [`Server.serve`]
---- that answers the LocalAPI paths with the JSON the daemon writes. The
---- client holds its thread while it waits, so it runs in a child of this
---- program, as cosmic/http_unix_test.tl's clients do.
+--- that answers the LocalAPI paths with the JSON the daemon writes. Most
+--- clients run in a child of this program, as cosmic/http_unix_test.tl's
+--- do, since `watch` holds its thread while it waits; the last test asks
+--- from the stand-in's own run.
 
 local Array = require("cosmic.array")
 local Child = require("cosmic.child")

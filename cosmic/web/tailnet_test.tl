@@ -221,3 +221,45 @@ local function test_the_middleware_asks_a_daemon_in_the_requests_own_run(tmp: st
   local got = table.concat(said, "|")
   assert(got == "will@example.com Will whois laptop.tail1234.ts.net tagged=false|200|403", got)
 end
+
+--- A peer that a listener on `::` names in IPv6 (`::ffff:100.64.0.2`) is
+--- asked about as its IPv4 address, and so is a loopback one behind
+--- `serve`; a header naming another address moves nothing, with or
+--- without `trusted_proxy`.
+local function test_a_mapped_peer_is_its_ipv4_address_and_headers_move_nothing()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen), serve = true }))
+  local mapped = client:get("/", { peer = Net.tcp("::ffff:100.64.0.2", 1) })
+  assert(mapped.status == 200 and mapped.body:match("^will@example.com ") ~= nil, mapped.body)
+  local served = client:get("/", { peer = Net.tcp("::ffff:127.0.0.1", 1),
+    headers = { ["Tailscale-User-Login"] = "rene@example.com" } })
+  assert(served.body == "rene@example.com rene@example.com serve - tagged=false", served.body)
+  local proxied = Web.test_client(Web.app{
+    sink = { line = function(_self: Web.Sink, _text: string) end },
+    trusted_proxy = true,
+    middleware = { Web.tailnet({ whois = stand_in(seen) }) },
+    routes = { Web.get("/", function(_: Web.Request): Web.Response return Web.text("in") end) },
+  })
+  local forwarded = proxied:get("/", { peer = Net.tcp("192.0.2.9", 1),
+    headers = { ["X-Forwarded-For"] = "100.64.0.2" } })
+  assert(forwarded.status == 403, tostring(forwarded.status))
+  assert(table.concat(seen.asked, ",") == "100.64.0.2,192.0.2.9", table.concat(seen.asked, ","))
+end
+
+--- A name Go splits into several encoded words joins whole, and a
+--- capability whose value is no array is not granted.
+local function test_an_encoded_name_of_several_words_joins_and_a_bad_grant_grants_nothing()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen), serve = true }))
+  local reply = client:get("/admin", { peer = Net.tcp("127.0.0.1", 1), headers = {
+    ["Tailscale-User-Login"] = "rene@example.com",
+    ["Tailscale-User-Name"] = "=?utf-8?q?Ren=C3=A9?= =?utf-8?q?_Doe?=",
+    ["Tailscale-App-Capabilities"] = '{"example.com/cap/admin": 5}',
+  } })
+  assert(reply.status == 403, tostring(reply.status))
+  local home = client:get("/", { peer = Net.tcp("127.0.0.1", 1), headers = {
+    ["Tailscale-User-Login"] = "rene@example.com",
+    ["Tailscale-User-Name"] = "=?utf-8?q?Ren=C3=A9?= =?utf-8?q?_Doe?=",
+  } })
+  assert(home.body == "rene@example.com René Doe serve - tagged=false", home.body)
+end

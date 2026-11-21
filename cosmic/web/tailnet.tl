@@ -47,7 +47,6 @@
 --- @public
 
 local Json = require("cosmic.json")
-local Net = require("cosmic.net")
 local Clock = require("cosmic.clock")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
@@ -127,18 +126,30 @@ local function of_whois(who: Tailscale.WhoIs): Tailnet.Identity
   }
 end
 
---- `text` with RFC 2047's Q encoding undone where it is one encoded word
---- of UTF-8, as the daemon writes a name that is not ASCII.
+--- `text` with RFC 2047's Q encoding of UTF-8 undone, as the daemon
+--- writes a name that is not ASCII: one encoded word, or several apart
+--- by spaces, which join with nothing between (RFC 2047 6.2). Text that
+--- is not wholly such words, or does not decode to UTF-8, is as sent.
 local function unq(text: string): string
-  local inner = text:match("^=%?[Uu][Tt][Ff]%-8%?[Qq]%?(.*)%?=$")
-  if inner == nil then return text end
-  return (inner:gsub("_", " "):gsub("=(%x%x)", function(hex: string): string
-    return string.char(assert(tonumber(hex, 16)))
-  end))
+  if text:sub(1, 2) ~= "=?" then return text end
+  local parts: mut {string} = {}
+  local rest = text
+  while rest ~= "" do
+    local inner, after = rest:match("^=%?[Uu][Tt][Ff]%-8%?[Qq]%?([^?]*)%?=%s*(.*)$")
+    if inner == nil or after == nil then return text end
+    parts[#parts + 1] = inner:gsub("_", " "):gsub("=(%x%x)", function(hex: string): string
+      return string.char(assert(tonumber(hex, 16)))
+    end)
+    rest = after
+  end
+  local decoded = table.concat(parts)
+  if utf8.len(decoded) == nil then return text end
+  return decoded
 end
 
 --- The identity `tailscale serve`'s headers give, or nil where they name
---- nobody. A capability header that is no JSON object grants nothing.
+--- nobody. A capability header that is no JSON object grants nothing,
+--- and nor does a member whose value is no array.
 local function of_serve(req: Types.Request): Tailnet.Identity?
   local login = req.headers["tailscale-user-login"]
   if login == nil or login == "" then return nil end
@@ -151,7 +162,7 @@ local function of_serve(req: Types.Request): Tailnet.Identity?
   end
   for name, values in pairs(granted) do
     local list, _ = Json.to_array(values)
-    caps[name] = list or {}
+    if list ~= nil then caps[name] = list end
   end
   local picture = req.headers["tailscale-user-profile-pic"]
   return {
@@ -165,9 +176,15 @@ local function of_serve(req: Types.Request): Tailnet.Identity?
 end
 
 --- Whether `address` is the machine's loopback.
-local function loopback(address: Net.Address): boolean
-  local host = address.host or ""
+local function loopback(host: string): boolean
   return host == "::1" or host:match("^127%.%d+%.%d+%.%d+$") ~= nil
+end
+
+--- `host` with an IPv4 address mapped into IPv6 (`::ffff:100.64.0.2`, as
+--- a listener on `::` names an IPv4 peer) written as the IPv4 address,
+--- so that it is asked about, kept and tested as one.
+local function unmapped(host: string): string
+  return host:match("^::[Ff][Ff][Ff][Ff]:(%d+%.%d+%.%d+%.%d+)$") or host
 end
 
 --- The whois of [`Tailscale.connect`]'s daemon, made on the first call,
@@ -220,10 +237,11 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
       local peer = req.raw.peer
       local identity: Tailnet.Identity? = nil
       if peer ~= nil and peer.kind == "tcp" and peer.host ~= nil then
-        if serve and loopback(peer) then
+        local host = unmapped(assert(peer.host))
+        if serve and loopback(host) then
           identity = of_serve(req)
         else
-          local result = asked(assert(peer.host))
+          local result = asked(host)
           if result.kind == "failed" then
             local sink = req.app.spec.sink
             if sink ~= nil then sink:line("tailnet: " .. result.reason) end

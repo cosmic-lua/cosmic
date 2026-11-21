@@ -604,10 +604,11 @@ local function notify_of(line: string): Notify?, string
   }, ""
 end
 
---- The options of `watch`'s request to `endpoint`. `timeout_ns` is the call's limit, `default_ns` by default; 0 is none.
 -- TODO: read the IPN bus over cosmic.net, as `sent` does, once a chunked
 -- body can be read a chunk at a time from cosmic.http.message, so that
 -- `watch` waits as a task does.
+
+--- The options of `watch`'s request to `endpoint`. `timeout_ns` is the call's limit, `default_ns` by default; 0 is none.
 local function options(endpoint: Endpoint, default_ns: integer, method: string, body?: string, timeout_ns?: integer): Http.Options
   local headers: mut {string: string} = {
     -- Over a port the URL names 127.0.0.1, which the daemon takes only
@@ -665,6 +666,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   if request == nil then return nil, "tailscale: " .. bad end
   local conn <close>, why = Net.connect(endpoint.via, { timeout_ns = left() })
   if conn == nil then return nil, "tailscale: " .. why end
+  conn:set_timeout(left())
   local wrote, refused = conn:write(request)
   if not wrote then return nil, "tailscale: " .. refused end
   local reader = Message.response_reader({ body_bytes = REPLY_BYTES })
@@ -676,6 +678,8 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
     if read.status == "done" then
       local response = read.response
       if response == nil then return nil, "tailscale: the reply holds no response" end
+      -- The daemon sends no interim reply; one would be no answer.
+      if response.status < 200 then return nil, "tailscale: the daemon's reply is interim" end
       return { status = response.status, body = response.body, headers = response.headers }, ""
     end
     if read.status ~= "more" then
