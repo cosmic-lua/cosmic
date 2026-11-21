@@ -244,12 +244,13 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
   local uses_of_add = "cmd/tally/main.tl:16: counter Counter.add\ncounter_test.tl:7: counter Counter.add\n"
   local by_class = looked_up(root, tmp, { "uses", "Counter.add" })
   assert(by_class == uses_of_add, by_class)
-  -- The last name alone also names [`cosmic.bigint`]'s `add`, whose uses in the standard library are listed
-  -- beside the project's: every line of `cosmic/` is one of those, and the rest are the project's.
+  -- The last name alone also names the `add` of the standard library's modules ([`cosmic.bigint`]'s, a store's
+  -- method), whose uses there are listed beside the project's: every line of `cosmic/` is one of those, and the
+  -- rest are the project's.
   local of_the_project: mut {string} = {}
   for use in looked_up(root, tmp, { "uses", "add" }):gmatch("[^\n]+\n") do
     if use:sub(1, 7) == "cosmic/" then
-      assert(use:find(": cosmic.bigint add\n", 1, true) ~= nil, use)
+      assert(use:match(": cosmic%.[%w_.]+ [%w_]*%.?add\n$") ~= nil, use)
     else
       of_the_project[#of_the_project + 1] = use
     end

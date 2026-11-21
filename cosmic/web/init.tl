@@ -68,6 +68,10 @@ local type Tailnet = require("cosmic.web.tailnet")
 -- load where an app asks for it.
 local type Oidc = require("cosmic.web.oidc")
 local type Tls = require("cosmic.tls")
+-- Only the type: passkeys, and the WebAuthn checks they carry, load where
+-- an app asks for them.
+local type Passkeys = require("cosmic.web.passkeys")
+local type Sqlite = require("cosmic.sqlite")
 
 local record Web
   --- What a handler answers: the server's own [`Server.Reply`].
@@ -266,6 +270,24 @@ local record Web
   --- [`Oidc.require_login`].
   require_login: function(): Types.Middleware
 
+  --- Who logged in with a passkey: see [`Passkeys.Identity`].
+  type PasskeyIdentity = Passkeys.Identity
+  --- What [`Web.passkeys`] takes: see [`Passkeys.Options`].
+  type PasskeyOptions = Passkeys.Options
+  --- Who a passkey is registered for: see [`Passkeys.User`].
+  type PasskeyUser = Passkeys.User
+  --- Where passkeys are kept: see [`Passkeys.Store`].
+  type PasskeyStore = Passkeys.Store
+  --- What [`Web.passkey_store`] takes: see [`Passkeys.StoreOptions`].
+  type PasskeyStoreOptions = Passkeys.StoreOptions
+  --- Middleware of passkey registration and login: see
+  --- [`Passkeys.middleware`].
+  passkeys: function(opts: Passkeys.Options): Types.Middleware
+  --- Who [`Web.passkeys`] found logged in: see [`Passkeys.identity`].
+  passkey_identity: function(req: Types.Request): Passkeys.Identity?
+  --- A store of passkeys in SQLite: see [`Passkeys.sqlite_store`].
+  passkey_store: function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
+
   --- Compiles routes and middleware into an app: see [`App.new`].
   app: function(spec: Types.AppSpec): Types.App
   --- Serves an app until the server stops: see [`App.serve`].
@@ -336,6 +358,15 @@ Web.require_login = function(): Types.Middleware
 end
 Web.client_cert = ClientCert.peer
 Web.require_client_cert = ClientCert.require
+Web.passkeys = function(opts: Passkeys.Options): Types.Middleware
+  return require("cosmic.web.passkeys").middleware(opts)
+end
+Web.passkey_identity = function(req: Types.Request): Passkeys.Identity?
+  return require("cosmic.web.passkeys").identity(req)
+end
+Web.passkey_store = function(db: Sqlite.Handle, opts?: Passkeys.StoreOptions): Passkeys.Store?, string
+  return require("cosmic.web.passkeys").sqlite_store(db, opts)
+end
 Web.serve = App.serve
 Web.test_client = Testing.test_client
 Web.with_client = Testing.with_client
