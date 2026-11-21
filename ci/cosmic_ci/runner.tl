@@ -4,6 +4,11 @@ local Fs = require("cosmic.fs")
 local Seams = require("cosmic_ci.seams")
 local State = require("cosmic_ci.state")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
+-- names a release whose Child has it: ci/ runs on that release, where a
+-- limit must be stated for the tree's checker yet FOREVER is not there.
+local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
+
 local record Runner
   record Context
     database: string
@@ -99,7 +104,7 @@ local function prepare(request: Runner.Request): Child.Options, {integer}
     fds = copy
   end
   local options: Child.Options = { cwd = request.cwd, process_group = true, env = request.env,
-    timeout_ns = limit, stdin = input_fd, stdout = output_fd, stderr = error_fd, fds = fds }
+    timeout_ns = limit or CEILING_NS, stdin = input_fd, stdout = output_fd, stderr = error_fd, fds = fds }
   return options, descriptors
 end
 
