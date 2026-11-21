@@ -422,7 +422,8 @@ Codes.catalog = {
     why = "a type parameter bounded by an interface (`T is Shape`) takes only the types that conform to it, since the " ..
       "body does with a `T` only what the interface declares; a type conforms by having each field of the interface as " ..
       "it declares them (of exactly its type, `mut` and omittable alike), or by listing it. `Ordered` takes a number " ..
-      "type or a string type, and `Numeric` `integer` or `number`, for the operators the body applies",
+      "type or a string type, and `Numeric` `integer` or `number`, for the operators the body applies; `Key` takes " ..
+      "a type a map is keyed by",
     fix = "declare the interface's fields in <type>, or pass a type that has them",
   },
   {

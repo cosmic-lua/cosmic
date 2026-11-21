@@ -419,7 +419,7 @@ local function clean_path(path: string): string
 end
 
 --- The members of every list given, each once, in byte order.
-local function sorted_set<T>(...: {T}): {T}
+local function sorted_set<T is Key>(...: {T}): {T}
   local seen: mut {T:boolean} = {}
   local out: mut {T} = {}
   for _, list in ipairs({ ... }) do

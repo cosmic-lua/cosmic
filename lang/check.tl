@@ -5559,8 +5559,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           local bound, held = tp.bound, solved[k]
           if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
             local wanted_bound = "`is " .. show(ctx, bound) .. "`"
-            local fix = if bound.tag == "Numeric" then "pass a function over `integer` or `number`" elseif
-              bound.tag == "Ordered" then "pass a function over a number type or a string type" else
+            local fix = if Types.builtin_bound(bound) then "pass a function over " .. Types.bound_meets(bound.tag) else
               "pass a type that declares " .. wanted_bound end
             -- Only a type the program declares can be given the interface.
             local declarable = not Types.builtin_bound(bound) and held.tag == "named" and (held.decl.kind == "record" or
@@ -5686,13 +5685,19 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       local lacking = Calls.lacking(ctx, held, bound)
       local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
         ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) ..
-        (if builtin then (if bound.tag == "Numeric" then " is not `integer` or `number`" else
-          " is not a type whose values are all numbers or all strings" end) elseif lacking ~= nil then
+        (if builtin and held.tag == "var" then " is not bounded by it" elseif builtin then
+          (if bound.tag == "Ordered" then " is not a type whose values are all numbers or all strings" else
+            " is not " .. Types.bound_meets(bound.tag) end) elseif lacking ~= nil then
           " has no field " .. quoted(lacking) .. " as it declares" else " neither lists it nor has its fields" end)
       problems[#problems + 1] = msg
-      if loud and builtin then
+      if loud and builtin and held.tag == "var" then
+        local held_name = show(ctx, held)
+        report(ctx, "bound_unmet", node, msg, "bound " .. quoted(held_name) .. " by " .. quoted(bound.tag) ..
+            " where it is declared (`<" .. held_name .. " is " .. bound.tag .. ">`)", { held_name, show(ctx, bound) })
+      elseif loud and builtin then
         report(ctx, "bound_unmet", node, msg,
-          if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" else
+          if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
+            bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" else
             "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
               "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
       elseif loud then

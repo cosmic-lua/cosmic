@@ -193,7 +193,7 @@ local function nth<T>(list: {T}, position: integer): T
 end
 
 --- The value kept under `key` in `map`, a key set before it is read.
-local function known<K, V>(map: {K: V}, key: K): V
+local function known<K is Key, V>(map: {K: V}, key: K): V
   return (assert(map[key], "the key was set before it is read"))
 end
 

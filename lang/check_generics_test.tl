@@ -265,7 +265,7 @@ local function test_an_instance_that_makes_an_array_of_optionals_is_refused_as_t
   stands(head .. "local xs = wrap(5)\nprint(#xs, xs[1])\n", "1\t5")
   refused(head .. "local function f(m: integer?)\n  local xs = wrap(m)\nend\n", "array_of_optional")
   refused(head .. "local xs = wrap(nil)\n", "array_of_optional")
-  refused("local function table_of<K, V>(k: K, v: V): {K: V}\n  return { [k] = v }\nend\n" ..
+  refused("local function table_of<K is Key, V>(k: K, v: V): {K: V}\n  return { [k] = v }\nend\n" ..
       "local function f(m: string?)\n  local t = table_of(1, m)\nend\n", "array_of_optional")
   -- An optional that is not in an element stands.
   assert(type_of("local function f(m: integer?)\n  local seen = identity(m)\nend\n", "seen") == "integer?")
@@ -739,12 +739,22 @@ local function test_an_operator_on_a_parameter_is_told_the_bound_that_gives_it()
   assert(p.fix:find("`<Item is Numeric>`", 1, true) ~= nil, p.fix)
 end
 
---- `Ordered` and `Numeric` are bounds and the types of no value.
+--- `Ordered`, `Numeric` and `Key` are bounds and the types of no value.
 local function test_a_builtin_bound_is_the_type_of_no_value()
-  local r = Programs.run("local x: Ordered = 1\nprint(x)\n")
-  assert(#r.before == 1 and r.before[1]:find("bound_as_type", 1, true) ~= nil, table.concat(r.before, " "))
-  local named = Programs.run("local interface Ordered\nend\n")
-  assert(#named.before == 1 and named.before[1]:find("primitive_type_name", 1, true) ~= nil, table.concat(named.before, " "))
+  for _, bound in ipairs({ "Ordered", "Numeric", "Key" }) do
+    local r = Programs.run("local x: " .. bound .. " = 1\nprint(x)\n")
+    assert(table.concat(r.before, " ") == "bound_as_type", table.concat(r.before, " "))
+  end
+end
+
+--- A declaration may take the name of a bound, as [`Acme.Key`] does; where it is in scope the name is the declaration's,
+--- in a type and after `is` alike.
+local function test_a_declaration_named_for_a_bound_takes_the_name_where_it_is_in_scope()
+  stands("local record Key\n  x: integer\nend\nlocal k: Key = { x = 1 }\nprint(k.x)\n", "1")
+  stands("local interface Ordered\n  rank: integer\nend\nlocal function rank<T is Ordered>(t: T): integer\n  return t.rank\nend\n" ..
+      "local record Card\n  rank: integer\nend\nlocal c: Card = { rank = 3 }\nprint(rank(c))\n", "3")
+  local r = Programs.run("local record Key\nend\nlocal function f<K is Key>(k: K) print(k) end\n")
+  assert(table.concat(r.before, " ") == "bound_not_interface", table.concat(r.before, " "))
 end
 
 --- A bound is `Ordered` or `Numeric` only where written as the bound: an alias of one is a type, and refused, wherever
@@ -773,4 +783,68 @@ local function test_a_generic_record_bounded_by_ordered_takes_the_types_that_mee
       "print(r.low < r.high)\n", "true")
   local r = Programs.run("local record Range<T is Ordered>\n  low: T\nend\nlocal r: Range<boolean> = { low = true }\nprint(r)\n")
   assert(table.concat(r.before, " "):find("bound_not_met", 1, true) ~= nil, table.concat(r.before, " "))
+end
+
+-- the built-in bound `Key` --------------------------------------------------------------------------------------------
+
+local INDEX <const> = "local function index<K is Key, V>(xs: {V}, key: function(V): K): {K: V}\n" ..
+  "  local out: mut {K: V} = {}\n  for _, x in ipairs(xs) do\n    out[key(x)] = x\n  end\n  return out\nend\n"
+
+--- A parameter bounded by `Key` keys a map, and a call passes a type a map may be keyed by.
+local function test_a_parameter_bounded_by_key_keys_a_map_and_a_call_passes_a_key_type()
+  stands(INDEX .. "local by = index({ \"a\", \"bb\" }, function(s: string): integer return #s end)\nprint(by[2])\n", "bb")
+  stands(INDEX .. "local by = index({ 1, 2 }, function(n: integer): boolean return n > 1 end)\nprint(by[true], by[false])\n",
+    "2\t1")
+  local r = Programs.run(INDEX .. "local by = index({ 1.5 }, function(x: number): number return x end)\nprint(by)\n")
+  assert(Programs.codes(r) == "bound_unmet", Programs.codes(r))
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("`number` is the type parameter `K` of `index`, which is bounded by `Key`, and `number` is not " ..
+      "`integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata", 1, true) ~= nil, e.msg)
+end
+
+--- A type parameter keys a map only where `Key` or an interface bounds it: unbounded, it may be `number`, a union or
+--- a function, and the map would take keys no read finds.
+local function test_an_unbounded_type_parameter_keys_no_map()
+  local r = Programs.run("local function index<K, V>(xs: {V}, key: function(V): K): {K: V}\n  return {}\nend\n")
+  assert(table.concat(r.before, " ") == "key_type", table.concat(r.before, " "))
+  local e = Array.at(r.lowered.errors, 1)
+  assert(e.msg:find("the type parameter `K`, which `Key` does not bound", 1, true) ~= nil, e.msg)
+  assert(e.fix:find("bound `K` by `Key` where it is declared (`<K is Key>`)", 1, true) ~= nil, e.fix)
+  -- `Ordered` and `Numeric` hold `number`, a float key
+  local ordered = Programs.run("local function f<T is Ordered>(m: {T: boolean}) print(m) end\n")
+  assert(table.concat(ordered.before, " ") == "key_type", table.concat(ordered.before, " "))
+  -- an interface bounds a type parameter by records, classes and interfaces, each a key by identity
+  stands("local interface Titled\n  title: string\nend\nlocal record Book\n  title: string\nend\n" ..
+      "local function present<N is Titled>(xs: {N}): {N: boolean}\n  local out: mut {N: boolean} = {}\n" ..
+      "  for _, x in ipairs(xs) do\n    out[x] = true\n  end\n  return out\nend\n" ..
+      "local b: Book = { title = \"b\" }\nprint(present({ b })[b])\n", "true")
+end
+
+--- A caller's own type parameter meets `Key` only through its bound, and the fix names where to write it.
+local function test_a_callers_type_parameter_passed_to_key_is_bounded_by_it()
+  local r = Programs.run("local function set<K is Key>(k: K): {K: boolean}\n  return { [k] = true }\nend\n" ..
+      "local function wrap<T>(t: T): integer\n  local _ = set(t)\n  return 1\nend\nprint(wrap(1))\n")
+  assert(Programs.codes(r) == "bound_unmet", Programs.codes(r))
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("`T` is not bounded by it", 1, true) ~= nil, e.msg)
+  assert(e.fix == "bound `T` by `Key` where it is declared (`<T is Key>`)", e.fix)
+  stands("local function set<K is Key>(k: K): {K: boolean}\n  return { [k] = true }\nend\n" ..
+      "local function wrap<T is Key>(t: T): boolean\n  return set(t)[t] == true\nend\nprint(wrap(\"a\"))\n", "true")
+end
+
+--- A generic record that keys a map by its parameter bounds it by `Key`, and an instance passes a key type.
+local function test_a_generic_record_keyed_by_its_parameter_bounds_it_by_key()
+  local unbounded = Programs.run("local record Set<K>\n  keys: {K: boolean}\nend\n")
+  assert(table.concat(unbounded.before, " ") == "key_type", table.concat(unbounded.before, " "))
+  local set = "local record Set<K is Key>\n  keys: {K: boolean}\nend\n"
+  stands(set .. "local s: Set<string> = { keys = { [\"a\"] = true } }\nprint(s.keys[\"a\"])\n", "true")
+  local float = Programs.run(set .. "local s: Set<number>\n")
+  assert(table.concat(float.before, " ") == "float_key", table.concat(float.before, " "))
+  local e = Array.at(float.lowered.errors, 1)
+  assert(e.msg:find("`Set` bounds its type parameter 1 by `Key`, so `number` would key a map by a float", 1, true) ~= nil, e.msg)
+  local union = Programs.run(set .. "local s: Set<string | integer>\n")
+  assert(table.concat(union.before, " ") == "key_type", table.concat(union.before, " "))
+  -- a record that passes its parameter on to `Set` bounds it too
+  local through = Programs.run(set .. "local record Index<T>\n  set: Set<T>\nend\nlocal i: Index<number>\n")
+  assert(table.concat(through.before, " "):find("bound_not_met", 1, true) ~= nil, table.concat(through.before, " "))
 end
