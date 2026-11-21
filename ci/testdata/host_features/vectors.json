@@ -120,7 +120,7 @@
   "version": "#22-Ubuntu SMP Thu Sep  4 00:00:00 UTC 2025\n"
  },
  {
-  "cpuinfo": "flags : sse a é b_2 avx\n",
+  "cpuinfo": "flags : sse a \u00e9 b_2 avx\n",
   "kernel": "86fd0d69b7b0e37d",
   "kept": "a avx b_2 sse é",
   "machine": "riscv64",
@@ -367,5 +367,35 @@
   },
   "sysname": "Darwin",
   "version": null
+ },
+ {
+  "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
+  "kernel": "0de7cf39e1e63661",
+  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "machine": "x86_64",
+  "name": "x86-aws-7.0",
+  "osrelease": "7.0.0-1014-aws\n",
+  "sysname": "Linux",
+  "version": "#14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026\n"
+ },
+{
+  "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
+  "kernel": "0de7cf39e1e63661",
+  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "machine": "x86_64",
+  "name": "x86-azure-7.0",
+  "osrelease": "7.0.0-1017-azure",
+  "sysname": "Linux",
+  "version": "#17~24.04.1-Ubuntu SMP PREEMPT Thu Sep 24 18:46:57 UTC 2026\n"
+ },
+{
+  "cpuinfo": "processor\t: 0\nvendor_id\t: GenuineIntel\nflags\t\t: fpu vme sse sse2 ssse3 sse4_1 sse4_2 pclmulqdq aes avx fma avx2 bmi2 erms hypervisor md_clear\nvmx flags\t: ept vpid\nbugs\t\t: cpu_meltdown\n\nprocessor\t: 1\nflags\t\t: md_clear hypervisor erms bmi2 avx2 fma avx aes pclmulqdq sse4_2 sse4_1 ssse3 sse2 sse vme fpu\n",
+  "kernel": "b3af4c46b211af3e",
+  "kept": "aes pclmulqdq sse4_1 ssse3",
+  "machine": "x86_64",
+  "name": "x86-no-series",
+  "osrelease": "custom-kernel\n",
+  "sysname": "Linux",
+  "version": "#1 SMP\n"
  }
 ]

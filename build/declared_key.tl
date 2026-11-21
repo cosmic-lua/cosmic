@@ -1176,7 +1176,7 @@ local package_databases: {string} = {
 
 --- Where [`host_identity`] and [`system_identity`] read the system the
 --- host says it is, and its kernel's release and version ([`HostSources`]'
---- `system`).
+--- `system`); the version is read by no key, only logged by CI.
 local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osrelease",
   "/proc/sys/kernel/version" }
 
@@ -1196,7 +1196,8 @@ local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.pl
   "/System/Library/CoreServices/SystemVersion.plist", "" }
 
 --- Where [`host_identity`], [`system_identity`] and [`host_kernel`] read
---- the system the host says it is and its kernel's release and version
+--- the system the host says it is and its kernel's release (and version,
+--- which no key reads)
 --- ([`HostSources`]' `system`) on a host whose kernel `uname` names
 --- `sysname`: `darwin_system` on "Darwin", and /etc/os-release and
 --- /proc's elsewhere.
@@ -1243,8 +1244,10 @@ local system_variable <const> = "COSMIC_SYSTEM_ID"
 --- kernel's build and version are left out: hosted runners of one CI
 --- leg run builds of one series from more than one cloud, and what a
 --- test can tell of a kernel -- Landlock's ABI, whether a sandbox gets a
---- /proc of its own -- its module declares, and its key holds
---- ([`build.host_requires`], `own proc` below).
+--- /proc of its own -- every key holds ([`host_split`]), and its module
+--- declares the rest that [`build.host_requires`] names (a user
+--- namespace, nesting). What no name there covers -- a flavor's config,
+--- a backport within the series -- a key no longer tells apart.
 local function kernel_text(from: declared_key.HostSources): string
   local path = system_of(from)[2] or ""
   -- None ("") is read as nothing, not as the working directory "" would open.
@@ -1565,7 +1568,7 @@ end
 
 --- What of [`host_identity`] can differ between runners of one CI leg,
 --- as the first 16 hex digits of a sha256: the kernel's series
---- (`kernel_text`), a missing release as empty -- on macOS, the system
+--- ([`kernel_text`]), a missing release as empty -- on macOS, the system
 --- volume's SystemVersion.plist (`darwin_system`).
 --- It is what ci/cosmic_ci/host_id.tl's `kernel` answers, which names a
 --- leg's verdict cache, so a run restores one whose keys its host

@@ -187,7 +187,7 @@ local function kernel_parts(facts: HostId.Facts): {string}
   return { facts.read("/proc/sys/kernel/osrelease") or "", facts.read("/proc/sys/kernel/version") or "" }
 end
 
---- What [`HostId.kernel`] hashes of `kernel_parts`: on Linux, the
+--- What [`HostId.kernel`] hashes of [`kernel_parts`]: on Linux, the
 --- release's series alone (`7.0` of `7.0.0-1017-azure`), or the whole
 --- release where it names none; on macOS, the system volume's
 --- SystemVersion.plist whole.
