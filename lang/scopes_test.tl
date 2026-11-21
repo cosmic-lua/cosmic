@@ -327,7 +327,7 @@ local function test_an_unknown_type_is_told_how_to_declare_it()
   assert(e.code == "unknown_type" and e.y == 1 and e.x == 10 and e.msg == "the type `Widgt` is not declared")
   assert(e.fix == "declare it above with `local record Widgt ... end`, `local enum Widgt ... end` or `local type Widgt = ...`, " ..
       "or import it with `local type Widgt = require(\"...\")`; a program may use `any`, `boolean`, `integer`, `never`, " ..
-      "`number`, `string` and `thread` with no declaration")
+      "`number` and `string` with no declaration")
 end
 
 --- A nested type named outside its record is told to qualify it, not to declare a type that already exists.
