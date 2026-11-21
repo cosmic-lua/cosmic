@@ -111,6 +111,19 @@ instead (`--svg -` prints it), and `cosmic qr --read code.svg` reads either
 drawing back. `cosmic help qr` has the rest. A program draws its own with
 [`Qr.text`] and [`Qr.svg`], and reads one with [`Qr.read`].
 
+## a certificate from Let's Encrypt
+
+`cosmic acme key account.pem` and `cosmic acme key site.pem` make two
+keys, one for the ACME account and one for the certificate. Then
+`cosmic acme issue --account account.pem --key site.pem --webroot /var/www
+--agree-tos --out chain.pem example.com www.example.com` answers the
+http-01 challenge from the web server's root and writes the chain.
+`--dns-hook <program>` answers dns-01 instead, which a wildcard name
+needs: the program puts the TXT record and takes it away. Try a flow
+with `--staging` first, as Let's Encrypt's limits are lower in
+production. `cosmic help acme` has the rest. A program asks for its own
+with [`Acme.client`].
+
 ## questions about a data file
 
 A question about a data file -- what is in it, how many of these it
@@ -425,6 +438,7 @@ where to change it. Write `local peak = 0.0`, or annotate
 A function declared `: number` may still
 `return 0`: an integer is a number.
 
+[`Acme.client`]: ../../cosmic/acme.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl

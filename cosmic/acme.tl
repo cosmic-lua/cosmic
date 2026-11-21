@@ -561,15 +561,21 @@ end
 --- with an optional `*.` in front.
 local function valid_name(name: string): boolean
   local bare = if name:sub(1, 2) == "*." then name:sub(3) else name end
-  return #bare > 0 and #bare <= 253 and bare:find("^[%w%-%.]+$") ~= nil
+  if #bare == 0 or #bare > 253 then return false end
+  for label in (bare .. "."):gmatch("([^.]*)%.") do
+    if #label == 0 or #label > 63 or label:find("^%w[%w%-]*$") == nil or label:sub(-1) == "-" then
+      return false
+    end
+  end
+  return true
 end
 
 --- The DER certificate signing request (PKCS #10, RFC 2986) for the DNS
 --- names `names` under `key`: the first name is the subject's common
 --- name when it fits one (64 characters at most), and every name is a
 --- subjectAltName, as ACME asks (RFC 8555 section 7.4). Nil and why for
---- no names, or a name that is not letters, digits, hyphens and dots
---- after an optional `*.`.
+--- no names, or a name that is not dot-separated labels of 1 to 63
+--- letters, digits and inner hyphens after an optional `*.`.
 ---
 ---     local csr = assert(Acme.csr(Acme.p256_key(Sign.p256_secret()), { "example.com" }))
 function Acme.csr(key: Acme.Key, names: {string}): string?, string
