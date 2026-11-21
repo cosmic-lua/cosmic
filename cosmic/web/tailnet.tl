@@ -42,13 +42,17 @@
 --- `Tailscale-User-Name`, `Tailscale-User-Profile-Pic`, and
 --- `Tailscale-App-Capabilities` where the serve config forwards
 --- capabilities), deleting any copy a client sent. `serve = true` reads
---- them from a loopback peer or a unix socket's, and only there. Any
+--- the user's headers from a loopback peer, and only there, but no
+--- capabilities, since this cannot tell whether the config forwards
+--- them, and a daemon deletes a client's copy only where it does. Any
 --- local process can connect to the loopback and send them, so behind a
 --- loopback port turn it on only where the machine's users are trusted.
 --- [`Web.serve`]'s `tailnet = { via = "serve" }` is the safer way: it
 --- listens at a unix socket of a private directory, which only the
 --- daemon and the program's own user can reach, and files the daemon's
 --- Serve configuration itself, taking it down when the server stops.
+--- There the headers are read with or without `serve`, with the
+--- capabilities its `caps` names, once the daemon is seen to keep them.
 --- `via = "funnel"` opens the site to the internet as well. A request
 --- through Funnel carries none of the headers and has no identity;
 --- [`Web.tailnet_funnel`] tells it apart, so a public app can answer
@@ -80,6 +84,8 @@ local record Reached
   cleanup?: function()
   --- Through Serve: the socket's path.
   socket?: string
+  --- Through Serve: the capabilities the daemon was told to pass on.
+  caps?: {string}
 end
 
 local record Tailnet
@@ -139,13 +145,36 @@ local IDENTITY: Types.Key<Tailnet.Identity> = Request.key("tailnet.identity")
 --- The key that marks a request Funnel brought from the internet.
 local FUNNEL: Types.Key<boolean> = Request.key("tailnet.funnel")
 
---- The most addresses a cache holds before it starts again.
+--- The most addresses a cache holds. A full one drops the answers that
+--- stopped counting, and starts again where that frees less than a
+--- quarter of it, so that it is not swept on every answer.
 local CACHE_ENTRIES <const> = 4096
 
 --- An answer of the daemon, and when it stops counting.
 local record Kept
   result: Tailscale.WhoIsResult
   until_ns: integer
+end
+
+--- The answers kept for some addresses, and how many.
+local record Cache
+  mut entries: mut {string: Kept}
+  mut held: integer
+end
+
+--- `cache` with room for one more address at `now`.
+local function room(cache: Cache, now: integer)
+  if cache.held < CACHE_ENTRIES then return end
+  local live: mut {string: Kept} = {}
+  local held = 0
+  for host, kept in pairs(cache.entries) do
+    if kept.until_ns > now then
+      live[host] = kept
+      held = held + 1
+    end
+  end
+  if held > CACHE_ENTRIES * 3 // 4 then live, held = {}, 0 end
+  cache.entries, cache.held = live, held
 end
 
 --- The identity of a whois's answer.
@@ -183,9 +212,13 @@ local function unq(text: string): string
 end
 
 --- The identity `tailscale serve`'s headers give, or nil where they name
---- nobody. A capability header that is no JSON object grants nothing,
---- and nor does a member whose value is no array.
-local function of_serve(req: Types.Request): Tailnet.Identity?
+--- nobody, with the capabilities of the header named in `forwarded`
+--- alone: those [`Web.serve`] told the daemon to pass on, and saw it
+--- keep. A daemon deletes a client's copy of the header only where it
+--- forwards capabilities, so any other name is the client's. A
+--- capability header that is no JSON object grants nothing, and nor
+--- does a member whose value is no array.
+local function of_serve(req: Types.Request, forwarded: {string}): Tailnet.Identity?
   local login = req.headers["tailscale-user-login"]
   if login == nil or login == "" then return nil end
   local caps: mut {string: {Json.Value}} = {}
@@ -195,8 +228,8 @@ local function of_serve(req: Types.Request): Tailnet.Identity?
     local decoded, _ = Json.decode_object(header)
     if decoded ~= nil then granted = decoded end
   end
-  for name, values in pairs(granted) do
-    local list, _ = Json.to_array(values)
+  for _, name in ipairs(forwarded) do
+    local list, _ = Json.to_array(granted[name])
     if list ~= nil then caps[name] = list end
   end
   local picture = req.headers["tailscale-user-profile-pic"]
@@ -251,19 +284,28 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
   local whois = o.whois or daemon_whois()
   local required = o.required ~= false
   local serve = o.serve == true
-  local cache: mut {string: Kept} = {}
-  local held = 0
+  -- Peers and strangers apart, so that addresses off the tailnet,
+  -- which anyone has many of, never push a peer's answer out.
+  local peers: Cache = { entries = {}, held = 0 }
+  local strangers: Cache = { entries = {}, held = 0 }
   local function asked(host: string): Tailscale.WhoIsResult
     local now = Clock.monotonic_ns()
-    local kept = cache[host]
+    local kept = peers.entries[host] or strangers.entries[host]
     if kept ~= nil and kept.until_ns > now then return kept.result end
     local result = whois(host)
     if cache_ns > 0 and result.kind ~= "failed" then
-      if kept == nil then
-        if held >= CACHE_ENTRIES then cache, held = {}, 0 end
-        held = held + 1
+      local into = if result.kind == "found" then peers else strangers end
+      local other = if result.kind == "found" then strangers else peers end
+      if other.entries[host] ~= nil then
+        other.entries[host] = nil
+        other.held = other.held - 1
       end
-      cache[host] = { result = result, until_ns = Clock.monotonic_ns() + cache_ns }
+      local later = Clock.monotonic_ns()
+      if into.entries[host] == nil then
+        room(into, later)
+        into.held = into.held + 1
+      end
+      into.entries[host] = { result = result, until_ns = later + cache_ns }
     end
     return result
   end
@@ -279,15 +321,17 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
         -- directory only the daemon and this user can reach: the
         -- daemon's headers say who asked.
         funneled = req.headers["tailscale-funnel-request"] == "?1"
-        if not funneled then identity = of_serve(req) end
+        if not funneled then identity = of_serve(req, req.app.serve_caps or {}) end
       elseif peer == nil or peer.kind == "unix" then
         -- Any other unix socket: nobody this middleware can name.
         identity = nil
       elseif peer.kind == "tcp" and peer.host ~= nil then
         local host = unmapped(assert(peer.host))
         if serve and loopback(host) then
+          -- No capabilities: a daemon passes a client's own header on
+          -- unless the serve config forwards them, which is not known here.
           funneled = req.headers["tailscale-funnel-request"] == "?1"
-          if not funneled then identity = of_serve(req) end
+          if not funneled then identity = of_serve(req, {}) end
         else
           local result = asked(host)
           if result.kind == "failed" then
@@ -359,7 +403,11 @@ local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, vi
     local _, _ = Fs.remove_tree(dir)
     return nil, "web: tailnet: the socket's path " .. socket .. " is longer than a socket's path may be: set a shorter TMPDIR"
   end
-  local caps = o.caps
+  -- A copy, so that a change to the caller's list after the daemon
+  -- kept it trusts nothing more.
+  local caps: {string}? = nil
+  local asked = o.caps
+  if asked ~= nil then caps = table.move(asked, 1, #asked, 1, {}) end
   local spec: Tailscale.ServeSpec = {
     domain = domain,
     sites = { {
@@ -380,6 +428,7 @@ local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, vi
       local _, _ = Fs.remove_tree(dir)
     end,
     socket = socket,
+    caps = caps,
   }, ""
 end
 

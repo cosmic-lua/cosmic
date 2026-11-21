@@ -148,8 +148,9 @@ local function test_an_answer_is_kept_per_address()
 end
 
 --- Behind `tailscale serve` the loopback peer's headers name who asked,
---- an encoded name decoded and the forwarded capabilities read; without
---- them a loopback request is nobody's, as one through Funnel is.
+--- an encoded name decoded, but grant no capabilities, which a client
+--- could have sent itself; without them a loopback request is nobody's,
+--- as one through Funnel is.
 local function test_serve_headers_name_who_asked_from_the_loopback_alone()
   local seen = new_seen()
   local client = Web.test_client(app_of(seen, { whois = stand_in(seen), serve = true }))
@@ -161,7 +162,7 @@ local function test_serve_headers_name_who_asked_from_the_loopback_alone()
   local loopback = Net.tcp("127.0.0.1", 50000)
   local home = client:get("/", { peer = loopback, headers = headers })
   assert(home.body == "rene@example.com René Doe serve - tagged=false", home.body)
-  assert(client:get("/admin", { peer = loopback, headers = headers }).status == 200)
+  assert(client:get("/admin", { peer = loopback, headers = headers }).status == 403)
   assert(client:get("/", { peer = Net.tcp("::1", 50000), headers = headers }).status == 200)
   local funnel = client:get("/", { peer = loopback })
   assert(funnel.status == 403, tostring(funnel.status))
@@ -185,6 +186,13 @@ local function test_serve_headers_name_who_asked_at_the_apps_own_socket()
   local client = Web.test_client(app)
   local home = client:get("/", { peer = client_side, listener = own, headers = who })
   assert(home.body == "rene@example.com Rene serve - tagged=false", home.body)
+  -- A capability counts only where the daemon was told to forward it.
+  local granted = { ["Tailscale-User-Login"] = "rene@example.com",
+    ["Tailscale-App-Capabilities"] = '{"example.com/cap/admin":[{}]}' }
+  assert(client:get("/admin", { peer = client_side, listener = own, headers = granted }).status == 403)
+  app.serve_caps = { "example.com/cap/admin" }
+  assert(client:get("/admin", { peer = client_side, listener = own, headers = granted }).status == 200)
+  app.serve_caps = nil
   local other = client:get("/", { peer = client_side, listener = Net.unix("/run/app/admin"), headers = who })
   assert(other.status == 403, tostring(other.status))
   -- Without a socket of its own the app trusts no unix socket, `serve` or not.
@@ -310,18 +318,41 @@ local function test_a_mapped_peer_is_its_ipv4_address_and_headers_move_nothing()
   assert(table.concat(seen.asked, ",") == "100.64.0.2,192.0.2.9", table.concat(seen.asked, ","))
 end
 
+--- Addresses off the tailnet, however many, never push a peer's answer
+--- out of the cache.
+local function test_strangers_do_not_push_a_peer_out_of_the_cache()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen) }))
+  local will = Net.tcp("100.64.0.2", 1)
+  assert(client:get("/", { peer = will }).status == 200)
+  for i = 1, 4100 do
+    local host = string.format("192.0.%d.%d", i // 256, i % 256)
+    assert(client:get("/", { peer = Net.tcp(host, 1) }).status == 403)
+  end
+  assert(client:get("/", { peer = will }).status == 200)
+  local peer_asks = 0
+  for _, address in ipairs(seen.asked) do
+    if address == "100.64.0.2" then peer_asks = peer_asks + 1 end
+  end
+  assert(peer_asks == 1, tostring(peer_asks))
+end
+
 --- A name Go splits into several encoded words joins whole, and a
 --- capability whose value is no array is not granted.
 local function test_an_encoded_name_of_several_words_joins_and_a_bad_grant_grants_nothing()
   local seen = new_seen()
-  local client = Web.test_client(app_of(seen, { whois = stand_in(seen), serve = true }))
-  local reply = client:get("/admin", { peer = Net.tcp("127.0.0.1", 1), headers = {
+  local app = app_of(seen, { whois = stand_in(seen) })
+  app.serve_socket = "/run/app/s"
+  app.serve_caps = { "example.com/cap/admin" }
+  local client = Web.test_client(app)
+  local peer, listener = Net.unix(""), Net.unix("/run/app/s")
+  local reply = client:get("/admin", { peer = peer, listener = listener, headers = {
     ["Tailscale-User-Login"] = "rene@example.com",
     ["Tailscale-User-Name"] = "=?utf-8?q?Ren=C3=A9?= =?utf-8?q?_Doe?=",
     ["Tailscale-App-Capabilities"] = '{"example.com/cap/admin": 5}',
   } })
   assert(reply.status == 403, tostring(reply.status))
-  local home = client:get("/", { peer = Net.tcp("127.0.0.1", 1), headers = {
+  local home = client:get("/", { peer = peer, listener = listener, headers = {
     ["Tailscale-User-Login"] = "rene@example.com",
     ["Tailscale-User-Name"] = "=?utf-8?q?Ren=C3=A9?= =?utf-8?q?_Doe?=",
   } })

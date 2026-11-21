@@ -116,7 +116,8 @@ function App.new(spec: Types.AppSpec): Types.App
   end
   local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
   local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {}, -- checked: literal_missing
-    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT, serve_socket = nil }
+    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT, serve_socket = nil,
+    serve_caps = nil }
   local function dispatch(req: Types.Request): Types.Response
     local given = req.outcome
     if given == nil and kept.builtin == true then
@@ -199,6 +200,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local put_up: (function(): Tailscale.Serving?, string)? = nil
   local unplace: function()? = nil
   local socket: string? = nil
+  local forwarded: {string}? = nil
   -- Refuses to serve, removing what Serve's socket left first.
   local function declined(why: string): boolean, string
     local undo = unplace
@@ -214,7 +216,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if reached == nil then return false, why end
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
-    put_up, unplace, socket = reached.put_up, reached.cleanup, reached.socket
+    put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps
   end
   if app.spec.dev == true then
     if app.spec.trusted_proxy == true then
@@ -259,6 +261,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
       end
       filed = made
       app.serve_socket = socket
+      app.serve_caps = forwarded
     end
     if on_ready ~= nil then on_ready(addresses, server) end
   end
@@ -299,6 +302,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local made = filed
   if made ~= nil then local _, _ = made:close() end
   app.serve_socket = nil
+  app.serve_caps = nil
   local undo = unplace
   if undo ~= nil then undo() end
   if shutdown ~= nil then

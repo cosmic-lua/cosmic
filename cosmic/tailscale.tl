@@ -918,6 +918,23 @@ local function ports_of(config: {string: Json.Value}): {integer: boolean}
   return ports
 end
 
+--- How many handlers of `config` (a foreground entry) forward
+--- capabilities, by a non-empty `AcceptAppCaps`.
+local function forwarding(config: {string: Json.Value}): integer
+  local count = 0
+  local web, _ = Json.to_object(config["Web"])
+  for _, site in pairs(web or {}) do
+    local fields, _ = Json.to_object(site)
+    local handlers, _ = Json.to_object((fields or {})["Handlers"])
+    for _, handler in pairs(handlers or {}) do
+      local body, _ = Json.to_object(handler)
+      local names, _ = Json.to_array((body or {})["AcceptAppCaps"])
+      if names ~= nil and #names > 0 then count = count + 1 end
+    end
+  end
+  return count
+end
+
 --- The events of [`Client.watch`], one a read: a line of JSON an
 --- event. A class, so a `<close>` local holds one.
 local class Events
@@ -1284,6 +1301,22 @@ local class Client
         { ["If-Match"] = etag })
       if put == nil then return failed(lost) end
       if put.status == 200 then
+        -- A daemon that predates AcceptAppCaps drops it from what it
+        -- keeps, and passes a client's own Tailscale-App-Capabilities
+        -- on: read the entry back, and fail (which takes it down)
+        -- where a forward was lost.
+        local asked = forwarding(config)
+        if asked > 0 then
+          local kept, unkept = sent(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/serve-config")
+          if kept == nil then return failed(unkept) end
+          local back, _ = Json.decode_object((kept.body:gsub("%s+$", "")))
+          local fore, _ = Json.to_object((back or {})["Foreground"])
+          local mine, _ = Json.to_object((fore or {})[session])
+          if kept.status ~= 200 or mine == nil or forwarding(mine) < asked then
+            return failed("tailscale: serve: the daemon did not keep AcceptAppCaps: it predates forwarding " ..
+                "capabilities, and would pass a client's own header on")
+          end
+        end
         local serving: Serving = { session = session, domain = domain, urls = urls, events = events }
         return serving, ""
       end

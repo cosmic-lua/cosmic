@@ -604,6 +604,9 @@ local record Types
     --- trusts the identity headers of a request that came to it, and of
     --- no other socket.
     mut serve_socket?: string
+    --- The capabilities the daemon's Serve passes on to `serve_socket`,
+    --- which [`Web.tailnet`] reads from its header there, and no others.
+    mut serve_caps?: {string}
   end
 
   --- What [`Web.serve`] takes.
