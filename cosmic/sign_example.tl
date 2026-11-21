@@ -77,4 +77,21 @@ function Example.p256_verify()
   assert(not Sign.p256_verify(public, "pay alice 5", "not a signature"))
 end
 
+--- A new RSA key, for a peer that takes no P-256: the secret is a DER
+--- RSAPrivateKey, its public key a DER RSAPublicKey that ends in the
+--- exponent 65537, and a 2048-bit key signs in 256 bytes, the same
+--- signature for the same message. Drawing a key takes a while, so this
+--- one example does all of it.
+function Example.rsa_secret()
+  local secret = Sign.rsa_secret()
+  local public = Sign.rsa_public(secret)
+  local signature = Sign.rsa(secret, "pay alice 5")
+  print(#signature, Codec.hex(public:sub(-5)))
+  assert(#signature == 256 and Codec.hex(public:sub(-5)) == "0203010001")
+  assert(signature == Sign.rsa(secret, "pay alice 5"))
+  assert(Sign.rsa_verify(public, "pay alice 5", signature))
+  assert(not Sign.rsa_verify(public, "pay alice 500", signature))
+  assert(not Sign.rsa_verify(public, "pay alice 5", "not a signature"))
+end
+
 return Example
