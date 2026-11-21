@@ -65,20 +65,35 @@ local function read_csr(csr: string): Request
   local _, outer, _ = read_der(csr, 1)
   local parts = elements(outer)
   local info, signature_bits = assert(parts[1]), assert(parts[3])
+  -- The DER of each identifier, spelled out here rather than built by
+  -- the encoder under test: ecdsa-with-SHA256, id-ecPublicKey with
+  -- prime256v1, extensionRequest and subjectAltName.
+  assert(assert(parts[2]).whole == "\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02", "ecdsa-with-SHA256")
   local fields = elements(info.content)
+  assert(assert(fields[1]).whole == "\x02\x01\x00", "version 0")
+  assert(assert(fields[4]).tag == 0xa0, "attributes are [0]")
   local subject = assert(fields[2])
   local common_name = ""
   for _, set in ipairs(elements(subject.content)) do
-    local attribute = assert(elements(set.content)[1])
-    common_name = assert(elements(attribute.content)[2]).content
+    local attribute = elements(assert(elements(set.content)[1]).content)
+    assert(assert(attribute[1]).whole == "\x06\x03\x55\x04\x03", "commonName")
+    assert(assert(attribute[2]).tag == 0x0c, "a UTF8String")
+    common_name = assert(attribute[2]).content
   end
   local spki = elements(assert(fields[3]).content)
+  assert(assert(spki[1]).whole == "\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01" ..
+      "\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07", "id-ecPublicKey, prime256v1")
   local public = assert(spki[2]).content:sub(2)
   local names: mut {string} = {}
-  local attribute = assert(elements(assert(fields[4]).content)[1])
-  local extensions = assert(elements(assert(elements(attribute.content)[2]).content)[1])
+  local attribute = elements(assert(elements(assert(fields[4]).content)[1]).content)
+  assert(assert(attribute[1]).whole == "\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x09\x0e", "extensionRequest")
+  assert(assert(attribute[2]).tag == 0x31, "a SET of values")
+  local extensions = assert(elements(assert(attribute[2]).content)[1])
   for _, extension in ipairs(elements(extensions.content)) do
-    local value = assert(elements(extension.content)[2]).content
+    local parts_of = elements(extension.content)
+    assert(assert(parts_of[1]).whole == "\x06\x03\x55\x1d\x11", "subjectAltName")
+    assert(assert(parts_of[2]).tag == 0x04, "an OCTET STRING")
+    local value = assert(parts_of[2]).content
     local _, general_names, _ = read_der(value, 1)
     for _, name in ipairs(elements(general_names)) do
       assert(name.tag == 0x82, "a dNSName")
@@ -127,6 +142,14 @@ local record Server
   mut order_status: string
   mut csr: string
   log: mut {string}
+  --- The newAccount payloads, in order.
+  accounts: mut {{string: Json.Value}}
+  --- Whether finalize answers "processing", the order valid a poll later.
+  mut finalize_slowly: boolean
+  --- The Retry-After a processing authorization sends.
+  mut retry_after: string
+  --- The certificate body.
+  mut chain: string
 end
 
 local function reply(status: integer, value: Json.Value, headers?: {string: string}): Http.Body
@@ -160,6 +183,10 @@ local function new_server(): Server
     order_status = "pending",
     csr = "",
     log = {},
+    accounts = {},
+    finalize_slowly = false,
+    retry_after = "3",
+    chain = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
   }
   local function nonce(): string
     server.next_nonce = server.next_nonce + 1
@@ -172,10 +199,14 @@ local function new_server(): Server
     local a = assert(server.authorizations[i])
     local challenges: mut {Json.Value} = {}
     for j, c in ipairs(a.challenges) do
-      challenges[#challenges + 1] = {
+      local shown: mut {string: Json.Value} = {
         type = c.type, token = c.token, status = c.status,
         url = BASE .. "/chall/" .. tostring(i) .. "/" .. tostring(j),
       }
+      if c.status == "invalid" then
+        shown["error"] = { type = "urn:ietf:params:acme:error:connection", detail = "Timeout during connect" }
+      end
+      challenges[#challenges + 1] = shown
     end
     return {
       identifier = { type = "dns", value = a.domain },
@@ -199,7 +230,9 @@ local function new_server(): Server
       authorizations = Json.array(authorizations),
       finalize = BASE .. "/finalize/1",
     }
-    if server.order_status == "valid" then order["certificate"] = BASE .. "/cert/1" end
+    if server.order_status == "valid" and not server.finalize_slowly then
+      order["certificate"] = BASE .. "/cert/1"
+    end
     return order
   end
 
@@ -221,6 +254,9 @@ local function new_server(): Server
     if server.nonces[n] ~= true then return nil, nil, problem(400, "badNonce", "unknown nonce") end
     server.nonces[n] = nil
     local jwk: {string: Json.Value}? = nil
+    -- RFC 8555 section 6.2: newAccount carries the key, every other
+    -- request the account's URL.
+    assert((header["jwk"] ~= nil) == (url == BASE .. "/acct"), "jwk on newAccount alone, kid elsewhere")
     if header["jwk"] ~= nil then
       assert(header["kid"] == nil, "jwk and kid together")
       jwk = assert(Json.to_object(header["jwk"]))
@@ -234,7 +270,6 @@ local function new_server(): Server
     if not Sign.p256_verify(public, protected_text .. "." .. payload_text, signature) then
       return nil, nil, problem(400, "malformed", "bad signature")
     end
-    if header["jwk"] ~= nil then server.account = jwk end
     if payload_text == "" then return {}, "", nil end
     return assert(Json.decode_object((assert(Codec.unbase64url(payload_text))))), payload_text, nil
   end
@@ -249,6 +284,7 @@ local function new_server(): Server
       })
     end
     if url == BASE .. "/nonce" then
+      assert(method == "HEAD", "a nonce is asked for with HEAD")
       return { status = 200, body = "", headers = { ["replay-nonce"] = nonce() } }
     end
     assert(method == "POST", "every other request is a POST")
@@ -263,7 +299,17 @@ local function new_server(): Server
     end
     assert(payload ~= nil and payload_text ~= nil)
     fresh["location"] = BASE .. "/acct/1"
-    if url == BASE .. "/acct" then return reply(201, { status = "valid" }, fresh) end
+    if url == BASE .. "/acct" then
+      table.insert(server.accounts, payload)
+      local known = server.account ~= nil
+      if payload["onlyReturnExisting"] == true and not known then
+        return problem(400, "accountDoesNotExist", "no account for this key")
+      end
+      local header = assert(Json.decode_object((assert(Codec.unbase64url(text(
+        assert(Json.decode_object(assert(opts.body)))["protected"]))))))
+      server.account = assert(Json.to_object(header["jwk"]))
+      return reply(if known then 200 else 201 end, { status = "valid" }, fresh)
+    end
     if url == BASE .. "/order" then
       server.authorizations = {}
       local identifiers = assert(Json.to_array(payload["identifiers"]))
@@ -303,10 +349,7 @@ local function new_server(): Server
       end
       local shown: Json.Value = authorization_json(i)
       local current = assert(server.authorizations[i]).status
-      if current == "processing" then
-        fresh["retry-after"] = "0"
-        return reply(200, shown, fresh)
-      end
+      if current == "processing" then fresh["retry-after"] = server.retry_after end
       return reply(200, shown, fresh)
     end
     local ci, cj = url:match("/chall/(%d+)/(%d+)$")
@@ -317,17 +360,37 @@ local function new_server(): Server
       a.status = "processing"
       return reply(200, { type = c.type, token = c.token, status = c.status }, fresh)
     end
-    if url == BASE .. "/orders/1" then return reply(200, order_json(), fresh) end
+    if url == BASE .. "/orders/1" then
+      -- A slow finalize is valid at the first read after it.
+      if server.finalize_slowly and server.order_status == "processing" then
+        server.order_status = "valid"
+        server.finalize_slowly = false
+      end
+      return reply(200, order_json(), fresh)
+    end
     if url == BASE .. "/finalize/1" then
       if server.order_status ~= "ready" then return problem(403, "orderNotReady", "not ready") end
       server.csr = assert(Codec.unbase64url(text(payload["csr"])))
-      server.order_status = "valid"
+      -- Let's Encrypt takes a request only for exactly the order's names.
+      local asked: mut {string} = {}
+      for _, a in ipairs(server.authorizations) do
+        local prefix = if a.wildcard then "*." else "" end
+        asked[#asked + 1] = prefix .. a.domain
+      end
+      local named: mut {string} = {}
+      for _, name in ipairs(read_csr(server.csr).names) do named[#named + 1] = name end
+      table.sort(asked)
+      table.sort(named)
+      if table.concat(asked, " ") ~= table.concat(named, " ") then
+        return problem(400, "badCSR", "names differ from the order's")
+      end
+      server.order_status = if server.finalize_slowly then "processing" else "valid" end
       return reply(200, order_json(), fresh)
     end
     if url == BASE .. "/cert/1" then
       return { status = 200, headers = { ["content-type"] = "application/pem-certificate-chain",
         ["replay-nonce"] = issued },
-        body = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n" }
+        body = server.chain }
     end
     error("no such resource: " .. url)
   end
@@ -419,7 +482,7 @@ local function test_an_invalid_challenge_stops_the_issue_and_says_so()
     cleanup = function(_c: Acme.Challenge) cleaned = true end,
   })
   assert(chain == nil and cleaned)
-  assert(why == "acme: the authorization of example.com is invalid (challenge invalid)", why)
+  assert(why == "acme: the authorization of example.com is invalid (Timeout during connect)", why)
 end
 
 local function test_a_present_that_fails_stops_the_issue()
@@ -541,4 +604,56 @@ local function test_a_p256_key_signs_jws_as_es256()
   assert(key.alg == "ES256" and key.jwk["kty"] == "EC" and key.jwk["crv"] == "P-256")
   assert(assert(Codec.unbase64url(assert(key.jwk["y"]))) == public:sub(34, 65))
   assert(Sign.p256_verify(public, "m", key.sign("m")))
+end
+
+local function test_a_finalize_that_is_still_processing_is_waited_out()
+  local server = new_server()
+  server.finalize_slowly = true
+  local slept: mut {integer} = {}
+  local client = Acme.client({
+    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()), request = server.request,
+    sleep = function(ns: integer): boolean, string
+      table.insert(slept, ns)
+      return true, ""
+    end,
+  })
+  local chain, why = client:issue({ "example.com" }, {
+    key = Acme.p256_key(Sign.p256_secret()),
+    present = function(_c: Acme.Challenge): boolean, string return true, "" end,
+  })
+  assert(chain ~= nil, why)
+  -- The processing authorization asked for three seconds.
+  assert(slept[1] == 3 * 1000000000, tostring(slept[1]))
+end
+
+local function test_the_account_payload_says_what_the_caller_agreed_to()
+  local server = new_server()
+  local key = Acme.p256_key(Sign.p256_secret())
+  local missing, why = client_of(server, key):account({ only_existing = true })
+  assert(missing == nil and why == "acme: newAccount: accountDoesNotExist (HTTP 400): no account for this key", why)
+  assert(client_of(server, key):account({ contact = { "mailto:a@example.com" }, terms_agreed = true }))
+  local made = assert(server.accounts[2])
+  assert(made["termsOfServiceAgreed"] == true and made["onlyReturnExisting"] == nil)
+  local contact = assert(Json.to_array(made["contact"]))
+  assert(#contact == 1 and contact[1] == "mailto:a@example.com")
+  assert(client_of(server, key):account({ only_existing = true }) == BASE .. "/acct/1", "found, not made")
+end
+
+local function test_the_certificate_key_must_not_be_the_account_key()
+  local key = Acme.p256_key(Sign.p256_secret())
+  local chain, why = client_of(new_server(), key):issue({ "example.com" }, {
+    key = key,
+    present = function(_c: Acme.Challenge): boolean, string return true, "" end,
+  })
+  assert(chain == nil and why == "acme: the certificate's key is the account's; use another", why)
+end
+
+local function test_a_body_that_is_no_pem_certificate_is_refused()
+  local server = new_server()
+  server.chain = "<html>oops</html>"
+  local chain, why = client_of(server):issue({ "example.com" }, {
+    key = Acme.p256_key(Sign.p256_secret()),
+    present = function(_c: Acme.Challenge): boolean, string return true, "" end,
+  })
+  assert(chain == nil and why == "acme: certificate: the server sent no PEM certificate", why)
 end

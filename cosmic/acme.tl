@@ -37,6 +37,17 @@
 --- the server refuses for a stale nonce (`badNonce`) is sent again once
 --- with the fresh nonce it handed back, as section 6.5 asks.
 
+-- TODO: RSA account and certificate keys, once cosmic.sign signs with
+-- RSA.
+
+-- TODO: tls-alpn-01, the alternate chains a `Link: rel="alternate"`
+-- names, key rollover, account deactivation, revocation, External
+-- Account Binding and renewal information (RFC 9773), once a caller
+-- needs one.
+
+-- TODO: wait out a 429 rateLimited answer by its Retry-After, once a
+-- caller issues often enough to meet one.
+
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
@@ -93,6 +104,9 @@ local record Acme
     --- For dns-01: the TXT record's value, the base64url SHA-256 of
     --- `key_authorization`.
     dns_value: string
+    --- The detail of the problem the server found, once the challenge is
+    --- invalid; "" before.
+    error: string
   end
 
   --- An authorization: what the account must prove for one identifier.
@@ -143,7 +157,9 @@ local record Acme
     --- The challenge type to answer, "http-01" when nil.
     challenge?: ChallengeType
     --- Publishes a challenge's response before the server checks it:
-    --- true, or false and why, which stops the issue.
+    --- true, or false and why, which stops the issue. The server checks
+    --- as soon as this returns, so it returns only once the response is
+    --- reachable: a dns-01 record has spread to the zone's servers.
     present: function(challenge: Challenge): boolean, string
     --- Withdraws what `present` published, once the authorization is
     --- settled either way. Its answer is not checked.
@@ -425,7 +441,8 @@ local function retry_after(body: Http.Body): integer?
   local value = body.headers["retry-after"]
   local seconds = value and math.tointeger(tonumber(value))
   if seconds == nil or seconds < 0 then return nil end
-  return Clock.seconds(seconds)
+  -- A day bounds what a server can ask, and keeps the product in range.
+  return Clock.seconds(math.min(seconds, 86400))
 end
 
 local function read_order(url: string, object: {string: Json.Value}): Acme.Order
@@ -446,6 +463,7 @@ end
 
 local function read_challenge(thumbprint: string, domain: string, object: {string: Json.Value}): Acme.Challenge
   local token = field(object, "token")
+  local problem_object = object_at(object, "error")
   local key_authorization = token .. "." .. thumbprint
   return {
     type = field(object, "type"),
@@ -457,6 +475,7 @@ local function read_challenge(thumbprint: string, domain: string, object: {strin
     path = "/.well-known/acme-challenge/" .. token,
     dns_name = "_acme-challenge." .. domain,
     dns_value = Codec.base64url(Hash.sha256(key_authorization)),
+    error = if problem_object ~= nil then field(problem_object, "detail") else "" end,
   }
 end
 
@@ -475,6 +494,9 @@ local function read_authorization(thumbprint: string, url: string, object: {stri
     challenges = challenges,
   }
 end
+
+--- How long one request to the server may take.
+local REQUEST_TIMEOUT <const> = Clock.minutes(1)
 
 local function default_request(method: string, url: string, opts: Http.Options): Http.Body?, string
   return Http.request(method, url, opts)
@@ -510,7 +532,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   local function read_directory(): {string: string}?, string
     local have = directory
     if have ~= nil then return have, "" end
-    local body, why = request("GET", opts.directory, {})
+    local body, why = request("GET", opts.directory, { timeout_ns = REQUEST_TIMEOUT })
     if body == nil then return nil, "acme: directory: " .. why end
     if body.status // 100 ~= 2 then return nil, problem(body, "directory") end
     local object, trouble = Json.decode_object(body.body)
@@ -543,7 +565,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     end
     local url, why = resource("newNonce")
     if url == nil then return nil, why end
-    local body, trouble = request("HEAD", url, {})
+    local body, trouble = request("HEAD", url, { timeout_ns = REQUEST_TIMEOUT })
     if body == nil then return nil, "acme: newNonce: " .. trouble end
     local got = body.headers["replay-nonce"]
     if got == nil or got == "" then return nil, "acme: newNonce answered no Replay-Nonce" end
@@ -580,6 +602,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       local signature = Codec.base64url(key.sign(protected .. "." .. encoded))
       local body_text = assert(Json.encode({ protected = protected, payload = encoded, signature = signature }))
       local body, trouble = request("POST", url, {
+        timeout_ns = REQUEST_TIMEOUT,
         headers = { ["Content-Type"] = "application/jose+json" },
         body = body_text,
       })
@@ -680,10 +703,12 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
         if object == nil or body == nil then return nil, why end
         local status = field(object, "status")
         if status ~= "pending" and status ~= "processing" then return status, "" end
-        local pause = retry_after(body) or interval
-        if Clock.monotonic_ns() - started + pause > timeout then
+        local left = timeout - (Clock.monotonic_ns() - started)
+        if left <= 0 then
           return nil, ("acme: %s is still %s after the wait"):format(url, status)
         end
+        -- A Retry-After of 0 would poll without a pause.
+        local pause = math.min(math.max(retry_after(body) or interval, Clock.ms(100)), left)
         local slept, trouble = sleep(pause)
         if not slept then return nil, "acme: poll: " .. trouble end
       end
@@ -709,6 +734,9 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       local kind = issue_opts.challenge or "http-01"
       local csr, bad = Acme.csr(issue_opts.key, names)
       if csr == nil then return nil, bad end
+      if issue_opts.key.spki == key.spki then
+        return nil, "acme: the certificate's key is the account's; use another"
+      end
       local _, why = self:account()
       if why ~= "" then return nil, why end
       local order, trouble = self:order(names)
@@ -716,13 +744,21 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       for _, url in ipairs(order.authorizations) do
         local authorization, failed = self:authorization(url)
         if authorization == nil then return nil, failed end
-        if authorization.status ~= "valid" then
+        if authorization.status ~= "valid" and authorization.status ~= "pending" then
+          return nil, ("acme: the authorization of %s is %s"):format(authorization.domain, authorization.status)
+        end
+        if authorization.status == "pending" then
           local chosen: Acme.Challenge? = nil
           for _, challenge in ipairs(authorization.challenges) do
             if challenge.type == kind then chosen = challenge end
           end
           if chosen == nil then
             return nil, ("acme: the server offers no %s challenge for %s"):format(kind, authorization.domain)
+          end
+          -- RFC 8555 section 8.1 holds a token to base64url; any other
+          -- byte would reach the caller's path or record name.
+          if chosen.token:find("^[%w_%-]+$") == nil then
+            return nil, ("acme: the server's token for %s is not base64url"):format(authorization.domain)
           end
           local presented, refused = issue_opts.present(chosen)
           if not presented then return nil, "acme: present: " .. refused end
@@ -737,11 +773,13 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
             local detail = ""
             if settled ~= nil then
               for _, challenge in ipairs(settled.challenges) do
-                if challenge.type == kind then detail = challenge.status end
+                if challenge.type == kind then
+                  detail = if challenge.error ~= "" then challenge.error else challenge.status end
+                end
               end
             end
             return nil, ("acme: the authorization of %s is %s%s"):format(authorization.domain, status,
-              if detail ~= "" then " (challenge " .. detail .. ")" else "" end)
+              if detail ~= "" then " (" .. detail .. ")" else "" end)
           end
         end
       end
@@ -750,13 +788,22 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       if ready ~= "ready" and ready ~= "valid" then
         return nil, ("acme: the order is %s"):format(ready)
       end
-      local finalized, refused = self:finalize(order, csr)
-      if finalized == nil then return nil, refused end
-      local settled = finalized
-      if finalized.status ~= "valid" then
-        local status, slow = self:wait(order.url)
-        if status == nil then return nil, slow end
-        if status ~= "valid" then return nil, ("acme: the finalized order is %s"):format(status) end
+      -- An order already valid (an earlier issue finalized it) is not
+      -- finalized again: the server would refuse it as not ready.
+      local settled = order
+      if ready == "ready" then
+        local finalized, refused = self:finalize(order, csr)
+        if finalized == nil then return nil, refused end
+        settled = finalized
+        if finalized.status ~= "valid" then
+          local status, slow = self:wait(order.url)
+          if status == nil then return nil, slow end
+          if status ~= "valid" then
+            return nil, ("acme: the finalized order is %s"):format(status)
+          end
+        end
+      end
+      if settled.certificate == nil then
         local read, lost = self:get_order(order.url)
         if read == nil then return nil, lost end
         settled = read
