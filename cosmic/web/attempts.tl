@@ -87,6 +87,30 @@ local record Attempts
     --- Forgets `key`'s failures, as after a success.
     reset: function(Limiter, key: string)
   end
+
+  --- What [`Attempts.tally`] takes.
+  record TallyOptions
+    --- How long a key's window lasts, in nanoseconds. At least 1.
+    window_ns: integer
+    --- The most keys kept at once (10000). At least 1.
+    max_keys?: integer
+    --- The clock, in nanoseconds ([`Clock.monotonic_ns`]); a test passes
+    --- its own. A reading below an earlier one is taken as the earlier.
+    now_ns?: function(): integer
+  end
+
+  --- What each key counted in its window: made by [`Attempts.tally`].
+  interface Tally
+    --- How long a key's window lasts, in nanoseconds.
+    window_ns: integer
+    --- Adds `n` to `key`'s count, and answers the count of its window.
+    add: function(Tally, key: string, n: integer): integer
+    --- `key`'s count in its window: 0 where it has none.
+    count: function(Tally, key: string): integer
+    --- How long until `key`'s window ends, in nanoseconds: 0 where it
+    --- has none.
+    wait_ns: function(Tally, key: string): integer
+  end
 end
 
 local DEFAULT_MAX_KEYS <const> = 10000
@@ -194,6 +218,77 @@ local class Tracked is Attempts.Limiter
   end
 end
 
+--- One key's window of [`Counted`]: when it began, and its count.
+local record Window
+  start: integer
+  mut count: integer
+end
+
+local class Counted is Attempts.Tally
+  window_ns: integer
+  max_keys: integer
+  clock: function(): integer
+  --- The latest reading of `clock`, which a reading below it is raised to.
+  mut last: integer
+  mut windows: mut {string: Window}
+  --- How many keys `windows` holds.
+  mut size: integer
+
+  function tick(self): integer
+    local now = math.max(self.clock(), self.last)
+    self.last = now
+    return now
+  end
+
+  --- `key`'s window where it has not ended, else nil.
+  function live(self, key: string, now: integer): Window?
+    local window = self.windows[key]
+    if window ~= nil and now - window.start < self.window_ns then return window end
+    return nil
+  end
+
+  --- Brings the count of keys below `max_keys`: by dropping those whose
+  --- windows have ended, else every key.
+  function make_room(self, now: integer)
+    for key, window in pairs(self.windows) do
+      if now - window.start >= self.window_ns then
+        self.windows[key] = nil
+        self.size = self.size - 1
+      end
+    end
+    if self.size >= self.max_keys then
+      self.windows = {}
+      self.size = 0
+    end
+  end
+
+  function add(self, key: string, n: integer): integer
+    local now = self:tick()
+    local window = self:live(key, now)
+    if window == nil then
+      if self.windows[key] == nil then
+        if self.size >= self.max_keys then self:make_room(now) end
+        self.size = self.size + 1
+      end
+      window = { start = now, count = 0 }
+      self.windows[key] = window
+    end
+    window.count = window.count + n
+    return window.count
+  end
+
+  function count(self, key: string): integer
+    local window = self:live(key, self:tick())
+    return if window ~= nil then window.count else 0 end
+  end
+
+  function wait_ns(self, key: string): integer
+    local now = self:tick()
+    local window = self:live(key, now)
+    return if window ~= nil then self.window_ns - (now - window.start) else 0 end
+  end
+end
+
 --- `value` when it is an integer of at least 1; raises naming `name`.
 local function positive(value: integer, name: string): integer
   if math.type(value) ~= "integer" or value < 1 then
@@ -217,6 +312,28 @@ function Attempts.limiter(opts: Attempts.Options): Attempts.Limiter
     max_keys = positive(opts.max_keys or DEFAULT_MAX_KEYS, "max_keys"),
     clock = opts.now_ns or Clock.monotonic_ns,
     last = math.mininteger, times = {}, count = 0,
+  }
+  return made
+end
+
+--- A count for each key in fixed windows of `opts.window_ns`, each begun
+--- by the key's first count after its last window ended: a rate limit
+--- that weighs what it counts (bytes, messages), or "say this once a
+--- minute" with one key. O(1) a count. At most `opts.max_keys` keys are
+--- kept: a new key past that drops those whose windows have ended, and,
+--- where none has, every key, so a flood of new keys starts every count
+--- over; key what is limited by something a client cannot make up, or
+--- raise `max_keys` past what one can send in a window. Raises, naming
+--- the option, for a window or `max_keys` that is not an integer of at
+--- least 1.
+--- @param opts Attempts.TallyOptions The window, and how many keys
+--- @return Attempts.Tally The tally
+function Attempts.tally(opts: Attempts.TallyOptions): Attempts.Tally
+  local made: Counted = {
+    window_ns = positive(opts.window_ns, "window_ns"),
+    max_keys = positive(opts.max_keys or DEFAULT_MAX_KEYS, "max_keys"),
+    clock = opts.now_ns or Clock.monotonic_ns,
+    last = math.mininteger, windows = {}, size = 0,
   }
   return made
 end

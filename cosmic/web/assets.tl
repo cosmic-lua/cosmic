@@ -345,20 +345,26 @@ local function is_built(): boolean
   return main ~= nil and main ~= ""
 end
 
---- The source of one directory laid over another's: a path `over` holds is
---- answered from it, any other from `under`, as [`build.embed`] lays a
---- program's own static files over the shared ones.
-local function layered(over: Assets.Source, under: Assets.Source): Assets.Source
+--- One source of `sources`, each laid over those after it: a path is
+--- answered by the first that holds it, and `paths` is every path any of
+--- them holds, once each, sorted. It is dynamic where any of them is.
+--- [`Assets.default`] lays a program's own static files over the shared
+--- ones so.
+--- @param sources {Assets.Source} The sources, the one that wins first
+--- @return Assets.Source The source
+function Assets.layered(sources: {Assets.Source}): Assets.Source
   return {
     get = function(_self: Assets.Source, path: string): Assets.Asset?, string
-      local asset, _ = over:get(path)
-      if asset ~= nil then return asset, "" end
-      return under:get(path)
+      for _, source in ipairs(sources) do
+        local asset, _ = source:get(path)
+        if asset ~= nil then return asset, "" end
+      end
+      return miss(path, "no layer holds it")
     end,
     paths = function(_self: Assets.Source): {string}
       local seen: mut {string:boolean} = {}
       local list: mut {string} = {}
-      for _, source in ipairs({ over, under }) do
+      for _, source in ipairs(sources) do
         for _, path in ipairs(source:paths()) do
           if seen[path] == nil then
             seen[path] = true
@@ -369,7 +375,63 @@ local function layered(over: Assets.Source, under: Assets.Source): Assets.Source
       table.sort(list)
       return list
     end,
-    dynamic = function(_self: Assets.Source): boolean return over:dynamic() or under:dynamic() end,
+    dynamic = function(_self: Assets.Source): boolean
+      for _, source in ipairs(sources) do
+        if source:dynamic() then return true end
+      end
+      return false
+    end,
+  }
+end
+
+--- The files of `source` under `prefix` ("images/"), each named by the
+--- rest of its path: `get("a.png")` answers `source`'s "images/a.png",
+--- with that rest as its `path`.
+--- @param source Assets.Source The source
+--- @param prefix string What each path begins with, its slash included
+--- @return Assets.Source The source
+function Assets.under(source: Assets.Source, prefix: string): Assets.Source
+  return {
+    get = function(_self: Assets.Source, path: string): Assets.Asset?, string
+      local refusal = path_refusal(path)
+      if refusal ~= nil then return miss(path, refusal) end
+      local asset, why = source:get(prefix .. path)
+      if asset == nil then return nil, why end
+      return { ...asset, path = path }, ""
+    end,
+    paths = function(_self: Assets.Source): {string}
+      local list: mut {string} = {}
+      for _, path in ipairs(source:paths()) do
+        if path:sub(1, #prefix) == prefix and #path > #prefix then
+          list[#list + 1] = path:sub(#prefix + 1)
+        end
+      end
+      return list
+    end,
+    dynamic = function(_self: Assets.Source): boolean return source:dynamic() end,
+  }
+end
+
+--- The files of `source` that `names` lists, and no other.
+--- @param source Assets.Source The source
+--- @param names {string} The paths it answers
+--- @return Assets.Source The source
+function Assets.only(source: Assets.Source, names: {string}): Assets.Source
+  local listed: mut {string:boolean} = {}
+  for _, name in ipairs(names) do listed[name] = true end
+  return {
+    get = function(_self: Assets.Source, path: string): Assets.Asset?, string
+      if listed[path] == nil then return miss(path, "not one of the names this source answers") end
+      return source:get(path)
+    end,
+    paths = function(_self: Assets.Source): {string}
+      local list: mut {string} = {}
+      for _, path in ipairs(source:paths()) do
+        if listed[path] ~= nil then list[#list + 1] = path end
+      end
+      return list
+    end,
+    dynamic = function(_self: Assets.Source): boolean return source:dynamic() end,
   }
 end
 
@@ -394,7 +456,7 @@ local function from_disk(root?: string): Assets.Source
   local shared = Assets.directory(root or "static")
   local own = if root == nil then Assets.own_static() else nil end
   if own == nil then return shared end
-  return layered(Assets.directory(own), shared)
+  return Assets.layered({ Assets.directory(own), shared })
 end
 
 --- The source for an app: with `opts.dev` the directory `opts.root`

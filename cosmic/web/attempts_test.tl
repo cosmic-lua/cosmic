@@ -204,3 +204,58 @@ local function test_too_many_answers_429_with_retry_after()
   fake.now = Clock.seconds(30)
   assert(client:post("/login", { body = "right" }).status == 200)
 end
+
+local function tally(fake: Fake, window_ns: integer, max_keys?: integer): Attempts.Tally
+  return Attempts.tally{ window_ns = window_ns, max_keys = max_keys, now_ns = function(): integer
+    return fake.now
+  end }
+end
+
+local function test_a_tally_counts_each_key_in_a_window_its_first_count_begins()
+  local fake: Fake = { now = 1000 }
+  local t = tally(fake, 100)
+  assert(t:count("k") == 0 and t:wait_ns("k") == 0)
+  assert(t:add("k", 3) == 3)
+  fake.now = 1040
+  assert(t:add("k", 2) == 5 and t:count("k") == 5)
+  assert(t:wait_ns("k") == 60, tostring(t:wait_ns("k")))
+  assert(t:count("other") == 0, "a key counts alone")
+  fake.now = 1099
+  assert(t:count("k") == 5 and t:wait_ns("k") == 1)
+  fake.now = 1100
+  assert(t:count("k") == 0 and t:wait_ns("k") == 0, "the window lasts exactly window_ns")
+  assert(t:add("k", 1) == 1, "a count after the window begins a new one")
+  assert(t:wait_ns("k") == 100)
+end
+
+local function test_a_tally_past_max_keys_drops_ended_windows_and_else_every_key()
+  local fake: Fake = { now = 0 }
+  local t = tally(fake, 100, 2)
+  t:add("a", 1)
+  fake.now = 50
+  t:add("b", 1)
+  fake.now = 120
+  t:add("c", 1)
+  assert(t:count("b") == 1, "a live key was dropped while an ended one could go")
+  fake.now = 130
+  t:add("d", 1)
+  assert(t:count("b") == 0 and t:count("c") == 0 and t:count("d") == 1,
+    "with no ended window, every key starts over")
+  t:add("d", 1)
+  assert(t:count("d") == 2, "a held key is no new key")
+end
+
+local function test_a_tally_holds_a_clock_that_goes_back_to_its_last_reading()
+  local fake: Fake = { now = 1000 }
+  local t = tally(fake, 100)
+  t:add("k", 1)
+  fake.now = 900
+  assert(t:count("k") == 1 and t:wait_ns("k") == 100)
+end
+
+local function test_a_tally_refuses_a_window_or_max_keys_below_1()
+  local ok, why = pcall(Attempts.tally, { window_ns = 0 })
+  assert(not ok and tostring(why):find("window_ns must be an integer of at least 1", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Attempts.tally, { window_ns = 1, max_keys = 0 })
+  assert(not ok and tostring(why):find("max_keys must be an integer of at least 1", 1, true) ~= nil, tostring(why))
+end

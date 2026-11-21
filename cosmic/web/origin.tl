@@ -2,6 +2,10 @@
 --- `scheme://host[:port]` a browser sends in its Origin header, and the one a
 --- `Referer` or the request itself names, each reduced to one spelling so
 --- that two names of one origin are equal and nothing else is.
+---
+---     local Origin = require("cosmic.web.origin")
+---     assert(Origin.of_url("HTTPS://Example.com:443/a?b") == "https://example.com")
+--- @public
 
 local Types = require("cosmic.web.types")
 
