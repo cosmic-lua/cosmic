@@ -246,3 +246,105 @@ local function test_a_seed_of_the_wrong_length_raises()
       tostring(trouble))
   end
 end
+
+--- RFC 6979 section A.2.5: the P-256 key, in hex.
+local p256_secret <const> = "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721"
+local p256_public <const> = "04" ..
+  "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6" ..
+  "7903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299"
+
+--- RFC 6979 section A.2.5: deterministic signatures under SHA-256, R then S.
+local record P256Vector
+  message: string
+  signature: string
+end
+
+local p256_vectors <const>: {P256Vector} = {
+  {
+    message = "sample",
+    signature = "efd48b2aacb6a8fd1140dd9cd45e81d69d2c877b56aaf991c34d0ea84eaf3716" ..
+      "f7cb1c942d657c41d436c7a1b6e29f65f3e900dbb9aff4064dc4ab2f843acda8",
+  },
+  {
+    message = "test",
+    signature = "f1abb023518351cd71d881567b1ea663ed3efcf6c5132b354f28d3b0b7d38367" ..
+      "019f4113742a2b14bd25926b49c649155f267e60d3814b4c0cc84250e46f0083",
+  },
+}
+
+--- P-256's group order n, in hex.
+local p256_order <const> = "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"
+
+local function test_the_p256_public_point_matches_rfc_6979()
+  assert(Codec.hex(Sign.p256_public(bytes(p256_secret))) == p256_public)
+end
+
+local function test_p256_signatures_match_rfc_6979()
+  for _, v in ipairs(p256_vectors) do
+    local signature = Sign.p256(bytes(p256_secret), v.message)
+    assert(Codec.hex(signature) == v.signature, v.message .. ": " .. Codec.hex(signature))
+    assert(Sign.p256_verify(bytes(p256_public), v.message, signature), v.message)
+  end
+end
+
+local function test_a_new_p256_secret_signs_and_verifies()
+  local secret = Sign.p256_secret()
+  assert(#secret == 32 and secret ~= Sign.p256_secret())
+  local public = Sign.p256_public(secret)
+  assert(#public == 65 and public:byte(1) == 4)
+  local signature = Sign.p256(secret, "a\0b")
+  assert(#signature == 64)
+  assert(Sign.p256_verify(public, "a\0b", signature))
+  assert(not Sign.p256_verify(public, "a", signature))
+  assert(not Sign.p256_verify(Sign.p256_public(Sign.p256_secret()), "a\0b", signature))
+end
+
+local function test_a_flipped_bit_of_a_p256_signature_key_or_message_is_refused()
+  local public, signature = bytes(p256_public), bytes(assert(p256_vectors[1]).signature)
+  for at = 1, 64 do
+    assert(not Sign.p256_verify(public, "sample", flipped(signature, at, at % 8)), "signature byte " .. tostring(at))
+  end
+  for at = 2, 65 do
+    assert(not Sign.p256_verify(flipped(public, at, at % 8), "sample", signature), "key byte " .. tostring(at))
+  end
+  assert(not Sign.p256_verify(public, "samplf", signature))
+end
+
+local function test_a_p256_key_or_signature_of_the_wrong_shape_answers_false()
+  local public, signature = bytes(p256_public), bytes(assert(p256_vectors[1]).signature)
+  local keys = {
+    "", public:sub(1, 64), public .. "\0", public:sub(2), "\2" .. public:sub(2, 33),
+    -- 65 bytes that are no uncompressed point: another prefix, or the zero point.
+    "\0" .. public:sub(2), "\2" .. public:sub(2), "\5" .. public:sub(2), "\4" .. string.rep("\0", 64),
+  }
+  for i, key in ipairs(keys) do
+    assert(not Sign.p256_verify(key, "sample", signature), "key " .. tostring(i))
+  end
+  for _, sig in ipairs({ "", signature:sub(1, 63), signature .. "\0" }) do
+    assert(not Sign.p256_verify(public, "sample", sig), "a signature of " .. tostring(#sig) .. " bytes")
+  end
+  -- R or S of 0, and of the group order: no valid signature has either.
+  local r, s = signature:sub(1, 32), signature:sub(33)
+  for _, sig in ipairs({ zero .. s, r .. zero, bytes(p256_order) .. s, r .. bytes(p256_order) }) do
+    assert(not Sign.p256_verify(public, "sample", sig))
+  end
+end
+
+local function test_a_p256_secret_of_the_wrong_length_or_out_of_range_raises()
+  for _, secret in ipairs({ "", string.rep("s", 31), string.rep("s", 33) }) do
+    local derived, why = pcall(Sign.p256_public, secret)
+    assert(not derived and tostring(why):find("sign: a P-256 secret is 32 bytes", 1, true) ~= nil, tostring(why))
+    local signed, trouble = pcall(Sign.p256, secret, "message")
+    assert(not signed and tostring(trouble):find("sign: a P-256 secret is 32 bytes", 1, true) ~= nil,
+      tostring(trouble))
+  end
+  for _, secret in ipairs({ zero, bytes(p256_order), string.rep("\xff", 32) }) do
+    local derived, why = pcall(Sign.p256_public, secret)
+    assert(not derived and tostring(why):find("sign: not a P-256 secret", 1, true) ~= nil, tostring(why))
+    local signed, trouble = pcall(Sign.p256, secret, "message")
+    assert(not signed and tostring(trouble):find("sign: not a P-256 secret", 1, true) ~= nil, tostring(trouble))
+  end
+  -- n - 1, the largest secret there is, is taken.
+  local largest = bytes(p256_order:sub(1, 62) .. "50")
+  assert(Sign.p256_verify(Sign.p256_public(largest), "m", Sign.p256(largest, "m")))
+end

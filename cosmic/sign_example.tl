@@ -39,4 +39,42 @@ function Example.ed25519_verify()
   assert(not Sign.ed25519_verify(public, "pay alice 5", "not a signature"))
 end
 
+--- A new P-256 key pair, as an ACME account or a certificate takes
+--- one: the secret is 32 bytes, the public point 65.
+function Example.p256_secret()
+  local secret = Sign.p256_secret()
+  local public = Sign.p256_public(secret)
+  print(#secret, #public)
+  assert(#secret == 32 and #public == 65)
+end
+
+--- The public point splits into its coordinates, as a JSON Web Key
+--- spells them.
+function Example.p256_public()
+  local public = Sign.p256_public(Sign.p256_secret())
+  local x, y = public:sub(2, 33), public:sub(34, 65)
+  print(Codec.base64url(x), Codec.base64url(y))
+  assert(public:byte(1) == 4 and #x == 32 and #y == 32)
+end
+
+--- Signing with the key of RFC 6979 section A.2.5: the same secret and
+--- message always give the same signature.
+function Example.p256()
+  local secret = assert(Codec.unhex("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721"))
+  local signature = Sign.p256(secret, "sample")
+  print(#signature, Codec.hex(signature):sub(1, 16))
+  assert(Codec.hex(signature):sub(1, 16) == "efd48b2aacb6a8fd")
+end
+
+--- Checking a P-256 signature: a changed message, or bytes that are no
+--- signature, answer false.
+function Example.p256_verify()
+  local secret = Sign.p256_secret()
+  local public = Sign.p256_public(secret)
+  local signature = Sign.p256(secret, "pay alice 5")
+  assert(Sign.p256_verify(public, "pay alice 5", signature))
+  assert(not Sign.p256_verify(public, "pay alice 500", signature))
+  assert(not Sign.p256_verify(public, "pay alice 5", "not a signature"))
+end
+
 return Example

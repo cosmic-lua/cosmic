@@ -224,7 +224,7 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing, HMAC, authenticated encryption and X25519; Monocypher for Ed25519 signatures; nanopb for the Protocol Buffers wire format; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
+hashing, HMAC, authenticated encryption, X25519 and P-256 ECDSA signatures; Monocypher for Ed25519 signatures; nanopb for the Protocol Buffers wire format; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
 regex engine, both planned; the syscall table; the database VFS and the
 entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
