@@ -302,4 +302,23 @@ function Example.wrapping()
   }, "\n"))
 end
 
+--- A command that writes what was asked on `out` and ends with a verdict
+--- on `err`: a test passes streams that keep the lines, a program
+--- [`Flags.std_io`]'s.
+function Example.verdicts()
+  local said: mut {string} = {}
+  local streams: Flags.Io = { out = function(line: string) said[#said + 1] = line end,
+    err = function(line: string) said[#said + 1] = "prog: " .. line end }
+  local ends = Flags.verdicts(streams.err)
+  local function main(argv: {string}): integer
+    local path = argv[1]
+    if #argv ~= 1 or path == nil then return ends.refused("give one path") end
+    streams.out("read " .. path)
+    return 0
+  end
+  print(main({}), main({ "a.csv" }))
+  assert(main({}) == Flags.REFUSED and main({ "a.csv" }) == 0)
+  assert(said[1] == "prog: give one path" and said[3] == "read a.csv", table.concat(said, "|"))
+end
+
 return Example -- checked: export_not_declared

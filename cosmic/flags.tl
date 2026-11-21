@@ -30,6 +30,7 @@
 --- index -- for [`Flags.dispatch`] and [`Flags.program_help`] alike.
 
 local Distance = require("cosmic.internal.distance")
+local Fs = require("cosmic.fs")
 local source_run = require("cosmic.internal.source_run")
 local type Doc = require("cosmic.doc")
 
@@ -181,7 +182,35 @@ local record Flags
     --- are not wrapped. `before`, `after` and a topic's text are printed as written.
     width?: integer
   end
+
+  --- Where a command line writes: `out` for what was asked, `err` for
+  --- what went wrong. [`Flags.std_io`] gives the standard streams; a test
+  --- passes functions that keep the lines.
+  record Io
+    out: function(line: string)
+    err: function(line: string)
+  end
+
+  --- What ends a command: it says why, and answers the exit code.
+  type Verdict = function(why: string): integer
+
+  --- [`Flags.verdicts`]'s two.
+  record Verdicts
+    --- Says why on `err`, and answers [`Flags.FAILED`].
+    failed: Verdict
+    --- Says why on `err`, and answers [`Flags.REFUSED`].
+    refused: Verdict
+  end
+
+  --- The exit code of a command that failed: 1.
+  FAILED: integer
+  --- The exit code of a command line refused as it was typed: 2, as
+  --- [`Flags.dispatch`]'s example gives for a word that names no command.
+  REFUSED: integer
 end
+
+Flags.FAILED = 1
+Flags.REFUSED = 2
 
 --- Whether `word`, the word after an option that takes a value, looks
 --- like an option rather than a value: it begins with "-", and is
@@ -1326,6 +1355,46 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   if keeps ~= nil then parsed.rest = kept end
   return { code = run(parsed), help = "" }, ""
+end
+
+--- The standard streams: `out` prints a line to standard output, `err`
+--- writes one to standard error, as `said` words it where given (the
+--- program's name before it, say).
+---
+---     local streams = Flags.std_io(function(line: string): string return "prog: " .. line end)
+---     streams.err("no such file") -- prog: no such file
+--- @param said function | nil How a line on `err` is worded; as it is where nil
+--- @return Io The streams
+function Flags.std_io(said?: function(line: string): string): Flags.Io
+  return {
+    out = function(line: string)
+      local _, _ = Fs.put(Fs.stdout, line .. "\n")
+    end,
+    err = function(line: string)
+      local shown = if said ~= nil then said(line) else line end
+      local _, _ = Fs.put(Fs.stderr, shown .. "\n")
+    end,
+  }
+end
+
+--- What ends a command, saying why on `err`: `failed` answers
+--- [`Flags.FAILED`], `refused` [`Flags.REFUSED`].
+---
+---     local ends = Flags.verdicts(Flags.std_io().err)
+---     return ends.refused("give one path") -- 2
+--- @param err function Where why is said
+--- @return Verdicts The two
+function Flags.verdicts(err: function(line: string)): Flags.Verdicts
+  return {
+    failed = function(why: string): integer
+      err(why)
+      return Flags.FAILED
+    end,
+    refused = function(why: string): integer
+      err(why)
+      return Flags.REFUSED
+    end,
+  }
 end
 
 return Flags

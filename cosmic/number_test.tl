@@ -107,3 +107,26 @@ local function test_integer_reads_back_what_every_base_writes()
     end
   end
 end
+
+--- What `integer` raises for, `read_integer` answers nil and the same
+--- reason for; what it reads, it reads alike.
+local function test_read_integer_answers_nil_and_why_where_integer_raises()
+  for _, text in ipairs({ "", "-", "0x10", "1e2", " 7", "+1", "1.5", "9223372036854775808", "12x4" }) do
+    local value, why = Number.read_integer(text)
+    assert(value == nil, ("%q was read as %s"):format(text, tostring(value)))
+    local raised = refused(text)
+    assert(raised:find(why, 1, true) ~= nil, ("%q: %s is not %s"):format(text, why, raised))
+  end
+  local read: {string:integer} = { ["0"] = 0, ["-12"] = -12, ["9223372036854775807"] = math.maxinteger,
+    ["-9223372036854775808"] = math.mininteger }
+  for text, want in pairs(read) do
+    local value, why = Number.read_integer(text)
+    assert(value == want and why == "", text)
+  end
+  assert(Number.read_integer("ff", 16) == 255)
+end
+
+local function test_read_integer_raises_for_a_base_outside_2_to_36()
+  local ok, why = pcall(Number.read_integer, "1", 37)
+  assert(not ok and tostring(why):find("base 37 is not 2 to 36", 1, true) ~= nil, tostring(why))
+end
