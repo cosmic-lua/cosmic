@@ -181,7 +181,8 @@ local enum Stdout
   "inherit"
   --- /dev/null.
   "null"
-  --- Memory, the last `capture_limit` bytes of it, for the Result.
+  --- Memory, the last `capture_limit` bytes of it, for the Result: seen
+  --- once the child has ended. "stream" shows it as it comes.
   "capture"
   --- A pipe the caller reads through the handle's `stdout_stream`.
   "stream"
@@ -4297,6 +4298,10 @@ end
 --- exactly. Standard streams inherit by default, or accept caller-owned
 --- descriptors (which remain open here), "null", or "capture"; "stream"
 --- is refused, as nothing could read or write it before the run returns.
+--- A captured stream is seen once the child has ended: to show a child's
+--- output as it comes and keep it too, start it with [`Child.start`] and
+--- `stdout = "stream"`, and read the handle's `stdout_stream` a line at a
+--- time, as the tee example of [`cosmic/child_example.tl`] does.
 --- The child owns a new process group by default, so timeout cleanup
 --- includes descendants.
 ---

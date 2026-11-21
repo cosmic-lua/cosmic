@@ -14,6 +14,10 @@ local artifact = require("build.artifact")
 local stand_in = require("build.stand_in")
 local logger = require("build.logger")
 local work = require("build.work")
+local sys = require("cosmic.sys")
+local identity = require("build.identity")
+local pipeline = require("build.pipeline")
+local GrammarMode = require("build.grammar_mode")
 
 --- A core change boots unless COSMIC_AUTO_BOOT is "0".
 --- How the test runner's tool, which is not built from any tree of a test, is seen at `root`, a tree it is told was
@@ -37,9 +41,9 @@ local function boot_words(): string
   return table.concat(words, " "):sub(#"bin/zig " + 1)
 end
 
---- A boot never changes what its tool carries: a tool of the host's core
---- alone boots for it alone, any other for every core, as every boot did
---- before there was a choice.
+--- A boot of a stale core never changes what its tool carries: a tool of
+--- the host's core alone boots for it alone, any other for every core, as
+--- every boot did before there was a choice.
 local function test_a_boot_keeps_the_cores_the_tool_carries()
   assert(table.concat(reboot.boot_command("zig", true), " ") == "zig build boot")
   assert(table.concat(reboot.boot_command("zig", false), " ") == "zig build boot -Dboot-cores=all")
@@ -120,6 +124,101 @@ local function test_boot_into_boots_once(tmp: string)
   local trouble = reboot.boot_into(root, { "test" },
     { COSMIC_REBOOTED = "1" })
   assert(trouble == "the tool is still stale after a reboot", trouble)
+end
+
+--- A checkout in `tmp` whose bin/zig is a stand-in that records how it was
+--- run and exits 0, and that checkout's own tool as a run in a project sees
+--- it. A test makes one and uses it for each of its cases: a stand-in is a
+--- copy of the core twice over, and a worker's scratch holds few of a
+--- checked core's.
+local function checkout_with_zig(tmp: string): string, reboot.Seen
+  local checkout = tree_with_zig(tmp, 0)
+  assert(Fs.mkdirs(checkout .. "/core"))
+  assert(Fs.mkdirs(checkout .. "/build"))
+  assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
+  local layout = paths.resolve(checkout)
+  assert(Fs.mkdirs(layout.bin))
+  return checkout, { tool = layout.tool, environment = {}, meta = { built_from = assert(tree.built_from(checkout)) } }
+end
+
+local every_core_words <const> = "build boot -Dboot-cores=all\n"
+
+--- A command that needs every core, on a checkout's own tool that carries
+--- the host's alone, boots every core in that checkout, whatever the tool
+--- carries, and enters the tool the boot wrote; a boot that fails is
+--- reported.
+local function test_every_core_into_boots_every_core_in_the_checkout(tmp: string)
+  local checkout, own = checkout_with_zig(tmp)
+  local trouble, said = complaints(function(): string
+    return tostring(reboot.every_core_into({ "build" }, own, {}))
+  end)
+  assert(Fs.read(checkout .. "/bin/ran") == every_core_words, Fs.read(checkout .. "/bin/ran"))
+  assert(said:find("running bin/zig build boot -Dboot-cores=all", 1, true), said)
+  -- The stand-in wrote no tool, so there is none to enter.
+  assert(trouble ~= "nil" and trouble ~= "", trouble)
+
+  -- The same stand-in, told to fail.
+  assert(Fs.write(checkout .. "/bin/zig.do", "exit 1\n"))
+  local failed = reboot.every_core_into({ "build" }, own, {})
+  assert(failed == "bin/zig build boot -Dboot-cores=all failed; fix what it reports and run this again",
+    tostring(failed))
+end
+
+--- A tool both stale and host-only, as one is after an edit or a pull, is
+--- rebuilt or booted as it was and entered again first; the command that
+--- needs every core then boots them in that same run, whichever of the
+--- two entered it.
+local function test_every_core_into_boots_a_tool_a_stale_reboot_entered(tmp: string)
+  local checkout, renewed = checkout_with_zig(tmp)
+  for _, entered in ipairs({ "1", "2" }) do
+    local trouble = reboot.every_core_into({ "build" }, renewed, { COSMIC_REBOOTED = entered })
+    assert(trouble ~= nil, "a tool a reboot entered (" .. entered .. ") answered nil")
+    assert(Fs.read(checkout .. "/bin/ran") == every_core_words,
+      "a tool a reboot entered (" .. entered .. ") did not boot every core")
+    assert(Fs.remove(checkout .. "/bin/ran"))
+  end
+end
+
+--- The tool the boot of every core wrote is entered marked as that boot's,
+--- and a process so entered boots nothing more, its tool still host-only:
+--- the command boots every core once, whatever came before.
+local function test_every_core_into_boots_every_core_once(tmp: string)
+  local checkout, own = checkout_with_zig(tmp)
+  local environment: mut {string:string} = { COSMIC_REBOOTED = "1" }
+  assert(reboot.every_core_into({ "build" }, own, environment) ~= nil)
+  assert(Fs.read(checkout .. "/bin/ran") == every_core_words)
+  assert(Fs.remove(checkout .. "/bin/ran"))
+  -- What the tool it enters runs in, the stand-in having written none to enter.
+  assert(environment["COSMIC_REBOOTED"] ~= "1" and environment["COSMIC_REBOOTED"] ~= "2",
+    "the boot of every core entered its tool as a stale reboot does")
+  assert(reboot.every_core_into({ "build" }, own, environment) == nil, "booted every core a second time")
+  assert(Fs.read(checkout .. "/bin/ran") == nil, "booted every core a second time")
+end
+
+--- It boots nothing, and answers nil, where the tool is told not to boot
+--- or is no checkout's own. Nor where another run holds the checkout's
+--- rebuild lock, which the boot would wait on.
+local function test_every_core_into_boots_only_where_the_tool_boots(tmp: string)
+  local checkout, own = checkout_with_zig(tmp)
+  assert(reboot.every_core_into({ "build" }, own, { COSMIC_AUTO_BOOT = "0" }) == nil)
+  assert(Fs.read(checkout .. "/bin/ran") == nil, "booted although told not to")
+
+  local copy: reboot.Seen = { tool = tmp .. "/elsewhere/cosmic", environment = {}, meta = own.meta }
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  assert(reboot.every_core_into({ "build" }, copy, {}) == nil)
+  assert(Fs.read(checkout .. "/bin/ran") == nil, "a copy of the tool booted its checkout")
+
+  local layout = paths.resolve(checkout)
+  local other = assert(sys.open(layout.lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(other, "exclusive"))
+  local waited = reboot.every_core_into({ "build" }, own, {})
+  assert(sys.close(other))
+  assert(waited == nil, tostring(waited))
+  assert(Fs.read(checkout .. "/bin/ran") == nil, "booted a checkout another run holds")
+
+  -- The same tool, with none of those in its way, boots: each case above held it back.
+  assert(reboot.every_core_into({ "build" }, own, {}) ~= nil)
+  assert(Fs.read(checkout .. "/bin/ran") == every_core_words, "the tool held back above does not boot at all")
 end
 
 --- The tree's compiler has moved from the tool's when their identities
@@ -462,5 +561,159 @@ local function test_a_line_about_another_schema_names_the_project_and_the_remedy
     work.tell_other_schema("docs", tmp .. "/newer.db", "99999", "/some/project")
     return ""
   end)
-  assert(newer:find("a newer tool wrote it; use that tool in /some/project", 1, true) and newer:find("cosmic test", 1, true) == nil, newer)
+  assert(newer:find("a newer tool wrote it; use that tool in /some/project", 1, true) ~= nil and newer:find("cosmic test", 1, true) == nil, newer)
+end
+
+--- Whether the working database of `root` has staged `path`.
+local function staged_in(root: string, path: string): boolean
+  local exists, _ = Fs.exists(paths.resolve(root).working)
+  if exists ~= true then
+    return false
+  end
+  local db = assert(Sqlite.open(paths.resolve(root).working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM files WHERE path = '" .. path .. "'"))
+  assert(db:close())
+  return #rows == 1
+end
+
+--- A run in a project (`bin/cosmic x.tl` from outside the checkout) holds
+--- a tool older than the checkout it was built from to that checkout, as
+--- a run in the checkout does: it stages the checkout and reaches the
+--- guard, which here refuses, the tool seen as one a reboot already
+--- entered, rather than rebuild. It does so once in a process, and again
+--- at [`reboot.recheck`]. A copy of the tool run from elsewhere is no
+--- checkout's own and runs on in the project unchecked.
+local function test_a_project_run_holds_the_tool_to_the_checkout_it_was_built_from(tmp: string)
+  local checkout = tmp .. "/checkout"
+  assert(Fs.mkdirs(checkout .. "/core"))
+  assert(Fs.mkdirs(checkout .. "/build"))
+  assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  assert(Fs.write(project .. "/x.tl", 'print("x")\n'))
+  local layout = paths.resolve(checkout)
+  assert(Fs.mkdirs(layout.bin))
+  local built_from = assert(tree.built_from(checkout))
+  local argv: {string} = { "x.tl" }
+
+  local copy: reboot.Seen = { tool = tmp .. "/elsewhere/cosmic", environment = { COSMIC_REBOOTED = "1" },
+    meta = { built_from = built_from } }
+  assert(Fs.mkdirs(tmp .. "/elsewhere"))
+  local copied = reboot.recheck(argv, project, copy)
+  assert(copied == nil, tostring(copied))
+  assert(not staged_in(checkout, "build/importer.tl"), "a copy of the tool staged its checkout")
+
+  local own: reboot.Seen = { tool = layout.tool, environment = { COSMIC_REBOOTED = "1" },
+    meta = { built_from = built_from } }
+  local code = reboot.recheck(argv, project, own)
+  assert(code == 3, "a project run went on with a tool older than its checkout: " .. tostring(code))
+  assert(staged_in(checkout, "build/importer.tl"), "the checkout is not staged")
+  -- Once in a process: the verb's own check after dispatch's goes on.
+  local again = reboot.stale_exit(argv, true, project, own)
+  assert(again == nil, tostring(again))
+  -- The check dispatch makes before a file run or `test` in a project.
+  local rechecked = reboot.recheck(argv, project, own)
+  assert(rechecked == 3, tostring(rechecked))
+  -- In the checkout itself the verb's own guard checks, not this.
+  local inside = reboot.checkout_exit(argv, checkout, own)
+  assert(inside == nil, tostring(inside))
+end
+
+--- While another run holds the checkout's rebuild lock -- a `cosmic test`
+--- there, whose tests start this program in projects of their own,
+--- unsandboxed ones reaching the checkout's build directory through their
+--- build home -- or its working database, a project run neither checks
+--- the tool against the checkout nor stages it, and says nothing of it:
+--- what it would say is not about the project.
+local function test_a_project_run_leaves_a_checkout_another_run_holds_alone(tmp: string)
+  local checkout = tmp .. "/checkout"
+  assert(Fs.mkdirs(checkout .. "/core"))
+  assert(Fs.mkdirs(checkout .. "/build"))
+  assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  local layout = paths.resolve(checkout)
+  assert(Fs.mkdirs(layout.bin))
+  local own: reboot.Seen = { tool = layout.tool, environment = { COSMIC_REBOOTED = "1" },
+    meta = { built_from = assert(tree.built_from(checkout)) } }
+  local argv: {string} = { "x.tl" }
+
+  -- The rebuild lock, held by another open file of it, as another run's is.
+  local other = assert(sys.open(layout.lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
+  assert(sys.flock(other, "exclusive"))
+  local code, said = complaints(function(): string
+    return tostring(reboot.recheck(argv, project, own))
+  end)
+  assert(sys.close(other))
+  assert(code == "nil", code)
+  assert(said == "", said)
+  assert(not staged_in(checkout, "build/importer.tl"), "a project run staged a checkout another run holds")
+
+  -- The working database, held by another run's write.
+  assert(work.close((assert(work.open(checkout)))))
+  local held = assert(Sqlite.open(layout.working, { writable = true }))
+  assert(held:exec("BEGIN IMMEDIATE"))
+  local busy, busy_said = complaints(function(): string
+    return tostring(reboot.recheck(argv, project, own))
+  end)
+  assert(held:exec("ROLLBACK"))
+  assert(held:close())
+  assert(busy == "nil", busy)
+  assert(busy_said == "", busy_said)
+  assert(not staged_in(checkout, "build/importer.tl"), "a project run staged a checkout whose database is held")
+end
+
+--- A checkout in `tmp`, staged and fingerprinted as the check before a verb
+--- leaves a tree whose tool is fresh, a project beside it, and the tool
+--- as a run in the project sees it: settled, its database written and
+--- compiled by the code it carries, and holding `stamp_of` as the row that
+--- binds its stamps ("" for a tool that carries none).
+local function fresh_tool(tmp: string, stamp_of: string): reboot.Seen, string, paths.Layout
+  local checkout = tmp .. "/checkout"
+  assert(Fs.mkdirs(checkout .. "/core"))
+  assert(Fs.mkdirs(checkout .. "/build"))
+  assert(Fs.write(checkout .. "/build/importer.tl", "return {}\n"))
+  local project = tmp .. "/project"
+  assert(Fs.mkdirs(project))
+  local layout = paths.resolve(checkout)
+  assert(Fs.mkdirs(layout.bin))
+  -- Past the settle window, so the stage trusts the files' stats.
+  assert(sys.nanosleep(Clock.seconds(3)))
+  local handle = assert(work.open(checkout))
+  assert(work.stage(handle, { own = true }))
+  local fingerprint = assert(identity.record_fingerprint(handle.db, checkout))
+  assert(work.close(handle))
+  local settled: {string:string} = { built_from = assert(tree.built_from(checkout)), boot_hash = fingerprint.boot,
+    written_by = "this writer", writer = "this writer", compiler = "this compiler",
+    compiled_by = pipeline.coded(GrammarMode.tool("this compiler")), stamp_of = stamp_of }
+  return { tool = layout.tool, environment = {}, meta = settled }, project, layout
+end
+
+--- A project run whose tool is fresh against its checkout leaves the
+--- checkout's working database as it was, byte for byte: it reads it
+--- without opening it as a stage does, which would count a run and commit.
+--- CI hashes that file across the steps after its suite, which a project
+--- run (the integrity check's `cosmic work_db_integrity.tl`, in a directory
+--- of its own) must not change.
+local function test_a_fresh_project_run_leaves_the_checkouts_database_unwritten(tmp: string)
+  local own, project, layout = fresh_tool(tmp, "these rows")
+  local before = assert(Fs.read(layout.working))
+  local code, said = complaints(function(): string
+    return tostring(reboot.recheck({ "x.tl" }, project, own))
+  end)
+  assert(code == "nil" and said == "", code .. " " .. said)
+  assert(Fs.read(layout.working) == before, "a project run with a fresh tool wrote the checkout's database")
+  local logged, _ = Fs.exists(layout.working .. "-wal")
+  assert(logged ~= true, "a project run left a write-ahead log beside the checkout's database")
+end
+
+--- A tool a stale tool wrote without stamps, the tree having moved the
+--- code that works them out, is not what a boot writes: fresh as it is,
+--- it builds its database again.
+local function test_a_fresh_tool_that_carries_no_stamps_builds_its_database_again(tmp: string)
+  local own, project, _ = fresh_tool(tmp, "")
+  local _, said = complaints(function(): string
+    return tostring(reboot.recheck({ "x.tl" }, project, own))
+  end)
+  assert(said:find("the tool's database was built by other code than its own; building it again", 1, true), said)
 end

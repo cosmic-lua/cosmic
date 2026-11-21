@@ -9,6 +9,19 @@ local Clock = require("cosmic.clock")
 local Sqlite = require("cosmic.sqlite")
 local shared_verdicts = require("build.shared_verdicts")
 
+--- The text of `kept`, a row as the cache keeps it, with each module's lines in full: the distances added up.
+local function in_full(kept: string): string
+  return (kept:gsub("([^\t\n]*)\t([^\n]*)\n", function(path: string, lines: string): string
+    local out: mut {string} = {}
+    local last = 0
+    for step in lines:gmatch("%d+") do
+      last = last + (math.tointeger(tonumber(step)) or 0)
+      out[#out + 1] = tostring(last)
+    end
+    return path .. "\t" .. table.concat(out, ",") .. "\n"
+  end))
+end
+
 --- A run none of whose lookups stood is told what the cache held: its
 --- rows, those of the tests it looked up, and the digests every key of
 --- it holds; an empty cache says nothing.
@@ -82,6 +95,32 @@ local function test_a_census_names_the_parts_the_rows_were_kept_under(tmp: strin
   shared_verdicts.close(cache)
 end
 
+--- The verdicts one run keeps come back with the hits they were kept with, where they share a module's line, differ
+--- in one, or hit nothing.
+local function test_the_verdicts_of_one_run_keep_their_own_hits(tmp: string)
+  local cache = assert(shared_verdicts.open(tmp .. "/cache/verdicts.db"))
+  local shared_line = "suite/lib.tl 0123456789abcdef\t3,4,5,9,200\n"
+  local hits: {string} = {
+    shared_line .. "suite/a_test.tl -\t1,2,5\n",
+    shared_line .. "suite/b_test.tl -\t1,2,6\n",
+    "",
+    "suite/lib.tl 0123456789abcdef\t3,4,5,9,201\n" .. shared_line,
+    "suite/a_test.tl -\t1,2,5\n",
+  }
+  local kept: mut {shared_verdicts.Kept} = {}
+  for at, text in ipairs(hits) do
+    kept[at] = { key = "k" .. tostring(at), test = "suite/t_test.tl test_" .. tostring(at), hits = text,
+      elapsed_ns = at }
+  end
+  assert(shared_verdicts.settle(cache, "first", { kept = kept, used = {}, failed = {} }, Clock.now_ns()))
+  for at, text in ipairs(hits) do
+    local found = assert(shared_verdicts.declared(cache, "k" .. tostring(at)))
+    local back = in_full(found.kept)
+    assert(back == text, "verdict " .. tostring(at) .. " came back with " .. back)
+  end
+  shared_verdicts.close(cache)
+end
+
 --- A verdict is kept by its declared key alone (build/declared_key.tl),
 --- with no reads to check it by: found under that key, freshened by a
 --- run that relies on it, and taken out by one that fails under it. A
@@ -106,7 +145,8 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
     key = "declared", test = "suite/t_test.tl test_t", hits = "suite/t_test.tl\t1,2,5\n",
     elapsed_ns = 7 } }, used = {}, failed = {} }, Clock.now_ns()))
   local found = assert(shared_verdicts.declared(cache, "declared"))
-  assert(found.elapsed_ns == 7 and found.hits == "suite/t_test.tl\t1,2,5\n", found.hits)
+  local hits = in_full(found.kept)
+  assert(found.elapsed_ns == 7 and hits == "suite/t_test.tl\t1,2,5\n", hits)
   -- Relied on long after it was written, it stays; unrelied, it goes.
   local later = Clock.now_ns() + 29 * 24 * 3600 * 1000000000
   assert(shared_verdicts.settle(cache, "second", { kept = {}, used = { "declared" },

@@ -88,7 +88,11 @@ end
   assert(top:find("fixture.txt: No such file or directory", 1, true), top)
   assert(top:find("\n  " .. hint("fixture.txt"), 1, true), top)
   local nested = failure("test_nested")
-  assert(nested:find("\n  " .. hint("suite/data/present.txt"), 1, true), nested)
+  -- A file in a directory is told the directory's grant too.
+  assert(nested:find("\n  suite/data/present.txt is not in this test's sandbox, though it is in the tree: grant it " ..
+      "in Test.policy { grants = { { path = \"suite/data/present.txt\", letters = \"r\" } } }, or, for a test " ..
+      "that reads more of suite/data/, grant the directory: { path = \"suite/data/\", letters = \"r\" } " ..
+      "(see cosmic docs cosmic.test)", 1, true), nested)
   -- Said once.
   local _, times = nested:gsub("is not in this test's sandbox", "")
   assert(times == 1, nested)

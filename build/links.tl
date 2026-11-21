@@ -21,8 +21,14 @@
 --- (`[options]`); a footnote (`[^1]`); a code span (which ends with its
 --- paragraph), a fenced block, and a Teal long comment (`--[[ ]]`,
 --- code set aside). A `[` right after a word, a `]`, a `)` or a `%`
---- opens an index or a pattern, never a link. A URL (`http://`,
---- `https://`, `mailto:`) is not checked.
+--- opens an index or a pattern, never a link. A line shaped as a
+--- definition is prose where words follow its target that are no quoted
+--- title (`[0]: the first slot`), as CommonMark reads it, and where its
+--- target is a number (`[1,0,0]: -25.0`), which names no place. Any
+--- other is a definition, and one that does not resolve and that no
+--- link of its block uses says what it was read as, and how to write
+--- the brackets as text. A URL (`http://`, `https://`, `mailto:`) is
+--- not checked.
 ---
 --- A shortcut's target resolves, in order, to:
 ---
@@ -34,7 +40,7 @@
 ---    `io`, `os` or `debug`, which cosmic leaves out);
 --- 2. for a name with a `.` or a `:` ([`Fs.read`], [`cosmic.fs`]), a symbol
 ---    the project's databases know, by the rule `cosmic docs <word>`
----    answers an exact query with ([`docs.exact`], a type's member
+---    answers an exact query with ([`Doc.exact`], a type's member
 ---    through an alias included), or a module's member written in full
 ---    ([`cosmic.fs.read`]). A name alone names no symbol of another
 ---    module: it links to a declaration of its own file, the standard
@@ -56,6 +62,11 @@
 --- as `./path`), so the link can name the one it means. An inline
 --- link's or a definition's target is a path first, as in Markdown: a
 --- file it names wins, and only a target that names no file is a name.
+--- A name in full that names nothing is offered the one symbol declared
+--- under its last name, where there is exactly one (a function that
+--- moved to another module), counting those of the tree's own files
+--- alone where there are any, as a path is offered the one file of its
+--- name; the link is never rewritten to it.
 ---
 --- Where the project has no database of its own yet
 --- ([`Context.unbuilt`]), a shortcut that resolves to nothing is counted
@@ -71,18 +82,18 @@
 --- whose label is a code span must name the file the label names, or
 --- the file that declares its symbol.
 ---
---- The parse is [`build.link_text`]'s, C's, Zig's and Markdown's text
+--- The parse is [`cosmic.internal.link_text`]'s, C's, Zig's and Markdown's text
 --- [`build.link_files`]', and the resolution [`build.link_resolve`]'s,
 --- which the build shares to index each link ([`build.link_index`]);
 --- this module answers symbols from the project's databases.
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local link_resolve = require("build.link_resolve")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 local symbol_index = require("build.symbol_index")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local String = require("cosmic.string")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
 local _ = require("build.reads.all")
@@ -192,6 +203,16 @@ local function misdefined(resolver: link_resolve.Resolver, absolute: string, lin
     " is " .. what .. expected
 end
 
+--- What a definition no link of its block reads is said to be, before why its target does not resolve: the line may
+--- be prose that opens with a bracket and a colon, and its writer is told what it was read as.
+local function unused_definition(link: link_text.Link): string
+  return "`[" .. (link.label or "") .. "]: " .. link.target ..
+    "` reads as a link definition (`[label]: target`) that no link uses, and "
+end
+
+--- How brackets that are no definition are written, said after such a definition's failure.
+local LITERAL_BRACKETS <const> = "; to write the brackets as text, put them in a code span or put a word before them"
+
 --- What is wrong with the links of `source`, a file of `kind` at the absolute path `absolute`, each as
 --- `file:line: link: ...` with `file` as it was named, the file read by `reader`. Nothing when it holds no link, or every
 --- link resolves to one thing.
@@ -211,23 +232,35 @@ function links.check(reader: links.Reader, resolver: link_resolve.Resolver, file
   local own: mut {Known} = {}
   if facts ~= nil and facts.known ~= nil then own[1] = facts.known end -- checked: compare_disjoint
   local blocks = if facts ~= nil then facts.blocks else reader.blocks(kind, source, file) end
-  for _, link in ipairs(link_text.in_blocks(blocks)) do
-    local function declared(): link_text.Declared
-      local found: Known = own[1] or reader.declarations(kind, source, file)
-      own[1] = found
-      return found.at(link.line)
+  for _, block in ipairs(blocks) do
+    local found = link_text.parse(block.text)
+    -- Each label a reference of the block reads.
+    local used: mut {string: boolean} = {}
+    for _, link in ipairs(found) do
+      if link.form == "reference" then used[link_text.label_key(link.label or "")] = true end
     end
-    local wrong = if link.form == "definition" then misdefined(resolver, absolute, link, declared) else nil end
-    if wrong ~= nil then
-      out[#out + 1] = file .. ":" .. tostring(link.line) .. ": link: " .. wrong
-    -- A reference's target is checked where its definition is.
-    elseif link.form ~= "reference" then
-      local target, problem = link_resolve.resolve(resolver, absolute, link.target, declared,
-        link.form ~= "shortcut")
-      -- No problem named: a symbol not checked ([`Context.unbuilt`]).
-      if target == nil and problem ~= "" then
-        out[#out + 1] = file .. ":" .. tostring(link.line) .. ": link: " .. link.target ..
-          " does not resolve (" .. problem .. ")"
+    for _, link in ipairs(found) do
+      local line = link.line + block.line - 1
+      local function declared(): link_text.Declared
+        local known: Known = own[1] or reader.declarations(kind, source, file)
+        own[1] = known
+        return known.at(line)
+      end
+      local wrong = if link.form == "definition" then misdefined(resolver, absolute, link, declared) else nil end
+      if wrong ~= nil then
+        out[#out + 1] = file .. ":" .. tostring(line) .. ": link: " .. wrong
+      -- A reference's target is checked where its definition is.
+      elseif link.form ~= "reference" then
+        local target, problem = link_resolve.resolve(resolver, absolute, link.target, declared,
+          link.form ~= "shortcut")
+        -- No problem named: a symbol not checked ([`Context.unbuilt`]).
+        if target == nil and problem ~= "" then
+          local failed = link.target .. " does not resolve (" .. problem .. ")"
+          if link.form == "definition" and used[link_text.label_key(link.label or "")] ~= true then
+            failed = unused_definition(link) .. failed .. LITERAL_BRACKETS
+          end
+          out[#out + 1] = file .. ":" .. tostring(line) .. ": link: " .. failed
+        end
       end
     end
   end
@@ -455,7 +488,7 @@ end
 
 --- The rows of `view` that `cosmic docs` shows, each from the database
 --- that owns its module, held in memory.
-local function index_of(view: docs.View): symbol_index.Index?, string
+local function index_of(view: Doc.View): symbol_index.Index?, string
   local out = symbol_index.new()
   for module in pairs(view.owners) do symbol_index.module(out, module) end
   for index, db in ipairs(view.databases) do
@@ -463,7 +496,7 @@ local function index_of(view: docs.View): symbol_index.Index?, string
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
     if tables == nil then return nil, tables_trouble end
     if #tables > 0 then
-      -- Every row, as [`build.docs`] reads a type an alias stands for
+      -- Every row, as [`cosmic.doc`] reads a type an alias stands for
       -- in any; only those shown, of the database that owns the
       -- module, answer a name.
       local rows, trouble = Sqlite.text_rows(db,
@@ -489,7 +522,7 @@ end
 --- one: a file with no link to a symbol reads no database. `unbuilt`
 --- says why the view lacks the project's own code, or nil. A name is
 --- answered from the view's rows held in memory ([`build.symbol_index`]).
-function links.context(root: string, open: function(): docs.View?, string,
+function links.context(root: string, open: function(): Doc.View?, string,
                        unbuilt: function(): string?): link_resolve.Context
   -- The index once built, or why it could not be; neither until asked.
   local ready_index: mut {symbol_index.Index} = {}

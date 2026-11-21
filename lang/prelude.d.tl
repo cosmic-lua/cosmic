@@ -15,7 +15,8 @@ do
     __tostring: function(T): string
     __pairs: function<K, V>(T): function(): (K, V)
 
-    -- FIXME: function | table | anything with an __index metamethod
+    -- TODO: `__index` is `any`, where Lua takes a function, a table or a value whose own metatable has an
+    -- `__index`; narrow it once the checker has a type for a value Lua can index, which none spells today.
     __index: any
     __newindex: any
 

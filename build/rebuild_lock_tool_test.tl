@@ -72,13 +72,43 @@ local function await(what: string, holds: function(): boolean): boolean
   return true
 end
 
+--- A holder named by its pid is said to have held the lock as long as
+--- its file is old, so a waiting run can tell a long run from one that
+--- has stopped; the file is the two lines an older tool writes too. A
+--- holder left unnamed is given no time.
+local function test_a_named_holder_says_how_long_it_has_held_the_lock(tmp: string)
+  local root = tmp .. "/project"
+  project(root, 0)
+  assert(support.build_dir(root))
+  local file = support.build_dir(root) .. "/rebuild.lock.pid"
+  local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep_ns(60000000000))' },
+    { cwd = root, env = this_program.environment(), process_group = true })
+  local sleeper <close> = assert(Child.start(started.argv, started.options))
+  local now = Clock.now_ns() // Clock.seconds(1)
+  assert(Fs.write(file, tostring(sleeper.pid) .. "\ntest\n"))
+  assert(Fs.set_mtime(file, now - 270))
+  local long = rebuild_lock.holder(root)
+  assert(Fs.set_mtime(file, now - 30))
+  local short = rebuild_lock.holder(root)
+  assert(Fs.write(file, tostring(sys.getpid()) .. "\ntest\n"))
+  assert(Fs.set_mtime(file, now - 270))
+  local own = rebuild_lock.holder(root)
+  assert(long == "another cosmic run (pid " .. tostring(sleeper.pid) ..
+      ") in this checkout is running its tests (it has held the lock for 4 min)", long)
+  assert(short:find("is running its tests (it has held the lock for 3", 1, true), short)
+  assert(own == "another cosmic run in this checkout is running its tests", own)
+end
+
 --- A second run in a checkout waits for the run holding its lock, saying
 --- so and naming what that run is doing, and passes once it lets go.
 --- The first run is this test, holding the lock as `cosmic test` does.
 local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   local root = tmp .. "/project"
   project(root, 0)
-  assert(rebuild_lock.hold(root, "test", "test"))
+  do
+    local held_true, held_why = rebuild_lock.hold(root, "test", "test")
+    assert(held_true == true, held_why)
+  end
   local output = tmp .. "/second.out"
   local h = start_test(root, output)
   local ok, failure = pcall(await, "the second run to wait", function(): boolean
@@ -93,7 +123,8 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   assert(running ~= nil and not running.finished, "the second run did not wait:\n" .. text)
   assert(result.ok, text)
   assert(text:find("test: another cosmic run (pid " .. tostring(sys.getpid()) ..
-      ") in this checkout is running its tests; waiting for it", 1, true), text)
+      ") in this checkout is running its tests (it has held the lock for ", 1, true), text)
+  assert(text:find(" s); waiting for it", 1, true), text)
   assert(text:find("test: %d+ tests? passed in "), text)
 end
 
@@ -160,7 +191,8 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   assert(unwritten, "the projection was written under the lock")
   assert(result.ok, text)
   assert(text:find(support.build_dir(root) .. "/cosmic.db: another cosmic run (pid " .. tostring(sys.getpid()) ..
-      ") in this checkout is running its tests; waiting for it", 1, true), text)
+      ") in this checkout is running its tests (it has held the lock for ", 1, true), text)
+  assert(text:find(" s); waiting for it", 1, true), text)
   assert(text:find("hello\n", 1, true), text)
 end
 
@@ -352,9 +384,13 @@ local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp:
         local out = result.stdout or ""
         if words[1] == "docs" then
           assert(out:find("First words.", 1, true), said)
+          -- the old answer is marked as the last build's, in the summary
+          local held = if phase == "rebuild lock" then "the rebuild lock" else "the working database" end
+          assert((result.stderr or ""):find(", from the last build (another run holds " .. held .. "), ", 1, true), said)
           if phase == "rebuild lock" then
             assert((result.stderr or ""):find("docs: another cosmic run (pid " .. tostring(sys.getpid()) ..
-                ") in this checkout is running its tests; not waiting for it", 1, true), said)
+                ") in this checkout is running its tests (it has held the lock for ", 1, true), said)
+            assert((result.stderr or ""):find(" s); not waiting for it", 1, true), said)
           end
         elseif words[1] == "uses" or words[1] == "todos" then
           assert(out:find("thing.tl:", 1, true), said)
@@ -370,6 +406,7 @@ local function test_a_reading_verb_answers_while_another_run_holds_the_lock(tmp:
   local after_text = (after.stdout or "") .. (after.stderr or "")
   assert(after.ok, after_text)
   assert((after.stdout or ""):find("Second words.", 1, true), after_text)
+  assert(after_text:find("from the last build", 1, true) == nil, after_text)
 end
 
 --- How many builds the working database of `root` records.

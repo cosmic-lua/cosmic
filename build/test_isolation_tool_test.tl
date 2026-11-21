@@ -98,7 +98,7 @@ end
   local result = invoke(root, output, { "--jobs", "2" })
   local text = assert(Fs.read(output))
   assert(result.ok, text)
-  assert(Fs.exists(shared .. "/done"), text)
+  assert(Fs.exists(shared .. "/done") == true, text)
 end
 
 local function test_limits_must_be_positive_whole_numbers(tmp: string)

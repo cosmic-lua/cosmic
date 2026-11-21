@@ -29,9 +29,11 @@ end
 local function test_to_value_of_a_shared_ladder_is_linear()
   local small, large = ladder(10), ladder(40)
   local ok, why = Speed.within(function()
-    assert(Json.to_value(small))
+    local value, trouble = Json.to_value(small)
+    assert(value ~= nil, trouble)
   end, function()
-    assert(Json.to_value(large))
+    local value, trouble = Json.to_value(large)
+    assert(value ~= nil, trouble)
   end, 8)
   assert(ok, "four times the rungs cost more than eight times the time: " .. why)
 end

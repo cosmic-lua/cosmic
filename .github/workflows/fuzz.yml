@@ -5,7 +5,7 @@
 
   # The only run that fuzzes: CI's, which gate a merge, set FUZZ_ITERS=0
   # and check only each property's corpus (ci/cosmic_ci/orchestration.tl).
-  # This one draws a seed of its own each night, from the run's id, and
+  # This one draws a seed of its own each week, from the run's id, and
   # fuzzes on the checked core, so the properties keep meeting inputs no
   # run has checked. A failure's report names the `FUZZ_CASE` that checks
   # its input again anywhere, the failing inputs are kept as an artifact
@@ -20,7 +20,7 @@
   # failure reaches more than whoever last edited the schedule.
   "on": {
     schedule: [
-      {cron: "17 7 * * *"},
+      {cron: "17 7 * * 0"},
     ],
     workflow_dispatch: {
       inputs: {
@@ -149,7 +149,7 @@
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
 
-        # TODO: this compiles vendor/ and core/ cold each night; restoring
+        # TODO: this compiles vendor/ and core/ cold each week; restoring
         # ci.yml's zig build cache for the linux-x86_64 leg would save it.
         {
           name: "build and boot the checked core",

@@ -19,6 +19,64 @@ local function count(db: Sqlite.Handle, table_name: string): integer
   return math.tointeger(tonumber(support.nth(rows, 1):text(1))) as integer -- checked: cast_refused
 end
 
+--- The holder of a write lock is read from /proc/locks by the file's
+--- device, inode and a byte its range covers, and only from a holder's
+--- line: a line of a process blocked waiting for the lock names a
+--- waiter, and a pid 0 one the reader's pid namespace cannot see.
+local function test_the_holder_of_a_write_lock_is_the_process_proc_locks_says_holds_it()
+  local at: work.Place = { dev = 0xfe00, ino = 876668 }
+  local locks = table.concat({
+    "1: POSIX  ADVISORY  WRITE 4939 fe:00:821653 120 120",
+    "2: POSIX  ADVISORY  READ 77 fe:00:876668 120 120",
+    "3: POSIX  ADVISORY  WRITE 78 fe:01:876668 120 120",
+    "4: POSIX  ADVISORY  WRITE 79 fe:00:876668 128 128",
+    "4: -> POSIX  ADVISORY  WRITE 80 fe:00:876668 120 120",
+    "5: POSIX  ADVISORY  WRITE 9976 fe:00:876668 120 120",
+    "6: POSIX  ADVISORY  READ 9976 fe:00:876668 124 124",
+  }, "\n") .. "\n"
+  assert(work.lock_holder_in(locks, at, 120) == 9976)
+  assert(work.lock_holder_in(locks, at, 1073741825) == nil)
+  assert(work.lock_holder_in("1: POSIX  ADVISORY  WRITE 0 fe:00:876668 120 120\n", at, 120) == nil)
+  assert(work.lock_holder_in("1: -> POSIX  ADVISORY  WRITE 80 fe:00:876668 120 120\n", at, 120) == nil)
+  -- One owner's adjacent locks are one range: PENDING, RESERVED and SHARED at a commit in rollback mode.
+  assert(work.lock_holder_in("1: POSIX  ADVISORY  WRITE 81 fe:00:876668 1073741824 1073742335\n", at, 1073741825) == 81)
+  assert(work.lock_holder_in("1: POSIX  ADVISORY  WRITE 82 fe:00:876668 100 EOF\n", at, 120) == 82)
+end
+
+--- A waiting run names the holder by the pid /proc/locks gives, and calls it a cosmic run that has held the lock so
+--- long only where the holder file names that pid; otherwise it is a process, and with no holder shown, or this one,
+--- no pid is named.
+local function test_the_holder_of_the_write_lock_is_named_only_as_far_as_the_host_shows_it()
+  local path = "/b/build.db"
+  local locks = "1: POSIX  ADVISORY  WRITE 9976 fe:00:7 120 120\n2: POSIX  ADVISORY  WRITE 31 fe:00:6 1073741825 1073741825\n"
+  local shm: work.Place = { dev = 0xfe00, ino = 7 }
+  local file: work.Place = { dev = 0xfe00, ino = 6 }
+  local function said(seen: work.Seen): string return work.holder_line(path, seen) end
+  assert(said({ locks = locks, shm = shm, file = file, named = "9976\n", age_ns = Clock.seconds(270), own = 1 }) ==
+      "another cosmic run (pid 9976) has held the write lock of /b/build.db for 4 min")
+  assert(said({ locks = locks, shm = shm, file = file, named = "12\n", age_ns = Clock.seconds(270), own = 1 }) ==
+      "another process (pid 9976) holds the write lock of /b/build.db")
+  assert(said({ locks = locks, shm = shm, file = file, own = 1 }) ==
+      "another process (pid 9976) holds the write lock of /b/build.db")
+  -- No write-ahead lock: the rollback mode's RESERVED byte of the file itself.
+  assert(said({ locks = locks, file = file, own = 1 }) == "another process (pid 31) holds the write lock of /b/build.db")
+  local unnamed = "another cosmic run holds the write lock of /b/build.db"
+  assert(said({ locks = locks, shm = shm, file = file, named = "9976\n", age_ns = 5, own = 9976 }) == unnamed)
+  assert(said({ shm = shm, file = file, own = 1 }) == unnamed)
+  assert(said({ locks = "", shm = shm, file = file, own = 1 }) == unnamed)
+end
+
+--- A run that waits for the write lock names what it is doing and why it waits, since a verb that only reads does
+--- not; one told nothing of what it is doing says only that it waits.
+local function test_a_wait_for_the_write_lock_names_what_waits_and_why()
+  local holding = "another cosmic run holds the write lock of /b/build.db"
+  local why = "; waiting for it, since one run at a time writes the tree's build in that file (docs, uses and todos " ..
+    "read its last build and do not wait)"
+  assert(work.waiting_line(holding, "fix") == "fix: " .. holding .. why, work.waiting_line(holding, "fix"))
+  assert(work.waiting_line(holding, "running hello.tl") == "running hello.tl: " .. holding .. why)
+  assert(work.waiting_line(holding) == holding .. "; waiting for it")
+end
+
 local function test_recording_error_rolls_back_every_table(tmp: string)
   local handle = assert(work.open(tmp))
   assert(work.commit(handle))
@@ -618,7 +676,7 @@ local function test_settled_rewrites_with_preserved_mtime_are_read(tmp: string)
       assert(before.ino == after.ino and before.size == after.size)
     end
     changed()
-    assert(work.tool_moved(handle), "core rewrite must invalidate the tool's stat fast path")
+    assert(work.tool_moved(handle) == true, "core rewrite must invalidate the tool's stat fast path")
     assert(stage_settled(handle, true).read == #paths)
     assert(staged_bytes(handle.db, "probe.tl") == "new text\n")
     for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
@@ -708,7 +766,7 @@ local function test_new_tool_inputs_invalidate_read_only_freshness(tmp: string)
     local before = assert(identity.record_fingerprint(handle.db, handle.root)).boot
     assert(Fs.mkdirs(tmp .. "/" .. assert(path:match("^(.*)/"), path .. " is in a directory")))
     assert(Fs.write(tmp .. "/" .. path, "new\n"))
-    assert(work.tool_moved(handle), path .. " must be discovered before a read-only command")
+    assert(work.tool_moved(handle) == true, path .. " must be discovered before a read-only command")
     assert(stage_settled(handle, true))
     assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot ~= before)
     assert(work.tool_moved(handle) == false)
@@ -746,21 +804,21 @@ local function test_tool_discovery_tracks_renames_and_link_targets(tmp: string)
   assert(sys.symlink(tmp .. "/later", root .. "/later"))
   local handle = assert(work.open(root))
   assert(stage_settled(handle, true))
-  assert(work.tool_moved(handle), "a dangling link cannot be trusted as unchanged")
+  assert(work.tool_moved(handle) == true, "a dangling link cannot be trusted as unchanged")
   assert(Fs.mkdirs(tmp .. "/later"))
   assert(Fs.write(tmp .. "/later/new.tl", "return {}\n"))
-  assert(work.tool_moved(handle), "a new target is not invisible")
+  assert(work.tool_moved(handle) == true, "a new target is not invisible")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)
   assert(Fs.write(tmp .. "/shared/new.tl", "return {}\n"))
-  assert(work.tool_moved(handle), "a followed directory's membership is watched")
+  assert(work.tool_moved(handle) == true, "a followed directory's membership is watched")
   assert(stage_settled(handle, true))
   assert(sys.rename(root .. "/modules", root .. "/renamed"))
-  assert(work.tool_moved(handle), "renamed directories invalidate discovery")
+  assert(work.tool_moved(handle) == true, "renamed directories invalidate discovery")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)
   assert(sys.rmdir(root .. "/core"))
-  assert(work.tool_moved(handle), "removed empty directories invalidate discovery")
+  assert(work.tool_moved(handle) == true, "removed empty directories invalidate discovery")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)
   assert(work.close(handle))
@@ -780,11 +838,11 @@ local function test_tool_discovery_fast_path_and_unknown_metadata(tmp: string)
   Fs.walk_following, Fs.read = walk, read -- checked: field_fixed*2
   assert(ok and answer == false, tostring(answer))
   assert(handle.db:exec("UPDATE tool_discovery SET ctime_ns = NULL WHERE path = 'core'"))
-  assert(work.tool_moved(handle), "unknown change time must rescan")
+  assert(work.tool_moved(handle) == true, "unknown change time must rescan")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)
   assert(handle.db:exec("DELETE FROM tool_discovery"))
-  assert(work.tool_moved(handle), "a pre-discovery database must rescan")
+  assert(work.tool_moved(handle) == true, "a pre-discovery database must rescan")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)
   assert(work.close(handle))
@@ -803,12 +861,12 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   local ok, staged = pcall(stage_settled, handle, true)
   Fs.walk_following = walk -- checked: field_fixed
   assert(ok, tostring(staged))
-  assert(work.tool_moved(handle), "metadata must precede the directory listing")
+  assert(work.tool_moved(handle) == true, "metadata must precede the directory listing")
   assert(stage_settled(handle, true))
   assert(work.tool_moved(handle) == false)
   local before = assert(identity.record_fingerprint(handle.db, handle.root)).boot
   assert(Fs.write(tmp .. "/README.md", "prose\n"))
-  assert(work.tool_moved(handle), "membership conservatively rescans")
+  assert(work.tool_moved(handle) == true, "membership conservatively rescans")
   assert(stage_settled(handle, true))
   assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot == before,
     "irrelevant additions do not move the tool's content identity")
@@ -828,11 +886,14 @@ local function test_tool_discovery_tracks_symlink_retarget_with_equal_bytes(tmp:
   local before = assert(identity.record_fingerprint(handle.db, handle.root)).boot
   assert(Fs.remove(tmp .. "/root/modules"))
   assert(sys.symlink(tmp .. "/target2", tmp .. "/root/modules"))
-  assert(work.tool_moved(handle), "retargeted link must rescan even with equal bytes")
+  assert(work.tool_moved(handle) == true, "retargeted link must rescan even with equal bytes")
   assert(stage_settled(handle, true))
   assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot == before)
   assert(Fs.write(tmp .. "/root/README.md", "irrelevant\n"))
-  assert(work.tool_moved(handle))
+  do
+    local held_true, held_why = work.tool_moved(handle)
+    assert(held_true == true, held_why)
+  end
   assert(stage_settled(handle, true))
   assert(assert(identity.record_fingerprint(handle.db, handle.root)).boot == before)
   assert(work.tool_moved(handle) == false)
@@ -926,6 +987,60 @@ local function test_stage_refuses_assets_that_differ_only_in_case(tmp: string)
   local staged, trouble = stage_files(tmp, { ["static/App.css"] = "a", ["static/app.css"] = "b" })
   assert(staged == nil and trouble:find("only in case", 1, true) ~= nil, tostring(trouble))
   assert(trouble:find("static/App.css", 1, true) and trouble:find("static/app.css", 1, true))
+end
+
+--- A program's own `cmd/<name>/static/` is staged as `static/` is: its
+--- files are inputs, a `.tl` under it is noted as no module, and the
+--- `inputs` view reads no module from it. A `static/` deeper under the
+--- program is none: its Teal is the program's module as any other is.
+local function test_stage_takes_a_programs_own_static_files(tmp: string)
+  local staged = assert(stage_files(tmp, {
+    ["cmd/spam/static/app.css"] = "a{}", ["cmd/spam/static/notes.tl"] = "x", ["cmd/spam/sub/static/deep.tl"] = "return 1\n",
+    ["cmd/spam/main.tl"] = "return function(): integer return 0 end\n",
+  }))
+  assert(#staged.notes == 1 and support.nth(staged.notes, 1):find("^cmd/spam/static/notes%.tl: ") ~= nil,
+    table.concat(staged.notes, "\n"))
+  local db = assert(Sqlite.open(support.build_dir(tmp) .. "/build.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT file FROM inputs WHERE file GLOB 'cmd/*' ORDER BY file"))
+  local files: mut {string} = {}
+  for i, row in ipairs(rows) do files[i] = row:text(1) end
+  assert(table.concat(files, " ") == "cmd/spam/main.tl cmd/spam/sub/static/deep.tl", table.concat(files, " "))
+  assert(db:close())
+end
+
+--- Assets one program would carry together may not differ only in case: a
+--- program's own and a shared one. Two programs' own never meet, and a
+--- program's own at the very path of a shared one is laid over it.
+local function test_stage_refuses_a_programs_asset_that_differs_from_a_shared_one_only_in_case(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/probe"))
+  assert(Fs.write(tmp .. "/probe/A", "a"))
+  assert(Fs.write(tmp .. "/probe/a", "b"))
+  if #assert(Fs.list(tmp .. "/probe")) < 2 then
+    Test.skip("this file system folds case, so two names that differ only in case are one file")
+  end
+  local staged, trouble = stage_files(tmp .. "/clash", { ["static/App.css"] = "a", ["cmd/spam/static/app.css"] = "b" })
+  assert(staged == nil and trouble:find("only in case", 1, true) ~= nil, tostring(trouble))
+  assert(trouble:find("static/App.css", 1, true) and trouble:find("cmd/spam/static/app.css", 1, true), trouble)
+  assert(stage_files(tmp .. "/apart", { ["cmd/eggs/static/App.css"] = "a", ["cmd/spam/static/app.css"] = "b" }),
+    "two programs' own assets never meet")
+  assert(stage_files(tmp .. "/over", { ["static/app.css"] = "a", ["cmd/spam/static/app.css"] = "b" }),
+    "a program's own asset is laid over the shared one")
+end
+
+--- A working database an older tool made holds the `inputs` view as it
+--- defined it then; opening it makes the view again as the schema defines
+--- it now, so a moved rule of what is no module takes hold.
+local function test_opening_a_database_remakes_a_view_of_another_definition(tmp: string)
+  assert(stage_files(tmp, { ["main.tl"] = "return 1\n" }))
+  local path = support.build_dir(tmp) .. "/build.db"
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("DROP VIEW inputs; CREATE VIEW inputs AS SELECT 1 AS file"))
+  assert(db:close())
+  assert(stage_files(tmp, {}))
+  db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "SELECT file FROM inputs ORDER BY file"))
+  assert(#rows == 1 and support.nth(rows, 1):text(1) == "main.tl", "the view is the schema's again")
+  assert(db:close())
 end
 
 --- A link inside the project is followed; one that leaves it would make

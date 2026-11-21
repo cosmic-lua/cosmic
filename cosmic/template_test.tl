@@ -908,7 +908,7 @@ local function test_a_condition_chain_is_one_flat_block()
   assert(out:find('require("m")', 1, true), out)
   -- A chain with no field path to bind stays an `if`.
   local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else if .c | m.f}}2{{else}}3{{end}}")
-  assert(plain:find("if _one(m.f(d.b)) then", 1, true) and plain:find("elseif _one(m.f(d.c)) then", 1, true) and
+  assert(plain:find("if _one(m.f(d.b)) then", 1, true) ~= nil and plain:find("elseif _one(m.f(d.c)) then", 1, true) ~= nil and
       not plain:find("repeat", 1, true), plain)
 end
 
@@ -916,7 +916,7 @@ end
 --- one that has, including a test of a path an enclosing test bound.
 local function test_an_else_closes_a_chain_with_nothing_to_bind()
   local plain = compiled(HEAD .. "{{if .b | m.f}}1{{else}}2{{end}}")
-  assert(plain:find("if _one(m.f(d.b)) then", 1, true) and plain:find(" else ", 1, true) and
+  assert(plain:find("if _one(m.f(d.b)) then", 1, true) ~= nil and plain:find(" else ", 1, true) ~= nil and
       not plain:find("repeat", 1, true), plain)
   local _, plain_ends = plain:gsub("%f[%w]end%f[%W]", "")
   local _, plain_opens = plain:gsub("%f[%w]if%f[%W]", "")

@@ -1,7 +1,7 @@
 --- The files whose links `cosmic fix` checks beside Teal's -- Markdown,
 --- Zig and, in cosmic's own tree, C -- and what their text says of
 --- links: the comment blocks a link is read from and the names a file
---- declares, read off the text alone as [`build.link_text`] reads Teal's.
+--- declares, read off the text alone as [`cosmic.internal.link_text`] reads Teal's.
 ---
 --- `cosmic fix` walks a tree for them by `skip` and `checked` and checks
 --- each ([`build.links`]); the build's stage walks the same files and
@@ -12,7 +12,7 @@
 local Fs = require("cosmic.fs")
 local String = require("cosmic.string")
 local c_tokens = require("build.c_tokens")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 
 local record link_files
 end
@@ -38,9 +38,9 @@ local never: {string: boolean} = { ["o"] = true, ["vendor"] = true, ["patch"] = 
 --- `.claude/skills/`, which are Markdown, and everything under a
 --- directory that is a checkout of its own (it holds a `.git`), such as
 --- a worktree nested in this one, whose files are its own tree's. Each
---- directory is asked after once. A project's `static/` is carried
---- verbatim ([`cosmic.layout`]'s `static`), so what is written in it is no
---- source of the tree's.
+--- directory is asked after once. A project's `static/`, and a program's
+--- own `cmd/<name>/static/`, is carried verbatim ([`cosmic.layout`]'s
+--- `static`), so what is written in it is no source of the tree's.
 function link_files.skipper(dir: string): function(string): boolean
   local checkouts: mut {string: boolean} = {}
   local function checkout(path: string): boolean
@@ -56,7 +56,8 @@ function link_files.skipper(dir: string): function(string): boolean
     local parts: mut {string} = {}
     for part in entry:gmatch("[^/]+") do parts[#parts + 1] = part end
     for index, part in ipairs(parts) do
-      if never[part] == true or (index == 1 and (part == "bin" or part == "static")) then
+      if never[part] == true or (index == 1 and (part == "bin" or part == "static")) or
+          (index == 3 and parts[1] == "cmd" and part == "static") then
         return true
       end
       if part:sub(1, 1) == "." and not (index == 1 and part == ".claude") then

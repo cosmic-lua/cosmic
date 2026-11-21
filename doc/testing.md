@@ -91,7 +91,12 @@ stands on another checkout's pass.
   says why. A mistyped value is refused by `docs` and `uses` as by `test`. A module the checker refuses, or cannot
   read, does not stop a run: it runs no tests, nor does a module that requires it, and each is a failure of the run; a run
   that names tests (`cosmic test one_test.tl`) fails for the refusals of the files it names alone, and a named test
-  module that requires a refused one is refused itself. A pool is refused with `--check-types`, which checks the facts
+  module that requires a refused one is refused itself. One run tells every finding it soundly can. A module that
+  requires a refused one is checked all the same, and its own findings told, where the refused module parsed and its errors
+  are in its bodies and in no `return`: its declarations are what the other reads. Such a finding holds of those declarations
+  as they are written, and its refusal says so, since a fix of the refused module that changes one may settle it. A module the checker refuses is told its
+  breaches of the error-slot rules too, those in the top-level statements the checker typed whole. A file refused only for a
+  `global` is told what the checker says of it with `local` in its place. A pool is refused with `--check-types`, which checks the facts
   alone (below).
 - `COSMIC_VERDICT_CACHE` names another cache file. `0` means none. It turns
   off the cache that checkouts share and nothing more: a verdict this
@@ -114,6 +119,22 @@ Where the kernel can, each worker runs sandboxed. This is the default
 on Linux. The worker gets what its module declares and nothing else.
 A read it did not declare finds nothing, and the test fails with its
 own error. That error is the signal to declare the read.
+
+A sandboxed worker is not told where or how its run was started. It has
+no PATH unless its module declares `env = { "PATH" }`, and then
+/usr/local/sbin, /usr/local/bin, /usr/sbin, /usr/bin, /sbin and /bin,
+which the profile `"system"` gives. COSMIC_AUTO_BOOT is `0` and
+COSMIC_TEST_SANDBOX is unset. HOME is a directory in its scratch
+directory and XDG_CACHE_HOME is unset, unless the module grants a host
+cache (`/cache/...`), which it finds by the host's. So a verdict stands
+for a run started from another home, with another PATH. A test that
+needs another value of one sets it for the process it starts.
+
+Every worker, sandboxed or not, has `TZ=UTC` unless its module declares
+`env = { "TZ" }`. With TZ unset, [`cosmic.time`] takes the host's zone from
+/etc/localtime, which an unsandboxed worker could read and its key would
+not hold. A test of the host's zone declares TZ and grants /etc/localtime,
+as [`cosmic/time_example.tl`] does.
 
 Where the kernel cannot (macOS, a host without user namespaces or
 Landlock) or with `COSMIC_TEST_SANDBOX=0`, workers run unsandboxed. The
@@ -153,11 +174,24 @@ The rules:
   it is a host file. A grant of an absolute directory is refused: list
   the files. The key holds a file by its contents.
 - `env` passes variables through. A test sees only the variables it
-  declares.
-- The profile `"system"` gives /usr, /bin, /lib, /etc and the like. A
-  test that starts a host program (a shell, `sleep`, a compiler, the
-  `#!/bin/sh` launcher, [`bin/cosmic`]) needs it. A test that only reads a
-  file or two of the system names them as absolute grants.
+  declares. A sandboxed worker has a PATH only where its module declares
+  it, and then the system's directories on every host, whatever the
+  runner's ("sandboxed and unsandboxed runs").
+- A test that starts a host program grants it by its absolute path
+  (`{ path = "/bin/sh", letters = "r" }`). The program comes with what it
+  needs to start: its loader and shared libraries, and a script's
+  interpreter. The key holds each of those files by its contents and
+  nothing else of the host's. A program it starts in turn, or a file it
+  opens by name, is granted the same way. A grant of a path a host lacks
+  gives nothing there, so a program hosts keep in different places is
+  granted at each (`/bin/sed` and `/usr/bin/sed`).
+- The profile `"system"` gives /usr, /bin, /lib, /etc and the like, and
+  its key holds every package the host has installed, so its verdict
+  stands only on a host with the same packages. A test needs it only
+  where it cannot say which programs it starts, as one that runs
+  `cosmic sandbox --system` cannot; one that runs the `#!/bin/sh`
+  launcher or [`bin/cosmic`] grants the programs those call. A test that
+  only reads a file or two of the system names them as absolute grants.
 - The profile `"proc"` gives /proc, the kernel's process information, on
   Linux and nothing on macOS. A test that reads /proc declares
   `profiles = { "proc" }`, not a grant of /proc: on macOS the grant names
@@ -325,13 +359,16 @@ declares that it reads text (below):
 - the tables of text-derived rows (`docs`, `uses`, `links`, `examples`,
   `places`, `catalog` and their full-text tables) are left out, not left empty:
   a query of one fails with "no such table", and so does a hint
-  ([`build.symbols`]) asked of a store that has none. The catalog is withheld
+  ([`cosmic.internal.symbols`]) asked of a store that has none. The catalog is withheld
   because most of it, the rows of the error sites each module documents, moves
   with the lines of the module; the checker's own codes (`kind = 'code'`) do not,
   but no test that reads module text wants them alone;
 - the bytecode of each module it imports stripped of its debug
-  information ([`build.lua_tail`]'s `stripped`, which also writes the line
-  each function is defined on as 0), and its own module's as the build made it;
+  information and numbered by instruction ([`build.lua_tail`]'s
+  `numbered`): each function names its module as its source, and each but
+  the chunk's own is defined on line 16777216 + `k`, `k` the number of the
+  chunk's instructions before its first, whatever line of the text it came
+  from. Its own module's bytecode is as the build made it;
 - the source file of its own module and of the declarations it requires, and
   not of the modules it imports.
 
@@ -395,8 +432,15 @@ store of its closure with its text, as `store_text` does.
 
 A test does not assert a position inside code it imports: a line number of
 the module's own code in a message or a traceback, `debug.getinfo`'s
-`currentline` or `linedefined`. A pure store strips them, and the position
-would move with a comment anyway. Match the message without its position,
+`currentline` or `linedefined`. In a pure store an imported module's code
+has no line: an error it raises reads `module:-1: ...` (`error` with a
+level adds no position), a traceback's frame in it names no line, and a
+function's `linedefined` is the number of an instruction, not a line of
+the text, which moves with each instruction added above it. The runner shows a traceback's
+`function <module:line>` at the module's file and the line that function
+is defined on in this run's text, in the message of a test it shows and
+records in `runs` and in the output it shows (`--show-output`, a
+failure's). Match the message without its position,
 or write the source the test asserts about in the test itself (a fixture
 string compiled by the test), whose lines it chooses.
 
@@ -457,10 +501,18 @@ needs the profile `"system"` and `env = { "PATH" }`.
 
 A test that writes a portable program (`cosmic build` without `--host`)
 declares `requires = { "all_cores" }`. A bare `bin/zig build boot` writes a
-tool that carries the host's core alone, which refuses to make one, so the
+tool that carries the host's core alone, of which none is made (`cosmic build`
+boots every core first, and the runner, which asks only what the tool carries,
+does not), so the
 module is skipped there, naming the requirement; every CI leg promises it,
 since CI boots `-Dboot-cores=all`. Run `bin/zig build boot -Dboot-cores=all`
 to run them.
+
+A test that checks the core's C through [`build.c`] declares
+`requires = { "pinned_zig" }`. A seeded boot takes a release core and
+installs no zig, and the [`bin/zig`] a check falls back to cannot start in
+a sandboxed worker, so the module is skipped there, naming the
+requirement and the fix. Run `bin/zig version` to install the pinned zig.
 
 A test of what only the checked (sanitized) core reaches, such as a
 refused allocation or a fault point, declares `requires = { "checked" }`.
@@ -513,7 +565,9 @@ local `<thing>_or_skip()`), because after [`Test.skip`] nothing runs.
 A test that passes without calling `assert` shows only that it did not
 raise. The worker counts calls to `assert`, through any helper or
 fixture. `cosmic test` lists each such pass as `test: NO ASSERT <id>`
-and keeps no verdict of it. A held run fails it.
+and keeps no verdict of it. A held run fails it. A test that returns
+early where it cannot check is such a pass: it calls [`Test.skip`]
+with the reason instead, and is listed as skipped.
 
 To compare JSON-shaped values, use [`Json.diff`]`(want, got)` and assert that the list it answers is empty, or put the paths
 it names in the message. Compare a typed record field by field.
@@ -530,6 +584,8 @@ it names in the message. Compare a typed record field by field.
 - A test that cannot check on this host declares `requires` or calls
   [`Test.skip`].
 - A doc test's output is compared with `assert`.
+- `assert` of an optional that may hold a boolean is refused (`condition_type`): `assert(seen[key] == true)` says a
+  flag is set, and `assert(decoded ~= nil)` that a value which may be false is there.
 
 [`Test.passed_unchecked`] is for the fuzz runner alone. `bin/cosmic fix
 --check .` fails any other use.
@@ -537,7 +593,7 @@ it names in the message. Compare a typed record field by field.
 ## coverage floor
 
 Every run reports the share of executable lines the tests reached,
-`test: coverage 90.9% (184277/202824 lines; informational, never a failure)`:
+`test: coverage 90.8% (184277/202824 lines; informational, never a failure)`:
 the Teal of the tree and, in cosmic's own tree, the core's C. By itself it
 never fails a run. Two flags make it a gate:
 
@@ -545,19 +601,22 @@ never fails a run. Two flags make it a gate:
 - `--min-file PCT` fails it when any one file's coverage is under `PCT`.
   Each file under it is named with its percentage.
 
-`PCT` is a number from 0 to 100, with an optional decimal part (`76`,
-`76.5`), given as `--min 76` or `--min=76`. A coverage at the floor is not under it,
-and a failure prints its figure rounded down, so 1599 of 2000 lines is 79.9%, never
-80.0%. A tree or file with no line to cover is under no floor. A floor not met fails the
-run as a failing test does, with status 1 (not the 4 of a tree that does
-not compile). It lists each shortfall as a `test: FAIL  coverage: ...` line
+`PCT` is a number from 0 to 100, with an optional decimal part of at most
+four digits (`76`, `76.5`), given as `--min 76` or `--min=76`. A coverage at
+the floor is not under it. A figure prints rounded down, so 1599 of 2000
+lines is 79.9%, never 80.0%, to as many decimals as its floor has and one at
+least: the coverage line and the failure under `--min` to `--min`'s, each
+file's failure to `--min-file`'s, so under `--min 97.35` a coverage of
+97.349% prints as 97.34% on both. A tree or file with no line to cover is
+under no floor. A floor not met fails the run as a failing test does, with
+status 1 (not the 4 of a tree that does not compile). It lists each shortfall as a `test: FAIL  coverage: ...` line
 and names them in the summary line:
 
 ```text
-test: coverage 77.8% (7/9 lines)
-test: FAIL  coverage: 77.8% (7/9 lines) is under --min 100%
-test: FAIL  coverage: lib 66.7% (4/6 lines) is under --min-file 80%
-test: 1 test passed in 1 module; ...; coverage floor not met: 77.8% under --min 100%, 1 file under --min-file 80%
+test: coverage 77.7% (7/9 lines)
+test: FAIL  coverage: 77.7% (7/9 lines) is under --min 100%
+test: FAIL  coverage: lib 66.6% (4/6 lines) is under --min-file 80%
+test: 1 test passed in 1 module; ...; coverage floor not met: 77.7% under --min 100%, 1 file under --min-file 80%
 ```
 
 A floor is over every line of the tree, so a run that names tests or a
@@ -565,12 +624,34 @@ A floor is over every line of the tree, so a run that names tests or a
 part of the lines. A floor on a failing run is judged and named beside the failures.
 
 A test whose verdict stands brings the lines it hit when it ran (the
-`coverage_by_test` rows of that run, or the ones another checkout shared).
-A run that stands entirely on verdicts therefore has the coverage of the
-runs that earned them, and a floor holds for it as for a run that ran every
-test. A test that is skipped or not applicable on the host reaches nothing
-of the lines it covers elsewhere, so the same floor can differ between
-hosts: state a floor from the measurements of the host that gates the merge.
+`coverage_by_test` rows of that run, or the ones another checkout shared,
+which are kept as the shared verdicts hold them: under a first line
+`lines as distances`, each module's lines after its first as the distance
+from the one before).
+A row names, beside each module's lines, the text they are numbered in (a
+prefix of the module's source hash). A comment, a blank line or a moved
+line of a harness module moves no key ([changing the
+harness](#changing-the-harness)), so the text a standing row's lines were
+numbered in can be gone: a row's lines of a module are credited only while
+its text is the one the row names, and a row that names none, written by an
+older tool, credits no module. The lines of a module a pure store numbered
+by instruction are kept as those numbers, which no comment moves, beside the
+bytecode they number, and placed at the lines of the text of the run that
+stands on them ([coverage](#coverage)). A run that dropped some says so:
+
+```text
+test: coverage 61.2% (127363/208103 lines; partial: hits of 3 modules came from runs on other text; `--all` reruns them)
+```
+
+Without them the figure is at most what the tests reach, so a floor it
+meets is met, and one it is under fails as any floor does, its lines and
+the summary saying the figure is partial: `--all` has the figure to judge
+it on. A run that stands on verdicts earned on the text it runs has the
+coverage of the runs that earned them, and a floor holds for it as for a
+run that ran every test. A test that is skipped or not applicable on the
+host reaches nothing of the lines it covers elsewhere, so the same floor
+can differ between hosts: state a floor from the measurements of the host
+that gates the merge.
 
 ## run-time type checks
 
@@ -682,7 +763,7 @@ seeded source. A check must hold for all of them. The module doc of
 - `FUZZ_SEED` and `FUZZ_ITERS` (64 by default) choose the inputs.
 - `FUZZ_SECONDS` bounds the seconds a property spends drawing (none by
   default): past them, with 64 inputs drawn, it stops, says how many it
-  drew and is held to those. The nightly `fuzz.yml` sets 120, for the
+  drew and is held to those. The weekly `fuzz.yml` sets 120, for the
   properties whose every input costs a tenth of a second or more.
   Prefer it to a `max_iters` guessed from a measurement.
 - A failure is shrunk and kept in the test's directory.
@@ -696,7 +777,7 @@ seeded source. A check must hold for all of them. The module doc of
   share of drawn inputs that must reach a label, set well under what a
   run reaches. Neither is held when `FUZZ_ITERS` is below 64.
 - CI runs that gate a merge set `FUZZ_ITERS=0` and draw nothing. The
-  nightly `fuzz.yml` fuzzes every property on the checked core with a
+  weekly `fuzz.yml` fuzzes every property on the checked core with a
   seed of its own. A failure is a red run whose summary lists it.
 - Once a failure is fixed, keep its input in
   `testdata/fuzz/<property>/` as the report says. `run` checks that
@@ -729,15 +810,128 @@ receives `<scratch>/tmp`, a link to the fresh, empty, writable directory
 there, as siblings of `tmp` (`<scratch>/xXXXX`), not inside it. After a
 pass the runner removes the whole scratch directory, `tmp` and those
 siblings with it. Sandboxed, `<scratch>` is a tmpfs of the worker's own and
-is gone after a failure too. Unsandboxed (`COSMIC_TEST_SANDBOX=0`), a failing
-test's scratch directory is kept, and its failure says where. A sandboxed
+is gone after a failure too, unless the module declares what gives its
+worker a directory of the host instead (`system`, `tool`, `noexec`, a host
+cache, a directory to read). There, and unsandboxed
+(`COSMIC_TEST_SANDBOX=0`), a failing test's scratch directory is kept, and
+its failure says where. A sandboxed
 test has no write grant anywhere else.
+
+### a cache of the code under test
+
+A sandboxed test reads only its grants and writes only its scratch. A cache
+that the code under test keeps outside them, such as a directory under
+`out/` of the project, is not there in the worker: each test finds it
+missing, cannot keep what it would write there, and never hits it. This is
+by design. A cache
+that could change a result would make a verdict turn on what its key does
+not name. `caches` in [`Test.policy`] admits only `"zig"` and `"bootstrap"`,
+whose contents are addressed by what they hold and never change a result.
+
+Give the code a seam instead: take the cache's path as a parameter or an
+option, and have the test pass a directory under its `tmp`, so the test can
+fill the cache and read it back within itself. Or have the test run the code
+with no cache.
+
+```text
+-- the module: where it keeps its cache is the caller's choice, nil for none
+function Lookup.answer(key: string, cache_dir?: string): string
+
+-- the test: a cache of its own, in its scratch
+local function test_a_lookup_keeps_its_answer_in_the_cache(tmp: string)
+  assert(Lookup.answer("a", tmp) == "A")
+  assert(Fs.read(tmp .. "/a") == "A")
+end
+```
+
+### one worker for a module's tests
+
+Sandboxed, a module's tests share a worker where they can: the worker loads
+the module once and runs each test in a copy of itself (a fork), one after
+another. A module's tests are dealt to as many workers as may run at once
+(`--jobs`), so they still run beside each other; a module of no more tests
+than that has a worker for each. A run of more modules than that has other
+modules' tests to run beside them, so there a worker is given at least
+eight tests, where its module has them. The run says how many tests ran
+so:
+
+```text
+test: forks: 5557 tests ran in copies of 1123 workers, 0 of which retired early
+```
+
+Each test keeps what a worker of its own gave it:
+
+- a process of its own. A test that exits, crashes or hangs fails by itself;
+  its worker's sandbox ends with it, and the module's other tests run in
+  another worker.
+- the module as it loaded, and nothing an earlier test did to it: a copy is
+  made from the worker, which runs no test itself.
+- its directory empty, and `TMPDIR` holding nothing an earlier test made.
+  A worker goes on to the next test only after one that passed and left no
+  process running. It then removes all the test made where it can write
+  (the sandbox's `/tmp`, or its scratch directory where that is the
+  host's), in its directory and beside it, and gives each directory that
+  was there the mode and the times it had. The time a file of the host's
+  that no test can write was last read is not put back: every worker's
+  reading moves it. Where the worker cannot put a thing back, or where a
+  file that was there before the test has changed, and after any test that
+  did not pass, the worker retires, and its sandbox ends as a worker's
+  does.
+- its own output: what the load printed, then what the test printed, as it
+  printed it, so a test that hangs is shown with what it had said.
+- its own deadline, from when its copy was made.
+- the descriptors a worker of its own has, by the same numbers.
+- where its worker's scratch directory is the host's (a module that declares
+  `system`, `tool`, a host cache or a directory to read), a failing test's
+  directory kept, as a worker of its own leaves it: it is the last test that
+  worker runs. Such a worker empties no directory before the runner has
+  passed its test, which may fail one the worker saw pass (a test that
+  made no call to `assert`, in a held run).
+- no way to its worker: a copy is held to signalling itself and what it
+  starts, so `kill(-1)` reaches what it reached in a worker of its own.
+
+A worker forks only where every test can be given that:
+
+- a sandbox holds the worker, so all it can write is the sandbox's `/tmp`,
+  or its scratch directory alone where that is the host's, which the worker
+  puts back between tests. A host cache a module declares is every worker's
+  as it is, and is left so.
+- the module declares no `loopback`, whose sockets one test would leave the
+  next, no `nests`, whose worker no Landlock ruleset holds, and no `noexec`,
+  whose private directory the worker does not put back.
+- the kernel's Landlock scopes signals (ABI 6, Linux 6.12).
+- the load left the worker as it was but for its memory: it started no
+  process and left no descriptor open, no file written, no filter added and
+  no signal's handling changed. A module whose load does one of these runs a
+  worker for each test, and the run says so, naming the first and what its
+  load left. So does one whose worker cannot tell: its `/proc` cannot be
+  read, what its load printed could not be kept, or it is not alone in its
+  pid namespace.
+
+An unsandboxed run (macOS, `COSMIC_TEST_SANDBOX=0`) runs a worker for each
+test.
+
+What a test in a copy sees that one in a worker of its own does not:
+
+- its process id is not 2, and its parent is its worker, not the namespace's
+  init. A test does not assert a process id it did not ask for.
+- what the module computed as it loaded (a clock reading, a random draw, its
+  own process id) is the same for every test of the module that shares the
+  worker. A test that needs a value of its own computes it in the test.
+- the time the status of its directory, of `TMPDIR` and of `/tmp` last
+  changed (`ctime`) is when the test before it was cleared away, not when
+  its worker started.
+
+No key says whether a test ran in a copy, so a verdict earned in one stands
+where a worker of the test's own would run it, and the other way.
 
 ### output
 
 What a test prints is shown only when it fails, beneath its failure as
-`  | ` lines. `cosmic test --show-output` also lists it for a test that
-passed:
+`  | ` lines: its last 4096 bytes, under a line that says so when there
+were more. A run in which a passing test printed says how many of those
+that ran did, and names the flag: `cosmic test --show-output` also lists it, whole, for a
+test that passed:
 
 ```text
 test: PASS  suite.chatty_test test_prints_values
@@ -748,8 +942,7 @@ test: PASS  suite.chatty_test test_prints_values
 Only a test that ran prints. A test whose verdict stands is not run, so the
 flag says how many stood and prints nothing for them: add `--all` to run
 them. The flag changes nothing a verdict is keyed or kept by. A run with it
-stands on the verdicts of a run without it. Only the last 4096 bytes of a
-test's output are shown.
+stands on the verdicts of a run without it.
 
 ### time
 
@@ -775,6 +968,28 @@ that stood under one limit does not stand under a longer one. A module's
 investigate (below), and a test that is slow by accident is made fast,
 not given more time.
 
+A run says where its time went on the line before its summary:
+
+```text
+test: time: building 1.2 s, keying 3.4 s, running 15.9 s (10.0 s in 562 tests, up to 4 at a time; the runner 4.1 s starting their workers and 1.3 s recording them), settling coverage and records 0.4 s
+```
+
+`building` is from the checkout's lock taken to the tree compiled: the
+stage, the probe of whether workers can be sandboxed, and the compile.
+`keying` is from there to the last test looked up: the tests chosen, each
+one's key made and looked up, and the closure stores written for the keys.
+`running` is from there to the last worker collected. Of that, the tests'
+own time is what their workers reported, summed over the tests whose
+worker this run collected, so it can exceed the stretch where several run
+at once; a test that started no worker (its host lacks what it requires,
+or its start was refused) is in the summary's `ran` and not here. While
+the runner starts one worker, which includes writing a sealed database it
+has not written yet, or records one, it starts and collects no other.
+`up to 4 at a time` is the limit (`--jobs`, by default one more than the
+processors), not how many ran at once.
+`settling` is the coverage and the records kept. The `runs` table holds
+each test's own time ([measuring](guides/measuring.md)).
+
 ### coverage
 
 Every run records the lines the tests reached in the `coverage` table of
@@ -788,8 +1003,35 @@ cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
   GROUP BY path ORDER BY hit * 1.0 / lines LIMIT 10"
 ```
 
-`coverage_by_test` holds the lines each test reached. The run's own
-`test: coverage` line is informational and never a failure.
+`coverage_by_test` holds the lines each test reached, each module's beside
+the text they are numbered in, but for a module a pure store imported: its
+are the numbers of the instructions it ran, each past 2^24
+([`build.lua_tail`]'s `ordinal_base`), beside a prefix of the digest of its
+bytecode stripped. A row taken from another checkout's verdict begins with
+the line `lines as distances`, and each of its numbers after a module's
+first is the distance from the one before. The run's own `test: coverage`
+line is informational and never a failure.
+
+A sandboxed test given the pure store ([the pure store](#the-pure-store))
+reaches the lines of the modules it imports as an unsandboxed one does. Their
+bytecode carries no line, so a comment moves no key. The core counts each
+instruction of such a function as it is about to run, by its number in the
+chunk (core/coverage.c, told by Lua through `patch/lua/`'s instruction
+coverage, after an instruction budget has had its turn, so an instruction
+a budget stops before is not counted), and the runner places each at the
+line this run's text has it on ([`build.lua_tail`]'s `instruction_lines`).
+Its row keeps the instructions' numbers, not those lines, named by the
+module's bytecode stripped and not by its text: a comment above them later
+lets the verdict stand, since the key holds that bytecode, and a run that
+stands on the row places each number at the line its own text has that
+instruction on, which is exact while the verdict stands. The numbers it cannot
+place are dropped, and the figure says it is partial and why. A tool
+that reads a row's numbers as lines alone, older than these rows, finds the
+row names another text than the module's and drops it the same way, so it
+never credits an instruction's number as a line.
+An instruction the runner cannot place is an error of the run, never a
+line of another text, and no verdict of a test that reached it is kept, so
+no later run stands on a row that lacks its lines.
 
 ## other hazards
 
@@ -799,7 +1041,8 @@ cosmic sql --build "SELECT path, count(*) AS lines, sum(hit > 0) AS hit
 - The directory's name holds a `-`. Escape a path before putting it in
   a Lua pattern: `(path:gsub("%p", "%%%0"))`.
 - A worker that writes to `/tmp` itself, past its `TMPDIR`, writes to a
-  `/tmp` of the sandbox's own. It is gone with the worker.
+  `/tmp` of the sandbox's own. It is gone with the worker, and no later
+  test meets it ([one worker for a module's tests](#one-worker-for-a-modules-tests)).
 - A timeout is a failure to investigate. Report it apart from an
   assertion failure. Inspect the elapsed time and the slow work first.
   Do not raise the limit silently.
@@ -831,8 +1074,8 @@ harness moves it as an edit does.
 
 The harness is what every worker loads, the sandbox's maker, and the
 code that makes a key, looks a verdict up or keeps one:
-[`build/test_key.tl`], which it holds alone, and the closure of
-[`build/declared_key.tl`] and the shared verdicts.
+[`build/test_key.tl`] and [`build/stamp.tl`], each of which it holds
+alone, and the closure of [`build/declared_key.tl`] and the shared verdicts.
 [`build.harness_epoch_test`] holds that set to everything a worker runs
 and to the standard-library modules `library` in
 [`build.harness_epoch`] names. The runner around it,
@@ -864,6 +1107,11 @@ Other rules:
 - Never set `COSMIC_TEST_HARNESS_EPOCH`, `COSMIC_TEST_HARNESS_SALT` or
   `COSMIC_TEST_PLATFORM=other` to run a suite. They are for the runner's own tests
   ([`build.sandboxed_verdicts_test`]).
+- A tool's database carries, as stamps, the identities a run keys by that
+  are functions of the tool's own rows ([`build.stamps`]).
+  `COSMIC_STAMPS=0` has a run work them out instead, and reach the same
+  keys ([`build.sandboxed_verdicts_test`] holds it to that). It is never
+  needed to run a suite.
 - Harness modules reach the host through raw bindings and the
   standard-library modules `library` in [`build.harness_epoch`] names,
   each with its reason. [`build.harness_epoch_test`] holds them to it.
@@ -881,6 +1129,7 @@ Other rules:
 
 [`bin/cosmic`]: ../bin/cosmic
 [`bin/zig`]: ../bin/zig
+[`build.c`]: ../build/c/init.tl
 [`build.checker_declarations`]: ../build/checker_declarations.tl
 [`build.closure_store`]: ../build/closure_store.tl
 [`build.code_walk`]: ../build/code_walk.tl
@@ -902,8 +1151,8 @@ Other rules:
 [`build.reads.receivers`]: ../build/reads/receivers.tl
 [`build.rebuild`]: ../build/rebuild.tl
 [`build.sandboxed_verdicts_test`]: ../build/sandboxed_verdicts_test.tl
+[`build.stamps`]: ../build/stamps.tl
 [`build.standard_text`]: ../build/standard_text.tl
-[`build.symbols`]: ../build/symbols.tl
 [`build.test_child`]: ../build/test_child.tl
 [`build.test_returns`]: ../build/test_returns.tl
 [`build.test_sandbox_probe`]: ../build/test_sandbox_probe.tl
@@ -917,6 +1166,7 @@ Other rules:
 [`build/fact_hook_tool_test.tl`]: ../build/fact_hook_tool_test.tl
 [`build/harness_epoch_test.tl`]: ../build/harness_epoch_test.tl
 [`build/rebuild_lock_tool_test.tl`]: ../build/rebuild_lock_tool_test.tl
+[`build/stamp.tl`]: ../build/stamp.tl
 [`build/test.tl`]: ../build/test.tl
 [`build/test_key.tl`]: ../build/test_key.tl
 [`build/test_state.tl`]: ../build/test_state.tl
@@ -925,13 +1175,16 @@ Other rules:
 [`Check.Checked.narrowed`]: ../lang/check.tl
 [`ci/cosmic_ci/capabilities.json`]: ../ci/cosmic_ci/capabilities.json
 [`ci/README.md`]: ../ci/README.md
+[`cosmic.internal.symbols`]: ../cosmic/internal/symbols.tl
 [`cosmic.layout`]: ../cosmic/layout.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
 [`cosmic.test`]: ../cosmic/test.tl
+[`cosmic.time`]: ../cosmic/time.tl
 [`cosmic.vector`]: ../cosmic/vector.tl
 [`cosmic/store_seal_test.tl`]: ../cosmic/store_seal_test.tl
+[`cosmic/time_example.tl`]: ../cosmic/time_example.tl
 [`Coverage.native_functions`]: ../cosmic/coverage.tl
 [`declared_key.dispatched`]: ../build/declared_key.tl
 [`declared_key.host_cpu`]: ../build/declared_key.tl

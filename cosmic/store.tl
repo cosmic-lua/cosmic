@@ -77,7 +77,7 @@ local record Store
     name: string
     --- The chunk `string.dump` writes, which the core loads for the
     --- name, and which returns the module's value, a function for a main.
-    --- [`Store.seal`] stores it deflated.
+    --- [`Store.seal`] stores it as it is.
     bytecode: string
     --- The text the chunk was compiled from, which an error's line is
     --- read from.
@@ -112,15 +112,28 @@ end
 
 --- One module's compiled bytes, as `string.dump` wrote them, for a caller
 --- that must load the chunk in an environment of its own; nil and why for
---- none. The database stores them deflated, and this answers them
---- inflated.
+--- none. A database stores them as they are, or deflated where an older
+--- build wrote it, and this answers them inflated.
 function Store.bytecode(name: string): string?, string
   return store.bytecode(name)
 end
 
 --- One entry of the meta table, which is where a build records what it
---- decided. Nil when no database holds that key.
+--- decided. Nil when no database holds that key. Raises for a key the
+--- store withholds: a test's store names the rows it leaves out in its
+--- `withheld_meta` row (one key a line), and a read of one of them is an
+--- error, not an answer, since a caller would take a nil for a missing
+--- row and carry on.
 function Store.meta(key: string): string?
+  local withheld = store.meta("withheld_meta")
+  if withheld ~= nil and key ~= "withheld_meta" then
+    for name in withheld:gmatch("[^\n]+") do
+      if name == key then
+        error("meta " .. key .. " is withheld from this test's store: a module that reads it " ..
+            "is declared in build/key_parts.tl's meta_readers", 2)
+      end
+    end
+  end
   return store.meta(key)
 end
 
@@ -152,6 +165,21 @@ function Store.withheld(name: string): string?, string
   local source, why = store.source(name)
   if source ~= nil then return nil, "" end
   return why, ""
+end
+
+--- Whether the binary's database holds a module or a declaration named
+--- `name`, with its source or without it: false for a name it has no row
+--- of, which is the one case [`Store.source`] answers because the name is
+--- absent. Nil and why where there is no database (a boot carries none)
+--- or the query failed, else "".
+function Store.holds(name: string): boolean?, string
+  local databases = store.databases()
+  local binary = databases[#databases]
+  if binary == nil then return nil, "holds: the binary carries no database" end
+  local rows, trouble = Sqlite.text_rows(binary,
+    "SELECT 1 FROM decls WHERE path = ?1 UNION ALL SELECT 1 FROM modules WHERE path = ?1", { { text = name } })
+  if rows == nil then return nil, "holds: " .. trouble end
+  return #rows > 0, ""
 end
 
 --- The names the binary's own `imports` table records the module
@@ -292,7 +320,7 @@ local function requires_of(db: Handle, name: string, types: boolean): {string}
     "SELECT i.requires FROM imports i WHERE i.path = ?1 AND (?2 = 1 OR " ..
       "NOT EXISTS (SELECT 1 FROM modules m WHERE m.path = i.path AND " ..
       "m.kind IN ('module', 'main') AND " ..
-      "instr(inflate(m.bytecode), CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
+      "instr(chunk(m.bytecode), CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
     { text(name), { integer = if types then 1 else 0 end } })
   if rows == nil then
     error("store: " .. name .. ": " .. trouble, 3)
@@ -501,7 +529,7 @@ local function write_database(names: {string}, file: string, main: string?,
         -- Last, so the rows' order is the same whatever the script is.
         local added, why = Sqlite.run(db,
           "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
-            "VALUES (?1, ?2, 'main', ?3, X'', deflate(?4), '', deflate(?5))",
+            "VALUES (?1, ?2, 'main', ?3, X'', ?4, '', deflate(?5))",
           { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
             { blob = script.bytecode }, { blob = script.source } })
         if not added then
@@ -589,7 +617,8 @@ end
 --- those modules, and the `meta` rows a program needs to run: its
 --- `core_sha256` (the digest of the core that seals, which a core started
 --- on the file refuses to run unless it is its own), `runtime_basis` and
---- `image_hash`, and `main` when `opts.main` names
+--- `image_hash` (a store that withholds it from a test seals its
+--- `withheld_meta` row in its place, not the value), and `main` when `opts.main` names
 --- the module to run (one of `names`). Only the `imports` rows between
 --- the names given go along. Nothing else of the store goes
 --- along -- no docs, tests, catalog or notices -- except the time zones,
@@ -685,8 +714,14 @@ function Store.seal(names: {string}, path?: string,
   end
   local identity: mut {MetaRow} = {
     { key = "core_sha256", value = core }, { key = "runtime_basis", value = basis } }
-  local image = Store.meta("image_hash")
-  if image ~= nil then
+  -- The rows are read raw, as the store holds them: a test's store that
+  -- withholds `image_hash` (its `withheld_meta` row names it) seals the
+  -- same marker in its place, and one that holds the value seals the value.
+  local withheld = store.meta("withheld_meta")
+  local image = store.meta("image_hash")
+  if withheld ~= nil then
+    table.insert(identity, 1, { key = "withheld_meta", value = withheld })
+  elseif image ~= nil then
     table.insert(identity, 1, { key = "image_hash", value = image })
   end
   local made_scratch, scratch_trouble = Fs.mkdtemp("seal-")

@@ -12,8 +12,14 @@ local Test = require("cosmic.test")
 local build_paths = require("build.paths")
 local this_program = require("build.this_program")
 
-Test.policy{ profiles = { "cosmic", "system" }, env = { "PATH", "HOME" },
-  grants = { { path = "o/bin", letters = "rx" } } }
+--- The program itself, the host's `git`, which `fix` asks what a
+--- repository ignores, and its `sh`, which runs the stand-in for a git
+--- that refuses.
+Test.policy{ profiles = { "cosmic" }, env = { "PATH", "HOME" },
+  grants = {
+    { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+    { path = "/bin/git", letters = "r" }, { path = "/usr/bin/git", letters = "r" },
+    { path = "o/bin", letters = "rx" } } }
 
 --- Runs fix with `args` in `root`; `extra` is added to the program's environment.
 local function run(root: string, args: {string}, extra?: {string: string}): Child.Result
@@ -59,6 +65,17 @@ local function test_an_ignored_target_is_no_link_and_an_ignored_directory_is_not
   assert(text:find("node_modules", 1, true) == nil, text)
   assert(assert(result.stdout):find("node_modules", 1, true) == nil, result.stdout)
   assert(assert(Fs.read(root .. "/node_modules/p/R.md")) == "See [`gone`].\n")
+end
+
+--- A link written to an ignored path stays refused, and says why: a fresh checkout lacks it.
+local function test_a_link_to_an_ignored_path_is_refused_as_ignored(tmp: string)
+  local root = project(tmp, "project", true)
+  assert(Fs.write(root .. "/README.md", "Writes [gen](out/gen.txt).\n"))
+  local result = run(root, { "fix", "README.md" })
+  local said = assert(result.stdout)
+  assert(not result.ok, said)
+  assert(said:find("link: out/gen.txt does not resolve (it is ignored (.gitignore), so absent from a fresh " ..
+      "checkout: link the source or rule that makes it, or write it as code text)", 1, true) ~= nil, said)
 end
 
 local function test_check_skips_an_ignored_directory(tmp: string)

@@ -24,6 +24,9 @@
 --- - Every leg boots every core (`-Dboot-cores=all`,
 ---   cosmic_ci.orchestration), so the modules that need a tool of the
 ---   portable programs run on all of them (`all_cores`).
+--- - That boot builds each core with the pinned zig, which installs it in
+---   the zig cache, so every Linux leg's checks of the core's C start it
+---   (`pinned_zig`).
 --- - The ubuntu runner has curl, which cosmic/child_relay_curl_test.tl
 ---   runs in a sandbox as a client that honours the proxy variables.
 --- - The checked leg's core is the checked build, whose instruments the

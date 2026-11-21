@@ -49,11 +49,40 @@ local function test_tree_name_names_the_tree_by_a_marker()
   assert(key_parts.tree_name("/etc/passwd", "/w/tree") == "/etc/passwd")
 end
 
+--- The entry of the reader map for `name`.
+local function group(name: string): key_parts.MetaReaders
+  return assert(key_parts.meta_group(name))
+end
+
+--- The reader map holds a group for the compiler's identity and one for
+--- `image_hash`, answered by one function: a closure with a reader of a
+--- group is told so for that group alone, and a carrier of `image_hash`
+--- (which hands the row on) is no reader of it.
+local function test_the_meta_readers_map_answers_each_group_alone()
+  assert(key_parts.meta_group("no_such_group") == nil)
+  local compiler = support.nth(group("compiler").readers, 1)
+  local image = support.nth(group("image_hash").readers, 1)
+  assert(key_parts.reads_meta({ "build.a", compiler }, "compiler"))
+  assert(key_parts.reads_meta({ "build.a", image }, "image_hash"))
+  assert(not key_parts.reads_meta({ "build.a" }, "compiler"))
+  assert(not key_parts.reads_meta({ "build.a" }, "image_hash"))
+  assert(not key_parts.reads_meta({}, "image_hash"))
+  local carriers = group("image_hash").carriers
+  assert(#carriers > 0)
+  for _, name in ipairs(carriers) do
+    assert(not key_parts.reads_meta({ name }, "image_hash"), name .. " is a carrier, not a reader")
+  end
+  local readers: mut {string:boolean} = {}
+  for _, name in ipairs(group("image_hash").readers) do readers[name] = true end
+  for _, name in ipairs(carriers) do assert(readers[name] ~= true, name .. " is both") end
+  local asked, _ = pcall(key_parts.reads_meta, { "build.a" }, "no_such_group")
+  assert(not asked, "a group the map lacks was answered")
+end
+
 --- build.declared_key answers the compiler's readers as its own, so its
 --- callers need not name build.key_parts.
 local function test_declared_key_answers_the_compiler_readers()
-  assert(declared_key.compiler_readers == key_parts.compiler_readers)
   assert(declared_key.reads_compiler == key_parts.reads_compiler)
-  assert(key_parts.reads_compiler({ "build.a", support.nth(key_parts.compiler_readers, 1) }))
+  assert(key_parts.reads_compiler({ "build.a", support.nth(group("compiler").readers, 1) }))
   assert(not key_parts.reads_compiler({ "build.a" }))
 end

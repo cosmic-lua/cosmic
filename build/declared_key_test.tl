@@ -91,6 +91,26 @@ local function test_a_key_is_the_same_while_nothing_declared_changes(tmp: string
         two .. "/bin", TMPDIR = "/tmp" })))
 end
 
+--- Where the cores cache is (COSMIC_PORTABLE_CACHE) moves no key: what is
+--- there is content-addressed, so two runs that keep their cores in two
+--- places share their verdicts. Whether it is set, and a value the
+--- launcher refuses, still move it.
+local function test_where_the_cores_cache_is_moves_no_key(tmp: string)
+  tree(tmp)
+  local function with(cache?: string): string
+    local env: mut {string:string} = { DECLARED = "d", TMPDIR = "/tmp" }
+    if cache ~= nil then env["COSMIC_PORTABLE_CACHE"] = cache end
+    return key_of(tmp, spec(env))
+  end
+  assert(with("/runner/_temp/cosmic-ci/platform/suite-cores") ==
+      with("/runner/_temp/cosmic-ci/platform/portable-diagnostics/cache"), "the place moved the key")
+  assert(with("/home/someone/.cache/cosmic/cores") ~= with(), "a cache set or not keyed alike")
+  assert(with("relative/cores") ~= with("/home/someone/.cache/cosmic/cores"),
+    "a relative path keyed as an absolute one")
+  assert(with("relative/cores") ~= with("other/cores"), "a refused value keyed by its kind")
+  assert(with("absolute cache path") ~= with("/x/cores"), "a refused value keyed as an absolute one")
+end
+
 --- A file above the project is keyed by its relative path and contents:
 --- the same file in another checkout at another place keys the same, and
 --- an edit to it, or a missing file, moves the key.
@@ -355,10 +375,10 @@ local function each_field_moves<T>(what: string, fields: {string}, make: functio
     end
   end
   for name in pairs(changes) do
-    assert(declared[name], what .. " declares no field " .. name .. " that a change names")
+    assert(declared[name] == true, what .. " declares no field " .. name .. " that a change names")
   end
   for name in pairs(unkeyed) do
-    assert(declared[name], what .. " declares no field " .. name .. " that unkeyed names")
+    assert(declared[name] == true, what .. " declares no field " .. name .. " that unkeyed names")
   end
 end
 
@@ -775,7 +795,7 @@ end
 --- none, under compilers of two identities that made the same bytecode
 --- -- the same store, the same harness -- share a key.
 local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: string)
-  local reader = support.nth(declared_key.compiler_readers, 1)
+  local reader = support.nth(assert(key_parts.meta_group("compiler")).readers, 1)
   assert(declared_key.reads_compiler({ "suite.lib", reader, "suite.t_test" }))
   assert(not declared_key.reads_compiler({ "suite.lib", "suite.t_test" }))
   assert(not declared_key.reads_compiler({}))
@@ -1149,6 +1169,41 @@ local function test_a_program_is_keyed_by_what_it_runs_as(tmp: string)
   assert(select(2, keys()) ~= other, "a file of o/bin's contents left the key")
 end
 
+--- The path a tool was built at is no part of what it runs as: CI places each commit's checkout at a path of its
+--- own, and a sandboxed worker sees the tree at /tree, never that path. The exception is "/tree" itself, the one
+--- value a worker's own root can equal (build.tree's `standing_of`), which the key keeps.
+local function test_a_program_built_at_another_path_keys_the_same(tmp: string)
+  tree(tmp)
+  assert(Fs.mkdirs(support.build_dir(tmp) .. "/bin"))
+  local root = assert(Fs.absolute(tmp))
+  local tool = support.build_dir(root) .. "/bin/cosmic"
+  local s = spec()
+  s.effective.tool = true
+  local function keys(): string, string
+    local program = declared_key.program_identity(declared_key.digests(root), { tool })
+    return program, key_of(root, { ...s, program = program })
+  end
+  local meta: mut {string:string} = { boot_hash = "one", writer = "w", built_from = "/ci/one/checkout" }
+  program_at(tool, "core one", meta, "bytecode one")
+  local program, key = keys()
+  local bytes = assert(Fs.read(tool))
+  meta["built_from"] = "/ci/another/place/entirely"
+  program_at(tool, "core one", meta, "bytecode one")
+  assert(assert(Fs.read(tool)) ~= bytes, "the tool's bytes did not move")
+  local moved_program, moved_key = keys()
+  assert(moved_program == program, "the path the tool was built at moved the program")
+  assert(moved_key == key, "the path the tool was built at moved the key")
+  -- A worker's own root is the one path that is not left out.
+  meta["built_from"] = "/tree"
+  program_at(tool, "core one", meta, "bytecode one")
+  local own_program, own_key = keys()
+  assert(own_program ~= program and own_key ~= key, "built at /tree left the key")
+  -- And the path is the only row left out: a carried module still moves it.
+  meta["built_from"] = "/ci/another/place/entirely"
+  program_at(tool, "core one", meta, "bytecode two")
+  assert(keys() ~= program, "a carried module left the program")
+end
+
 --- What runs an artifact's core is keyed for every test of a run the
 --- artifact starts, whether it runs the program or not: a launcher,
 --- manifest or core ahead of the database moves a key that declares no
@@ -1218,7 +1273,7 @@ local function test_the_runtime_identity_is_remembered_by_the_core(tmp: string)
   digests.hashed["runtime-image\0" .. core] = "image 1 2\0" .. image
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") ==
       core_image.runtime(image, 1, 2, "basis"))
-  assert(digests.used["runtime-image\0" .. core])
+  assert(digests.used["runtime-image\0" .. core] == true)
   digests.hashed["runtime-image\0" .. core] = "whole\0" .. core
   assert(declared_key.runtime_identity(digests, "raw", core, "basis") == "raw")
   -- Not the running core, whose bytes this cannot read: as named.
@@ -1259,6 +1314,49 @@ local function stored(checks: string?, projection_file: string?): declared_key.S
     environment = { DECLARED = "d", TMPDIR = "/tmp" },
     checks = checks, projection_file = projection_file,
   }
+end
+
+--- A projection at `path` holding `meta` and one module, `cosmic.thing`, whose source is `source`.
+local function projection_at(path: string, meta: {string:string}, source: string)
+  local _, _ = Fs.remove(path)
+  local db = assert(Sqlite.open(path, { writable = true }))
+  assert(db:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); " ..
+      "CREATE TABLE modules (path TEXT PRIMARY KEY, source BLOB NOT NULL)"))
+  local keys: mut {string} = {}
+  for key in pairs(meta) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)", { { text = key }, { text = meta[key] } }))
+  end
+  assert(Sqlite.run(db, "INSERT INTO modules (path, source) VALUES ('cosmic.thing', ?1)", { { blob = source } }))
+  assert(db:close())
+end
+
+--- The projection a `store` worker is given holds the path of the checkout it was written in (`built_from`).
+--- The same tree written at another path keys the same, as a tool built at another path does, while any other
+--- row moves it. A worker whose own root is "/tree" is the exception, as for a tool.
+local function test_a_projection_written_at_another_path_keys_the_same(tmp: string)
+  tree(tmp)
+  assert(support.build_dir(tmp))
+  local projection = support.build_dir(tmp) .. "/cosmic.db"
+  local whole = stored(nil, nil)
+  local meta: mut {string:string} = { boot_hash = "one", writer = "w", built_from = "/ci/one/checkout" }
+  projection_at(projection, meta, "return 1")
+  local before = key_of(tmp, whole)
+  local bytes = assert(Fs.read(projection))
+  meta["built_from"] = "/ci/another/place/entirely"
+  projection_at(projection, meta, "return 1")
+  assert(assert(Fs.read(projection)) ~= bytes, "the projection's bytes did not move")
+  assert(key_of(tmp, whole) == before, "the path the projection was written at moved a store worker's key")
+  meta["built_from"] = "/tree"
+  projection_at(projection, meta, "return 1")
+  assert(key_of(tmp, whole) ~= before, "a projection written at /tree left the key")
+  meta["built_from"] = "/ci/another/place/entirely"
+  projection_at(projection, meta, "return 2")
+  assert(key_of(tmp, whole) ~= before, "a module's source left the key")
+  meta["writer"] = "another writer"
+  projection_at(projection, meta, "return 1")
+  assert(key_of(tmp, whole) ~= before, "another row of the meta left the key")
 end
 
 --- A checked run's key holds the file its worker is given at o/cosmic.db, where its module declares `store`:

@@ -8,10 +8,74 @@
 --- [`minutes`] and [`hours`] make from a count (`Clock.seconds(5)`) and
 --- [`ceil`] counts back in a coarser unit. [`cosmic.time`] names a moment and
 --- a span of the calendar.
+---
+--- [`span`] times a stretch of code by name, and [`report`] lists the names
+--- by the time spent in each, to find where a program spends it.
 
 local sys = require("cosmic.sys")
 
+--- What the spans of one name have added up to.
+local record Total
+  --- How many spans of the name have closed.
+  mut count: integer
+  --- The wall time they took in all, in nanoseconds.
+  mut wall_ns: integer
+  --- The CPU time of this thread they took in all, in nanoseconds.
+  mut cpu_ns: integer
+end
+
+--- Totals by span name.
+local type Spans = mut {string: Total}
+
+--- `clock` read for a span's close, raising at the code the span ends where
+--- it cannot be read: [`Clock.span`] read it when the span opened, so it can.
+local function closing_reading(clock: integer, name: string): integer
+  local ns, trouble = sys.clock_gettime(clock)
+  if ns == nil then
+    error("clock: clock_gettime(" .. name .. "): " .. trouble, 3)
+  end
+  return ns
+end
+
+--- A span of [`Clock.span`] while it is open: its close adds the time
+--- since it opened to its name's total.
+local class Span
+  --- Internal: where the time goes, and the readings it opened with. No
+  --- caller reads or writes them.
+  spans: Spans
+  --- Internal: see `spans`.
+  name: string
+  --- Internal: see `spans`.
+  wall_ns: integer
+  --- Internal: see `spans`.
+  cpu_ns: integer
+
+  function __close(self)
+    local wall_ns = closing_reading(sys.CLOCK_MONOTONIC, "CLOCK_MONOTONIC") - self.wall_ns
+    local cpu_ns = closing_reading(sys.CLOCK_THREAD_CPUTIME_ID, "CLOCK_THREAD_CPUTIME_ID") - self.cpu_ns
+    local total = self.spans[self.name]
+    if total == nil then
+      total = { count = 0, wall_ns = 0, cpu_ns = 0 }
+      self.spans[self.name] = total
+    end
+    total.count = total.count + 1
+    total.wall_ns = total.wall_ns + wall_ns
+    total.cpu_ns = total.cpu_ns + cpu_ns
+  end
+end
+
 local record Clock
+  --- What the spans of one name have added up to: how many closed, and the
+  --- wall and CPU nanoseconds they took in all.
+  type Total = Total
+
+  --- The totals of [`span`] by name. The caller makes it empty
+  --- (`local spans: Clock.Spans = {}`), and each span that closes adds to it.
+  type Spans = Spans
+
+  --- A span [`span`] opened: hold it in a `<close>` variable, whose close
+  --- adds its time to its name's total.
+  type Span = Span
 end
 
 local NS <const> = 1000000000
@@ -138,6 +202,65 @@ function Clock.ceil(ns: integer, unit: integer): integer
     error("clock: unit must be above 0", 2)
   end
   return ns // unit + (if ns % unit ~= 0 then 1 else 0 end)
+end
+
+--- Times the code from here to the end of the block, by name: hold the
+--- answer in a `<close>` variable (`local _t <close> = Clock.span(spans,
+--- "parse")`). When the block ends (at its `end`, a `return`, a `break`
+--- or an error), the wall time ([`monotonic_ns`]) and the CPU time of this
+--- thread ([`cpu_ns`]) since this call are added to `spans[name]`, and its
+--- count goes up by one. In a loop's body each pass is a span. Spans nest:
+--- an outer span's time holds the inner's, and a span inside one of the
+--- same name adds its time to that name a second time. Both clocks are
+--- read here, so a host with no CPU clock for a thread raises here, as
+--- [`cpu_ns`] does, before the code it would time runs.
+function Clock.span(spans: Clock.Spans, name: string): Clock.Span
+  local opened: Span = { spans = spans, name = name, wall_ns = Clock.monotonic_ns(), cpu_ns = Clock.cpu_ns() }
+  return opened
+end
+
+--- Milliseconds of `ns`, to three places, as [`report`] shows them.
+local function ms_of(ns: integer): string
+  return ("%.3f ms"):format(ns / 1000000)
+end
+
+--- How many characters `name` shows as: its UTF-8 characters, or its
+--- bytes where it is no valid UTF-8.
+local function shown_width(name: string): integer
+  return utf8.len(name) or #name
+end
+
+--- The totals of `spans`, one line a name, the name that took the most wall
+--- time first (by name where two took the same): the name, the count of
+--- its spans, and their wall and CPU time in milliseconds, as in
+--- `parse  12 spans, 35.201 ms wall, 30.002 ms cpu`. Names are padded to
+--- the longest, so the counts line up when the lines are printed.
+function Clock.report(spans: Clock.Spans): {string}
+  local record Row
+    name: string
+    total: Clock.Total
+  end
+  local rows: mut {Row} = {}
+  local width = 0
+  for name, total in pairs(spans) do
+    rows[#rows + 1] = { name = name, total = total }
+    width = math.max(width, shown_width(name))
+  end
+  table.sort(rows, function(a: Row, b: Row): boolean
+    if a.total.wall_ns ~= b.total.wall_ns then return a.total.wall_ns > b.total.wall_ns end
+    return a.name < b.name
+  end)
+  local lines: mut {string} = {}
+  for _, row in ipairs(rows) do
+    local total = row.total
+    -- Padded by hand: a `%-Ns` width past two digits is refused by format,
+    -- and it counts bytes.
+    local padded = row.name .. (" "):rep(width - shown_width(row.name))
+    lines[#lines + 1] = ("%s  %d %s, %s wall, %s cpu"):format(padded, total.count,
+      if total.count == 1 then "span" else "spans" end,
+      ms_of(total.wall_ns), ms_of(total.cpu_ns))
+  end
+  return lines
 end
 
 return Clock

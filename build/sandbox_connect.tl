@@ -390,10 +390,9 @@ end
 --- @return the exit status
 function sandbox_connect.run(args: {string}, io?: sandbox_connect.Io): integer
   local here = io or standard_io(0, 1)
-  -- A caller that is a task of a run already (a test) has the run it needs.
-  if Poll.in_task() then return run_in(args, here) end
   local exit_status: integer = bare.failed
-  Poll.run(function()
+  -- A caller that is a task of a run already (a test) has the run it needs.
+  Poll.within(function()
     exit_status = run_in(args, here)
   end)
   return exit_status

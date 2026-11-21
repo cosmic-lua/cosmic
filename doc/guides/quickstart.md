@@ -85,6 +85,8 @@ a lookup, and `grep` over `--flat` covers the simple cases. To count or
 sum, use `cosmic sql --from` (next section); for anything else write
 the script with `cosmic.json`: [`Json.decode`] the file and walk the
 value in Lua, or look a path up with [`Json.get`] and [`Json.select`].
+To change the value at a path, [`Json.set`] answers a copy with it
+changed and [`Json.remove`] one without it; neither changes the value read.
 `cosmic help json` has the rest.
 
 ## a random id, token or number
@@ -96,7 +98,18 @@ method 3 clock precision, `-n 5` for five, at most ten million); `cosmic rand to
 --scale 3` draw floats. All of it comes from the operating system's entropy,
 unless you name `--seed` to replay `int`, `pick`, `shuffle`, `normal` or
 `gamma`, which is not secret. `cosmic help
-rand` has the rest.
+rand` has the rest. A program draws a UUID of its own with [`Rand.uuid`].
+
+## a QR code of an address
+
+`cosmic qr https://example.com/` prints a code a phone can scan from the
+terminal, and `echo https://example.com/ | cosmic qr` reads the text from
+standard input. The blocks show the light modules, for a dark terminal;
+`--invert` suits a light one, and `--ascii` a font with no block
+characters. `cosmic qr --svg code.svg https://example.com/` writes an image
+instead (`--svg -` prints it), and `cosmic qr --read code.svg` reads either
+drawing back. `cosmic help qr` has the rest. A program draws its own with
+[`Qr.text`] and [`Qr.svg`], and reads one with [`Qr.read`].
 
 ## questions about a data file
 
@@ -432,8 +445,14 @@ A function declared `: number` may still
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.encode`]: ../../cosmic/json.tl
 [`Json.get`]: ../../cosmic/json.tl
+[`Json.remove`]: ../../cosmic/json.tl
 [`Json.select`]: ../../cosmic/json.tl
+[`Json.set`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
+[`Qr.read`]: ../../cosmic/qr.tl
+[`Qr.svg`]: ../../cosmic/qr.tl
+[`Qr.text`]: ../../cosmic/qr.tl
+[`Rand.uuid`]: ../../cosmic/rand.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
 [`Store.seal`]: ../../cosmic/store.tl

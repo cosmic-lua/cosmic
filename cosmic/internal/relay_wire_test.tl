@@ -422,7 +422,7 @@ local function test_connect_reply_forms()
   assert(Wire.connect_refusal(400, ""):find("^HTTP/1.1 400 Refused\r\n"))
   local long = Wire.connect_refusal(400, ("r"):rep(500))
   local kept = assert(long:match("^HTTP/1.1 400 (r+)"), "the refusal keeps the reason")
-  assert(long:find("^HTTP/1.1 400 r+\r\n") and #kept == 200)
+  assert(long:find("^HTTP/1.1 400 r+\r\n") ~= nil and #kept == 200)
   assert(Wire.connect_refusal(405, "plain"):find("Allow: CONNECT\r\n", 1, true))
   assert(not Wire.connect_refusal(403, "plain"):find("Allow", 1, true))
   for _, status in ipairs({ 200, 399, 600, 0, -1 }) do

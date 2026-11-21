@@ -26,7 +26,7 @@ local function test_a_report_carries_what_its_worker_loaded()
   local back = assert(worker.decode(worker.encode(passing({ "build.a", "cosmic.fs", "string" }))))
   assert(#back.modules == 3 and back.modules[1] == "build.a" and back.modules[3] == "string")
   -- A report of another shape, an older worker's, is none.
-  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-4", "cosmic-test-report-3")
+  local older = worker.encode(passing({})):gsub("^cosmic%-test%-report%-5", "cosmic-test-report-4")
   assert(worker.decode(older) == nil)
 end
 
@@ -51,6 +51,85 @@ local function test_a_line_of_hits_read_twice_is_one_table()
   assert(first_tested[7] == true and second_tested[9] == true)
   local malformed = worker.encode(passing({})):gsub("\nend\n$", "\ntest-hit zz 1\nend\n")
   assert(worker.decode(malformed) == nil)
+end
+
+--- The hits of a load reported again, the same lines of the same modules, are the one table the first report had
+--- of them, by which the runner knows a load it has taken; a load that differs in a line is another. A `load-hit`
+--- line met apart from the rest is read into the report that holds it alone, and one that is no hit, or a line of
+--- another kind among them, is read as it is where it stands.
+local function test_the_hits_of_a_load_reported_again_are_one_table()
+  local function reported(loaded: integer, tested: integer): worker.Report
+    local report = passing({})
+    report.load_hits = { ["build.a"] = { [3] = true, [loaded] = true }, ["build.b"] = { [11] = true } }
+    report.test_hits = { ["build.a"] = { [tested] = true } }
+    return report
+  end
+  local first = assert(worker.decode(worker.encode(reported(5, 7))))
+  local again = assert(worker.decode(worker.encode(reported(5, 9))))
+  local other = assert(worker.decode(worker.encode(reported(6, 7))))
+  assert(first.load_hits == again.load_hits, "the same load was read into two tables")
+  assert(first.load_hits ~= other.load_hits, "another load was read as the first")
+  assert(assert(other.load_hits["build.a"])[6] == true and assert(other.load_hits["build.a"])[5] == nil)
+  assert(assert(first.load_hits["build.b"])[11] == true)
+  -- More loads than are remembered: the first is forgotten, and read again into what it held.
+  for line = 100, 120 do assert(worker.decode(worker.encode(reported(line, 7)))) end
+  local late = assert(worker.decode(worker.encode(reported(5, 7))))
+  assert(late.load_hits ~= first.load_hits, "a load is remembered past the newest few")
+  assert(assert(late.load_hits["build.a"])[5] == true and assert(late.load_hits["build.a"])[3] == true)
+  assert(assert(late.load_hits["build.b"])[11] == true and assert(late.test_hits["build.a"])[7] == true)
+  -- A hit of the load written after the test's is the report's own: the table the next report shares lacks it.
+  local text = worker.encode(reported(5, 7))
+  -- 6275696c642e63 spells build.c.
+  local apart = assert(worker.decode((text:gsub("\nend\n$", "\nload-hit 6275696c642e63 2\nend\n"))))
+  local shared = assert(worker.decode(text))
+  assert(assert(apart.load_hits["build.c"])[2] == true and assert(apart.load_hits["build.b"])[11] == true)
+  assert(shared.load_hits["build.c"] == nil, "a line of one report was added to the table others share")
+  assert(apart.load_hits ~= shared.load_hits)
+  -- A line of another kind among the load's is read where it stands, and the hits around it are the report's.
+  local among = assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nloaded 0", 1))))
+  assert(among.loaded == false and assert(among.load_hits["build.a"])[5] == true and
+      assert(among.load_hits["build.b"])[11] == true)
+  -- A hit of the load written after the report's end is text after it, as any line there is.
+  local _, after_trouble = worker.decode(worker.encode(passing({})) .. "load-hit 6275696c642e63 2\n")
+  assert(after_trouble == "text after the end of the report", after_trouble)
+  -- One that is no hit is no report, the first time and once others like it are remembered.
+  for _ = 1, 2 do
+    assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nload-hit zz 1", 1))) == nil)
+    assert(worker.decode((text:gsub("(\nload%-hit [^\n]*)", "%1\nload-hit", 1))) == nil)
+  end
+end
+
+--- A module's lines are written as runs of consecutive lines, dense ones (a pure store's import, a line an
+--- instruction) walked rather than sorted, and read back whole; a run that ends before it starts or is longer than
+--- a chunk's instructions can be, an empty item or an empty list is no report.
+local function test_hits_are_written_as_runs_of_lines_and_read_back_whole()
+  local report = passing({})
+  local dense: mut {integer:boolean} = {}
+  for line = 16777217, 16777300 do dense[line] = true end
+  dense[16777250] = nil
+  local sparse: {integer:boolean} = { [1] = true, [2] = true, [900] = true, [40000] = true }
+  report.load_hits = { ["build.a"] = dense, ["build.b"] = sparse }
+  local text = worker.encode(report)
+  assert(text:find(" 16777217%-16777249,16777251%-16777300\n") ~= nil, text)
+  assert(text:find(" 1%-2,900,40000\n") ~= nil, text)
+  local back = assert(worker.decode(text))
+  local a = assert(back.load_hits["build.a"])
+  local b = assert(back.load_hits["build.b"])
+  local count = 0
+  for line in pairs(a) do
+    count = count + 1
+    assert(dense[line] == true, "a line was read that was not written: " .. tostring(line))
+  end
+  assert(count == 83 and a[16777250] == nil, "the dense lines were not read back whole")
+  assert(b[1] == true and b[2] == true and b[900] == true and b[40000] == true and b[3] == nil)
+  for _, bad in ipairs({ "2-1", "1,,2", ",1", "1,", "", "1-16777217", "1-99999999999" }) do
+    local malformed = text:gsub(" 1%-2,900,40000\n", " " .. bad .. "\n")
+    assert(worker.decode(malformed) == nil, "a malformed list of lines was read: " .. bad)
+  end
+  -- A module none of whose lines was hit is not written, so what is written is never an empty list.
+  local none = passing({})
+  none.test_hits = { ["build.c"] = {} }
+  assert(not worker.encode(none):find("test-hit", 1, true), "a module with no line hit was written")
 end
 
 --- A pass whose worker ran a module of the tree the tool carries that
@@ -290,4 +369,42 @@ local function test_a_report_passes_only_after_successful_process_shutdown()
   local late = worker.judge({ result = { ...ended(passing({})), ok = false, timed_out = true }, trouble = "", timeout_ns = Clock.seconds(30),
     sandboxed = false })
   assert(not late.passed and late.message:find("timed out after 30 s", 1, true) ~= nil)
+end
+
+--- A forking worker's records are read one at a time, each whole or not yet: a result holds its report and its
+--- output by their lengths, whatever bytes they are, and a line no worker writes is said to be one.
+local function test_a_forking_workers_records_are_read_whole_or_not_at_all()
+  local report, output = "cosmic-test-report\nend\n", "printed\ndone\nresult 0 0 0 0\n"
+  local text = "cosmic-test-forks-1\ntest 74657374 12345\noutput 11\nresult 0 0\nresult 0 -1 " .. tostring(#report) .. " " ..
+    tostring(#output) .. "\n" .. report .. output .. "done\nretire 776879\nunforkable 6e6f\nwhat is this\n"
+  local kinds: mut {string} = {}
+  local at = 1
+  while true do
+    local found = worker.record_at(text, at)
+    if found == nil then break end
+    kinds[#kinds + 1] = found.kind
+    if found.kind == "test" then
+      assert(found.name == "test" and found.started_ns == 12345)
+    elseif found.kind == "output" then
+      assert(found.output == "result 0 0\n", found.output)
+    elseif found.kind == "result" then
+      assert(found.code == 0 and found.signal == -1)
+      assert(found.report == report, found.report)
+      assert(found.output == output, found.output)
+    elseif found.kind == "retire" then
+      assert(found.why == "why")
+    elseif found.kind == "unforkable" then
+      assert(found.why == "no")
+    end
+    at = found.after
+  end
+  assert(table.concat(kinds, " ") == "forks test output result retire unforkable malformed", table.concat(kinds, " "))
+  assert(at == #text + 1, "every byte is read")
+  -- Cut anywhere inside a record, there is none yet: nothing of a result is taken before its last byte.
+  local result_from = assert(text:find("result 0 -1", 1, true))
+  local result_to = assert(text:find("retire", 1, true)) - 1
+  for cut = result_from, result_to - 1 do
+    assert(worker.record_at(text:sub(1, cut), result_from) == nil, "a result cut at " .. tostring(cut))
+  end
+  assert(assert(worker.record_at(text:sub(1, result_to), result_from)).kind == "result")
 end

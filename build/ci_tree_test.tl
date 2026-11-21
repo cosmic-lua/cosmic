@@ -68,14 +68,12 @@ end
 --- child's environment, or names it only as ci.yml's text, which it
 --- reads. Any other such name in them is found as in any other file.
 local sets_what_it_reads: {string:{string:boolean}} = {
-  -- As the platform and checked jobs' env (the shares', the format job's) set it, and the workflow's;
+  -- As the platform, checked and narrowing jobs' env set it, and the workflow's;
   -- RUNNER_TEMP, GITHUB_OUTPUT and GITHUB_ENV as a step's `run` names
   -- them.
   ["build/workflows_test.tl"] = { COSMIC_CI_DECLARED_KEYS = true, COSMIC_CI_SAVES = true,
-    COSMIC_CI_SCOPE = true, COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
-    COSMIC_CI_BASE_SHA = true, COSMIC_CI_FORMAT_CHANGED = true, COSMIC_CI_SHARD = true,
-    COSMIC_CI_CHECKED_SHARD = true, COSMIC_CI_NARROWING_SHARD = true, COSMIC_CI_CHECK_MEMO = true, COSMIC_CI_PORTABLE_SUITE = true,
-    COSMIC_CI_PORTABLE_SHARD = true, COSMIC_CI_PORTABLE_SHARES = true,
+    COSMIC_CI_CHECKED_SUITE = true, COSMIC_CI_FORMAT = true, COSMIC_CI_EVENT = true,
+    COSMIC_CI_PORTABLE_SUITE = true, COSMIC_CI_PRODUCTS = true, COSMIC_CI_FORMAT_CHANGED = true,
     GITHUB_OUTPUT = true, GITHUB_ENV = true,
     RUNNER_TEMP = true },
   -- The check that the markers only fall reads the run's own variables, in the tool's `fix --check` and not in a suite's
@@ -84,8 +82,6 @@ local sets_what_it_reads: {string:{string:boolean}} = {
     GITHUB_REF = true, GITHUB_ACTIONS = true },
   ["build/ceilings_base_test.tl"] = { COSMIC_CEILINGS_BASE = true, COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
     GITHUB_REF = true, GITHUB_ACTIONS = true },
-  -- Names GITHUB_OUTPUT as the file it gives the script it runs, as a step's environment does.
-  ["build/branch_scope_test.tl"] = { GITHUB_OUTPUT = true },
 }
 
 --- The names of variables a suite forgets that `text`, a source,
@@ -195,7 +191,7 @@ local function test_the_files_the_portable_probe_reaches_are_listed()
     if seen[file] == true then return end
     seen[file] = true
     local shown = if file == "build/artifact.tl" then "ci/testdata/portable/artifact_row.tl" else file end
-    assert(listed[shown], shown .. " is reached by test/portable/probe.tl and is not in ci/strict-files.txt")
+    assert(listed[shown] == true, shown .. " is reached by test/portable/probe.tl and is not in ci/strict-files.txt")
     for name in (assert(Fs.read(shown))):gmatch('require%(%s*"([%w_%.]+)"%s*%)') do
       if name:sub(1, 7) ~= "cosmic." then
         local base = name:gsub("%.", "/")
@@ -223,7 +219,7 @@ local function assert_directory_listed(directory: string, why: string)
   for _, name in ipairs(names) do
     if name:match("%.tl$") then
       count = count + 1
-      assert(listed[directory .. "/" .. name], directory .. "/" .. name .. " is not in ci/strict-files.txt (" .. why .. ")")
+      assert(listed[directory .. "/" .. name] == true, directory .. "/" .. name .. " is not in ci/strict-files.txt (" .. why .. ")")
     end
   end
   assert(count > 0, directory .. " holds no Teal file: update this test and the list")
@@ -243,7 +239,7 @@ end
 local function test_the_portable_tool_is_listed()
   local listed: mut {string:boolean} = {}
   for _, file in ipairs(strict_files()) do listed[file] = true end
-  assert(listed["test/portable/tool.tl"], "test/portable/tool.tl is not in ci/strict-files.txt")
+  assert(listed["test/portable/tool.tl"] == true, "test/portable/tool.tl is not in ci/strict-files.txt")
 end
 
 --- The strings of `path` that `pattern` captures, from `opening` to the `}` that closes the list: the lists are
@@ -270,7 +266,7 @@ local function test_every_file_the_bootstrap_may_run_is_listed_as_strict()
     local file = String.trim((line:gsub("#.*$", "")))
     if file ~= "" then
       count = count + 1
-      assert(listed[file], file .. " is in ci/bootstrap-files.txt and not in ci/strict-files.txt")
+      assert(listed[file] == true, file .. " is in ci/bootstrap-files.txt and not in ci/strict-files.txt")
     end
   end
   assert(count > 0, "ci/bootstrap-files.txt lists no file")
@@ -283,6 +279,6 @@ local function test_the_file_standing_for_a_packed_module_is_listed()
   local stand_ins = strings_of("ci/cosmic_ci/runtime_setup.tl", "RuntimeSetup.artifact_row = {", '= "([^"]+)"')
   assert(#stand_ins > 0, "RuntimeSetup.artifact_row names no file")
   for _, file in ipairs(stand_ins) do
-    assert(listed[file], file .. " stands for a module in RuntimeSetup.artifact_row and is not in ci/strict-files.txt")
+    assert(listed[file] == true, file .. " stands for a module in RuntimeSetup.artifact_row and is not in ci/strict-files.txt")
   end
 end

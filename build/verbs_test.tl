@@ -28,15 +28,26 @@ local function test_a_mistyped_verb_is_named(tmp: string)
   local err = result.stderr
   assert(result.code == 2, err)
   -- The whole of stderr: one line, prefixed once.
-  assert(err == "cosmic: no such verb or file: tset; see `cosmic help`\n", err)
+  assert(err == "cosmic: no such verb or file: tset; did you mean test?; see `cosmic help`\n", err)
+  -- A word near no verb is refused without a guess, and a verb typed as
+  -- an option (`-e`) or as a file is never the guess.
+  local far = cosmic(tmp, { "frobnicate" })
+  assert(far.stderr == "cosmic: no such verb or file: frobnicate; see `cosmic help`\n", far.stderr)
+  local eval = cosmic(tmp, { "evla" })
+  assert(eval.stderr == "cosmic: no such verb or file: evla; see `cosmic help`\n", eval.stderr)
+  -- A verb spelled as an option is the guess for a mistyped option.
+  local version = cosmic(tmp, { "--versoin" })
+  assert(version.code == 2 and version.stderr:find(
+    "cosmic: no such option: --versoin; did you mean --version?\n", 1, true) == 1, version.stderr)
 end
 
 --- A test's worker is cosmic's main's to start (cmd/cosmic/main.tl),
 --- ahead of build.dispatch, so a worker loads none of it: run
 --- in-process ([`build.invoke`]), which is dispatch alone, `test
---- --worker` is `test` refusing an option it does not know.
+--- --worker` is `test` refusing an option it does not know. So is the
+--- probe of the sandbox, `test --sandbox-probe`.
 local function test_dispatch_starts_no_worker(tmp: string)
-  for _, mode in ipairs({ "--worker", "--worker-no-tool", "--worker-held" }) do
+  for _, mode in ipairs({ "--worker", "--worker-no-tool", "--worker-held", "--sandbox-probe" }) do
     local result = invoke.run({ "test", mode, tmp, "a_test", "test_a", tmp .. "/tmp",
       tmp .. "/children" }, { cwd = tmp })
     local err = result.stderr
@@ -81,7 +92,7 @@ local function test_every_verb_is_classified()
       assert(cases[verb] ~= nil, verb .. ": give a passing and a failing command line")
     end
   end
-  for verb in pairs(passthrough) do assert(listed[verb], verb .. " is not a verb") end
-  for verb in pairs(surplus) do assert(listed[verb], verb .. " is not a verb") end
-  for verb in pairs(cases) do assert(listed[verb], verb .. " is not a verb") end
+  for verb in pairs(passthrough) do assert(listed[verb] == true, verb .. " is not a verb") end
+  for verb in pairs(surplus) do assert(listed[verb] == true, verb .. " is not a verb") end
+  for verb in pairs(cases) do assert(listed[verb] == true, verb .. " is not a verb") end
 end

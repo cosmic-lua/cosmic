@@ -36,7 +36,7 @@
 --- error as `cosmic: rand: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 ---
 --- UUIDs. Version 4 is 122 bits of entropy. Version 7 (RFC 9562) is the
---- Unix time in milliseconds from [`cosmic.time`], then the rest from
+--- Unix time in milliseconds from [`cosmic.clock`], then the rest from
 --- entropy. Its 12 bits after the version are the RFC's method 3
 --- (section 6.2, increased clock precision): the clock's fraction of the
 --- current millisecond, in 4096ths, and where a draw would not sort after
@@ -47,6 +47,9 @@
 --- rest of the run: each draw then adds 1/4096 of a millisecond until
 --- the clock overtakes them. Only one run is ordered: two runs in one
 --- millisecond can draw either way.
+--- A clock that reads before 1970 has no version 7 layout: the request
+--- is refused, exit 2. [`Rand.uuid_maker`] makes both versions, and a
+--- program draws its own with [`Rand.uuid`].
 ---
 --- Lines (`pick`, `shuffle`) end at "\n", and a "\r" before it is
 --- dropped, so CRLF input gives the same lines as LF input; output ends
@@ -61,7 +64,6 @@ local Clock = require("cosmic.clock")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 local plural = require("build.plural")
-local String = require("cosmic.string")
 
 --- The `cosmic rand` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
@@ -141,32 +143,6 @@ local record Request
   words: mut {string}
 end
 
---- The prefix that keeps a negative number from being read as an option.
-local NEGATIVE <const> = "\1"
-
---- `argv` with each negative integer bound of `int` marked so `Flags`
---- reads it as a word, not an option: `cosmic rand int -5 5` works
---- without a `--`. An option's value is left alone.
-local function marked(argv: {string}): {string}
-  local marked_at: mut {integer: string} = {}
-  if argv[2] == "int" then
-    local slot = 3
-    while argv[slot] ~= nil do
-      local word = argv[slot]
-      if word == "--" then break end
-      if word == "-n" or word == "--seed" then
-        slot = slot + 1
-      elseif word:match("^%-%d+$") then
-        marked_at[slot] = NEGATIVE .. word
-      end
-      slot = slot + 1
-    end
-  end
-  local out: mut {string} = {}
-  for key, word in ipairs(argv) do out[#out + 1] = marked_at[key] or word end
-  return out
-end
-
 --- The options `command` takes, for refusing the rest.
 local allowed: {string:{string:boolean}} = {
   uuid = { ["--v4"] = true, ["--v7"] = true, ["-n"] = true },
@@ -188,7 +164,7 @@ local function arguments(argv: {string}): Request?, string
   if allowed_here == nil then
     return nil, "no such subcommand: " .. command
   end
-  local parsed, trouble = Flags.parse(marked(argv), 3, spec)
+  local parsed, trouble = Flags.parse(argv, 3, spec)
   if parsed == nil then return nil, trouble end
   for _, name in ipairs(parsed.given) do
     if allowed_here[name] ~= true then
@@ -200,9 +176,6 @@ local function arguments(argv: {string}): Request?, string
   end
   local request: Request = { command = command, version = 4, bytes = 32, encoding = "base64url", mean = 0.0, stddev = 1.0, scale = 1.0, words = {} }
   for _, word in ipairs(parsed.words) do
-    if command == "int" and String.starts_with(word, NEGATIVE) then
-      word = word:sub(#NEGATIVE + 1)
-    end
     request.words[#request.words + 1] = word
   end
   if parsed.set["--v4"] == true and parsed.set["--v7"] == true then
@@ -413,41 +386,24 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return true
   end
 
-  local function uuid_text(bytes: string): string
-    local hex = Codec.hex(bytes)
-    return hex:sub(1, 8) .. "-" .. hex:sub(9, 12) .. "-" .. hex:sub(13, 16) .. "-" ..
-      hex:sub(17, 20) .. "-" .. hex:sub(21, 32)
-  end
-
-  local last_v7: integer = -1
-  --- One UUID: version 4 from 16 entropy bytes with the version and
-  --- variant bits set, or version 7 laid out as 48 bits of milliseconds,
-  --- the version, the 12-bit counter, the variant and 62 entropy bits.
-  local function uuid(version: integer): string
-    if version == 4 then
-      local bytes = secret(16)
-      local b6 = (assert(bytes:byte(7), "sixteen bytes were drawn") & 0x0f) | 0x40
-      local b8 = (assert(bytes:byte(9), "sixteen bytes were drawn") & 0x3f) | 0x80
-      return uuid_text(bytes:sub(1, 6) .. string.char(b6) .. bytes:sub(8, 8) ..
-          string.char(b8) .. bytes:sub(10))
-    end
-    local ns = now_ns() -- untyped: call
-    local stamp = ((ns // 1000000) << 12) | ((ns % 1000000) * 4096 // 1000000)
-    if stamp <= last_v7 then stamp = last_v7 + 1 end
-    last_v7 = stamp
-    local tail = secret(8)
-    local b8 = (assert(tail:byte(1), "eight bytes were drawn") & 0x3f) | 0x80
-    local head = string.pack(">I6", stamp >> 12)
-    local counter = stamp & 0xfff
-    return uuid_text(head .. string.char(0x70 | (counter >> 8), counter & 0xff) ..
-        string.char(b8) .. tail:sub(2))
-  end
+  -- One maker for the run, so its version 7 values sort as drawn; it
+  -- draws through `secret` and reads the stood-in clock.
+  local draw_uuid = Rand.uuid_maker(function(count: integer): string?, string
+    return secret(count), ""
+  end, now_ns)
 
   local function body(): integer
     local command = request.command
     if command == "uuid" then
       for _ = 1, request.count or 1 do
-        if not emit(uuid(request.version)) then
+        -- `secret` raises rather than fail, so a refusal is the clock's.
+        local text, why = draw_uuid(request.version)
+        if text == nil then
+          flush()
+          complain((why:gsub("^rand: ", "")))
+          return 2
+        end
+        if not emit(text) then
           return 2
         end
       end

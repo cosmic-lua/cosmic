@@ -65,7 +65,7 @@ end
 local function test_the_words_the_grammar_adds_are_reserved()
   assert(table.concat(Lexer.added, " ") == "match continue mut is asserts userdata as")
   for _, word in ipairs(Lexer.added) do
-    assert(Lexer.reserved[word], word)
+    assert(Lexer.reserved[word] == true, word)
     assert(shape(word) == "keyword:" .. word)
   end
 end

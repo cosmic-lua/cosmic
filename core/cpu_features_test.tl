@@ -38,7 +38,7 @@ local function test_cpu_features_are_named_as_proc_cpuinfo_names_them()
   local known = KNOWN_FEATURES[names.machine] or {}
   local features = sys.cpu_features()
   for i, name in ipairs(features) do
-    assert(known[name], names.machine .. " answers " .. name)
+    assert(known[name] == true, names.machine .. " answers " .. name)
     local before = features[i - 1]
     assert(i == 1 or (before ~= nil and before < name), "not in byte order, or twice: " .. name)
   end

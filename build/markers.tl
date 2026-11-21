@@ -14,7 +14,7 @@
 ---
 --- The text is read with the lexer, so that `-- checked:` inside a string is no marker. A comment that has the words but
 --- whose list is not codes alone (a sentence) is no marker, and `cosmic fix` leaves it alone.
-local Check = require("lang.check")
+local Codes = require("lang.check_codes")
 local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Scopes = require("lang.scopes")
@@ -103,7 +103,7 @@ end
 
 know("scoped", Scopes.codes)
 know("declared", Declarations.codes)
-know("checked", Check.codes)
+know("checked", Codes.codes)
 know("untyped", { "call" })
 
 --- The codes of `list`, a marker's text after the stage and colon, with their counts, or nil where it is not a list of codes

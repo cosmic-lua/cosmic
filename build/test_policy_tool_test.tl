@@ -19,11 +19,11 @@ local Test = require("cosmic.test")
 local confine = require("build.confine")
 local this_program = require("build.this_program")
 
---- What a worker's plan gives it of the host, the program it runs, roots of
+--- The program it runs, roots of
 --- their own for the workers it starts (`nests`), and the variables the
 --- runs read, which hold them to sandboxing and to a path.
 Test.policy{
-  profiles = { "cosmic", "system", "proc" },
+  profiles = { "cosmic", "proc" },
   grants = { { path = "o/bin", letters = "rx" }, { path = "/dev/urandom", letters = "r" } },
   promises = { "nest" },
   env = { "COSMIC_SANDBOX", "COSMIC_TEST_SANDBOX" },

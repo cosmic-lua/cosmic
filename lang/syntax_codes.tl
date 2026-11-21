@@ -281,6 +281,17 @@ SyntaxCodes.catalog = {
     fix = "write one interface after `is`; a new interface that extends both can be implemented instead",
   },
   {
+    code = "type_argument", stage = "parser", rule = LEFT_OUT,
+    why = "a call names no type: the arguments and the type its result is given decide a generic function's types, and " ..
+      "`f<T>(x)` already reads as the comparisons `f < T > (x)`",
+    fix = "call it with its arguments alone: they and the type the result is given say the type (`local v: T = f(x)`)",
+  },
+  {
+    code = "inline_record", stage = "parser", rule = LEFT_OUT,
+    why = "a record is declared and named, so that two uses of it are one type; braces hold an array `{T}` or a map `{K: V}`",
+    fix = "declare the record (`local record R ... end`) and name it here",
+  },
+  {
     code = "generic_function_literal", stage = "parser", rule = LEFT_OUT,
     why = "a type parameter on a function literal has no form: the generic function is a declaration, and its literal takes " ..
       "the types of the declaration",

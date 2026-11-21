@@ -16,7 +16,6 @@ local hashing = require("build.digest")
 local key_parts = require("build.key_parts")
 local launcher_template = require("build.launcher")
 local type raw_store = require("cosmic.internal.store")
-local String = require("cosmic.string")
 
 -- Hashed and spelled through build.digest and build.key_parts, not
 -- cosmic.hash or cosmic.codec: a verdict key that holds a program's
@@ -52,6 +51,17 @@ local record artifact
     head: string
     --- The SQLite database the artifact carries.
     database: string
+    --- Whether it is a host program ([`host_program`]) rather than a
+    --- portable one (`program`).
+    host: boolean
+  end
+
+  --- The database an artifact carries and where it lies ([`database_in`]).
+  record Carried
+    --- The SQLite database the artifact carries.
+    database: string
+    --- How many bytes of the artifact are ahead of it.
+    offset: integer
     --- Whether it is a host program ([`host_program`]) rather than a
     --- portable one (`program`).
     host: boolean
@@ -402,7 +412,7 @@ end
 
 --- Appends a database and the v2 trailer to prefix bytes made by `prefix`.
 function artifact.program(prefix: string, database: string): string?, string
-  if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
+  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "portable program database has no SQLite header"
   end
   if #prefix < shell_length + manifest_length then
@@ -432,7 +442,7 @@ end
 --- a manifest naming it as the one entry (a raw core), then `database` and a
 --- trailer whose magic says host. It runs only where that core does.
 function artifact.host_program(core: raw_store.Core, database: string): string?, string
-  if #database < #sqlite_header or not String.starts_with(database, sqlite_header) then
+  if #database < #sqlite_header or database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "host program database has no SQLite header"
   end
   if #core.bytes == 0 or #core.digest ~= 32 then
@@ -463,26 +473,31 @@ function artifact.host_program(core: raw_store.Core, database: string): string?,
   }), ""
 end
 
---- The database an artifact carries and everything ahead of it, read
---- from the trailer of `bytes` -- a portable program's or a host
---- program's alike -- so a new database can be put in its place
---- (`rejoin`). The trailer's fields are checked against each other and
---- against the file: the version and lengths this writer uses, a
---- manifest where it says, a database that starts right behind that
---- manifest, runs to the trailer and begins with SQLite's header. An
---- artifact of another version is refused by name, such as the version 1
---- a release before this one wrote.
-function artifact.split(bytes: string): artifact.Split?, string
-  if #bytes < trailer_length then
+--- The database the artifact of `size` bytes carries, a portable
+--- program's or a host program's alike, taken by its range: `read`
+--- answers `length` bytes of the artifact from `offset` (0 for its
+--- first), and is asked for the trailer, the head of the manifest and
+--- the database, never for the launcher or a core. The trailer's fields
+--- are checked against each other and against the file: the version and
+--- lengths this writer uses, a manifest where it says, a database that
+--- starts right behind that manifest, runs to the trailer and begins with
+--- SQLite's header. An artifact of another version is refused by name,
+--- such as the version 1 a release before this one wrote. A `read` that
+--- answers fewer bytes than it was asked for is refused too.
+function artifact.database_in(size: integer, read: function(offset: integer, length: integer): string?): artifact.Carried?, string
+  if size < trailer_length then
     return nil, "too short for an artifact trailer"
   end
-  local at = #bytes - trailer_length + 1
-  local magic = bytes:sub(at, at + 7)
+  local trailer = read(size - trailer_length, trailer_length)
+  if trailer == nil or #trailer ~= trailer_length then
+    return nil, "the artifact's trailer could not be read"
+  end
+  local magic = trailer:sub(1, 8)
   if magic ~= trailer_magic and magic ~= host_trailer_magic then
     return nil, "no artifact trailer"
   end
   local trailer_version, length, manifest_offset, manifest_size, database_offset, database_length =
-    string.unpack(">I4I4I8I8I8I8", bytes, at + 8)
+    string.unpack(">I4I4I8I8I8I8", trailer, 9)
   if trailer_version ~= version then
     return nil, version_refusal(trailer_version)
   end
@@ -493,25 +508,41 @@ function artifact.split(bytes: string): artifact.Split?, string
   if manifest_size ~= manifest_length or manifest_offset < 0 or
       database_offset ~= manifest_offset + manifest_length or
       database_length < #sqlite_header or
-      database_length ~= #bytes - trailer_length - database_offset then
+      database_length ~= size - trailer_length - database_offset then
     return nil, "the artifact trailer's ranges do not fit the file"
   end
-  local manifest_at = manifest_offset + 1
-  if bytes:sub(manifest_at, manifest_at + 7) ~= manifest_magic then
+  -- Its magic, then its version, its length and where it says the
+  -- database starts.
+  local manifest_head = read(manifest_offset, 24)
+  if manifest_head == nil or #manifest_head ~= 24 or manifest_head:sub(1, 8) ~= manifest_magic then
     return nil, "the artifact has no manifest where its trailer says"
   end
-  local _, _, encoded_prefix = string.unpack(">I4I4I8", bytes, manifest_at + 8)
+  local _, _, encoded_prefix = string.unpack(">I4I4I8", manifest_head, 9)
   if encoded_prefix ~= database_offset then
     return nil, "the artifact's manifest and trailer disagree on where its database starts"
   end
-  local database = bytes:sub(database_offset + 1, database_offset + database_length)
-  if not String.starts_with(database, sqlite_header) then
+  local database = read(database_offset, database_length)
+  if database == nil or #database ~= database_length then
+    return nil, "the artifact's database could not be read"
+  end
+  if database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "the artifact's database has no SQLite header"
   end
+  return { database = database, offset = database_offset, host = magic == host_trailer_magic }, ""
+end
+
+--- The database an artifact carries and everything ahead of it
+--- ([`artifact.database_in`], over `bytes`), so a new database can be put
+--- in its place (`rejoin`).
+function artifact.split(bytes: string): artifact.Split?, string
+  local carried, trouble = artifact.database_in(#bytes, function(offset: integer, length: integer): string?
+    return bytes:sub(offset + 1, offset + length)
+  end)
+  if carried == nil then return nil, trouble end
   return {
-    head = bytes:sub(1, database_offset),
-    database = database,
-    host = magic == host_trailer_magic,
+    head = bytes:sub(1, carried.offset),
+    database = carried.database,
+    host = carried.host,
   }, ""
 end
 
@@ -664,7 +695,7 @@ end
 --- its own: the same head, and a trailer of the same kind whose last
 --- field is the new database's length.
 function artifact.rejoin(parts: artifact.Split, database: string): string?, string
-  if not String.starts_with(database, sqlite_header) then
+  if database:sub(1, #sqlite_header) ~= sqlite_header then
     return nil, "the new database has no SQLite header"
   end
   local manifest_offset = #parts.head - manifest_length

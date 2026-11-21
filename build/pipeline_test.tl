@@ -75,7 +75,9 @@ end
 local function test_a_module_is_checked_written_and_dumped_and_the_lua_and_the_bytecode_run()
   local source = "local record Box\n  n: integer\nend\nlocal function make(n: integer): Box\n  return { n = n }\nend\nreturn make(41).n + 1\n"
   local made = assert(generated(marked(source, EXPORT)))
-  assert(value_of(made.lua) == 42 and not made.refused and #made.references == 0)
+  -- `make(41).n` reads the field of the file's own `Box`
+  local read = made.references[1]
+  assert(value_of(made.lua) == 42 and not made.refused and #made.references == 1 and read ~= nil and read.member == "Box.n")
   assert(assert(load(made.bytecode, "=m", "b", {}))() == 42)
   assert(made.bytecode:sub(1, 4) == "\27Lua")
 end
@@ -496,7 +498,8 @@ local REFUSALS <const>: {Refusal} = {
   },
   {
     program = "local function f(): string?, integer\n  return nil, 127\nend\nuse(f)",
-    says = "m.tl:14: f: a failure's reason is exactly a string; this second result is not",
+    says = "m.tl:14: f: a failure's reason is exactly a string; this second result is not: declare it `string`, and " ..
+      "return \"\" for it on success",
   },
   { program = "if get() then use(1) end", says = DROPPED },
   { program = "use((get()))", says = DROPPED },
@@ -507,6 +510,52 @@ local function test_the_compile_refuses_what_the_contract_rules_refuse_with_thei
     local got = compile_says(case.program)
     assert(got == case.says, "in:\n" .. case.program .. "\nthe compile says:\n" .. got .. "\nnot:\n" .. case.says)
   end
+end
+
+--- A module the checker refuses is told the breaches of the discipline in the same refusal, so that a second run is not
+--- needed to meet them: those in the top-level statements the checker typed whole.
+local function test_a_module_the_checker_refuses_is_told_its_breaches_in_the_same_refusal()
+  local got = compile_says("local n: integer = 'x'\nlocal v = get()\nuse(v, n)")
+  assert(got:find("m.tl: the compiler refused it", 1, true) == 1 and got:find("(not_assignable)", 1, true) ~= nil, got)
+  assert(got:find("\nm.tl:15: get: its error slot is dropped; bind both results", 1, true) ~= nil, got)
+  -- A project's refusal holds them too.
+  local project = Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" })
+  local source = table.concat({
+    "local record M", "end", "function M.of(s: string): string, string", "  return s, \"\"", "end",
+    "function M.n(): integer", "  return \"one\"", "end", "return M", "",
+  }, "\n")
+  local made, why = Pipeline.generate(module_of("m", "m.tl", "module", source, {}),
+    Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, project))
+  assert(made == nil and why:find("in its bodies on line 7", 1, true) ~= nil and
+      why:find("m.tl:3: M.of: an exported function answers one result", 1, true) ~= nil, tostring(why))
+end
+
+--- A rule that read a place the checker gave no type would refuse code that keeps it: a reason handed to a function the
+--- checker could not name, a call in a function the next edit changes. No breach is told of a top-level statement that
+--- holds an error or a call with no function, nor are those calls counted, and none at all where a declaration is in error.
+local function test_a_refused_module_is_told_no_breach_that_rests_on_what_the_checker_could_not_type()
+  local unsound = {
+    -- the function holds the error
+    "local function f()\n  local n: integer = 'x'\n  local v = get()\n  use(v, n)\nend\nuse(f)",
+    -- `nosuch` may take the reason
+    "local v = nosuch(get())\nuse(v)",
+    "local function f()\n  nosuch(get())\nend\nuse(f)",
+    -- a declaration in error
+    "local record R\n  x: Nosuch\nend\nlocal v = get()\nuse(v, R)",
+  }
+  for _, program in ipairs(unsound) do
+    local got = compile_says(program)
+    assert(got:find("m.tl: the compiler refused it", 1, true) == 1, got)
+    assert(got:find("error slot", 1, true) == nil and got:find("its failure is ignored", 1, true) == nil and
+        got:find("in its calls", 1, true) == nil and got:find("gave no function", 1, true) == nil,
+      "in:\n" .. program .. "\nthe compile says:\n" .. got)
+  end
+  local project = Pipeline.project({ prelude = "do\nend\n", stdlib = "do\nend\n" })
+  local source = "local function get(): integer?, string\n  return nil, 'none'\nend\nlocal v = nosuch(get())\nreturn v\n"
+  local made, why = Pipeline.generate(module_of("m", "m.tl", "module", source, {}),
+    Pipeline.over({ { "m.tl", source } }, { ["m.tl"] = "module" }, project))
+  assert(made == nil and why:find("(unknown_variable)", 1, true) ~= nil, tostring(why))
+  assert(why:find("error slot", 1, true) == nil and why:find("gave no function", 1, true) == nil, tostring(why))
 end
 
 local function test_a_unjudged_compile_keeps_a_breach_for_the_tool_it_builds_and_marks_it_refused()
@@ -738,9 +787,10 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
   local user = assert(entries[2])
   local m = module_of("user", "user.tl", "module", assert(user[2]), {})
   local made = assert(Pipeline.generate(m, pipeline))
-  local use = assert(made.references[1], "no use found")
-  assert(#made.references == 1 and use.module == "cosmic.shape_of" and use.member == "Point.x" and use.line == 3,
-    tostring(#made.references) .. " uses")
+  -- `Shape.origin` through the require alias (the syntactic half finds it too) and `p.x` through the value it made
+  local origin, use = made.references[1], made.references[2]
+  assert(#made.references == 2 and origin ~= nil and origin.member == "origin" and origin.line == 2 and use ~= nil and
+      use.module == "cosmic.shape_of" and use.member == "Point.x" and use.line == 3, tostring(#made.references) .. " uses")
 end
 
 local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_marker()

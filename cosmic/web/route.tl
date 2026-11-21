@@ -1,6 +1,7 @@
 --- The constructors of routes and mounts: plain data that a router is
 --- built from, so a table of them can be returned from a module, joined and
 --- generated.
+--- @public
 
 local Types = require("cosmic.web.types")
 

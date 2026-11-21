@@ -26,21 +26,27 @@ local Clock = require("cosmic.clock")
 local CodeWalk = require("build.code_walk")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local key_parts = require("build.key_parts")
 local lua_tail = require("build.lua_tail")
 local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
 local schema = require("build.schema")
-local String = require("cosmic.string")
 
 local record closure_store
+  --- The `meta` row that names the keys a store withholds from a test, and
+  --- what it holds where the store withholds `image_hash` ([`Store.meta`]
+  --- raises for a key it names).
+  mut withheld_row: string
+  mut withheld_text: string
+
   --- What every closure store a projection yields is a function of,
   --- read once from the projection ([`closure_store.basis`]).
   ---
   --- Each module is a line naming its path, kind, file, source hash and
-  --- tests, then the digests of its bytecode (inflated, so the compressor
-  --- moves none), of its source as stored
+  --- tests, then the digests of its bytecode (as `string.dump` wrote it,
+  --- however it is stored), of its source as stored
   --- (deflated, by [`build.writer`]), and of the rows a store carries of
   --- it: its imports, the edges the checker follows from it
   --- (`decl_imports`), the names it binds, its docs, uses, catalog,
@@ -50,6 +56,8 @@ local record closure_store
   --- docs, of its links, of the names it binds and of its edges, and it
   --- records the declarations it requires. A digest covers what
   --- every store holds alike: the `meta` rows it keeps (`closure_meta`).
+  --- The row a store holds only where its closure reads it
+  --- (`gated_meta`) has a digest of its own.
   ---
   --- What the compiler made of a module is held by what it made, not by
   --- the compiler's identity ([`build.identity`]'s `Identities`). That moves
@@ -60,6 +68,10 @@ local record closure_store
   record Basis
     modules: mut {string:string}
     shared: string
+    --- The digest of the `gated_meta` row, of "" where the projection has
+    --- none. The address and the store hold it only for a closure that
+    --- reads it ([`closure_store.address`]).
+    image: string
     --- Each module's kind, by path.
     kinds: mut {string:string}
     --- The modules an example can be paired with -- neither tests nor
@@ -78,10 +90,11 @@ local record closure_store
     pure: mut {string:string}
     --- The digest of each module's bytecode with the debug information
     --- stripped ([`lua_tail.stripped`]), by path: what the pure store holds
-    --- of every module but its test's own.
+    --- of every module but its test's own, numbered by instruction
+    --- ([`lua_tail.numbered`], a function of it).
     stripped: mut {string:string}
     --- The digest of each module's whole bytecode, debug information
-    --- included (inflated, so the compressor moves none), by path: what the
+    --- included (as it was dumped, however it is stored), by path: what the
     --- pure store holds of its test's own module.
     bytecode: mut {string:string}
     --- A declaration's line in the pure store: its source (a declaration is
@@ -126,8 +139,41 @@ end
 --- next database [`Store.meta`] searches; what writes a closure store is
 --- named in its address instead ([`closure_store.address`]'s `salt`), and
 --- a test whose closure reads the compiler's identity is keyed by the
---- tool's ([`build.declared_key`]'s `compiler_readers`).
-local closure_meta <const> = "('image_hash', 'main', 'runtime_basis')"
+--- tool's ([`build.key_parts`]' `meta_readers`).
+local closure_meta <const> = "('main', 'runtime_basis')"
+
+--- The `meta` row a closure store holds only where its import closure holds
+--- a module that reads it (`image_hash` in [`build.key_parts`]'
+--- `meta_readers`). It is the digest of the core's inputs and the
+--- compiler's seed files, so it moves with an edit to any of them: a store
+--- that held it for every closure would be written again, and every test
+--- run again, for an edit no test of it reads. A worker given none finds no
+--- row, and in its place a `withheld_meta` row (`withheld_row`) names it:
+--- [`Store.meta`] raises for a key it names, where a nil would read as a row
+--- the build never wrote. The marker is the same bytes in every such
+--- store, so an edit that moves the row's value moves nothing of it.
+local gated_meta <const> = "image_hash"
+
+--- The `meta` row that names the keys a store withholds, and what it holds
+--- in a store that withholds `gated_meta`: a list of keys, one a line.
+closure_store.withheld_row = "withheld_meta"
+closure_store.withheld_text = gated_meta
+
+--- Whether a store of the closure `names` holds the `gated_meta` row.
+local function carries_image(names: {string}): boolean
+  return key_parts.reads_meta(names, gated_meta)
+end
+
+--- The statement that fills a store's `meta`: the rows of `closure_meta`, and
+--- the `gated_meta` row where `image`, else the marker that withholds it.
+local function meta_statement(image: boolean): string
+  if image then
+    return "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
+      " OR key = '" .. gated_meta .. "' ORDER BY key"
+  end
+  return "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
+    " UNION ALL SELECT '" .. closure_store.withheld_row .. "', '" .. closure_store.withheld_text .. "' ORDER BY key"
+end
 
 --- The names `source`, a declaration's, requires: each literal name
 --- handed to `require` -- `local type t = require("name")`, as a
@@ -267,16 +313,17 @@ end
 --- bytecode. Nil where there is nothing to say it by, and nil too while
 --- the file is younger than two seconds: a write inside the tick of the
 --- clock that stamped it would leave all of these as they were, so a
---- basis is kept only of a file already older than that.
-local function memo_token(whole: string, pure?: boolean): string?
+--- basis is kept only of a file already older than that. `now_ns` is
+--- the time its age is held against, the clock's where nil.
+local function memo_token(whole: string, pure?: boolean, now_ns?: integer): string?
   local st, _ = sys.stat(whole)
   if st == nil then return nil end
   local written = st.mtime * 1000000000 + st.mtime_ns
   local changed = st.ctime * 1000000000 + st.ctime_ns
-  if Clock.now_ns() - math.max(written, changed) < 2000000000 then return nil end
+  if (now_ns or Clock.now_ns()) - math.max(written, changed) < 2000000000 then return nil end
   local code, _ = Store.bytecode("build.closure_store")
   if code == nil then return nil end
-  return table.concat({ if pure == true then "basis-memo-3-pure" else "basis-memo-3" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
+  return table.concat({ if pure == true then "basis-memo-4-pure" else "basis-memo-4" end, Hash.hex_sha256(code), st.size, st.ino, st.dev, written, changed }, " ")
 end
 
 --- Where a read of a kept basis is, and the basis it made.
@@ -307,7 +354,7 @@ local function remembered(whole: string, token: string): closure_store.Basis?
   pcall(function()
     if next_string() ~= token then return end
     local out: closure_store.Basis = {
-      modules = {}, shared = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
+      modules = {}, shared = next_string(), image = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},
       pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {}, sources = {}, edges = {},
     }
     for _ = 1, next_count() do
@@ -368,6 +415,7 @@ local function remember(whole: string, token: string, basis: closure_store.Basis
   local function put_count(value: integer) table.insert(parts, string.pack("<I4", value)) end
   put_string(token)
   put_string(basis.shared)
+  put_string(basis.image)
   -- In the order `pairs` has them: a reader takes them by name.
   local modules = 0
   for _ in pairs(basis.modules) do modules = modules + 1 end
@@ -443,7 +491,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
   local function read(): closure_store.Basis?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
       "SELECT path, path || char(9) || kind || char(9) || file || char(9) || " ..
-        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(inflate(bytecode)))) || char(9) || " ..
+        "lower(hex(source_hash)) || char(9) || lower(hex(sha256(chunk(bytecode)))) || char(9) || " ..
         "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
         "FROM modules ORDER BY path")
     if rows == nil then return nil, rows_trouble end
@@ -467,6 +515,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       { owner = "from_module", columns = "module symbol path anchor from_file line column kind form source text", from = "links", order = "module, symbol, path, anchor, from_file, line, column" },
       { owner = "path", columns = "source", from = "stubs", order = "path" },
       { owner = "module", columns = "ordinal symbol kind line column length plain", from = "places", order = "ordinal" },
+      { owner = "path", columns = "path", from = "public_modules", order = "path" },
     }
     for _, group in ipairs(groups) do
       local columns: mut {string} = {}
@@ -484,6 +533,10 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
         "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
     if shared == nil then return nil, shared_trouble end
     local shared_row = assert(shared[1], "the shared meta query answers one row")
+    local image, image_trouble = Sqlite.text_rows(db,
+      "SELECT coalesce((SELECT lower(hex(value)) FROM meta WHERE key = '" .. gated_meta .. "'), '')")
+    if image == nil then return nil, image_trouble end
+    local image_row = assert(image[1], "the gated meta query answers one row")
     local decl_rows, decl_trouble = Sqlite.text_rows(db,
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
         "ORDER BY path")
@@ -496,7 +549,8 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
     if names == nil then return nil, names_trouble end
     local basis: closure_store.Basis = {
-      modules = {}, shared = Hash.hex_sha256("closure-store-8\n" .. shared_row:text(1)),
+      modules = {}, shared = Hash.hex_sha256("closure-store-9\n" .. shared_row:text(1)),
+      image = Hash.hex_sha256("closure-store-9 " .. gated_meta .. "\n" .. image_row:text(1)),
       kinds = {}, pairable = {}, decls = {}, decl_requires = {},
       pure = {}, stripped = {}, bytecode = {}, pure_decls = {}, texts = {}, text_edges = {}, type_requires = {}, sources = {}, edges = {},
     }
@@ -522,7 +576,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     local pure_rows: {Sqlite.Row} = {}
     if pure == true then
       local found, pure_trouble = Sqlite.rows(db,
-        "SELECT path, kind, file, lower(hex(sha256(tests))), inflate(bytecode) FROM modules ORDER BY path")
+        "SELECT path, kind, file, lower(hex(sha256(tests))), chunk(bytecode) FROM modules ORDER BY path")
       if found == nil then return nil, pure_trouble end
       pure_rows = found
       -- What the checker reads of a standard-library module is its stub ([`build.standard_text`]); the
@@ -591,8 +645,12 @@ end
 ---
 --- `pure` makes it also what [`closure_store.address`] and [`closure_store.write`] take for
 --- the pure store (`pure`, `stripped`, `bytecode`, `pure_decls`); without it those are empty.
-function closure_store.basis(whole: string, pure?: boolean): closure_store.Basis?, string
-  local token = memo_token(whole, pure)
+---
+--- `now_ns` is the time the file's age is held against, the clock's where
+--- nil: a test of what is kept of a file old enough names a later one,
+--- where it would otherwise wait the two seconds out.
+function closure_store.basis(whole: string, pure?: boolean, now_ns?: integer): closure_store.Basis?, string
+  local token = memo_token(whole, pure, now_ns)
   if token ~= nil then
     local kept = remembered(whole, token)
     if kept ~= nil then return kept, "" end
@@ -739,7 +797,7 @@ local function candidates(basis: closure_store.Basis, name: string): {string}
   local stem = name:sub(1, #name - #"_example")
   local out: mut {string} = {}
   for _, path in ipairs(basis.pairable) do
-    if path == stem or String.starts_with(stem, path .. "_") then out[#out + 1] = path end
+    if path == stem or stem:sub(1, #path + 1) == path .. "_" then out[#out + 1] = path end
   end
   return out
 end
@@ -767,7 +825,8 @@ end
 --- digest of everything its bytes follow from -- its modules' lines,
 --- the modules each example module among them could be paired with
 --- (`candidates`), its declarations' lines (`declared`), the basis's
---- shared digest, and `salt`, which names the code that writes it
+--- shared digest, the digest of the `gated_meta` row where `names` holds a
+--- module that reads it, and `salt`, which names the code that writes it
 --- ([`build.test`] passes a digest of this module's and build.schema's
 --- sources and bytecode, and nothing of the projection's writer, whose
 --- edits leave a store's bytes alone). An edit to a module or a
@@ -789,6 +848,7 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
                                salt: string, own?: string): string
   if own ~= nil then
     local pure: mut {string} = { basis.shared, salt, "pure " .. own }
+    if carries_image(names) then pure[#pure + 1] = "meta " .. gated_meta .. " " .. basis.image end
     for _, name in ipairs(text_kept(basis, names, basis.type_requires[own] or {})) do
       pure[#pure + 1] = digest_of_line("text " .. name .. " " .. assert(basis.texts[name], "a stored name has its text's digest"))
     end
@@ -807,6 +867,7 @@ function closure_store.address(basis: closure_store.Basis, names: {string},
     return Hash.hex_sha256(table.concat(pure, "\n"))
   end
   local lines: mut {string} = { basis.shared, salt }
+  if carries_image(names) then lines[#lines + 1] = "meta " .. gated_meta .. " " .. basis.image end
   for _, name in ipairs(stored(basis, names)) do
     lines[#lines + 1] = digest_of_line((assert(basis.modules[name], "a stored name has its line")))
     if basis.kinds[name] == "example" then
@@ -827,7 +888,8 @@ end
 --- (`declared`), the names they bind, their docs and links; and of both,
 --- every edge the checker follows (`decl_imports`), which
 --- [`build.plans`] reads of a standard-library module on a sealed
---- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps. The zones, CA
+--- database ([`build.test`]'s `sealed_fill`); and the `meta` rows `closure_meta` keeps, and with `image`
+--- the `gated_meta` row. The zones, CA
 --- roots, components and notices are left out: the core, [`cosmic.time`]
 --- and [`build.bom`] read those from the tool's own database alone.
 --- Each table's rows go in by what the address digests of them
@@ -835,10 +897,9 @@ end
 --- (and file) first, then in the projection's order within one, which
 --- the address digests; the projection's order across modules, which
 --- the projection's writer decides and no digest holds, sets no id.
-local function closed(uses_from: string): {string}
+local function closed(uses_from: string, image: boolean): {string}
   return {
-    "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-      " ORDER BY key",
+    meta_statement(image),
     -- Every column but the key, which holds the compiler's identity: no
     -- worker reads a store's keys, and its address holds what the
     -- compiler made instead ([`Basis`]).
@@ -853,6 +914,10 @@ local function closed(uses_from: string): {string}
       "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path, name",
     "INSERT INTO main.decls SELECT * FROM whole.decls WHERE path IN temp.declared " ..
       "ORDER BY path",
+    -- Which of them a public source answers for ([`cosmic.internal.symbols`]'s `public_only`): a worker that reads its
+    -- store's docs as a project reads the binary's finds them.
+    "INSERT INTO main.public_modules SELECT path FROM whole.public_modules " ..
+      "WHERE path IN temp.wanted OR path IN temp.declared ORDER BY path",
     -- The stubs (build.stub) of its standard-library modules, which a
     -- checker run in the worker (teal.standard_text) reads as a
     -- project's does.
@@ -890,11 +955,10 @@ end
 --- and source hash are left empty, and no doc, use, link, example, catalog
 --- row, place or stub goes in, but for the stub of the modules in `temp.kept` ([`text_kept`]). The bytecode of the modules goes in as the
 --- projection has it; [`closure_store.write`] strips the debug information
---- of all but the test's own.
-local function closed_pure(): {string}
+--- of all but the test's own and numbers it by instruction.
+local function closed_pure(image: boolean): {string}
   return {
-    "INSERT INTO main.meta SELECT * FROM whole.meta WHERE key IN " .. closure_meta ..
-      " ORDER BY key",
+    meta_statement(image),
     "INSERT INTO main.modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
       "SELECT path, file, kind, X'', X'', bytecode, tests, X'' FROM whole.modules " ..
       "WHERE path IN temp.wanted ORDER BY path",
@@ -923,12 +987,13 @@ end
 
 --- The statements that leave the tables of text-derived rows out of a pure store ([`closure_store.write`]), the
 --- virtual tables first. Each moves with a comment, a blank line or a moved line of the module it describes: `docs`,
---- `examples`, `links` and `uses` hold its comments, examples and lines, `places` the line and column of each name,
+--- `examples`, `links` and `uses` hold its comments, examples and lines, `docs_words` the words of the comments, `places` the line and column of each name,
 --- and `catalog` the lines of the error sites its modules document (its `code` rows, the checker's static data, are
 --- of no test that reads module text). `stubs` stays: it holds the rows of the modules a test names
 --- ([`text_kept`]) and the sources withheld otherwise fail ([`Store.withheld`]). The `pure_store` row says so to a
---- reader that would otherwise answer a missing table as a missing hint ([`build.symbols`]).
+--- reader that would otherwise answer a missing table as a missing hint ([`cosmic.internal.symbols`]).
 local withheld_tables: {string} = {
+  "DROP TABLE main.docs_words",
   "DROP TABLE main.docs_fts", "DROP TABLE main.catalog_fts", "DROP TABLE main.examples_fts",
   "DROP TABLE main.docs", "DROP TABLE main.catalog", "DROP TABLE main.examples", "DROP TABLE main.links",
   "DROP TABLE main.uses", "DROP TABLE main.places",
@@ -988,6 +1053,11 @@ local function sync(path: string): boolean, string
   return true, ""
 end
 
+--- The chunk [`lua_tail.numbered`] made of each module's bytecode, by the module's path and the digest of that
+--- bytecode: the same in every pure store that holds the module, and some three times the work of writing the rest
+--- of a store where each store numbered its modules again.
+local numbered_chunks: mut {string:string} = {}
+
 --- Writes at `out` the closure store for `names` (see
 --- [`closure_store.address`]) of the projection at `whole`, whose basis
 --- is `basis`: what a sandboxed worker of a test whose module's import
@@ -1010,9 +1080,13 @@ end
 --- ([`text_kept`]), which the address digests, and every module's bytecode but `own`'s is stripped of its debug
 --- information, so a test that reads such a row finds none and fails, and
 --- the store's bytes follow from [`closure_store.address`]'s pure address.
+--- The stripped bytecode is numbered by instruction ([`lua_tail.numbered`]), a function of the stripped
+--- bytecode the address digests, so the coverage hook still sees each instruction an imported module runs, which
+--- the runner places at the line of the run's own text ([`build.test`]'s `place_hits`).
 function closure_store.write(whole: string, out: string, names: {string},
                              basis: closure_store.Basis, extraction?: string,
                              own?: string): boolean, string
+  local image = carries_image(names)
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
@@ -1059,7 +1133,7 @@ function closure_store.write(whole: string, out: string, names: {string},
       uses_from = "extracted.uses"
     end
     local made, refused = Sqlite.transact(db, function(): boolean, string
-      for _, statement in ipairs(if own ~= nil then closed_pure() else closed(uses_from) end) do
+      for _, statement in ipairs(if own ~= nil then closed_pure(image) else closed(uses_from, image) end) do
         local ok, failure = db:exec(statement)
         if not ok then return false, failure end
       end
@@ -1075,13 +1149,20 @@ function closure_store.write(whole: string, out: string, names: {string},
           if not ok then return false, failure end
         end
         local held, held_trouble = Sqlite.rows(db,
-          "SELECT path, inflate(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
+          "SELECT path, chunk(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
         if held == nil then return false, held_trouble end
         for _, row in ipairs(held) do
-          local stripped, why = lua_tail.stripped(row:blob(2), row:text(1))
-          if stripped == nil then return false, why end
-          local ok, failure = Sqlite.run(db, "UPDATE main.modules SET bytecode = deflate(?1) WHERE path = ?2",
-            { { blob = stripped }, text(row:text(1)) })
+          local code = row:blob(2)
+          local chunk_key = row:text(1) .. "\0" .. Hash.hex_sha256(code)
+          local numbered = numbered_chunks[chunk_key]
+          if numbered == nil then
+            local made, why = lua_tail.numbered(code, row:text(1))
+            if made == nil then return false, why end
+            numbered_chunks[chunk_key] = made
+            numbered = made
+          end
+          local ok, failure = Sqlite.run(db, "UPDATE main.modules SET bytecode = ?1 WHERE path = ?2",
+            { { blob = numbered }, text(row:text(1)) })
           if not ok then return false, failure end
         end
       end

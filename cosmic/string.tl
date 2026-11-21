@@ -1,6 +1,6 @@
 --- Small text operations a program otherwise writes by hand: splitting
---- on a separator, iterating over lines, trimming, testing a prefix or
---- suffix, reading a byte that must be there, and counting a noun. Every separator, prefix and suffix is plain
+--- on a separator, iterating over lines, trimming, testing a prefix, a
+--- suffix or a part, reading a byte that must be there, and counting a noun. Every separator, prefix and suffix is plain
 --- text, never a Lua pattern, so a `.` or `%` in one means itself.
 ---
 ---     for line in String.lines("a\n\nb") do print(line) end -- a, "", b
@@ -70,6 +70,16 @@ end
 --- @return boolean True when it does
 function String.ends_with(text: string, suffix: string): boolean
   return suffix == "" or text:sub(-#suffix) == suffix
+end
+
+--- Whether `part` occurs in `text`; every text contains "". `part` is
+--- plain text, as `text:find(part, 1, true) ~= nil` reads it, and this
+--- answers a boolean that a condition and `assert` take as it is.
+--- @param text string The text to search
+--- @param part string The plain text it may contain
+--- @return boolean True when it does
+function String.contains(text: string, part: string): boolean
+  return text:find(part, 1, true) ~= nil
 end
 
 --- The byte of `text` at `index`, counted from 1, for code that has

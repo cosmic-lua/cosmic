@@ -56,6 +56,7 @@ extern int clone (int (*)(void *), void *, int, void *, ...);
 #include <libproc.h>
 #include <sys/event.h>
 #include <sys/sysctl.h>
+#include <mach/mach.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -5028,9 +5029,10 @@ COSMIC_SYSCALL(spawn, 12) {
   }
   /* The namespaces the child makes itself ([`start_unveiled`], [`go_offline`]):
    * a user namespace, whose capabilities the kernel does not take for the
-   * initial one's, so it cannot raise a hard limit; and for an unveiled
-   * child a pid namespace of its own. */
-  if (unveiling || offline) held |= COSMIC_HELD_LIMITS;
+   * initial one's, so it cannot raise a hard limit, nor for those of the
+   * owner of a network namespace it did not make, so it cannot change
+   * one; and for an unveiled child a pid namespace of its own. */
+  if (unveiling || offline) held |= COSMIC_HELD_LIMITS | COSMIC_HELD_NETWORK;
   if (unveiling) held |= COSMIC_HELD_PIDS;
 #endif
   (void)grant_count; /* only the Linux build holds a child to its grants */
@@ -5661,7 +5663,159 @@ COSMIC_SYSCALL(children, 0) {
     lua_rawseti(L, -2, ++count);
   }
   return 1;
+#elif defined(__APPLE__)
+  /* libproc does not say how many children there are before it is asked.
+   * So the block starts zeroed, every pid in it is a child, and one in its
+   * last place asks again with a larger block. */
+  struct cosmic_guard *guard = cosmic_guard_push(L, cosmic_free);
+  size_t room = 64;
+  pid_t *pids;
+  for (;;) {
+    pids = cosmic_realloc(guard->resource, room * sizeof *pids);
+    if (pids == NULL) return cosmic_fail(L, ENOMEM);
+    guard->resource = pids;
+    memset(pids, 0, room * sizeof *pids);
+    /* A refusal is answered as no children, with the errno set. */
+    errno = 0;
+    int got = proc_listchildpids(getpid(), pids, (int)(room * sizeof *pids));
+    if (got <= 0 && errno != 0) return cosmic_fail(L, errno);
+    if (pids[room - 1] == 0) break;
+    if (room >= ((size_t)1 << 20)) return cosmic_fail(L, EOVERFLOW);
+    room *= 4;
+  }
+  lua_newtable(L);
+  lua_Integer count = 0;
+  for (size_t at = 0; at < room; at++) {
+    if (pids[at] <= 0) continue;
+    lua_pushinteger(L, (lua_Integer)pids[at]);
+    lua_rawseti(L, -2, ++count);
+  }
+  return 1;
 #else
+  return cosmic_fail(L, ENOSYS);
+#endif
+}
+
+#if defined(__linux__)
+/* How many threads this process has, as /proc/thread-self/status says
+ * ("Threads:"), or -1 with the errno that refused the read in `error`,
+ * EIO for a status with no such line. Read through thread-self, as
+ * `children` is, so a sandbox whose /proc is the host's still names this
+ * process. */
+static int status_threads (int *error) {
+  char *text;
+  size_t used;
+  *error = read_whole("/proc/thread-self/status", &text, &used);
+  if (*error != 0) return -1;
+  static const char field[] = "\nThreads:";
+  int count = -1;
+  for (size_t at = 0; at + sizeof field - 1 < used; at++) {
+    if (memcmp(text + at, field, sizeof field - 1) != 0) continue;
+    for (at += sizeof field - 1; at < used && text[at] != '\n'; at++) {
+      if (text[at] < '0' || text[at] > '9') continue;
+      if (count < 0) count = 0;
+      if (count < INT_MAX / 10) count = count * 10 + (text[at] - '0');
+    }
+    break;
+  }
+  cosmic_free(text);
+  if (count < 0) *error = EIO;
+  return count;
+}
+#elif defined(__APPLE__)
+/* How many threads this process has, as the kernel counts its task's
+ * (proc_pidinfo's PROC_PIDTASKINFO), the ones libdispatch started for the
+ * C library among them, or -1 with the errno that refused the call in
+ * `error`, EIO for an answer cut short. */
+static int task_thread_count (int *error) {
+  struct proc_taskinfo info;
+  int got = proc_pidinfo(getpid(), PROC_PIDTASKINFO, 0, &info, (int)sizeof info);
+  if (got == (int)sizeof info) return (int)info.pti_threadnum;
+  *error = got <= 0 ? errno : EIO;
+  return -1;
+}
+#endif
+
+/* How many signal guards are open, counted where they are opened below. */
+static int child_guard_depth;
+
+COSMIC_SYSCALL(fork, 1) {
+  int scoped = lua_toboolean(L, 1);
+#if defined(__linux__) || defined(__APPLE__)
+#if defined(__APPLE__)
+  /* Nothing here holds a child to its own signals, as Landlock's scope
+   * does: refused whatever else would refuse it. */
+  if (scoped) return cosmic_fail(L, ENOSYS);
+#endif
+  int error = 0;
+#if defined(__APPLE__)
+  int threads = task_thread_count(&error);
+#else
+  int threads = status_threads(&error);
+#endif
+  if (threads < 0) return cosmic_fail(L, error);
+  if (threads != 1) return cosmic_fail(L, EBUSY);
+  /* A copy would share the guard's wake pipe, and take the bytes that
+   * tell this process of its signals. */
+  if (child_guard_depth > 0) return cosmic_fail(L, EBUSY);
+  int ruleset = -1;
+#if defined(__linux__)
+  if (scoped) {
+    long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+    if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
+    if (abi < 6) return cosmic_fail(L, EOPNOTSUPP);
+    /* Every ruleset refuses a move or a link between two directories that
+     * no rule of its own allows (LANDLOCK_ACCESS_FS_REFER), handled or
+     * not: so this one handles it, and allows it beneath the root, which
+     * leaves each such move to the rulesets that hold the process
+     * already and handle it, as every one this core makes does. */
+    struct grants_attr attr;
+    memset(&attr, 0, sizeof attr);
+    attr.handled_access_fs = LANDLOCK_ACCESS_FS_REFER;
+    attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
+    long made = syscall(SYS_landlock_create_ruleset, &attr, sizeof attr, 0);
+    if (made < 0) return cosmic_fail(L, errno);
+    ruleset = (int)made;
+    int root = open("/", O_PATH | O_CLOEXEC);
+    struct landlock_path_beneath_attr beneath = {
+      .allowed_access = LANDLOCK_ACCESS_FS_REFER,
+      .parent_fd = root,
+    };
+    if (root < 0 ||
+        syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &beneath, 0) != 0)
+      error = errno;
+    if (root >= 0) close(root);
+    if (error != 0) {
+      close(ruleset);
+      return cosmic_fail(L, error);
+    }
+  }
+#endif
+  fflush(NULL);
+  pid_t pid = fork();
+  error = errno;
+#if defined(__linux__)
+  if (pid == 0) {
+    /* The pairs are the parent's children, not this process's: a wait
+     * here ends none of them. */
+    pair_count = 0;
+    if (scoped && (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 ||
+                   syscall(SYS_landlock_restrict_self, ruleset, 0) != 0)) {
+      /* Unheld, it would run the caller's code where the caller was
+       * promised it could not reach its parent: it runs none. */
+      static const char said[] = "cosmic: fork: the child could not be held to its own signals\n";
+      ssize_t ignored = write(2, said, sizeof said - 1);
+      (void)ignored;
+      _exit(125);
+    }
+  }
+#endif
+  if (ruleset >= 0) close(ruleset);
+  if (pid < 0) return cosmic_fail(L, error);
+  lua_pushinteger(L, (lua_Integer)pid);
+  return 1;
+#else
+  (void)scoped;
   return cosmic_fail(L, ENOSYS);
 #endif
 }
@@ -5839,6 +5993,30 @@ COSMIC_SYSCALL(cpu_count, 0) {
   long count = sysconf(_SC_NPROCESSORS_ONLN);
   lua_pushinteger(L, count < 1 ? 1 : (lua_Integer)count);
   return 1;
+}
+
+COSMIC_SYSCALL(memory_available, 0) {
+#if defined(__APPLE__)
+  mach_port_t host = mach_host_self();
+  vm_statistics64_data_t pages;
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  kern_return_t counted = host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&pages, &count);
+  vm_size_t page = 0;
+  kern_return_t sized = host_page_size(host, &page);
+  mach_port_deallocate(mach_task_self(), host);
+  if (counted != KERN_SUCCESS || sized != KERN_SUCCESS) return cosmic_fail(L, EIO);
+  /* The speculative pages are read ahead from files and counted free:
+   * taken off once, in case the files' count holds them too. Where it
+   * does not, the answer is low by them. */
+  uint64_t available = (uint64_t)pages.free_count + (uint64_t)pages.external_page_count +
+                       (uint64_t)pages.purgeable_count;
+  uint64_t speculative = (uint64_t)pages.speculative_count;
+  available = available > speculative ? available - speculative : 0;
+  lua_pushinteger(L, (lua_Integer)(available * (uint64_t)page));
+  return 1;
+#else
+  return cosmic_fail(L, ENOSYS);
+#endif
 }
 
 /* The features `cpu_features` answers, by /proc/cpuinfo's names, in

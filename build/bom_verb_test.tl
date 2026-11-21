@@ -50,5 +50,5 @@ end
 local function test_a_failure_says_why_and_no_summary(tmp: string)
   local failed = invoke.run({ "bom", "--json", tmp .. "/nowhere/bom.json" }, { cwd = tmp })
   assert(failed.code == 1 and failed.stdout == "", failed.stdout)
-  assert(failed.stderr:find("^cosmic: bom: ") and not failed.stderr:find("\nbom: "), failed.stderr)
+  assert(failed.stderr:find("^cosmic: bom: ") ~= nil and not failed.stderr:find("\nbom: "), failed.stderr)
 end

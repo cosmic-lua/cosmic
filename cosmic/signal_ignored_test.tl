@@ -10,9 +10,17 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 
---- The system's sh, which ignores SIGINT for the program it execs, and
---- the program itself, through its launcher.
-Test.policy{ profiles = { "system", "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+--- The host's sh, which ignores SIGINT for the program it execs, and
+--- the program itself, through its launcher. The launcher starts the
+--- core its cache already holds, for which it runs the host's `uname`,
+--- `stat` and `sha256sum`, each granted where a host has it, under /bin
+--- or /usr/bin.
+Test.policy{ profiles = { "cosmic" }, grants = {
+  { path = "/bin/sh", letters = "r" }, { path = "/usr/bin/sh", letters = "r" },
+  { path = "/bin/uname", letters = "r" }, { path = "/usr/bin/uname", letters = "r" },
+  { path = "/bin/stat", letters = "r" }, { path = "/usr/bin/stat", letters = "r" },
+  { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
+  { path = "o/bin", letters = "rx" } } }
 
 local function nested_cosmic_environment(): {string:string}
   local environment = Env.all()

@@ -8,6 +8,13 @@ local Array = require("cosmic.array")
 local Json = require("cosmic.json")
 local Test = require("cosmic.test")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 --- A text `input` and the `err` its reading is refused with.
 local record Said
   input: string
@@ -39,7 +46,7 @@ local function failure(value: any, err: string, what?: string): string
   return err
 end
 
-local DOC <const> = assert(Json.decode([[{
+local DOC <const> = known_value(Json.decode([[{
   "users": [{"name": "ada", "tags": ["x", "y"]}, {"name": "bob"}],
   "a/b": 1, "m~n": 2, "": 3, "it's": 4, "nil": null
 }]], { null_value = Json.null }))
@@ -60,7 +67,7 @@ local function test_a_pointer_is_read_against_the_value()
   assert(same_steps(assert(Json.from_pointer(DOC, "/m~0n")), { "m~n" }))
   assert(same_steps(assert(Json.from_pointer(DOC, "/")), { "" }), "`/` is the member named \"\"")
   assert(same_steps(assert(Json.from_pointer(DOC, "/nil")), { "nil" }), "a null stand-in is a value")
-  local digits = assert(Json.decode('{"2": "two"}'))
+  local digits = known_value(Json.decode('{"2": "two"}'))
   assert(same_steps(assert(Json.from_pointer(digits, "/2")), { "2" }), "a number into an object is a name")
   local cases: {Said} = {
     { input = "users", err = 'json: pointer "users": a JSON Pointer is empty or starts with `/`' },
@@ -85,7 +92,7 @@ local function test_a_pointer_is_read_against_the_value()
     assert(err == case.err, case.input .. ": " .. err)
   end
   -- `~01` is `~1` read as text, not `/`: `~0` is undone last.
-  local tilde = assert(Json.decode('{"~1": 1}'))
+  local tilde = known_value(Json.decode('{"~1": 1}'))
   assert(same_steps(assert(Json.from_pointer(tilde, "/~01")), { "~1" }))
 end
 
@@ -100,6 +107,125 @@ local function test_get_follows_steps_and_counts_back_from_the_end()
   assert(failure(Json.get(DOC, { 1 })) == 'json: the value at pointer "" is an object, not an array')
   assert(failure(Json.get(DOC, { "it's", "x" })) == 'json: the value at pointer "/it\'s" is number, not an array or object')
   assert(failure(Json.get({ 1, a = 2 }, { 1 })) == 'json: the value at pointer "" is a table with mixed keys, not an array') -- checked: literal_shape
+end
+
+--- The text of `value`; the test fails if it does not encode.
+local function text_of(value: Json.Value?): string
+  local text, err = Json.encode_any(value)
+  assert(text ~= nil, err)
+  return text
+end
+
+local CONFIG <const> = '{"server":{"hosts":["a","b"],"port":80},"tags":[]}'
+
+local function test_set_answers_a_changed_copy()
+  local config = known_value(Json.decode(CONFIG))
+  assert(text_of((Json.set(config, { "server", "port" }, 8080))) == '{"server":{"hosts":["a","b"],"port":8080},"tags":[]}')
+  assert(text_of((Json.set(config, { "name" }, "x"))) == '{"name":"x","server":{"hosts":["a","b"],"port":80},"tags":[]}',
+    "a member not there is made")
+  assert(text_of((Json.set(config, { "server", "hosts", 1 }, "z"))) == '{"server":{"hosts":["z","b"],"port":80},"tags":[]}')
+  assert(text_of((Json.set(config, { "server", "hosts", -1 }, "z"))) == '{"server":{"hosts":["a","z"],"port":80},"tags":[]}',
+    "a negative position counts from the end")
+  assert(text_of((Json.set(config, { "server", "hosts", 3 }, "c"))) == '{"server":{"hosts":["a","b","c"],"port":80},"tags":[]}',
+    "one past the end appends")
+  assert(text_of((Json.set(config, { "tags", 1 }, "t"))) == '{"server":{"hosts":["a","b"],"port":80},"tags":["t"]}',
+    "an empty array is appended to")
+  assert(text_of((Json.set(config, { "tags" }, Json.null))) == '{"server":{"hosts":["a","b"],"port":80},"tags":null}')
+  local whole, err = Json.set(config, {}, "v")
+  assert(whole == "v" and err == "", "no steps: the new value itself")
+  assert(text_of(config) == CONFIG, "the value given is as it was")
+end
+
+--- A set copies the tables its steps pass and shares the rest, and a copied
+--- array is still one where it is empty.
+local function test_set_and_remove_refuse_a_path_longer_than_a_value_nests()
+  local steps: mut {string | integer} = {}
+  for _ = 1, Json.depth_limit + 1 do
+    steps[#steps + 1] = "k"
+  end
+  local why = failure(Json.set(DOC, steps, 1))
+  assert(why:find("the path is longer than a value may nest (depth ", 1, true) ~= nil, why)
+  assert(failure(Json.remove(DOC, steps)) == why)
+  -- Names the pointer escapes are told as `get` tells them.
+  local escaped = failure(Json.set(DOC, { "a/b", 3 }, 1))
+  assert(escaped:find('"/a~1b', 1, true) ~= nil, escaped)
+end
+
+local function test_set_copies_the_way_and_shares_the_rest()
+  local config = known_value(Json.decode(CONFIG))
+  local set = known_value(Json.set(config, { "server", "port" }, 1))
+  assert(not rawequal(set, config) and not rawequal(Json.get(set, { "server" }), (Json.get(config, { "server" }))))
+  assert(rawequal(Json.get(set, { "tags" }), (Json.get(config, { "tags" }))), "off the way: shared")
+  assert(rawequal(Json.get(set, { "server", "hosts" }), (Json.get(config, { "server", "hosts" }))))
+  local emptied = known_value(Json.remove(config, { "server", "hosts", 1 }))
+  local none = known_value(Json.remove(emptied, { "server", "hosts", 1 }))
+  assert(text_of(none) == '{"server":{"hosts":[],"port":80},"tags":[]}', "an array emptied is an array")
+  assert(Json.is_array((Json.get(none, { "server", "hosts" }))))
+end
+
+local function test_set_refuses_a_place_it_would_have_to_invent()
+  local config = known_value(Json.decode(CONFIG))
+  assert(failure(Json.set(config, { "server", "hosts", 4 }, "d")) ==
+      'json: no value at pointer "/server/hosts/3": the array at pointer "/server/hosts" holds 2, ' ..
+      'and set appends at position 3, leaving no hole')
+  assert(failure(Json.set(config, { "tags", 2 }, "t")) ==
+      'json: no value at pointer "/tags/1": the array at pointer "/tags" holds 0, ' ..
+      'and set appends at position 1, leaving no hole')
+  assert(failure(Json.set(config, { "client", "port" }, 1)) ==
+      'json: no value at pointer "/client": set makes the last step only, so set an object or an array there first')
+  assert(failure(Json.set(config, { "server", "hosts", 3, "name" }, "c")) ==
+      'json: no value at pointer "/server/hosts/2": set makes the last step only, ' ..
+      'so set an object or an array there first')
+  assert(failure(Json.set(config, { "server", "hosts", -3 }, "z")) ==
+      'json: no element 3 from the end at pointer "/server/hosts"')
+  assert(failure(Json.set(config, { "tags", -1 }, "z")) == 'json: no element 1 from the end at pointer "/tags"')
+  assert(failure(Json.set(config, { "server", "hosts", "name" }, 1)) ==
+      'json: the value at pointer "/server/hosts" is an array, not an object')
+  assert(failure(Json.set(config, { 1 }, 1)) == 'json: the value at pointer "" is an object, not an array')
+  assert(failure(Json.set(config, { "server", "port", "x" }, 1)) ==
+      'json: the value at pointer "/server/port" is number, not an array or object')
+  assert(failure(Json.set("text", { "a" }, 1)) == 'json: the value at pointer "" is string, not an array or object')
+  assert(failure(Json.set(config, { "tags", 0 }, 1)) ==
+      "json: step 2 is 0: positions count from 1, or from -1 at the end")
+  assert(text_of(config) == CONFIG, "a refused set changes nothing")
+end
+
+local function test_remove_answers_a_copy_without_the_place()
+  local config = known_value(Json.decode(CONFIG))
+  assert(text_of((Json.remove(config, { "tags" }))) == '{"server":{"hosts":["a","b"],"port":80}}')
+  assert(text_of((Json.remove(config, { "server", "hosts", 1 }))) == '{"server":{"hosts":["b"],"port":80},"tags":[]}',
+    "an array closes up")
+  assert(text_of((Json.remove(config, { "server", "hosts", -1 }))) == '{"server":{"hosts":["a"],"port":80},"tags":[]}')
+  assert(text_of(config) == CONFIG, "the value given is as it was")
+  assert(failure(Json.remove(config, {})) ==
+      "json: remove takes a step or more: the whole value is in nothing it could be removed from")
+  assert(failure(Json.remove(config, { "name" })) == 'json: no value at pointer "/name"')
+  assert(failure(Json.remove(config, { "client", "port" })) == 'json: no value at pointer "/client"')
+  assert(failure(Json.remove(config, { "server", "hosts", 3 })) == 'json: no value at pointer "/server/hosts/2"')
+  assert(failure(Json.remove(config, { "tags", -1 })) == 'json: no element 1 from the end at pointer "/tags"')
+  assert(failure(Json.remove(config, { "server", "name", 1 })) == 'json: no value at pointer "/server/name"')
+  assert(failure(Json.remove(config, { "server", 1 })) == 'json: the value at pointer "/server" is an object, not an array')
+end
+
+--- An array with a hole keeps it through a copy, and one whose highest
+--- position is far past its others is copied by what it holds: a walk of
+--- every position to 1 << 40 would not end.
+local function test_set_and_remove_keep_an_arrays_holes()
+  local dropped = known_value(Json.decode('{"row": [1, null, 3]}'))
+  local set = known_value(Json.set(dropped, { "row", 1 }, 0))
+  assert(Json.get(set, { "row", 1 }) == 0 and Json.get(set, { "row", -1 }) == 3)
+  assert(failure(Json.get(set, { "row", 2 })) == 'json: no value at pointer "/row/1"')
+  assert(text_of((Json.set(dropped, { "row", 2 }, 2))) == '{"row":[1,2,3]}', "a hole is filled")
+  local appended = known_value(Json.set(dropped, { "row", 4 }, 4))
+  assert(Json.get(appended, { "row", -1 }) == 4 and Json.get(appended, { "row", 3 }) == 3)
+  local fewer = known_value(Json.remove(dropped, { "row", 1 }))
+  assert(Json.get(fewer, { "row", -1 }) == 3 and Json.get(fewer, { "row", 2 }) == 3)
+  assert(failure(Json.remove(dropped, { "row", 2 })) == 'json: no value at pointer "/row/1"')
+  local far = assert(Json.with_holes({ [1] = "a", [1 << 40] = "z" }))
+  local near = known_value(Json.set(far, { 1 }, "b"))
+  assert(Json.get(near, { 1 }) == "b" and Json.get(near, { -1 }) == "z")
+  local closed = known_value(Json.remove(far, { 1 }))
+  assert(Json.get(closed, { (1 << 40) - 1 }) == "z")
 end
 
 local function test_a_normalized_path_counts_from_0()
@@ -173,7 +299,7 @@ end
 
 --- RFC 9535's own examples (section 1.5), on its bookstore.
 local function test_select_answers_the_rfc_examples()
-  local store = assert(Json.decode([[{ "store": {
+  local store = known_value(Json.decode([[{ "store": {
     "book": [
       { "category": "reference", "author": "Nigel Rees", "title": "Sayings of the Century", "price": 8.95 },
       { "category": "fiction", "author": "Evelyn Waugh", "title": "Sword of Honour", "price": 12.99 },
@@ -251,7 +377,7 @@ local function test_a_long_place_is_named_by_its_innermost_part()
   local loop: {string: any} = {}
   loop.self = loop -- checked: map_field
   local _, cycle = Json.select(loop, (assert(Json.query("$..x"))), { max_depth = 100 })
-  assert(cycle:match('^json: a value nests deeper than 100 levels at pointer ending "/self/') and #cycle < 300, cycle)
+  assert(cycle:match('^json: a value nests deeper than 100 levels at pointer ending "/self/') ~= nil and #cycle < 300, cycle)
   local _, del = Json.encode_any({ ["a\127"] = print })
   assert(del == 'json: cannot encode a function at pointer "/a\\u007f"', del)
   local _, del_get = Json.get({ ["a\127"] = 1 }, { "a\127", 1 })

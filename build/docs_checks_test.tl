@@ -4,9 +4,11 @@
 local Array = require("cosmic.array")
 local Sqlite = require("cosmic.sqlite")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local docs_checks = require("build.docs_checks")
 local fixture = require("build.docs_fixture")
 local schema = require("build.schema")
+local symbols = require("cosmic.internal.symbols")
 
 --- Lines as one source file's text.
 local function source(...: string): string
@@ -61,6 +63,9 @@ local function projection(rows: {Row}): Sqlite.Handle
         { text = item.signature }, { text = item.text },
         { text = item.module:gsub("%.", "/") .. ".tl" } }))
   end
+  -- As cosmic's own projection records it: the library, by name.
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   return db
 end
 
@@ -217,6 +222,7 @@ local function test_a_module_the_index_lists_must_resolve()
   assert(Sqlite.run(db,
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.ghost', 'cosmic/ghost.tl', 'module', '', '', '', '', '')"))
+  assert(db:exec("INSERT INTO public_modules (path) VALUES ('cosmic.ghost')"))
   local found = docs_checks.rendered(db, none)
   assert(#found >= 1 and #mentioning(found, "cosmic.ghost") >= 1, table.concat(found, "\n"))
 end
@@ -272,6 +278,34 @@ local function test_a_page_naming_a_removed_symbol_is_stale()
     table.concat(found, "\n"))
 end
 
+--- A public page that names a module the library keeps to itself, by its
+--- name or its file, or a symbol of one, sends its reader to a page
+--- `cosmic docs` does not have: each is named. A module a closed directory
+--- opens is no such thing.
+local function test_a_reference_to_a_module_the_library_keeps_is_named()
+  local rows = clean()
+  Array.at(rows, MODULE).text = table.concat({
+    "Things, made and counted. See `cosmic.thing.inner` and",
+    "`cosmic/thing/inner.tl`, and `Inner.turn` there; `cosmic.thing.open`",
+    "and `Open.wide` are a caller's.",
+  }, "\n")
+  table.insert(rows, row("cosmic.thing.inner", "", "module", "", "The workings."))
+  rows[#rows + 1] = { module = "cosmic.thing.inner", symbol = "Inner.turn", source_symbol = "Inner.turn", kind = "function",
+    signature = "function Inner.turn()", text = "Turns.", exported = true }
+  table.insert(rows, row("cosmic.thing.open", "", "module", "", "The door."))
+  rows[#rows + 1] = { module = "cosmic.thing.open", symbol = "Open.wide", source_symbol = "Open.wide", kind = "function",
+    signature = "function Open.wide()", text = "Opens.", exported = true }
+  local db = projection(rows)
+  assert(db:exec("DELETE FROM public_modules WHERE path = 'cosmic.thing.inner'"))
+  local found = docs_checks.references(db, {}, { "test" }, {})
+  assert(#found == 3, table.concat(found, "\n"))
+  assert(#mentioning(found, "`cosmic.thing.inner` names a module the library keeps to itself") == 1,
+    table.concat(found, "\n"))
+  assert(#mentioning(found, "`cosmic/thing/inner.tl` names a module the library keeps to itself") == 1,
+    table.concat(found, "\n"))
+  assert(#mentioning(found, "`Inner.turn` names no symbol") == 1, table.concat(found, "\n"))
+end
+
 --- A help text is read as the module docs are, and reports under the
 --- name of what prints it.
 local function test_a_help_text_is_held_to_the_same_references()
@@ -315,10 +349,10 @@ local function test_a_type_standing_for_another_lists_members_that_resolve(dir: 
       "return Thing"),
   })
   local view = assert(docs.view({ db }, { true }))
-  local found = assert(docs.lookup(view, "Thing.Handle"))
+  local found = assert(Doc.lookup(view, "Thing.Handle"))
   local handle = found[1]
-  assert(handle ~= nil, "docs.lookup found no Thing.Handle")
-  local lines = assert(docs.render(view, handle))
+  assert(handle ~= nil, "Doc.lookup found no Thing.Handle")
+  local lines = assert(Doc.render(view, handle))
   assert(table.concat(lines, "\n"):find("size: integer -- How big", 1, true) ~= nil,
     table.concat(lines, "\n"))
   local checked = docs_checks.rendered(db, none)

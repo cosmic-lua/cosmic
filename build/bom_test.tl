@@ -116,10 +116,10 @@ local function test_the_standard_librarys_declarations_are_listed_with_tl(tmp: s
     "the declarations are not listed: " .. tostring(rows[1] and support.nth(rows, 1).patches))
   local lines = assert(bom.lines(rows))
   local line = support.nth(lines, 1)
-  assert(line:find("(modified: lang/stdlib.d.tl)", 1, true) and not line:find("patch", 1, true),
+  assert(line:find("(modified: lang/stdlib.d.tl)", 1, true) ~= nil and not line:find("patch", 1, true),
     "the declarations are a modified descendant, not a patch: " .. line)
   local document = assert(bom.cyclonedx(rows, "cosmic", "1"))
-  assert(document:find("modified by cosmic", 1, true) and not document:find("patched by cosmic", 1, true),
+  assert(document:find("modified by cosmic", 1, true) ~= nil and not document:find("patched by cosmic", 1, true),
     document)
   assert(db:close())
 end
@@ -299,7 +299,7 @@ local function test_every_license_a_vendored_file_is_tagged_with_is_named()
           local data = assert(Fs.read(directory .. "/" .. file))
           for tag in data:gmatch("SPDX%-License%-Identifier:%s*([^\n*]+)") do
             for id in pairs(ids_of(tag)) do
-              assert(named[id], "vendor/" .. name .. "/" .. file .. " is under " .. id ..
+              assert(named[id] == true, "vendor/" .. name .. "/" .. file .. " is under " .. id ..
                   ", which vendor/" .. name .. "/PIN's license does not name")
             end
           end

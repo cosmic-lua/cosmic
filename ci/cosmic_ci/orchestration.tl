@@ -9,7 +9,6 @@ local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
 local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
-local HostId = require("cosmic_ci.host_id")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local Maps = require("cosmic_ci.maps")
 local ProductSetup = require("cosmic_ci.product_setup")
@@ -52,8 +51,6 @@ local record Orchestration
     high?: integer
     low?: integer
   end
-  stale_rows: function(path: string, kernel: string): integer?, string
-  gather_bound: function(stale: integer): integer
   test_words: function(env: {string:string}): {string}
   shares: function(env: {string:string}): {string:string}
   sandboxed_fixtures: function(): {string:boolean}
@@ -138,17 +135,7 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- reached under other code is not looked up, and such a change runs every
 --- test whichever run it is in.
 ---
---- A run that gathers the shares of a suite (COSMIC_CI_GATHER=1, which
---- the checked suite phase gives ci.yml's `checked` job) always stands, in every
---- event and where the change moves the harness: it is the whole suite on
---- the verdicts the shares kept, in a cache that holds nothing of main's
---- (ci.yml merges them into it and only looks main's up), and each share
---- ran its tests, every one of them where it stands on nothing. It is no
---- `--all`, which would run them again, and no `--no-shared`, which would
---- leave the shares' rows unread. What it adds is only what a whole run
---- answers: that some test enters each C function, which the rows carry.
 function Orchestration.stands(env: {string:string}): boolean
-  if env["COSMIC_CI_GATHER"] == "1" then return true end
   return (env["COSMIC_CI_REQUIRE_SANDBOX"] == "1" or env["COSMIC_CI_DECLARED_KEYS"] == "1") and
     standing_events[env["COSMIC_CI_EVENT"] or ""] == true
 end
@@ -273,21 +260,13 @@ end
 --- artifact it ran under, so it reruns under the portable build. A
 --- worker run on a sealed database of its closure never sees an
 --- artifact (build/test_key.tl's `seals`); its key holds the core and the
---- sealed inputs in the launcher's place, which would let the same key
---- under either artifact stand for the same run, and the portable suite
---- stand on the native suite's verdict rather than run the test twice.
---- It does not yet: in run 41688461540 the portable keys carried
---- program 192772bba885 and the native ones ca6afce0919a, so no sealed
---- portable test stood on a native row (the portable suite's rows share
---- the file, and its bound, with the native suite's). A test
+--- sealed inputs in the launcher's place, so the same key under either
+--- artifact stands for the same run, and the portable suite stands on
+--- the native suite's verdict rather than run the test twice, where the
+--- two give their workers the same environment ([`suite_env`]). A test
 --- module that reads the launcher or artifact without being
 --- unsealed fails `cosmic fix --check .` (build/tree_checks.tl's
 --- `sealed_launch`).
----
---- TODO: have a sealed worker's key leave out the `program` part, so the
---- portable suite stands on the native suite's rows: it waits on a change
---- to build/declared_key.tl's parts that moves the key of no test that
---- reads its own program.
 ---
 --- Nor is the checked suite's file either's (`checked`): the local
 --- suite's rows would crowd the checked suite's toward the file's bound,
@@ -304,16 +283,36 @@ function Orchestration.suite_verdicts(env: {string:string}, name: string): strin
   return assert(shared:match("^(.*)/[^/]*$")) .. "/" .. name .. ".db"
 end
 
+--- Where the native and the portable suite keep the cores a portable cosmic extracts (COSMIC_PORTABLE_CACHE): one place
+--- under `work`, the leg's. A worker is keyed by each variable it is given pinned (build/test_inputs.tl's
+--- `pinned_env`), this one by whether it names a place, not which (build/declared_key.tl's `cache_places`), so a suite
+--- that named none would key every test apart from the other's and stand on none of its verdicts. The cache is
+--- content-addressed (build/caches.tl), so sharing it changes no verdict. It does change what the portable suite's
+--- start meets: the native tool's launcher has extracted the same cores there first, so the portable artifact verifies
+--- an entry and the portable boundary's read-only run reads it; a cold extraction is the launcher fixtures'
+--- (phase_fixtures).
+function Orchestration.suite_cores(work: string): string
+  return work .. "/suite-cores"
+end
+
+--- What the gating suite `name` ("local" or "portable") adds to the environment of its run under `work`, given `env`,
+--- the driver's: the same cores cache for both ([`suite_cores`]), and the portable suite's verdict cache, the native
+--- suite's file ([`suite_verdicts`]), so that where `env` names one the two hand their workers the same variables.
+function Orchestration.suite_env(name: string, work: string, env: {string:string}): {string:string}
+  assert(name == "local" or name == "portable", "suite_env: no gating suite " .. name)
+  local out: mut {string:string} = { COSMIC_PORTABLE_CACHE = Orchestration.suite_cores(work) }
+  if name == "portable" then
+    out["COSMIC_VERDICT_CACHE"] = Orchestration.suite_verdicts(env, "portable")
+  end
+  return out
+end
+
 --- `words`, a suite's `cosmic test` line, with `--census` after `test`, for the key parts its row says.
-local function with_census(words: {string}, shard?: string): {string}
+local function with_census(words: {string}): {string}
   local out: mut {string} = {}
   for at, word in ipairs(words) do
     out[#out + 1] = word
     if at == 1 then out[#out + 1] = "--census" end
-  end
-  if shard then
-    out[#out + 1] = "--shard"
-    out[#out + 1] = shard
   end
   return out
 end
@@ -421,6 +420,41 @@ function Orchestration.say_figures(name: string, directory: string, to?: integer
   return said
 end
 
+--- The share of its bound, in percent, from which a fixture's time is
+--- warned of: below the bound, so the growth shows on a run that passes.
+local bound_warn_percent <const> = 75
+
+--- What a fixture called `name` that took `elapsed_ns` of its bound
+--- `bound_ns` says of that: a line naming both and the share, and from
+--- `bound_warn_percent` a second line, a warning GitHub shows on the
+--- run's page (`::warning::`). Whole seconds, the share rounded down.
+function Orchestration.bound_lines(name: string, elapsed_ns: integer, bound_ns: integer): {string}
+  assert(bound_ns > 0, "a fixture's bound is more than nothing")
+  local second = Clock.seconds(1)
+  local share = elapsed_ns * 100 // bound_ns
+  local said = tostring(elapsed_ns // second) .. " s of its " .. tostring(bound_ns // second) ..
+    " s bound (" .. tostring(share) .. "%)"
+  local lines: mut {string} = { "fixture: " .. name .. ": took " .. said }
+  if share >= bound_warn_percent then
+    lines[#lines + 1] = "::warning::fixture " .. name .. " took " .. said ..
+      "; it fails at its bound, so make it cheaper or raise the bound before it does"
+  end
+  return lines
+end
+
+--- Says [`Orchestration.bound_lines`] on stderr, and puts a warning on
+--- the run's summary page too. Fails nothing: the log is for reading.
+local function say_bound(name: string, started_ns: integer, bound_ns: integer)
+  local lines = Orchestration.bound_lines(name, Clock.monotonic_ns() - started_ns, bound_ns)
+  for _, line in ipairs(lines) do
+    local _, _ = Fs.put(Fs.stderr, line .. "\n")
+  end
+  local warning = lines[2]
+  if warning ~= nil then
+    pcall(ContextEnv.summarize, warning:gsub("^::warning::", "") .. "\n")
+  end
+end
+
 local function logged(c: Context, phase: string, command: {string}, out: string,
                       err: string, timeout: integer, cwd?: string, env?: {string:string}): integer
   local status = operation(c, phase, command, timeout, cwd, env, out, err)
@@ -508,114 +542,20 @@ local self_rebuild_per_test_timeout_s <const> = "300"
 -- alpine-x86_64 on October 30 and on both x86-64 legs on October 31,
 -- where those stages compiled the tree cold twice and the identity
 -- cases' parsed it again after.
--- TODO: the compiler cases still compile the whole tree cold, so the
--- file's cost follows the tree (about 5% a day the week of October 3) and
--- these bounds will be passed again: report the group's elapsed time
--- against its bound from [`fixture_run_spec`], so the growth shows before
--- it fails a run.
+-- The compiler cases still compile the whole tree cold, so the file's
+-- cost follows the tree (about 5% a day the week of October 3) and these
+-- bounds will be passed again. Each fixture says its time against its
+-- bound, and warns from 75% of it ([`Orchestration.bound_lines`]), so the
+-- growth shows on a run that passes.
 local fixed_point_test_timeout_ns <const> = Clock.seconds(440)
 local fixed_point_per_test_timeout_s <const> = "340"
 --- The whole suite on the checked core: see [`checked_suite`]'s comment
---- for what it takes. Sized from the merge queue's runs of 17 to 19 October 2026: the 7800 tests took 800 to 1114 s in
---- 14 of its 36 completed runs and over 1200 s in one, a change that adds 45 tests (15 s of test time in 2900 s
---- locally, where the suite took 1714 s on this branch and 1873 s on main, on four cores). It bounds the suite run whole in
---- one job, which no ci.yml job does now (`checked_shard_timeout_ns`, `checked_gather_timeout_ns`) and ci/run-local's
---- assemble does.
-local checked_suite_timeout_ns <const> = Clock.seconds(1500)
---- One share of the checked suite, of the N ci.yml's `checked-shard` job
---- runs (COSMIC_CI_CHECKED_SHARD, `I/N`), each on a runner of its own.
---- build/test.tl's `dealt` deals the tests in turn, so a share holds a Nth
---- of them and, the slow ones being spread across the modules, about a
---- Nth of the time. The whole suite takes 1096 s where no verdict stands
---- and 1504 s in the slowest of the merge queue's runs of 23 October 2026
---- (past `checked_suite_timeout_ns`), which a share of four takes in 274
---- and 376 s. The bound is 600 s, 1.6 times the slowest share seen, where
---- the whole suite's was no more than the slowest run itself, and 2.2
---- times a share of the run where nothing stood. It is the share's own,
---- not the whole suite's divided by four: the share restores its verdicts,
---- builds and checks the checked core as the whole suite's job did, and
---- gains nothing from another share's time.
-local checked_shard_timeout_ns <const> = Clock.seconds(600)
---- The checked suite's gathering run (COSMIC_CI_CHECKED_SUITE=gather,
---- ci.yml's `checked` job): the whole suite on the verdicts the shares
---- kept, where every test stands, so that only what a whole run answers is
---- left to check (that some test enters each C function). A test that
---- stands starts no worker: the time is the harness's, reading the rows
---- and keying the tests, and the few tests that keep no verdict (187 of
---- 8200 in a local run, 34 s in all on the release core where all the rest
---- stood), some three times that on the checked core.
----
---- That holds only for the rows whose key this host reaches. A share that
---- ran on a host of another kernel (build/declared_key.tl's
---- `host_kernel`: the kernel's release and version, which a sandboxed
---- verdict can depend on, so they are rightly in the key) keeps rows this
---- run cannot stand on, and the run runs those tests again, one after
---- another. (The processor's features are in the key of a module that
---- declares `cpu_features` alone, and the gathering run looks those up
---- under no other processor's key.) Run 40495570639 of
---- cosmic-lua/cosmic#3263, when they were in every key, read 5751 rows
---- under one host's features and 1914 under another's, and ran 2046 tests
---- in the 300 s this bound was, at some 330 a minute, and timed out; the
---- run that moved the harness epoch and found 7665 of 7801 rows standing
---- took 167 s in all.
----
---- So the bound is the base time, 300 s, that run's share of the harness'
---- time with room, and a time for each row [`stale_rows`] counts under
---- another host kernel: `gather_row_ns`, 0.3 s, some 1.7 times the 0.18 s a
---- test took there, and capped by `checked_gather_cap_ns`.
-local checked_gather_timeout_ns <const> = Clock.seconds(300)
---- What a test the gathering run runs again may take of its bound, on
---- average: 1.7 times the 0.18 s of run 40495570639's pace.
-local gather_row_ns <const> = Clock.ms(300)
---- The most the gathering run is given, whatever it must run again: 13
---- minutes, which leaves ci.yml's `checked` job, whose 20 minutes
---- build/workflows_test.tl holds it to, the five or so of its boot,
---- checked build and merge before the step and its steps after (a whole
---- suite run, which takes 1096 s where no verdict stands, fits in no
---- gather). A run that needs more ends here, with the line
---- [`gather_budget`] said, not at the job's timeout without one.
-local checked_gather_cap_ns <const> = Clock.seconds(780)
-
---- How many rows the verdict cache at `path` holds that a host of
---- `kernel` ([`HostId.kernel`]) cannot stand on: those stamped with
---- other key parts, or none (build/shared_verdicts.tl's `parts`, whose
---- first is "host kernel <digest>"), but for those that name the
---- identity of their host and its rest but for the kernel ("host
---- identity", "host rest"), which the gathering run looks up under their
---- own host's key (build/test_key.tl's `lookup`). Nil and why where `path` is no
---- cache of this format, which a gathering run then bounds as one with
---- nothing to run again.
--- TODO: count only the rows whose rest is this host's ("host rest"), once
--- the driver can name this host's rest: build/declared_key.tl's
--- `host_split` is the tree's, which the pinned release the driver runs on
--- cannot call, and ci/cosmic_ci/host_id.tl names only the kernel. Today
--- a row of another rest (another image, user or sandbox) is counted as
--- one to look up, which no key of this host reaches, so those tests run
--- again beyond the time given.
-function Orchestration.stale_rows(path: string, kernel: string): integer?, string
-  if kernel:match("^%x+$") == nil then
-    return nil, "host kernel " .. kernel .. " is no digest"
-  end
-  local db, open_trouble = Sqlite.open(path)
-  if db == nil then return nil, path .. ": " .. open_trouble end
-  local rows, trouble = Sqlite.text_rows(db, "SELECT COUNT(*) FROM declared_v1 " ..
-      "WHERE parts NOT LIKE 'host kernel " .. kernel .. ",%' AND NOT " ..
-      "(parts LIKE '%, host identity %' AND parts LIKE '%, host rest %')")
-  local _, _ = db:close()
-  if rows == nil then return nil, path .. ": " .. trouble end
-  local first = rows[1]
-  if first == nil then return nil, path .. ": no count" end
-  return math.tointeger(tonumber(first:text(1)) or -1), ""
-end
-
---- The time the gathering run is given when `stale` rows of the shares'
---- verdicts are under another host kernel: the base, and a
---- `gather_row_ns` for each, up to `checked_gather_cap_ns`.
-function Orchestration.gather_bound(stale: integer): integer
-  local bound = checked_gather_timeout_ns + stale * gather_row_ns
-  if bound > checked_gather_cap_ns then return checked_gather_cap_ns end
-  return bound
-end
+--- for what it takes. It bounds the suite run whole, as ci.yml's `checked` job and ci/run-local's assemble run it.
+--- Sized from main's dispatch run of 7 November 2026 (42360832601), where the 8637 tests took 1415 s with no verdict
+--- standing, against an earlier bound of 1500 s sized from 800 to 1114 s in October; counting a pure store's imports
+--- by instruction (cosmic-lua/cosmic#3629) costs about a tenth more on the checked core, about 1585 s. The bound is
+--- 2100 s, 1.3 times that, inside the job's 60 minutes with its boot and build.
+local checked_suite_timeout_ns <const> = Clock.seconds(2100)
 -- Each test's bound on the checked core: the release suites' (below)
 -- scaled by how much slower the checked core runs a test, about 2.9
 -- times over the suite and 5.5 times for a compile-heavy module
@@ -624,23 +564,13 @@ end
 -- and doubled for a loaded runner.
 local checked_suite_test_timeout_s <const> = "120"
 
---- One share of the whole suite on a checked run ([`phase_checked_narrowing`]),
---- of the N ci.yml's `checked-narrowing` job runs (COSMIC_CI_NARROWING_SHARD,
---- `I/N`, two), each on a runner of its own; a test 120 s at most, as on the
---- checked core. The whole run takes 510 s on four processors locally and 726
---- to 861 s on CI's runner (the merge queue's runs of 23 October 2026). A
---- share of two holds half the tests, and build/test.tl's `dealt` spreads the
---- slow ones as it does the checked suite's, so its tests take about half:
---- 363 to 431 s. That is a lower estimate, as each share still compiles the
---- tree it tests, which the whole run did once. The bound is 900 s, 2.1 times
---- the slowest share estimated: 469 s over it, for that compile (not yet
---- measured; the boot's 150 to 195 s is outside this bound) and a loaded
---- runner. It is the share's own, not the whole run's bound halved, which
---- would leave the compile 0 s over the slowest whole run.
-
--- TODO: lower this bound, from the number of rows that moved as [`gather_budget`] bounds the checked gather, once
--- CI's own runs of a share standing on verdicts show its elapsed time.
-local checked_narrowing_timeout_ns <const> = Clock.seconds(900)
+--- The whole suite on a checked run ([`phase_checked_narrowing`]), in ci.yml's
+--- `narrowing` job; a test 120 s at most, as on the checked core. The whole run
+--- takes 510 s on four processors locally and 726 to 861 s on CI's runner where
+--- no verdict stands (the merge queue's runs of 23 October 2026). The bound is
+--- 1500 s, 1.7 times the slowest.
+-- TODO: lower this bound once CI's own runs of it standing on verdicts show its elapsed time.
+local checked_narrowing_timeout_ns <const> = Clock.seconds(1500)
 local checked_narrowing_test_timeout_s <const> = "120"
 
 -- A boot the product drives from another path compiles no C again (it
@@ -775,6 +705,24 @@ function Orchestration.noexec_fixture(target: string): boolean
   return target == "x86_64-linux-musl" or target == "aarch64-linux-musl"
 end
 
+--- The requirements a leg promises that the pinned driver's `cosmic test` does not know: a fixture runs on that
+--- driver, and a held run there refuses a promise it cannot read (COSMIC_TEST_PROMISES), failing the fixture before it
+--- starts. No fixture requires them.
+-- TODO: drop this and [`driver_promises`] once ci/cosmic-driver.pin names a release whose `cosmic test` knows
+-- `pinned_zig`.
+local DRIVER_UNKNOWN <const>: {string:boolean} = { pinned_zig = true }
+
+--- `env` without the promises of [`DRIVER_UNKNOWN`].
+local function driver_promises(env: {string:string}): {string:string}
+  local list = env["COSMIC_TEST_PROMISES"]
+  if list == nil then return env end
+  local kept: mut {string} = {}
+  for name in list:gmatch("[^,]+") do
+    if DRIVER_UNKNOWN[name] ~= true then kept[#kept + 1] = name end
+  end
+  return Maps.with(env, { COSMIC_TEST_PROMISES = table.concat(kept, ",") })
+end
+
 --- `env`, an operation's environment, made a fixture's `cosmic test`'s:
 --- its temporary files under `tmpdir`.
 ---
@@ -789,13 +737,6 @@ end
 --- made afresh each run ([`Orchestration.fixture_project`]), so what stands is only what
 --- the shared file holds, under a key that holds what the fixture
 --- declares it reads, the product's prefix among them.
--- TODO: hand a merge-queue run's fixtures.db to the run behind it, as
--- its verdicts.db is (ci.yml's "keep the suite's verdicts for the run
--- behind in the queue", `verdicts-merge`): that upload is made once the
--- native suite passes, before the fixtures run, so the run behind
--- restores main's fixtures.db alone, and a fixture stands there only
--- where neither change ahead moved the product. Wants a second upload
--- after the fixtures, and a wait for it before the run behind's.
 ---
 --- Without, a fixture that writes a checkout or reads the host beyond
 --- what a sandbox gives: its workers unsandboxed, and no verdict but one
@@ -822,7 +763,7 @@ end
 --- their own, made afresh for each run (COSMIC_FIXTURE_SHARED_COMPILES).
 function Orchestration.fixture(env: {string:string}, tmpdir: string,
                                compiles: string, verdicts?: string): {string:string}
-  local made = Maps.with(env, { TMPDIR = tmpdir, COSMIC_BUILD_CACHE = compiles })
+  local made = Maps.with(driver_promises(env), { TMPDIR = tmpdir, COSMIC_BUILD_CACHE = compiles })
   if verdicts ~= nil then
     return Orchestration.shares(Maps.with(made, { COSMIC_VERDICT_CACHE = verdicts }))
   end
@@ -912,12 +853,14 @@ end
 --- What a fixture group has prepared, once it has started.
 local record FixtureHeld
   mut prepared?: Prepared
+  --- When its run was started ([`Clock.monotonic_ns`]).
+  mut started_ns?: integer
 end
 
 --- Makes the fixture `spec`'s project (a group's own where `group` is
 --- given, [`Orchestration.fixture_project`]), places its inputs and its diagnostics
 --- directory, and says what to run: `jobs` workers where given, else the
---- runner's default of one per processor.
+--- runner's default.
 local function prepare_fixture(c: Context, work: string, spec: FixtureSpec,
                                group?: string, jobs?: integer): Prepared
   local name, source = spec.name, spec.source
@@ -956,8 +899,10 @@ end
 
 local function fixture_run_spec(c: Context, work: string, spec: FixtureSpec): integer
   local prepared = prepare_fixture(c, work, spec)
+  local started_ns = Clock.monotonic_ns()
   local status = logged(c, "fixture: " .. spec.name, prepared.command,
     prepared.out, prepared.err, spec.timeout_ns, prepared.project, prepared.env)
+  say_bound(spec.name, started_ns, spec.timeout_ns)
   Orchestration.say_figures(spec.name, prepared.figures)
   record_suite(c, "fixture " .. spec.name, status, prepared.out)
   return status
@@ -985,6 +930,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
     start = function(): Runner.Running
       local made = prepare_fixture(c, work, spec, spec.source, jobs)
       held.prepared = made
+      held.started_ns = Clock.monotonic_ns()
       local runner, request = request_for(c, made.command, spec.timeout_ns,
         made.project, made.env, made.out, made.err)
       return Runner.spawn(runner, "fixture: " .. spec.name, request)
@@ -995,6 +941,7 @@ local function fixture_group(c: Context, work: string, spec: FixtureSpec,
       if outcome.code == 0 then
         assert(replay_ok, "could not replay retained output")
       end
+      say_bound(spec.name, assert(held.started_ns), spec.timeout_ns)
       Orchestration.say_figures(spec.name, made.figures)
       record_suite(c, "fixture " .. spec.name, outcome.code, made.out)
       return outcome.code
@@ -1031,31 +978,6 @@ local function performance_fixture(c: Context, work: string, kind: string, progr
   return fixture_run_spec(c, work, performance_spec(c, work, kind, program))
 end
 
---- The gathering run's bound ([`Orchestration.gather_bound`]) over the
---- cache at `path` merged from the shares, with a line on standard error
---- when rows of it stand on another host's features: that those tests run
---- again here, how many, and how long the run is given, so a step that
---- ends at its bound is read for what it was given.
-local function gather_budget(path: string): integer
-  local kernel = HostId.kernel(HostId.live(Env.all()))
-  local stale, trouble = Orchestration.stale_rows(path, kernel)
-  if stale == nil then
-    local _, _ = Fs.put(Fs.stderr, "checked suite: gathering bound: no count of the shares' rows under " ..
-        "other host kernels (" .. trouble .. "); the base bound\n")
-    return Orchestration.gather_bound(0)
-  end
-  local bound = Orchestration.gather_bound(stale)
-  if stale > 0 then
-    local capped = ""
-    if bound == checked_gather_cap_ns then capped = ", the most it is ever given" end
-    local _, _ = Fs.put(Fs.stderr, "checked suite: " .. Plural.count(stale, "row") ..
-        " of the shares' verdicts are under a host kernel other than this host's (" .. kernel ..
-        "): their tests run again here, one after another, so the gathering run is given " ..
-        tostring(bound // Clock.seconds(1)) .. " s" .. capped .. "\n")
-  end
-  return bound
-end
-
 --- The checked core, verified on every leg -- its manifest entry in the
 --- checked artifact, read by `decoder` (the contract's
 --- format-test-<target>), its range, and that the artifact runs it --
@@ -1083,7 +1005,7 @@ local function checked_suite(c: Context, target: string, work: string,
       checked_target = target_name
     end
   end
-  assert(target_id and checked_target == target, "checked target mapping differs")
+  assert(target_id ~= nil and checked_target == target, "checked target mapping differs")
   local cosmic = sanitized .. "/bin/cosmic"
   local core = sanitized .. "/cosmic-core"
   local entry = work .. "/checked-entry.txt"
@@ -1151,12 +1073,8 @@ local function checked_suite(c: Context, target: string, work: string,
   -- The suite on the checked core takes twenty minutes where nothing
   -- stands. Most of what it checks is the same on every platform, so the
   -- workflow runs it once, on linux-x86_64's host, beside the legs
-  -- rather than after one of them, and in shares (ci.yml's
-  -- `checked-shard`, each a share of the tests,
-  -- COSMIC_CI_CHECKED_SHARD=I/N: phases `boot`, `checked-build` and this
-  -- one) that a job gathers (`checked`, COSMIC_CI_CHECKED_SUITE=gather)
-  -- on the verdicts the shares kept: the whole suite, every test
-  -- standing. Every leg sets
+  -- rather than after one of them (ci.yml's `checked`: phases `boot`,
+  -- `checked-build` and this one). Every leg sets
   -- COSMIC_CI_CHECKED_SUITE=skip, and still builds and verifies the
   -- checked core above, which its fixtures use. macOS also runs the
   -- received-channel regressions: SIGPIPE protection on a channel
@@ -1224,36 +1142,15 @@ local function checked_suite(c: Context, target: string, work: string,
   -- --all where it stands on no verdict (`stands`): CI answers for
   -- every test then, whatever its build directory holds.
   local checked_argv: mut {string} = { cosmic }
-  local gathering = Env.get("COSMIC_CI_CHECKED_SUITE") == "gather"
-  local share = named("COSMIC_CI_CHECKED_SHARD")
   local checked_run = Orchestration.suite_run({
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "checked"),
-    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s,
-    COSMIC_CI_GATHER = if gathering then "1" else "" end,
-    -- The gathering run's tool also looks a test up under the key of
-    -- a host of another kernel that kept its row (build/test_key.tl's
-    -- `lookup`), the shares' alone being what its cache holds.
-    COSMIC_TEST_FOREIGN_KERNEL = if gathering then "1" else "" end })
-  local checked_environment = checked_run.env
-  local checked_words = with_census(checked_run.words)
-  local shard_words: {string} = if share ~= nil then { "--shard", share } else {} end
-  for _, words in ipairs({ checked_words, shard_words }) do
-    for _, word in ipairs(words) do
-      checked_argv[#checked_argv + 1] = word
-    end
-  end
-  -- One share of the tests, where ci.yml's `checked-shard` job runs
-  -- the suite in several: a share checks no C function, which only a
-  -- whole run answers, and `gather` does.
-  local bound = checked_suite_timeout_ns
-  if share ~= nil then
-    bound = checked_shard_timeout_ns
-  elseif gathering then
-    bound = gather_budget(Orchestration.suite_verdicts(Env.all(), "checked"))
+    COSMIC_TEST_TIMEOUT = checked_suite_test_timeout_s })
+  for _, word in ipairs(with_census(checked_run.words)) do
+    checked_argv[#checked_argv + 1] = word
   end
   s = logged(c, "checked suite", checked_argv,
     diagnostics .. "/checked-test.out", diagnostics .. "/checked-test.err",
-    bound, c.root, checked_environment)
+    checked_suite_timeout_ns, c.root, checked_run.env)
   record_suite(c, "checked", s, diagnostics .. "/checked-test.out")
   write(diagnostics .. "/checked-test.status", tostring(s) .. "\n")
   -- The suite's per-test times and verdicts (its `runs` rows), which
@@ -1331,14 +1228,14 @@ end
 --- One suite of `c`'s candidate, run by `executable`, `env` added to
 --- its environment.
 local function suite(c: Context, name: string, executable: string,
-                     diagnostics: string, env?: {string:string}, shard?: string): integer
+                     diagnostics: string, env?: {string:string}): integer
   mkdir(diagnostics)
   local out = diagnostics .. "/" .. name .. "-test.out"
   local err = diagnostics .. "/" .. name .. "-test.err"
   local run = Orchestration.suite_run(env)
   local values = Maps.with(run.env, { COSMIC_TEST_TIMEOUT = suite_test_timeout_s })
   -- Its key parts said, as the checked suite's are, for its row.
-  local words = with_census(run.words, shard)
+  local words = with_census(run.words)
   local argv: mut {string} = { executable }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local status = logged(c, name .. " suite", argv, out, err,
@@ -1506,11 +1403,11 @@ local function phase_darwin_suite(p: PlatformContext): integer
         tostring(trouble) .. "\n")
     return 1
   end
-  local darwin_run = Orchestration.suite_run()
+  local darwin_run = Orchestration.suite_run(Orchestration.suite_env("local", p.work, Env.all()))
   local words = Orchestration.darwin_words(darwin_run.words, Orchestration.darwin_modules(listed))
   if words == nil then return 0 end
   local native = p.local_diagnostics .. "/local-test"
-  if (Env.get("COSMIC_CI_SHARD") or "") == "" and exists(native .. ".out") and
+  if exists(native .. ".out") and
       exists(native .. ".status") then
     local code = math.tointeger(tonumber((read(native .. ".status"):gsub("%s+$", ""))))
     if code ~= nil and Orchestration.native_ran_every(read(native .. ".out"), code) then
@@ -1533,67 +1430,6 @@ local function phase_darwin_suite(p: PlatformContext): integer
   return status
 end
 
---- The test files under cosmic/, build/, core/ and eval/ that watch the
---- declared types of the standard library and of the modules beside those
---- tests (`*declared_types_test.tl`, which a later directory's change adds files
---- to without touching CI), by their path in the checkout.
-function Orchestration.declared_types_files(root: string): {string}
-  local files: mut {string} = {}
-  for _, directory in ipairs({ "cosmic", "build", "core", "eval" }) do
-    local walked, _ = Fs.walk(root .. "/" .. directory)
-    local found = walked or {}
-    for _, relative in ipairs(found) do
-      if relative:find("declared_types_test%.tl$") ~= nil then
-        files[#files + 1] = directory .. "/" .. relative
-      end
-    end
-  end
-  table.sort(files)
-  return files
-end
-
---- The lines of a checked run's output that report a skip for want of a checked run: the run carried no checks.
---- A skip for want of boundary checks in the compile (build/type_watch.tl's `skip_reason`) is not one.
--- TODO: once build/type_watch.tl's `during` no longer skips a checked run for want of boundary checks, count every
--- skip here.
-function Orchestration.unchecked_skips(output: string): {string}
-  local found: mut {string} = {}
-  for line in output:gmatch("[^\n]+") do
-    if line:find("test: SKIP", 1, true) ~= nil and line:find("boundary checks are not compiled in", 1, true) == nil then
-      found[#found + 1] = line
-    end
-  end
-  return found
-end
-
---- The declared-types tests on a checked run (`cosmic test
---- --check-types`), on the linux-x86_64 leg alone: they skip in any
---- other run. They skip in a checked run too until the compile writes the boundary checks
---- (build/type_watch.tl). After `local-boundary`, as a checked run writes a working
---- database of its own beside the tree's.
-local function phase_declared_types(p: PlatformContext): integer
-  if p.target ~= "x86_64-linux-musl" then return 0 end
-  local c = p.operation
-  local files = Orchestration.declared_types_files(c.root)
-  if #files == 0 then
-    local _, _ = Fs.put(Fs.stderr, "declared types: no cosmic/, build/, core/ or eval/ *declared_types_test.tl file\n")
-    return 1
-  end
-  local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic", "test", "--check-types" }
-  for _, file in ipairs(files) do argv[#argv + 1] = file end
-  mkdir(p.local_diagnostics)
-  local out = p.local_diagnostics .. "/declared-types-test.out"
-  local values = Maps.with(Orchestration.suite_run().env, { COSMIC_TEST_TIMEOUT = suite_test_timeout_s })
-  local status = logged(c, "declared types", argv, out,
-    p.local_diagnostics .. "/declared-types-test.err", suite_timeout_ns, c.root, values)
-  -- A test that skipped asked nothing of the checks: the run was not checked.
-  if status == 0 and #Orchestration.unchecked_skips(read(out)) > 0 then
-    local _, _ = Fs.put(Fs.stderr, "declared types: a test skipped, so the run carried no checks\n")
-    return 1
-  end
-  return status
-end
-
 --- `values`, the environment of a suite on the release core, without the promise of `checked`. The checked job's leg
 --- promises it, the sanitized core's instruments, which a run on the release core lacks: a held run would fail every test
 --- that requires it, where it should find it not applicable. The `checked` phase runs those on the core that has them.
@@ -1611,23 +1447,19 @@ end
 --- whose fact is false fails there ("fact violated at <file>:<y>:<x>",
 --- doc/testing.md's "checked narrowing"). A checked run stands on verdicts of its own, kept in `narrowing.db`
 --- ([`suite_verdicts`]): where [`stands`] says it may, it runs the tests whose key moved, else every test
---- (`--all`). ci.yml runs it in the `checked-narrowing` jobs, after `boot`, each a share of the tests where
---- COSMIC_CI_NARROWING_SHARD names one (`I/N`, `--shard`), which restore the rows of the tree's base on main and
---- keep their own for the merge job and the run behind in the queue. A share makes no check that some test enters
---- each C function, which only a whole run does (build/test.tl); that check
+--- (`--all`). ci.yml runs it in the `narrowing` job, after `boot`. It need make no check that some test enters
+--- each C function (build/test.tl): that check
 --- is held on this core by the linux-x86_64 leg's whole native suite in every
---- full run, since a checked run enters no C function a plain one does not:
+--- run, since a checked run enters no C function a plain one does not:
 --- the tests that run differently in a checked run only skip there
 --- (build/type_watch.tl's `checked`), and the ones that need it
 --- (`TypeWatch.during`) skip in every run until the compile writes the checks
---- of returns and fields. The leg's declared-types step ([`phase_declared_types`])
---- runs chosen files and makes no such check either.
+--- of returns and fields.
 --- That holds while build/type_watch.tl's `during` skips a checked run (the TODO
 --- there).
 local function phase_checked_narrowing(p: PlatformContext): integer
   if p.target ~= "x86_64-linux-musl" then return 0 end
   local c = p.operation
-  local share = named("COSMIC_CI_NARROWING_SHARD")
   -- Its verdicts are in `narrowing.db`, a file of its own in the directory ci.yml saves and restores
   -- ([`suite_verdicts`]), on which the run stands where it may (`stands`) and which `--census` says the
   -- misses of.
@@ -1635,7 +1467,7 @@ local function phase_checked_narrowing(p: PlatformContext): integer
     COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "narrowing"),
     COSMIC_TEST_TIMEOUT = checked_narrowing_test_timeout_s })
   local argv: mut {string} = { BuildPaths.directory(p.root) .. "/bin/cosmic" }
-  for at, word in ipairs(with_census(run.words, share)) do
+  for at, word in ipairs(with_census(run.words)) do
     argv[#argv + 1] = word
     if at == 1 then argv[#argv + 1] = "--check-types" end
   end
@@ -1664,15 +1496,10 @@ local function phase_checked_narrowing(p: PlatformContext): integer
 end
 
 --- The native suite, on the tree `boot` built: the `build` phase
---- without its boot, which ci.yml's legs run apart so that what comes
---- between (the verdicts of the merge queue's run ahead) waits on
---- nothing the boot does. Where COSMIC_CI_SHARD names a share (`I/N`,
---- a branch push's linux-x86_64 legs), only that share of its tests
---- (`cosmic test --shard`): the leg that runs each other share runs the
---- rest, on the same host.
+--- without its boot, which ci.yml's legs run as steps of their own.
 local function phase_local_suite(p: PlatformContext): integer
   return suite(p.operation, "local", BuildPaths.directory(p.root) .. "/bin/cosmic", p.local_diagnostics,
-    nil, named("COSMIC_CI_SHARD"))
+    Orchestration.suite_env("local", p.work, Env.all()))
 end
 
 --- `boot`, then the native suite (`local-suite`): ci/run-local's first
@@ -1742,12 +1569,12 @@ local function phase_sandbox(p: PlatformContext): integer
 end
 
 --- The format check's command, below: `fix --check .`, or, where
---- COSMIC_CI_FORMAT_CHANGED names a file, one path a line, of what
---- changed since the tree's base on main, which passed the whole tree's
---- check (driver.tl changed-paths, on a light run), `fix
---- --check --changed` of those paths, which lays out only them yet makes
---- every check spanning files over the whole tree, and lays out all of
---- it where a path named is part of what checks each file. A file that
+--- COSMIC_CI_FORMAT_CHANGED names a file, one path a line, of what a pull
+--- request or the queue's commit changed since its merge base with main,
+--- which the queue checked (driver.tl changed-paths, ci.yml's platform leg),
+--- `fix --check --changed` of those paths, which lays out only them yet
+--- makes every check spanning files over the whole tree, and lays out all
+--- of it where a path named is part of what checks each file. A file that
 --- cannot be read checks the whole tree.
 local function format_command(root: string): {string}
   local command = { BuildPaths.directory(root) .. "/bin/cosmic", "fix", "--check" }
@@ -1782,10 +1609,9 @@ end
 --- The tree's format check (`fix --check .`, which also builds and
 --- type-checks the tree). It is the first thing assemble does, where a
 --- tree formats and type-checks the same on every platform, so the
---- workflow runs it on one leg, and the others set COSMIC_CI_FORMAT=skip,
---- as COSMIC_CI_CHECKED_SUITE does the checked suite. On a branch push's
---- light run and in the merge queue it is a phase of its own in ci.yml's
---- `format` job, which runs no native suite, off the legs' path.
+--- workflow runs it in a step of its own on one leg, linux-x86_64's, and
+--- every leg's assemble skips it (COSMIC_CI_FORMAT=skip), as
+--- COSMIC_CI_CHECKED_SUITE does the checked suite.
 --- Where a native suite ran, `fix` writes the working database only
 --- after its boundary was checked (`local-boundary`); a job that ran
 --- none has no boundary to keep.
@@ -1799,34 +1625,7 @@ local function format_check(p: PlatformContext): integer
         "(COSMIC_CI_FORMAT=skip)\n")
     return 0
   end
-  -- The check's memo (build/check_memo.tl), where COSMIC_CI_CHECK_MEMO
-  -- names a directory that holds one from an earlier run: put where the
-  -- check reads it, as the build directory is new each run, so that the
-  -- files it holds a row of cost the check nothing. A run that passed
-  -- leaves its own there, for ci.yml's `format` job to save. The memo
-  -- only ever speeds the check: a copy that fails is none.
-  local kept = named("COSMIC_CI_CHECK_MEMO")
-  local memo = BuildPaths.directory(p.root) .. "/translate-check.db"
-  if kept ~= nil and exists(kept .. "/translate-check.db") and not exists(memo) then
-    local copied, trouble = pcall(function()
-      mkdir(Fs.dirname(memo))
-      write(memo, read(kept .. "/translate-check.db"))
-    end)
-    if not copied then
-      local _, _ = Fs.put(Fs.stderr, "format check: no memo taken from " .. kept .. ": " .. tostring(trouble) .. "\n")
-      local _, _ = Fs.remove(memo)
-    end
-  end
   local status = checked(p.operation, "format check", format_command(p.root))
-  if kept ~= nil and status == 0 and exists(memo) then
-    local copied, trouble = pcall(function()
-      mkdir(kept)
-      write(kept .. "/translate-check.db", read(memo))
-    end)
-    if not copied then
-      local _, _ = Fs.put(Fs.stderr, "format check: the memo is not kept in " .. kept .. ": " .. tostring(trouble) .. "\n")
-    end
-  end
   if status ~= 0 then return status end
   return checked(p.operation, "ci check", ci_command(p.root), nil, p.root .. "/ci")
 end
@@ -1919,33 +1718,26 @@ local function phase_portable(p: PlatformContext): integer
     attempt = c.attempt, root = fresh, driver = c.driver, phase = c.phase }
   local s = 0
   -- The suite reruns the local suite's tests under the portable build,
-  -- whose artifact carries the cores the tree's tool does (`ProductSetup`);
+  -- or, where it stands on verdicts, those whose key holds the artifact
+  -- they ran under (below); the artifact carries the cores the tree's
+  -- tool does (`ProductSetup`);
   -- each leg's launcher, runtime and identity fixtures still run the
-  -- portable product's launcher (phase_fixtures). So a push to main
-  -- runs it on the two x86-64 legs, a glibc host and a musl one, the
-  -- merge queue on the musl one alone (the glibc leg's bytes are the
-  -- same, which provenance holds), and the others set
-  -- COSMIC_CI_PORTABLE_SUITE=skip; the scheduled run and a manual one
-  -- keep it on every leg (ci.yml). A leg that skips it still
-  -- checks the artifact unchanged since assemble (attest).
-  -- Where COSMIC_CI_PORTABLE_SHARD names a share (`I/N`: ci.yml's
-  -- alpine-x86_64 leg and the job beside it), only that share of the
-  -- tests runs (`cosmic test --shard`); the job that runs each other
-  -- share runs the rest on the same host, and provenance holds its
-  -- bytes to the legs'.
+  -- portable product's launcher (phase_fixtures). ci.yml runs it on
+  -- every leg of every run but the merge queue's, which runs no
+  -- assemble; COSMIC_CI_PORTABLE_SUITE=skip skips it (ci/run-local).
+  -- A leg that skips it still checks the artifact unchanged since
+  -- assemble (attest).
   if Env.get("COSMIC_CI_PORTABLE_SUITE") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "portable suite: skipped on this leg " ..
         "(COSMIC_CI_PORTABLE_SUITE=skip)\n")
   else
     -- Where the other suites stand on verdicts (`stands`), it stands on
-    -- the local suite's ([`suite_verdicts`]): a sealed worker's key is
-    -- the same under either artifact, and every other worker's holds
-    -- its launcher; elsewhere it runs every test, as they do.
-    write(portable_d .. "/portable-share", (named("COSMIC_CI_PORTABLE_SHARD") or "whole") .. "\n")
+    -- the local suite's ([`suite_verdicts`]), given the environment that
+    -- one is ([`suite_env`]): a sealed worker's key is the same under
+    -- either artifact, and every other worker's holds its launcher;
+    -- elsewhere it runs every test, as they do.
     s = suite(portable_context, "portable", executable, portable_d,
-      { COSMIC_PORTABLE_CACHE = portable_d .. "/portable-full-suite-cache",
-        COSMIC_VERDICT_CACHE = Orchestration.suite_verdicts(Env.all(), "portable") },
-      named("COSMIC_CI_PORTABLE_SHARD"))
+      Orchestration.suite_env("portable", p.work, Env.all()))
   end
   local hash_called, hash_error = pcall(function(): boolean
     write(portable_d .. "/portable-artifact.after.sha256", hash(executable) .. "\n")
@@ -1981,7 +1773,7 @@ local function phase_portable_boundary(p: PlatformContext): integer
   if p.trailing == "success" then
     assert(read(portable_d .. "/portable-immediate/hashes.sha256") == read(portable_d .. "/portable-boundary/hashes.sha256"), "portable database changed across boundary")
     local executable = portable_d .. "/cosmic-portable"
-    local cache = portable_d .. "/portable-full-suite-cache"
+    local cache = Orchestration.suite_cores(p.work)
     local locked = step(portable_context, "portable cache read-only mode",
       function(): boolean, string return Fs.chmod(cache, 0x140) end)
     if locked ~= 0 then return locked end
@@ -2172,11 +1964,11 @@ local function phase_fixtures(p: PlatformContext): integer
   local source = work .. "/fixture-source"
   local s = fixture_source(p, source)
   if s ~= 0 then return s end
-  -- What the self-rebuild regression finds -- a rename, an unlink or a
-  -- lock gone wrong under a running tool -- shows on glibc Linux and on
-  -- macOS's file system, so a gating run runs it on those two legs, and
-  -- the others set COSMIC_CI_SELF_REBUILD=skip; the scheduled run keeps
-  -- it on every leg (ci.yml).
+  -- The self-rebuild regression -- a rename, an unlink or a lock gone
+  -- wrong under a running tool -- runs on every leg: no leg of ci.yml
+  -- sets COSMIC_CI_SELF_REBUILD=skip (orchestration_test's
+  -- test_every_leg_runs_the_portable_suite_and_the_self_rebuild_fixture);
+  -- a run by hand (ci/run-local) may, to skip it.
   if Env.get("COSMIC_CI_SELF_REBUILD") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: self-rebuild-regression: skipped on this leg " ..
         "(COSMIC_CI_SELF_REBUILD=skip)\n")
@@ -2200,8 +1992,8 @@ local function phase_fixtures(p: PlatformContext): integer
   -- (about 275 s on the x86-64 legs: `fixed_point_test_timeout_ns` says
   -- why), and what it checks, that the compiler compiles itself to
   -- itself, is the same on every platform. So no gating run runs it (ci.yml sets
-  -- COSMIC_CI_FIXED_POINT=skip); main's scheduled run runs it on every
-  -- leg.
+  -- COSMIC_CI_FIXED_POINT=skip); main's Sunday scheduled run, and a
+  -- dispatch with ci.yml's `fixed_point` input, run it on every leg.
   if Env.get("COSMIC_CI_FIXED_POINT") == "skip" then
     local _, _ = Fs.put(Fs.stderr, "fixture: fixed-point-regression: skipped on this leg " ..
         "(COSMIC_CI_FIXED_POINT=skip)\n")
@@ -2307,24 +2099,11 @@ local function phase_attest(p: PlatformContext): integer
   assert(Hash.hex_sha256(ArtifactRow.with(read(portable_d .. "/cosmic-portable"), without, nil)) == attested,
     "executed artifact attestation differs")
   write(product .. "/executed-cosmic.sha256", attested .. "  cosmic\n")
-  -- The job count `trailing` holds includes the jobs that run a share of
-  -- a leg's portable suite and upload no product
-  -- (COSMIC_CI_PORTABLE_SHARES).
-  local total = math.tointeger(tonumber(assert(p.trailing)))
-  local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
-  assert(total ~= nil and shares ~= nil and shares >= 0 and total > shares,
-    "invalid job count " .. tostring(p.trailing) .. " for COSMIC_CI_PORTABLE_SHARES=" ..
-      tostring(named("COSMIC_CI_PORTABLE_SHARES")))
-  write(product .. "/expected-platforms", tostring(total - shares) .. "\n")
-  -- Which share of the portable suite ran here, for the join to hold the shares to
-  -- all of them ([`provenance_impl`]).
-  local ran = portable_d .. "/portable-share"
-  write(product .. "/portable-share", if exists(ran) then read(ran) else "none\n" end)
   return 0
 end
 
 local function platform_impl(phase: string, p: PlatformContext): integer
-  assert(targets[p.target], "unsupported target")
+  assert(targets[p.target] == true, "unsupported target")
   mkdir(p.work)
   if phase == "build" then
     return phase_build(p)
@@ -2334,8 +2113,6 @@ local function platform_impl(phase: string, p: PlatformContext): integer
     return phase_local_suite(p)
   elseif phase == "local-boundary" then
     return phase_local_boundary(p)
-  elseif phase == "declared-types" then
-    return phase_declared_types(p)
   elseif phase == "checked-narrowing" then
     return phase_checked_narrowing(p)
   elseif phase == "darwin-suite" then
@@ -2369,85 +2146,31 @@ local function platform_impl(phase: string, p: PlatformContext): integer
 end
 
 --- Compares the bytes every `portable-product-<leg>` directory of
---- `products` says it executed, and holds each `portable-share-<job>`
---- directory to the same digest. A job that runs another share of a
---- leg's portable suite (COSMIC_CI_PORTABLE_SHARES of them, ci.yml's
---- alpine-x86_64 portable share) uploads the bytes it ran, which are
---- hashed here as a leg's are. Each of the share jobs and the leg that
---- ran a share (`portable-share` in its directory: `I/N`) names the
---- share it ran, and where shares are expected they must be exactly
---- 1/N to N/N, once each, N being the shares plus the leg.
-local function provenance_impl(c: Context, products: string, shares: integer): integer
+--- `products` says it executed, of which there must be `expected` (the
+--- run's legs: ci.yml names how many, COSMIC_CI_PRODUCTS).
+local function provenance_impl(c: Context, products: string, expected: integer): integer
   local entries = assert(Fs.list(products))
   local count = 0
-  local expected: integer? = nil
   local baseline: string? = nil
-  local share_digests: mut {string} = {}
-  local halves: mut {string} = {}
-  --- The share a directory says it ran, if it ran one.
-  local function note_half(dir: string, required: boolean)
-    local file = dir .. "/portable-share"
-    if not exists(file) then
-      assert(not required, "no share named: " .. dir)
-      return
-    end
-    local half = (read(file):gsub("%s+$", ""))
-    if half:match("^%d+/%d+$") then halves[#halves + 1] = half end
-  end
   for _, name in ipairs(entries) do
-    if name:match("^portable%-share%-.+") then
-      local dir = products .. "/" .. name
-      local att = dir .. "/executed-cosmic.sha256"
-      assert(exists(att) and exists(dir .. "/cosmic"), "incomplete share: " .. dir)
-      local digest = read(att):match("^([0-9a-f]+)  cosmic\n$")
-      assert(digest and #digest == 64, "invalid attestation: " .. att)
-      assert(Hash.hex_sha256(ArtifactRow.with(read(dir .. "/cosmic"), dir .. "/provenance.db", nil)) == digest,
-        "changed artifact: " .. dir)
-      share_digests[#share_digests + 1] = digest
-      note_half(dir, true)
-    elseif name:match("^portable%-product%-.+") then
+    if name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name
       local att = p .. "/executed-cosmic.sha256"
-      local exp = p .. "/expected-platforms"
-      assert(exists(att) and exists(exp) and exists(p .. "/cosmic"), "incomplete product: " .. p)
-      local line = read(att)
-      local digest = line:match("^([0-9a-f]+)  cosmic\n$")
-      assert(digest and #digest == 64, "invalid attestation: " .. att)
+      assert(exists(att) and exists(p .. "/cosmic"), "incomplete product: " .. p)
+      local digest = read(att):match("^([0-9a-f]+)  cosmic\n$")
+      assert(digest ~= nil and #digest == 64, "invalid attestation: " .. att)
       assert(Hash.hex_sha256(ArtifactRow.with(read(p .. "/cosmic"), p .. "/provenance.db", nil)) == digest,
         "changed artifact: " .. p)
-      local n = math.tointeger(assert(tonumber(read(exp))))
-      assert(n and n > 0, "invalid expected count")
-      if expected then assert(expected == n, "inconsistent expected count") else expected = n end
       if baseline then
         assert(baseline == digest, "worker artifact hashes differ")
       else
         baseline = digest
       end
       count = count + 1
-      note_half(p, false)
     end
   end
-  assert(expected ~= nil, "no product to compare")
+  assert(count > 0, "no product to compare")
   assert(count == expected, "expected " .. Plural.count(expected, "product") .. ", found " .. tostring(count))
-  assert(#share_digests == shares, "expected " .. Plural.count(shares, "share attestation") ..
-      ", found " .. tostring(#share_digests))
-  for _, digest in ipairs(share_digests) do
-    assert(digest == baseline, "share artifact hash differs from the legs'")
-  end
-  if shares > 0 then
-    local seen: mut {string: boolean} = {}
-    for _, half in ipairs(halves) do
-      local index_text, total_text = half:match("^(%d+)/(%d+)$")
-      local index = math.tointeger(tonumber(assert(index_text)))
-      local total = math.tointeger(tonumber(assert(total_text)))
-      assert(index ~= nil and total ~= nil and total == shares + 1 and index >= 1 and index <= total,
-        "share " .. half .. " is not one of " .. tostring(shares + 1))
-      assert(seen[half] ~= true, "share " .. half .. " ran twice")
-      seen[half] = true
-    end
-    assert(#halves == shares + 1, "the portable suite ran " .. Plural.count(#halves, "share") .. " of its " ..
-        tostring(shares + 1))
-  end
   return step(c, "provenance comparison", function(): boolean, string
     return true, ""
   end)
@@ -2481,9 +2204,9 @@ function Orchestration.provenance(_a: {string}): integer
   local c: Context = { db = ctx.db, worker = ctx.worker, run = ctx.run,
     attempt = ctx.attempt, root = ctx.root, driver = assert(Fs.absolute(assert(arg[0]))) }
   return run_phase(c, "provenance", function(): integer
-    local shares = math.tointeger(tonumber(named("COSMIC_CI_PORTABLE_SHARES") or "0"))
-    assert(shares ~= nil and shares >= 0, "invalid COSMIC_CI_PORTABLE_SHARES")
-    return provenance_impl(c, ctx.products, shares)
+    local expected = math.tointeger(tonumber(named("COSMIC_CI_PRODUCTS") or ""))
+    assert(expected ~= nil and expected > 0, "invalid COSMIC_CI_PRODUCTS")
+    return provenance_impl(c, ctx.products, expected)
   end)
 end
 

@@ -1,17 +1,18 @@
 --- The `docs` rows a link's name is looked up in, held in memory: what
 --- `cosmic fix` ([`build.links`]) and the build's index of links
 --- ([`build.link_index`]) answer a name in full with, one table lookup a
---- name rather than a scan of every row. The rule is [`docs.exact`]'s
+--- name rather than a scan of every row. The rule is [`cosmic.doc.exact`]'s
 --- for a name with a `.` -- a symbol as declared or by its last few
 --- names, a module's own row, a module with no row of its own by its
 --- first, or a member of a type an alias stands for
 --- ([`Sqlite.Handle.exec`]) -- and, for a module's member written in full,
---- [`build.docs`]' `member_of`'s ([`cosmic.fs.read`],
+--- [`cosmic.doc`]' `member_of`'s ([`cosmic.fs.read`],
 --- [`cosmic.cli.order`]). A name alone never comes here:
 --- it names a declaration of its own file ([`build.link_resolve`]).
 
 local Sqlite = require("cosmic.sqlite")
-local alias_members = require("build.alias_members")
+local alias_members = require("cosmic.internal.alias_members")
+local doc_symbols = require("cosmic.internal.symbols")
 local type link_resolve = require("build.link_resolve")
 
 local record symbol_index
@@ -27,7 +28,7 @@ local record symbol_index
     file: string
     --- Whether a name may answer with it: `cosmic docs` shows it, from
     --- the database that owns its module. A row not shown is still a
-    --- type an alias may stand for, as [`build.docs`] reads every row.
+    --- type an alias may stand for, as [`cosmic.doc`] reads every row.
     shown: boolean
     database: integer
     id: integer
@@ -96,27 +97,10 @@ end
 --- `bound` ([`build.schema`]) of the database `db` holds under
 --- `qualifier` (`""` or `"out."`), where it holds that table: one
 --- written before it existed binds none. The first database read that
---- binds a name answers for it, as [`build.docs`] reads them.
+--- binds a name answers for it, as [`cosmic.doc`] reads them.
 function symbol_index.add_bound(index: symbol_index.Index, db: Sqlite.Handle,
                                 qualifier: string): boolean, string
-  local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
-      "sqlite_schema WHERE type = 'table' AND name = 'bound'")
-  if held == nil then
-    return false, held_trouble
-  end
-  if #held == 0 then
-    return true, ""
-  end
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
-  if rows == nil then
-    return false, trouble
-  end
-  for _, row in ipairs(rows) do
-    local key = row:text(1) .. "\n" .. row:text(2)
-    if index.bound[key] == nil then index.bound[key] = row:text(3) end
-  end
-  return true, ""
+  return doc_symbols.add_bound(index.bound, db, qualifier)
 end
 
 --- Adds a row of `docs` to `index` (`symbol` `""` for the module's own
@@ -171,17 +155,37 @@ local function once_each(lists: {{symbol_index.Row}}): mut {symbol_index.Row}
   return out
 end
 
---- `rows` as the symbols a link names.
+--- `rows` as the symbols a link names, one to a declaration: a module's
+--- rows of one source symbol are one, the exported row standing for the
+--- rest. A function the module's record declares as a field and its file
+--- defines (`function RunDb.years`) has an exported row (`years`) and the
+--- definition's (`RunDb.years`); one of a record the module does not
+--- export has the field's and the definition's ([`Stored.text`]). Either
+--- pair would make one declaration two answers.
 local function symbols(rows: {symbol_index.Row}): {link_resolve.Symbol}
-  local out: mut {link_resolve.Symbol} = {}
+  local chosen: mut {string: symbol_index.Row} = {}
   for _, row in ipairs(rows) do
-    out[#out + 1] = { module = row.module, symbol = row.symbol, file = row.file }
+    local key = row.module .. "\n" .. row.source_symbol
+    local held = chosen[key]
+    if held == nil or row.exported and not held.exported then chosen[key] = row end
+  end
+  local out: mut {link_resolve.Symbol} = {}
+  local said: mut {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    local key = row.module .. "\n" .. row.source_symbol
+    -- A module's own row has no source symbol, and stands for itself.
+    local taken = if row.source_symbol ~= "" then chosen[key] or row else row end
+    if row.source_symbol == "" or said[key] ~= true then
+      said[key] = true
+      out[#out + 1] = { module = taken.module, symbol = taken.symbol, file = taken.file, kind = taken.kind,
+        source = taken.source_symbol }
+    end
   end
   return out
 end
 
 --- The fields and values declared directly under `target`, less any
---- named `_...`, as [`build.docs`] reads them: those of the first
+--- named `_...`, as [`cosmic.doc`] reads them: those of the first
 --- database that declares any, in its order.
 local function members_under(index: symbol_index.Index, target: symbol_index.Row): {symbol_index.Row}
   local rows = index.under[target.module .. "\n" .. target.source_symbol] or {}
@@ -197,7 +201,7 @@ local function members_under(index: symbol_index.Index, target: symbol_index.Row
   return out
 end
 
---- `index`'s rows, as [`build.alias_members`] follows a declaration
+--- `index`'s rows, as [`cosmic.internal.alias_members`] follows a declaration
 --- through them.
 local function source_of(index: symbol_index.Index): alias_members.Source<symbol_index.Row>
   return {
@@ -235,7 +239,7 @@ end
 --- the exported member `name` of the record the module's value is typed
 --- as (`Module.order` of a module that returns `local module: Module`);
 --- else the member of a type an alias of the module stands for
---- (`Handle.close` of [`cosmic.sqlite`]): [`build.docs`]' `member_of`.
+--- (`Handle.close` of [`cosmic.sqlite`]): [`cosmic.doc`]' `member_of`.
 local function members_of(index: symbol_index.Index, module: string,
                           name: string): {symbol_index.Row}
   local dotted = name:gsub(":", ".")
@@ -264,7 +268,7 @@ function symbol_index.member(index: symbol_index.Index, module: string,
 end
 
 --- The rows `query` names as declared or by its last few names, or a
---- module's own row, as [`build.docs`]'s `named` finds them.
+--- module's own row, as [`cosmic.doc`]'s `named` finds them.
 local function named_rows(index: symbol_index.Index, query: string): mut {{symbol_index.Row}}
   return { index.exact[query] or {}, index.named[query] or {},
     index.named[(query:gsub(":", "."))] or {} }

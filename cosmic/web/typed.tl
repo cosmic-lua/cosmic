@@ -2,6 +2,7 @@
 --- [`cosmic.shape`] specs, so its handler is given checked records and
 --- input that fails them is answered before it runs. The route is erased to
 --- the plain [`Web.Route`]: its handler closes over the binding.
+--- @public
 
 local Input = require("cosmic.web.input")
 local Json = require("cosmic.json")

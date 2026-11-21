@@ -50,6 +50,17 @@ local function test_a_changeset_gives_what_it_revokes()
   assert(onecrl.timestamp(text) == "1792622041776")
 end
 
+--- The state's timestamp is its top-level member in any order: the feed
+--- moved it from after `metadata` to the front. A nested one, or one that
+--- is no integer, is none.
+local function test_a_changeset_timestamp_is_read_from_any_member_order()
+  assert(onecrl.timestamp('{"timestamp":1794348206673,"metadata":{},"changes":[{"timestamp":2}]}') ==
+      "1794348206673")
+  assert(onecrl.timestamp('{"metadata":{"timestamp":1},"changes":[]}') == nil)
+  assert(onecrl.timestamp('{"timestamp":"7","changes":[]}') == nil)
+  assert(onecrl.timestamp("not json") == nil)
+end
+
 --- A change that names neither pair whole, or a key hash that is not a
 --- SHA-256, or text that is no changeset, is refused, saying why.
 local function test_a_changeset_it_cannot_mean_is_refused()

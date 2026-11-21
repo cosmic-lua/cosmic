@@ -246,8 +246,10 @@ end
 local function difference_of(text: string, stubbed_text?: string): string?
   local chunk, why = Node.parse(text, "m.tl")
   local made = Stub.made((assert(chunk, why)))
-  local from = Programs.run(text)
-  local to = Programs.run(stubbed_text or made.text)
+  -- Each in a program of its own ([`Programs.runner`]): the two are held at once, which two calls of
+  -- [`Programs.run`] cannot be.
+  local from = Programs.runner()(text)
+  local to = Programs.runner()(stubbed_text or made.text)
   return Stub.difference(from.program, to.program, "t")
 end
 

@@ -2,6 +2,7 @@
 --- standard library that meets a kind its declaration refuses, and only that: a parameter declared elsewhere, and the
 --- other kinds of boundary, are recorded and let through. The checks are crossed by hand with [`worker.cross`], as the
 --- Lua of a checked function crosses them, so the test fails nothing of its own.
+local Assertions = require("build.assertions")
 local Test = require("cosmic.test")
 local worker = require("build.test_worker")
 
@@ -106,4 +107,19 @@ local function test_a_spec_the_hook_cannot_read_is_a_row()
   local first = assert(met[1])
   assert(first.kind == "unreadable" and first.count == 1, first.kind .. " " .. tostring(first.count))
   assert(assert(met[2]).kind == "unreadable")
+end
+
+--- The hook runs inside the test it checks, and a test that made no call to `assert` is listed as NO ASSERT, so the
+--- hook makes none: a violation it records must leave the test's count of them as it was.
+local function test_recording_a_violation_makes_no_call_to_assert()
+  worker.install_checks()
+  local before = Assertions.count()
+  cross("f;probe/x.tl:1;field;integer", "text")
+  cross("p;probe/x.tl:6;N.g;a=integer", "text")
+  cross("r;probe/x.tl:8;integer", "text")
+  cross("n;probe/x.tl:7:1;v;string", "x")
+  -- A fact the value breaks fails the read, which is its job; the count is what is read.
+  local read_ok, _ = pcall(function() cross("n;probe/x.tl:9:1;w;integer", 1.5) end)
+  local after = Assertions.count()
+  assert(read_ok == false and after == before, tostring(after - before) .. " calls to assert while recording, or the broken fact let the read through")
 end

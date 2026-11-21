@@ -74,10 +74,21 @@ local function bytes(text: string?): string?
   return decoded
 end
 
---- The timestamp of the state the changeset `text` is of, as its JSON
---- writes it, or nil when it names none.
+--- The timestamp of the state the changeset `text` is of, as digits: its
+--- top-level `timestamp`, in any member order. Nil when `text` is no JSON
+--- object or names no integer timestamp there. build/vendor.tl reads it
+--- the same way ([`Vendor.feed_timestamp`]); it runs standalone and
+--- cannot require this module.
 function onecrl.timestamp(text: string): string?
-  return text:match('"timestamp"%s*:%s*(%d+)%s*,%s*"changes"')
+  local feed, _ = Json.decode_object(text)
+  if feed == nil then
+    return nil
+  end
+  local timestamp = feed["timestamp"]
+  if timestamp is integer and timestamp >= 0 then
+    return tostring(timestamp)
+  end
+  return nil
 end
 
 --- Every certificate the changeset `text` revokes, in its order: a

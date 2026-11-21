@@ -6,18 +6,12 @@ local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
 local c = require("build.c")
 
---- The core's C and the headers it includes, which zig parses to a syntax tree, and what bin/zig reads to find or fetch
---- zig (it hands build/zig.tl to the bootstrap cosmic, a file the closure does not supply), which the system's `sh` runs;
---- the bootstrap cosmic and zig, and the caches zig builds in, which it writes.
+--- The core's C and the headers it includes, which zig parses to a syntax tree, and the pinned zig, which a check starts
+--- itself where it is installed.
 Test.policy{
-  profiles = { "system" },
   grants = {
-    { path = "bin/cosmic-bootstrap", letters = "r" },
-    { path = "bin/zig", letters = "r" },
     { path = "bin/zig.pin", letters = "r" },
-    { path = "build/zig.tl", letters = "r" },
     { path = "ci/cosmic-driver.pin", letters = "r" },
-    { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "core/", letters = "r" },
     { path = "vendor/bzip2/", letters = "r" },
     { path = "vendor/cares/include/", letters = "r" },
@@ -30,13 +24,10 @@ Test.policy{
     { path = "vendor/sqlite/", letters = "r" },
     { path = "vendor/xz/src/liblzma/api/", letters = "r" },
     { path = "vendor/yyjson/src/", letters = "r" },
-    { path = "/cache/bootstrap", letters = "rwxc" },
     { path = "/cache/zig", letters = "rwxc" },
   },
-  env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
-    "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
-    "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
-    "https_proxy", "no_proxy" },
+  env = { "COSMIC_BOOTSTRAP", "COSMIC_ZIG" },
+  requires = { "pinned_zig" },
 }
 
 local root = assert(Fs.absolute("."))
@@ -78,7 +69,7 @@ local function kept(store: Sqlite.Handle): integer
   local rows, why = Sqlite.rows(store, "SELECT count(*) FROM check_memo WHERE kind = 'c'")
   assert(rows ~= nil, tostring(why) .. ": the check kept no memo, which it does for a stand-in toolchain; " ..
       "COSMIC_BOOTSTRAP or COSMIC_ZIG is probably set in this run when it should not be (an entry point, a wrapper or a " ..
-      "caller leaking it), or the pinned zig is not installed on this host")
+      "caller leaking it)")
   return assert(math.tointeger(assert(rows[1]):integer(1)))
 end
 

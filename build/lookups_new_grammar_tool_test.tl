@@ -241,10 +241,20 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
   local root = started(tmp, "class")
   assert(Fs.write(root .. "/vessels.tl", VESSELS))
   assert(Fs.write(root .. "/vessels_test.tl", VESSELS_TEST))
-  for _, symbol in ipairs({ "Counter.add", "add" }) do
-    local out = looked_up(root, tmp, { "uses", symbol })
-    assert(out == "cmd/tally/main.tl:16: counter Counter.add\ncounter_test.tl:7: counter Counter.add\n", symbol .. ": " .. out)
+  local uses_of_add = "cmd/tally/main.tl:16: counter Counter.add\ncounter_test.tl:7: counter Counter.add\n"
+  local by_class = looked_up(root, tmp, { "uses", "Counter.add" })
+  assert(by_class == uses_of_add, by_class)
+  -- The last name alone also names [`cosmic.bigint`]'s `add`, whose uses in the standard library are listed
+  -- beside the project's: every line of `cosmic/` is one of those, and the rest are the project's.
+  local of_the_project: mut {string} = {}
+  for use in looked_up(root, tmp, { "uses", "add" }):gmatch("[^\n]+\n") do
+    if use:sub(1, 7) == "cosmic/" then
+      assert(use:find(": cosmic.bigint add\n", 1, true) ~= nil, use)
+    else
+      of_the_project[#of_the_project + 1] = use
+    end
   end
+  assert(table.concat(of_the_project) == uses_of_add, table.concat(of_the_project))
   local line = looked_up(root, tmp, { "uses", "Counter.line" })
   assert(line == "cmd/tally/main.tl:18: counter Counter.line\ncounter_test.tl:8: counter Counter.line\n", line)
   -- `self:fill(1)`, `tank:fill(-1)` through a parameter and `planted.tank:fill(2)` through a field, `Tank.fill(tank, 3)` and
@@ -254,9 +264,13 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
   assert(square == "vessels.tl:43: vessels Sq.area\n", square)
   local rows = looked_up(root, tmp, { "sql", "SELECT symbol, from_file, line FROM uses WHERE module = 'vessels' AND symbol LIKE '%.%' " ..
       "ORDER BY symbol, from_file, line" })
-  assert(rows == "symbol\tfrom_file\tline\nJar.fill\tvessels_test.tl\t7\nShape.area\tvessels.tl\t47\nSq.area\tvessels.tl\t43\n" ..
+  -- A field read through a value is a use, as a call is: `self.side` and `self.level` of the classes, and `planted.tank`
+  -- of the record `Garden`.
+  assert(rows == "symbol\tfrom_file\tline\nGarden.tank\tvessels.tl\t82\nJar.fill\tvessels_test.tl\t7\n" ..
+      "Shape.area\tvessels.tl\t47\nSq.area\tvessels.tl\t43\nSq.side\tvessels.tl\t38\n" ..
       "Tank.fill\tvessels.tl\t13\nTank.fill\tvessels.tl\t52\nTank.fill\tvessels.tl\t53\nTank.fill\tvessels.tl\t57\n" ..
-      "Tank.fill\tvessels.tl\t82\nTank.fill\tvessels_test.tl\t5\nTank.top_up\tvessels_test.tl\t5\n", rows)
+      "Tank.fill\tvessels.tl\t82\nTank.fill\tvessels_test.tl\t5\nTank.level\tvessels.tl\t7\nTank.level\tvessels.tl\t8\n" ..
+      "Tank.top_up\tvessels_test.tl\t5\n", rows)
 end
 
 --- A mistyped COSMIC_GRAMMAR is refused by the lookups, as it is by every command that reads it, saying the allowed values.
@@ -306,21 +320,31 @@ local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_re
   local text = assert(Fs.read(root .. "/shapes.tl"))
   assert(Fs.write(root .. "/shapes.tl", (text:gsub("function Shapes.new%(width: integer%): Shapes.Box\n",
     "function Shapes.new(width: integer): Shapes.Box\n  local unused = 1\n"))))
-  -- the refusal is said in one line naming the project, not with the checker's text, which `cosmic test` shows; the answer is
-  -- the last build's, as a build the fork stops leaves it
+  -- the refusal is said in the summary, beside the answer, not with the checker's text, which `cosmic test` shows; the answer
+  -- is the last build's, as a build the fork stops leaves it
+  local stale = "from the last build (the tree does not build: shapes.tl refused; `cosmic test` shows why), "
   local last, last_err = looked_up(root, tmp, { "docs", "Box" })
-  holds(last_err, "docs: not rebuilt: " .. assert(Fs.absolute(root)) ..
-      " does not build (shapes.tl refused; `cosmic test` shows why); answering from its last build by this tool, or from cosmic's own docs where it has none\n")
+  holds(last_err, "docs: 1 named, " .. stale .. "2 databases, ")
   assert(last_err:find("unused_variable", 1, true) == nil and last_err:find("compiler refused", 1, true) == nil,
     last_err)
+  assert(last_err:find("not rebuilt", 1, true) == nil, last_err)
   local _, said = last_err:gsub("\n", "")
-  assert(said <= 2, last_err)
+  assert(said == 1, last_err)
   holds(last, "shapes Shapes.Box")
+  local used, used_err = looked_up(root, tmp, { "uses", "Box.grow" })
+  holds(used, "shapes_test.tl:5: shapes Box.grow")
+  holds(used_err, "uses: 1 place, " .. stale)
+  -- `--json` prints no summary: each record says it is stale, and a line on stderr says why
+  local records, records_err = looked_up(root, tmp, { "docs", "--json", "Box" })
+  holds(records, '"stale":true')
+  holds(records_err, "docs: answered " .. stale:sub(1, -3) .. "\n")
   -- mended, it builds again and says nothing
   assert(Fs.write(root .. "/shapes.tl", text))
   local mended, mended_err = looked_up(root, tmp, { "docs", "Box.grow" })
   holds(mended, "Widens the box by `by`.")
-  assert(mended_err:find("not rebuilt", 1, true) == nil, mended_err)
+  assert(mended_err:find("from the last build", 1, true) == nil, mended_err)
+  local fresh = looked_up(root, tmp, { "docs", "--json", "Box" })
+  assert(fresh ~= "" and fresh:find('"stale"', 1, true) == nil, fresh)
 end
 
 --- A copy of the project of testdata/projects under `tmp`, built by `cosmic test`.

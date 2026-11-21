@@ -5,10 +5,15 @@
 local Clock = require("cosmic.clock")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Speed = require("lang.speed")
 local type PolicyRules = require("build.policy_rules")
 local type plans = require("build.plans")
 local test = require("build.test")
+local type test_state = require("build.test_state")
+local dispatch_sites = require("build.dispatch_sites")
+local lua_tail = require("build.lua_tail")
 local test_key = require("build.test_key")
+local test_report = require("build.test_report")
 local work = require("build.work")
 local worker = require("build.test_worker")
 local support = require("build.test_support_fixture")
@@ -17,7 +22,7 @@ local function test_a_run_that_names_tests_is_failed_by_the_refusals_of_the_file
   local lines = {
     "cosmic/removed_example.tl:279:3: `function Friendly:greet` is not in the grammar (method_in_record): declare it",
     "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
-    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one_test.tl: not compiled: it requires build.one, which did not build",
   }
   assert(#test.refusals_of(lines, {}) == 3, "a run that names nothing is failed by every refusal")
   assert(#test.refusals_of(lines, { "build/other_test.tl" }) == 0)
@@ -29,10 +34,10 @@ end
 
 local function test_a_named_file_that_did_not_compile_is_shown_the_refusals_it_rests_on_first()
   local lines = {
-    "build/one_test.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/one_test.tl: not compiled: it requires build.one, which did not build",
     "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
     "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
-    "build/mid.tl: not compiled: it requires build.one, which the new checker refused",
+    "build/mid.tl: not compiled: it requires build.one, which did not build",
   }
   local roots = { ["build/one_test.tl"] = { 2 }, ["build/one.tl"] = { 2 }, ["build/two.tl"] = { 3 },
     ["build/mid.tl"] = { 2, 3 } }
@@ -47,6 +52,24 @@ local function test_a_named_file_that_did_not_compile_is_shown_the_refusals_it_r
   assert(#mid == 3 and mid[1] == lines[2] and mid[2] == lines[3] and mid[3] == lines[4], table.concat(mid, "|"))
   local none = test.explained(lines, roots, { "build/absent_test.tl" })
   assert(#none.lines == 0 and none.matched["build/absent_test.tl"] == nil)
+end
+
+--- A run shows the refusals it fails for with the roots apart from the files that only require one: all of them for a
+--- run that names nothing, and for one that names files, theirs and the roots they rest on.
+local function test_a_run_shows_the_refusals_it_fails_for_roots_apart_from_dependents()
+  local lines = {
+    "build/one_test.tl: not compiled: it requires build.one, which did not build",
+    "build/one.tl: the compiler refused it\nbuild/one.tl:1:1: wrong (code): fix",
+    "build/two.tl: the compiler refused it\nbuild/two.tl:1:1: also wrong (code): fix",
+    "build/mid.tl: not compiled: it requires build.one, which did not build",
+  }
+  local roots = { ["build/one_test.tl"] = { 2 }, ["build/one.tl"] = { 2 }, ["build/two.tl"] = { 3 },
+    ["build/mid.tl"] = { 2, 3 } }
+  local whole = test.cascade(lines, roots, {})
+  assert(#whole.roots == 2 and whole.roots[1] == lines[2], table.concat(whole.roots, "|"))
+  assert(table.concat(whole.dependents, " ") == "build/one_test.tl build/mid.tl")
+  local named = test.cascade(lines, roots, { "build/one_test.tl" })
+  assert(#named.roots == 1 and named.roots[1] == lines[2] and table.concat(named.dependents) == "build/one_test.tl")
 end
 
 local function test_selection_is_exact_or_at_a_directory_boundary()
@@ -64,25 +87,467 @@ local function test_selection_is_exact_or_at_a_directory_boundary()
 end
 
 --- A worker's load hits and test hits of one module are two lines of its
---- row, the run's hits hold their union, and a table taken before is
---- not folded or spelled again.
+--- row, each naming the module's text, the run's hits hold their union, and
+--- a table taken before is not folded or spelled again.
 local function test_a_modules_load_and_test_hits_are_two_lines_of_its_row()
   local hits: mut {string:mut {integer:boolean}} = {}
   local folded: {{integer:boolean}:boolean} = {} -- declared: key_type
   local spelled: {{integer:boolean}:string} = {} -- declared: key_type
   local loaded: {integer:boolean} = { [3] = true, [1] = true }
+  local texts = { ["build.a"] = "0123abcd" }
   local row = test.take_hits(hits, { ["core"] = {} }, folded, spelled,
-    { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } })
-  assert(row == "build.a\t1,3\nbuild.a\t7\n", row)
+    { ["build.a"] = loaded, ["core"] = { [9] = true } }, { ["build.a"] = { [7] = true } }, texts)
+  assert(row == "build.a 0123abcd\t1,3\nbuild.a 0123abcd\t7\n", row)
   local taken = assert(hits["build.a"], "build.a is taken")
   assert(taken[1] == true and taken[3] == true and taken[7] == true)
   assert(hits["core"] == nil)
   taken[1] = nil
-  row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {})
+  row = test.take_hits(hits, {}, folded, spelled, { ["build.a"] = loaded }, {}, texts)
   local retaken = hits["build.a"]
-  assert(row == "build.a\t1,3\n" and retaken ~= nil and retaken[1] == nil, "a taken table is folded once")
-  local again = test.take_hits({}, {}, {}, {}, { ["build.a"] = loaded }, {})
+  assert(row == "build.a 0123abcd\t1,3\n" and retaken ~= nil and retaken[1] == nil, "a taken table is folded once")
+  local again = test.take_hits({}, {}, {}, {}, { ["build.a"] = loaded }, {}, texts)
   assert(again == row)
+  -- A path that is no module of the run (the core's C) names no text: the key holds it.
+  assert(test.take_hits({}, {}, {}, {}, { ["core/a.c"] = { [2] = true } }, {}, texts) == "core/a.c -\t2\n")
+end
+
+--- A worker given a pure store reports the lines of an imported module's numbered chunk as instruction ordinals
+--- ([`lua_tail.numbered`]), placed at the source lines this run's text gives each instruction; a module's own lines
+--- and those of a module with no ordinal are left as they are, the same table for the same table, and an ordinal
+--- that cannot be placed is dropped and named, never put on another line.
+local function test_a_pure_stores_instruction_ordinals_are_placed_at_this_runs_lines()
+  local base = lua_tail.ordinal_base
+  local lines: {string:{integer}} = { ["build.lib"] = { 4, 4, 9 } }
+  local asked = 0
+  local function lines_of(path: string): {integer}?, string
+    asked = asked + 1
+    local known = lines[path]
+    if known == nil then return nil, "no module of the projection" end
+    return known, ""
+  end
+  local modules = { ["build.lib"] = "0123abcd", ["build.lib_test"] = "4567cdef", ["build.gone"] = "89abcdef" }
+  local placed: mut {string:mut {test_state.Placed}} = {}
+  local unplaced: mut {string:string} = {}
+  local plain: {string:{integer:boolean}} = { ["build.lib_test"] = { [2] = true } }
+  local same = test.place_hits(plain, modules, lines_of, placed, unplaced)
+  assert(same.hits == plain and same.whole, "hits with no ordinal were made again")
+  local loaded: {integer:boolean} = { [base + 1] = true, [base + 3] = true }
+  local hits: {string:{integer:boolean}} = { ["build.lib"] = loaded, ["build.lib_test"] = { [2] = true } }
+  local placing = test.place_hits(hits, modules, lines_of, placed, unplaced)
+  local out = placing.hits
+  assert(placing.whole, "hits every one of which was placed are said not to be")
+  local lib = assert(out["build.lib"], "the library's hits are dropped")
+  assert(lib[4] == true and lib[9] == true and lib[base + 1] == nil and lib[1] == nil, "an ordinal is not placed at its line")
+  assert(out["build.lib_test"] == hits["build.lib_test"], "the test's own lines were made again")
+  local again = test.place_hits({ ["build.lib"] = loaded }, modules, lines_of, placed, unplaced).hits
+  assert(again["build.lib"] == lib and asked == 1, "the same table of hits was placed twice")
+  assert(next(unplaced) == nil)
+  local past_hits: {integer:boolean} = { [base + 4] = true, [5] = true }
+  local past = test.place_hits({ ["build.lib"] = past_hits }, modules, lines_of, placed, unplaced)
+  local kept = assert(past.hits["build.lib"])
+  assert(not past.whole, "hits some of which were dropped are said to be whole")
+  -- The same table again, remembered placed, is still said not to be whole: its test keeps no verdict either.
+  assert(not test.place_hits({ ["build.lib"] = past_hits }, modules, lines_of, placed, unplaced).whole, "a remembered table some of whose hits were dropped is said to be whole")
+  assert(kept[5] == true and kept[4] == nil and kept[9] == nil, "an ordinal past the instructions was put on a line")
+  assert(unplaced["build.lib"] ~= nil, "an ordinal past the instructions was dropped unsaid")
+  local gone = test.place_hits({ ["build.gone"] = { [base + 1] = true } }, modules, lines_of, placed, unplaced)
+  assert(next(assert(gone.hits["build.gone"])) == nil and unplaced["build.gone"] == "no module of the projection")
+  assert(not gone.whole)
+  -- The run says so, a line each, with why, and that no verdict of a test that reached them is kept.
+  local said = test.unplaced_errors(unplaced)
+  assert(#said == 2 and said[1] == "coverage: the hits of build.gone are not placed at its lines: no module of " ..
+      "the projection; no verdict of a test that reached them is kept", table.concat(said, "\n"))
+  assert(said[2] == "coverage: the hits of build.lib are not placed at its lines: instruction 4 is past the " ..
+      "module's 3; no verdict of a test that reached them is kept", table.concat(said, "\n"))
+  assert(#test.unplaced_errors({}) == 0)
+  -- A chunk the test numbers itself is no module of the run, and its lines are kept as no module's are.
+  local own: {string:{integer:boolean}} = { ["m"] = { [base + 1] = true } }
+  local own_out = test.place_hits(own, modules, lines_of, placed, unplaced)
+  assert(own_out.hits == own and own_out.whole and unplaced["m"] == nil)
+end
+
+--- A traceback's frame of a function of a pure store's import names it by the instruction before its first, which
+--- is shown at the module's file and the line this run's text defines the function on; a frame of another chunk, one
+--- no function starts at, and a message's position (which a numbered chunk writes as -1) are left as they are.
+local function test_a_frame_of_a_numbered_chunk_is_shown_at_the_line_its_function_is_defined_on()
+  local base = lua_tail.ordinal_base
+  -- The function whose first instruction is the second is defined on line 8.
+  local function defined_of(path: string): {integer:integer}?, string
+    if path == "build.lib" then return { [1] = 8 }, "" end
+    return nil, "no module of the projection"
+  end
+  local files = { ["build.lib"] = "build/lib.tl", ["build.gone"] = "build/gone.tl" }
+  local said = "build.lib:-1: attempt to index a nil value\n" ..
+    "  build.lib_test:7: in function <build.lib_test:5>\n" ..
+    "  build.gone: in function <build.gone:" .. tostring(base + 1) .. ">\n" ..
+    "  build.lib: in function <build.lib:" .. tostring(base + 1) .. ">\n" ..
+    "  build.lib: in function <build.lib:" .. tostring(base + 2) .. ">"
+  local shown = test.placed_positions(said, files, defined_of)
+  assert(shown == "build.lib:-1: attempt to index a nil value\n" ..
+      "  build.lib_test:7: in function <build.lib_test:5>\n" ..
+      "  build.gone: in function <build.gone:" .. tostring(base + 1) .. ">\n" ..
+      "  build.lib: in function <build/lib.tl:8>\n" ..
+      "  build.lib: in function <build.lib:" .. tostring(base + 2) .. ">",
+    shown)
+end
+
+--- A row as the shared verdicts keep it, each module's lines as distances, is read as the row of its lines in
+--- full is, whichever of its lines an earlier row held: the same lines credited, and a module whose lines an
+--- earlier row dropped named stale again by a later one, since a run reads `stale` after every row. What comes back
+--- is the row as it came, but the lines this checkout does not own, under a first line that says its lines are
+--- distances; a later run that reads that back from the working database credits the same lines again.
+local function test_a_kept_row_is_read_as_its_text_whatever_earlier_rows_held()
+  local function module(path: string, hash: string): plans.Module
+    return { path = path, file = path, kind = "lib", source = "", source_hash = hash, requires = {}, tests = {}, inputs = nil }
+  end
+  local texts = test.identities({ module("build.moved", string.rep("b", 64)),
+    module("build.same", string.rep("c", 64)), module("build.unowned", string.rep("e", 64)) })
+  local mark = "lines as distances\n"
+  -- Each line as the shared verdicts keep it, and in full.
+  local moved = "build.moved " .. string.rep("a", 16) .. "\t"
+  local same = "build.same " .. string.rep("c", 16) .. "\t"
+  local unowned = "build.unowned " .. string.rep("e", 16) .. "\t2\n"
+  local core = "core/a.c -\t9\n"
+  local kept_rows: {string} = { moved .. "4,1\n" .. same .. "1,1,5\n" .. core,
+    same .. "1,1,5\n" .. unowned .. moved .. "4,1\n", "", same .. "1,1,5\n" }
+  local full_rows: {string} = { moved .. "4,5\n" .. same .. "1,2,7\n" .. core,
+    same .. "1,2,7\n" .. unowned .. moved .. "4,5\n", "", same .. "1,2,7\n" }
+  local owned_rows: {string} = { kept_rows[1] or "", same .. "1,1,5\n" .. moved .. "4,1\n", "", kept_rows[4] or "" }
+  local not_owned: {string:mut {integer:boolean}} = { ["build.unowned"] = {} }
+  local met: mut {string:test_state.SharedLine} = {}
+  local hits: mut {string:mut {integer:boolean}} = {}
+  --- Whether `got` credits every line `want` does.
+  local function holds(got: {string:mut {integer:boolean}}, want: {string:mut {integer:boolean}}): boolean
+    for path, lines in pairs(want) do
+      local credited = got[path]
+      if credited == nil then return false end
+      for line in pairs(lines) do
+        if credited[line] ~= true then return false end
+      end
+    end
+    return true
+  end
+  for at, row in ipairs(kept_rows) do
+    local want_hits: mut {string:mut {integer:boolean}} = {}
+    local want_stale: mut {string:string} = {}
+    local _ = test.decode_hits(assert(full_rows[at]), want_hits, texts, want_stale, not_owned)
+    local stale: mut {string:string} = {}
+    local got = test.decode_kept(row, met, hits, texts, stale, not_owned)
+    assert(got == mark .. assert(owned_rows[at]), "row " .. tostring(at) .. " came back as " .. got)
+    for path, why in pairs(want_stale) do
+      assert(stale[path] == why, "row " .. tostring(at) .. " left " .. path .. " " .. tostring(stale[path]))
+    end
+    for path in pairs(stale) do
+      assert(want_stale[path] ~= nil, "row " .. tostring(at) .. " named " .. path .. " stale, which its text does not")
+    end
+    assert(holds(hits, want_hits), "row " .. tostring(at) .. " credited fewer lines than its lines in full")
+    -- Read back as the working database keeps it.
+    local back_hits: mut {string:mut {integer:boolean}} = {}
+    local back_stale: mut {string:string} = {}
+    local back = test.decode_hits(got, back_hits, texts, back_stale, not_owned)
+    assert(back == got, "row " .. tostring(at) .. " read back came out as " .. back)
+    assert(holds(back_hits, want_hits) and holds(want_hits, back_hits),
+      "row " .. tostring(at) .. " read back credits other lines than its lines in full")
+    for path, why in pairs(want_stale) do
+      assert(back_stale[path] == why, "row " .. tostring(at) .. " read back left " .. path .. " unnamed")
+    end
+  end
+  assert(assert(hits["build.same"])[7] == true and hits["build.moved"] == nil,
+    "a line's distances were not added up, or a moved module was credited")
+  -- A line an earlier row held is not read again: nothing is credited for it a second time.
+  local again: mut {string:mut {integer:boolean}} = {}
+  local _ = test.decode_kept(same .. "1,1,5\n" .. "core/b.c -\t3\n", met, again, texts, {}, not_owned)
+  assert(again["build.same"] == nil and assert(again["core/b.c"])[3] == true,
+    "a line already met was read again, or a new one was not read")
+end
+
+--- A standing row's lines are credited only for the modules whose text it
+--- names is still this run's. A comment that moves a harness module's lines
+--- moves no key, so a row written before it numbers lines the text no longer
+--- has there: those are dropped and the module named stale, as is every
+--- module of a row too old to name its text. The core's C is credited as it
+--- stands, its text held by the key.
+local function test_standing_hits_of_a_module_whose_text_moved_are_dropped_and_counted()
+  local function module(path: string, hash: string): plans.Module
+    return { path = path, file = path, kind = "lib", source = "", source_hash = hash, requires = {}, tests = {}, inputs = nil }
+  end
+  local texts = test.identities({ module("build.moved", string.rep("b", 64)),
+    module("build.same", string.rep("c", 64)) })
+  assert(texts["build.same"] == string.rep("c", 16), texts["build.same"])
+  local row = "build.moved " .. string.rep("a", 16) .. "\t4,5\n" ..
+    "build.same " .. string.rep("c", 16) .. "\t1,2\n" ..
+    "core/a.c -\t9\n" .. "core/b.c\t8\n" ..
+    "build.old\t3\n"
+  local hits: mut {string:mut {integer:boolean}} = {}
+  local stale: mut {string:string} = {}
+  local kept = test.decode_hits(row, hits, texts, stale)
+  assert(hits["build.moved"] == nil, "a module numbered in another text is credited no line")
+  local same = assert(hits["build.same"], "a module of the same text is credited")
+  assert(same[1] == true and same[2] == true)
+  assert(assert(hits["core/a.c"])[9] == true and assert(hits["core/b.c"])[8] == true,
+    "the core's C is credited as it stands")
+  assert(stale["build.moved"] == test_report.other_text and stale["build.same"] == nil, "the moved module is stale")
+  assert(hits["build.old"] ~= nil and stale["build.old"] == nil,
+    "a path that is no module of this run is no figure's, and folded as it stands")
+  -- A row from before rows named their text names a module of this run: stale.
+  local before: mut {string:string} = {}
+  local _ = test.decode_hits("build.same\t1,2\n", {}, texts, before)
+  assert(before["build.same"] == test_report.other_text, "a row naming no text credits no module")
+  -- A path may hold a space: only a last word of 16 hex digits (or "-") is a text.
+  local spaced = test.identities({ module("suite.he lper", string.rep("d", 64)) })
+  local old_spaced: mut {string:string} = {}
+  local old_hits: mut {string:mut {integer:boolean}} = {}
+  local _ = test.decode_hits("suite.he lper\t3\n", old_hits, spaced, old_spaced)
+  assert(old_spaced["suite.he lper"] == test_report.other_text and old_hits["suite.he lper"] == nil and old_hits["suite.he"] == nil,
+    "an old row of a path with a space was read as naming a text")
+  local new_hits: mut {string:mut {integer:boolean}} = {}
+  local _ = test.decode_hits("suite.he lper " .. string.rep("d", 16) .. "\t3\n", new_hits, spaced, {})
+  assert(assert(new_hits["suite.he lper"])[3] == true, "a row of a path with a space naming its text is credited")
+  assert(kept == row, "the row is kept as written, so a run standing on it drops the same lines: " .. kept)
+  -- A share keeps no line of the core's C another project owns.
+  local unowned_kept = test.decode_hits(row, {}, texts, {}, { ["core/a.c"] = {}, ["core/b.c"] = {} })
+  assert(unowned_kept:find("core/", 1, true) == nil and unowned_kept:find("build.moved", 1, true) ~= nil, unowned_kept)
+end
+
+--- A pure store's import is reported by instruction, and its row keeps the
+--- ordinals, named by the module's stripped bytecode, not the lines this run
+--- placed them at: a comment above them later moves the lines and not the
+--- key, and a run standing on the row places each ordinal at the line its own
+--- text has it on, so the module is credited and not stale. The row names no
+--- text, so a decoder that reads a row's numbers as lines (an older tool's,
+--- or the line path here, given no bytecode) drops it as of another text and
+--- never credits an ordinal as a line. An ordinal the run cannot place is
+--- dropped, and the module named stale with why.
+local function test_a_standing_rows_ordinals_are_placed_at_the_lines_of_this_runs_text()
+  local base = lua_tail.ordinal_base
+  local text, code = string.rep("d", 16), string.rep("c", 16)
+  local reported: {integer:boolean} = { [base + 1] = true, [base + 3] = true }
+  local placed: {integer:boolean} = { [4] = true, [9] = true }
+  local hits: mut {string:mut {integer:boolean}} = {}
+  local codes = { ["build.lib"] = code }
+  local row = test.take_hits(hits, {}, {}, {}, { ["build.lib"] = reported, ["build.lib_test"] = { [2] = true } }, {},
+    { ["build.lib"] = text, ["build.lib_test"] = text }, { ["build.lib"] = placed }, {}, codes)
+  assert(row == "build.lib " .. code .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 3) .. "\n" ..
+      "build.lib_test " .. text .. "\t2\n", row)
+  local folded = assert(hits["build.lib"], "the placed lines are not folded")
+  assert(folded[4] == true and folded[9] == true and folded[base + 1] == nil, "the run's figure holds an ordinal")
+  -- With no bytecode to name, the row keeps the lines placed, under the module's text.
+  local plain = test.take_hits({}, {}, {}, {}, { ["build.lib"] = reported }, {}, { ["build.lib"] = text },
+    { ["build.lib"] = placed }, {})
+  assert(plain == "build.lib " .. text .. "\t4,9\n", plain)
+  -- Later, a comment above the module's code: its text is another, its instructions one line lower.
+  local now = { ["build.lib"] = string.rep("e", 16) }
+  local function lines_of(path: string): {integer}?, string
+    if path == "build.lib" then return { 5, 5, 10 }, "" end
+    return nil, "no module of the projection"
+  end
+  local credited: mut {string:mut {integer:boolean}} = {}
+  local stale: mut {string:string} = {}
+  local kept = test.decode_hits(row, credited, now, stale, nil, lines_of, codes)
+  local lib = assert(credited["build.lib"], "a standing row's ordinals are credited no line")
+  assert(lib[5] == true and lib[10] == true and lib[4] == nil and lib[9] == nil, "an ordinal is not placed at this run's line")
+  assert(stale["build.lib"] == nil, "a module whose ordinals were all placed is stale")
+  assert(kept == row, kept)
+  -- The line path, which an older tool's decoder is: the row names another text than the module's, even where
+  -- the text is unchanged, so it is dropped as such and no ordinal is credited as a line.
+  local lined: mut {string:mut {integer:boolean}} = {}
+  local lined_stale: mut {string:string} = {}
+  local _ = test.decode_hits(row, lined, { ["build.lib"] = text }, lined_stale, nil, lines_of)
+  assert(lined["build.lib"] == nil and lined_stale["build.lib"] == test_report.other_text,
+    "a row of ordinals was read as lines")
+  -- One past the instructions, or with nothing to place it by, is dropped, never put on a line, and why is said.
+  local past: mut {string:mut {integer:boolean}} = {}
+  local past_stale: mut {string:string} = {}
+  local _ = test.decode_hits("build.lib " .. code .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 4) .. "\n",
+    past, now, past_stale, nil, lines_of, codes)
+  local some = assert(past["build.lib"])
+  local count = 0
+  for _ in pairs(some) do count = count + 1 end
+  assert(some[5] == true and count == 1, "an ordinal past the instructions was credited")
+  assert(past_stale["build.lib"] == "were not placed at its lines: instruction 4 is past the module's 3",
+    past_stale["build.lib"])
+  local gone: mut {string:mut {integer:boolean}} = {}
+  local gone_stale: mut {string:string} = {}
+  local _ = test.decode_hits(row, gone, now, gone_stale, nil, function(_: string): {integer}?, string
+    return nil, "no module of the projection"
+  end, codes)
+  assert(gone["build.lib"] == nil and gone_stale["build.lib"] == "were not placed at its lines: no module of the " ..
+      "projection", gone_stale["build.lib"])
+end
+
+--- The rows of a suite hold the lines every test hits of the modules every test loads once a test, so the run that
+--- stands on them folds each line it has met without reading it again, and is left what reading it left: the hits,
+--- and why a module is stale, the last line folded deciding as it does where every line is read.
+local function test_a_line_of_hits_met_again_is_folded_once_and_leaves_what_it_left()
+  local code, text = string.rep("c", 16), string.rep("d", 16)
+  local now = { ["build.lib"] = string.rep("e", 16), ["build.moved"] = text }
+  local codes = { ["build.lib"] = code }
+  local asked = 0
+  local function lines_of(_: string): {integer}?, string
+    asked = asked + 1
+    return { 5, 5, 10 }, ""
+  end
+  local base = lua_tail.ordinal_base
+  local placed = "build.lib " .. code .. "\t" .. tostring(base + 1) .. "," .. tostring(base + 3) .. "\n"
+  local past = "build.lib " .. code .. "\t" .. tostring(base + 4) .. "\n"
+  local other = "build.moved " .. string.rep("a", 16) .. "\t4\n"
+  local rows = { placed .. other, past, placed .. other, placed }
+  local function decoded(folded?: test.Folded): {string:mut {integer:boolean}}, {string:string}, {string}
+    local hits: mut {string:mut {integer:boolean}} = {}
+    local stale: mut {string:string} = {}
+    local kept: mut {string} = {}
+    for _, row in ipairs(rows) do
+      kept[#kept + 1] = test.decode_hits(row, hits, now, stale, nil, lines_of, codes, folded)
+    end
+    return hits, stale, kept
+  end
+  local hits, stale, kept = decoded()
+  assert(asked == 4, "each line of an import's ordinals asks for its lines: " .. tostring(asked))
+  asked = 0
+  local once_hits, once_stale, once_kept = decoded({})
+  assert(asked == 2, "a line met again was read again: " .. tostring(asked))
+  local lib, once_lib = assert(hits["build.lib"]), assert(once_hits["build.lib"])
+  assert(lib[5] == true and lib[10] == true and once_lib[5] == true and once_lib[10] == true)
+  assert(hits["build.moved"] == nil and once_hits["build.moved"] == nil)
+  -- The line placed whole is folded after the one past the module's instructions, and leaves nothing: what that one
+  -- left stays, as where both are read.
+  assert(stale["build.lib"] == "were not placed at its lines: instruction 4 is past the module's 3", stale["build.lib"])
+  assert(once_stale["build.lib"] == stale["build.lib"] and once_stale["build.moved"] == test_report.other_text and
+      stale["build.moved"] == test_report.other_text, once_stale["build.lib"])
+  for index, row in ipairs(rows) do
+    assert(kept[index] == row and once_kept[index] == row, "a row is kept as written: " .. tostring(index))
+  end
+  -- A line that left a module stale says so again where another line of the path has said otherwise since.
+  local again: mut {string:string} = {}
+  local folded: test.Folded = {}
+  local _ = test.decode_hits(other, {}, now, again, nil, lines_of, codes, folded)
+  again["build.moved"] = "another line's word"
+  local _ = test.decode_hits(other, {}, now, again, nil, lines_of, codes, folded)
+  assert(again["build.moved"] == test_report.other_text, again["build.moved"])
+end
+
+--- A working database holding the executable lines `1..lines` of one module, and the module's hits of every other
+--- line of them and of two lines it does not have.
+local function coverage_of(lines: integer): Sqlite.Handle, {string:{integer:boolean}}
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  for _, statement in ipairs(work.schema) do assert(db:exec(statement)) end
+  local numbers: mut {string} = {}
+  local hit: mut {integer:boolean} = { [lines + 1] = true, [lines + 7] = true }
+  for line = 1, lines do
+    numbers[line] = tostring(line)
+    if line % 2 == 1 then hit[line] = true end
+  end
+  assert(Sqlite.run(db, "INSERT INTO executable (source_hash, lines) VALUES ('h', ?1)",
+    { { text = table.concat(numbers, " ") } }))
+  return db, { ["build.lib"] = hit }
+end
+
+--- Writes the coverage of [`coverage_of`]'s module for the run `run`, answering the lines hit and the lines written.
+local function write_module(db: Sqlite.Handle, hits: {string:{integer:boolean}}, run: integer): integer, integer
+  local wrote = assert(test.write_module_coverage(db,
+    function(visit: function(string, string): boolean, string): boolean, string
+      return visit("build.lib", "h")
+    end,
+    function(path: string): string return path .. ": its lines are not kept" end, hits, run))
+  return wrote.hit, wrote.lines
+end
+
+--- A module's coverage is a row for each executable line, hit where a test hit it, and the counts answered are of
+--- those rows: a line hit that the module does not have is no row and is not counted.
+local function test_a_modules_coverage_counts_the_rows_written_and_those_hit()
+  local db, hits = coverage_of(9)
+  assert(db:exec("INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (7, 'core/a.c', 1, 1), (6, 'build.lib', 1, 1)"))
+  local hit, lines = write_module(db, hits, 7)
+  assert(hit == 5 and lines == 9, tostring(hit) .. " of " .. tostring(lines))
+  local rows = assert(assert(Sqlite.text_rows(db,
+    "SELECT count(*), sum(hit), group_concat(line, ' ') FROM coverage WHERE ran_at_ns = 7 AND path = 'build.lib' AND hit = 1"))[1]):texts()
+  assert(rows[1] == "5" and rows[2] == "5" and rows[3] == "1 3 5 7 9", table.concat(rows, "|"))
+  assert(db:close())
+end
+
+--- Four times the lines of a module cost about four times the time to write, and not sixteen: counting the lines hit
+--- by spreading the module's lines again for each of them did.
+local function test_four_times_a_modules_lines_cost_about_four_times_to_write()
+  local small, small_hits = coverage_of(1000)
+  local large, large_hits = coverage_of(4000)
+  local run = 0
+  local ok, why = Speed.within(function()
+    run = run + 1
+    local _, _ = write_module(small, small_hits, run)
+  end, function()
+    run = run + 1
+    local _, _ = write_module(large, large_hits, run)
+  end, 10)
+  assert(ok, "four times the lines " .. why)
+  assert(small:close() and large:close())
+end
+
+--- A test's row holds the modules of its load, then those of its test, each in the order of their paths, whatever
+--- order the worker's tables give them in: the row is kept and shared as written.
+local function test_a_row_of_hits_holds_its_modules_in_the_order_of_their_paths()
+  local text = string.rep("d", 16)
+  local texts = { ["build.a"] = text, ["build.b"] = text, ["build.c"] = text, ["build.a.z"] = text }
+  local row = test.take_hits({}, {}, {}, {},
+    { ["build.c"] = { [1] = true }, ["build.a"] = { [2] = true }, ["build.b"] = { [3] = true }, ["build.a.z"] = { [4] = true } },
+    { ["build.b"] = { [9] = true }, ["build.a"] = { [8] = true } }, texts)
+  assert(row == "build.a " .. text .. "\t2\n" .. "build.a.z " .. text .. "\t4\n" .. "build.b " .. text .. "\t3\n" ..
+      "build.c " .. text .. "\t1\n" .. "build.a " .. text .. "\t8\n" .. "build.b " .. text .. "\t9\n", row)
+end
+
+--- The hits of `files` modules of `lines` lines each, none of them a file that turns on the processor.
+local function module_hits(files: integer, lines: integer): {string:{integer:boolean}}
+  local hits: mut {string:mut {integer:boolean}} = {}
+  for file = 1, files do
+    local per_line: mut {integer:boolean} = {}
+    for line = 1, lines do per_line[line] = true end
+    hits["build.module_" .. tostring(file)] = per_line
+  end
+  return hits
+end
+
+--- What the check of the processor's features reads of a worker's hits is the lines of the files that turn on the
+--- processor, from its load and from its test, and it says of them what it says of every line the worker ran.
+local function test_the_feature_check_reads_the_lines_of_the_files_that_turn_on_the_processor()
+  local reaches: {dispatch_sites.Reach} = {
+    { key = "core/crypto.c:aes", path = "core/crypto.c", lines = { 10, 11 }, why = "chooses AES by the processor" },
+    { key = "core/crypto.c:sha", path = "core/crypto.c", lines = { 40 }, why = "chooses SHA by the processor" },
+    { key = "core/vector.c:dot", path = "core/vector.c", lines = { 7 }, why = "chooses a dot product by the processor" },
+  }
+  local loading: mut {string:{integer:boolean}} = { ["core/crypto.c"] = { [3] = true, [11] = true }, ["build.lib"] = { [10] = true } }
+  local ran: mut {string:{integer:boolean}} = { ["core/crypto.c"] = { [40] = true }, ["core/other.c"] = { [7] = true } }
+  local reached = test.reached(reaches, loading, ran)
+  local crypto = assert(reached["core/crypto.c"])
+  assert(crypto[3] == true and crypto[11] == true and crypto[40] == true, "a line of the load or of the test was left out")
+  assert(reached["build.lib"] == nil and reached["core/other.c"] == nil and reached["core/vector.c"] == nil,
+    "a file that turns on nothing, or that the worker did not run, was read")
+  local whole: mut {string:{integer:boolean}} = { ["core/crypto.c"] = { [3] = true, [11] = true, [40] = true },
+    ["build.lib"] = { [10] = true }, ["core/other.c"] = { [7] = true } }
+  local said = dispatch_sites.failure(reaches, reached)
+  assert(said == dispatch_sites.failure(reaches, whole) and said:find("core/crypto.c:aes", 1, true) ~= nil and
+      said:find("core/crypto.c:sha", 1, true) ~= nil and said:find("core/vector.c", 1, true) == nil, said)
+  assert(dispatch_sites.failure(reaches, test.reached(reaches, { ["build.lib"] = { [10] = true } }, {})) == "")
+end
+
+--- Four times the modules a worker loaded cost the check no more: it folded every line of every one of them, for
+--- each test, to read the lines of a few files of C.
+local function test_the_feature_check_costs_no_more_for_the_modules_a_worker_loaded()
+  local reaches: {dispatch_sites.Reach} = { { key = "core/crypto.c:aes", path = "core/crypto.c", lines = { 10 }, why = "" } }
+  local few, many = module_hits(100, 200), module_hits(400, 200)
+  local ok, why = Speed.within(function()
+    local _ = test.reached(reaches, few, few)
+  end, function()
+    local _ = test.reached(reaches, many, many)
+  end, 2)
+  assert(ok, "four times the modules loaded " .. why)
+end
+
+--- The first progress line of a run that names the longest-running tests
+--- points at where every test's time is; the later ones do not.
+local function test_the_first_longest_running_line_says_where_every_tests_time_is()
+  local first = test.longest_detail("a 31 s", false)
+  assert(first:find("^longest running: a 31 s; every test's time: cosmic sql %-%-build \"select ") ~= nil, first)
+  assert(first:find("from runs order by elapsed_ns desc", 1, true), first)
+  assert(test.longest_detail("a 61 s", true) == "longest running: a 61 s")
 end
 
 --- `--shard I/N` names one of N shares, from 1; nothing else does.
@@ -119,12 +584,12 @@ local function test_the_shares_deal_each_test_once()
       local size = 0
       local modules: mut {string:boolean} = {}
       for id in pairs(dealt) do
-        assert(again[id], id .. " is dealt by the order the ids came in")
+        assert(again[id] == true, id .. " is dealt by the order the ids came in")
         held[id] = (held[id] or 0) + 1
         size = size + 1
         modules[assert(id:match("^(%S+)"), id .. " names a module")] = true
       end
-      for id in pairs(again) do assert(dealt[id], id) end
+      for id in pairs(again) do assert(dealt[id] == true, id) end
       sizes[#sizes + 1] = size
       -- m5's fifteen tests reach every share.
       assert(modules.m5, "share " .. tostring(index) .. " of " .. tostring(count) .. " holds none of m5") -- checked: map_field
@@ -144,7 +609,7 @@ end
 local function test_the_census_says_each_bump_of_the_epoch_apart()
   local word = test_key.harness_word("8-072f7458", Clock.seconds(30))
   assert(word == "e8-072f7458-t" .. tostring(Clock.seconds(30)), word)
-  assert(word:match("^%S+$") and not word:find("[,;]"), word)
+  assert(word:match("^%S+$") ~= nil and not word:find("[,;]"), word)
   assert(test_key.harness_word("8-3f9c2a1b", Clock.seconds(30)) ~= word, "two bumps from one count")
   assert(test_key.harness_word("8-072f7458", Clock.seconds(60)) ~= word, "another timeout")
 end
@@ -219,7 +684,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
       "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
-  local key_code = { "build.test_key", "build.declared_key", "build.shared_verdicts",
+  local key_code = { "build.test_key", "build.stamp", "build.declared_key", "build.shared_verdicts",
     "build.artifact", "build.bind", "build.harness_epoch", "build.host_requires",
     "build.host_names", "build.lua_tail" }
   local imports: {{string}} = {
@@ -264,7 +729,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
       named[name] = true
       assert(modules[name] ~= nil, name .. " has no digest of its own")
     end
-    for name in pairs(modules) do assert(named[name], name .. " is none of `names`") end
+    for name in pairs(modules) do assert(named[name] == true, name .. " is none of `names`") end
   end
   local before = assert(test_key.harness(db))
   each_named(before.modules, before.names)
@@ -290,7 +755,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     return moves(name, "return 'a key'\n", "other bytecode")
   end
   -- A comment moves no digest of the harness, whose bytecode is the same; another bytecode does.
-  for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
+  for _, name in ipairs({ "build.test_key", "build.stamp", "build.declared_key", "build.shared_verdicts",
       "build.artifact", "build.test_worker", "build.test_sandbox", "build.test_policy",
       "cmd.cosmic.main", "build.confine", "build.lua_tail",
       "build.test_inputs", "cosmic.test", "build.host_requires", "build.host_names",
@@ -379,7 +844,7 @@ local function test_the_harness_walks_the_key_code_by_value()
       { blob = dumped(source, true) } }))
   end
   for _, name in ipairs(worker.loads) do add(name) end
-  for _, name in ipairs({ "build.test_key", "build.declared_key", "build.shared_verdicts",
+  for _, name in ipairs({ "build.test_key", "build.stamp", "build.declared_key", "build.shared_verdicts",
       "build.host_requires", "build.artifact", "build.test_sandbox", "build.test_policy",
       "build.caches", "build.zig_caches", "build.closure_store", "build.schema", "build.lua_tail",
       "cosmic.child", "cosmic.sandbox", "cosmic.sandbox.policy", "cosmic.time", "cosmic.sqlite", "cosmic.stream" }) do

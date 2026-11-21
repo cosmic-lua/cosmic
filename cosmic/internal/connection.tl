@@ -167,6 +167,25 @@ local class SocketConn is Duplex
     return address, ""
   end
 
+  --- Where this end is: its own numeric TCP address, as the kernel
+  --- names it (the accepted end of a dual-stack listener may name an
+  --- IPv4 address as an IPv4-mapped IPv6 one). A client's is the
+  --- address and port it reaches the peer from. An accepted
+  --- connection's is the address the connection came to, one of the
+  --- host's own where its listener names the wildcard. Nil and why
+  --- where it has none to give: a unix connection, or a connection
+  --- already closed.
+  -- TODO: answer a unix connection's own address too, once an Address
+  -- can say a unix socket bound nowhere, as a client's is: the core
+  -- answers one, with a path that is empty.
+  function address(self): raw_socket.Address?, string
+    if not self.open then return nil, "net: the connection is closed" end
+    local address, why = raw.bound(self.fd)
+    if address == nil then return nil, why end
+    if address.kind ~= "tcp" then return nil, "net: a unix connection has no TCP address" end
+    return address, ""
+  end
+
   --- Ends one direction, or both: after "write" the peer reads the
   --- end of what was sent, and this side can still read its answer.
   --- A `how` that is none of "read", "write" and "both" is refused where
@@ -209,7 +228,12 @@ local record Connection
   record ConnectOptions
     --- How long connecting, and then any one read or write, waits, in
     --- nanoseconds, from 0; nil for no limit. A TCP connection is
-    --- waited on until made or refused. Connecting to a unix one waits
+    --- waited on until made or refused. One to a listener whose backlog
+    --- is full waits for room where the kernel leaves it unanswered
+    --- (Linux, macOS 15.8). Where the kernel answers it (macOS 27.2) it
+    --- is reset at once instead: connecting fails "Connection reset by
+    --- peer", or the connection is made and its first read fails so, a
+    --- write "Broken pipe". Connecting to a unix one waits
     --- for nothing: a listener whose backlog is full fails it at once,
     --- "Resource temporarily unavailable (the listener is busy: its
     --- backlog is full)" on Linux and "Connection refused" on macOS,

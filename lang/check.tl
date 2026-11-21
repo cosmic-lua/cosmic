@@ -258,6 +258,20 @@ local record Fill
   unit: boolean
 end
 
+--- What a numeric loop `for i = a, #t - b do` by 1 whose body leaves the length of `t` alone knows: `i` is an integer from
+--- `from` to the length of `t` less `slack` for as long as the body runs, so `t[i + c]` is an element `t` has where
+--- `from + c` is 1 or more and `c` is at most `slack` ([`Writes.counted_read`]).
+local record Span
+  --- The id of the binding of `i`.
+  var: integer
+  --- The local `t`, as the loop writes it.
+  object: Ast.Exp
+  --- The literal `a` the loop starts at, 1 or more.
+  from: integer
+  --- The literal `b` the loop stops short of `#t` by, 0 where it runs to `#t`.
+  slack: integer
+end
+
 --- What a loop whose index counts 1, 2, 3 and so on, and writes `a[i]` in every pass before any `continue`, knows of the
 --- arrays `a` it fills ([`Writes.grow_in`]): at each write the array has the keys 1 to `i - 1` at least, so a value that is
 --- not nil written at `i` overwrites a key or appends ([`Writes.leaves_no_hole`]).
@@ -278,6 +292,8 @@ local record Loop
   fill: Fill?
   --- What the loop knows of the arrays it fills in order, where it counts from 1 by 1.
   grow: Grow?
+  --- What the loop knows of the keys around its index, where it counts keys of an array by 1.
+  span: Span?
 end
 
 --- A call that tests a value: the argument it narrows, and the type it takes it to ([`Types.Narrows`]).
@@ -388,6 +404,8 @@ local record Ctx
   mut cand_node: Ast.Node?
   --- The `or` that has an `and` for its left operand, by the id of the `and`.
   ternaries: mut {integer: Ast.Binary}
+  --- The calls whose one value was taken where they may answer more, by id: `or` after one cuts the rest.
+  spare: mut {integer: boolean}
   --- The offsets of the names the scope builder reported unknown, once asked for.
   mut unknown: {integer: boolean}?
   invalid: Type
@@ -416,6 +434,12 @@ local record Ctx
   mut spill: string?
   --- The loops being walked, innermost last.
   mut loops: mut {Loop}
+  --- The reads of a map, by the id of the node: an index read that may be nil there is a missing key, not a key past
+  --- the end ([`index_fix`]).
+  map_reads: mut {integer: boolean}
+  --- The range tests of the arms of `if` being walked ([`Writes.ranges_of`]), innermost last: what a write
+  --- ([`Writes.leaves_no_hole`]) and a read ([`Writes.counted_read`]) at the index tested stand on.
+  mut ranges: mut {Fill}
   --- The key of each local's place, by id.
   keys: mut {integer: string}
   --- The edges of the `and`s and `or`s evaluated, by the id of the node.
@@ -883,41 +907,76 @@ local KIND_WORDS <const>: {Types.DeclKind: string} = {
   record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata record",
 }
 
+--- Whether a value of the optional type `t` may be a boolean where it is not nil: `false` is then a value of it, which a
+--- test for truth takes for nil.
+local function holds_boolean(ctx: Ctx, t: Type): boolean
+  if not nilable(t) then
+    return false
+  end
+  for _, m in ipairs(members_of(ctx.store, ctx.store:non_nil(t))) do
+    if is_bool(m) then
+      return true
+    end
+  end
+  return false
+end
+
 -- Refusals -----------------------------------------------------------------------------------
 
---- The fix for a read `e` of an index that may be nil. The counted loop is offered only where it could apply: an array that
---- is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
-local function index_fix(ctx: Ctx, e: Ast.Index): string
+--- The fix for a read `e` of an index that may be nil. A map's key may be missing, so its read is tested, taken with
+--- `assert` or given a default. For an array, the counted loop and the range test are offered only where they could
+--- apply: an array that is a local name, read at a name. [`Array.at`] and `assert` take any array and key; `or <default>` is steered from.
+--
+-- A value that may hold a boolean (`t`) is not taken with `assert(x)`, which raises for false and is refused
+-- ([`asserted_boolean`]), nor given a default with `or`, which replaces false: it is named and said to be there.
+local function index_fix(ctx: Ctx, e: Ast.Index, t: Type): string
   local xs, key = text_of(ctx, e.object), text_of(ctx, e.key)
   local read = text_of(ctx, e)
+  local flag = holds_boolean(ctx, t)
+  local named = "name it and say it is there (`local v = " .. read .. "` then `assert(v ~= nil)`)"
+  if ctx.map_reads[e.id] == true then
+    if flag then
+      return "test it (`local v = " .. read .. " if v ~= nil then ... end`), or " .. named .. " where the key must be there"
+    end
+    return "test it (`local v = " .. read .. " if v ~= nil then ... end`), take it with `assert(" .. read .. ")` where " ..
+      "the key must be there, or write `" .. read .. " or <default>` where a missing key means that default"
+  end
   local object, at = peel(e.object), peel(e.key)
   local parts = "iterate with `for _, v in ipairs(" .. xs .. ")`, "
   if object.kind == "Name" and at.kind == "Name" then
-    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` (a body that leaves " .. quoted(xs) ..
-      " alone reads " .. quoted(read) .. " as a value), "
+    parts = parts .. "count the keys with `for " .. key .. " = 1, #" .. xs .. " do` or test the index with `if " .. key ..
+      " >= 1 and " .. key .. " <= #" .. xs .. " then` (a body that leaves " .. quoted(xs) .. " alone reads " ..
+      quoted(read) .. " as a value), "
   end
-  return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing) or `assert(" ..
-    read .. ")`, or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
+  return parts .. "read it with `Array.at(" .. xs .. ", " .. key .. ")` (`cosmic.array`: raises when missing)" ..
+    (if flag then ", " .. named else " or `assert(" .. read .. ")`" end) .. ", or test it (`local v = " .. read .. " if v ~= nil then ... end`); `or <default>` turns an out-of-range " ..
     "read into a wrong value"
 end
 
---- The fix for a value that may be nil.
-local function nil_fix(ctx: Ctx, node: Ast.Node): string
+--- The fix for a value of type `t` that may be nil. One that may hold a boolean is not sent to `assert(x)`, as in
+--- [`index_fix`].
+local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
   local e = peel(node)
+  local flag = holds_boolean(ctx, t)
   if (e.kind == "Call") or (e.kind == "MethodCall") then
     local call = subject(ctx, e)
+    if flag then
+      return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
+        "it first (`if v == nil then return nil, why end`); " .. call .. " answers nil when it fails"
+    end
     return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
       "return nil, why end`); " .. call .. " answers nil when it fails"
   end
   if e.kind == "Index" then
-    return index_fix(ctx, e)
+    return index_fix(ctx, e, t)
   end
   local s = text_of(ctx, e)
   if (e.kind == "Field") then
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
-      "take it with `assert(" .. s .. ")`"
+      (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
   end
-  return "test it first (`if " .. s .. " == nil then return nil, why end`), or take it with `assert(" .. s .. ")`"
+  return "test it first (`if " .. s .. " == nil then return nil, why end`), or " ..
+    (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
 end
 
 --- Whether the type `t` names `invalid` anywhere.
@@ -978,10 +1037,10 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
     elseif (e.kind == "Index") then
       report(ctx, "index_may_be_nil", node, s .. " is " .. quoted(g) .. " (an index read may be nil), where " ..
           quoted(w) .. " is wanted" .. where,
-        index_fix(ctx, e), shown)
+        index_fix(ctx, e, got), shown)
     else
       report(ctx, "nil_not_allowed", node, s .. " is " .. quoted(g) .. ", so it may be nil, where " .. quoted(w) ..
-          " is wanted" .. where, nil_fix(ctx, node), shown)
+          " is wanted" .. where, nil_fix(ctx, node, got), shown)
     end
   elseif code == "view_as_mut" then
     -- A view where a `mut` collection of a parameter that nothing else solved is wanted taints it: the collection
@@ -992,10 +1051,15 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       made = "mut " .. g
       super = made
     end
+    local held = Types.display(r.sub, ctx.binders)
+    local fix = "declare " .. s .. " `" .. made .. "` where it is made or received, or pass a collection made `mut`"
+    -- An argument's receiver is a parameter, which may be `mut` by mistake: one typed as the view takes both.
+    local callee = where:match("^ as argument %d+ of (`.+`)$")
+    if callee ~= nil then
+      fix = fix .. "; or, if " .. callee .. " does not change it, declare that parameter `" .. held .. "`, which takes both"
+    end
     report(ctx, "view_as_mut", node, s .. " is " .. quoted(g) .. ", where " .. quoted(w) .. " is wanted" .. where ..
-        ": the view " .. quoted(Types.display(r.sub, ctx.binders)) .. " is not " .. quoted(super) ..
-        ", which the receiver may change",
-      "declare " .. s .. " `" .. made .. "` where it is made or received, or pass a collection made `mut`", shown)
+        ": the view " .. quoted(held) .. " is not " .. quoted(super) .. ", which the receiver may change", fix, shown)
   elseif code == "invariant_mut" or code == "invariant_key" then
     report(ctx, "invariant_mut", node, quoted(Types.display(r.sub, ctx.binders)) .. " is not " ..
         quoted(Types.display(r.super, ctx.binders)) .. " (" .. s .. " is " .. quoted(g) .. ", where " .. quoted(w) ..
@@ -1061,6 +1125,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         quoted(Types.display(r.super, ctx.binders)) .. ")"
     end
     local fix = "pass a value of type " .. quoted(w) .. ", or change the declaration to " .. quoted(g)
+    local held = where:match("^ in the assignment to `([%a_][%w_]*)`$")
+    if want.tag == "nil" and held ~= nil then
+      -- A local given `nil` and no type holds nil alone (`local x = nil`).
+      fix = "declare `" .. held .. "` optional where it is made: `local " .. held .. ": " .. g ..
+        (if nilable(got) then "" else "?" end) .. " = nil`"
+    end
     local body = Types.unfold(want)
     if body ~= want then
       -- A recursive alias is wanted: its arms are what the program has to choose among.
@@ -1198,11 +1268,17 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     info = program.modules[name]
   end
   if info == nil then
-    local fix = "require a module of the project: `bin/cosmic docs` lists them"
+    local fix = "require a module of the project: `bin/cosmic docs` lists them; a file sees the modules of the tree " ..
+      "it is in, so a scratch file that uses a project's modules goes inside that project"
+    local says = "the project has no module " .. quoted(name)
     if program.library[name] == true then
       fix = quoted(name) .. " is a global the language declares, available without `require`: use it directly"
+    elseif name:sub(1, 7) == "cosmic." then
+      -- A program's `cosmic.*` modules are the binary's, which a project cannot add to.
+      says = "cosmic has no module " .. quoted(name)
+      fix = "`cosmic docs` lists the modules cosmic holds, and `cosmic docs <words>` finds a function by what it does"
     end
-    report(ctx, "require_unknown", node, "the project has no module " .. quoted(name), fix)
+    report(ctx, "require_unknown", node, says, fix)
     return ctx.invalid
   end
   local export = info.export
@@ -1400,7 +1476,7 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
     local call = text_of(ctx, node)
     local raises = ""
     if ctx.filename:sub(-8) == "_test.tl" and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
-      raises = "; to check that a call raises, `Test.raises(fn, says?)` runs it and answers the message it raised"
+      raises = "; to check that a call raises, `Test.raises(function() f(x) end, says?)` runs it and answers the message it raised"
     end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
@@ -1408,6 +1484,9 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
     return ctx.invalid
   end
   local alt = alts[1]
+  if #alt.items > 1 or alt.tail ~= nil then
+    ctx.spare[base_of(node).id] = true
+  end
   local first = alt.items[1]
   if first ~= nil then
     return first
@@ -1527,6 +1606,32 @@ function TableLiterals.valid_key(k: Type): boolean
     ((k.tag == "named") and k.decl.kind ~= "enum" or is_enum(k))
 end
 
+--- The fix for an array literal whose elements `all` have no common type. An array of the first element's type
+--- cannot hold the others, so the fix is an array of their union, or, where the values differ by position (a row
+--- such as `{ "name", 1.0 }`), a record whose fields name the positions.
+function TableLiterals.differ_fix(ctx: Ctx, all: {Type}): string
+  local names: mut {string} = {}
+  local seen: mut {string: boolean} = {}
+  for _, t in ipairs(all) do
+    local name = show(ctx, t)
+    if seen[name] ~= true then
+      seen[name] = true
+      names[#names + 1] = name
+    end
+  end
+  local row = "for values that differ by position (a row), declare a record and write each row by name " ..
+    "(`{ name = ..., weight = ... }`)"
+  local tables = false
+  for _, name in ipairs(names) do
+    tables = tables or name:sub(1, 1) == "{" or name:sub(1, 4) == "mut "
+  end
+  -- A union of tables is one a literal cannot pick a member of (literal_ambiguous), so tables get the record alone.
+  if #names > 4 or tables then
+    return row .. ", or make the elements one type"
+  end
+  return "type the literal with their union: `local name: {" .. table.concat(names, " | ") .. "} = ...`; " .. row
+end
+
 --- A literal with no type expected: an array or a map of the join of its items.
 function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
   local store = ctx.store
@@ -1560,7 +1665,7 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
     local element = join(ctx, all)
     if element == nil then
       report(ctx, "arms_differ", e, "the elements of this literal have no common type: " .. listed(type_names(ctx, all)),
-        "type the literal: `local name: {" .. show(ctx, all[1]) .. "} = ...`, or make the elements one type") -- checked: index_may_be_nil
+        TableLiterals.differ_fix(ctx, all))
       return ctx.invalid
     end
     if nilable(element) then
@@ -1974,7 +2079,7 @@ local function readable(ctx: Ctx, node: Ast.Node, t: Type, what: string): Type?
     return nil
   elseif nilable(t) then
     report(ctx, "nil_not_allowed", node, subject(ctx, node) .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. what,
-      nil_fix(ctx, node), { show(ctx, t) })
+      nil_fix(ctx, node, t), { show(ctx, t) })
     return ctx.store:non_nil(t)
   end
   return t
@@ -2245,10 +2350,14 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     names = names_of(ctx, t)
   end
   local close = nearest(name, names)
+  local declare = "declare " .. quoted(name) .. " in " .. owner
+  if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
+    -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
+    declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
+  end
   report(ctx, "field_unknown", node, owner .. " has no field " .. quoted(name) ..
       (if close ~= "" then ", nearest " .. quoted(close) else "" end),
-    if close ~= "" then "write " .. quoted(close) .. ", or declare " .. quoted(name) .. " in " .. owner else
-      "declare " .. quoted(name) .. " in " .. owner end, { show(ctx, t) })
+    if close ~= "" then "write " .. quoted(close) .. ", or " .. declare else declare end, { show(ctx, t) })
 end
 
 --- How a message names the static `name` of `decl` that a statement of the module has yet to give, and that statement:
@@ -2615,7 +2724,7 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
       "bound the type parameter by an interface that declares the operation (`T is Ordered`)", { show(ctx, t) })
   elseif nilable(t) then
     report(ctx, "nil_not_allowed", node, s .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. quoted(op) .. " takes " .. takes,
-      nil_fix(ctx, node), { show(ctx, t) })
+      nil_fix(ctx, node, t), { show(ctx, t) })
   else
     report(ctx, "operand_type", node, s .. " is " .. tq(ctx, t) .. ", and " .. quoted(op) .. " takes " .. takes, fix,
       { show(ctx, t) })
@@ -2726,10 +2835,37 @@ function Operands.overlaps(ctx: Ctx, a: Type, b: Type): boolean
   return false
 end
 
+--- What the fix of a write through the view `base` adds where a local holds it: a local read out of a collection is a
+--- view by that collection's type, which is where `mut` goes.
+local function read_out(ctx: Ctx, target: Ast.Index, base: Type): string
+  local object = target.object
+  if object.kind ~= "Name" then
+    return ""
+  end
+  local id = object.binding
+  local v = if id == nil then nil else ctx.scoped.vars[id] end
+  if v == nil or not (v.kind == "local" or v.kind == "loop") then
+    return ""
+  end
+  return "; one read out of a collection is `mut` where that collection's type says so (`{K: mut " .. show(ctx, base) .. "}`)"
+end
+
+--- Whether the return `s` answers the results of one call alone.
+local function returns_call(s: Ast.Return): boolean
+  local only = s.values[1]
+  return #s.values == 1 and only ~= nil and (only.kind == "Call" or only.kind == "MethodCall")
+end
+
+--- The fix of a value returned by a function that declares no return list: a function literal passed where one that
+--- answers nothing is wanted is such a function, and the call it returns is written as a statement.
+local UNDECLARED_RETURN_FIX <const> = "declare the return list: `function f(): T`"
+local UNDECLARED_CALL_FIX <const> = UNDECLARED_RETURN_FIX .. "; where a function that answers nothing is wanted, write the call as " ..
+  "a statement, with no `return`"
+
 --- What a condition of type `t` is: "bool", "opt" (a `T?` for a `T` that is not a boolean), or "bad" after the error.
---- `default` is set where `node` is the left of an `or`, which asks for a default: a value that is never nil there needs no
---- test, and no default.
-local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: boolean): string
+--- `default` is the `or` whose left `node` is, which asks for a default: a value that is never nil there needs no test, and
+--- no default.
+local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: Ast.Binary): string
   local tag = t.tag
   if is_bool(t) or tag == "never" or tag == "invalid" then
     return "bool"
@@ -2755,10 +2891,19 @@ local function condition_kind(ctx: Ctx, node: Ast.Node, t: Type, default?: boole
   local fix = "remove the condition: " .. s .. " is never false"
   if (t.tag == "var") then
     fix = "a type parameter may be nil or false: test it with `" .. text_of(ctx, node) .. " ~= nil` where it is bounded"
-  elseif default == true then
+  elseif default ~= nil then
     local place = peel(node).kind
-    fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" else "" end) ..
-      ", so the default is never used: delete `or ...`"
+    -- `or` cuts a call to its first value. Where the call would then end a list of values (a return, the arguments of
+    -- a call, a table), deleting the `or` passes on the values after it, so the fix keeps the cut for a call that may
+    -- answer more. `...` is always optional and never reaches here.
+    local cut = if ctx.spare[base_of(node).id] == true then "replace `" ..
+        text_of(ctx, default) .. "` with `(" .. text_of(ctx, node) .. ")`, which keeps only the first value, as `or` did" else
+      "delete `or ...`" end
+    fix = s .. " is never nil" .. (if place == "Name" or place == "Field" then " here (a test before may have narrowed it)" elseif place == "Index" then
+      " here (a loop that counts its keys, or a test or an `assert` before of it or of the length, says so, until a call " ..
+        "or a write to what it indexes)" else
+      "" end) ..
+      ", so the default is never used: " .. cut
   elseif is_text(t) then
     fix = "write the test: `" .. text_of(ctx, node) .. " ~= \"\"`"
   elseif tag == "integer" or tag == "number" then
@@ -3578,12 +3723,13 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
       Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end
-    if dense and Writes.counted_read(ctx, node) then
+    if dense and below(ctx, k, store.integer) and Writes.counted_read(ctx, node) then
       Narrowing.note_narrowed(ctx, node, maybe, element)
       return element
     end
     return maybe
   elseif (t.tag == "map") then
+    ctx.map_reads[node.id] = true
     local k = expr(ctx, node.key, t.key)
     local _ = key_ok(ctx, node.key, k, t.key, subject(ctx, node.object))
     local value = t.value
@@ -3719,6 +3865,16 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
       yes, no = Narrowing.when_true(f, p, Tests.nil_of(ctx, cur)), Narrowing.narrowed_flow(f, p, Tests.not_nil_of(ctx, cur))
     else
       no = Tests.has_element(ctx, f, if r.kind == "Nil" then l else r end)
+    end
+  elseif (r.kind == "Boolean") or (l.kind == "Boolean") then
+    -- What equals `true` or `false` is not nil, which is all the test shows: what differs from one may be the other or
+    -- nil. It is the test `condition_type` sends an optional boolean to, in a condition and in an `assert`.
+    local operand = if r.kind == "Boolean" then l else r end
+    local p = place_of(ctx, f, operand)
+    if p ~= nil then
+      yes = Narrowing.when_true(f, p, Tests.not_nil_of(ctx, current(f, p)))
+    else
+      yes = Tests.has_element(ctx, f, operand)
     end
   elseif (r.kind == "String") and (l.kind == "Call") then
     yes, no = Narrowing.type_edges(ctx, f, l, r.value)
@@ -3941,7 +4097,7 @@ end
 --- `a or b`: both booleans, or a `T?` replaced by a default of its own type.
 function Operators.disjunction(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type?): Type
   local store = ctx.store
-  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, true) end
+  local left_kind = if left.tag == "invalid" then "bad" else condition_kind(ctx, node.left, left, node) end
   if left_kind == "bad" then
     local _ = expr(ctx, node.right, nil)
     return ctx.invalid
@@ -4478,8 +4634,8 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   ctx.lenient = 0
   local outer_within = ctx.within
   ctx.within = fn_id
-  local outer, outer_loops = ctx.flow, ctx.loops
-  ctx.flow, ctx.loops = Flow.enter(outer, ctx.unfixed[fn_id]), {}
+  local outer, outer_loops, outer_ranges = ctx.flow, ctx.loops, ctx.ranges
+  ctx.flow, ctx.loops, ctx.ranges = Flow.enter(outer, ctx.unfixed[fn_id]), {}, {}
   local outer_unfixed = ctx.unfixed_now
   local unfixed_now: mut {integer: boolean} = {}
   for id in pairs(outer_unfixed) do
@@ -4514,7 +4670,7 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
       narrows_proved(ctx, at, nil)
     end
   end
-  ctx.flow, ctx.loops = outer, outer_loops
+  ctx.flow, ctx.loops, ctx.ranges = outer, outer_loops, outer_ranges
   ctx.lenient = saved
   ctx.within = outer_within
   ctx.frames[#ctx.frames] = nil
@@ -5434,6 +5590,41 @@ function Calls.gsub_key(ctx: Ctx, c: Fn, args: {Ast.Exp}, off: integer, key: str
         "integer keys" else ", or capture text with `( ... )` for string keys" end), { show(ctx, declared) })
 end
 
+--- Holds the first argument of a call `node` of the global `assert`, of type `t`, to the rule of a condition
+--- ([`condition_kind`]) where it is an optional whose value may be a boolean: `assert` raises for false as for nil, so
+--- one written to say that the value is there raises where it is there and false. `results` is how many values the
+--- argument gives where it is a call that is the only argument, and 0 otherwise.
+--
+-- TODO: refuse an optional of a type parameter too (`T?`, as in `function unwrap<T>(x: T?): T return assert(x) end`,
+-- which raises for `false` where `T` is `boolean`). [`condition_kind`] takes `T?` as an optional that holds no boolean,
+-- so `if x then` has the same gap; it waits on the rule for both: a bound that keeps a boolean out of `T`, or a refusal
+-- of every `T?` as a condition, with the tree's generic code rewritten to `~= nil`.
+local function asserted_boolean(ctx: Ctx, node: Ast.Node, args: {Ast.Exp}, t: Type?, results: integer)
+  local first = args[1]
+  if first == nil or t == nil or node.kind ~= "Call" then
+    return
+  end
+  local callee = node.callee
+  if callee.kind ~= "Name" or callee.binding ~= nil or callee.text ~= "assert" or not holds_boolean(ctx, t) then
+    return
+  end
+  local text = text_of(ctx, first)
+  local at = peel(first)
+  local fix = "say which is asserted: `assert(" .. text .. " ~= nil)` that it is there, or `assert(" .. text .. " == true)` that it is true"
+  if at.kind == "Call" or at.kind == "MethodCall" then
+    -- A comparison keeps only the first value of a call, so a reason it gives is named to be passed on. A call that
+    -- gives one value has none to name, and one cut to its first value by a message after it is named alone.
+    local names, rest = "value", if #args > 1 then ", ..." else "" end
+    if results >= 2 then
+      names, rest = "value, reason", ", reason"
+    end
+    fix = "name what it gives (`local " .. names .. " = " .. text .. "`) and say which is asserted: `assert(value ~= nil" ..
+      rest .. ")` that it is there, or `assert(value == true" .. rest .. ")` that it is true"
+  end
+  report(ctx, "condition_type", first, subject(ctx, first) .. " is " .. tq(ctx, t) .. ": nil and false would not be told apart", fix,
+    { show(ctx, t) })
+end
+
 local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type?,
                                expected: Type?, key?: string): {Alt}
   local off = if recv ~= nil then 1 else 0 end
@@ -5567,6 +5758,9 @@ local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: 
         end
         if key ~= nil then
           Calls.gsub_key(ctx, c, args, off, key)
+        end
+        if recv == nil then
+          asserted_boolean(ctx, node, args, known[1], if #args == 1 then (if tail ~= nil then count + 1 else count end) else 0 end)
         end
         local given: mut {Type} = {}
         for i = 1, count do
@@ -6035,7 +6229,8 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type?): 
       report(ctx, "setmetatable_call", node, "a program has no `setmetatable`: the metatable of a value is the compiler's, " ..
           "attached to the literal that makes the value of a class",
         "declare a `class` with the methods and write the value as a table literal typed as the class " ..
-          "(`local v: C = { field = value }`)")
+          "(`local v: C = { field = value }`); for a temporary change to a shared table (an overlay through " ..
+          "`__index`), write the keys into the table in place, keep each key's old value, and restore them after")
       unchecked_arguments(ctx, node.args)
       return unknown_lists(ctx)
     elseif callee.text == "require" then
@@ -6405,9 +6600,27 @@ local function value_at(ctx: Ctx, vals: Values, i: integer): Type?
   return nil
 end
 
+--- The fix for names given no value by `values`: a lone call that answers nothing is a statement.
+local function no_value_fix(ctx: Ctx, values: {Ast.Exp}, n: integer, what: string): string
+  local only = values[1]
+  if #values == 1 and only ~= nil then
+    local name: string? = nil
+    if (only.kind == "Call") then
+      name = text_of(ctx, only.callee)
+    elseif (only.kind == "MethodCall") then
+      name = text_of(ctx, only.object) .. ":" .. only.name
+    end
+    if name ~= nil then
+      return quoted(name) .. " answers nothing: write the call as a statement, " .. subject(ctx, only)
+    end
+  end
+  return "give " .. plural(n, "value") .. ", or remove the " .. what .. "s that have none"
+end
+
 --- Checks that `n` names or targets are given `vals`, reporting the names left without a value and the values no name
---- takes. `count_nodes` is how many expressions were written.
-local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, written: integer, what: string): boolean
+--- takes. `values` are the expressions written.
+local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, values: {Ast.Exp}, what: string): boolean
+  local written = #values
   local given = #vals.types
   local open = vals.tail ~= nil or vals.lists ~= nil
   local several, last = vals.lists, vals.last
@@ -6423,7 +6636,8 @@ local function check_counts(ctx: Ctx, node: Ast.Node, n: integer, vals: Values, 
   elseif given < n and not open then
     report(ctx, "value_count", node, "this gives " .. plural(given, "value") .. " to " .. plural(n, what) ..
         ", so the last " .. (if n - given == 1 then what .. " is" else what .. "s are" end) .. " nil",
-      "give " .. plural(n, "value") .. ", or remove the " .. what .. "s that have none")
+      if given == 0 then no_value_fix(ctx, values, n, what) else "give " .. plural(n, "value") .. ", or remove the " ..
+          what .. "s that have none" end)
     return false
   end
   return true
@@ -6680,7 +6894,7 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
   end
   local reported = #ctx.errors
   local vals = values_of(ctx, s.values, wants, nil)
-  local counted = check_counts(ctx, s, n, vals, #s.values, "name")
+  local counted = check_counts(ctx, s, n, vals, s.values, "name")
   for i, b in ipairs(s.bindings) do
     local t = value_at(ctx, vals, i)
     local want = wants[i]
@@ -6753,6 +6967,8 @@ local record Pending
   base: Type
   --- The write is to a view: its `view_written` waits for the values, which tell whether the write may leave a hole.
   view: boolean
+  --- The key is an integer, so a key in the range `1` to `#t` is a key of the array ([`Writes.ranges_of`]).
+  integral: boolean
 end
 
 --- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
@@ -6873,23 +7089,191 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
   return { var = s.var.id, object = object, unit = unit }
 end
 
---- Whether `node`, a read of an array, reads it at the index of a loop that counts its keys ([`Writes.fill_of`]) from a
---- literal of 1 or more by 1 to `#t`, with `t` the local the read names. The loop has run `i - 1` passes and `t` has kept
---- every key it had at the start (`#t` of them) through each, so `t[i]` is a key it has: the read is the element type,
---- not an optional. A function made in the body begins with no loop around it ([`function_body`]), so a read there, which
---- may run when `t` is shorter, stays optional. The proof holds for a program the checker accepts: a write of a value that
---- may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`) tests the read.
+--- The comparison that holds when the operands of another are swapped: `k <= i` is `i >= k`.
+local TURNED <const>: {string: string} = { ["<="] = ">=", ["<"] = ">", [">="] = "<=", [">"] = "<" }
+
+--- A bound that a comparison sets on a local integer ([`Writes.bound`]).
+local record Bound
+  --- The id of the binding of the local bounded.
+  var: integer
+  --- The local `t` of an upper bound `#t`, or nil for a lower bound of 1.
+  array?: Ast.Exp
+end
+
+--- The bound that the comparison `e` sets on a local, if it is written in one of the forms of a range test: a lower bound
+--- of 1 for `i >= k` with a literal `k` of 1 or more, or `i > k` with one of 0 or more; an upper bound of `#t` for
+--- `i <= #t` or `i < #t` with `t` a local. Either operand may come first (`1 <= i`, `#t >= i`).
+function Writes.bound(e: Ast.Node): Bound?
+  local at = peel(e)
+  if at.kind ~= "Binary" then
+    return nil
+  end
+  local op: string = at.op
+  local left, right = peel(at.left), peel(at.right)
+  -- `k <= i` is `i >= k`: the local goes on the left.
+  if right.kind == "Name" and left.kind ~= "Name" then
+    left, right, op = right, left, TURNED[op] or ""
+  end
+  if left.kind ~= "Name" then
+    return nil
+  end
+  local var = left.binding
+  if var == nil then
+    return nil
+  end
+  if right.kind == "Integer" then
+    if (op == ">=" and right.value >= 1) or (op == ">" and right.value >= 0) then
+      return { var = var }
+    end
+  elseif right.kind == "Unary" and right.op == "#" and (op == "<=" or op == "<") then
+    local array = peel(right.operand)
+    if array.kind == "Name" and array.binding ~= nil then
+      return { var = var, array = array }
+    end
+  end
+  return nil
+end
+
+--- What the condition `cond` of an `if` arm with the block `body` knows of the keys of arrays: for each local `t` and local
+--- `i` that the condition bounds from both sides (`i >= 1 and i <= #t`, among the operands of a chain of `and`), where
+--- [`Writes.keeps_length`] says neither the condition nor the block can change the length of `t`, assign `t` or assign
+--- `i`, `i` is a key `t` has in the whole block, so a value that is not nil written at it overwrites an element
+--- ([`Writes.leaves_no_hole`], which also wants `i` an integer) and a read at it is an element
+--- ([`Writes.counted_read`], an integer key too).
+---
+--- Why it holds. The block runs only where every operand of the chain was true when it was evaluated, so `1 <= i <= #t`
+--- then. A comparison of an integer and a length runs no code, and [`Writes.keeps_length`] refuses the code that could
+--- run after it: a call, an iterator, a `__close`, a write of nil or at another key of `t`, and an assignment of `t` or
+--- `i`. So `t` keeps every element it had and `i` its value, in the block and in the operands of the chain evaluated after
+--- the bounds; the range is given to the block alone, so a read in such an operand is still optional. A function made in the block may run when `t` is shorter: its body starts with no range
+--- ([`function_body`]).
+function Writes.ranges_of(cond: Ast.Exp, body: Ast.Block): {Fill}
+  local operands: mut {Ast.Node} = {}
+  local waiting: mut {Ast.Exp} = { cond }
+  while #waiting > 0 do
+    local e = peel(assert(waiting[#waiting]))
+    waiting[#waiting] = nil
+    if e.kind == "Binary" and e.op == "and" then
+      waiting[#waiting + 1] = e.right
+      waiting[#waiting + 1] = e.left
+    else
+      operands[#operands + 1] = e
+    end
+  end
+  local low: mut {integer: boolean} = {}
+  local highs: mut {Bound} = {}
+  for _, operand in ipairs(operands) do
+    local bound = Writes.bound(operand)
+    if bound ~= nil and bound.array == nil then
+      low[bound.var] = true
+    elseif bound ~= nil then
+      highs[#highs + 1] = bound
+    end
+  end
+  local out: mut {Fill} = {}
+  for _, high in ipairs(highs) do
+    local array = high.array
+    local object = if array ~= nil then peel(array) else nil end
+    local held: integer? = nil
+    if object ~= nil and object.kind == "Name" then
+      held = object.binding
+    end
+    if array ~= nil and held ~= nil and low[high.var] == true and Writes.keeps_length(cond, held, high.var) and
+        Writes.keeps_length(body, held, high.var) then
+      out[#out + 1] = { var = high.var, object = array, unit = true }
+    end
+  end
+  return out
+end
+
+--- What the numeric loop `s` knows of the keys around its index, if it counts keys of an array by 1: `for i = a, #t do`
+--- or `for i = a, #t - b do`, from a literal `a` of 1 or more to the length of a local `t` less a literal `b` of 0 or
+--- more, with no step or a literal step of 1, where [`Writes.keeps_length`] says the body cannot shorten `t`, assign `t`
+--- or assign `i`. The limit is computed once, before the first pass, so `a <= i <= #t - b` for the length `t` had then,
+--- and `t` has at least as many elements at each pass.
+function Writes.span_of(s: Ast.ForNum): Span?
+  local from = peel(s.from)
+  local step = s.step
+  if not ((from.kind == "Integer") and from.value >= 1) then
+    return nil
+  elseif step ~= nil then
+    local given = peel(step)
+    if not ((given.kind == "Integer") and given.value == 1) then
+      return nil
+    end
+  end
+  local to = peel(s.to)
+  local slack = 0
+  if (to.kind == "Binary") and to.op == "-" then
+    local by = peel(to.right)
+    if not ((by.kind == "Integer") and by.value >= 0) then
+      return nil
+    end
+    slack = by.value
+    to = peel(to.left)
+  end
+  if not ((to.kind == "Unary") and to.op == "#") then
+    return nil
+  end
+  local object = peel(to.operand)
+  if not (object.kind == "Name") then
+    return nil
+  end
+  local held = object.binding
+  if held == nil or not Writes.keeps_length(s.body, held, s.var.id) then
+    return nil
+  end
+  return { var = s.var.id, object = object, from = from.value, slack = slack }
+end
+
+--- Whether `node`, a read of an array at an integer key, reads an element the array has, by one of two proofs. The read
+--- is then the element type, not an optional.
+---
+--- A counted loop ([`Writes.span_of`]): the key is `i`, `i + c` or `i - c`, with `i` the index of a loop `for i = a,
+--- #t - b do` by 1 over the local `t` the read names and `c` a literal, where the offset (`c` or `-c`) keeps the key
+--- inside the array: `a` plus the offset is 1 or more, and the offset is at most `b`. The index is an integer from `a`
+--- to `#t - b`, as `#t` was when the loop began, and `t` has kept every key it had then through each pass, so the key
+--- is from 1 to `#t`. In `for i = 2, #t - 1 do` the reads `t[i - 1]`, `t[i]` and `t[i + 1]` are all elements.
+---
+--- A range test ([`Writes.ranges_of`]): the key is a local `i`, and the read is in the block of an `if` whose condition
+--- holds `i >= 1 and i <= #t` for the local `t` the read names, where neither the condition nor the block can change
+--- the length of `t`, assign `t` or assign `i`.
+---
+--- A function made in the body or the block begins with no loop and no range around it ([`function_body`]), so a read
+--- there, which may run when `t` is shorter, stays optional. The proof holds for a program the checker accepts: a write
+--- of a value that may be nil into `t` is an error of its own statement, and a checked run (`cosmic test --check-types`)
+--- tests the read.
 ---
 --- TODO: read the index of a loop whose body calls a function, once the checker can show that no code the call runs names
 --- the array ([`Writes.unreachable`] shows it only for a local made `{}`): a body with a call keeps the read `T?` now.
 function Writes.counted_read(ctx: Ctx, node: Ast.Index): boolean
   local key = peel(node.key)
-  if key.kind ~= "Name" or key.binding == nil then
+  local name = key
+  local offset = 0
+  if (key.kind == "Binary") and (key.op == "+" or key.op == "-") then
+    local by = peel(key.right)
+    if not ((by.kind == "Integer") and by.value >= 0) then
+      return false
+    end
+    offset = if key.op == "+" then by.value else -by.value end
+    name = peel(key.left)
+  end
+  if name.kind ~= "Name" or name.binding == nil then
     return false
   end
   for _, loop in ipairs(ctx.loops) do
-    local fill = loop.fill
-    if fill ~= nil and fill.unit and key.binding == fill.var and Writes.same_place(fill.object, node.object) then
+    local span = loop.span
+    -- `from + offset` wraps to a negative where the sum is past the largest integer, which refuses the read.
+    if span ~= nil and name.binding == span.var and span.from + offset >= 1 and offset <= span.slack and
+        Writes.same_place(span.object, node.object) then
+      return true
+    end
+  end
+  if offset ~= 0 then
+    return false
+  end
+  for _, range in ipairs(ctx.ranges) do
+    if name.binding == range.var and Writes.same_place(range.object, node.object) then
       return true
     end
   end
@@ -7257,22 +7641,24 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
     if (base.tag == "array") then
       local k = expr(ctx, target.key, store.integer)
       local _ = key_ok(ctx, target.key, k, store.integer, owner)
+      local integral = below(ctx, k, store.integer)
       if not base.mut then
         if (removes and Writes.is_length_of(target.key, target.object)) or
             (Writes.is_append(target) and not (runs_code and Writes.may_shorten(ctx, target.object, s))) then
           report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
               " cannot be assigned",
-            "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
+            "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received" .. read_out(ctx, target, base),
+            { show(ctx, base) })
         else
           -- The values say whether the write may leave a hole, which is an `array_hole` beside this error: see below.
-          pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true }
+          pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = true, integral = integral }
         end
       elseif removes and Writes.is_length_of(target.key, target.object) then
         -- The last element goes, so the elements left are the first ones. Of several targets, another may write the key
         -- the length names after this one is gone (`t[#t], t[#t + 1] = nil, v`).
         return base.element, true
       elseif not Writes.is_append(target) or (runs_code and Writes.may_shorten(ctx, target.object, s)) then
-        pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = false }
+        pending[#pending + 1] = { target = target, at = at, owner = owner, base = base, view = false, integral = integral }
       end
       return base.element, false
     elseif (base.tag == "map") then
@@ -7281,7 +7667,8 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
       if not base.mut then
         report(ctx, "view_written", target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, target) ..
             " cannot be assigned",
-          "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received", { show(ctx, base) })
+          "declare " .. owner .. " `mut " .. show(ctx, base) .. "` where it is made or received" .. read_out(ctx, target, base),
+          { show(ctx, base) })
       end
       return base.value, true
     elseif (base.tag == "named") and (base.decl.kind == "record" or base.decl.kind == "class") then
@@ -7331,12 +7718,13 @@ end
 ---   - at the index of a loop over `1` to the length of the array ([`Writes.fill_of`]), which has that element,
 ---   - at the index of a loop that counts from 1 by 1 and writes the array in every pass ([`Writes.grow_in`]), which has
 ---     the keys before it,
+---   - at an integer `i` in the block of an `if` whose condition holds `i >= 1 and i <= #t` ([`Writes.ranges_of`]),
 --- overwrites an element and leaves the others where they are. A nil would take an element out of the middle, and a write at
 --- the length (`t[#t] = v`) is at 0 where the array is empty, which is no key of an array.
 ---
---- A write in a function made inside the loop (`saved = function() u[i] = 1 end`) is refused only because the body of a
---- function does not inherit `ctx.loops` (([`function_body`])), which holds the loop's fill; [`Writes.keeps_length`] does not
---- decide it. Keep the two apart: a closure may run when the array is shorter.
+--- A write in a function made inside the loop (`saved = function() u[i] = 1 end`) or the block is refused only because the
+--- body of a function does not inherit `ctx.loops` or `ctx.ranges` ([`function_body`]), which hold the fill and the
+--- range; [`Writes.keeps_length`] does not decide it. Keep the two apart: a closure may run when the array is shorter.
 function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
   local written = value_at(ctx, vals, p.at)
   if written == nil or not Writes.present(written) then
@@ -7360,6 +7748,11 @@ function Writes.leaves_no_hole(ctx: Ctx, vals: Values, p: Pending): boolean
       end
       local grow = loop.grow
       if grow ~= nil and array ~= nil and key.binding == grow.var and grow.arrays[array] == true then
+        return true
+      end
+    end
+    for _, range in ipairs(ctx.ranges) do
+      if p.integral and key.binding == range.var and Writes.same_place(range.object, target.object) then
         return true
       end
     end
@@ -7391,17 +7784,30 @@ function Writes.runs_code(s: Ast.Assign): boolean
 end
 
 --- The `array_hole` error of a write at an index that may leave a hole in an array, whether the array is `mut` or a view
---- (a view's write is also a `view_written`, so one run names both).
-function Writes.report_hole(ctx: Ctx, p: Pending)
+--- (a view's write is also a `view_written`, so one run names both). The statement has the values `vals`. The fix offers
+--- the range test of [`Writes.ranges_of`] only where it would let the write stand: a value that is not nil written to a
+--- local at an integer local.
+function Writes.report_hole(ctx: Ctx, vals: Values, p: Pending)
   local target = p.target
   if Writes.is_append(target) then
     report(ctx, "array_hole", target, subject(ctx, target) .. " is written by a statement that calls a function, which " ..
         "may shorten the array " .. p.owner .. " after the key is computed and leave a hole",
       "call first and write after: `local v = f()`, then `" .. text_of(ctx, target) .. " = v`", { show(ctx, p.base) })
   else
+    local t = text_of(ctx, target.object)
+    local key, object = peel(target.key), peel(target.object)
+    local written = value_at(ctx, vals, p.at)
+    local guard = ""
+    if key.kind == "Name" and key.binding ~= nil and object.kind == "Name" and object.binding ~= nil and p.integral and
+        written ~= nil and Writes.present(written) then
+      local i = key.text
+      guard = "overwrite an element inside `if " .. i .. " >= 1 and " .. i .. " <= #" .. t .. " then` (a block that " ..
+        "calls no function but `math`'s, writes nil to no table, writes `" .. t .. "` at no other key and assigns " ..
+        "neither `" .. i .. "` nor `" .. t .. "`), "
+    end
     report(ctx, "array_hole", target, subject(ctx, target) .. " may leave a hole in the array " .. p.owner,
-      "append with `" .. text_of(ctx, target.object) .. "[#" .. text_of(ctx, target.object) .. " + 1] = v` or " ..
-        "`table.insert`, remove with `table.remove`, or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
+      "append with `" .. t .. "[#" .. t .. " + 1] = v` or `table.insert`, " .. guard .. "remove with `table.remove`, " ..
+        "or key a map `{integer: T}` for sparse data", { show(ctx, p.base) })
   end
 end
 
@@ -7450,13 +7856,14 @@ local function check_assignment(ctx: Ctx, s: Ast.Assign): Values?
         destination = "`mut {integer: " .. show(ctx, element) .. "}` (a map: this write may leave a hole in an array)"
       end
       report(ctx, "view_written", p.target, owner .. " is a view " .. tq(ctx, base) .. ", so " .. subject(ctx, p.target) ..
-          " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received", { show(ctx, base) })
+          " cannot be assigned", "declare " .. owner .. " " .. destination .. " where it is made or received" .. read_out(ctx, p.target, base),
+        { show(ctx, base) })
     end
     if not Writes.leaves_no_hole(ctx, vals, p) then
-      Writes.report_hole(ctx, p)
+      Writes.report_hole(ctx, vals, p)
     end
   end
-  local counted = check_counts(ctx, s, #s.targets, vals, #s.values, "target")
+  local counted = check_counts(ctx, s, #s.targets, vals, s.values, "target")
   if not counted then
     return nil
   end
@@ -7666,22 +8073,40 @@ local function check_return(ctx: Ctx, s: Ast.Return)
     if #alt.items == 0 and alt.tail == nil then
       if #vals.types > 0 or vals.tail ~= nil then
         report(ctx, "return_unexpected", s, "this function returns nothing, and this returns " .. plural(#vals.types, "value"),
-          if frame.declared then "remove the value" else "declare the return list: `function f(): T`" end) -- checked: nil_not_allowed
+          if frame.declared then "remove the value" elseif returns_call(s) then UNDECLARED_CALL_FIX else UNDECLARED_RETURN_FIX end) -- checked: nil_not_allowed
       end
       return
     end
     local count = #vals.types
     if vals.tail == nil and (count < #alt.items or (count > #alt.items and alt.tail == nil)) then
+      -- A last call that answers more values than are left to return is cut to its first by parentheses.
+      local cut = ""
+      if last ~= nil and (last.kind == "Call" or last.kind == "MethodCall") and n == #alt.items and count > n then
+        cut = "; " .. subject(ctx, last) .. " is the last value and answers " .. tostring(count - n + 1) ..
+          " values: write `(" .. text_of(ctx, last) .. ")` to return its first value alone"
+      end
       report(ctx, "return_arity", s, "this returns " .. plural(count, "value") .. ", where the function answers " ..
           plural(#alt.items, "value") .. (if alt.tail ~= nil then " or more" else "" end),
         "return " .. plural(#alt.items, "value") .. (if alt.tail ~= nil then " or more" else "" end) ..
-          ", or change the declared return list")
+          ", or change the declared return list" .. cut)
       return
     end
     for i, t in ipairs(vals.types) do
       local want = alt.items[i] or alt.tail
       local at = s.values[math.min(i, n)]
-      if want ~= nil then
+      local value, first = alt.items[1], s.values[1]
+      if want ~= nil and i == 2 and n == 2 and #alt.items == 2 and t.tag == "nil" and want.tag == "string" and
+          value ~= nil and (nilable(value) or value.tag == "boolean") and first ~= nil and first.kind ~= "Nil" and
+          at ~= nil then
+        -- The reason of a `T?, string` result is "" on success: `string?` there, which declaring it suggests, is the
+        -- tuple that convention replaces.
+        local written = text_of(ctx, first)
+        if #written > 40 then written = "v" end
+        report(ctx, "nil_not_allowed", at, "nil is given as return value 2, the reason of a `" .. show(ctx, value) ..
+            ", string` result, where `string` is wanted",
+          "a reason is \"\" on success: `return " .. written .. ", \"\"`, and the failure's text beside a failure " ..
+            "(`Counts.open` in `cosmic docs project` shows one)")
+      elseif want ~= nil then
         local _ = expect(ctx, at, t, want, " as return value " .. tostring(i)) -- checked: nil_not_allowed
       end
     end
@@ -7707,7 +8132,7 @@ local function check_return(ctx: Ctx, s: Ast.Return)
       elseif count + 1 > #alt.items then
         report(ctx, "return_arity", last, subject(ctx, last) .. " ends in `" .. show(ctx, tail) ..
             "...`, so this may return more values than the function answers (" .. tostring(#alt.items) .. ")",
-          "return the values the function answers, one by one")
+          "write `(" .. text_of(ctx, last) .. ")` to return its first value alone, or bind the values to locals and return those")
       end
     end
     return
@@ -7768,8 +8193,8 @@ local function run_loop(ctx: Ctx, entry: Flow.State, walk: function(head: Flow.S
 end
 
 --- Opens a loop: where its `break`s and `continue`s are met.
-local function open_loop(ctx: Ctx, fill?: Fill, grow?: Grow): Loop
-  local loop: Loop = { fill = fill, grow = grow } -- checked: literal_missing
+local function open_loop(ctx: Ctx, fill?: Fill, grow?: Grow, span?: Span): Loop
+  local loop: Loop = { fill = fill, grow = grow, span = span } -- checked: literal_missing
   ctx.loops[#ctx.loops + 1] = loop
   return loop
 end
@@ -7810,13 +8235,14 @@ local function for_numeric(ctx: Ctx, s: Ast.ForNum)
   ctx.vars[s.var.id] = (from == 1 and step == 1) and ctx.store.integer or ctx.store.number -- checked: and_ternary
   local entry = ctx.flow
   local fill = Writes.fill_of(s)
+  local span = Writes.span_of(s)
   local grow: Grow? = nil
   if Writes.counts_from_one(s) then
     grow = Writes.grow_in(ctx, s, s.var, s.body)
   end
   ctx.flow = run_loop(ctx, entry, function(head: Flow.State): Flow.State, Flow.State
     ctx.flow = head
-    local loop = open_loop(ctx, fill, grow)
+    local loop = open_loop(ctx, fill, grow, span)
     declare_local(ctx, s.var.id, false)
     block(ctx, s.body)
     local back, breaks = close_loop(ctx, loop, ctx.flow)
@@ -8083,7 +8509,14 @@ local function if_statement(ctx: Ctx, s: Ast.If)
     local _ = condition(ctx, arm.cond)
     local yes, no = edges(ctx, ctx.flow, arm.cond)
     ctx.flow = yes
+    local ranges = Writes.ranges_of(arm.cond, arm.body)
+    for _, range in ipairs(ranges) do
+      ctx.ranges[#ctx.ranges + 1] = range
+    end
     block(ctx, arm.body)
+    for _ = 1, #ranges do
+      ctx.ranges[#ctx.ranges] = nil
+    end
     ends[#ends + 1] = ctx.flow
     ctx.flow = no
   end
@@ -8417,8 +8850,8 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
-    ternaries = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

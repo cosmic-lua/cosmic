@@ -10,7 +10,6 @@
 --- the tree the modules it runs require.
 
 local Codec = require("cosmic.codec")
-local Fs = require("cosmic.fs")
 local Rand = require("cosmic.rand")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -28,11 +27,12 @@ local support = require("build.test_support_fixture")
 --- them, and so does a compiler that makes other bytecode of it; it
 --- is this module alone that pays that.
 ---
---- `timeout`: the test that swaps each of the harness's 40-odd modules in
---- turn asks for the digests of the whole tree once per module, 0.3 s each
---- on an idle host, and the full suite runs it beside thousands of others.
-Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" },
-  { path = "ci/harness-files.txt", letters = "r" } }, timeout = 120 }
+--- `timeout`: the test that swaps each of the harness's 50-odd modules in
+--- turn asks for the harness's digests once per module, which digests each
+--- module again: 4 s in all on an idle host's release core. The limit is
+--- for CI's native suites, which give a test 10 s
+--- (ci/cosmic_ci/orchestration.tl) on a runner loaded with the whole suite.
+Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } }, timeout = 60 }
 
 local projection = build_paths.resolve(".").projection
 
@@ -321,37 +321,8 @@ local function test_the_guard_holds_the_epoch_to_its_retired_tokens()
   assert(append == nil, tostring(append))
   assert(how_to_bump("9", after):find("append nothing to `retired`", 1, true))
   local resolved, still = applied(line, append, after)
-  assert(resolved:match("^9%-") and resolved ~= epoch, resolved)
+  assert(resolved:match("^9%-") ~= nil and resolved ~= epoch, resolved)
   assert(epoch_trouble(resolved, still) == nil, tostring(epoch_trouble(resolved, still)))
-end
-
---- CI's queue-ahead step takes nothing from the run ahead where the change edits a file of the harness
---- (ci/cosmic_ci/queue_seed.tl), which it reads from ci/harness-files.txt, since ci/ cannot
---- call this module. The list is the files of the harness's modules and of build/harness_epoch.tl.
-local function test_the_list_of_the_harness_files_is_the_harness()
-  local db = assert(Sqlite.open(projection))
-  local found, trouble = test_key.harness(db)
-  assert(found ~= nil, trouble)
-  local expected: mut {string} = { "build/harness_epoch.tl" }
-  local seen: mut {string:boolean} = { ["build/harness_epoch.tl"] = true }
-  for _, name in ipairs(found.names) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT file FROM modules WHERE path = ?1", { { text = name } }))
-    local file = support.nth(rows, 1):text(1)
-    if seen[file] ~= true then
-      seen[file] = true
-      expected[#expected + 1] = file
-    end
-  end
-  db:close()
-  table.sort(expected)
-  local listed: mut {string} = {}
-  for line in (assert(Fs.read("ci/harness-files.txt"))):gmatch("[^\n]+") do
-    if not line:find("^%s*#") then listed[#listed + 1] = line end
-  end
-  table.sort(listed)
-  assert(table.concat(listed, "\n") == table.concat(expected, "\n"),
-    "ci/harness-files.txt lists the harness's files other than they are; it holds, one to a line " ..
-      "after its comment:\n" .. table.concat(expected, "\n"))
 end
 
 --- A require the harness never follows: cosmic's main hands the
@@ -380,7 +351,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   end
   local missing: mut {string} = {}
   for _, name in ipairs(found.runs) do
-    assert(tree[name], name .. " is no module of the tree")
+    assert(tree[name] == true, name .. " is no module of the tree")
     for _, wanted in ipairs(by_value[name] or {}) do
       if tree[wanted] == true and named[wanted] ~= true and (unfollowed[name] or {})[wanted] ~= true then
         missing[#missing + 1] = name .. " requires " .. wanted
@@ -419,7 +390,7 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   db:close()
   local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
-  assert(named["cosmic.sandbox.policy"], "cosmic.sandbox.policy is not held")
+  assert(named["cosmic.sandbox.policy"] == true, "cosmic.sandbox.policy is not held")
   local unheld: mut {string} = {}
   for _, name in ipairs(found.names) do
     if name:match("^cosmic%.") then

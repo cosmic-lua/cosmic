@@ -68,7 +68,7 @@ local function test_a_chunk_runs_on_what_e_loads(tmp: string)
   end
   for name in out:gmatch("%S+") do
     if name:find("^build%.") or name:find("^cosmic%.") or name:find("^cmd%.") then
-      assert(allowed[name], name .. " is loaded by -e but not in lua_loads: " .. out)
+      assert(allowed[name] == true, name .. " is loaded by -e but not in lua_loads: " .. out)
     end
   end
 end

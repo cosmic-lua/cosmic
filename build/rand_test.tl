@@ -375,6 +375,25 @@ local function test_v7_counter_carries_into_the_milliseconds_at_4095()
   assert(ids[3] == next_ms:sub(1, 8) .. "-" .. next_ms:sub(9, 12) .. "-7001-8000-000000000000", ids[3])
 end
 
+local function test_v7_refuses_a_clock_before_1970()
+  -- A negative clock has no version 7 layout: a refusal with the reason,
+  -- never a raised error or a wrapped timestamp.
+  local ran = run({ "uuid", "--v7" }, { now_ns = function(): integer return -1 end })
+  assert(ran.code == 2 and ran.out == "", ran.out)
+  assert(ran.err:find("cosmic: rand: uuid: the clock reads -1 ns, before 1970", 1, true), ran.err)
+  -- The values drawn before the refusal are still written.
+  local readings = { 5000000000, -1 }
+  local at = 0
+  local partial = run({ "uuid", "--v7", "-n", "2" }, { now_ns = function(): integer
+    at = at + 1
+    return readings[at] or -1
+  end })
+  assert(partial.code == 2 and #lines(partial.out) == 1, partial.out)
+  local epoch = run({ "uuid", "--v7" }, { now_ns = function(): integer return 0 end,
+    entropy = function(count: integer): string?, string return string.rep("\0", count), "" end })
+  assert(epoch.code == 0 and epoch.out == "00000000-0000-7000-8000-000000000000\n", epoch.out .. epoch.err)
+end
+
 local function test_a_negative_count_is_refused_and_a_negative_bound_is_a_bound()
   local ran = run({ "uuid", "-n", "-5" })
   assert(ran.code == 2 and ran.out == "", ran.out)

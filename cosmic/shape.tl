@@ -250,7 +250,10 @@ local record Shape
   --- which the calling module requires at its top level. A record may hold
   --- strings, integers, numbers, booleans and `any`; arrays and
   --- string-keyed maps of those; an enum; records of those; and a field typed
-  --- `T | nil`, which may be missing. A function, a union of more
+  --- `T | nil`, which may be missing. A JSON object inside the payload, such as
+  --- `{"cfg": {"x": 2}}`, is a field typed by another record (`cfg: Settings`),
+  --- with both records declared at the module's top level: the check the build
+  --- writes there cannot name a record that a function declares. A function, a union of more
   --- than one type, a generic, an interface and a record that holds itself
   --- are refused when the module is built, naming the field. A field of type
   --- `any` may be missing, since `any` holds nil: a payload that

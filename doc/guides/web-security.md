@@ -6,10 +6,10 @@ The defences of [`cosmic.web`] are middleware you list in the app, so the
 list shows what protects it. This guide builds `guestbook`, a page with a
 plain form and an htmx button, behind the three that every page with a
 cookie needs: sessions, a CSRF check and security headers. It then covers
-what an app behind a proxy says about itself, and the defaults to leave
-alone. It starts from an empty directory and needs only what
-[web apps](web.md) says about routes and templates; the CSRF token lives in
-a [session](web-sessions.md).
+limiting failed logins, what an app behind a proxy says about itself, and
+the defaults to leave alone. It starts from an empty directory and needs
+only what [web apps](web.md) says about routes and templates; the CSRF
+token lives in a [session](web-sessions.md).
 
 ## csrf
 
@@ -212,6 +212,29 @@ end
 return Guestbook
 ```
 
+## failed attempts
+
+A password or a one-time code can be guessed, so a login limits wrong
+answers. [`Attempts.limiter`] counts failures per key in memory: after
+`limit` of them within `window_ns`, the key is refused until the oldest is
+`window_ns` old. The handler asks before it checks the secret, records a
+failure, and forgets the key after a success; [`Attempts.too_many`]
+answers 429 with `Retry-After`. Read the form first and do not wait on
+anything between asking and recording, or concurrent guesses each see the
+count from before the others failed.
+
+The key is the choice that matters. One key for everyone stops a guesser
+however many addresses it has, but anyone can lock everyone out; it suits
+an app with a few known users. A key per client address,
+`req.client.host`, locks out the guesser alone, but behind a proxy every
+request comes from the proxy, one key for all, unless the app sets
+`trusted_proxy` (the next section). A key per account name lets anyone
+lock that account out. The limiter keeps at most `max_keys` keys, so a
+flood of new keys (made-up names, many addresses) pushes old ones out and
+starts their count over: limit an account key together with an address
+key. The counts live in memory, so a restart forgets them and each
+process of an app keeps its own.
+
 ## behind a proxy
 
 A proxy that ends TLS makes every request arrive as plain http from the
@@ -280,11 +303,7 @@ local function test_the_nonce_in_the_policy_is_the_one_in_the_tags()
   assert(page.headers["x-content-type-options"] == "nosniff" and page.headers["x-frame-options"] == "DENY")
   local policy = page.headers["content-security-policy"] or ""
   local nonce = assert(policy:match("'nonce%-([%w_-]+)'"))
-  -- The page writes a byte that is no letter or digit as a character reference.
-  local written = nonce:gsub("[_-]", function(byte: string): string
-    return ("&#%d;"):format(assert(byte:byte()))
-  end)
-  assert(page.body:find('nonce="' .. written .. '"', 1, true))
+  assert(page.body:find('nonce="' .. nonce .. '"', 1, true))
 end
 
 local function test_hsts_is_for_https_and_only_when_asked()
@@ -353,6 +372,8 @@ print(((said.stderr or "") .. (said.stdout or "")):match("test: %d+ tests? passe
 test: 6 tests passed
 ```
 
+[`Attempts.limiter`]: ../../cosmic/web/attempts.tl
+[`Attempts.too_many`]: ../../cosmic/web/attempts.tl
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.web.csp`]: ../../cosmic/web/csp.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl

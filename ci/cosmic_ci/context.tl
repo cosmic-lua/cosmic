@@ -19,7 +19,7 @@ end
 
 function Context.required(name: string): string
   local value = Seams.calls().env_get(name)
-  assert(value and value ~= "", "missing required environment variable: " .. name)
+  assert(value ~= nil and value ~= "", "missing required environment variable: " .. name)
   return value
 end
 local required = Context.required

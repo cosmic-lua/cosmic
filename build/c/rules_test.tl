@@ -9,19 +9,16 @@ local rules = require("build.c.rules")
 local tree = require("build.c.tree")
 
 --- The core's C and the headers it includes, which zig parses to a syntax
---- tree, and what bin/zig reads to find or fetch zig (it hands build/zig.tl
---- to the bootstrap cosmic, a file the closure does not supply), which the
---- system's `sh` runs; the bootstrap cosmic and zig, and the caches zig
---- builds in, which it writes.
+--- tree, and the pinned zig, which a check starts itself where it is
+--- installed ([`build.c`]'s `compiler`): no script and no program of the
+--- host's runs. The bootstrap cosmic a check falls back to where zig is
+--- not installed is build/c/bootstrap_test.tl's; a sandboxed worker cannot
+--- start bin/zig, which runs it, so the tests require a zig they can start
+--- (`pinned_zig`), and skip where there is none, as after a seeded boot.
 Test.policy{
-  profiles = { "system" },
   grants = {
-    { path = "bin/cosmic-bootstrap", letters = "r" },
-    { path = "bin/zig", letters = "r" },
     { path = "bin/zig.pin", letters = "r" },
-    { path = "build/zig.tl", letters = "r" },
     { path = "ci/cosmic-driver.pin", letters = "r" },
-    { path = "ci/bootstrap-files.txt", letters = "r" },
     { path = "core/", letters = "r" },
     { path = "vendor/bzip2/", letters = "r" },
     { path = "vendor/cares/include/", letters = "r" },
@@ -34,13 +31,10 @@ Test.policy{
     { path = "vendor/sqlite/", letters = "r" },
     { path = "vendor/xz/src/liblzma/api/", letters = "r" },
     { path = "vendor/yyjson/src/", letters = "r" },
-    { path = "/cache/bootstrap", letters = "rwxc" },
     { path = "/cache/zig", letters = "rwxc" },
   },
-  env = { "ALL_PROXY", "COSMIC_BOOTSTRAP", "COSMIC_BOOTSTRAP_ATTEMPTS", "COSMIC_BOOTSTRAP_VERIFY",
-    "COSMIC_ZIG", "COSMIC_ZIG_CACHE", "COSMIC_ZIG_GLOBAL_CACHE", "CURL_CA_BUNDLE", "HTTPS_PROXY",
-    "HTTP_PROXY", "NO_PROXY", "SSL_CERT_DIR", "SSL_CERT_FILE", "all_proxy", "http_proxy",
-    "https_proxy", "no_proxy" },
+  env = { "COSMIC_BOOTSTRAP", "COSMIC_ZIG" },
+  requires = { "pinned_zig" },
 }
 
 local root = assert(Fs.absolute("."))
@@ -733,6 +727,19 @@ local function test_a_compiler_reads_no_path_it_was_not_given(tmp: string)
   end
   assert(outcome.findings == nil, "the header was read")
   assert(assert(outcome.trouble):find("AGENTS.md' file not found", 1, true), outcome.trouble)
+end
+
+--- A compiler writes every cache it keeps in the check's own directory,
+--- the cores its bootstrap cosmic's launcher extracts among them: the
+--- host's cores, which a confined compiler could only read, fail a check
+--- where they hold no core yet. The rest of its environment is kept.
+local function test_a_compiler_keeps_its_caches_and_cores_in_the_checks_own_directory()
+  local env = c.own_caches({ PATH = "/bin", COSMIC_PORTABLE_CACHE = "/host/cores",
+    COSMIC_ZIG_CACHE = "/host/zig" }, "/deps")
+  assert(env["COSMIC_PORTABLE_CACHE"] == "/deps/cores", tostring(env["COSMIC_PORTABLE_CACHE"]))
+  assert(env["COSMIC_ZIG_CACHE"] == "/deps/zig-project", tostring(env["COSMIC_ZIG_CACHE"]))
+  assert(env["COSMIC_ZIG_GLOBAL_CACHE"] == "/deps/zig-global", tostring(env["COSMIC_ZIG_GLOBAL_CACHE"]))
+  assert(env["PATH"] == "/bin", tostring(env["PATH"]))
 end
 
 --- A violation under a guard of one target or of the checked core is

@@ -360,6 +360,101 @@ local function test_a_method_named_for_a_metamethod_is_a_metamethod_row()
   assert(table.concat(kinds, " ") == "record:Conn field:fd metamethod:__close method:close", table.concat(kinds, " "))
 end
 
+--- A record field's function row keeps the field's doc unless the definition has a `---` doc of its own: a plain `--`
+--- note above the definition, or a `---` run of blank lines, does not displace it. The row stays at the definition's
+--- line, where the code that runs is.
+local function test_a_field_keeps_its_doc_unless_its_definition_has_one()
+  local found = analyzed(lines(
+    "local record Api",
+    "  --- The field's doc.",
+    "  only_field: function(): integer",
+    "  --- Overridden.",
+    "  both: function(): integer",
+    "  --- Kept over a note.",
+    "  noted: function(): integer",
+    "  --- Kept over blank lines.",
+    "  blank: function(): integer",
+    "  bare: function(): integer",
+    "end",
+    "function Api.only_field(): integer",
+    "  return 1",
+    "end",
+    "--- The definition's doc.",
+    "function Api.both(): integer",
+    "  return 2",
+    "end",
+    "-- A plain note.",
+    "function Api.noted(): integer",
+    "  return 3",
+    "end",
+    "---",
+    "---",
+    "function Api.blank(): integer",
+    "  return 4",
+    "end",
+    "-- The only comment.",
+    "function Api.bare(): integer",
+    "  return 5",
+    "end",
+    "return Api"), "api.tl")
+  local texts: mut {string: string} = {}
+  local at: mut {string: integer} = {}
+  for _, entry in ipairs(found.docs) do
+    if entry.exported then
+      texts[entry.symbol] = entry.text
+      at[entry.symbol] = entry.line
+    end
+  end
+  assert(texts["only_field"] == "The field's doc.", tostring(texts["only_field"]))
+  assert(at["only_field"] == 12, tostring(at["only_field"]))
+  assert(texts["both"] == "The definition's doc.", tostring(texts["both"]))
+  assert(texts["noted"] == "Kept over a note.", tostring(texts["noted"]))
+  assert(texts["blank"] == "Kept over blank lines.", tostring(texts["blank"]))
+  assert(texts["bare"] == "The only comment.", tostring(texts["bare"]))
+end
+
+--- What decides is the doc of the definition the field row is lent: the last of a redefined function, and the local
+--- function a field is assigned.
+local function test_a_field_keeps_its_doc_by_the_definition_it_is_lent()
+  local found = analyzed(lines(
+    "local record Api",
+    "  --- Field doc of redefined.",
+    "  redefined: function(): integer",
+    "  --- Field doc of noted.",
+    "  noted: function(): integer",
+    "  --- Field doc of assigned.",
+    "  assigned: function(): integer",
+    "end",
+    "--- The first definition.",
+    "function Api.redefined(): integer",
+    "  return 1",
+    "end",
+    "-- A note on the later one.",
+    "function Api.redefined(): integer",
+    "  return 2",
+    "end",
+    "-- A note on the local.",
+    "local function noted(): integer",
+    "  return 3",
+    "end",
+    "Api.noted = noted",
+    "--- The local's doc.",
+    "local function assigned(): integer",
+    "  return 4",
+    "end",
+    "Api.assigned = assigned",
+    "return Api"), "api.tl")
+  local texts: mut {string: string} = {}
+  for _, entry in ipairs(found.docs) do
+    if entry.exported then
+      texts[entry.symbol] = entry.text
+    end
+  end
+  assert(texts["redefined"] == "Field doc of redefined.", tostring(texts["redefined"]))
+  assert(texts["noted"] == "Field doc of noted.", tostring(texts["noted"]))
+  assert(texts["assigned"] == "The local's doc.", tostring(texts["assigned"]))
+end
+
 local function test_the_values_of_an_enum_are_listed_in_order_and_each_carries_its_doc()
   local found = analyzed(lines(
     "local enum Mode",

@@ -10,7 +10,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
-local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local ChildPolicy = require("build.child_policy_fixture")
 
@@ -29,28 +28,15 @@ Test.policy{
 --- Runs `body` in a run with an HTTP server at a port of 127.0.0.1 that
 --- answers every request "hello from the host".
 local function serving(body: function(port: integer))
-  Poll.run(function()
-    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local task = Poll.spawn(function()
-      while true do
-        local conn = listener:accept()
-        if conn == nil then return end
-        Poll.spawn(function()
-          local seen = ""
-          while not seen:find("\r\n\r\n", 1, true) do
-            local chunk = conn:read(4096)
-            if chunk == nil then break end
-            seen = seen .. chunk
-          end
-          local _, _ = conn:write("HTTP/1.1 200 OK\r\nContent-Length: 19\r\nConnection: close\r\n\r\nhello from the host")
-          local _, _ = conn:close()
-        end)
-      end
-    end)
-    body(assert(listener.address.port))
-    task:cancel()
-    assert(listener:close())
-  end)
+  Net.with_loopback(function(conn: Net.Conn)
+    local seen = ""
+    while not seen:find("\r\n\r\n", 1, true) do
+      local chunk = conn:read(4096)
+      if chunk == nil then break end
+      seen = seen .. chunk
+    end
+    local _, _ = conn:write("HTTP/1.1 200 OK\r\nContent-Length: 19\r\nConnection: close\r\n\r\nhello from the host")
+  end, body)
 end
 
 --- curl, in a sandbox whose policy grants `target`, asked for `url` through

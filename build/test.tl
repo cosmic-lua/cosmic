@@ -8,7 +8,7 @@
 --- process group of its own, with its standard streams captured and a
 --- deadline -- `--timeout SECONDS`, or `COSMIC_TEST_TIMEOUT`, 30 by
 --- default -- past which the whole group is ended and the test fails.
---- Up to `--jobs N` workers run at once, one per processor by default.
+--- Up to `--jobs N` workers run at once, one more than the processors by default.
 --- A worker reports over a pipe what it hit and whether the test
 --- passed; this process alone opens the build database and writes
 --- the verdict. A test that exits, crashes, or hangs its process fails
@@ -125,13 +125,16 @@ local cache_lifetime = require("build.cache_lifetime")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local lua_tail = require("build.lua_tail")
 local sys = require("cosmic.sys")
 local clock = require("build.clock")
 local progress = require("build.progress")
 local coverage_report = require("build.coverage")
 local c_functions = require("build.c_functions")
+local c_check = require("build.c")
 local dispatch_sites = require("build.dispatch_sites")
 local importer = require("build.importer")
+local Refusals = require("build.refusals")
 local exit_status = require("build.exit_status")
 local type Module = importer.Module
 local GrammarMode = require("build.grammar_mode")
@@ -166,6 +169,8 @@ local verb_spec = require("build.verb_spec")
 local hex_sha256 = hashing.hex_sha256
 
 local type Recording = State.Recording
+local type Placed = State.Placed
+local type Placing = State.Placing
 local type Job = State.Job
 local type Unmet = State.Unmet
 
@@ -181,6 +186,17 @@ local record test
   --- `hits`, gathered while replaying verdicts and resolved against
   --- `coverage_by_test` in one query per run credited, after the loop.
   type Credited = mut {integer: mut {string}}
+
+  --- What calls of [`test.decode_hits`] have folded. The first key is a module's head in a row of hits (its path and
+  --- what its lines are numbered in), the second its lines as the row writes them. The value is what folding them
+  --- left in `stale` for the path, or "" where it left nothing.
+  type Folded = mut {string: mut {string: string}}
+
+  --- What [`test.write_module_coverage`] wrote: `lines` rows, one for each executable line, `hit` of them hit.
+  record Written
+    hit: integer
+    lines: integer
+  end
 
   --- One of the shares `--shard I/N` splits a run's chosen tests into
   --- ([`test.shard`], [`test.dealt`]).
@@ -253,7 +269,10 @@ function test.nearest(name: string, names: {string}): {string}
     return a < b
   end)
   local out: mut {string} = {}
-  for i = 1, math.min(#ranked, shown_names) do out[#out + 1] = ranked[i] end -- checked: index_may_be_nil
+  for i, name_here in ipairs(ranked) do
+    if i > shown_names then break end
+    out[#out + 1] = name_here
+  end
   return out
 end
 
@@ -283,13 +302,13 @@ local function module_of_file(file: string): string
   return (file:gsub("%.tl$", ""):gsub("/", "."))
 end
 
---- Of the compile's refusals `lines` ([`importer.Result`]'s `refused`, each beginning with its file), those a run fails
---- for: all of them for a run that names no test, and for one that does the refusals of the files its selectors choose. A test
---- module that requires a refused module is refused itself, which a selector that names it says, so a refusal elsewhere in the
---- tree is no failure of that run.
-function test.refusals_of(lines: {string}, selectors: {string}): {string}
-  local out: mut {string} = {}
-  for _, line in ipairs(lines) do
+--- The positions in the compile's refusals `lines` ([`importer.Result`]'s `refused`, each beginning with its file) of
+--- those a run fails for: all of them for a run that names no test, and for one that does the refusals of the files its
+--- selectors choose. A test module that requires a refused module is refused itself, which a selector that names it says,
+--- so a refusal elsewhere in the tree is no failure of that run.
+local function failing(lines: {string}, selectors: {string}): {integer:boolean}
+  local chosen: mut {integer:boolean} = {}
+  for position, line in ipairs(lines) do
     local file = line:match("^([^:\n]+)") or line
     local named = #selectors == 0
     for _, selector in ipairs(selectors) do
@@ -297,11 +316,26 @@ function test.refusals_of(lines: {string}, selectors: {string}): {string}
         named = true
       end
     end
-    if named then
-      out[#out + 1] = line
-    end
+    if named then chosen[position] = true end
+  end
+  return chosen
+end
+
+--- Of the compile's refusals `lines`, those a run fails for ([`failing`]).
+function test.refusals_of(lines: {string}, selectors: {string}): {string}
+  local chosen = failing(lines, selectors)
+  local out: mut {string} = {}
+  for position, line in ipairs(lines) do
+    if chosen[position] == true then out[#out + 1] = line end
   end
   return out
+end
+
+--- What a run shows of the compile's refusals `lines` it fails for ([`failing`]): the diagnostics of the files refused
+--- for what they hold, those the chosen lines rest on among them, apart from the files left out only for requiring one
+--- ([`refusals.cascade`]). `roots` is [`importer.Result`]'s `refusal_roots`.
+function test.cascade(lines: {string}, roots: {string:{integer}}, selectors: {string}): Refusals.Cascade
+  return Refusals.cascade(lines, roots, failing(lines, selectors))
 end
 
 --- What a run that names files shows of the compile's refusals `lines` ([`importer.Result`]'s `refused`) for the
@@ -436,55 +470,248 @@ function test.prune_history(handle: Sqlite.Handle, run: integer): boolean, strin
       "AND ran_at_ns NOT IN (SELECT ran_at_ns FROM coverage_by_test)")
 end
 
---- One test's hits as `coverage_by_test` holds them: a line per module,
---- in path order, the path, a tab, then the lines it hit, ascending and
---- comma-separated. Module paths hold neither tabs nor newlines. A row
---- [`take_hits`] writes may name a module twice, its load's hits and its
---- test's, which [`decode_hits`] folds together.
-local function encode_hits(test_hits: Coverage.Hits): string
-  local paths: mut {string} = {}
-  for path in pairs(test_hits) do
-    paths[#paths + 1] = path
-  end
-  table.sort(paths)
-  local out: mut {string} = {}
-  for _, path in ipairs(paths) do
-    local lines: mut {integer} = {}
-    for line in pairs(test_hits[path]) do -- checked: index_may_be_nil
-      lines[#lines + 1] = line
+--- A map entry carried with its key, so a sorted walk of the keys needs no second lookup.
+local record Keyed<T>
+  key: string
+  value: T
+end
+
+--- Orders [`Keyed`] entries by key; the keys of one map are distinct.
+local function by_key<T>(a: Keyed<T>, b: Keyed<T>): boolean
+  return a.key < b.key
+end
+
+--- How many hexadecimal digits of a module's source hash a row of hits
+--- names its text by: two texts of one module that share a prefix this long
+--- are not met by chance, and a row names one for every module it holds.
+local identity_digits <const> = 16
+
+--- The text each module of `modules` is, by path, as a row of hits names
+--- it ([`row_line`]): a prefix of its source hash. A path no module
+--- has (the core's C) is not among them: its lines are those of the core
+--- the runtime every key holds is.
+function test.identities(modules: {Module}): {string:string}
+  local out: mut {string:string} = {}
+  for _, m in ipairs(modules) do out[m.path] = m.source_hash:sub(1, identity_digits) end
+  return out
+end
+
+--- The bytecode each module's instructions are numbered in, by path, as a row of a pure store's import names it
+--- ([`row_line`]): a prefix of the digest of its bytecode stripped (`stripped`, [`closure_store.Basis`]'s), which
+--- [`lua_tail.numbered`] is a function of. Never a prefix of a source hash but by a chance of one in 2^64, so a tool
+--- that reads a row's numbers as lines alone, older than rows of instructions, finds it names another text and
+--- drops it as such, rather than crediting an instruction's number as a line.
+local function code_identities(stripped: {string:string}): {string:string}
+  local out: mut {string:string} = {}
+  for path, digest in pairs(stripped) do out[path] = digest:sub(1, identity_digits) end
+  return out
+end
+
+--- One module's line of a test's row of hits, as `coverage_by_test` and
+--- the shared verdicts hold it: the path, a space, what its lines are
+--- numbered in (`named`: [`test.identities`]' entry, "-" for a path that is
+--- no module, or [`code_identities`]' for a pure store's import), a
+--- tab, then the lines it hit, ascending and comma-separated. A path
+--- holds no tab or newline but may hold a space, so the text is read as the
+--- last word alone, and only as `identity_digits` hex digits or "-"
+--- ([`text_of`]). A line numbers what a text held: a
+--- comment that moves a harness module's lines moves no key
+--- ([`test_key.harness`] is of stripped bytecode), so a standing row can
+--- name lines the text has since moved, and [`test.decode_hits`] credits a
+--- line only where its text is still this run's. A pure store's import
+--- names its stripped bytecode instead, and its lines are instructions'
+--- ordinals, each past [`lua_tail.ordinal_base`], as its worker reported
+--- them, which no text moves: the decoding run places them.
+local function row_line(named: string, path: string, lines: {integer}): string
+  return path .. " " .. named .. "\t" .. table.concat(lines, ",") .. "\n"
+end
+
+--- The text a lines' head names (as [`row_line`] writes it): a module's
+--- `identity_digits` hex digits, or "-" for a path that is no module, after
+--- the path and a space. A head that ends in neither is a row from before
+--- rows named their text, the whole of it the path, which names no text
+--- (nil), so an old row's path that holds a space is never misread.
+local hex_text <const> = "^(.+) (" .. string.rep("%x", identity_digits) .. ")$"
+local function text_of(head: string): string, string?
+  local path, named = head:match(hex_text)
+  if path ~= nil and named ~= nil then return path, named end
+  local plain = head:match("^(.+) %-$")
+  if plain ~= nil then return plain, "-" end
+  return head, nil
+end
+
+--- The number each run of digits [`test.decode_hits`] has met spells: the rows of a run name millions of lines in a
+--- few thousand different numbers, each of which `tonumber` then reads once.
+local numbers_met: mut {string:integer} = {}
+
+--- The first line of a row whose modules' lines are written as distances, each from the one before it, as the
+--- shared verdicts keep them ([`build.shared_verdicts`]): a row this checkout took from there is kept as it came,
+--- under this line, and is never written out in full. No module's line is read as it, since it holds no tab.
+local distances_mark <const> = "lines as distances\n"
+
+--- [`test.decode_hits`] of the lines of a row, without its first line where it has one: `distances` says whether a
+--- module's lines are written as distances. Returns the lines but those of a path `unowned` names, as written.
+local function fold_row(encoded: string, distances: boolean, hits: Coverage.Hits, identities: {string:string},
+                        stale: mut {string:string}, unowned?: Coverage.Hits,
+                        lines_of?: function(string): {integer}?, string, codes?: {string:string},
+                        folded?: test.Folded): string
+  local kept: mut {string} = {}
+  for head, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
+    local path, named = text_of(head)
+    local known = identities[path]
+    local code = if codes ~= nil then codes[path] else nil end
+    local owned = unowned == nil or unowned[path] == nil
+    if owned then kept[#kept + 1] = head .. "\t" .. lines .. "\n" end
+    local met: mut {string:string}? = nil
+    if owned and folded ~= nil then
+      local of_head: mut {string:string} = folded[head] or {}
+      folded[head] = of_head
+      met = of_head
+      local left = of_head[lines]
+      if left ~= nil then
+        -- What it left in `stale` the first time, said again: another line of the path may have said otherwise since.
+        if left ~= "" then stale[path] = left end
+        owned = false
+      end
     end
-    table.sort(lines)
-    out[#out + 1] = path .. "\t" .. table.concat(lines, ",") .. "\n"
+    if owned then
+      local left = ""
+      local numbered = known ~= nil and code ~= nil and named == code
+      local placing: {integer}? = nil
+      local unplaced = "the module has no instructions to place them by"
+      if numbered and lines_of ~= nil then
+        local found, why = lines_of(path)
+        placing = found
+        if found == nil then unplaced = why end
+      end
+      -- What a line of this module's is, settled once for them all: a number is read millions of times a run.
+      local as_written = known == nil
+      local own_text = not numbered and named == known
+      local per_line = hits[path]
+      local last = 0
+      for digits in lines:gmatch("%d+") do
+        local line = numbers_met[digits]
+        if line == nil then
+          line = math.tointeger(tonumber(digits)) or 0
+          numbers_met[digits] = line
+        end
+        if distances then
+          last = last + line
+          line = last
+        end
+        local at: integer? = nil
+        if as_written or (own_text and line <= lua_tail.ordinal_base) then
+          at = line
+        elseif numbered then
+          at = if placing ~= nil and line > lua_tail.ordinal_base then
+            placing[line - lua_tail.ordinal_base] else nil end
+          if at == nil then
+            if placing ~= nil and line > lua_tail.ordinal_base then
+              unplaced = "instruction " .. tostring(line - lua_tail.ordinal_base) .. " is past the module's " ..
+                tostring(#placing)
+            elseif placing ~= nil then
+              unplaced = "line " .. tostring(line) .. " is not an instruction's number"
+            end
+            left = "were not placed at its lines: " .. unplaced
+            stale[path] = left
+          end
+        else
+          left = test_report.other_text
+          stale[path] = left
+        end
+        if at ~= nil then
+          if per_line == nil then
+            per_line = {}
+            hits[path] = per_line -- checked: view_written
+          end
+          per_line[at] = true -- checked: view_written
+        end
+      end
+      if met ~= nil then met[lines] = left end
+    end
+  end
+  return table.concat(kept)
+end
+
+--- Folds every line `encoded` (a row [`test.take_hits`] wrote) names into
+--- `hits`, but for a module of `identities` whose line names another text,
+--- or none (a row written before rows named their text): its lines would
+--- land on the wrong ones of this run's text. A module's line that names the
+--- bytecode `codes` says it is ([`code_identities`]) holds
+--- instructions' ordinals (a pure store's import), whatever its text: the key
+--- the row stands under holds that bytecode, so the ordinals number the
+--- instructions of this run's text alike, and `lines_of` places each at the
+--- line this run's text has it on, as [`test.place_hits`] does. Each module
+--- whose lines are dropped goes in `stale`, with why
+--- ([`test_report.other_text`], or why an ordinal was not placed), which
+--- makes the run's figure partial. A path that is no module is folded as it
+--- stands: the key holds its text. Returns the lines of `encoded` but those
+--- of a path `unowned` names, as written. A row whose first line says its lines are distances
+--- ([`test.decode_kept`] answers one) is read so, and comes back under that line.
+---
+--- `folded` holds the module's lines earlier calls folded. Pass one table only to calls that share every other
+--- argument but `encoded`: a line met again is then not read a second time, since it would set the same entries of
+--- `hits` and of `stale`. Most of a test's row is the lines every test hits of the modules every test loads, so the
+--- rows of a suite repeat them.
+---
+--- `folded` is for rows of lines written in full: it is not asked about a row of distances, whose lines read
+--- otherwise.
+function test.decode_hits(encoded: string, hits: Coverage.Hits, identities: {string:string},
+                          stale: mut {string:string}, unowned?: Coverage.Hits,
+                          lines_of?: function(string): {integer}?, string, codes?: {string:string},
+                          folded?: test.Folded): string
+  if encoded:sub(1, #distances_mark) == distances_mark then
+    return distances_mark .. fold_row(encoded:sub(#distances_mark + 1), true, hits, identities, stale, unowned,
+      lines_of, codes)
+  end
+  return fold_row(encoded, false, hits, identities, stale, unowned, lines_of, codes, folded)
+end
+
+--- Folds a row as the shared verdicts keep it ([`shared_verdicts.Found`]'s `kept`: each module's lines as
+--- distances) into `hits`, as [`test.decode_hits`] does, in one pass over its lines: a line `met` holds costs a
+--- lookup, and only one it does not is read. Pass one `met` only to calls that share every argument after it. A
+--- run stands on thousands of rows that repeat most of their lines, and a row of a hundred lines names few that no
+--- earlier row held. Returns the row for this checkout to keep: the lines as they came, but those of a path
+--- `unowned` names, under the line that says they are distances, so nothing writes their numbers out.
+function test.decode_kept(kept: string, met: mut {string: State.SharedLine}, hits: Coverage.Hits,
+                          identities: {string:string}, stale: mut {string:string}, unowned?: Coverage.Hits,
+                          lines_of?: function(string): {integer}?, string, codes?: {string:string}): string
+  local out: mut {string} = { distances_mark }
+  for line in kept:gmatch("[^\n]*\n") do
+    local known = met[line]
+    if known == nil then
+      local left: mut {string:string} = {}
+      local as_kept = fold_row(line, true, hits, identities, left, unowned, lines_of, codes)
+      local path, why = next(left)
+      known = { text = as_kept, path = path, left = why }
+      met[line] = known
+    end
+    -- What it left in `stale` the first time, said again: another line of the path may have said otherwise since.
+    local path, why = known.path, known.left
+    if path ~= nil and why ~= nil then stale[path] = why end
+    out[#out + 1] = known.text
   end
   return table.concat(out)
 end
 
--- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`merge_hits`] and [`take_hits`] can be written, once
+-- TODO: have [`Coverage.Hits`] write its lines through, so `hits` here and in [`take_hits`] can be written, once
 -- `Hits` in cosmic/internal/debug.d.tl is `{string: mut {integer: boolean}}`.
-
---- Folds every line `encoded` (as [`encode_hits`] writes it) names into
---- `hits`.
-local function decode_hits(encoded: string, hits: Coverage.Hits)
-  for path, lines in encoded:gmatch("([^\t\n]+)\t([^\n]*)\n") do
-    local per_line = hits[path]
-    if per_line == nil then
-      per_line = {}
-      hits[path] = per_line -- checked: view_written
-    end
-    for line in lines:gmatch("%d+") do
-      per_line[math.tointeger(tonumber(line)) or 0] = true -- checked: view_written
-    end
-  end
-end
 
 --- Resolves every run `credited` names against `coverage_by_test`,
 --- folding the lines its named tests hit into `hits`: only the run-wide
 --- union of hit lines per module matters to [`write_coverage`], never
 --- which test hit which line. One query per run credited, each naming
 --- only the tests this run actually still owes it, rather than one per
---- standing verdict.
+--- standing verdict. A module whose lines a row numbers in a text other
+--- than `identities` names is dropped and named in `stale`, and an instruction's ordinal of the bytecode `codes`
+--- names placed at its line by `lines_of` ([`test.decode_hits`]).
 local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
-                           hits: Coverage.Hits): string
+                           hits: Coverage.Hits, identities: {string:string},
+                           stale: mut {string:string}, lines_of: function(string): {integer}?, string,
+                           codes: {string:string}): string
+  local folded: test.Folded = {}
+  -- The rows this checkout took from the shared verdicts, which repeat most of their lines as those of one run do.
+  local met: mut {string: State.SharedLine} = {}
   for run_at_ns, tests in pairs(credited) do
     local placeholders: mut {string} = {}
     local args: mut {Sqlite.Value} = { { integer = run_at_ns } }
@@ -499,7 +726,12 @@ local function credit_hits(handle: Sqlite.Handle, credited: test.Credited,
       return trouble
     end
     for _, row in ipairs(rows) do
-      decode_hits(row:text(1), hits)
+      local encoded = row:text(1)
+      if encoded:sub(1, #distances_mark) == distances_mark then
+        local _ = test.decode_kept(encoded:sub(#distances_mark + 1), met, hits, identities, stale, nil, lines_of, codes)
+      else
+        local _ = test.decode_hits(encoded, hits, identities, stale, nil, lines_of, codes, folded)
+      end
     end
   end
   return ""
@@ -524,25 +756,25 @@ end
 --- making and sorting a table for each of a thousand modules: some 0.45 s of
 --- a run that ran one test. A module whose source the cache does not hold
 --- yet is read first by `ensure`, which keeps it and answers why it could
---- not, or "". Returns the hit and executable-line counts of what it wrote,
---- and a trouble message.
-local function write_module_coverage(handle: Sqlite.Handle,
-                                     each: function(function(string, string): boolean, string): boolean, string,
-                                     ensure: function(string): string,
-                                     hits: Coverage.Hits, run_at_ns: integer): integer, integer, string
+--- not, or "". Returns the counts of what it wrote, or nil and why it wrote
+--- none.
+function test.write_module_coverage(handle: Sqlite.Handle,
+                                    each: function(function(string, string): boolean, string): boolean, string,
+                                    ensure: function(string): string,
+                                    hits: Coverage.Hits, run_at_ns: integer): test.Written?, string
   local made, made_trouble = handle:exec(
     "CREATE TEMP TABLE IF NOT EXISTS run_modules (path TEXT PRIMARY KEY, source_hash TEXT NOT NULL) " ..
       "WITHOUT ROWID; CREATE TEMP TABLE IF NOT EXISTS run_hits (path TEXT NOT NULL, line INTEGER NOT NULL, " ..
       "PRIMARY KEY (path, line)) WITHOUT ROWID; DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
-  if not made then return 0, 0, made_trouble end
+  if not made then return nil, made_trouble end
   local prepared_modules, modules_trouble = handle:prepare(
     "INSERT INTO temp.run_modules (path, source_hash) VALUES (?1, ?2)")
-  if prepared_modules == nil then return 0, 0, modules_trouble end
+  if prepared_modules == nil then return nil, modules_trouble end
   local into_modules: Sqlite.Statement = prepared_modules
   local prepared_hits, hits_trouble = handle:prepare("INSERT OR IGNORE INTO temp.run_hits (path, line) VALUES (?1, ?2)")
   if prepared_hits == nil then
     into_modules:finalize()
-    return 0, 0, hits_trouble
+    return nil, hits_trouble
   end
   local into_hits: Sqlite.Statement = prepared_hits
   local filled, fill_trouble = each(function(path: string, hash: string): boolean, string
@@ -562,14 +794,14 @@ local function write_module_coverage(handle: Sqlite.Handle,
   end)
   into_modules:finalize()
   into_hits:finalize()
-  if not filled then return 0, 0, fill_trouble end
+  if not filled then return nil, fill_trouble end
   local missing, missing_trouble = Sqlite.text_rows(handle,
     "SELECT m.path FROM temp.run_modules m LEFT JOIN executable e ON e.source_hash = m.source_hash " ..
       "WHERE e.source_hash IS NULL ORDER BY m.path")
-  if missing == nil then return 0, 0, missing_trouble end
+  if missing == nil then return nil, missing_trouble end
   for _, row in ipairs(missing) do
     local trouble = ensure(row:text(1))
-    if trouble ~= "" then return 0, 0, trouble end
+    if trouble ~= "" then return nil, trouble end
   end
   local written, write_trouble = Sqlite.run(handle,
     "INSERT INTO coverage (ran_at_ns, path, line, hit) " ..
@@ -577,19 +809,18 @@ local function write_module_coverage(handle: Sqlite.Handle,
       "FROM temp.run_modules m JOIN executable e ON e.source_hash = m.source_hash, " ..
       "json_each('[' || replace(e.lines, ' ', ',') || ']') j ORDER BY m.path, j.value",
     { { integer = run_at_ns } })
-  if not written then return 0, 0, write_trouble end
-  -- How many rows that wrote, and how many of them are hit: the lines
-  -- `run_hits` names that a module's executable lines hold.
+  if not written then return nil, write_trouble end
+  -- How many rows that wrote, and how many of them are hit, counted from the rows themselves: asking `run_hits` which
+  -- of its lines a module's executable lines hold spreads the module's lines again for each line hit.
   local totals, totals_trouble = Sqlite.text_rows(handle,
-    "SELECT changes(), (SELECT count(*) FROM temp.run_hits h JOIN temp.run_modules m ON m.path = h.path " ..
-      "JOIN executable e ON e.source_hash = m.source_hash WHERE EXISTS (SELECT 1 FROM " ..
-      "json_each('[' || replace(e.lines, ' ', ',') || ']') j WHERE j.value = h.line))")
+    "SELECT count(*), coalesce(sum(c.hit), 0) FROM coverage c JOIN temp.run_modules m ON m.path = c.path " ..
+      "WHERE c.ran_at_ns = ?1", { { integer = run_at_ns } })
   local cleaned, clean_trouble = handle:exec("DELETE FROM temp.run_modules; DELETE FROM temp.run_hits")
-  if totals == nil then return 0, 0, totals_trouble end
-  if not cleaned then return 0, 0, clean_trouble end
+  if totals == nil then return nil, totals_trouble end
+  if not cleaned then return nil, clean_trouble end
   local counted = totals[1]
-  if counted == nil then return 0, 0, "the count of the rows written came back empty" end
-  return math.tointeger(tonumber(counted:text(2))) or 0, math.tointeger(tonumber(counted:text(1))) or 0, ""
+  if counted == nil then return nil, "the count of the rows written came back empty" end
+  return { hit = math.tointeger(tonumber(counted:text(2))) or 0, lines = math.tointeger(tonumber(counted:text(1))) or 0 }, ""
 end
 
 --- Every line [`build.coverage`] found for every non-vendor module
@@ -600,7 +831,7 @@ end
 ---
 --- Also writes, for every test that ran, which of the lines it hit into
 --- `coverage_by_test`, one row a test, tagged with the test's identity
---- ("path name", as `by_test` is keyed) and its hits as [`encode_hits`]
+--- ("path name", as `by_test` is keyed) and its hits as [`test.take_hits`]
 --- wrote them when it finished. A test whose verdict stood is not in
 --- `by_test`, since its row from the run that produced the verdict
 --- still stands for it.
@@ -643,28 +874,28 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   -- observes it answers every line a block begins on, and a line is hit
   -- when some window's hits name it (see [`Coverage.native_lines`]).
   local by_source: mut {string: Module} = {}
-  local sorted_paths: mut {string} = {}
+  local sorted_native: mut {Keyed<{integer:boolean}>} = {}
   for _, m in ipairs(modules) do
     by_source[m.path] = m
   end
-  for path in pairs(native_lines) do
+  for path, native in pairs(native_lines) do
     if by_source[path] == nil then
-      sorted_paths[#sorted_paths + 1] = path
+      sorted_native[#sorted_native + 1] = { key = path, value = native }
     end
   end
   -- `coverage` is WITHOUT ROWID, keyed (ran_at_ns, path, line):
   -- rows written in key order append at the right edge of the B-tree
   -- instead of splitting pages at random positions, which alone is
   -- most of the cost of writing them in hash order.
-  table.sort(sorted_paths)
-  local test_names: mut {string} = {}
-  for test_name in pairs(by_test) do
-    test_names[#test_names + 1] = test_name
+  table.sort(sorted_native, by_key)
+  local test_rows: mut {Keyed<string>} = {}
+  for test_name, test_hits in pairs(by_test) do
+    test_rows[#test_rows + 1] = { key = test_name, value = test_hits }
   end
-  table.sort(test_names)
+  table.sort(test_rows, by_key)
   local write_rows = function(): boolean, string
     -- The modules in one statement; the core's C one at a time below.
-    local hit_lines, executable_lines, module_trouble = write_module_coverage(handle,
+    local wrote, module_trouble = test.write_module_coverage(handle,
       function(visit: function(string, string): boolean, string): boolean, string
         for _, m in ipairs(modules) do
           local visited, visit_trouble = visit(m.path, m.source_hash)
@@ -680,13 +911,14 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
         return ""
       end,
       hits, run_at_ns)
-    if module_trouble ~= "" then return false, module_trouble end
-    totals["hit"] = (totals["hit"] or 0) + hit_lines
-    totals["lines"] = (totals["lines"] or 0) + executable_lines
-    for _, path in ipairs(sorted_paths) do
+    if wrote == nil then return false, module_trouble end
+    totals["hit"] = (totals["hit"] or 0) + wrote.hit
+    totals["lines"] = (totals["lines"] or 0) + wrote.lines
+    for _, native in ipairs(sorted_native) do
+      local path = native.key
       local hit_here = hits[path] or {}
       local per_line: coverage_report.LineHits = {}
-      for line in pairs(native_lines[path]) do -- checked: index_may_be_nil
+      for line in pairs(native.value) do
         per_line[line] = hit_here[line] == true -- checked: view_written
       end
       local lines = sorted_lines(per_line) -- checked: any_use
@@ -720,13 +952,14 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
         end
       end
     end
-    for _, test_name in ipairs(test_names) do
+    for _, test_row in ipairs(test_rows) do
+      local test_name = test_row.key
       local ok, write_trouble = per_test:bind_integer(1, run_at_ns)
       if ok then
         ok, write_trouble = per_test:bind_text(2, test_name)
       end
       if ok then
-        ok, write_trouble = per_test:bind_text(3, by_test[test_name]) -- checked: index_may_be_nil
+        ok, write_trouble = per_test:bind_text(3, test_row.value)
       end
       if not ok then
         return false, write_trouble
@@ -746,29 +979,17 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   -- lines itself throws. Turn that exception into the same infrastructure
   -- error returned by an unsuccessful insert so the caller aborts the whole
   -- recording transaction.
-  local called, made, trouble = pcall(write_rows)
+  local made, trouble = false, ""
+  local called, raised = pcall(function() made, trouble = write_rows() end)
   coverage:finalize()
   per_test:finalize()
   if not called then
-    return 0, 0, tostring(made)
+    return 0, 0, tostring(raised)
   end
   if not made then
     return 0, 0, trouble
   end
   return totals.hit, totals.lines, "" -- checked: map_field*2
-end
-
---- Folds every line `from` holds into `into`, both keyed by module
---- import path then line number -- the shape one test's or one
---- module-load's own coverage window hands back.
-local function merge_hits(into: Coverage.Hits, from: Coverage.Hits)
-  for path, per_line in pairs(from) do
-    local existing = into[path] or {}
-    into[path] = existing -- checked: view_written
-    for line in pairs(per_line) do
-      existing[line] = true -- checked: view_written
-    end
-  end
 end
 
 --- What names this checkout among the shared rows: an id made the
@@ -805,23 +1026,58 @@ local function stand(rec: Recording, credited: test.Credited, m: Module,
   end
 end
 
+--- The source line of each instruction of the module `path` as this run's projection holds its bytecode
+--- ([`lua_tail.instruction_lines`]), remembered in `rec`; nil and why where it holds none or the chunk is not read.
+local function instruction_lines_of(rec: Recording, path: string): {integer}?, string
+  local known = rec.instruction_lines[path]
+  if known ~= nil then return known, "" end
+  local projection = rec.projection
+  if projection == nil then return nil, "the run has no projection" end
+  local opened, trouble = Sqlite.open(projection)
+  if opened == nil then return nil, projection .. ": " .. trouble end
+  local db: Sqlite.Handle = opened
+  local rows, rows_trouble = Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules WHERE path = ?1", { text(path) })
+  local _, _ = db:close()
+  if rows == nil then return nil, projection .. ": " .. rows_trouble end
+  local row = rows[1]
+  if row == nil then return nil, "no module of the projection" end
+  local lines, why = lua_tail.instruction_lines(row:blob(1), path)
+  if lines == nil then return nil, why end
+  local defines, defines_why = lua_tail.defined_lines(row:blob(1), path)
+  if defines == nil then return nil, defines_why end
+  rec.instruction_lines[path] = lines
+  rec.defined_lines[path] = defines
+  return lines, ""
+end
+
+--- [`code_identities`] of this run's basis, remembered in `rec`; none where the run has no basis yet (it is
+--- unsandboxed), which numbers no instruction.
+local function codes_of(rec: Recording): {string:string}
+  local known = rec.codes
+  if known ~= nil then return known end
+  local basis = rec.basis
+  if basis == nil then return {} end
+  local made = code_identities(basis.stripped)
+  rec.codes = made
+  return made
+end
+
 --- Records one sandboxed test answered from the verdict another
 --- checkout reached under its declared key (`found`, whose lookup says to
 --- share it: [`test_key.lookup`]): as this run's own, with the lines that
 --- run hit, so a later run of this checkout stands on it without the
---- shared cache.
+--- shared cache. Its row is kept as the shared verdicts hold it
+--- ([`test.decode_kept`]), the lines of a module numbered in another text
+--- among them, so a later run standing on it drops them and says so again.
 local function share(rec: Recording, m: Module, name: string, id: string,
                      found: test_key.Lookup)
   local key, elsewhere = assert(found.key), assert(found.elsewhere)
   rec.tally.cached = rec.tally.cached + 1
   rec.tally.shared = rec.tally.shared + 1
-  local hit: Coverage.Hits = {}
-  decode_hits(elsewhere.hits, hit)
-  for path in pairs(rec.unowned) do
-    hit[path] = nil -- checked: view_written
-  end
-  merge_hits(rec.hits, hit)
-  rec.by_test[id] = encode_hits(hit)
+  rec.by_test[id] = test.decode_kept(elsewhere.kept, rec.shared_folded, rec.hits, rec.identities, rec.stale,
+    rec.unowned, function(path: string): {integer}?, string
+      return instruction_lines_of(rec, path)
+    end, codes_of(rec))
   local kept, keep_trouble = record_run(rec.records, m.path, name, true, "",
     Clock.now_ns(), run_key(key, key), rec.run_at_ns, elsewhere.elapsed_ns)
   if not kept then
@@ -834,16 +1090,16 @@ local function share(rec: Recording, m: Module, name: string, id: string,
 end
 
 --- A module's hit lines as a row of `coverage_by_test` holds them
---- ([`encode_hits`]'s line), kept in `spelled` by the table
+--- ([`row_line`]), kept in `spelled` by the table
 --- [`worker.decode`] shares among the reports that held them.
 local function spell(spelled: mut {{integer:boolean}:string}, path: string, -- declared: key_type
-                     per_line: {integer:boolean}): string
+                     per_line: {integer:boolean}, named: string): string
   local row = spelled[per_line]
   if row == nil then
     local lines: mut {integer} = {}
     for line in pairs(per_line) do lines[#lines + 1] = line end
     table.sort(lines)
-    row = path .. "\t" .. table.concat(lines, ",") .. "\n"
+    row = row_line(named, path, lines)
     spelled[per_line] = row
   end
   return row
@@ -852,9 +1108,19 @@ end
 --- Folds the hits of a finished worker, those its load made and those its
 --- test did (the tables [`worker.decode`] shares, never changed here), into
 --- `hits` but for the modules `unowned` names (the core's), and answers the
---- test's own `coverage_by_test` row, in [`encode_hits`]'s form but with
---- a module the load and the test both hit on a line of each. A worker's
---- load hits are the same lines in every worker of a module, so each is
+--- test's own `coverage_by_test` row, a [`row_line`] a module, each
+--- naming the text `identities` says it is, and a module the load and the
+--- test both hit on a line of each.
+---
+--- `load_placed` and `test_placed` are what [`test.place_hits`] answered of
+--- the two, and where a module's lines were placed, those are what is
+--- folded. Its row keeps the instructions' ordinals as reported, named by
+--- the bytecode `codes` says the module is: the test's key holds that
+--- bytecode, so [`test.decode_hits`] places each at the line of the text of
+--- the run that stands on it, where a line placed here could have moved. A
+--- module `codes` names nothing of is spelled at its placed lines.
+---
+--- A worker's load hits are the same lines in every worker of a module, so each is
 --- folded once and spelled once, whatever the number of tests: the work
 --- of one test is its own few lines. `folded` and `spelled` remember
 --- which tables have been, and are one run's, since a table folded into
@@ -862,36 +1128,168 @@ end
 function test.take_hits(hits: Coverage.Hits, unowned: Coverage.Hits,
                         folded: mut {{integer:boolean}:boolean}, -- declared: key_type
                         spelled: {{integer:boolean}:string}, -- declared: key_type
-                        load_hits: Coverage.Hits, test_hits: Coverage.Hits): string
+                        load_hits: Coverage.Hits, test_hits: Coverage.Hits,
+                        identities: {string:string}, load_placed?: Coverage.Hits,
+                        test_placed?: Coverage.Hits, codes?: {string:string}): string
   local out: mut {string} = {}
-  for _, taken in ipairs({ load_hits, test_hits }) do
+  for index, taken in ipairs({ load_hits, test_hits }) do
+    local placed = (if index == 1 then load_placed else test_placed end) or taken
+    -- A row holds its modules in the order of their paths as strings.
     local paths: mut {string} = {}
     for path in pairs(taken) do
       if unowned[path] == nil then paths[#paths + 1] = path end
     end
     table.sort(paths)
     for _, path in ipairs(paths) do
-      local per_line = taken[path]
-      if not folded[per_line] then
-        folded[per_line] = true
+      local per_line = assert(taken[path], "a path listed from the hits is in them")
+      local lines = placed[path] or per_line
+      if not folded[lines] then
+        folded[lines] = true
         local into = hits[path] or {}
         hits[path] = into -- checked: view_written
-        for line in pairs(per_line) do into[line] = true end -- checked: nil_not_allowed, view_written
+        for line in pairs(lines) do into[line] = true end -- checked: view_written
       end
-      out[#out + 1] = spell(spelled, path, per_line) -- checked: nil_not_allowed
+      local code = if codes ~= nil then codes[path] else nil end
+      if lines ~= per_line and code ~= nil then
+        out[#out + 1] = spell(spelled, path, per_line, code)
+      else
+        out[#out + 1] = spell(spelled, path, lines, identities[path] or "-")
+      end
     end
   end
   return table.concat(out)
+end
+
+--- How many loads' hits `finish` remembers taken: the workers of a few modules finish in turn.
+local loads_kept <const> = 8
+
+--- How many tables of one module's hits [`test.place_hits`] remembers placed: a load's are the same table in every
+--- worker of a module, and the workers of a few modules finish in turn.
+local placed_kept <const> = 8
+
+--- `hits`, as a worker reported them, with the line of each instruction of a chunk numbered by instruction
+--- ([`lua_tail.numbered`]: an imported module of a pure store), a line past [`lua_tail.ordinal_base`], placed at the
+--- source line `lines_of` says that instruction is on. Placed by this run's text, whose bytecode the store was
+--- numbered from: the store's address holds that bytecode stripped, so a store standing at it numbers the same
+--- instructions alike, and the lines placed are this run's text's, which [`test.take_hits`] folds into the run's
+--- figure; the row it spells keeps the ordinals. `hits` itself where no line is past the base, and a module's table
+--- answered the same placed table while `placed` remembers it, so [`take_hits`] folds a load's lines once. A module whose instructions
+--- `lines_of` cannot place (nil and why), or a line past the instructions it places, is answered without its
+--- numbered lines, never on the wrong ones, and named with why in `unplaced`; then the answer is not `whole`, and
+--- the test's row lacks lines it reached, so the runner keeps no verdict of it. Only a module of the run, a path of
+--- `modules`, is placed: a chunk a test numbers itself names none, and its lines are kept as no module's are.
+function test.place_hits(hits: Coverage.Hits, modules: {string:string}, lines_of: function(string): {integer}?, string,
+                         placed: mut {string:mut {Placed}}, unplaced: mut {string:string}): Placing
+  local numbered: mut {string} = {}
+  for path, per_line in pairs(hits) do
+    if modules[path] == nil then continue end
+    for line in pairs(per_line) do
+      if line > lua_tail.ordinal_base then
+        numbered[#numbered + 1] = path
+        break
+      end
+    end
+  end
+  if #numbered == 0 then return { hits = hits, whole = true } end
+  local all_placed = true
+  local out: mut {string:{integer:boolean}} = {}
+  for path, per_line in pairs(hits) do out[path] = per_line end
+  for _, path in ipairs(numbered) do
+    local per_line = assert(hits[path], "a path listed from hits is in hits")
+    local known = placed[path] or {}
+    placed[path] = known
+    local found: Placed? = nil
+    for _, entry in ipairs(known) do
+      if entry.from == per_line then found = entry end
+    end
+    if found == nil then
+      local made: mut {integer:boolean} = {}
+      local whole = true
+      local lines, why = lines_of(path)
+      for line in pairs(per_line) do
+        if line <= lua_tail.ordinal_base then
+          made[line] = true
+        elseif lines ~= nil and lines[line - lua_tail.ordinal_base] ~= nil then
+          made[assert(lines[line - lua_tail.ordinal_base])] = true
+        else
+          whole = false
+          if unplaced[path] == nil then
+            unplaced[path] = if lines == nil then why else "instruction " ..
+                tostring(line - lua_tail.ordinal_base) .. " is past the module's " .. tostring(#lines) end
+          end
+        end
+      end
+      if #known >= placed_kept then table.remove(known, 1) end
+      found = { from = per_line, to = made, whole = whole }
+      known[#known + 1] = found
+    end
+    out[path] = found.to
+    if not found.whole then all_placed = false end
+  end
+  return { hits = out, whole = all_placed }
+end
+
+--- The line each function of the module `path` is defined on ([`lua_tail.defined_lines`]), as
+--- [`instruction_lines_of`] reads it.
+local function defined_lines_of(rec: Recording, path: string): {integer:integer}?, string
+  local _, why = instruction_lines_of(rec, path)
+  local known = rec.defined_lines[path]
+  if known == nil then return nil, why end
+  return known, ""
+end
+
+--- `said` with each frame of a traceback that names a function of a numbered chunk (`function <module:ordinal>`, the
+--- ordinal past [`lua_tail.ordinal_base`]: a pure store's import, [`test.place_hits`]) said at the module's file, by
+--- `files`, and the line this run's text defines that function on, by `defined_of`. For what is shown alone: no key
+--- holds the line. A frame it cannot place is left as it is. A message says no position in such a chunk
+--- (`module:-1:`), which has no line information.
+function test.placed_positions(said: string, files: {string:string},
+                               defined_of: function(string): {integer:integer}?, string): string
+  return (said:gsub("<([%w_%.]+):(%d+)>", function(named: string, digits: string): string
+    local ordinal = math.tointeger(tonumber(digits)) or 0
+    local file = files[named]
+    if ordinal > lua_tail.ordinal_base and file ~= nil then
+      local defines, _ = defined_of(named)
+      local line = if defines ~= nil then defines[ordinal - lua_tail.ordinal_base] else nil end
+      if line ~= nil then return "<" .. file .. ":" .. tostring(line) .. ">" end
+    end
+    return "<" .. named .. ":" .. digits .. ">"
+  end))
+end
+
+--- [`test.placed_positions`] of this run's modules and text.
+local function placed_positions(rec: Recording, said: string): string
+  return test.placed_positions(said, rec.files, function(path: string): {integer:integer}?, string
+    return defined_lines_of(rec, path)
+  end)
+end
+
+--- The errors of a run whose workers reported hits of the modules `unplaced` names that [`test.place_hits`] could
+--- not place, each with why, by path.
+function test.unplaced_errors(unplaced: {string:string}): {string}
+  local paths: mut {string} = {}
+  for path in pairs(unplaced) do paths[#paths + 1] = path end
+  table.sort(paths)
+  local out: mut {string} = {}
+  for _, path in ipairs(paths) do
+    local why = assert(unplaced[path], "a path listed from unplaced is in it")
+    out[#out + 1] = "coverage: the hits of " .. path .. " are not placed at its lines: " .. why ..
+      "; no verdict of a test that reached them is kept"
+  end
+  return out
 end
 
 --- Folds the violations a finished worker reported into the run's, by
 --- what they are and where, adding the counts of the ones met before.
 local function take_violations(rec: Recording, id: string, reported: worker.Report)
   for _, met in ipairs(reported.violations or {}) do
+    met.at = placed_positions(rec, met.at)
     -- A frame a traceback names by its module's name, as the file it was
     -- read from, as a statement the compiler placed is.
     local named, line = met.at:match("^([%w_%.]+):(%d+)$")
-    if named ~= nil and rec.files[named] ~= nil then met.at = rec.files[named] .. ":" .. line end -- checked: nil_not_allowed*2
+    local file: string? = nil
+    if named ~= nil then file = rec.files[named] end
+    if file ~= nil and line ~= nil then met.at = file .. ":" .. line end
     local key = table.concat({ met.kind, met.at, met.target, met.declared, met.actual }, "\t")
     local known = rec.violations[key]
     if known ~= nil then
@@ -908,6 +1306,20 @@ local function take_violations(rec: Recording, id: string, reported: worker.Repo
   local unrecorded = reported.dropped or 0
   if unrecorded > 0 then rec.violators[id] = (rec.violators[id] or 0) + unrecorded end
   rec.violations_dropped = rec.violations_dropped + unrecorded
+end
+
+--- Where every test's time is: the time each took when it last ran, a
+--- standing verdict's that of the run that earned it.
+local times_query <const> = "cosmic sql --build \"select path, test, elapsed_ns/1000000 as ms " ..
+  "from runs order by elapsed_ns desc limit 20\""
+
+--- What a progress line says of `longest`, the longest-running tests
+--- ([`progress.longest`]), and, on the first such line of a run (`said`
+--- false), where every test's time is: the line comes every half minute,
+--- and the query is long.
+function test.longest_detail(longest: string, said: boolean): string
+  if said then return "longest running: " .. longest end
+  return "longest running: " .. longest .. "; every test's time: " .. times_query
 end
 
 --- How long a test runs before its end is said on a line of its own.
@@ -930,7 +1342,8 @@ local function running_detail(rec: Recording, running: {Job}): string
   end
   local longest = progress.longest(under_way, Clock.monotonic_ns(), named)
   if longest ~= "" then
-    parts[#parts + 1] = "longest running: " .. longest
+    parts[#parts + 1] = test.longest_detail(longest, rec.timed)
+    rec.timed = true
   end
   return table.concat(parts, "; ")
 end
@@ -968,6 +1381,27 @@ local function tree_note(rec: Recording, job: Job, message: string): string
   return table.concat(lines)
 end
 
+--- The lines a worker ran, in its load and in its test, of the files `reaches` names: all that
+--- [`dispatch_sites.failure`] reads of its hits, and no line of another file.
+function test.reached(reaches: {dispatch_sites.Reach}, load_hits: Coverage.Hits,
+                      test_hits: Coverage.Hits): {string:{integer:boolean}}
+  local ran: mut {string:mut {integer:boolean}} = {}
+  for _, each in ipairs(reaches) do
+    local path = each.path
+    if ran[path] == nil then
+      for _, taken in ipairs({ load_hits, test_hits }) do
+        local lines = taken[path]
+        if lines ~= nil then
+          local into = ran[path] or {}
+          ran[path] = into
+          for line in pairs(lines) do into[line] = true end
+        end
+      end
+    end
+  end
+  return ran
+end
+
 --- Why `job`'s test fails for the core's C it entered, or "": it passed,
 --- entered a function that turns on the processor's features
 --- ([`build.dispatch_sites`]), and its module does not declare
@@ -1000,23 +1434,17 @@ local function dispatch_failure(rec: Recording, job: Job, reported: worker.Repor
     reaches = dispatch_sites.reaching(c_functions.spans(functions, sources), sources)
     rec.dispatched = reaches
   end
-  local ran: mut {string:mut {integer:boolean}} = {}
-  for _, taken in ipairs({ reported.load_hits, reported.test_hits }) do
-    for path, lines in pairs(taken) do
-      local into = ran[path] or {}
-      ran[path] = into
-      for line in pairs(lines) do into[line] = true end
-    end
-  end
-  return dispatch_sites.failure(reaches, ran)
+  return dispatch_sites.failure(reaches, test.reached(reaches, reported.load_hits, reported.test_hits))
 end
 
 --- Records one finished job: the verdict its worker reported, or a
 --- failure that says why there is no report to go by
 --- ([`test_key.judge`], which also says whether it checked, and
---- [`test_key.keep`], which keeps its verdict).
+--- [`test_key.keep`], which keeps its verdict). Answers the test's time:
+--- what its worker reported, or, with no report, the time since the job
+--- started.
 local function finish(rec: Recording, job: Job, result: Child.Result?,
-                      trouble: string, refused?: boolean, unavailable?: string)
+                      trouble: string, refused?: boolean, unavailable?: string): integer
   rec.tally.ran = rec.tally.ran + 1
   local id = job.id
   local wall_ns = Clock.monotonic_ns() - assert(job.started_ns)
@@ -1026,7 +1454,9 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     local _, _ = logger.summary("test", "slow: " .. id .. " took " .. progress.elapsed(wall_ns))
   end
   local judged = test_key.judge(rec, job, result, trouble, refused, unavailable)
-  local reported, passed, message = judged.report, judged.passed, judged.message
+  local reported, passed = judged.report, judged.passed
+  -- What is shown and recorded of the message says a position in a pure store's import at its line.
+  local message = placed_positions(rec, judged.message)
   local feature_failure = if passed then dispatch_failure(rec, job, reported) else "" end
   if feature_failure ~= "" then
     passed, message = false, feature_failure
@@ -1061,7 +1491,11 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     end
     -- What the runner reports on its own account (a stopped fuzz property)
     -- is listed apart, so what is shown is the test's own.
-    if rec.show_output and #own > 0 then rec.shown[id] = table.concat(own, "\n") end
+    if rec.show_output and #own > 0 then
+      rec.shown[id] = placed_positions(rec, table.concat(own, "\n"))
+    elseif #own > 0 then
+      rec.printed = rec.printed + 1
+    end
   end
   -- A test that said why it did not check keeps its verdict: its pass is a
   -- function of its key, and it is counted apart.
@@ -1077,8 +1511,35 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
       take_violations(rec, id, reported)
       if rec.violators[id] ~= nil then rec.violator_ns[id] = elapsed end
     end
-    rec.by_test[id] = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled,
-      reported.load_hits, reported.test_hits)
+    local lines_of = function(path: string): {integer}?, string
+      return instruction_lines_of(rec, path)
+    end
+    -- The workers of one module's tests report the one table of its load's hits ([`worker.decode`]), which is
+    -- placed and folded once and spells the same part of each test's row.
+    local taken: State.LoadTaken? = nil
+    for _, known in ipairs(rec.loads_taken) do
+      if known.from == reported.load_hits then taken = known end
+    end
+    if taken == nil then
+      local placing = test.place_hits(reported.load_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
+      taken = { from = reported.load_hits, whole = placing.whole,
+        row = test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, reported.load_hits, {},
+          rec.identities, placing.hits, nil, codes_of(rec)) }
+      -- A report with no hits of a load has a table of its own, which no other report shares.
+      if next(reported.load_hits) ~= nil then
+        if #rec.loads_taken >= loads_kept then table.remove(rec.loads_taken, 1) end
+        rec.loads_taken[#rec.loads_taken + 1] = taken
+      end
+    end
+    local tested = test.place_hits(reported.test_hits, rec.identities, lines_of, rec.placed, rec.unplaced)
+    rec.by_test[id] = taken.row .. test.take_hits(rec.hits, rec.unowned, rec.folded, rec.spelled, {},
+      reported.test_hits, rec.identities, nil, tested.hits, codes_of(rec))
+    -- A row that lacks lines the test reached would credit too few to every run that stands on it, saying
+    -- nothing: no verdict of it is kept, so the next run runs it again (and says why, as this one does).
+    if not (taken.whole and tested.whole) then
+      judged = { report = reported, passed = passed, message = message, skipped = judged.skipped,
+        unchecked = judged.unchecked, deliberate = judged.deliberate, checked = false, clean = judged.clean }
+    end
   end
   -- Keyed by what it was given: its declared inputs, as they were
   -- before it started -- and still are, or the verdict describes no
@@ -1113,9 +1574,10 @@ local function finish(rec: Recording, job: Job, result: Child.Result?,
     rec.reruns[id] = job.m.file .. ":" .. job.name
     local stdout = result and result.stdout
     if result ~= nil and stdout ~= nil and stdout ~= "" then
-      rec.outputs[id] = stdout
+      rec.outputs[id] = placed_positions(rec, stdout)
     end
   end
+  return elapsed
 end
 
 --- Removes the scratch directory of each job in `jobs` whose test
@@ -1150,16 +1612,56 @@ local function launch(rec: Recording, job: Job): boolean
   local prepared = test_key.prepare(rec, job)
   local command = prepared.command
   if command == nil then
-    finish(rec, job, nil, prepared.trouble, prepared.refused, prepared.unavailable)
+    local _ = finish(rec, job, nil, prepared.trouble, prepared.refused, prepared.unavailable)
     return false
   end
   local handle, start_trouble = Child.start(command.argv, command.options)
   if handle == nil then
-    finish(rec, job, nil, start_trouble)
+    local _ = finish(rec, job, nil, start_trouble)
     return false
   end
   job.handle = handle
   return true
+end
+
+--- Some tests of one module, to start together: with `fork`, by one worker that runs each in a copy of itself
+--- where it can ([`test_key.prepare`]); otherwise the one test, by a worker of its own.
+local record Unit
+  jobs: {Job}
+  fork: boolean
+end
+
+--- The most bytes kept of what one test printed, the newest: what [`cosmic.child`] keeps of a captured stream.
+local output_limit <const> = 16 * 1024 * 1024
+
+--- A worker that runs its module's tests in copies of itself ([`worker.run`]'s `--fork`), as the runner follows it.
+local record Batch
+  --- The job its worker was prepared for, which holds its handle; and its tests, in the order it runs them.
+  lead: Job
+  jobs: {Job}
+  --- How many of `jobs` have their result.
+  mut settled: integer
+  --- The test whose copy is running, or nil between two.
+  mut flying?: Job
+  --- Where its records come ([`worker.Relay`]), and what has come of one not yet whole.
+  reader: integer
+  mut buffer: string
+  --- What the test whose copy is running has printed so far, and how many bytes that is.
+  mut printed: mut {string}
+  mut printed_size: integer
+  --- The directory of the host its worker has for its scratch, which each of its tests has in its turn; nil where
+  --- the worker's scratch is its sandbox's own. It goes with the worker, unless the last test it ran failed: that
+  --- test's is kept to look at, as a worker of its own would leave it.
+  scratch?: string
+  mut keep_scratch: boolean
+  --- Whether it said it forks; whether it said it runs no more, and whether that was for a module no worker can
+  --- fork for, whose other tests then each get a worker.
+  mut forked: boolean
+  mut retired: boolean
+  mut unforkable: boolean
+  --- The module's timeout, and when the worker itself is overdue: while it loads, and between two tests.
+  timeout_ns: integer
+  mut idle_deadline_ns: integer
 end
 
 --- Runs every job, `limits.jobs` at a time, each to its verdict or its
@@ -1168,48 +1670,334 @@ end
 --- to be ended by it when the guard closes. Without a guard, a signal
 --- acts as it would, and the return is 0.
 ---
+--- The tests of one module that follow one another start as one worker, which runs each in a copy of itself where
+--- it can ([`Batch`]): one worker, and so one test of the module, at a time, counted as one of `limits.jobs`. A
+--- worker that retires (its test did not pass, or left something behind) is followed by another for the rest; one
+--- that cannot fork for its module, or ends without saying why, by a worker for each test that is left. A test
+--- whose copy was running when its worker ended fails as one whose worker ended before it reported.
+---
 --- With `bail`, a failure (any entry in `rec.failures`, one recorded
 --- before the run included) stops the starting of jobs. Those already running finish with their
 --- own verdicts, and the jobs never started are counted in
---- `rec.not_run` and recorded as nothing.
+--- `rec.not_run` and recorded as nothing. A forking worker is ended once the test it is running has its result.
 local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
-                        guard: Signal.Guard?, bail?: boolean): integer
+                        guard: Signal.Guard?, bail?: boolean, spent?: test_report.Spent): integer
   if #jobs == 0 then return 0 end
+  -- What this process spends on each worker between the tests: no other worker starts or is collected meanwhile.
+  local own: test_report.Spent = spent or test_report.unspent()
+  local function collect(job: Job, result: Child.Result?, trouble: string)
+    local recording = Clock.monotonic_ns()
+    own.tests_ns = own.tests_ns + finish(rec, job, result, trouble)
+    own.ran = own.ran + 1
+    own.recording_ns = own.recording_ns + (Clock.monotonic_ns() - recording)
+  end
   local program, program_trouble = worker.program()
   if program == nil then
     rec.errors[#rec.errors + 1] = "the test runner cannot find itself: " .. program_trouble
     return 0
   end
+  local ran_before = rec.tally.ran
+  -- The units still to start, in order, from `next_unit`: a module's tests together where there are several.
+  local pending: mut {Unit} = {}
+  local together: mut {Job} = {}
+  local shared_least <const> = 8
+  local modules = 0
+  for at, job in ipairs(jobs) do
+    local following = jobs[at + 1]
+    if following == nil or following.m.path ~= job.m.path then modules = modules + 1 end
+  end
+  local crowded = modules > limits.jobs
+  for at, job in ipairs(jobs) do
+    together[#together + 1] = job
+    local following = jobs[at + 1]
+    if following == nil or following.m.path ~= job.m.path then
+      -- A module's tests are dealt to as many workers as may run at once, so that they run beside each other as
+      -- they did when each had a worker: a module of no more tests than that has a worker for each. In a run of
+      -- more modules than that, other modules' tests run beside them, and a worker is given `shared_least` tests
+      -- where its module has them: a worker's start costs the runner more than its tests' turn does.
+      local each = (#together + limits.jobs - 1) // limits.jobs
+      if crowded then each = math.max(each, math.min(#together, shared_least)) end
+      local hand: mut {Job} = {}
+      for _, dealt in ipairs(together) do
+        hand[#hand + 1] = dealt
+        if #hand == each then
+          table.insert(pending, { jobs = hand, fork = #hand > 1 })
+          hand = {}
+        end
+      end
+      if #hand > 0 then table.insert(pending, { jobs = hand, fork = #hand > 1 }) end
+      together = {}
+    end
+  end
+  local next_unit = 1
+  -- Puts `left` back at the head of what is still to start: together again with `fork`, else a worker each.
+  local function requeue(left: {Job}, fork: boolean)
+    if #left == 0 then return end
+    if fork and #left > 1 then
+      table.insert(pending, next_unit, { jobs = left, fork = true })
+      return
+    end
+    for at = #left, 1, -1 do
+      table.insert(pending, next_unit, { jobs = { assert(left[at]) }, fork = false })
+    end
+  end
+  local function rest(batch: Batch): {Job}
+    local left: mut {Job} = {}
+    for at = batch.settled + 1, #batch.jobs do left[#left + 1] = assert(batch.jobs[at]) end
+    return left
+  end
+  -- The modules a worker said it cannot fork for, whose tests each get a worker for the rest of the run.
+  local unforkable: mut {string:boolean} = {}
+  -- What the run says of its forking workers: how many tests ran in copies, of how many workers, how many of those
+  -- retired, and why the first module that could not be forked for could not.
+  local copies, workers, retirements, refusals, first_refusal = 0, 0, 0, 0, ""
+  local first_retirement = ""
   local running: mut {Job} = {}
-  local next_job = 1
+  local batches: mut {Batch} = {}
   local cancelled = 0
   -- A failure recorded before any job starts (an unmet requirement, say)
   -- stops a bailing run as one a job makes does: baseline 0.
   local failures_before = 0
-  local phase = progress.phase("test", "running", "test")
-  while next_job <= #jobs or #running > 0 do
-    while #running < limits.jobs and next_job <= #jobs and
-        not (bail == true and #rec.failures > failures_before) do
-      local job = jobs[next_job]
-      next_job = next_job + 1
-      if launch(rec, job) then -- checked: nil_not_allowed
-        running[#running + 1] = job -- checked: nil_not_allowed
+  local function bailing(): boolean
+    return bail == true and #rec.failures > failures_before
+  end
+  -- Starts `unit`: its worker joins `running` or `batches`, or its failure to start is recorded.
+  local function start(unit: Unit)
+    local lead = assert(unit.jobs[1], "a unit holds a job")
+    if not unit.fork or #unit.jobs < 2 or unforkable[lead.m.path] == true then
+      requeue(unit.jobs, false)
+      local job = assert(pending[next_unit]).jobs[1]
+      next_unit = next_unit + 1
+      if job ~= nil and launch(rec, job) then running[#running + 1] = job end
+      return
+    end
+    local names: mut {string} = {}
+    for _, job in ipairs(unit.jobs) do names[#names + 1] = job.name end
+    lead.started_ns = Clock.monotonic_ns()
+    local prepared = test_key.prepare(rec, lead, names)
+    local command, relay = prepared.command, prepared.relay
+    local others: mut {Job} = {}
+    for at = 2, #unit.jobs do others[#others + 1] = assert(unit.jobs[at]) end
+    if command == nil then
+      local _ = finish(rec, lead, nil, prepared.trouble, prepared.refused, prepared.unavailable)
+      requeue(others, false)
+      return
+    end
+    local handle, start_trouble = Child.start(command.argv, command.options)
+    if relay ~= nil then local _, _ = sys.close(relay.writer) end
+    if handle == nil then
+      if relay ~= nil then local _, _ = sys.close(relay.reader) end
+      local _ = finish(rec, lead, nil, start_trouble)
+      requeue(others, false)
+      return
+    end
+    lead.handle = handle
+    if relay == nil then
+      -- Its module's tests cannot share a worker: this one is the lead's own.
+      running[#running + 1] = lead
+      requeue(others, false)
+      return
+    end
+    local started, deadline = assert(lead.started_ns), assert(lead.deadline_ns)
+    for _, job in ipairs(others) do
+      job.own_scratch, job.plan = lead.own_scratch, lead.plan
+    end
+    -- Its scratch directory is each test's in its turn, not the lead's.
+    local scratch = lead.scratch
+    lead.scratch = nil
+    workers = workers + 1
+    batches[#batches + 1] = { lead = lead, jobs = unit.jobs, settled = 0, reader = relay.reader, buffer = "",
+      printed = {}, printed_size = 0, scratch = scratch, keep_scratch = false,
+      forked = false, retired = false, unforkable = false, timeout_ns = deadline - started,
+      idle_deadline_ns = deadline }
+  end
+  -- All the test whose copy is running has printed, the newest bytes of it where there are more than a captured
+  -- stream keeps, and none of it kept for the next.
+  local function printed_by(batch: Batch): string
+    local whole = table.concat(batch.printed)
+    batch.printed, batch.printed_size = {}, 0
+    if #whole > output_limit then return whole:sub(-output_limit) end
+    return whole
+  end
+  -- Ends `batch`, whose worker is gone or is ended here: the test whose copy ran fails by `ended` and `trouble`,
+  -- and the tests it did not reach start again, together with `fork`.
+  local function over(batch: Batch, ended: Child.Result?, trouble: string, fork: boolean)
+    local _, _ = sys.close(batch.reader)
+    local flying = batch.flying
+    if flying ~= nil then
+      batch.flying = nil
+      batch.settled = batch.settled + 1
+      collect(flying, worker.unreported_result(ended, printed_by(batch)), trouble)
+      batch.keep_scratch = flying.passed ~= true
+    end
+    local scratch = batch.scratch
+    if scratch ~= nil and not batch.keep_scratch then
+      local gone, gone_trouble = Fs.remove_tree(scratch)
+      if not gone then
+        rec.errors[#rec.errors + 1] = batch.lead.id .. ": could not remove its worker's directory " .. scratch ..
+          ": " .. gone_trouble
       end
     end
-    if #running == 0 then break end
+    if bailing() then return end
+    -- A worker that ended having settled no test is followed by a worker for each, not by another like it, which
+    -- could end the same way without end.
+    requeue(rest(batch), fork and batch.settled > 0)
+  end
+  -- Reads what `batch`'s worker has written and acts on each whole record. False once the batch is over.
+  local function follow(batch: Batch): boolean
+    local handle = assert(batch.lead.handle)
+    local chunks: mut {string} = { batch.buffer }
+    local ended = false
+    while true do
+      local data, _ = sys.read(batch.reader, 1 << 20)
+      if data == nil then break end
+      if data == "" then
+        ended = true
+        break
+      end
+      chunks[#chunks + 1] = data
+    end
+    local buffer = table.concat(chunks)
+    local at = 1
+    local broken = ""
+    while broken == "" do
+      local found = worker.record_at(buffer, at)
+      if found == nil then break end
+      at = found.after
+      local flying = batch.flying
+      if found.kind == "forks" then
+        batch.forked = true
+      elseif found.kind == "unforkable" then
+        batch.retired, batch.unforkable = true, true
+        unforkable[batch.lead.m.path] = true
+        workers, refusals = workers - 1, refusals + 1
+        if first_refusal == "" then
+          first_refusal = batch.lead.m.path .. ": " .. (found.why or "")
+        end
+      elseif found.kind == "retire" then
+        batch.retired = true
+        retirements = retirements + 1
+        if first_retirement == "" then
+          first_retirement = batch.lead.m.path .. ": " .. (found.why or "")
+        end
+      elseif found.kind == "test" and flying == nil then
+        local job = batch.jobs[batch.settled + 1]
+        local started = found.started_ns
+        if job == nil or job.name ~= found.name or started == nil then
+          broken = "its worker started a test out of turn"
+        else
+          job.started_ns, job.deadline_ns = started, started + batch.timeout_ns
+          job.scratch = batch.scratch
+          batch.flying = job
+        end
+      elseif found.kind == "output" and flying ~= nil then
+        local data = found.output or ""
+        batch.printed[#batch.printed + 1] = data
+        batch.printed_size = batch.printed_size + #data
+        if batch.printed_size > 2 * output_limit then
+          local newest = table.concat(batch.printed):sub(-output_limit)
+          batch.printed, batch.printed_size = { newest }, #newest
+        end
+      elseif found.kind == "result" and flying ~= nil then
+        batch.flying = nil
+        batch.settled = batch.settled + 1
+        batch.idle_deadline_ns = Clock.monotonic_ns() + batch.timeout_ns
+        copies = copies + 1
+        collect(flying, worker.forked_result(found, printed_by(batch)), "")
+        -- A test that failed is the last its worker runs, and its directory is kept; one that passed leaves it
+        -- to the next. A worker whose directory is the host's waits for that word before it empties it, since
+        -- a test it saw pass may have failed here (one that made no call to `assert`, in a held run).
+        batch.keep_scratch = flying.passed ~= true
+        if flying.passed == true then flying.scratch = nil end
+        if batch.scratch ~= nil then
+          local _, _ = sys.write(batch.reader, if flying.passed == true then worker.go_on else worker.stop end)
+        end
+        if bailing() then
+          local _, _ = handle:close()
+          over(batch, nil, "", false)
+          return false
+        end
+      else
+        broken = "its worker wrote what no worker writes: " .. (found.why or found.kind)
+      end
+    end
+    batch.buffer = buffer:sub(at)
+    if broken ~= "" then
+      local _, _ = handle:close()
+      over(batch, nil, broken, false)
+      return false
+    end
+    if ended then
+      local result, trouble = handle:wait()
+      -- One that said it retires is followed by another; one that ended saying nothing, by a worker for each test.
+      over(batch, result, trouble, batch.retired and not batch.unforkable)
+      return false
+    end
+    local flying = batch.flying
+    local deadline = if flying ~= nil then assert(flying.deadline_ns) else batch.idle_deadline_ns end
+    if Clock.monotonic_ns() >= deadline then
+      -- Past its deadline: `wait(0)` ends it, and its namespace with it.
+      local result, stop_trouble = handle:wait(0)
+      if result == nil then local _, _ = handle:close() end
+      if result == nil and guard ~= nil and guard:cancelled() ~= 0 then
+        -- The signal ended it first: it is one of the workers the cancelled run ended, reported on by none.
+        return true
+      end
+      -- A worker that hung with no copy running is followed by a worker for each test, and the run says so.
+      if flying == nil then
+        rec.errors[#rec.errors + 1] = batch.lead.m.path .. ": its worker ran past the module's time with no test " ..
+          "running, " .. (if batch.forked then "between two tests" else "loading the module" end) ..
+          ", and was ended; each test left has a worker of its own"
+      end
+      over(batch, result, stop_trouble, flying ~= nil and batch.forked)
+      return false
+    end
+    return true
+  end
+  local phase = progress.phase("test", "running", "test")
+  while next_unit <= #pending or #running + #batches > 0 do
+    while #running + #batches < limits.jobs and next_unit <= #pending and not bailing() do
+      -- The loop's own test holds `next_unit <= #pending`.
+      local unit = assert(pending[next_unit], "next_unit is within pending")
+      next_unit = next_unit + 1
+      local starting = Clock.monotonic_ns()
+      start(unit)
+      own.starting_ns = own.starting_ns + (Clock.monotonic_ns() - starting)
+    end
+    if #running + #batches == 0 then
+      if bailing() then break end
+      continue
+    end
     if guard ~= nil then
       cancelled = guard:cancelled()
       if cancelled ~= 0 then break end
     end
-    local earliest = assert(running[1].deadline_ns) -- checked: nil_not_allowed
+    local earliest = math.maxinteger
     local handles: mut {Child.Handle} = {}
     for i, job in ipairs(running) do
       handles[i] = assert(job.handle)
       local deadline = assert(job.deadline_ns)
       if deadline < earliest then earliest = deadline end
     end
-    local left_ns = earliest - Clock.monotonic_ns()
-    local done, trouble = Child.wait_any(handles, math.max(0, math.min(Clock.ms(100), left_ns)))
+    local readers: mut {integer} = {}
+    local wanted: mut {integer} = {}
+    for i, batch in ipairs(batches) do
+      readers[i], wanted[i] = batch.reader, sys.POLLIN
+      local flying = batch.flying
+      local deadline = if flying ~= nil then assert(flying.deadline_ns) else batch.idle_deadline_ns end
+      if deadline < earliest then earliest = deadline end
+    end
+    local left_ns = math.max(0, math.min(Clock.ms(100), earliest - Clock.monotonic_ns()))
+    local done, trouble: Child.Handle?, string = nil, Poll.TIMEOUT
+    if #handles > 0 then
+      -- A worker of one test is served by `wait_any` alone, its end and its captured streams, which a wait of no
+      -- length does not serve: so beside forking workers, whose records wake no such wait, it waits a millisecond
+      -- at most, and they are read after each.
+      done, trouble = Child.wait_any(handles, if #readers > 0 then math.min(left_ns, Clock.ms(1)) else left_ns end)
+    else
+      -- A forking worker's record wakes the wait.
+      local _, _ = sys.poll(readers, wanted, (left_ns + 999999) // 1000000)
+    end
     local still: mut {Job} = {}
     for _, job in ipairs(running) do
       local job_handle = job.handle
@@ -1218,11 +2006,11 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
         -- Settled already, so this answers at once; the trouble
         -- `wait_any` gave beside the handle is the one reported.
         local result, _ = handle:wait()
-        finish(rec, job, result, trouble)
+        collect(job, result, trouble)
       elseif done == nil and trouble ~= Poll.TIMEOUT then
         -- Supervision itself failed; end this worker and say why.
         local _, _ = handle:close()
-        finish(rec, job, nil, trouble)
+        collect(job, nil, trouble)
       elseif Clock.monotonic_ns() >= assert(job.deadline_ns) then
         -- Past its deadline: `wait(0)` ends it, and says why when the
         -- guard's signal came first. `close` makes sure it is gone.
@@ -1233,7 +2021,7 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
           -- the workers the cancelled run ended, reported on by none.
           still[#still + 1] = job
         else
-          finish(rec, job, result, stop_trouble)
+          collect(job, result, stop_trouble)
         end
       else
         still[#still + 1] = job
@@ -1274,11 +2062,43 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
       sweep(rec, running)
     end
     running = still
-    phase.tick(next_job - 1 - #running, #jobs, function(): string
-      return running_detail(rec, running)
+    local following: mut {Batch} = {}
+    for _, batch in ipairs(batches) do
+      if follow(batch) then following[#following + 1] = batch end
+    end
+    batches = following
+    phase.tick(rec.tally.ran - ran_before, #jobs, function(): string
+      local busy: mut {Job} = {}
+      for _, job in ipairs(running) do busy[#busy + 1] = job end
+      for _, batch in ipairs(batches) do
+        local flying = batch.flying
+        if flying ~= nil then busy[#busy + 1] = flying end
+      end
+      return running_detail(rec, busy)
     end)
   end
-  if cancelled == 0 and next_job <= #jobs then rec.not_run = #jobs - next_job + 1 end
+  -- No test is left to collect: the workers still running are ended below, reported on by none.
+  test_key.keep_waiting(rec)
+  if cancelled == 0 and rec.tally.ran - ran_before < #jobs then
+    rec.not_run = #jobs - (rec.tally.ran - ran_before)
+  end
+  if workers + refusals > 0 then
+    local said = "forks: " .. plural.count(copies, "test") .. " ran in copies of " .. plural.count(workers, "worker") ..
+      ", " .. tostring(retirements) .. " of which retired early" ..
+      (if first_retirement ~= "" then " (the first, " .. first_retirement .. ")" else "" end)
+    if refusals > 0 then
+      said = said .. "; " .. plural.count(refusals, "module") .. " ran a worker for each test, since none could fork (" ..
+        first_refusal .. ")"
+    end
+    local _, _ = logger.summary("test", said)
+  end
+  for _, batch in ipairs(batches) do
+    local _, _ = sys.close(batch.reader)
+    -- Ended with the run, its directory goes as a worker's does: the lead's again, for the sweep below. Not the
+    -- one a failing test's message says is kept.
+    if not batch.keep_scratch then batch.lead.scratch = batch.scratch end
+    running[#running + 1] = batch.lead
+  end
   for _, job in ipairs(running) do
     local closed, trouble = assert(job.handle):close()
     local scratch = job.scratch
@@ -1299,6 +2119,13 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
   return guard:cancelled()
 end
 
+--- How many workers run at once where `--jobs` does not say: one more than the processors. The runner is one
+--- thread: while it starts a worker or records a finished test, no other worker is started or collected. With
+--- one worker for each processor, about one processor in four stands idle, and the extra worker runs on it.
+local function default_jobs(): integer
+  return Proc.cpu_count() + 1
+end
+
 --- The run's bounds: `--timeout SECONDS` and `--jobs N` from the
 --- command line's options; the deadline's default from
 --- `COSMIC_TEST_TIMEOUT`. Nil and why for a value that is not a
@@ -1306,7 +2133,7 @@ end
 local function limits_of(values: {string:string}): State.Limits?, string
   local limits: State.Limits = {
     timeout_ns = Clock.seconds(default_timeout_s),
-    jobs = Proc.cpu_count(),
+    jobs = default_jobs(),
   }
   local function positive(value: string, what: string): integer?, string
     local number = math.tointeger(tonumber(value))
@@ -1332,13 +2159,15 @@ local function limits_of(values: {string:string}): State.Limits?, string
     if seconds == nil then return nil, trouble end
     limits.timeout_ns = Clock.seconds(seconds)
   end
-  if values["--timeout"] ~= nil then
-    local seconds, trouble = seconds_of(values["--timeout"], "--timeout") -- checked: index_may_be_nil
+  local timeout_flag = values["--timeout"]
+  if timeout_flag ~= nil then
+    local seconds, trouble = seconds_of(timeout_flag, "--timeout")
     if seconds == nil then return nil, trouble end
     limits.timeout_ns = Clock.seconds(seconds)
   end
-  if values["--jobs"] ~= nil then
-    local jobs, trouble = positive(values["--jobs"], "--jobs") -- checked: index_may_be_nil
+  local jobs_flag = values["--jobs"]
+  if jobs_flag ~= nil then
+    local jobs, trouble = positive(jobs_flag, "--jobs")
     if jobs == nil then return nil, trouble end
     limits.jobs = jobs
   end
@@ -1403,7 +2232,11 @@ end
 --- Says what the tests that passed printed, each beneath its id, and that a
 --- test which stood printed nothing: it was not run.
 local function say_shown(rec: Recording, tally: State.Tally)
-  if not rec.show_output then return end
+  if not rec.show_output then
+    local unshown = test_report.unshown_note(rec.printed)
+    if unshown ~= nil then log:say(unshown) end
+    return
+  end
   local shown: mut {test_report.Shown} = {}
   for id, printed in pairs(rec.shown) do shown[#shown + 1] = { id = id, printed = printed } end
   for _, line in ipairs(test_report.shown(shown)) do log:say(line) end
@@ -1416,6 +2249,8 @@ end
 --- driver or an earlier phase has set.
 local record Run
   run_at_ns: integer
+  --- Where the run's time went, said in its `time` line ([`test_report.time`]).
+  spent: test_report.Spent
   --- The command line, which a stale tool re-enters after rebuilding itself.
   argv: {string}
 
@@ -1428,6 +2263,8 @@ local record Run
   --- The compile's refusals this run fails for ([`importer.Result`]'s `refused`): all of them, or with selectors those of the
   --- files they choose.
   mut refusals?: {string}
+  --- How `refusals` are shown ([`test.cascade`]).
+  mut cascade?: Refusals.Cascade
   mut forced?: boolean
   mut consult?: boolean
   --- Whether a verdict is also looked up under the key of another host of
@@ -1560,8 +2397,9 @@ local function read_command(ctx: Run): integer?
     end
     ctx.floors = { min = floor_values["--min"], min_file = floor_values["--min-file"] }
   end
-  if parsed.values["--shard"] ~= nil then
-    local chosen, shard_trouble = test.shard(parsed.values["--shard"]) -- checked: index_may_be_nil
+  local shard_flag = parsed.values["--shard"]
+  if shard_flag ~= nil then
+    local chosen, shard_trouble = test.shard(shard_flag)
     if chosen == nil then
       log:complain("test: " .. shard_trouble)
       return 2
@@ -1655,7 +2493,7 @@ local function hold_checkout(ctx: Run): integer?
     return 1
   end
   ctx.own_tree = standing.own
-  local handle, open_trouble = work.open(root)
+  local handle, open_trouble = work.open(root, nil, "test")
   if handle == nil then
     log:complain(open_trouble)
     return 1
@@ -1821,7 +2659,7 @@ end
 --- The exit code to stop with, or nil to go on.
 local function build_tree(ctx: Run): integer?
   local handle, staged, started = assert(ctx.handle), assert(ctx.staged), assert(ctx.started)
-  local outcome: importer.Outcome = { refused = false }
+  local outcome = importer.telling()
   local result, compile_trouble = importer.compile(handle,
     GrammarMode.tool(assert(ctx.tool)), false, shared_compiles.for_build(), ctx.checks, nil, outcome)
   if result == nil then
@@ -1846,6 +2684,12 @@ local function build_tree(ctx: Run): integer?
     shared_parses = parses.shared, files = staged.files, read = staged.read },
     clock.took(started)))
   return nil
+end
+
+--- The tests a selected module runs. The selection sets a module's entry
+--- of `selected_tests` whenever it keeps the module, and drops both together.
+local function chosen_tests(selected_tests: {string:{string}}, m: Module): {string}
+  return (assert(selected_tests[m.path], "a selected module has an entry in selected_tests"))
 end
 
 --- The tests the selectors and the shard choose, each selector held to
@@ -1932,13 +2776,15 @@ local function select_tests(ctx: Run): integer?
   if shard ~= nil then
     local ids: mut {string} = {}
     for _, m in ipairs(selected_modules) do
-      for _, name in ipairs(selected_tests[m.path]) do ids[#ids + 1] = m.path .. " " .. name end -- checked: index_may_be_nil
+      for _, name in ipairs(chosen_tests(selected_tests, m)) do
+        ids[#ids + 1] = m.path .. " " .. name
+      end
     end
     local dealt = test.dealt(ids, shard)
     local kept: mut {Module} = {}
     for _, m in ipairs(selected_modules) do
       local names: mut {string} = {}
-      for _, name in ipairs(selected_tests[m.path]) do -- checked: index_may_be_nil
+      for _, name in ipairs(chosen_tests(selected_tests, m)) do
         if dealt[m.path .. " " .. name] == true then names[#names + 1] = name end
       end
       if #names > 0 then
@@ -2042,16 +2888,18 @@ local function make_recording(ctx: Run)
     violations_dropped = 0, fact_wraps = assert(ctx.result).fact_wraps,
     parameter_checks = assert(ctx.result).parameter_checks, violation_met = {}, violators = {}, violator_ns = {},
     failures = failures, errors = errors, outputs = {}, reruns = {},
-    show_output = ctx.show_output == true, shown = {},
-    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held, nas = {}, unmet = {}, answered = {}, -- checked: nil_not_allowed
-    hits = hits, by_test = by_test, unowned = unowned, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
+    show_output = ctx.show_output == true, shown = {}, printed = 0,
+    failed = {}, skips = {}, unchecked = {}, deliberate = {}, stopped = {}, held = ctx.held == true, nas = {}, unmet = {}, answered = {},
+    hits = hits, by_test = by_test, unowned = unowned,
+    identities = test.identities(assert(ctx.result).modules), stale = {}, timed = false, own_tree = ctx.own_tree == true, tally = tally, not_run = 0,
     owed = { kept = {}, used = {}, failed = {}, stores = {} }, shared_keys = {},
-    consult_shared = ctx.consult, -- checked: nil_not_allowed
+    consult_shared = ctx.consult == true,
     accept_foreign = ctx.accept_foreign == true and ctx.consult == true and ctx.sandboxed == true,
     origin = checkout_id(records, assert(ctx_root), ctx.run_at_ns),
     views = {}, caches = {}, unkeyed = {},
     forbiddable = {},
-    closure_sets = {}, plans = {}, spelled = {}, folded = {}, type_only = {},
+    closure_sets = {}, plans = {}, spelled = {}, folded = {}, loads_taken = {}, shared_folded = {}, type_only = {},
+    instruction_lines = {}, defined_lines = {}, placed = {}, unplaced = {},
     closures = {}, tree_names = {}, effective = {},
     stores = {}, built = {}, store_digests = {}, store_kept = {}, store_names = {},
     store_bases = {}, store_owns = {}, store_mismatched = {}, sealed = {},
@@ -2061,9 +2909,7 @@ local function make_recording(ctx: Run)
       sandbox_mode == "off" then (test_sandbox.switch .. "=0 ") else "" end),
   }
   ctx.rec = rec
-  if ctx.checks == true then
-    for _, m in ipairs(assert(ctx.result).modules) do rec.files[m.path] = m.file end
-  end
+  for _, m in ipairs(assert(ctx.result).modules) do rec.files[m.path] = m.file end
   test_key.begin(rec, { runtime = assert(ctx.runtime), sandbox = ctx.sandboxed == true,
     epoch = assert(ctx.epoch), timeout_ns = limits.timeout_ns, harness = harness,
     own_tree = ctx.own_tree == true })
@@ -2120,7 +2966,9 @@ local function require_of_host(ctx: Run): integer?
     local answer = ctx.sandbox_answer or sandbox_here()
     ctx.sandbox_answer = answer
     return { ok = answer.ok, why = answer.why, broken = answer.broken }
-  end, ctx.held == true, ctx.promises or {}, ctx.leg or "", ctx.sandboxed == true)
+  end, ctx.held == true, ctx.promises or {}, ctx.leg or "", ctx.sandboxed == true, function(): string?, string
+    return c_check.worker_zig(assert(ctx.root), Env.all(), ctx.sandboxed == true)
+  end)
   ctx.c_unavailable = {}
   if ctx.own_tree == true and ctx.whole == true and host ~= nil then
     -- The probe below runs later, when `host` may have been assigned.
@@ -2168,9 +3016,9 @@ local function settle_unmet(rec: Recording, m: Module, name: string, id: string,
   end
   local job: Job = { m = m, name = name, id = id, unrun = true, started_ns = Clock.monotonic_ns() }
   if unmet.kind == "skipped" then
-    finish(rec, job, nil, "", false, unmet.why)
+    local _ = finish(rec, job, nil, "", false, unmet.why)
   else
-    finish(rec, job, nil, unmet.why)
+    local _ = finish(rec, job, nil, unmet.why)
   end
 end
 
@@ -2191,7 +3039,7 @@ local function look_up_verdicts(ctx: Run)
   local keyed_count, looked_count, found_count, ran_here = 0, 0, 0, 0
   for _, m in ipairs(selected_modules) do
     local unmet = rec.unmet[m.path]
-    for _, name in ipairs(selected_tests[m.path]) do -- checked: index_may_be_nil
+    for _, name in ipairs(chosen_tests(selected_tests, m)) do
       local id = m.path .. " " .. name
       if unmet ~= nil then
         settle_unmet(rec, m, name, id, unmet)
@@ -2247,7 +3095,8 @@ local function look_up_verdicts(ctx: Run)
     end
     local runs_tool = false
     for _, m in ipairs(selected_modules) do
-      if rec.effective[m.path] ~= nil and rec.effective[m.path].tool then runs_tool = true end -- checked: nil_not_allowed
+      local effective = rec.effective[m.path]
+      if effective ~= nil and effective.tool then runs_tool = true end
     end
     if runs_tool then
       table.insert(parts, { "program", test_key.program_of(rec):sub(1, 12) })
@@ -2291,7 +3140,7 @@ local function look_up_verdicts(ctx: Run)
   test_key.close_keying(rec)
   local tests = 0
   for _, m in ipairs(selected_modules) do
-    if rec.unmet[m.path] == nil then tests = tests + #selected_tests[m.path] end -- checked: nil_not_allowed
+    if rec.unmet[m.path] == nil then tests = tests + #chosen_tests(selected_tests, m) end
   end
   -- Workers that would run on a sealed database but run the whole
   -- program, as this one is no portable artifact to take its database from.
@@ -2300,7 +3149,7 @@ local function look_up_verdicts(ctx: Run)
     local effective = rec.effective[m.path]
     if rec.unmet[m.path] == nil and rec.stores[m.path] ~= nil and effective ~= nil and
         not (effective.store or effective.tool) and not test_key.seals(rec, m) then
-      unsealed = unsealed + #selected_tests[m.path] -- checked: nil_not_allowed
+      unsealed = unsealed + #chosen_tests(selected_tests, m)
     end
   end
   if unsealed > 0 then
@@ -2310,12 +3159,12 @@ local function look_up_verdicts(ctx: Run)
   log:say(string.format(keying .. "%s keyed by their declared inputs in %.1f ms (%s read)",
     plural.count(tests, "test"), test_key.digests_of(rec).spent_ns / 1e6,
     plural.count(test_key.digests_of(rec).read, "file")))
-  local unkeyed: mut {string} = {}
-  for path in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = path end
-  table.sort(unkeyed)
-  for _, path in ipairs(unkeyed) do
-    log:say(keying .. path .. " has no key, so its tests run every time: " ..
-        rec.unkeyed[path]) -- checked: nil_not_allowed
+  local unkeyed: mut {Keyed<string>} = {}
+  for path, why in pairs(rec.unkeyed) do unkeyed[#unkeyed + 1] = { key = path, value = why } end
+  table.sort(unkeyed, by_key)
+  for _, entry in ipairs(unkeyed) do
+    log:say(keying .. entry.key .. " has no key, so its tests run every time: " ..
+        entry.value)
   end
 end
 
@@ -2376,13 +3225,13 @@ local function execute(ctx: Run): integer?
     local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
     local opened, _ = Signal.guard()
     if opened == nil then
-      run_jobs(rec, jobs, assert(ctx.limits), nil, ctx.bail)
+      run_jobs(rec, jobs, assert(ctx.limits), nil, ctx.bail, ctx.spent)
     else
       -- A signal the guard caught ends this process when it closes,
       -- once the run is aborted; under a guard of its caller's (test's
       -- `run` called in-process), it is left to that one.
       local guard <close> = opened
-      if run_jobs(rec, jobs, assert(ctx.limits), guard, ctx.bail) ~= 0 then
+      if run_jobs(rec, jobs, assert(ctx.limits), guard, ctx.bail, ctx.spent) ~= 0 then
         cancel_records(ctx)
         -- A test that failed before the signal keeps its directory,
         -- named as a finished run's report names it: the failures on
@@ -2397,6 +3246,13 @@ local function execute(ctx: Run): integer?
   return nil
 end
 
+--- The violation `key` of `rec.violation_order` names. [`take_violations`]
+--- records a key in `violation_order` and `violation_tests` only as it
+--- records the violation itself.
+local function violation_of(rec: Recording, key: string): worker.Violation
+  return (assert(rec.violations[key], "a key of violation_order has a violation"))
+end
+
 --- Keeps what a checked run's workers reported in the working database's
 --- `type_violations`, one row to a distinct violation, replacing the last
 --- checked run's: the table holds the latest report, which
@@ -2406,13 +3262,13 @@ local function keep_violations(records: Sqlite.Handle, rec: Recording,
   local cleared, clear_trouble = records:exec("DELETE FROM type_violations")
   if not cleared then return false, clear_trouble end
   for _, key in ipairs(rec.violation_order) do
-    local met = rec.violations[key]
+    local met = violation_of(rec, key)
     local saved, save_trouble = Sqlite.run(records,
       "INSERT INTO type_violations (ran_at_ns, kind, site, target, declared, actual, " ..
         "count, test) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-      { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target), -- checked: nil_not_allowed*3
-        text(met.declared), text(met.actual), { integer = met.count }, -- checked: nil_not_allowed*3
-        text(rec.violation_tests[key]) }) -- checked: index_may_be_nil
+      { { integer = run_at_ns }, text(met.kind), text(met.at), text(met.target),
+        text(met.declared), text(met.actual), { integer = met.count },
+        text((assert(rec.violation_tests[key], "a key of violation_order has a test"))) })
     if not saved then return false, save_trouble end
   end
   local cleared_tests, clear_tests_trouble = records:exec("DELETE FROM type_violation_tests")
@@ -2454,10 +3310,10 @@ local function say_violations(rec: Recording)
   local total, places = 0, 0
   local seen: mut {string:boolean} = {}
   for _, key in ipairs(rec.violation_order) do
-    local met = rec.violations[key]
-    total = total + met.count -- checked: nil_not_allowed
-    if seen[met.at] ~= true then -- checked: nil_not_allowed
-      seen[met.at] = true -- checked: nil_not_allowed
+    local met = violation_of(rec, key)
+    total = total + met.count
+    if seen[met.at] ~= true then
+      seen[met.at] = true
       places = places + 1
     end
   end
@@ -2483,21 +3339,23 @@ local function say_violations(rec: Recording)
   local order: mut {string} = {}
   for i, key in ipairs(rec.violation_order) do order[i] = key end
   table.sort(order, function(a: string, b: string): boolean
-    local ca, cb = rec.violations[a].count, rec.violations[b].count -- checked: nil_not_allowed*2
+    local ca, cb = violation_of(rec, a).count, violation_of(rec, b).count
     if ca ~= cb then return ca > cb end
     return a < b
   end)
-  for i = 1, math.min(SAMPLE_VIOLATIONS, #order) do
-    local met = rec.violations[order[i]] -- checked: index_may_be_nil
-    log:say(string.format("test:   %s: %s declared %s got %s (%s)", met.at, met.target, -- checked: nil_not_allowed*2
-      met.declared, met.actual, plural.count(met.count, "time"))) -- checked: nil_not_allowed*3
+  for i, key in ipairs(order) do
+    if i > SAMPLE_VIOLATIONS then break end
+    local met = violation_of(rec, key)
+    log:say(string.format("test:   %s: %s declared %s got %s (%s)", met.at, met.target,
+      met.declared, met.actual, plural.count(met.count, "time")))
   end
 end
 
 --- The executable lines of each file this run wrote to `coverage`, and how
 --- many were hit: the figures a per-file floor holds the run to. A standing
 --- verdict's lines are among them ([`credit_hits`]), so a run that stood
---- entirely on verdicts has the same figures as the run that earned them.
+--- entirely on verdicts has the same figures as the runs that earned them,
+--- but for a module whose lines have moved since (`stale`).
 local function file_lines(handle: Sqlite.Handle, run_at_ns: integer): {test_report.FileLines}?, string
   local rows, trouble = Sqlite.text_rows(handle,
     "SELECT path, count(*), sum(hit) FROM coverage WHERE ran_at_ns = ?1 GROUP BY path",
@@ -2531,10 +3389,13 @@ local function settle(ctx: Run)
   end
   ctx.total = tally.ran + tally.cached + tally.na
 
-  local credit_trouble = credit_hits(records, assert(ctx.credited), hits)
+  local credit_trouble = credit_hits(records, assert(ctx.credited), hits, rec.identities, rec.stale,
+    function(path: string): {integer}?, string return instruction_lines_of(rec, path) end, codes_of(rec))
   if credit_trouble ~= "" then
     errors[#errors + 1] = "coverage credit: " .. credit_trouble
   end
+  -- A row of a test that ran keeps none of the lines it could not place, so the run that ran it says so.
+  for _, said in ipairs(test.unplaced_errors(rec.unplaced)) do errors[#errors + 1] = said end
 
   -- Every C function must be one some test enters, in this run or in
   -- the run whose verdict stands for it: a standing verdict's hits are
@@ -2601,7 +3462,7 @@ local function settle(ctx: Run)
       ctx.shortfall = { lines = { "test: coverage floor not judged: the run did not finish (" ..
           plural.count(rec.not_run, "test") .. " not started after the first failure)" }, clause = "" }
     else
-      ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors)
+      ctx.shortfall = test_report.floor(cov_hit, cov_total, files, floors, rec.stale)
     end
   end
   if rec.checks then
@@ -2645,15 +3506,14 @@ local function settle(ctx: Run)
 
   -- A module [`importer.compile`] refused ran no tests at all; every
   -- other module still compiled and ran above, so this only turns the
-  -- overall verdict to FAIL, one line per refusal, rather than aborting
-  -- the whole run the way an unrelated compile error still does.
-  local refusals = test.refusals_of(result.refused, assert(ctx.selectors))
-  for _, line in ipairs(refusals) do
-    failures[#failures + 1] = line
-  end
-  ctx.refusals = refusals
+  -- overall verdict to FAIL, counting one failure per refusal, rather
+  -- than aborting the whole run the way an unrelated compile error still
+  -- does. They are said ahead of the failures, the diagnostics the
+  -- others rest on first ([`report`]).
+  ctx.refusals = test.refusals_of(result.refused, assert(ctx.selectors))
+  ctx.cascade = test.cascade(result.refused, result.refusal_roots or {}, assert(ctx.selectors))
 
-  ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors ~= nil)
+  ctx.cov_line = test_report.coverage(cov_hit, cov_total, ctx.floors, rec.stale)
 end
 
 --- Says each place the run's coverage fell short of its floors.
@@ -2676,7 +3536,8 @@ local function report(ctx: Run): integer
   local rec, tally = assert(ctx.rec), assert(ctx.tally)
   local failures, errors = assert(ctx.failures), assert(ctx.errors)
   local total, started = assert(ctx.total), assert(ctx.started)
-  if #failures == 0 and #errors == 0 then
+  local refused = assert(ctx.refusals)
+  if #failures == 0 and #errors == 0 and #refused == 0 then
     if total == 0 then
       log:say("test: nothing to run: a test is a top-level `local function " ..
           "test_*` of a *_test.tl file, or a function of the `Example` " ..
@@ -2688,6 +3549,7 @@ local function report(ctx: Run): integer
     log:say(assert(ctx.cov_line))
     say_shortfall(ctx)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
+    log:say("test: " .. test_report.time(ctx.spent))
     local _, _ = log:say("test: " .. test_report.passed({ total = total,
       modules = #assert(ctx.selected_modules),
       ran = tally.ran, cached = tally.cached, skipped = tally.skipped, unchecked = tally.unchecked, na = tally.na,
@@ -2699,6 +3561,14 @@ local function report(ctx: Run): integer
   say_skips(rec)
   say_violations(rec)
   say_shown(rec, tally)
+  local cascade = ctx.cascade
+  local counted: string? = nil
+  if cascade ~= nil then
+    say_failures(rec, cascade.roots)
+    local collapsed = Refusals.collapsed(cascade)
+    if collapsed ~= nil then log:say("test: FAIL  " .. collapsed) end
+    counted = Refusals.counted(cascade)
+  end
   say_failures(rec, failures)
   for _, line in ipairs(errors) do
     log:say("test: ERROR  " .. assert(ctx.records_path) .. ": " .. line)
@@ -2708,11 +3578,13 @@ local function report(ctx: Run): integer
     say_shortfall(ctx)
     for _, function_line in ipairs(assert(ctx.function_lines)) do log:say(function_line) end
   end
-  local _, _ = log:say("test: " .. test_report.failed(#failures, total + #assert(ctx.refusals),
+  if counted ~= nil then log:say("test: " .. counted) end
+  log:say("test: " .. test_report.time(ctx.spent))
+  local _, _ = log:say("test: " .. test_report.failed(#failures + #refused, total + #refused,
     #errors, clock.took(started) .. assert(ctx.sandbox_summary) .. assert(ctx.share_summary) ..
       (if #errors == 0 then floor_clause(ctx) else "" end), rec.not_run))
   -- A refused module outranks a failing test: the tests ran on a tree that did not compile.
-  return if #assert(ctx.refusals) > 0 then exit_status.uncompiled else 1 end
+  return if #refused > 0 then exit_status.uncompiled else 1 end
 end
 
 --- The exit code of a run that stopped at `code` after the compile: [`exit_status.uncompiled`] in place of a 1 where a
@@ -2735,17 +3607,22 @@ local function run(argv: {string}): integer
   -- Captured once, up front, and threaded through everything below as
   -- this run's own identifier: see build/work.tl for why a nanosecond
   -- timestamp, not an autoincrement id, identifies a run.
-  local ctx: Run = { run_at_ns = Clock.now_ns(), argv = argv }
+  local spent = test_report.unspent()
+  local ctx: Run = { run_at_ns = Clock.now_ns(), argv = argv, spent = spent }
   local code = read_command(ctx)
   if code ~= nil then return code end
   code = hold_checkout(ctx)
   if code ~= nil then return code end
+  -- From the lock taken, as the summary's own time is: a wait for another run is neither's.
+  local mark = assert(ctx.started)
   code = read_identities(ctx)
   if code ~= nil then return code end
   code = choose_sandbox(ctx)
   if code ~= nil then return code end
   code = build_tree(ctx)
   if code ~= nil then return code end
+  spent.building_ns = Clock.monotonic_ns() - mark
+  mark = mark + spent.building_ns
   code = select_tests(ctx)
   if code ~= nil then return stopped_at(ctx, code) end
   code = open_records(ctx)
@@ -2756,9 +3633,15 @@ local function run(argv: {string}): integer
   code = gather_key_inputs(ctx)
   if code ~= nil then return code end
   look_up_verdicts(ctx)
+  spent.keying_ns = Clock.monotonic_ns() - mark
+  mark = mark + spent.keying_ns
   code = execute(ctx)
   if code ~= nil then return code end
+  spent.running_ns = Clock.monotonic_ns() - mark
+  mark = mark + spent.running_ns
+  spent.workers = assert(ctx.limits).jobs
   settle(ctx)
+  spent.settling_ns = Clock.monotonic_ns() - mark
   return report(ctx)
 end
 

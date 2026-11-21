@@ -1463,6 +1463,10 @@ unsigned char *cosmic_deflate_raw (const void *data, size_t len,
   return out.p;
 }
 
+bool cosmic_stored_chunk (const void *data, size_t len) {
+  return len > 0 && *(const unsigned char *)data == (unsigned char)LUA_SIGNATURE[0];
+}
+
 const char *cosmic_inflate_raw (const void *data, size_t len, size_t max,
                                 unsigned char **out, size_t *out_len) {
   *out = NULL;

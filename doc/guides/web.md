@@ -35,7 +35,9 @@ conventions added.
 
 Every file under `static/` is a public asset. `cosmic build` carries
 them in the executable and [`cosmic.web.static`] serves them; run from
-source, the same code serves the directory. A `.tmpl` file is a typed
+source, the same code serves the directory. A project of several programs
+gives one its own files under `cmd/<name>/static/`, which that program
+alone carries, each in place of a file of the same path under `static/`. A `.tmpl` file is a typed
 template, built into a module of the same path.
 
 ## templates
@@ -632,7 +634,10 @@ end
 Run it with `TASKS_KEYS=$(cosmic -e 'print(require("cosmic.web.secret").generate())') cosmic dev.tl`.
 Because the supervisor sets `COSMIC_WEB_DEV=1` the app, built by
 [`Dev.app`], is in development mode: it shows a fault's stack, serves
-`static/` from disk with `Cache-Control: no-store`, adds a script to every
+`static/` from disk with `Cache-Control: no-store` (a program run as
+`cosmic cmd/<name>/main.tl` lays its own `cmd/<name>/static/` over it, as
+its built executable does; `app.tl` is no program's main and has none), adds
+a script to every
 page that reloads the browser when the process is replaced and swaps the
 stylesheets when only a `.css` file changed, and carries the page's CSP
 nonce on that script's tag. An app that shows source paths to whoever asks
@@ -689,7 +694,7 @@ local function test_page_and_fragment()
   local page = client:get("/")
   assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true) ~= nil)
   assert(page.body:find("/_web/htmx-", 1, true), "the page loads htmx")
-  assert(page.body:find("&#47;static&#47;app&#46;%x+&#46;css"), "and the stylesheet by its fingerprint")
+  assert(page.body:find("/static/app%.%x+%.css"), "and the stylesheet by its fingerprint")
   local fragment = client:get("/", { headers = { ["HX-Request"] = "true" } })
   assert(fragment.status == 200 and not fragment.body:find("<html", 1, true))
 end

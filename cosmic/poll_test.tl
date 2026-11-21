@@ -1449,3 +1449,130 @@ local function test_a_notifier_wait_nobody_can_end_is_a_deadlock()
     end)
   end, "every task waits on another")
 end
+
+--- Outside a run, `within` is a run of its own: `f` is a task, and the
+--- call returns only once the task `f` left running has ended.
+local function test_within_outside_a_run_runs_f_in_a_run_it_waits_out()
+  local in_task: boolean = false
+  local left_ended: boolean = false
+  Poll.within(function()
+    in_task = Poll.in_task()
+    Poll.spawn(function()
+      assert(Poll.delay(0))
+      left_ended = true
+    end)
+  end)
+  assert(in_task, "f ran outside a task")
+  assert(left_ended, "within returned before a task of its run ended")
+  assert(not Poll.in_task(), "the run outlived within")
+end
+
+--- In a task, `within` is a call: `f` runs in the caller's task, which a
+--- join of that task shows by refusing, and a task it leaves running
+--- goes on in the caller's run past the return.
+local function test_within_in_a_task_calls_f_there_and_leaves_its_tasks_to_the_run()
+  local refused: string = ""
+  local ended_at_return: boolean = true
+  local left_ended: boolean = false
+  Poll.run(function()
+    local caller: Poll.Task?
+    caller = Poll.spawn(function()
+      Poll.within(function()
+        refused = Test.raises(function() assert(caller, "the caller was spawned"):join() end)
+        Poll.spawn(function()
+          assert(Poll.delay(0))
+          left_ended = true
+        end)
+      end)
+      ended_at_return = left_ended
+    end)
+  end)
+  assert(refused:find("a task cannot join itself", 1, true) ~= nil, refused)
+  assert(not ended_at_return, "within waited for a task f left running")
+  assert(left_ended, "the run did not wait for the task f left running")
+end
+
+--- A `<close>` local that records its closing.
+local class Closing
+  mut closed: boolean
+
+  function __close(self)
+    self.closed = true
+  end
+end
+
+--- A string `f` raises outside a run comes with `f`'s stack, the task it
+--- spawned closed; a value that is no string is raised as it is.
+local function test_within_outside_a_run_raises_what_f_raised_as_a_run_does()
+  local closing: Closing = { closed = false }
+  local resumed: boolean = false
+  local why = Test.raises(function()
+    Poll.within(function()
+      Poll.spawn(function()
+        local _held <close> = closing
+        local _, _ = Poll.delay(Poll.MOST_NS)
+        resumed = true
+      end)
+      assert(Poll.delay(0))
+      error("f failed")
+    end)
+  end, "f failed")
+  assert(why:find("stack traceback:", 1, true) ~= nil, why)
+  assert(closing.closed and not resumed, "the task f spawned was not closed where it waited")
+  assert(not Poll.in_task(), "the run outlived its error")
+  local value: {string} = { "no string" }
+  local ok, raised: boolean, any = pcall(Poll.within, function() error(value) end)
+  assert(not ok and raised == value, tostring(raised))
+end
+
+--- In a task the caller catches what `f` raised, as raised, and both it
+--- and the task `f` spawned go on.
+local function test_within_in_a_task_raises_what_f_raised_to_its_caller()
+  local raised: string = ""
+  local left_ended: boolean = false
+  Poll.run(function()
+    local ok, err: boolean, any = pcall(Poll.within, function()
+      Poll.spawn(function()
+        assert(Poll.delay(0))
+        left_ended = true
+      end)
+      error("f failed", 0)
+    end)
+    assert(not ok)
+    raised = tostring(err)
+  end)
+  assert(raised == "f failed", raised)
+  assert(left_ended, "the task f spawned did not go on")
+end
+
+--- In a task, a cancel of the caller answers the wait `f` is in.
+local function test_within_in_a_task_is_cancelled_as_its_caller_is()
+  local why: string = ""
+  Poll.run(function()
+    local caller = Poll.spawn(function()
+      Poll.within(function()
+        local _, trouble = Poll.delay(Poll.MOST_NS)
+        why = trouble
+      end)
+    end)
+    assert(Poll.delay(0))
+    caller:cancel()
+    assert(caller:join())
+  end)
+  assert(why == Poll.CANCELLED, why)
+end
+
+--- In a coroutine a task made there is a run and no task: `f` is called
+--- in place, where a spawn raises, and no second run is begun.
+local function test_within_in_a_coroutine_of_a_task_calls_f_where_spawn_raises()
+  local message: string = ""
+  Poll.run(function()
+    local inner = coroutine.wrap(function()
+      message = Test.raises(function()
+        Poll.within(function() Poll.spawn(function() end) end)
+      end, "outside a task's own coroutine")
+    end)
+    inner()
+  end)
+  assert(message ~= "")
+end

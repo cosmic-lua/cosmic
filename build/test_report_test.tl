@@ -28,9 +28,19 @@ local function test_failures_sort_and_keep_reruns_and_output_together()
       "  | first\n  | second")
   lines = test_report.failures({ { message = "a test_x: broken", printed =
       "prefix" .. string.rep("x", 4096) } }, "")
-  assert(lines[2] == "  | ..." .. string.rep("x", 4096))
+  assert(lines[2] == "  | (cut to its last 4096 bytes: it printed 4102 bytes)", lines[2])
+  assert(lines[3] == "  | " .. string.rep("x", 4096))
   assert(table.concat(test_report.skips({ "z: denied", "a: denied" }), "\n") ==
       "test: SKIP  a: denied\ntest: SKIP  z: denied")
+end
+
+local function test_a_pass_with_no_assert_is_told_of_skip()
+  local lines = test_report.unchecked({ "b test_y", "a test_x" })
+  assert(lines[1] == "test: NO ASSERT  a test_x" and lines[2] == "test: NO ASSERT  b test_y")
+  local hint = assert(lines[3])
+  assert(hint:find("Test.skip(reason)", 1, true) ~= nil, hint)
+  assert(#lines == 3)
+  assert(#test_report.unchecked({}) == 0)
 end
 
 local function test_summaries_keep_the_figures_ci_reads_in_order()
@@ -54,6 +64,65 @@ local function test_summaries_keep_the_figures_ci_reads_in_order()
       "test: coverage 25.0% (1/4 lines; informational, never a failure)")
   assert(test_report.coverage(0, 0) ==
       "test: coverage 0.0% (0/0 lines; informational, never a failure)")
+end
+
+--- A run where none ran and some stood says why and how to run them, after
+--- the figures CI's reader finds by their places.
+local function test_a_run_where_every_test_stood_says_why_none_ran()
+  local line = test_report.passed({ total = 5, modules = 2, ran = 0, cached = 5,
+    skipped = 0, every = 0, shared = 0 }, "7 ms")
+  assert(line == "5 tests passed in 2 modules; 0 ran, 5 stood, none ran, as nothing the tests that stood " ..
+      "are keyed on changed since their verdicts (--all runs them), 7 ms", line)
+  assert(line:match("; (%d+) ran, ") == "0" and line:match(" (%d+) stood, ") == "5" and
+      line:match(", (%d+) ms") == "7", line)
+  assert(test_report.passed({ total = 1, modules = 1, ran = 0, cached = 1, skipped = 0, every = 0, shared = 0 }, "7 ms") ==
+      "1 test passed in 1 module; 0 ran, 1 stood, none ran, as nothing the test that stood is keyed on " ..
+      "changed since its verdict (--all runs it), 7 ms")
+  assert(test_report.passed({ total = 5, modules = 1, ran = 0, cached = 4, skipped = 1, every = 0, shared = 4 }, "7 ms") ==
+      "5 tests passed in 1 module; 0 ran, 4 stood, 1 skipped (this host could not check it), 4 of them on " ..
+      "another checkout's verdict, none ran, as nothing the tests that stood are keyed on changed since their " ..
+      "verdicts (--all runs them), 7 ms")
+  -- A run where some ran, or none stood, says nothing of it.
+  assert(not test_report.passed({ total = 5, modules = 2, ran = 1, cached = 4, skipped = 0, every = 0, shared = 0 },
+    "7 ms"):find("keyed on", 1, true))
+  assert(not test_report.passed({ total = 0, modules = 0, ran = 0, cached = 0, skipped = 0, every = 0, shared = 0 },
+    "7 ms"):find("keyed on", 1, true))
+end
+
+--- The coverage line and a floor's failure print one figure the same way:
+--- rounded down, to as many decimals as the floor has and one at least.
+--- 14610/15002 is 97.387%: rounding put 97.4% on the line and the failure
+--- said 97.3% under --min 97.4%.
+local function test_the_coverage_line_and_a_floor_print_one_figure()
+  local floors: test_report.Floors = { min = 97.4 }
+  assert(test_report.coverage(14610, 15002, floors) == "test: coverage 97.3% (14610/15002 lines)",
+    test_report.coverage(14610, 15002, floors))
+  local short = test_report.floor(14610, 15002, {}, floors)
+  assert(short.lines[1] == "test: FAIL  coverage: 97.3% (14610/15002 lines) is under --min 97.4%", short.lines[1])
+  assert(test_report.coverage(14610, 15002) ==
+      "test: coverage 97.3% (14610/15002 lines; informational, never a failure)")
+  -- A floor with two decimals shows the figure to two, so one under it never reads as at it.
+  local fine: test_report.Floors = { min = 97.39, min_file = 97.39 }
+  assert(test_report.coverage(14610, 15002, fine) == "test: coverage 97.38% (14610/15002 lines)",
+    test_report.coverage(14610, 15002, fine))
+  local finer = test_report.floor(14610, 15002, { { path = "a.tl", hit = 14610, lines = 15002 } }, fine)
+  assert(finer.lines[1] == "test: FAIL  coverage: 97.38% (14610/15002 lines) is under --min 97.39%", finer.lines[1])
+  assert(finer.lines[2] == "test: FAIL  coverage: a.tl 97.38% (14610/15002 lines) is under --min-file 97.39%",
+    finer.lines[2])
+  assert(finer.clause == "coverage floor not met: 97.38% under --min 97.39%, 1 file under --min-file 97.39%",
+    finer.clause)
+  -- A whole floor still shows one decimal; a figure of 100 and of 0 print whole.
+  assert(test_report.coverage(4, 4, { min = 90.0 }) == "test: coverage 100.0% (4/4 lines)")
+  assert(test_report.coverage(0, 4, { min = 90.0 }) == "test: coverage 0.0% (0/4 lines)")
+  assert(test_report.coverage(1, 3, { min = 0.25 }) == "test: coverage 33.33% (1/3 lines)")
+  -- As many decimals as the floor has, up to the four a floor may have; and --min-file's set each file's.
+  assert(test_report.coverage(14610, 15002, { min = 97.3874 }) == "test: coverage 97.3870% (14610/15002 lines)")
+  assert(test_report.coverage(14610, 15002, { min = 0.0001 }) == "test: coverage 97.3870% (14610/15002 lines)")
+  assert(test_report.coverage(14610, 15002, { min_file = 97.39 }) == "test: coverage 97.3% (14610/15002 lines)")
+  local files = test_report.floor(14610, 15002, { { path = "a.tl", hit = 14610, lines = 15002 } },
+    { min = 50.0, min_file = 97.3871 })
+  assert(files.lines[1] == "test: FAIL  coverage: a.tl 97.3870% (14610/15002 lines) is under --min-file 97.3871%",
+    files.lines[1])
 end
 
 --- A test that called a method its value lacks -- a record's value made
@@ -97,6 +166,12 @@ local function test_a_floor_is_a_percentage_from_0_to_100()
   for _, text in ipairs({ "", "x", "101", "100.1", "-1", "1e2", "0x10", "7 6", "nan", "inf", ".5", "5.", "%" }) do
     local got, why = test_report.percent(text, "--min-file")
     assert(got == nil and why == "--min-file must be a percentage from 0 to 100, not " .. text, text .. ": " .. why)
+  end -- More decimals than a figure prints to, or the check compares exactly, are refused.
+  assert(test_report.percent("97.1234", "--min") == 97.1234)
+  for _, text in ipairs({ "97.12344", "99.99999", "0.00001" }) do
+    local got, why = test_report.percent(text, "--min")
+    assert(got == nil and why == "--min takes at most 4 decimals, which a figure prints to and the check " ..
+        "compares exactly, not " .. text, text .. ": " .. why)
   end
 end
 
@@ -124,8 +199,8 @@ local function test_a_floor_names_each_file_and_the_total_that_fall_short()
   assert(both.clause == "coverage floor not met: 25.0% under --min 76.5%, 1 file under --min-file 50%", both.clause)
   -- Nothing to cover is under no floor.
   assert(#test_report.floor(0, 0, {}, { min = 1.0, min_file = 1.0 }).lines == 0)
-  assert(test_report.coverage(1, 4, true) == "test: coverage 25.0% (1/4 lines)")
-  assert(test_report.coverage(0, 0, true) ==
+  assert(test_report.coverage(1, 4, {}) == "test: coverage 25.0% (1/4 lines)")
+  assert(test_report.coverage(0, 0, {}) ==
       "test: coverage 0.0% (0/0 lines; no lines to cover, so a floor holds vacuously)")
   -- Exactly under the floor never prints as reaching it.
   local near = test_report.floor(1599, 2000, { { path = "a.tl", hit = 1599, lines = 2000 } },
@@ -134,6 +209,51 @@ local function test_a_floor_names_each_file_and_the_total_that_fall_short()
   assert(assert(near.lines[2]):find("a.tl 79.9% (1599/2000", 1, true) ~= nil)
   assert(near.clause:find("79.9% under --min 80%", 1, true) ~= nil, near.clause)
   assert(#test_report.floor(1600, 2000, {}, { min = 80.0 }).lines == 0)
+end
+
+--- A figure that left out the standing hits of modules whose text moved
+--- says it is partial. It is at most the true one, so a floor it meets is
+--- met; one under a floor fails, saying the figure is partial and naming the
+--- files it holds whose hits were dropped.
+local function test_a_partial_figure_says_so_and_fails_a_floor_it_is_under()
+  local note = "partial: hits of 2 modules came from runs on other text; `--all` reruns them"
+  local other = test_report.other_text
+  local two = { a = other, b = other }
+  assert(test_report.coverage(1, 4, nil, two) ==
+      "test: coverage 25.0% (1/4 lines; informational, never a failure; " .. note .. ")")
+  assert(test_report.coverage(1, 4, {}, two) == "test: coverage 25.0% (1/4 lines; " .. note .. ")")
+  assert(test_report.coverage(1, 4, {}, {}) == "test: coverage 25.0% (1/4 lines)")
+  local stale = { ["b.m"] = other, ["c.m"] = other }
+  local met = test_report.floor(3, 4, { { path = "b.m", hit = 3, lines = 4 } }, { min = 75.0, min_file = 75.0 }, stale)
+  assert(#met.lines == 0 and met.clause == "", "a partial figure at the floor meets it")
+  local files: {test_report.FileLines} = { { path = "a.m", hit = 1, lines = 4 }, { path = "b.m", hit = 1, lines = 4 } }
+  local short = test_report.floor(2, 8, files, { min = 50.0, min_file = 50.0 }, stale)
+  assert(table.concat(short.lines, "\n") ==
+      "test: FAIL  coverage: 25.0% (2/8 lines; " .. note .. ") is under --min 50%\n" ..
+      "test: FAIL  coverage: a.m 25.0% (1/4 lines) is under --min-file 50%\n" ..
+      "test: FAIL  coverage: b.m 25.0% (1/4 lines; partial: its hits came from runs on other text; " ..
+      "`--all` reruns them) is under --min-file 50%", table.concat(short.lines, "\n"))
+  assert(short.clause == "coverage floor not met: 25.0% under --min 50% on a partial figure, " ..
+      "2 files under --min-file 50% (1 on a partial figure)", short.clause)
+end
+
+--- A module whose standing hits were dropped for another reason than another text (an instruction its row numbers
+--- that the run cannot place) is named with why, and not said to have come from other text.
+local function test_a_partial_figure_names_a_module_dropped_for_another_reason()
+  local why = "were not placed at its lines: instruction 4 is past the module's 3"
+  local stale = { ["a.m"] = test_report.other_text, ["b.m"] = why }
+  local line = test_report.coverage(1, 4, {}, stale)
+  assert(line == "test: coverage 25.0% (1/4 lines; partial: hits of 2 modules are left out (1 came from runs on " ..
+      "other text; the hits of b.m " .. why .. "); `--all` reruns them)", line)
+  local short = test_report.floor(1, 4, { { path = "b.m", hit = 1, lines = 4 } }, { min_file = 50.0 }, stale)
+  assert(table.concat(short.lines, "\n") == "test: FAIL  coverage: b.m 25.0% (1/4 lines; partial: its hits " .. why ..
+      "; `--all` reruns them) is under --min-file 50%", table.concat(short.lines, "\n"))
+  -- A mass of them names the first few, by path, and counts the rest.
+  local many: mut {string:string} = {}
+  for _, path in ipairs({ "e.m", "d.m", "c.m", "b.m", "f.m" }) do many[path] = why end
+  local capped = test_report.coverage(1, 4, {}, many)
+  assert(capped == "test: coverage 25.0% (1/4 lines; partial: hits of 5 modules are left out (the hits of b.m " ..
+      why .. "; the hits of c.m " .. why .. "; the hits of d.m " .. why .. "; and 2 more); `--all` reruns them)", capped)
 end
 
 --- A decimal floor a file meets exactly holds, though `64.4 * 250` rounds above 16100 in floating point.
@@ -152,10 +272,14 @@ local function test_a_shown_output_is_listed_beneath_its_test_in_the_form_a_fail
   })
   assert(table.concat(lines, "\n") == "test: PASS  a.m_test test_a\n  | x\n" ..
       "test: PASS  z.m_test test_b\n  | one\n  | two")
-  -- As long an output is cut as a failure's is, from the front.
+  -- What a run asked to see is shown whole, where a failure's is cut.
   lines = test_report.shown({ { id = "a test_x", printed = "prefix" .. string.rep("x", 4096) } })
-  assert(lines[2] == "  | ..." .. string.rep("x", 4096))
+  assert(lines[2] == "  | prefix" .. string.rep("x", 4096))
+  assert(#lines == 2)
   assert(#test_report.shown({}) == 0)
+  assert(test_report.unshown_note(0) == nil)
+  assert(test_report.unshown_note(1) == "test: 1 passing test that ran printed output, which --show-output shows")
+  assert(test_report.unshown_note(3) == "test: 3 passing tests that ran printed output, which --show-output shows")
   assert(test_report.shown_note(0) == nil)
   assert(test_report.shown_note(1) == "test: show-output: 1 test stood and so printed nothing; --all runs it")
   assert(test_report.shown_note(2) == "test: show-output: 2 tests stood and so printed nothing; --all runs them")
@@ -176,7 +300,58 @@ local function test_a_failure_names_the_relative_paths_it_did_not_find()
   assert(found("x: ../a.txt: No such file or directory") == "")
   assert(found("x: a/../../b.txt: No such file or directory") == "")
   assert(found("x: other error: Permission denied") == "")
-  assert(test_report.tree_hint("a/b.txt") == "a/b.txt is not in this test's sandbox, though it is in the " ..
-      "tree: grant it in Test.policy { grants = { { path = \"a/b.txt\", letters = \"r\" } } } " ..
+  assert(test_report.tree_hint("b.txt") == "b.txt is not in this test's sandbox, though it is in the " ..
+      "tree: grant it in Test.policy { grants = { { path = \"b.txt\", letters = \"r\" } } } " ..
       "(see cosmic docs cosmic.test)")
+end
+
+--- A file in a directory is told the directory's grant too, for a test that reads more of it.
+local function test_a_file_in_a_directory_is_told_the_directory_grant()
+  assert(test_report.tree_hint("a/b/c.txt") == "a/b/c.txt is not in this test's sandbox, though it is in the " ..
+      "tree: grant it in Test.policy { grants = { { path = \"a/b/c.txt\", letters = \"r\" } } }, or, " ..
+      "for a test that reads more of a/b/, grant the directory: { path = \"a/b/\", letters = \"r\" } " ..
+      "(see cosmic docs cosmic.test)", test_report.tree_hint("a/b/c.txt"))
+end
+
+--- A module that failed to load fails each of its tests for one cause, which ran outside every test: it is said once,
+--- naming the tests and where the cause ran, and rerun by the module's file, though its text differs from test to test
+--- (a path under each worker's own directory). A module of one test is said so too, and a test of another module as
+--- before.
+local function test_a_module_that_failed_to_load_is_one_failure()
+  local function cause(dir: string): string
+    return "the module failed to load: run_test:2: /tmp/" .. dir .. "/missing: no such file\n  its directory was a tmpfs"
+  end
+  local lines = test_report.failures({
+    { message = "run_test test_b: " .. cause("b"), rerun = "run_test.tl:test_b" },
+    { message = "run_test test_a: " .. cause("a"), rerun = "run_test.tl:test_a" },
+    { message = "one_test test_c: " .. cause("c"), rerun = "one_test.tl:test_c" },
+    { message = "other_test test_d: broken", rerun = "other_test.tl:test_d" },
+  }, "")
+  local text = table.concat(lines, "\n")
+  local tail = "): what failed ran as the module loaded, at its top level and outside every test; move it into a test " ..
+    "or a function the tests call\n  its directory was a tmpfs\n"
+  assert(text == "test: FAIL  one_test: the module failed to load: run_test:2: /tmp/c/missing: no such file\n" ..
+      "  its test did not run (test_c" .. tail ..
+      "  rerun: cosmic test one_test.tl\n" ..
+      "test: FAIL  other_test test_d: broken\n" ..
+      "  rerun: cosmic test other_test.tl:test_d\n" ..
+      "test: FAIL  run_test: the module failed to load: run_test:2: /tmp/a/missing: no such file\n" ..
+      "  none of its 2 tests ran (test_a, test_b" .. tail ..
+      "  rerun: cosmic test run_test.tl", text)
+end
+
+--- The `time` line says the four stretches of a run in order and, of the one its tests ran in, the tests' own time
+--- apart from what the runner spent on their workers; a run that ran none says nothing of workers.
+local function test_the_time_line_tells_the_tests_time_from_the_time_around_them()
+  local spent = test_report.unspent()
+  spent.building_ns, spent.keying_ns, spent.running_ns, spent.settling_ns = 1240000000, 62100000000, 425000000000, 50000000
+  assert(test_report.time(spent) == "time: building 1.2 s, keying 62.1 s, running 425.0 s, settling coverage and " ..
+      "records 0.1 s", test_report.time(spent))
+  spent.ran, spent.workers, spent.tests_ns = 8636, 4, 1129300000000
+  spent.starting_ns, spent.recording_ns = 152000000000, 82100000000
+  assert(test_report.time(spent) == "time: building 1.2 s, keying 62.1 s, running 425.0 s (1129.3 s in 8636 tests, " ..
+      "up to 4 at a time; the runner 152.0 s starting their workers and 82.1 s recording them), settling coverage " ..
+      "and records 0.1 s", test_report.time(spent))
+  spent.ran = 1
+  assert(test_report.time(spent):find("in 1 test, up to", 1, true), test_report.time(spent))
 end

@@ -23,7 +23,13 @@ defines the target; once something ships, it leaves this file.
   literal or a local never reassigned), where a write to any index drops
   every index place; `is` tests a field as it does a local; `x is A | B | C`
   guards all its members, not the last pair; an assignment drops the place
-  assigned and its extensions only (`r.f = v` keeps `r.foo`).
+  assigned and its extensions only (`r.f = v` keeps `r.foo`). a range test
+  `i >= 1 and i <= #t` holds a read `t[i]` and a write `t[i] = v` in its block
+  ([`Writes.ranges_of`]), and not yet in the operands of its own chain after the
+  bounds (`i <= #t and t[i] > 0`). a counted
+  loop `for i = a, #t - b do` reads the keys beside its index
+  ([`Writes.counted_read`]); a write `t[i] = v` stands only in a loop to `#t`
+  ([`Writes.fill_of`]), and a loop that counts down holds no read.
 - make a metamethod's run a call wherever it can happen, which the checker
   tells today by the operator or index it dispatches from: reading a
   declared field of a record that declares `__index` or `__newindex` runs
@@ -52,11 +58,32 @@ defines the target; once something ships, it leaves this file.
   measurements and record why root access, a terminal, a free port, or a
   platform feature changes it.
 
+## measuring
+
+- a sampling profiler taken by the tool, not by the program. a program
+  installs no hook (`debug.sethook` is refused, [`cosmic.removed`]), and the
+  harness already runs a hook of its own for coverage ([`cosmic.coverage`],
+  [`core/coverage.c`]), so the tool can sample where it counts lines:
+  `cosmic test --profile <selector>` would sample the tests it selects, and
+  `cosmic --profile <file.tl>` a file run, writing each function's and line's
+  self time into a table of `build.db` that `cosmic sql --build` reads beside
+  `runs` and `coverage` ([doc/guides/measuring.md](guides/measuring.md)).
+  [`Clock.span`] times the regions a builder marks by hand until then.
+- pin [`Proc.relaunch`] under a source run (`cosmic <file.tl>`) to the build
+  of the parent: each child it starts checks the tree again and runs the
+  source as it is when the child starts, so a child can run other code than
+  its parent, and every child pays for the check. a child would run the
+  parent's compiled program instead, named by the relaunch.
+- relaunch a `--standalone` run: [`Proc.relaunch`] gives it no `script`, so
+  a child cannot run the file again. it would record the file and carry the
+  `--standalone` word in `argv`, so the child runs the file alone, as its
+  parent did.
+
 ## untrusted input
 
 design.md promises that the parsers facing untrusted input are fuzzed.
 [`build.fuzz`] runs every `*_fuzz_test.tl` property on every `cosmic test`, and
-`fuzz.yml` reruns them deep on the checked core each night.
+`fuzz.yml` reruns them deep on the checked core each week.
 curl, c-ares and yyjson are fuzzed upstream; record that as their evidence
 rather than fuzzing them here. [`core/json.c`]'s own walk into Lua values and
 its encoder are fuzzed here, in [`cosmic/json_fuzz_test.tl`].
@@ -163,7 +190,7 @@ promises lean on come first:
     messages, and it asks for an `id` only of the drafts that carry the tag,
     which a record would ask of every release.
   - the workflow files, read as JSON5 and cast to maps in
-    [`ci/cosmic_ci/queue_stage_test.tl`], [`build/workflows_test.tl`] and
+    [`build/workflows_test.tl`] and
     `ci/cosmic_ci/orchestration_test.tl`: a record per job, step and matrix
     entry would restate GitHub's schema for the few keys a test reads.
   - readers that are lenient on purpose ([`eval/summarize.tl`] reads a
@@ -237,6 +264,12 @@ promises lean on come first:
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
+- [`cosmic.http.message`] past the message, each once a caller needs it:
+  RTSP's interleaved binary frames (RFC 2326 10.12: `$`, a channel byte and a
+  16-bit length, between messages on the same connection), which no reader
+  here reads; a body handed over as it arrives,
+  for one larger than a caller would hold; and a chunked body's trailers,
+  which are checked and dropped.
 - [`cosmic.web.middleware`] past what the first parts need, each once a part of
   the web layer wants one: `Web.timing`, `Web.request_id` (paired with the
   CSP nonce and sessions) and `Web.limit_body` (paired with
@@ -287,14 +320,15 @@ promises lean on come first:
   already carries) where a "tcp" `Address` takes a numeric one; TLS
   over a connection, for the
   loopback server build/fetch_test.tl's https `TODO:` waits on;
-  datagrams ("udp", "unixgram"): UDP sockets return with a design,
-  once an application caller needs them (the UDP a test needs
-  lives in build/udp_fixture.tl); a [`Net.serve`] listener taking a
+  datagrams past [`Net.datagram`]'s UDP socket and its multicast: one over a unix socket
+  file ("unixgram"), a socket connected to one peer, a group joined for
+  some senders alone (source-specific multicast), and an IPv4 group's
+  interface named by its index; a [`Net.serve`] listener taking a
   listen's own options (`backlog`); a listen that takes over a socket file a listener left
   behind (`reclaim`, for a daemon restarting at its socket file); a
   [`Net.serve`] in several processes of this program, which take
-  connections from the listeners it hands them; a connection's `peer`
-  address; of a unix socket, its peer's user and process
+  connections from the listeners it hands them; a unix connection's
+  `peer` and own `address`; of a unix socket, its peer's user and process
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode.
 
@@ -330,6 +364,102 @@ promises lean on come first:
     `Last-Modified` for a file a handler serves itself.
   - File-based routing that generates the route table, and OpenAPI
     documents made from typed routes.
+
+- [`cosmic.dns`] past its first release, each once a caller needs it:
+  - Name compression in [`Dns.encode`], which writes every name in full:
+    RFC 1035 section 4.1.4's pointers for the names of questions and records
+    and for the names in the data of NS, CNAME, PTR, MX and SOA records, each
+    to the earliest place a suffix was written within the first 16384 bytes.
+    An SRV record's target is compressed in multicast DNS alone (RFC 6762
+    section 18.14; RFC 2782 forbids it elsewhere), so the caller chooses. It
+    matters once a response must fit a 512-byte datagram or a multicast
+    packet.
+  - The header and the whole records of a truncated response. A server that
+    cuts a response mid-record sets the truncated bit, and [`Dns.decode`]
+    answers nil and a reason for it, as for any message whose counts pass its
+    bytes: the caller learns neither the id nor that `truncated` was set, so
+    it cannot tell "ask again over TCP" from garbage.
+  - EDNS (RFC 6891): the OPT pseudo-record read into fields (the payload
+    size its class holds, the extended response code and flags its ttl
+    holds, its options), and written from them. Today it is a record of type
+    41 with `rdata`, its class split at the top bit like any other.
+
+- [`cosmic.protobuf`] past the wire format, each once a caller needs it:
+  - In [`cosmic.protobuf.schema`], which declares a message once as a record:
+    map fields (`{string: T}`, written in key order) and `oneof` groups; two
+    records that hold each other, which the build
+    refuses and a codec declared before it is defined would allow; a default
+    of an enum field; and a `.proto` file read to write the records and the
+    `message_of` calls.
+  - Groups (wire types 3 and 4), which [`Protobuf.decode`] refuses and only
+    proto2 writes. A group has no length: its end is found by reading every
+    field inside it, the groups nested in it too, under a bound on how deep
+    they nest.
+
+- [`cosmic.mdns`] past a search made once, each once a caller needs it:
+  - The rest of publishing a service, where [`Mdns.responder`] only answers:
+    probing for its names before it uses them, announcing its records,
+    saying goodbye as it stops and settling a conflict with another
+    responder (RFC 6762 sections 8 to 10); leaving out the answers a
+    question lists as known (section 7.1); the delay before an answer
+    others may give too, and the answer that says a record does not exist
+    (section 6); the unicast answer a member's question may ask for
+    (section 5.4); and publishing a sub-type.
+  - A browse that goes on until it is stopped: each record kept for its
+    time to live and asked for again before that ends, an instance reported
+    gone when its records expire or a goodbye (a record with a time to live
+    of 0, which a search ignores today) says so, and the records a
+    `cache_flush` bit replaces.
+  - Known-answer suppression (RFC 6762 section 7.1): a repeated question
+    lists the answers already held, so that no responder sends them again,
+    over several messages with the truncated bit where they do not fit one.
+  - The service types a network has, from the pointers at
+    `_services._dns-sd._udp.local` (RFC 6763 section 9).
+  - Questions over IPv6, to `ff02::fb`: a second socket, joined by each
+    interface's index, waited on together with the IPv4 one.
+  - What a datagram's ancillary data says of how it came, which
+    [`Net.datagram`]'s `receive` does not read: the hops it arrived with and
+    the interface it came by. With them a search drops an answer that did
+    not arrive with 255 hops or from an address of the interface's own
+    network, the check that it came from the local link (RFC 6762 section
+    11), and an `Instance` says the interface, which is also the zone of a
+    link-local IPv6 address.
+  - A domain other than `local`: the domains a network recommends for
+    browsing (RFC 6763 section 11), and a service type or a host asked for
+    in one of them over unicast DNS (section 4), where today the domain is
+    always `local` and the question always multicast.
+  - The timing of RFC 6762 section 5.2 a search does not keep: a random
+    delay of 20 to 120 ms before the first question, so that machines
+    started together do not ask together, and a second between the first
+    two questions at the least, where `retry_ns` takes less.
+  - An SRV record's priority and weight, and every SRV record of an instance
+    that has several.
+
+- [`cosmic.plist`] past the binary and XML forms read and written whole,
+  each once a caller needs it:
+  - The old ASCII form (OpenStep's, `{ key = value; }`), which Xcode still
+    writes for a project file and `defaults` prints. [`Plist.form`] answers
+    nil for it and [`Plist.decode`] refuses it. It holds strings, data,
+    arrays and dicts alone, so reading it needs no new kind of value.
+  - A keyed archive (NSKeyedArchiver) read as the objects it archives:
+    `$top` followed through its UIDs into `$objects`, each object with its
+    class from `$class`, and the Foundation collections (`NS.objects`,
+    `NS.keys`, `NS.string`, `NS.time`) as the values they stand for. Today
+    an archive reads as the property list it is, UIDs and all, and following
+    them is the caller's. Writing one is the other half.
+  - The binary form's other versions (`bplist15`, `bplist16`), which
+    Foundation uses between processes, with types `bplist00` does not have.
+    [`Plist.decode`] refuses them by their version.
+  - A plain Lua table from a [`Plist.Value`] and back, for a caller that
+    wants neither the order of a dict's keys nor the type of a value:
+    which Lua value each kind becomes, and which kind a table that could be
+    an array or a dict is written as, are the decisions to make.
+  - A dict that holds a key twice read, the last of the key's entries
+    standing, as [`Json.decode`]'s `duplicate_keys` reads an object. Both
+    decoders refuse one today.
+  - A property list too large to hold whole, read an element at a time from
+    a stream, which the XML form allows and the binary form, whose trailer
+    is at its end, does not.
 
 - `cosmic lsp` ([`build/lsp/session.tl`]) answers diagnostics, hover, go to definition, completion and formatting. Definition and completion read
   the open document's last check, [`check.read`] and [`check.last`] (its tree, scopes and types), and the working database for
@@ -425,19 +555,27 @@ four-producer provenance join.
 [`Child.end_strays`]: ../cosmic/child.tl
 [`ci/cosmic-driver.pin`]: ../ci/cosmic-driver.pin
 [`ci/cosmic_ci/prerelease.tl`]: ../ci/cosmic_ci/prerelease.tl
-[`ci/cosmic_ci/queue_stage_test.tl`]: ../ci/cosmic_ci/queue_stage_test.tl
+[`Clock.span`]: ../cosmic/clock.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
+[`cosmic.coverage`]: ../cosmic/coverage.tl
+[`cosmic.dns`]: ../cosmic/dns.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
 [`cosmic.html`]: ../cosmic/html.tl
+[`cosmic.http.message`]: ../cosmic/http/message.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
 [`cosmic.internal.relay_config`]: ../cosmic/internal/relay_config.tl
 [`cosmic.internal.relay_server`]: ../cosmic/internal/relay_server.tl
 [`cosmic.internal.relay_start`]: ../cosmic/internal/relay_start.tl
+[`cosmic.mdns`]: ../cosmic/mdns.tl
 [`cosmic.net`]: ../cosmic/net.tl
+[`cosmic.plist`]: ../cosmic/plist.tl
+[`cosmic.protobuf.schema`]: ../cosmic/protobuf/schema.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf/init.tl
 [`cosmic.relay.address`]: ../cosmic/relay/address.tl
 [`cosmic.relay.grant`]: ../cosmic/relay/grant.tl
+[`cosmic.removed`]: ../cosmic/removed.tl
 [`cosmic.sandbox`]: ../cosmic/sandbox/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.template`]: ../cosmic/template/init.tl
@@ -450,6 +588,8 @@ four-producer provenance join.
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl
 [`cosmic/stream.tl`]: ../cosmic/stream.tl
 [`cosmic/template/markup.tl`]: ../cosmic/template/markup.tl
+[`Dns.decode`]: ../cosmic/dns.tl
+[`Dns.encode`]: ../cosmic/dns.tl
 [`doc/testing.md`]: testing.md
 [`Errors.guidance`]: ../cosmic/errors.tl
 [`eval/summarize.tl`]: ../eval/summarize.tl
@@ -458,7 +598,14 @@ four-producer provenance join.
 [`Json.decode`]: ../cosmic/json.tl
 [`lang/flow.tl`]: ../lang/flow.tl
 [`lang/stdlib.d.tl`]: ../lang/stdlib.d.tl
+[`Mdns.responder`]: ../cosmic/mdns.tl
+[`Net.datagram`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
+[`Plist.decode`]: ../cosmic/plist.tl
+[`Plist.form`]: ../cosmic/plist.tl
+[`Plist.Value`]: ../cosmic/plist.tl
+[`Proc.relaunch`]: ../cosmic/proc.tl
+[`Protobuf.decode`]: ../cosmic/protobuf/init.tl
 [`Sandbox.Limits`]: ../cosmic/sandbox/init.tl
 [`Sandbox.Policy`]: ../cosmic/sandbox/init.tl
 [`Server.none_match`]: ../cosmic/http/server.tl
@@ -474,3 +621,6 @@ four-producer provenance join.
 [`Url.parse`]: ../cosmic/url.tl
 [`Url.Parts`]: ../cosmic/url.tl
 [`Url.segments`]: ../cosmic/url.tl
+[`Writes.counted_read`]: ../lang/check.tl
+[`Writes.fill_of`]: ../lang/check.tl
+[`Writes.ranges_of`]: ../lang/check.tl

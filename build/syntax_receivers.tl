@@ -3,14 +3,21 @@
 --- whatever `w` is called and however it was made. The port of build.receivers's `references`, which asked the fork's
 --- reporter for the types; this reads the type report of the driver ([`build.driver`]) by the id of the node.
 ---
---- A receiver resolves to a symbol only when its record is one some module's own record declares, nested under it
---- ([`Zip.Writer`], [`Stream.Reader`]) -- [`build.syntax_report`]'s `owner_of`. A record a file keeps to itself has no row
---- in `docs` to be a use of, and the module's own record is the syntactic half's to answer
---- ([`build.syntax_analyzer`]'s references).
+--- A receiver resolves to a symbol when its record is nested under some module's own record ([`Zip.Writer`],
+--- [`Stream.Reader`]), as [`build.syntax_report`]'s `owner_of` finds. It resolves too when the record is declared at the top
+--- of its module's file or nested under a record there, as [`Report.home_of`] finds. That record may be the module's own or
+--- another. So `Own.size` and `o.size` are uses, and so are `b.width` and `b.i.w` where `b` is a `local record Box` of the
+--- file. The syntactic half finds a use through a require alias too ([`build.syntax_analyzer`]'s references), and the place
+--- both find is one.
 ---
---- A field the record inherits is a use of the interface that declares it, when some module declares that interface
---- ([`Writer.write`], not the inheriting record's own `write`).
+--- A record declared inside a function has no row in `docs` to be a use of. Neither has a global record of a declaration
+--- file that returns nothing, such as `table` in lang/stdlib.d.tl.
+---
+--- A field the record inherits is a use of the interface that declares it, when some module declares that interface. One
+--- the record declares again is a use of both: where `Writer is Collector` and both declare `write`, `w:write(...)` is a
+--- use of [`Writer.write`] and of `Collector.write`. A class that defines the method itself is the class's alone.
 local Ast = require("lang.ast")
+local type Declarations = require("lang.declarations")
 local Node = require("build.syntax_node")
 local Report = require("build.syntax_report")
 
@@ -43,14 +50,20 @@ local record Receivers
   known: function(subject: Report.Subject, wanted: {string: boolean}): {string}
 end
 
+--- Whether `module` is a declaration file of globals that returns nothing (lang/stdlib.d.tl's `table`, `math`): no
+--- `require` names it, and `docs` has no row of its records.
+local function unnamed(program: Declarations.Program, module: string): boolean
+  local known = program.modules[module]
+  return known ~= nil and known.globals and Report.root_of(program, module) == nil
+end
+
 function Receivers.references(subject: Report.Subject): {Receivers.Reference}
   local out: mut {Receivers.Reference} = {}
   local seen: mut {string: boolean} = {}
   local targets: mut {integer: boolean} = {}
   local program = subject.program
-  --- The use of the field `name` of `object`, written on `line`; `written_call` when it is the method of `object:name(...)`, the
-  --- only use of a record that is no one's nested record ([`Report.home_of`]), and a read of a class's method is as a call.
-  local function use(object: Ast.Exp, name: string, line: integer, written_call: boolean)
+  --- The use of the field `name` of `object`, written on `line`: a read of it or a call of it as a method, alike.
+  local function use(object: Ast.Exp, name: string, line: integer)
     local decl = Report.decl_of(subject.types[Node.base(object).id])
     if decl == nil then
       return
@@ -66,15 +79,21 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
         not (statics ~= nil and statics[name] ~= nil) then
       return
     end
-    -- A method of a class read through a value or through the class itself (`A.m(obj)`) is a use of it as a call is.
-    local called = written_call or (kind == "class" and Report.has_method(decl, name))
-    -- Where the record is nested under its module's, and else, for a call, where it is declared in its module: at the top of
-    -- the file, or as the record the module returns. `top` says the fork finds nothing there: it names no module for the
-    -- record of a value, or for the interface a method comes from, unless the module's own record nests it.
+    -- The owner is where the record is nested under its module's record. Else it is where the record is declared in its
+    -- module: at the top of the file, under a record there, or as the record the module returns. A field read through the
+    -- record itself is a use, as one through a value of it is, whatever names the record. So `Own.size`, `local O = Own;
+    -- O.size` and `require("own").size` are all uses. The syntactic half finds `alias.f` through a require alias as well.
+    -- The two rows of one place are one, since `uses` is keyed by the place ([`build.schema`]).
+    --
+    -- `top` says the fork finds nothing there. It names no module for the record of a value, or for the interface a method
+    -- comes from, unless the module's own record nests it.
     local top = false
     local homed = false
     local owner = Report.owner_of(program, decl)
-    if owner == nil and called then
+    if owner == nil then
+      if unnamed(program, decl.module) then
+        return
+      end
       owner = Report.home_of(program, decl)
       homed = true
       top = owner ~= nil and owner.path ~= ""
@@ -87,35 +106,45 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     if kind == "class" and Report.has_member(decl, name) then
       from = nil
     end
-    if from ~= nil then
-      local inherited = Report.owner_of(program, from)
-      if inherited == nil and homed then
-        inherited = Report.home_of(program, from)
-        top = top or (inherited ~= nil and inherited.path ~= "")
-      end
-      if inherited ~= nil then
-        owner = inherited
-      elseif homed and not Report.has_member(decl, name) then
-        -- Declared by an interface no module names: the method is not one of this record's to be a use of.
-        return
-      end
-    end
     -- The fork has no classes.
     if kind == "class" then
       top = true
     end
-    local member = name
-    if owner.path ~= "" then
-      member = owner.path .. "." .. name
-    end
-    local id = owner.module .. "\n" .. member .. "\n" .. tostring(line)
-    if seen[id] ~= true then
-      seen[id] = true
-      local beyond: boolean? = nil
-      if top then
-        beyond = true
+    local owners: mut {Report.Owner} = { owner }
+    local tops: mut {boolean} = { top }
+    if from ~= nil then
+      local inherited = Report.owner_of(program, from)
+      local beyond = top
+      if inherited == nil and homed and not unnamed(program, from.module) then
+        inherited = Report.home_of(program, from)
+        beyond = top or (inherited ~= nil and inherited.path ~= "")
       end
-      out[#out + 1] = { module = owner.module, member = member, line = line, top = beyond }
+      -- A member the record declares again is a use of its own and of the interface's. One it only inherits is the
+      -- interface's alone, since the record has no row of it in `docs`.
+      if inherited ~= nil then
+        if Report.has_member(decl, name) then
+          owners[#owners + 1] = inherited
+          tops[#tops + 1] = beyond
+        else
+          owners[1] = inherited
+          tops[1] = beyond
+        end
+      end
+    end
+    for slot, each in ipairs(owners) do
+      local member = name
+      if each.path ~= "" then
+        member = each.path .. "." .. name
+      end
+      local id = each.module .. "\n" .. member .. "\n" .. tostring(line)
+      if seen[id] ~= true then
+        seen[id] = true
+        local beyond: boolean? = nil
+        if tops[slot] == true then
+          beyond = true
+        end
+        out[#out + 1] = { module = each.module, member = member, line = line, top = beyond }
+      end
     end
   end
   Node.walk(subject.chunk, function(node: Ast.Node)
@@ -127,10 +156,10 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
       return
     elseif (node.kind == "Field") then
       -- The name is the last token of `x.f`.
-      use(node.object, node.name, Report.line(subject, Node.base(node).last), false)
+      use(node.object, node.name, Report.line(subject, Node.base(node).last))
     elseif (node.kind == "MethodCall") then
       -- The name follows the colon, which follows the object.
-      use(node.object, node.name, Report.line(subject, Node.base(node.object).last + 2), true)
+      use(node.object, node.name, Report.line(subject, Node.base(node.object).last + 2))
     end
   end)
   table.sort(out, function(p: Receivers.Reference, q: Receivers.Reference): boolean

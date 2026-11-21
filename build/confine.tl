@@ -911,8 +911,9 @@ end
 --- `use`s, for what [`confine.unseen`] says.
 local function remedy(top: string, use: confine.Use): string
   if system_path(top) and use == "starts" then
-    return "a test that starts a host program declares Test.policy { profiles = { \"system\" } } " ..
-      "(see cosmic docs cosmic.test)"
+    return "a test that starts a host program grants it by its absolute path, in Test.policy " ..
+      "{ grants = { ... } }, which gives its loader and libraries with it, or declares " ..
+      "{ profiles = { \"system\" } } for all the system's programs (see cosmic docs cosmic.test)"
   elseif system_path(top) then
     return "a test that reads the system's own files declares Test.policy " ..
       "{ profiles = { \"system\" } }, or grants the few it reads by their absolute paths " ..

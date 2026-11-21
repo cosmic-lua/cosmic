@@ -17,6 +17,7 @@ local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 local fixture = require("build.child_lua_fixture")
+local support = require("build.test_support_fixture")
 
 --- What the tests read: /proc, where a test finds a child's processes;
 --- and the program itself, started past its launcher so that no host
@@ -346,14 +347,17 @@ end
 --- Unread output is held up to `capture_limit`, and then the child
 --- waits for the reader: nothing is dropped.
 local function test_a_streamed_output_holds_the_child_at_its_limit()
-  local h = assert(Child.start(lua(FS .. 'for _ = 1, 20000 do assert(Fs.put(1, "0123456789")) end',
-    nil, { stdout = "stream", capture_limit = 100 })))
+  -- More than the pipe holds, which would otherwise take it all unread.
+  local chunks = support.OVER_A_PIPE // 1024
+  local h = assert(Child.start(lua(FS .. 'for _ = 1, ' .. tostring(chunks) ..
+      ' do assert(Fs.put(1, string.rep("0123456789abcdef", 64))) end',
+    nil, { stdout = "stream", capture_limit = 1 << 16 })))
   local deadline = Clock.monotonic_ns() + Clock.ms(300)
   while Clock.monotonic_ns() < deadline do
     assert(not assert(h:try_wait()).finished, "the child ran past its reader")
     Clock.sleep_ns(Clock.ms(10))
   end
-  assert(read_all(assert(h.stdout_stream)) == string.rep("0123456789", 20000))
+  assert(read_all(assert(h.stdout_stream)) == string.rep("0123456789abcdef", 64 * chunks))
   assert(assert(h:wait(Clock.seconds(5))).ok)
 end
 
@@ -508,14 +512,6 @@ local function test_try_wait_services_a_chatty_child()
   assert(#assert(assert(polled.result).stdout) == 200000)
 end
 
-local function test_timeout_keeps_what_was_captured()
-  -- The timeout must outlast the child's start and its write, which take
-  -- over 200 ms on the sanitized core under a full suite's load.
-  local r = assert(Child.run(lua(FS .. 'Fs.put(1, "partial") ' .. sleep(30000), nil,
-    { stdout = "capture", timeout_ns = Clock.seconds(5) })))
-  assert(r.timed_out and not r.ok and r.stdout == "partial")
-end
-
 --- A leader that exits leaves no member of its group behind, and none of
 --- them a zombie: a descendant that outlives the leader is ended and
 --- reaped before the wait answers.
@@ -624,6 +620,15 @@ local function startup_timeout(): integer
   local began = Clock.monotonic_ns()
   assert(Child.run(lua("")))
   return Clock.ms(200) + 2 * (Clock.monotonic_ns() - began)
+end
+
+--- A run that times out keeps what it captured before its deadline. The
+--- timeout must outlast the child's start and its write
+--- ([`startup_timeout`]); how long past them it runs proves nothing more.
+local function test_timeout_keeps_what_was_captured()
+  local r = assert(Child.run(lua(FS .. 'Fs.put(1, "partial") ' .. sleep(30000), nil,
+    { stdout = "capture", timeout_ns = startup_timeout() })))
+  assert(r.timed_out and not r.ok and r.stdout == "partial", tostring(r.stdout))
 end
 
 --- A started child's `timeout_ns` is a deadline from its start, which a

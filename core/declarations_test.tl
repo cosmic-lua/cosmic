@@ -45,7 +45,9 @@ local type _http = require("cosmic.http")
 local type _json = require("cosmic.json")
 local type _net = require("cosmic.net")
 local type _proc = require("cosmic.proc")
+local type _protobuf = require("cosmic.protobuf")
 local type _sandbox = require("cosmic.sandbox")
+local type _sign = require("cosmic.sign")
 local type _sqlite = require("cosmic.sqlite")
 local type _store = require("cosmic.store")
 local type _tar = require("cosmic.tar")
@@ -270,6 +272,9 @@ local makers: {string: function(raw: {string: any}): Made} = {
   end,
   json = function(raw: {string: any}): Made
     return { instances = { Null = raw["null"] }, release = nothing }
+  end,
+  protobuf = function(raw: {string: any}): Made
+    return { instances = { Decoded = call(raw["decode"], "\x08\x01", 100, 65536), Building = call(raw["writer"]) }, release = nothing }
   end,
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
@@ -561,8 +566,8 @@ local function test_every_preloaded_raw_module_has_a_declaration()
     local name = key:match("^cosmic%.internal%.(.+)$")
     if name ~= nil then
       found = found + 1
-      assert(preloaded[name], key .. " is preloaded but this test does not reach it")
-      assert(Fs.exists("cosmic/internal/" .. name .. ".d.tl"),
+      assert(preloaded[name] == true, key .. " is preloaded but this test does not reach it")
+      assert(Fs.exists("cosmic/internal/" .. name .. ".d.tl") == true,
         key .. " is preloaded but cosmic/internal/" .. name .. ".d.tl does not declare it")
     end
   end

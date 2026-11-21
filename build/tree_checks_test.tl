@@ -8,8 +8,7 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local rebuild = require("build.rebuild")
-local schema = require("build.schema")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local Test = require("cosmic.test")
 local Tree = require("build.tree")
 local tree_checks = require("build.tree_checks")
@@ -156,8 +155,8 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
   assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and support.nth(all, 2):text(1) == "cosmic.internal.shared",
     tostring(#all) .. " modules")
   assert(#public == 1 and public[1]:text(1) == "cosmic.fs")
-  assert(symbols.is_public_module("cosmic.fs"))
-  assert(not symbols.is_public_module("cosmic.internal.shared"))
+  assert(symbols.is_library_module("cosmic.fs"))
+  assert(not symbols.is_library_module("cosmic.internal.shared"))
 end
 
 --- A module that exports `spec` is a verb's entry, as one that exports
@@ -237,10 +236,10 @@ local function test_an_unnamed_reader_of_the_compiler_is_refused(dir: string)
       "local tool = Store.meta" .. "(\"compiler\")",
       "return { tool = tool }"),
   })
-  local found = tree_checks.compiler_readers(db, {})
-  assert(#found == 1 and found[1]:find("^build%.reader reads the compiler's identity") ~= nil,
+  local found = tree_checks.meta_readers(db, "compiler", {})
+  assert(#found == 1 and found[1]:find("^build%.reader reads the meta row compiler/compiled_by") ~= nil,
     table.concat(found, "\n"))
-  found = tree_checks.compiler_readers(db, { "build.reader" })
+  found = tree_checks.meta_readers(db, "compiler", { "build.reader" })
   assert(#found == 0, table.concat(found, "\n"))
 end
 
@@ -893,6 +892,22 @@ local function test_the_declared_requirements_are_read_by_module()
   local _, _ = db:close()
 end
 
+--- A module granted the zig cache starts the pinned zig, so it must require `pinned_zig`: one that does not is a
+--- finding, and one that does, or is granted another cache, is not.
+local function test_a_module_granted_the_zig_cache_requires_pinned_zig()
+  local db = assert(Sqlite.open(":memory:", { writable = true }))
+  assert(db:exec("CREATE TABLE inputs (path TEXT, source_hash TEXT)"))
+  assert(db:exec("CREATE TABLE test_inputs (source_hash TEXT, ordinal INTEGER, field TEXT, value TEXT)"))
+  assert(db:exec("INSERT INTO inputs VALUES ('m.a_test', 'h1'), ('m.b_test', 'h2'), ('m.c_test', 'h3')"))
+  assert(db:exec("INSERT INTO test_inputs VALUES ('h1', 1, 'caches', 'zig'), ('h2', 1, 'caches', 'zig'), " ..
+      "('h2', 2, 'requires', 'pinned_zig'), ('h3', 1, 'caches', 'bootstrap')"))
+  local found = assert(tree_checks.unguarded_zig(db))
+  assert(#found == 1, table.concat(found, "\n"))
+  assert(support.nth(found, 1):find("m.a_test is granted the zig cache and does not require pinned_zig", 1, true),
+    found[1])
+  local _, _ = db:close()
+end
+
 --- A test that declares `tool` or `store`, or `requires` "portable", is
 --- the portable launcher's to read; the unsealed modules are those.
 local function test_the_unsealed_modules_are_those_declaring_a_launcher_reader()
@@ -947,9 +962,9 @@ local function test_a_run_names_each_check(dir: string)
   for _, line in ipairs(tree_checks.run(db, "")) do
     seen[line:match("^([^:]+): ") or line] = true
   end
-  for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "stand-ins",
+  for _, name in ipairs({ "exports", "doc anchors", "compiler readers", "image_hash readers", "stand-ins",
       "docs queries", "quieted", "rendered docs", "doc references", "text readers" }) do
-    assert(seen[name], name .. " reported nothing on a projection that has none of the tree")
+    assert(seen[name] == true, name .. " reported nothing on a projection that has none of the tree")
   end
 end
 
@@ -1161,28 +1176,6 @@ local function test_ci_testdata_type_errors_are_named(dir: string)
   assert(#tree_checks.ci_testdata(dir .. "/nowhere") == 0)
 end
 
---- A guide under doc/guides that is neither a user guide nor named
---- internal would silently not ship: the check names it.
-local function test_a_guide_in_neither_list_is_refused()
-  local db = assert(Sqlite.memory())
-  for _, statement in ipairs(schema.create("")) do
-    assert(db:exec(statement))
-  end
-  for _, module in ipairs({ "doc.guides.quickstart", "doc.guides.portable-runtime" }) do
-    assert(Sqlite.run(db,
-      "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-        "VALUES (?1, ?1, 'test', '', '', '', '', '')", { { text = module } }))
-  end
-  local found = tree_checks.guides(db)
-  assert(#found == 0, table.concat(found, "\n"))
-  assert(Sqlite.run(db,
-    "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
-      "VALUES ('doc.guides.newcomer', 'f', 'test', '', '', '', '', '')"))
-  found = tree_checks.guides(db)
-  assert(#found == 1 and found[1]:find("^doc/guides/newcomer%.md is in neither") ~= nil,
-    table.concat(found, "\n"))
-end
-
 --- An unused local is as unused as an unused import: a test module under
 --- `ci/testdata` is not refused for one, and any other file is.
 local function test_an_unused_local_in_ci_testdata_follows_the_unused_rule(dir: string)
@@ -1224,7 +1217,7 @@ local function test_a_name_the_scope_builder_cannot_resolve_is_refused_with_its_
   assert(#marked == 0, table.concat(marked, "\n"))
   assert(Fs.write(root .. "/build/bad.tl", source("local x = 1", "local x = 2 -- scoped: shadows", "print(y)", "return x")))
   local one = table.concat(tree_checks.scoped(root), "\n")
-  assert(one:find("build/bad.tl:3:7: `y` is not declared (unknown_variable)", 1, true) and not one:find("(shadows)", 1, true), one)
+  assert(one:find("build/bad.tl:3:7: `y` is not declared (unknown_variable)", 1, true) ~= nil and not one:find("(shadows)", 1, true), one)
 end
 
 --- A declaration the lowering refuses is listed with the place, the message and the fix, unless a marker holds it; a
@@ -1326,11 +1319,11 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
   -- Plant another answer under every key: a run that finds it did not lower.
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.declared(root, memo), "\n")
-  assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) and not hit:find("float_key", 1, true), hit)
+  assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) ~= nil and not hit:find("float_key", 1, true), hit)
   -- A module far below changed: the files that require it, through others, are lowered again; one that does not is not.
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  m: integer", "end", "return Base")))
   local again = table.concat(tree_checks.declared(root, memo), "\n")
-  assert(again:find("build/top.tl:2:", 1, true) and again:find("build/mid.tl", 1, true) == nil, again)
+  assert(again:find("build/top.tl:2:", 1, true) ~= nil and again:find("build/mid.tl", 1, true) == nil, again)
   assert(again:find("build/alone.tl:7:9: planted", 1, true), again)
   assert(memo:close())
 end
@@ -1355,7 +1348,7 @@ local function test_a_comment_in_a_module_misses_its_own_answer_and_no_other_fil
   -- A token of it changed: the files that require it, through another, are lowered again.
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  m: integer", "end", "return Base")))
   local changed = table.concat(tree_checks.declared(root, memo), "\n")
-  assert(changed:find("build/top.tl:2:", 1, true) and not changed:find("planted", 1, true), changed)
+  assert(changed:find("build/top.tl:2:", 1, true) ~= nil and not changed:find("planted", 1, true), changed)
   assert(memo:close())
 end
 
@@ -1381,7 +1374,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_declaration_che
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
     local missed = table.concat(tree_checks.declared(root, memo), "\n")
-    assert(missed:find("(float_key)", 1, true) and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
+    assert(missed:find("(float_key)", 1, true) ~= nil and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
   end
   assert(memo:close())
 end
@@ -1452,7 +1445,7 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   assert(support.nth(count, 1):integer(1) == 3, "the three files: " .. tostring(support.nth(count, 1):integer(1)))
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.checked(root, memo), "\n")
-  assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) and not hit:find("not_assignable", 1, true), hit)
+  assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) ~= nil and not hit:find("not_assignable", 1, true), hit)
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "  m: integer", "end", "return Base")))
   local again = table.concat(tree_checks.checked(root, memo), "\n")
   assert(again:find("build/top.tl:2:", 1, true) and again:find("not_assignable", 1, true), again)
@@ -1481,7 +1474,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_body_check_read
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
     local missed = table.concat(tree_checks.checked(root, memo), "\n")
-    assert(missed:find("(not_assignable)", 1, true) and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
+    assert(missed:find("(not_assignable)", 1, true) ~= nil and not missed:find("planted", 1, true), path .. " is not in the salt: " .. missed)
   end
   assert(memo:close())
 end
@@ -1505,7 +1498,7 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   local planted = "C\t\nE\tshadows\t7\t9\tplanted\tdo it"
   assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = planted } }))
   local hit = table.concat(tree_checks.scoped(root, memo), "\n")
-  assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) and not hit:find("unknown_variable", 1, true), hit)
+  assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) ~= nil and not hit:find("unknown_variable", 1, true), hit)
   -- The code that scopes changed: the salt moves, the file is scoped again.
   assert(Fs.write(root .. "/lang/scopes.tl", "-- two\n"))
   assert(table.concat(tree_checks.scoped(root, memo), "\n") == plain)

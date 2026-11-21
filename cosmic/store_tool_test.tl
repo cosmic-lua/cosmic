@@ -78,10 +78,11 @@ local function test_a_project_cannot_shadow_a_raw_value_wrapper(tmp: string)
   end
 end
 
---- The searcher inflates a module's bytecode before it loads it, and a
---- row that is not a deflate stream is refused by name: `require` raises,
---- and the chunk is never handed to `load` as it stands.
-test_child.register("deflated", function(argv: {string}): integer
+--- The searcher loads a module's bytecode stored as `string.dump` wrote
+--- it, and inflates one an older build stored deflated. A row that is
+--- neither is refused by name, and one that only opens as a chunk by Lua's
+--- loader: `require` raises for both.
+test_child.register("stored", function(argv: {string}): integer
   local db = assert(Sqlite.open((argv[1] or ""), { writable = true }))
   assert(db:exec("CREATE TABLE modules (path TEXT, bytecode BLOB, kind TEXT, source TEXT, file TEXT); " ..
       "CREATE TABLE meta (key TEXT, value TEXT)"))
@@ -90,29 +91,38 @@ test_child.register("deflated", function(argv: {string}): integer
     { { blob = chunk } }))
   assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.plain', ?1, 'module')",
     { { blob = chunk } }))
+  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.neither', ?1, 'module')",
+    { { blob = "return 1" } }))
+  assert(Sqlite.run(db, "INSERT INTO modules (path, bytecode, kind) VALUES ('project.damaged', ?1, 'module')",
+    { { blob = chunk:sub(1, 12) .. "not the rest of a chunk" } }))
   assert(db:close())
   assert(Store.attach((argv[1] or ""), { unchecked_bytecode = true }))
   local search = assert(package.searchers[#package.searchers])
-  local loader = assert(search("project.packed"))
-  assert(loader("project.packed") == "project.packed")
-  local bytes = assert(Store.bytecode("project.packed"))
-  assert(bytes == chunk, "the bytecode is answered inflated")
-  local ok, trouble = pcall(search, "project.plain")
-  assert(not ok and tostring(trouble):find("bad bytecode of module 'project.plain'", 1, true) ~= nil,
+  for _, name in ipairs({ "project.packed", "project.plain" }) do
+    local loader = assert(search(name))
+    assert(loader(name) == name, name)
+    local bytes = assert(Store.bytecode(name))
+    assert(bytes == chunk, name .. "'s bytecode is answered as it was dumped")
+  end
+  local ok, trouble = pcall(search, "project.neither")
+  assert(not ok and tostring(trouble):find("bad bytecode of module 'project.neither'", 1, true) ~= nil,
     tostring(trouble))
-  local plain, why = Store.bytecode("project.plain")
-  assert(plain == nil and why:find("project.plain", 1, true) ~= nil, why)
-  print("deflated")
+  -- One that opens as a chunk and is none is stored as it is, and Lua's own loader refuses it.
+  local loads, load_trouble = pcall(search, "project.damaged")
+  assert(not loads and load_trouble ~= nil, "a damaged chunk was loaded")
+  local neither, why = Store.bytecode("project.neither")
+  assert(neither == nil and why:find("project.neither", 1, true) ~= nil, why)
+  print("stored")
   return 0
 end)
 
-local function test_the_searcher_inflates_bytecode_and_refuses_a_row_that_is_not_deflated(tmp: string)
-  local started = this_program.program(test_child.words(tmp, "cosmic.store_tool_test", "deflated", { tmp .. "/packed.db" }),
+local function test_the_searcher_loads_bytecode_stored_as_it_is_or_deflated_and_refuses_any_other(tmp: string)
+  local started = this_program.program(test_child.words(tmp, "cosmic.store_tool_test", "stored", { tmp .. "/packed.db" }),
     { env = { XDG_CACHE_HOME = tmp .. "/cache" },
       stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.code == 0, tostring(result.stderr))
-  assert(assert(result.stdout):find("deflated\n", 1, true))
+  assert(assert(result.stdout):find("stored\n", 1, true))
 end
 
 --- A seal with no path, in a process whose cache is the test's own: the

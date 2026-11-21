@@ -137,7 +137,7 @@ local function test_the_hosts_addresses_are_the_local_host_entries_of_the_tables
   assert(#found == 5, table.concat(found, " "))
   for _, wanted in ipairs({ "10.1.0.2", "127.0.0.1", "0000:0000:0000:0000:0000:0000:0000:0001",
       "fe80:0000:0000:0000:a000:27ff:fe4e:66a1", "2001:0db8:0000:0000:0000:0000:0000:0abc" }) do
-    assert(seen[wanted], wanted .. " is missing from " .. table.concat(found, " "))
+    assert(seen[wanted] == true, wanted .. " is missing from " .. table.concat(found, " "))
   end
   assert(seen["10.1.0.0"] ~= true and seen["127.0.0.0"] ~= true and seen["127.255.255.255"] ~= true,
     "broadcast and network entries are no address of the host")

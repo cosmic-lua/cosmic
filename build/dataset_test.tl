@@ -370,7 +370,7 @@ end
 local function test_a_copied_csv_json_column_is_text()
   local db = assert(Sqlite.memory())
   local made = assert(dataset.load_text(db, "t", "csv", "a,b\n1,x\n"))
-  assert(made.copied)
+  assert(made.copied == true)
   assert(grid(db, "SELECT json_object('row', _json) FROM t")[1] == '{"row":"{\\"a\\":1,\\"b\\":\\"x\\"}"}',
     grid(db, "SELECT json_object('row', _json) FROM t")[1])
   assert(db:close())

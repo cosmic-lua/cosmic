@@ -8,7 +8,7 @@
 ---     local line = lines:read()
 ---
 --- An address's `kind` selects its fields: "unix" takes a socket file's
---- path; "tcp" takes a numeric host and port.
+--- path; "tcp" and "udp" take a numeric host and port.
 ---
 ---     local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
 ---     local port = server.address.port -- the one the kernel chose
@@ -38,6 +38,25 @@
 --- [`Net.serve`] is that server, for any protocol: a function of a
 --- connection, run for each one accepted at any of its listeners, whose
 --- failure closes that connection alone.
+---
+--- [`Net.datagram`] binds a UDP socket, which sends and receives whole
+--- datagrams, each to or from an address of its own, with no connection
+--- and no promise that one arrives.
+---
+---     local socket <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+---     assert(socket:send("ping", Net.udp("127.0.0.1", 9000)))
+---     local packet = socket:receive(Clock.seconds(1))
+---
+--- A UDP socket takes part in multicast. `join` makes it a member of a
+--- group, whose datagrams it then receives at its port, and
+--- [`set_multicast`] says how the ones it sends to a group leave. Every such
+--- call names an interface the same way, as `via`: one of the interface's
+--- IPv4 addresses for IPv4, the interface's index for IPv6, and nil for
+--- the interface the system chooses. [`Net.interfaces`] lists both.
+---
+---     local socket <close> = assert(Net.datagram(Net.udp("0.0.0.0", 5353), { shared = true }))
+---     assert(socket:join("224.0.0.251", "192.0.2.7"))
+---     assert(socket:set_multicast({ via = "192.0.2.7", hops = 1 }))
 
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
@@ -69,7 +88,7 @@ local waited = Connection.waited
 --- What `address` is called in a failure: its path, or its host and
 --- port, an IPv6 host in brackets.
 local function named(address: raw_socket.Address): string
-  if address.kind ~= "tcp" then
+  if address.kind == "unix" then
     local path = assert(address.path, "a unix address has the path Net.unix gave it")
     return path
   end
@@ -136,11 +155,249 @@ local class SocketListener
   end
 end
 
+--- The most bytes one UDP datagram holds.
+local DATAGRAM_MAX <const> = 65535
+
+--- The largest index [`checked_via`] takes: what the system's `int` holds.
+local INDEX_MAX <const> = 2147483647
+
+--- How a [`Net.Datagram`] sends to a multicast group, given to its
+--- [`set_multicast`]. A field left nil leaves that setting as it is.
+local record Multicast
+  --- The interface the datagrams leave by: one of its IPv4 addresses
+  --- for a socket bound to an IPv4 address, its index for one bound to an
+  --- IPv6 address ([`Net.interfaces`] lists both).
+  via?: string | integer
+  --- How many hops a datagram lives, from 0 to 255 (IPv4's TTL, IPv6's
+  --- hop limit): 1, the system's default, keeps it on the interface's own
+  --- network, and 0 on this machine.
+  hops?: integer
+  --- Whether this machine's own members of the group receive the
+  --- datagrams too, this socket among them if it joined. They do by the
+  --- system's default. On Linux, what leaves by a loopback interface
+  --- reaches them whatever this says.
+  loop?: boolean
+end
+
+--- Raises, `level` above the caller, for a `via` that names no interface
+--- as its family does: an index for IPv6, an address for IPv4.
+local function checked_via(via: (string | integer)?, ipv6: boolean, level: integer)
+  if via == nil then return end
+  if ipv6 then
+    if not via is integer or via < 1 or via > INDEX_MAX then
+      error("net: via must be an interface's index, an integer from 1, for IPv6", level + 1)
+    end
+  elseif not via is string then
+    error("net: via must be one of an interface's IPv4 addresses, a string, for IPv4", level + 1)
+  end
+end
+
+--- What a refused membership says: errno's words, and for EINVAL what
+--- they leave unsaid.
+local function membership_trouble(group: string, why: string, errno: integer): string
+  if errno == raw.EINVAL then
+    return group .. ": " .. why .. " (the group must be a numeric IPv4 or IPv6 multicast address, " ..
+      "and an IPv4 interface a numeric address)"
+  end
+  return group .. ": " .. why
+end
+
+--- A bound UDP socket, answered by [`Net.datagram`]. A class, so a
+--- `<close>` local holds one. One dropped unclosed needs no __gc: its
+--- socket, which only the object holds, is closed by the collector.
+local class UdpSocket
+  --- Where it is bound, with the port the kernel chose for port 0.
+  address: raw_socket.Address
+  --- Internal: the socket, its descriptor and whether it is open. No caller reads or writes them.
+  socket: raw_socket.Socket
+  --- Internal: see `socket`.
+  fd: integer
+  --- Internal: see `socket`.
+  mut open: boolean
+  -- Set by [`set_timeout`]. Nil for no limit.
+  mut limit?: integer
+
+  --- Sets how long `send` and `receive` wait by default, in nanoseconds,
+  --- from 0; nil for no limit. A value no wait can last raises, naming
+  --- `timeout_ns`, at the caller.
+  function set_timeout(self, wait_ns: integer?)
+    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+    self.limit = wait_ns
+  end
+
+  --- Sends `data`, possibly empty, as one datagram to `to`, a
+  --- [`Net.udp`] address: true once the system has taken it whole, which
+  --- says nothing of its arrival. False and [`Poll.TIMEOUT`],
+  --- "interrupted", "cancelled" (in a task of [`Poll.run`]) or why not
+  --- sends none of it. Raises on `data` over 65535 bytes and on an
+  --- address of another kind or with a port past 65535.
+  function send(self, data: string, to: raw_socket.Address): boolean, string
+    if #data > DATAGRAM_MAX then
+      error("net: a datagram holds at most " .. tostring(DATAGRAM_MAX) .. " bytes", 2)
+    end
+    local host, port = to.host, to.port
+    if to.kind ~= "udp" or not host is string or math.type(port) ~= "integer" or port == nil or
+        port < 0 or port > 65535 then
+      error("net: a datagram is sent to a udp address, from Net.udp, whose host is a string and " ..
+          "port an integer from 0 to 65535", 2)
+    end
+    if not self.open then return false, "net: the socket is closed" end
+    local fd = self.fd
+    while true do
+      local ok, why, errno = raw.sendto(fd, data, to)
+      if ok then return true, "" end
+      if errno == raw.EINVAL then
+        return false, why .. " (not a numeric IPv4 or IPv6 address: a name is not looked up, " ..
+          "nor an IPv6 scope read)"
+      end
+      if errno ~= raw.EAGAIN then return false, why end
+      local ready, waiting = waited(fd, true, self.limit)
+      if not ready then return false, waiting end
+      if not self.open then return false, "net: the socket is closed" end
+    end
+  end
+
+  --- The next datagram whole, with the address it came from, waiting for
+  --- one as long as `timeout_ns` (this call's, or the socket's); nil and
+  --- [`Poll.TIMEOUT`], "interrupted", "cancelled" (in a task of
+  --- [`Poll.run`]), or why not. Datagrams arrive in no promised order,
+  --- and one the network or a full buffer dropped never does.
+  function receive(self, wait_ns?: integer): raw_socket.Packet?, string
+    Poll.checked_ns(wait_ns, "net", "timeout_ns", 2)
+    if not self.open then return nil, "net: the socket is closed" end
+    wait_ns = wait_ns or self.limit
+    local fd = self.fd
+    while true do
+      local packet, why, errno = raw.recvfrom(fd, DATAGRAM_MAX)
+      if packet ~= nil then return packet, "" end
+      if errno ~= raw.EAGAIN then return nil, why end
+      local ready, waiting = waited(fd, false, wait_ns)
+      if not ready then return nil, waiting end
+      if not self.open then return nil, "net: the socket is closed" end
+    end
+  end
+
+  --- Joins the multicast `group`, a numeric IPv4 or IPv6 address, on the
+  --- interface `via` names (see [`cosmic.net`]; nil for the one the
+  --- system chooses), so that the socket receives the datagrams sent to
+  --- the group at its port. To receive them the socket is bound to the
+  --- wildcard host ("0.0.0.0" or "::") or to the group itself, not to an
+  --- address of the machine. A socket may join many groups, and one group
+  --- on several interfaces; closing it leaves them all. False and why
+  --- where it cannot: a group that is no multicast address, one already
+  --- joined there ("Address in use"), or no such interface. Raises on a
+  --- `via` of the wrong form for the group's family.
+  function join(self, group: string, via?: string | integer): boolean, string
+    checked_via(via, group:find(":", 1, true) ~= nil, 2)
+    if not self.open then return false, "net: the socket is closed" end
+    local ok, why, errno = raw.membership(self.fd, group, via, true)
+    if not ok then return false, membership_trouble(group, why, errno) end
+    return true, ""
+  end
+
+  --- Leaves `group` on the interface `via` names, as it was given to
+  --- `join`. False and why where the socket is no member of it there.
+  --- Raises as `join` does.
+  function leave(self, group: string, via?: string | integer): boolean, string
+    checked_via(via, group:find(":", 1, true) ~= nil, 2)
+    if not self.open then return false, "net: the socket is closed" end
+    local ok, why, errno = raw.membership(self.fd, group, via, false)
+    if not ok then return false, membership_trouble(group, why, errno) end
+    return true, ""
+  end
+
+  --- Sets how the datagrams this socket sends to a multicast group
+  --- leave: each field of `opts` that is not nil, in the order `via`,
+  --- `hops`, `loop`. False and why at the first the system refuses, such
+  --- as a `via` that is no interface of the machine; the ones before it
+  --- stay set. Raises on a `via` of the wrong form for the family of the
+  --- socket's address, and on `hops` outside 0 to 255.
+  function set_multicast(self, opts: Multicast): boolean, string
+    local via, hops, loop = opts.via, opts.hops, opts.loop
+    checked_via(via, assert(self.address.host):find(":", 1, true) ~= nil, 2)
+    if hops ~= nil and (hops < 0 or hops > 255) then error("net: hops must be from 0 to 255", 2) end
+    if not self.open then return false, "net: the socket is closed" end
+    if via ~= nil then
+      local ok, why = raw.multicast_interface(self.fd, via)
+      if not ok then return false, "via " .. tostring(via) .. ": " .. why end
+    end
+    if hops ~= nil then
+      local ok, why = raw.multicast_hops(self.fd, hops)
+      if not ok then return false, "hops: " .. why end
+    end
+    if loop ~= nil then
+      local ok, why = raw.multicast_loop(self.fd, loop)
+      if not ok then return false, "loop: " .. why end
+    end
+    return true, ""
+  end
+
+  --- Closes the socket, ending a task's wait on it. Safe to call more
+  --- than once.
+  function close(self): boolean, string
+    if not self.open then return true, "" end
+    self.open = false
+    Poll.closing(self.fd)
+    local ok, why = self.socket:close()
+    if not ok then return false, named(self.address) .. ": " .. why end
+    return true, ""
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
+
 local record Net
   --- Where a socket is, as [`Net.unix`] and [`Net.tcp`] build one: a
-  --- `kind` of "unix", with the socket file's `path`, or "tcp", with a
-  --- numeric `host` and a `port`. It is the raw socket module's own record.
+  --- `kind` of "unix", with the socket file's `path`, or "tcp" or "udp",
+  --- with a numeric `host` and a `port`. It is the raw socket module's own
+  --- record.
   type Address = raw_socket.Address
+
+  --- A bound UDP socket, answered by [`Net.datagram`]. A class, so a
+  --- `<close>` local holds one.
+  type Datagram = UdpSocket
+
+  --- One datagram a [`Datagram`]'s `receive` answers: its `data`, whole
+  --- and possibly empty, and the "udp" `address` it came from.
+  type Packet = raw_socket.Packet
+
+  record DatagramOptions
+    --- How long `send` and `receive` wait, in nanoseconds, from 0; nil
+    --- for no limit.
+    timeout_ns?: integer
+    --- Lets other sockets, of this process or another, bind the same
+    --- address and port, where each of them asks the same: how several
+    --- programs receive one multicast group at its port. Each member
+    --- gets every datagram sent to the group. A datagram sent to the
+    --- port alone, not to a group, goes to one of the sockets, whichever
+    --- the system picks.
+    shared?: boolean
+  end
+
+  --- How a [`Datagram`] sends to a multicast group, given to its
+  --- [`set_multicast`].
+  type MulticastOptions = Multicast
+
+  --- One network interface of the machine, as [`Net.interfaces`] lists
+  --- them.
+  record Interface
+    --- Its name: "lo", "en0".
+    name: string
+    --- Its index, from 1: what names it as the `via` of an IPv6 group.
+    index: integer
+    --- Whether it is up.
+    up: boolean
+    --- Whether it is a loopback interface.
+    loopback: boolean
+    --- Whether it carries multicast.
+    multicast: boolean
+    --- Its IPv4 and IPv6 addresses, numeric, a link-local IPv6 one
+    --- without its zone; none for an interface that has no address. An
+    --- IPv4 one names the interface as the `via` of an IPv4 group.
+    addresses: {Resolved}
+  end
 
   --- A connection, answered by `accept` and [`Net.connect`]: a
   --- [`Stream.Reader`] of what the peer sends and a [`Stream.Writer`] to
@@ -164,7 +421,8 @@ local record Net
     --- limit. The connections it accepts start with the same.
     timeout_ns?: integer
     --- How many connections may wait to be accepted (64 by default).
-    --- A unix connection past it fails at once rather than waiting (see
+    --- A unix connection past it fails at once rather than waiting,
+    --- and a TCP one waits or is reset, as the kernel has it (see
     --- [`ConnectOptions.timeout_ns`]).
     backlog?: integer
   end
@@ -256,9 +514,9 @@ local record Net
     record Limits
       --- The most connections open at once, from 1; nil for no limit.
       --- At the limit no listener accepts: a connection that comes waits
-      --- in its listener's backlog until one open closes, and a unix one
-      --- past the backlog fails at once (see
-      --- [`ConnectOptions.timeout_ns`]).
+      --- in its listener's backlog until one open closes. Past the
+      --- backlog a unix one fails at once, and a TCP one waits or is
+      --- reset, as the kernel has it (see [`ConnectOptions.timeout_ns`]).
       connections?: integer
     end
     --- Bounds on what the server takes on; nil for none.
@@ -324,6 +582,12 @@ end
 --- The address of TCP `port` at `host`, a numeric IPv4 or IPv6 address.
 function Net.tcp(host: string, port: integer): Net.Address
   return { kind = "tcp", host = host, port = port }
+end
+
+--- Where a [`Net.datagram`] binds or a datagram goes: UDP `port` at
+--- `host`, numeric as [`Net.tcp`]'s is.
+function Net.udp(host: string, port: integer): Net.Address
+  return { kind = "udp", host = host, port = port }
 end
 
 --- What a failed call says: its own words for a deadline or a signal,
@@ -399,6 +663,16 @@ local function address_trouble(address: Net.Address): string
     return "a tcp address whose host is a string and port an integer from 0 to 65535"
   end
   return "an address, from Net.unix or Net.tcp"
+end
+
+--- Why `address` is no [`Net.udp`] address, or "".
+local function datagram_trouble(address: Net.Address): string
+  local host, port = address.host, address.port
+  if address.kind == "udp" and host is string and math.type(port) == "integer" and port ~= nil and
+      port >= 0 and port <= 65535 then
+    return ""
+  end
+  return "a udp address, from Net.udp, whose host is a string and port an integer from 0 to 65535"
 end
 
 --- [`Net.resolve`] through `opts.connector`, defined with the connector.
@@ -554,6 +828,62 @@ function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listene
   return opened.listener, ""
 end
 
+--- Binds a UDP socket at `address`, a [`Net.udp`] one: port 0 takes a
+--- port the kernel chooses, which the socket's `address` then names, and
+--- the host "0.0.0.0" or "::" takes datagrams at every address of the
+--- machine. Nil and why where it cannot be bound: a port in use, or a
+--- host that is no numeric address. With `shared`, a port in use by
+--- sockets that are all `shared` is bound all the same
+--- ([`DatagramOptions.shared`]). Raises on an address of another
+--- kind or with a port past 65535, and on a `timeout_ns` no wait can last.
+function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): Net.Datagram?, string
+  local trouble = datagram_trouble(address)
+  if trouble ~= "" then error("net: address must be " .. trouble, 2) end
+  local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
+  Poll.checked_ns(timeout_ns, "net", "timeout_ns", 2)
+  local socket, why, errno = raw.datagram(address, opts ~= nil and opts.shared == true)
+  if socket == nil then return nil, named(address) .. ": " .. said(why, errno, address) end
+  local fd = socket:fd()
+  local bound, bound_trouble = raw.bound(fd)
+  if bound == nil then
+    local _, _ = socket:close()
+    return nil, named(address) .. ": " .. bound_trouble
+  end
+  local made: UdpSocket = { address = bound, socket = socket, fd = fd, open = true, limit = timeout_ns }
+  return made, ""
+end
+
+--- The machine's network interfaces, each once with every IPv4 and IPv6
+--- address it has, in the system's order: what a caller picks the `via`
+--- of a multicast call from. An interface with no address is listed with
+--- none. Nil and why where the system does not say. On Linux it is asked
+--- over a netlink socket, which a sandbox ([`cosmic.sandbox`]) allows only
+--- where it allows IPv4 and IPv6 sockets, so the call fails in one that
+--- has none. A sandbox that has them is in a network namespace of its
+--- own, and lists that namespace's interfaces, not the machine's.
+function Net.interfaces(): {Net.Interface}?, string
+  local entries, why = raw.interfaces()
+  if entries == nil then return nil, "net: interfaces: " .. why end
+  local listed: mut {Net.Interface} = {}
+  local by_name: mut {string: mut {Net.Resolved}} = {}
+  for _, entry in ipairs(entries) do
+    local known = by_name[entry.name]
+    local addresses: mut {Net.Resolved} = known or {}
+    if known == nil then
+      by_name[entry.name] = addresses
+      listed[#listed + 1] = {
+        name = entry.name, index = entry.index, up = entry.up, loopback = entry.loopback,
+        multicast = entry.multicast, addresses = addresses,
+      }
+    end
+    local address, family = entry.address, entry.family
+    if address ~= nil and family ~= nil then
+      addresses[#addresses + 1] = { address = address, family = family }
+    end
+  end
+  return listed, ""
+end
+
 --- The listener over a listening TCP socket this process already holds:
 --- one it inherited, or one received over a Unix socket with
 --- `sendfds`/`recvfds`. It takes a copy of `fd`, so closing the listener
@@ -641,7 +971,9 @@ end
 --- listens at it, and fails at once at a listener whose backlog is
 --- full (see [`ConnectOptions.timeout_ns`]). A TCP one waits
 --- for the connection to be made, and fails "Connection refused" where
---- nothing listens at the port.
+--- nothing listens at the port. At a TCP listener whose backlog is full
+--- it waits or, where the kernel answers it, is reset, as it is made or
+--- just after (see [`ConnectOptions.timeout_ns`]).
 --- A unix path too long to connect to whole is connected to from its
 --- directory, and raises where the process cannot return to its working
 --- directory after. An `address` that is no [`Net.Address`] raises.
@@ -1112,6 +1444,112 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   Poll.run(function() served.ok, served.why = serving(spec) end)
   if not served.ok then return false, served.why end
   return true, ""
+end
+
+--- What [`Net.with_loopback`] holds while its body runs.
+local class Standing
+  listener: Net.Listener
+  mut acceptor?: Poll.Task
+  --- Each connection open, by the task serving it.
+  conns: mut {Poll.Task: Net.Conn}
+  mut stopped: boolean
+
+  --- Stops listening and ends every task: each connection is closed and
+  --- its task killed where it waits, as [`Net.serve`] ends those its
+  --- grace leaves. Answers what a task's `<close>` handler raised as it
+  --- was killed, or "".
+  function stop(self): string
+    if self.stopped then return "" end
+    self.stopped = true
+    local _, _ = self.listener:close()
+    local tasks: mut {Poll.Task} = {}
+    local acceptor = self.acceptor
+    if acceptor ~= nil then tasks[1] = acceptor end
+    for task, conn in pairs(self.conns) do
+      local _, _ = conn:close()
+      tasks[#tasks + 1] = task
+    end
+    local trouble = ""
+    for _, task in ipairs(tasks) do
+      local killed, why: boolean, any = pcall(function() task:kill() end)
+      if not killed then
+        -- Nothing is killed from a task that is itself being killed, or
+        -- while the run closes its tasks: there a cancel ends the task
+        -- at its next wait. A kill that raised what a handler did has
+        -- ended the task, and the cancel does nothing.
+        task:cancel()
+        if trouble == "" then trouble = tostring(why) end
+      end
+    end
+    return trouble
+  end
+
+  function __close(self)
+    local _ = self:stop()
+  end
+end
+
+--- Serves `serve` at a TCP port of the loopback, 127.0.0.1, that the
+--- kernel chooses, for as long as `body` runs: `body` is called with
+--- the port, and each connection made to it meanwhile is given to
+--- `serve` in a task of its own, which closes the connection once
+--- `serve` returns. Once `body` returns or raises, the listener is
+--- closed, and every connection still open is closed and its task
+--- killed where it waits ([`Poll.Task.kill`]). A task `serve` spawned
+--- itself is its own to end.
+---
+---     Net.with_loopback(function(conn: Net.Conn)
+---       for line in Stream.lines(conn):each() do assert(conn:write(line .. "\n")) end
+---     end, function(port: integer)
+---       local client <close> = assert(Net.connect(Net.tcp("127.0.0.1", port)))
+---       assert(client:write("hello\n"))
+---       assert(Stream.lines(client):read() == "hello")
+---     end)
+---
+--- `body` runs where [`Poll.within`] calls it: in the calling task where
+--- a run is in progress, and in a run of its own otherwise, which ends
+--- once every task `body` spawned has. The connections are served only
+--- while `body` waits through the run -- a [`cosmic.net`] wait, a
+--- [`Poll.delay`], a join -- so a call in it that holds the thread
+--- ([`Http.get`]) is never answered.
+---
+--- Unlike [`Net.serve`] it holds no failure apart: what `serve` raises
+--- ends the run, as any task's error does, and so does a failure to
+--- accept. What `body` raises it raises, the server ended first.
+--- Where `body` returned, it raises the message of what a `<close>`
+--- handler of `serve` raised as its task was killed, the first of
+--- them. It raises where the loopback cannot be listened at, and in a
+--- run but outside a task's own coroutine. Where the calling task is
+--- itself killed while `body` waits, nothing can be killed from it:
+--- each connection is closed and its task cancelled
+--- ([`Poll.Task.cancel`]), to end at its next wait.
+function Net.with_loopback(serve: function(conn: Net.Conn), body: function(port: integer))
+  Poll.within(function()
+    local listener, refused = Net.listen(Net.tcp("127.0.0.1", 0))
+    if listener == nil then error("net: with_loopback: " .. refused, 0) end
+    local standing <close>: Standing = { listener = listener, acceptor = nil, conns = {}, stopped = false }
+    standing.acceptor = Poll.spawn(function()
+      while true do
+        local conn, why = listener:accept()
+        if conn == nil then
+          if standing.stopped or why == Poll.CANCELLED then return end
+          error("net: with_loopback: accepting at " .. named(listener.address) .. ": " .. why, 0)
+        end
+        local task: Poll.Task?
+        task = Poll.spawn(function()
+          local held <close> = conn
+          serve(held)
+          -- [`Poll.spawn`] runs this once the acceptor waits, after it set `task`.
+          standing.conns[assert(task, "with_loopback: the task runs before Poll.spawn returned it")] = nil
+        end)
+        standing.conns[task] = conn
+      end
+    end)
+    local port = assert(listener.address.port, "a TCP listener names its port")
+    body(port)
+    local trouble = standing:stop()
+    if trouble ~= "" then error(trouble, 0) end
+  end)
 end
 
 return Net

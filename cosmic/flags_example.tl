@@ -14,7 +14,7 @@ function Example.parse()
   assert(got.set["--check"] == true and got.values["--jobs"] == "2" and got.words[1] == "a.tl")
   local _, why = Flags.parse({ "fix", "--chek" }, 2, { ["--check"] = false })
   print(why)
-  assert(why == "no such option: --chek")
+  assert(why == "no such option: --chek; did you mean --check?")
 end
 
 --- An option the line must give: `required` in its [`Flags.Option`]. A line
@@ -49,7 +49,7 @@ function Example.dispatch()
   assert(ran ~= nil and ran.code == 0 and ran.help == "", why)
   ran, why = Flags.dispatch({ "biuld" }, 1, commands, "prog")
   print(why)
-  assert(ran == nil and why == "no such command: biuld")
+  assert(ran == nil and why == "no such command: biuld; did you mean build?")
 end
 
 --- A program whose first word is a command -- `ledger report may.csv
@@ -112,12 +112,33 @@ function Example.subcommands()
     "may.csv 2026-05",
     "add may.csv 12",
     "report needs one file",
-    "no such command: rport",
-    "report: no such option: --mnth; usage: ledger report [options] <file>",
+    "no such command: rport; did you mean report?",
+    "report: no such option: --mnth; did you mean --month?; usage: ledger report [options] <file>",
     "needs a command: add, report",
   }, "\n"))
   assert(main({ "--help" }) == 0)
   assert(main({ "report", "--help" }) == 0)
+end
+
+--- A program that words its own refusal of a mistyped name:
+--- [`Flags.nearest`] answers the names near it, by the rule the refusals of
+--- [`Flags.parse`] and [`Flags.dispatch`] end "did you mean" by, and none
+--- for a word near nothing.
+function Example.nearest()
+  local profiles = { "debug", "release", "release-small" }
+  local function refusal(word: string): string
+    local near = Flags.nearest(word, profiles)
+    if #near == 0 then
+      return "no profile " .. word .. "; one of " .. table.concat(profiles, ", ")
+    end
+    return "no profile " .. word .. "; the nearest: " .. table.concat(near, ", ")
+  end
+  print(refusal("relaese"))
+  print(refusal("rel"))
+  print(refusal("fast"))
+  assert(refusal("relaese") == "no profile relaese; the nearest: release")
+  assert(refusal("rel") == "no profile rel; the nearest: release, release-small")
+  assert(refusal("fast") == "no profile fast; one of debug, release, release-small")
 end
 
 --- Help written from a command: each option described by a
@@ -145,6 +166,140 @@ function Example.help()
   }, "\n"))
   local got = assert(Flags.parse({ "--jobs", "4", "-v" }, 1, spec))
   assert(got.values["--jobs"] == "4" and got.set["-v"] == true)
+end
+
+--- A command's page with lines to type and the commands beside it, and a
+--- program's help in sections: `examples`, `see` and `group` in each
+--- [`Flags.Command`]. [`Flags.dispatch`] raises for a `see` that names no
+--- other command.
+function Example.pages()
+  local commands: {string:Flags.Command} = {
+    report = {
+      about = "Totals a ledger file.",
+      usage = "[options] <file>",
+      spec = { ["--month"] = { value = "yyyy-mm", about = "only this month" } },
+      examples = {
+        { line = "may.csv", about = "every month's total" },
+        { line = "--month 2026-05 may.csv", about = "one month's" },
+      },
+      see = { "add" },
+      group = "Reading",
+    },
+    add = { about = "Adds an amount to a ledger file.", usage = "<file> <amount>", group = "Writing" },
+    version = { about = "Says which build this is." },
+  }
+  local page = assert(Flags.dispatch({ "help", "report" }, 1, commands, "ledger")).help
+  print(page)
+  assert(page == table.concat({
+    "usage: ledger report [options] <file>",
+    "",
+    "Totals a ledger file.",
+    "",
+    "options:",
+    "  --month <yyyy-mm>  only this month",
+    "",
+    "examples:",
+    "  ledger report may.csv                  every month's total",
+    "  ledger report --month 2026-05 may.csv  one month's",
+    "",
+    "see also: add",
+  }, "\n"))
+  local index = assert(Flags.dispatch({ "--help" }, 1, commands, "ledger")).help
+  print(index)
+  assert(index == table.concat({
+    "usage: ledger <command> [options]",
+    "",
+    "Reading:",
+    "  report   Totals a ledger file.",
+    "",
+    "Writing:",
+    "  add      Adds an amount to a ledger file.",
+    "",
+    "other commands:",
+    "  version  Says which build this is.",
+    "",
+    "Run `ledger <command> --help` for a command's options.",
+  }, "\n"))
+end
+
+--- A program's index with more than its commands, as
+--- [`Flags.dispatch`] answers it from a [`Flags.Documented`]: an opening, the
+--- groups in an order of its own, topics that `help` prints and `see` may
+--- name, and a last line of its own. [`Flags.program_help`] writes the
+--- same index, and [`Flags.topic_help`] the same page, for a program that
+--- reads its own line or has a `help` command of its own.
+function Example.topics()
+  local commands: {string:Flags.Command} = {
+    report = { about = "Totals a ledger file.", group = "Reading", see = { "formats" } },
+    add = { about = "Adds an amount to a ledger file.", group = "Writing" },
+  }
+  local formats: Flags.Topic = {
+    about = "The files a ledger reads.",
+    text = "A ledger is a CSV file: a date, an amount and a note on each line.",
+    see = { "report" },
+  }
+  local program: Flags.Documented = {
+    before = "usage: ledger <command>\n\nKeeps a ledger in plain files.",
+    groups = { "Writing", "Reading" },
+    topics = { formats = formats },
+    after = "`ledger help <command or topic>` says more.",
+  }
+  local index = assert(Flags.dispatch({ "help" }, 1, commands, "ledger", program)).help
+  print(index)
+  assert(index == table.concat({
+    "usage: ledger <command>",
+    "",
+    "Keeps a ledger in plain files.",
+    "",
+    "Writing:",
+    "  add      Adds an amount to a ledger file.",
+    "",
+    "Reading:",
+    "  report   Totals a ledger file.",
+    "",
+    "topics:",
+    "  formats  The files a ledger reads.",
+    "",
+    "`ledger help <command or topic>` says more.",
+  }, "\n"))
+  assert(Flags.program_help("ledger", commands, program) == index)
+  local page = assert(Flags.dispatch({ "help", "formats" }, 1, commands, "ledger", program)).help
+  print(page)
+  assert(page == table.concat({
+    "formats: The files a ledger reads.",
+    "",
+    "A ledger is a CSV file: a date, an amount and a note on each line.",
+    "",
+    "see also: report",
+  }, "\n"))
+  assert(Flags.topic_help(formats, "formats") == page)
+end
+
+--- An example too wide to share a column: what it does goes on the line
+--- under it, and wraps, so the page keeps within [`Flags.help`]'s width,
+--- 80 columns unless another is given.
+function Example.wrapping()
+  local sync: Flags.Command = {
+    about = "Copies a ledger to another machine.",
+    usage = "[options] <file> <host>",
+    examples = {
+      { line = "may.csv backup", about = "copy it" },
+      { line = "--via jump.example.com --retries 5 may.csv backup.example.com", about = "copy it through another host, trying up to five times" },
+    },
+  }
+  local page = Flags.help(sync, "ledger sync")
+  print(page)
+  assert(page == table.concat({
+    "usage: ledger sync [options] <file> <host>",
+    "",
+    "Copies a ledger to another machine.",
+    "",
+    "examples:",
+    "  ledger sync may.csv backup  copy it",
+    "  ledger sync --via jump.example.com --retries 5 may.csv backup.example.com",
+    "                              copy it through another host, trying up to five",
+    "                              times",
+  }, "\n"))
 end
 
 return Example -- checked: export_not_declared

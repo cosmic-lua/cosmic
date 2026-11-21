@@ -94,7 +94,7 @@ local function test_the_count_alone_is_reported_without_errors(tmp: string)
 end
 
 --- A file compiled alone keeps the `require` of a type import it never reads as a value, as the fork writes it; only the build
---- that serves every module drops it ([`lang.codegen`]'s `served`, `Pipeline.generate`).
+--- that serves every module drops it ([`lang.codegen`]'s `served`, [`Pipeline.generate`]).
 local function test_a_file_compiled_alone_keeps_the_require_of_an_import_it_never_reads(tmp: string)
   local path = file(tmp, "alone.tl", "local type _fs = require(\"cosmic.fs\")\nreturn 7\n")
   local ran = run({ path })
@@ -216,7 +216,7 @@ local function test_a_require_of_a_given_file_is_typed_from_it_in_any_order(tmp:
     for _, path in ipairs(order) do words[#words + 1] = path end
     local ran = run(words)
     assert(ran.code == 0, ran.err)
-    assert(ran.err:find("main.tl:2:", 1, true) and not ran.err:find("require_unknown", 1, true), ran.err)
+    assert(ran.err:find("main.tl:2:", 1, true) ~= nil and not ran.err:find("require_unknown", 1, true), ran.err)
     assert(Fs.exists(tmp .. "/out/lib.lua") == true and Fs.exists(tmp .. "/out/main.lua") == true)
   end
 end

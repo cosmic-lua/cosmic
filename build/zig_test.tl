@@ -109,6 +109,17 @@ local function test_lib_key_names_the_records()
   assert(Zig.lib_key({ ["01-a.txt"] = "one" }) ~= key)
 end
 
+--- Only `build boot` and nothing else is the boot a release's core can
+--- stand in for: every core, the checked core and a flag of zig's are not.
+local function test_only_a_plain_boot_is_tried_on_a_releases_core()
+  assert(Zig.plain_boot({ "build", "boot" }))
+  assert(not Zig.plain_boot({ "build", "boot", "-Dboot-cores=all" }))
+  assert(not Zig.plain_boot({ "build", "sanitized" }))
+  assert(not Zig.plain_boot({ "build", "boot", "--summary", "all" }))
+  assert(not Zig.plain_boot({ "build" }))
+  assert(not Zig.plain_boot({ "cc", "boot" }))
+end
+
 local function test_build_args_passes_other_subcommands_through()
   local got = Zig.build_args("/repo", "/cache/zig-project", "/repo/o", { "version" }, 4)
   assert(#got == 1 and got[1] == "version")
@@ -238,12 +249,13 @@ end
 --- place a build reads and in each place it does not.
 local function sources(tmp: string): string
   local root = tmp .. "/repo"
-  for _, dir in ipairs({ "core", "vendor/lua", "test/portable", "doc/guides", "o", "ci",
+  for _, dir in ipairs({ "core", "vendor/lua", "test/portable", "doc/guides/internal/deep", "o", "ci",
       "bin", ".git" }) do
     assert(Fs.mkdirs(root .. "/" .. dir))
   end
   for _, file in ipairs({ "build.zig", "bin/zig.pin", "core/a.c", "vendor/lua/lua.c",
       "test/portable/probe.c", "test/unit_test.tl", "doc/guides/start.md", "doc/design.md",
+      "doc/guides/internal/how.md", "doc/guides/internal/deep/far.md",
       "o/build.db", "ci/run.tl", "bin/zig", ".git/HEAD", "test/notes.txt" }) do
     assert(Fs.write(root .. "/" .. file, "text"))
   end
@@ -257,7 +269,7 @@ local function test_snapshot_holds_what_a_build_reads_and_nothing_else(tmp: stri
     paths[#paths + 1] = path
   end
   table.sort(paths)
-  assert(table.concat(paths, " ") == "bin/zig.pin build.zig core/a.c doc/guides/start.md " ..
+  assert(table.concat(paths, " ") == "bin/zig.pin build.zig core/a.c doc/guides/internal/how.md doc/guides/start.md " ..
       "test/portable/probe.c test/unit_test.tl vendor/lua/lua.c", table.concat(paths, " "))
 end
 
@@ -391,10 +403,39 @@ local function test_a_boot_names_a_holder_as_the_tool_does(tmp: string)
     contents[#contents + 1] = "1\n" .. role .. "\n"
   end
   for _, text in ipairs(contents) do
-    assert(Fs.write(support.build_dir(root) .. "/rebuild.lock.pid", text))
+    local file = support.build_dir(root) .. "/rebuild.lock.pid"
+    assert(Fs.write(file, text))
+    -- Ten minutes old, as the time a holder has held the lock would be
+    -- said; these pids name no process here, so neither says one.
+    assert(Fs.set_mtime(file, Clock.now_ns() // Clock.seconds(1) - 600))
     local output = build_paths.required(root)
     assert(Zig.holder(output) == rebuild_lock.holder(root), text .. ": " ..
         Zig.holder(output) .. " against " .. rebuild_lock.holder(root))
+  end
+end
+
+--- A boot names a live holder with how long it has held the lock, the
+--- age of its file, as build/rebuild_lock.tl does: whole minutes past
+--- two, seconds before.
+local function test_a_boot_says_how_long_a_holder_has_held_the_lock(tmp: string)
+  local root = tmp .. "/tree"
+  assert(support.build_dir(root))
+  local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep_ns(60000000000))' },
+    { cwd = tmp, env = this_program.environment(), process_group = true })
+  local sleeper <close> = assert(Child.start(started.argv, started.options))
+  local file = support.build_dir(root) .. "/rebuild.lock.pid"
+  assert(Fs.write(file, tostring(sleeper.pid) .. "\ntest\n"))
+  local output = build_paths.required(root)
+  local now = Clock.now_ns() // Clock.seconds(1)
+  assert(Fs.set_mtime(file, now - 270))
+  local long, tool_long = Zig.holder(output), rebuild_lock.holder(root)
+  assert(Fs.set_mtime(file, now - 30))
+  local short, tool_short = Zig.holder(output), rebuild_lock.holder(root)
+  assert(long == "another cosmic run (pid " .. tostring(sleeper.pid) ..
+      ") in this checkout is running its tests (it has held the lock for 4 min)", long)
+  assert(long == tool_long, tool_long)
+  for _, said in ipairs({ short, tool_short }) do
+    assert(said:find("is running its tests (it has held the lock for 3", 1, true) and said:find(" s)", 1, true), said)
   end
 end
 
@@ -533,7 +574,10 @@ local function test_selected_output_controls_installation_and_lock(tmp: string)
   assert(args[6] == "--prefix" and args[7] == output)
   local status = Zig.with_lock(output, {}, function(env: {string:string}): integer
     assert(env["COSMIC_REBUILD_LOCK_HANDED"] == output .. "/rebuild.lock")
-    assert(Fs.exists(output .. "/rebuild.lock"))
+    do
+      local held_true, held_why = Fs.exists(output .. "/rebuild.lock")
+      assert(held_true == true, held_why)
+    end
     assert(Zig.holder(output):find("is rebuilding the tool", 1, true))
     return 7
   end)

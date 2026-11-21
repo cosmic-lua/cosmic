@@ -388,7 +388,7 @@ local function test_a_write_from_a_base_is_a_write_of_the_whole(tmp: string)
     assert(work.close(handle))
   end
   for _, kind in ipairs({ "body", "comment", "doc", "errors", "example", "declared", "added", "removed", "renamed" }) do
-    assert(drawn[kind], "no step made the edit \"" .. kind .. "\"")
+    assert(drawn[kind] == true, "no step made the edit \"" .. kind .. "\"")
   end
   assert(taken > 0, "no write took a module from the base")
 end

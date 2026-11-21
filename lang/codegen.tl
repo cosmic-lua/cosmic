@@ -263,26 +263,27 @@ local function parenthesize(out: Output)
   put(out, ")")
 end
 
+--- A piece being flattened and the index of its next part.
+local record Walk
+  out: Output
+  mut at: integer
+end
+
 --- The text of `out` and what it holds, with an explicit stack: a chain of a hundred thousand operands nests that deep.
 local function flatten(root: Output): string
   local pieces: mut {string} = {}
-  local stack: mut {Output} = { root }
-  local at: mut {integer} = { 1 }
+  local stack: mut {Walk} = { { out = root, at = 1 } }
   while #stack > 0 do
-    local out = stack[#stack]
-    local i = at[#at]
-    local part = out.parts[i] -- checked: nil_not_allowed
+    local walk = stack[#stack]
+    local part = walk.out.parts[walk.at]
     if part == nil then
       stack[#stack] = nil
-      at[#at] = nil
     else
-      at[#at] = nil
-      at[#at + 1] = i + 1 -- checked: nil_not_allowed
+      walk.at = walk.at + 1
       if part is string then
         pieces[#pieces + 1] = part
       else
-        stack[#stack + 1] = part
-        at[#at + 1] = 1
+        stack[#stack + 1] = { out = part, at = 1 }
       end
     end
   end
@@ -295,8 +296,9 @@ end
 --- begins on: a child on another line is one indent deeper, and one on the same line is written with none.
 local function indent_in(y: integer, child_y: integer)
   if child_y ~= y then
-    if G.indent == 0 and #G.saved > 0 then
-      G.indent = G.saved[#G.saved] + 1 -- checked: nil_not_allowed
+    local enclosing = G.saved[#G.saved]
+    if G.indent == 0 and enclosing ~= nil then
+      G.indent = enclosing + 1
     else
       G.indent = G.indent + 1
     end
@@ -310,7 +312,8 @@ local function indent_out(y: integer, child_y: integer)
   if child_y ~= y then
     G.indent = G.indent - 1
   else
-    G.indent = table.remove(G.saved) -- checked: nil_not_allowed
+    -- Each [`indent_out`] of a node whose child is on its line follows the [`indent_in`] that saved the indent.
+    G.indent = assert(table.remove(G.saved), "indent_out has no indent saved by an indent_in")
   end
 end
 
@@ -361,9 +364,12 @@ local LUA_TYPES <const>: {string: string} = {
 local function declarations_of(chunk_body: Ast.Block): {integer: Ast.Node}
   local found: mut {integer: Ast.Node} = {}
   local stack: mut {Ast.Node} = { chunk_body }
-  while #stack > 0 do
+  while true do
     local node = table.remove(stack)
-    if (node.kind == "Record") or (node.kind == "Interface") or (node.kind == "Class") or (node.kind == "Enum") or (node.kind == "Alias") or -- checked: nil_not_allowed
+    if node == nil then
+      break
+    end
+    if (node.kind == "Record") or (node.kind == "Interface") or (node.kind == "Class") or (node.kind == "Enum") or (node.kind == "Alias") or
         (node.kind == "Import") then
       found[node.name.id] = node
     end
@@ -416,12 +422,19 @@ local function declaration_of(t: Ast.TypeName): Ast.Node?, boolean
     held = declarations_of(body)
     G.declarations = held
   end
-  local declaration: Ast.Node? = held ~= nil and held[G.scoped.vars[var_id].id] or nil -- checked: and_ternary, nil_not_allowed
-  for i = 2, #path do
-    if declaration == nil then
-      break
+  local declaration: Ast.Node? = nil
+  if held ~= nil then
+    -- `resolved` holds only the ids of `vars`.
+    local var = assert(G.scoped.vars[var_id], "the scope builder resolved a name to a binding it does not hold")
+    declaration = held[var.id]
+  end
+  for i, name in ipairs(path) do
+    if i > 1 then
+      if declaration == nil then
+        break
+      end
+      declaration = nested_type(declaration, name)
     end
-    declaration = nested_type(declaration, path[i]) -- checked: index_may_be_nil
   end
   return declaration, true
 end
@@ -501,8 +514,9 @@ end
 
 -- Expressions -----------------------------------------------------------------------------------------------------
 
+local AND_PRECEDENCE <const> = 2
 local PRECEDENCE <const>: {string: integer} = {
-  ["or"] = 1, ["and"] = 2, ["<"] = 3, [">"] = 3, ["<="] = 3, [">="] = 3, ["~="] = 3, ["=="] = 3, ["|"] = 4,
+  ["or"] = 1, ["and"] = AND_PRECEDENCE, ["<"] = 3, [">"] = 3, ["<="] = 3, [">="] = 3, ["~="] = 3, ["=="] = 3, ["|"] = 4,
   ["~"] = 5, ["&"] = 6, ["<<"] = 7, [">>"] = 7, [".."] = 8, ["+"] = 9, ["-"] = 9, ["*"] = 10, ["/"] = 10,
   ["//"] = 10, ["%"] = 10, ["^"] = 12,
 }
@@ -607,7 +621,8 @@ end
 
 --- The number's text, without its digit separators.
 local function number_text(token: integer): string
-  return (G.tokens.text[token]:gsub("_", "")) -- checked: nil_not_allowed
+  local word = assert(G.tokens.text[token], "a number token the lexer did not make")
+  return (word:gsub("_", ""))
 end
 
 --- The parameters of a function, as the `(`...`)` at token `open` has them.
@@ -822,6 +837,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   local out = new(y)
   local class = class_named(t)
   local resolved = G.kinds[base_of(t).id]
+  local enum_values = G.enums[base_of(t).id]
   if class ~= nil then
     if operand ~= nil then
       guard(UNARY_PRECEDENCE, operand, value)
@@ -833,10 +849,10 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     put(out, "math.type(")
     add_child(out, value, "", G.indent)
     put(out, ") == \"integer\"")
-  elseif G.enums[base_of(t).id] ~= nil then
+  elseif enum_values ~= nil then
     -- A string that is the type's kind is no member of an enum: the test is for the values.
     local members: mut {string} = {}
-    for i, v in ipairs(G.enums[base_of(t).id]) do -- checked: index_may_be_nil
+    for i, v in ipairs(enum_values) do
       members[i] = "[" .. string.format("%q", v):gsub("\\\n", "\\n") .. "] = true"
     end
     put(out, "({" .. table.concat(members, ", ") .. "})[")
@@ -914,11 +930,12 @@ end
 local function combine(e: Ast.Exp, left: Output): Output
   if (e.kind == "Binary") then
     local op = e.op
-    local own = PRECEDENCE[op]
+    -- `PRECEDENCE` holds every operator of [`Ast.BinaryOp`].
+    local own = assert(PRECEDENCE[op], "a binary operator without a precedence")
     local out = new(line_of(e.left.last + 1))
     local right = exp(e.right)
-    guard(own, e.left, left) -- checked: nil_not_allowed
-    guard(own, e.right, right) -- checked: nil_not_allowed
+    guard(own, e.left, left)
+    guard(own, e.right, right)
     add_child(out, left, "", G.indent)
     put(out, " ")
     put(out, op)
@@ -982,9 +999,12 @@ end
 --- Whether `node` or a node under it, apart from those of a function inside, is a `...`.
 local function holds_vararg(node: Ast.Node): boolean
   local stack: mut {Ast.Node} = { node }
-  while #stack > 0 do
+  while true do
     local cur = table.remove(stack)
-    if (cur.kind == "Vararg") then -- checked: nil_not_allowed
+    if cur == nil then
+      break
+    end
+    if (cur.kind == "Vararg") then
       return true
     elseif not ((cur.kind == "FunctionLit")) then
       Ast.children(cur, function(child: Ast.Node)
@@ -993,6 +1013,13 @@ local function holds_vararg(node: Ast.Node): boolean
     end
   end
   return false
+end
+
+--- An arm of an `if` expression with the Lua written for its condition and its value.
+local record WrittenArm
+  arm: Ast.ExpArm
+  cond: Output
+  value: Output
 end
 
 --- An `if` expression whose values all are truthy as the `c and a or b` it stands for: each arm's `then` is the
@@ -1004,26 +1031,27 @@ local function if_expression(node: Ast.IfExp): Output
   -- tell that what comes before it in the statement is not changed by the arms (a purity analysis it does not have).
   local arms = node.arms
   local plain = all_truthy(node)
-  local conds: mut {Output} = {}
-  local values: mut {Output} = {}
-  for i, arm in ipairs(arms) do
-    conds[i] = exp(arm.cond)
-    values[i] = exp(arm.value)
+  local written: mut {WrittenArm} = {}
+  for _, arm in ipairs(arms) do
+    local cond = exp(arm.cond)
+    local value = exp(arm.value)
     if plain then
-      guard(PRECEDENCE["and"], arm.cond, conds[i]) -- checked: index_may_be_nil*2
-      guard(PRECEDENCE["and"], arm.value, values[i]) -- checked: index_may_be_nil*2
+      guard(AND_PRECEDENCE, arm.cond, cond)
+      guard(AND_PRECEDENCE, arm.value, value)
     end
+    written[#written + 1] = { arm = arm, cond = cond, value = value }
   end
   local rest = exp(node.else_value)
   if not plain then
     local varargs = holds_vararg(node)
     local out = new(line_of(node.first))
     put(out, if varargs then "(function(...)" else "(function()" end)
-    for i, arm in ipairs(arms) do
+    for i, w in ipairs(written) do
+      local arm = w.arm
       add_child(out, text(line_of(arm.first - 1), if i == 1 then "if" else "elseif" end), " ", G.indent)
-      add_child(out, conds[i], " ", G.indent) -- checked: index_may_be_nil
+      add_child(out, w.cond, " ", G.indent)
       add_child(out, text(line_of(arm.value.first - 1), "then return ("), " ", G.indent)
-      add_child(out, values[i], "", G.indent) -- checked: index_may_be_nil
+      add_child(out, w.value, "", G.indent)
       put(out, ")")
     end
     add_child(out, text(line_of(node.else_value.first - 1), "else return ("), " ", G.indent)
@@ -1033,11 +1061,12 @@ local function if_expression(node: Ast.IfExp): Output
     return out
   end
   local acc: Output? = nil
-  for i, arm in ipairs(arms) do
+  for _, w in ipairs(written) do
+    local arm = w.arm
     local both = new(line_of(arm.value.first - 1))
-    add_child(both, conds[i], "", G.indent) -- checked: index_may_be_nil
+    add_child(both, w.cond, "", G.indent)
     put(both, " and")
-    add_child(both, values[i], " ", G.indent) -- checked: index_may_be_nil
+    add_child(both, w.value, " ", G.indent)
     if acc == nil then
       acc = both
     else
@@ -1192,8 +1221,12 @@ exp = function(e: Ast.Exp): Output
     cur = nxt
   end
   local out = checked_read(cur, leaf(cur))
-  for i = #spine, 1, -1 do
-    out = checked_read(spine[i], combine(spine[i], out)) -- checked: index_may_be_nil*2
+  while true do
+    local operand = table.remove(spine)
+    if operand == nil then
+      break
+    end
+    out = checked_read(operand, combine(operand, out))
   end
   return out
 end
@@ -1210,9 +1243,12 @@ end
 --- Whether a `continue` ends a pass of the loop whose body is `body`: one in it, not in a loop or a function inside.
 local function continues(body: Ast.Block): boolean
   local stack: mut {Ast.Node} = { body }
-  while #stack > 0 do
+  while true do
     local cur = table.remove(stack)
-    if (cur.kind == "Continue") then -- checked: nil_not_allowed
+    if cur == nil then
+      break
+    end
+    if (cur.kind == "Continue") then
       return true
     elseif not ((cur.kind == "While") or (cur.kind == "Repeat") or (cur.kind == "ForNum") or (cur.kind == "ForIn") or
         (cur.kind == "FunctionLit") or (cur.kind == "LocalFunction") or (cur.kind == "Function") or (cur.kind == "Method")) then
@@ -1234,9 +1270,11 @@ local function loop_body(body: Ast.Block): Output, boolean
   end
   G.loops[#G.loops + 1] = false
   local out = block(body)
+  -- The statements of the body leave `loops` as they found it, so the top is the entry pushed above.
   local labelled = table.remove(G.loops)
+  assert(labelled ~= nil, "the loops of the body were not popped")
   G.guarded = outer
-  return out, labelled -- checked: nil_not_allowed
+  return out, labelled
 end
 
 --- Whether the value of `s` ends in an expression, so that a line that begins with `(` after it would continue it.
@@ -1268,23 +1306,28 @@ local function ends_in_expression(s: Ast.Stat): boolean
   return false
 end
 
+--- A statement of a block with the Lua written for it.
+local record WrittenStat
+  stat: Ast.Stat
+  out: Output
+end
+
 block = function(b: Ast.Block): Output -- checked: not_assigned
   local out = new(line_of(b.first))
   local stats = b.stats
-  local children: mut {Output} = {}
-  for i = 1, #stats do
-    children[i] = stat(stats[i]) -- checked: index_may_be_nil
+  local children: mut {WrittenStat} = {}
+  for i, s in ipairs(stats) do
+    children[i] = { stat = s, out = stat(s) }
   end
   local space: string? = nil
   -- The last statement that wrote anything: one that writes nothing (a type, an unused record or import) leaves the
   -- one before it as the end of the line that a `(` would continue.
   local written: Ast.Stat? = nil
-  for i = 1, #stats do
-    add_child(out, children[i], space, G.indent) -- checked: index_may_be_nil
+  for i, child in ipairs(children) do
+    add_child(out, child.out, space, G.indent)
     -- A statement ends with a `;` where the next begins a line with `(`, which would continue it.
-    local s = stats[i]
-    if #children[i].parts > 0 then -- checked: nil_not_allowed
-      written = s
+    if #child.out.parts > 0 then
+      written = child.stat
     end
     local following = stats[i + 1]
     local ends = following ~= nil and written ~= nil and ends_in_expression(written) and
@@ -1379,7 +1422,10 @@ local function import_statement(node: Ast.Import): Output
 end
 
 local function local_statement(s: Ast.Local): Output
-  local out = new(line_of(s.bindings[1].first)) -- checked: nil_not_allowed
+  local bound = s.bindings[1]
+  -- The grammar of a `local` statement has a name.
+  assert(bound ~= nil, "a local statement without a name")
+  local out = new(line_of(bound.first))
   put(out, "local ")
   for i, b in ipairs(s.bindings) do
     if i > 1 then
@@ -1393,19 +1439,18 @@ local function local_statement(s: Ast.Local): Output
   end
   local values = s.values
   local only = values[1]
-  local bound = s.bindings[1]
   local hoisted: Ast.IfExp? = nil
-  if #values == 1 and #s.bindings == 1 and only ~= nil and bound ~= nil and bound.attr == nil then
+  if #values == 1 and #s.bindings == 1 and only ~= nil and bound.attr == nil then
     hoisted = hoistable(only)
   end
-  if hoisted ~= nil and bound ~= nil and not mentions(hoisted, bound.name) then
+  if hoisted ~= nil and not mentions(hoisted, bound.name) then
     -- `local x; if c then x = a else x = b end`. The arms read an outer `x` where this one is declared before them, so an
     -- `x` among them keeps the function.
     put(out, ";")
     add_child(out, hoisted_if(hoisted, bound.name .. " = ", ""), " ", G.indent)
-  elseif #values > 0 then
+  elseif only ~= nil then
     put(out, " =")
-    add_child(out, exps(values, line_of(values[1].first - 1)), " ") -- checked: nil_not_allowed
+    add_child(out, exps(values, line_of(only.first - 1)), " ")
   end
   return out
 end
@@ -1426,7 +1471,9 @@ local function assign_statement(s: Ast.Assign): Output
   end
   add_child(out, exps(s.targets, y))
   put(out, " =")
-  add_child(out, exps(s.values, line_of(s.values[1].first - 1)), " ") -- checked: nil_not_allowed
+  -- The grammar of an assignment has a value.
+  assert(only ~= nil, "an assignment without a value")
+  add_child(out, exps(s.values, line_of(only.first - 1)), " ")
   return out
 end
 
@@ -1528,9 +1575,13 @@ local function for_in_statement(s: Ast.ForIn): Output
   for i, b in ipairs(s.vars) do
     names[i] = text(line_of(b.first), b.name)
   end
-  add_child(out, list(line_of(s.vars[1].first), names), " ") -- checked: nil_not_allowed
+  -- The grammar of a `for` has a name and an iterator.
+  local head = s.vars[1]
+  local iterator = s.iterators[1]
+  assert(head ~= nil and iterator ~= nil, "a for statement without a name or an iterator")
+  add_child(out, list(line_of(head.first), names), " ")
   put(out, " in")
-  add_child(out, exps(s.iterators, line_of(s.iterators[1].first)), " ") -- checked: nil_not_allowed
+  add_child(out, exps(s.iterators, line_of(iterator.first)), " ")
   put(out, " do")
   local body, labelled = loop_body(s.body)
   add_child(out, body, " ")
@@ -1567,10 +1618,10 @@ local function match_statement(s: Ast.Match): Output
     local values: mut {string} = {}
     for i, p in ipairs(arm.pats) do
       if (p.kind == "PatBool") then
-        tests[#tests + 1] = names[i] .. " == " .. (if p.value then "true" else "false" end) -- checked: nil_not_allowed
+        tests[#tests + 1] = prefix .. tostring(i) .. " == " .. (if p.value then "true" else "false" end)
       elseif (p.kind == "PatBind") then
         bound[#bound + 1] = p.name.name
-        values[#values + 1] = names[i] -- checked: index_may_be_nil
+        values[#values + 1] = prefix .. tostring(i)
       end
     end
     if #tests == 0 then

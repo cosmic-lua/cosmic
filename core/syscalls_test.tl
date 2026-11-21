@@ -33,6 +33,7 @@ Test.policy{
 }
 
 local process = require("cosmic.internal.process")
+local cipher = require("cosmic.internal.cipher")
 local hash = require("cosmic.internal.hash")
 
 --- A stand-in program built under `tmp` (build/stand_in.tl), which runs
@@ -714,6 +715,18 @@ local function test_cpu_count_is_at_least_one()
   assert(math.type(count) == "integer" and count >= 1)
 end
 
+--- On macOS the memory available is a count of bytes, at least a megabyte and less than any machine holds; Linux
+--- has no such call, and says it in a file.
+local function test_memory_available_is_a_plausible_count_of_bytes_on_macos()
+  local bytes, why, number = sys.memory_available()
+  if assert(sys.uname()).sysname ~= "Darwin" then
+    assert(bytes == nil and number == sys.ENOSYS, why)
+    return
+  end
+  assert(bytes ~= nil, why)
+  assert(math.type(bytes) == "integer" and bytes >= 1 << 20 and bytes < 1 << 50, tostring(bytes))
+end
+
 local function test_uname_reports_nonempty_sysname_and_machine()
   local names = assert(sys.uname())
   assert(select("#", sys.uname()) == 1, "uname answers with one record")
@@ -949,6 +962,19 @@ local function test_digest_and_hmac_raise_on_an_unknown_algorithm()
   raises(hash.hmac, "sha0", "key", "abc")
 end
 
+--- The raw binding refuses an algorithm name it does not know, however
+--- it is spelled, a known name with a NUL and more after it too; known
+--- answers are [`cosmic.cipher`]'s tests.
+local function test_seal_and_open_raise_on_an_unknown_algorithm()
+  local key, nonce = string.rep("k", 32), string.rep("n", 12)
+  raises(cipher.seal, "aes-256-gcm", key, nonce, "message")
+  raises(cipher.seal, "ChaCha20-Poly1305", key, nonce, "message")
+  raises(cipher.seal, "", key, nonce, "message")
+  raises(cipher.seal, "chacha20-poly1305\0junk", key, nonce, "message")
+  raises(cipher.open, "chacha20-poly1305\0", key, nonce, string.rep("s", 16))
+  raises(cipher.open, "aes-256-gcm", key, nonce, string.rep("s", 16))
+end
+
 --- A pid past what an int holds is refused, not truncated, by the
 --- calls that take one, and so is pid 0, which would name this
 --- process's own group.
@@ -967,15 +993,6 @@ local function test_sandbox_inits_lists_the_inits_still_running()
   for _, pid in ipairs(before) do assert(math.type(pid) == "integer" and pid > 0) end
   local names = assert(sys.uname())
   if names.sysname ~= "Linux" then assert(#before == 0) end
-end
-
---- Off Linux, listing a process's children has no implementation.
-local function test_children_is_not_implemented_off_linux()
-  if assert(sys.uname()).sysname == "Linux" then
-    Test.skip("Linux has the children implementation")
-  end
-  local found, why, errno = process.children()
-  assert(found == nil and errno == sys.ENOSYS, why)
 end
 
 --- Of a /proc/<pid>/uid_map or gid_map's text, whether it maps `id`
@@ -1109,7 +1126,7 @@ local function test_the_process_calls_are_off_the_public_table()
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "maps_id",
       "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
       "ignore_sigpipe", "landlock_ruleset", "landlock_abi", "exit_watch",
-      "landlock_restrict_execute",
+      "landlock_restrict_execute", "fork",
       "guard_child_signals", "unguard_child_signals", "child_signal_read", "child_signal_fd" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")
     assert(type(raw[name]) == "function", name .. " is not in the raw process table")

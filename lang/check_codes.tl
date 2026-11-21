@@ -270,10 +270,14 @@ Codes.catalog = {
     code = "index_may_be_nil", rule = "an index read may be nil",
     why = "Lua answers nil for an index out of range. Only a test of the length against a literal shows an element " ..
       "(`#<xs> ~= 0` for `<xs>[1]`, until code runs that may shorten an array) and the index of a loop `for <i> = 1, " ..
-      "#<xs> do` (from a literal of 1 or more, by 1, over a local whose body shortens nothing); no other refinement " ..
+      "#<xs> do` (from a literal of 1 or more, by 1, over a local whose body shortens nothing), with the keys beside it " ..
+      "that the bounds of the loop hold inside the array (`<xs>[<i> - 1]` and `<xs>[<i> + 1]` in `for <i> = 2, #<xs> - 1 " ..
+      "do`), and an integer local `<i>` in the block of `if <i> >= 1 and <i> <= #<xs> then`, held to the rule of the " ..
+      "loop's body; no other refinement " ..
       "answers it, since any other reference to the collection may change it between a test and the read",
     fix = "iterate with `for _, row in ipairs(<xs>)`, count the keys (`for <i> = 1, #<xs> do`, whose body reads " ..
-      "`<xs>[<i>]` as a value while it calls nothing, shortens nothing and assigns neither `<xs>` nor `<i>`), read it " ..
+      "`<xs>[<i>]` as a value while it calls nothing, shortens nothing and assigns neither `<xs>` nor `<i>`), test the " ..
+      "index (`if <i> >= 1 and <i> <= #<xs> then`, a block held to the same), read it " ..
       "with `Array.at(<xs>, <i>)` (`cosmic.array`, which raises when it is missing) or `assert(<xs>[<i>])`, read it " ..
       "into a local and test it (`local row = <xs>[<i>] if row ~= nil then ... end`), or test the length " ..
       "(`if #<xs> ~= 0 then ... <xs>[1] ... end`). `<xs>[<i>] or <default>` turns an out-of-range read into a wrong value",
@@ -330,10 +334,14 @@ Codes.catalog = {
       "an element or appends to an empty array, as does the write of `a[i]` in every pass of a loop that counts " ..
       "`i` from 1 by 1 (`for i = 1, n` or `for i in ipairs(t)`) over a list `a` made from `{}` before the loop that " ..
       "nothing else names, in a statement of the body that no `continue` precedes, so no write makes a hole and `#`, " ..
-      "`ipairs` and `table.insert` stay defined on a sequence. " ..
+      "`ipairs` and `table.insert` stay defined on a sequence. A value that is not nil written at an integer local `i` in " ..
+      "the block of an `if` whose condition holds `i >= 1 and i <= #t` (either side of each comparison, `i > 0` or " ..
+      "`i < #t` too) overwrites an element, where the condition and the block call no function but `math`'s, write no nil, write `t` at " ..
+      "no other key and assign neither `t` nor `i`, and the write is not in a function the block makes. " ..
       "`table.move(a, f, e, t, b)` is the same write for a range of elements: it copies only " ..
       "elements `a` has when `f` is a literal of 1 or more and `e` is at most `#a`, and writes them at `1` or `#b + 1`",
-    fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, copy with `table.move(<a>, 1, #<a>, 1, <b>)` (or to " ..
+    fix = "append with `<t>[#<t> + 1] = <v>` or `table.insert`, overwrite an element inside " ..
+      "`if <i> >= 1 and <i> <= #<t> then`, copy with `table.move(<a>, 1, #<a>, 1, <b>)` (or to " ..
       "`#<b> + 1`), remove with `table.remove`, or key a map `{integer: T}` for sparse data",
   },
   {
@@ -475,10 +483,14 @@ Codes.catalog = {
     fix = "write its type: `local <name>: T` (`T?` if it may stay unset), or give it a value",
   },
   {
-    code = "condition_type", rule = "conditions are booleans or optionals",
+    code = "condition_type", rule = "conditions, and what `assert` takes, are booleans or optionals",
     why = "a condition is a boolean or a `T?` where `T` is not a boolean: any other type is always true or mixes nil " ..
-      "with false, and the test it stands for is not written",
-    fix = "write the test: `s ~= \"\"` for a string, `n ~= 0` for a number, `x ~= nil` or `x == true` for the rest",
+      "with false, and the test it stands for is not written. The first argument of `assert` is held to the same for an " ..
+      "optional that may hold a boolean (`boolean?`, an optional union with `boolean` in it): `assert` raises for " ..
+      "false as for nil, so one meant to say the value is there raises where it is there and false",
+    fix = "write the test: `s ~= \"\"` for a string, `n ~= 0` for a number, `x ~= nil` or `x == true` for the rest; " ..
+      "in an `assert`, `assert(x ~= nil)` says the value is there and `assert(x == true)` that it is true, and either " ..
+      "leaves `x` not nil after it",
   },
   {
     code = "or_mix", rule = "honest `or` and `and`",
@@ -548,7 +560,8 @@ Codes.catalog = {
     code = "setmetatable_call", rule = "dispatch only through declared types",
     why = "the only metatables on tables a program makes are the compiler's, attached to the literal of a class, " ..
       "so the only code they run is a class's `__close` and `__tostring`",
-    fix = "declare a `class` and write the value as a table literal typed as the class",
+    fix = "declare a `class` and write the value as a table literal typed as the class; for a temporary change to a " ..
+      "shared table, write the keys in place, keep each key's old value, and restore them after",
   },
   {
     code = "enum_member", rule = "enums are nominal strings",

@@ -53,6 +53,7 @@ local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local clock = require("build.clock")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local docs_checks = require("build.docs_checks")
 local help_source = require("build.help_source")
 local flow = require("build.flow")
@@ -192,7 +193,8 @@ end
 
 --- What is never a file to fix: the build's own output, the upstream
 --- sources and the records that patch them, the C core, the one shell
---- script that fetches zig, a project's static assets, and anything hidden.
+--- script that fetches zig, a project's static assets (and a program's own,
+--- under `cmd/<name>/static/`: [`skip`]), and anything hidden.
 local not_source: {string:boolean} = {
   ["o"] = true,
   ["static"] = true,
@@ -235,7 +237,7 @@ local refused_on_purpose <const>: string = "testdata/projects/fork_only"
 
 local function skip(entry: string): boolean
   local first = entry:match("^([^/]+)") or entry
-  if not_source[first] == true then
+  if not_source[first] == true or entry:match("^cmd/[^/]+/static$") ~= nil or entry:match("^cmd/[^/]+/static/") ~= nil then
     return true
   end
   if entry == refused_on_purpose or String.starts_with(entry, refused_on_purpose .. "/") then
@@ -470,7 +472,14 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
   local refused: mut {string} = {}
   local alone_out: mut {string} = {}
   local seen: mut {string: boolean} = {}
-  local static_root, _ = Fs.absolute(root .. "/static")
+  local real_root, _ = Fs.absolute(root)
+  --- Whether the real path `real` is a static directory of the project or under one: `static/`, or a program's own
+  --- `cmd/<name>/static/` ([`identity.is_static`]).
+  local function under_static(real: string): boolean
+    if real_root == nil or real:sub(1, #real_root + 1) ~= real_root .. "/" then return false end
+    local relative = real:sub(#real_root + 2)
+    return relative == "static" or relative:match("^cmd/[^/]+/static$") ~= nil or identity.is_static(relative)
+  end
   for _, path in ipairs(paths) do
     local what, missing = Fs.stat(path)
     local real: string? = nil
@@ -480,9 +489,8 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     end
     if what == nil then
       refused[#refused + 1] = missing
-    elseif static_root ~= nil and real ~= nil and
-        (real == static_root or real:sub(1, #static_root + 1) == static_root .. "/") then
-      refused[#refused + 1] = path .. ": under static/, which is carried verbatim, not laid out"
+    elseif real ~= nil and under_static(real) then
+      refused[#refused + 1] = path .. ": a static asset, which is carried verbatim, not laid out"
     elseif own and real ~= nil and foreign_tree_in(root, real) ~= nil then
       refused[#refused + 1] = path .. ": " .. foreign_refusal(assert(foreign_tree_in(root, real)))
     elseif what.kind == "dir" then
@@ -763,6 +771,28 @@ local function relaid(kind: string, linked: string): string?, string
   return linked, ""
 end
 
+--- The files of the tree at `root` by name, as [`Context.named_files`] answers: each a link may name, so none under
+--- the root's `o/` or a `.git`, nor what `left_alone` says the tree ignores, whose directories are not walked. Walked
+--- once, when first asked: only a path that names no file asks.
+local function named_files(root: string, left_alone: function(string): boolean): function(string): {string}
+  local by_name: mut {string: mut {string}} = {}
+  local walked = false
+  return function(basename: string): {string}
+    if not walked then
+      walked = true
+      local files, _ = Fs.walk(root, function(entry: string, name: string): boolean
+        return entry == "o" or name == ".git" or left_alone(entry)
+      end)
+      for _, file in ipairs(files or {}) do
+        local list: mut {string} = by_name[Fs.basename(file)] or {}
+        list[#list + 1] = file
+        by_name[Fs.basename(file)] = list
+      end
+    end
+    return by_name[basename] or {}
+  end
+end
+
 --- What is wrong with the links of `files` ([`build.links`]), each line
 --- `file:line: link: ...`, the file as named; a file that cannot be
 --- read is one line of its own. What each link names is looked up in
@@ -794,6 +824,10 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
     member = context.member,
     real = context.real,
     unbuilt = context.unbuilt,
+    refused = context.refused,
+    ignored = left_alone,
+    stale = context.stale,
+    named_files = context.named_files or named_files(context.root, left_alone),
   }
   local resolver = link_resolve.resolver(guarded)
   local out: mut {string} = {}
@@ -864,18 +898,25 @@ end
 --- has run (one that failed, or a `rebuild_here` that made none) has no
 --- symbols of its own yet, which the context says rather than failing
 --- links to them. `close` closes what was opened. A build that fails
---- leaves why in `unbuilt`.
+--- leaves why in `unbuilt`, and the files it refused, which `refused`
+--- names once it has run ([`rebuild.refused`]), are the modules the
+--- context says did not build ([`Context.refused`]).
 function fix.link_context(root: string, whole: boolean, own: boolean,
                           rebuild_here: function(string): boolean, string,
-                          databases: function(): docs.Sources): fix.LinkSource
+                          databases: function(): docs.Sources,
+                          refused?: function(): {string}): fix.LinkSource
   local opened: mut {docs.Sources} = {}
   local source: fix.LinkSource?
-  local function open(): docs.View?, string
+  local not_built: mut {string: boolean} = {}
+  local function open(): Doc.View?, string
     if not whole then
       local rebuilt, rebuild_trouble = rebuild_here("fix")
       if not rebuilt then
         -- Opened only once the context below is made and holds this source.
         leave_why(assert(source, "the link context opened before it was made"), rebuild_trouble)
+        if refused ~= nil then
+          for _, file in ipairs(refused()) do not_built[file] = true end
+        end
       end
     end
     local found = databases()
@@ -886,7 +927,7 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
     if own then return nil end
     local built_before, _ = Fs.exists(build_paths.resolve(root).projection)
     if built_before == true then return nil end
-    return "the project has no projection yet (`cosmic build` or `cosmic test` makes one)"
+    return "the project has no projection yet (`cosmic build`, `cosmic test` or `cosmic fix` makes one)"
   end
   local function close()
     for _, each in ipairs(opened) do
@@ -895,7 +936,26 @@ function fix.link_context(root: string, whole: boolean, own: boolean,
       end
     end
   end
-  source = { context = links.context(root, open, unbuilt), close = close }
+  local context = links.context(root, open, unbuilt)
+  -- A module's file is its name's path, or the `init.tl` of the directory it names.
+  context.refused = function(module: string): boolean
+    local path = module:gsub("%.", "/")
+    return not_built[path .. ".tl"] == true or not_built[path .. "/init.tl"] == true
+  end
+  -- The build that failed left the last one's symbols as they were.
+  context.stale = function(): string?
+    local why = assert(source, "the link context was asked before it was made").unbuilt
+    if why == nil then return nil end
+    local files: mut {string} = {}
+    for file in pairs(not_built) do files[#files + 1] = file end
+    if #files == 0 then
+      return "the build fails (" .. (why:match("^[^\n]*") or why) .. ")"
+    end
+    table.sort(files)
+    return "the build refuses " .. table.concat(files, ", ", 1, math.min(#files, 3)) ..
+      (if #files > 3 then " and " .. tostring(#files - 3) .. " more" else "" end)
+  end
+  source = { context = context, close = close }
   return source
 end
 
@@ -1416,14 +1476,17 @@ local function find_unbuilt(ctx: Fix)
 end
 
 --- What the CI legs' promises say against the requirements the tree's
---- test modules declare ([`tree_checks.promises`]), the declarations read
---- from the working database the projection just wrote.
+--- test modules declare ([`tree_checks.promises`]), and the modules granted
+--- the zig cache with no `pinned_zig` ([`tree_checks.unguarded_zig`]), the
+--- declarations read from the working database the projection just wrote.
 local function promise_findings(root: string): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
   if build == nil then return { "tree checks: " .. open_trouble } end
   local declared, declared_trouble = tree_checks.requirements(build)
+  local unguarded, unguarded_trouble = tree_checks.unguarded_zig(build)
   local _, _ = build:close()
   if declared == nil then return { "tree checks: " .. declared_trouble } end
+  if unguarded == nil then return { "tree checks: " .. unguarded_trouble } end
   for key, name in pairs(c_functions.prerequisites()) do
     declared["C function " .. key] = { name } -- checked: view_written
   end
@@ -1433,6 +1496,7 @@ local function promise_findings(root: string): {string}
   for _, line in ipairs(tree_checks.promises(declared, legs)) do
     out[#out + 1] = "promises: " .. line
   end
+  for _, line in ipairs(unguarded) do out[#out + 1] = "requirements: " .. line end
   return out
 end
 
@@ -1715,7 +1779,7 @@ local function check_links(ctx: Fix)
     -- Built even where no build has been made yet, so that a link resolves alike whether or not a `cosmic test` ran first.
     local source = fix.link_context(root, picked.whole, own,
       function(verb: string): boolean, string return rebuild.here(verb, true) end,
-      function(): docs.Sources return docs.databases() end)
+      function(): docs.Sources return docs.databases() end, rebuild.refused)
     linked_out = fix.links(source.context, linked, if ctx.checking == true then "check" else "write" end, ctx.facts)
     source.close()
     local unbuilt = source.unbuilt
@@ -1844,17 +1908,9 @@ local function report(ctx: Fix): integer
   for _, line in ipairs(findings) do
     log:say("fix: FAIL  " .. line)
   end
-  for _, line in ipairs(broken) do
-    log:say("fix: FAIL  " .. line)
-  end
-  for _, line in ipairs(would) do
-    log:say("fix: FAIL  " .. line)
-  end
-  for _, line in ipairs(redefined) do
-    log:say("fix: FAIL  " .. line)
-  end
   -- A file that does not parse is refused by its own check and by the
-  -- build in the same words: the line is said once.
+  -- build in the same words: the line is said once. The build's refusal
+  -- comes before the links, whose failures it may be the cause of.
   if unbuilt ~= nil and failed[plain(unbuilt)] ~= true then
     -- The new checker's refusal lists every file it refused, one per line, among them a file the new parser could not
     -- read, whose line the file's own check said already.
@@ -1867,13 +1923,36 @@ local function report(ctx: Fix): integer
     end
     if rest ~= "" then log:say("fix: FAIL  " .. rest) end
   end
+  for _, line in ipairs(broken) do
+    log:say("fix: FAIL  " .. line)
+  end
+  for _, line in ipairs(would) do
+    log:say("fix: FAIL  " .. line)
+  end
+  for _, line in ipairs(redefined) do
+    log:say("fix: FAIL  " .. line)
+  end
   if links_unbuilt ~= nil then
     log:say("fix: FAIL  " .. links_unbuilt)
   end
   local linked = link_only
+  -- A file laid out that the build refused is not fixed: its layout is sound whatever its types (build.fix.equiv), so
+  -- it is written, but saying "fixed" beside its refusal reads as the refusal gone.
+  local refused: mut {string:boolean} = {}
+  for line in ((unbuilt or "") .. "\n"):gmatch("(.-)\n") do
+    local file = line:match("^%.?/?([^:]+%.tl):")
+    if file ~= nil then refused[file] = true end
+  end
+  local laid_refused = 0
   for _, file in ipairs(changed) do
-    log:say("fix: " .. (if checking == true then "would fix  " else "fixed  " end) .. file ..
-        (if linked[file] == true then " (links)" else "" end))
+    if refused[(file:gsub("^%./", ""))] == true then
+      laid_refused = laid_refused + 1
+      log:say("fix: " .. (if checking == true then "would lay out  " else "laid out  " end) .. file ..
+          "; it does not check (above)")
+    else
+      log:say("fix: " .. (if checking == true then "would fix  " else "fixed  " end) .. file ..
+          (if linked[file] == true then " (links)" else "" end))
+    end
   end
   if #failures > 0 or #unlaid > 0 or #findings > 0 or #broken > 0 or #would > 0 or #redefined > 0 or
       unbuilt ~= nil or links_unbuilt ~= nil then
@@ -1901,6 +1980,10 @@ local function report(ctx: Fix): integer
     end
     if unbuilt ~= nil then
       said[#said + 1] = "the tree not building"
+    end
+    if laid_refused > 0 then
+      said[#said + 1] = plural.count(laid_refused, "file") .. (if checking == true then " to lay out" else " laid out" end) ..
+        " that the build refused"
     end
     if links_unbuilt ~= nil then
       said[#said + 1] = "the links' build failing"
@@ -1933,6 +2016,11 @@ local function fix_verb(argv: {string}): integer
   if code ~= nil then return code end
   code = choose_files(ctx)
   if code ~= nil then return code end
+  -- Only a run over the whole of cosmic's tree makes the memoed checks worth sharing; one that cannot share makes
+  -- them itself.
+  if assert(ctx.picked).whole and assert(ctx.standing).own then
+    local _, _ = tree_checks.share_checks()
+  end
   start_tally(ctx)
   lay_out_c(ctx)
   Memprobe.mark("fix: C checked")

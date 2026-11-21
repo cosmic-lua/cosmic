@@ -19,7 +19,8 @@ end
 --- [`positions.check`] over `files` (each file and what it requires), in a
 --- project tree or in cosmic's own.
 local function positioned(files: {{string}}, own_tree: boolean,
-                          carried?: function(name: string): boolean, sources?: {string: string}): boolean, string
+                          carried?: function(name: string): boolean, sources?: {string: string},
+                          library?: positions.Library): boolean, string
   local modules: mut {positions.Module} = {}
   for _, row in ipairs(files) do
     local requires: mut {string} = {}
@@ -29,7 +30,7 @@ local function positioned(files: {{string}}, own_tree: boolean,
     if sources ~= nil then source = sources[file] or "" end
     modules[#modules + 1] = module_at(file, requires, source)
   end
-  return positions.check(modules, { own = own_tree }, carried)
+  return positions.check(modules, { own = own_tree }, carried, library)
 end
 
 --- A directory's own `init.tl` is the one path in from outside: a
@@ -249,6 +250,60 @@ local function test_position_refuses_cosmic_internal_in_a_project_tree()
   assert(ok, trouble)
 end
 
+--- A project tree may not require a module of the standard library that the binary carries and does not record as
+--- public: the refusal names the public module above it. One the binary records, a package's entry or a module that
+--- says `--- @public`, is required freely, and cosmic's own tree is held to its own files' positions alone.
+local function test_position_refuses_a_private_library_module_in_a_project_tree()
+  local held = { ["cosmic.web"] = true, ["cosmic.web.input"] = true, ["cosmic.web.router"] = true,
+    ["cosmic.template"] = true, ["cosmic.template.dialect"] = true, ["cosmic.template.dialect.html"] = true,
+    ["cosmic.internal.wire"] = true, ["cosmic.lone.part"] = true, ["build.importer"] = true }
+  local function carries(name: string): boolean return held[name] == true end
+  local library: positions.Library = {
+    public = { ["cosmic.web"] = true, ["cosmic.web.input"] = true, ["cosmic.template"] = true },
+    kept = { ["cosmic.web.router"] = true, ["cosmic.template.dialect"] = true, ["cosmic.template.dialect.html"] = true,
+      ["cosmic.lone.part"] = true },
+  }
+  local ok, trouble = positioned({ { "app/main.tl", "cosmic.web.router" } }, false, carries, nil, library)
+  assert(not ok and trouble == "app/main.tl: cosmic.web.router is private to its directory in the standard library, " ..
+      "and a project may not require it: require cosmic.web in its place, or ask that the module say " ..
+      "`--- @public`", trouble)
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web", "cosmic.web.input" } }, false, carries, nil, library)
+  assert(ok, trouble)
+  -- The module named is the nearest public one above, past a private one.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.template.dialect.html" } }, false, carries, nil, library)
+  assert(not ok and trouble:find("require cosmic.template in its place, or ask", 1, true) ~= nil, trouble)
+  -- With no public module above it there is none to name.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.lone.part" } }, false, carries, nil, library)
+  assert(not ok and trouble:find("may not require it: ask that the module say `--- @public`", 1, true) ~= nil, trouble)
+  -- Each breach is one line, and an internal module keeps its own refusal.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web.router", "cosmic.internal.wire" } }, false, carries, nil, library)
+  assert(not ok and select(2, trouble:gsub("\n", "")) == 1 and
+      trouble:find("cosmic.internal.wire is internal to cosmic's own tree", 1, true) ~= nil, trouble)
+  -- A module the binary does not record as kept is not this rule's: one it does not carry, one of another namespace,
+  -- one only a database that records no public module carries.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web.absent", "build.importer" } }, false, carries, nil, library)
+  assert(ok, trouble)
+  -- A binary that records nothing of the library refuses none.
+  ok, trouble = positioned({ { "app/main.tl", "cosmic.web.router" } }, false, carries)
+  assert(ok, trouble)
+  -- cosmic's own tree is unaffected, whatever the binary records.
+  ok, trouble = positioned({ { "cosmic/web/init.tl", "cosmic.web.router" }, { "cosmic/web/router.tl" },
+    { "build/user.tl", "cosmic.template.dialect.html" } }, true, carries, nil, library)
+  assert(ok, trouble)
+end
+
+--- A hint names no library module the check refuses: [`positions.permits`] takes what the binary records as
+--- [`positions.check`] does.
+local function test_position_permits_agrees_on_a_private_library_module()
+  local function carries(name: string): boolean
+    return name:sub(1, 11) == "cosmic.web." or name == "cosmic.web"
+  end
+  local library: positions.Library = { public = { ["cosmic.web"] = true }, kept = { ["cosmic.web.router"] = true } }
+  assert(not positions.permits({}, "app/main.tl", "module", "cosmic.web.router", { own = false }, carries, library))
+  assert(positions.permits({}, "app/main.tl", "module", "cosmic.web", { own = false }, carries, library))
+  assert(positions.permits({}, "build/user.tl", "module", "cosmic.web.router", { own = true }, carries, library))
+end
+
 --- A module whose path has an `internal` directory component may be required only by modules under that component's
 --- parent, in every project, as in Go: the refusal names the rule and the two ways out.
 local function test_position_holds_an_internal_directory_to_the_modules_around_it()
@@ -299,8 +354,8 @@ local function test_position_keeps_the_two_exceptions_to_cosmics_own_tree()
   assert(not ok, "in the tree itself the directory is the tool's")
 end
 
---- `violations` names every breach with the module that makes it, where `check` names the first: a caller that
---- refuses modules and not the tree needs each culprit.
+--- `violations` names every breach with the module that makes it, and `check` says each of them: a caller that refuses
+--- modules and not the tree needs each culprit, and one that refuses the tree shows every breach at once.
 local function test_violations_name_each_module_that_breaks_a_rule()
   local modules: {positions.Module} = {
     module_at("lib/init.tl", {}, ""), module_at("lib/part.tl", {}, ""),
@@ -312,5 +367,5 @@ local function test_violations_name_each_module_that_breaks_a_rule()
   assert(first.module.file == "a.tl" and second.module.file == "c.tl")
   assert(first.message:find("a.tl: lib.part is private to lib/", 1, true) ~= nil, first.message)
   local ok, trouble = positions.check(modules, { own = false })
-  assert(not ok and trouble == first.message, trouble)
+  assert(not ok and trouble == first.message .. "\n" .. second.message, trouble)
 end

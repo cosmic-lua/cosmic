@@ -3,7 +3,8 @@
 --- namespaces and mounts the filter lets it make, and tries the ones it must
 --- not. The program is this one, making them through the raw calls every
 --- core carries (cosmic.internal.testing); the rest of the `nest` cases are
---- in cosmic/child_policy_nest_test.tl. Where the platform cannot nest a sandbox
+--- in cosmic/child_policy_nest_test.tl and
+--- cosmic/child_policy_nest_landlock_test.tl. Where the platform cannot nest a sandbox
 --- it is not applicable, and where this host gives no seccomp it skips itself
 --- (Test.skip).
 

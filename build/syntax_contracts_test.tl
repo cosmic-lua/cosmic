@@ -20,6 +20,10 @@ local function problems_of(body: string, given?: Rules.Exemptions, modules?: {st
   return Fixture.port(Fixture.PRELUDE .. body, modules or LOG_MODULES, given).problems
 end
 
+-- The fixture's session of the standard library and these modules, made as the module loads: a worker runs each test
+-- in a copy of itself, so what one test would make and keep, every test would make again.
+assert(#problems_of("use(1)") == 0)
+
 --- Programs that breach a rule: the checker refuses each with `wanted` in its words.
 local function breaches(wanted: string, bodies: {string})
   for _, body in ipairs(bodies) do

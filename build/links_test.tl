@@ -1,9 +1,10 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local fixture = require("build.docs_fixture")
 local link_resolve = require("build.link_resolve")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 local links = require("build.links")
 local Node = require("build.syntax_node")
 local SyntaxLinks = require("build.syntax_links")
@@ -67,6 +68,18 @@ local function test_a_code_span_label_reads_its_definition()
   same(parsed(lines("See [`widget`].", "", "[`widget`]: https://example.com/widget")), {
     "1 reference https://example.com/widget",
     "3 definition https://example.com/widget",
+  })
+end
+
+--- A line that opens with brackets and a colon is prose where what follows is a number, or goes on in words that are
+--- no title: a list of numbers and its value, an index and what it holds. Read as a definition, each would fail as a
+--- link to a file named by the number or the first word.
+local function test_brackets_before_a_number_or_a_sentence_define_no_link()
+  same(parsed(lines("Corners of the simplex:", "[1,0,0,0]: -25.0", "[0,1,0,0]: -50.0", "[2]: 3", "[mask]: 0x10",
+    "[angle]: <1e5>")), {})
+  same(parsed(lines("[0]: the first slot", "[k]: see below, and so on")), {})
+  same(parsed(lines('[ref]: doc/a.md "the title"', "[paren]: doc/b.md (a title)", "[three]: ./3", "[`x`]: a.tl")), {
+    "1 definition doc/a.md", "2 definition doc/b.md", "3 definition ./3", "4 definition a.tl",
   })
 end
 
@@ -296,6 +309,30 @@ local function checked(context: link_resolve.Context, path: string, kind: string
   return SyntaxLinks.check(link_resolve.resolver(context), path, path, kind, source)
 end
 
+--- A definition that does not resolve and that no link of its block reads may be prose: the failure says what the line
+--- was read as and how to write brackets that are text, each way it names being prose. A definition a link reads fails
+--- as any link does, and a list of numbers before a number is no definition at all.
+local function test_an_unused_definition_that_fails_says_what_it_was_read_as()
+  local corners = lines(
+    "-- Corners of the simplex:",
+    "-- [1,0,0,0]: -25.0",
+    "-- [0,1,0,0]: -50.0",
+    "local corner <const> = -25.0",
+    "return corner")
+  same(checked(world({}), "/p/m.tl", "teal", corners), {})
+  local no_name = "does not resolve (a name alone links only to a declaration of its own file; write another " ..
+    "module's symbol in full (`module.member`))"
+  same(checked(world({}), "/p/m.tl", "teal", lines("-- Slots:", "-- [0]: first", "return 1")), {
+    "/p/m.tl:2: link: `[0]: first` reads as a link definition (`[label]: target`) that no link uses, and first " ..
+      no_name .. "; to write the brackets as text, put them in a code span or put a word before them",
+  })
+  same(checked(world({}), "/p/m.tl", "teal", lines("-- Slots:", "-- `[0]`: first", "-- slot [0]: first", "return 1")),
+    {})
+  same(checked(world({}), "/p/a.md", "markdown", lines("See [the guide].", "", "[the guide]: gone.md")), {
+    "/p/a.md:3: link: gone.md does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
 local function test_a_name_the_file_declares_resolves_and_shadows_a_symbol()
   local source = lines(
     "local record Box",
@@ -323,6 +360,70 @@ local function test_a_required_alias_names_its_modules_members()
   local context = world({}, {}, { ["cosmic.fs.read"] = { "cosmic.fs.read" } })
   same(checked(context, "/p/a.tl", "teal", source), {
     "/p/a.tl:2: link: Fs.nope does not resolve (cosmic.fs has no nope)",
+  })
+end
+
+--- A link into a module the build made for it refused says so, rather than that the module lacks the member: what the
+--- symbols hold of it is an earlier build's. A module that built still lacks what it lacks.
+local function test_a_link_into_a_module_that_did_not_build_says_so()
+  local source = lines(
+    "local M = require(\"m\")",
+    "-- [`M.two`] and [`m.three`], beside [`Fs.nope`].",
+    "local Fs = require(\"cosmic.fs\")",
+    "return M")
+  local context = world({}, {}, { ["m.one"] = { "m.one" } })
+  context.refused = function(module: string): boolean return module == "m" end
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: M.two does not resolve (m did not build, so its symbols are unknown; fix it first)",
+    "/p/a.tl:2: link: m.three does not resolve (m did not build, so its symbols are unknown; fix it first)",
+    "/p/a.tl:2: link: Fs.nope does not resolve (cosmic.fs has no nope)",
+  })
+end
+
+--- A module of the tree that built answers for its own members though a module above it did not, whether or not an
+--- earlier build knew it: the link names what it lacks, or waits for the symbols, and never blames the parent.
+local function test_a_link_into_a_module_that_built_under_one_that_did_not_says_what_it_lacks()
+  local source = lines(
+    "local S = require(\"m.sub\")",
+    "-- [`S.g`], [`S.nope`], [`m.sub.g`] and [`m.sub.nope`], beside [`m.gone`].",
+    "return S")
+  local files = { ["/p/m/init.tl"] = "", ["/p/m/sub.tl"] = "" }
+  local refused = function(module: string): boolean return module == "m" end
+  -- A first build: no symbols of the project at all.
+  local first = world(files, {}, {}, nil, "the project has no projection yet")
+  first.refused = refused
+  same(checked(first, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: m.gone does not resolve (m did not build, so its symbols are unknown; fix it first)",
+  })
+  -- An earlier build's symbols, from before m.sub was added.
+  local later = world(files, {}, { ["m.one"] = { "m.one" } })
+  later.refused = refused
+  same(checked(later, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: S.g does not resolve (m.sub has no g)",
+    "/p/a.tl:2: link: S.nope does not resolve (m.sub has no nope)",
+    "/p/a.tl:2: link: m.sub.g does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: m.sub.nope does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: m.gone does not resolve (m did not build, so its symbols are unknown; fix it first)",
+  })
+end
+
+--- A path the tree ignores stays refused, saying why: no fresh checkout has it.
+local function test_a_link_to_an_ignored_path_says_it_is_ignored()
+  local context = world({ ["/p/a.md"] = "", ["/p/out/results.db"] = "", ["/p/node_modules/x/README.md"] = "" })
+  local kind = context.kind
+  local function ignored(relative: string): boolean
+    return relative:sub(1, 4) == "out/" or relative:sub(1, 13) == "node_modules/"
+  end
+  context.kind = function(path: string): string?
+    if ignored(path:sub(4)) then return nil end
+    return kind(path)
+  end
+  context.ignored = ignored
+  same(checked(context, "/p/a.md", "markdown", "[r](out/results.db) [n](node_modules/x/README.md)\n"), {
+    "/p/a.md:1: link: out/results.db does not resolve (it is ignored (.gitignore), so absent from a fresh " ..
+      "checkout: link the source or rule that makes it, or write it as code text)",
+    "/p/a.md:1: link: node_modules/x/README.md does not resolve (it is under node_modules/, absent from a fresh " ..
+      "checkout: link the source that names the package, or write it as code text)",
   })
 end
 
@@ -517,6 +618,39 @@ local function test_a_symbol_resolves_once_and_fails_twice_or_never()
   })
 end
 
+--- A name in full that names nothing is offered the one symbol declared under its last name (a function that moved to
+--- another module), through an alias or spelled from its module; with two of the name, or none, it says nothing more.
+--- Where a file of the tree declares one, a symbol of the name declared outside it (a library's) is not counted.
+local function test_a_name_that_names_nothing_is_offered_the_one_symbol_of_its_last_name()
+  local source = lines(
+    "local M = require(\"m\")",
+    "-- See [`M.first`], [`M.both`] and [`M.none`]; [`m.first`] and [`m.both`].",
+    "return M.second")
+  local context = world({ ["/p/p.tl"] = "" }, { first = { "p.first@p.tl", "lib.Range.first@lib/range.tl" },
+    twice = { "p.twice@p.tl", "q.T.twice" }, second = { "m.second" }, lone = { "lib.Range.lone@lib/range.tl" },
+    both = { "lib.a.both@lib/a.tl", "lib.b.both@lib/b.tl" } }, { ["m.second"] = { "m.second" } })
+  same(checked(context, "/p/a.md", "markdown", "[`m.twice`] [`m.lone`] [`m.both`]\n"), {
+    "/p/a.md:1: link: m.twice does not resolve (no declaration, symbol or file by that name; p.twice has that name: " ..
+      "link it in full)",
+    "/p/a.md:1: link: m.lone does not resolve (no declaration, symbol or file by that name; lib.Range.lone has that " ..
+      "name: link it in full)",
+    "/p/a.md:1: link: m.both does not resolve (no declaration, symbol or file by that name)",
+  })
+  same(checked(context, "/p/n.tl", "teal", source), {
+    "/p/n.tl:2: link: M.first does not resolve (m has no first; p.first has that name: link it in full)",
+    "/p/n.tl:2: link: M.both does not resolve (m has no both)",
+    "/p/n.tl:2: link: M.none does not resolve (m has no none)",
+    "/p/n.tl:2: link: m.first does not resolve (no declaration, symbol or file by that name; p.first has that name: " ..
+      "link it in full)",
+    "/p/n.tl:2: link: m.both does not resolve (no declaration, symbol or file by that name)",
+  })
+  -- Asked by one name, the symbols answer a module of that name by its first row, which is no symbol of the name.
+  local module = world({}, { first = { "first.other" } })
+  same(checked(module, "/p/a.md", "markdown", "[`m.first`]\n"), {
+    "/p/a.md:1: link: m.first does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
 local function test_a_file_resolves_from_its_directory_then_the_root()
   local context = world({
     ["/p/doc/a.md"] = "",
@@ -534,6 +668,71 @@ local function test_a_file_resolves_from_its_directory_then_the_root()
     })
 end
 
+--- A relative path that names no file says where it looked, not that it lies outside the root because the root, the
+--- second place it is looked for, has no parent; one file of the tree of its name is offered, spelled from the link.
+local function test_a_path_to_no_file_says_where_it_looked_and_what_has_its_name()
+  local context = world({ ["/p/doc/a.md"] = "", ["/p/lib/util.tl"] = "", ["/p/x/two.md"] = "", ["/p/y/two.md"] = "" })
+  context.named_files = function(basename: string): {string}
+    local by_name: {string: {string}} = { ["util.tl"] = { "lib/util.tl" }, ["two.md"] = { "x/two.md", "y/two.md" } }
+    return by_name[basename] or {}
+  end
+  same(checked(context, "/p/doc/a.md", "markdown", lines(
+    "[u](../pkg/util.tl) [v](util.tl) [w](sub/util.tl) [t](../z/two.md) [n](../pkg/none.md)")), {
+      "/p/doc/a.md:1: link: ../pkg/util.tl does not resolve (no file at pkg/util.tl; lib/util.tl has that name: link " ..
+        "it as ../lib/util.tl)",
+      "/p/doc/a.md:1: link: util.tl does not resolve (no declaration, symbol or file by that name; lib/util.tl has " ..
+        "that name: link it as ../lib/util.tl)",
+      "/p/doc/a.md:1: link: sub/util.tl does not resolve (no file at doc/sub/util.tl or sub/util.tl; lib/util.tl " ..
+        "has that name: link it as ../lib/util.tl)",
+      "/p/doc/a.md:1: link: ../z/two.md does not resolve (no file at z/two.md)",
+      "/p/doc/a.md:1: link: ../pkg/none.md does not resolve (no file at pkg/none.md)",
+    })
+end
+
+--- A module of the tree that docs holds nothing of (no leading `---`) is said to be one, with the two fixes; a module's
+--- name alone is already in full, so its file is the link left to write.
+local function test_a_module_docs_knows_nothing_of_says_so()
+  local context = world({ ["/p/data/bare.tl"] = "", ["/p/figures.tl"] = "" })
+  same(checked(context, "/p/a.md", "markdown", "[`data.bare`] [`figures`] [`data.none`] [`other`]\n"), {
+    "/p/a.md:1: link: data.bare does not resolve (data.bare is a module of the tree with no doc comment, so docs " ..
+      "knows nothing of it: give data/bare.tl a leading `---`, or link the file `data/bare.tl`)",
+    "/p/a.md:1: link: figures does not resolve (a name alone links only to a declaration of its own file, and " ..
+      "figures is a module: link its file `figures.tl`)",
+    "/p/a.md:1: link: data.none does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.md:1: link: other does not resolve (a name alone links only to a declaration of its own file; write " ..
+      "another module's symbol in full (`module.member`))",
+  })
+end
+
+--- Where the symbols are an earlier build's, a name of a module of the tree that build has no row of is not known yet,
+--- through an alias or in full: the module is new and may declare it. A module that build holds answers as it did, and a
+--- name of no module of the tree still names nothing.
+local function test_a_link_checked_against_an_earlier_build_is_not_known_yet()
+  local source = lines(
+    "local F = require(\"fresh\")",
+    "-- [`F.thing`], [`fresh.thing`], [`fresh.sub.thing`], [`other.nope`] and [`gone.thing`].",
+    "return F")
+  local context = world({ ["/p/fresh.tl"] = "", ["/p/other.tl"] = "" }, { other = { "other" } })
+  context.stale = function(): string? return "the build refuses typed.tl" end
+  local later = "not known yet: fresh is new since the last build, which links are checked against while the build " ..
+    "refuses typed.tl; fix that first"
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: F.thing does not resolve (" .. later .. ")",
+    "/p/a.tl:2: link: fresh.thing does not resolve (" .. later .. ")",
+    "/p/a.tl:2: link: fresh.sub.thing does not resolve (" .. later .. ")",
+    "/p/a.tl:2: link: other.nope does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: gone.thing does not resolve (no declaration, symbol or file by that name)",
+  })
+  context.stale = function(): string? return nil end
+  same(checked(context, "/p/a.tl", "teal", source), {
+    "/p/a.tl:2: link: F.thing does not resolve (fresh has no thing)",
+    "/p/a.tl:2: link: fresh.thing does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: fresh.sub.thing does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: other.nope does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: gone.thing does not resolve (no declaration, symbol or file by that name)",
+  })
+end
+
 local function test_an_anchor_names_a_heading()
   local context = world({
     ["/p/a.md"] = lines("# Top", "", "## Links: the `x` form", "## Links: the `x` form"),
@@ -546,7 +745,7 @@ local function test_an_anchor_names_a_heading()
       "/p/c.md:3: link: a.md#missing does not resolve (no heading of a.md has the anchor #missing)",
       "/p/c.md:3: link: #nowhere does not resolve (no heading of c.md has the anchor #nowhere)",
       "/p/c.md:3: link: b.tl#top does not resolve (only a Markdown file's headings take an anchor)",
-      "/p/c.md:3: link: /p#x does not resolve (no declaration, symbol or file by that name)",
+      "/p/c.md:3: link: /p#x does not resolve (no file at p)",
     })
 end
 
@@ -685,7 +884,7 @@ local function test_a_definition_holds_in_its_own_comment_block()
     "local x = 1",
     "return x")
   same(checked(world({}), "/p/a.tl", "teal", source), {
-    "/p/a.tl:2: link: doc/missing.md does not resolve (no declaration, symbol or file by that name)",
+    "/p/a.tl:2: link: doc/missing.md does not resolve (no file at doc/missing.md)",
   })
 end
 
@@ -778,7 +977,7 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
       "",
       "return other"),
   })
-  local context = links.context(dir, function(): docs.View?, string
+  local context = links.context(dir, function(): Doc.View?, string
     return docs.view({ db })
   end, function(): string? return nil end)
   same(checked(context, dir .. "/a.md", "markdown", lines(
@@ -794,6 +993,53 @@ local function test_the_databases_answer_a_symbol_and_a_member_in_full(dir: stri
     "return Thing")), {
       dir .. "/b.tl:2: link: Thing.Box.shrink does not resolve (cosmic.thing has no Box.shrink)",
     })
+end
+
+--- A function a record declares as a field and its file defines is one declaration, though docs holds two rows of it:
+--- it resolves by every spelling. Two things a link spells alike (a module, and a function its parent exports by that
+--- name) are told apart by kind and file, with the spelling that links each alone, never "link it in full".
+local function test_one_declaration_is_one_answer_and_two_spelled_alike_are_told_apart(dir: string)
+  local files: {string: string} = {
+    ["lib/rundb.tl"] = lines(
+      "--- Runs.",
+      "local record RunDb",
+      "  --- The years.",
+      "  years: function(): integer",
+      "end",
+      "",
+      "function RunDb.years(): integer",
+      "  return 1",
+      "end",
+      "",
+      "--- Its meta.",
+      "function RunDb.meta(): integer",
+      "  return 2",
+      "end",
+      "",
+      "return RunDb"),
+    ["lib/rundb/meta.tl"] = lines(
+      "--- Meta, data only.",
+      "local meta: {string: integer} = { a = 1 }",
+      "return meta"),
+  }
+  -- On disk too, so the spelling offered for the module, its file, is seen to resolve.
+  assert(Fs.mkdirs(dir .. "/lib/rundb"))
+  for path, text in pairs(files) do assert(Fs.write(dir .. "/" .. path, text)) end
+  local db = fixture.database(dir, files)
+  local context = links.context(dir, function(): Doc.View?, string
+    return docs.view({ db })
+  end, function(): string? return nil end)
+  same(checked(context, dir .. "/a.md", "markdown", lines(
+    "[`lib.rundb.years`] [`lib.rundb.RunDb.years`] [`RunDb.years`] [`lib.rundb.meta`]",
+    "[`lib.rundb.RunDb.meta`] [`./lib/rundb/meta.tl`]")), {
+      dir .. "/a.md:1: link: lib.rundb.meta does not resolve (it names 2 spelled alike: the function lib.rundb.meta " ..
+        "(lib/rundb.tl), write lib.rundb.RunDb.meta; the module lib.rundb.meta (lib/rundb/meta.tl), write " ..
+        "./lib/rundb/meta.tl)",
+    })
+  same(checked(context, dir .. "/b.tl", "teal", lines(
+    "local RunDb = require(\"lib.rundb\")",
+    "-- [`RunDb.years`] and [`RunDb.meta`].",
+    "return RunDb")), {})
 end
 
 --- A member a type takes from another module's, through the name its
@@ -826,7 +1072,7 @@ local function test_a_member_through_a_required_modules_type_resolves(dir: strin
       "",
       "return User"),
   })
-  local context = links.context(dir, function(): docs.View?, string
+  local context = links.context(dir, function(): Doc.View?, string
     return docs.view({ db })
   end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(
@@ -863,7 +1109,7 @@ local function test_a_module_typed_by_another_record_answers_its_fields(dir: str
       "",
       "return module"),
   })
-  local context = links.context(dir, function(): docs.View?, string
+  local context = links.context(dir, function(): Doc.View?, string
     return docs.view({ db })
   end, function(): string? return nil end)
   same(checked(context, dir .. "/b.tl", "teal", lines(
@@ -872,7 +1118,9 @@ local function test_a_module_typed_by_another_record_answers_its_fields(dir: str
     "-- nor a field of another record the module hands out: [`Cli.ok`].",
     "return Cli")), {
       dir .. "/b.tl:2: link: Cli.chaos does not resolve (cosmic.cli has no chaos)",
-      dir .. "/b.tl:3: link: Cli.ok does not resolve (cosmic.cli has no ok)",
+      -- The one symbol named `ok` is offered, spelled as a link to it is.
+      dir .. "/b.tl:3: link: Cli.ok does not resolve (cosmic.cli has no ok; cosmic.cli.Result.ok has that name: " ..
+        "link it in full)",
     })
 end
 

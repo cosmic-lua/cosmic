@@ -8,11 +8,12 @@ local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Clock = require("cosmic.clock")
 local Stream = require("cosmic.stream")
+local this_program = require("build.this_program")
 
---- `/bin/sleep` is a host program, which the profile "system" gives; /proc says whether a pid is
---- still running or an unreaped zombie.
+--- The child is this program, sleeping in a chunk (`cosmic`), so no program of the host's is
+--- started; /proc says whether a pid is still running or an unreaped zombie.
 Test.policy{
-  profiles = { "system", "proc" },
+  profiles = { "cosmic", "proc" },
   requires = { "proc" },
 }
 
@@ -36,10 +37,12 @@ local function gone_soon(pid: integer): boolean
   return true
 end
 
---- Starts a `sleep` and drops the handle unclosed, so no local holds it.
+--- Starts a child that sleeps and drops the handle unclosed, so no local holds it.
 --- Returns the pid, and the reader of its stdout where `keep_stream`.
 local function drop_a_sleeper(keep_stream: boolean): integer, Stream.Reader?
-  local h = assert(Child.start({ "/bin/sleep", "30" }, { stdout = "stream" }))
+  local sleeper = this_program.program({ "-e",
+    'local Clock = require("cosmic.clock")\nClock.sleep_ns(Clock.seconds(30))' }, { stdout = "stream" })
+  local h = assert(Child.start(sleeper.argv, sleeper.options))
   local pid = h.pid
   if keep_stream then return pid, h.stdout_stream end
   return pid, nil

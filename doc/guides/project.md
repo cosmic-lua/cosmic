@@ -16,7 +16,8 @@ A file's name says what it is.
 
 - `name.tl` is a library module, `require("name")`. A directory
   `name/` holding an `init.tl` is the same module, `require("name")`,
-  with room for files of its own beside it.
+  with room for files of its own beside it: a package, whose other
+  files only its own may require ([a package](#a-package)).
 - `name.tmpl` is a typed template ([`cosmic.template`]), built into the
   module `require("name")` with a `render` function: `pages/home.tmpl`
   is `pages.home`, `pages/init.tmpl` is `pages`. Nothing generated is
@@ -46,7 +47,12 @@ and real at run time.
 ## a library module
 
 The first line comment of a module, and the comment above each
-function, are what `cosmic docs` shows for it.
+function, are what `cosmic docs` shows for it. A doc is the run of
+comment lines directly above a declaration, a record's field or an
+enum's value: its `---` lines where it has any, else its `--` lines,
+less TODO lines. A trailing comment is none, nor is a comment inside
+a table constructor: a table's entries are documented by the record
+that types it.
 
 ```teal file=tally.tl
 --- Counting words in text.
@@ -200,6 +206,45 @@ local function test_top()
 end
 ```
 
+## a fixture for a test
+
+A literal gives every field of its record a value, so a test that needs
+a record with many fields does not write the literal each time. A
+function of the test file builds a whole one, with a plain value for
+each field and a parameter for each field the tests are about; a test
+then names only what it checks. A field declared `mut` may be assigned
+after.
+
+```teal file=order_test.tl
+--- An order, as a module of the project would declare it.
+local record Order
+  id: integer
+  customer: string
+  item: string
+  quantity: integer
+  cents: integer
+  mut paid: boolean
+end
+
+--- What `order` costs, in cents.
+local function total(order: Order): integer
+  return order.quantity * order.cents
+end
+
+--- A whole order: `quantity` of an item at `cents` each, and a plain
+--- value for every field no test here is about.
+local function an_order(quantity: integer, cents: integer): Order
+  return { id = 1, customer = "ada", item = "tea", quantity = quantity, cents = cents, paid = false }
+end
+
+local function test_total()
+  assert(total(an_order(3, 250)) == 750)
+  local order = an_order(1, 100)
+  order.paid = true
+  assert(order.paid and total(order) == 100)
+end
+```
+
 ## a program with commands
 
 [`cosmic.flags`] reads the command line. The program's first word is a
@@ -207,11 +252,16 @@ command, `words` or `top`, and [`Flags.dispatch`] runs the one it names
 with the words after it: `got.words[1]` is the file, not the command.
 Each command's spec names its options and whether each takes a value,
 and they may come before the file or after it; any other option is
-refused, so a typo is never read as a file name. `tally --help`, and
-`tally top --help`, print help written from the same descriptions. A
-program with no commands parses its options with `Flags.parse(argv, 1,
-spec)` instead. [`cosmic.log`] writes what went wrong to standard error
-under the program's name. The function's result is the exit code.
+refused, so a typo is never read as a file name. A refused option or
+command that is near one the program has names it: `tally top --limt 2`
+is told "did you mean --limit?". `tally --help`, and `tally top --help`,
+print help written from the same descriptions. A command may also give
+`examples`, lines to type with what each does, and `see`, the commands
+beside it, for its own help, and a `group`, the section it is listed
+under in the program's. A program with no commands parses its options
+with `Flags.parse(argv, 1, spec)` instead. [`cosmic.log`] writes what
+went wrong to standard error under the program's name. The function's
+result is the exit code.
 
 ```teal file=cmd/tally/main.tl
 local Counts = require("counts")
@@ -295,6 +345,36 @@ end
 ```teal file=words.txt
 the cat saw the dog
 ```
+
+A program with more to say of a command than one line writes it as it
+writes of its code: in a doc comment. Move the commands into a module of
+their own, `commands.tl`, as the fields of the record it returns, each a
+[`Flags.Command`] under a `---` comment that says what a reader of `tally
+help top` should know. The program hands them on by name, and says which
+module documents them: `Flags.dispatch(argv, 1, { words = Commands.words,
+top = Commands.top }, "tally", { pages = "commands" })`. Then `tally help
+top` ends with the comment on the `top` field, and the program answers
+`tally docs <words>` too: a name it documents, or a search of its doc
+comments and its guides (`doc/guides/*.md`), a misspelled word put right,
+as `cosmic docs` answers for the standard library. `groups`, beside
+`pages`, orders the sections of the program's help.
+
+`cosmic build` puts into each program the modules its main requires,
+directly or through another module, and every module under its own
+`cmd/<name>/` but a test or an example, and the module a table literal
+names by a string as its `pages` (`{ pages = "commands" }`), and no other: one
+program does not carry another's main or what only that one requires. It puts
+in the documentation of those of them that any module may require, of those
+under the program's own `cmd/<name>/`, and of its pages module, so the built
+file answers alone; a
+module under `internal/`, or one a directory other than its own keeps to
+itself, stays out of it. It carries the guides under `doc/guides/`, and a
+guide under `cmd/<name>/doc/guides/` in place of the one of the same name.
+Run from its source (`cosmic cmd/tally/main.tl docs`), the program
+answers from the project's last build, for what it would carry built and
+no other program. A test that asks for a command's help or for `docs`
+reads the documentation of the modules it requires, and says so with
+`Test.policy { store_text = true }`.
 
 ## the verbs
 
@@ -388,7 +468,7 @@ print((cosmic("docs", "tally").stdout or ""):match("^[^\n]*"))
 
 ```output
 fix exited 0
-test: 3 tests passed
+test: 4 tests passed
 5
 the	2
 cat	1
@@ -402,8 +482,147 @@ commands:
 Run `tally <command> --help` for a command's options.
 build exited 0
 5
-test: 3 tests passed
+test: 4 tests passed
 tally (tally.tl)
+```
+
+## a package
+
+A module that grows past one file becomes a package: a directory whose
+`init.tl` is the module, with the files only it uses beside it.
+`store/init.tl` is `require("store")`, and `store/query.tl` is
+`require("store.query")`, which only a file inside `store/` may
+require, its test included. Split a module this way rather than into
+flat files that share a prefix (`store.tl` beside `store_query.tl`):
+every file at the root is the whole project's, while a file of a
+package is the package's own, so it can change without a caller
+outside to keep.
+
+```teal file=store/init.tl
+--- Notes, and a search over them.
+
+local query = require("store.query")
+
+local record store
+end
+
+--- Each of `notes` that holds `word`, in any case, in order.
+function store.find(notes: {string}, word: string): {string}
+  local out: mut {string} = {}
+  for _, note in ipairs(notes) do
+    for _, seen in ipairs(query.words(note)) do
+      if seen == word:lower() then
+        out[#out + 1] = note
+        break
+      end
+    end
+  end
+  return out
+end
+
+return store
+```
+
+```teal file=store/query.tl
+--- The words a search matches in a note.
+
+local record query
+end
+
+--- Each word of `text`, split on whitespace and lowercased, in order.
+function query.words(text: string): {string}
+  local out: mut {string} = {}
+  for word in text:gmatch("%S+") do
+    out[#out + 1] = word:lower()
+  end
+  return out
+end
+
+return query
+```
+
+```teal file=store/query_test.tl
+local query = require("store.query")
+
+local function test_words()
+  local words = query.words("Buy  MILK")
+  assert(#words == 2 and words[1] == "buy" and words[2] == "milk")
+end
+```
+
+```teal file=store_test.tl
+local store = require("store")
+
+local function test_find()
+  local found = store.find({ "buy milk", "call Ana", "Milk the cow" }, "milk")
+  assert(#found == 2 and found[1] == "buy milk" and found[2] == "Milk the cow")
+end
+```
+
+A module outside the package that requires `store.query` is refused,
+and the refusal names the entry to require instead; `cosmic docs`
+marks such a module `(private to store/)` beside its first sentence.
+A member meant for every module says so with the line `--- @public`
+in the comment that opens it, which the docs leave out. This adds
+`report.tl`, a module outside the package that requires
+`store.query`, then opens `store/query.tl` to it.
+`cosmic docs cosmic.layout.require` has the whole rule, an
+`internal/` directory's included.
+
+```teal
+local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
+local Env = require("cosmic.env")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+
+local relaunch = assert(Proc.relaunch())
+local env: mut {string: string} = {}
+for name, value in pairs(Env.all()) do env[name] = value end
+for name, value in pairs(relaunch.env) do env[name] = value end
+env["COSMIC_TEST_SANDBOX"] = "0"
+local function cosmic(...: string): string
+  local argv = { table.unpack(relaunch.argv) }
+  for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
+  local said = assert(Child.run(argv, { env = env, fds = relaunch.fds, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120) }))
+  return said.stdout or ""
+end
+-- The line that says how the tests went: the summary, or the first failure.
+local function verdict(said: string): string
+  return said:match("FAIL  ([^\n]*)") or said:match("test: %d+ tests? passed") or said
+end
+-- The index's line for store.query, its columns closed up.
+local function listed(): string
+  return ((("\n" .. cosmic("docs")):match("\n(store%.query [^\n]*)") or ""):gsub("  +", "  "))
+end
+
+print(verdict(cosmic("test")))
+assert(Fs.write(tmp .. "/report.tl", table.concat({
+  "--- How many words a note has.",
+  "local query = require(\"store.query\")",
+  "local record report",
+  "end",
+  "--- The number of words in `note`.",
+  "function report.words(note: string): integer",
+  "  return #query.words(note)",
+  "end",
+  "return report",
+}, "\n") .. "\n"))
+print(verdict(cosmic("test")))
+print(listed())
+local source = assert(Fs.read(tmp .. "/store/query.tl"))
+assert(Fs.write(tmp .. "/store/query.tl", (source:gsub("\n", "\n--- @public\n", 1))))
+print(verdict(cosmic("test")))
+print(listed())
+```
+
+```output
+test: 2 tests passed
+report.tl: store.query is private to store/; only a file inside it may import it (its entry is store/init.tl), or the module can say `--- @public`
+store.query  (private to store/) The words a search matches in a note.
+test: 2 tests passed
+store.query  The words a search matches in a note.
 ```
 
 ## discarding a failure on purpose
@@ -469,4 +688,5 @@ cast and no `any` is a fix.
 [`cosmic.flags`]: ../../cosmic/flags.tl
 [`cosmic.log`]: ../../cosmic/log.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl
+[`Flags.Command`]: ../../cosmic/flags.tl
 [`Flags.dispatch`]: ../../cosmic/flags.tl

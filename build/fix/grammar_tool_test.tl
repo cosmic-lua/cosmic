@@ -170,6 +170,29 @@ local function test_the_links_of_a_file_in_the_new_grammar_are_checked_and_writt
   assert(why:find("1 link not resolving", 1, true) ~= nil, why)
 end
 
+--- Where the tree does not build, the build's refusal comes before the link failures it may cause, and a link into a
+--- module new since the last build is not known yet rather than naming nothing.
+local function test_a_tree_that_does_not_build_says_so_before_its_links(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  assert(Fs.write(root .. "/other.tl", OTHER))
+  local built, first = fix_new(root, false)
+  assert(built.ok, first)
+  assert(Fs.write(root .. "/fresh.tl", "--- Fresh.\nlocal record fresh\nend\n\n--- One.\n" ..
+      "function fresh.one(): integer\n  return 1\nend\n\nreturn fresh\n"))
+  assert(Fs.write(root .. "/a.md", "[`fresh.one`] [`other.nope`]\n"))
+  assert(Fs.write(root .. "/typed.tl", 'local y: integer = "no"\n\nreturn y\n'))
+  local failed, said = fix_new(root, true)
+  assert(not failed.ok, said)
+  local refusal = said:find("typed.tl:1:", 1, true)
+  local link = said:find("FAIL  a.md:1: link: fresh.one does not resolve (not known yet: fresh is new since the last " ..
+      "build, which links are checked against while the build refuses typed.tl; fix that first)", 1, true)
+  assert(refusal ~= nil and link ~= nil and refusal < link, said)
+  -- A module the last build holds answers as it did: what it lacks names nothing.
+  assert(said:find("FAIL  a.md:1: link: other.nope does not resolve (no declaration, symbol or file by that name)", 1,
+    true), said)
+end
+
 --- A check fails on a file the formatter refuses, with the reason, as a fix does, and passes on a tree that is laid out.
 local function test_a_check_fails_on_a_refused_file_and_passes_on_a_tree_laid_out(tmp: string)
   local root = tmp .. "/project"

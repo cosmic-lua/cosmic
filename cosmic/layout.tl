@@ -22,7 +22,10 @@ local record Layout
   --- value and no registration; the name alone is the rule. Its
   --- summary's "N ran, M stood" is [`test.Tally`]: ran counts
   --- tests actually executed this time, stood the ones answered from
-  --- an unchanged prior verdict instead
+  --- an unchanged prior verdict instead. An edit to the test file, a
+  --- comment included, runs its tests again; a comment in a module it
+  --- imports runs them again only where the test is given that module's
+  --- text: doc/testing.md ("the pure store") names every case
   tests: string
   --- a project's own module is named by its path from the project's
   --- root, the working directory: `notes.tl` is `require("notes")`,
@@ -36,15 +39,32 @@ local record Layout
   --- (`store/sql/init.tl` is `require("store.sql")`, while
   --- `store/sql/query.tl` is for files inside `store/sql/` alone), a
   --- top-level directory that has an `init.tl` is closed the same way,
-  --- and a nested directory with no `init.tl` cannot be reached from
-  --- outside at all. The build refuses a require that breaks this.
-  --- `cosmic.*` is the standard library's, never a project's
+  --- and a nested directory with no `init.tl` has no entry at all.
+  --- A module of a closed directory that holds the line `--- @public`
+  --- in the comment that opens it is open to every module; the docs
+  --- leave the line out. A module under an `internal/` directory
+  --- (`app/internal/db.tl`) may be required only from under that
+  --- directory's parent (`app/`), as in Go, in the closed rule's
+  --- place, and `--- @public` does not open it. The build refuses a
+  --- require that breaks this, and `cosmic docs` marks such a module
+  --- in its list, "(private to store/sql/)" or "(internal to app/)".
+  --- Split a module that grows into such a package rather than into
+  --- flat files of one prefix: doc/guides/project.md ("a package")
+  --- shows one. `cosmic.*` is the standard library's, never a project's,
+  --- and its closed directories keep their own as a project's do: require
+  --- the modules `cosmic docs` lists
   require: string
-  --- a guide: a Markdown file directly under doc/guides/ (not in a
-  --- directory below it) is a test of its own. Each block tagged `teal`
+  --- a guide: a Markdown file directly under doc/guides/, or directly
+  --- under doc/guides/internal/, is a test of its own. Each block tagged `teal`
   --- or `lua` is an example that compiles, and runs when a block tagged
   --- `output` after it says what it prints; doc/guides/<name>.md is
-  --- `cosmic docs doc.guides.<name>`
+  --- `cosmic docs doc.guides.<name>`, and a program built from the
+  --- project carries it for its users. One under doc/guides/internal/ is
+  --- for those working on the project: `cosmic docs` answers for it there,
+  --- and no program carries it. A program's own guide,
+  --- `cmd/<name>/doc/guides/<guide>.md`, is a test too, and that program
+  --- alone carries it, as the guide `<guide>` in place of the project's of
+  --- that name. A guide's name holds no dot
   guides: string
   --- a typed template: a `<name>.tmpl` file is a module the build makes
   --- of it ([`cosmic.template`]), imported by its path like a `.tl` file:
@@ -57,11 +77,15 @@ local record Layout
   --- a template and never rewrites it
   templates: string
   --- a static asset: any file under the top-level `static/` directory is
-  --- carried verbatim in the project's executable and served by
+  --- carried verbatim in every executable of the project and served by
   --- [`cosmic.web.static`]. `static/css/app.css` is the asset `css/app.css`.
-  --- A `static/` directory is never a module namespace: a `.tl` or `.tmpl`
-  --- under it is an asset, not a module, so it is not compiled, tested or
-  --- required. There is no configuration: a mount's URL is named in the
+  --- A file under a program's own `cmd/<name>/static/` is that program's
+  --- alone: `cmd/spam/static/css/app.css` is the asset `css/app.css` of
+  --- `spam`, which it carries in place of `static/css/app.css`, and no other
+  --- program carries it. Run from its source (`cosmic cmd/spam/main.tl`), a
+  --- program serves the same files from disk, its own laid over the shared. Such a `static/` directory is never a module
+  --- namespace: a `.tl` or `.tmpl` under it is an asset, not a module, so it
+  --- is not compiled, tested or required. There is no configuration: a mount's URL is named in the
   --- router, not in the file layout. The build refuses a file past 16 MiB,
   --- a name holding a control byte or any of `\ % ? #`, a path past 255
   --- bytes, two names that differ only in case, and a link that leaves the

@@ -19,6 +19,10 @@
 --- - `all_cores`: this tool carries a core for every release target, not the
 ---   host's alone (`bin/zig build boot -Dboot-cores=all`), which a test of
 ---   the portable programs it makes needs;
+--- - `pinned_zig`: the zig a check of the core's C starts ([`build.c`]'s
+---   `compiler`) is one a test's worker can start: the pinned zig
+---   installed in the zig cache, or a COSMIC_ZIG under it, where workers
+---   are sandboxed. A seeded boot takes a release core and installs none;
 --- - `root`: the run's user is root;
 --- - `unix_socket`: this host permits creation of a Unix stream socket;
 --- - `loopback`: this host permits loopback sockets, a TCP listener and
@@ -94,6 +98,7 @@ local shapes: {string:Shape} = {
   portable = { class = "platform", argument = false, optional = false },
   checked = { class = "platform", argument = false, optional = false },
   all_cores = { class = "host", argument = false, optional = false },
+  pinned_zig = { class = "host", argument = false, optional = false },
   root = { class = "host", argument = false, optional = false },
   path = { class = "host", argument = true, optional = false },
   program = { class = "host", argument = true, optional = false },

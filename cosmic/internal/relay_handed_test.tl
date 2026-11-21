@@ -33,22 +33,18 @@ local function require_native_connector()
   end
 end
 
+--- What a server that hangs up on every connection does with one: the
+--- connection is closed as this returns.
+local function hung_up(_conn: Net.Conn)
+end
+
 --- [`Relay.handed`] asks one connector, whose table is asked first: an
 --- address and port the table holds is reached though the public lists
 --- refuse that address at any other port, and a table-only connector
 --- refuses everything else.
 local function test_handed_connector_asks_its_table_before_its_public_lists()
   require_native_connector()
-  Poll.run(function()
-    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = assert(listener.address.port)
-    local accepting = Poll.spawn(function()
-      while true do
-        local conn = listener:accept()
-        if conn == nil then return end
-        local _, _ = conn:close()
-      end
-    end)
+  Net.with_loopback(hung_up, function(port: integer)
     local table_rows: {Net.Endpoint} = { { host = "127.0.0.1", port = port } }
     local mixed = assert(Net.connector(table_rows, { public = { deny = { "127.0.0.0/8" } } }))
     local connect = Relay.handed({ connector = mixed })
@@ -63,8 +59,6 @@ local function test_handed_connector_asks_its_table_before_its_public_lists()
     local none, none_why = alone("127.0.0.1", port + 1, Clock.seconds(1))
     assert(none == nil and none_why:find("is not in the connector's table", 1, true) ~= nil, none_why)
     assert(mixed:close())
-    accepting:cancel()
-    assert(listener:close())
   end)
 end
 
@@ -95,15 +89,7 @@ end
 local function test_a_public_connect_that_hangs_holds_up_no_other()
   require_native_connector()
   local held: mut {function()} = {}
-  Poll.run(function()
-    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local accepting = Poll.spawn(function()
-      while true do
-        local conn = listener:accept()
-        if conn == nil then return end
-        local _, _ = conn:close()
-      end
-    end)
+  Net.with_loopback(hung_up, function(port: integer)
     local stuck = stuck_port(held)
     local wait = Clock.seconds(1)
     local public = assert(Net.connector({}, { timeout_ns = wait, public = { deny = { "10.0.0.0/8" } } }))
@@ -116,7 +102,7 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     assert(Poll.delay(Clock.ms(50)))
     for _ = 1, 3 do
       local began = Clock.monotonic_ns()
-      local conn, why = connect("127.0.0.1", assert(listener.address.port), wait)
+      local conn, why = connect("127.0.0.1", port, wait)
       assert(conn ~= nil, "the connector connects beside the hanging connect: " .. why)
       assert(conn:close())
       assert(Clock.monotonic_ns() - began < Clock.ms(500), "the connection waited for the hanging one")
@@ -125,8 +111,6 @@ local function test_a_public_connect_that_hangs_holds_up_no_other()
     assert(hung == Poll.TIMEOUT, tostring(hung))
     assert(not public:ended(), "a connect that timed out leaves the stream in step")
     assert(public:close())
-    accepting:cancel()
-    assert(listener:close())
   end)
   for _, close in ipairs(held) do close() end
 end
@@ -137,16 +121,7 @@ end
 local function test_a_public_connector_that_ended_tells_lost()
   require_native_connector()
   local told: mut {string} = {}
-  Poll.run(function()
-    local listener = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local port = assert(listener.address.port)
-    local accepting = Poll.spawn(function()
-      while true do
-        local conn = listener:accept()
-        if conn == nil then return end
-        local _, _ = conn:close()
-      end
-    end)
+  Net.with_loopback(hung_up, function(port: integer)
     local wait = Clock.seconds(1)
     local process = assert(Connector.start({}, wait // 1000000, { deny = { "10.0.0.0/8" } }))
     local connector = assert(Connector.adopted(assert(sys.dup(process.fd)), nil, true, wait))
@@ -165,8 +140,6 @@ local function test_a_public_connector_that_ended_tells_lost()
     end
     assert(connector:ended())
     assert(connector:close())
-    accepting:cancel()
-    assert(listener:close())
   end)
   assert(#told == 1 and told[1] == "relay: the connector has ended", table.concat(told, ","))
 end

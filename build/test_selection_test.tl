@@ -3,6 +3,7 @@
 
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
@@ -108,7 +109,42 @@ local function test_a_standing_verdict_still_credits_its_coverage(tmp: string)
   assert(by_run[1]:text(1) ~= "0" and support.nth(by_run, 2):text(1) == support.nth(by_run, 1):text(1),
     "the standing run credited " .. support.nth(by_run, 2):text(1) .. " lines, not " .. support.nth(by_run, 1):text(1))
   assert(#credits == 1, "expected one coverage_by_test row for the one test")
-  assert(credits[1]:text(2):find("suite.helper\t", 1, true), support.nth(credits, 1):text(2))
+  -- The helper's lines name the text they are numbered in, a prefix of its source hash.
+  assert(credits[1]:text(2):find("suite%.helper %x+\t"), support.nth(credits, 1):text(2))
+end
+
+--- A standing row credits a module's lines only while the module's text is
+--- the one the row names: a comment that moves a harness module's lines moves
+--- no key, so the lines a row names can have moved. A row naming another text,
+--- or none (written by an older tool), credits none of the module's lines,
+--- and the coverage line says the figure is partial.
+local function test_a_standing_row_numbered_in_another_text_credits_none_of_its_lines(tmp: string)
+  local root = project(tmp)
+  for case, named in ipairs({ "suite.helper 0000000000000000\t", "suite.helper\t" }) do
+    local first = tmp .. "/first-" .. tostring(case) .. ".out"
+    local ran = invoke_words(root, first, { "--all", "suite/selected_test.tl" })
+    assert(ran.ok, assert(Fs.read(first)))
+    local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db", { writable = true }))
+    local rows = assert(Sqlite.text_rows(db, "SELECT ran_at_ns, test, hits FROM coverage_by_test " ..
+        "WHERE ran_at_ns = (SELECT max(ran_at_ns) FROM coverage_by_test)"))
+    local row = support.nth(rows, 1)
+    local moved, count = row:text(3):gsub("suite%.helper %x+\t", named)
+    assert(count == 1, row:text(3))
+    assert(Sqlite.run(db, "UPDATE coverage_by_test SET hits = ?1 WHERE ran_at_ns = ?2 AND test = ?3",
+      { { text = moved }, { integer = math.tointeger(tonumber(row:text(1))) or 0 }, { text = row:text(2) } }))
+    assert(db:close())
+    local output = tmp .. "/stood-" .. tostring(case) .. ".out"
+    local stood = invoke(root, output, "suite/selected_test.tl")
+    local text = assert(Fs.read(output))
+    assert(stood.ok, text)
+    assert(text:find("0 ran, 1 stood", 1, true), text)
+    assert(text:find("partial: hits of 1 module came from runs on other text; `--all` reruns them", 1, true), text)
+    db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
+    local hit = assert(Sqlite.text_rows(db, "SELECT sum(hit) FROM coverage WHERE path = 'suite.helper' " ..
+        "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)"))
+    assert(db:close())
+    assert(support.nth(hit, 1):text(1) == "0", "credited " .. support.nth(hit, 1):text(1) .. " lines of another text")
+  end
 end
 
 --- A snapshot holds every executable line of a module, ascending, with
@@ -181,6 +217,66 @@ end
     "expected only the named test credited")
 end
 
+--- Each test's row holds the lines its own module's load ran: the runner takes a load's hits once for every
+--- test whose worker reports them alike, and a test given another module's would be credited what it never ran.
+local function test_each_tests_row_holds_its_own_modules_load(tmp: string)
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root .. "/suite"))
+  for _, name in ipairs({ "one", "two" }) do
+    assert(Fs.write(root .. "/suite/" .. name .. ".tl", [[
+local record helper
+  answer: integer
+end
+local h: helper = { answer = 42 }
+return h
+]]))
+    assert(Fs.write(root .. "/suite/" .. name .. "_test.tl", (([[
+local helper = require("suite.NAME")
+local function test_first()
+  assert(helper.answer == 42)
+end
+local function test_second()
+  assert(helper.answer ~= 41)
+end
+local function test_third()
+  assert(helper.answer ~= 43)
+end
+]]):gsub("NAME", name))))
+  end
+  local output = tmp .. "/both.out"
+  local result = invoke_words(root, output, { "--all" })
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("6 ran, 0 stood", 1, true), text)
+  local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
+  local credits = assert(Sqlite.text_rows(db, "SELECT test, hits FROM coverage_by_test ORDER BY test"))
+  assert(db:close())
+  assert(#credits == 6, "expected a row for each of the six tests, not " .. tostring(#credits))
+  for _, row in ipairs(credits) do
+    local test, hits = row:text(1), row:text(2)
+    local own, other = "one", "two"
+    if test:find("suite.two_test", 1, true) then own, other = "two", "one" end
+    assert(hits:find("suite%." .. own .. " %x+\t"), test .. " lacks its module's load: " .. hits)
+    assert(not hits:find("suite." .. other .. " ", 1, true), test .. " holds another module's load: " .. hits)
+  end
+end
+
+--- A run that is given no `--jobs` runs one worker more than the processors at once, and one given it runs
+--- that many: the line of where the time went says the limit.
+local function test_a_run_has_a_worker_more_than_the_processors_unless_told(tmp: string)
+  local root = project(tmp)
+  local output = tmp .. "/default.out"
+  local result = invoke_words(root, output, { "--all", "suite/selected_test.tl" })
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("up to " .. tostring(Proc.cpu_count() + 1) .. " at a time;", 1, true), text)
+  output = tmp .. "/told.out"
+  result = invoke_words(root, output, { "--all", "--jobs", "2", "suite/selected_test.tl" })
+  text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("up to 2 at a time;", 1, true), text)
+end
+
 local function test_cli_fails_when_the_named_test_is_not_in_its_module(tmp: string)
   local root = project(tmp)
   local output = tmp .. "/missing.out"
@@ -215,6 +311,61 @@ return Example
   text = assert(Fs.read(output))
   assert(result.ok, text)
   assert(text:find("1 test passed in 1 module; 0 ran, 1 stood", 1, true), text)
+end
+
+--- A run says where its time went on a line before its summary: the tests' own time apart from what the runner
+--- spent around them. A run that ran none says nothing of workers.
+local function test_cli_says_where_the_time_went_before_the_summary(tmp: string)
+  local root = project(tmp)
+  local output = tmp .. "/ran.out"
+  local result = invoke(root, output, "suite/selected_test.tl:test_selected")
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  local line = "\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s %([%d.]+ s in 1 test, up to %d+ at a " ..
+    "time; the runner [%d.]+ s starting their workers and [%d.]+ s recording them%), settling coverage and records " ..
+    "[%d.]+ s\ntest: 1 test passed in 1 module; 1 ran"
+  assert(text:find(line), text)
+  output = tmp .. "/stood.out"
+  result = invoke(root, output, "suite/selected_test.tl:test_selected")
+  text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s, settling coverage and records " ..
+      "[%d.]+ s\ntest: 1 test passed in 1 module; 0 ran, 1 stood"), text)
+end
+
+--- The tests the `time` line counts are those whose worker this run collected: one whose module's host lacks what it
+--- requires starts none, and is in the summary's figures alone. A failing run says the line too, before its summary.
+--- The module requires a path no host has, so that it starts no worker on any core: a requirement of the platform
+--- (`checked`) is there on the core that has it.
+local function test_cli_times_only_the_tests_whose_workers_it_collected_and_a_failing_run_too(tmp: string)
+  local root = project(tmp)
+  assert(Fs.write(root .. "/suite/needs_test.tl", [[
+local Test = require("cosmic.test")
+Test.policy {
+  grants = { { path = "/cosmic-no-such-directory/absent", letters = "r" } },
+  requires = { "path:/cosmic-no-such-directory/absent" },
+}
+local function test_needs_a_file_no_host_has()
+  assert(true)
+end
+]]))
+  local output = tmp .. "/unmet.out"
+  local result = invoke_words(root, output, { "suite/selected_test.tl:test_selected", "suite/needs_test.tl" })
+  local text = assert(Fs.read(output))
+  assert(result.ok, text)
+  assert(text:find("%([%d.]+ s in 1 test, up to %d+ at a time; [^\n]*\ntest: 2 tests passed in 2 modules; 2 ran, 0 stood, " ..
+      "1 skipped"), text)
+  assert(Fs.write(root .. "/suite/fails_test.tl", [[
+local function test_fails()
+  assert(1 + 1 == 3, "arithmetic held")
+end
+]]))
+  output = tmp .. "/failing.out"
+  result = invoke(root, output, "suite/fails_test.tl")
+  text = assert(Fs.read(output))
+  assert(not result.ok, text)
+  assert(text:find("\ntest: time: building [%d.]+ s, keying [%d.]+ s, running [%d.]+ s %([%d.]+ s in 1 test, [^\n]*\n" ..
+      "test: 1 of 1 test failed, "), text)
 end
 
 --- A failing test's report names the selector that reruns it, quoted
@@ -322,7 +473,8 @@ local function test_a_named_run_shows_the_refusals_whichever_way_the_file_is_nam
   end
   local cases: {Case} = {
     { name = "module", files = { ["pkg/x.tl"] = bad,
-      ["pkg/x_test.tl"] = 'local x = require("pkg.x")\n' .. passing }, selector = "pkg.x_test",
+      ["pkg/x_test.tl"] = 'local x = require("pkg.x")\nlocal function test_it()\n  assert(x == 1)\nend\n' },
+      selector = "pkg.x_test",
       shown = { "pkg/x.tl:1:", "pkg/x_test.tl: not compiled" } },
     { name = "chain", files = { ["c.tl"] = bad, ["b.tl"] = 'local c = require("c")\nreturn c\n',
       ["a_test.tl"] = 'local b = require("b")\n' .. passing }, selector = "a_test.tl",
@@ -386,16 +538,18 @@ end
     "elapsed_ns " .. tostring(elapsed) .. " is implausibly large")
 end
 
+--- The project's root names every test, written relative or absolute: "." as [`test.matches`] reads it
+--- (build/test_test.tl holds its other spellings), and the root's own path, with a slash after it, as the command line
+--- resolves one.
 local function test_cli_accepts_relative_and_absolute_project_root(tmp: string)
-  for index, selector in ipairs({ ".", "./", "absolute", "absolute-slash" }) do
+  for index, selector in ipairs({ ".", "absolute-slash" }) do
     local root = project(tmp .. "/case-" .. tostring(index))
     assert(Fs.write(root .. "/suite/unrelated_test.tl", [[
 local function test_unrelated()
   assert(true)
 end
 ]]))
-    local argument = if selector == "." then "." elseif selector == "./" then "./" elseif
-      selector == "absolute" then root else root .. "/" end
+    local argument = if selector == "." then "." else root .. "/" end
     local output = tmp .. "/" .. selector .. ".out"
     local result = invoke(root, output, argument)
     assert(result.ok, assert(Fs.read(output)))
@@ -519,7 +673,10 @@ local function status_project(root: string, bad: boolean, failing: boolean, lone
 end
 
 --- A mutation-testing script tells a mutant the checker refused from one a test killed by the exit status: 4 when the tree, or
---- a module a named run needs, did not compile, whatever else failed with it, and 1 for a test that fails.
+--- a module a named run needs, did not compile, whatever else failed with it, and 1 for a test that fails. One case for each
+--- place the status is decided: the summary of a whole run, with every test passing and with one failing, and of a named
+--- one; a named run a refusal elsewhere leaves alone; a tree that stops at its compile; and a name that matches nothing.
+--- Which refusals a named run fails for is build/test_test.tl's ([`test.refusals_of`]).
 local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exits_1(tmp: string)
   local record Case
     name: string
@@ -531,14 +688,10 @@ local function test_a_tree_that_does_not_compile_exits_4_and_a_failing_test_exit
     cycle?: boolean
   end
   local cases: {Case} = {
-    { name = "passing", words = {}, code = 0 },
-    { name = "failing", words = {}, code = 1, failing = true },
     { name = "refused", words = {}, code = 4, bad = true },
     { name = "refused-and-failing", words = {}, code = 4, bad = true, failing = true },
-    { name = "named-refused", words = { "tally_test.tl" }, code = 4, bad = true },
     { name = "named-cascade-and-failing", words = { "tally_test.tl", "fine_test.tl" }, code = 4, bad = true, failing = true },
     { name = "named-unaffected-by-a-refusal-elsewhere", words = { "fine_test.tl" }, code = 1, lone = true, failing = true },
-    { name = "named-passing-beside-a-refusal", words = { "fine_test.tl" }, code = 0, lone = true },
     { name = "cycle", words = {}, code = 4, cycle = true },
     { name = "named-absent", words = { "nothing_test.tl" }, code = 1 },
   }

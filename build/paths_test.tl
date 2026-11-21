@@ -240,7 +240,10 @@ local function test_boot_verbs_and_lock_resolve_alike(tmp: string)
   local opened = handle.dir
   assert(work.close(handle))
   assert(opened == layout.directory, opened .. " against " .. layout.directory)
-  assert(Fs.exists(layout.working))
+  do
+    local held_true, held_why = Fs.exists(layout.working)
+    assert(held_true == true, held_why)
+  end
   assert(rebuild_lock.hand({}, root).COSMIC_REBUILD_LOCK_HANDED == layout.lock) -- checked: map_field
   assert(Fs.mkdirs(layout.bin))
   assert(Fs.write(layout.tool, ""))

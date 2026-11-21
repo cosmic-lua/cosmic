@@ -3,7 +3,10 @@
 --- and a reply's head and body written. It is apart from the server so
 --- that what reads untrusted bytes is fuzzed on its own
 --- (cosmic/http/wire_fuzz_test.tl), over any Reader and any chunking of
---- its bytes.
+--- its bytes. [`cosmic.http.message`] reads a header line, a
+--- Content-Length and a chunk's size line with the functions here, so
+--- that the server and a program that owns its connection hold one
+--- grammar.
 ---
 --- A head is read a line at a time, each line found in the chunk that
 --- ends it, so a head sent a byte at a time costs what one sent whole
@@ -122,6 +125,25 @@ local record wire
     --- Reads to the end, discarding: true once the body is done, false
     --- where it is over, bad or failed.
     drain: function(Body): boolean
+  end
+
+  --- A header line read.
+  record Field
+    --- Lowercased.
+    name: string
+    --- With the spaces around it trimmed.
+    value: string
+  end
+
+  --- A chunked body's size line read.
+  record ChunkSize
+    --- The chunk's size, 0 for the last chunk's.
+    size: integer
+    --- Whether the size is past what 15 hex digits name, `size` then 0.
+    huge: boolean
+    --- The line's bytes that count against a head's limit: its
+    --- extension, and the zeros before its size but one.
+    extra: integer
   end
 
   --- A reply to write, checked by [`wire.check`] first.
@@ -266,14 +288,6 @@ local function without_cr(text: string): string?
   return text
 end
 
---- A header line read.
-local record Field
-  --- Lowercased.
-  name: string
-  --- With the spaces around it trimmed.
-  value: string
-end
-
 --- `text` without the spaces and tabs at either end. A pattern's
 --- `^[ \t]*(.-)[ \t]*$` would do as much, in time that grows with the
 --- square of a run of spaces: a head of nothing else would cost seconds.
@@ -289,9 +303,19 @@ local function trimmed(text: string): string
   return text:sub(first, last)
 end
 
---- One header line as a [`Field`]; nil and why where it is no header
---- line.
-local function field(text: string): Field?, string
+--- Whether `text` is a token (RFC 9110 5.6.2).
+function wire.token(text: string): boolean
+  return text:find(TOKEN) ~= nil
+end
+
+--- Whether `text` holds a byte no header value holds.
+function wire.controls(text: string): boolean
+  return text:find(VALUE_CONTROL) ~= nil
+end
+
+--- One header line, without its line end, as a [`wire.Field`]; nil and
+--- why where it is no header line.
+function wire.field(text: string): wire.Field?, string
   local first = text:sub(1, 1)
   if first == " " or first == "\t" then
     return nil, "a header line is folded (obs-fold)"
@@ -316,7 +340,7 @@ end
 
 --- The comma-separated members of a header's value, trimmed, the
 --- empty ones dropped.
-local function members(value: string): {string}
+function wire.members(value: string): {string}
   local out: mut {string} = {}
   for member in value:gmatch("[^,]+") do
     local bare = trimmed(member)
@@ -333,6 +357,22 @@ local function decimal(digits: string): integer?
   if digits == "" then return 0 end
   if #digits > 18 then return math.maxinteger end
   return Number.integer(digits)
+end
+
+--- The size a Content-Length's value names; nil and why where it is
+--- empty or no digits, or is a list, or the joined values of a repeated
+--- header, whose sizes differ (RFC 9112 6.3).
+function wire.content_length(value: string): integer?, string
+  local lengths = wire.members(value)
+  if #lengths == 0 then return nil, "Content-Length is empty" end
+  local first = decimal(lengths[1])
+  if first == nil then return nil, "Content-Length is not digits" end
+  for _, member in ipairs(lengths) do
+    local n = decimal(member)
+    if n == nil then return nil, "Content-Length is not digits" end
+    if n ~= first then return nil, "Content-Length's values differ" end
+  end
+  return first, ""
 end
 
 --- A request target's path and query.
@@ -433,7 +473,7 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     local text = next_line()
     if text == nil then return halted() end
     if text == "" then break end
-    local got, why = field(text)
+    local got, why = wire.field(text)
     if got == nil then return refused(400, why) end
     if values[got.name] == nil then
       values[got.name] = {}
@@ -467,7 +507,7 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     if version == "HTTP/1.0" then
       return refused(400, "an HTTP/1.0 request holds Transfer-Encoding")
     end
-    local codings = members(te:lower())
+    local codings = wire.members(te:lower())
     if codings[#codings] ~= "chunked" then
       return refused(400, "a request's last transfer coding is not chunked")
     end
@@ -479,29 +519,21 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     end
     chunked, length = true, nil
   elseif cl ~= nil then
-    -- Repeated, or a list, its values must agree (RFC 9112 6.3).
-    local lengths = members(cl)
-    if #lengths == 0 then return refused(400, "Content-Length is empty") end
-    local first = decimal(lengths[1])
-    if first == nil then return refused(400, "Content-Length is not digits") end
-    for _, value in ipairs(lengths) do
-      local n = decimal(value)
-      if n == nil then return refused(400, "Content-Length is not digits") end
-      if n ~= first then return refused(400, "Content-Length's values differ") end
-    end
+    local first, length_why = wire.content_length(cl)
+    if first == nil then return refused(400, length_why) end
     length = first
     if first > limits.body_bytes then
       return refused(413, "the body is longer than limits.body_bytes")
     end
   end
   local close = version == "HTTP/1.0"
-  for _, option in ipairs(members((headers["connection"] or ""):lower())) do
+  for _, option in ipairs(wire.members((headers["connection"] or ""):lower())) do
     if option == "close" then close = true end
   end
   local expects_continue = false
   local expect = headers["expect"]
   if version == "HTTP/1.1" and expect ~= nil then
-    for _, expectation in ipairs(members(expect:lower())) do
+    for _, expectation in ipairs(wire.members(expect:lower())) do
       if expectation ~= "100-continue" then
         return refused(417, "this server meets no expectation but 100-continue")
       end
@@ -558,30 +590,38 @@ local function meta_line(self: BodyReader): string?, string
   return bare, ""
 end
 
---- Reads the next chunked size line, `left` and `phase` set from it:
---- true, or false and why where it fails.
-local function next_chunk(self: BodyReader): boolean, string
-  local text, why = meta_line(self)
-  if text == nil then return false, why end
+--- A chunked body's size line, without its line end, as a
+--- [`wire.ChunkSize`]; nil and why where it is malformed.
+function wire.chunk_size(text: string): wire.ChunkSize?, string
   local hex, rest = text:match("^(%x+)(.*)$")
-  if hex == nil or rest == nil then
-    return stopped(self, "bad", "http: a chunk's size is not hex")
-  end
+  if hex == nil or rest == nil then return nil, "a chunk's size is not hex" end
   if rest ~= "" and (not rest:find("^[ \t]*;") or rest:find(VALUE_CONTROL) ~= nil) then
-    return stopped(self, "bad", "http: a chunk's extension is malformed")
+    return nil, "a chunk's extension is malformed"
   end
   -- Zeros before a size are counted too: a size line of nothing else
   -- would otherwise carry a head's worth of bytes for each byte of body.
   local digits = #hex
   hex = hex:gsub("^0+", "")
-  self.head.spent = self.head.spent + #rest + math.max(digits - #hex - 1, 0)
+  local extra = #rest + math.max(digits - #hex - 1, 0)
+  if #hex > 15 then return { size = 0, huge = true, extra = extra }, "" end
+  return { size = if hex == "" then 0 else Number.integer(hex, 16) end, huge = false, extra = extra }, ""
+end
+
+--- Reads the next chunked size line, `left` and `phase` set from it:
+--- true, or false and why where it fails.
+local function next_chunk(self: BodyReader): boolean, string
+  local text, why = meta_line(self)
+  if text == nil then return false, why end
+  local chunk, chunk_why = wire.chunk_size(text)
+  if chunk == nil then return stopped(self, "bad", "http: " .. chunk_why) end
+  self.head.spent = self.head.spent + chunk.extra
   if self.head.spent > self.limits.head_bytes then
     return stopped(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
   end
-  if #hex > 15 then
+  if chunk.huge then
     return stopped(self, "over", "http: the body is longer than limits.body_bytes")
   end
-  local size = if hex == "" then 0 else Number.integer(hex, 16) end
+  local size = chunk.size
   if size == 0 then
     self.phase = "trailers"
     return true, ""
@@ -607,7 +647,7 @@ local function trailers(self: BodyReader): boolean, string
     if self.head.spent > self.limits.head_bytes then
       return stopped(self, "over", "http: a chunked body's extensions and trailers pass limits.head_bytes")
     end
-    local got, field_why = field(text)
+    local got, field_why = wire.field(text)
     if got == nil then
       return stopped(self, "bad", "http: a trailer is malformed: " .. field_why)
     end

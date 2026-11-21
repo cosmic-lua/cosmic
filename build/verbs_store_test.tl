@@ -75,7 +75,7 @@ local function test_help_takes_a_verb(tmp: string)
   local _ = verbs_fixture.expect(tmp, "sql", { "sql", "--", "-h" }, 1)
   local refused = verbs_fixture.expect(tmp, "help", { "help", "tset" }, 2)
   local err = refused.stderr
-  assert(err:find("help: no such verb: tset", 1, true), err)
+  assert(err:find("help: no such verb: tset; did you mean test?", 1, true), err)
 end
 
 local function test_help_lists_each_option_a_verb_parses(tmp: string)
@@ -139,7 +139,9 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
   local lines = 0
   for _ in all:gmatch("\n") do lines = lines + 1 end
-  assert(lines < 60, tostring(lines) .. " lines:\n" .. all)
+  -- A line a verb, and about 30 more: the guides, a heading and a blank
+  -- line a group, and the closing pointers.
+  assert(lines <= #Cli.order + 32, tostring(lines) .. " lines:\n" .. all)
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]
     assert(command ~= nil, verb .. " is in Cli.order but has no command")
@@ -235,12 +237,18 @@ local function test_build_takes_paths_to_narrow_it(tmp: string)
   local tree = write_programs(tmp)
   local one = verbs_fixture.expect(tree, "build", { "build", "--host", "./cmd/hi/" }, 0).stdout
   assert(one == support.build_dir(tree) .. "/bin/hi\n", one)
-  assert(Fs.exists(support.build_dir(tree) .. "/bin/hi"))
+  do
+    local held_true, held_why = Fs.exists(support.build_dir(tree) .. "/bin/hi")
+    assert(held_true == true, held_why)
+  end
   assert(Fs.exists(support.build_dir(tree) .. "/bin/bye") ~= true)
   local refused = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd/hi", "lib" }, 1)
   assert(refused.stderr:find("no cmd/<name>/main.tl under lib", 1, true) ~= nil, refused.stderr)
   local _ = verbs_fixture.expect(tree, "build", { "build", "--host", "cmd" }, 0)
-  assert(Fs.exists(support.build_dir(tree) .. "/bin/bye"))
+  do
+    local held_true, held_why = Fs.exists(support.build_dir(tree) .. "/bin/bye")
+    assert(held_true == true, held_why)
+  end
 end
 
 local function test_uses_takes_paths_to_narrow_it(tmp: string)
@@ -404,4 +412,41 @@ local function test_db_counts_the_closure_stores_alone(tmp: string)
   assert(Fs.write(support.build_dir(tree) .. "/stores/base-" .. ("b"):rep(64) .. ".db", "defgh"))
   local whole = verbs_fixture.expect(tree, "db", { "db" }, 0).stdout
   assert(whole:find("1 closure store, 3 bytes", 1, true), whole)
+end
+
+--- Every verb refuses a mistyped option by one rule, Flags.dispatch's: it names the option meant, `--help`
+--- among them, and how the verb is typed; and it exits 2 with nothing on standard output.
+local function test_a_verb_refuses_a_mistyped_option_naming_the_one_meant_and_its_usage(tmp: string)
+  verbs_fixture.write_tree(tmp)
+  for verb, mistyped in pairs({ fix = "--hlep", docs = "--jsno", test = "--jbos", hash = "--hlp" }) do
+    local refused = verbs_fixture.run(tmp, { verb, mistyped })
+    local first = "cosmic: " .. verb .. ": no such option: " .. mistyped .. "; did you mean "
+    assert(refused.code == 2 and refused.stdout == "" and refused.stderr:find(first, 1, true) == 1 and
+        refused.stderr:find("; usage: cosmic " .. verb, 1, true) ~= nil, verb .. ": " .. refused.stdout .. refused.stderr)
+  end
+  local helped = verbs_fixture.run(tmp, { "fix", "--hlep" })
+  assert(helped.stderr:find("did you mean --help?", 1, true) ~= nil, helped.stderr)
+end
+
+--- A negative number or span of time is a word of a verb's line, with no `--` before it.
+local function test_a_verb_takes_a_negative_number_as_a_word(tmp: string)
+  verbs_fixture.write_tree(tmp)
+  local earlier = verbs_fixture.run(tmp, { "time", "add", "2026-01-31", "-1d" })
+  assert(earlier.code == 0 and earlier.stdout == "2026-01-30T00:00:00+00:00\n", earlier.stdout .. earlier.stderr)
+  local drawn = verbs_fixture.run(tmp, { "rand", "int", "--seed", "1", "-5", "-5" })
+  assert(drawn.code == 0 and drawn.stdout == "-5\n", drawn.stdout .. drawn.stderr)
+end
+
+--- A verb whose line is its own to read is not refused by Flags.dispatch first: `migrate` says it was removed
+--- whatever it is given, and `todos`, which rebuilds a stale tool before it reads its line, refuses an option
+--- in its own words, as a `fresh` verb does.
+local function test_a_verb_that_reads_its_own_line_is_not_refused_first(tmp: string)
+  verbs_fixture.write_tree(tmp)
+  local removed = verbs_fixture.run(tmp, { "migrate", "--check", "." })
+  assert(removed.code == 2 and removed.stderr:find("cosmic migrate was removed", 1, true) ~= nil, removed.stderr)
+  for _, verb in ipairs({ "todos", "bom" }) do
+    local refused = verbs_fixture.run(tmp, { verb, "--zzqq" })
+    assert(refused.code == 2 and refused.stderr:find("no such option: --zzqq", 1, true) ~= nil and
+        not refused.stderr:find("; usage: cosmic " .. verb, 1, true), verb .. ": " .. refused.stderr)
+  end
 end

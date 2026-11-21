@@ -639,8 +639,8 @@ local function refreshed(src: source.View)
   end
   if staged ~= nil and staged.busy then
     if not src.told_busy then
-      src.err("cosmic: lsp: another cosmic run holds the write lock of " ..
-          tostring(src.working) .. "; not staging, answering from the tree as last committed")
+      src.err("cosmic: lsp: " .. work.holding(tostring(src.working)) ..
+          "; not staging, answering from the tree as last committed")
       src.told_busy = true
     end
     -- What the last stage reported stands: this one did not look at the tree, so it neither clears the refusal nor adds one.

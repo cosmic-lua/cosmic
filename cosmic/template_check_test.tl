@@ -301,7 +301,7 @@ local function test_a_type_error_in_a_text_template_is_on_the_templates_line(tmp
   assert(trouble:find("page.tmpl:4:", 1, true), trouble)
   assert(trouble:find(spelled("string | number"), 1, true), trouble)
   local multi = refused(tmp, "multi", "{{type Page from data}}{{mode text}}\n{{.title\n  | fmt.upper}}\n{{.items}}")
-  assert(multi:find("page.tmpl:4:", 1, true) and not multi:find("page.tmpl:2:", 1, true), multi)
+  assert(multi:find("page.tmpl:4:", 1, true) ~= nil and not multi:find("page.tmpl:2:", 1, true), multi)
 end
 
 local function test_a_slot_takes_what_its_place_accepts(tmp: string)
@@ -582,7 +582,7 @@ local function test_html_mode_escapes_by_place(tmp: string)
 <a href="/i/{{.title}}/{{.n}}?{{.p}}&q={{.cls}}">x</a><a href='mailto:{{.title}}'>y</a>
 {{range .items}}<i title="{{.n}}">{{.name}}</i>{{end}}
 ]], page)
-  assert(out == '\n<h1 class="a&#34;b&#39;c" title=\'q&#38;r\'>&lt;i&gt;&amp; 7 <b>x</b></h1>\n' ..
+  assert(out == '\n<h1 class="a&quot;b&#39;c" title=\'q&amp;r\'>&lt;i&gt;&amp; 7 <b>x</b></h1>\n' ..
       '<a href="' .. esc_attr("about:invalid") .. '">&lt;u&gt;</a> <a href=\'' .. esc_attr("/x") .. '\'></a>\n' ..
       '<a href="/i/%3Ci%3E%26/7?a%20b=c%26d&amp;e=..&q=a%22b%27c">x</a>' ..
       '<a href=\'mailto:%3Ci%3E%26\'>y</a>\n' ..
@@ -700,12 +700,12 @@ local function test_a_block_that_adds_a_bare_attribute_renders_it_only_when_its_
   assert(on_made is Html.SafeHtml, "render answered a " .. type(on_made)) -- checked: is_on_record
   local on = Html.raw(on_made)
   assert(on == '\n<input type="checkbox" checked name="a"><input disabled>\n' ..
-      '<option selected value="c&#34;">x</option><br hidden/>\n<input required name="b">', on)
+      '<option selected value="c&quot;">x</option><br hidden/>\n<input required name="b">', on)
   local off_made = mod.render({ flag = false, cls = "c\"" })
   assert(off_made is Html.SafeHtml, "render answered a " .. type(off_made)) -- checked: is_on_record
   local off = Html.raw(off_made)
   assert(off == '\n<input type="checkbox" name="a"><input>\n' ..
-      '<option value="c&#34;">x</option><br/>\n<input readonly name="b">', off)
+      '<option value="c&quot;">x</option><br/>\n<input readonly name="b">', off)
 end
 
 --- A stage that counts its calls, and one that answers the count.

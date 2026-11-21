@@ -1,0 +1,378 @@
+--- What names an exact query as a symbol, and what is a use of it: one
+--- rule, shared by `cosmic docs` and `cosmic uses` ([`cosmic.doc`]) and by
+--- the compiler's hint for a name it could not resolve
+--- ([`build.importer`]), so a hint never names a row `cosmic docs <word>`
+--- would disagree with. It requires neither, so both may require it.
+
+local Sqlite = require("cosmic.sqlite")
+
+local record symbols
+  --- The name of the `docs` index of a module's `local` declarations.
+  mut local_index: string
+end
+
+symbols.local_index = "docs_by_local"
+
+--- The SQL for the last dotted name of the SQL `symbol`, a method's `:`
+--- read as `.` (`Box:grow` and `X.Box.grow` both end in `grow`): what
+--- follows `symbol`'s last `.`, by dropping the longest prefix that ends
+--- in one. The `docs` index on it ([`build.schema`]'s `create`) is found by the
+--- planner only through this very text, so a query that means to use it
+--- builds the expression here.
+function symbols.last_name(symbol: string): string
+  local dotted = "replace(" .. symbol .. ", ':', '.')"
+  return "replace(" .. dotted .. ", rtrim(" .. dotted .. ", replace(" .. dotted ..
+    ", '.', '')), '')"
+end
+
+--- Whether a module's name is in the standard library's namespace and is
+--- none of its internals or tests: `cosmic.*`, which no project may
+--- define. cosmic's own projection records as public those of them any
+--- module may require ([`build.writer`]). Whether a source answers for a
+--- module is asked of its database ([`symbols.public_modules`],
+--- [`symbols.public_only`]); this says only whose the module is.
+function symbols.is_library_module(module: string): boolean
+  return module:sub(1, 7) == "cosmic." and module:sub(1, 16) ~= "cosmic.internal." and
+    module:sub(-5) ~= "_test"
+end
+
+--- The condition under which the SQL `column` names a module of the
+--- standard library's namespace ([`symbols.is_library_module`]).
+function symbols.library_modules(column: string): string
+  return "(" .. column .. " LIKE 'cosmic.%' AND " .. column ..
+    " NOT LIKE 'cosmic.internal.%' AND substr(" .. column .. ", -5) <> '_test')"
+end
+
+--- The modules `db` records as public ([`public_modules`]), each set: what
+--- a public source answers for. Nil and why when they cannot be read.
+function symbols.public_modules(db: Sqlite.Handle): {string: boolean}?, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT path FROM public_modules")
+  if rows == nil then
+    return nil, trouble
+  end
+  local out: mut {string: boolean} = {}
+  for _, row in ipairs(rows) do out[row:text(1)] = true end
+  return out, ""
+end
+
+--- The rows a public source answers with, as a condition on the
+--- module `column` names: those of a module its database records as
+--- public; `1` when the source is not public. The table is the one of
+--- the database the statement runs on.
+function symbols.public_only(column: string, public: boolean): string
+  if not public then
+    return "1"
+  end
+  return "(" .. column .. " IN (SELECT path FROM public_modules))"
+end
+
+--- Whether a module is a user guide a public source answers for: the
+--- module a guide directly under `doc/guides/` compiles as
+--- ([`doc.guides.quickstart`]), what a reader of `cosmic docs` is meant to
+--- find and a binary carries. A guide under `doc/guides/internal/` is for
+--- those working on the tree, and stays with it.
+function symbols.is_public_guide(module: string): boolean
+  return module:match("^doc%.guides%.[^.]+$") ~= nil
+end
+
+--- The condition under which the SQL `column` names a user guide's
+--- module ([`symbols.is_public_guide`]).
+function symbols.guide_module(column: string): string
+  return "(" .. column .. " GLOB 'doc.guides.*' AND " .. column .. " NOT GLOB 'doc.guides.*.*')"
+end
+
+--- [`public_only`], and the user guides too: what a public source's
+--- docs rows may hold. Only a guide's own row is carried (its prose),
+--- not the helpers its generated test module declares, so this is a
+--- condition on `docs` rows alone.
+local function public_docs(column: string, public: boolean): string
+  if not public then
+    return "1"
+  end
+  return "(" .. symbols.public_only(column, true) .. " OR " ..
+    symbols.guide_module(column) .. ")"
+end
+
+--- The modules a database under `qualifier` (`""`, or `"out."`) answers
+--- for, sorted: its modules, a declaration only where it documents one
+--- -- a database that copied a declaration without its docs must not
+--- hide the one that does -- and a guide by its own row. Which database
+--- owns a module is the first of a lookup's that answers for it, for
+--- `cosmic docs`, `cosmic fix` and the index of links alike.
+function symbols.owned_modules(qualifier: string): string
+  return "SELECT path FROM " .. qualifier .. "modules UNION SELECT path FROM " ..
+    qualifier .. "decls WHERE path IN (SELECT module FROM " .. qualifier .. "docs) " ..
+    "UNION SELECT module FROM " .. qualifier .. "docs " ..
+    "WHERE symbol = '' AND module GLOB 'doc.guides.*' ORDER BY 1"
+end
+
+--- The condition under which `alias` (a row of `docs`) is a `local`
+--- declaration the module never hands out: not the module's surface.
+function symbols.local_declaration(alias: string): string
+  return "(" .. alias .. ".exported = 0 AND " .. alias .. ".signature LIKE 'local %')"
+end
+
+--- The rows of `docs`, under the alias `alias`, that a source shows: as
+--- [`public_docs`] (the standard library and the user guides), and in a
+--- public source, no symbol the module keeps to itself: a `local` declaration (a record, enum, type or function) and
+--- what is declared under it, and a field or function whose name starts
+--- with `_`. A metamethod (`__call`) is part of a record's surface, so it
+--- stays. Every other source shows them, since it is a reader's own
+--- tree or cosmic's.
+--- `indexed` says the database has the index of `local` declarations
+--- ([`build.schema`]'s `create`, [`symbols.shown_in`]): each row is then checked
+--- against the module's declarations by a lookup in it. Without it the
+--- declarations are gathered once, since a lookup for every row would scan
+--- them all each time.
+function symbols.shown_docs(alias: string, public: boolean, indexed?: boolean): string
+  if not public then
+    return "1"
+  end
+  local module = public_docs(alias .. ".module", true)
+  local symbol = alias .. ".symbol"
+  local dotted = "replace(" .. symbol .. ", ':', '.')"
+  -- The declaration is found by where it is written, `source_symbol`: a
+  -- module's [`Fs.walk`] and its private `local function walk` share the
+  -- symbol `walk`.
+  local source = "replace(" .. alias .. ".source_symbol, ':', '.')"
+  local written = "substr(" .. source .. ", 1, instr(" .. source .. " || '.', '.') - 1)"
+  local hidden: string
+  if indexed == true then
+    hidden = "NOT EXISTS (SELECT 1 FROM docs lr WHERE lr.module = " .. alias ..
+      ".module AND lr.source_symbol = " .. written .. " AND " ..
+      symbols.local_declaration("lr") .. ")"
+  else
+    hidden = "(" .. alias .. ".module, " .. written .. ") NOT IN (SELECT lr.module, " ..
+      "lr.source_symbol FROM docs lr WHERE " .. symbols.local_declaration("lr") .. ")"
+  end
+  return module .. " AND (" .. symbol .. " = '' OR (" ..
+    "NOT " .. symbols.local_declaration(alias) .. " AND NOT (" .. alias ..
+    ".kind IN ('field', 'function', 'method') AND (" .. dotted .. " GLOB '*._*' OR " ..
+    dotted .. " GLOB '_*')) AND " .. hidden .. "))"
+end
+
+--- [`shown_docs`] as the database `db` can answer it quickest: with the
+--- lookup of `local` declarations when it has the index for it, which a
+--- database written before [`build.schema`]'s `create` made one does not. The rows
+--- are the same either way.
+function symbols.shown_in(db: Sqlite.Handle, alias: string, public: boolean): string
+  if not public then
+    return "1"
+  end
+  -- A probe that fails takes the form that needs no index, which
+  -- answers the same rows.
+  local rows, _ = Sqlite.text_rows(db,
+    "SELECT 1 FROM sqlite_schema WHERE type = 'index' AND name = ?1",
+    { { text = symbols.local_index } })
+  return symbols.shown_docs(alias, public, rows ~= nil and #rows > 0)
+end
+
+--- The condition under which the SQL `name` ends in `.` or `:` and then
+--- the SQL `last`: `last` is `name`'s last name, or its last few.
+local function ends_in(name: string, last: string): string
+  return "(substr(" .. name .. ", -length(" .. last .. ") - 1) = '.' || " .. last ..
+    " OR substr(" .. name .. ", -length(" .. last .. ") - 1) = ':' || " .. last .. ")"
+end
+
+--- `?1` with a method's `:` spelled `.`, as a member path is kept:
+--- `Box:grow` names the member `Box.grow`.
+local DOTTED <const> = "replace(?1, ':', '.')"
+
+--- The condition under which `alias` (a row of `docs`) names `?1`
+--- exactly: a symbol as declared ([`Fs.read`]), a symbol's last name
+--- alone (`read`, matching every `X.read` and `X:read`), a member path
+--- or its last few names, called or not (`Box:grow`, `Box.grow`), or a
+--- module's own row ([`cosmic.fs`]).
+function symbols.named_where(alias: string): string
+  -- Every row the conditions below match also matches this one: they all
+  -- need the symbol to end in `?1`'s last name, or the source spelling
+  -- or the module to be `?1`. It is redundant, but each of its three
+  -- terms is an index lookup, which the rest are not, so the planner
+  -- reads those rows alone instead of scanning every one.
+  local candidates = "(" .. symbols.last_name(alias .. ".symbol") .. " = " ..
+    symbols.last_name(DOTTED) .. " OR " .. alias .. ".source_symbol = ?1 OR " ..
+    alias .. ".module = ?1)"
+  return "((" .. alias .. ".symbol = ?1 OR " .. alias .. ".source_symbol = ?1 OR " ..
+    ends_in(alias .. ".symbol", "?1") .. " OR " ..
+    alias .. ".symbol = " .. DOTTED .. " OR " ..
+    ends_in(alias .. ".symbol", DOTTED) .. " OR " ..
+    "(" .. alias .. ".symbol = '' AND " .. alias .. ".module = ?1)) AND " .. candidates .. ")"
+end
+
+--- The condition under which `alias` (a row of `docs`) is the own row
+--- of a module whose last dotted name is `?1` (`json` for `cosmic.json`),
+--- which a bare name means before any symbol: a module under
+--- `cosmic.internal`, a test module and an example module are never
+--- one, since a bare name means what a user of a library means by it.
+function symbols.module_ending_where(alias: string): string
+  local module = alias .. ".module"
+  return "(" .. alias .. ".symbol = '' AND substr(" .. module .. ", -length(?1) - 1) = '.' || ?1 AND " ..
+    module .. " NOT LIKE 'cosmic.internal.%' AND substr(" .. module .. ", -5) <> '_test' AND " ..
+    "substr(" .. module .. ", -8) <> '_example')"
+end
+
+--- The condition under which `alias` (a row of `docs`) is the member of
+--- module `?1` named `?2`, a method's `:` written `.`: as the symbol
+--- column reads (`read`, [`Writer.write`]) or as the source spells it
+--- ([`Fs.read`]).
+function symbols.member_where(alias: string): string
+  return "(" .. alias .. ".module = ?1 AND " .. alias .. ".symbol <> '' AND " ..
+    "(replace(" .. alias .. ".symbol, ':', '.') = ?2 OR replace(" .. alias ..
+    ".source_symbol, ':', '.') = ?2))"
+end
+
+--- The condition under which `alias` (a row of `uses`) is a use of what
+--- `?1` names, the same way [`named_where`] finds its declaration. A use
+--- is recorded under its canonical path, without the module's own
+--- record (`exists`, `Writer.add_file`), so besides that path and
+--- its last name alone, `?1` may spell it from the module's record
+--- down ([`Fs.exists`], [`Zip.Writer.add_file`]): one name more, and
+--- only one, so [`Stream.Writer.write`] is not a use of every `write`.
+--- A use is recorded with `.` throughout (`Box.grow`), so `?1`'s `:`
+--- is read as one (`Thing.Box:grow`, `Box:grow`), as `cosmic docs`
+--- prints a method's name.
+--- That one name is checked against the module the use is of: it must
+--- be the module's own record (`Fs` in cosmic.fs, `Sqlite` in
+--- cosmic.sqlite: a `docs` row of kind record, so [`Writer.write`] is
+--- not a use of [`Fs.write`]) or, spelled either way, the last name of
+--- the module (`fs` for cosmic.fs, as a caller writes
+--- `local fs = require("cosmic.fs")`).
+function symbols.used_where(alias: string): string
+  local symbol = alias .. ".symbol"
+  local record = "substr(" .. DOTTED .. ", 1, length(?1) - length(" .. symbol .. ") - 1)"
+  local module = alias .. ".module"
+  local owned = "(lower(substr(" .. module .. ", -length(" .. record .. ") - 1)) = " ..
+    "'.' || lower(" .. record .. ") OR lower(" .. module .. ") = lower(" .. record .. ") OR " ..
+    "EXISTS (SELECT 1 FROM docs r WHERE r.module = " .. module .. " AND r.symbol = " ..
+    record .. " AND r.kind = 'record'))"
+  return "(" .. symbol .. " = " .. DOTTED .. " OR " .. ends_in(symbol, DOTTED) .. " OR " ..
+    "(" .. ends_in(DOTTED, symbol) .. " AND instr(" .. record .. ", '.') = 0 AND " ..
+    owned .. "))"
+end
+
+--- Raises where `db` is a test's pure store ([`build.closure_store`]'s `write`), which leaves the tables of text-derived rows
+--- out: a hint asked of it would answer as no match and a test would pass on that. A binary from before the table
+--- answers no match, as a hint may.
+local function refuse_withheld(db: Sqlite.Handle, table_name: string)
+  local rows, _ = Sqlite.text_rows(db, "SELECT 1 FROM meta WHERE key = 'pure_store'")
+  if rows ~= nil and #rows > 0 then
+    error("the `" .. table_name .. "` of the store is withheld, so a hint cannot be read from it: a test whose compile " ..
+        "words a hint (a refusal naming a symbol or a docs command) declares `Test.policy { store_text = true }`", 0)
+  end
+end
+
+--- Every symbol `query` names exactly, across `databases` (searched in
+--- order, the tree's own last projection ahead of the binary's), each
+--- as the `symbol` column reads, already qualified by its record
+--- ([`Removed.io`]), or as the bare module name for a module's own row
+--- (`symbol` is `""` there). It is what a name the compiler could not
+--- resolve might have meant. A database with no `docs` table, or a
+--- query that fails, answers as no match rather than a trouble: a hint
+--- is never a reason to fail the compile it explains.
+function symbols.named(databases: {Sqlite.Handle}, public: {boolean},
+                       query: string): {string}
+  local seen: mut {string: boolean} = {}
+  local out: mut {string} = {}
+  for index, db in ipairs(databases) do
+    -- A query that fails is no match: a hint never fails the compile.
+    local rows, _ = Sqlite.text_rows(db,
+      "SELECT DISTINCT module, symbol FROM docs d WHERE " ..
+        symbols.named_where("d") .. " AND " ..
+        public_docs("d.module", public[index] == true) ..
+        " ORDER BY module, symbol",
+      { { text = query } })
+    if rows == nil then refuse_withheld(db, "docs") end
+    if rows ~= nil then
+      for _, row in ipairs(rows) do
+        local name = if row:text(2) ~= "" then row:text(2) else row:text(1) end
+        if seen[name] ~= true then
+          seen[name] = true
+          out[#out + 1] = name
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- One query [`symbols.has_example_query`] asks: its SQL and the one or two texts it binds.
+local record ExampleQuery
+  sql: string
+  first: string
+  second?: string
+end
+
+--- Whether a worked-example name, comment, or checked source answers a
+--- query in any of `databases`. Compiler diagnostics ask before printing
+--- a docs command, so an old or incomplete binary never advertises
+--- documentation it cannot answer. A query that fails is false: a hint
+--- cannot replace the compiler's own diagnostic.
+function symbols.has_example_query(databases: {Sqlite.Handle}, public: {boolean},
+                                   name: string): boolean
+  local owners: mut {string: integer} = {}
+  for index, db in ipairs(databases) do
+    -- A query that fails is no owner, and so no example.
+    local modules, _ = Sqlite.text_rows(db, "SELECT path FROM modules")
+    if modules ~= nil then
+      for _, row in ipairs(modules) do
+        if owners[row:text(1)] == nil then owners[row:text(1)] = index end
+      end
+    end
+  end
+  local words: mut {string} = {}
+  for word in name:gmatch("[%w_]+") do words[#words + 1] = word end
+  local phrase = '"' .. table.concat(words, " ") .. '"'
+  for index, db in ipairs(databases) do
+    local lookups: {ExampleQuery} = {
+      { sql = "SELECT e.module FROM examples e WHERE e.name = ?1 AND " ..
+          symbols.public_only("e.module", public[index] == true), first = name },
+      -- The phrase matches stemmed words, so `Fs.reads` finds [`Fs.read`];
+      -- the GLOB says the name is there whole, as `docs` checks it.
+      { sql = "SELECT e.module FROM examples_fts JOIN examples e " ..
+          "ON e.id = examples_fts.rowid WHERE examples_fts MATCH ?1 AND " ..
+          "(e.text || ' ' || e.source || ' ') GLOB ?2 AND " ..
+          symbols.public_only("e.module", public[index] == true), first = phrase,
+        second = "*" .. name .. "[^A-Za-z0-9_]*" },
+    }
+    for _, lookup in ipairs(lookups) do
+      -- A query that fails is no match.
+      local binds: mut {Sqlite.Value} = { { text = lookup.first } }
+      if lookup.second ~= nil then binds[#binds + 1] = { text = lookup.second } end
+      local rows, _ = Sqlite.text_rows(db, lookup.sql, binds)
+      if rows == nil then refuse_withheld(db, "examples") end
+      if rows ~= nil then
+        for _, row in ipairs(rows) do
+          if owners[row:text(1)] == index then return true end
+        end
+      end
+    end
+  end
+  return false
+end
+
+--- Adds to `into` each name a module binds to another, keyed by the module, a newline and the name: the rows of
+--- `bound` of the database `db` holds under `qualifier` (`""` or `"out."`), where it holds that table, one written
+--- before it existed binding none. A key `into` already holds is kept, so the first database read that binds a
+--- name answers for it.
+function symbols.add_bound(into: mut {string: string}, db: Sqlite.Handle, qualifier: string): boolean, string
+  local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
+      "sqlite_schema WHERE type = 'table' AND name = 'bound'")
+  if held == nil then
+    return false, held_trouble
+  end
+  if #held == 0 then
+    return true, ""
+  end
+  local rows, trouble = Sqlite.text_rows(db,
+    "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
+  if rows == nil then
+    return false, trouble
+  end
+  for _, row in ipairs(rows) do
+    local key = row:text(1) .. "\n" .. row:text(2)
+    if into[key] == nil then into[key] = row:text(3) end
+  end
+  return true, ""
+end
+
+return symbols

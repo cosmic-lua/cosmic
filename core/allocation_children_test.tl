@@ -25,8 +25,8 @@ local function assert_c_heap(before_bytes: integer, before_blocks: integer, what
 end
 
 --- `children` reads its list into a block of the core's C heap, and
---- closes the list's descriptor, whichever allocation is refused. Off
---- Linux it allocates nothing, and there is nothing to walk.
+--- closes the list's descriptor, whichever allocation is refused. The
+--- checked core that walks it is Linux's.
 local function test_children_releases_its_block_whenever_an_allocation_fails(tmp: string)
   local before = AllocationFixture.next_descriptor(tmp)
   local bytes, blocks = testing.c_heap()

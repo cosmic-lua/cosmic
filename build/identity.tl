@@ -4,6 +4,7 @@
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local analysis_schema = require("build.analysis_schema")
 local bind = require("build.bind")
 local tree = require("build.tree")
 
@@ -69,7 +70,7 @@ local text = bind.text
 --- older tools wrote, which a checkout may still hold, stale; the upstream
 --- sources and the records that patch them, prose, and anything
 --- hidden. `doc` is handled on its own: almost all of it is prose with
---- no examples, but `doc/guides/*.md` is the one place doc/writing.md's
+--- no examples, but a guide (`doc/guides/*.md`, `doc/guides/internal/*.md`) is where doc/writing.md's
 --- grammar applies, and the build has to see those files to run
 --- [`build.doctest`] over them. In cosmic's own tree the patches, the
 --- vendor pins and the zig wrapper are walked after all, as inputs to
@@ -153,11 +154,13 @@ local function is_vendor_pin(entry: string): boolean
 end
 
 --- Whether `file` is a doc this tree extracts runnable examples from --
---- exactly `doc/guides/*.md`, never a markdown file anywhere else in
---- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/writing.md`] are
---- prose with no examples, and stay out of scope on purpose).
+--- exactly `doc/guides/*.md`, `doc/guides/internal/*.md` and a program's
+--- own `cmd/<name>/doc/guides/*.md`, never a markdown file anywhere else in
+--- the tree ([`doc/design.md`], [`doc/roadmap.md`], and [`doc/writing.md`]
+--- are prose with no examples, and stay out of scope on purpose).
 local function is_doc_guide(file: string): boolean
-  return file:match("^doc/guides/[^/]+%.md$") ~= nil
+  return file:match("^doc/guides/[^/]+%.md$") ~= nil or file:match("^doc/guides/internal/[^/]+%.md$") ~= nil or
+    file:match("^cmd/[^/]+/doc/guides/[^/]+%.md$") ~= nil
 end
 
 --- The walk's predicates take the entry's bare name second, so what
@@ -169,7 +172,7 @@ function identity.skip_input(entry: string, name: string): boolean
   end
   local first = identity.first_of(entry)
   if first == "doc" then
-    if entry == "doc" or entry == "doc/guides" then
+    if entry == "doc" or entry == "doc/guides" or entry == "doc/guides/internal" then
       return false
     end
     return not is_doc_guide(entry)
@@ -205,26 +208,28 @@ function identity.skip_in_own_tree(entry: string, name: string): boolean
   return identity.skip_input(entry, name)
 end
 
---- Whether `file` is under the top-level `static/` directory
---- ([`cosmic.layout`]'s `static`): an asset the project carries verbatim,
---- whatever its extension, never a module.
+--- Whether `file` is a static asset ([`cosmic.layout`]'s `static`), under
+--- `static/` or a program's `cmd/<name>/static/`
+--- ([`analysis_schema.static_asset`]): an asset the project carries
+--- verbatim, whatever its extension, never a module.
 function identity.is_static(file: string): boolean
-  return file:sub(1, 7) == "static/"
+  return analysis_schema.static_asset(file) ~= nil
 end
 
 --- The most bytes of a static asset the build embeds: the cost is memory
 --- at run time, where an embedded file is read whole.
 local static_limit <const> = 16 * 1024 * 1024
 
---- The longest path of a static asset, relative to `static/`.
+--- The longest path of a static asset, relative to its `static/`.
 local static_path_limit <const> = 255
 
---- Why `file`, a path under `static/`, of `size` bytes, cannot be carried,
+--- Why `file`, a static asset of `size` bytes, cannot be carried,
 --- or nil when it can: too big, a name that needs escaping in every URL
 --- and tag the app writes (a control byte, `\`, `%`, `?` or `#`), or a
 --- path too long. The reason leads with the file's own path.
 function identity.static_refusal(file: string, size: integer): string?
-  local name = file:sub(8)
+  local asset = analysis_schema.static_asset(file)
+  local name = if asset ~= nil then asset.path else file end
   if size > static_limit then
     return ("%s: %d MiB is past the %d MiB limit for an embedded asset; serve it from disk " ..
       "or object storage"):format(file, (size + 1048575) // 1048576, static_limit // 1048576)
@@ -255,7 +260,7 @@ function identity.is_input(file: string, own_tree: boolean): boolean
   if String.ends_with(file, ".tl") or String.ends_with(file, ".tmpl") then
     return true
   end
-  if first == "doc" then
+  if first == "doc" or first == "cmd" then
     return is_doc_guide(file)
   end
   return false
@@ -491,9 +496,12 @@ local compiler_roots: {string} = {
   -- The analyzer ([`build.importer`]'s `analyzer_roots`): the extractors,
   -- generators and parser a parse runs, whose `tests` rows a compile
   -- appends a test module's tail from (`with_test_tail`).
-  "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "build.link_text",
+  "build.analysis_schema", "build.bind", "build.doctest", "build.gen_syscalls", "cosmic.internal.link_text",
   -- The compile's own: the tree the rules hold in and the globals the checker is stripped of.
   "build.tree", "build.withheld",
+  -- What answers the identities a compile and a parse are keyed by from the binary's stamps: a stamp it
+  -- answered wrongly would store a row under another code's key.
+  "build.stamp",
 }
 
 --- The modules the compiler's identity holds, sorted, as `requires`
@@ -563,8 +571,10 @@ end
 ---
 --- The rule: a module build.importer calls that can change a row a
 --- compile or a parse stores is one of `compiler_roots`, or is reached
---- from one. What it leaves out only stages (build.work),
---- fingerprints, reports (build.symbols' hints, in a refusal's message,
+--- from one, or is the compile or the parse of the first item
+--- ([`build.pipeline`], [`build.parse_derive`]), keyed as it says. What
+--- it leaves out only stages (build.work),
+--- fingerprints, reports (cosmic.internal.symbols' hints, in a refusal's message,
 --- which no compile keeps), fails a whole build before any key is looked
 --- up (build.positions), or finds the host's caches (build.caches,
 --- build/zig.tl): an edit to one compiles and parses nothing again.
@@ -649,7 +659,7 @@ end
 --- [`identity.writer_modules`] the tree holds, and the core image's hash
 --- (`image_hash`), whose SQLite writes the bytes. What a module requires
 --- is what `requires` holds of its source, as for [`compiler_identity`].
---- An edit to a module outside it -- build.positions, build.todo_scan,
+--- An edit to a module outside it -- build.todo_scan,
 --- the analyzer -- writes the same projection from the same rows, so
 --- it moves no signature and settles no rebuilt tool.
 local function writer_identity(db: Sqlite.Handle): string?, string

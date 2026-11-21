@@ -2,7 +2,7 @@
 --- what [`build.links`] finds and rewrites in it.
 local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
-local LinkText = require("build.link_text")
+local LinkText = require("cosmic.internal.link_text")
 local Node = require("build.syntax_node")
 local SyntaxLinkText = require("build.syntax_link_text")
 local SyntaxLinks = require("build.syntax_links")

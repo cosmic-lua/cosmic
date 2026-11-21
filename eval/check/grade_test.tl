@@ -107,7 +107,7 @@ local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
   assert(said:find("check: FAIL " .. dir .. "/bin/cosmic build\n", 1, true), said)
   assert(said:find("skip " .. dir .. "/project/o/bin/notes: cosmic build failed", 1, true), said)
   assert(Fs.exists(dir .. "/empty") ~= true, "the earlier binary was run")
-  assert(Fs.exists(dir .. "/project/o/bin/notes"), "the solver's binary was removed")
+  assert(Fs.exists(dir .. "/project/o/bin/notes") == true, "the solver's binary was removed")
 end
 
 --- A build that passes without writing notes (cmd/notes renamed away)
@@ -439,7 +439,8 @@ local function test_a_grade_runs_with_a_home_inside_the_arena()
 end
 
 local function test_a_list_that_holds_a_null_is_valid_json_and_a_bare_null_is_said_so()
-  local list = assert(Grader.decoded("[1,null,3]"))
+  local list, list_trouble = Grader.decoded("[1,null,3]")
+  assert(list ~= nil, list_trouble)
   local items = assert(Json.to_array(list))
   assert(#items == 3 and items[2] == Json.null and items[3] == 3)
   local bare = Grader.decoded("null")

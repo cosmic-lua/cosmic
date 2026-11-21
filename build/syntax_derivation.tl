@@ -3,12 +3,12 @@
 --- the failure messages it catalogs, the symbols it documents, the members of other modules it refers to, the names it
 --- binds to a module, its worked examples, the links of its comments, where it declares a global, where it declares a
 --- type or a member of one, and its stub. It is the port of [`build.derivation`]'s `parse_fresh` for a source already
---- parsed ([`build.syntax_analyzer`] and [`build.syntax_link_text`] read it), which [`build.pipeline`]'s `derive` calls
+--- parsed ([`build.syntax_analyzer`] and [`build.syntax_link_text`] read it), which [`build.parse_derive`]'s `derive` calls
 --- in the mode `COSMIC_GRAMMAR=new` chooses.
 local Analyzer = require("build.syntax_analyzer")
 local Ast = require("lang.ast")
 local Globals = require("build.syntax_globals")
-local LinkText = require("build.link_text")
+local LinkText = require("cosmic.internal.link_text")
 local Members = require("build.syntax_members")
 local Node = require("build.syntax_node")
 local Places = require("build.syntax_places")

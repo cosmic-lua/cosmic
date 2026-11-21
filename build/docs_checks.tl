@@ -13,7 +13,8 @@ local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local docs = require("build.docs")
-local symbols = require("build.symbols")
+local Doc = require("cosmic.doc")
+local symbols = require("cosmic.internal.symbols")
 local writer = require("build.writer")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, examples, uses or links of the database it is handed.
 local _ = require("build.reads.all")
@@ -164,12 +165,14 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
-  local view: docs.View = read_view
-  local index, index_trouble = docs.index(view)
+  local view: Doc.View = read_view
+  local read_public, _ = symbols.public_modules(db)
+  local public = read_public or {}
+  local index, index_trouble = Doc.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
   end
-  local modules: {docs.Summary} = index
+  local modules: {Doc.Summary} = index
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.source_symbol, d.kind, d.signature, d.text, d.file, d.line " ..
       "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
@@ -180,11 +183,11 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local shown: Sqlite.Rows = rows
 
   -- Several modules declare `Entry.path`, so one lookup answers each.
-  local looked: mut {string: docs.Lookup} = {}
-  local function lookup(name: string): docs.Lookup?
+  local looked: mut {string: Doc.Lookup} = {}
+  local function lookup(name: string): Doc.Lookup?
     local found = looked[name]
     if found == nil then
-      local fresh, found_trouble = docs.lookup(view, name)
+      local fresh, found_trouble = Doc.lookup(view, name)
       if fresh == nil then
         out[#out + 1] = name .. ": " .. found_trouble
         return nil
@@ -197,8 +200,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
 
   -- The page of a container: its rendered lines, held to what a reader
   -- may see, and each name it lists under a type it stands for.
-  local function inspect(label: string, entry: docs.Entry)
-    local lines, render_trouble = docs.render(view, entry)
+  local function inspect(label: string, entry: Doc.Entry)
+    local lines, render_trouble = Doc.render(view, entry)
     if lines == nil then
       out[#out + 1] = label .. ": " .. render_trouble
       return
@@ -256,7 +259,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       out[#out + 1] = "the index lists " .. summary.module .. ", but `cosmic docs " ..
         summary.module .. "` does not resolve it"
     end
-    if found ~= nil and symbols.is_public_module(summary.module) then
+    if found ~= nil and public[summary.module] == true then
       local answered = false
       for _, entry in ipairs(found) do
         if entry.module == summary.module and entry.symbol == "" then
@@ -311,7 +314,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       -- A function or a container has a page of its own to reach.
       if kind == "function" or kind == "method" or containers[kind] == true then
         local found = lookup(source_symbol)
-        local answer: docs.Entry? = nil
+        local answer: Doc.Entry? = nil
         if found ~= nil then
           for _, entry in ipairs(found) do
             if entry.module == module and entry.source_symbol == source_symbol then
@@ -414,18 +417,37 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   if read_view == nil then
     return { "reading the view: " .. view_trouble }
   end
-  local view: docs.View = read_view
-  local index, index_trouble = docs.index(view)
+  local view: Doc.View = read_view
+  local index, index_trouble = Doc.index(view)
   if index == nil then
     return { "reading the index: " .. index_trouble }
   end
-  -- The record a public module returns is its last name, capitalized:
-  -- `Fs` for [`cosmic.fs`].
+  -- The record a module of the library returns is its last name,
+  -- capitalized: `Fs` for [`cosmic.fs`]. One a closed directory keeps to
+  -- itself counts too, so that a public page naming its symbol
+  -- ([`Router.match`]) is held to an answer a reader can get.
   local records: mut {string: boolean} = {}
-  for _, summary in ipairs(index) do
-    local last = summary.module:match("[^.]+$")
-    if symbols.is_public_module(summary.module) and last ~= nil then
+  local library, library_trouble = Sqlite.text_rows(db, "SELECT path FROM modules WHERE kind = 'module' AND " ..
+      symbols.library_modules("path"))
+  if library == nil then
+    return { "reading the modules: " .. library_trouble }
+  end
+  -- Each module of the library a closed directory keeps to itself, by its
+  -- name and by its file: a public page that names one sends its reader
+  -- to a page `cosmic docs` does not have.
+  local kept: mut {string: boolean} = {}
+  local read_public, _ = symbols.public_modules(db)
+  local public = read_public or {}
+  for _, row in ipairs(library) do
+    local path = row:text(1)
+    local last = path:match("[^.]+$")
+    if last ~= nil then
       records[last:sub(1, 1):upper() .. last:sub(2)] = true
+    end
+    if public[path] ~= true then
+      kept[path] = true
+      kept[path:gsub("%.", "/") .. ".tl"] = true
+      kept[path:gsub("%.", "/") .. "/init.tl"] = true
     end
   end
   local rows, trouble = Sqlite.text_rows(db,
@@ -451,7 +473,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local function resolves(query: string): boolean
     local words: mut {string} = {}
     for word in query:gmatch("%S+") do words[#words + 1] = word end
-    local asked = docs.asked(words)
+    local asked = Doc.asked(words)
     if asked == nil then
       return true
     end
@@ -463,7 +485,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     end
     local cached = answered[query]
     if cached == nil then
-      local found, _ = docs.lookup(view, query)
+      local found, _ = Doc.lookup(view, query)
       cached = found ~= nil and #found > 0 and (found.exact or query:find(" ", 1, true) ~= nil)
       local top = if found ~= nil then found[1] else nil end
       if top ~= nil and top.kind == "removed" then
@@ -490,6 +512,8 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
         if not placeholder(verb) and known[verb] ~= true then
           problem = "names no verb"
         end
+      elseif kept[span] == true then
+        problem = "names a module the library keeps to itself"
       else
         local chain = span:match("^(%u[%w]*[%.:][%w_%.:]*[%w_])")
         local head = if chain ~= nil then chain:match("^[%w]+") else nil end

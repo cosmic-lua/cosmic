@@ -126,7 +126,7 @@ local record Cli
   --- module's import closure and what the module declares with
   --- [`Test.policy`] (`cosmic docs cosmic.test`), and nothing else of the
   --- tree or the host: a test that starts a host program, /bin/sh or
-  --- `sleep`, declares the profile "system". A failure that met what its
+  --- `sleep`, grants it by its absolute path. A failure that met what its
   --- sandbox left out at an absolute path -- a program it started, a
   --- file it read -- says so beneath it, naming what to declare, as does
   --- one that read a file of the tree by a relative path without granting it.
@@ -138,6 +138,12 @@ local record Cli
   --- COSMIC_VERDICT_CACHE names another file, and COSMIC_VERDICT_CACHE=0
   --- turns off that shared cache alone: a verdict of this checkout still
   --- stands, and only `--all` runs its test again.
+  ---
+  --- An edit to a test file, a comment included, runs its tests again; a
+  --- comment in a module it imports runs them again only where the test is
+  --- given that module's text, as one is that declares `store_text` or
+  --- `store`, starts the program or runs unsandboxed: doc/testing.md ("the
+  --- pure store") names every case.
   ---
   --- A test function is given a fresh directory (`<scratch>/tmp`); TMPDIR is
   --- its scratch directory, `<scratch>`, so [`Fs.mkdtemp`] makes a sibling of
@@ -222,7 +228,12 @@ local record Cli
   --- carries this binary's CA roots, the certificates it refuses as
   --- revoked, and time zones: `cosmic refresh --binary <path> -o <copy>`
   --- writes a copy with newer ones
-  --- later. The tree is found as `test` finds it
+  --- later. The tree is found as `test` finds it. In cosmic's own
+  --- tree the program is the tool itself, which `bin/zig build boot`
+  --- builds: `build` prints the tool's path there, a stale tool
+  --- rebuilt first, and `--out` writes a copy to dir/cosmic, which
+  --- runs any project as a release does with the cores that boot
+  --- built; it takes no other option and no path
   build: string
   --- `cosmic db [path...]`: what the three databases in the build
   --- directory hold, each named by its path,
@@ -269,7 +280,16 @@ local record Cli
   --- against the projection in the build directory, or the binary's own
   --- database when there is none, or the one database an option names.
   --- The build directory is the working directory's only, never a
-  --- project's above it. `cosmic sql --from
+  --- project's above it. Nothing is built or staged: the projection is
+  --- what the last run that builds wrote (`cosmic test`, `build`, `fix`,
+  --- `docs`, `uses`, or running a file, `cosmic <file.tl>`), and the
+  --- working database `--build` reads what the last run that stages left
+  --- (those, `todos` and `lsp`), so run one first to ask of the tree as it
+  --- stands. A statement opening with `.` (`.tables`) is the sqlite3
+  --- shell's, not SQL: `SELECT name FROM sqlite_schema WHERE type='table'`
+  --- names the tables, and, of the build directory's databases, `cosmic
+  --- db` says what each holds. One opening with an SQL comment `--` is read
+  --- as an option unless `--` comes before it. `cosmic sql --from
   --- <file> ['<statement>']` asks it of a data file instead, to count,
   --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
   --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
@@ -301,13 +321,13 @@ local record Cli
   --- to get only the file's. With no statement it prints each table's row
   --- count, columns with the types stored, and a sample row.
   --- A missing column or table is answered with the ones there are.
-  --- Exit codes as below, 1 for a file it cannot read or load. The
-  --- first line names the columns (a statement without any prints
-  --- none); each row after is one line of
+  --- Exit codes as below, 1 for a file it cannot read or load. The rows
+  --- are TSV: the first line names the columns (a statement without any
+  --- prints none); each row after is one line of
   --- tab-separated cells: NULL as \N, a blob as X'<hex>',
   --- and in text a backslash, tab, newline or return as \\, \t, \n or
   --- \r and any other control byte as \xHH; the summary goes to
-  --- stderr. `--to` writes the rows in another format. `--to csv`
+  --- stderr. `--to` writes the rows as CSV or NDJSON instead. `--to csv`
   --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
   --- field and '' a quoted empty one (so a one-column NULL is a blank
   --- line, which a CSV reader may drop), a blob's bytes as they are,
@@ -323,7 +343,7 @@ local record Cli
   --- Exits 0 when the
   --- statement ran, rows or none; 1 when the
   --- database or the statement failed, a write among them; 2 for a
-  --- command line it cannot read. Nothing is built or staged.
+  --- command line it cannot read.
   sql: string
   --- `cosmic json [options] [path] [file|-]`: the answer to a quick
   --- question about a JSON file -- is there a key `x` in this export,
@@ -531,6 +551,40 @@ local record Cli
   --- 1 when the entropy source failed, 2 for a command line, a file or a
   --- request it refuses, or a failed write to standard output
   rand: string
+  --- `cosmic qr [options] [text...]`: the QR code of a text, to show an
+  --- address to a phone with nothing installed. The text is the words,
+  --- joined by spaces, or, with none, standard input less one newline at
+  --- its end. It prints the code for the terminal in half blocks (`▀`,
+  --- `▄`, `█`), two rows of modules a line, with the standard's quiet
+  --- zone of four modules (`--quiet N`, 0 to 16). As it is, the blocks
+  --- show the light modules, for light text on a dark ground, the common
+  --- terminal; `--invert` draws the dark modules instead, for a light
+  --- ground or paper. A reader needs dark modules on light, so if a phone
+  --- does not take it, try the other. `--ascii` draws each module as `##`
+  --- or two spaces, a line a row, for a font with no block characters.
+  --- `--svg <file|->` writes an SVG image to the file, or prints it,
+  --- 8 pixels a module (`--scale N`, 1 to 1000) with a `viewBox`, so it
+  --- shows at a size and scales without blurring; `--title T` names what it
+  --- shows for a screen reader. `--level L|M|Q|H` is the error correction
+  --- (default M: 15% of the code can be lost), and `--max-version N`
+  --- refuses a text that needs a code of more than N (1 to 40, default
+  --- 40) to keep it small enough to scan. Examples:
+  --- `cosmic qr https://example.com/` prints a code,
+  --- `echo https://example.com/ | cosmic qr --invert` one for a light
+  --- terminal, and `cosmic qr --svg code.svg --level H https://example.com/`
+  --- writes an image. A text that starts with `-` follows `--`
+  --- (`cosmic qr -- -x`). `--read [file|-]` reads a code back: the text
+  --- or SVG that `cosmic qr` drew, either way round and with any quiet
+  --- zone, from the file or standard input, mending what its level
+  --- allows, and prints what it holds and a newline (`cosmic qr hello |
+  --- cosmic qr --read` prints `hello`). It reads those drawings, not
+  --- photos or other programs' images. A program draws and reads its own
+  --- with [`cosmic.qr`]. Its standard output is the code, or the text
+  --- read, and it prints no summary. Exits 0 when it printed or wrote, 1
+  --- when the text is too large for a code of the allowed versions at the
+  --- level or a drawing holds no code it can read, 2 for a command line
+  --- or an input it refuses, or a failed write
+  qr: string
   --- `cosmic time <now|convert|between|add> ...`: the clock and calendar
   --- the same on every host, where GNU and BSD `date` differ. Zones are
   --- the IANA names of the tz database the binary carries. `now` prints
@@ -623,33 +677,74 @@ local record Cli
   --- shown whole and the rest a line each; a module lists the
   --- signature of each function it offers, ahead of the rest of its
   --- prose. Several qualified names (Fs.read Fs.write) are each looked
-  --- up in turn; any other words are searched for together. With no q,
+  --- up in turn; any other words are searched for together. A word no
+  --- documentation holds is searched again as the nearest word one does,
+  --- a misspelling of it, and the page says which it searched. With no q,
   --- every module there is, with what it is for; with `cosmic`, the
   --- standard library's. `--json` prints one JSON object per entry
   --- found, every one and not the first five, a line each (query, exact,
-  --- module, symbol, kind, signature, text, and file, line and verb
-  --- where it has them), with no summary on standard error; with no q,
+  --- module, symbol, kind, signature, text, and file, line, verb and
+  --- respelled where it has them), with no summary on standard error but the one
+  --- a stale answer gets (below); with no q,
   --- or `cosmic`, each module the page lists. Filter it by composing,
   --- as `cosmic json` does: `cosmic docs --json Fs.read Fs.write |
   --- cosmic sql --from docs=- --as ndjson "SELECT symbol, line FROM
-  --- docs WHERE kind = 'function'"`. The
-  --- tree is found as `test` finds it
+  --- docs WHERE kind = 'function'"`. A doc is the run of comment
+  --- lines directly above a declaration, a record's field or an
+  --- enum's value: its `---` lines where it has any, else its `--`
+  --- lines, less TODO lines and the build's `--- @` tags. A
+  --- trailing comment and a comment inside a table constructor are
+  --- none, so a table's entries are documented by the record that
+  --- types it. A function declared as a field of the record a module
+  --- returns, and defined as `function Record.f`, shows the field's
+  --- doc unless the definition has a `---` doc of its own, and is
+  --- placed at the definition. Where the build directory holds a working
+  --- database or a projection (any run that builds or stages there made
+  --- it, `todos` and `lsp` among them), it builds the tree first, as
+  --- `test` does but running no test, so it answers for the tree as it
+  --- stands; where it holds neither, it builds nothing and answers from
+  --- cosmic's own docs, saying the directory has not been built. Where the
+  --- tree does not build, or the build is left alone (another run holds
+  --- it, the working database is another tool's), it answers from the
+  --- last build, and the summary says so and why, as each `--json` object
+  --- does with `"stale": true`. The tree is found as `test` finds it
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --
   --- each link to it, in a comment or a Markdown file, marked `link`.
+  --- A place is a read or a call of a member, through its module, an
+  --- alias of it, or a value the checker gave its type; one through `any`,
+  --- a union or a value whose type failed is not seen. A member a record
+  --- takes from an interface is a use of the interface's, and of the
+  --- record's own too where the record declares it again. The code the
+  --- build writes for a call ([`Shape.record_of`]) reads at the call's
+  --- line. An assignment to a member and a key of a table literal are not
+  --- places.
   --- The symbol may be a file's path instead (doc/writing.md, or
-  --- doc/writing.md#heading for one heading), which only links name. The
+  --- doc/writing.md#heading for one heading), which only links name. It
+  --- builds the tree first, as `docs` does, and its summary says where it
+  --- answers from the last build instead. The
   --- tree is found as `test` finds it
   uses: string
   --- `cosmic todos [options] [path | words...]`: every `TODO:` comment
   --- in the tree, as file:line, with the date and commit git blames its
   --- first line on -- in a git repository only: elsewhere git is not
   --- started, and each is listed with none -- indexed into its build.db so
-  --- only a file that moved is blamed again. An argument that names a path narrows it to that
+  --- only a file that moved is blamed again. A TODO is a comment on a line
+  --- of its own whose text opens with `TODO:`, and the lines that carry on
+  --- its paragraph: not one after code on its line. In Markdown a line
+  --- opening with `#`, `##` or `*` is read as such a comment, and a line of
+  --- prose or an HTML comment is none. A
+  --- comment that opens with a near miss (`TODO(tag):`, `FIXME:`, a `TODO`
+  --- with no colon) is not listed, and the summary counts those, naming
+  --- the spelling that is. An argument that names a path narrows it to that
   --- path; the rest are words to search the TODOs' text for, best match
   --- first, in FTS5's own syntax ("a phrase", OR, prefix*) when they
-  --- parse as that. The tree is found as `test` finds it
+  --- parse as that: `^perf` finds those whose text opens with `perf`, the tag
+  --- of a `TODO: perf: ...`, and `data:` searches for a word that also names
+  --- a path. Listing nothing is no failure, though a search that matches
+  --- none is (exit 1, as `cosmic help exit` says). The tree is found as
+  --- `test` finds it
   todos: string
   --- `cosmic bom [--licenses | --json <path>]`: the bill of materials
   --- this binary ships under -- every third-party component its cores
@@ -681,7 +776,7 @@ local record Cli
   --- bill of materials records the release each came from, and the
   --- binary it reads is never written
   refresh: string
-  --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file] [--json]`:
+  --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file | --launcher file] [--json]`:
   --- finds cosmic's own releases, the `YYYYMMDD-<commit>` (earlier,
   --- `next-<commit>`) prereleases of cosmic-lua/cosmic on GitHub, picks
   --- one and verifies it. Releases are found by their tags and main's
@@ -705,7 +800,15 @@ local record Cli
   --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
   --- printing that path; either renames it into place only once its
   --- sha256 is the release's digest. `--pin` writes the three pin lines
-  --- to a file once the binary's bytes are verified. GH_TOKEN goes with
+  --- to a file once the binary's bytes are verified. `--launcher`
+  --- sets a project up to run on the release: it writes the pin as
+  --- `<file>.pin` and, at the file, a shell script that runs the
+  --- release that pin names with the arguments given, a project's
+  --- bin/cosmic. The script downloads the release once, runs it only
+  --- once its sha256 is the pin's and caches it where `--cache`
+  --- does; COSMIC_TOOL=<path> makes it run another cosmic instead,
+  --- such as one `cosmic build` printed in a checkout of cosmic, and
+  --- `--pin <file>.pin` moves the pin from then on. GH_TOKEN goes with
   --- the API's requests when set, and every redirect must stay on https.
   --- It prints no summary. Exits 0 when it did what was asked, 1 when it
   --- could not (no connection, no matching release, a release that fails
@@ -867,7 +970,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", qr = "qr", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", release = "release", sandbox = "sandbox", help = "help",
   },
   verbs = {
@@ -907,7 +1010,7 @@ local module: Module = {
             "parameter, return value and record field write against its type's kind, run every " ..
             "test, and report the values that fail one; a parameter declared under cosmic/ also " ..
             "fails the test that passes it (COSMIC_TEST_CHECK_TYPES=1)" },
-        ["--jobs"] = { value = "n", about = "run n tests at once; one per processor by default" },
+        ["--jobs"] = { value = "n", about = "run n tests at once; by default one for each processor and one more" },
         ["--min"] = { value = "pct", about = "fail the run, as a failing test does (status 1), when the " ..
             "tree's line coverage, C included, is under pct percent; a run on standing verdicts " ..
             "has the lines they hit; needs a whole run (no selector, no --shard)" },
@@ -1099,6 +1202,21 @@ local module: Module = {
         ["--scale"] = { value = "t", about = "gamma: the scale, above 0 (default 1)" },
       },
     },
+    qr = {
+      about = "a QR code of a text, for the terminal or as an SVG, or read one back",
+      usage = "[options] [text...]",
+      spec = {
+        ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
+        ["--max-version"] = { value = "n", about = "the largest code, 1 to 40 (default 40)" },
+        ["--quiet"] = { value = "n", about = "the light border in modules, 0 to 16 (default 4)" },
+        ["--invert"] = { about = "draw the dark modules, for a light terminal or paper" },
+        ["--ascii"] = { about = "draw with `##` and spaces, not block characters" },
+        ["--svg"] = { value = "file|-", about = "write an SVG image to the file, or print it" },
+        ["--scale"] = { value = "n", about = "svg: pixels a module, 1 to 1000 (default 8)" },
+        ["--title"] = { value = "text", about = "svg: what it shows, for a screen reader" },
+        ["--read"] = { about = "read back a code `cosmic qr` drew, from a file or standard input" },
+      },
+    },
     docs = {
       about = "a symbol's or module's docs, or a search",
       usage = "[words...]",
@@ -1138,7 +1256,7 @@ local module: Module = {
     },
     release = {
       about = "find, verify and download cosmic's own releases",
-      usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file>] [--json]",
+      usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]",
       spec = {
         ["--commit"] = { value = "hex", about = "the release whose commit starts with this, 7 to 40 hex digits" },
         ["--until"] = { value = "time", about = "the newest published at or before this RFC 3339 time, or by the end of this date (UTC)" },
@@ -1148,6 +1266,7 @@ local module: Module = {
         ["-o"] = { value = "file", about = "write the verified binary here, mode 0755" },
         ["--cache"] = { about = "write the verified binary into bin/cosmic-bootstrap's cache and print its path" },
         ["--pin"] = { value = "file", about = "write the release as ci/cosmic-driver.pin's three lines, once verified" },
+        ["--launcher"] = { value = "file", about = "write a project's launcher here, mode 0755, and the release as its pin, <file>.pin" },
       },
     },
     sandbox = {
@@ -1198,11 +1317,11 @@ local module: Module = {
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox" },
     { "Project", "test", "fix", "build", "db", "lsp", "migrate" },
-    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile" },
+    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh", "release" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "compile", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "compile", "docs", "uses", "todos",
     "bom", "refresh", "release", "sandbox", "help" },
 }
 

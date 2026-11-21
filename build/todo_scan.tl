@@ -25,6 +25,13 @@ local record todo_scan
     last: integer
     text: string
   end
+  --- A comment that opens with a near miss of the indexed spelling
+  --- ([`todo_scan.misses`]): its line, and the opening as it is written
+  --- (`TODO(perf):`, `TODO`, `FIXME:`).
+  record Miss
+    line: integer
+    spelling: string
+  end
 end
 
 --- The comment markers a TODO may follow.
@@ -137,6 +144,45 @@ function todo_scan.scan(source: string): {todo_scan.Found}
         text = table.concat(parts, " "),
       }
     end
+  end
+  return found
+end
+
+--- Whether the comment `comment` carries on the paragraph of `before`, the
+--- line above it, as [`todo_scan.scan`] reads a paragraph: the same
+--- indentation and marker, or a block comment's `*` under its opener, with
+--- text, and not a sentence opened on a new line after one that ended.
+local function carries_on(before: Comment?, comment: Comment): boolean
+  if before == nil or before.text == "" or comment.text == "" then return false end
+  local following = continued(before.marker)
+  local aligned = comment.indent == before.indent or
+    (following ~= before.marker and comment.indent == before.indent .. " ")
+  local ended = before.text:match("%.$") ~= nil and comment.text:match("^%u") ~= nil
+  return aligned and (comment.marker == before.marker or comment.marker == following) and not ended
+end
+
+--- The comments that open with a spelling a reader takes for a TODO's but
+--- [`todo_scan.scan`] does not find, in order: a tag in parentheses
+--- (`TODO(perf): ...`), `FIXME`, or a bare `TODO` and no colon on the first
+--- line of a comment -- one that carries on another's paragraph is prose that
+--- wrapped there ("... as the\n-- TODO there says"), and is none.
+function todo_scan.misses(source: string): {todo_scan.Miss}
+  local lines = lines_of(source)
+  local found: mut {todo_scan.Miss} = {}
+  local before: Comment? = nil
+  for index, line in ipairs(lines) do
+    local comment = comment_of(line)
+    if comment ~= nil then
+      local text = comment.text
+      local spelling = text:match("^TODO%([^)]*%):?") or text:match("^FIXME%f[^%w_]:?")
+      if spelling == nil and text:match("^TODO%f[^%w_:]") ~= nil and not carries_on(before, comment) then
+        spelling = "TODO"
+      end
+      if spelling ~= nil then
+        found[#found + 1] = { line = index, spelling = spelling }
+      end
+    end
+    before = comment
   end
   return found
 end

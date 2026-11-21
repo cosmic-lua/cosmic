@@ -25,6 +25,13 @@
 --- [`Flags.help`] writes a command's help from it. [`Flags.dispatch`] reads a
 --- command first -- `prog build --jobs 4` -- parses the rest with that
 --- command's own spec, and answers `--help` from the same descriptions.
+--- A [`Flags.Documented`] adds what a program's help holds beyond its
+--- commands -- topics, the order of its groups, the text around its
+--- index -- for [`Flags.dispatch`] and [`Flags.program_help`] alike.
+
+local Distance = require("cosmic.internal.distance")
+local source_run = require("cosmic.internal.source_run")
+local type Doc = require("cosmic.doc")
 
 local record Flags
   --- One option described, for a spec to name and [`Flags.help`] to show.
@@ -54,6 +61,9 @@ local record Flags
     given: mut {string}
     --- Every other word, in order.
     words: mut {string}
+    --- The words the command keeps for itself, unread, in order: set by [`Flags.dispatch`] for a command that
+    --- says which they are ([`Flags.Command`]'s `rest`), nil for any other and from [`Flags.parse`].
+    mut rest?: {string}
   end
 
   --- What [`Flags.dispatch`] did.
@@ -66,6 +76,15 @@ local record Flags
     help: string
   end
 
+  --- One line a command can be typed as, for its help to show.
+  record Example
+    --- What follows the command's name on the line ("--jobs 4 src");
+    --- "" for the command alone.
+    line: string
+    --- One line on what that does; "" to show the line alone.
+    about: string
+  end
+
   --- One command [`Flags.dispatch`] can run.
   record Command
     --- The options the command takes, as [`Flags.parse`] reads a spec;
@@ -76,10 +95,91 @@ local record Flags
     --- What follows the command in its usage line ("[options] <file>"),
     --- for help; "[options]" when nil and the command takes any.
     usage?: string
+    --- Lines to type, each with what it does, for help to show under
+    --- "examples:" in the order given; none when nil.
+    examples?: {Example}
+    --- Other commands of the program, or its topics, by name, for help
+    --- to end "see also:" with, in the order given; none when nil.
+    --- [`Flags.dispatch`] raises for a name that is not another of its
+    --- commands, "help" among them, or one of its [`Flags.Topic`]s.
+    see?: {string}
+    --- The section of the program's help the command is listed under
+    --- ("Reports"); under "commands:" when nil or "", or "other
+    --- commands:" where another command names a section.
+    group?: string
+    --- The word that runs the command where that is not its name in `commands`: an option's spelling
+    --- ("--version"), or "" for the command a first word that names no other runs, that word being the first
+    --- of its own (a file to run). [`Flags.dispatch`] raises where two commands are typed alike.
+    typed?: string
+    --- The slot of the line from which the words are the command's own, read by no spec: those of a program
+    --- it starts, say, whose options are not its options. Given the line and the slot of its first word after
+    --- the command; nil where the line holds none. They are the `rest` of what `run` is given.
+    rest?: function(argv: {string}, from: integer): integer?
     --- Runs the command with what its line held, answering its exit
     --- status. None for a command only described, as [`cosmic.cli`]'s
     --- verbs are, which [`Flags.dispatch`] refuses to run.
     run?: function(Parsed): integer
+  end
+
+  --- A page of a program's help that is no command ("pairing",
+  --- "exit"): `prog help pairing` prints it, and the program's index
+  --- lists it under "topics:".
+  record Topic
+    --- One line on what it covers, for the index and the page's first
+    --- line.
+    about?: string
+    --- The page: paragraphs, printed as written, so already wrapped.
+    text?: string
+    --- The guide whose text is the page in place of `text`: `pairing` for `doc/guides/pairing.md`, which the
+    --- program carries as it carries every public guide of its project. [`Flags.dispatch`] reads it from the
+    --- program's documentation, and refuses `help` for the topic where that holds no such guide; it raises for a
+    --- topic that gives both, or a name that is "" or holds a "." or a "/". [`Flags.topic_help`] reads none.
+    guide?: string
+    --- Commands and topics of the program, by name, for the page to end
+    --- "see also:" with, in the order given; none when nil.
+    --- [`Flags.dispatch`] raises for a name that is neither.
+    see?: {string}
+  end
+
+  --- What [`Flags.dispatch`] reads of the program's documentation, for a program that documents its commands
+  --- as it documents its code: in doc comments, which the build indexes and the built program carries. Given
+  --- one, even an empty one, the program answers `docs`.
+  record Documented
+    --- The module whose record documents the commands: the doc comment on its field `add` is the page of the
+    --- command `add`, shown after what [`Flags.help`] writes of it. The record may be the commands themselves,
+    --- each field a [`Flags.Command`], which the program then hands to [`Flags.dispatch`] by name. A command
+    --- with no such field has that help alone, as every command has where the documentation holds no such
+    --- module. A built program documents a module it carries that any module may require, or one under its own
+    --- `cmd/<name>/`, which it carries whether its main requires it or not (a test or an example aside); it carries
+    --- another where its main requires it, and documents the module a module it carries names as `pages` by a string
+    --- (`{ pages = "commands" }`, or a local bound to that string and written there), which it carries
+    --- for that, but a test, an example, one under `internal/` and one of another program's `cmd/<name>/`; a field of
+    --- a module it requires that binds it so names it too (`{ pages = Names.pages }`). A name made at run time is not
+    --- known to the build, which carries no module for it.
+    pages?: string
+    --- The titles of the sections of the program's help ([`Flags.Command`]'s `group`), in the order to show
+    --- them; a title not among them follows, those in order by title. In order by title when nil.
+    groups?: {string}
+    --- The commands, by name, in the order to list them in their sections; one not among them follows, those
+    --- in order by name. In order by name when nil.
+    order?: {string}
+    --- Whether the program's help lists each command as its line is typed, the usage [`Flags.help`] opens
+    --- with ("prog count [options] <file>"), in place of its name.
+    usages?: boolean
+    --- What the program's help opens with, in place of its usage line.
+    before?: string
+    --- What the program's help ends with, in place of the lines that say how to read more.
+    after?: string
+    --- The program's topics, by the word `help` takes for each, listed under "topics:" after the commands; a
+    --- topic's page may be one of the program's guides ([`Flags.Topic`]'s `guide`).
+    --- A name that is "", a command's or the word one is typed as, "help", "docs", or one that begins with
+    --- "-" raises. A program with a command named "help" answers `prog help` itself, so [`Flags.dispatch`]
+    --- prints no topic for it: that command can, with [`Flags.topic_help`].
+    topics?: {string:Topic}
+    --- The columns a line of help may reach, at least 1, for a command's examples and options and the index
+    --- alike, laid out as [`Flags.help`] lays out examples. When nil, examples keep within 80 and the rest
+    --- are not wrapped. `before`, `after` and a topic's text are printed as written.
+    width?: integer
   end
 end
 
@@ -106,53 +206,114 @@ local function is_required(entry: boolean | Flags.Option): boolean
   return entry.required == true
 end
 
---- Parses command line options. Reads `argv` from slot `from` on: 1
---- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
---- `spec` maps each option, written as it is typed ("--check", "-v"), to
---- whether it takes a value: `true` or `false`, or a [`Flags.Option`], which
---- takes one when it names its `value`. The value is the next word, or
---- what follows "=" in the same word for a "--" option or a one-dash
---- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
---- "--" ends the options: every word after it is a word even when it
---- begins with "-", as a negative number must. A file run as `cosmic
---- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
---- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
---- words. Write `cosmic f.tl --email x`.
+--- The names of `names` a mistyped `word` most likely meant, likeliest
+--- first, at most three; none when nothing is near. The rule the
+--- refusals of [`Flags.parse`] and [`Flags.dispatch`] end "did you mean"
+--- by, for a program that words its own. A name is near when:
 ---
---- A word with one "-" that the spec does not name whole is a cluster of
---- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
---- letter that takes a value takes the rest of the word ("-n3", "-vn3";
---- "-n=3" is "=3", as getopt has it) or, at the word's end, the next
---- word ("-vn 3"). A letter in a cluster is one ASCII letter or digit;
---- a spec may name "-foo" or "-é" whole, and then that word is that
---- option, never a cluster.
+--- - `word` begins it and is shorter ("rep" for "report"); or
+--- - it is within reach by edit distance: the fewest bytes inserted,
+---   deleted or replaced, or adjacent pairs swapped, that turn one into
+---   the other. The reach grows with `word`'s length, counted in
+---   characters without its leading dashes: none under 3, then 1, 2
+---   from 8 and 3 from 12.
+---   So "biuld" is near "build" and "--chek" near "--check", and "ab"
+---   is not near "ac".
 ---
---- Answers nil and why for an option the spec does not name, a value
---- given to one that takes none, an option the spec marks `required` that
---- the line does not give ("--jobs is required"; the first by name when
---- several are missing), or one whose value is missing: the end
---- of the line, or a next word that looks like an option -- one that
---- begins with "-" and is not a lone "-" or a number `tonumber` reads
---- ("-1", "-0.5"; not "-inf") -- so a mistyped option ("--jobs --chek")
---- is never read as a value. A value that begins with "-" is given in
---- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
---- not an option ("x", "-", "--"), or that holds an "=" no word could
---- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
---- @param argv {string} The command line: the words after the program's name, as typed
---- @param from integer The first slot to read
---- @param spec {string:boolean|Option} Each option, and whether it takes a value
---- @return Parsed | nil What the line held
---- @return string Why it was refused, or "" when it was not
-function Flags.parse(argv: {string}, from: integer,
-                     spec: {string:boolean | Flags.Option}): Flags.Parsed?, string
+--- A name equal to `word` comes first, then the names `word` begins,
+--- then the others by distance; ties go shorter first, then by name. A
+--- name given twice is answered once.
+---
+---     Flags.nearest("stauts", { "start", "status", "stash" })  -- => { "status" }
+--- @param word string The word given
+--- @param names {string} The names it could have been
+--- @return {string} The near names, likeliest first
+function Flags.nearest(word: string, names: {string}): {string}
+  local bare = word:gsub("^%-+", "")
+  local reach = Distance.reach(bare)
+  local record Near
+    name: string
+    rank: integer
+  end
+  local near: mut {Near} = {}
+  local seen: mut {string:boolean} = {}
+  for _, name in ipairs(names) do
+    if seen[name] == nil then
+      seen[name] = true
+      if name == word then
+        near[#near + 1] = { name = name, rank = 0 }
+      elseif word ~= "" and #name > #word and name:sub(1, #word) == word then
+        near[#near + 1] = { name = name, rank = 1 }
+      elseif reach > 0 then
+        local far = Distance.between(word, name, reach)
+        if far <= reach then
+          near[#near + 1] = { name = name, rank = far + 1 }
+        end
+      end
+    end
+  end
+  table.sort(near, function(a: Near, b: Near): boolean
+    if a.rank ~= b.rank then return a.rank < b.rank end
+    if #a.name ~= #b.name then return #a.name < #b.name end
+    return a.name < b.name
+  end)
+  local out: mut {string} = {}
+  for slot, found in ipairs(near) do
+    if slot > 3 then break end
+    out[slot] = found.name
+  end
+  return out
+end
+
+--- What a refusal of `word` ends with when `names` holds any near it
+--- ([`Flags.nearest`]): "; did you mean build?", or "; did you mean one of
+--- build, built?". "" when none is near.
+local function meant(word: string, names: {string}): string
+  local found = Flags.nearest(word, names)
+  if #found == 0 then
+    return ""
+  elseif #found == 1 then
+    return "; did you mean " .. found[1] .. "?"
+  end
+  return "; did you mean one of " .. table.concat(found, ", ") .. "?"
+end
+
+--- `names` in order, as a list of its own.
+local function sorted(names: {string}): {string}
+  local out: mut {string} = {}
+  for _, name in ipairs(names) do out[#out + 1] = name end
+  table.sort(out)
+  return out
+end
+
+--- The keys of `map`, in no order.
+local function keys<V>(map: {string:V}): {string}
+  local out: mut {string} = {}
+  for key in pairs(map) do out[#out + 1] = key end
+  return out
+end
+
+--- [`Flags.parse`], for it and for [`Flags.dispatch`], whose commands take
+--- options no spec names ("--help"): `also` holds those, for a refusal to
+--- name beside the spec's when a mistyped option is near one.
+local function read(argv: {string}, from: integer, spec: {string:boolean | Flags.Option},
+                    also: {string}): Flags.Parsed?, string
   for name in pairs(spec) do
     if name:sub(1, 1) ~= "-" or name == "-" or name == "--" or name:find("=", 2, true) ~= nil then
-      error("flags: " .. name .. " is not an option a spec can name", 2)
+      error("flags: " .. name .. " is not an option a spec can name", 3)
     end
     local entry = spec[name]
     if entry is Flags.Option and entry.value == "" then -- checked: is_on_record
-      error("flags: " .. name .. "'s value name is empty", 2)
+      error("flags: " .. name .. "'s value name is empty", 3)
     end
+  end
+  local known: mut {string} = {}
+  for name in pairs(spec) do known[#known + 1] = name end
+  for _, name in ipairs(also) do known[#known + 1] = name end
+  -- Whether the spec names an option that begins with a digit ("-1"), which then is what such a word is.
+  local digits = false
+  for name in pairs(spec) do
+    if name:match("^%-%d") ~= nil then digits = true end
   end
   local parsed: Flags.Parsed = { set = {}, values = {}, all = {}, given = {}, words = {} }
   local cursor: integer = from
@@ -169,7 +330,7 @@ function Flags.parse(argv: {string}, from: integer,
       value = argv[cursor]
       if value == nil then
         return name .. " needs a value"
-      elseif looks_like_option(value) then
+      elseif looks_like_option(value) and (digits or value:match("^%-%d") == nil) then
         return name .. " needs a value, not " .. value .. "; give one that " ..
           "begins with \"-\" as " .. name .. same .. value
       end
@@ -194,7 +355,7 @@ function Flags.parse(argv: {string}, from: integer,
   local options = true
   while argv[cursor] ~= nil do
     local word = argv[cursor]
-    if not options or word == "-" or word:sub(1, 1) ~= "-" then
+    if not options or word == "-" or word:sub(1, 1) ~= "-" or (not digits and word:match("^%-%d") ~= nil) then
       parsed.words[#parsed.words + 1] = word
     elseif word == "--" then
       options = false
@@ -203,7 +364,7 @@ function Flags.parse(argv: {string}, from: integer,
       if name == nil then name = word end
       local entry = spec[name]
       if entry == nil then
-        return nil, "no such option: " .. name
+        return nil, "no such option: " .. name .. meant(name, known)
       elseif takes_value(entry) then
         local trouble = valued(name, value, if #name > 2 then "=" else "" end)
         if trouble ~= "" then
@@ -215,7 +376,7 @@ function Flags.parse(argv: {string}, from: integer,
         flag(name)
       end
     elseif spec[word:sub(1, 2)] == nil then
-      return nil, "no such option: " .. word
+      return nil, "no such option: " .. word .. meant(word, known)
     else
       local at = 2
       while at <= #word do
@@ -225,9 +386,9 @@ function Flags.parse(argv: {string}, from: integer,
         if letter == "=" then
           return nil, "-" .. word:sub(at - 1, at - 1) .. " takes no value"
         elseif not letter:match("^%w$") then
-          return nil, "no such option: " .. word
+          return nil, "no such option: " .. word .. meant(word, known)
         elseif entry == nil then
-          return nil, "no such option: " .. name .. " in " .. word
+          return nil, "no such option: " .. name .. " in " .. word .. meant(word, known)
         elseif takes_value(entry) then
           local rest = word:sub(at + 1)
           local trouble = valued(name, if rest ~= "" then rest else nil end, "")
@@ -256,16 +417,180 @@ function Flags.parse(argv: {string}, from: integer,
   return parsed, ""
 end
 
+--- Parses command line options. Reads `argv` from slot `from` on: 1
+--- for a program's own `argv`, 2 for a verb's, whose slot 1 is the verb.
+--- `spec` maps each option, written as it is typed ("--check", "-v"), to
+--- whether it takes a value: `true` or `false`, or a [`Flags.Option`], which
+--- takes one when it names its `value`. The value is the next word, or
+--- what follows "=" in the same word for a "--" option or a one-dash
+--- option named whole ("--jobs=4", "-std=c99"). A lone "-" is a word, and
+--- "--" ends the options: every word after it is a word even when it
+--- begins with "-". A word that begins with "-" and a digit ("-5",
+--- "-0.5", "-90m") is a word too, a negative number or a span of time,
+--- and may be an option's value; where the spec names any option that
+--- begins so ("-1"), every such word is read as an option. A file run as `cosmic
+--- f.tl` gets its words as typed, a "--" among them. So for `cosmic f.tl
+--- -- --email x`, Flags.parse from slot 1 reads "--email" and "x" as
+--- words. Write `cosmic f.tl --email x`.
+---
+--- A word with one "-" that the spec does not name whole is a cluster of
+--- one-letter options, as getopt reads one: "-vq" is "-v -q", and a
+--- letter that takes a value takes the rest of the word ("-n3", "-vn3";
+--- "-n=3" is "=3", as getopt has it) or, at the word's end, the next
+--- word ("-vn 3"). A letter in a cluster is one ASCII letter or digit;
+--- a spec may name "-foo" or "-é" whole, and then that word is that
+--- option, never a cluster.
+---
+--- Answers nil and why for an option the spec does not name ("no such
+--- option: --chek; did you mean --check?", the names [`Flags.nearest`]
+--- answers for it, when any is near), a value
+--- given to one that takes none, an option the spec marks `required` that
+--- the line does not give ("--jobs is required"; the first by name when
+--- several are missing), or one whose value is missing: the end
+--- of the line, or a next word that looks like an option -- one that
+--- begins with "-" and is not a lone "-", a number `tonumber` reads
+--- ("-1", "-0.5"; not "-inf") or a word that begins with "-" and a digit
+--- ("-90m") -- so a mistyped option ("--jobs --chek")
+--- is never read as a value. A value that begins with "-" is given in
+--- the same word: "--jobs=--x", "-std=-x", "-n--x". A spec key that is
+--- not an option ("x", "-", "--"), or that holds an "=" no word could
+--- reach ("--a=b"), raises, as does an [`Option`] whose `value` is "".
+--- @param argv {string} The command line: the words after the program's name, as typed
+--- @param from integer The first slot to read
+--- @param spec {string:boolean|Option} Each option, and whether it takes a value
+--- @return Parsed | nil What the line held
+--- @return string Why it was refused, or "" when it was not
+function Flags.parse(argv: {string}, from: integer,
+                     spec: {string:boolean | Flags.Option}): Flags.Parsed?, string
+  return read(argv, from, spec, {})
+end
+
 --- How many characters `text` shows as: its UTF-8 characters, or its
 --- bytes when it is not UTF-8.
 local function columns(text: string): integer
   return utf8.len(text) or #text
 end
 
+--- One line of a help column: what it is of, and what that does.
+local record Row
+  head: string
+  about: string?
+end
+
+--- How wide the widest head of `rows` shows.
+local function row_width(rows: {Row}): integer
+  local width = 0
+  for _, row in ipairs(rows) do
+    if columns(row.head) > width then width = columns(row.head) end
+  end
+  return width
+end
+
+--- How many columns a row's lines take with its head padded to `column`:
+--- what it does follows the head, and a line of it after a newline stands
+--- as written, from the line's start.
+local function row_reach(row: Row, column: integer): integer
+  local about = row.about
+  if about == nil or about == "" then
+    return 2 + columns(row.head)
+  end
+  local reach = 0
+  for line in (about .. "\n"):gmatch("([^\n]*)\n") do
+    reach = if reach == 0 then 2 + column + 2 + columns(line) else math.max(reach, columns(line)) end
+  end
+  return reach
+end
+
+--- The column what `rows` do starts at, counted from the end of the
+--- indent, for lines that stay within `wrap` columns: the widest head
+--- when `wrap` is nil or every row's line fits there. Otherwise the
+--- widest head of a row whose line fits alone, so a head too wide for
+--- that takes a line of its own; 0 where none fits. A row with nothing
+--- said beside its head moves no column.
+local function row_column(rows: {Row}, wrap?: integer): integer
+  local widest = row_width(rows)
+  if wrap == nil then
+    return widest
+  end
+  local fits = true
+  for _, row in ipairs(rows) do
+    local about = row.about
+    if about ~= nil and about ~= "" and row_reach(row, widest) > wrap then fits = false end
+  end
+  if fits then
+    return widest
+  end
+  local column = 0
+  for _, row in ipairs(rows) do
+    local about = row.about
+    if about ~= nil and about ~= "" and row_reach(row, columns(row.head)) <= wrap then
+      column = math.max(column, columns(row.head))
+    end
+  end
+  return column
+end
+
+--- `text`'s words, in lines of at most `room` columns where a word
+--- allows: a word wider than that has a line of its own.
+local function wrapped(text: string, room: integer): {string}
+  local lines: mut {string} = {}
+  local line = ""
+  for word in text:gmatch("%S+") do
+    if line == "" then
+      line = word
+    elseif columns(line) + 1 + columns(word) <= room then
+      line = line .. " " .. word
+    else
+      lines[#lines + 1] = line
+      line = word
+    end
+  end
+  lines[#lines + 1] = line
+  return lines
+end
+
+--- Each of `rows` as help lists it: indented two spaces, its head padded
+--- to `column` where what it does follows. With `wrap`, a row whose line
+--- would pass that many columns has what it does wrapped at them, under
+--- the column, beginning on a line of its own after a head wider than
+--- the column; a row that fits, one whose words run over lines of their
+--- own, and one that says only spaces are left as they are written.
+local function row_lines(rows: {Row}, column: integer, wrap?: integer): {string}
+  local lines: mut {string} = {}
+  local indent = string.rep(" ", 2 + column + 2)
+  for _, row in ipairs(rows) do
+    local about = row.about
+    if about == nil or about == "" then
+      lines[#lines + 1] = "  " .. row.head
+    elseif wrap == nil or about:find("\n", 1, true) ~= nil or about:find("%S") == nil or
+        (columns(row.head) <= column and row_reach(row, column) <= wrap) then
+      lines[#lines + 1] = "  " .. row.head .. string.rep(" ", column - columns(row.head)) .. "  " .. about
+    else
+      local beside = columns(row.head) <= column
+      if not beside then
+        lines[#lines + 1] = "  " .. row.head
+      end
+      for slot, said in ipairs(wrapped(about, wrap - #indent)) do
+        if slot == 1 and beside then
+          lines[#lines + 1] = "  " .. row.head .. string.rep(" ", column - columns(row.head)) .. "  " .. said
+        else
+          lines[#lines + 1] = indent .. said
+        end
+      end
+    end
+  end
+  return lines
+end
+
+--- `rows` as [`row_lines`] lays them out within `wrap` columns, or in
+--- one column, unwrapped, when nil.
+local function laid_out(rows: {Row}, wrap?: integer): {string}
+  return row_lines(rows, row_column(rows, wrap), wrap)
+end
+
 --- Each option `spec` names, as help shows it -- its name and the name
---- of its value -- beside what it does, in a column: sorted by name
---- without its dashes, each line indented two spaces.
-local function option_lines(spec: {string:boolean | Flags.Option}): {string}
+--- of its value -- with what it does: sorted by name without its dashes.
+local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
   local names: mut {string} = {}
   for name in pairs(spec) do names[#names + 1] = name end
   table.sort(names, function(a: string, b: string): boolean
@@ -273,12 +598,7 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     if bare_a ~= bare_b then return bare_a < bare_b end
     return a < b
   end)
-  local record Head
-    name: string
-    text: string
-  end
-  local heads: mut {Head} = {}
-  local width = 0
+  local rows: mut {Row} = {}
   for _, name in ipairs(names) do
     local entry = spec[name]
     local head = name
@@ -288,24 +608,13 @@ local function option_lines(spec: {string:boolean | Flags.Option}): {string}
     elseif entry == true then
       head = name .. " <value>"
     end
-    heads[#heads + 1] = { name = name, text = head }
-    if columns(head) > width then width = columns(head) end
-  end
-  local lines: mut {string} = {}
-  for _, head in ipairs(heads) do
-    local entry = spec[head.name]
     local about = if entry is Flags.Option then entry.about else nil end -- checked: is_on_record
     if entry ~= nil and is_required(entry) then
       about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
     end
-    if about ~= nil and about ~= "" then
-      lines[#lines + 1] = "  " .. head.text .. string.rep(" ", width - columns(head.text)) ..
-        "  " .. about
-    else
-      lines[#lines + 1] = "  " .. head.text
-    end
+    rows[#rows + 1] = { head = head, about = about }
   end
-  return lines
+  return rows
 end
 
 --- The options `spec` names, one line each as [`Flags.help`] lists them:
@@ -315,14 +624,45 @@ end
 --- @param spec {string:boolean|Option} The options
 --- @return string The lines, without a newline after the last
 function Flags.options(spec: {string:boolean | Flags.Option}): string
-  return table.concat(option_lines(spec), "\n")
+  local rows = option_rows(spec)
+  return table.concat(row_lines(rows, row_width(rows)), "\n")
+end
+
+--- The line `command` is typed as, for its help: `program`, the word that runs it (`name`, or its `typed`), and
+--- its `usage`, "[options]" where it gives none and takes any.
+local function typed_line(program: string, name: string, command: Flags.Command): string
+  local words: mut {string} = { program }
+  local typed = command.typed or name
+  if typed ~= "" then words[#words + 1] = typed end
+  local spec = command.spec or {}
+  local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
+  if usage ~= "" then words[#words + 1] = usage end
+  return table.concat(words, " ")
+end
+
+--- The word `command`, held as `name`, is listed by: the word that runs it, or "<" and its name and ">" for the
+--- command no word names.
+local function shown(name: string, command: Flags.Command): string
+  local typed = command.typed or name
+  return if typed ~= "" then typed else "<" .. name .. ">" end
+end
+
+--- What help calls `command`, held as `name`: `program` and the word that runs it, or `program` alone for the
+--- command no word names.
+local function called(program: string, name: string, command: Flags.Command): string
+  local typed = command.typed or name
+  return if typed ~= "" then program .. " " .. typed else program end
 end
 
 --- A command's help, written from its record: the usage line, `about`
 --- when given, and each option the command's `spec` names with its
 --- value's name and what it does, as a [`Flags.Option`] describes it:
 --- one named `false` is listed bare, and one named `true` with
---- "<value>". An option the line must give ends "(required)". Columns are
+--- "<value>". An option the line must give ends "(required)". Then its
+--- `examples`, each line after `name` beside what it does, and its `see`
+--- names after "see also:", as written: given one command, it cannot
+--- tell a name that is no command. A command with neither reads as one
+--- that has no such fields. Columns are
 --- aligned by characters, not bytes. `run` is not read, so a program with
 --- one command, or a tool that runs its command itself, describes it the
 --- way [`Flags.dispatch`] describes each of its own. It ends without a newline.
@@ -334,59 +674,232 @@ end
 ---     options:
 ---       --jobs <n>  run n at once
 ---       -v          say more
+---
+---     examples:
+---       prog count notes.txt     the lines of one file
+---       prog count -v src/*.tl   each file's count, then the total
+---
+---     see also: words
+---
+--- The examples keep within `width` columns where their words allow, 80
+--- when nil, and so do `about` and the options where `width` is given.
+--- An `about` past the width is wrapped at it, unless it runs over lines
+--- of its own or says only spaces, which are left as written. Where every
+--- line of a section fits beside the widest head, the section is laid out
+--- as above. Otherwise what a row does is wrapped, in a column as wide as
+--- the widest head of a row that fits alone, and a head wider than that
+--- has a line of its own with what it does on the lines under it:
+---
+---     examples:
+---       prog count notes.txt  the lines of one file
+---       prog count --jobs 8 --exclude 'output/**' src/*.tl
+---                             each file's count, eight at once, leaving out the
+---                             generated files
 --- @param command Command The command to describe
 --- @param name string What the usage line calls it: the program, and the
 ---   command's own word after it when it has one ("prog count"); not
 ---   empty, or this raises
+--- @param width? integer The columns a line may reach, at least 1, or
+---   this raises: an example's 80, and an option's and `about`'s
+---   unbounded, when nil
 --- @return string The help
-function Flags.help(command: Flags.Command, name: string): string
+function Flags.help(command: Flags.Command, name: string, width?: integer): string
   if name == "" then
     error("flags: help's name is empty", 2)
+  elseif width ~= nil and width < 1 then
+    error("flags: help's width is not a positive number of columns", 2)
   end
   local spec = command.spec or {}
   local usage = command.usage or (if next(spec) ~= nil then "[options]" else "" end)
   local parts: mut {string} = { "usage: " .. (if usage ~= "" then name .. " " .. usage else name end) }
   local about = command.about
   if about ~= nil and about ~= "" then
+    if width ~= nil and columns(about) > width and about:find("\n", 1, true) == nil and
+        about:find("%S") ~= nil then
+      about = table.concat(wrapped(about, width), "\n")
+    end
     parts[#parts + 1] = "\n" .. about
   end
   if next(spec) ~= nil then
-    parts[#parts + 1] = "\noptions:\n" .. Flags.options(spec)
+    parts[#parts + 1] = "\noptions:\n" .. table.concat(laid_out(option_rows(spec), width), "\n")
+  end
+  local examples = command.examples or {}
+  if #examples > 0 then
+    local rows: mut {Row} = {}
+    for _, example in ipairs(examples) do
+      rows[#rows + 1] = {
+        head = if example.line ~= "" then name .. " " .. example.line else name end,
+        about = example.about,
+      }
+    end
+    parts[#parts + 1] = "\nexamples:\n" .. table.concat(laid_out(rows, width or 80), "\n")
+  end
+  local see = command.see or {}
+  if #see > 0 then
+    parts[#parts + 1] = "\nsee also: " .. table.concat(see, ", ")
   end
   return table.concat(parts, "\n")
 end
 
---- The help of `program` as a whole: its commands, each with its about.
-local function commands_help(program: string, commands: {string:Flags.Command}): string
-  local record Row
-    name: string
-    about: string?
+--- A topic's page, as `prog help <topic>` prints it: its name and
+--- `about` ("pairing: how a device is paired with"), its `text`, and
+--- its `see` names after "see also:". Each part is left out where it is
+--- nil or empty, and the page ends without a newline. A topic's `guide`
+--- is not read here: [`Flags.dispatch`] reads it as the topic's `text`.
+---
+---     pairing: how a device is paired with
+---
+---     A device is paired with once. ...
+---
+---     see also: pair, unpair
+--- @param topic Topic The topic
+--- @param name string The word `help` takes for it; not empty, or this raises
+--- @return string The page
+function Flags.topic_help(topic: Flags.Topic, name: string): string
+  if name == "" then
+    error("flags: a topic's name is empty", 2)
   end
-  local rows: mut {Row} = {}
-  local width = 0
-  for name, command in pairs(commands) do
-    rows[#rows + 1] = { name = name, about = command.about }
-    if columns(name) > width then width = columns(name) end
+  local about = topic.about
+  local parts: mut {string} = { if about ~= nil and about ~= "" then name .. ": " .. about else name end }
+  local text = topic.text
+  if text ~= nil and text ~= "" then
+    parts[#parts + 1] = "\n" .. text
   end
-  table.sort(rows, function(a: Row, b: Row): boolean return a.name < b.name end)
+  local see = topic.see or {}
+  if #see > 0 then
+    parts[#parts + 1] = "\nsee also: " .. table.concat(see, ", ")
+  end
+  return table.concat(parts, "\n")
+end
+
+--- The help of `program` as a whole, as `prog help` prints it: a usage
+--- line, then each command with its `about`, under "commands:" in order by
+--- name. Where any names a `group`, each group is a section under its
+--- title, the sections in order by title, and the commands that name
+--- none come last, under "other commands:". Where any command takes
+--- options, it ends with a line that says how to ask for a command's.
+---
+--- `documented` changes that as its fields say ([`Flags.Documented`]): the
+--- sections in the order of its `groups` and the commands in its `order`,
+--- each listed as typed where `usages` is set, `before` in place of the
+--- usage line, its `topics` under "topics:" after the commands, by name,
+--- and `after` in place of the last lines. Given at all, and where
+--- `commands` holds no `docs`, the index ends with a line that says how to
+--- search the documentation, which [`Flags.dispatch`] then answers. One
+--- column holds every section's names, topics' among them, and where
+--- `width` is given what each does is laid out within it as
+--- [`Flags.help`] lays out examples; a width below 1 raises.
+---
+---     usage: prog <command> [options]
+---
+---     Counting:
+---       count    Counts the lines of each file.
+---
+---     other commands:
+---       version  Says which build this is.
+---
+---     topics:
+---       globs    How a file is named by a pattern.
+---
+---     `prog help <command or topic>` says more.
+--- @param program string What the help calls the program
+--- @param commands {string:Command} Each command, by the word that names it
+--- @param documented? Documented What the help says beyond the commands
+--- @return string The help, without a newline after the last line
+function Flags.program_help(program: string, commands: {string:Flags.Command},
+                            documented?: Flags.Documented): string
+  local wrap = documented and documented.width
+  if wrap ~= nil and wrap < 1 then
+    error("flags: help's width is not a positive number of columns", 2)
+  end
+  local names: mut {string} = {}
+  local sections: mut {string: mut {Row}} = {}
+  local titles: mut {string} = {}
+  local every: mut {Row} = {}
   local any_options = false
-  for _, command in pairs(commands) do
-    local spec = command.spec
-    if spec ~= nil and next(spec) ~= nil then any_options = true end
+  for name in pairs(commands) do names[#names + 1] = name end
+  -- The commands the caller orders come first, in its order.
+  local listed: mut {string: integer} = {}
+  for place, name in ipairs(documented and documented.order or {}) do
+    if listed[name] == nil then listed[name] = place end
   end
-  local usage = "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end)
-  local lines: mut {string} = { usage, "", "commands:" }
-  for _, row in ipairs(rows) do
-    local name, about = row.name, row.about
-    if about ~= nil and about ~= "" then
-      lines[#lines + 1] = "  " .. name .. string.rep(" ", width - columns(name)) .. "  " .. about
-    else
-      lines[#lines + 1] = "  " .. name
+  table.sort(names, function(a: string, b: string): boolean
+    local at_a, at_b = listed[a], listed[b]
+    if at_a ~= nil and at_b ~= nil then return at_a < at_b end
+    if at_a ~= nil or at_b ~= nil then return at_a ~= nil end
+    return a < b
+  end)
+  local usages = documented ~= nil and documented.usages == true
+  for _, name in ipairs(names) do
+    local command = commands[name]
+    if command ~= nil then
+      local spec = command.spec
+      if spec ~= nil and next(spec) ~= nil then any_options = true end
+      local title = command.group or ""
+      local row: Row = { head = if usages then typed_line(program, name, command) else shown(name, command) end, about = command.about }
+      local rows = sections[title]
+      if rows == nil then
+        sections[title] = { row }
+        if title ~= "" then titles[#titles + 1] = title end
+      else
+        rows[#rows + 1] = row
+      end
+      every[#every + 1] = row
     end
+  end
+  -- The titles the caller orders come first, in its order.
+  local placed: mut {string: integer} = {}
+  for place, title in ipairs(documented and documented.groups or {}) do
+    if placed[title] == nil then placed[title] = place end
+  end
+  table.sort(titles, function(a: string, b: string): boolean
+    local at_a, at_b = placed[a], placed[b]
+    if at_a ~= nil and at_b ~= nil then return at_a < at_b end
+    if at_a ~= nil or at_b ~= nil then return at_a ~= nil end
+    return a < b
+  end)
+  local topic_rows: mut {Row} = {}
+  local topics = documented and documented.topics or {}
+  for _, name in ipairs(sorted(keys(topics))) do
+    local topic = topics[name]
+    local row: Row = { head = name, about = if topic ~= nil then topic.about else nil end }
+    topic_rows[#topic_rows + 1] = row
+    every[#every + 1] = row
+  end
+  local width = row_column(every, wrap)
+  local lines: mut {string} = {
+    documented and documented.before or
+      "usage: " .. program .. " <command>" .. (if any_options then " [options]" else "" end),
+  }
+  local function section(heading: string, rows: {Row})
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = heading .. ":"
+    for _, line in ipairs(row_lines(rows, width, wrap)) do lines[#lines + 1] = line end
+  end
+  for _, title in ipairs(titles) do
+    section(title, sections[title] or {})
+  end
+  local ungrouped = sections[""]
+  if ungrouped ~= nil then
+    section(if #titles > 0 then "other commands" else "commands" end, ungrouped)
+  end
+  if #topic_rows > 0 then
+    section("topics", topic_rows)
+  end
+  local after = documented and documented.after
+  if after ~= nil then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = after
+    return table.concat(lines, "\n")
   end
   if any_options then
     lines[#lines + 1] = ""
     lines[#lines + 1] = "Run `" .. program .. " <command> --help` for a command's options."
+  end
+  if documented ~= nil and commands["docs"] == nil then
+    if not any_options then lines[#lines + 1] = "" end
+    lines[#lines + 1] = "Run `" .. program .. " docs <words>` to search the documentation, `" .. program ..
+      " docs` to list it."
   end
   return table.concat(lines, "\n")
 end
@@ -413,17 +926,158 @@ function Flags.asks_help(argv: {string}, from: integer,
   return false
 end
 
+--- The program's documentation as [`cosmic.doc`] answers from it: the rows of the program's own store, with each
+--- command a field of the pages record documents shown, and searched, with what its help says of it: its usage
+--- line, `about`, options and examples. The modules are required here, when
+--- a program asks, so one that never asks loads neither; its build carries both all the same.
+local function documentation(program: string, commands: {string:Flags.Command},
+                             documented: Flags.Documented): Doc.View?, string
+  local library = require("cosmic.doc")
+  local view, trouble = library.program(require("cosmic.store").databases(), program, nil, documented.pages)
+  if view == nil then
+    return nil, trouble
+  end
+  local pages = documented.pages
+  if pages == nil then
+    return view, ""
+  end
+  local described: mut {Doc.Command} = {}
+  for _, name in ipairs(sorted(keys(commands))) do
+    local row, row_trouble = library.member(view, pages, name)
+    if row == nil and row_trouble ~= "" then
+      return nil, row_trouble
+    end
+    if row ~= nil then
+      local command = assert(commands[name], "a name of commands names a command")
+      local spec = command.spec
+      local options = if spec ~= nil and next(spec) ~= nil then
+        table.concat(laid_out(option_rows(spec), documented.width), "\n")
+        else
+        nil
+        end
+      local examples: mut {Row} = {}
+      local said = called(program, name, command)
+      for _, example in ipairs(command.examples or {}) do
+        examples[#examples + 1] = {
+          head = if example.line ~= "" then said .. " " .. example.line else said end, about = example.about,
+        }
+      end
+      local about = command.about
+      described[#described + 1] = {
+        name = name, module = row.module, symbol = row.symbol, options = options,
+        about = if about ~= nil and about ~= "" then about else nil end,
+        usage = typed_line(program, name, command),
+        examples = if #examples > 0 then table.concat(laid_out(examples, documented.width or 80), "\n") else nil end,
+      }
+    end
+  end
+  view.commands = described
+  return view, ""
+end
+
+--- The help of the command `name`: what [`Flags.help`] writes of it, then the doc comment of its field of the
+--- pages record, where `documented` names one and the field has a comment.
+local function command_help(program: string, name: string, commands: {string:Flags.Command},
+                            documented?: Flags.Documented): string?, string
+  local described = assert(commands[name])
+  local help = Flags.help(described, called(program, name, described), documented and documented.width)
+  local pages = documented and documented.pages
+  if documented == nil or pages == nil then
+    return help, ""
+  end
+  local view, trouble = documentation(program, commands, documented)
+  if view == nil then
+    return nil, trouble
+  end
+  local library = require("cosmic.doc")
+  local row, row_trouble = library.member(view, pages, name)
+  if row == nil and row_trouble ~= "" then
+    return nil, row_trouble
+  end
+  local comment = if row ~= nil then library.shown(row.text) else "" end
+  return if comment ~= "" then help .. "\n\n" .. comment else help end, ""
+end
+
+--- The help of the `help` command [`Flags.dispatch`] answers itself, which takes a topic too where there are any.
+local function help_help(program: string, topics: boolean): string
+  local what = if topics then "command or topic" else "command" end
+  return "usage: " .. program .. " help [" .. what .. "]\n\n" ..
+    "What a " .. what .. " is and how to use it; with none, every command there is."
+end
+
+--- The page of the topic `name`: [`Flags.topic_help`]'s, its text read from its guide where it names one. Nil and
+--- why where the documentation cannot be read or holds no such guide.
+local function topic_page(program: string, name: string, topic: Flags.Topic, commands: {string:Flags.Command},
+                          documented: Flags.Documented): string?, string
+  local guide = topic.guide
+  if guide == nil then
+    return Flags.topic_help(topic, name), ""
+  end
+  local view, trouble = documentation(program, commands, documented)
+  if view == nil then
+    return nil, trouble
+  end
+  local text, text_trouble = require("cosmic.doc").guide(view, guide)
+  if text == nil then
+    return nil, if text_trouble ~= "" then text_trouble else
+      "the topic " .. name .. "'s guide, doc/guides/" .. guide .. ".md, is not in the documentation" end
+  end
+  return Flags.topic_help({ about = topic.about, text = text, see = topic.see }, name), ""
+end
+
+--- The help of the `docs` command [`Flags.dispatch`] answers itself.
+local function docs_help(program: string): string
+  return "usage: " .. program .. " docs [words...]\n\n" ..
+    "What the program's documentation says of the words: a module or a symbol by its name, or the pages\n" ..
+    "that hold the words. With no words, every module there is."
+end
+
+--- What `prog docs <words...>` answers: the page [`cosmic.doc`] writes of the words from the program's own
+--- documentation, or nil and why when they name and find nothing. It takes no option but `--help`.
+local function docs_answer(argv: {string}, from: integer, program: string, commands: {string:Flags.Command},
+                           documented: Flags.Documented): Flags.Dispatched?, string
+  if Flags.asks_help(argv, from, {}) then
+    return { code = 0, help = docs_help(program) }, ""
+  end
+  local parsed, why = read(argv, from, {}, { "--help" })
+  if parsed == nil then
+    return nil, "docs: " .. why .. "; usage: " .. program .. " docs [words...]"
+  end
+  local view, trouble = documentation(program, commands, documented)
+  if view == nil then
+    return nil, "docs: " .. trouble
+  end
+  local answer, answer_trouble = require("cosmic.doc").answer(view, parsed.words)
+  if answer == nil then
+    return nil, "docs: " .. answer_trouble
+  end
+  if not answer.found then
+    return nil, "docs: " .. answer.said
+  end
+  local lines: mut {string} = {}
+  for _, line in ipairs(answer.lines) do lines[#lines + 1] = line end
+  while lines[#lines] == "" do lines[#lines] = nil end
+  return { code = 0, help = table.concat(lines, "\n") }, ""
+end
+
 --- Runs the command named at `argv[from]`: parses the words after it
 --- with that command's spec, as `Flags.parse(argv, from + 1, spec)`
 --- would, and answers what its `run` answers. Answers nil and why, run
 --- nothing, when the line names no command, one `commands` does not
---- hold -- an option before the command is one -- or a line the
+--- hold -- an option before the command is one; "no such command: biuld;
+--- did you mean build?" where [`Flags.nearest`] answers any, of the
+--- commands and "help", as of a command's options and "--help" -- or a line the
 --- command's spec refuses, or a command with no `run`. A line the spec
 --- refuses is answered with the command's name, the refusal and its usage
 --- line -- "build: --jobs is required; usage: prog build [options] <file>"
 --- -- so a program that prints `why` shows how to type the line. Only the
 --- first line of a multi-line `usage` is shown. Empty
---- `commands` raises.
+--- `commands` raises, as does a command whose `see` names itself or no
+--- command of `commands` ("help" is one, held or not) or topic of
+--- `documented`'s, a topic whose `see` names itself or neither, or a
+--- topic named "", as a command is, or as an option is, whatever the
+--- line: a caller's mistake, met by its first run. The first such
+--- command by name is the one named, then the first such topic.
 ---
 --- Help is answered rather than run -- `code` 0 and `help` for the
 --- caller to print -- when the command is "--help" or "-h", or "help"
@@ -432,8 +1086,46 @@ end
 --- "--help" or "-h" comes after a command whose spec does not name it,
 --- before any "--" -- even as what would be an option's value, which
 --- [`Flags.parse`] refuses anyway. Each command's help is [`Flags.help`]'s,
---- from its spec, `usage` and `about`; the program's lists every
---- command's `about`. `help` given more than one word is refused.
+--- from its spec, `usage`, `about`, `examples` and `see`; the program's
+--- lists every command's `about`, in order by name: under "commands:",
+--- or, where any command names a `group`, each group under its title, the
+--- titles in order, and the rest last under "other commands:", as
+--- [`Flags.program_help`] writes it. `help` given more than one word is
+--- refused. `prog help help` answers a page of its own, as `prog help docs`
+--- does where the program answers `docs`. Where `documented` holds topics,
+--- `prog help <topic>` answers [`Flags.topic_help`]'s page, its text read
+--- from the program's guide where the topic names one ([`Flags.Topic`]'s
+--- `guide`), and a word `help` is given that is neither is refused as "no
+--- such command or topic", with the names near it of both, "help" among
+--- them, and "docs" where the program answers it.
+---
+--- A command is run by its name in `commands`, or by the word it says it is
+--- typed as ([`Flags.Command`]'s `typed`), and then not by its name: an
+--- option's spelling ("--version"), or no word at all, which is the command
+--- a first word that names no other runs, that word being the first of its
+--- own ("prog notes.txt"). With such a command no first word is refused as
+--- no command, a mistyped one among them, and a file named "help" is not
+--- run. Help calls a command as it is typed, and `help` takes that word or
+--- the name. A command's `rest` says from which slot the words are its
+--- own, which its spec does not read and its `run` is given as `rest`.
+--- Two commands typed alike raise, as does one typed as "help", "-h" or
+--- "--help", and a `rest` that begins before the command's first word.
+---
+--- With `documented`, the program answers from its own documentation, which
+--- `cosmic build` carries in it ([`Flags.Documented`]). A command's help
+--- ends with the doc comment of its field of the `pages` record. `docs`,
+--- where `commands` holds no command of that name, answers what
+--- [`cosmic.doc`] writes of the words after it: a module or a symbol the
+--- program documents, by name, else the doc comments and guides that hold
+--- the words, and the commands whose help does -- their `about`, usage
+--- line, options and examples, shown on the command's page -- a misspelled
+--- word put right; with no words, every module
+--- documented. Words that name and find nothing are refused, as a command
+--- that is none is. The program's help says `docs` is there, and orders
+--- its sections as `groups` gives them and its commands as `order` does,
+--- lists each as it is typed where `usages` is set, and opens and ends
+--- with `before` and `after` where they are given, within its `width`. A test of either reads the
+--- documentation, so it declares `Test.policy { store_text = true }`.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
 ---     if ran == nil then Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
@@ -445,12 +1137,68 @@ end
 --- @param program string What help calls the program ("prog" in `prog build
 ---   --help`): not read from `argv`, which holds the words after the program's
 ---   name
+--- @param documented Documented | nil Where the program's documentation is and how its help is ordered; nil for a
+---   program that answers from its commands' records alone
 --- @return Dispatched | nil What the command answered, or the help
 --- @return string Why nothing ran, or "" when a command or help did
 function Flags.dispatch(argv: {string}, from: integer,
-                        commands: {string:Flags.Command}, program: string): Flags.Dispatched?, string
+                        commands: {string:Flags.Command}, program: string,
+                        documented?: Flags.Documented): Flags.Dispatched?, string
   if next(commands) == nil then
     error("flags: dispatch needs a command to choose among", 2)
+  end
+  -- The module the program names as its pages, which a run from source answers an error's guidance from.
+  if documented ~= nil and documented.pages ~= nil and source_run.script ~= nil then
+    source_run.pages = documented.pages
+  end
+  local topics = documented and documented.topics or {}
+  local spelled: mut {string: string} = {}
+  for _, held in ipairs(sorted(keys(commands))) do
+    local command = commands[held]
+    local typed = if command ~= nil then command.typed or held else held end
+    local alike = spelled[typed]
+    if alike ~= nil then
+      error("flags: " .. alike .. " and " .. held .. " are typed alike: " ..
+          (if typed ~= "" then typed else "by no word" end), 2)
+    end
+    spelled[typed] = held
+    if typed == "help" and held ~= "help" or typed == "-h" or typed == "--help" then
+      error("flags: " .. held .. " is typed as " .. typed .. ", which asks for help", 2)
+    end
+    local see = if command ~= nil then command.see else nil end
+    if see ~= nil then
+      for _, other in ipairs(see) do
+        local answered = other == "help" or (other == "docs" and documented ~= nil) or topics[other] ~= nil
+        if other == held or (commands[other] == nil and not answered) then
+          error("flags: " .. held .. "'s see names no other command: " .. other, 2)
+        end
+      end
+    end
+  end
+  for _, held in ipairs(sorted(keys(topics))) do
+    if held == "" then
+      error("flags: a topic's name is empty", 2)
+    elseif commands[held] ~= nil or spelled[held] ~= nil or held == "help" or held == "docs" then
+      error("flags: the topic " .. held .. " is named as a command is", 2)
+    elseif held:sub(1, 1) == "-" then
+      error("flags: the topic " .. held .. " is named as an option is, which help takes for none", 2)
+    end
+    local topic = topics[held]
+    local guide = if topic ~= nil then topic.guide else nil end
+    if guide ~= nil and topic ~= nil and topic.text ~= nil then
+      error("flags: the topic " .. held .. " gives both a text and a guide", 2)
+    elseif guide ~= nil and (guide == "" or guide:find("[./]") ~= nil) then
+      error("flags: the topic " .. held .. "'s guide is no guide's name: " .. guide, 2)
+    end
+    local see = if topic ~= nil then topic.see else nil end
+    if see ~= nil then
+      for _, other in ipairs(see) do
+        local answered = other == "help" or other == "docs" or topics[other] ~= nil
+        if other == held or (commands[other] == nil and not answered) then
+          error("flags: the topic " .. held .. "'s see names no other command or topic: " .. other, 2)
+        end
+      end
+    end
   end
   local name = argv[from]
   if name == "--help" or name == "-h" or (name == "help" and commands.help == nil) then -- checked: map_field
@@ -459,40 +1207,124 @@ function Flags.dispatch(argv: {string}, from: integer,
       asked = nil
     end
     if asked ~= nil and argv[from + 2] ~= nil then
-      return nil, "help: one command at a time"
+      return nil, if next(topics) ~= nil then "help: one command or topic at a time" else "help: one command at a time" end
     end
     if asked == nil then
-      return { code = 0, help = commands_help(program, commands) }, ""
+      return { code = 0, help = Flags.program_help(program, commands, documented) }, ""
+    end
+    -- A command is asked about by the word that runs it, or by its name: the command no word runs has no other.
+    for _, held in ipairs(sorted(keys(commands))) do
+      local other = commands[held]
+      if other ~= nil and other.typed == asked and asked ~= "" then asked = held end
     end
     local asked_command = commands[asked]
-    if asked_command == nil then
-      return nil, "no such command: " .. asked
+    if asked_command == nil and asked == "help" then
+      return { code = 0, help = help_help(program, next(topics) ~= nil) }, ""
     end
-    return { code = 0, help = Flags.help(asked_command, program .. " " .. asked) }, ""
+    if asked_command == nil and asked == "docs" and documented ~= nil then
+      return { code = 0, help = docs_help(program) }, ""
+    end
+    local asked_topic = topics[asked]
+    if asked_command == nil and asked_topic ~= nil and documented ~= nil then
+      local page, page_trouble = topic_page(program, asked, asked_topic, commands, documented)
+      if page == nil then
+        return nil, "help: " .. page_trouble
+      end
+      return { code = 0, help = page }, ""
+    end
+    if asked_command == nil then
+      local held: mut {string} = { "help" }
+      if documented ~= nil then held[#held + 1] = "docs" end
+      for other, command in pairs(commands) do
+        local typed = command.typed or other
+        held[#held + 1] = if typed ~= "" then typed else other end
+      end
+      for other in pairs(topics) do held[#held + 1] = other end
+      local what = if next(topics) ~= nil then "no such command or topic: " else "no such command: " end
+      return nil, what .. asked .. meant(asked, held)
+    end
+    local asked_help, asked_trouble = command_help(program, asked, commands, documented)
+    if asked_help == nil then
+      return nil, "help: " .. asked_trouble
+    end
+    return { code = 0, help = asked_help }, ""
+  end
+  if name == "docs" and documented ~= nil and commands["docs"] == nil then
+    return docs_answer(argv, from + 1, program, commands, documented)
   end
   if name == nil then
     local names: mut {string} = {}
-    for known in pairs(commands) do names[#names + 1] = known end
+    for known, other in pairs(commands) do
+      local typed = other.typed or known
+      if typed ~= "" then names[#names + 1] = typed end
+    end
     table.sort(names)
     return nil, "needs a command: " .. table.concat(names, ", ")
   end
   local command = commands[name]
+  -- The slot of the command's first word: after its name, or the word itself where no command is named.
+  local first = from + 1
+  if command ~= nil and command.typed ~= nil then
+    -- A command typed another way is not run by its name in `commands`.
+    command = nil
+  end
   if command == nil then
-    return nil, "no such command: " .. name
+    local unnamed: string? = nil
+    for _, held in ipairs(sorted(keys(commands))) do
+      local other = commands[held]
+      if other ~= nil and other.typed == name then
+        command, name = other, held
+      elseif other ~= nil and other.typed == "" then
+        unnamed = held
+      end
+    end
+    if command == nil and unnamed ~= nil then
+      command, name, first = commands[unnamed], unnamed, from
+    end
+  end
+  if command == nil then
+    local known: mut {string} = { "help" }
+    if documented ~= nil and commands["docs"] == nil then known[#known + 1] = "docs" end
+    for held, other in pairs(commands) do
+      local typed = other.typed or held
+      if typed ~= "" then known[#known + 1] = typed end
+    end
+    return nil, "no such command: " .. name .. meant(name, known)
+  end
+  -- The words the command keeps are not its spec's to read.
+  local own = argv
+  local kept: {string} = {}
+  local keeps = command.rest
+  local at = if keeps ~= nil then keeps(argv, first) else nil end
+  if at ~= nil and at < first then
+    error("flags: " .. name .. "'s rest begins at slot " .. tostring(at) .. ", before its first word", 2)
+  end
+  if at ~= nil then
+    local before: mut {string} = {}
+    local after: mut {string} = {}
+    for slot, word in ipairs(argv) do
+      if slot < at then before[#before + 1] = word else after[#after + 1] = word end
+    end
+    own, kept = before, after
   end
   local spec = command.spec or {}
-  if Flags.asks_help(argv, from + 1, spec) then
-    return { code = 0, help = Flags.help(command, program .. " " .. name) }, ""
+  if Flags.asks_help(own, first, spec) then
+    local help, help_trouble = command_help(program, name, commands, documented)
+    if help == nil then
+      return nil, name .. ": " .. help_trouble
+    end
+    return { code = 0, help = help }, ""
   end
-  local parsed, why = Flags.parse(argv, from + 1, spec)
+  local parsed, why = read(own, first, spec, { "--help" })
   if parsed == nil then
-    local usage_line = Flags.help(command, program .. " " .. name):match("^[^\n]*") or ""
+    local usage_line = Flags.help(command, called(program, name, command)):match("^[^\n]*") or ""
     return nil, name .. ": " .. why .. "; " .. usage_line
   end
   local run = command.run
   if run == nil then
     return nil, name .. ": the command has no run"
   end
+  if keeps ~= nil then parsed.rest = kept end
   return { code = run(parsed), help = "" }, ""
 end
 

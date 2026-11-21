@@ -62,11 +62,12 @@ local record harness_epoch
   --- Every token `epoch` held before its current one, oldest first.
   mut retired: {string}
   --- The standard-library modules the harness's modules may reach, each
-  --- by why it must.
+  --- by why it must. An edit to one moves every key, so a module whose use
+  --- is a line or two is written out where the harness uses it instead.
   mut library: {string:string}
 end
 
-harness_epoch.epoch = "70-c7ed4540" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
+harness_epoch.epoch = "71-0a40aed9" -- on a conflict keep neither side: set it to the bare count and run build/harness_epoch_test.tl, which prints a fresh value
 harness_epoch.library = {
   ["cosmic.child"] = "its `start` turns a worker's plan into the unveils, binds and " ..
     "offline spawn holds it to; held alone, what it requires is not walked",
@@ -81,6 +82,9 @@ harness_epoch.library = {
     "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",
   ["cosmic.hash"] = "`build.paths` names a project's build directory by the SHA-256 of " ..
     "its root (`hex_sha256`), where the worker finds its tree's and builds its own",
+  ["cosmic.internal.source_run"] = "cosmic.proc requires it for the file a source run runs, which " ..
+    "`relaunch` names; cosmic.web.assets for the module it is (`main`), and cosmic.doc for that and the " ..
+    "build it attaches (`projection`); a worker is no source run, so it holds none there",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running; and finds a program a module requires " ..
     "of the host (`find`) and whether a portable artifact can start again " ..
@@ -92,18 +96,15 @@ harness_epoch.library = {
   ["cosmic.sandbox.policy"] = "the policy layer cosmic.sandbox answers under its own " ..
     "name: its `merge` and the profiles it joins decide the grants a worker is held to " ..
     "(`build.test_policy`'s `runs`); held alone, what it requires is not walked",
-  -- TODO: take cosmic.sqlite out of the harness, and this entry out of
-  -- `library`, once build.shared_sqlite gives build.declared_key's
-  -- `program`, build.shared_verdicts and build.bind what they read and
-  -- write through the raw binding (cosmic.internal.sqlite), and they
-  -- and it reach no cosmic.sqlite.
+  -- Kept, though an edit to it moves every key: the harness reads rows
+  -- through its typed row accessors (`text`, `blob`) and binds through
+  -- its checked values, in some 90 places across build.test_key,
+  -- build.shared_verdicts, build.shared_sqlite, build.declared_key and
+  -- build.bind, and a copy of those over the raw binding
+  -- (cosmic.internal.sqlite) would be a second SQLite layer inside the
+  -- key's code to keep in step with this one.
   ["cosmic.sqlite"] = "the key's code digests the rows it reads of the store, and " ..
     "shared verdicts are stored and looked up under exact keys through it",
-  ["cosmic.string"] = "text a key or verdict holds is split, tested or counted through " ..
-    "it: the launcher's template (`build.launcher`), the runtime identity " ..
-    "(`build.test_key`), sandbox paths (`build.test_sandbox`), the artifact's SQLite " ..
-    "header (`build.artifact`) and " ..
-    "plurals (`build.plural`)",
   ["cosmic.test"] = "a test's declaration (`Test.policy`), which the worker judges, and " ..
     "the runner's hook into it",
 }
@@ -178,6 +179,7 @@ harness_epoch.retired = {
   "130cdab9",
   "e680128b",
   "8d5544ad",
+  "c7ed4540",
 }
 
 return harness_epoch

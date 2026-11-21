@@ -5,20 +5,20 @@
 --- prints what it could and could not do and ends; the test reads that.
 --- Every case needs a sandbox (`requires`): where the platform gives none
 --- they are not applicable, and where this host's kernel refuses Landlock
---- or seccomp a child that reports it skips its case (Test.skip).
+--- or seccomp a child that reports it skips its case (Test.skip). What a
+--- restriction refuses before anything holds the process, which needs no
+--- sandbox, is cosmic/sandbox_restrict_refusal_test.tl's.
 
-local Child = require("cosmic.child")
-local Clock = require("cosmic.clock")
 -- The child loads these from the store, which holds this test's closure alone.
 local _net = require("cosmic.net")
 local _sandbox = require("cosmic.sandbox")
 local _store = require("cosmic.store")
+local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
 local Fs = require("cosmic.fs")
-local build_paths = require("build.paths")
 local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
-local this_program = require("build.this_program")
+local Restrict = require("build.sandbox_restrict_fixture")
 
 --- The program is this one, which a test starts only with `tool`; its
 --- temporary directory is the test's own.
@@ -30,69 +30,6 @@ Test.policy{
 }
 
 local DENIED <const> = "Permission denied"
-
---- What the child runs first: the modules it uses, loaded before it is
---- restricted since it may read nothing after, and the helpers that
---- report. `say(name, ...)` prints `name=` and its values; `reads(path)`
---- is what a file holds or why it cannot be read.
-local PRELUDE <const> = [[
-local sys = require("cosmic.sys")
-local Sandbox = require("cosmic.sandbox")
-local Child = require("cosmic.child")
-local Net = require("cosmic.net")
-local Store = require("cosmic.store")
-local function say(name: string, ...: any)
-  local words: mut {string} = {}
-  for i = 1, select("#", ...) do words[#words + 1] = tostring((select(i, ...))) end
-  print(name .. "=" .. table.concat(words, " "))
-end
-local function reads(path: string): string
-  local fd, why = sys.open(path, sys.O_RDONLY)
-  if fd == nil then return "denied: " .. why end
-  local data = sys.read(fd, 100)
-  sys.close(fd)
-  return data or ""
-end
-local function writes(path: string): string
-  local fd, why = sys.open(path, sys.O_WRONLY | sys.O_CREAT, 420)
-  if fd == nil then return "denied: " .. why end
-  sys.close(fd)
-  return "wrote"
-end
---- A limit as "soft hard", or "none" where it cannot be read.
-local function limit(resource: integer): string
-  local held = sys.getrlimit(resource)
-  if held == nil then return "none" end
-  return tostring(held.soft) .. " " .. tostring(held.hard)
-end
-local _, _, _, _, _, _ = Child, Net, Store.alone, reads, writes, limit
-]]
-
---- What a child said: its lines, `name=value`, by name, and how it ended.
-local record Said
-  code: integer
-  lines: mut {string:string}
-  raw: string
-end
-
---- Runs `chunk`, after `PRELUDE`, in a child of this program, and answers
---- what it printed. Skips the test where the child reports `skip=` and
---- why, which it does where this host's kernel gives no Landlock.
-local function in_child(chunk: string): Said
-  local started = this_program.program({ "-e", PRELUDE .. chunk }, {
-    env = this_program.environment(), stdout = "capture", stderr = "stdout",
-    timeout_ns = Clock.seconds(60) })
-  local result = assert(Child.run(started.argv, started.options))
-  local said: Said = { code = result.code or -1, lines = {}, raw = result.stdout or "" }
-  for line in said.raw:gmatch("[^\n]+") do
-    local name, value = line:match("^([%w_]+)=(.*)$")
-    if name ~= nil and value ~= nil then said.lines[name] = value end
-  end
-  local skip = said.lines["skip"]
-  if skip ~= nil then Test.skip(skip) end
-  assert(result.code == 0, "the child ended " .. tostring(result.code) .. ": " .. said.raw)
-  return said
-end
 
 --- Lua source that restricts to `policy` (Lua source of a table), says
 --- `restrict=<ok> <why>`, and goes on only where it held.
@@ -112,7 +49,7 @@ end
 local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(tmp .. "/ro/a", "alpha") and Fs.write(tmp .. "/other/b", "beta"))
-  local said = in_child(restricted(
+  local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"r\" } } }", tmp .. "/ro"),
     string.format([[
 say("granted", reads(%q))
@@ -130,19 +67,22 @@ end
 
 local function test_w_and_c_give_writing_and_creating(tmp: string)
   assert(Fs.mkdirs(tmp .. "/rw") and Fs.write(tmp .. "/rw/f", "x"))
-  local said = in_child(restricted(
+  local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rwc\" } } }", tmp .. "/rw"),
     string.format([[
 say("overwrite", writes(%q))
 say("create", writes(%q))
 ]], tmp .. "/rw/f", tmp .. "/rw/made")))
   assert(said.lines["overwrite"] == "wrote" and said.lines["create"] == "wrote", said.raw)
-  assert(Fs.exists(tmp .. "/rw/made"))
+  do
+    local held_true, held_why = Fs.exists(tmp .. "/rw/made")
+    assert(held_true == true, held_why)
+  end
 end
 
 local function test_the_filter_refuses_a_socket_and_a_process(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local said = in_child(restricted(
+  local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } } }", probe),
     string.format([[
 local conn, why = Net.connect(Net.tcp("127.0.0.1", 9))
@@ -159,7 +99,7 @@ end
 
 local function test_the_fork_promise_lets_a_process_start(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local said = in_child(restricted(
+  local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
 local result, trouble = Child.run({ %q, "print hi" }, { process_group = false, stdout = "capture" })
@@ -176,7 +116,7 @@ local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside
   local abi, _ = require("cosmic.internal.process").landlock_abi()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local sibling = assert(Child.start({ probe, "sleep-forever" }, { process_group = false }))
-  local said = in_child(restricted(
+  local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
 local own = Child.run({ %q, "signal TERM" }, { process_group = false, stdout = "capture", stderr = "stdout" })
@@ -213,7 +153,7 @@ say("parent", parent, parent_why)
 end
 
 local function test_limits_lower_what_the_process_may_spend()
-  local said = in_child(restricted("{ limits = { open_files = 24, cpu_seconds = 100 } }", [[
+  local said = Restrict.in_child(restricted("{ limits = { open_files = 24, cpu_seconds = 100 } }", [[
 say("nofile", limit(sys.RLIMIT_NOFILE))
 say("cpu", limit(sys.RLIMIT_CPU))
 say("core", limit(sys.RLIMIT_CORE))
@@ -229,7 +169,7 @@ end
 
 local function test_a_limit_is_never_raised()
   -- The child starts at a lower limit than the default 1024, which stays.
-  local said = in_child([[
+  local said = Restrict.in_child([[
 assert(sys.setrlimit(sys.RLIMIT_NOFILE, 64, 64))
 ]] .. restricted("{}", [[
 say("nofile", limit(sys.RLIMIT_NOFILE))
@@ -242,7 +182,7 @@ local function test_restricting_again_narrows(tmp: string)
   assert(Fs.write(tmp .. "/a/f", "a") and Fs.write(tmp .. "/b/f", "b") and Fs.write(tmp .. "/c/f", "c"))
   local first = string.format("{ grants = { { path = %q, letters = \"r\" }, { path = %q, letters = \"r\" } }, " ..
       "limits = { cpu_seconds = 100 } }", tmp .. "/a", tmp .. "/b")
-  local said = in_child(restricted(first, string.format([[
+  local said = Restrict.in_child(restricted(first, string.format([[
 say("a", reads(%q))
 say("b", reads(%q))
 say("c", reads(%q))
@@ -266,7 +206,7 @@ end
 --- A limit a later restriction lowers asks for setrlimit, which the first
 --- filter allows where the process cannot raise a hard limit.
 local function test_a_later_limit_is_lowered_under_the_filter()
-  local said = in_child(restricted("{}", [[
+  local said = Restrict.in_child(restricted("{}", [[
 local second, second_why = Sandbox.restrict({ limits = { cpu_seconds = 5 } })
 say("second", second, second_why)
 say("cpu", limit(sys.RLIMIT_CPU))
@@ -278,7 +218,7 @@ end
 --- reads no capability once an earlier filter refuses it, and takes the
 --- earlier filter's allowing setrlimit as proof it holds none.
 local function test_stacked_restrictions_each_lower_a_limit()
-  local said = in_child(restricted("{ limits = { cpu_seconds = 100 } }", [[
+  local said = Restrict.in_child(restricted("{ limits = { cpu_seconds = 100 } }", [[
 local seconds = { 50, 25, 10 }
 for i, n in ipairs(seconds) do
   local next_ok, next_why = Sandbox.restrict({ limits = { cpu_seconds = n } })
@@ -297,7 +237,7 @@ end
 --- raised again. Where the process holds the capability its limits are its
 --- own to raise, and the filter refuses them.
 local function test_the_filter_lets_a_process_lower_its_own_limits_unless_it_can_raise_one()
-  local said = in_child([[
+  local said = Restrict.in_child([[
 local fd = assert(sys.open("/proc/self/status", sys.O_RDONLY))
 local status = assert(sys.read(fd, 8192))
 sys.close(fd)
@@ -319,91 +259,13 @@ say("raised", raised, raised_why)
   assert(assert(said.lines["raised"]):find("^false Operation not permitted"), said.raw)
 end
 
---- A policy for each field a process cannot be held to, with the name
---- its failure gives.
---- A policy written out as the source [`Sandbox.restrict`] is called with, and the words its failure holds.
-local record Refusal
-  policy: string
-  says: string
-end
-
-local REFUSED <const>: {Refusal} = {
-  { policy = "{ isolate = { \"file\" } }", says = "isolate \"file\"" },
-  { policy = "{ isolate = { \"proc\" } }", says = "isolate \"proc\"" },
-  { policy = "{ connect = { \"example.com:443\" } }", says = "connect \"example.com:443\"" },
-  { policy = "{ loopback = { \"127.0.0.2\" } }", says = "loopback \"127.0.0.2\"" },
-  { policy = "{ promises = { \"nest\" } }", says = "promises \"nest\"" },
-  { policy = "{ grants = { { path = \"/\", letters = \"ru\" } } }", says = "grant \"/\" has u" },
-  { policy = "{ grants = { { path = \"/\", letters = \"r\", from = \"/srv\" } } }", says = "grant \"/\" has from" },
-  { policy = "{ env = { \"HOME\" } }", says = "env \"HOME\"" },
-  { policy = "{ set_env = { MODE = \"x\" } }", says = "set_env \"MODE\"" },
-  { policy = "{ tmp = true }", says = "tmp is" },
-  { policy = "{ limits = { processes = 4 } }", says = "limits.processes" },
-  { policy = "{ user = 4294967000 }", says = "user 4294967000" },
-  { policy = "{ profiles = { \"nonesuch\" } }", says = "nonesuch" },
-}
-
---- The child of a case that restricts nothing ends unrestricted, so it
---- still reports the C it entered to the test's coverage; one that is held
---- cannot write there. These cases hold that every refusal leaves the
---- process as it was: a file no policy granted reads still, and a limit
---- set past a refusal is not set.
-local function test_every_refusal_holds_nothing(tmp: string)
-  assert(Fs.write(tmp .. "/free", "free") and Fs.write(tmp .. "/held", "held"))
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local lines: mut {string} = {}
-  for i, case in ipairs(REFUSED) do
-    lines[#lines + 1] = string.format("say(%q, Sandbox.restrict(%s))", "case" .. tostring(i), case.policy)
-  end
-  local said = in_child(table.concat(lines, "\n") .. "\n" .. string.format([[
--- What the kernel's side refuses: an open descriptor, one fds names that is
--- not open, a grant of a path that is not there (after its limit is planned),
--- and a child not yet waited for.
-local nofile_before = limit(sys.RLIMIT_NOFILE)
-local fd = assert(sys.open(%q, sys.O_RDONLY))
-say("fd", fd)
-say("unnamed", Sandbox.restrict({}))
-say("absent_fd", Sandbox.restrict({}, { fds = { fd, 40 } }))
-assert(sys.close(fd))
-say("missing", Sandbox.restrict({ grants = { { path = %q, letters = "r" } },
-  limits = { cpu_seconds = 7 } }))
-local running = assert(Child.start({ %q, "sleep-forever" }, { process_group = false }))
-say("child", Sandbox.restrict({}))
-assert(running:close())
-say("cpu", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "7 ")
-say("nofile", limit(sys.RLIMIT_NOFILE) == nofile_before)
-say("with_limits", Sandbox.restrict({ isolate = { "file" }, grants = { { path = "/", letters = "r" } },
-  limits = { cpu_seconds = 9, open_files = 12 } }))
-say("cpu_after", limit(sys.RLIMIT_CPU):sub(1, 2) ~= "9 ")
-say("nofile_after", limit(sys.RLIMIT_NOFILE) == nofile_before)
-say("free", reads(%q))
-]], tmp .. "/held", tmp .. "/absent", probe, tmp .. "/free"))
-  for i, case in ipairs(REFUSED) do
-    local answer = said.lines["case" .. tostring(i)] or ""
-    assert(answer:find("^false sandbox: ") and answer:find(case.says, 1, true),
-      case.policy .. " -> " .. answer)
-  end
-  local fd = assert(said.lines["fd"])
-  assert(said.lines["unnamed"] == "false sandbox: restrict: descriptor " .. fd ..
-      " is open and not named in fds: close it, or name it to keep it", said.raw)
-  assert(assert(said.lines["absent_fd"]):find("descriptor 40, which fds names, is not open", 1, true), said.raw)
-  assert(assert(said.lines["missing"]):find("^false sandbox: restrict: grant .*absent: No such file"), said.raw)
-  assert(assert(said.lines["child"]):find("^false sandbox: restrict: this process has a child, pid %d+, not waited for"),
-    said.raw)
-  assert(said.lines["cpu"] == "true" and said.lines["free"] == "free", said.raw)
-  -- A refusal that comes with limits and grants sets no limit and holds nothing.
-  assert(said.lines["nofile"] == "true" and said.lines["nofile_after"] == "true", said.raw)
-  assert(assert(said.lines["with_limits"]):find("^false sandbox: restrict: isolate", 1) and
-      said.lines["cpu_after"] == "true", said.raw)
-end
-
 --- The slot of one of the three /proc handles a restriction keeps (the
 --- threads, the descriptors, the children) is closed and a file the
 --- program may write put in it: the next restriction must not trust the
 --- number, whichever it is.
 local function replaced_handle(tmp: string, which: integer)
   assert(Fs.mkdirs(tmp .. "/rw") and Fs.write(tmp .. "/rw/f", "x"))
-  local said = in_child(string.format([[
+  local said = Restrict.in_child(string.format([[
 local before: mut {integer:boolean} = {}
 for n = 3, 80 do
   if sys.fd_flags(n) ~= nil then before[n] = true end
@@ -438,32 +300,9 @@ local function test_a_replaced_children_handle_is_not_trusted(tmp: string)
   replaced_handle(tmp, 3)
 end
 
-local function test_a_writable_descriptor_on_a_store_database_is_the_programs_own(tmp: string)
-  local said = in_child(string.format([[
--- A database of the store's own kind, attached: the store holds it read-only.
-local original = %q
-local copy = %q .. "/copy.db"
-local source = assert(sys.open(original, sys.O_RDONLY))
-local target = assert(sys.open(copy, sys.O_WRONLY | sys.O_CREAT, 420))
-while true do
-  local chunk = sys.read(source, 65536)
-  if chunk == nil or chunk == "" then break end
-  assert(sys.write(target, chunk))
-end
-sys.close(source) sys.close(target)
-assert(Store.attach(copy, { unchecked_bytecode = true }))
-local mine = assert(sys.open(copy, sys.O_RDWR))
-say("mine", mine)
-say("refused", Sandbox.restrict({}))
-say("named", Sandbox.restrict({}, { fds = { mine } }))
-]], build_paths.resolve(".").projection, tmp))
-  assert(said.lines["refused"] == "false sandbox: restrict: descriptor " .. assert(said.lines["mine"]) ..
-      " is open and not named in fds: close it, or name it to keep it", said.raw)
-end
-
 local function test_a_named_descriptor_is_kept_and_the_path_it_was_opened_by_is_not(tmp: string)
   assert(Fs.write(tmp .. "/f", "held"))
-  local said = in_child(string.format([[
+  local said = Restrict.in_child(string.format([[
 local fd = assert(sys.open(%q, sys.O_RDONLY))
 local named, trouble = Sandbox.restrict({}, { fds = { fd } })
 say("named", named, trouble)
@@ -476,17 +315,9 @@ say("after", reads(%q))
   assert(said.lines["after"] == "denied: " .. DENIED, said.raw)
 end
 
-local function test_fds_names_a_descriptor_above_2()
-  local said = in_child([[
-say("low", Sandbox.restrict({}, { fds = { 1 } }))
-]])
-  assert(assert(said.lines["low"]):find("^false sandbox: restrict: fds names 1, which is not a descriptor above 2"),
-    said.raw)
-end
-
 local function test_a_child_reaped_does_not_refuse(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local said = in_child(string.format([[
+  local said = Restrict.in_child(string.format([[
 local running = assert(Child.start({ %q, "sleep-forever" }, { process_group = false }))
 assert(running:close())
 local after, trouble = Sandbox.restrict({})
@@ -496,6 +327,6 @@ say("reaped", after, trouble)
 end
 
 local function test_a_policy_is_merged_first_so_profiles_resolve()
-  local said = in_child(restricted("{ profiles = { \"system\" } }", ""))
+  local said = Restrict.in_child(restricted("{ profiles = { \"system\" } }", ""))
   assert(said.lines["restrict"] == "true ", said.raw)
 end

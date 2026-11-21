@@ -10,6 +10,7 @@
 ---     local asset = assert(source:get("css/app.css"))
 ---     assert(asset.type == "text/css; charset=utf-8")
 ---     assert(asset.etag == '"' .. asset.sha256:sub(1, 32) .. '"')
+--- @public
 
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
@@ -17,6 +18,7 @@ local Hash = require("cosmic.hash")
 local Mime = require("cosmic.mime")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local source_run = require("cosmic.internal.source_run")
 
 local record Assets
   --- An algorithm an [`Assets.Asset`]'s `integrity` can name.
@@ -84,7 +86,8 @@ local record Assets
     --- Read `root` from disk whatever is embedded: the development mode.
     dev?: boolean
     --- The directory read from disk ("static", against the working
-    --- directory).
+    --- directory). Left out, a program's own `cmd/<name>/static/` is read
+    --- over it, as a built program carries them.
     root?: string
     --- Receives the one line saying a directory is read in place of an
     --- embedded source (standard error by default).
@@ -283,10 +286,11 @@ local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows?
   return nil
 end
 
---- A source of the files under the project's `static/`, carried in the
---- executable's database (its `payload` table). A file is read once and
---- kept for the life of the process, so its memory is the total of
---- `static/`. A program built without `static/` holds none.
+--- A source of the project's static files the executable carries in its
+--- database (its `payload` table): those under its own `cmd/<name>/static/`
+--- and those under `static/` it holds none of at the same path. A file is
+--- read once and kept for the life of the process, so its memory is the
+--- total of those files. A program built with neither holds none.
 --- @return Assets.Source The source
 function Assets.embedded(): Assets.Source
   local held: mut {string:Assets.Asset} = {}
@@ -331,30 +335,90 @@ end
 -- or [`Assets.directory`].
 
 --- Whether this program is a built executable, which carries its own
---- database with its main module recorded: the `cosmic` tool and a script
---- it runs record none.
+--- database with its main module recorded: the `cosmic` tool records none,
+--- and a file it runs from source ([`cosmic.internal.source_run`]) is none,
+--- though the project's projection it attaches records the main of a
+--- `cmd/<name>/main.tl`, and holds every program's static files.
 local function is_built(): boolean
+  if source_run.script ~= nil then return false end
   local main = Store.meta("main")
   return main ~= nil and main ~= ""
+end
+
+--- The source of one directory laid over another's: a path `over` holds is
+--- answered from it, any other from `under`, as [`build.embed`] lays a
+--- program's own static files over the shared ones.
+local function layered(over: Assets.Source, under: Assets.Source): Assets.Source
+  return {
+    get = function(_self: Assets.Source, path: string): Assets.Asset?, string
+      local asset, _ = over:get(path)
+      if asset ~= nil then return asset, "" end
+      return under:get(path)
+    end,
+    paths = function(_self: Assets.Source): {string}
+      local seen: mut {string:boolean} = {}
+      local list: mut {string} = {}
+      for _, source in ipairs({ over, under }) do
+        for _, path in ipairs(source:paths()) do
+          if seen[path] == nil then
+            seen[path] = true
+            list[#list + 1] = path
+          end
+        end
+      end
+      table.sort(list)
+      return list
+    end,
+    dynamic = function(_self: Assets.Source): boolean return over:dynamic() or under:dynamic() end,
+  }
+end
+
+--- The directory of this program's own static files, against the working
+--- directory (`cmd/spam/static` for `spam`), or nil when the program is no
+--- `cmd/<name>/main.tl`: a built one by the main it records, one run from
+--- its source by the module it is. A file run that is no program's main
+--- (`cosmic app.tl`, as [`Dev.supervise`] starts by default) has none, though
+--- the project holds programs: which one it serves is not known.
+--- @return string|nil The directory, or nil
+function Assets.own_static(): string?
+  local main = source_run.main or Store.meta("main")
+  if main == nil then return nil end
+  local name = main:match("^cmd%.([^%.]+)%.main$")
+  if name == nil then return nil end
+  return "cmd/" .. name .. "/static"
+end
+
+--- The directory source for an app, `root` ("static" when nil), and over
+--- it, when `root` is nil, the program's own directory ([`Assets.own_static`]).
+local function from_disk(root?: string): Assets.Source
+  local shared = Assets.directory(root or "static")
+  local own = if root == nil then Assets.own_static() else nil end
+  if own == nil then return shared end
+  return layered(Assets.directory(own), shared)
 end
 
 --- The source for an app: with `opts.dev` the directory `opts.root`
 --- ("static" against the working directory); else the embedded source of
 --- a built program, which serves only what it carries (none, if it was
---- built without `static/`) and never an unrelated `static/` it is run
+--- built without static files) and never an unrelated `static/` it is run
 --- beside; else, for a program run from source before it is built, the
---- directory, with one log line.
+--- directory, with one log line. Where `opts.root` is left out, the
+--- directory read from disk is `static/` with the program's own
+--- `cmd/<name>/static/` laid over it, as a built program carries them.
 --- @param opts DefaultOptions | nil Dev mode, the directory and the log
 --- @return Assets.Source The source
 function Assets.default(opts?: Assets.DefaultOptions): Assets.Source
-  local root = opts and opts.root or "static"
-  if opts ~= nil and opts.dev == true then return Assets.directory(root) end
+  local given = opts and opts.root
+  if opts ~= nil and opts.dev == true then return from_disk(given) end
   if is_built() then return Assets.embedded() end
   local log = opts and opts.log or function(text: string)
     local _, _ = Fs.put(Fs.stderr, text .. "\n")
   end
-  log(("web: not a built program; serving %q from disk"):format(root))
-  return Assets.directory(root)
+  local own = if given == nil then Assets.own_static() else nil end
+  local said = ("%q"):format(given or "static")
+  if own ~= nil then said = ("%q over %s"):format(own, said) end
+  log(("web: not a built program; serving %s from disk"):format(said))
+  return from_disk(given)
 end
 
 return Assets

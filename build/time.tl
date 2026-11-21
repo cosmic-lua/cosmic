@@ -99,42 +99,6 @@ local takes: {string:{string}} = {
 --- How many words each subcommand takes after its name.
 local arity: {string:integer} = { now = 0, convert = 1, between = 2, add = 2 }
 
---- A negative duration or epoch begins with "-", which `Flags` reads as an
---- option; these forms are set aside under a name no option has and put
---- back.
-local function protect(argv: {string}): {string}, {string:string}
-  local out: mut {string} = {}
-  local kept: mut {string:string} = {}
-  local ended = false
-  for slot, original in ipairs(argv) do
-    local word = original
-    if word == "--" then ended = true end
-    local before = (if slot > 1 then argv[slot - 1] else nil end) or ""
-    local option = spec[before]
-    local is_value = false
-    if option is Flags.Option then is_value = option.value ~= nil end
-    if not ended and slot > 2 and not is_value and word:match("^%-%d") ~= nil then
-      local name = "\1kept" .. tostring(slot)
-      kept[name] = word
-      word = name
-    end
-    out[#out + 1] = word
-  end
-  return out, kept
-end
-
---- The words and options `argv` holds, or nil and why.
-local function arguments(argv: {string}): Flags.Parsed?, string
-  local safe, kept = protect(argv)
-  local parsed, trouble = Flags.parse(safe, 2, spec)
-  if parsed == nil then return nil, trouble end
-  local words: mut {string} = {}
-  for _, word in ipairs(parsed.words) do
-    words[#words + 1] = kept[word] or word
-  end
-  return { set = parsed.set, values = parsed.values, all = parsed.all, given = parsed.given, words = words }, ""
-end
-
 --- A moment in one zone, ready to print.
 local record Seen
   ns: integer
@@ -330,7 +294,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     complain(line .. "; " .. usage)
     return bare.refused
   end
-  local got, trouble = arguments(argv)
+  local got, trouble = Flags.parse(argv, 2, spec)
   if got == nil then return refuse(trouble) end
   local parsed: Flags.Parsed = got
   local sub = parsed.words[1]

@@ -103,8 +103,8 @@ end
 local function test_a_holder_takes_its_own_lock_again(tmp: string)
   local root = tmp .. "/tree"
   assert(support.build_dir(root))
-  local took = assert(rebuild_lock.hold(root, "test", "test"))
-  assert(took == true)
+  local took, took_why = rebuild_lock.hold(root, "test", "test")
+  assert(took == true, took_why)
   assert(rebuild_lock.holds(root))
   assert(rebuild_lock.take(root, 0, "rebuild") == "held")
   assert(rebuild_lock.hold(root, "write", "o/cosmic.db") == false,

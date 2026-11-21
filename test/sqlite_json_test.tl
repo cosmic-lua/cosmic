@@ -55,8 +55,9 @@ end
 local function test_sqlite_and_cosmic_json_read_flow_style_alike()
   local db = assert(Sqlite.memory())
   local text = "# a workflow\n{on: {push: {}}, jobs: {a: {\"runs-on\": \"x\", # the runner\n steps: [{run: \"echo #1\"}]}}}\n"
-  local ours = assert(Json.decode(text, { json5 = true, hash_comments = true }))
-  local theirs = assert(Json.decode((assert(minified(db, text)))))
+  local ours, ours_trouble = Json.decode(text, { json5 = true, hash_comments = true })
+  local theirs, theirs_trouble = Json.decode((assert(minified(db, text))))
+  assert(ours ~= nil and theirs ~= nil, ours_trouble .. theirs_trouble)
   assert(Json.encode_any(ours) == Json.encode_any(theirs))
   assert(db:close())
 end

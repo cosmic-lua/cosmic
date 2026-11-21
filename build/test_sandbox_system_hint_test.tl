@@ -109,8 +109,9 @@ end
     return said
   end
   local start_hint = "/bin/sh is not in this test's sandbox, which has nothing of /bin: " ..
-    "a test that starts a host program declares Test.policy { profiles = { \"system\" } } " ..
-    "(see cosmic docs cosmic.test)"
+    "a test that starts a host program grants it by its absolute path, in Test.policy " ..
+    "{ grants = { ... } }, which gives its loader and libraries with it, or declares " ..
+    "{ profiles = { \"system\" } } for all the system's programs (see cosmic docs cosmic.test)"
   local bare = failure("suite.undeclared_test test_bare")
   assert(bare:find("assertion failed!\n  " .. start_hint, 1, true), bare)
   local why = failure("suite.undeclared_test test_why")

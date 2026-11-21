@@ -14,7 +14,9 @@ local Log = require("cosmic.log")
 local GrammarMode = require("build.grammar_mode")
 local identity = require("build.identity")
 local importer = require("build.importer")
+local refusals = require("build.refusals")
 local shared_compiles = require("build.shared_compiles")
+local stamps = require("build.stamps")
 local work = require("build.work")
 local writer = require("build.writer")
 local clock = require("build.clock")
@@ -117,7 +119,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
     log:complain("boot: " .. grammar_trouble)
     return nil
   end
-  local handle, open_trouble = work.open(root, working.directory)
+  local handle, open_trouble = work.open(root, working.directory, "boot")
   if handle == nil then
     log:complain("boot: " .. open_trouble)
     return nil
@@ -175,7 +177,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
   local result, compile_trouble = importer.compile_tree(handle,
     function(recorded: identity.Identities): string, string
       return GrammarMode.tool(recorded.compiler), ""
-    end, false, shared_compiles.for_build())
+    end, false, shared_compiles.for_build(), importer.telling())
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -187,9 +189,8 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
   if #refused > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
-    log:complain(table.concat(refused, "\n"))
-    log:complain("boot: the new checker refused " .. plural.count(#refused, "module") ..
-        " of the tree, so no tool is written from it")
+    log:complain(refusals.text(refused, result.refusal_roots or {}))
+    log:complain("boot: the tree did not build, so no tool is written from it")
     return nil
   end
   local database_path = output.projection
@@ -205,7 +206,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
 
   -- The tool carries the projection without the tree's own tests and
   -- examples, which `cosmic test` reads from the projection itself.
-  local carried, carry_trouble = writer.carried(database_path, output.carried)
+  local carried, carry_trouble = writer.carried(database_path, output.carried, stamps.fill)
   if not carried then
     local _, _ = work.close(handle)
     log:complain("boot: " .. carry_trouble)

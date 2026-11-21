@@ -49,11 +49,11 @@ local function test_a_worker_loads_what_worker_loads_names(tmp: string)
   local listed: mut {string:boolean} = {}
   for _, name in ipairs(worker.loads) do
     listed[name] = true
-    assert(ran[name], "worker.loads names " .. name .. ", which a worker did not load")
+    assert(ran[name] == true, "worker.loads names " .. name .. ", which a worker did not load")
   end
   for _, name in ipairs(report.modules) do
     if lua[name] ~= true and name ~= "cosmic.sys" and name:match("^cosmic%.internal%.") == nil then
-      assert(listed[name], "a worker loaded " .. name .. ", which worker.loads does not name")
+      assert(listed[name] == true, "a worker loaded " .. name .. ", which worker.loads does not name")
     end
   end
   for _, name in ipairs({ "build.declared_key", "build.artifact", "build.core_image",

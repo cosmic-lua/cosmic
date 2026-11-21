@@ -1,8 +1,11 @@
 --- Generated inputs and analysis rows, including their shared encoding.
 ---
 --- Every operation that determines a parse's contents lives in this
---- closure. The importer chooses when to reuse or run it, and owns the
---- cache; changing that transport cannot change the analyzer's identity.
+--- closure or in that of [`build.parse_derive`], which reads a source and
+--- writes its rows: both are roots of the analyzer's identity
+--- ([`build.code_walk`]'s `analyzer_roots`). The importer chooses when to
+--- reuse or run them, and owns the cache; changing that transport cannot
+--- change the analyzer's identity.
 
 local Sqlite = require("cosmic.sqlite")
 local analysis_schema = require("build.analysis_schema")
@@ -39,12 +42,17 @@ local record derivation
     --- Its rows in every other analysis table ([`packed_parses`]).
     rows: string
   end
-  --- A source [`build.pipeline`]'s `derive` could not parse, and why: the
+  --- A source [`build.parse_derive`]'s `derive` could not parse, and why: the
   --- message a parse that stops on it answers.
   record Broken
     source_hash: string
     file: string
     message: string
+    --- The source with the fix of every one of its errors written in, where each error is a `global` in a program, whose
+    --- fix is the word `local` in its place: a text of the same length that parses, each token where it was. The checker
+    --- reads it to tell, in the same run, what it would say once the fix is made. nil for any other source: after any
+    --- other error the parser's tree is no whole program. `message` then holds every error, a line each.
+    repaired?: string
   end
 end
 
@@ -54,7 +62,9 @@ local analysis_tables = analysis_schema.tables
 
 --- A doc guide's import path, the same dotted-name convention every
 --- `.tl` file gets: [`doc/guides/quickstart.md`] compiles as
---- [`doc.guides.quickstart`].
+--- [`doc.guides.quickstart`], a guide under `doc/guides/internal/` as
+--- `doc.guides.internal.<name>`, and a program's own
+--- `cmd/<name>/doc/guides/<guide>.md` as `cmd.<name>.doc.guides.<guide>`.
 local function import_path_of_doc(file: string): string
   return (file:gsub("%.md$", ""):gsub("/", "."))
 end
@@ -68,13 +78,23 @@ local insert_derived =
 local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   local guides, trouble = Sqlite.text_rows(db,
     "SELECT path, data, sha256 FROM files " ..
-      "WHERE path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*' " ..
+      "WHERE ((path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*') OR " ..
+      "(path GLOB 'doc/guides/internal/*.md' AND path NOT GLOB 'doc/guides/internal/*/*') OR " ..
+      "(path GLOB 'cmd/?*/doc/guides/?*.md' AND instr(substr(path, 5), '/') = instr(substr(path, 5), '/doc/guides/') " ..
+      "AND path NOT GLOB 'cmd/*/doc/guides/*/*')) " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if guides == nil then
     return false, trouble
   end
   for _, row in ipairs(guides) do
     local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
+    -- A dot in the name would read as a directory in the module's (`doc.guides.v1.2`), and whether a guide is
+    -- public is told from where its module sits ([`cosmic.internal.symbols`]'s `is_public_guide`).
+    if file:match("%.[^/]*%.md$") ~= nil then
+      refusal.refused = true
+      return false, file .. ": a guide's name holds no dot, since it names the module " ..
+        import_path_of_doc(file) .. ": rename the file"
+    end
     local source, extract_trouble = doctest.extract(doc_source, file)
     if source == nil then
       refusal.refused = true
@@ -186,7 +206,7 @@ local function duplicate_import_paths(db: Sqlite.Handle, refusal: derivation.Ref
 end
 
 --- Every source no parse has seen, in hash order: the one parse each
---- needs ([`build.pipeline`]'s `derive`).
+--- needs ([`build.parse_derive`]'s `derive`).
 function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh}?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..

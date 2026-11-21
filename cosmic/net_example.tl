@@ -8,7 +8,7 @@ local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
---- The TCP example listens on the worker's own loopback.
+--- The TCP and UDP examples bind on the worker's own loopback.
 Test.policy{ loopback = { "127.0.0.1" } }
 
 local Example = {} -- checked: literal_needs_type
@@ -62,6 +62,64 @@ function Example.tcp()
   assert(assert(conn:read()) == "hello")
 end
 
+--- UDP: [`Net.datagram`] binds a socket, and each `send` and `receive`
+--- is one whole datagram, to or from an address of its own. Nothing is
+--- connected, so the receiver answers the address its packet came from.
+function Example.datagram()
+  local server <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  local client <close> = assert(Net.datagram(Net.udp("127.0.0.1", 0)))
+  assert(client:send("ping", server.address))
+  local question = assert(server:receive(Clock.seconds(5)))
+  assert(server:send("pong", question.address))
+  local answer = assert(client:receive(Clock.seconds(5)))
+  print(question.data, answer.data)
+  assert(question.data == "ping" and answer.data == "pong")
+end
+
+--- The loopback interface's IPv4 address, which names it as the `via`
+--- of an IPv4 group, from [`Net.interfaces`].
+local function loopback_address(): string
+  for _, interface in ipairs((assert(Net.interfaces()))) do
+    if interface.loopback and interface.up then
+      for _, address in ipairs(interface.addresses) do
+        if address.family == "ipv4" then return address.address end
+      end
+    end
+  end
+  error("no loopback interface has an IPv4 address")
+end
+
+--- [`Net.interfaces`] lists the machine's interfaces, to pick the `via`
+--- of a multicast call from: an IPv4 group takes one of the interface's
+--- IPv4 addresses, an IPv6 group its `index`.
+function Example.interfaces()
+  for _, interface in ipairs((assert(Net.interfaces()))) do
+    print(interface.name, interface.index, interface.up, interface.multicast, #interface.addresses)
+  end
+  local via = loopback_address()
+  print(via)
+  assert(via:find("127.", 1, true) == 1, via)
+end
+
+--- Multicast: a socket that joins a group receives what any socket
+--- sends to the group at its port. Bound to the group and `shared`, it
+--- leaves the port to the other members on the machine. The sender needs
+--- no membership, only `set_multicast` to say which interface its
+--- datagrams leave by, here the loopback, and how far they go.
+function Example.multicast()
+  local via = loopback_address()
+  local group = "239.255.77.99"
+  local member <close> = assert(Net.datagram(Net.udp(group, 0), { shared = true }))
+  assert(member:join(group, via))
+  local sender <close> = assert(Net.datagram(Net.udp(via, 0)))
+  assert(sender:set_multicast({ via = via, hops = 1 }))
+  assert(sender:send("hello, group", Net.udp(group, assert(member.address.port))))
+  local packet = assert(member:receive(Clock.seconds(5)))
+  print(packet.data)
+  assert(packet.data == "hello, group")
+  assert(member:leave(group, via))
+end
+
 --- A server that serves each connection in a task of its own, in a
 --- task of [`Poll.run`]: while one connection waits to be read, the
 --- others are served.
@@ -111,6 +169,21 @@ function Example.serve()
       server:stop()
     end,
   })
+end
+
+--- A line-echo server at a port of the loopback for as long as its
+--- client runs: the second function is the client, given the port, and
+--- the server is gone once it returns.
+function Example.with_loopback()
+  Net.with_loopback(function(conn: Net.Conn)
+    for line in Stream.lines(conn):each() do assert(conn:write(line .. "\n")) end
+  end, function(port: integer)
+    local client <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) }))
+    assert(client:write("hello\n"))
+    local answer = assert(Stream.lines(client):read())
+    print(answer)
+    assert(answer == "hello", answer)
+  end)
 end
 
 return Example -- checked: export_not_declared

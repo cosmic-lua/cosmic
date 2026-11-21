@@ -78,18 +78,26 @@ function Html.escape(s: string): Html.SafeHtml
   return raw.escape(s)
 end
 
---- `s` as the value of a quoted attribute (`title="..."`). Every ASCII
---- byte but a letter or a digit becomes a decimal character reference
---- (`&#34;` for a quote, `&#32;` for a space), so nothing in it can end
---- the quotes or open a tag or a reference. It is not for an unquoted
---- value: the empty string leaves nothing there, and `title= href=/y`
---- swallows the next attribute.
+--- `s` as the value of a quoted attribute (`title="..."` or
+--- `title='...'`). `&`, `"`, `'`, `<` and `>` become entities, as
+--- [`Html.escape`] writes them, and a backtick, a C0 control byte and a DEL
+--- become decimal character references (`&#96;`, `&#10;`, `&#0;`). Every
+--- other byte is kept, so a URL or a path reads as it is
+--- (`/a/b.jpg`, `https://h/?q=1&amp;r=2`). In a quoted value only its quote
+--- ends it and only `&` begins a reference, so nothing in the result can do
+--- either, and a browser reads back `s` (a NUL as U+FFFD, as it reads
+--- any).
+---
+--- It is not for an unquoted value, which a space or a `>` ends: the empty
+--- string leaves nothing there, and `title= href=/y` swallows the next
+--- attribute. [`cosmic.template`] refuses a slot in one.
 ---
 --- A byte of 0x80 or more is kept, so a UTF-8 character survives
 --- whole: a reference per byte would read as other characters. The
 --- document is then UTF-8, as its markup is.
 ---
----     Html.raw(Html.escape_attr("a b")) -- "a&#32;b"
+---     Html.raw_attr(Html.escape_attr('say "hi" & go')) -- "say &quot;hi&quot; &amp; go"
+---     Html.raw_attr(Html.escape_attr("/images/a.jpg")) -- "/images/a.jpg"
 function Html.escape_attr(s: string): Html.SafeAttr
   return raw.escape_attr(s)
 end
@@ -194,15 +202,14 @@ end
 
 --- `s`, a string or a number, as CSS identifier text in a quoted
 --- attribute, for a selector such as `hx-target="#row-..."`. It is
---- `CSS.escape`, then [`Html.escape_attr`]. Letters, digits (but a
---- leading one) and bytes of 0x80 or more stay; `-` and `_` stay as CSS
---- (as character references in the attribute); every other ASCII byte is
---- a backslash, its code in lowercase hex and a space (`,` is
---- `\2c `); NUL is U+FFFD. The space ends the escape, so a literal space
---- after the slot is still a combinator. Only identifier text is
---- covered, not the inside of a CSS string.
+--- `CSS.escape`, whose result needs no escaping as an attribute. Letters,
+--- digits (but a leading one), `-` (but alone), `_` and bytes of 0x80 or
+--- more stay; every other ASCII byte is a backslash, its code in lowercase
+--- hex and a space (`,` is `\2c `); NUL is U+FFFD. The space ends the
+--- escape, so a literal space after the slot is still a combinator. Only
+--- identifier text is covered, not the inside of a CSS string.
 ---
----     Html.raw_attr(Html.escape_css_attr("x, body")) -- "x&#92;2c&#32;&#92;20&#32;body"
+---     Html.raw_attr(Html.escape_css_attr("x, body")) -- "x\\2c \\20 body"
 function Html.escape_css_attr(s: string | number): Html.SafeAttr
   return raw.escape_css_attr(s)
 end

@@ -2,6 +2,7 @@
 --- in-process, with a cookie jar and the server's own checks of the reply,
 --- and [`Testing.with_server`] serves the app on the loopback for a client
 --- that speaks HTTP/1.1 over a socket.
+--- @public
 
 local Clock = require("cosmic.clock")
 local Cookies = require("cosmic.web.cookies")
@@ -238,15 +239,6 @@ local function response_of(status: integer, lines: {HeaderLine}, body: string): 
   return setmetatable(response, response_mt) -- checked: setmetatable_call -- untyped: call
 end
 
---- Runs `fn` in a [`Poll.run`] unless the caller is already in a task of one.
-local function in_loop(fn: function())
-  if Poll.in_task() then
-    fn()
-  else
-    Poll.run(fn)
-  end
-end
-
 --- Whether a reply of `status` has no body.
 local function bodiless(status: integer): boolean
   return status < 200 or status == 204 or status == 304
@@ -370,7 +362,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
     length = #prepared.body, peer = Net.tcp("127.0.0.1", 50000),
   }
   local answered: mut {Response} = {}
-  in_loop(function()
+  Poll.within(function()
     local reply = client.app.handle(raw)
     local trouble = Server.check(reply, method)
     if trouble ~= "" then

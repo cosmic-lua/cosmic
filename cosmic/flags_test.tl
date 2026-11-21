@@ -43,7 +43,7 @@ end
 
 local function test_mistakes_are_refused_with_why()
   local cases: {Refusal} = {
-    { word = "--chek", why = "no such option: --chek" },
+    { word = "--chek", why = "no such option: --chek; did you mean --check?" },
     { word = "-c", why = "no such option: -c" },
     { word = "--check=yes", why = "--check takes no value" },
     { word = "--jobs", why = "--jobs needs a value" },
@@ -62,7 +62,7 @@ end
 
 local function test_reading_starts_at_the_slot_given()
   local got = parsed({ "x", "--check" })
-  assert(got.set["--check"])
+  assert(got.set["--check"] == true)
   local all = assert(Flags.parse({ "--check", "w" }, 1, spec))
   assert(all.set["--check"] == true and all.words[1] == "w")
 end
@@ -108,7 +108,7 @@ local function test_a_spec_may_name_a_one_dash_option_whole()
   got = assert(Flags.parse({ "-ve" }, 1, whole))
   assert(got.set["-v"] == true and got.set["-e"] == true and got.set["-verbose"] ~= true)
   whole["-é"] = false
-  assert(assert(Flags.parse({ "-é" }, 1, whole)).set["-é"])
+  assert(assert(Flags.parse({ "-é" }, 1, whole)).set["-é"] == true)
   local _, why = Flags.parse({ "-vé" }, 1, whole)
   assert(why == "no such option: -vé", why)
 end
@@ -230,7 +230,7 @@ local function test_dispatch_runs_the_command_with_its_own_options()
   assert(ran[1] == "build 2 a" and ran[2] == "clean 0", table.concat(ran, "|"))
   local refusals: {Dispatch} = {
     { line = {}, why = "needs a command: build, clean" },
-    { line = { "bulid" }, why = "no such command: bulid" },
+    { line = { "bulid" }, why = "no such command: bulid; did you mean build?" },
     { line = { "--jobs" }, why = "no such command: --jobs" },
   }
   for _, case in ipairs(refusals) do
@@ -301,7 +301,7 @@ local function test_dispatch_answers_help_rather_than_running()
   local clean = assert(Flags.dispatch({ "clean", "-h" }, 1, help_commands, "prog"))
   assert(clean.help == "usage: prog clean", clean.help)
   local unknown, why = Flags.dispatch({ "help", "bulid" }, 1, help_commands, "prog")
-  assert(unknown == nil and why == "no such command: bulid", why)
+  assert(unknown == nil and why == "no such command: bulid; did you mean build?", why)
   local missing, why_missing = Flags.dispatch({}, 1, help_commands, "prog")
   assert(missing == nil and why_missing == "needs a command: build, clean", why_missing)
 end
@@ -461,4 +461,770 @@ local function test_help_marks_a_required_option()
     "  --jobs <n>",
     "  --out <path>  where to write (required)",
   }, "\n"), help)
+end
+
+local function test_nearest_finds_a_swap_an_edit_and_a_prefix()
+  local commands = { "build", "built", "clean", "report", "status" }
+  local function near(word: string): string
+    return table.concat(Flags.nearest(word, commands), " ")
+  end
+  -- Two adjacent letters swapped count one, as one letter dropped,
+  -- added or replaced does.
+  assert(near("biuld") == "build", near("biuld"))
+  assert(near("rport") == "report", near("rport"))
+  assert(near("cleann") == "clean", near("cleann"))
+  assert(near("statis") == "status", near("statis"))
+  -- A word that begins a name finds it at any length.
+  assert(near("rep") == "report", near("rep"))
+  assert(near("s") == "status", near("s"))
+  assert(near("") == "", near(""))
+end
+
+local function test_nearest_names_nothing_far_off()
+  local commands = { "build", "clean", "mv", "report" }
+  local function near(word: string): string
+    return table.concat(Flags.nearest(word, commands), " ")
+  end
+  -- Under three letters no edit is near: one is half the word.
+  assert(near("rm") == "", near("rm"))
+  assert(near("nv") == "", near("nv"))
+  -- Two edits are out of reach of a word under eight letters.
+  assert(near("biulx") == "", near("biulx"))
+  assert(near("import") == "", near("import"))
+  assert(near("xyzzy") == "", near("xyzzy"))
+  -- Dashes do not lengthen a word: "--mv" is two letters.
+  assert(table.concat(Flags.nearest("--nv", { "--mv" }), " ") == "")
+  -- Nor do a character's bytes: "né" is two letters.
+  assert(table.concat(Flags.nearest("né", { "né!", "n" }), " ") == "né!")
+end
+
+local function test_nearest_reaches_further_for_a_longer_word()
+  local function near(word: string, name: string): boolean
+    return Flags.nearest(word, { name })[1] == name
+  end
+  assert(near("--dry-rnu", "--dry-run"))
+  assert(not near("--dyr-rnu", "--dry-run"))
+  assert(near("--no-colour", "--no-color"))
+  -- Eight letters reach two edits, twelve reach three.
+  assert(near("checkuot-al", "checkout-all") and not near("chekcuot-al", "checkout-all"))
+  assert(near("chekcuot-alll", "checkout-all"))
+  assert(near("--no-vreify-singatuers", "--no-verify-signatures"))
+  assert(not near("--on-vreify-singatuers", "--no-verify-signatures"))
+end
+
+local function test_nearest_orders_the_same_name_a_prefix_then_distance_and_stops_at_three()
+  local names = { "stats", "stat", "start", "status", "state", "stat" }
+  -- "stat" itself, then what it begins, shortest first, then by name;
+  -- "start", one edit away, is fourth and left out.
+  assert(table.concat(Flags.nearest("stat", names), " ") == "stat state stats")
+  assert(table.concat(Flags.nearest("stta", names), " ") == "stat")
+  -- One edit each: shorter first, then by name.
+  assert(table.concat(Flags.nearest("stats", { "start", "status", "state", "stat" }), " ") == "stat state status")
+end
+
+local function test_a_refusal_names_what_was_probably_meant()
+  local described: {string:boolean} = { ["--check"] = false, ["--jobs"] = true, ["--jobserver"] = true,
+    ["-v"] = false, ["-verbose"] = false }
+  local cases: {Refusal} = {
+    { word = "--chek", why = "no such option: --chek; did you mean --check?" },
+    { word = "--chek=1", why = "no such option: --chek; did you mean --check?" },
+    { word = "--job", why = "no such option: --job; did you mean one of --jobs, --jobserver?" },
+    { word = "-jobs", why = "no such option: -jobs; did you mean --jobs?" },
+    -- A cluster's letter at fault, and the option the whole word is near.
+    { word = "-verbos", why = "no such option: -e in -verbos; did you mean -verbose?" },
+    { word = "--nope", why = "no such option: --nope" },
+    { word = "-x", why = "no such option: -x" },
+  }
+  for _, case in ipairs(cases) do
+    local got, why = Flags.parse({ "fix", case.word }, 2, described)
+    assert(got == nil and why == case.why, why)
+  end
+  -- A spec that names no "--help" has none to mean.
+  local _, unhelped = Flags.parse({ "--hlep" }, 1, described)
+  assert(unhelped == "no such option: --hlep", unhelped)
+  local commands: {string:Flags.Command} = {
+    build = { spec = { ["--jobs"] = true }, usage = "[options] <target>" },
+    clean = {},
+  }
+  local lines: {Dispatch} = {
+    { line = { "biuld" }, why = "no such command: biuld; did you mean build?" },
+    { line = { "help", "claen" }, why = "no such command: claen; did you mean clean?" },
+    { line = { "deploy" }, why = "no such command: deploy" },
+    -- What dispatch answers itself is named as a command's own is.
+    { line = { "hlep" }, why = "no such command: hlep; did you mean help?" },
+    { line = { "clean", "--hlep" }, why = "clean: no such option: --hlep; did you mean --help?; usage: prog clean" },
+    { line = { "build", "--jbos", "2" },
+      why = "build: no such option: --jbos; did you mean --jobs?; usage: prog build [options] <target>" },
+    { line = { "clean", "--jobs" }, why = "clean: no such option: --jobs; usage: prog clean" },
+  }
+  for _, case in ipairs(lines) do
+    local ran, why = Flags.dispatch(case.line, 1, commands, "prog")
+    assert(ran == nil and why == case.why, why)
+  end
+end
+
+local paged: {string:Flags.Command} = {
+  count = {
+    about = "Counts the lines of each file.",
+    usage = "[options] <file>...",
+    spec = { ["-v"] = { about = "say more" } },
+    examples = {
+      { line = "notes.txt", about = "the lines of one file" },
+      { line = "-v src/héllo.tl", about = "each file's count, then the total" },
+      { line = "", about = "" },
+    },
+    see = { "words", "top" },
+    group = "Counting",
+  },
+  words = { about = "Counts the words of each file.", group = "Counting" },
+  top = { about = "Lists the most frequent words.", group = "Reports", see = { "words" } },
+  version = { about = "Says which build this is." },
+}
+
+local function test_help_shows_examples_then_see_also()
+  local help = Flags.help(assert(paged["count"]), "prog count")
+  assert(help == table.concat({
+    "usage: prog count [options] <file>...",
+    "",
+    "Counts the lines of each file.",
+    "",
+    "options:",
+    "  -v  say more",
+    "",
+    "examples:",
+    "  prog count notes.txt        the lines of one file",
+    "  prog count -v src/héllo.tl  each file's count, then the total",
+    "  prog count",
+    "",
+    "see also: words, top",
+  }, "\n"), help)
+  -- What dispatch answers for the command is the same page.
+  local asked = assert(Flags.dispatch({ "help", "count" }, 1, paged, "prog"))
+  assert(asked.help == help, asked.help)
+  local dashed = assert(Flags.dispatch({ "count", "--help" }, 1, paged, "prog"))
+  assert(dashed.help == help, dashed.help)
+  -- A command with only a see-also has no examples section.
+  assert(Flags.help(assert(paged["top"]), "prog top") == table.concat({
+    "usage: prog top", "", "Lists the most frequent words.", "", "see also: words",
+  }, "\n"))
+  local empty: Flags.Command = { about = "Builds.", examples = {}, see = {}, group = "" }
+  assert(Flags.help(empty, "p build") == "usage: p build\n\nBuilds.")
+end
+
+local function test_the_index_lists_each_group_by_title_and_the_rest_last()
+  local index = assert(Flags.dispatch({ "--help" }, 1, paged, "prog")).help
+  assert(index == table.concat({
+    "usage: prog <command> [options]",
+    "",
+    "Counting:",
+    "  count    Counts the lines of each file.",
+    "  words    Counts the words of each file.",
+    "",
+    "Reports:",
+    "  top      Lists the most frequent words.",
+    "",
+    "other commands:",
+    "  version  Says which build this is.",
+    "",
+    "Run `prog <command> --help` for a command's options.",
+  }, "\n"), index)
+  -- Every command in a group leaves no "other commands:", and an empty
+  -- group is none.
+  local grouped: {string:Flags.Command} = {
+    a = { about = "First.", group = "Zed" },
+    b = { about = "Second.", group = "Alpha" },
+  }
+  assert(assert(Flags.dispatch({ "help" }, 1, grouped, "p")).help ==
+      "usage: p <command>\n\nAlpha:\n  b  Second.\n\nZed:\n  a  First.")
+  local bare: {string:Flags.Command} = { a = { about = "First.", group = "" }, b = {} }
+  assert(assert(Flags.dispatch({ "help" }, 1, bare, "p")).help ==
+      "usage: p <command>\n\ncommands:\n  a  First.\n  b")
+end
+
+local function test_dispatch_raises_for_a_see_that_names_no_other_command()
+  local ran = 0
+  local function run(_: Flags.Parsed): integer
+    ran = ran + 1
+    return 0
+  end
+  local missing: {string:Flags.Command} = { build = { run = run, see = { "bulid" } }, clean = { run = run } }
+  local itself: {string:Flags.Command} = { build = { run = run, see = { "build" } }, clean = { run = run } }
+  -- Whatever the line asks: the mistake is the program's, not the line's.
+  local lines: {{string}} = { { "clean" }, { "--help" }, { "nope" }, {} }
+  for _, line in ipairs(lines) do
+    Test.raises(function() Flags.dispatch(line, 1, missing, "prog") end, "build's see names no other command: bulid")
+    Test.raises(function() Flags.dispatch(line, 1, itself, "prog") end, "build's see names no other command: build")
+  end
+  assert(ran == 0)
+  -- Of two mistaken commands the first by name is named, and "help",
+  -- which dispatch answers itself, is a command to see.
+  local both: {string:Flags.Command} = { b = { see = { "x" } }, a = { see = { "y" } }, c = {} }
+  Test.raises(function() Flags.dispatch({ "c" }, 1, both, "prog") end, "a's see names no other command: y")
+  local helped: {string:Flags.Command} = { build = { run = run, see = { "help" } } }
+  assert(assert(Flags.dispatch({ "build" }, 1, helped, "prog")).code == 0 and ran == 1)
+  assert(assert(Flags.dispatch({ "build", "-h" }, 1, helped, "prog")).help == "usage: prog build\n\nsee also: help")
+end
+
+--- The sections of a program's help come in the order the program gives their titles, a title it does not give
+--- after them by name, and the help of a program that says where its documentation is says how to search it.
+local function test_the_programs_help_orders_its_sections_as_told()
+  local commands: {string:Flags.Command} = {
+    add = { about = "adds", group = "Writing" },
+    list = { about = "lists", group = "Reading" },
+    audit = { about = "audits", group = "Checks" },
+    zap = { about = "zaps", group = "Aftermath" },
+  }
+  local ran = assert(Flags.dispatch({ "--help" }, 1, commands, "prog", { groups = { "Writing", "Reading" } }))
+  local last = 0
+  for _, title in ipairs({ "Writing", "Reading", "Aftermath", "Checks" }) do
+    local at = assert(ran.help:find("\n" .. title .. ":\n", 1, true), title .. ": " .. ran.help)
+    assert(at > last, title .. " is out of its place: " .. ran.help)
+    last = at
+  end
+  local closing = "\nRun `prog docs <words>` to search the documentation, `prog docs` to list it."
+  assert(ran.help:sub(-#closing) == closing, ran.help)
+  -- A program that says nothing of its documentation has the titles by name, no `docs`, and the help it had.
+  local plain = assert(Flags.dispatch({ "--help" }, 1, commands, "prog"))
+  assert(assert(plain.help:find("\nAftermath:\n", 1, true)) < assert(plain.help:find("\nWriting:\n", 1, true)))
+  assert(not plain.help:find("docs", 1, true), plain.help)
+  local ran_docs, why = Flags.dispatch({ "docs" }, 1, commands, "prog")
+  assert(ran_docs == nil and why == "no such command: docs", why)
+end
+
+--- A program with a command of its own named `docs` runs it, whatever it says of its documentation.
+local function test_a_command_named_docs_is_the_programs_own()
+  local commands: {string:Flags.Command} = {
+    docs = { about = "opens the manual", run = function(_: Flags.Parsed): integer return 7 end },
+  }
+  local ran = assert(Flags.dispatch({ "docs", "x" }, 1, commands, "prog", { groups = {} }))
+  assert(ran.code == 7 and ran.help == "")
+  local help = assert(Flags.dispatch({ "help" }, 1, commands, "prog", { groups = {} }))
+  assert(not help.help:find("search the documentation", 1, true), help.help)
+end
+
+--- A word that begins with "-" and a digit is a word, not an option: a negative number needs no "--" before
+--- it. Where the spec names an option that begins with a digit, such a word is an option as before.
+local function test_a_negative_number_is_a_word_unless_the_spec_names_a_digit_option()
+  local got = assert(Flags.parse({ "-5", "--jobs", "2", "-0.5", "-90m" }, 1, { ["--jobs"] = true }))
+  assert(table.concat(got.words, " ") == "-5 -0.5 -90m" and got.values["--jobs"] == "2", table.concat(got.words, " "))
+  local numbered = assert(Flags.parse({ "-1", "x" }, 1, { ["-1"] = false }))
+  assert(numbered.set["-1"] == true and table.concat(numbered.words, " ") == "x")
+  local refused, why = Flags.parse({ "-5" }, 1, { ["-1"] = false })
+  assert(refused == nil and why:find("no such option: -5", 1, true) == 1, why)
+  -- A letter after the dash is an option still.
+  local lettered, lettered_why = Flags.parse({ "-x5" }, 1, {})
+  assert(lettered == nil and lettered_why:find("no such option: -x5", 1, true) == 1, lettered_why)
+end
+
+--- A program whose commands are not all typed by a name: one by an option's spelling, one by no word at all,
+--- which a first word that names no other runs, and which keeps its words for itself.
+local function odd_commands(seen: mut {string}): mut {string:Flags.Command}
+  return {
+    version = { about = "says which", typed = "--version", run = function(_: Flags.Parsed): integer
+      seen[#seen + 1] = "version"
+      return 0
+    end },
+    run = {
+      about = "runs a file", typed = "", usage = "<file> [args...]", spec = { ["--quiet"] = false },
+      rest = function(argv: {string}, from: integer): integer?
+        for slot = from, #argv do
+          local word = argv[slot]
+          if word ~= nil and word:sub(1, 1) ~= "-" then return slot end
+        end
+        return nil
+      end,
+      run = function(got: Flags.Parsed): integer
+        local said = "run " .. table.concat(got.rest or {}, " ") .. (if got.set["--quiet"] == true then " quietly" else "" end)
+        seen[#seen + 1] = said
+        return 3
+      end,
+    },
+    check = { about = "checks", spec = { ["--all"] = false }, run = function(got: Flags.Parsed): integer
+      local said = "check " .. table.concat(got.words, " ") .. "/" .. tostring(#(got.rest or {}))
+      seen[#seen + 1] = said
+      return 0
+    end },
+  }
+end
+
+--- A command is run by the word it says it is typed as, and not by its name; the command typed by no word runs
+--- for a first word that names none, with the words it keeps unread by its spec.
+local function test_a_command_runs_by_its_spelling_or_by_no_word()
+  local seen: mut {string} = {}
+  local commands = odd_commands(seen)
+  assert(assert(Flags.dispatch({ "--version" }, 1, commands, "prog")).code == 0)
+  assert(assert(Flags.dispatch({ "check", "--all", "x" }, 1, commands, "prog")).code == 0)
+  -- The file's own options are not the command's: `--all` after the file is kept, where the spec has none.
+  assert(assert(Flags.dispatch({ "f.tl", "--all", "-5" }, 1, commands, "prog")).code == 3)
+  assert(assert(Flags.dispatch({ "--quiet", "f.tl", "--quiet" }, 1, commands, "prog")).code == 3)
+  assert(table.concat(seen, "; ") == "version; check x/0; run f.tl --all -5; run f.tl --quiet quietly",
+    table.concat(seen, "; "))
+  -- A command typed another way is not run by its name: `version` is a file to run here.
+  assert(assert(Flags.dispatch({ "version" }, 1, commands, "prog")).code == 3 and seen[#seen] == "run version")
+  -- Its help calls it as it is typed, and an option before the file that it lacks is refused with that usage.
+  local help = assert(Flags.dispatch({ "f.tl", "--help" }, 1, commands, "prog"))
+  assert(help.help == "", "the file's own --help was read as the command's")
+  local asked = assert(Flags.dispatch({ "--help", "f.tl" }, 1, commands, "prog"))
+  assert(asked.help:find("usage: prog <command>", 1, true) == 1, asked.help)
+  local refused, why = Flags.dispatch({ "--loud", "f.tl" }, 1, commands, "prog")
+  assert(refused == nil and why == "run: no such option: --loud; usage: prog <file> [args...]", why)
+  assert(assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help:find("usage: prog --version", 1, true) == 1)
+end
+
+--- Without a command typed by no word, a first word that names none is refused, and a mistyped spelling is
+--- named.
+local function test_a_spelling_is_among_the_names_a_mistyped_command_meant()
+  local commands = odd_commands({})
+  commands["run"] = nil
+  local refused, why = Flags.dispatch({ "--versoin" }, 1, commands, "prog")
+  assert(refused == nil and why == "no such command: --versoin; did you mean --version?", why)
+end
+
+--- Two commands typed alike are the caller's mistake, met by its first run.
+local function test_two_commands_typed_alike_raise()
+  local commands: {string:Flags.Command} = {
+    a = { typed = "go", run = function(_: Flags.Parsed): integer return 0 end },
+    go = { run = function(_: Flags.Parsed): integer return 0 end },
+  }
+  local ok, raised = pcall(Flags.dispatch, { "go" }, 1, commands, "prog")
+  assert(not ok and tostring(raised):find("a and go are typed alike: go", 1, true) ~= nil, tostring(raised))
+end
+
+--- The program's help lists each command as it is typed, in the order given, between the text given to open
+--- and to close it.
+local function test_the_programs_help_lists_usages_in_order_between_its_own_words()
+  local commands = odd_commands({})
+  local ran = assert(Flags.dispatch({ "help" }, 1, commands, "prog",
+    { usages = true, order = { "run", "version" }, before = "prog -- a program", after = "More: prog help <command>" }))
+  assert(ran.help == table.concat({
+    "prog -- a program",
+    "",
+    "commands:",
+    "  prog <file> [args...]  runs a file",
+    "  prog --version         says which",
+    "  prog check [options]   checks",
+    "",
+    "More: prog help <command>",
+  }, "\n"), ran.help)
+end
+
+--- A command is asked about by the word that runs it or by its name, a program with none given names the words
+--- that run its commands, and a word that begins with a dash and a digit may be an option's value.
+local function test_help_and_refusals_name_commands_as_they_are_typed()
+  local commands = odd_commands({})
+  local by_word = assert(Flags.dispatch({ "help", "--version" }, 1, commands, "prog"))
+  assert(by_word.help == assert(Flags.dispatch({ "help", "version" }, 1, commands, "prog")).help and
+      by_word.help:find("usage: prog --version", 1, true) == 1, by_word.help)
+  commands["run"] = nil
+  local none, why = Flags.dispatch({}, 1, commands, "prog")
+  assert(none == nil and why == "needs a command: --version, check", why)
+  local missed, missed_why = Flags.dispatch({ "help", "--versoin" }, 1, commands, "prog")
+  assert(missed == nil and missed_why == "no such command: --versoin; did you mean --version?", missed_why)
+  local listed = assert(Flags.dispatch({ "help" }, 1, commands, "prog")).help
+  assert(listed:find("\n  --version  says which", 1, true) ~= nil, listed)
+  local valued = assert(Flags.parse({ "--zone", "-90m", "x" }, 1, { ["--zone"] = true }))
+  assert(valued.values["--zone"] == "-90m" and valued.words[1] == "x")
+end
+
+--- A command typed as a word that asks for help, and one whose own words begin before its first, are the
+--- caller's mistakes.
+local function test_a_command_typed_as_help_or_keeping_words_before_its_own_raises()
+  local run = function(_: Flags.Parsed): integer return 0 end
+  local typed_help: {string:Flags.Command} = { a = { typed = "--help", run = run } }
+  local ok, raised = pcall(Flags.dispatch, { "a" }, 1, typed_help, "prog")
+  assert(not ok and tostring(raised):find("a is typed as --help, which asks for help", 1, true) ~= nil, tostring(raised))
+  local early: {string:Flags.Command} = {
+    b = { run = run, rest = function(_: {string}, _: integer): integer? return 1 end },
+  }
+  local fine, said = pcall(Flags.dispatch, { "b", "x" }, 1, early, "prog")
+  assert(not fine and tostring(said):find("b's rest begins at slot 1, before its first word", 1, true) ~= nil, tostring(said))
+end
+
+local wide: Flags.Command = {
+  about = "Counts the lines of each file.",
+  usage = "[options] <file>...",
+  examples = {
+    { line = "notes.txt", about = "the lines of one file" },
+    { line = "--jobs 8 --exclude 'output/**' src/*.tl", about = "each file's count, eight at once, leaving out the generated files" },
+  },
+}
+
+local function test_help_puts_what_an_example_does_under_a_head_too_wide_for_the_width()
+  local help = Flags.help(wide, "prog count")
+  assert(help == table.concat({
+    "usage: prog count [options] <file>...",
+    "",
+    "Counts the lines of each file.",
+    "",
+    "examples:",
+    "  prog count notes.txt  the lines of one file",
+    "  prog count --jobs 8 --exclude 'output/**' src/*.tl",
+    "                        each file's count, eight at once, leaving out the",
+    "                        generated files",
+  }, "\n"), help)
+  for line in help:gmatch("[^\n]+") do
+    assert(#line <= 80, line)
+  end
+  -- Wide enough for every line, the examples share the widest head's column.
+  local roomy = Flags.help(wide, "prog count", 200)
+  assert(roomy:find("\n  prog count notes.txt" .. string.rep(" ", 32) .. "the lines of one file\n", 1, true), roomy)
+  -- Narrower, what a row does wraps in its column, and where no row fits
+  -- beside its head, every one goes under its head.
+  assert(Flags.help(wide, "prog count", 30):match("examples:\n(.*)$") == table.concat({
+    "  prog count notes.txt",
+    "    the lines of one file",
+    "  prog count --jobs 8 --exclude 'output/**' src/*.tl",
+    "    each file's count, eight",
+    "    at once, leaving out the",
+    "    generated files",
+  }, "\n"))
+end
+
+local function test_help_wraps_an_option_past_the_width()
+  local described_wide: {string:boolean | Flags.Option} = {
+    ["--exclude"] = { value = "glob", about = "leave out the files the glob matches; may be given more than once" },
+    ["-v"] = { about = "say more" },
+  }
+  local help = Flags.help({ spec = described_wide }, "prog", 50)
+  assert(help == table.concat({
+    "usage: prog [options]",
+    "",
+    "options:",
+    "  --exclude <glob>",
+    "      leave out the files the glob matches; may be",
+    "      given more than once",
+    "  -v  say more",
+  }, "\n"), help)
+  -- With no width, options are listed in one
+  -- column, unwrapped, as Flags.options lists them.
+  assert(Flags.help({ spec = described_wide }, "prog") == "usage: prog [options]\n\noptions:\n" ..
+      Flags.options(described_wide))
+  assert(Flags.options(described_wide) == "  --exclude <glob>  leave out the files the glob matches; may be given more than once\n" ..
+      "  -v                say more")
+end
+
+local function test_program_help_takes_a_group_order_an_opening_topics_and_an_ending()
+  local program: Flags.Documented = {
+    before = "usage: prog <command> [options]\n\nCounts what files hold.",
+    groups = { "Reports", "Counting" },
+    topics = { globs = { about = "How a file is named by a pattern.", text = "A glob names files.", see = { "count" } } },
+    after = "`prog help <command or topic>` says more.",
+  }
+  local index = Flags.program_help("prog", paged, program)
+  assert(index == table.concat({
+    "usage: prog <command> [options]",
+    "",
+    "Counts what files hold.",
+    "",
+    "Reports:",
+    "  top      Lists the most frequent words.",
+    "",
+    "Counting:",
+    "  count    Counts the lines of each file.",
+    "  words    Counts the words of each file.",
+    "",
+    "other commands:",
+    "  version  Says which build this is.",
+    "",
+    "topics:",
+    "  globs    How a file is named by a pattern.",
+    "",
+    "`prog help <command or topic>` says more.",
+  }, "\n"), index)
+  assert(assert(Flags.dispatch({ "help" }, 1, paged, "prog", program)).help == index)
+  -- With none of it, the index is the one dispatch answers with none.
+  assert(Flags.program_help("prog", paged) == assert(Flags.dispatch({ "--help" }, 1, paged, "prog")).help)
+  -- Given at all, the index says how to search the documentation.
+  assert(Flags.program_help("prog", paged, {}) == Flags.program_help("prog", paged) ..
+      "\nRun `prog docs <words>` to search the documentation, `prog docs` to list it.")
+  -- An order that leaves a title out lists it after, by title.
+  local partial = Flags.program_help("prog", paged, { groups = { "Reports" }, after = "end" })
+  assert(partial:find("Reports:.*Counting:.*other commands:") ~= nil, partial)
+  assert(partial:sub(-#"Says which build this is.\n\nend") == "Says which build this is.\n\nend", partial)
+end
+
+local function test_program_help_wraps_what_a_command_does_past_the_width()
+  local commands: {string:Flags.Command} = {
+    a = { about = "Short." },
+    b = { about = "A longer line on what this does, past the width." },
+  }
+  -- With no width the index is unwrapped.
+  assert(Flags.program_help("p", commands) ==
+      "usage: p <command>\n\ncommands:\n  a  Short.\n  b  A longer line on what this does, past the width.")
+  assert(Flags.program_help("p", commands, { width = 30, after = "end" }) == table.concat({
+    "usage: p <command>",
+    "",
+    "commands:",
+    "  a  Short.",
+    "  b  A longer line on what",
+    "     this does, past the",
+    "     width.",
+    "",
+    "end",
+  }, "\n"))
+end
+
+local function test_dispatch_answers_a_topic_and_lets_see_name_one()
+  local ran = 0
+  local function run(_: Flags.Parsed): integer
+    ran = ran + 1
+    return 0
+  end
+  local commands: {string:Flags.Command} = {
+    pair = { about = "Pairs with a device.", see = { "pairing" }, run = run },
+  }
+  local program: Flags.Documented = {
+    topics = {
+      pairing = { about = "how a device is paired with", text = "Once, for each protocol.", see = { "pair", "exit" } },
+      exit = { text = "0 is success." },
+    },
+  }
+  local page = assert(Flags.dispatch({ "help", "pairing" }, 1, commands, "prog", program))
+  assert(page.code == 0 and page.help == table.concat({
+    "pairing: how a device is paired with",
+    "",
+    "Once, for each protocol.",
+    "",
+    "see also: pair, exit",
+  }, "\n"), page.help)
+  assert(assert(Flags.dispatch({ "help", "exit" }, 1, commands, "prog", program)).help == "exit\n\n0 is success.")
+  assert(Flags.topic_help({}, "bare") == "bare")
+  Test.raises(function() Flags.topic_help({}, "") end, "a topic's name is empty")
+  assert(assert(Flags.dispatch({ "pair" }, 1, commands, "prog", program)).code == 0 and ran == 1)
+  local _, why = Flags.dispatch({ "help", "pairnig" }, 1, commands, "prog", program)
+  assert(why == "no such command or topic: pairnig; did you mean pairing?", why)
+  -- A topic is no command to run, and a program without topics names no topic.
+  _, why = Flags.dispatch({ "pairing" }, 1, commands, "prog", program)
+  assert(why == "no such command: pairing", why)
+  local plain: {string:Flags.Command} = { pair = { run = run } }
+  _, why = Flags.dispatch({ "help", "pairnig" }, 1, plain, "prog")
+  assert(why == "no such command: pairnig", why)
+end
+
+local function test_dispatch_raises_for_a_topic_that_clashes_or_sees_nothing()
+  local commands: {string:Flags.Command} = { pair = {}, scan = { see = { "pairing" } } }
+  local function topics(named: {string:Flags.Topic}): Flags.Documented
+    return { topics = named }
+  end
+  Test.raises(function() Flags.dispatch({ "pair" }, 1, commands, "prog") end,
+    "scan's see names no other command: pairing")
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = {}, pair = {} }))
+  end,
+    "the topic pair is named as a command is")
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = {}, help = {} }))
+  end,
+    "the topic help is named as a command is")
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = {}, docs = {} }))
+  end,
+    "the topic docs is named as a command is")
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = { see = { "nope" } } }))
+  end,
+    "the topic pairing's see names no other command or topic: nope")
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", topics({ pairing = { see = { "pairing" } } }))
+  end,
+    "the topic pairing's see names no other command or topic: pairing")
+end
+
+local function test_dispatch_lays_out_a_command_s_help_in_the_width_given()
+  local commands: {string:Flags.Command} = { count = wide }
+  local asked = assert(Flags.dispatch({ "help", "count" }, 1, commands, "prog", { width = 30 })).help
+  assert(asked == Flags.help(wide, "prog count", 30), asked)
+  local dashed = assert(Flags.dispatch({ "count", "-h" }, 1, commands, "prog", { width = 30 })).help
+  assert(dashed == asked, dashed)
+  assert(assert(Flags.dispatch({ "count", "-h" }, 1, commands, "prog")).help == Flags.help(wide, "prog count"))
+end
+
+local function test_a_row_that_fits_is_left_as_written()
+  local spaced: Flags.Command = {
+    examples = {
+      { line = "x", about = "prints  a  b" },
+      { line = "y", about = " " },
+      { line = string.rep("z", 90), about = "" },
+    },
+  }
+  local help = Flags.help(spaced, "prog")
+  assert(help == "usage: prog\n\nexamples:\n  prog x  prints  a  b\n  prog y   \n  prog " .. string.rep("z", 90), help)
+  -- Only the row past the width is wrapped; the one that fits keeps its spaces.
+  local mixed: Flags.Command = {
+    examples = { { line = "x", about = "prints  a  b" }, { line = "y", about = string.rep("word ", 20) } },
+  }
+  assert(Flags.help(mixed, "prog", 40):match("examples:\n(.*)$") == table.concat({
+    "  prog x  prints  a  b",
+    "  prog y  word word word word word word",
+    "          word word word word word word",
+    "          word word word word word word",
+    "          word word",
+  }, "\n"))
+end
+
+local function test_a_name_too_wide_with_nothing_beside_it_stands_alone()
+  local commands: {string:Flags.Command} = { a = { about = "First." } }
+  local program: Flags.Documented = { topics = { [string.rep("t", 90)] = {} }, after = "end" }
+  local long = string.rep("t", 90)
+  -- Unwrapped, every row shares the widest name's column; within a width,
+  -- the name with nothing beside it stands alone and the rest keep theirs.
+  assert(Flags.program_help("p", commands, program) ==
+      "usage: p <command>\n\ncommands:\n  a" .. string.rep(" ", 89) .. "  First.\n\ntopics:\n  " .. long .. "\n\nend")
+  assert(Flags.program_help("p", commands, { topics = program.topics, width = 80, after = "end" }) ==
+      "usage: p <command>\n\ncommands:\n  a  First.\n\ntopics:\n  " .. long .. "\n\nend")
+end
+
+local function test_dispatch_raises_for_a_topic_named_nothing_whatever_the_line()
+  local ran = 0
+  local function run(_: Flags.Parsed): integer
+    ran = ran + 1
+    return 0
+  end
+  local commands: {string:Flags.Command} = { build = { run = run } }
+  Test.raises(function()
+    Flags.dispatch({ "build" }, 1, commands, "prog", { topics = { [""] = {} } })
+  end,
+    "a topic's name is empty")
+  assert(ran == 0)
+  -- A topic may see "help", which dispatch answers itself.
+  local program: Flags.Documented = { topics = { usage = { text = "How to ask.", see = { "help" } } } }
+  assert(assert(Flags.dispatch({ "help", "usage" }, 1, commands, "prog", program)).help ==
+      "usage\n\nHow to ask.\n\nsee also: help")
+  local _, why = Flags.dispatch({ "help", "usage", "more" }, 1, commands, "prog", program)
+  assert(why == "help: one command or topic at a time", why)
+end
+
+local function test_a_program_s_own_help_command_answers_help_with_topics()
+  local asked: mut {string} = {}
+  local commands: {string:Flags.Command} = {
+    help = {
+      run = function(got: Flags.Parsed): integer
+        local words = table.concat(got.words, " ")
+        asked[#asked + 1] = words
+        return 0
+      end,
+    },
+  }
+  local program: Flags.Documented = { topics = { pairing = { text = "Once." } } }
+  local ran = assert(Flags.dispatch({ "help", "pairing" }, 1, commands, "prog", program))
+  assert(ran.code == 0 and ran.help == "" and asked[1] == "pairing")
+end
+
+local function test_a_row_written_over_lines_of_its_own_is_left_as_written()
+  local first, second = string.rep("a", 40), "    " .. string.rep("b", 40)
+  local lined: Flags.Command = { examples = { { line = "x", about = first .. "\n" .. second } } }
+  assert(Flags.help(lined, "prog") == "usage: prog\n\nexamples:\n  prog x  " .. first .. "\n" .. second)
+  -- Beside a row too wide for the width, it keeps its lines and its indent.
+  local long = string.rep("z", 90)
+  local beside: Flags.Command = {
+    examples = { { line = "x", about = first .. "\n" .. second }, { line = long, about = " " } },
+  }
+  assert(Flags.help(beside, "prog") == table.concat({
+    "usage: prog", "", "examples:", "  prog x  " .. first, second, "  prog " .. long .. "   ",
+  }, "\n"))
+end
+
+local function test_a_width_below_one_and_a_topic_named_as_an_option_raise()
+  Test.raises(function() Flags.help({}, "prog", 0) end, "help's width is not a positive number of columns")
+  Test.raises(function() Flags.program_help("prog", paged, { width = -1 }) end,
+    "help's width is not a positive number of columns")
+  local commands: {string:Flags.Command} = { pair = {} }
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", { topics = { ["-h"] = {} } })
+  end,
+    "the topic -h is named as an option is")
+end
+
+local function test_a_help_command_of_the_program_s_own_can_print_a_topic()
+  local pairing: Flags.Topic = { about = "how", text = "", see = {} }
+  local topics: {string:Flags.Topic} = { pairing = pairing }
+  local printed: mut {string} = {}
+  local function help(got: Flags.Parsed): integer
+    local topic = topics[got.words[1] or ""]
+    if topic == nil then return 2 end
+    local page = Flags.topic_help(topic, assert(got.words[1]))
+    printed[#printed + 1] = page
+    return 0
+  end
+  local commands: {string:Flags.Command} = { help = { run = help } }
+  local ran = assert(Flags.dispatch({ "help", "pairing" }, 1, commands, "prog", { topics = topics }))
+  -- An empty text and see-also are left out of the page.
+  assert(ran.code == 0 and printed[1] == "pairing: how", printed[1])
+end
+
+local function test_help_wraps_a_command_s_about_at_the_width_given()
+  local long = "Counts the lines of each file given, and the words and bytes of each where asked, then the total."
+  local command: Flags.Command = { about = long }
+  -- With no width it is left as written, however long.
+  assert(Flags.help(command, "prog count") == "usage: prog count\n\n" .. long)
+  assert(Flags.help(command, "prog count", 40) == table.concat({
+    "usage: prog count",
+    "",
+    "Counts the lines of each file given, and",
+    "the words and bytes of each where asked,",
+    "then the total.",
+  }, "\n"))
+  -- One exactly as wide as the width fits; a word wider than it has a line of its own.
+  local forty = string.rep("x", 40)
+  assert(Flags.help({ about = forty }, "p", 40) == "usage: p\n\n" .. forty)
+  assert(Flags.help({ about = "a " .. forty .. "x b" }, "p", 40) == "usage: p\n\na\n" .. forty .. "x\nb")
+  -- One that fits, runs over lines of its own, or says only spaces is left as written.
+  assert(Flags.help({ about = string.rep(" ", 50) }, "p", 40) == "usage: p\n\n" .. string.rep(" ", 50))
+  assert(Flags.help({ about = "Counts  lines." }, "prog count", 40) == "usage: prog count\n\nCounts  lines.")
+  local lined = string.rep("a", 50) .. "\n" .. string.rep("b", 50)
+  assert(Flags.help({ about = lined }, "prog count", 40) == "usage: prog count\n\n" .. lined)
+  -- Dispatch lays a command's page out at the program's width.
+  local commands: {string:Flags.Command} = { count = command }
+  assert(assert(Flags.dispatch({ "help", "count" }, 1, commands, "prog", { width = 40 })).help ==
+      Flags.help(command, "prog count", 40))
+end
+
+--- `help` answers a page of its own where the program has no `help` command, and is a word a mistyped one is
+--- put right to, by `help` and as a command alike.
+local function test_dispatch_answers_help_of_help_and_names_it_to_a_mistyped_word()
+  local commands: {string:Flags.Command} = { pair = { about = "Pairs." } }
+  local asked = assert(Flags.dispatch({ "help", "help" }, 1, commands, "prog")).help
+  assert(asked == "usage: prog help [command]\n\nWhat a command is and how to use it; with none, every command there is.",
+    asked)
+  local program: Flags.Documented = { topics = { pairing = { text = "Once." } } }
+  local with_topics = assert(Flags.dispatch({ "help", "help" }, 1, commands, "prog", program)).help
+  assert(with_topics:find("usage: prog help [command or topic]\n", 1, true) == 1, with_topics)
+  local _, why = Flags.dispatch({ "help", "hlep" }, 1, commands, "prog")
+  assert(why == "no such command: hlep; did you mean help?", why)
+  _, why = Flags.dispatch({ "help", "hlep" }, 1, commands, "prog", program)
+  assert(why == "no such command or topic: hlep; did you mean help?", why)
+  _, why = Flags.dispatch({ "hlep" }, 1, commands, "prog")
+  assert(why == "no such command: hlep; did you mean help?", why)
+  -- `docs` has its page beside `help`'s where the program answers it.
+  local docs = assert(Flags.dispatch({ "help", "docs" }, 1, commands, "prog", program)).help
+  assert(docs:find("usage: prog docs [words...]", 1, true) == 1, docs)
+  -- A program's own `help` command answers `help help` itself.
+  local told: mut {string} = {}
+  local own: {string:Flags.Command} = {
+    help = { run = function(got: Flags.Parsed): integer
+      local words = table.concat(got.words, " ")
+      told[#told + 1] = words
+      return 0
+    end },
+  }
+  local ran = assert(Flags.dispatch({ "help", "help" }, 1, own, "prog"))
+  assert(ran.help == "" and told[1] == "help", tostring(told[1]))
+end
+
+--- A topic names a guide or gives a text, not both, and a guide by a name a file of `doc/guides/` has.
+local function test_dispatch_raises_for_a_topic_whose_guide_is_no_guide()
+  local commands: {string:Flags.Command} = { pair = {} }
+  Test.raises(function()
+    Flags.dispatch({ "pair" }, 1, commands, "prog", { topics = { pairing = { text = "Once.", guide = "pairing" } } })
+  end,
+    "the topic pairing gives both a text and a guide")
+  for _, name in ipairs({ "", "internal.pairing", "internal/pairing" }) do
+    Test.raises(function()
+      Flags.dispatch({ "pair" }, 1, commands, "prog", { topics = { pairing = { guide = name } } })
+    end,
+      "the topic pairing's guide is no guide's name: " .. name)
+  end
+  -- The index lists a guide's topic by its about, read from no store.
+  local index = Flags.program_help("prog", commands, { topics = { pairing = { guide = "pairing", about = "Once." } } })
+  assert(index:find("\ntopics:\n  pairing  Once.\n", 1, true) ~= nil, index)
 end

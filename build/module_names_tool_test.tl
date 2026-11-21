@@ -1,6 +1,6 @@
 --- A module is required by its whole module path, the name the run time resolves: `b/m.tl` is `b.m`, and `require("m")` is
 --- refused when the project is checked, naming the module it may have meant, where it used to pass the check and fail at run
---- time with "no module 'm' in the store" (build/driver.tl's `Driver.index`).
+--- time with "no module 'm' in the store" (build/driver.tl's [`Driver.index`]).
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")

@@ -181,7 +181,7 @@ end
 
 --- `from_pointer` never raises on any bytes, and a pointer it reads
 --- names a value `get` reaches.
-local POINTED <const> = assert(Json.decode('{"a": [1, {"b": null, "": [true]}], "~": {"/": 2}, "0": "zero"}',
+local POINTED <const> = assert(Json.decode_object('{"a": [1, {"b": null, "": [true]}], "~": {"/": 2}, "0": "zero"}',
   { null_value = Json.null }))
 
 local function pointer_holds(input: string): boolean, string

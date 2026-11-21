@@ -1,6 +1,7 @@
 --- An app: the routes compiled, the middleware folded around the router, the
 --- handler that answers a server's request, and [`App.serve`], which runs
 --- it over [`cosmic.http.server`] with its lifespan and graceful stop.
+--- @public
 
 local Builtin = require("cosmic.web.builtin")
 local Clock = require("cosmic.clock")

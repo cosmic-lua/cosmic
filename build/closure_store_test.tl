@@ -10,7 +10,10 @@ local analysis_schema = require("build.analysis_schema")
 local closure_store = require("build.closure_store")
 local declared_key = require("build.declared_key")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
+local identity = require("build.identity")
 local importer = require("build.importer")
+local key_parts = require("build.key_parts")
 local test_inputs = require("build.test_inputs")
 local work = require("build.work")
 local writer = require("build.writer")
@@ -209,8 +212,13 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   end
   local doc = "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
     "text, file, line) VALUES "
-  moved("a module's bytecode", "UPDATE modules SET bytecode = deflate(inflate(bytecode) || X'00') " ..
+  moved("a module's bytecode", "UPDATE modules SET bytecode = deflate(chunk(bytecode) || X'00') " ..
       "WHERE path = 'greet'")
+  -- How a module's bytecode is stored is no part of what it is: the same chunk deflated, as an older build
+  -- stored it, moves the store's bytes and not its address.
+  local readdressed, rewritten = change("UPDATE modules SET bytecode = deflate(chunk(bytecode)) WHERE path = 'greet'")
+  assert(rewritten, "the deflated chunk was not stored")
+  assert(not readdressed, "a module's bytecode stored deflated moved the address")
   moved("a doc", doc .. "('greet', 'greet.x', 'greet.x', 1, 'function', '', 'X.', 'greet.tl', 1)")
   moved("a use", "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
       "VALUES ('greet', 'hello', 'greet', 'greet.tl', 99)")
@@ -318,13 +326,32 @@ local function test_a_closure_store_answers_for_its_closure_s_links(tmp: string)
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", names, basis))
   local db = assert(Sqlite.open(tmp .. "/store.db"))
   local view = assert(docs.view({ db }))
-  local found = assert(docs.uses(view, "greet.hello"))
+  local found = assert(Doc.uses(view, "greet.hello"))
   assert(db:close())
   local links: mut {string} = {}
   for _, use in ipairs(found) do
     if use.link then links[#links + 1] = use.from_file .. ":" .. tostring(use.line) end
   end
   assert(table.concat(links, " ") == "greet_test.tl:2", table.concat(links, " "))
+end
+
+--- A store that holds its closure's text holds which of the closure's
+--- modules are public, so a worker that reads the store as a public source
+--- finds their docs, where an empty table would answer nothing for any.
+local function test_a_closure_store_records_which_of_its_modules_are_public(tmp: string)
+  local root = tmp .. "/a"
+  local handle = build_and_write(root, "world", tmp .. "/whole.db")
+  assert(work.close(handle))
+  local basis = assert(closure_store.basis(tmp .. "/whole.db"))
+  assert(closure_store.write(tmp .. "/whole.db", tmp .. "/store.db", { "greet", "greet_test" }, basis))
+  local db = assert(Sqlite.open(tmp .. "/store.db"))
+  local recorded = assert(Sqlite.text_rows(db, "SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules"))
+  assert(assert(recorded[1]):text(1) == "greet", assert(recorded[1]):text(1))
+  local view = assert(docs.view({ db }, { true }))
+  local listed: mut {string} = {}
+  for _, summary in ipairs((assert(Doc.index(view)))) do listed[#listed + 1] = summary.module end
+  assert(db:close())
+  assert(table.concat(listed, " ") == "greet", table.concat(listed, " "))
 end
 
 --- An edit to a declaration of one of the core's raw modules --
@@ -496,7 +523,7 @@ local function test_a_key_holds_a_closure_store_by_its_bytes(tmp: string)
   assert(commented ~= address, "the writer's edit left the address")
   assert(commented_key == key, "an edit to the writer that writes the same bytes moved the key")
   local db = assert(Sqlite.open(tmp .. "/whole.db", { writable = true }))
-  assert(db:exec("UPDATE modules SET bytecode = deflate(inflate(bytecode) || X'00') WHERE path = 'greet'"))
+  assert(db:exec("UPDATE modules SET bytecode = deflate(chunk(bytecode) || X'00') WHERE path = 'greet'"))
   assert(db:close())
   local moved, moved_key = keyed("the writer", tmp .. "/moved.db")
   assert(moved ~= address, "a row of the closure left the address")
@@ -513,12 +540,14 @@ local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: 
   local whole = tmp .. "/whole.db"
   local fresh = assert(closure_store.basis(whole))
   assert(Fs.exists(whole .. ".basis") ~= true, "a basis was kept of a file just written")
-  assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
-  local made = assert(closure_store.basis(whole))
-  assert(Fs.exists(whole .. ".basis"), "no basis was kept of a file two seconds old")
-  local kept = assert(closure_store.basis(whole))
+  -- Two seconds on, by a clock the test names, not one it waits on.
+  local later = Clock.now_ns() + Clock.seconds(2) + Clock.ms(100)
+  local made = assert(closure_store.basis(whole, nil, later))
+  assert(Fs.exists(whole .. ".basis") == true, "no basis was kept of a file two seconds old")
+  local kept = assert(closure_store.basis(whole, nil, later))
   for _, basis in ipairs({ made, kept }) do
     assert(basis.shared == fresh.shared, "the kept basis names other meta")
+    assert(basis.image == fresh.image, "the kept basis names another image_hash")
     for path, line in pairs(fresh.modules) do
       assert(basis.modules[path] == line and basis.kinds[path] == fresh.kinds[path],
         path .. ": a kept basis holds another line")
@@ -526,17 +555,164 @@ local function test_a_basis_is_kept_beside_a_projection_that_is_old_enough(tmp: 
     assert(#basis.pairable == #fresh.pairable, "a kept basis pairs other modules")
   end
   local db = assert(Sqlite.open(whole, { writable = true }))
-  assert(db:exec("UPDATE modules SET bytecode = deflate(inflate(bytecode) || X'00') WHERE path = 'greet'"))
+  assert(db:exec("UPDATE modules SET bytecode = deflate(chunk(bytecode) || X'00') WHERE path = 'greet'"))
   assert(db:close())
   local changed = assert(closure_store.basis(whole))
   assert(changed.modules["greet"] ~= fresh.modules["greet"],
     "a basis kept of the file before an edit in place answered after it")
   -- Once the edited file is older than the tick too, a basis is kept and
   -- looked for again: only its token says it is of the file before the edit.
-  assert(Clock.sleep_ns(Clock.seconds(2) + Clock.ms(100)))
-  assert(Fs.exists(whole .. ".basis"))
-  local old_token = assert(closure_store.basis(whole))
+  do
+    local held_true, held_why = Fs.exists(whole .. ".basis")
+    assert(held_true == true, held_why)
+  end
+  local old_token = assert(closure_store.basis(whole, nil, Clock.now_ns() + Clock.seconds(2) + Clock.ms(100)))
   assert(old_token.modules["greet"] == changed.modules["greet"],
     "a basis kept of the file before an edit in place answered after it, once the file was old")
   assert(old_token.modules["greet"] ~= fresh.modules["greet"], "the edit is not in the kept basis")
+end
+
+--- The first module the reader map names as a reader of `image_hash`.
+local function image_reader(): string
+  return support.nth(assert(key_parts.meta_group("image_hash")).readers, 1)
+end
+
+--- The `image_hash` row of the projection at `whole`, set to `value`.
+local function set_image_hash(whole: string, value: string)
+  local db = assert(Sqlite.open(whole, { writable = true }))
+  assert(Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', ?1)",
+    { { text = value } }))
+  assert(db:close())
+end
+
+--- A project with two test modules: one whose closure holds a reader of
+--- `image_hash` (the first the map names) and one that holds none.
+local function image_project(root: string)
+  local reader = image_reader()
+  local path = reader:gsub("%.", "/") .. ".tl"
+  assert(Fs.mkdirs(root .. "/" .. (path:match("^(.*)/[^/]*$") or ".")))
+  assert(Fs.write(root .. "/" .. path, "local record reader\nend\nreturn reader\n"))
+  assert(Fs.write(root .. "/reads_test.tl", 'local reader = require("' .. reader .. '")\n' ..
+      "local function test_reads()\n  assert(reader ~= nil)\nend\n"))
+  assert(Fs.write(root .. "/plain_test.tl", 'local greet = require("greet")\n' ..
+      "local function test_hello()\n  assert(greet.hello() ~= \"\")\nend\n"))
+end
+
+--- The row `key` of the closure store at `path`, or nil.
+local function meta_of(path: string, key: string): string?
+  local db = assert(Sqlite.open(path))
+  local rows = assert(Sqlite.text_rows(db, "SELECT CAST(value AS TEXT) FROM meta WHERE key = ?1",
+    { { text = key } }))
+  assert(db:close())
+  local row = rows[1]
+  return if row ~= nil then row:text(1) else nil end
+end
+
+--- A closure store carries `image_hash` only where its closure holds a
+--- reader of it: a store of a closure that holds none has no such row, so
+--- a worker's [`Store.meta`] of that row answers nil there, and neither
+--- its address nor its bytes move when the projection's row does; one
+--- that holds a reader has the row, and both move. The base store (no
+--- module) and the pure store follow the same rule.
+local function test_a_closure_store_holds_the_image_hash_only_for_a_reader(tmp: string)
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  image_project(root)
+  local whole = tmp .. "/whole.db"
+  assert(work.close(build_and_write(root, "world", whole)))
+  local reader = image_reader()
+  local read_closure = { reader, "reads_test" }
+  local plain_closure = { "greet", "plain_test" }
+  assert(key_parts.reads_meta(read_closure, "image_hash"))
+  assert(not key_parts.reads_meta(plain_closure, "image_hash"))
+  --- What the stores of both closures, and the base store, are written as for `image`.
+  local function written(image: string, tag: string): {string:string}
+    set_image_hash(whole, image)
+    local basis = assert(closure_store.basis(whole))
+    local out: mut {string:string} = {}
+    local closures: {string:{string}} = { reader = read_closure, plain = plain_closure, base = {} }
+    for name, closure in pairs(closures) do
+      out[name .. " address"] = closure_store.address(basis, closure, "salt")
+      assert(closure_store.write(whole, tmp .. "/" .. tag .. name .. ".db", closure, basis))
+      out[name .. " bytes"] = assert(Fs.read(tmp .. "/" .. tag .. name .. ".db"))
+      out[name .. " image"] = meta_of(tmp .. "/" .. tag .. name .. ".db", "image_hash") or "none"
+      out[name .. " marker"] = meta_of(tmp .. "/" .. tag .. name .. ".db", "withheld_meta") or "none"
+    end
+    return out
+  end
+  local one = written("image one", "one-")
+  local two = written("image two", "two-")
+  assert(one["reader image"] == "image one" and two["reader image"] == "image two",
+    "the store of a closure that reads image_hash does not carry it")
+  assert(one["plain image"] == "none" and one["base image"] == "none",
+    "a store of a closure that reads no image_hash carries it")
+  assert(one["reader address"] ~= two["reader address"], "the reader's address did not follow image_hash")
+  assert(one["reader bytes"] ~= two["reader bytes"], "the reader's store did not follow image_hash")
+  for _, name in ipairs({ "plain", "base" }) do
+    assert(one[name .. " address"] == two[name .. " address"], name .. ": image_hash moved the address")
+    assert(one[name .. " bytes"] == two[name .. " bytes"], name .. ": image_hash moved the store's bytes")
+  end
+  -- In its place the same marker, whatever the row holds, so no edit moves a byte of it.
+  assert(one["plain marker"] == "image_hash" and one["base marker"] == "image_hash",
+    "a store that withholds image_hash does not say so")
+  assert(one["reader marker"] == "none" and two["reader marker"] == "none",
+    "a store that holds image_hash says it withholds it")
+  assert(one["plain address"] ~= one["reader address"])
+end
+
+--- The key of a test given the store of its closure moves with
+--- `image_hash` exactly where its closure holds a reader. The row is the
+--- one a boot records over a tree whose seed files (build/seed.txt) one
+--- comment edited ([`identity.record_fingerprint`]): the edit moves it,
+--- and moves the key of the reader alone.
+local function test_a_comment_in_a_seed_file_moves_the_key_of_a_reader_alone(tmp: string)
+  local seed = tmp .. "/seed"
+  for _, dir in ipairs({ "build", "core", "cosmic", "cmd/cosmic", "bin", "lang" }) do
+    assert(Fs.mkdirs(seed .. "/" .. dir))
+  end
+  assert(Fs.write(seed .. "/build/seed.txt", "lang/truthy.tl\n"))
+  assert(Fs.write(seed .. "/lang/truthy.tl", "local record truthy\nend\nreturn truthy\n"))
+  --- The `image_hash` a boot records over the seed tree as it is.
+  local function recorded(): string
+    local handle = assert(work.open(seed))
+    assert(work.stage(handle, { own = true }))
+    local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
+    work.close(handle)
+    return fingerprint.image
+  end
+  local before = recorded()
+  assert(Fs.write(seed .. "/lang/truthy.tl", "local record truthy\nend\n-- a comment\nreturn truthy\n"))
+  local after = recorded()
+  assert(after ~= before, "a comment in a seed file did not move image_hash")
+
+  local root = tmp .. "/a"
+  assert(Fs.mkdirs(root))
+  image_project(root)
+  local whole = tmp .. "/whole.db"
+  assert(work.close(build_and_write(root, "world", whole)))
+  local digests = declared_key.digests(tmp)
+  local reader = image_reader()
+  --- The key of a test whose module is `group`, given the store of `names` for the projection as `image` has it.
+  local function keyed(group: string, names: {string}, image: string): string
+    set_image_hash(whole, image)
+    local basis = assert(closure_store.basis(whole))
+    local out = tmp .. "/" .. group .. "-" .. image:sub(1, 8) .. ".db"
+    assert(closure_store.write(whole, out, names, basis))
+    local key, why = declared_key.compute(digests, {
+      id = group .. " test", group = group, module_key = "module",
+      runtime = "runtime", compiler = "", host = "host", epoch = "1-00000000",
+      timeout_ns = Clock.seconds(30), declaration = "", environment = {},
+      effective = { files = {}, reads = {}, host = {}, env = {}, network = {}, tool = false,
+        store = false, caches = {}, cache_paths = {} },
+      closure_store = declared_key.store_digest(digests, out),
+    })
+    assert(key ~= nil, why)
+    return key
+  end
+  local plain_before = keyed("plain_test", { "greet", "plain_test" }, before)
+  local plain_after = keyed("plain_test", { "greet", "plain_test" }, after)
+  assert(plain_before == plain_after, "a comment in a seed file moved the key of a test that reads no image_hash")
+  local read_before = keyed("reads_test", { reader, "reads_test" }, before)
+  local read_after = keyed("reads_test", { reader, "reads_test" }, after)
+  assert(read_before ~= read_after, "a comment in a seed file left the key of a test that reads image_hash")
 end

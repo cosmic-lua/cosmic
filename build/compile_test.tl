@@ -177,8 +177,8 @@ local function test_a_path_is_taken_below_the_root_however_it_is_spelt(tmp: stri
   local spelt = run({ "--errors", "-o", tmp .. "/two", tmp .. "/./globals.d.tl", tmp .. "/./lib.tl",
     tmp .. "/sub/../main.tl" })
   assert(plain.code == 0 and spelt.code == 0, plain.err .. spelt.err)
-  assert(plain.err:find("main.tl:2:", 1, true) and not plain.err:find("not found", 1, true), plain.err)
-  assert(spelt.err:find("1 type error", 1, true) and not spelt.err:find("not found", 1, true), spelt.err)
+  assert(plain.err:find("main.tl:2:", 1, true) ~= nil and not plain.err:find("not found", 1, true), plain.err)
+  assert(spelt.err:find("1 type error", 1, true) ~= nil and not spelt.err:find("not found", 1, true), spelt.err)
   assert(Fs.read(tmp .. "/one/main.lua") == Fs.read(tmp .. "/two/main.lua"))
 end
 
@@ -237,7 +237,7 @@ local function test_a_dotted_directory_is_a_path_not_a_module_path(tmp: string)
   local path = file(tmp, "v1.2/m.tl", "local n: number = \"text\"\nreturn n\n")
   local ran = run({ "--errors", path })
   assert(ran.code == 0, ran.err)
-  assert(ran.err:find("v1.2/m.tl:1:", 1, true) and not ran.err:find("v1/2", 1, true), ran.err)
+  assert(ran.err:find("v1.2/m.tl:1:", 1, true) ~= nil and not ran.err:find("v1/2", 1, true), ran.err)
 end
 
 --- A standalone script, as `cosmic --standalone` types it: the prelude's globals and the `cosmic.*` modules are known, and the

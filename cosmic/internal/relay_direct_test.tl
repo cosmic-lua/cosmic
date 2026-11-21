@@ -76,21 +76,12 @@ end
 --- and only with its token; no other listener can take the port; it ends,
 --- status 0, once its standard input does.
 local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behind_its_token(tmp: string)
-  Poll.run(function()
-    local server = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
+  Net.with_loopback(function(conn: Net.Conn)
+    local data = conn:read(4)
+    if data ~= nil then local _, _ = conn:write("echo:" .. data) end
+  end, function(granted: integer)
     local other = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
-    local serving = Poll.spawn(function()
-      while true do
-        local conn = server:accept()
-        if conn == nil then return end
-        Poll.spawn(function()
-          local data = conn:read(4)
-          if data ~= nil then local _, _ = conn:write("echo:" .. data) end
-          local _, _ = conn:close()
-        end)
-      end
-    end)
-    local granted, ungranted = assert(server.address.port), assert(other.address.port)
+    local ungranted = assert(other.address.port)
     local loopback = assert(RelayStart.loopback_listeners())
     local port = loopback.port
     local fds: mut {integer:integer} = {}
@@ -153,8 +144,6 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
     assert(feed:close())
     local result = assert(relay:wait(Clock.seconds(20)))
     assert(result.code == 0, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
-    serving:cancel()
-    assert(server:close())
     assert(other:close())
   end)
 end

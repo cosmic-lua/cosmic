@@ -13,6 +13,7 @@ local Store = require("cosmic.store")
 local Stream = require("cosmic.stream")
 local importer = require("build.importer")
 local schema = require("build.schema")
+local symbols = require("cosmic.internal.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
 local fixture = require("build.docs_fixture")
@@ -212,9 +213,9 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
     "SELECT count(*) FROM catalog WHERE module = 'greet_test'")
   assert(support.nth(in_whole, 1):text(1) == "1", "the projection holds the test's catalog row")
   assert(support.nth(about_dropped, 1):text(1) == "0", "a row about a dropped module is carried")
-  -- `greet` is no public standard-library module, so its docs and the
-  -- example about it stay in the projection: `test_the_carried_docs_*`
-  -- below covers which docs rows are carried.
+  -- `greet` is a module any module of this project may require, which its
+  -- projection records as public, so its docs and the example about it
+  -- are carried: `test_the_carried_docs_*` below covers which rows are.
   local kept = rows(tmp .. "/carried.db",
     "SELECT (SELECT count(*) FROM examples WHERE module = 'greet'), " ..
       "(SELECT count(*) FROM docs WHERE module = 'greet'), " ..
@@ -224,7 +225,8 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
       "(SELECT count(*) FROM docs WHERE module = 'greet')")
   assert(support.nth(documented, 1):text(1) == "1" and assert(tonumber(support.nth(documented, 1):text(2)), "the docs count is a number") > 0,
     "the projection documents greet")
-  assert(support.nth(kept, 1):text(1) == "0" and support.nth(kept, 1):text(2) == "0", "greet's docs stay in the projection")
+  assert(support.nth(kept, 1):text(1) == "1" and support.nth(kept, 1):text(2) == support.nth(documented, 1):text(2),
+    "the docs of a module the projection records as public are carried")
   assert(support.nth(kept, 1):text(3) == "cmd.hello.main", "meta is carried")
   local materials = rows(tmp .. "/carried.db",
     "SELECT c.name, c.license, n.text FROM components c JOIN notices n ON n.component = c.name")
@@ -402,6 +404,8 @@ local function test_the_carried_docs_are_the_public_standard_library_s(tmp: stri
   }) do
     assert(db:exec(statement))
   end
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
@@ -473,27 +477,41 @@ local function test_the_carried_internal_types_are_the_ones_a_public_signature_n
         "('build.net', 'net.Hidden', 'net.Hidden', 1, 'field', " ..
         "'type Hidden = Native.Hidden', 'Not public.', 'f', 1), " ..
         "('cosmic.net', 'Net.Shape', 'Net.Shape', 1, 'interface', " ..
-        "'interface Shape is Native.Base', 'A shape.', 'f', 1)",
+        "'interface Shape is Native.Base', 'A shape.', 'f', 1), " ..
+        -- A module its closed directory keeps, which the projection does not record as public.
+        internal("cosmic.net.wire", "Frame") .. ", " ..
+        internal("cosmic.net.wire", "Unreached") .. ", " ..
+        "('cosmic.net.wire', 'Frame.size', 'raw.Frame.size', 1, 'field', '', 'A member.', 'f', 1), " ..
+        "('cosmic.net', 'Net.Frame', 'Net.Frame', 1, 'field', 'type Frame = Wire.Frame', 'A frame.', 'f', 1)",
       "INSERT INTO bound (path, name, requires) VALUES " ..
         "('cosmic.net', 'Native', 'cosmic.internal.net'), " ..
+        "('cosmic.net', 'Wire', 'cosmic.net.wire'), " ..
         "('build.net', 'Native', 'cosmic.internal.net')",
   }) do
     assert(db:exec(statement))
   end
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
+  assert(db:exec("DELETE FROM public_modules WHERE path = 'cosmic.net.wire'"))
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
   local found = assert(Sqlite.text_rows(out,
     "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
       "WHERE module LIKE 'cosmic.internal.%' ORDER BY id)"))
+  local kept = assert(Sqlite.text_rows(out,
+    "SELECT coalesce(group_concat(symbol, ' '), '') FROM (SELECT symbol FROM docs " ..
+      "WHERE module = 'cosmic.net.wire' ORDER BY id)"))
   assert(out:close())
+  assert(support.nth(kept, 1):text(1) == "Frame Frame.size",
+    "the types of a module its directory keeps, where a public alias names them: " .. support.nth(kept, 1):text(1))
   assert(support.nth(found, 1):text(1) == "Alias First Second Base Alias.size", "the internal types carried: " .. support.nth(found, 1):text(1))
 end
 
 --- A user guide is a generated test module, which the tool does not
 --- carry, but its prose is what `cosmic docs quickstart` answers with:
 --- its own doc row is carried, not the helpers its module declares, and
---- a guide about the runtime's own construction is left to the tree.
+--- a guide under `doc/guides/internal/` is left to the tree.
 local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   local whole = tmp .. "/whole.db"
   local db = assert(Sqlite.open(whole, { writable = true }))
@@ -502,23 +520,27 @@ local function test_the_carried_docs_hold_the_user_guides_prose(tmp: string)
   for _, statement in ipairs({
       "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, source) " ..
         "VALUES ('doc.guides.quickstart', 'doc/guides/quickstart.md', 'test', '', '', '', '', ''), " ..
-        "('doc.guides.portable-runtime', 'doc/guides/portable-runtime.md', 'test', '', '', '', '', '')",
+        "('doc.guides.internal.portable-runtime', 'doc/guides/internal/portable-runtime.md', 'test', '', '', '', '', '')",
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, " ..
         "text, file, line) VALUES " ..
         "('doc.guides.quickstart', '', '', 1, 'module', '', 'A tour.', 'f', 1), " ..
         "('doc.guides.quickstart', '__doctest_write', '__doctest_write', 0, 'function', '', " ..
         "'A helper.', 'f', 1), " ..
-        "('doc.guides.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1)",
+        "('doc.guides.internal.portable-runtime', '', '', 1, 'module', '', 'How it is built.', 'f', 1), " ..
+        "('doc.guides.newcomer', '', '', 1, 'module', '', 'Named in no list.', 'f', 1)",
   }) do
     assert(db:exec(statement))
   end
+  assert(db:exec("INSERT OR IGNORE INTO public_modules SELECT path FROM (SELECT path FROM modules UNION SELECT module FROM docs " ..
+      "UNION SELECT module FROM uses UNION SELECT from_module FROM uses) WHERE " .. symbols.library_modules("path")))
   assert(db:close())
   assert(writer.carried(whole, tmp .. "/carried.db"))
   local out = assert(Sqlite.open(tmp .. "/carried.db"))
   local found = assert(Sqlite.text_rows(out,
     "SELECT coalesce(group_concat(module || '|' || text, ' '), '') FROM docs"))
   assert(out:close())
-  assert(support.nth(found, 1):text(1) == "doc.guides.quickstart|A tour.", support.nth(found, 1):text(1))
+  assert(support.nth(found, 1):text(1) == "doc.guides.quickstart|A tour. doc.guides.newcomer|Named in no list.",
+    support.nth(found, 1):text(1))
 end
 
 --- Rebuilding the projection from the same source assigns the same
@@ -583,43 +605,37 @@ local function test_a_source_is_deflated_again_by_a_core_of_another_image(tmp: s
   assert(assert(rows[1]):text(1) == "1", "another core's compressed source was shipped")
 end
 
---- The compressed bytecode a projection ships is kept in the working
---- database by compile key, so a write with no base compresses none of an
---- unchanged tree: its modules carry the cached bytes, an edit's compile
---- is kept and the old one dropped, and a core of another image never
---- ships bytes the first made.
-local function test_bytecode_is_deflated_once_per_compile_and_core(tmp: string)
+--- The bytecode a projection ships is kept in the working database by
+--- compile key, as `string.dump` wrote it: its modules carry the kept
+--- bytes, an edit's compile is kept and the old one dropped. No core's
+--- compressor made them, so none is another core's to refuse: what a core
+--- of another image deflates again is the sources
+--- ([`test_a_source_is_deflated_again_by_a_core_of_another_image`]).
+local function test_bytecode_is_kept_once_per_compile(tmp: string)
   local handle = build_and_write(tmp .. "/a", "world", tmp .. "/first.db")
-  local keys = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM deflated_bytecode"))
-  assert(assert(keys[1]):text(1) ~= "0", "writing a projection fills the cache")
+  local keys = assert(Sqlite.text_rows(handle.db, "SELECT count(*), sum(substr(data, 1, 4) = CAST(x'1b4c7561' AS BLOB)) FROM kept_bytecode"))
+  assert(assert(keys[1]):text(1) ~= "0", "writing a projection keeps its bytecode")
+  assert(assert(keys[1]):text(1) == assert(keys[1]):text(2), "each is a chunk as it was dumped")
 
-  -- Bytes the cache serves are what ships: a planted row would show.
-  assert(handle.db:exec("UPDATE deflated_bytecode SET data = deflate(x'00')"))
+  -- Bytes the table holds are what ships: a planted row would show.
+  assert(handle.db:exec("UPDATE kept_bytecode SET data = x'00'"))
   assert(work.stage(handle, { own = false }))
   local result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/planted.db", result))
   local planted = assert(Sqlite.open(tmp .. "/planted.db"))
   local shipped = assert(Sqlite.text_rows(planted,
-    "SELECT count(*) FROM modules WHERE inflate(bytecode) = x'00'"))
+    "SELECT count(*) FROM modules WHERE bytecode = x'00'"))
   assert(planted:close())
-  assert(assert(shipped[1]):text(1) ~= "0", "a cached compressed chunk was not shipped")
-  assert(handle.db:exec("DELETE FROM deflated_bytecode"))
+  assert(assert(shipped[1]):text(1) ~= "0", "a kept chunk was not shipped")
+  assert(handle.db:exec("DELETE FROM kept_bytecode"))
 
   support.write_project(tmp .. "/a", "moon")
   assert(work.stage(handle, { own = false }))
   result = assert(importer.compile(handle, "writer-test"))
   assert(writer.write_result(handle, tmp .. "/second.db", result))
   local stale = assert(Sqlite.text_rows(handle.db,
-    "SELECT count(*) FROM deflated_bytecode WHERE key NOT IN (SELECT key FROM plan)"))
-  assert(assert(stale[1]):text(1) == "0", "the cache holds a compile no module names")
-
-  assert(handle.db:exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('image_hash', 'other-core')"))
-  assert(work.stage(handle, { own = false }))
-  result = assert(importer.compile(handle, "writer-test"))
-  assert(writer.write_result(handle, tmp .. "/third.db", result))
-  local cores = assert(Sqlite.text_rows(handle.db, "SELECT DISTINCT core FROM deflated_bytecode"))
-  assert(#cores == 1 and assert(cores[1]):text(1) == "6f746865722d636f7265",
-    "the cache holds a core's bytes that is not the writing core's")
+    "SELECT count(*) FROM kept_bytecode WHERE key NOT IN (SELECT key FROM plan)"))
+  assert(assert(stale[1]):text(1) == "0", "the table holds a compile no module names")
   assert(work.close(handle))
 
   assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
@@ -627,10 +643,10 @@ local function test_bytecode_is_deflated_once_per_compile_and_core(tmp: string)
   local fresh = assert(Sqlite.open(tmp .. "/fresh.db"))
   local function chunks(db: Sqlite.Handle): string
     local rows = assert(Sqlite.text_rows(db,
-      "SELECT group_concat(hex(inflate(bytecode)), ',') FROM (SELECT bytecode FROM modules ORDER BY path)"))
+      "SELECT group_concat(hex(chunk(bytecode)), ',') FROM (SELECT bytecode FROM modules ORDER BY path)"))
     return assert(rows[1]):text(1)
   end
-  assert(chunks(second) == chunks(fresh), "a projection served from the cache ships other bytecode than a fresh one")
+  assert(chunks(second) == chunks(fresh), "a projection served from the kept bytecode ships other than a fresh one")
   assert(second:close())
   assert(fresh:close())
 end
@@ -865,7 +881,7 @@ local function test_static_files_are_compressed_once_per_content(tmp: string)
 
   assert(Fs.remove(tmp .. "/p/static/other.css"))
   write_again(handle, tmp .. "/gone.db")
-  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'other.css'") == "0",
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'static/other.css'") == "0",
     "a row no file uses was kept")
   assert(work.close(handle))
 
@@ -873,6 +889,30 @@ local function test_static_files_are_compressed_once_per_content(tmp: string)
   write_again(fresh, tmp .. "/fresh.db")
   assert(work.close(fresh))
   assert(Fs.read(tmp .. "/gone.db") == Fs.read(tmp .. "/fresh.db"), "a cached write differs from an uncached one")
+end
+
+--- A warm write ships a file not worth compressing as a cold one does,
+--- with NULL variants, not the empty ones a text read of its NULL cached
+--- row would give: the projection is the bytes a cold write of an equal
+--- tree gives.
+local function test_a_warm_write_keeps_null_variants_null(tmp: string)
+  for _, name in ipairs({ "cold", "warm" }) do
+    support.write_project(tmp .. "/" .. name, "world")
+    write_static(tmp .. "/" .. name, ("a { color: red }\n"):rep(200))
+  end
+  write_projection(tmp .. "/cold", tmp .. "/cold.db")
+  local handle = assert(work.open(tmp .. "/warm"))
+  write_again(handle, tmp .. "/first.db")
+  assert(scalar(handle.db, "SELECT count(*) FROM compressed WHERE path = 'static/logo.png' AND gzip IS NULL AND zstd IS NULL") == "1",
+    "the cache holds no NULL row for the image")
+  write_again(handle, tmp .. "/warm.db")
+  assert(work.close(handle))
+  local db = assert(Sqlite.open(tmp .. "/warm.db"))
+  assert(scalar(db, "SELECT gzip IS NULL AND zstd IS NULL FROM payload WHERE path = 'logo.png'") == "1",
+    "a warm write shipped empty variants")
+  assert(scalar(db, "SELECT count(*) FROM payload WHERE gzip = '' OR zstd = ''") == "0", "a warm write shipped empty variants")
+  assert(db:close())
+  assert(Fs.read(tmp .. "/warm.db") == Fs.read(tmp .. "/cold.db"), "a warm write differs from a cold one")
 end
 
 --- A tree with no `static/` has an empty payload.

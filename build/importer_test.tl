@@ -8,12 +8,15 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 local identity = require("build.identity")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local importer = require("build.importer")
 local Hash = require("cosmic.hash")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
+local CodeWalk = require("build.code_walk")
 local type _ = require("build.test_inputs")
 -- Read as source by the closure checks below, though the modules above
 -- name it only by type, which no closure follows.
@@ -23,6 +26,7 @@ local work = require("build.work")
 local build_paths = require("build.paths")
 local writer = require("build.writer")
 local shared_compiles = require("build.shared_compiles")
+local fanout = require("build.compile_fanout")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local SyntaxNode = require("build.syntax_node")
@@ -603,6 +607,15 @@ local function test_a_project_file_named_for_a_module_of_the_language_is_refused
   assert(other ~= nil, "could not write fixture: " .. tostring(other_trouble))
   local _, unknown = importer_fixture.compile_fixture(other)
   assert(unknown:find("require a module of the project: `bin/cosmic docs` lists them", 1, true) ~= nil, tostring(unknown))
+  -- A name of cosmic's that the binary has no module of is refused at the `require`, as a name of the tree's is, with
+  -- no stop of the build that names no place.
+  local missing, missing_trouble = write_fixture("cosmic-module-unknown", {
+    ["main.tl"] = 'local s = require("cosmic.no_such_module")\nreturn s\n',
+  })
+  assert(missing ~= nil, "could not write fixture: " .. tostring(missing_trouble))
+  local _, absent = importer_fixture.compile_fixture(missing)
+  assert(absent:find("main.tl:1:", 1, true) ~= nil and absent:find("cosmic has no module `cosmic.no_such_module`", 1,
+    true) ~= nil, tostring(absent))
 end
 
 --- A module's own compile is keyed by its file as well as its import
@@ -1226,7 +1239,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   assert(table.concat(got, ", ") == want, table.concat(got, ", "))
   local view = assert(docs.view({ shipped }))
   for _, query in ipairs({ "Shapes.Box.area", "Box.area", "area" }) do
-    local uses = assert(docs.uses(view, query))
+    local uses = assert(Doc.uses(view, query))
     local lines: mut {string} = {}
     for _, use in ipairs(uses) do
       lines[#lines + 1] = use.from_file .. ":" .. tostring(use.line)
@@ -1234,7 +1247,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
     assert(table.concat(lines, " ") == "main.tl:7 main.tl:8",
       query .. ": " .. table.concat(lines, " "))
   end
-  local tally = assert(docs.uses(view, "Counter.Tally.bump"))
+  local tally = assert(Doc.uses(view, "Counter.Tally.bump"))
   assert(#tally == 1 and tally[1].line == 10, tostring(#tally))
   assert(shipped:close())
   work.close(handle)
@@ -1549,6 +1562,126 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
   work.close(handle)
 end
 
+--- A module `name` whose function `f` holds a finding of its own (a default for a value that is never nil), after the
+--- lines `head`, and hands on to `calls`.
+local function defaulting(name: string, head: string, calls: string): string
+  return head .. "local record " .. name .. "\nend\nfunction " .. name .. ".f(n: integer): integer\n  local x = n or 4\n" ..
+    "  return " .. calls .. "\nend\nreturn " .. name .. "\n"
+end
+
+--- The refusals of a compile of the project `files`, the modules it built, and how many compiles it kept.
+local function refusals_of_project(case: string, files: {string:string}): importer.Result, integer
+  local root = assert(write_fixture(case, files))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local result, trouble = importer.compile(handle, "importer-test")
+  local kept = assert(Sqlite.text_rows(handle.db, "SELECT key FROM compiled"))
+  work.close(handle)
+  return assert(result, trouble), #kept
+end
+
+--- One run tells the findings of a module and of the modules that require it: a module that requires a refused one is
+--- checked against the declarations of that one, which stand when its errors are in the bodies of its functions. Without the
+--- check a chain of three modules with a finding each takes three runs. Nothing of a module checked so is built or kept.
+local function test_a_module_that_requires_a_refused_one_is_checked_and_its_findings_told_in_the_same_run()
+  local result, kept = refusals_of_project("checked-dependents", {
+    ["a.tl"] = defaulting("A", "", "x"),
+    ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
+    ["c.tl"] = defaulting("C", "local B = require(\"b\")\n", "B.f(x)"),
+    ["d.tl"] = "local A = require(\"a\")\nlocal record D\nend\nfunction D.f(n: integer): integer\n  return A.f(n)\nend\nreturn D\n",
+    ["e.tl"] = "local record E\nend\nfunction E.f(n: integer): integer\n  return n\nend\nreturn E\n",
+  })
+  local refused = table.concat(result.refused, "\n")
+  for _, file in ipairs({ "a.tl", "b.tl", "c.tl" }) do
+    assert(refused:find(file .. ": the compiler refused it\n" .. file .. ":", 1, true) ~= nil and
+        refused:find(file .. ": 1 error of condition_type in its bodies", 1, true) ~= nil, refused)
+  end
+  assert(refused:find("d.tl: not compiled: it requires a, which did not build; checked all the same, it has no finding " ..
+      "of its own", 1, true) ~= nil, refused)
+  assert(#result.refused == 4, refused)
+  -- A finding of a module checked so holds of the other's declarations as they are, and says so.
+  assert(refused:find("\nb.tl: checked against the declarations of a as they are written, though it did not build: a fix there " ..
+      "that changes a declaration may settle a finding here", 1, true) ~= nil and
+      refused:find("\nc.tl: checked against the declarations of b as they are written", 1, true) ~= nil and
+      refused:find("a.tl: checked against", 1, true) == nil, refused)
+  assert(table.concat(assert(result.own_refused), " ") == "a.tl b.tl c.tl", table.concat(assert(result.own_refused), " "))
+  -- Each rests on its own refusal and on those of what it requires, so a run that names it shows them all.
+  local roots = assert(result.refusal_roots)
+  assert(#assert(roots["a.tl"]) == 1 and #assert(roots["b.tl"]) == 2 and #assert(roots["c.tl"]) == 3 and
+      #assert(roots["d.tl"]) == 1)
+  assert(#result.modules == 1 and assert(result.modules[1]).path == "e" and kept == 1, tostring(kept))
+end
+
+--- A module that does not parse, or whose declarations are in error or in doubt (a `return` that does not fit them is
+--- as often mended by declaring another result), says nothing sound of itself to a module that requires it: a check of
+--- that module would refuse it for what the other got wrong. It is left out unchecked, with the line that says its
+--- findings are yet to show.
+local function test_a_module_that_requires_one_whose_declarations_do_not_stand_is_left_unchecked()
+  local unsound: {string:string} = {
+    ["does not parse"] = "local record A\nend\nfunction A.f(n: integer): integer\n  return n +\nend\nreturn A\n",
+    ["a signature of an unknown type"] = "local record A\nend\nfunction A.f(n: Nosuch): integer\n  return 1\nend\nreturn A\n",
+    ["a field of an unknown type"] = "local record A\n  f: function(n: integer): Nosuch\nend\nreturn A\n",
+    ["a return that does not fit its declaration"] = "local record A\nend\nfunction A.f(n: integer): integer\n" ..
+      "  if n > 0 then\n    return nil\n  end\n  return n\nend\nreturn A\n",
+    ["no declaration of what it returns"] = "local a = { f = function(n: integer): integer\n  return n\nend }\nreturn a\n",
+  }
+  for what, source in pairs(unsound) do
+    local result, _ = refusals_of_project("unchecked-dependents", {
+      ["a.tl"] = source,
+      ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
+    })
+    local refused = table.concat(result.refused, "\n")
+    assert(refused:find("a.tl:", 1, true) ~= nil, what .. ": " .. refused)
+    assert(result.refused[#result.refused] == "b.tl: not compiled: it requires a, which did not build", what .. ": " .. refused)
+    assert(#result.modules == 0, what)
+  end
+end
+
+--- A module that counts in a `global`, which a program may not declare, and answers `returns` from its function.
+local function counting(returns: string): string
+  return "global count: integer = 0\nlocal record T\nend\nfunction T.next(): integer\n  count = count + 1\n  return " ..
+    returns .. "\nend\nreturn T\n"
+end
+
+--- A `global` in a program is the parser's refusal, which stops the file before the checker reads it, so its other findings
+--- would wait for a second run. Its fix is the word `local` in its place: the checker reads the text with the fix made and
+--- its findings are told under the parser's, each `global` of the file among them.
+local function test_a_file_refused_for_a_global_is_told_what_the_checker_says_once_it_is_local()
+  local result, kept = refusals_of_project("repaired-global", {
+    ["t.tl"] = "global other = 1\n" .. counting("nosuch"),
+    ["fine.tl"] = counting("count"):gsub("^global", "local"),
+  })
+  local refused = table.concat(result.refused, "\n")
+  assert(#result.refused == 1 and #result.modules == 1 and kept == 1, refused)
+  local first = refused:find("t.tl:1:1: `global` declares a global", 1, true)
+  local second = refused:find("\nt.tl:2:1: `global` declares a global", 1, true)
+  local heading = refused:find("\nt.tl: with `local` written for `global`, as the fix says, the checker refuses this too\n", 1, true)
+  local found = refused:find("\nt.tl:7:10: `nosuch` is not declared (unknown_variable)", 1, true)
+  assert(first == 1 and second ~= nil and heading ~= nil and found ~= nil and second < heading and heading < found, refused)
+  assert(refused:find("the compiler refused it", 1, true) == nil, refused)
+end
+
+--- Only a text whose every error is a `global` is read so: after any other error of the parser the tree is no whole
+--- program, and a module that requires one whose declarations do not stand would be told of that one's faults. Each keeps
+--- the parser's line alone. A file that the checker refuses for nothing more says nothing more.
+local function test_a_file_with_a_global_is_not_checked_where_that_is_not_sound()
+  local alone: {string:{string:string}} = {
+    ["another error of the parser"] = { ["t.tl"] = counting("nosuch") .. "local x = = 1\n" },
+    ["a require of a module whose declarations do not stand"] = {
+      ["t.tl"] = "local A = require(\"a\")\n" .. counting("A.f(nosuch)"),
+      ["a.tl"] = "local record A\nend\nfunction A.f(n: Nosuch): integer\n  return 1\nend\nreturn A\n",
+    },
+    ["no finding of the checker"] = { ["t.tl"] = counting("count") },
+  }
+  for what, files in pairs(alone) do
+    local result, _ = refusals_of_project("unrepaired-global", files)
+    local refused = table.concat(result.refused, "\n")
+    assert(refused:find("t.tl:%d:1: `global` declares a global") ~= nil, what .. ": " .. refused)
+    assert(refused:find("with `local` written", 1, true) == nil and refused:find("nosuch", 1, true) == nil,
+      what .. ": " .. refused)
+  end
+end
+
 --- [`build.syntax_contracts`] holds a module's exports to rule 10 as it compiles,
 --- so an exported function answering a tuple never does.
 local function test_compile_rejects_an_exported_tuple()
@@ -1693,7 +1826,7 @@ local function identity_fixture(case: string): string
     ["cosmic/fs.tl"] = module_requiring({}),
     ["cosmic/removed.tl"] = module_requiring({}),
     ["build/importer.tl"] = module_requiring({ "build.analysis_schema", "build.plans", "build.withheld", "build.tree",
-      "build.work", "build.positions", "build.symbols", "build.caches" }),
+      "build.work", "build.positions", "cosmic.internal.symbols", "build.caches" }),
     ["build/plans.tl"] = module_requiring({ "build.withheld", "build.bind" }),
     ["build/derivation.tl"] = module_requiring({ "build.analysis_schema", "build.cache_names", "build.bind" }),
     ["build/analysis_schema.tl"] = module_requiring({}),
@@ -1705,7 +1838,7 @@ local function identity_fixture(case: string): string
     ["build/work.tl"] = module_requiring({ "build.analysis_schema", "build.todo_scan" }),
     ["build/todo_scan.tl"] = module_requiring({}),
     ["build/positions.tl"] = module_requiring({}),
-    ["build/symbols.tl"] = module_requiring({}),
+    ["cosmic/internal/symbols.tl"] = module_requiring({}),
     ["build/caches.tl"] = module_requiring({ "cosmic.fs", "build.cache_names", "build.zig" }),
     ["build/zig.tl"] = module_requiring({ "cosmic.fs" }),
   }
@@ -1750,7 +1883,7 @@ local function test_compiler_identity_leaves_out_what_shapes_no_compile()
   local original = identities_of(root)
   assert(identities_of(root)[1] == original[1], "a second open moved the identity")
   for _, path in ipairs({ "build/importer.tl", "build/work.tl", "build/todo_scan.tl", "build/positions.tl",
-      "build/symbols.tl", "build/caches.tl", "build/zig.tl",
+      "cosmic/internal/symbols.tl", "build/caches.tl", "build/zig.tl",
       "cosmic/fs.tl", "cosmic/removed.tl" }) do
     edit(root, path)
     local after = identities_of(root)
@@ -1762,12 +1895,10 @@ end
 --- An edit to a module a compile or a parse runs to decide what it
 --- stores, to a module one requires, to the names the checker is
 --- stripped of, or to a pin or a patch of Teal or Lua, moves the
---- compiler's identity: every compile is made again. The analyzer's own
---- identity ([`importer.analyzer_identity`], before the checker's readers
---- wrap it) moves only for the analyzer's modules and the pins, so an edit
---- to a module only a compile runs moves none of it. (In cosmic's tree
---- the checker's readers reach build.withheld, so an edit to it parses
---- again there: build/importer_boot_test.tl holds what they reach.)
+--- compiler's identity: every compile is made again. The analyzer's
+--- identity ([`importer.analyzer_identity`]) moves only for the analyzer's
+--- modules and the pins, so an edit to a module only a compile runs moves
+--- none of it.
 local function test_compiler_identity_follows_what_shapes_a_compile()
   local root = identity_fixture("identity-follows")
   local seen: mut {string:string} = {}
@@ -1803,8 +1934,9 @@ end
 --- build.importer is outside the set, but every module it calls is in
 --- the set or named below with the reason it is not; a new require of it
 --- fails here until it is one or the other. Every module of the
---- analyzer's but the standard library's is the compiler's too, so a
---- compile is made again wherever a parse is.
+--- analyzer's but the standard library's is the compiler's too, or one
+--- of the checker's readers, which every compile's key holds as well, so
+--- a compile is made again wherever a parse is.
 ---
 --- A `cosmic.*` require is let through whole: it is the standard
 --- library the compile runs on, which the identity leaves out. This
@@ -1823,20 +1955,26 @@ local function test_the_compiler_modules_are_closed_under_require()
   local modules = assert(identity.compiler_modules(Store.requires))
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
+  -- The parse's own modules ([`build.parse_derive`] and what it reaches) are the checker's readers' too, which every
+  -- compile's key holds ([`Pipeline.coded`]).
+  local readers: mut {string:boolean} = {}
+  for _, name in ipairs((assert(CodeWalk.reach(CodeWalk.pipeline, Store.requires)))) do
+    readers[name] = true
+  end
   for _, name in ipairs((assert(importer.analyzer_modules()))) do
-    assert(covered[name] == true or name:match("^cosmic%.") ~= nil,
-      name .. " is the analyzer's but not in the compiler's identity")
+    assert(covered[name] == true or readers[name] == true or name:match("^cosmic%.") ~= nil,
+      name .. " is the analyzer's but in neither the compiler's identity nor the code that reads")
   end
   for _, name in ipairs({ "build.plans", "build.derivation", "build.module", "build.withheld", "build.tree",
       "build.analysis_schema", "build.cache_names" }) do
-    assert(covered[name], name .. " is not in the compiler's identity: " ..
+    assert(covered[name] == true, name .. " is not in the compiler's identity: " ..
         table.concat(modules, ", "))
   end
   --- A template's generated module is stored by derivation, so the
   --- compiler of templates is part of the identity: a change to it
   --- regenerates every template.
   for _, name in ipairs({ "cosmic.template", "cosmic.template.codegen", "cosmic.template.parse" }) do
-    assert(covered[name], name .. " is not in the compiler's identity: " ..
+    assert(covered[name] == true, name .. " is not in the compiler's identity: " ..
         table.concat(modules, ", "))
   end
   assert(covered["cosmic.removed"] ~= true, "cosmic.removed is in the compiler's identity: " ..
@@ -1848,11 +1986,16 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.work"] = "stages the tree and keeps the records; " ..
       "the schema a parse's rows are shaped by is build.analysis_schema's",
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
+    ["build.library_record"] = "reads what the binary records of the library for that check of positions, which fails a " ..
+      "whole build before any key is looked up, and stores nothing",
     ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
       "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
+    ["build.logger"] = "says a refusal ahead of the report of a long compile; what is said, not what is stored",
+    ["build.parse_derive"] = "the parse, keyed by the analyzer's identity, of which it is a root (`CodeWalk.analyzer_roots`), " ..
+      "and held in every compile's key by the code that reads (`Pipeline.coded`), not by the compiler's identity",
     ["build.reads.analyzer"] = "a declaration of what text this module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text this module reads, which a test's store follows; no code",
   }
@@ -1882,7 +2025,7 @@ local function test_the_compiler_modules_are_closed_under_require()
   for name in pairs(left_out) do
     assert(covered[name] ~= true, name .. " is named as left out of the compiler's identity, " ..
         "but is in it")
-    assert(used[name], name .. " is left out of the compiler's identity, " ..
+    assert(used[name] == true, name .. " is left out of the compiler's identity, " ..
         "but build.importer no longer requires it")
   end
 end
@@ -1906,9 +2049,9 @@ local function test_the_writer_modules_are_closed_under_require()
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   for _, name in ipairs({ "build.writer", "build.identity", "build.schema", "build.bom",
-      "build.roots", "build.tree", "build.bind", "build.symbols",
+      "build.roots", "build.tree", "build.bind", "cosmic.internal.symbols",
       "cosmic.sqlite", "cosmic.codec", "cosmic.store" }) do
-    assert(covered[name], name .. " is not in the writer's identity: " ..
+    assert(covered[name] == true, name .. " is not in the writer's identity: " ..
         table.concat(modules, ", "))
   end
   local roots_require: mut {string:boolean} = {}
@@ -1917,7 +2060,7 @@ local function test_the_writer_modules_are_closed_under_require()
   end
   for name, why in pairs(identity.writer_left_out()) do
     assert(why ~= "", name .. " is left out of the writer's identity with no reason")
-    assert(roots_require[name], name .. " is left out of the writer's identity, " ..
+    assert(roots_require[name] == true, name .. " is left out of the writer's identity, " ..
         "but neither build.writer nor build.identity requires it")
     assert(covered[name] ~= true, name .. " is left out of the writer's identity, but is in it")
   end
@@ -1932,8 +2075,9 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.link_files"] = "stages prose links, whose rows the projection holds",
     ["build.c_tokens"] = "reads C comments for those staged links",
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
+    ["build.library_record"] = "reads what the binary records of the library for the importer's check of positions, " ..
+      "which refuses a build and fills no row",
     ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
-    ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text a module reads, which a test's store follows; no code",
@@ -1964,8 +2108,11 @@ local function test_the_writer_modules_are_closed_under_require()
   -- The new grammar's compile (build.pipeline and what it reads) runs only where the build is asked for
   -- it, and its output is keyed apart from the compiler's by [`Pipeline.coded`] over those sources; no projection of the
   -- default compile turns on them.
-  local through_pipeline = reach({ ["build.pipeline"] = true })
+  -- The parse ([`build.parse_derive`]) is among what it reads, and build.importer requires it too: a parse is keyed by the
+  -- analyzer's identity, and a projection holds a parse's rows and not its code.
+  local through_pipeline = reach({ ["build.pipeline"] = true, ["build.parse_derive"] = true })
   neither["build.pipeline"] = "compiles in the new grammar only when asked, its output keyed by Pipeline.coded over its own closure"
+  neither["build.parse_derive"] = "parses the tree, its rows keyed by the analyzer's identity over its own closure"
   local only_pipeline: mut {string:boolean} = {}
   for name in pairs(reached) do
     if through_pipeline[name] == nil then
@@ -1980,7 +2127,7 @@ local function test_the_writer_modules_are_closed_under_require()
       assert(covered[name] ~= true and compiler[name] ~= true,
         name .. " is named as in neither identity, but is in one")
     elseif only_pipeline[name] == true or name:sub(1, 5) == "lang." then
-      -- The new checker's own modules: the code a compile and a parse are keyed by is [`Pipeline.coded`] over them.
+      -- The new checker's own modules: the code a compile is keyed by is [`Pipeline.coded`] over them.
       used[name] = true
     elseif covered[name] ~= true and compiler[name] ~= true then
       unclassified[#unclassified + 1] = name
@@ -1991,7 +2138,7 @@ local function test_the_writer_modules_are_closed_under_require()
       "(build.identity's writer_roots) nor the compiler's, with no reason: " ..
       table.concat(unclassified, ", "))
   for name in pairs(neither) do
-    assert(used[name], name .. " is named as in neither identity, " ..
+    assert(used[name] == true, name .. " is named as in neither identity, " ..
         "but build.writer no longer reaches it")
   end
 end
@@ -2005,6 +2152,11 @@ end
 --- ([`build.test`]). No semantic module has an exception. The importer
 --- coordinates them from outside the closure. A declaration of a C binding (`cosmic.internal.*`) is
 --- types over the core, not analysis.
+---
+--- The set holds everything a parse runs ([`build.parse_derive`]): the lexer, the parser, the readers of the syntax
+--- tree and the statements that write their rows. It holds nothing of the checker, which no parse runs, so that an
+--- edit to the checker parses nothing again: a module of the set that came to require one of these, for a type alone
+--- even (`requires` records a `local type` like any other), fails here.
 local function test_the_analyzer_modules_are_closed_under_require()
   local modules = assert(importer.analyzer_modules())
   local listed: mut {string:boolean} = {}
@@ -2012,11 +2164,21 @@ local function test_the_analyzer_modules_are_closed_under_require()
   assert(listed["build.derivation"] == true and listed["cosmic.string"] == true, table.concat(modules, ", "))
   assert(listed["build.importer"] ~= true and listed["build.test"] ~= true and listed["build.syntax_receivers"] ~= true,
     table.concat(modules, ", "))
-  -- The readers of the new syntax tree are named by the code that reads the tree in the new mode ([`Pipeline.coded`]) and not
-  -- by this set; the privacy-by-position check, which only the importer calls, is in neither.
-  assert(listed["build.syntax_analyzer"] ~= true and listed["build.positions"] ~= true, table.concat(modules, ", "))
+  for _, name in ipairs({ "build.parse_derive", "build.source_parse", "build.syntax_derivation", "build.syntax_analyzer",
+      "build.syntax_node", "build.markers", "lang.lexer", "lang.parser", "lang.ast", "lang.declarations" }) do
+    assert(listed[name] == true, name .. ", which a parse runs, is not in importer.analyzer_modules: " ..
+        table.concat(modules, ", "))
+  end
+  for _, name in ipairs({ "lang.check", "lang.flow", "lang.codegen", "lang.truthy", "lang.warnings", "lang.literals",
+      "lang.load_order", "lang.boundaries", "lang.boundary_checks", "lang.fact_wraps", "build.driver", "build.pipeline",
+      "build.tree_program", "build.error_render", "build.ceilings", "build.plans" }) do
+    assert(listed[name] ~= true, name .. ", which no parse runs, is in importer.analyzer_modules, so an edit to it " ..
+        "would parse the tree again: " .. table.concat(modules, ", "))
+  end
+  -- The privacy-by-position check, which only the importer calls, is in neither identity.
+  assert(listed["build.positions"] ~= true, table.concat(modules, ", "))
   -- The analysis schema is; the rest of the working database and the caches themselves, which reach build/zig.tl, are not.
-  assert(listed["build.analysis_schema"], table.concat(modules, ", "))
+  assert(listed["build.analysis_schema"] == true, table.concat(modules, ", "))
   assert(listed["build.work"] ~= true and listed["build.caches"] ~= true and
       listed["build.zig"] ~= true, table.concat(modules, ", "))
   local file_of = tree_file_of
@@ -2029,7 +2191,7 @@ local function test_the_analyzer_modules_are_closed_under_require()
     do
       local source = assert(Fs.read(file))
       for _, required in ipairs(requires_of(source, file)) do
-        local ours = (required:match("^build%.") or required:match("^cosmic%.")) and
+        local ours = (required:match("^build%.") or required:match("^cosmic%.") or required:match("^lang%.")) and
           not required:match("^cosmic%.internal%.")
         if ours == true and listed[required] ~= true and file_of(required) ~= nil then
           missing[#missing + 1] = name .. " requires " .. required
@@ -2276,7 +2438,7 @@ local function test_the_module_shape_does_not_reach_the_plans_or_the_readers()
       end
     end
   end
-  assert(seen["build.module"], "position and input readers lost their shared module shape")
+  assert(seen["build.module"] == true, "position and input readers lost their shared module shape")
   for _, name in ipairs({ "build.plans", "build.syntax_contracts", "build.syntax_receivers" }) do
     assert(seen[name] ~= true, "the shared module shape pulled in " .. name)
   end
@@ -2343,6 +2505,170 @@ local function test_the_checks_written_survive_every_compile_path()
   assert(plain.fact_wraps == 0 and plain.parameter_checks == 0, "an unchecked compile reported checks")
 end
 
+--- A meminfo that says the host has memory for every copy: what it has free is not what these tests check.
+local plenty <const> = "MemAvailable: 1073741824 kB\n"
+
+--- Whether a copy of the process, forked here, ran.
+local function forks(): boolean
+  return fanout.run(1, function(_: integer) end).ended[1] == true
+end
+
+--- Sources parsed and modules compiled in copies of the process are those one process parses and compiles: the same
+--- Lua of each, the same count made, and a module a copy is refused is refused by the build in the same words. A
+--- copy compiles nothing that requires a module one of them could not compile, and the build tells of that module
+--- while the copies run. A copy is forked here for two modules, where a build asks for many more.
+local function test_modules_compiled_in_copies_are_those_one_process_compiles()
+  -- Three modules in a row, a fourth that requires them, and twenty that each require the fourth.
+  local files: mut {string:string} = {}
+  for index = 1, 24 do
+    local before = if index > 4 then 4 elseif index > 1 then index - 1 else 0 end
+    local requires = if before > 0 then 'local before = require("m' .. tostring(before) .. '")\n' else "" end
+    files["m" .. tostring(index) .. ".tl"] = requires .. "local record M\n  count: integer\nend\nlocal m: M = { count = " ..
+      (if before > 0 then "before.count + " else "" end) .. tostring(index) .. " }\nreturn m\n"
+  end
+  -- What a compile told of ahead of its report, and how much of it by the time its copies had ended.
+  local told: mut {string} = {}
+  local told_by_copies = 0
+  --- Compiles the fixture named `name` over `over`, in copies or not: the result, whether copies parsed and compiled,
+  --- and the modules the copies made a compile of.
+  local function compiled(name: string, over: {string:string}, at_once: boolean): importer.Result, boolean, string
+    local root = assert(write_fixture(name, over))
+    local shared = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = root .. "/cache/cache.db" }))
+    local fan, fan_parses = assert(shared.fan), assert(shared.fan_parses)
+    local fanned, parses_fanned = false, false
+    local made_path = root .. "/made-by-copies"
+    local watched: importer.Shared = { ...shared,
+      fan = function(due: {importer.Module}, own_tree: boolean,
+                     make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?,
+                     watch?: function()): importer.Shared.Fanned?
+        if not at_once then return nil end
+        local made = fan(due, own_tree, function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?
+          local one = make(m, rest)
+          if one ~= nil then assert(Fs.append(made_path, m.path .. "\n")) end
+          return one
+        end, watch)
+        fanned = made ~= nil
+        told_by_copies = #told
+        return made
+      end,
+      fan_parses = function(count: integer,
+                            make: function(copy: integer, copies: integer): {importer.Shared.ParseMade}):
+        importer.Shared.ParsesFanned?
+        if not at_once then return nil end
+        local made = fan_parses(count, make)
+        parses_fanned = made ~= nil
+        return made
+      end }
+    local handle = assert(work.open(root))
+    assert(work.stage(handle, { own = false }))
+    local result, trouble = importer.compile(handle, "fanned-test", false, watched, nil, nil,
+      { refused = false, patience_ns = 0, tell = function(said: string) told[#told + 1] = said end })
+    work.close(handle)
+    return assert(result, trouble), fanned and parses_fanned, Fs.read(made_path) or ""
+  end
+  -- The fourth module with an error in a function's body: its declarations stand, so a module that requires it
+  -- compiles wherever it is compiled, and only a copy that knows the fourth was refused leaves it.
+  local broken: mut {string:string} = {}
+  for name, text in pairs(files) do broken[name] = text end
+  broken["m4.tl"] = assert(files["m4.tl"]):gsub("return m\n", 'local function four(): integer\n  return "four"\nend\nm.count = four()\nreturn m\n')
+  local least = fanout.least
+  fanout.least = 1
+  fanout.meminfo = plenty
+  local at_once, fanned, made = compiled("fanned", files, true)
+  local told_whole = #told
+  local broken_at_once, _, broken_made = compiled("fanned-broken", broken, true)
+  local told_broken = told_by_copies
+  fanout.least = least
+  fanout.meminfo = nil
+  if not fanned then
+    Test.skip("this host makes no copy of the process: one processor")
+  end
+  assert(forks(), "no copy of the process could be forked")
+  local alone, _, _ = compiled("alone", files, false)
+  assert(at_once.compiled == 24 and alone.compiled == 24 and at_once.shared == 0, tostring(at_once.compiled))
+  assert(#at_once.refused == 0, table.concat(at_once.refused, "\n"))
+  assert(told_whole == 0, "a tree that builds told of a refusal")
+  local _, made_count = made:gsub("\n", "")
+  assert(made_count == 24, "the copies made " .. tostring(made_count) .. " of the 24 compiles")
+  local lua_of: mut {string:string} = {}
+  for _, m in ipairs(alone.modules) do lua_of[m.path] = assert(m.lua) end
+  for _, m in ipairs(at_once.modules) do
+    assert(m.lua == lua_of[m.path], m.path .. " differs where a copy compiled it")
+  end
+  assert(#at_once.modules == #alone.modules)
+  local broken_alone, _, _ = compiled("alone-broken", broken, false)
+  assert(#broken_at_once.refused > 0)
+  assert(table.concat(broken_at_once.refused, "\n"):gsub("fanned%-broken", "alone-broken") ==
+      table.concat(broken_alone.refused, "\n"), table.concat(broken_at_once.refused, "\n"))
+  assert(broken_at_once.compiled == 3 and broken_alone.compiled == 3, tostring(broken_at_once.compiled))
+  -- The copy that could not compile the fourth module had at least two of the twenty that require it still to
+  -- compile, whatever the number of copies up to eight, and compiled neither: every other copy may have compiled its
+  -- own before it heard.
+  local _, broken_count = broken_made:gsub("\n", "")
+  assert(broken_made:find("m4\n", 1, true) == nil and broken_count >= 3, broken_made)
+  assert(broken_count <= 3 + 18, "a copy compiled what requires a module it knew was refused: " .. tostring(broken_count))
+  -- And the build told of the fourth by the time its copies had ended, before it compiled a module itself.
+  assert(told_broken >= 1, "nothing was told while the copies ran")
+  assert(assert(told[1]):find("m4.tl is refused, and the rest of the tree is still being checked", 1, true) ~= nil,
+    assert(told[1]))
+end
+
+--- A run of a file stops at the first module the file needs that does not build, so once a copy says that module
+--- is refused, and every module before it is said to be compiled, refused or left, the copies are told to compile no
+--- more: here each of the forty modules after it takes a tenth of a second, and the copies make few of them, where
+--- without the word they make them all. A module before it that a copy leaves, since it requires another that does
+--- not build, does not hold the word back. The run fails with what the refused module's compile said.
+local function test_a_file_run_tells_its_copies_to_stop_at_the_refusal_it_stops_at()
+  local files: mut {string:string} = {
+    ["main.tl"] = 'local needed = require("a_needed")\nreturn needed\n',
+    ["a_needed.tl"] = 'local function four(): integer\n  return "four"\nend\nreturn { count = four() }\n',
+    -- Neither is the file's: one that does not build, and one that requires it, which its copy reaches late and leaves.
+    ["a_a_broken.tl"] = 'local function five(): integer\n  return "five"\nend\nreturn { count = five() }\n',
+    ["a_b_user.tl"] = 'local broken = require("a_a_broken")\nreturn broken\n',
+  }
+  for index = 1, 40 do
+    files[string.format("other%02d.tl", index)] = "local record M\n  count: integer\nend\nlocal m: M = { count = " ..
+      tostring(index) .. " }\nreturn m\n"
+  end
+  local root = assert(write_fixture("stopped", files))
+  local shared = assert(shared_compiles.for_build({ COSMIC_BUILD_CACHE = root .. "/cache/cache.db" }))
+  local fan = assert(shared.fan)
+  local fanned = false
+  local made_path = root .. "/made-by-copies"
+  local watched: importer.Shared = { ...shared,
+    fan = function(due: {importer.Module}, own_tree: boolean,
+                   make: function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?,
+                   watch?: function()): importer.Shared.Fanned?
+      local made = fan(due, own_tree, function(m: importer.Module, rest: {string:boolean}): importer.Shared.Compile?
+        -- Every module after the refused one is slow, so the word to stop reaches a copy with most of its share to
+        -- make, and the module that requires a broken one slower than the refusal it then knows of.
+        if m.path:find("^other") ~= nil then local _, _ = sys.nanosleep(100 * 1000000) end
+        if m.path == "a_b_user" then local _, _ = sys.nanosleep(300 * 1000000) end
+        local one = make(m, rest)
+        if one ~= nil then assert(Fs.append(made_path, m.path .. "\n")) end
+        return one
+      end, watch)
+      fanned = made ~= nil
+      return made
+    end }
+  local least = fanout.least
+  fanout.least = 1
+  fanout.meminfo = plenty
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local result, trouble = importer.compile_for(handle, "stopped-test", "main", watched)
+  work.close(handle)
+  fanout.least = least
+  fanout.meminfo = nil
+  if not fanned then
+    Test.skip("this host makes no copy of the process: one processor")
+  end
+  assert(forks(), "no copy of the process could be forked")
+  assert(result == nil and trouble:find("a_needed.tl", 1, true) ~= nil, trouble)
+  local _, made_count = (Fs.read(made_path) or ""):gsub("\n", "")
+  assert(made_count <= 20, "the copies compiled " .. tostring(made_count) .. " modules of a run that had stopped")
+end
+
 --- A working database of an older tool has `compiled` without the counts: the new tool opens it, adds them, reads
 --- the rows it holds as compiles of no checks, and compiles a checked tree afresh.
 local function test_a_build_directory_of_the_old_tool_opens_under_the_new_one()
@@ -2374,4 +2700,74 @@ local function test_a_build_directory_with_one_count_column_gains_the_other()
   assert(again.compiled == 0 and again.cached == 1, "the half-migrated file's compile did not stand")
   local checked = compile_counted(root, true)
   assert(checked.parameter_checks > 0)
+end
+
+--- What a compile says of a refusal ahead of its report is the file and the first finding against it, once, and nothing
+--- before the compile has gone on past it for as long as the caller is patient.
+local function test_a_refusal_is_said_ahead_of_the_report_once_the_compile_has_gone_on_past_it()
+  local second = 1000000000
+  local early: importer.Early = { file = "lang/check.tl", told = false, at_ns = 10 * second,
+    trouble = "lang/check.tl: the compiler refused it\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted\n" ..
+      "lang/check.tl: 1 error of not_assignable in its bodies on line 908" }
+  assert(importer.due(nil, 99 * second, 2 * second) == nil, "a compile that refused nothing said a refusal")
+  assert(importer.due(early, 11 * second, 2 * second) == nil and not early.told,
+    "a refusal was said before the compile had gone on")
+  local said = assert(importer.due(early, 12 * second, 2 * second), "a refusal was not said once the compile had gone on past it")
+  assert(said:find("lang/check.tl is refused", 1, true) == 1 and
+      said:find("\nlang/check.tl:908:25: `\"three\"` is `string`, where `integer` is wanted", 1, true) ~= nil and
+      said:find("1 error of", 1, true) == nil, said)
+  assert(importer.due(early, 60 * second, 2 * second) == nil, "a refusal was said twice")
+  -- A refusal of one line is said by that line.
+  local bare: importer.Early = { file = "a.tl", trouble = "a.tl: a module a build writes once", at_ns = 0, told = false }
+  assert(assert(importer.due(bare, 2 * second, 2 * second)):find("\na.tl: a module a build writes once", 1, true) ~= nil)
+  -- So is one of a line an error with no line ahead of them, as a text that does not parse has: by the first.
+  local lines: importer.Early = { file = "g.tl", trouble = "g.tl:1:1: one\ng.tl:2:1: two", at_ns = 0, told = false }
+  local first = assert(importer.due(lines, 2 * second, 2 * second))
+  assert(first:find("\ng.tl:1:1: one", 1, true) ~= nil and first:find("two", 1, true) == nil, first)
+end
+
+--- Compiles the fixture `files` as a run over the tree does, and answers what it was told ahead of the report by a
+--- caller patient for `patience_ns`, and the refusals of the report.
+local function told_of_project(case: string, files: {string:string}, patience_ns: integer?, deaf?: boolean): {string}, {string}
+  local root = assert(write_fixture(case, files))
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  local told: mut {string} = {}
+  local outcome: importer.Outcome = { refused = false, patience_ns = patience_ns }
+  if deaf ~= true then
+    outcome = { refused = false, patience_ns = patience_ns, tell = function(line: string)
+      told[#told + 1] = line
+    end }
+  end
+  local result, trouble = importer.compile(handle, "importer-test", nil, nil, nil, nil, outcome)
+  work.close(handle)
+  return told, assert(result, trouble).refused
+end
+
+--- A compile over a tree tells its caller the first module it refuses while it goes on to the rest, once, whichever way
+--- the module is refused: by the checker, or for a text that does not parse. A caller that asks for nothing is told
+--- nothing, nor is one more patient than the compile is long; the report holds every refusal all the same.
+local function test_a_compile_over_a_tree_tells_its_first_refusal_while_it_goes_on_to_the_rest()
+  local files: {string:string} = {
+    ["a.tl"] = defaulting("A", "", "x"),
+    ["b.tl"] = defaulting("B", "local A = require(\"a\")\n", "A.f(x)"),
+    ["c.tl"] = defaulting("C", "local B = require(\"b\")\n", "B.f(x)"),
+    ["d.tl"] = "local C = require(\"c\")\nlocal record D\nend\nfunction D.f(n: integer): integer\n  return C.f(n)\nend\nreturn D\n",
+    ["e.tl"] = defaulting("E", "", "x"),
+  }
+  -- `e.tl` is refused on its own too, after `a.tl` in the order: the first is the one told, and once.
+  local told, refused = told_of_project("told-checker", files, 0)
+  assert(#told == 1 and told[1]:find("a.tl is refused, and the rest of the tree is still being checked", 1, true) == 1 and
+      told[1]:find("\na.tl:", 1, true) ~= nil, table.concat(told, "\n"))
+  assert(#refused == 5, table.concat(refused, "\n"))
+  local patient, as_ever = told_of_project("told-patient", files, 3600 * 1000000000)
+  assert(#patient == 0 and #as_ever == 5, table.concat(patient, "\n"))
+  local unasked, still = told_of_project("told-unasked", files, 0, true)
+  assert(#unasked == 0 and #still == 5, table.concat(unasked, "\n"))
+  local broken, _ = told_of_project("told-broken", {
+    ["p.tl"] = "local record P\nend\nfunction P.f(: integer\nreturn P\n",
+    ["q.tl"] = "local record Q\nend\nfunction Q.f(n: integer): integer\n  return n\nend\nreturn Q\n",
+    ["r.tl"] = "local Q = require(\"q\")\nlocal record R\nend\nfunction R.f(n: integer): integer\n  return Q.f(n)\nend\nreturn R\n",
+  }, 0)
+  assert(#broken == 1 and broken[1]:find("p.tl is refused", 1, true) == 1, table.concat(broken, "\n"))
 end

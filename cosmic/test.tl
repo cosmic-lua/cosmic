@@ -23,9 +23,9 @@
 --- a sandboxed run of the same test is what enforces it, where an
 --- undeclared read finds nothing and the test fails with its own error.
 --- A start or a read that found nothing at an absolute path the
---- sandbox left out -- /bin/sh, say, for a test that does not declare
---- `system` -- says so beneath that error, naming what to declare: a
---- test that starts a host program declares `system = true`.
+--- sandbox left out -- /bin/sh, say, for a test that does not grant it
+--- -- says so beneath that error, naming what to declare: a test that
+--- starts a host program grants it by its absolute path.
 ---
 --- The closure is what the build finds `require`d by a literal name,
 --- or handed to `pcall(require, "<name>")`, anywhere in the module and
@@ -84,7 +84,12 @@ local record Test
     --- written with a "/" after it fails the build, naming its line; one
     --- that is a directory on the host fails each test of the module,
     --- naming it, as does a path that is the tree's, or above it.
-    --- Declare the files the tests read.
+    --- Declare the files the tests read. A program among them the tests
+    --- may start, and it comes with what it needs to start: the loader
+    --- and shared libraries a dynamic program names, and a script's
+    --- interpreter, each keyed by its contents as a file named here is.
+    --- What it opens by name once it runs (a name service, a locale,
+    --- another program) is named here too, or `system` is declared.
     mut host?: {string}
     --- Environment variables beyond the pinned ones.
     mut env?: {string}
@@ -180,7 +185,9 @@ local record Test
     --- stood on one host stands on another of the same kernel and
     --- processor. A test that starts this program's core directly, past
     --- its launcher, needs none; one that runs the launcher itself
-    --- (a `#!/bin/sh` script) needs it. One that reads a file or two
+    --- (a `#!/bin/sh` script) names the shell and the programs the
+    --- launcher calls in `host`, as does any that starts programs of the
+    --- host's it can name. One that reads a file or two
     --- of the system rather names them in `host`, which keys a file by
     --- its contents.
     mut system?: boolean
@@ -208,7 +215,14 @@ local record Test
     --- there to save time: what a test reads or writes there enters no
     --- verdict's key. A sandboxed
     --- worker has each writable at its own path, with the variables that
-    --- locate it.
+    --- locate it. A cache the code under test keeps for itself (a directory
+    --- under `out/`, say) is none of these: a sandboxed worker reads only
+    --- its grants and writes only its scratch, so that cache is empty in
+    --- every test and never hit. That is by design, since a cache that could
+    --- change a result would make a verdict turn on what its key does not
+    --- name. Give the code a seam instead (the cache's path as a parameter
+    --- or an option) and hand each test a directory of its own `tmp`, or run
+    --- the code under test with no cache.
     mut caches?: {string}
     --- Files of the project root's parent directory the tests read, each
     --- a path relative to that directory of plain names (none empty, `.` or

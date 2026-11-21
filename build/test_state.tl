@@ -33,6 +33,14 @@ local record test_state
     elapsed_ns: integer
   end
 
+  --- One line of a shared row's hits, folded: its `text` as this checkout keeps it (as it came, "" for a path it
+  --- does not own), and, where folding it left the module's lines out, the `path` and why (`left`).
+  record SharedLine
+    text: string
+    path?: string
+    left?: string
+  end
+
   --- How many tests this run ran, and how many it answered from a
   --- verdict that still stood.
   record Tally
@@ -129,6 +137,31 @@ local record test_state
     count: integer
   end
 
+  --- One table of hits of a module as a worker reported it, `from`, and the same lines placed at their source lines,
+  --- `to` ([`build.test`]'s `place_hits`).
+  record Placed
+    from: {integer:boolean}
+    to: {integer:boolean}
+    --- Whether every line of `from` is in `to`.
+    whole: boolean
+  end
+
+  --- A worker's hits with their lines placed ([`build.test`]'s `place_hits`), and whether every line was: where one
+  --- was not, its test's row lacks lines it reached.
+  record Placing
+    hits: {string:{integer:boolean}}
+    whole: boolean
+  end
+
+  --- The hits of one load as a worker reported them, `from`, the one table [`worker.decode`] answers for every
+  --- report that spells them alike, once [`build.test`] has placed them and folded them into the run's: whether
+  --- every line was placed (`whole`, [`Placing`]'s), and the part of a test's row they spell.
+  record LoadTaken
+    from: {string:{integer:boolean}}
+    whole: boolean
+    row: string
+  end
+
   record Recording
     records: Sqlite.Handle
     root: string
@@ -168,6 +201,8 @@ local record test_state
     --- What each test that ran and passed printed, by its id, where
     --- `show_output` asks for it; only a test that printed anything is here.
     shown: mut {string:string}
+    --- How many tests ran, passed and printed something a run without `show_output` does not show.
+    mut printed: integer
     --- Each failing test's `<file>:<name>` selector, by its id: what
     --- `cosmic test` takes to run that one test again.
     reruns: mut {string:string}
@@ -186,6 +221,21 @@ local record test_state
     --- The core's C when the tree is not cosmic's own: its hits are kept
     --- out of every record of the run (see `write_coverage`).
     unowned: Coverage.Hits
+    --- The text each counted path's hit lines are numbered in, by path
+    --- ([`build.test`]'s `identities`): what a test's row writes beside each
+    --- module's lines, and what a row's lines must still name to be credited.
+    identities: {string:string}
+    --- The paths whose credited hits were dropped, each with why
+    --- ([`build.test_report`]'s `other_text` where they were numbered in
+    --- another text or in a row too old to name one): what makes the coverage
+    --- figure partial.
+    stale: mut {string:string}
+    --- The bytecode each module's instructions are numbered in, by path
+    --- ([`build.test`]'s `code_identities` of the basis' `stripped`), made
+    --- the first time a row is spelled or credited; nil until then.
+    mut codes?: {string:string}
+    --- Whether a progress line has said where every test's time is.
+    mut timed: boolean
     tally: Tally
     --- Whether the run is checked (`--check-types`), and what its workers
     --- reported of the values that crossed a typed boundary as a kind the
@@ -313,6 +363,23 @@ local record test_state
     --- a table folded into another run's `hits` is not in this one's.
     spelled: {{integer:boolean}:string} -- declared: key_type
     folded: {{integer:boolean}:boolean} -- declared: key_type
+    --- The hits of the loads the latest workers reported, as taken ([`LoadTaken`]). Per run, as `folded` is.
+    loads_taken: mut {LoadTaken}
+    --- Each line of the rows this run stood on from the shared cache, by the line as the row keeps it
+    --- ([`shared_verdicts.Found`]'s `kept`), once [`build.test`] has folded it into `hits`: a line the rows repeat,
+    --- as most are, is read once.
+    shared_folded: mut {string: SharedLine}
+    --- The source line of each instruction of each module whose hits a
+    --- worker of a pure store numbered by instruction, and the line each of
+    --- its functions is defined on, by path, read from the projection as
+    --- each is first met; the tables of those hits placed
+    --- at their source lines, by path, a few of the latest each; and why
+    --- the hits of a module could not be placed, by path
+    --- ([`build.test`]'s `place_hits`).
+    instruction_lines: mut {string:{integer}}
+    defined_lines: mut {string:{integer:integer}}
+    placed: mut {string:mut {Placed}}
+    unplaced: mut {string:string}
     --- The lines of the core's C that turn on the processor's features,
     --- made once a run when a test first needs them
     --- ([`build.dispatch_sites`]). Nil until then; empty in a core without

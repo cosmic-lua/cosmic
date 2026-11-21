@@ -9,6 +9,8 @@
 --- hold. What writes no executable is in `embed_test.tl`.
 
 local Child = require("cosmic.child")
+local Doc = require("cosmic.doc")
+local Errors = require("cosmic.errors")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -19,9 +21,11 @@ local artifact = require("build.artifact")
 local embed = require("build.embed")
 local invoke = require("build.invoke")
 local Test = require("cosmic.test")
+local source_run = require("cosmic.internal.source_run")
 local String = require("cosmic.string")
 local Clock = require("cosmic.clock")
 local support = require("build.test_support_fixture")
+local verbs_fixture = require("build.verbs_fixture")
 
 --- The number `text` reads as, which the case knows is one.
 local function count_of(text: string): number
@@ -208,6 +212,400 @@ local function test_the_carried_database_leaves_tests_and_examples_out(tmp: stri
   local catalog = rows_of(path,
     "SELECT count(*) FROM catalog WHERE module IN ('greet_test', 'greet_example')")
   assert(support.nth(catalog, 1):text(1) == "0", "no catalog row about a test or example")
+end
+
+--- A program carries what its users read of the project: the docs, uses and
+--- examples of the modules any module may require, and its guides. What
+--- position keeps to the project stays there: a sibling of a closed
+--- directory, a module under `internal/`, the program itself, a test, and
+--- test support, a guide under `doc/guides/internal/`, and a use made from any of them: a private module's rows
+--- would tell the program's users of code they cannot call.
+local function test_the_carried_database_holds_the_documentation_of_the_public_modules(tmp: string)
+  write_project(tmp)
+  assert(Fs.write(tmp .. "/greet.tl", table.concat({
+    "--- Greetings.",
+    "local record greet",
+    "end",
+    "",
+    "--- Says hello to `name`, salutation included.",
+    "function greet.hello(name: string): string",
+    '  return "hello, " .. name',
+    "end",
+    "",
+    "return greet",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/greet_example.tl", table.concat({
+    'local greet = require("greet")',
+    "local record Example",
+    "end",
+    "--- Greets.",
+    "function Example.hello()",
+    '  assert(greet.hello("x") == "hello, x")',
+    "end",
+    "return Example",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/store"))
+  assert(Fs.write(tmp .. "/store/init.tl", table.concat({
+    "--- The store, a closed directory's entry.",
+    'local greet = require("greet")',
+    'local rows = require("store.rows")',
+    "local record store",
+    "end",
+    "",
+    "--- Greets the first row, with [`greet.hello`].",
+    "function store.first(): string",
+    "  return greet.hello(rows.first())",
+    "end",
+    "",
+    "return store",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/rows.tl", table.concat({
+    "--- The rows, which only the store reads.",
+    'local greet = require("greet")',
+    "local record rows",
+    "end",
+    "",
+    "--- The first row, sequestered.",
+    "function rows.first(): string",
+    '  return greet.hello("row")',
+    "end",
+    "",
+    "return rows",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/open.tl", table.concat({
+    "--- Opening a store, for any module.",
+    "--- @public",
+    "local record open",
+    "end",
+    "",
+    "--- Whether the store is open.",
+    "function open.is(): boolean",
+    "  return true",
+    "end",
+    "",
+    "return open",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/app/internal"))
+  assert(Fs.write(tmp .. "/app/internal/db.tl", table.concat({
+    "--- The database, internal to app/.",
+    "local record db",
+    "end",
+    "",
+    "--- Its name.",
+    "function db.name(): string",
+    '  return "db"',
+    "end",
+    "",
+    "return db",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/app/run.tl", table.concat({
+    "--- Running the app.",
+    'local db = require("app.internal.db")',
+    "local record run",
+    "end",
+    "",
+    "--- Names what it runs on.",
+    "function run.on(): string",
+    "  return db.name()",
+    "end",
+    "",
+    "return run",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/internal"))
+  assert(Fs.write(tmp .. "/internal/keys.tl", table.concat({
+    "--- The keys, internal to the project.",
+    "local record keys",
+    "end",
+    "return keys",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/test"))
+  assert(Fs.write(tmp .. "/test/support.tl", table.concat({
+    "--- Test support.",
+    "local record support",
+    "end",
+    "return support",
+    "",
+  }, "\n")))
+  assert(Fs.mkdirs(tmp .. "/doc/guides"))
+  assert(Fs.write(tmp .. "/doc/guides/greeting.md", "# greeting\n\nHow to greet a visitor.\n"))
+  assert(Fs.mkdirs(tmp .. "/doc/guides/internal"))
+  assert(Fs.write(tmp .. "/doc/guides/internal/notes.md", "# notes\n\nFor those working on the project.\n"))
+  assert(Fs.write(tmp .. "/cmd/hello/main.tl", table.concat({
+    "--- The program, which no module requires.",
+    'local Fs = require("cosmic.fs")',
+    'local greet = require("greet")',
+    'local open = require("store.open")',
+    'local run = require("app.run")',
+    'local store = require("store")',
+    "",
+    "return function(argv: {string}): integer",
+    '  local _, _ = Fs.put(Fs.stdout, greet.hello(argv[1] or store.first()) .. run.on() .. tostring(open.is()) .. "\\n")',
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.hello.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+
+  local function listed(sql: string): string
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = row:text(1) end
+    return table.concat(out, " ")
+  end
+  local internal = rows_of(support.build_dir(tmp) .. "/cosmic.db",
+    "SELECT kind FROM modules WHERE path = 'doc.guides.internal.notes'")
+  assert(#internal == 1 and internal[1]:text(1) == "test", "the project tests its internal guide")
+  local recorded = listed("SELECT path FROM public_modules ORDER BY path")
+  assert(recorded == "app.run greet store store.open", "the modules any module may require, recorded as public: " .. recorded)
+  local projected = rows_of(support.build_dir(tmp) .. "/cosmic.db", "SELECT group_concat(path, ' ' ORDER BY path) FROM public_modules")
+  assert(support.nth(projected, 1):text(1) == recorded, "as the project's projection records them")
+  local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
+  assert(documented == "app.run doc.guides.greeting greet store store.open",
+    "the public modules and the guide, and no other: " .. documented)
+  local found = listed("SELECT d.source_symbol FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid " ..
+      "WHERE docs_fts MATCH 'salutation'")
+  assert(found == "greet.hello", "the docs are indexed, a word finding its row: " .. found)
+  local private = listed("SELECT count(*) FROM docs_fts WHERE docs_fts MATCH 'sequestered'")
+  assert(private == "0", "a private module's words are not in the index")
+  local callers = listed("SELECT DISTINCT from_module FROM uses WHERE module = 'greet' ORDER BY from_module")
+  assert(callers == "store", "a use is carried only from a public module: " .. callers)
+  local used = listed("SELECT count(*) FROM uses WHERE module NOT IN ('app.run', 'greet', 'store', 'store.open')")
+  assert(used == "0", "no use of a module the project keeps, or of the library")
+  local linked = listed("SELECT from_module || ' ' || module || ' ' || symbol FROM links")
+  assert(linked == "store greet hello", "a link between public modules is carried: " .. linked)
+  local bound = listed("SELECT path || ' ' || name || ' ' || requires FROM bound WHERE path = 'store' ORDER BY name")
+  assert(bound == "store greet greet store rows store.rows", "what a public module binds is carried: " .. bound)
+  local examples = listed("SELECT module || ' ' || name FROM examples")
+  assert(examples == "greet hello", examples)
+  local indexed = listed("SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'Greets'")
+  assert(indexed == "1", "the examples are indexed")
+end
+
+--- Each program carries what its own main requires and the documentation of
+--- that alone: `spam` leaves out `eggs`'s main and the module only `eggs`
+--- requires, and their docs, though `eggs.tl` is public. A module under
+--- `cmd/spam/` is `spam`'s own to carry and document, as a public one is,
+--- whether main requires it or not (a `pages` module is named by a string
+--- alone), and none of `eggs`'s; the main itself is documented by neither,
+--- nor a module under `cmd/spam/internal/`, and an example under `cmd/spam/`
+--- nothing requires is not carried. A public module no main requires is in
+--- neither program.
+local function test_each_program_carries_only_what_its_main_requires(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/internal"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.write(tmp .. "/loose.tl", "--- No main requires it.\nlocal record loose\nend\nreturn loose\n"))
+  assert(Fs.write(tmp .. "/eggs_example.tl", table.concat({
+    'local _eggs = require("eggs")',
+    "local record Example",
+    "end",
+    "--- Cracks one.",
+    "function Example.crack()",
+    "end",
+    "return Example",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/cmd/spam/pages.tl", table.concat({
+    "--- Spam's pages, which main never requires.",
+    'local _paged = require("paged")',
+    "local record pages",
+    "end",
+    "return pages",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/paged.tl", "--- Only spam's pages require it.\nlocal record paged\nend\nreturn paged\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/pages_example.tl", "local record Example\nend\nreturn Example\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/internal/secret.tl", "--- Spam's secret.\nlocal record secret\nend\nreturn secret\n"))
+  assert(Fs.write(tmp .. "/shared.tl", "--- Shared by both.\nlocal record shared\nend\nreturn shared\n"))
+  assert(Fs.write(tmp .. "/eggs.tl", "--- Only eggs requires it.\nlocal record eggs\nend\nreturn eggs\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/commands.tl", table.concat({
+    "--- Spam's commands.",
+    "local record commands",
+    "end",
+    "",
+    "--- Fries the spam.",
+    "function commands.fry(): integer",
+    "  return 0",
+    "end",
+    "",
+    "return commands",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/cmd/eggs/commands.tl", "--- Eggs's commands.\nlocal record commands\nend\nreturn commands\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    "--- Spam.",
+    'local _shared = require("shared")',
+    'local commands = require("cmd.spam.commands")',
+    "return function(): integer return commands.fry() end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", table.concat({
+    "--- Eggs.",
+    'local _shared = require("shared")',
+    'local _eggs = require("eggs")',
+    'local _commands = require("cmd.eggs.commands")',
+    "return function(): integer return 0 end",
+    "",
+  }, "\n")))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local function listed(sql: string): string
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, sql)) do out[#out + 1] = row:text(1) end
+    return table.concat(out, " ")
+  end
+  local modules = listed("SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")
+  assert(modules == "cmd.spam.commands cmd.spam.internal.secret cmd.spam.main cmd.spam.pages paged shared",
+    "spam's main, what it requires and its own modules: " .. modules)
+  local imports = listed("SELECT DISTINCT path FROM imports WHERE path NOT LIKE 'cosmic.%' ORDER BY path")
+  assert(imports == "cmd.spam.main cmd.spam.pages", "the edges of what it carries alone: " .. imports)
+  local recorded = listed("SELECT path FROM public_modules ORDER BY path")
+  assert(recorded == "cmd.spam.commands cmd.spam.pages paged shared",
+    "its own modules and the public one it carries: " .. recorded)
+  local documented = listed("SELECT DISTINCT module FROM docs ORDER BY module")
+  assert(documented == "cmd.spam.commands cmd.spam.pages paged shared", "the docs of those alone: " .. documented)
+  local examples = listed("SELECT count(*) FROM examples")
+  assert(examples == "0", "no example of a module it does not carry: " .. examples)
+end
+
+--- A module a carried one names by a string literal as its `pages`, which no `require` reaches, is carried with
+--- what it requires and documented, wherever it sits (here in a closed directory, whose module is no public one),
+--- so the commands it documents keep their pages: named in a table handed to [`Flags.dispatch`] by name, as in the
+--- call itself. Another program's module, and a name the project holds no module of, is no module to carry.
+local function test_a_pages_module_no_module_requires_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.mkdirs(tmp .. "/store"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Flags = require("cosmic.flags")',
+    "return function(argv: {string}): integer",
+    "  local commands: {string:Flags.Command} = { fry = { about = \"fry it\", run = function(_: Flags.Parsed): integer return 0 end } }",
+    '  local documented: Flags.Documented = { pages = "store.pages" }',
+    "  local ran, _ = Flags.dispatch(argv, 1, commands, \"spam\", documented)",
+    '  local _, _ = Flags.dispatch(argv, 1, commands, "spam", { pages = "nowhere" })',
+    '  local _, _ = Flags.dispatch(argv, 1, commands, "spam", { pages = "cmd.eggs.theirs" })',
+    "  if ran == nil then return 2 end",
+    "  if ran.help ~= \"\" then print(ran.help) end",
+    "  return ran.code",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/cmd/eggs/theirs.tl", "--- Eggs's own.\nlocal record theirs\nend\nreturn theirs\n"))
+  assert(Fs.write(tmp .. "/store/init.tl", "--- The store.\nlocal record store\nend\nreturn store\n"))
+  assert(Fs.write(tmp .. "/store/pages.tl", table.concat({
+    "--- Spam's pages, which no module requires.",
+    'local helper = require("store.helper")',
+    "local record pages",
+    "  --- Fries the spam, " .. "golden.",
+    "  fry: integer",
+    "end",
+    "local p: pages = { fry = helper.n }",
+    "return p",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/store/helper.tl", "local record helper\n  n: integer\nend\nlocal h: helper = { n = 1 }\nreturn h\n"))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules: mut {string} = {}
+  for _, row in ipairs(rows_of(path, "SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")) do
+    modules[#modules + 1] = row:text(1)
+  end
+  assert(table.concat(modules, " ") == "cmd.spam.main store.helper store.pages", table.concat(modules, " "))
+  local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'store.pages' AND symbol = 'pages.fry'")
+  assert(support.nth(documented, 1):text(1) == "1", "the pages module's field is documented")
+  -- Run from its source, it answers so too.
+  local help = verbs_fixture.run(tmp, { "cmd/spam/main.tl", "help", "fry" })
+  assert(help.code == 0 and help.stdout:find("Fries the spam, golden.", 1, true) ~= nil, help.stdout .. help.stderr)
+end
+
+--- A pages module named by a local bound to its name, constant or not, is carried and documented as one written
+--- in the table is: the build reads the string the file binds. One a call makes names none.
+local function test_a_pages_module_named_by_a_local_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Flags = require("cosmic.flags")',
+    'local PAGES <const> = "by_constant"',
+    "return function(argv: {string}): integer",
+    "  local commands: {string:Flags.Command} = { fry = { about = \"fry it\", run = function(_: Flags.Parsed): integer return 0 end } }",
+    "  local documented: Flags.Documented = { pages = PAGES }",
+    "  local ran, _ = Flags.dispatch(argv, 1, commands, \"spam\", documented)",
+    '  local named = "by_local"',
+    "  local _, _ = Flags.dispatch(argv, 1, commands, \"spam\", { pages = named })",
+    '  local made = tostring("by_call")',
+    "  local _, _ = Flags.dispatch(argv, 1, commands, \"spam\", { pages = made })",
+    "  if ran == nil then return 2 end",
+    "  return ran.code",
+    "end",
+    "",
+  }, "\n")))
+  for _, name in ipairs({ "by_constant", "by_local", "by_call" }) do
+    assert(Fs.write(tmp .. "/" .. name .. ".tl", "--- Named " .. name .. ".\nlocal record m\n  --- Fries.\n  fry: integer\nend\n" ..
+        "local v: m = { fry = 1 }\nreturn v\n"))
+  end
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules: mut {string} = {}
+  for _, row in ipairs(rows_of(path, "SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")) do
+    modules[#modules + 1] = row:text(1)
+  end
+  assert(table.concat(modules, " ") == "by_constant by_local cmd.spam.main", table.concat(modules, " "))
+  local documented = rows_of(path, "SELECT count(DISTINCT module) FROM docs WHERE module IN ('by_constant', 'by_local')")
+  assert(support.nth(documented, 1):text(1) == "2", "both are documented")
+end
+
+--- A pages module named by a field of another module the program requires (`{ pages = Names.docs_module }`) is
+--- carried and documented: the build reads the string that module binds the field to.
+local function test_a_pages_module_named_by_another_modules_field_is_carried(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Flags = require("cosmic.flags")',
+    'local Names = require("names")',
+    "return function(argv: {string}): integer",
+    "  local commands: {string:Flags.Command} = { fry = { about = \"fry it\", run = function(_: Flags.Parsed): integer return 0 end } }",
+    "  local ran, _ = Flags.dispatch(argv, 1, commands, \"spam\", { pages = Names.docs_module })",
+    "  if ran == nil then return 2 end",
+    "  return ran.code",
+    "end",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/names.tl", table.concat({
+    "--- The names the program reads.",
+    "local record names",
+    "  docs_module: string",
+    "end",
+    'local n: names = { docs_module = "by_module" }',
+    "return n",
+    "",
+  }, "\n")))
+  assert(Fs.write(tmp .. "/by_module.tl", "--- Named by another module.\nlocal record m\n  --- Fries.\n  fry: integer\nend\n" ..
+      "local v: m = { fry = 1 }\nreturn v\n"))
+  assert(embed.tree(tmp, true))
+  local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", "cmd.spam.main"))
+  local path = tmp .. "/carried.db"
+  assert(Fs.write(path, database))
+  local modules: mut {string} = {}
+  for _, row in ipairs(rows_of(path, "SELECT path FROM modules WHERE path NOT LIKE 'cosmic.%' ORDER BY path")) do
+    modules[#modules + 1] = row:text(1)
+  end
+  assert(table.concat(modules, " ") == "by_module cmd.spam.main names", table.concat(modules, " "))
+  local documented = rows_of(path, "SELECT count(*) FROM docs WHERE module = 'by_module' AND symbol = 'm.fry'")
+  assert(support.nth(documented, 1):text(1) == "1", "it is documented")
 end
 
 --- A test or example file is only a kind by its name: one the program
@@ -507,7 +905,9 @@ end
 local static_main = [[
 local Assets = require("cosmic.web.assets")
 local Sqlite = require("cosmic.sqlite")
+local StaticFiles = require("cosmic.web.static")
 local Store = require("cosmic.store")
+local Web = require("cosmic.web")
 
 return function(): integer
   for _, handle in ipairs(Store.databases()) do
@@ -522,6 +922,9 @@ return function(): integer
   local css = assert(source:get("css/app.css"))
   local logo = assert(source:get("logo.png"))
   print(source:dynamic(), #source:paths(), css.size, css.type, css.gzip ~= nil, css.zstd ~= nil, logo.size, logo.gzip, logo.zstd)
+  local client = Web.test_client(Web.app{ routes = { StaticFiles.mount("/static", { source = source }) } })
+  local served = client:get("/static/logo.png", { headers = { ["Accept-Encoding"] = "zstd, gzip" } })
+  print("served", served.status, served.headers["content-encoding"], #served.body)
   return 0
 end
 ]]
@@ -529,8 +932,11 @@ end
 --- The files under `static/` go into the program's database whole, with
 --- the type, hash, gzip and zstd they are served by, and a built program serves
 --- them from there, not from a directory beside it: run from a directory
---- with a decoy `static/`, it answers the embedded bytes. One build
---- serves both checks, as it is the slow part.
+--- with a decoy `static/`, it answers the embedded bytes. A file not worth
+--- compressing has no variants on a warm build (an edited module, the
+--- compressed cache kept) as on a cold one, so the static handler serves
+--- its bytes and no empty zstd body. A cold and a warm build run the same
+--- checks, as a build is the slow part.
 local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   assert(Fs.mkdirs(tmp .. "/cmd/site"))
   assert(Fs.write(tmp .. "/cmd/site/main.tl", static_main))
@@ -543,13 +949,110 @@ local function test_a_program_serves_the_static_files_it_carries(tmp: string)
   local elsewhere = tmp .. "/elsewhere"
   assert(Fs.mkdirs(elsewhere .. "/static/css"))
   assert(Fs.write(elsewhere .. "/static/css/app.css", "DECOY"))
-  local r = assert(Child.run({ support.build_dir(tmp) .. "/bin/site" }, {
-    cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
-  assert(r.ok, "exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
-  local out = assert(r.stdout)
-  assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\t1\n" ..
-      "payload\tlogo.png\timage/png\t6\t0\t0\n", 1, true), out)
-  assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\ttrue\t6\tnil\tnil\n", 1, true), out)
+  local function check(build: string)
+    local r = assert(Child.run({ support.build_dir(tmp) .. "/bin/site" }, {
+      cwd = elsewhere, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+    assert(r.ok, build .. ": exit " .. tostring(r.code) .. ": " .. tostring(r.stderr))
+    local out = assert(r.stdout)
+    assert(out:find("payload\tcss/app.css\ttext/css; charset=utf-8\t" .. tostring(#css) .. "\t1\t1\n" ..
+        "payload\tlogo.png\timage/png\t6\t0\t0\n", 1, true), build .. ": " .. out)
+    assert(out:find("false\t2\t" .. tostring(#css) .. "\ttext/css; charset=utf-8\ttrue\ttrue\t6\tnil\tnil\n", 1, true),
+      build .. ": " .. out)
+    assert(out:find("served\t200\tnil\t6\n", 1, true), build .. ": " .. out)
+  end
+  check("cold")
+  assert(Fs.write(tmp .. "/cmd/site/main.tl", static_main .. "-- edited\n"))
+  local again, again_trouble = embed.tree(tmp, true)
+  assert(again ~= nil and again[1] == "site", again_trouble)
+  check("warm")
+end
+
+--- A program run from its source serves its own `cmd/<name>/static/` laid
+--- over `static/` from disk, as its built executable carries them: the run
+--- records which program it is.
+local function test_a_program_run_from_its_source_lays_its_own_static_files_over_the_shared_ones(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/static"))
+  assert(Fs.mkdirs(tmp .. "/static"))
+  assert(Fs.write(tmp .. "/static/app.css", "shared"))
+  assert(Fs.write(tmp .. "/static/logo.png", "logo"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/app.css", "spam's"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", table.concat({
+    'local Assets = require("cosmic.web.assets")',
+    "return function(): integer",
+    "  local source = Assets.default({ log = function(_: string) end })",
+    '  print(assert(source:get("app.css")).data, assert(source:get("logo.png")).data)',
+    "  return 0",
+    "end",
+    "",
+  }, "\n")))
+  local ran = verbs_fixture.run(tmp, { "cmd/spam/main.tl" })
+  assert(ran.code == 0 and ran.stdout == "spam's\tlogo\n", ran.stdout .. ran.stderr)
+end
+
+--- A program carries the files under its own `cmd/<name>/static/` laid over
+--- `static/`: its own at the path of a shared one in its place, and the
+--- other shared ones beside it. Another program carries the shared ones
+--- alone, none of the first's own.
+local function test_a_programs_own_static_files_are_laid_over_the_shared_ones(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/static/css"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.mkdirs(tmp .. "/static/css"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/static/css/app.css", "shared"))
+  assert(Fs.write(tmp .. "/static/logo.png", "logo"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/css/app.css", "spam's"))
+  assert(Fs.write(tmp .. "/cmd/spam/static/only.txt", "spam alone"))
+  assert(embed.tree(tmp, true))
+  local function payload(main: string): string
+    local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", main))
+    local path = tmp .. "/" .. main .. ".db"
+    assert(Fs.write(path, database))
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, "SELECT program, path, data FROM payload ORDER BY path")) do
+      out[#out + 1] = "[" .. row:text(1) .. "] " .. row:text(2) .. "=" .. row:text(3)
+    end
+    return table.concat(out, ", ")
+  end
+  local spam = payload("cmd.spam.main")
+  assert(spam == "[] css/app.css=spam's, [] logo.png=logo, [] only.txt=spam alone", spam)
+  local eggs = payload("cmd.eggs.main")
+  assert(eggs == "[] css/app.css=shared, [] logo.png=logo", eggs)
+end
+
+--- A program carries its own `cmd/<name>/doc/guides/<guide>.md` as the
+--- guide `<guide>`, in place of the project's of that name, beside the
+--- project's others; another program carries the project's alone. Each own
+--- guide is a test of the project's as any guide is.
+local function test_a_programs_own_guides_stand_in_for_the_projects(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/doc/guides"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.mkdirs(tmp .. "/doc/guides"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", "return function(): integer return 0 end\n"))
+  assert(Fs.write(tmp .. "/doc/guides/start.md", "# start\n\nThe project's start.\n"))
+  assert(Fs.write(tmp .. "/doc/guides/later.md", "# later\n\nThe project's later.\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/doc/guides/start.md", "# start\n\nSpam's start.\n"))
+  assert(Fs.write(tmp .. "/cmd/spam/doc/guides/frying.md", "# frying\n\nSpam alone fries.\n"))
+  assert(embed.tree(tmp, true))
+  local kinds = rows_of(support.build_dir(tmp) .. "/cosmic.db",
+    "SELECT kind FROM modules WHERE path = 'cmd.spam.doc.guides.frying'")
+  assert(#kinds == 1 and support.nth(kinds, 1):text(1) == "test", "an own guide is a test of the project's")
+  local function guides(main: string): string
+    local database = assert(embed.database(support.build_dir(tmp) .. "/cosmic.db", main))
+    local path = tmp .. "/" .. main .. ".db"
+    assert(Fs.write(path, database))
+    local out: mut {string} = {}
+    for _, row in ipairs(rows_of(path, "SELECT module, text FROM docs WHERE symbol = '' ORDER BY module")) do
+      out[#out + 1] = row:text(1) .. "=" .. ((row:text(2):match("\n\n([^\n]*)")) or row:text(2))
+    end
+    return table.concat(out, ", ")
+  end
+  local spam = guides("cmd.spam.main")
+  assert(spam == "doc.guides.frying=Spam alone fries., doc.guides.later=The project's later., " ..
+      "doc.guides.start=Spam's start.", spam)
+  local eggs = guides("cmd.eggs.main")
+  assert(eggs == "doc.guides.later=The project's later., doc.guides.start=The project's start.", eggs)
 end
 
 --- A project written in the new grammar (`mut`, a class, `T?`) builds, and the program it makes runs.
@@ -860,23 +1363,76 @@ local function test_a_stale_partial_projection_is_removed(tmp: string)
   assert(Fs.exists(stale) == false, "the stale partial projection stood")
 end
 
---- A tool that cannot make a portable program (it carries the host's core alone) says so and removes nothing: the
---- executables of an earlier build stand, and `--out` is not made.
+--- What the `build` verb asks of the tool, answered for a tool that carries the host's core alone, whatever this one
+--- carries, and whose boot of every core answers `boot.answer` (nil: it does not boot) and records the command line
+--- it was to re-enter, a line each, in `boot.asked`.
+local function host_only_tool(boot: mut {string:string}): embed.Portable
+  return {
+    prefix = function(): string?, string return artifact.placeholder("aarch64-linux-musl"), "" end,
+    every_core = function(argv: {string}): string?
+      boot["asked"] = (boot["asked"] or "") .. table.concat(argv, " ") .. "\n"
+      return boot["answer"]
+    end,
+  }
+end
+
+--- `words` run as a command line in `tmp` on a tool `portable` answers for.
+local function build_on(portable: embed.Portable, tmp: string, words: {string}): invoke.Result
+  local own = embed.portable
+  embed.portable = portable
+  local results: mut {invoke.Result} = {}
+  local ran, trouble = pcall(function()
+    results[1] = invoke.run(words, { cwd = tmp, env = build_env() })
+  end)
+  embed.portable = own
+  assert(ran, tostring(trouble))
+  return (assert(results[1]))
+end
+
+--- A tool that cannot make a portable program (it carries the host's core alone, and does not boot every core) says so
+--- and removes nothing: the executables of an earlier build stand, and `--out` is not made.
 local function test_an_environment_failure_removes_no_executable(tmp: string)
-  local prefix = artifact.trusted_prefix()
-  if prefix == nil or not artifact.host_only(prefix) then
-    Test.skip("this tool carries every core, so it makes a portable program")
-    return
-  end
   write_two_programs(tmp)
   local first = invoke.run({ "build", "--host" }, { cwd = tmp, env = build_env() })
   assert(first.code == 0, first.stderr)
   local bin = support.build_dir(tmp) .. "/bin"
-  local again = invoke.run({ "build", "--out", "dist" }, { cwd = tmp, env = build_env() })
+  local again = build_on(host_only_tool({}), tmp, { "build", "--out", "dist" })
   assert(again.code == 1 and again.stderr:find("-Dboot-cores=all", 1, true) ~= nil,
     tostring(again.code) .. again.stderr)
   assert(Fs.exists(bin .. "/one") == true and Fs.exists(bin .. "/two") == true, "an environment failure removed a program")
   assert(Fs.exists(tmp .. "/dist") == false, "--out was made for a build that wrote nothing")
+end
+
+--- A portable program asked of a tool that carries the host's core alone has the tool boot every core and run the
+--- command line again, once its programs compiled. A boot that fails is said and exits 3; where the tool does not
+--- boot, the build refuses and names the boot. `--host`, which needs no other core, asks for none.
+local function test_a_portable_build_on_a_host_only_tool_boots_every_core(tmp: string)
+  write_two_programs(tmp)
+  local boot: mut {string:string} = { answer = "bin/zig build boot -Dboot-cores=all failed" }
+  local failed = build_on(host_only_tool(boot), tmp, { "build", "cmd/one" })
+  assert(boot["asked"] == "build cmd/one\n", tostring(boot["asked"]))
+  assert(failed.code == 3, tostring(failed.code) .. failed.stderr)
+  assert(failed.stderr:find("bin/zig build boot -Dboot-cores=all failed", 1, true) ~= nil, failed.stderr)
+  assert(failed.stdout == "", failed.stdout)
+
+  local refusing: mut {string:string} = {}
+  local refused = build_on(host_only_tool(refusing), tmp, { "build", "cmd/one" })
+  assert(refusing["asked"] == "build cmd/one\n", tostring(refusing["asked"]))
+  assert(refused.code == 1 and refused.stderr:find("carries the host's core alone", 1, true) ~= nil,
+    tostring(refused.code) .. refused.stderr)
+
+  local host: mut {string:string} = { answer = "booted for a --host build" }
+  local built = build_on(host_only_tool(host), tmp, { "build", "--host", "cmd/one" })
+  assert(built.code == 0 and host["asked"] == nil, tostring(built.code) .. tostring(host["asked"]) .. built.stderr)
+end
+
+--- A build that stops for another reason boots nothing: a program that does not compile is the tree's to mend.
+local function test_a_build_that_does_not_compile_boots_no_core(tmp: string)
+  write_two_programs(tmp)
+  assert(Fs.write(tmp .. "/cmd/one/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
+  local boot: mut {string:string} = { answer = "booted for a program that does not compile" }
+  local built = build_on(host_only_tool(boot), tmp, { "build", "cmd/one" })
+  assert(built.code == 4 and boot["asked"] == nil, tostring(built.code) .. tostring(boot["asked"]) .. built.stderr)
 end
 
 -- TODO: cover `--out` of a portable program, as [`build/embed_portable_tool_test.tl`] covers `bin/`, once a run of
@@ -900,7 +1456,8 @@ local function test_a_position_breach_holds_out_the_program_resting_on_it(tmp: s
   local bin = support.build_dir(tmp) .. "/bin"
   assert(built.code == 4 and built.stdout == bin .. "/one\n", tostring(built.code) .. built.stdout .. built.stderr)
   assert(built.stderr:find("a.tl: lib.hidden is private to lib/", 1, true) ~= nil, built.stderr)
-  assert(built.stderr:find("mid.tl: not compiled: it requires a", 1, true) ~= nil, built.stderr)
+  -- `a` is held out for its position, not refused by the checker: the line says only that it did not build.
+  assert(built.stderr:find("mid.tl: not compiled: it requires a, which did not build", 1, true) ~= nil, built.stderr)
   assert(built.stderr:find("two (cmd/two/main.tl) was not built", 1, true) ~= nil, built.stderr)
   assert(Fs.exists(bin .. "/two") == false, "the held-out program's earlier executable stood")
 end
@@ -933,4 +1490,372 @@ local function test_the_manifest_forgets_a_copy_that_is_gone(tmp: string)
   local again = invoke.run({ "build", "--host", "--out", "dist" }, { cwd = tmp, env = build_env() })
   assert(again.code == 4, again.stderr)
   assert(Fs.read(tmp .. "/dist/two") == "the user's own file, put where the copy was")
+end
+
+local till_commands = [[
+--- What the till does, a command a field.
+
+local Flags = require("cosmic.flags")
+
+--- The till's commands, each documented by the comment on its field.
+local record Commands
+  --- Rings up a sale and writes it to the day's journal. The amount is in
+  --- cents, so no sale is ever rounded; [`Commands.journal`] prints it back.
+  ring: Flags.Command
+  --- Prints the day's journal, the newest sale last.
+  journal: Flags.Command
+  --- Takes back the last sale.
+  void: Flags.Command
+end
+
+local commands: Commands = {
+  ring = {
+    about = "ring up a sale", usage = "[options] <item>", group = "Sales", see = { "docs" },
+    spec = { ["--cents"] = { value = "n", about = "what it cost" } },
+    examples = { { line = "--cents 250 espresso", about = "ring up a coffee" } },
+    run = function(_: Flags.Parsed): integer return 0 end,
+  },
+  void = {
+    about = "strike the receipt out", group = "Sales",
+    run = function(_: Flags.Parsed): integer return 0 end,
+  },
+  journal = {
+    about = "print the day's sales", group = "Reports",
+    run = function(_: Flags.Parsed): integer return 0 end,
+  },
+}
+
+return commands
+]]
+
+local till_module = [[
+local Commands = require("commands")
+local Flags = require("cosmic.flags")
+
+local record Till
+end
+
+--- Runs the till with `argv`, its commands documented by the record that holds them.
+function Till.run(argv: {string}): Flags.Dispatched?, string
+  return Flags.dispatch(argv, 1, { ring = Commands.ring, journal = Commands.journal, void = Commands.void }, "till",
+    { pages = "commands", groups = { "Sales", "Reports" },
+      topics = { closing = { guide = "closing", about = "how the day ends", see = { "journal" } } } })
+end
+
+return Till
+]]
+
+local till_main = [[
+local Fs = require("cosmic.fs")
+local Till = require("till")
+
+return function(argv: {string}): integer
+  local ran, why = Till.run(argv)
+  if ran == nil then
+    local _, _ = Fs.put(Fs.stderr, "till: " .. why .. "\n")
+    return 2
+  end
+  if ran.help ~= "" then
+    local _, _ = Fs.put(Fs.stdout, ran.help .. "\n")
+  end
+  return ran.code
+end
+]]
+
+--- A test of the till's help, which reads the documentation its store is given of the modules it requires.
+local till_test = [[
+local Commands = require("commands")
+local Doc = require("cosmic.doc")
+local Flags = require("cosmic.flags")
+local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+local Till = require("till")
+
+Test.policy { store_text = true }
+
+local function test_a_topic_s_page_is_its_guide()
+  local ran = assert(Till.run({ "help", "closing" }))
+  assert(ran.help == "closing: how the day ends\n\nAt the end of the day, reconcile the journal against the drawer." ..
+    "\n\nsee also: journal", ran.help)
+  local missing, why = Flags.dispatch({ "help", "opening" }, 1, { ring = Commands.ring }, "till",
+    { pages = "commands", topics = { opening = { guide = "opening" } } })
+  assert(missing == nil and why == "help: the topic opening's guide, doc/guides/opening.md, is not in the documentation",
+    why)
+end
+
+local function test_the_project_s_guides_answer_in_its_store()
+  local view = assert(Doc.program(Store.databases(), "till"))
+  local found = assert(Doc.lookup(view, "doc.guides.closing"))
+  assert(#found == 1 and found.exact, tostring(#found))
+  assert(Doc.guide(view, "closing") == "At the end of the day, reconcile the journal against the drawer.")
+end
+
+local function test_docs_finds_a_command_by_its_example_and_its_about()
+  local example = assert(Till.run({ "docs", "espresso" }))
+  assert(example.help:find("Commands.ring", 1, true) ~= nil and
+    example.help:find("\n  examples:\n    till ring --cents 250 espresso  ring up a coffee", 1, true) ~= nil, example.help)
+  local about = assert(Till.run({ "docs", "strike" }))
+  assert(about.help:find("Commands.void", 1, true) ~= nil and
+    about.help:find("\n  usage: till void\n  strike the receipt out", 1, true) ~= nil, about.help)
+end
+
+local function test_the_help_of_a_command_ends_with_its_page()
+  local ran = assert(Till.run({ "help", "journal" }))
+  assert(ran.help == "usage: till journal\n\nprint the day's sales\n\nPrints the day's journal, the newest sale last.",
+    ran.help)
+end
+
+local function test_docs_finds_a_command_by_a_word_of_its_page()
+  local ran = assert(Till.run({ "docs", "newest" }))
+  assert(ran.help:find("Commands.journal", 1, true) ~= nil, ran.help)
+end
+]]
+
+--- What the built till prints for `words`, and its exit status.
+local function till(tmp: string, words: {string}): Child.Result
+  local argv: mut {string} = { support.build_dir(tmp) .. "/bin/till" }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  return (assert(Child.run(argv, { stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
+end
+
+--- Writes the till's project under `tmp`: a program, the module that holds and documents its commands, a guide
+--- and a test of its help.
+local function write_till(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/till"))
+  assert(Fs.mkdirs(tmp .. "/doc/guides"))
+  assert(Fs.write(tmp .. "/cmd/till/main.tl", till_main))
+  assert(Fs.write(tmp .. "/commands.tl", till_commands))
+  assert(Fs.write(tmp .. "/till.tl", till_module))
+  assert(Fs.write(tmp .. "/commands_test.tl", till_test))
+  assert(Fs.write(tmp .. "/doc/guides/closing.md",
+    "# Closing the till\n\nAt the end of the day, reconcile the journal against the drawer.\n"))
+end
+
+--- A program that names the module documenting its commands answers its users from its own documentation, with
+--- nothing but itself: a command's help ends with the field's doc comment, `docs` looks a name up, searches the
+--- comments and guides, puts a misspelling right, and knows nothing of the standard library's.
+local function test_a_built_program_answers_help_and_docs_from_the_documentation_it_carries(tmp: string)
+  write_till(tmp)
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "till", trouble)
+  local help = till(tmp, { "help", "ring" })
+  assert(help.ok and help.stdout == table.concat({
+    "usage: till ring [options] <item>",
+    "",
+    "ring up a sale",
+    "",
+    "options:",
+    "  --cents <n>  what it cost",
+    "",
+    "examples:",
+    "  till ring --cents 250 espresso  ring up a coffee",
+    "",
+    "see also: docs",
+    "",
+    "Rings up a sale and writes it to the day's journal. The amount is in",
+    "cents, so no sale is ever rounded; `Commands.journal` prints it back.",
+    "",
+  }, "\n"), tostring(help.stdout) .. tostring(help.stderr))
+  -- `--help` after the command is the same page.
+  assert(till(tmp, { "ring", "--help" }).stdout == help.stdout)
+  -- The program's help orders its sections as it was told, and says how to search.
+  local index = assert(till(tmp, { "help" }).stdout)
+  local sales, reports = index:find("\nSales:\n", 1, true), index:find("\nReports:\n", 1, true)
+  assert(sales ~= nil and reports ~= nil and sales < reports, index)
+  assert(index:find("Run `till docs <words>` to search the documentation, `till docs` to list it.", 1, true) ~= nil,
+    index)
+  -- `docs` is a command with a help of its own, by either spelling, and is named to one who mistypes it.
+  local docs_help = assert(till(tmp, { "help", "docs" }).stdout)
+  assert(docs_help:find("usage: till docs [words...]", 1, true) == 1 and
+      docs_help == till(tmp, { "docs", "--help" }).stdout, docs_help)
+  assert(till(tmp, { "docz" }).stderr == "till: no such command: docz; did you mean docs?\n")
+  assert(till(tmp, { "help", "docz" }).stderr == "till: no such command or topic: docz; did you mean docs?\n")
+  -- It takes words, and refuses an option it does not have.
+  local optioned = till(tmp, { "docs", "--json", "journal" })
+  assert(optioned.code == 2 and assert(optioned.stderr):find("docs: no such option: --json", 1, true) ~= nil,
+    tostring(optioned.stderr))
+  -- `docs` lists what is documented, and its hints name the program.
+  local listed = assert(till(tmp, { "docs" }).stdout)
+  assert(listed:find("commands            What the till does, a command a field.", 1, true) ~= nil and
+      listed:find("doc.guides.closing  At the end of the day", 1, true) ~= nil and
+      listed:find("`till docs <module>` shows one", 1, true) ~= nil and not listed:find("cosmic", 1, true), listed)
+  -- A command's field is found by name, with the command's options under it and no count of its uses, which
+  -- the program has no command to list.
+  local named = assert(till(tmp, { "docs", "Commands.ring" }).stdout)
+  assert(named:find("Rings up a sale", 1, true) ~= nil and named:find("\n  options:\n    --cents <n>  what it cost", 1, true) ~= nil,
+    named)
+  local module = assert(till(tmp, { "docs", "commands" }).stdout)
+  assert(not named:find("cosmic", 1, true) and not module:find("cosmic uses", 1, true) and
+      not module:find(" use)", 1, true) and not module:find("used in", 1, true), named .. module)
+  -- A topic's page is the guide it names, and the index lists it.
+  local topic = till(tmp, { "help", "closing" })
+  assert(topic.code == 0 and topic.stdout ==
+      "closing: how the day ends\n\nAt the end of the day, reconcile the journal against the drawer.\n\n" ..
+      "see also: journal\n", tostring(topic.stdout) .. tostring(topic.stderr))
+  assert(index:find("\ntopics:\n  closing  how the day ends\n", 1, true) ~= nil, index)
+  -- A word of a command's example or of its about finds the command, its page showing them.
+  local by_example = assert(till(tmp, { "docs", "espresso" }).stdout)
+  assert(by_example:find("Commands.ring", 1, true) ~= nil and
+      by_example:find("\n  examples:\n    till ring --cents 250 espresso  ring up a coffee", 1, true) ~= nil, by_example)
+  local by_about = assert(till(tmp, { "docs", "strike" }).stdout)
+  assert(by_about:find("Commands.void", 1, true) ~= nil and by_about:find("strike the receipt out", 1, true) ~= nil,
+    by_about)
+  -- Words are searched for in the comments and the guides, and a misspelled one is put right.
+  local searched = assert(till(tmp, { "docs", "reconcile", "drawer" }).stdout)
+  assert(searched:find("doc.guides.closing (doc/guides/closing.md)", 1, true) ~= nil, searched)
+  local respelled = assert(till(tmp, { "docs", "roundd" }).stdout)
+  assert(respelled:find("Nothing named or documented as 'roundd'; showing 'rounded':", 1, true) == 1 and
+      respelled:find("Commands.ring", 1, true) ~= nil, respelled)
+  -- The standard library is not the program's to document, `cosmic` is a word like any other, and a miss is a
+  -- refusal.
+  for _, query in ipairs({ "Fs.read", "cosmic.flags", "cosmic", "zzqqxx" }) do
+    local missed = till(tmp, { "docs", query })
+    assert(missed.code == 2 and missed.stdout == "" and
+        missed.stderr == "till: docs: nothing named or documented as '" .. query .. "'\n", tostring(missed.stderr))
+  end
+end
+
+--- Run from its source by the tool, the program answers from the project's own build and from none of the
+--- tool's documentation, which the same store holds: a command's help ends with its page, and the tool's guides
+--- and the standard library are not the program's to show.
+local function test_a_program_run_from_its_source_answers_from_the_projects_documentation_alone(tmp: string)
+  write_till(tmp)
+  local help = verbs_fixture.run(tmp, { "cmd/till/main.tl", "help", "journal" })
+  assert(help.code == 0 and help.stdout ==
+      "usage: till journal\n\nprint the day's sales\n\nPrints the day's journal, the newest sale last.\n",
+    help.stdout .. help.stderr)
+  local topic = verbs_fixture.run(tmp, { "cmd/till/main.tl", "help", "closing" })
+  assert(topic.code == 0 and topic.stdout:find("\n\nAt the end of the day, reconcile", 1, true) ~= nil,
+    topic.stdout .. topic.stderr)
+  for _, query in ipairs({ "quickstart", "Fs.read", "cosmic.flags" }) do
+    local missed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", query })
+    assert(missed.code == 2 and missed.stdout == "" and
+        missed.stderr:find("till: docs: nothing named or documented as '" .. query .. "'", 1, true) ~= nil,
+      missed.stdout .. missed.stderr)
+  end
+  local listed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs" })
+  assert(listed.stdout:find("doc.guides.closing  ", 1, true) ~= nil and listed.stdout:find("\ntill", 1, true) ~= nil and
+      not listed.stdout:find("doc.guides.quickstart", 1, true) and not listed.stdout:find("cosmic", 1, true),
+    listed.stdout .. listed.stderr)
+end
+
+--- Run from its source beside another program, a program answers as it would built: neither the other's
+--- module nor its guide, which stands in for the project's of that name in that one alone, and its own guides
+--- under the guide's name, one in place of the project's of the same name.
+local function test_a_program_run_from_its_source_answers_for_itself_alone(tmp: string)
+  write_till(tmp)
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs/doc/guides"))
+  assert(Fs.mkdirs(tmp .. "/cmd/till/doc/guides"))
+  assert(Fs.write(tmp .. "/eggs.tl", "--- Scrambling, which only eggs requires; it flouts the rules.\nlocal record eggs\nend\nreturn eggs\n"))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl",
+    'local _eggs = require("eggs")\nreturn function(): integer return 0 end\n'))
+  assert(Fs.write(tmp .. "/cmd/eggs/doc/guides/closing.md", "# Closing the coop\n\nShut the hens in.\n"))
+  assert(Fs.write(tmp .. "/cmd/till/doc/guides/opening.md", "# Opening the till\n\nCount the float first.\n"))
+  assert(Fs.write(tmp .. "/cmd/till/doc/guides/closing.md", "# Closing this till\n\nCount the drawer twice.\n"))
+  local listed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs" })
+  assert(listed.code == 0 and listed.stdout:find("doc.guides.closing  ", 1, true) ~= nil and
+      listed.stdout:find("doc.guides.opening  ", 1, true) ~= nil and not listed.stdout:find("eggs", 1, true) and
+      not listed.stdout:find("cmd.till.doc", 1, true), listed.stdout .. listed.stderr)
+  local closing = verbs_fixture.run(tmp, { "cmd/till/main.tl", "help", "closing" })
+  assert(closing.code == 0 and closing.stdout:find("Count the drawer twice.", 1, true) ~= nil and
+      not closing.stdout:find("reconcile the journal", 1, true) and not closing.stdout:find("hens", 1, true),
+    closing.stdout .. closing.stderr)
+  local opening = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", "float" })
+  assert(opening.code == 0 and opening.stdout:find("doc.guides.opening", 1, true) ~= nil,
+    opening.stdout .. opening.stderr)
+  -- Nor a code of the checker, which the tool documents and no built program carries.
+  for _, query in ipairs({ "Scrambling", "hens", "eggs", "not_assignable" }) do
+    local missed = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", query })
+    assert(missed.code == 2 and missed.stdout == "" and
+        missed.stderr:find("nothing named or documented as '" .. query .. "'", 1, true) ~= nil,
+      query .. ": " .. missed.stdout .. missed.stderr)
+  end
+  -- A word only another program's documentation uses is no word of its own: it is put right to one of its own.
+  local respelled = verbs_fixture.run(tmp, { "cmd/till/main.tl", "docs", "flout" })
+  assert(respelled.code == 0 and respelled.stdout:find("showing 'float'", 1, true) ~= nil and
+      respelled.stdout:find("doc.guides.opening", 1, true) ~= nil, respelled.stdout .. respelled.stderr)
+end
+
+--- Run from its source, a program's view searches and ranks the examples of what it documents alone, and the
+--- catalog of what it carries: its connection to the project's last build holds those rows, and an index of them, in
+--- place of every program's. An error's guidance is matched against the catalog of what it carries alone too.
+local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_documents(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/spam"))
+  assert(Fs.mkdirs(tmp .. "/cmd/eggs"))
+  assert(Fs.write(tmp .. "/cmd/spam/main.tl", 'local _shared = require("shared")\nreturn function(): integer return 0 end\n'))
+  assert(Fs.write(tmp .. "/cmd/eggs/main.tl", 'local _eggs = require("eggs")\nreturn function(): integer return 0 end\n'))
+  for _, name in ipairs({ "shared", "eggs" }) do
+    assert(Fs.write(tmp .. "/" .. name .. ".tl", table.concat({
+      "--- " .. name .. ".",
+      "local record m",
+      "  --- A field.",
+      "  n: integer",
+      "end",
+      "local v: m = { n = 1 }",
+      "--- Fails, as " .. name .. " does.",
+      "function m.fail(): string?, string",
+      '  return nil, "' .. (if name == "eggs" then "the hens refused their coop" else "the drawer jammed shut" end) .. '"',
+      "end",
+      "return v",
+      "",
+    }, "\n")))
+    assert(Fs.write(tmp .. "/" .. name .. "_example.tl", table.concat({
+      'local m = require("' .. name .. '")',
+      "local record Example",
+      "end",
+      "--- Reads the field of " .. name .. ".",
+      "function Example.read()",
+      "  assert(m.n == 1)",
+      "end",
+      "return Example",
+      "",
+    }, "\n")))
+  end
+  assert(Fs.write(tmp .. "/paged.tl", table.concat({
+    "--- The pages, which no module requires.",
+    "local record paged",
+    "end",
+    "--- Fails, as the pages do.",
+    "function paged.fail(): string?, string",
+    '  return nil, "the till ran out of receipts"',
+    "end",
+    "return paged",
+    "",
+  }, "\n")))
+  assert(embed.tree(tmp, true))
+  local projection = support.build_dir(tmp) .. "/cosmic.db"
+  local main, built, pages = source_run.main, source_run.projection, source_run.pages
+  local ok, err = pcall(function()
+    source_run.main = "cmd.spam.main"
+    source_run.projection = projection
+    local db = assert(Sqlite.open(projection))
+    local view = assert(Doc.program({ db }, "spam"))
+    local scoped = assert(view.databases[1])
+    local modules = assert(Sqlite.text_rows(scoped, "SELECT group_concat(DISTINCT module) FROM examples"))
+    assert(support.nth(modules, 1):text(1) == "shared", "the examples of what it documents alone")
+    local indexed = assert(Sqlite.text_rows(scoped,
+      "SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'eggs'"))
+    assert(support.nth(indexed, 1):text(1) == "0", "the index holds no other program's example")
+    local cataloged = assert(Sqlite.text_rows(scoped,
+      "SELECT count(*) FROM catalog_fts JOIN catalog c ON c.id = catalog_fts.rowid WHERE catalog_fts MATCH 'hens' " ..
+        "AND c.module = 'eggs'"))
+    assert(support.nth(cataloged, 1):text(1) == "0", "the catalog holds no other program's row")
+    assert(Errors.guidance_in(db, "the hens refused their coop") == nil, "no other program's guidance answers")
+    assert(Errors.guidance_in(db, "the drawer jammed shut") ~= nil, "its own does")
+    assert(Errors.guidance_in(db, "the till ran out of receipts") == nil, "a module it does not carry answers none")
+    source_run.pages = "paged"
+    assert(Errors.guidance_in(db, "the till ran out of receipts") ~= nil, "the module it names as its pages does")
+    source_run.main = nil
+    assert(Errors.guidance_in(db, "the hens refused their coop") ~= nil, "every program's answers another run")
+    db:close()
+  end)
+  source_run.main, source_run.projection, source_run.pages = main, built, pages
+  assert(ok, tostring(err))
+end
+
+--- A test of the project that asks its program for help reads the documentation of the modules it requires.
+local function test_a_projects_test_of_its_help_reads_the_documentation_it_declares(tmp: string)
+  write_till(tmp)
+  local ran = verbs_fixture.run(tmp, { "test" })
+  assert(ran.code == 0 and ran.stdout:find("5 tests passed", 1, true) ~= nil, ran.stdout .. ran.stderr)
 end

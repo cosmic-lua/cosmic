@@ -313,6 +313,70 @@ local function test_split_finds_the_database_either_writer_appended()
   assert(artifact.rejoin(assert(artifact.split(portable)), two) == artifact.program(prefix, two))
 end
 
+--- The database is taken by its range: of an artifact whose cores are
+--- most of it, only the trailer, the head of the manifest and the database
+--- are asked for, and they are what `split` cuts from the whole. A run
+--- that seals its workers' databases takes the program's so, each time.
+local function test_the_database_is_read_by_its_range_and_no_core_with_it()
+  local prefix = assert(artifact.prefix(records, cores))
+  local database = "SQLite format 3\0" .. string.rep("row", 100)
+  local program = assert(artifact.program(prefix, database))
+  local asked = 0
+  local carried = assert(artifact.database_in(#program, function(offset: integer, length: integer): string?
+    asked = asked + length
+    return program:sub(offset + 1, offset + length)
+  end))
+  assert(carried.database == database and carried.offset == #prefix and not carried.host)
+  assert(asked == #database + 48 + 24, "it asked for " .. tostring(asked) .. " bytes of " .. tostring(#program))
+  assert(asked < #prefix, "the artifact's cores are not most of it: " .. tostring(#prefix))
+end
+
+--- A read that answers fewer bytes than it was asked, or none, is a
+--- refusal: never a database cut short.
+local function test_a_range_read_short_is_refused()
+  local prefix = assert(artifact.prefix(records, cores))
+  local database = "SQLite format 3\0" .. string.rep("row", 100)
+  local program = assert(artifact.program(prefix, database))
+  -- The trailer's length, the manifest head's and the database's.
+  for _, short in ipairs({ 48, 24, #database }) do
+    local carried, trouble = artifact.database_in(#program, function(offset: integer, length: integer): string?
+      if length == short then return program:sub(offset + 1, offset + length - 1) end
+      return program:sub(offset + 1, offset + length)
+    end)
+    assert(carried == nil and trouble ~= "", tostring(short))
+    local none, none_trouble = artifact.database_in(#program, function(offset: integer, length: integer): string?
+      if length == short then return nil end
+      return program:sub(offset + 1, offset + length)
+    end)
+    assert(none == nil and none_trouble ~= "", tostring(short))
+  end
+end
+
+--- What lies where the trailer says is checked too: a manifest that is
+--- none, one that says the database starts elsewhere, and a database that
+--- is no SQLite file are each refused by name.
+local function test_a_manifest_or_a_database_that_is_not_one_is_refused()
+  local prefix = assert(artifact.prefix(records, cores))
+  local program = assert(artifact.program(prefix, "SQLite format 3\0db"))
+  -- The manifest is the prefix's last 4096 bytes: its magic, two 4-byte
+  -- fields, then where the database starts.
+  local manifest_at = #prefix - 4096
+  local function patched(at: integer, bytes: string): string
+    return program:sub(1, at) .. bytes .. program:sub(at + #bytes + 1)
+  end
+  local cases: {{string}} = {
+    { patched(manifest_at, "NotMagic"), "no manifest where its trailer says" },
+    { patched(manifest_at + 16, string.pack(">I8", #prefix + 1)), "disagree on where its database starts" },
+    { patched(#prefix, "Not SQLite at a"), "no SQLite header" },
+  }
+  for _, case in ipairs(cases) do
+    local bytes, wanted = assert(case[1]), assert(case[2])
+    assert(#bytes == #program)
+    local parts, trouble = artifact.split(bytes)
+    assert(parts == nil and trouble:find(wanted, 1, true) ~= nil, wanted .. ": " .. trouble)
+  end
+end
+
 --- A trailer whose fields do not fit the file is refused, never read
 --- past.
 local function test_split_refuses_a_trailer_that_does_not_fit()

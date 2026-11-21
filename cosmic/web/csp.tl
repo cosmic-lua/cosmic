@@ -4,6 +4,7 @@
 ---
 ---     local policy = Csp.htmx_default()
 ---     print(Csp.format(policy))
+--- @public
 
 local record Csp
   --- A policy: the directives and their sources.

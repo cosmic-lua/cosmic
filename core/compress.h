@@ -5,6 +5,7 @@
 #ifndef COSMIC_COMPRESS_H
 #define COSMIC_COMPRESS_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "lua.h"
@@ -29,5 +30,12 @@ unsigned char *cosmic_deflate_raw (const void *data, size_t len,
  * with `*out` NULL. */
 const char *cosmic_inflate_raw (const void *data, size_t len, size_t max,
                                 unsigned char **out, size_t *out_len);
+
+/* Whether the `len` bytes at `data` are a Lua chunk as `string.dump` wrote
+ * it, which a build stores as it is, and not a raw deflate stream: they
+ * begin with the first byte of Lua's signature, 0x1B. No deflate stream
+ * begins with it: the byte opens a final block of fixed codes whose first
+ * code is a length (280 to 287), a copy from before the stream's start. */
+bool cosmic_stored_chunk (const void *data, size_t len);
 
 #endif

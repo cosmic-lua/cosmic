@@ -102,6 +102,17 @@ local function test_the_default_inputs_are_the_closure_and_the_pinned_environmen
   assert(not effective.tool and not effective.store)
 end
 
+--- PATH is pinned for a run that is not sandboxed, as the runner has it.
+--- A sandboxed worker has one only where its module declares it.
+local function test_a_sandboxed_run_pins_no_path()
+  local m, by_path = tree()
+  assert(test_inputs.effective(m, by_path, staged).env["PATH"] == true)
+  local sandboxed = test_inputs.effective(m, by_path, staged, nil, true)
+  assert(sandboxed.env["PATH"] == nil and sandboxed.env["HOME"] == true)
+  local declaring_path, declared_by_path = tree(declaring({ env = { "PATH" } }))
+  assert(test_inputs.effective(declaring_path, declared_by_path, staged, nil, true).env["PATH"] == true)
+end
+
 --- The modules a worker lets a test `require` of the tree are the
 --- closure's by name: the module itself, what it requires directly or
 --- not, and one only a declaration answers for, but neither a module
@@ -247,7 +258,7 @@ local function test_a_lua_closure_holds_what_e_loads_and_no_more()
   local names = test_inputs.modules(m, by_path, staged)
   local held: mut {string:boolean} = {}
   for _, name in ipairs(names) do held[name] = true end
-  for _, name in ipairs(test_inputs.lua_loads) do assert(held[name], name) end
+  for _, name in ipairs(test_inputs.lua_loads) do assert(held[name] == true, name) end
   assert(held["build.importer"] ~= true, "what dispatch requires lazily is out")
   assert(held["lib.helper"] == true and held["lib.deep"] == true, "the module's own closure is in")
   local effective = test_inputs.effective(m, by_path, staged)
@@ -315,6 +326,24 @@ local function test_what_lua_adds_reads_no_compiler()
   closure[#closure + 1] = "build.importer"
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
+end
+
+--- A test that reads its store's text holds the tree's public guides, which no module requires, and their files;
+--- a guide under `doc/guides/internal/` is not one, and a test that declares no `store_text` holds none.
+local function test_a_store_text_test_holds_the_public_guides()
+  local function with_guides(inputs?: PolicyRules.Declared): (Module, {string:Module})
+    local m, by_path = tree(inputs)
+    by_path["doc.guides.pairing"] = module("doc.guides.pairing", "doc/guides/pairing.md", { "cosmic.fs" })
+    by_path["doc.guides.internal.notes"] = module("doc.guides.internal.notes", "doc/guides/internal/notes.md", {})
+    return m, by_path
+  end
+  local m, by_path = with_guides(declaring({ store_text = true }))
+  assert(table.concat(test_inputs.modules(m, by_path, staged), " ") ==
+      "doc.guides.pairing lib.declared lib.deep lib.helper lib.thing_test")
+  assert(test_inputs.effective(m, by_path, staged).files["doc/guides/pairing.md"] == true)
+  local plain, plain_by_path = with_guides()
+  assert(table.concat(test_inputs.modules(plain, plain_by_path, staged), " ") ==
+      "lib.declared lib.deep lib.helper lib.thing_test")
 end
 
 local function test_noexec_is_requested_but_not_granted_by_a_declaration()

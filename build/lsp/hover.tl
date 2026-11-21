@@ -17,6 +17,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local build_paths = require("build.paths")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local lines = require("build.lsp.lines")
 local protocol = require("build.lsp.protocol")
 local source = require("build.lsp.source")
@@ -36,7 +37,7 @@ local record hover
     --- projection among them ("" where there was none).
     mut sources: docs.Sources?
     mut projection: string
-    mut view: docs.View?
+    mut view: Doc.View?
     --- Why the docs could not be read, once they were tried.
     mut view_trouble: string?
   end
@@ -106,7 +107,7 @@ function hover.version(handle: Sqlite.Handle): string
 end
 
 --- The docs view, read once of the databases [`hover.sources`] answers, or nil where they could not be read (said once).
-function hover.view(d: Docs): docs.View?
+function hover.view(d: Docs): Doc.View?
   local sources = hover.sources(d)
   if d.view ~= nil or d.view_trouble ~= nil then return d.view end
   local view, trouble = docs.view(sources.handles, sources.public)
@@ -158,8 +159,8 @@ function hover.at(d: Docs, text: string, where: protocol.Position, encoding: str
   if through ~= nil then queries[#queries + 1] = through end
   queries[#queries + 1] = name
   for _, query in ipairs(queries) do
-    local found, _ = docs.exact(view, query)
-    local entry: docs.Entry? = nil
+    local found, _ = Doc.exact(view, query)
+    local entry: Doc.Entry? = nil
     if found ~= nil then entry = found[1] end
     if entry ~= nil then
       local title = entry.module

@@ -23,11 +23,11 @@ local record module
     inputs: PolicyRules.Declared?
     has_top_level_return?: boolean
     --- True only for a module [`build.doctest`] produced from a
-    --- `doc/guides/*.md` file rather than read off disk as `.tl`
+    --- guide (`doc/guides/*.md`, `doc/guides/internal/*.md`) rather than read off disk as `.tl`
     --- source: [`build.importer.compile`] widens its warning discount for
     --- exactly this module, and only this one, to cover the one
     --- `print`-shadowing warning that generated shape always carries --
-    --- see `Pipeline.generate` ([`build.pipeline`]).
+    --- see [`Pipeline.generate`] ([`build.pipeline`]).
     generated?: boolean
     mut key?: string
     --- `key` less the compiler: the digest of the kinds and sources of

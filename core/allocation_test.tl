@@ -27,6 +27,8 @@
 --- also requires the children file in this process's mounted /proc.
 
 local AllocationFixture = require("build.allocation_fixture")
+local Bigint = require("cosmic.bigint")
+local Cipher = require("cosmic.cipher")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
 local Fs = require("cosmic.fs")
@@ -36,6 +38,8 @@ local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Protobuf = require("cosmic.protobuf")
+local Sign = require("cosmic.sign")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -361,6 +365,17 @@ local function test_getifaddrs_survives_every_refused_allocation()
   end)
   assert(not darwin or ended > 0, "the list's table allocates")
   assert_c_heap(bytes, blocks, "getifaddrs under refusal")
+end
+
+--- `interfaces` holds libc's list in a guard as `getifaddrs` does, so a
+--- refusal anywhere in the table frees it.
+local function test_interfaces_survives_every_refused_allocation()
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    assert(socket.interfaces())
+  end)
+  assert(ended > 0, "the list's table allocates")
+  assert_c_heap(bytes, blocks, "interfaces under refusal")
 end
 
 --- The C heap counts what the core's C allocates and frees, and a
@@ -815,6 +830,130 @@ local function test_hash_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "HMAC hashing under refusal")
 end
 
+--- nanopb reads from the bytes it is given and allocates nothing. A message is one userdata that holds its
+--- fields, and each answer a string or a table of Lua's own, so a refusal of any raises and leaves no C memory.
+local function test_protobuf_leaves_nothing_whenever_an_allocation_fails()
+  local inner = assert(Protobuf.writer():string(1, "a"):int(2, 7):encode())
+  local bytes = assert(Protobuf.writer():int(1, 5):bytes(2, inner):bytes(2, inner):packed(3, "double", { 1.5, 2.5 })
+      :packed(4, "int", { 1, 2 }):string(5, "text"):encode())
+  collectgarbage("collect")
+  local held, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local message = assert(Protobuf.decode(bytes))
+    assert(message:int(1) == 5 and message:string(5) == "text" and message:wires(2) == 4)
+    local merged = assert(message:message(2))
+    assert(merged:int(2) == 7 and #assert(message:repeated_message(2)) == 2)
+    assert(#assert(message:repeated_double(3)) == 2 and #assert(message:repeated_int(4)) == 2)
+    assert(#message:repeated_bytes(2) == 2 and #message:fields() == 6)
+    assert(#assert(message:unfit({})) == 6 and message:unfit({}, true) == nil)
+    assert(assert(Protobuf.read_varint("\x05")).value == 5)
+  end)
+  assert(ended > 0, "a message, each string and each list is an allocation")
+  assert_c_heap(held, blocks, "reading a message under refusal")
+end
+
+--- A writer's bytes are a userdata of Lua's, replaced by a greater one as fields are written: a refusal while they
+--- grow raises as Lua's own does, and the core's heap holds nothing of a writer.
+local function test_a_protobuf_writer_leaves_nothing_whenever_an_allocation_fails()
+  collectgarbage("collect")
+  local held, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local child = Protobuf.writer():string(1, ("a"):rep(200)):sint(2, -7)
+    local writer = Protobuf.writer():int(1, 5):message(2, child):packed(3, "double", { 1.5, 2.5 })
+      :packed(4, "int", { 1, 2 }):bytes(5, ("b"):rep(500)):fixed32(6, 1):fixed64(7, 1):float(8, 1.5):double(9, 1.5)
+      :bool(10, true)
+    writer:message(11, writer)
+    writer:open(12):bytes(1, ("c"):rep(300)):open(2):int(1, 1):close():close():append(("d"):rep(100))
+    assert(writer:trouble() == "")
+    assert(#assert(writer:encode()) > 700)
+  end)
+  assert(ended > 0, "a writer, its bytes and what it answers are allocations")
+  collectgarbage("collect")
+  assert_c_heap(held, blocks, "writing a message under refusal")
+end
+
+--- Monocypher allocates nothing: a key pair and a signature are worked out
+--- on the C stack, and the one allocation of each binding is the string it
+--- answers with, whose refusal raises and leaves no C memory.
+local function test_sign_leaves_nothing_whenever_an_allocation_fails()
+  local seed = string.rep("s", 32)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local public = Sign.ed25519_public(seed)
+    local signature = Sign.ed25519(seed, hello)
+    assert(#public == 32 and #signature == 64)
+    assert(Sign.ed25519_verify(public, hello, signature))
+  end)
+  assert(ended > 0, "a key and a signature are each a string")
+  assert_c_heap(bytes, blocks, "signing under refusal")
+end
+
+--- Each call holds its numbers in one block of the core's own, under a
+--- guard: a refusal of the block, of the guard or of the answer's string
+--- leaves none. The limbs of the functions that take a time depending on
+--- values are mbedtls's own allocations, which the walk neither refuses
+--- nor counts; those of the functions for secrets are the block.
+
+-- TODO: refuse and count mbedtls's allocations too, once
+-- core/mbedtls_cosmic_config.h routes them through core/memory.h
+-- (MBEDTLS_PLATFORM_MEMORY): a limb's refusal, which core/bigint.c
+-- raises as "not enough memory", is a path no test walks.
+local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local prime = string.rep("\255", 31) .. "\67"
+  local ended = AllocationFixture.under_every_failure(function()
+    local power = Bigint.powmod("\5", "\200\200", prime)
+    local product = Bigint.mul(power, power)
+    local sum = Bigint.add(product, power)
+    assert(assert(Bigint.sub(sum, power)) == product)
+    assert(Bigint.sub(power, sum) == nil)
+    assert(Bigint.compare(Bigint.mod(sum, prime), prime) == -1)
+  end)
+  assert(ended > 0, "a call's numbers are an allocation")
+  assert_c_heap(bytes, blocks, "big integers under refusal")
+  -- The functions for secrets hold their limbs in one block of the
+  -- core's own each, under a guard of its own.
+  ended = AllocationFixture.under_every_failure(function()
+    local product = Bigint.mulmod("\5", "\200\200", prime)
+    assert(Bigint.expmod("\5", "\200\200", prime) == assert(Bigint.pad(Bigint.powmod("\5", "\200\200", prime), #prime)))
+    local sum = Bigint.addmod(product, prime, prime)
+    assert(sum == product and Bigint.reduce(sum, prime) == product)
+    assert(Bigint.submod(sum, product, prime) == string.rep("\0", #prime))
+    assert(Bigint.sum(Bigint.product(product, "\2"), "") == "\0" .. Bigint.sum(product, product))
+  end)
+  assert(ended > 0, "a call's limbs are an allocation")
+  assert_c_heap(bytes, blocks, "big integers for secrets under refusal")
+end
+
+--- Sealing, opening and agreeing on a key hold no C memory of the core's
+--- own, and a key is in the library's slot only between two calls into
+--- Lua: a refusal of the scratch userdata or of the answer's string
+--- raises with no key imported, and leaves nothing.
+local function test_cipher_leaves_nothing_whenever_an_allocation_fails()
+  local key, nonce = string.rep("k", 32), string.rep("n", 12)
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local sealed = Cipher.seal("chacha20-poly1305", key, nonce, hello, "aad")
+    assert(Cipher.open("chacha20-poly1305", key, nonce, sealed, "aad") == hello)
+    assert(Cipher.open("chacha20-poly1305", key, nonce, sealed, "other") == nil)
+    assert(Cipher.open("chacha20-poly1305", key, nonce, "short") == nil)
+  end)
+  assert(ended > 0, "sealing is an allocation")
+  assert_c_heap(bytes, blocks, "sealing under refusal")
+  local low_order = string.rep("\0", 32)
+  ended = AllocationFixture.under_every_failure(function()
+    local public = Cipher.x25519_public(key)
+    assert(assert(Cipher.x25519(nonce .. nonce .. "12345678", public)) ==
+        assert(Cipher.x25519(key, Cipher.x25519_public(nonce .. nonce .. "12345678"))))
+    assert(Cipher.x25519(key, low_order) == nil)
+  end)
+  assert(ended > 0, "a key agreement is an allocation")
+  assert_c_heap(bytes, blocks, "key agreement under refusal")
+end
+
 --- A safe value is a userdata and a string of Lua's own, and no C memory:
 --- a refusal while one is made, escaped, joined or read leaves none.
 local function test_html_leaves_nothing_whenever_an_allocation_fails()
@@ -825,7 +964,7 @@ local function test_html_leaves_nothing_whenever_an_allocation_fails()
     local attr = Html.escape_attr("a b\0\xc3\xa9")
     local joined = Html.concat({ Html.trust("<p>"), text, Html.trust("</p>") })
     assert(Html.raw(joined) == "<p>a &lt; b &amp; &quot;c&quot; &#39;d&#39;</p>")
-    assert(Html.raw_attr(attr) == "a&#32;b&#0;\xc3\xa9")
+    assert(Html.raw_attr(attr) == "a b&#0;\xc3\xa9")
     assert(Html.raw_url(Html.href("https://a/b")) == "https://a/b")
     assert(Html.raw_url(Html.href("javascript:x")) == "about:invalid")
     assert(Html.raw_url(Html.trust_url("x")) == "x")
@@ -833,7 +972,7 @@ local function test_html_leaves_nothing_whenever_an_allocation_fails()
     assert(Html.raw_url_part(Html.url_part("a b")) == "a%20b")
     assert(Html.raw_url_part(Html.url_part("..")) == "%252E%252E")
     assert(Html.raw_url_part((assert(Html.url_query({ { "a b", "c&d" }, { "e", "f" } })))) == "a%20b=c%26d&e=f")
-    assert(Html.raw_attr(Html.escape_css_attr("1, x\0")) == "&#92;31&#32;&#92;2c&#32;&#92;20&#32;x\xef\xbf\xbd")
+    assert(Html.raw_attr(Html.escape_css_attr("1, x\0")) == "\\31 \\2c \\20 x\xef\xbf\xbd")
     assert(Html.raw_json((assert(Html.json({ 1 })))) == "[1]")
   end)
   assert(ended > 0, "a safe value is an allocation")
@@ -854,10 +993,12 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local bytes, blocks = testing.c_heap()
   local ended = AllocationFixture.under_every_failure(function()
     local value, trouble = Json.decode(text, { null_value = Json.null })
-    assert(trouble == "", trouble)
-    assert(Json.encode(assert(value)) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
+    assert(value ~= nil and trouble == "", trouble)
+    assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
     assert(assert(Json.encode_any(wide, { pretty = true })):sub(1, 1) == "{")
-    local lone = assert(Json.decode('["\\ud83d"]', { lone_surrogates = true })) as {string} -- checked: cast_refused
+    local lone_value, lone_trouble = Json.decode('["\\ud83d"]', { lone_surrogates = true })
+    assert(lone_value ~= nil, lone_trouble)
+    local lone = lone_value as {string} -- checked: cast_refused
     assert(lone[1] == "\u{FFFD}")
     assert(Json.check(text))
     assert(assert(Json.format(text, { pretty = true })):sub(1, 1) == "{")

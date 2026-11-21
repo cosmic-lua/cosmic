@@ -488,7 +488,10 @@ local function test_create_a_zip_sorts_its_entries_and_round_trips(tmp: string)
   assert(Fs.read(tmp .. "/back/tree/a.txt") == "aye")
   assert(Fs.read(tmp .. "/back/tree/sub/m.txt") == "em")
   assert(Fs.read(tmp .. "/back/loose.txt") == "loose")
-  assert(Fs.is_dir(tmp .. "/back/tree/empty"))
+  do
+    local held_true, held_why = Fs.is_dir(tmp .. "/back/tree/empty")
+    assert(held_true == true, held_why)
+  end
 end
 
 local function test_create_streams_a_large_file_into_a_zip_in_bounded_memory(tmp: string)

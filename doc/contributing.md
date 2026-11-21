@@ -31,7 +31,8 @@ conflict with the parent's squash.
    work from that worktree's root by absolute path, and keep `<branch>`
    the PR's branch name so `git push -u origin <branch>` pushes this
    worktree's commits.
-4. `bin/zig build boot` there: the host's core and the tree, which is
+4. `bin/zig build boot` there: the host's core, taken from a release
+   where the tree's C is that release's ([`AGENTS.md`]), and the tree, which is
    all the loop below runs ([`AGENTS.md`] says what that host-only tool
    leaves to `bin/zig build boot -Dboot-cores=all`). zig's caches and the Teal compile cache
    (`COSMIC_BUILD_CACHE` names another file, `0` none) are shared by
@@ -56,8 +57,12 @@ conflict with the parent's squash.
   what changed, then the full suite, `timeout 2700 bin/cosmic test`
   ([`doc/testing.md`] says how long it takes).
 - `bin/cosmic fix --check .` when the change touches what the whole-tree
-  checks read. it takes 5 to 11 minutes (`timeout 2400`), and says which
-  of its checks it is on.
+  checks read. it takes 5 to 11 minutes (`timeout 2400`) where no
+  checkout of the host has checked the tree's files with the same
+  checking code, and about 3 where one has: what a check found of a file
+  is kept by the file's content, and the checkouts whose `cosmic fix`
+  is the same bytecode on the same core share it
+  ([`build/check_memo.tl`]). it says which of its checks it is on.
 - a change under `.github/`: `bin/cosmic test build/workflows_test.tl`.
 - a change to the artifact format, the launcher or `cosmic build`:
   `bin/zig build boot -Dboot-cores=all` first, so that the tool carries
@@ -107,10 +112,10 @@ line below it. [`build/markers.tl`] has the rules.
   refuses a file that holds more than it did at the merge base with
   main, so a marker cannot be added, and one that is written over a
   line that moved is not new. it reads the base with git alone (`git
-  grep` and `git cat-file`), with no run of the checker. CI runs it on
-  every branch push and in the merge queue, against the merge base with
+  grep` and `git cat-file`), with no run of the checker. CI runs it in
+  the merge queue (and on main's runs), against the merge base with
   main and never the entry ahead in the queue, where it fails when no base
-  can be found (GitHub could not name it: run the job again), and
+  can be found (the step that finds it says why: run the job again), and
   `bin/cosmic fix --check .` runs it locally against `git merge-base HEAD
   origin/main`, saying so when there is no `origin/main` (`git fetch
   origin main`) or no git checkout. a file renamed with markers loses
@@ -212,23 +217,33 @@ removed lines in `git diff origin/main...HEAD | grep '^-.*TODO:'`.
 
 ## merge
 
-main takes changes only through the merge queue, which runs CI again
-on the queued merge commit ([`.github/workflows/ci.yml`] runs on
-`merge_group`). enable auto-merge, and watch both the branch's run and
-the queue's. start a next PR that depends on this one only once it has
-merged.
+main takes changes only through the merge queue, which runs CI on the
+queued merge commit ([`.github/workflows/ci.yml`] runs on
+`merge_group`). a push to a branch runs no CI: the checks above, run
+locally, are the branch's. a pull request runs one light check, the `ci`
+check the queue requires of it: the tree booted and `fix --check` of
+what it changed, with the checks spanning files over the whole tree.
+enable auto-merge, and watch the queue's run.
+start a next PR that depends on this one only once it has merged.
 
 on a failure, find the cause, fix it in the worktree, re-run the checks
 and push. never skip or disable a test to get green.
 
-a branch push whose change touches what only the queue's legs prove (ci/,
-the build and core inputs, the harness's epoch, the artifact and launcher
-modules: [`.github/scripts/branch-scope.txt`]) runs the queue's scope on the
-branch, so those failures show there, and it takes about as long as the
-queue's run does; any other branch push runs the light scope.
+the queue's run is a light, fast gate: linux-x86_64's native suite and
+the format check of what the change touched. everything else (the other legs, assemble, the
+regressions and product suite, the checked suite and the checked
+narrowing run) runs on main's push after the merge, and macOS in main's
+daily scheduled run, so a failure only those show turns main red after
+the change lands; fix it, or revert the change, at once. a change to what they prove more than the native suite
+does (ci/, bin/, the core's C, `build.zig`, vendor/ and patch/, the
+harness's epoch, the artifact, launcher and boot modules, a darwin
+branch or anything macOS-specific, code the checked core or a checked run would catch) runs CI on
+its branch first: a manual run (`workflow_dispatch` on the branch, from
+the Actions tab or `gh workflow run ci.yml --ref <branch>`) runs what
+main's run does.
 
 a queue run tests the change merged with every entry ahead of it, so it
-can fail where the branch's run passed. when it fails building, on a
+can fail where the branch's checks passed. when it fails building, on a
 type error in code the change did not touch, it has met another change:
 never queue the same head again. find the entry it met (the error names
 its code); if that entry is still queued, wait for it to land or leave.
@@ -251,8 +266,12 @@ worktree's build directory too ([`build/paths.tl`] names it).
 [`bin/zig`], [`bin/vendor`], `ci/` and the standalone scripts run on the
 release [`ci/cosmic-driver.pin`] names, not on the tree. what a change
 adds reaches them only once the pin moves, and it can only move after
-the change merges and main publishes its `<YYYYMMDD>-<commit>` prerelease
-([`ci/README.md`]).
+the change merges and a prerelease that holds it is published. main
+publishes one, `<YYYYMMDD>-<commit>`, from its daily scheduled run and
+from a manual run of `ci` on main, not from each merge
+([`.github/workflows/prerelease.yml`], [`ci/README.md`]): the newest is
+up to a day behind main, and it may name a later commit than the
+merge's own.
 
 [`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] each run their
 Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], which
@@ -260,11 +279,11 @@ fetches that release once and caches it by digest. [`bin/cosmic`] asks
 [`build/paths.tl`] for the build directory the same way.
 `COSMIC_BOOTSTRAP=<path>` makes [`bin/cosmic-bootstrap`] answer another
 cosmic instead, such as the tree's own tool (by its path in the build
-directory; [`bin/cosmic`] itself is refused), for all of them and for CI's
-driver step alike.
+directory, which `bin/cosmic build` prints; [`bin/cosmic`] itself is
+refused), for all of them and for CI's driver step alike.
 
 when a change adds what a `TODO:` waiting on the pin needs, or API those
-scripts would use, open a follow-up once that prerelease exists. move
+scripts would use, open a follow-up once a prerelease holds it. move
 the pin to it with `cosmic release`, giving the commit main merged it as
 (a later release carries it too; with no `--commit` it takes the
 newest):
@@ -302,8 +321,8 @@ a standing entry would always fail, and the pinned boot (unset
 the pin move. a difference not listed fails the boot under any seed, since
 the tool named can be older than the tree's generator.
 
-[`.github/scripts/branch-scope.txt`]: ../.github/scripts/branch-scope.txt
 [`.github/workflows/ci.yml`]: ../.github/workflows/ci.yml
+[`.github/workflows/prerelease.yml`]: ../.github/workflows/prerelease.yml
 [`AGENTS.md`]: ../AGENTS.md
 [`bin/cosmic-bootstrap`]: ../bin/cosmic-bootstrap
 [`bin/cosmic`]: ../bin/cosmic
@@ -313,6 +332,7 @@ the tool named can be older than the tree's generator.
 [`build.boot`]: ../build/boot.tl
 [`build.fix.format`]: ../build/fix/format.tl
 [`build/ceilings_base.tl`]: ../build/ceilings_base.tl
+[`build/check_memo.tl`]: ../build/check_memo.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/paths.tl`]: ../build/paths.tl
 [`build/seed.tl`]: ../build/seed.tl

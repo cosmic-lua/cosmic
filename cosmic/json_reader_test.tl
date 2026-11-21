@@ -8,6 +8,13 @@ local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local ChunkedReader = require("build.chunked_reader_fixture")
 
+--- The value of a value-and-reason pair, which is there: `assert` takes no optional that may hold `false`, which it would
+--- raise for as for nil.
+local function known_value(value: Json.Value?, why?: string): Json.Value
+  assert(value ~= nil, why)
+  return value
+end
+
 --- A JSON text, and what reading it answers: the tokens it reads as, or the refusal it ends in.
 local record Reading
   text: string
@@ -134,7 +141,7 @@ local function test_value_reads_one_whole_value()
     assert(assert(r:next()).kind == "array")
     local ids: mut {integer} = {}
     while r:peek() == "object" do
-      local row = assert(r:value())
+      local row = known_value(r:value())
       ids[#ids + 1] = assert(Shape.into(Json.get(row, { "id" }), Shape.integer))
       assert(Json.is_array((Json.get(row, { "tags" }))), "an array decodes marked, as decode marks one")
     end
@@ -272,7 +279,7 @@ local function test_a_long_token_in_small_chunks_reads_in_linear_time()
   assert(#got[2] == #"string=@/0" + #long)
   local r = Json.reader(ChunkedReader.chunked('[{"a": "' .. long .. '"}]', 3))
   assert(assert(r:next()).kind == "array")
-  assert(Json.get(assert(r:value()), { "a" }) == long)
+  assert(Json.get(known_value(r:value()), { "a" }) == long)
 end
 
 --- A failure inside `value`, under a place too long for a message, is
@@ -367,11 +374,11 @@ local function test_json5_numbers_and_strings_are_what_decode_reads()
   local texts = { "+1", ".5", "5.", "0x1F", "-0x1f", "+0xA", "Infinity", "-Infinity", "1e5", "'a\\x41'",
     "'\\u00e9\\n'", "\"\\'\"", "'\\0\\v\\b'", "'q\\\n'", "'\u{2028}'" }
   for _, text in ipairs(texts) do
-    local want = assert(Json.decode(text, { json5 = true }))
+    local want = known_value(Json.decode(text, { json5 = true }))
     local got = assert(Json.reader(Stream.from_string(text), JSON5):next())
     assert(got.value == want, ("%q: %s, not %s"):format(text, tostring(got.value), tostring(want)))
     assert(math.type(got.value) == math.type(want))
-    local viewed = assert(Json.reader(Stream.from_string(text), JSON5):value())
+    local viewed = known_value(Json.reader(Stream.from_string(text), JSON5):value())
     assert(viewed == want, "value reads the same")
   end
   local nan = assert(Json.reader(Stream.from_string("NaN"), JSON5):next()).value
@@ -512,12 +519,12 @@ end
 --- as `decode` reads it, whatever brackets and quotes its comments hold.
 local function test_value_reads_json5_and_comments()
   local text = "{/* ] */ rows: [ // }\n  {id: 1, 'name': 'a}', tags: [0x1F, .5,],}, # ]\n  {id: 2,},\n ], // \"\n n: 3}"
-  local want = assert(Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null }))
+  local want = known_value(Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null }))
   for _, size in ipairs({ 1, 2, 5, 1000 }) do
     local r = Json.reader(ChunkedReader.chunked(text, size), { json5 = true, hash_comments = true, null_value = Json.null })
     assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
     assert(r:peek() == "array")
-    local rows = assert(r:value())
+    local rows = known_value(r:value())
     assert(#assert(Json.to_array(rows)) == 2 and Json.get(rows, { 1, "id" }) == 1 and Json.get(rows, { 1, "name" }) == "a}" and
         Json.get(rows, { 2, "id" }) == 2 and Json.get(want, { "n" }) == 3)
     assert(assert(r:next()).value == "n" and r:value() == 3)
@@ -633,7 +640,7 @@ end
 local function test_a_nested_value_with_many_comments_reads_in_one_byte_chunks()
   local text = "[" .. string.rep("1, /* c */ ", 10000) .. "2]"
   local r = Json.reader(ChunkedReader.chunked("[" .. text .. "]", 1), JSON5)
-  assert(assert(r:next()).kind == "array" and #assert(Json.to_array((assert(r:value())))) == 10001)
+  assert(assert(r:next()).kind == "array" and #assert(Json.to_array((known_value(r:value())))) == 10001)
 end
 
 --- yyjson reads JSON5's extra whitespace right after an object's `{` or
@@ -674,7 +681,7 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
     local r = Json.reader(Stream.from_string(text), JSON5)
     local kinds: mut {string} = {}
     while r:peek() ~= nil do kinds[#kinds + 1] = assert(r:next()).kind end
-    assert(#kinds >= 4 and assert(Json.decode(text, { json5 = true })), text) -- checked: or_mix
+    assert(#kinds >= 4 and Json.decode(text, { json5 = true }) ~= nil, text)
   end
   -- Whitespace after a comment, or anywhere else, is read.
   for _, text in ipairs({ "{/**/\u{a0}a:1}", "{a:1,// c\n\u{a0}b:2}", "{a\u{a0}:\u{a0}1\u{a0}, 'b':2\u{a0}}",
@@ -727,6 +734,6 @@ local function test_a_token_that_stops_early_inside_a_container()
   for _, text in ipairs({ "[1.5.5, +]", "{a: [0x1.5, 1_0]}", "{a: 1.5.5}" }) do
     local _, want = Json.decode(text, { json5 = true })
     local _, got = tokens(text, 2, JSON5)
-    assert(want:find("expected ',' or", 1, true) and got == want, ("%q: %s, decode %s"):format(text, got, want))
+    assert(want:find("expected ',' or", 1, true) ~= nil and got == want, ("%q: %s, decode %s"):format(text, got, want))
   end
 end

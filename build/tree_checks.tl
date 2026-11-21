@@ -39,16 +39,18 @@ local CodeWalk = require("build.code_walk")
 local _ = require("build.reads.all")
 local closure_store = require("build.closure_store")
 local ContractRules = require("build.contract_rules")
-local declared_key = require("build.declared_key")
+local key_parts = require("build.key_parts")
 local docs = require("build.docs")
+local Doc = require("cosmic.doc")
 local docs_checks = require("build.docs_checks")
 local ErrorRender = require("build.error_render")
 local GrammarMode = require("build.grammar_mode")
 local Pipeline = require("build.pipeline")
-local link_text = require("build.link_text")
+local link_text = require("cosmic.internal.link_text")
 local host_names = require("build.host_names")
 local identity = require("build.identity")
 local importer = require("build.importer")
+local refusals = require("build.refusals")
 local Ast = require("lang.ast")
 local Check = require("lang.check")
 local Ceilings = require("build.ceilings")
@@ -70,11 +72,12 @@ local ScopesCover = require("lang.scopes_cover")
 local Warnings = require("lang.warnings")
 local TreeProgram = require("build.tree_program")
 local shared_compiles = require("build.shared_compiles")
-local symbols = require("build.symbols")
+local symbols = require("cosmic.internal.symbols")
 local work = require("build.work")
 local writer = require("build.writer")
 local String = require("cosmic.string")
 local Hash = require("cosmic.hash")
+local artifact = require("build.artifact")
 
 --- Element `position` of `list`, a position taken from its bounds or from the rows a producer in this file made.
 local function nth<T>(list: {T}, position: integer): T
@@ -100,16 +103,29 @@ end
 --- uses them, by `<module>.<member>`, and why each is kept.
 local allowed: mut {string: string} = {}
 
+allowed["build.c.bootstrap_cosmic"] = "the bootstrap cosmic a check's compiler runs on, fetched unconfined " ..
+  "where it is not cached; the module's toolchain calls it, and a test holds it to saying why where it cannot be had"
+allowed["build.c.own_caches"] = "the environment c.check gives a confined compiler, with every cache it writes in " ..
+  "the check's own directory, which a test holds to the cores among them: the host's fail a check where they are cold"
+allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the host's /proc/meminfo: a sandbox's /proc has " ..
+  "none, and no test is to depend on what its host has free"
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
 
-allowed["build.searchable.share"] = "opens one file or directory to every user for the tests of a policy's child; build/child_policy_fixture.tl imports the module for `open`, so the tests' own uses no longer earn `share`"
+allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..
+  "clock, and build/importer_test.tl of times it chooses"
 
 allowed["build.shared_verdicts.rows_kept"] = "the bound a file of a checked run's verdicts keeps, which the file's name decides; the settle of the same module applies it, and a test holds the names to it"
 allowed["build.test_key.requirements"] = "the names a module requires of its host, `loopback` derived from its declared addresses, which `ask_host` asks and a test holds to the derivation"
 allowed["build.test_key.met_nothing"] = "whether a checked run's report holds a violation, which `judge` asks and a test holds to the report's two clauses (a row, and rows that went unrecorded)"
+allowed["build.work.lock_holder_in"] = "the reading of /proc/locks `holding` names a lock's holder by, which a test " ..
+  "holds to lines a sandboxed worker's /proc cannot show it"
+allowed["build.work.holder_line"] = "what `holding` says of what it read of the host, which a test holds to hosts " ..
+  "a sandboxed worker cannot be"
+allowed["build.work.waiting_line"] = "the line a run waiting for the working database's write lock says, which " ..
+  "only a run another holds the lock against reaches; its test holds the wording without a second process"
 allowed["build.memprobe.enabled"] = "the switch `COSMIC_MEMPROBE` sets for a run, which a test turns on to read the line a mark writes"
 
 allowed["build.type_watch.skip_reason"] = "the reason `during` skips with, which a test reads for a checked and a plain run " ..
@@ -167,9 +183,6 @@ allow({ "build.pipeline.over" }, "the build's compile with the new checker: a bu
 
 allow({ "build.pipeline.project" }, "tested directly: the options of a project given the texts of the declarations (a worker's " ..
     "store holds none of the tool's)")
-
-allowed["build.driver.stubs"] = "the provider of modules whose stub text is given, which the build's wiring gives the stubs " ..
-  "the projection carries; tested directly over fixture text"
 
 allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS servers for " ..
   "callers outside this tree; tested directly over a resolv.conf"
@@ -237,6 +250,9 @@ allowed["build.identity.writer_modules"] = "what build/importer_test.tl holds th
   "writer's identity, the compiler's, or neither with a reason"
 allowed["build.identity.writer_left_out"] = "what build/importer_test.tl holds to the " ..
   "requires of the writer's roots"
+allowed["build.test_key.sealed_meta"] = "what build/sealed_meta_test.tl holds the rows of a " ..
+  "sealed database to: the value of a row its worker reads, the marker of one it does not, and a " ..
+  "refusal where the process has no value to hand on"
 allowed["build.reboot.carries_tree_code"] = "what build/reboot_test.tl holds to " ..
   "the modules a tree holds and the binary carries"
 allowed["build.declared_key.preimage"] = "what build/declared_key_fuzz_test.tl " ..
@@ -284,10 +300,12 @@ allowed["build.test_inputs.lua_loads"] = "what build/lua_children_test.tl holds 
 allowed["build.test_inputs.standalone_loads"] = "what build/lua_standalone_test.tl " ..
   "holds a child's `--standalone` to loading no more than, beside `lua_loads`, as the " ..
   "artifact a module that requires build.standalone's children run carries them"
-allow({ "build.test_key.harness", "build.test_key.worker_environment", "build.test_key.scratch" },
+allow({ "build.test_key.worker_environment", "build.test_key.scratch" },
   "tested directly: the tests hand them what the running binary alone gives the runner -- " ..
     "a tree's or a fixture's modules, an environment with no startup hook of its own, a " ..
     "directory made as a worker is given one")
+allowed["build.test_key.program_database"] = "tested directly: the test holds it to the ranges it reads of a file " ..
+  "laid out as an artifact, which a run that seals reads only of the running program"
 allowed["build.test_key.value_imports"] = "tested directly: the harness's test reads, " ..
   "by it, what each module the harness runs requires by value, as `key_code` walks it"
 allowed["build.test_key.type_only_imports"] = "tested directly: the harness's test holds " ..
@@ -697,29 +715,65 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
   return out
 end
 
---- Whether `line` reads the compiler's identity, or a `meta` row by a
---- name no reader can see: [`Store.meta`] called with anything but a
---- string.
-local function reads(line: string): boolean
-  for _, name in ipairs({ "compiler", "compiled_by" }) do
+--- Whether `line` reads one of the `meta` rows `entry.keys` by its quoted
+--- name, as [`Store.meta`] takes it (or a function of the module that
+--- passes it on, `meta_of`); or reads a row by a name no reader can see:
+--- [`Store.meta`] called with anything but a string, or with a string and
+--- more (`"image_" .. rest`); or takes [`Store.meta`] as a value, in code,
+--- (after an `=`, a `,` or a `(`), where an alias or a callback would read
+--- any row. A declaration of the
+--- function is none of these.
+---
+-- TODO: see a read of a row in SQL over a handle [`Store.databases`] answers,
+-- which a scan of lines cannot tell from one over any other database, once
+-- the checker answers which module opens a handle from the store's databases.
+-- Until then the store's loud refusal ([`Store.meta`] raises for a withheld
+-- row) is the backstop for a read by name; a query of the handle finds no row.
+local function reads(line: string, entry: key_parts.MetaReaders): boolean
+  if line:find("^%s*function ") ~= nil then return false end
+  for _, name in ipairs(entry.keys) do
     for _, quote in ipairs({ '"', "'" }) do
-      if line:find("meta%(%s*" .. quote .. name .. quote .. "%s*%)") ~= nil then return true end
+      for _, call in ipairs({ "meta", "meta_of" }) do
+        if line:find(call .. "%(%s*" .. quote .. name .. quote) ~= nil then return true end
+      end
     end
   end
-  return line:find("Store%.meta%(%s*[^\"'%s]") ~= nil and line:find("^%s*function ") == nil
+  if line:find("Store%.meta%(%s*[^\"'%s]") ~= nil then return true end
+  if line:find("Store%.meta%(%s*[\"'][^\"']*[\"']%s*%.%.") ~= nil then return true end
+  if line:find("^%s*%-%-") == nil then
+    local at = 1
+    while true do
+      local first, last = line:find("Store%.meta", at, false)
+      if first == nil or last == nil then break end
+      local rest = line:sub(last + 1)
+      local before = line:sub(1, first - 1)
+      if rest:find("^%s*%(") == nil and rest:find("^[%w_\"'`]") == nil and
+          before:find("[=,(]%s*$") ~= nil and before:find("==%s*$") == nil then
+        return true
+      end
+      at = last + 1
+    end
+  end
+  return false
 end
 
---- Each module of `db` that reads the compiler's identity through
---- [`Store.meta`] and `named` (by default [`build.declared_key`]'s
---- [`compiler_readers`]) does not name, and then each it names that no
---- longer reads it.
+--- Each module of `db` that reads a row of the group `group` of
+--- [`build.key_parts`]' [`meta_readers`] (`compiler`, `image_hash`) through
+--- [`Store.meta`] and `named` (by default the group's `readers` and
+--- `carriers`) does not name, and then each it names that no longer reads
+--- one.
 ---
---- A closure store carries no such row ([`build.closure_store`]), so a
---- worker's read of it is answered by the running tool, and only a
---- test whose closure holds a named reader is keyed by the tool's
---- identity. A reader the list misses would leave a verdict standing
---- that turned on a compiler no key held.
-function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {string}
+--- A worker is given such a row only where its closure holds a reader the
+--- map names ([`build.key_parts`]'s `reads_meta`): the compiler's identity
+--- is answered by the running tool and held in the key of that test alone,
+--- and a closure store carries `image_hash` for it alone. A reader the map
+--- misses would leave a verdict standing that turned on a value no key
+--- held, or be given no row.
+function tree_checks.meta_readers(db: Sqlite.Handle, group: string, named?: {string}): {string}
+  local entry = key_parts.meta_group(group)
+  if entry == nil then
+    return { group .. " is no group of build/key_parts.tl's `meta_readers`" }
+  end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if rows == nil then
@@ -728,26 +782,34 @@ function tree_checks.compiler_readers(db: Sqlite.Handle, named?: {string}): {str
   local found: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
     for line in String.lines(row:text(2)) do
-      if reads(line) then
+      if reads(line, entry) then
         found[row:text(1)] = true
         break
       end
     end
   end
   local listed: mut {string: boolean} = {}
-  for _, name in ipairs(named or declared_key.compiler_readers) do listed[name] = true end
+  local names: mut {string} = {}
+  if named ~= nil then
+    for _, name in ipairs(named) do names[#names + 1] = name end
+  else
+    for _, name in ipairs(entry.readers) do names[#names + 1] = name end
+    for _, name in ipairs(entry.carriers) do names[#names + 1] = name end
+  end
+  for _, name in ipairs(names) do listed[name] = true end
+  local what = table.concat(entry.keys, "/")
   local missing, stale: mut {string}, mut {string} = {}, {}
   for name in pairs(found) do
     if listed[name] ~= true then
-      missing[#missing + 1] = name .. " reads the compiler's identity, but " ..
-        "build/key_parts.tl's `compiler_readers` does not name it, so no key " ..
+      missing[#missing + 1] = name .. " reads the meta row " .. what .. ", but " ..
+        "build/key_parts.tl's `meta_readers." .. group .. "` does not name it, so no key " ..
         "of a test that runs it holds it"
     end
   end
   for name in pairs(listed) do
     if found[name] ~= true then
       stale[#stale + 1] = name .. " is named in build/key_parts.tl's " ..
-        "`compiler_readers`, but no longer reads the compiler's identity -- remove it"
+        "`meta_readers." .. group .. "`, but no longer reads the meta row " .. what .. " -- remove it"
     end
   end
   table.sort(missing)
@@ -867,7 +929,7 @@ function tree_checks.stand_ins(db: Sqlite.Handle, cases?: {{string}}): {string}
     if query == nil or wanted == nil then
       out[#out + 1] = "a stand-in case is the query a newcomer types and the function that stands in for it"
     else
-      local found, lookup_trouble = docs.lookup(looked, query)
+      local found, lookup_trouble = Doc.lookup(looked, query)
       local first = "nothing"
       if found == nil then
         first = "nothing (" .. lookup_trouble .. ")"
@@ -912,7 +974,7 @@ function tree_checks.queries(db: Sqlite.Handle, wanted?: {string}): {string}
   end
   local out: mut {string} = {}
   for _, query in ipairs(wanted or queries_expected()) do
-    local found, lookup_trouble = docs.lookup(looked, query)
+    local found, lookup_trouble = Doc.lookup(looked, query)
     if found == nil then
       out[#out + 1] = "`cosmic docs " .. query .. "`: " .. lookup_trouble
     elseif #found == 0 then
@@ -1098,6 +1160,26 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
   return out, ""
 end
 
+--- The test modules granted the zig cache (`caches = { "zig" }`) that do not require `pinned_zig`, one finding each,
+--- as the working database `build` holds their declarations. The cache is granted to start the pinned zig, as a
+--- check of the core's C does: where zig is not installed (a seeded boot) such a module fails each test on a start
+--- of bin/zig its worker cannot make, where the requirement skips it, naming the fix.
+--- @param build the working database
+--- @return the findings, or nil and why the declarations cannot be read
+function tree_checks.unguarded_zig(build: Sqlite.Handle): {string}?, string
+  local rows, trouble = Sqlite.text_rows(build,
+    "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
+      "WHERE t.field = 'caches' AND t.value = 'zig' AND NOT EXISTS (SELECT 1 FROM test_inputs r " ..
+      "WHERE r.source_hash = t.source_hash AND r.field = 'requires' AND r.value = 'pinned_zig') ORDER BY i.path")
+  if rows == nil then return nil, "reading the declared caches: " .. trouble end
+  local out: mut {string} = {}
+  for _, row in ipairs(rows) do
+    out[#out + 1] = row:text(1) .. " is granted the zig cache and does not require pinned_zig: add " ..
+      "requires = { \"pinned_zig\" } to its Test.policy, so it skips where zig is not installed"
+  end
+  return out, ""
+end
+
 --- The test modules that run a program the portable launcher starts, or
 --- open the store, or require a portable host, by the module's path:
 --- the ones whose key holds the launcher, as the working database `build`
@@ -1122,6 +1204,10 @@ end
 local launcher_allowed: mut {string: string} = {}
 launcher_allowed["build.caches_test"] = "names COSMIC_PORTABLE_CACHE as a key of the " ..
   "environment it hands a pure function of the cache variables"
+launcher_allowed["build.c.rules_test"] = "names COSMIC_PORTABLE_CACHE in the environment it hands " ..
+  "c.own_caches, a pure function, and reads none from its own process"
+launcher_allowed["build.declared_key_test"] = "names COSMIC_PORTABLE_CACHE as a variable of the " ..
+  "environment a spec it keys holds, and reads none from its own process"
 launcher_allowed["build.launcher_test"] = "renders the launcher's text with build.launcher and runs " ..
   "it in a child of its own, with COSMIC_PORTABLE_TEST_CPUINFO named in the child's environment"
 launcher_allowed["build.test_sandbox_test"] = "names COSMIC_PORTABLE_CACHE in the environments " ..
@@ -1277,7 +1363,7 @@ end
 ---
 --- The tree is compiled with the new checker, as `cosmic test` compiles it.
 function tree_checks.projection(root: string, standing: tree_standing.Standing): Sqlite.Handle?, string
-  local handle, open_trouble = work.open(root)
+  local handle, open_trouble = work.open(root, nil, "fix")
   if handle == nil then
     return nil, open_trouble
   end
@@ -1295,7 +1381,7 @@ function tree_checks.projection(root: string, standing: tree_standing.Standing):
   local refused = result.refused
   if #refused > 0 then
     local _, _ = work.close(handle)
-    return nil, "the tree does not build:\n" .. table.concat(refused, "\n")
+    return nil, "the tree does not build:\n" .. refusals.text(refused, result.refusal_roots or {})
   end
   local path = build_paths.resolve(root).projection
   local written, write_trouble = writer.write_result(handle, path, result)
@@ -1575,30 +1661,6 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   end
   table.sort(unread)
   for _, line in ipairs(unread) do out[#out + 1] = line end
-  return out
-end
-
---- Every `doc/guides/*.md` is either a user guide, which the binary
---- carries ([`symbols.guides`]), or one named in [`symbols.internal_guides`]
---- with its reason. A guide in neither would silently not ship.
-function tree_checks.guides(db: Sqlite.Handle): {string}
-  local rows, trouble = Sqlite.text_rows(db,
-    "SELECT path FROM modules WHERE path GLOB 'doc.guides.*' ORDER BY path")
-  if rows == nil then
-    return { "reading the guides: " .. trouble }
-  end
-  local known: mut {string: boolean} = {}
-  for _, name in ipairs(symbols.guides) do known[name] = true end
-  for name in pairs(symbols.internal_guides) do known[name] = true end
-  local out: mut {string} = {}
-  for _, row in ipairs(rows) do
-    local name = row:text(1):sub(#"doc.guides." + 1)
-    if known[name] ~= true then
-      out[#out + 1] = "doc/guides/" .. name .. ".md is in neither `symbols.guides` nor " ..
-        "`symbols.internal_guides` (build/symbols.tl): name it in one, so it ships or " ..
-        "is left out on purpose"
-    end
-  end
   return out
 end
 
@@ -2082,6 +2144,39 @@ local function scope_outcome(file: string, source: string, declared: {string: Sc
   return outcome
 end
 
+--- What [`tree_checks.share_checks`] read of the tool, inside [`Store.alone`].
+local record Coded
+  mut code: string?
+  mut trouble: string
+end
+
+--- Shares the rows of this process's memoed checks with the host's other checkouts ([`build.check_memo`]), under the
+--- code this tool checks with: the bytecode of the modules `cosmic fix` loads, read from the tool's own database and
+--- not a projection attached ahead of it, and every byte of the tool ahead of that database. Answers whether they are
+--- shared, and why not where the tool could not be read or the shared file not opened; a run that shares none by
+--- its environment answers false and "".
+function tree_checks.share_checks(): boolean, string
+  local path = check_memo.shared_path()
+  if path == nil then return check_memo.share(nil) end
+  local head, head_trouble = artifact.trusted_prefix()
+  if head == nil then
+    local _, _ = check_memo.share(nil)
+    return false, head_trouble
+  end
+  local core = Hash.hex_sha256(head)
+  local coded: Coded = { code = nil, trouble = "" }
+  Store.alone(function()
+    coded.code, coded.trouble = check_memo.code_of({ requires = Store.requires, bytecode = Store.bytecode,
+      holds = Store.holds, core = core })
+  end)
+  local code = coded.code
+  if code == nil then
+    local _, _ = check_memo.share(nil)
+    return false, coded.trouble
+  end
+  return check_memo.share(path, { code = code })
+end
+
 --- Every `.tl` file of the tree, scoped ([`lang.scopes`]) in the new checker's grammar: the names it resolves must agree
 --- with the tree ([`lang.scopes_cover`]), and its errors are the ones its markers hold ([`build.ceilings`]), no more: an error
 --- with no marker on its line is listed with its place and fix, and a marker that holds more than its line has is stale.
@@ -2232,7 +2327,7 @@ local function tree_of(given: {{string}}, salt: string, bindings?: {{string}}, w
     files[#files + 1] = entry -- checked: view_written
     derived[nth(entry, 1)] = true
   end
-  -- No [`TreeProgram.declared`] here: a `.d.tl` beside a `.tl`, or one that names no kind, is refused when the tree is built ([`Pipeline.build`]), which the
+  -- No complaint of [`build.source_parse`]'s `declared` here: a `.d.tl` beside a `.tl`, or one that names no kind, is refused when the tree is built ([`Pipeline.build`]), which the
   -- checks that read this index follow, and the files given are a tree that built.
   local index = TreeProgram.index(files, {})
   local tree: Tree = { rows = {}, by_module = {}, index = index }
@@ -2461,7 +2556,7 @@ function tree_checks.checked(root: string, memo?: Sqlite.Handle, phases?: {strin
   local salt = check_memo.salt(root, { "lang/ast.tl", "lang/lexer.tl", "lang/parser.tl", "lang/scopes.tl",
     "lang/truthy.tl", "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl",
     "lang/flow.tl", "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl", "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
-    "build/syntax_shape_specs.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
+    "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/gen_syscalls.tl", "core/syscalls.h", "core/process.h",
     "core/socket.h" }, "checked 6")
   local written, written_why = TreeProgram.derived_of(root)
   if written == nil then
@@ -2519,7 +2614,7 @@ function tree_checks.pipeline(root: string, build_db: Sqlite.Handle, memo?: Sqli
     "lang/types.tl", "lang/relation.tl", "lang/declarations.tl", "lang/check.tl", "lang/flow.tl",
     "lang/check_codes.tl", "lang/warnings.tl", "lang/prelude.d.tl", "lang/stdlib.d.tl",
     "build/check_memo.tl", "build/driver.tl", "build/tree_checks.tl", "build/tree_program.tl",
-    "build/syntax_shape_specs.tl", "build/pipeline.tl", "build/pipeline_check.tl",
+    "build/syntax_shape_specs.tl", "build/syntax_record_calls.tl", "build/syntax_protobuf_specs.tl", "build/syntax_record_splices.tl", "build/pipeline.tl", "build/pipeline_check.tl",
     "build/gen_syscalls.tl", "build/compile_grammar.tl", "build/main_locals.tl", "build/lua_tail.tl", "lang/codegen.tl", "lang/truthy.tl", "lang/fact_wraps.tl",
     "lang/boundaries.tl", "lang/boundary_checks.tl",
     "core/syscalls.h", "core/process.h", "core/socket.h" }, "pipeline 4")
@@ -3066,11 +3161,13 @@ end
 local text_read_allowed <const>: {string:string} = {
   ["build.checker_declarations"] = "reads the declarations of the globals and the standard library, which a closure store adds for a closure that holds this module ([`build.closure_store`]'s `declared_beside`), so its read is never short",
   ["build.plans"] = "asks the stub or source of a standard-library module a compile names; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
+  ["build.stamp"] = "hashes each declaration's source into what binds a tool's stamps to its rows; a store a test is given carries no stamp, and where it withholds a source the binding is not the stamps' and none is answered",
   ["build.standard_text"] = "serves the stub or source of a standard-library module; the pure store holds the stubs a test names and fails for the rest ([`Store.withheld`])",
   ["build.closure_store"] = "reads the projection it writes the stores of, which a test is never given and which no test's store holds",
   ["build.perf"] = "a standalone script a release program runs; its SQL is the argument of a `cosmic sql` it starts and times against a project's own store, not a read of the store a test is given, and it cannot require a module of the tree it benchmarks",
   ["build.writer"] = "writes the projection from the working database it is handed, whose tables a test's store never holds",
-  ["build.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`build.symbols`]'s `refuse_withheld`)",
+  ["cosmic.internal.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`cosmic.internal.symbols`]'s `refuse_withheld`)",
+  ["cosmic.doc"] = "answers a caller from the docs, uses, links and examples of the databases it is handed; in a pure store those tables are absent and it raises, naming `store_text`; a standard-library module, which cannot require a module of the build",
   ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",
 }
 
@@ -3152,11 +3249,14 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
   for _, line in ipairs(tree_checks.text_readers(db)) do
     out[#out + 1] = "text readers: " .. line
   end
+  for _, line in ipairs(tree_checks.meta_readers(db, "image_hash")) do
+    out[#out + 1] = "image_hash readers: " .. line
+  end
   for _, check in ipairs({
       { name = "exports", lines = tree_checks.exports(db) }, -- checked: arms_differ
       { name = "unnamed types", lines = tree_checks.unnamed_types(db) }, -- checked: arms_differ
       { name = "doc anchors", lines = tree_checks.anchors(db) }, -- checked: arms_differ
-      { name = "compiler readers", lines = tree_checks.compiler_readers(db) }, -- checked: arms_differ
+      { name = "compiler readers", lines = tree_checks.meta_readers(db, "compiler") }, -- checked: arms_differ
       { name = "build directory", lines = tree_checks.build_directory(db) }, -- checked: arms_differ
       { name = "stand-ins", lines = tree_checks.stand_ins(db) }, -- checked: arms_differ
       { name = "docs queries", lines = tree_checks.queries(db) }, -- checked: arms_differ
@@ -3164,7 +3264,6 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
       { name = "restricted", lines = tree_checks.restricted(db) }, -- checked: arms_differ
       { name = "declarations", lines = tree_checks.declarations(db) }, -- checked: arms_differ
       { name = "verbs", lines = tree_checks.verbs(db, quickstart) }, -- checked: arms_differ
-      { name = "guides", lines = tree_checks.guides(db) }, -- checked: arms_differ
       { name = "rendered docs", lines = docs_checks.rendered(carried or db) }, -- checked: arms_differ
       { name = "doc references", lines = docs_checks.references(carried or db, help) }, -- checked: arms_differ
       { name = "public docs", lines = tree_checks.public_docs(db) }, -- checked: arms_differ

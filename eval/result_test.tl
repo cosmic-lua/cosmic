@@ -94,7 +94,9 @@ end
 local function test_the_encoding_is_json_in_the_readmes_order()
   local text = assert(Result.encode(Result.build(lines({ init, finished("success", false) }), files,
     { exit_code = 1, log = "grades/1/grade.log" })))
-  local back = assert(Json.decode(text)) as {string: any} -- checked: cast_refused
+  local read_back, back_trouble = Json.decode(text)
+  assert(read_back ~= nil, back_trouble)
+  local back = read_back as {string: any} -- checked: cast_refused
   assert(back.runner == "claude" and back.grade_verdict == "FAIL" and back.turns == 12)
   assert(back.reasoning_effort == nil, "null reads back as absent")
   local runner_at = assert(text:find('"runner"', 1, true), "expected a runner field")

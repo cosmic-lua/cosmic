@@ -106,13 +106,13 @@ local function test_every_executable_line_of_straight_code_is_hit()
     "local h = t.h()\n"
   local executable = assert(lines.executable(source, "straight.tl"))
   assert(executable[1] ~= true, "a local function's first line never runs")
-  assert(executable[3], "a local function runs on its end line")
-  assert(executable[6], "function t.h runs on its first line")
+  assert(executable[3] == true, "a local function runs on its end line")
+  assert(executable[6] == true, "function t.h runs on its first line")
   local name = "coverage.syntax_lines_test.straight"
   local chunk = assert(load(source, "@" .. name, "t"))
   chunk()
   local hit = Hits.snapshot()[name] or {}
   for line in pairs(executable) do
-    assert(hit[line], "executable line " .. tostring(line) .. " was never hit")
+    assert(hit[line] == true, "executable line " .. tostring(line) .. " was never hit")
   end
 end

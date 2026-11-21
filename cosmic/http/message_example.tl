@@ -1,0 +1,140 @@
+--- Worked examples for [`cosmic.http.message`], shown by `cosmic docs`
+--- under the symbol each one demonstrates and run by `cosmic test` like
+--- any other test -- see doc/design.md's `examples` table.
+
+local Message = require("cosmic.http.message")
+
+local record Example
+end
+
+--- A server's side of a channel the program owns: bytes arrive in
+--- pieces that end anywhere, and each request is read by a reader of its
+--- own, the next one fed the piece from where the last stopped.
+function Example.request_reader()
+  local arriving = {
+    "POST /notes HTTP/1.1\r\nHost: h.test\r\nContent-Le",
+    "ngth: 5\r\n\r\nhelloGET /notes HTTP/1.1\r\nHo",
+    "st: h.test\r\n\r\n",
+  }
+  local seen: mut {string} = {}
+  local reader = Message.request_reader({ body_bytes = 64 * 1024 })
+  for _, piece in ipairs(arriving) do
+    local at = 1
+    while at <= #piece do
+      local read = reader:feed(piece, at)
+      if read.status == "more" then break end
+      -- A refusal's reason is fit to log; the connection is then closed.
+      local request = assert(read.request, read.reason)
+      seen[#seen + 1] = request.method .. " " .. request.target .. " " .. tostring(#request.body)
+      reader = Message.request_reader({ body_bytes = 64 * 1024 })
+      at = read.next
+    end
+  end
+  -- The stream ended between requests, not within one.
+  assert(reader:finish().status == "empty")
+  print(table.concat(seen, ", "))
+  assert(table.concat(seen, ", ") == "POST /notes 5, GET /notes 0")
+end
+
+--- A client's side: a response whose head names no length runs to the
+--- end of the stream, which `finish` says, unless the reader is told
+--- otherwise; the answer to a HEAD is its head alone, whatever length it
+--- names. Each `Set-Cookie` is kept apart in `values`.
+function Example.response_reader()
+  local reader = Message.response_reader()
+  assert(reader:feed("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\nto the").status == "more")
+  assert(reader:feed(" end").status == "more")
+  local read = reader:finish()
+  local response = assert(read.response, read.reason)
+  local cookies = assert(response.values["set-cookie"])
+  print(response.status, response.body, #cookies)
+  assert(response.body == "to the end" and #cookies == 2 and response.headers["set-cookie"] == "a=1, b=2")
+
+  local head = Message.response_reader({ head_only = true }):feed("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+  assert(head.status == "done" and assert(head.response).headers["content-length"] == "1000")
+
+  -- A peer that names no length where it sends no body, on a connection
+  -- it keeps open, is read with `lengthless = "empty"`.
+  local bare = Message.response_reader({ lengthless = "empty" }):feed("HTTP/1.1 200 OK\r\n\r\n")
+  assert(bare.status == "done" and assert(bare.response).body == "")
+
+  -- What two readers could read differently is refused, never guessed.
+  local smuggled = Message.response_reader():feed(
+    "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n")
+  print(smuggled.status, smuggled.reason)
+  assert(smuggled.status == "refused")
+end
+
+--- An RTSP/1.0 exchange: the protocol is a parameter of the formatter
+--- and of the reader, and the message grammar is HTTP's.
+function Example.format_request()
+  local describe = assert(Message.format_request({
+    method = "DESCRIBE", target = "rtsp://cam.test/stream", protocol = "RTSP/1.0",
+    headers = { CSeq = "2", Accept = "application/sdp" },
+  }))
+  print((describe:gsub("\r\n", "|")))
+  assert(describe == "DESCRIBE rtsp://cam.test/stream RTSP/1.0\r\nAccept: application/sdp\r\nCSeq: 2\r\n\r\n")
+
+  local answer = "RTSP/1.0 200 OK\r\nCSeq: 2\r\nContent-Type: application/sdp\r\nContent-Length: 5\r\n\r\nv=0\r\n"
+  local read = Message.response_reader({ protocol = "RTSP/1.0" }):feed(answer)
+  local response = assert(read.response, read.reason)
+  assert(response.headers["cseq"] == "2" and response.body == "v=0\r\n")
+  -- A reader asked for RTSP reads nothing else.
+  assert(Message.response_reader({ protocol = "RTSP/1.0" }):feed("HTTP/1.1 200 OK\r\n\r\n").status == "refused")
+
+  -- A peer that reads an order is given fields, written as listed, the
+  -- Content-Length where it is put.
+  local setup = assert(Message.format_request({
+    method = "SETUP", target = "rtsp://cam.test/stream", protocol = "RTSP/1.0", body = "1234",
+    fields = {
+      { name = "User-Agent", value = "cam/1" }, { name = "Content-Length", value = "4" },
+      { name = "CSeq", value = "3" },
+    },
+  }))
+  print((setup:gsub("\r\n", "|")))
+  assert(setup == "SETUP rtsp://cam.test/stream RTSP/1.0\r\nUser-Agent: cam/1\r\nContent-Length: 4\r\nCSeq: 3\r\n\r\n1234")
+end
+
+--- A connection that carries HTTP and RTSP, requests and responses: one
+--- reader of either kind and both protocols reads each message, saying
+--- which it is. An RTSP response that names no length has no body, so
+--- the next message follows its head.
+function Example.reader()
+  local bytes = "GET /info HTTP/1.1\r\nCSeq: 1\r\n\r\n" ..
+    "RTSP/1.0 200 OK\r\nCSeq: 3\r\n\r\n" ..
+    "POST /event RTSP/1.0\r\nContent-Length: 2\r\n\r\nhi"
+  local opts: Message.Options = { protocols = { "RTSP/1.0", "HTTP/1.1" } }
+  local seen: mut {string} = {}
+  local at = 1
+  while at <= #bytes do
+    local read = Message.reader(opts):feed(bytes, at)
+    assert(read.status == "done", read.reason)
+    local request, response = read.request, read.response
+    if request ~= nil then
+      seen[#seen + 1] = "request " .. request.method .. " " .. request.protocol
+    elseif response ~= nil then
+      seen[#seen + 1] = "response " .. tostring(response.status) .. " " .. response.protocol
+    end
+    at = read.next
+  end
+  print(table.concat(seen, ", "))
+  assert(table.concat(seen, ", ") == "request GET HTTP/1.1, response 200 RTSP/1.0, request POST RTSP/1.0")
+end
+
+--- A response written from its parts: the body's size is its
+--- Content-Length, a list writes a line for each element, and parts a
+--- reader would refuse are not written.
+function Example.format_response()
+  local text = assert(Message.format_response({
+    status = 404, headers = { ["Content-Type"] = "text/plain", ["Set-Cookie"] = { "a=1", "b=2" } },
+    body = "no such note\n",
+  }))
+  print((text:gsub("\r\n", "|")))
+  local read = Message.response_reader():feed(text)
+  assert(assert(read.response, read.reason).body == "no such note\n" and read.consumed == #text)
+  local refused, why = Message.format_response({ status = 200, headers = { ["X-Note"] = "a\r\nSet-Cookie: stolen" } })
+  print(refused, why)
+  assert(refused == nil)
+end
+
+return Example

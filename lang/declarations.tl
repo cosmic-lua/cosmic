@@ -753,17 +753,18 @@ local function parameter_type(ctx: Ctx, id: integer): Type?, boolean
   local blocked = false
   for i = #ctx.frames, 1, -1 do
     local f = ctx.frames[i]
-    local index = f.ids[id] -- checked: nil_not_allowed
+    assert(f, "`i` runs over the indexes of `ctx.frames`")
+    local index = f.ids[id]
     if index ~= nil then
       if blocked then
         return nil, true
       end
       return ctx.store:var(depth, index), false
     end
-    if f.count > 0 then -- checked: nil_not_allowed
+    if f.count > 0 then
       depth = depth + 1
     end
-    if f.barrier then -- checked: nil_not_allowed
+    if f.barrier then
       blocked = true
     end
   end
@@ -820,7 +821,9 @@ local function attempt(ctx: Ctx, node: Ast.Node, build: function(): Type): Type
     box[1] = build()
   end)
   if ok then
-    return box[1] -- checked: index_may_be_nil
+    local built = box[1]
+    assert(built, "`build` returned a type, since it did not raise")
+    return built
   end
   local text = tostring(why)
   if text:find("nested deeper than", 1, true) ~= nil then
@@ -966,7 +969,8 @@ local function resolve_entry(ctx: Ctx, t: Ast.TypeName): Entry?
       end
       local info = known_module(ctx, v.module)
       if info == nil then
-        report_at(ctx, "member_missing", t, "the module " .. quoted(v.module) .. " that " .. quoted(head) .. -- checked: nil_not_allowed
+        assert(head, "the scope builder resolves a type name by its first name, so one it resolved has one")
+        report_at(ctx, "member_missing", t, "the module " .. quoted(v.module) .. " that " .. quoted(head) ..
             " imports is not known to the checker",
           "import a module of the project: its declarations are what a type of it names")
         return nil
@@ -982,13 +986,16 @@ local function resolve_entry(ctx: Ctx, t: Ast.TypeName): Entry?
     end
     return nil
   end
-  local declared = ctx.program.globals[head] -- checked: nil_not_allowed
+  if head == nil then
+    return nil
+  end
+  local declared = ctx.program.globals[head]
   if declared ~= nil then
     return follow(ctx, t, declared, rest)
   end
-  if ctx.scoped.globals[head] ~= nil then -- checked: nil_not_allowed
-    report_at(ctx, "member_missing", t, "no declaration file declares the type " .. quoted(head), -- checked: nil_not_allowed
-      "declare " .. quoted(head) .. " with `global` in a declaration file") -- checked: nil_not_allowed
+  if ctx.scoped.globals[head] ~= nil then
+    report_at(ctx, "member_missing", t, "no declaration file declares the type " .. quoted(head),
+      "declare " .. quoted(head) .. " with `global` in a declaration file")
   end
   return nil
 end
@@ -1242,13 +1249,30 @@ end
 
 --- Whether the lists `a` and `b` have `true` in one and `false` in the other at a position, which tells them apart.
 local function told_apart(a: Types.Alt, b: Types.Alt): boolean
-  for i = 1, math.min(#a.items, #b.items) do
-    local x, y = a.items[i].tag, b.items[i].tag -- checked: nil_not_allowed*2
+  for i, left in ipairs(a.items) do
+    local right = b.items[i]
+    if right == nil then
+      break
+    end
+    local x, y = left.tag, right.tag
     if (x == "true" and y == "false") or (x == "false" and y == "true") then
       return true
     end
   end
   return false
+end
+
+--- The return list `each`, shown.
+local function spell_alt(ctx: Ctx, each: Types.Alt): string
+  local items: mut {string} = {}
+  for k, t in ipairs(each.items) do
+    items[k] = show(ctx, t)
+  end
+  local tail = each.tail
+  if tail ~= nil then
+    items[#items + 1] = show(ctx, tail) .. "..."
+  end
+  return "(" .. table.concat(items, ", ") .. ")"
 end
 
 --- The alternatives of a return list, or nil where a narrowing return names a parameter that is
@@ -1274,25 +1298,14 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
     end
     alts[#alts + 1] = alt
   end
-  for i = 1, #alts do
-    for j = i + 1, #alts do
-      if not told_apart(alts[i], alts[j]) then -- checked: index_may_be_nil*2
-        local shown: mut {string} = {}
-        for _, each in ipairs({ alts[i], alts[j] }) do -- checked: array_of_optional
-          local items: mut {string} = {}
-          for k, t in ipairs(each.items) do
-            items[k] = show(ctx, t)
-          end
-          local tail = each.tail
-          if tail ~= nil then
-            items[#items + 1] = show(ctx, tail) .. "..."
-          end
-          shown[#shown + 1] = "(" .. table.concat(items, ", ") .. ")"
-        end
-        report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(shown[1]) .. " and " .. quoted(shown[2]) .. -- checked: index_may_be_nil*2
+  for i, first in ipairs(alts) do
+    for j, second in ipairs(alts) do
+      if j > i and not told_apart(first, second) then
+        local one, other = spell_alt(ctx, first), spell_alt(ctx, second)
+        report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(one) .. " and " .. quoted(other) ..
             " are told apart by no position that is `true` in one and `false` in the other",
           "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), so that a `match` can " ..
-            "tell which list a call answered", { shown[1], shown[2] }) -- checked: index_may_be_nil*2
+            "tell which list a call answered", { one, other })
         break
       end
     end
@@ -1577,8 +1590,10 @@ local function declare_one(ctx: Ctx, node: Ast.Node, place: Place, seen: mut {st
       end
       return nil
     end
-    entry.decl = made[1]
-    ctx.decls[base_of(node).id] = made[1] -- checked: index_may_be_nil
+    local declared = made[1]
+    assert(declared, "`declare` returned a declaration, since it did not raise")
+    entry.decl = declared
+    ctx.decls[base_of(node).id] = declared
   elseif (node.kind == "Alias") then
     local count = #node.typeparams
     local alias: AliasInfo = { -- checked: literal_missing
@@ -2165,16 +2180,18 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
   -- A function statement `function R.m(...)` gives the declaration used as a value the fixed field `m` unless `R`
   -- declares one: that field is then what the statement implements. An instance of `R` has no such field.
   for _, f in ipairs(ctx.statics[decl] or {}) do
-    local name = f.path[2].text -- checked: nil_not_allowed
+    local name = assert(f.path[2], "`collect_statics` keeps the functions whose path has two names").text
     if decl.kind == "class" and metamethod_name(name) then
       report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
           "metamethod of the values of " .. quoted(decl.name) .. ", and `__close` and `__tostring` are written as methods",
         "rename " .. quoted(name) .. ", or write it as a method inside the class")
     elseif decl.kind == "class" and build.overloads[name] ~= nil then
+      local first = build.first_of[name]
+      assert(first, "`overloads` and `first_of` are written together, so `first_of` holds every name `overloads` does")
       report_at(ctx, "repeated_field", f, quoted(name) .. " is declared twice in " .. quoted(decl.name) .. ": a function " ..
           quoted(decl.name .. "." .. name) .. " and a field or method of its values",
         "rename the function or the member: a class's fields, methods and functions share one namespace, since the " ..
-          "table of its methods holds them all", nil, place_of(ctx, build.first_of[name])) -- checked: index_may_be_nil
+          "table of its methods holds them all", nil, place_of(ctx, first))
     elseif build.overloads[name] == nil then
       build.overloads[name] = false
       build.first_of[name] = f
@@ -2334,11 +2351,12 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
     error(why, 0)
   end
   local listing = box[1]
+  assert(listing, "`listed` returned a listing, since it did not raise")
   local node = build.node
   local binding = name_of(node)
   local first = binding ~= nil and base_of(binding).first or base_of(node).first -- checked: and_ternary
   local last = binding ~= nil and base_of(binding).last or first -- checked: and_ternary
-  if not listing.complete then -- checked: nil_not_allowed
+  if not listing.complete then
     report(ctx, "listing_too_large", first, last, quoted(decl.name) .. " lists more interfaces, through the ones it lists, " ..
         "than the checker follows, or one that would nest more than " .. tostring(MAX_DEPTH) .. " types deep",
       "list fewer interfaces, or interfaces whose own listings are the same for every argument")
@@ -2351,7 +2369,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
   -- declare differently.
   local inherited: mut {string: Inherited} = {}
   local conflicted: mut {string: boolean} = {}
-  for _, x in ipairs(listing.types) do -- checked: nil_not_allowed
+  for _, x in ipairs(listing.types) do
     local xbody: Types.Body? = nil
     if x.tag == "named" then
       xbody = x.decl.body
@@ -2523,7 +2541,9 @@ local function check_union(ctx: Ctx, site: UnionSite): boolean
   local function shown_of(r: Named): string
     return quoted(Types.display(r, site.names))
   end
-  local first_body = records[1].decl.body -- checked: nil_not_allowed
+  local first_record = records[1]
+  assert(first_record, "`records` holds at least two records here")
+  local first_body = first_record.decl.body
   if first_body == nil then
     return true
   end
@@ -2945,7 +2965,8 @@ local function walk(ctx: Ctx)
       end
       if given ~= nil then
         for i = #given, 1, -1 do
-          nodes[#nodes + 1], leaves[#leaves + 1] = given[i], false -- checked: index_may_be_nil
+          local kid = assert(given[i], "`i` runs over the indexes of `given`")
+          nodes[#nodes + 1], leaves[#leaves + 1] = kid, false
         end
       else
         held = 0
@@ -3002,7 +3023,9 @@ local function in_order(errors: {Error}): {Error}
     if a.offset ~= b.offset then
       return a.offset < b.offset
     end
-    return position[a] < position[b] -- checked: nil_not_allowed
+    local pa, pb = position[a], position[b]
+    assert(pa ~= nil and pb ~= nil, "`position` holds every error of `out`, which `sort` compares")
+    return pa < pb
   end)
   local _ = keyed
   return out

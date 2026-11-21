@@ -74,7 +74,9 @@ function RelationPrograms.fixture(store: Types.Store): Programs.Fixture
     return decl
   end
   local function use(name: string, args?: {Types.Type}): Types.Type
-    return store:named(d[name], args) -- checked: index_may_be_nil
+    local decl = d[name]
+    assert(decl, "`use` names a declaration that `fixture` made")
+    return store:named(decl, args)
   end
   local event = declare("interface", "Event", 0, true)
   local key = declare("record", "KeyEvent", 0, true)
@@ -134,9 +136,13 @@ function RelationPrograms.fixture(store: Types.Store): Programs.Fixture
   b.fields = { { name = "last", type = generic } } -- checked: field_fixed
   store:define(gen, b)
 
-  local reader_body = d["Stream.Reader"].body -- checked: nil_not_allowed
+  local reader = d["Stream.Reader"]
+  assert(reader, "`Programs.fixture` declares `Stream.Reader`")
+  local reader_body = reader.body
   assert(reader_body ~= nil)
-  local read = reader_body.fields[1].type -- checked: nil_not_allowed
+  local read_field = reader_body.fields[1]
+  assert(read_field, "`Stream.Reader` has its `read` field")
+  local read = read_field.type
   b = body()
   b.supers = { use("Stream.Reader") }
   b.fields = { { name = "read", type = read } } -- checked: field_fixed
@@ -175,7 +181,9 @@ function RelationPrograms.world(): RelationPrograms.World
 end
 
 function RelationPrograms.named(w: RelationPrograms.World, name: string, args?: {Types.Type}): Types.Type
-  return w.store:named(w.fixture.decls[name], args) -- checked: index_may_be_nil
+  local decl = w.fixture.decls[name]
+  assert(decl, "`RelationPrograms.named` is given a name of the fixture")
+  return w.store:named(decl, args)
 end
 
 function RelationPrograms.func(w: RelationPrograms.World, params: {Types.Type}, returns: {Types.Type}): Types.Type

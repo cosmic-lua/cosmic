@@ -56,7 +56,7 @@ local function test_a_module_is_planned()
   assert(not planned.halted)
   local made = assert(planned.plan, "no plan")
   assert(made.path == "box" and made.file == "box.tl" and made.kind == "module")
-  assert(made.has_top_level_return)
+  assert(made.has_top_level_return == true)
   assert(required(planned) == "cosmic.fs@1:20 cosmic.json@2:27", required(planned))
 end
 

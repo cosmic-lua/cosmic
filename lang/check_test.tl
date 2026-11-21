@@ -65,7 +65,33 @@ local CASES <const>: {Case} = {
     code = "view_as_mut",
     source = "local function add(xs: mut {string}) end\nlocal v: {string} = {}\nadd(v)\n",
     msg = "`v` is `{string}`, where `mut {string}` is wanted as argument 1 of `add`",
-    fix = "declare `v` `mut {string}` where it is made or received",
+    fix = "declare `v` `mut {string}` where it is made or received, or pass a collection made `mut`; or, if `add` " ..
+      "does not change it, declare that parameter `{string}`, which takes both",
+  },
+  {
+    code = "nil_not_allowed",
+    source = "local function f(n: integer): integer?, string\n  if n > 0 then\n    return n, nil\n  end\n" ..
+      "  return nil, \"negative\"\nend\nprint(f(1))\n",
+    at = { line = 3, column = 15 },
+    msg = "nil is given as return value 2, the reason of a `integer?, string` result, where `string` is wanted",
+    fix = "a reason is \"\" on success: `return n, \"\"`",
+  },
+  {
+    code = "nil_not_allowed",
+    source = "local function f(): boolean, string\n  return true, nil\nend\nprint(f())\n",
+    msg = "nil is given as return value 2, the reason of a `boolean, string` result",
+    fix = "a reason is \"\" on success: `return true, \"\"`",
+  },
+  {
+    code = "nil_not_allowed",
+    source = "local function f(): integer?, string\n  return nil, nil\nend\nprint(f())\n",
+    msg = "nil is given as return value 2, where `string` is wanted",
+    fix = "declare what takes it `string?`",
+  },
+  {
+    code = "arms_differ", source = "local t = { { 1 }, { \"a\" } }\n",
+    msg = "the elements of this literal have no common type",
+    fix = "declare a record and write each row by name (`{ name = ..., weight = ... }`), or make the elements one type",
   },
   {
     code = "invariant_mut",
@@ -194,6 +220,16 @@ local CASES <const>: {Case} = {
     msg = "this gives 1 value to 2 names, so the last name is nil", fix = "give 2 values",
   },
   {
+    code = "value_count", source = "local function f()\nend\nlocal _ = f()\n", at = { line = 3, column = 1 },
+    msg = "this gives 0 values to 1 name, so the last name is nil",
+    fix = "`f` answers nothing: write the call as a statement, `f()`",
+  },
+  {
+    code = "value_count", source = "local record R\n  f: function(R)\nend\nlocal r: R = { f = function(_: R) end }\nlocal x: integer\nx = r:f()\n",
+    msg = "this gives 0 values to 1 target, so the last target is nil",
+    fix = "`r:f` answers nothing: write the call as a statement, `r:f()`",
+  },
+  {
     code = "vararg_outside", source = "local function f()\n  local x = ...\nend\n",
     msg = "`...` is used in a function that has no rest parameter", fix = "declare the rest parameter `...: T`",
   },
@@ -295,6 +331,12 @@ local CASES <const>: {Case} = {
     fix = "declare a `class` with the methods and write the value as a table literal typed as the class",
   },
   {
+    code = "setmetatable_call", source = "local t: {string: integer} = { a = 1 }\nlocal o = setmetatable({}, { __index = t })\n",
+    msg = "a program has no `setmetatable`",
+    fix = "for a temporary change to a shared table (an overlay through `__index`), write the keys into the table in " ..
+      "place, keep each key's old value, and restore them after",
+  },
+  {
     code = "enum_member", source = "local enum E \"a\" \"b\" end\nlocal e: E = \"c\"\n", at = { line = 2, column = 14 },
     msg = "`\"c\"` is not a member of `E`", fix = "write `\"a\"` or `\"b\"`",
   },
@@ -348,7 +390,22 @@ local CASES <const>: {Case} = {
   {
     code = "arms_differ", source = "local t = { 1, \"a\" }\n",
     msg = "the elements of this literal have no common type: `integer` or `string`",
-    fix = "type the literal: `local name: {integer} = ...`, or make the elements one type",
+    fix = "type the literal with their union: `local name: {integer | string} = ...`; for values that differ by " ..
+      "position (a row), declare a record",
+  },
+  {
+    code = "arms_differ", source = "local rows = { { \"name\", 1.0 } }\n", at = { line = 1, column = 16 },
+    msg = "the elements of this literal have no common type: `number` or `string`",
+    fix = "`local name: {string | number} = ...`; for values that differ by position (a row), declare a record",
+  },
+  {
+    code = "field_unknown", source = "local Fs = require(\"cosmic.fs\")\nlocal j = Fs.join\n",
+    modules = { ["cosmic.fs"] = "local record Fs\n  read: function(string): string\nend\nreturn Fs\n" },
+    msg = "`Fs` has no field `join`", fix = "`cosmic docs cosmic.fs` lists what `Fs` has",
+  },
+  {
+    code = "require_unknown", source = "local x = require(\"cosmic.io\")\n",
+    msg = "cosmic has no module `cosmic.io`", fix = "`cosmic docs` lists the modules cosmic holds",
   },
   {
     code = "array_of_optional", source = "local t = { 1, nil }\n",
@@ -356,7 +413,7 @@ local CASES <const>: {Case} = {
   },
   {
     code = "require_unknown", source = "local x = require(\"nope\")\n",
-    msg = "the project has no module `nope`", fix = "require a module of the project",
+    msg = "the project has no module `nope`", fix = "a file sees the modules of the tree it is in",
   },
   {
     code = "export_not_declared", source = "local t = { 1 }\nreturn t\n", at = { line = 2, column = 1 },
@@ -500,7 +557,7 @@ local function test_each_case_has_its_error_with_place_message_and_fix()
   end
   assert(#problems == 0, table.concat(problems, "\n"))
   for _, code in ipairs(Check.codes) do
-    assert(seen[code], code .. " has no case")
+    assert(seen[code] == true, code .. " has no case")
   end
 end
 
@@ -537,6 +594,85 @@ local function test_the_default_of_a_value_a_test_made_non_nil_is_deleted_not_ma
   assert(has(bare.fix, "write the test: `n ~= 0`"), bare.fix)
   local text = first_error("local s = \"a\"\nlocal t = s or \"b\"\n", "condition_type")
   assert(has(text.fix, "delete `or ...`") and not has(text.fix, "~="), text.fix)
+end
+
+local function test_a_needless_default_of_an_index_read_says_what_made_it_never_nil()
+  local e = first_error("local function f(xs: {number}): number\n  assert(#xs == 6)\n  return xs[5] or 0\nend\n", "condition_type")
+  assert(has(e.fix, "`xs[5]` is never nil here (a loop that counts its keys, or a test or an `assert` before of it or of the length"),
+    e.fix)
+  assert(has(e.fix, "until a call or a write to what it indexes"), e.fix)
+end
+
+local function test_a_write_through_a_view_read_out_of_a_collection_names_the_inner_mut()
+  local e = first_error("local function f(t: mut {integer: {integer: number}}, k: integer)\n  local sum = t[k]\n" ..
+      "  if sum ~= nil then\n    sum[1] = 2\n  end\nend\n", "view_written")
+  assert(has(e.fix, "one read out of a collection is `mut` where that collection's type says so (`{K: mut {integer: number}}`)"),
+    e.fix)
+  local array = first_error("local function f(t: mut {string: {number}})\n  local row = t[\"a\"]\n  if row ~= nil then\n" ..
+      "    row[1] = 2\n  end\nend\n", "view_written")
+  assert(has(array.fix, "that collection's type says so"), array.fix)
+  local parameter = first_error("local function g(p: {string: number})\n  p[\"a\"] = 1\nend\n", "view_written")
+  assert(not has(parameter.fix, "read out of a collection"), parameter.fix)
+end
+
+local function test_a_local_given_nil_alone_is_told_to_be_declared_optional()
+  local e = first_error("local function f(xs: {integer}): integer\n  local x = nil\n  for _, v in ipairs(xs) do\n    x = v\n  end\n" ..
+      "  return x or 0\nend\n", "not_assignable")
+  assert(has(e.fix, "`local x: integer? = nil`"), e.fix)
+  assert(not has(e.fix, "pass a value of type `nil`"), e.fix)
+  local optional = first_error("local function f(xs: {string}): string\n  local x = nil\n  x = xs[1]\n  return x or \"\"\nend\n",
+    "not_assignable")
+  assert(has(optional.fix, "`local x: string? = nil`"), optional.fix)
+  -- What is declared `nil` and is no local keeps the plain fix.
+  local parameter = first_error("local function f(_x: nil)\nend\nf(3)\n", "not_assignable")
+  assert(has(parameter.fix, "pass a value of type `nil`") and not has(parameter.fix, "local"), parameter.fix)
+end
+
+local function test_a_call_returned_past_the_declared_results_is_told_the_parentheses_that_cut_it()
+  local e = first_error("local function g(): integer?, string\n  return 1, \"\"\nend\nlocal function f(): integer\n" ..
+      "  return assert(g())\nend\n", "return_arity")
+  assert(has(e.fix, "write `(assert(g()))` to return its first value alone"), e.fix)
+end
+
+local function test_a_value_returned_where_nothing_is_answered_is_told_the_statement()
+  local e = first_error("local function run(_f: function())\nend\nlocal function g(): integer\n  return 1\nend\n" ..
+      "run(function() return g() end)\n", "return_unexpected")
+  assert(has(e.fix, "write the call as a statement, with no `return`"), e.fix)
+  local value = first_error("local function f()\n  return 1\nend\n", "return_unexpected")
+  assert(not has(value.fix, "statement"), value.fix)
+end
+
+--- `or` cuts a call to its first value, so deleting a needless default of a call could return or pass the values after
+--- it: the fix keeps the cut with parentheses.
+local function test_the_needless_default_of_a_call_is_replaced_by_parentheses_not_deleted()
+  local e = first_error("local function f(x: string): string\n  return string.gsub(x, \" \", \"\") or \"\"\nend\n",
+    "condition_type")
+  assert(has(e.fix, "is never nil, so the default is never used"), e.fix)
+  assert(has(e.fix, "replace `string.gsub(x, \" \", \"\") or \"\"` with `(string.gsub(x, \" \", \"\"))`"), e.fix)
+  assert(not has(e.fix, "delete `or ...`"), e.fix)
+  local method = first_error("local function f(x: string): string\n  local s = x:gsub(\"a\", \"b\") or \"\"\n  return s\nend\n",
+    "condition_type")
+  assert(has(method.fix, "with `(x:gsub(\"a\", \"b\"))`"), method.fix)
+  -- A call that answers one value loses nothing to the deletion.
+  local one = first_error("local function f(x: string): string\n  local s = x:upper() or \"\"\n  return s\nend\n",
+    "condition_type")
+  assert(has(one.fix, "delete `or ...`") and not has(one.fix, "replace"), one.fix)
+  local tailed = first_error("local function g(): string, string...\n  return \"a\"\nend\n" ..
+      "local function f(): string\n  return g() or \"\"\nend\n", "condition_type")
+  assert(has(tailed.fix, "with `(g())`"), tailed.fix)
+  -- A call already in parentheses answers one value: the default goes.
+  local paren = first_error("local function f(x: string): string\n  return (x:upper()) or \"\"\nend\n", "condition_type")
+  assert(has(paren.fix, "delete `or ...`"), paren.fix)
+end
+
+--- A return of a call that answers more values than the function does says to cut it with parentheses.
+local function test_a_return_of_a_call_with_values_to_spare_is_told_to_parenthesize_it()
+  local e = first_error("local function f(x: string): string\n  return string.gsub(x, \" \", \"\")\nend\n", "return_arity")
+  assert(has(e.fix, "`string.gsub(x, \" \", \"\")` is the last value and answers 2 values"), e.fix)
+  assert(has(e.fix, "write `(string.gsub(x, \" \", \"\"))` to return its first value alone"), e.fix)
+  -- Too few values are not mended by parentheses.
+  local short = first_error("local function f(): integer, string\n  return 1\nend\n", "return_arity")
+  assert(not has(short.fix, "first value alone"), short.fix)
 end
 
 local TWO <const> = "local function two(): string?, string\n  return nil, \"x\"\nend\n"
@@ -793,7 +929,7 @@ local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
     end
   end
   assert(named ~= nil and has(named, "match pcall(f) do"), tostring(named))
-  assert(has(named, "`Test.raises(fn, says?)`"), named)
+  assert(has(named, "`Test.raises(function() f(x) end, says?)`"), named)
   assert(not has(error_of(source, "alternatives_as_value").fix, "Test.raises"))
   -- A name that only ends in `_test.tl` is no test file.
   local other = Programs.runner()(source, "t_test.tlx")
@@ -804,7 +940,7 @@ local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
       "local ok = xpcall(f, h)\n", "t_test")
   for _, e in ipairs(handled.errors) do
     if e.code == "alternatives_as_value" then
-      assert(has(e.fix, "`Test.raises(fn, says?)`"), e.fix)
+      assert(has(e.fix, "`Test.raises(function() f(x) end, says?)`"), e.fix)
     end
   end
 end
@@ -1033,6 +1169,125 @@ local function codes_of(source: string, modules?: {string: string}): string
   local r = Programs.run(source, modules)
   assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
   return Programs.codes(r)
+end
+
+--- `assert` raises for false as for nil, so its first argument is held to the rule of a condition where it is an optional
+--- that may hold a boolean: a name, a field, an index read, the first value of a call, and a union with `boolean` in it.
+local function test_assert_of_an_optional_that_may_hold_a_boolean_is_refused()
+  local pair = "local function g(): boolean?, string\n  return nil, \"none\"\nend\n"
+  assert(codes_of("local function f(x: boolean?)\n  assert(x)\nend\n") == "condition_type")
+  assert(codes_of("local record R\n  flag: boolean?\nend\nlocal function f(r: R)\n  assert(r.flag, \"unset\")\nend\n") ==
+      "condition_type")
+  assert(codes_of("local function f(flags: {boolean})\n  assert(flags[1])\nend\n") == "condition_type")
+  assert(codes_of("local function f(flags: {boolean})\n  if assert(flags[1]) then\n    print(1)\n  end\nend\n") ==
+      "condition_type")
+  assert(codes_of("local function f(seen: {string: boolean}, k: string)\n  assert(seen[k], k)\nend\n") == "condition_type")
+  assert(codes_of(pair .. "print(assert(g()))\n") == "condition_type")
+  assert(codes_of("local function f(v: (boolean | string)?)\n  assert(v)\nend\n") == "condition_type")
+  assert(codes_of("local type V = boolean | number | string | {V}\nlocal function f(v: V?)\n  assert(v)\nend\n") ==
+      "condition_type")
+  local named = first_error("local function f(x: boolean?)\n  assert(x)\nend\n", "condition_type")
+  assert(has(named.msg, "`x` is `boolean?`: nil and false would not be told apart"), named.msg)
+  assert(has(named.fix, "`assert(x ~= nil)` that it is there, or `assert(x == true)` that it is true"), named.fix)
+  assert(named.y == 2 and named.x == 10, tostring(named.y) .. ":" .. tostring(named.x))
+  -- A comparison would keep only the first value of a call, so the reason is bound to be passed on.
+  local called = first_error(pair .. "print(assert(g()))\n", "condition_type")
+  assert(has(called.fix, "`local value, reason = g()`") and has(called.fix, "`assert(value ~= nil, reason)`") and
+      has(called.fix, "`assert(value == true, reason)`"), called.fix)
+  -- A call that gives one value has no reason to name: two names for it would be refused in turn (`value_count`).
+  local one = "local function h(): boolean?\n  return nil\nend\n"
+  local single = first_error(one .. "print(assert(h()))\n", "condition_type")
+  assert(has(single.fix, "`local value = h()`") and has(single.fix, "`assert(value ~= nil)`") and
+      has(single.fix, "`assert(value == true)`") and not has(single.fix, "reason"), single.fix)
+  local method = first_error("local record R\n  flag: function(R): boolean?\nend\nlocal function f(r: R)\n" ..
+      "  assert(r:flag())\nend\n", "condition_type")
+  assert(has(method.fix, "`local value = r:flag()`") and not has(method.fix, "reason"), method.fix)
+  -- A message after the call cuts it to its first value, whatever it gives: the value is named alone.
+  local cut = first_error(pair .. "assert(g(), \"none\")\n", "condition_type")
+  assert(has(cut.fix, "`local value = g()`") and has(cut.fix, "`assert(value ~= nil, ...)`"), cut.fix)
+  -- Each fix, written as it says, checks.
+  assert(codes_of(pair .. "local value, reason = g()\nassert(value ~= nil, reason)\nassert(value == true, reason)\n") == "")
+  assert(codes_of(one .. "local value = h()\nassert(value ~= nil)\nassert(value == true)\n") == "")
+  assert(codes_of("local function f(x: boolean?)\n  assert(x ~= nil)\n  assert(x == true)\nend\n") == "")
+end
+
+--- The fix of a value that may be nil sends none that may hold a boolean to `assert(x)`, which is refused in turn: it is
+--- named and said to be there. Any other value keeps `assert(x)`, and an array read keeps [`Array.at`].
+local function test_the_fix_of_an_optional_that_may_hold_a_boolean_names_no_bare_assert()
+  local array = first_error("local function f(flags: {boolean}): boolean\n  return flags[1]\nend\n", "index_may_be_nil")
+  assert(has(array.fix, "`Array.at(flags, 1)`") and has(array.fix, "`local v = flags[1]` then `assert(v ~= nil)`") and
+      not has(array.fix, "assert(flags[1])") and not has(array.fix, "`or <default>` where"), array.fix)
+  local map = first_error("local function f(seen: {string: boolean}, k: string): boolean\n  return seen[k]\nend\n",
+    "index_may_be_nil")
+  assert(has(map.fix, "`local v = seen[k]` then `assert(v ~= nil)`") and not has(map.fix, "assert(seen[k])") and
+      not has(map.fix, "or <default>"), map.fix)
+  local name = first_error("local function f(x: boolean?): boolean\n  return x\nend\n", "nil_not_allowed")
+  assert(has(name.fix, "`assert(x ~= nil)`") and not has(name.fix, "`assert(x)`"), name.fix)
+  local field = first_error("local record R\n  flag: boolean?\nend\nlocal function f(r: R): boolean\n  return r.flag\nend\n",
+    "nil_not_allowed")
+  assert(has(field.fix, "`assert(v ~= nil)`") and not has(field.fix, "`assert(r.flag)`"), field.fix)
+  local call = first_error("local function h(): boolean?\n  return nil\nend\nlocal b: boolean = h()\nprint(b)\n",
+    "nil_not_allowed")
+  assert(has(call.fix, "`local v = h()` then `assert(v ~= nil)`") and not has(call.fix, "assert(h())"), call.fix)
+  -- Written as the fixes say, each checks.
+  assert(codes_of("local function f(flags: {boolean}): boolean\n  local v = flags[1]\n  assert(v ~= nil)\n  return v\nend\n") == "")
+  assert(codes_of("local function f(seen: {string: boolean}, k: string): boolean\n  local v = seen[k]\n  assert(v ~= nil)\n" ..
+      "  return v\nend\n") == "")
+  -- A value that holds no boolean is taken with `assert` as before.
+  local whole = first_error("local function f(xs: {integer}): integer\n  return xs[1]\nend\n", "index_may_be_nil")
+  assert(has(whole.fix, "`Array.at(xs, 1)`") and has(whole.fix, "or `assert(xs[1])`"), whole.fix)
+  local keyed = first_error("local function f(m: {string: integer}, k: string): integer\n  return m[k]\nend\n",
+    "index_may_be_nil")
+  assert(has(keyed.fix, "take it with `assert(m[k])`") and has(keyed.fix, "`m[k] or <default>`"), keyed.fix)
+  local text = first_error("local function f(s: string?): string\n  return s\nend\n", "nil_not_allowed")
+  assert(has(text.fix, "take it with `assert(s)`"), text.fix)
+end
+
+--- What `assert` takes as before: a boolean, an optional that holds no boolean, a value and its reason, an effect and its
+--- reason, and the two tests the refusal sends an optional boolean to, each of which leaves it not nil.
+local function test_assert_of_a_boolean_or_of_an_optional_with_no_boolean_stands()
+  assert(codes_of("local function f(b: boolean)\n  assert(b)\nend\n") == "")
+  assert(codes_of("local function f(s: string?): string\n  assert(s, \"none\")\n  return s\nend\n") == "")
+  assert(codes_of("local function f(xs: {integer}): integer\n  return assert(xs[1])\nend\n") == "")
+  assert(codes_of("local function g(): integer?, string\n  return nil, \"none\"\nend\nprint(assert(g()))\n") == "")
+  assert(codes_of("local function w(): boolean, string\n  return true, \"\"\nend\nassert(w())\n") == "")
+  assert(codes_of("local function f(x: boolean?): boolean\n  assert(x ~= nil)\n  return x\nend\n") == "")
+  assert(codes_of("local function f(x: boolean?): boolean\n  assert(x == true, \"unset\")\n  return x\nend\n") == "")
+  assert(codes_of("local function f(flags: {boolean}): boolean\n  assert(flags[1] ~= nil)\n  return flags[1]\nend\n") == "")
+end
+
+--- What equals `true` or `false` is not nil, in the arm where it is equal and after an `assert` of it. What differs from
+--- one may be the other or nil, so that arm keeps the optional.
+local function test_a_place_equal_to_true_or_false_is_not_nil_where_it_is_equal()
+  local function arm(test: string, holds: boolean): string
+    local read = "    return x\n"
+    local other = "    return false\n"
+    return codes_of("local function f(x: boolean?): boolean\n  if " .. test .. " then\n" ..
+        (if holds then read else other end) .. "  else\n" .. (if holds then other else read end) .. "  end\nend\n")
+  end
+  for _, test in ipairs({ "x == true", "x == false", "true == x", "false == x" }) do
+    assert(arm(test, true) == "", test .. ": " .. arm(test, true))
+    assert(arm(test, false) == "nil_not_allowed", test .. ": " .. arm(test, false))
+  end
+  for _, test in ipairs({ "x ~= true", "x ~= false", "true ~= x" }) do
+    assert(arm(test, false) == "", test .. ": " .. arm(test, false))
+    assert(arm(test, true) == "nil_not_allowed", test .. ": " .. arm(test, true))
+  end
+  assert(codes_of("local function f(x: boolean?): boolean\n  assert(x ~= true)\n  return x\nend\n") == "nil_not_allowed")
+  assert(codes_of("local function f(x: boolean?, y: boolean?): boolean\n  assert(x == true)\n  return y\nend\n") ==
+      "nil_not_allowed")
+  -- Only a literal is known not to be nil, and only a place is narrowed: a variable and a call narrow nothing.
+  assert(codes_of("local function f(x: boolean?, y: boolean): boolean\n  if x == y then\n    return x\n  end\n" ..
+      "  return false\nend\n") == "nil_not_allowed")
+  assert(codes_of("local function f(x: boolean?, g: function(): boolean?): boolean\n  if g() == true then\n    return x\n" ..
+      "  end\n  return false\nend\n") == "nil_not_allowed")
+  -- An optional union loses its nil alone.
+  assert(codes_of("local function f(v: (boolean | string)?): boolean | string\n  if v == false then\n    return v\n  end\n" ..
+      "  return \"\"\nend\n") == "")
+  -- An element read of an array is there where it equals one.
+  local element = codes_of("local function f(flags: {boolean}): boolean\n  if flags[1] == true then\n    return flags[1]\n" ..
+      "  end\n  return false\nend\n")
+  assert(element == "", element)
 end
 
 local TAILED <const> = "local tailed: function(): string... = function() end\n"
@@ -1272,6 +1527,96 @@ local function test_a_loop_over_the_keys_of_an_array_writes_them_only_while_it_l
   assert(has(in_loop("for n = 1, #xs do", "  local function put(at: integer)\n    xs[at] = v\n  end"), "array_hole"))
   -- a write before the loop or after it is outside it
   assert(has(codes_of(head .. "for n = 1, #xs do\nend\nlocal n: integer = 1\nxs[n] = v\n"), "array_hole"))
+end
+
+local function test_a_write_inside_a_range_test_of_its_index_overwrites_only_while_nothing_moves_the_index_or_the_length()
+  local head = "local xs: mut {integer} = {}\nlocal v: integer = 3\nlocal m: integer? = nil\nlocal c = true\n" ..
+    "local function shrink(): integer\n  table.remove(xs)\n  return 1\nend\n"
+  local function guarded(cond: string, body: string): string
+    return codes_of(head .. "local function put(i: integer)\n  if " .. cond .. " then\n" .. body .. "\n  end\nend\n")
+  end
+  -- accepted: both bounds, either side of each comparison, in either order, among other operands of a chain of `and`
+  assert(guarded("i >= 1 and i <= #xs", "    xs[i] = v") == "")
+  assert(guarded("1 <= i and i <= #xs", "    xs[i] = v") == "")
+  assert(guarded("#xs >= i and i >= 1", "    xs[i] = v") == "")
+  assert(guarded("c and (i >= 1) and (i <= #xs) and c", "    xs[i] = v") == "")
+  -- `i > 0` is `i >= 1` for an integer, and `i < #xs` is inside the array too
+  assert(guarded("i > 0 and i <= #xs", "    xs[i] = v") == "")
+  assert(guarded("i >= 1 and i < #xs", "    xs[i] = v") == "")
+  assert(guarded("i >= 1 and #xs > i", "    xs[i] = v") == "")
+  -- a read and another write at the index leave the length alone
+  assert(guarded("i >= 1 and i <= #xs", "    local old = xs[i]\n    xs[i] = v\n    xs[i] = v + 1") == "")
+  -- the guard of an `elseif` arm holds in its block
+  assert(codes_of(head .. "local function put(i: integer)\n  if c then\n  elseif i >= 1 and i <= #xs then\n    xs[i] = v\n" ..
+      "  end\nend\n") == "")
+  -- refused: one bound alone, a bound that admits 0 or a key past the end, or a bound of another array or local
+  assert(guarded("i >= 1", "    xs[i] = v") == "array_hole")
+  assert(guarded("i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 0 and i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i > -1 and i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs + 1", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i - 1 <= #xs", "    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    local ys: mut {integer} = {}\n    ys[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    local j = i + 1\n    xs[j] = v") == "array_hole")
+  -- an `or` does not hold both bounds, nor does a negation, nor the `else` of the test
+  assert(guarded("i >= 1 and i <= #xs or c", "    xs[i] = v") == "array_hole")
+  assert(guarded("not (i < 1) and i <= #xs", "    xs[i] = v") == "array_hole")
+  assert(codes_of(head .. "local function put(i: integer)\n  if i >= 1 and i <= #xs then\n  else\n    xs[i] = v\n  end\nend\n") ==
+      "array_hole")
+  -- a nil, or a value that may be nil, takes an element out of the middle
+  assert(has(guarded("i >= 1 and i <= #xs", "    xs[i] = nil"), "array_hole"))
+  assert(has(guarded("i >= 1 and i <= #xs", "    xs[i] = m"), "array_hole"))
+  -- the block moves the index, shortens the array, writes it elsewhere, assigns it, or calls what may do any of that
+  assert(guarded("i >= 1 and i <= #xs", "    i = i + 1\n    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    xs[i] = v\n    i = 2") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    table.remove(xs)\n    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    table.insert(xs, v)\n    xs[i] = v") == "array_hole")
+  assert(has(guarded("i >= 1 and i <= #xs", "    xs[#xs] = nil\n    xs[i] = v"), "array_hole"))
+  assert(guarded("i >= 1 and i <= #xs", "    xs = {}\n    xs[i] = v") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    xs[i] = shrink()") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs", "    local n = shrink()\n    xs[i] = n") == "array_hole")
+  assert(guarded("i >= 1 and i <= #xs and shrink() > 0", "    xs[i] = v") == "array_hole")
+  -- an alias may be shortened where the array is not named
+  assert(has(guarded("i >= 1 and i <= #xs", "    local ys: mut {integer} = xs\n    ys[#ys] = nil\n    xs[i] = v"), "array_hole"))
+  -- a function made in the block may run when the array is shorter
+  assert(guarded("i >= 1 and i <= #xs", "    local f = function()\n      xs[i] = v\n    end") == "array_hole")
+  -- a write after the block is outside the test
+  assert(codes_of(head .. "local function put(i: integer)\n  if i >= 1 and i <= #xs then\n  end\n  xs[i] = v\nend\n") ==
+      "array_hole")
+  -- a `number` index is no key of an array, whatever its bounds
+  assert(has(codes_of(head .. "local function put(i: number)\n  if i >= 1 and i <= #xs then\n    xs[i] = v\n  end\nend\n"),
+    "array_hole"))
+end
+
+local function test_the_fix_of_a_write_that_may_leave_a_hole_shows_the_range_test_of_its_index()
+  local e = first_error("local xs: mut {integer} = {}\nlocal function put(id: integer)\n  xs[id] = 1\nend\n", "array_hole")
+  assert(has(e.fix, "overwrite an element inside `if id >= 1 and id <= #xs then`"), e.fix)
+  assert(has(e.fix, "calls no function but `math`'s, writes nil to no table"), e.fix)
+  -- where the range test could not let the write stand, the fix does not offer it
+  local function fix_of(source: string): string
+    return first_error(source, "array_hole").fix
+  end
+  local head = "local xs: mut {integer} = {}\nlocal m: integer? = nil\n"
+  for _, write in ipairs({
+      "local function put(k: integer)\n  xs[k + 1] = 2\nend\n",
+      "local function put(k: integer)\n  xs[k] = m\nend\n",
+      "local function put(k: integer)\n  xs[k] = nil\nend\n",
+      "local function put(k: number)\n  xs[k] = 2\nend\n",
+      "local record Box\n  mut items: mut {integer}\nend\nlocal function put(b: Box, k: integer)\n  b.items[k] = 2\nend\n",
+  }) do
+    local fix = fix_of(head .. write)
+    assert(has(fix, "append with `") and not has(fix, "overwrite an element"), write .. ": " .. fix)
+  end
+end
+
+local function test_a_map_read_that_may_be_nil_is_told_a_missing_key_not_an_array_fix()
+  local e = first_error("local spans: {string: integer} = {}\nlocal function at(a: string): integer\n  return spans[a]\nend\n",
+    "index_may_be_nil")
+  assert(has(e.fix, "`assert(spans[a])` where the key must be there"), e.fix)
+  assert(not has(e.fix, "ipairs") and not has(e.fix, "Array.at"), e.fix)
+  -- an array's read keeps the array's fix
+  local a = first_error("local xs: {integer} = {}\nlocal function at(i: integer): integer\n  return xs[i]\nend\n", "index_may_be_nil")
+  assert(has(a.fix, "Array.at(xs, i)"), a.fix)
 end
 
 local function test_a_loop_that_counts_from_one_and_writes_an_array_it_alone_names_in_every_pass_fills_it()
@@ -1637,8 +1982,8 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
     return e.fix
   end
   local named = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n: integer = xs[i]\n", "index_may_be_nil")
-  for _, part in ipairs({ "for i = 1, #xs do", "Array.at(xs, i)", "assert(xs[i])", "ipairs(xs)", "or <default>",
-      "a wrong value" }) do
+  for _, part in ipairs({ "for i = 1, #xs do", "if i >= 1 and i <= #xs then", "Array.at(xs, i)", "assert(xs[i])", "ipairs(xs)",
+      "or <default>", "a wrong value" }) do
     assert(has(named, part), part .. " is not in " .. named)
   end
   -- the loop is offered only for a local array read at a name
@@ -1646,7 +1991,7 @@ local function test_the_hint_of_an_index_read_names_the_loop_and_the_checked_rea
   assert(has(literal, "Array.at(xs, 2)") and has(literal, "assert(xs[2])") and not has(literal, "for 2 = 1"), literal)
   local path = fix_of("local record R\n  items: {integer}\nend\nlocal r: R = { items = {} }\nlocal i: integer = 1\n" ..
       "local n: integer = r.items[i]\n", "index_may_be_nil")
-  assert(has(path, "Array.at(r.items, i)") and not has(path, "count the keys"), path)
+  assert(has(path, "Array.at(r.items, i)") and not has(path, "count the keys") and not has(path, "test the index"), path)
   -- an operand gets the same pointer
   local operand = fix_of("local xs: {integer} = {}\nlocal i: integer = 2\nlocal n = xs[i] + 1\n", "nil_not_allowed")
   assert(has(operand, "Array.at(xs, i)") and has(operand, "or <default>"), operand)
@@ -1680,7 +2025,6 @@ local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_t
   -- the loop does not count the keys of the array read
   stays("for i = 1, #xs, 2 do\n  total = xs[i]\nend\n")
   stays("for i = 0, #xs do\n  total = xs[i]\nend\n")
-  stays("for i = 1, #xs - 1 do\n  total = xs[i]\nend\n")
   stays("for i = 1, #ys do\n  total = xs[i]\nend\n")
   stays("for i = 1, 3 do\n  total = xs[i]\nend\n")
   stays("for i = 1, #xs do\n  total = xs[i + 1]\nend\n")
@@ -1700,6 +2044,145 @@ local function test_a_read_at_the_index_of_a_counted_loop_stays_optional_where_t
   -- (an assignment to `i` is refused before the check, as `const_assigned`)
   -- a function made in the loop may run when the array is shorter
   stays("for i = 1, #xs do\n  fns[#fns + 1] = function(): integer\n    return xs[i]\n  end\nend\n")
+end
+
+local function test_a_read_beside_the_index_of_a_counted_loop_is_not_optional_where_the_bounds_of_the_loop_hold_it()
+  -- a stencil: the loop stops short of the length by as much as the read reaches ahead, and starts as far in as it reaches back
+  assert(counted("for i = 2, #xs - 1 do\n  total = xs[i - 1] + xs[i] + xs[i + 1]\nend\n") == "")
+  assert(counted("for i = 1, #xs - 1 do\n  total = xs[i]\nend\n") == "")
+  assert(counted("for i = 1, #xs - 1 do\n  total = xs[i + 1] - xs[i]\nend\n") == "")
+  assert(counted("for i = 2, #xs do\n  total = xs[i] - xs[i - 1]\nend\n") == "")
+  assert(counted("for i = 3, #xs - 2, 1 do\n  total = xs[i - 2] + xs[(i + 2)]\nend\n") == "")
+  assert(counted("for i = 1, #xs - 0 do\n  total = xs[i]\nend\n") == "")
+  -- a loop that stops further short than the read reaches
+  assert(counted("for i = 1, #xs - 3 do\n  total = xs[i + 2]\nend\n") == "")
+  -- the element is the type declared, with no test
+  assert(counted("for i = 2, #xs do\n  local before: integer = xs[i - 1]\n  total = before\nend\n") == "")
+  assert(codes_of("local function smooth(v: {number}): number\n  local s = 0.0\n  for i = 2, #v - 1 do\n" ..
+      "    s = s + (v[i - 1] + v[i] + v[i + 1]) / 3\n  end\n  return s\nend\n") == "")
+end
+
+local function test_a_read_beside_the_index_of_a_counted_loop_stays_optional_where_the_bounds_do_not_hold_it()
+  local function stays(loop: string, also?: string)
+    local got = counted("local k: integer = 1\n" .. loop)
+    local want = if also == nil then "index_may_be_nil" else also .. " index_may_be_nil" end
+    assert(got == want, got .. " in\n" .. loop)
+  end
+  -- the read reaches before the first key
+  stays("for i = 1, #xs do\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #xs do\n  total = xs[i - 2]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  total = xs[i - 2]\nend\n")
+  -- or past the length
+  stays("for i = 1, #xs do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i + 2]\nend\n")
+  stays("for i = 1, #xs + 1 do\n  total = xs[i - 1]\nend\n")
+  stays("for i = 1, #xs - -1 do\n  total = xs[i]\nend\n")
+  -- a start, a limit or an offset that is no literal, and an offset that is no integer
+  stays("for i = k, #xs do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs - k do\n  total = xs[i]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i + k]\nend\n")
+  stays("for i = 2, #xs do\n  total = xs[i - k]\nend\n")
+  assert(counted("for i = 1, #xs - 1 do\n  total = xs[i + 1.0]\nend\n") == "index_may_be_nil float_key")
+  stays("for i = 1, #xs - 1 do\n  total = xs[i * 1]\nend\n")
+  -- a loop from 0, by a step other than 1, or down
+  stays("for i = 0, #xs do\n  total = xs[i]\nend\n")
+  stays("for i = 0, #xs - 1 do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs - 1, 2 do\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1, 2 do\n  total = xs[i]\nend\n")
+  stays("for i = #xs, 1, -1 do\n  total = xs[i]\nend\n")
+  stays("for i = #xs - 1, 1, -1 do\n  total = xs[i + 1]\nend\n")
+  -- another array than the one the loop counts, and a field
+  stays("for i = 2, #xs - 1 do\n  total = ys[i + 1]\nend\n")
+  stays("for i = 2, #ys - 1 do\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #h.items - 1 do\n  total = h.items[i - 1]\nend\n")
+  -- the index of another loop
+  stays("for i = 2, #xs - 1 do\n  for j = 1, #ys do\n    total = xs[j + 1]\n  end\nend\n")
+  -- the body may shorten the array, or lose it, or write it beside the index
+  stays("for i = 2, #xs - 1 do\n  table.remove(xs)\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  xs[#xs] = nil\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  ys[#ys] = nil\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  local n = other(xs)\n  total = xs[i - 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  print(i)\n  total = xs[i + 1]\nend\n")
+  stays("for i = 2, #xs - 1 do\n  xs = {}\n  total = xs[i + 1]\nend\n")
+  stays("for i = 1, #xs - 1 do\n  xs[i + 1] = 1\n  total = xs[i]\nend\n", "array_hole")
+  -- a function made in the loop may run when the array is shorter
+  stays("for i = 2, #xs - 1 do\n  fns[#fns + 1] = function(): integer\n    return xs[i + 1]\n  end\nend\n")
+  -- an array of a type variable may hold nil between its keys
+  assert(codes_of("local function last<T>(d: T, v: {T}): T\n  for i = 2, #v do\n    d = v[i - 1]\n  end\n  return d\nend\n") ==
+      "index_may_be_nil")
+end
+
+local function test_a_read_inside_a_range_test_of_its_index_is_not_optional_while_nothing_moves_the_index_or_the_length()
+  local head = "local xs: mut {integer} = { 1, 2, 3 }\nlocal ys: mut {integer} = { 4 }\nlocal c = true\n" ..
+    "local fns: mut {function(): integer} = {}\n" ..
+    "local record Holder\n  items: {integer}\nend\nlocal h: Holder = { items = xs }\n" ..
+    "local function shrink(): integer\n  table.remove(xs)\n  return 1\nend\n"
+  local function guarded(cond: string, body: string): string
+    return codes_of(head .. "local function at(i: integer): integer\n  if " .. cond .. " then\n" .. body .. "\n  end\n" ..
+        "  return 0\nend\n")
+  end
+  -- accepted: both bounds, either side of each comparison, in either order, among other operands of a chain of `and`
+  assert(guarded("i >= 1 and i <= #xs", "    return xs[i]") == "")
+  assert(guarded("1 <= i and #xs >= i", "    return xs[i]") == "")
+  assert(guarded("i > 0 and i < #xs", "    return xs[i]") == "")
+  assert(guarded("c and (i >= 1) and (i <= #xs) and c", "    return xs[i]") == "")
+  -- an operand, a declared local, a write at the index, a loop in the block and a call of `math` on the index
+  assert(guarded("i >= 1 and i <= #xs", "    local a: integer = xs[i]\n    xs[i] = a + 1\n    return xs[i] * 2 + math.max(i, 2)") == "")
+  assert(guarded("i >= 1 and i <= #xs", "    local s = 0\n    while s < 9 do\n      s = s + xs[i]\n    end\n    return s") == "")
+  -- the guard of an `elseif` arm holds in its block, and a view parameter is read as a local is
+  assert(codes_of(head .. "local function at(i: integer): integer\n  if c then\n    return 1\n  elseif i >= 1 and i <= #xs then\n" ..
+      "    return xs[i]\n  end\n  return 0\nend\n") == "")
+  assert(codes_of("local function at(v: {string}, i: integer): string\n  if i >= 1 and i <= #v then\n    return v[i]\n  end\n" ..
+      "  return \"\"\nend\n") == "")
+  -- a function made in the block leaves the block's own read standing
+  assert(guarded("i >= 1 and i <= #xs", "    fns[#fns + 1] = function(): integer\n      return 0\n    end\n    return xs[i]") == "")
+  local function stays(cond: string, body: string, also?: string)
+    local got = guarded(cond, body)
+    local want = if also == nil then "index_may_be_nil" else also .. " index_may_be_nil" end
+    assert(got == want, got .. " in\n" .. cond .. "\n" .. body)
+  end
+  -- refused: one bound alone, a bound that admits 0 or a key past the end, or a bound of another array or local
+  stays("i >= 1", "    return xs[i]")
+  stays("i <= #xs", "    return xs[i]")
+  stays("i >= 0 and i <= #xs", "    return xs[i]")
+  stays("i > -1 and i <= #xs", "    return xs[i]")
+  stays("i >= 1 and i <= #xs + 1", "    return xs[i]")
+  stays("i >= 1 and i - 1 <= #xs", "    return xs[i]")
+  stays("i >= 1 and i <= #ys", "    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    local j = i\n    return xs[j]")
+  stays("i >= 1 and i <= #h.items", "    return h.items[i]")
+  -- a key beside the index is not the key tested
+  stays("i >= 1 and i <= #xs", "    return xs[i + 1]")
+  stays("i >= 1 and i <= #xs", "    return xs[i - 1]")
+  -- an `or` does not hold both bounds, nor does a negation, nor the `else` of the test, nor the code after it
+  stays("i >= 1 and i <= #xs or c", "    return xs[i]")
+  stays("not (i < 1) and i <= #xs", "    return xs[i]")
+  assert(codes_of(head .. "local function at(i: integer): integer\n  if i >= 1 and i <= #xs then\n    return 1\n  else\n" ..
+      "    return xs[i]\n  end\nend\n") == "index_may_be_nil")
+  assert(codes_of(head .. "local function at(i: integer): integer\n  if i >= 1 and i <= #xs then\n    c = false\n  end\n" ..
+      "  return xs[i]\nend\n") == "index_may_be_nil")
+  -- the block moves the index, shortens the array, writes it elsewhere, assigns it, or calls what may do any of that
+  stays("i >= 1 and i <= #xs", "    i = i + 1\n    return xs[i]")
+  assert(guarded("i >= 1 and i <= #xs", "    local a = xs[i]\n    i = 2\n    return a") == "nil_not_allowed")
+  stays("i >= 1 and i <= #xs", "    table.remove(xs)\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    table.insert(xs, 1)\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    xs[#xs] = nil\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    xs[i + 1] = 1\n    return xs[i]", "array_hole")
+  stays("i >= 1 and i <= #xs", "    xs = {}\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    local n = shrink()\n    return xs[i]")
+  stays("i >= 1 and i <= #xs", "    print(i)\n    return xs[i]")
+  assert(guarded("i >= 1 and i <= #xs", "    return xs[i] + shrink()") == "nil_not_allowed")
+  stays("i >= 1 and i <= #xs and shrink() > 0", "    return xs[i]")
+  -- an alias may be shortened where the array is not named
+  stays("i >= 1 and i <= #xs", "    local zs: mut {integer} = xs\n    zs[#zs] = nil\n    return xs[i]")
+  -- a function made in the block may run when the array is shorter
+  stays("i >= 1 and i <= #xs", "    fns[#fns + 1] = function(): integer\n      return xs[i]\n    end")
+  -- a `number` index is no key of an array, whatever its bounds
+  assert(codes_of(head .. "local function at(i: number): integer\n  if i >= 1 and i <= #xs then\n    return xs[i]\n  end\n" ..
+      "  return 0\nend\n") == "index_may_be_nil float_key")
+  -- an array of a type variable may hold nil between its keys
+  assert(codes_of("local function at<T>(v: {T}, i: integer, d: T): T\n  if i >= 1 and i <= #v then\n    return v[i]\n  end\n" ..
+      "  return d\nend\n") == "index_may_be_nil")
 end
 
 local function test_a_removal_of_the_last_element_is_held_to_a_mut_array_and_a_write_there_is_not_one()

@@ -37,6 +37,37 @@ local log = require("build.logger").log
 local _ = require("build.reads.links")
 
 local record work
+  --- How the tool stands against the working database of `root` read
+  --- without writing it ([`work.tool_read_unwritten`]).
+  enum Unwritten
+    --- Its recorded files and discovery directories stand as recorded, and
+    --- the boot hash the last stage recorded is the one asked about.
+    "fresh"
+    --- Anything else: something moved, the hash differs or none is
+    --- recorded, or the database is missing or cannot be read. Only a stage
+    --- can tell more.
+    "unknown"
+  end
+
+  --- A file by its device, as a stat gives it, and its inode.
+  record Place
+    dev: integer
+    ino: integer
+  end
+
+  --- What [`work.holding`] reads of a host to name the holder of a write
+  --- lock ([`work.holder_line`]): the text of /proc/locks, the `-shm` file
+  --- and the database file, the text of the holder file and its age, and
+  --- this process's pid. A field is nil where it could not be read.
+  record Seen
+    locks?: string
+    mut shm?: Place
+    mut file?: Place
+    mut named?: string
+    mut age_ns?: integer
+    own: integer
+  end
+
   --- One file of `web_assets`: its name in the table, its bytes, their
   --- SHA-256 as hex, their SHA-384 as base64 and the vendored version.
   record WebAsset
@@ -95,7 +126,7 @@ end
 
 --- The shape of the schema. A file of another shape holds nothing the
 --- tree cannot produce again, so it is thrown away.
-local version <const> = "34"
+local version <const> = "35"
 
 --- `files` is the staged tree, one row per file the build consumes,
 --- holding the bytes exactly as they were on disk. A file gone from
@@ -157,7 +188,7 @@ local version <const> = "34"
 --- `policy` declaration ([`cosmic.test`]), as the `needs` it stands for:
 --- one row per value a field lists (`true` for a flag, and the line the
 --- declaration starts on under `line`).
---- `links` is each link its comments hold ([`build.link_text`]), as
+--- `links` is each link its comments hold ([`cosmic.internal.link_text`]), as
 --- written: what it names is resolved only once every module is
 --- known, as a projection is written ([`build.link_index`]).
 --- `stubs` is the stub of a source (build.stub): the text a
@@ -211,6 +242,9 @@ local version <const> = "34"
 --- to what [`build.patch`]'s [`Patch.parse`] takes as a record, whose
 --- TODOs the rule reads apart. A row no
 --- staged file hashes to any more is dropped at the end of the stage.
+--- `todo_misses` is every comment that opens with a near miss of the
+--- spelling ([`build.todo_scan.misses`]), keyed and dropped as `todos` is, so
+--- `cosmic todos` can say what it did not index and how to spell it.
 --- `todos_fts` indexes their text for `cosmic todos <words>`, in FTS5's
 --- external-content mode over `todos` -- which is why `todos` has a
 --- rowid, `id`, where every other table here is WITHOUT ROWID -- and
@@ -257,8 +291,8 @@ local version <const> = "34"
 --- `deflated` is the compressed text of a source, by the source's SHA-256
 --- and the core that compressed it, which [`build.writer`] puts in a
 --- projection beside it instead of compressing every source on each write.
---- `deflated_bytecode` is the same for a compile's bytecode, by the
---- compile's key.
+--- `kept_bytecode` is a compile's bytecode alone, as `string.dump` wrote it,
+--- by the compile's key, which a projection's modules take theirs from.
 ---
 --- `compressed` is the gzip and zstd of a static file (NULL where not worth
 --- keeping), by its path, SHA-256, the digest of the rules that chose them
@@ -367,7 +401,11 @@ local version <const> = "34"
 --- `coverage_by_test` answers a narrower question `coverage` cannot:
 --- which lines a given test hit in a given run. It is one row per test
 --- per run, its `hits` every line the test hit, as [`build.test`]'s
---- `encode_hits` writes them: one row per line hit would be millions a
+--- `take_hits` writes them, each module's lines beside the text they are
+--- numbered in (a pure store's import's by instruction, which the run that
+--- stands on them places), or, for a row another checkout's verdict
+--- brought, as the shared verdicts hold them, under a first line that
+--- says so ([`build.test`]'s `decode_kept`): one row per line hit would be millions a
 --- run, and writing them, then deleting the last run's, cost a full run
 --- most of its time.
 ---
@@ -444,6 +482,10 @@ for _, statement in ipairs({
                                       last INTEGER NOT NULL,
                                       text TEXT NOT NULL,
                                       UNIQUE (sha256, line))]],
+    [[CREATE TABLE IF NOT EXISTS todo_misses (sha256 TEXT NOT NULL,
+                                            line INTEGER NOT NULL,
+                                            spelling TEXT NOT NULL,
+                                            PRIMARY KEY (sha256, line)) WITHOUT ROWID]],
     [[CREATE VIRTUAL TABLE IF NOT EXISTS todos_fts
       USING fts5(text, content=todos, content_rowid=id)]],
     [[CREATE TRIGGER IF NOT EXISTS todos_inserted AFTER INSERT ON todos BEGIN
@@ -484,10 +526,8 @@ for _, statement in ipairs({
                                          core TEXT NOT NULL,
                                          data BLOB NOT NULL,
                                          PRIMARY KEY (source_hash, core)) WITHOUT ROWID]],
-    [[CREATE TABLE IF NOT EXISTS deflated_bytecode (key TEXT NOT NULL,
-                                                  core TEXT NOT NULL,
-                                                  data BLOB NOT NULL,
-                                                  PRIMARY KEY (key, core)) WITHOUT ROWID]],
+    [[CREATE TABLE IF NOT EXISTS kept_bytecode (key TEXT PRIMARY KEY NOT NULL,
+                                              data BLOB NOT NULL) WITHOUT ROWID]],
     [[CREATE TABLE IF NOT EXISTS compressed (path TEXT NOT NULL,
                                            sha256 TEXT NOT NULL,
                                            rules TEXT NOT NULL,
@@ -626,6 +666,129 @@ local wait_ns <const> = Clock.minutes(30)
 --- How long a run waits for that transaction before it says so.
 local notice_ns <const> = Clock.seconds(1)
 
+--- How long a waiting run waits in one go before it says it still is,
+--- as a run waiting for the rebuild lock does.
+local reminder_ns <const> = Clock.seconds(15)
+
+--- Where SQLite's unix VFS puts a run's write lock on the working
+--- database, an fcntl lock of one byte: byte 120 of the `-shm` file in
+--- write-ahead mode (the first lock past the index header), and byte
+--- 2^30 + 1 of the file itself in rollback mode (its RESERVED lock).
+local wal_write_byte <const> = 120
+local reserved_byte <const> = 1073741825
+
+--- The pid that `locks`, the text of Linux's /proc/locks, says holds a
+--- POSIX write lock over byte `byte` of the file at `place`. Nil where
+--- none does, and where the holder is in a pid namespace this process
+--- cannot see, which the file shows as pid 0. A line of a process
+--- blocked waiting for the lock (`N: -> POSIX ...`) names a waiter, not
+--- the holder, and is passed over. A lock is a range, `EOF` ending one
+--- that runs to the file's end: Linux merges the adjacent locks of one
+--- owner, as SQLite's PENDING, RESERVED and SHARED bytes are at a
+--- commit in rollback mode.
+function work.lock_holder_in(locks: string, place: work.Place, byte: integer): integer?
+  -- The file names a device by its major and minor numbers in hex, as
+  -- the kernel splits `st_dev`.
+  local dev = place.dev
+  local major = ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff)
+  local minor = (dev & 0xff) | ((dev >> 12) & ~0xff)
+  for line in locks:gmatch("[^\n]+") do
+    local pid, maj, min, at, from, to = line:match(
+      "^%d+: POSIX%s+%u+%s+WRITE%s+(%d+)%s+(%x+):(%x+):(%d+)%s+(%d+)%s+(%w+)")
+    local first = math.tointeger(tonumber(from))
+    local last = if to == "EOF" then math.maxinteger else math.tointeger(tonumber(to)) end
+    if pid ~= nil and math.tointeger(tonumber(at)) == place.ino and first ~= nil and last ~= nil and
+        first <= byte and byte <= last and
+        math.tointeger(tonumber(maj, 16)) == major and math.tointeger(tonumber(min, 16)) == minor then
+      local holder = math.tointeger(tonumber(pid))
+      if holder ~= nil and holder > 0 then return holder end
+    end
+  end
+  return nil
+end
+
+--- The file beside the working database at `path` that names the last
+--- process of this tool to take its write lock, by its pid, written the
+--- moment it took it, so its age is how long that process has held the
+--- lock ([`work.holder_line`]) while it still does.
+local function holder_file(path: string): string
+  return path .. ".pid"
+end
+
+--- Records that this process has just taken the write lock of the
+--- working database at `path` ([`holder_file`]). Written aside and moved
+--- into place, so a waiting run reads a whole one or the one before. A
+--- file that cannot be written leaves a waiting run unable to say how
+--- long the lock has been held, and nothing else.
+local function mark_holder(path: string)
+  local file = holder_file(path)
+  local aside = file .. "." .. tostring(sys.getpid())
+  local written, _ = Fs.write(aside, tostring(sys.getpid()) .. "\n")
+  if written then
+    local _, _ = Fs.rename(aside, file)
+  end
+end
+
+--- Another process holding the write lock of the working database at
+--- `path`, as a run that waits for it, or reads past it, says it, from
+--- what [`work.holding`] read (`seen`). Its pid is the one /proc/locks
+--- says holds the lock, and no other. It is named a cosmic run, and how
+--- long it has held the lock is said, only where [`holder_file`] names
+--- that pid: this tool writes the file as it takes the lock. Where the
+--- system names no holder, or names this process, none is named.
+function work.holder_line(path: string, seen: work.Seen): string
+  local locks = seen.locks
+  local pid: integer? = nil
+  if locks ~= nil then
+    local shm, file = seen.shm, seen.file
+    if shm ~= nil then pid = work.lock_holder_in(locks, shm, wal_write_byte) end
+    if pid == nil and file ~= nil then pid = work.lock_holder_in(locks, file, reserved_byte) end
+  end
+  if pid == nil or pid == seen.own then
+    return "another cosmic run holds the write lock of " .. path
+  end
+  local named, age_ns = seen.named, seen.age_ns
+  if named ~= nil and named:match("^(%d+)\n") == tostring(pid) and age_ns ~= nil and age_ns >= 0 then
+    return "another cosmic run (pid " .. tostring(pid) .. ") has held the write lock of " .. path .. " for " ..
+      rebuild_lock.elapsed(age_ns)
+  end
+  return "another process (pid " .. tostring(pid) .. ") holds the write lock of " .. path
+end
+
+--- Another process holding the write lock of the working database at
+--- `path`, as [`work.holder_line`] says it of what this host shows:
+--- Linux's /proc/locks, the database's files and [`holder_file`].
+function work.holding(path: string): string
+  -- TODO: name the holder on macOS and the BSDs too, which have no
+  -- /proc/locks, by asking `fcntl(F_GETLK)` of the lock's byte, once
+  -- cosmic.sys carries F_GETLK.
+  local locks, _ = Fs.read("/proc/locks")
+  local seen: work.Seen = { locks = locks, own = sys.getpid() }
+  if locks ~= nil then
+    local shm, _ = sys.stat(path .. "-shm")
+    if shm ~= nil then seen.shm = { dev = shm.dev, ino = shm.ino } end
+    local file, _ = sys.stat(path)
+    if file ~= nil then seen.file = { dev = file.dev, ino = file.ino } end
+    local named, _ = Fs.read(holder_file(path))
+    seen.named = named
+    local marked, _ = sys.stat(holder_file(path))
+    if marked ~= nil then
+      seen.age_ns = Clock.now_ns() - (marked.mtime * Clock.seconds(1) + marked.mtime_ns)
+    end
+  end
+  return work.holder_line(path, seen)
+end
+
+--- What a run says as it starts to wait for `holding`, the run that holds
+--- the write lock of the working database ([`work.holding`]): where it is
+--- told what it is `doing` (a verb, "running hello.tl"), that first, and
+--- why it waits, since a verb that only reads does not.
+function work.waiting_line(holding: string, doing?: string): string
+  if doing == nil then return holding .. "; waiting for it" end
+  return string.format("%s: %s; waiting for it, since one run at a time writes the tree's build in that file " ..
+      "(docs, uses and todos read its last build and do not wait)", doing, holding)
+end
+
 --- What a step that takes the write lock did: took it and went on
 --- ("done"), or, waiting for no other run ([`work.try_open`]), found
 --- another holding it ("busy").
@@ -635,34 +798,57 @@ local enum Took
 end
 
 --- Begins the run's transaction on `db`, the working database at `path`,
---- waiting up to `wait_ns` for another run that holds it and saying so
---- after `notice_ns`. The handle keeps the long wait for every statement
---- after ([`work.begin`]'s transactions among them). Unless `wait`, it
---- waits for no other run: where one holds the lock it answers "busy".
-local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
+--- waiting up to `wait_ns` for another run that holds it, saying so,
+--- naming that run where it can ([`work.holding`]), after `notice_ns`,
+--- and that it still waits every `reminder_ns`. The handle keeps the long
+--- wait for every statement after ([`work.begin`]'s transactions among
+--- them). Unless `wait`, it waits for no other run: where one holds the
+--- lock it answers "busy". The line that says it waits names what the
+--- run is `doing`, where given ([`work.waiting_line`]). A transaction begun is recorded
+--- ([`mark_holder`]).
+local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   if not wait then
     db:busy_timeout(0)
     local tried = db:exec_result("BEGIN IMMEDIATE")
     db:busy_timeout(wait_ns)
-    if tried.code == Sqlite.OK then return "done", "" end
+    if tried.code == Sqlite.OK then
+      mark_holder(path)
+      return "done", ""
+    end
     if tried.code == Sqlite.BUSY then return "busy", "" end
     return nil, tried.reason
   end
   db:busy_timeout(notice_ns)
   local begun = db:exec_result("BEGIN IMMEDIATE")
-  db:busy_timeout(wait_ns)
-  if begun.cancelled == true then return nil, "interrupted while waiting for the write lock" end
-  if begun.code == Sqlite.OK then
-    return "done", ""
+  if begun.cancelled == true then
+    db:busy_timeout(wait_ns)
+    return nil, "interrupted while waiting for the write lock"
   end
   if begun.code ~= Sqlite.BUSY then
-    return nil, begun.reason
+    db:busy_timeout(wait_ns)
+    if begun.code ~= Sqlite.OK then return nil, begun.reason end
+    mark_holder(path)
+    return "done", ""
   end
-  log:complain("another cosmic run holds " .. path .. "; waiting for it")
-  local waited = db:exec_result("BEGIN IMMEDIATE")
-  if waited.cancelled == true then return nil, "interrupted while waiting for the write lock" end
-  if waited.code ~= Sqlite.OK then return nil, waited.reason end
-  return "done", ""
+  log:complain(work.waiting_line(work.holding(path), doing))
+  local started_ns = Clock.monotonic_ns() - notice_ns
+  while true do
+    local step = math.max(math.min(reminder_ns, wait_ns - (Clock.monotonic_ns() - started_ns)), 0)
+    db:busy_timeout(step)
+    local waited = db:exec_result("BEGIN IMMEDIATE")
+    local waited_ns = Clock.monotonic_ns() - started_ns
+    if waited.cancelled == true then
+      db:busy_timeout(wait_ns)
+      return nil, "interrupted while waiting for the write lock"
+    end
+    if waited.code ~= Sqlite.BUSY or waited_ns >= wait_ns then
+      db:busy_timeout(wait_ns)
+      if waited.code ~= Sqlite.OK then return nil, waited.reason end
+      mark_holder(path)
+      return "done", ""
+    end
+    log:complain("still waiting, " .. rebuild_lock.elapsed(waited_ns) .. " on: " .. work.holding(path))
+  end
 end
 
 --- Puts `db`, the working database at `path`, in write-ahead mode, so a
@@ -680,7 +866,7 @@ end
 --- no shared memory, which write-ahead mode needs, leaves the file in
 --- rollback mode, where its readers wait on a writer as they always
 --- did. Unless `wait`, it waits for no other run, answering "busy".
-local function to_wal(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
+local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   while true do
     local result = Sqlite.text_rows_result(db, "PRAGMA journal_mode = WAL")
     if result.rows ~= nil then return "done", "" end
@@ -688,7 +874,7 @@ local function to_wal(db: Sqlite.Handle, path: string, wait: boolean): Took?, st
     if result.code ~= Sqlite.BUSY and result.code ~= Sqlite.LOCKED then
       return nil, result.reason
     end
-    local begun, begin_trouble = begin_waiting(db, path, wait)
+    local begun, begin_trouble = begin_waiting(db, path, wait, doing)
     if begun == nil then return nil, begin_trouble end
     if begun == "busy" then return "busy", "" end
     local rolled_back, roll_trouble = db:exec("ROLLBACK")
@@ -719,7 +905,7 @@ end
 --- a transaction a statement, each a no-op, and waits, if it must, at the
 --- run's own [`begin_waiting`]. Unless `wait`, it waits for no other
 --- run, answering "busy".
-local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, string
+local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   local fresh, count_trouble = counted_none(db, "SELECT count(*) FROM sqlite_master")
   if fresh == nil then
     return nil, count_trouble
@@ -752,9 +938,36 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean): Took?, st
     end
     local dropped, drop_trouble = db:exec("DROP INDEX IF EXISTS compiled_by_seen")
     if not dropped then return nil, drop_trouble end
+    -- A table an older tool made, of each compile's bytecode deflated, which no projection carries. Left
+    -- where another run holds the database: it is dead weight and no more, and the next open takes it out.
+    local _, _ = db:exec("DROP TABLE IF EXISTS deflated_bytecode")
+    -- A view whose stored text is not the schema's is made again, dropped and created in one transaction, so a run
+    -- reading it meets one definition or the other and never none: `CREATE VIEW IF NOT EXISTS` alone would keep the
+    -- other for good. The transaction is begun as the run's is ([`begin_waiting`]), so an open that waits for no
+    -- other run answers "busy" where one holds the file.
+    for _, statement in ipairs(work.schema) do
+      local name = statement:match("^CREATE VIEW IF NOT EXISTS (%S+) AS")
+      if name ~= nil then
+        local stored, stored_trouble = Sqlite.text_rows(db,
+          "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?1", { text(name) })
+        if stored == nil then return nil, stored_trouble end
+        local now = (statement:gsub("^CREATE VIEW IF NOT EXISTS ", "CREATE VIEW ", 1))
+        local row = stored[1]
+        if row ~= nil and row:text(1) ~= now then
+          local begun, begin_trouble = begin_waiting(db, path, wait, doing)
+          if begun == nil then return nil, begin_trouble end
+          if begun == "busy" then return "busy", "" end
+          local remade, remade_trouble = db:exec("DROP VIEW " .. name .. "; " .. statement .. "; COMMIT")
+          if not remade then
+            local _, _ = db:exec("ROLLBACK")
+            return nil, remade_trouble
+          end
+        end
+      end
+    end
   end
   if fresh then
-    local begun, begin_trouble = begin_waiting(db, path, wait)
+    local begun, begin_trouble = begin_waiting(db, path, wait, doing)
     if begun == nil then return nil, begin_trouble end
     if begun == "busy" then return "busy", "" end
   end
@@ -848,8 +1061,9 @@ end
 --- else of it. Unless `wait`, it waits for no other run, for neither
 --- lock ([`work.try_open`]). `locked` says the rebuild lock is held for
 --- the open already: by this process, or a parent that handed it on.
+--- A wait names what the run is `doing`, where given ([`work.waiting_line`]).
 local function opened(root: string, dir: string?, wait: boolean,
-                      remake: string, locked: boolean): work.Opening?, string
+                      remake: string, locked: boolean, doing?: string): work.Opening?, string
   local out: string
   if dir == nil then
     local found, directory_trouble = build_paths.prepare(root)
@@ -884,7 +1098,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   end
   -- After the encoding: on a fresh file the switch is the first write,
   -- which fixes the encoding.
-  local logged, log_trouble = to_wal(db, path, wait)
+  local logged, log_trouble = to_wal(db, path, wait, doing)
   -- Whatever the switch answered, a file put at the path since the open,
   -- or removed, as another run may while this one waits for its lock, is
   -- opened anew. SQLite refuses to write to the file it opened once
@@ -893,7 +1107,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   local file = identity_of(path)
   if file == "" or (before ~= "" and file ~= before) then
     local _, _ = db:close()
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
   if logged ~= "done" then
     local _, _ = db:close()
@@ -939,14 +1153,14 @@ local function opened(root: string, dir: string?, wait: boolean,
         if taken == "busy" then return { handle = nil, other_schema = found }, "" end
         took = true
       end
-      local again, again_trouble = opened(root, dir, wait, remake, true)
+      local again, again_trouble = opened(root, dir, wait, remake, true, doing)
       if took then rebuild_lock.release() end
       if again == nil then return nil, again_trouble end
       return again, ""
     end
     -- The write lock next: a run building in the file holds it till its
     -- commit.
-    local begun, begin_trouble = begin_waiting(db, path, wait)
+    local begun, begin_trouble = begin_waiting(db, path, wait, doing)
     if begun ~= "done" then
       local _, _ = db:close()
       if begun == "busy" then return { handle = nil, other_schema = found }, "" end
@@ -954,10 +1168,10 @@ local function opened(root: string, dir: string?, wait: boolean,
     end
     local gone, gone_trouble = let_go_of_another_schema(db, path, file)
     if not gone then return nil, gone_trouble end
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
 
-  local created, create_trouble = create(db, path, wait)
+  local created, create_trouble = create(db, path, wait, doing)
   if created ~= "done" then
     local _, _ = db:close()
     if created == "busy" then return { handle = nil, other_schema = nil }, "" end
@@ -967,7 +1181,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   -- IMMEDIATE takes the write lock before reading, so a second build of
   -- the same tree waits for the first ([`begin_waiting`]) instead of both
   -- reading and then one failing to upgrade.
-  local begun, begin_trouble = begin_waiting(db, path, wait)
+  local begun, begin_trouble = begin_waiting(db, path, wait, doing)
   if begun ~= "done" then
     local _, _ = db:close()
     if begun == "busy" then return { handle = nil, other_schema = nil }, "" end
@@ -979,7 +1193,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   -- schema, which the stamp below would keep.
   if identity_of(path) ~= file then
     local _, _ = db:close()
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
   local stamped, stamped_trouble = schema_of(db)
   if stamped == nil and stamped_trouble ~= "" then
@@ -993,7 +1207,7 @@ local function opened(root: string, dir: string?, wait: boolean,
     end
     -- Opened again, it is removed as any file of another schema is,
     -- holding both locks, which are taken in that order.
-    return opened(root, dir, wait, remake, locked)
+    return opened(root, dir, wait, remake, locked, doing)
   end
   -- Old rows have no change time: retain their content caches, but read
   -- their files once before trusting metadata again.
@@ -1041,9 +1255,11 @@ end
 
 --- Opens `build.db` in `dir`, or where nil in `root`'s build directory,
 --- which [`build.paths`] names and makes, waiting for another run that
---- holds its write lock, as a build does ([`opened`]).
-function work.open(root: string, dir?: string): work.Handle?, string
-  local found, trouble = opened(root, dir, true, "any", false)
+--- holds its write lock, as a build does ([`opened`]). The line that says
+--- it waits names what the run is `doing`, where given: its verb, or what
+--- else it is ([`work.waiting_line`]).
+function work.open(root: string, dir?: string, doing?: string): work.Handle?, string
+  local found, trouble = opened(root, dir, true, "any", false, doing)
   if found == nil then return nil, trouble end
   local handle = found.handle
   if handle == nil then return nil, "another cosmic run holds the write lock" end
@@ -1108,8 +1324,7 @@ end
 --- other run that holds the working database at `path`, and reads what
 --- that run last committed.
 function work.tell_busy(verb: string, path: string)
-  tell_once("busy", path, verb .. ": another cosmic run holds the write lock of " .. path ..
-      "; not waiting for it, reading what it last committed")
+  tell_once("busy", path, verb .. ": " .. work.holding(path) .. "; not waiting for it, reading what it last committed")
 end
 
 --- What a build of the project at `root`, by this tool, does to a database
@@ -1215,6 +1430,7 @@ function work.begin(handle: work.Handle): boolean, string
   end
   if begun.code ~= Sqlite.OK then return false, begun.reason end
   handle.inside = true
+  mark_holder(build_paths.under(handle.dir).working)
   return true, ""
 end
 
@@ -1277,7 +1493,7 @@ end
 --- `files` keeps the bytes; `tool` and `scanned` keep only what a stat
 --- and a hash say about them. The put for each takes the bytes as its
 --- sixth parameter and their hash, made once per read, as its seventh;
---- `todo` is one TODO's row.
+--- `todo` is one TODO's row, and `miss` one near miss's.
 local puts: {string:string} = {
   files = "INSERT OR REPLACE INTO files (path, size, mtime_ns, ino, dev, " ..
     "sha256, data, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?9)",
@@ -1289,6 +1505,7 @@ local puts: {string:string} = {
     "sha256, kind, ctime_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?8, ?9)",
   todo = "INSERT OR IGNORE INTO todos (sha256, line, last, text) " ..
     "VALUES (?1, ?2, ?3, ?4)",
+  miss = "INSERT OR IGNORE INTO todo_misses (sha256, line, spelling) VALUES (?1, ?2, ?3)",
 }
 
 --- The largest file `scanned` reads for TODOs.
@@ -1318,19 +1535,55 @@ end
 --- Whether the tool's recorded files or discovery directories moved. The
 --- same walk that stages inputs records its directories, so a new input
 --- invalidates the fast path without listing an unchanged tree again.
-function work.tool_moved(handle: work.Handle): boolean?, string
+local function tool_moved_in(db: Sqlite.Handle, root: string): boolean?, string
   for _, table_name in ipairs({ "tool", "tool_discovery" }) do
-    local known, trouble = known_in(handle.db, table_name)
+    local known, trouble = known_in(db, table_name)
     if known == nil then return nil, trouble end
     if table_name == "tool_discovery" and known[""] == nil then return true, "" end
     for path in pairs(known) do
-      local st, _ = Fs.stat(handle.root .. "/" .. path)
+      local st, _ = Fs.stat(root .. "/" .. path)
       if st == nil then return true, "" end
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
       if moved(known, path, st, mtime_ns) then return true, "" end -- checked: view_as_mut
     end
   end
   return false, ""
+end
+
+function work.tool_moved(handle: work.Handle): boolean?, string
+  return tool_moved_in(handle.db, handle.root)
+end
+
+--- Whether the tool's recorded inputs in the working database of `root`
+--- stand as [`work.tool_moved`] would find them, and the boot hash its
+--- last stage recorded is `boot_hash`, read without writing anything
+--- there: no run is counted and nothing is committed, so a run holding
+--- the tree to a boundary (CI's, which hashes the file and its
+--- write-ahead log across steps) sees them as they were. With no log
+--- beside it the file is opened immutable, which makes none; with one,
+--- another connection has it open, and it is read through the log
+--- read-only, which writes neither. What a run outside the tree asks of
+--- the checkout its tool was built from ([`build.reboot.stale_exit`]).
+function work.tool_read_unwritten(root: string, boot_hash: string): work.Unwritten
+  local directory, _ = build_paths.optional(root)
+  if directory == nil then return "unknown" end
+  local path = build_paths.under(directory).working
+  local present, _ = Fs.exists(path)
+  if present ~= true then return "unknown" end
+  local logged, _ = Fs.exists(path .. "-wal")
+  local db, _ = Sqlite.open(path, { immutable = logged ~= true })
+  if db == nil then return "unknown" end
+  local schema, _ = schema_of(db)
+  local answer: work.Unwritten = "unknown"
+  if schema == version then
+    local moved_now, _ = tool_moved_in(db, root)
+    if moved_now == false then
+      local recorded, _ = identity.recorded_boot_hash(db)
+      if recorded ~= nil and recorded == boot_hash then answer = "fresh" end
+    end
+  end
+  local _, _ = db:close()
+  return answer
 end
 
 --- Writes one file's row: its stat, with the modification time kept
@@ -1379,17 +1632,31 @@ local function holds_own_todos(file: string): boolean
     not identity.is_static(file)
 end
 
---- Records the TODOs in one file's bytes under their hash, unless a
+--- Records the TODOs in one file's bytes under their hash, and the
+--- comments that open with a near miss of the spelling (`miss`), unless a
 --- file with the same bytes already has: text that parses as a patch
 --- record is scanned as one wherever it sits, since the rows are keyed
---- by the bytes alone. Text holding no `TODO:`, or holding a NUL,
---- is not scanned.
-local function put_todos(put: Sqlite.Statement, data: string,
+--- by the bytes alone, and its near misses are not looked for. Text holding
+--- neither `TODO` nor `FIXME`, or holding a NUL, is not scanned.
+local function put_todos(put: Sqlite.Statement, miss: Sqlite.Statement, data: string,
                          sha256: string): boolean, string
-  if data:find("TODO:", 1, true) == nil or data:find("\0", 1, true) ~= nil then
+  if (data:find("TODO", 1, true) == nil and data:find("FIXME", 1, true) == nil) or
+      data:find("\0", 1, true) ~= nil then
     return true, ""
   end
-  local scanned = todo_scan.scan_record(data) or todo_scan.scan(data)
+  local record = todo_scan.scan_record(data)
+  if record == nil then
+    for _, near in ipairs(todo_scan.misses(data)) do
+      local ok, trouble = miss:bind_text(1, sha256)
+      if ok then ok, trouble = miss:bind_integer(2, near.line) end
+      if ok then ok, trouble = miss:bind_text(3, near.spelling) end
+      if ok then ok, trouble = once(miss) end
+      if not ok then
+        return false, trouble
+      end
+    end
+  end
+  local scanned = record or todo_scan.scan(data)
   for _, found in ipairs(scanned) do
     local ok, trouble = put:bind_text(1, sha256)
     if ok then ok, trouble = put:bind_integer(2, found.line) end
@@ -1425,21 +1692,36 @@ end
 
 --- Why the static asset `file` of `root` (whose real path is `real_root`)
 --- cannot be carried, or nil: what [`identity.static_refusal`] refuses by
---- name and size, a spelling that differs from another staged one only in
---- case (`seen`, by lowercase spelling: a tree must build the same on a
---- case-insensitive disk), and a link that leads out of the project, which
---- would make the executable depend on files outside the checkout.
+--- name and size, a path as an asset that differs only in case from that of
+--- an asset staged before it which a program would carry beside it (a tree
+--- must build the same on a case-insensitive disk), and a link that leads
+--- out of the project, which would make the executable depend on files
+--- outside the checkout. `seen` maps each lowercase path as an asset to the
+--- file staged at it for each program ("" for a shared one). Two programs'
+--- own assets never meet, and one of a program's own at the path of a
+--- shared one is laid over it.
 local function static_refusal(root: string, real_root: string, file: string, size: integer,
-                              seen: mut {string:string}): string?
+                              seen: mut {string: mut {string:string}}): string?
   local refusal = identity.static_refusal(file, size)
   if refusal ~= nil then return refusal end
-  local lowered = file:lower()
-  local earlier = seen[lowered]
-  if earlier ~= nil and earlier ~= file then
-    return ("%s: differs from %s only in case; rename one, so the tree builds the same on a " ..
-      "case-insensitive disk"):format(file, earlier)
+  local asset = analysis_schema.static_asset(file)
+  if asset == nil then return nil end
+  local program = asset.program
+  local lowered = asset.path:lower()
+  local held: mut {string:string} = seen[lowered] or {}
+  seen[lowered] = held
+  local programs: mut {string} = {}
+  for other in pairs(held) do programs[#programs + 1] = other end
+  table.sort(programs)
+  for _, other in ipairs(programs) do
+    local earlier = assert(held[other], "a program listed holds a file")
+    local spelled = analysis_schema.static_asset(earlier)
+    if (spelled == nil or spelled.path ~= asset.path) and (other == program or other == "" or program == "") then
+      return ("%s: differs from %s only in case; rename one, so the tree builds the same on a " ..
+        "case-insensitive disk"):format(file, earlier)
+    end
   end
-  seen[lowered] = file
+  held[program] = file
   local real, trouble = Fs.absolute(root .. "/" .. file)
   if real == nil then return trouble end
   if real:sub(1, #real_root + 1) ~= real_root .. "/" then
@@ -1598,7 +1880,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     known[table_name] = rows
   end
   local put: mut {string:Sqlite.Statement} = {}
-  for _, name in ipairs({ "files", "tool", "scanned", "linked", "todo" }) do
+  for _, name in ipairs({ "files", "tool", "scanned", "linked", "todo", "miss" }) do
     local statement, trouble = db:prepare((assert(puts[name], "every name listed has its put")))
     if statement == nil then
       finish(put)
@@ -1612,12 +1894,13 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   local put_scanned = assert(put["scanned"], "every put was prepared")
   local put_linked = assert(put["linked"], "every put was prepared")
   local put_todo = assert(put["todo"], "every put was prepared")
+  local put_miss = assert(put["miss"], "every put was prepared")
   local now = Clock.now_ns()
   local staged: work.Staged = { files = 0, read = 0, notes = {} }
   -- The real path of `root`, once a static asset asks for it, and the
   -- static paths seen by their lowercase spelling.
   local real_root: string? = nil
-  local static_seen: mut {string:string} = {}
+  local static_seen: mut {string: mut {string:string}} = {}
   -- The text of each file of `linked` read here, by path.
   local texts: mut {string:string} = {}
 
@@ -1674,13 +1957,13 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
         staged.read = staged.read + 1
         if write_files and identity.is_static(file) and
             (file:match("%.tl$") ~= nil or file:match("%.tmpl$") ~= nil) then
-          local note = file .. ": under static/, so it is carried as an asset and is no module"
+          local note = file .. ": a static asset, so it is carried as an asset and is no module"
           staged.notes[#staged.notes + 1] = note
           log:complain(note)
         end
         local sha256 = Hash.hex_sha256(data)
         if (input or tool or scan) and holds_own_todos(file) then
-          local ok, why = put_todos(put_todo, data, sha256)
+          local ok, why = put_todos(put_todo, put_miss, data, sha256)
           if not ok then
             finish(put)
             return nil, file .. ": " .. why
@@ -1770,12 +2053,14 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   if not found then
     return nil, found_trouble
   end
-  local pruned, prune_trouble = db:exec(
-    "DELETE FROM todos WHERE sha256 NOT IN " ..
-      "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
-      "UNION SELECT sha256 FROM scanned)")
-  if not pruned then
-    return nil, prune_trouble
+  for _, table_name in ipairs({ "todos", "todo_misses" }) do
+    local pruned, prune_trouble = db:exec(
+      "DELETE FROM " .. table_name .. " WHERE sha256 NOT IN " ..
+        "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
+        "UNION SELECT sha256 FROM scanned)")
+    if not pruned then
+      return nil, prune_trouble
+    end
   end
   local by, by_trouble = running_tool(db)
   if by == nil then

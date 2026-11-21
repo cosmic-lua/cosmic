@@ -402,6 +402,8 @@ cosmic's own functions. Each answers NULL for a NULL argument.
 - `hmac(A, K, X)`: the HMAC of X under the key K, over the algorithm A.
 - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)` writes it.
 - `inflate(X)`: a raw deflate stream decoded, to a blob.
+- `chunk(X)`: a module's bytecode as `string.dump` wrote it, where X is
+  how a database stores it: as it is, or raw-deflated by an older build.
 
 ## vector search
 

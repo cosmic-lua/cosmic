@@ -1,10 +1,10 @@
 --- What the binary's main does with its command line, as a module
 --- rather than the main itself, so a test can run a verb in-process
 --- ([`build.invoke`]): [`cmd/cosmic/main.tl`] hands [`Dispatch.main`] every
---- command line but a test's worker's (`cosmic test --worker`), which it
---- runs itself, so a worker loads nothing of this module's. So
---- `cosmic test --worker` here is `test` refusing an option it does
---- not know.
+--- command line but a test's worker's (`cosmic test --worker`) and the
+--- sandbox probe's (`cosmic test --sandbox-probe`), which it runs itself,
+--- so neither loads anything of this module's. So `cosmic test --worker`
+--- here is `test` refusing an option it does not know.
 ---
 --- A bare path runs a file: cosmic builds the tree that file sits in,
 --- into that tree's own database, and then requires the module. The
@@ -15,6 +15,7 @@ local exit_status = require("build.exit_status")
 local help_source = require("build.help_source")
 local logger = require("build.logger")
 local type verb_spec = require("build.verb_spec")
+local type flags = require("cosmic.flags")
 
 local log = logger.log
 
@@ -38,7 +39,7 @@ local log = logger.log
 local function verb_help(verbs: {string}, binary_only?: boolean): {string: string}
   local Cli = require("cosmic.cli")
   local docs = require("build.docs")
-  local link_text = require("build.link_text")
+  local link_text = require("cosmic.internal.link_text")
   local sources: docs.Sources
   if binary_only == true then
     local handles = require("cosmic.store").databases()
@@ -60,7 +61,7 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
   for _, verb in ipairs(verbs) do
     names[#names + 1] = "Cli." .. verb
   end
-  local found, trouble = docs.named_all(view, names)
+  local found, trouble = require("cosmic.doc").named_all(view, names)
   for _, verb in ipairs(verbs) do
     local symbol = "Cli." .. verb
     local text: string? = nil
@@ -230,68 +231,65 @@ local as_option: {string:string} = {
   ["--version"] = "version",
 }
 
---- What the index shows of `verb`'s command line: `cosmic`, what names
---- the verb there, and the verb's own `usage`. A file run is named by
---- the file, and `--standalone`, `-e` and `--version` by their spelling.
-local function usage_line(verb: string): string
-  local typed = verb
-  if verb == "run" then
-    typed = ""
+--- What a refusal of the mistyped verb `word` ends with when any of
+--- `verbs` is near it by [`Flags.nearest`]'s rule, as [`cosmic.flags`]
+--- ends its own: "; did you mean test?". "" when none is.
+local function meant(word: string, verbs: {string}): string
+  local found = require("cosmic.flags").nearest(word, verbs)
+  if #found == 0 then
+    return ""
+  elseif #found == 1 then
+    return "; did you mean " .. found[1] .. "?"
   end
-  for spelled, name in pairs(as_option) do
-    if name == verb then typed = spelled end
-  end
-  local words: mut {string} = { "cosmic" }
-  if typed ~= "" then words[#words + 1] = typed end
-  local command = assert(require("cosmic.cli").verbs[verb], "the index lists the verbs of Cli.verbs")
-  local usage = command.usage
-  if usage == nil then
-    local spec = command.spec
-    usage = if spec ~= nil and next(spec) ~= nil then "[options]" else "" end
-  end
-  if usage ~= "" then words[#words + 1] = usage end
-  return table.concat(words, " ")
+  return "; did you mean one of " .. table.concat(found, ", ") .. "?"
 end
 
 --- The index `cosmic help` prints: what `cosmic` is, the guides to
 --- start from, each verb's usage and purpose in the sections
---- [`cosmic.cli.groups`] names, and where to read more.
+--- [`cosmic.cli.groups`] names, and where to read more. It is the help
+--- [`Flags.dispatch`] writes of a program whose commands are the verbs,
+--- each listed as it is typed: a file run by the file, and
+--- `--standalone`, `-e` and `--version` by their spelling.
 local function index_help(): string
-  -- TODO: write the index through Flags.dispatch's program help, which
-  -- lists every command alphabetically with its `about`. It waits on
-  -- that help taking sections and a preamble: the index's groups, and
-  -- the prose around them, are what `cosmic help` shows today.
   local Cli = require("cosmic.cli")
-  local width = 0
-  for _, verb in ipairs(Cli.order) do
-    width = math.max(width, #usage_line(verb))
-  end
-  local lines = {
-    "cosmic -- a runtime for self-contained command-line software",
-    "",
-    "cosmic runs Teal and Lua programs with a standard library that needs",
-    "nothing installed, and builds them into single executables. Its",
-    "verbs run code, work on a project, do quick jobs at the shell, and",
-    "look things up.",
-    "",
-    "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
-    "library, and `cosmic docs doc.guides.project` builds a project with",
-    "a module, tests, an example, a record with methods and a program",
-    "with commands.",
-  }
+  local Flags = require("cosmic.flags")
+  local titles: mut {string} = {}
+  local order: mut {string} = {}
+  local group_of: mut {string: string} = {}
   for _, group in ipairs(Cli.groups) do
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = assert(group[1], "a group of Cli.groups opens with its title") .. ":"
+    local title = assert(group[1], "a group of Cli.groups opens with its title")
+    titles[#titles + 1] = title
     for slot, verb in ipairs(group) do
       if slot > 1 then
-        local usage = usage_line(verb)
-        local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
-        lines[#lines + 1] = "  " .. usage .. string.rep(" ", width - #usage + 2) .. assert(command.about)
+        order[#order + 1] = verb
+        group_of[verb] = title
       end
     end
   end
-  for _, line in ipairs({
+  local typed: mut {string: string} = { run = "" }
+  for spelled, name in pairs(as_option) do typed[name] = spelled end
+  local commands: mut {string: Flags.Command} = {}
+  for _, verb in ipairs(order) do
+    local command = assert(Cli.verbs[verb], "a grouped verb is one of Cli.verbs")
+    commands[verb] = { spec = command.spec, about = assert(command.about), usage = command.usage,
+      group = group_of[verb], typed = typed[verb] }
+  end
+  local index = assert(Flags.dispatch({ "--help" }, 1, commands, "cosmic", {
+    groups = titles, order = order, usages = true,
+    before = table.concat({
+      "cosmic -- a runtime for self-contained command-line software",
       "",
+      "cosmic runs Teal and Lua programs with a standard library that needs",
+      "nothing installed, and builds them into single executables. Its",
+      "verbs run code, work on a project, do quick jobs at the shell, and",
+      "look things up.",
+      "",
+      "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
+      "library, and `cosmic docs doc.guides.project` builds a project with",
+      "a module, tests, an example, a record with methods and a program",
+      "with commands.",
+    }, "\n"),
+    after = table.concat({
       "More:",
       "  cosmic help <verb>       a verb's full text, with its options",
       "  cosmic help exit         exit codes and summaries",
@@ -300,20 +298,29 @@ local function index_help(): string
       "",
       "Lua's io, os and debug are absent (print stays): `cosmic docs",
       "cosmic.removed` names what replaces each.",
-  }) do
-    lines[#lines + 1] = line
-  end
-  return table.concat(lines, "\n") .. "\n"
+    }, "\n"),
+  }))
+  return index.help .. "\n"
 end
 
---- The directory a path sits in, absolute.
-local function directory_of(path: string): string?, string
-  local Fs = require("cosmic.fs")
-  local resolved, trouble = Fs.absolute(path)
-  if resolved == nil then
-    return nil, trouble
-  end
-  return Fs.dirname(resolved), ""
+--- Why Flags.dispatch refuses the line `own` of the verb `verb`, whose options `command` names, or "" where it
+--- takes it: "test: no such option: --jbs; did you mean --jobs?; usage: cosmic test [options] [path...]".
+--- Nothing is run: the verb reads its own line after.
+local function line_refusal(verb: string, command: flags.Command, own: {string}): string
+  local vetted: flags.Command = { spec = command.spec, usage = command.usage,
+    run = function(_: flags.Parsed): integer return 0 end }
+  local ran, why = require("cosmic.flags").dispatch(own, 1, { [verb] = vetted }, "cosmic")
+  return if ran == nil then why else "" end
+end
+
+--- The tree a file run builds, and why it is that one.
+local record Root
+  --- The tree's directory, absolute.
+  dir: string
+  --- Which rule chose it, as a hint names it: the working directory, or the file's own directory.
+  chosen: string
+  --- The file run, absolute.
+  file: string
 end
 
 --- The tree a file run builds: the working directory when the file
@@ -321,7 +328,7 @@ end
 --- builds the project as `test` and `build` do and the file reaches
 --- the rest of it; the file's own directory otherwise, so a file
 --- anywhere else runs on its own.
-local function root_of(file: string): string?, string
+local function root_of(file: string): Root?, string
   local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
@@ -329,9 +336,13 @@ local function root_of(file: string): string?, string
   end
   local here, _ = Fs.absolute(".")
   if here ~= nil and Fs.within(resolved, here) then
-    return here, ""
+    return { dir = here, chosen = "the working directory, which holds the file", file = resolved }, ""
   end
-  return directory_of(file)
+  return {
+    dir = Fs.dirname(resolved),
+    chosen = "the file's own directory, since the working directory does not hold the file",
+    file = resolved,
+  }, ""
 end
 
 --- The module a file is, as its path relative to the root says: a
@@ -344,6 +355,8 @@ local function module_of(root: string, file: string): string?, string
   if resolved == nil then
     return nil, trouble
   end
+  -- TODO: refuse a tree of `/` (a file run from `/`, or of a file there) with a message that says to run the file
+  -- from its project's root, before staging it: `root .. "/"` is `//` there, so a file under it is said not to be.
   if not String.starts_with(resolved, root .. "/") then
     return nil, file .. " is not inside " .. root
   end
@@ -393,6 +406,22 @@ local function with_standalone_hint(trouble: string, file: string, name: string)
     "`cosmic --standalone " .. file .. "` (or COSMIC_STANDALONE=1) runs the file alone"
 end
 
+--- `trouble`, the reason a file run's build failed, with a line naming the tree the run built and the rule that chose
+--- it where the checker found a `require` of a module the tree does not hold (`require_unknown`): a file run from
+--- below its project's root, or from outside it, builds a smaller tree, which holds no module the file names from the
+--- project's root. The line says only what the run knows; which project the file belongs to, it cannot tell.
+local function with_tree_hint(trouble: string, root: Root): string
+  if trouble:find("(require_unknown)", 1, true) == nil then
+    return trouble
+  end
+  -- TODO: leave out the checker's "did you mean" of `trouble` where this hint is given, once lang/check.tl's
+  -- `require_unknown` suggestion can be told the project's root: from a directory above the project it names the
+  -- module from the run's tree (`proj.m`), a require that works only from there.
+  return trouble .. "\n" .. "cosmic: this run built the tree " .. root.dir .. ", " .. root.chosen ..
+    "; a module is named from the tree's root, so if the file belongs to a project elsewhere, run it from that " ..
+    "project's root"
+end
+
 --- Runs a file. The file is a module: it is required once its tree is
 --- built, with its arguments (below) set in the global `arg` before its
 --- top level runs, and if what it returns is a function, that function is
@@ -423,11 +452,12 @@ local function run(file: string, argv: {string}): integer
   local build_paths = require("build.paths")
   local work = require("build.work")
   local writer = require("build.writer")
-  local root, trouble = root_of(file)
-  if root == nil then
+  local tree_root, trouble = root_of(file)
+  if tree_root == nil then
     log:complain(trouble)
     return 1
   end
+  local root = tree_root.dir
   local name, why = module_of(root, file)
   if name == nil then
     log:complain(why)
@@ -440,7 +470,16 @@ local function run(file: string, argv: {string}): integer
     log:complain(standing_trouble)
     return 1
   end
-  local handle, open_trouble = work.open(root)
+  -- In a project, a tool older than the checkout it was built from
+  -- rebuilds from that checkout and re-enters this command line first
+  -- ([`reboot.checkout_exit`]); cosmic's own tree is checked below.
+  if not standing.own then
+    local code = reboot.checkout_exit(argv, root)
+    if code ~= nil then
+      return code
+    end
+  end
+  local handle, open_trouble = work.open(root, nil, "running " .. file)
   if handle == nil then
     log:complain(open_trouble)
     return 1
@@ -477,7 +516,7 @@ local function run(file: string, argv: {string}): integer
   local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build(), outcome)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-    local hinted = with_standalone_hint(compile_trouble, file, name)
+    local hinted = with_tree_hint(with_standalone_hint(compile_trouble, file, name), tree_root)
     local _, _ = work.close(handle)
     log:complain(hinted)
     return if outcome.refused then exit_status.uncompiled else 1 end
@@ -529,6 +568,12 @@ local function run(file: string, argv: {string}): integer
   -- The file's top level, which `require` hands its own name and loader
   -- data as `...`, finds its words in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
+  -- What [`Proc.relaunch`] answers as `script`, so the program can start itself again.
+  local source_run = require("cosmic.internal.source_run")
+  source_run.script = tree_root.file
+  -- What [`Assets.default`] reads to serve a program's own `cmd/<name>/static/` from disk, as a built one carries it.
+  source_run.main = name
+  source_run.projection = database
   local load_module = require("build.load_module")
   local entry = standalone.entry(load_module.load(name))
   if entry ~= nil then
@@ -664,7 +709,9 @@ local function help(argv: {string}, asked: string?): integer
       end
     end
     if not known then
-      log:complain("help: no such verb: " .. requested)
+      local topics: mut {string} = { "exit" }
+      for _, verb in ipairs(Cli.order) do topics[#topics + 1] = verb end
+      log:complain("help: no such verb: " .. requested .. meant(requested, topics))
       return 2
     end
     local specs = verb_list.specs()
@@ -814,16 +861,15 @@ function Dispatch.main(argv: {string}): integer
   local sys = require("cosmic.sys")
   local verb = if word == nil or word == "-h" or word == "--help" then "help" else word end
   local chosen = spec_of(verb)
-  -- TODO: dispatch through Flags.dispatch, with each verb a Flags.Command
-  -- whose `run` takes the Flags.Parsed. It waits on two things in Flags.
-  -- Flags.parse must read a negative number as a word where the spec
-  -- declares no digit option: `time` and `rand` set one aside before
-  -- parsing (build/time.tl's `protect`, build/rand.tl's `marked`), which
-  -- Flags.dispatch's parse would refuse. Flags.dispatch must take a
-  -- default command for a first word that names none: a file run
-  -- (`cosmic <file.tl> args`, whose program arguments Flags.parse would
-  -- refuse as options) and `-e`, `--standalone` and `--version` are
-  -- verbs by no command name.
+  -- TODO: give each verb the line Flags.dispatch read, a Flags.Command whose `run` takes the Flags.Parsed, and
+  -- delete each verb's own parse of it. Flags.dispatch reads the line of a verb typed by its name already
+  -- ([`line_refusal`]), so their refusals are one rule's; until the verbs take what it read, a line is parsed
+  -- twice, to the same result. It waits on two things. Most verbs offer `run(argv, io?)` to their tests, which
+  -- would each hand over a parsed line instead; and a verb that says more of its usage than one line (`time`,
+  -- `rand`, `sql`: a line a subcommand) needs Flags.dispatch to end a refusal with the verb's own words. A
+  -- `fresh` verb and `todos` keep reading their own lines whatever is done: they rebuild a stale tool first.
+  -- `-e`, `--standalone` and `--version` stay outside Flags.dispatch on purpose: they load neither cosmic.flags
+  -- nor cosmic.cli (build/dispatch_tool_test.tl holds `-e` to it), being what runs when the tree cannot build.
   local command = Cli.verbs[verb]
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
@@ -837,9 +883,13 @@ function Dispatch.main(argv: {string}): integer
       end
     end
   end
+  -- Whether the verb is typed by its name, and so is a command Flags.dispatch reads the line of: `help`, a file
+  -- run and the verbs spelled as options read their own.
+  local typed_by_name = chosen ~= nil and verb ~= "help" and verb ~= "run" and verb:sub(1, 1) ~= "-"
   if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
     -- `cosmic <verb> --help` is `cosmic help <verb>`.
     local asked = verb
+    typed_by_name = false
     local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
     chosen = {
@@ -879,7 +929,31 @@ function Dispatch.main(argv: {string}): integer
     end
   end
   if chosen ~= nil then
-    local code = chosen.run(argv)
+    -- A verb that writes and checks the tool as it goes holds it to
+    -- cosmic's own tree alone; in a project it is held to its checkout
+    -- here ([`reboot.checkout_exit`]). A fresh verb and one that only
+    -- reads make that check in [`reboot.stale_exit`].
+    if not chosen.bare and chosen.fresh ~= true and chosen.reads ~= true then
+      local here, here_trouble = Fs.absolute(".")
+      if here == nil then
+        log:complain(verb .. ": " .. here_trouble)
+        return 1
+      end
+      local stale = require("build.reboot").checkout_exit(argv, here)
+      if stale ~= nil then
+        return stale
+      end
+    end
+    -- The verb's line is read by Flags.dispatch first, as a program's command is, so every verb refuses a
+    -- mistyped option alike, naming the one meant and its usage; the verb then reads the line it was given.
+    local code = 2
+    local vetted = command ~= nil and typed_by_name and chosen.fresh ~= true and chosen.own_line ~= true
+    local refusal = if command ~= nil and vetted then line_refusal(verb, command, own) else "" end
+    if refusal ~= "" then
+      log:complain(refusal)
+    else
+      code = chosen.run(argv)
+    end
     if code == 2 and not chosen.bare and chosen.fresh ~= true and chosen.recheck_on_refusal ~= false then
       -- A verb may read its command line before it checks the tool is
       -- as new as the tree, and an option the tree added is one a stale
@@ -904,7 +978,9 @@ function Dispatch.main(argv: {string}): integer
       log:complain("cosmic " .. verb .. " was removed: " .. retired)
       return 2
     end
-    log:complain("no such option: " .. verb)
+    local spelled: mut {string} = { "--help" }
+    for option in pairs(as_option) do spelled[#spelled + 1] = option end
+    log:complain("no such option: " .. verb .. meant(verb, spelled))
     log:complain("`cosmic help` is the whole discovery surface")
     return 2
   end
@@ -913,7 +989,15 @@ function Dispatch.main(argv: {string}): integer
   if not verb:find("/", 1, true) and not String.ends_with(verb, ".tl") then
     local exists, _ = Fs.exists(verb)
     if exists ~= true then
-      log:complain("no such verb or file: " .. verb .. "; see `cosmic help`")
+      -- The verbs typed by their names: a file run and the verbs spelled
+      -- as options are typed by none.
+      local untyped: mut {string:boolean} = { run = true }
+      for _, name in pairs(as_option) do untyped[name] = true end
+      local typed: mut {string} = {}
+      for _, known in ipairs(Cli.order) do
+        if untyped[known] == nil then typed[#typed + 1] = known end
+      end
+      log:complain("no such verb or file: " .. verb .. meant(verb, typed) .. "; see `cosmic help`")
       return 2
     end
   end

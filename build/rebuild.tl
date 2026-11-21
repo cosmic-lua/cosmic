@@ -11,6 +11,7 @@ local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local clock = require("build.clock")
 local importer = require("build.importer")
+local refusals = require("build.refusals")
 local GrammarMode = require("build.grammar_mode")
 local shared_compiles = require("build.shared_compiles")
 local tree = require("build.tree")
@@ -122,12 +123,31 @@ end
 --- `root`'s working database, opened as a build opens it, waiting for
 --- another run that holds it, where `wait`; otherwise opened only where
 --- no run holds it ([`work.try_open_older`]), with no handle where one does
---- or where it is of a newer schema than this tool's.
-local function opened_for(root: string, wait: boolean): work.Opening?, string
+--- or where it is of a newer schema than this tool's. A wait names `verb` ([`work.waiting_line`]).
+local function opened_for(root: string, wait: boolean, verb: string): work.Opening?, string
   if not wait then return work.try_open_older(root) end
-  local handle, trouble = work.open(root)
+  local handle, trouble = work.open(root, nil, verb)
   if handle == nil then return nil, trouble end
   return { handle = handle, other_schema = nil }, ""
+end
+
+local last_refused: mut {string} = {}
+local last_held = ""
+
+--- The files the last build this process made with [`rebuild.here`] refused, for what they hold or for requiring one
+--- that was, by their paths from the project's root: none where it built, or before it ran.
+function rebuild.refused(): {string}
+  return last_refused
+end
+
+--- Why the last build this process made with [`rebuild.here`] left the
+--- projection as it was though it answered true, so a lookup answers from
+--- the last build: another run holding the working database or the rebuild
+--- lock, a working database of another schema, or a check of the tool that
+--- went on without holding it to the tree ([`reboot.unchecked`]); "" where
+--- it wrote one, or where the directory is none to build.
+function rebuild.held(): string
+  return last_held
 end
 
 --- Builds the project at `root` as `cosmic test` does, leaving
@@ -135,7 +155,9 @@ end
 --- where `root` is not one to build ([`where`]) and `start` is not
 --- set, saying so on stderr when it looks like a project no build has
 --- been made of. Answers false and why when the build fails, which the
---- caller may say and go on from the last build. Only a build with
+--- caller may say and go on from the last build; where the tree refused it,
+--- [`rebuild.refused`] names the files after, and a lookup's why is a phrase
+--- naming the first. Only a build with
 --- `start` waits for another run that holds the working database: a
 --- lookup's does nothing where one does, which builds the same tree, but
 --- say so once ([`work.tell_busy`]), and answers true, the caller reading
@@ -147,25 +169,28 @@ end
 --- ([`reboot.unchecked`]), a lookup's builds nothing, and the caller reads
 --- what is there.
 local function project(root: string, verb: string, start: boolean, carried?: string): boolean, string
+  last_refused = {}
+  last_held = ""
   local found, found_trouble = where(root, carried)
   if found == nil then return false, found_trouble end
   if unchecked(root) then
     -- Compiled by code that may be older than the tree's, the rows and
     -- the projection would be keyed and signed as no build of the tree
     -- would make them.
+    last_held = "this tool could not be checked against the tree"
     return true, ""
   end
   if not found.project and not start then
     if looks_unbuilt(root) then
-      log:complain(verb .. ": this directory has not been built; `cosmic build` or `cosmic test` " ..
-          "first to include its modules")
+      log:complain(verb .. ": note: answering without this directory's modules, which no build has made yet; `cosmic build`, " ..
+          "`cosmic test` or `cosmic fix` builds them")
     end
     return true, ""
   end
   local grammar_trouble = GrammarMode.refusal()
   if grammar_trouble ~= nil then return false, grammar_trouble end
   local started = Clock.monotonic_ns()
-  local opening, open_trouble = opened_for(root, start)
+  local opening, open_trouble = opened_for(root, start, verb)
   if opening == nil then return false, open_trouble end
   local handle = opening.handle
   if handle == nil then
@@ -173,8 +198,10 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     local other = opening.other_schema
     if other ~= nil then
       work.tell_other_schema(verb, working, other, root)
+      last_held = "the working database is of another schema"
     else
       work.tell_busy(verb, working)
+      last_held = "another run holds the working database"
     end
     return true, ""
   end
@@ -184,7 +211,8 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     return false, stage_trouble
   end
   local result, compile_trouble = importer.compile(handle,
-    GrammarMode.tool(own_compiler()), false, shared_compiles.for_build(), nil, start)
+    GrammarMode.tool(own_compiler()), false, shared_compiles.for_build(), nil, start,
+    if start then importer.telling() else nil end)
   if result == nil then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
     local _, _ = work.close(handle)
@@ -193,10 +221,14 @@ local function project(root: string, verb: string, start: boolean, carried?: str
   -- The new checker goes on past a module it refuses, to name them all; the answer is the last build's, with the words of
   -- the refusal, rather than a projection without the modules that were refused.
   local unexpected = result.refused
+  for _, line in ipairs(unexpected) do
+    local file = line:match("^([^:\n]+)") or line
+    last_refused[#last_refused + 1] = file
+  end
   if #unexpected > 0 then
     local _, _ = work.record(handle, clock.elapsed_ms(started), staged, result.compiled, result.cached, "FAIL")
     local _, _ = work.close(handle)
-    if start then return false, table.concat(unexpected, "\n") end
+    if start then return false, refusals.text(unexpected, result.refusal_roots or {}) end
     -- A lookup says it in a line a call, naming the first module with a
     -- refusal of its own: the refusals are for the verbs that build on
     -- purpose, which is where they are shown. Its last build may be none,
@@ -206,8 +238,8 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     if #own > 0 then
       named = own[1] .. (if #own > 1 then " and " .. tostring(#own - 1) .. " more" else "" end)
     end
-    return false, root .. " does not build (" .. named .. " refused; `cosmic test` shows why); " ..
-      "answering from its last build by this tool, or from cosmic's own docs where it has none"
+    -- Short, for a lookup puts it in its summary ([`build.docs`]'s `stale_note`).
+    return false, "the tree does not build: " .. named .. " refused; `cosmic test` shows why"
   end
   -- A lookup's build leaves the projection as it is where another run
   -- holds the rebuild lock, rather than wait for it ([`writer.write_result`]).
@@ -217,6 +249,7 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     build_paths.resolve(root).projection, result, started, staged, reader)
   local _, _ = work.close(handle)
   if not written then return false, write_trouble end
+  if writer.held() then last_held = "another run holds the rebuild lock" end
   return true, ""
 end
 

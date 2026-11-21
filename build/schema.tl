@@ -8,12 +8,10 @@
 --- reading other modules' overflow pages. A rowid is never an identity
 --- a reader may keep across builds.
 
-local record schema
-  --- The name of the `docs` index of a module's `local` declarations.
-  mut local_index: string
-end
+local symbols = require("cosmic.internal.symbols")
 
-schema.local_index = "docs_by_local"
+local record schema
+end
 
 --- What a statement creates: the `name` of a table or an index and the `body` after it.
 local record Definition
@@ -31,14 +29,18 @@ local tables: {Definition} = {
   -- through the much larger source text to get there. The Lua tl
   -- generated is not here: nothing that reads this file loads it, and
   -- the working database's `compiled` keeps it for the build, with the
-  -- bytecode as `string.dump` wrote it. `bytecode` is stored
-  -- raw-deflated (`deflate(X)`, [`build.writer`]): the core inflates it
-  -- when it loads a module and in [`Store.bytecode`], and a query that
-  -- reads its bytes inflates it first (`inflate(bytecode)`), so no
-  -- digest or key moves with the compressor. `source` is stored the
-  -- same way, as is a declaration's: only an uncaught error's line and
-  -- [`Store.source`] read it, and it is most of what a module's row
-  -- weighs.
+  -- bytecode as `string.dump` wrote it. `bytecode` is stored as it is
+  -- ([`build.writer`]): every start loads it, and inflating it is a
+  -- tenth of a start that loads two hundred modules, where storing it
+  -- so costs a database half its bytecode again. A database an older
+  -- build wrote holds it raw-deflated, which the core tells apart by its
+  -- first byte (core/compress.h's `cosmic_stored_chunk`) and inflates,
+  -- when it loads a module and in [`Store.bytecode`]; a query that reads
+  -- its bytes takes them through `chunk(bytecode)`, which answers
+  -- either as `string.dump` wrote it, so no digest or key moves with how
+  -- it is stored. `source` is stored raw-deflated (`deflate(X)`), as is
+  -- a declaration's: only an uncaught error's line and [`Store.source`]
+  -- read it, and it is most of what a module's row weighs.
   -- A WITHOUT ROWID lookup compares wide records and can read their
   -- overflow chains even when only the path is needed. A separate
   -- narrow primary-key index keeps unrelated bytecode out of a require.
@@ -72,7 +74,7 @@ local tables: {Definition} = {
   -- Each name a module's own block binds to another module, once and to
   -- nothing else ([`build.syntax_analyzer`]'s `Bound`): what a type the module
   -- declares means by `name.Member` (`record Entry is
-  -- Stream.ArchiveEntry`), which [`build.alias_members`] follows. Unlike
+  -- Stream.ArchiveEntry`), which [`cosmic.internal.alias_members`] follows. Unlike
   -- `imports`, `requires` need not be a module the projection holds.
   { name = "bound", body = [[(path TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -81,6 +83,12 @@ local tables: {Definition} = {
 
   { name = "decls", body = [[(path TEXT PRIMARY KEY,
                 source BLOB NOT NULL) WITHOUT ROWID]] },
+
+  -- Each module a reader with the binary alone is told of: what a public
+  -- source answers for ([`cosmic.internal.symbols`]'s `public_only`). The projection
+  -- writes it ([`build.writer`]), the tool carries the standard library's
+  -- rows and a program its project's.
+  { name = "public_modules", body = "(path TEXT PRIMARY KEY) WITHOUT ROWID" },
 
   -- The stub of each of the standard library's modules (build.stub),
   -- raw-deflated like a source: what a project's checker is given in
@@ -140,18 +148,23 @@ local tables: {Definition} = {
                   source BLOB NOT NULL) WITHOUT ROWID]] },
 
   -- A project's static assets ([`Layout.static`]), one row per
-  -- file under `static/`: `path` relative to it ("css/app.css"), the
+  -- file: the program it is for, "" for one under `static/`, which is every
+  -- program's, and `<name>` for one under `cmd/<name>/static/`; `path`
+  -- relative to that `static/` ("css/app.css"), the
   -- bytes, their lowercase hex SHA-256, the Content-Type
   -- ([`cosmic.mime`]), the gzip of the bytes when that is worth
   -- sending ([`Mime.gzip`]), else NULL, and their zstd when that is
   -- ([`Mime.zstd`]), else NULL. [`cosmic.web.assets`] reads it from the
-  -- program's own database.
-  { name = "payload", body = [[(path TEXT PRIMARY KEY,
+  -- program's own database, where every row is "", the program's own laid
+  -- over the shared ones ([`build.embed`]).
+  { name = "payload", body = [[(program TEXT NOT NULL DEFAULT '',
+                  path TEXT NOT NULL,
                   data BLOB NOT NULL,
                   sha256 TEXT NOT NULL,
                   type TEXT NOT NULL,
                   gzip BLOB,
-                  zstd BLOB) WITHOUT ROWID]] },
+                  zstd BLOB,
+                  PRIMARY KEY (program, path)) WITHOUT ROWID]] },
 
   -- The IANA time zone database, one TZif file per zone name, which
   -- [`cosmic.time`] reads where the host has no zone files of its own.
@@ -264,6 +277,11 @@ local tables: {Definition} = {
                   text TEXT,
                   file TEXT NOT NULL,
                   line INTEGER NOT NULL)]] },
+
+  -- Each word of `docs` of three letters or more, whole and in lowercase, with how many rows carry it: what a
+  -- search that found nothing reads for the word a misspelling meant ([`cosmic.doc`]). Filled with the indexes
+  -- ([`schema.rebuild`]).
+  { name = "docs_words", body = "(word TEXT PRIMARY KEY, rows INTEGER NOT NULL) WITHOUT ROWID" },
 }
 
 --- Each FTS5 virtual table's name and its `USING fts5(...)` clause, in
@@ -293,18 +311,6 @@ local settings: {string} = {
   "encoding = 'UTF-8'",
 }
 
---- The SQL for the last dotted name of the SQL `symbol`, a method's `:`
---- read as `.` (`Box:grow` and `X.Box.grow` both end in `grow`): what
---- follows `symbol`'s last `.`, by dropping the longest prefix that ends
---- in one. The `docs` index on it ([`schema.create`]) is found by the
---- planner only through this very text, so a query that means to use it
---- builds the expression here.
-function schema.last_name(symbol: string): string
-  local dotted = "replace(" .. symbol .. ", ':', '.')"
-  return "replace(" .. dotted .. ", rtrim(" .. dotted .. ", replace(" .. dotted ..
-    ", '.', '')), '')"
-end
-
 --- The indexes of the `docs` table, each as its name and what follows
 --- `ON docs` in its statement. A lookup by name reads a symbol by its
 --- last name, its source spelling or its module rather than scanning
@@ -315,15 +321,15 @@ end
 --- without them, so a database written before they existed is only
 --- slower to read.
 local docs_indexes: {Definition} = {
-  { name = "docs_by_last_name", body = "(" .. schema.last_name("symbol") .. ")" },
+  { name = "docs_by_last_name", body = "(" .. symbols.last_name("symbol") .. ")" },
   { name = "docs_by_source_symbol", body = "(source_symbol)" },
   { name = "docs_by_module", body = "(module)" },
   { name = "docs_by_module_row", body = "(module) WHERE symbol = ''" },
-  { name = schema.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
+  { name = symbols.local_index, body = "(module, source_symbol) WHERE exported = 0 AND signature LIKE 'local %'" },
 }
 
---- The statements that create an empty database, in order, every table
---- and then every index under `qualifier`: `"out."` for a schema
+--- The statements that create an empty database, in order, every table,
+--- then every index, then every FTS5 index, under `qualifier`: `"out."` for a schema
 --- attached under that name, `""` for a connection's own.
 function schema.create(qualifier: string): {string}
   local out: mut {string} = {}
@@ -341,7 +347,7 @@ function schema.create(qualifier: string): {string}
 end
 
 --- The statements that rebuild each FTS5 index from its content table's
---- current rows, under `qualifier` as `create` names them. Run them
+--- current rows and list the words of `docs` (`docs_words`), under `qualifier` as `create` names them. Run them
 --- once the tables are filled: it is the documented way to bulk-load an
 --- external-content FTS5 table, and needs none of the triggers that
 --- would keep the two in sync, which a write-once database has no use
@@ -351,6 +357,22 @@ function schema.rebuild(qualifier: string): {string}
   for _, pair in ipairs(virtual_tables) do
     out[#out + 1] = "INSERT INTO " .. qualifier .. pair.name .. "(" .. pair.name ..
       ") VALUES ('rebuild')"
+  end
+  -- The words of `docs`, whole: `docs_fts` lists only their stems, which are not words to show a reader or to
+  -- search for again. An index of the same text unstemmed, made and dropped here, counts them. [`cosmic.doc`]'s
+  -- `scope_to_program` counts a program's words the same way, for a run from source: a change here is one there.
+  for _, statement in ipairs({
+      "DELETE FROM " .. qualifier .. "docs_words",
+      "CREATE VIRTUAL TABLE temp.docs_whole USING fts5(symbol, signature, text, content='', tokenize='unicode61')",
+      "INSERT INTO temp.docs_whole (rowid, symbol, signature, text) SELECT id, symbol, signature, text FROM " ..
+        qualifier .. "docs ORDER BY id",
+      "CREATE VIRTUAL TABLE temp.docs_whole_words USING fts5vocab('temp', 'docs_whole', 'row')",
+      "INSERT INTO " .. qualifier .. "docs_words (word, rows) SELECT term, doc FROM temp.docs_whole_words " ..
+        "WHERE length(term) >= 3 AND term NOT GLOB '*[^a-z]*' ORDER BY term",
+      "DROP TABLE temp.docs_whole_words",
+      "DROP TABLE temp.docs_whole",
+  }) do
+    out[#out + 1] = statement
   end
   return out
 end

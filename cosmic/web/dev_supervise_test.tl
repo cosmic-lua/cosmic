@@ -113,6 +113,7 @@ end
 local function test_the_ignored_files_and_the_static_directory_do_not_restart(tmp: string)
   local root = tmp .. "/w"
   assert(Fs.mkdirs(root .. "/static") and Fs.mkdirs(root .. "/.git") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.mkdirs(root .. "/cmd/spam/static"))
   assert(Fs.write(root .. "/app.tl", "x"))
   local boots: integer = 0
   local rounds: integer = 0
@@ -126,6 +127,7 @@ local function test_the_ignored_files_and_the_static_directory_do_not_restart(tm
       rounds = rounds + 1
       if rounds == 3 then
         assert(Fs.write(root .. "/static/app.css", "a{}"))
+        assert(Fs.write(root .. "/cmd/spam/static/app.css", "a{}"))
         assert(Fs.write(root .. "/.git/HEAD", "ref"))
         assert(Fs.write(root .. "/data.db", "rows"))
         assert(Fs.write(root .. "/data.db-wal", "rows"))

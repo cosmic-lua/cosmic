@@ -142,7 +142,8 @@ kernel                               Linux; macOS
     lua 5.5                          vendored pristine
     sqlite3, its ext/misc functions  vendored, patched (patch/)
     mbedtls, miniz, bzip2, xz,       vendored pristine
-    zstd, c-ares, curl, yyjson
+    zstd, c-ares, curl, yyjson,
+    monocypher, nanopb
     argon2, a regex engine           planned
     syscall table                    C, one function per syscall
   cosmic binary
@@ -223,7 +224,7 @@ with a policy in it is Teal, stored once in the database and shared
 by every target.
 
 native, per target: the Lua VM; SQLite; mbedtls, which also serves
-hashing and HMAC; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
+hashing, HMAC, authenticated encryption and X25519; Monocypher for Ed25519 signatures; nanopb for the Protocol Buffers wire format; miniz for deflate; yyjson for JSON; expat for XML; argon2 and a
 regex engine, both planned; the syscall table; the database VFS and the
 entry. measured stripped on
 x86_64 musl: Lua 360 KB, SQLite with the flags below 1.1 MB, FTS5
@@ -294,6 +295,12 @@ and yyjson is fuzzed upstream (OSS-Fuzz), keeps 64-bit integers
 exact, and reads RFC 8259 unless a caller names JSON5 for the one
 read. it reads; the core's own C walks the document into Lua values and
 writes JSON back, with yyjson printing each float's shortest form.
+The Protocol Buffers wire format moved to C on both halves: for an 845-byte message of a hundred fields, a decoder
+written by hand on the Teal reader took 180 µs and takes 35 µs on the core's, and the same message written field by field 75 µs and 25 µs.
+nanopb, which is fuzzed upstream (OSS-Fuzz), reads; the writer is the core's own C, a varint and a copy for each
+field, held to the bytes the reference implementation writes. nanopb reads each key, varint and length, and the core's own C indexes the fields and answers each
+by its number and type ([`cosmic.protobuf`]); its generated structures are not used. A varint whose tenth byte
+holds more than the 64th bit is refused, as nanopb refuses it.
 XML starts in C on the same half: expat is fuzzed upstream (OSS-Fuzz),
 bounds entity expansion, and reads no external entity unless a handler
 asks, and the core sets none. it reads; the core's own C hands each
@@ -352,8 +359,9 @@ is a reserved name: a path under `cosmic.internal.` never satisfies
 an ordinary `require`, for any caller, which is stronger than
 positional privacy and is where every raw C binding that is not
 itself the public surface belongs, not only these three: the process
-table behind [`cosmic.child`] and [`cosmic.proc`], and the hash table
-behind [`cosmic.hash`], are the same shape. `internal` means not
+table behind [`cosmic.child`] and [`cosmic.proc`], the hash table
+behind [`cosmic.hash`], and the cipher table behind [`cosmic.cipher`],
+are the same shape. `internal` means not
 declared or documented for a program to use, not unreachable. Teal
 modules live there too, as `cosmic/internal/<name>.tl`, the machinery
 cosmic's own modules share and a user should not see. They are ordinary
@@ -384,13 +392,16 @@ input to the build, never to the runtime. one database holds:
   kind (module, test, example, main), and the test or example names
   the compile step found. the Lua tl generated on the way stays in
   the working database: nothing that reads a shipped file loads it.
-  the source and the bytecode are stored raw-deflated, as a
-  declaration's source is. the core inflates the bytecode when its
-  searcher loads a module and in [`Store.bytecode`]; only an uncaught
-  error's line and [`Store.source`] (a checker typing another tree, the
-  self-rebuild reading the compiler) read the source, and each inflates
-  it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows, reads
-  either back in a query.
+  the bytecode is stored as `string.dump` wrote it, so that a start
+  loads it without inflating it; the source is stored raw-deflated, as a
+  declaration's source is. the core loads the bytecode as it is in its
+  searcher and in [`Store.bytecode`], and inflates what an older build
+  stored deflated, which it tells apart by its first byte; only an
+  uncaught error's line and [`Store.source`] (a checker typing another
+  tree, the self-rebuild reading the compiler) read the source, and each
+  inflates it. `inflate(X)`, which every [`cosmic.sqlite`] handle knows, reads
+  the source back in a query, and `chunk(X)` the bytecode, however it is
+  stored.
 - **stubs**: the tool's alone, one per standard-library module: its
   source with every function body left out and every other token it
   keeps where it was (build.stub), raw-deflated. a module that
@@ -458,8 +469,11 @@ input to the build, never to the runtime. one database holds:
   body, which compiles and runs like any other test, says how -- one
   assertion mechanism for code, not a second, output-diffing one only
   doc guides need.
-- **payload**: for an embed-built executable, the files under the
-  project's `static/` directory: `path` relative to it,
+- **payload**: for an embed-built executable, the project's static
+  files: those under its own `cmd/<name>/static/`, and those under
+  `static/` it holds none of at the same path. `program` is "" in a
+  program's database (a projection names the program a row is for),
+  `path` is relative to that `static/`,
   `data`, the lowercase hex `sha256`, the Content-Type `type`, `gzip`,
   the gzip of `data` when that is worth sending, else NULL, and `zstd`,
   its zstd at level 19 under the same rule (a compressible type, over
@@ -549,7 +563,7 @@ the database.
 the binary is a versioned portable artifact (version 2): a POSIX shell launcher,
 aligned stored ranges (each release core compressed, with the decoder stub of its
 target), a fixed manifest, one SQLite database, and a fixed trailer.
-[The portable runtime implementation guide](guides/portable-runtime.md) follows
+[The portable runtime implementation guide](guides/internal/portable-runtime.md) follows
 those bytes through startup, project embedding, self-rebuild, and CI.
 the manifest is the sole authority for target/configuration, byte range, and
 sha256. each 104-byte entry has a kind (a core, or the decoder stub of a
@@ -658,7 +672,12 @@ database: compile, check, record, embed. `build.zig` owns the C.
 `bin/zig build` patches the vendored trees first, in Teal (below),
 and `zig build` installs them under the build directory's `vendor/` and produces the core
 for each target (`zig build boot` builds the host's alone unless given `-Dboot-cores=all`,
-and puts a placeholder script where each other core goes). `zig build boot`
+and puts a placeholder script where each other core goes). a plain `bin/zig build boot` first
+asks git whether the tree's C is the C of a release this host has or can
+fetch, the pinned one and then the repository's newest, and where it is
+takes that release's core, installs the patched trees and runs the bridge
+itself, with no zig ([`build/seeded_boot.tl`]): a core is a function of its
+C alone, and the tool written is the same bytes either way. `zig build boot`
 bridges: it runs the fresh host core over `build/` to compile the
 importer with the compiler built from the checker, `lang/`, in two
 stages (below), writes `cosmic.db`, and writes one
@@ -666,12 +685,18 @@ portable [`bin/cosmic`], each in the build directory. the tool carries `carried.
 without the tree's own tests and examples, and with the docs, uses
 and examples of the public standard library alone: `cosmic test` and a lookup
 inside the tree read the rest from the projection, `cosmic.db`, and a release has no
-use for them. a fresh clone and CI run `boot`; a
+use for them. which modules those are is a row of
+the database, `public_modules`, that the projection records and a query of a
+public source asks: the modules any module may require, by position, of
+the standard library for cosmic's own tree and of a project for its own.
+a program `cosmic build` writes carries the same of its project,
+for its users: the docs, uses, links and examples of the modules any module may
+require, by position, and its guides ([`build/embed.tl`]). a fresh clone and CI run `boot`; a
 developer runs `bin/cosmic build` the other hundred times a day.
 
 [`build.work`] stages inputs and manages the working database.
 [`build.identity`] defines input policy, fingerprints and semantic identities.
-[`build.derivation`] writes generated inputs and analysis rows;
+[`build.derivation`] writes generated inputs and analysis rows, and [`build.parse_derive`] the rows of a parse;
 [`build.pipeline`] defines compilation and acceptance. [`build.importer`]
 coordinates parses, compiles and cache lookups. its `compile_tree` owns the
 shared caches through derivation, identity selection and compilation; the caller
@@ -687,7 +712,13 @@ cosmic builds itself, so the tool is also an artifact of the tree,
 and a stale tool is the bug to design against. `boot` stores two
 fingerprints in the binary it produces: one over everything the tool
 is made of, one over what the C core is built from. every run in
-cosmic's own tree fingerprints the tree first. only the tree's own tool
+cosmic's own tree fingerprints the tree first. a run of the tree's
+own tool elsewhere, in a project, checks it against the checkout it
+was built from, once a process, before a file run or any verb but
+`sql` and the bare ones ([`build.reboot.checkout_exit`]). it goes on
+unchecked while another run holds that checkout's rebuild lock or
+database, and a copy of the tool, or a tool whose checkout is gone, is
+checked against nothing. only the tree's own tool
 in its build directory rebuilds itself ([`build.reboot.own_tool`]); a stale release or
 an externally copied tool refuses with exit 3. when only Teal differs,
 the tree's tool compiles the tree, projects the database and combines it
@@ -702,10 +733,14 @@ identity holds the modules that decide generated code, stored analysis and
 acceptance, plus the checker's source and the Teal compiler's and Lua's
 pins and Lua's patches ([`build.identity.compiler_identity`]). module keys carry it; importer
 coordination, diagnostic presentation and general standard-library plumbing
-stay outside it. the analyzer identity keys stored parses: the runtime basis,
-the analyzer modules' sources and the code that reads
-([`build.importer.analyzer_identity`]), not the whole compiler identity, so an
-edit only a compile runs (build.plans) parses nothing again. the writer identity holds the code and
+stay outside it. the analyzer identity keys stored parses: the runtime basis and
+the source of every module a parse runs, found by walking `require` from the
+derivation and the parse ([`build.parse_derive`]: the lexer, the parser, the
+readers of the syntax tree and the statements that write their rows)
+([`build.importer.analyzer_identity`]). it is not the whole compiler identity and
+holds nothing of the checker, which no module of that walk requires, so an
+edit only a compile runs (build.plans, lang/check.tl, [`build.driver`]) parses
+nothing again, and an edit to the lexer or the parser parses every source again. the writer identity holds the code and
 core image that determine a projection's bytes, including its standard-library
 dependencies. the projection records which compiler and writer produced it so a
 self-rebuild can settle on its own code. the runtime basis holds the same pins, patches
@@ -786,7 +821,7 @@ by where the tree is, which its workers see, trusting the declarations a
 sandboxed run elsewhere enforces; it keeps its verdicts apart from sandboxed
 ones, and shares them only through a file `COSMIC_VERDICT_CACHE` names, as
 CI's macOS leg does. each test
-that does run runs in a worker process of its own:
+that does run runs in a process of its own:
 
 - *incremental*: a module row is keyed by the content hash of its
   source, the hashes of its import closure, and the compiler identity. a test
@@ -815,10 +850,26 @@ that does run runs in a worker process of its own:
   `.tl` or `.h` has changed compiles nothing in the bridge; an edit to
   any one of them compiles it all again.
 - *fast*: compile and check run in one process, one transaction,
-  against declarations already in the database. each test runs in a worker
+  against declarations already in the database. where a build has many
+  sources to parse or modules to compile (a boot, the first build after a change to the
+  checker), the host can fork and the compiles it shares are on, it makes them in copies of that
+  process, one a processor up to eight and to the memory the host says it has (four where it does not say), each holding the tree as it was read: a copy
+  keeps what it made in a file of its own and writes nothing else, and
+  the build takes each parse and each compile where it would have made one
+  ([`build/compile_fanout.tl`]). a module a copy cannot compile it says at once, so no copy compiles
+  what requires it and the build tells of it while the copies run; a run of a file, which stops at the first
+  module the file needs that does not build, tells its copies to compile no more once that module is settled. a
+  copy still running after fifteen minutes is ended, and the build does its work. the bytes written are the same;
+  `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
-  one per processor at a time, with a fresh temporary directory, captured
-  streams, and a deadline past which its whole process group is ended. the
+  one more than the processors at a time, with a fresh temporary directory, captured
+  streams, and a deadline past which its whole process group is ended. where
+  a sandbox holds it, so that all a worker can write is the one directory it
+  puts back between tests,
+  one worker loads a module once and runs each of its tests in a copy of
+  itself (a fork), one after another, so a test's process is its own and
+  the module's load is paid once ([`doc/testing.md`], "one worker for a
+  module's tests"). the
   worker reads its import closure's store, never the working build database.
   it reports what it read, what it hit, and its verdict over a pipe; the
   build process alone records those results in the working database. a test
@@ -862,7 +913,7 @@ file.
 what the declared key leaves out, each with a `TODO:` where its fix goes:
 
 - *the clock*: a test whose verdict turns on the date stands on one reached
-  another day. CI's scheduled run, which stands on nothing, runs it daily.
+  another day. CI's scheduled run, which stands on nothing, runs it weekly.
 - *what the host has installed*: what the system's own paths hold, for a test
   that declares `system`, is keyed by the package database, the image
   `COSMIC_SYSTEM_ID` names, and a walk of their files by mode, size and
@@ -958,7 +1009,7 @@ a record whose anchor no longer matches fails the build by name.
 
 vendored: Lua 5.5, the SQLite amalgamation and twelve of its ext/misc
 extensions, mbedtls, miniz, bzip2,
-xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Mozilla's CA bundle, the
+xz's liblzma (decoder and LZMA2 encoder), zstd, c-ares, curl, yyjson, expat, Monocypher, nanopb, Mozilla's CA bundle, the
 IANA time zone database's compiled `zoneinfo`, and tl;
 argon2's reference implementation built without threads and the regex
 engine are planned. a library that needs a configuration header gets a
@@ -1129,7 +1180,11 @@ PSA API, with randomness from the OS rather than the library's own
 entropy and DRBG modules. [`cosmic.hash`] is the Teal face of it, the
 raw [`cosmic.internal.hash`] table's `digest`, `hmac` and streaming
 hasher the bindings, and every SQLite
-handle knows the same functions, so a query hashes in place. the TLS
+handle knows the same functions, so a query hashes in place. the
+crypto subtree serves authenticated encryption (ChaCha20-Poly1305) and X25519 key
+agreement the same way: [`cosmic.cipher`] over the raw
+[`cosmic.internal.cipher`] table, each key in a PSA key slot for one
+computation. the TLS
 1.2 and 1.3 client under [`cosmic.http`] (curl over c-ares and mbedtls)
 comes from the same library and the same configuration: one header,
 [`core/mbedtls_cosmic_config.h`], which every file that includes an
@@ -1142,6 +1197,21 @@ pinned bump; the core parses it once, and every TLS connection, a
 proxy's too, verifies against that chain. `SSL_CERT_FILE` adds
 certificates for the corporate-proxy case without making per-machine
 trust the default.
+
+mbedtls's PSA driver carries no Ed25519, so signatures come from
+Monocypher 4, vendored as its two portable C files: the curve, and RFC
+8032's SHA-512 over it. [`cosmic.sign`] is the Teal face of it and the
+raw [`cosmic.internal.sign`] table the bindings. Only Ed25519 is bound:
+Monocypher's own `crypto_eddsa_*` signs with BLAKE2b, which no Ed25519
+implementation verifies.
+
+[`cosmic.bigint`] is arithmetic on integers of thousands of bits over
+the library's bignum, the one its RSA and ECC use, which the PSA API
+does not expose: [`core/bigint.c`] asks for the private declarations,
+and the raw [`cosmic.internal.bigint`] table holds the bindings. Its
+arithmetic for secrets calls the library's functions on arrays of limbs,
+which `bignum_core.h` declares, a header of the library's sources that
+`build.zig` puts on the include path of the core's own C.
 
 ### the sandbox
 
@@ -1214,8 +1284,9 @@ other stock-interpreter flags, no argv[0] personality.
 [the command-line guide](guides/command-line.md) runs each of these.
 
 from a project, `docs` and `uses` answer for the project's own code
-and for the public standard library, `cosmic.*` less `internal` and
-tests: what a builder reads, never the build that made the binary.
+and for the public standard library, `cosmic.*` less `internal`,
+tests and what a closed directory keeps to itself: what a builder reads,
+never the build that made the binary.
 inside cosmic's own tree they answer for everything.
 
 `fix` rather than `format`, because there is one verb and not two: it
@@ -1256,7 +1327,7 @@ checkout's `o/`, which an older tool wrote and the build now ignores.
 every directory name is singular: `doc`, not `docs`; `patch`, not
 `patches`. the rule reaches module paths too, since a module that
 grows past one file becomes a directory of the same name:
-`cosmic.docs` is `cosmic.doc` for exactly this reason. the one
+`cosmic.docs` is [`cosmic.doc`] for exactly this reason. the one
 deliberate exception is a CLI verb, `cosmic docs`, since a verb
 names an action and reads differently from a module naming a thing.
 
@@ -1284,7 +1355,7 @@ by modules under `app/`, as in Go (a top-level `internal/` is the
 project's own); that rule stands in the closed-directory rule's
 place for the module. a module of a closed directory that holds the
 line `--- @public` in the doc block that opens it is open to every importer, which
-is how [`cosmic.http.server`] and five others are. in cosmic's own
+is how [`cosmic.http.server`] and six others are. in cosmic's own
 tree a test, and test support (a file of the top-level `test/`
 directory), may be required only by a test or test support, since
 the tool carries neither, and two places do not fit the directory
@@ -1319,7 +1390,7 @@ target:
   `errors`, `log`, `teal`, `format`, `test`, `coverage`, `doc`,
   `embed`, `shape`.
 - **second**: `http`, `fetch`, `net`, `dns`, `re`, `zip`, `tar`,
-  `compress`, `codec`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
+  `compress`, `codec`, `bigint`, `url`, `ip`, `uuid`, `ksuid`, `sse`,
   `sandbox`, `posix.signal`, `poll`, `fd`, `tty`, `ansi`, `user`,
   `host`, `stream`, `deep`, `graph`, `fuzzy`, `literal`, `template`.
 - **later, if pulled**: namespaces and egress proxying beyond what
@@ -1334,7 +1405,11 @@ in [roadmap.md](roadmap.md).
 [`bin/vendor`]: ../bin/vendor
 [`bin/zig.pin`]: ../bin/zig.pin
 [`bin/zig`]: ../bin/zig
+[`build/compile_fanout.tl`]: ../build/compile_fanout.tl
+[`build/seeded_boot.tl`]: ../build/seeded_boot.tl
 [`build.boot`]: ../build/boot.tl
+[`build.driver`]: ../build/driver.tl
+[`build.parse_derive`]: ../build/parse_derive.tl
 [`build.derivation`]: ../build/derivation.tl
 [`build.identity.compiler_identity`]: ../build/identity.tl
 [`build.identity`]: ../build/identity.tl
@@ -1342,6 +1417,7 @@ in [roadmap.md](roadmap.md).
 [`build.importer`]: ../build/importer.tl
 [`build.positions`]: ../build/positions.tl
 [`build.reboot.own_tool`]: ../build/reboot.tl
+[`build.reboot.checkout_exit`]: ../build/reboot.tl
 [`build.test_worker`]: ../build/test_worker.tl
 [`build.fix.format`]: ../build/fix/format.tl
 [`build.work`]: ../build/work.tl
@@ -1378,6 +1454,7 @@ in [roadmap.md](roadmap.md).
 [`ci/cosmic_ci/host_id.tl`]: ../ci/cosmic_ci/host_id.tl
 [`ci/cosmic_ci/orchestration.tl`]: ../ci/cosmic_ci/orchestration.tl
 [`ci/cosmic_ci/place_tree.tl`]: ../ci/cosmic_ci/place_tree.tl
+[`core/bigint.c`]: ../core/bigint.c
 [`core/bridge.lua`]: ../core/bridge.lua
 [`core/http.c`]: ../core/http.c
 [`core/unzstd.c`]: ../core/unzstd.c
@@ -1387,21 +1464,27 @@ in [roadmap.md](roadmap.md).
 [`core/syscalls.h`]: ../core/syscalls.h
 [`cosmic.archive`]: ../cosmic/archive.tl
 [`cosmic.child`]: ../cosmic/child.tl
+[`cosmic.cipher`]: ../cosmic/cipher.tl
 [`cosmic.clock`]: ../cosmic/clock.tl
 [`cosmic.env`]: ../cosmic/env.tl
 [`cosmic.errors`]: ../cosmic/errors.tl
 [`cosmic.fs.walk`]: ../cosmic/fs.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
+[`cosmic.bigint`]: ../cosmic/bigint.tl
 [`cosmic.hash`]: ../cosmic/hash.tl
 [`cosmic.http`]: ../cosmic/http/init.tl
+[`cosmic.internal.cipher`]: ../cosmic/internal/cipher.d.tl
 [`cosmic.internal.errors`]: ../cosmic/internal/errors.d.tl
+[`cosmic.internal.bigint`]: ../cosmic/internal/bigint.d.tl
 [`cosmic.internal.hash`]: ../cosmic/internal/hash.d.tl
+[`cosmic.internal.sign`]: ../cosmic/internal/sign.d.tl
 [`cosmic.internal.process`]: ../core/process.h
 [`cosmic.internal.sqlite`]: ../cosmic/internal/sqlite.d.tl
 [`cosmic.internal.store`]: ../cosmic/internal/store.d.tl
 [`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
+[`cosmic.sign`]: ../cosmic/sign.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h
@@ -1440,10 +1523,13 @@ in [roadmap.md](roadmap.md).
 [`Test.policy`]: ../cosmic/test.tl
 
 [`build.pipeline`]: ../build/pipeline.tl
+[`build/embed.tl`]: ../build/embed.tl
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
+[`cosmic.doc`]: ../cosmic/doc.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
+[`cosmic.protobuf`]: ../cosmic/protobuf/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md

@@ -50,7 +50,7 @@
 ---   import graph's kinds and sources, the standard library's included;
 --- - the compiler's identity ([`build.identity`]'s `Identities`), as the
 ---   running tool names it, only where the module's import closure holds
----   a module that reads it (`compiler_readers`), which a worker's
+---   a module that reads it ([`build.key_parts`]' `meta_readers`), which a worker's
 ---   [`Store.meta`] answers from the tool's own database --
 ---   COSMIC_TEST_COMPILER_SALT, for a test alone, stands in for a
 ---   compiler of another identity that makes the same bytecode;
@@ -66,13 +66,18 @@
 ---   its listing and every entry's contents beneath it; o/bin when it
 ---   declares `tool`, each program in it -- and the program that runs
 ---   it ([`program_identity`]) -- by its image and the rows it carries,
----   but for those every edit of the tree moves (`program`); the
----   projection, o/cosmic.db, when it declares `store`, and else the
+---   but for those every edit of the tree moves, and the path it was
+---   built at (`program`); the projection, o/cosmic.db, when it declares
+---   `store`, by its rows but for that path, and else the
 ---   address of the store of its closure it is given there in the
 ---   projection's place; each `host` path; and each file above the
 ---   project a `/parent/` grant names, by its relative path (`parent`);
 --- - the environment its worker is given ([`test_sandbox.environment`]):
----   the pinned variables and the declared ones;
+---   the pinned variables and the declared ones, but for where a cache
+---   is, which is no input ([`cache_places`]). A sandboxed worker's PATH
+---   and how it boots and sandboxes are one value on every host, not the
+---   runner's, and so is its HOME where its module declares no host
+---   cache, so they move no key;
 --- - where the tree is, only for a worker no sandbox gives it at /tree
 ---   ([`Spec`]'s `tree`).
 ---
@@ -191,7 +196,6 @@ local build_directory = build_paths.required
 
 local record declared_key
   --- build.key_parts', answered as this module's own.
-  mut compiler_readers: {string}
   mut reads_compiler: function(closure: {string}): boolean
 
   --- What a run knows of the files it keys, kept for the run.
@@ -289,7 +293,7 @@ local record declared_key
     --- The file of the build directory that the worker is given at o/cosmic.db where its module
     --- declares `store`: nil for `cosmic.db`, the tree's projection, and `cosmic.checked.db` for a
     --- checked run, whose worker is given the projection it was compiled into. The key holds
-    --- that file's contents under the name o/cosmic.db.
+    --- that file's rows, but for the checkout's path, under the name o/cosmic.db.
     projection_file?: string
     --- Where the tree is, for a worker no sandbox gives it at /tree
     --- ([`build.test_key`]'s `prepare`, unsandboxed),
@@ -344,7 +348,6 @@ end
 -- so a worker loads none of this module: taken here, and the compiler's
 -- readers answered as this module's own, so no caller of them moves.
 local key_part, tree_name = key_parts.key_part, key_parts.tree_name
-declared_key.compiler_readers = key_parts.compiler_readers
 declared_key.reads_compiler = key_parts.reads_compiler
 
 --- What every key begins with, which names how its parts are computed:
@@ -451,14 +454,37 @@ end
 --- before it tests, or refuses) and in a fixture is a tree of the
 --- test's own; or names a cache entry by them, or prints them -- none
 --- turns a verdict (see `program`).
-local tree_wide_meta <const> = "('boot_hash', 'projected')"
+local not_tree_wide <const> = "key NOT IN ('boot_hash', 'projected')"
+
+--- The one row of a tool's or a projection's `meta` that names a place,
+--- `built_from`, the checkout's own path ([`build.identity`]'s
+--- `record_fingerprint`), is left out of what a key holds, but when it
+--- is "/tree". Every other row holds a digest or a module's name. A
+--- sandboxed worker sees the tree at "/tree" and the path it was built
+--- at only through /proc mount info, which no test reads, so nothing a
+--- worker does turns on that path but whether it is the worker's own
+--- root (build.tree's `standing_of`), which "/tree" is. "/tree" is the
+--- only fixed root covered: a worker also sees "/tree-up", "/program"
+--- and a padded scratch directory, and a tool built at one of those
+--- would answer differently. No build directory is placed there.
+--- An unsandboxed worker sees the real path, and its key holds where the
+--- tree is ([`Spec`]'s `tree`). CI puts each commit's checkout at a path
+--- of its own, so a key that held the path would stand on no verdict
+--- another checkout reached.
+-- TODO: hold the other fixed roots a worker sees as "/tree" is held,
+-- once a nested run that shares a verdict cache with its parent is known
+-- to be placed at one: today only a checkout at one of them, which CI
+-- and `bin/zig build boot` never make, could key alike and answer
+-- differently.
+local not_placed <const> = "NOT (key = 'built_from' AND value <> '/tree')"
 
 --- The digest of every row the SQLite database `database` holds, and
---- its schema, but for `tree_wide_meta`: each table's rows in order of
+--- its schema, but for the `meta` rows the condition `kept` (over `key`
+--- and `value`) is false of: each table's rows in order of
 --- their quoted values, so the digest turns on what the rows are, not on
 --- the pages they were written to. A virtual table is left to the shadow
 --- tables that hold its rows. Nil and why where it cannot be read.
-local function carried_digest(database: string): string?, string
+local function carried_digest(database: string, kept: string): string?, string
   -- TODO: read the database in place, through a VFS over a range of a
   -- file other than the running artifact's, once cosmic.sqlite opens
   -- one (core/vfs.c opens the running artifact's alone): today it is
@@ -502,7 +528,7 @@ local function carried_digest(database: string): string?, string
             parts[#parts + 1] = "typeof(" .. named .. ") || ':' || quote(CASE WHEN typeof(" ..
               named .. ") = 'text' THEN CAST(" .. named .. " AS BLOB) ELSE " .. named .. " END)"
           end
-          local where = if row:text(2) == "meta" then (" WHERE key NOT IN " .. tree_wide_meta) else "" end
+          local where = if row:text(2) == "meta" then (" WHERE " .. kept) else "" end
           local digest, digest_trouble = Sqlite.text_rows(db,
             "SELECT lower(hex(sha256(coalesce(group_concat(r, char(10) ORDER BY r), '')))) " ..
               "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
@@ -565,7 +591,7 @@ end
 --- hash is, under a name of its own.
 ---
 --- So a program rebuilt from a tree whose edit moved nothing it carries
---- keys the same, though `tree_wide_meta` moved every byte of its
+--- keys the same, though `not_tree_wide`'s rows moved every byte of its
 --- database's meta. A tool no longer carries `projected`, which moves
 --- with an edit to a test ([`build.writer`]'s `carried`), so a boot
 --- after one writes the same bytes; `boot_hash` moves with any other
@@ -591,6 +617,12 @@ end
 --- - `projected`: build.writer reads it from a projection it wrote, to
 ---   skip writing the same one again, never from a binary, which carries
 ---   it only when an older writer wrote its database.
+--- - `built_from` (`not_placed`): build.tree's `standing_of` compares it
+---   with the canonical path of the root a command runs in, and its
+---   refusal prints it. A sandboxed worker's root is "/tree", so the
+---   comparison turns on the row only when it is "/tree", which is
+---   kept; and the refusal's text names a path no test can assert on,
+---   since CI places each checkout at a path of its own.
 ---
 --- And every sandboxed worker runs this same core. One whose module
 --- declares neither `store` nor `tool` runs it on a sealed database of its
@@ -598,11 +630,11 @@ end
 --- while one that declares `store` or `tool` has the program's database in
 --- reach, which its key holds by the projection's contents or by this
 --- identity, but for these.
--- The names "program-v2" and "launcher-v2" version the formulas below:
--- a change to either takes a new name, so what the old one remembered
+-- The names "program-v3", "launcher-v2" and "projection-v1" version the formulas below:
+-- a change to one takes a new name, so what the old one remembered
 -- is not read.
 local function program(digests: declared_key.Digests, path: string, st: sys.Stat): string
-  return remembered(digests, "program-v2\0" .. path, st, function(data: string): string
+  return remembered(digests, "program-v3\0" .. path, st, function(data: string): string
     local split, _ = artifact.split(data)
     if split == nil then
       -- A core that carries debug information, as the checked core
@@ -618,7 +650,7 @@ local function program(digests: declared_key.Digests, path: string, st: sys.Stat
     -- test` a tool test starts in a checkout of its own whose tests run
     -- the program (build.test_key's `program_of` spares one whose tests
     -- none do).
-    local carried, _ = carried_digest(split.database)
+    local carried, _ = carried_digest(split.database, not_tree_wide .. " AND " .. not_placed)
     -- Unreadable, it is keyed by its bytes alone, as any other file --
     -- not by why, which may name a scratch path no other run shares.
     return hex_sha256(if carried ~= nil then ("artifact\n" .. tostring(split.host) .. "\n" ..
@@ -817,6 +849,30 @@ local function tree(digests: declared_key.Digests, path: string, programs?: bool
   end)
 end
 
+--- What the file at `path`, o/cosmic.db as a `store` worker is given it,
+--- holds, for a key: the digest of its rows, but for the `meta` row that
+--- names the checkout it was written in ([`not_placed`]), so the same
+--- tree written at another path keys the same. A store test is keyed by
+--- rows, not bytes, so two projections with the same rows on different
+--- pages key the same. That is sound: a worker reads the file through
+--- SQLite, which answers from rows, and the digest holds each row's
+--- rowid, type and bytes in order. A file that is no database is keyed
+--- by its bytes, as any other file. Remembered in `digests` under a
+--- name of its own.
+-- TODO: decide `boot_hash` and `projected`, which still move every store
+-- test on any edit to the tree, with the meta-key registry (hash-design.md
+-- PR 3), which says for each meta row which consumer observes it.
+local function projection(digests: declared_key.Digests, path: string): string
+  local st, _ = sys.stat(path)
+  if st == nil or st.kind ~= "file" then return tree(digests, path) end
+  local runnable = st.mode & 73 ~= 0 -- 0o111
+  return (if runnable then "file+x " else "file " end) ..
+    remembered(digests, "projection-v1\0" .. path, st, function(data: string): string
+      local carried, _ = carried_digest(data, not_placed)
+      return if carried ~= nil then ("rows\n" .. carried) else hex_sha256(data) end
+    end)
+end
+
 --- What a path outside the tree holds, as a key keeps it: a file by its
 --- contents, and anything else by what it is. A declared one is a file,
 --- or /proc ([`cosmic.test`]'s `host`), which every worker is given and no
@@ -882,6 +938,23 @@ local function held_value(value: string, digests: declared_key.Digests): string
     parts[#parts + 1] = tree_name(part, digests.root, digests.output)
   end
   return table.concat(parts, ":")
+end
+
+--- The variables that name a cache, which a worker is given pinned ([`build.test_inputs`]'s `pinned_env`): what is
+--- there is content-addressed ([`build.caches`]), so which place it names is no input. An absolute path is held as one
+--- word no value can spell (`absolute_cache`); anything else (empty, relative), which the launcher refuses, by its
+--- value.
+local cache_places <const>: {string:boolean} = { COSMIC_PORTABLE_CACHE = true }
+
+--- What [`environment_value`] holds an absolute cache path as: led by a NUL, as a tree's name is
+--- ([`build.key_parts`]'s `tree_marker`), so no value a variable holds keys the same.
+local absolute_cache <const> = "\0absolute cache path"
+
+--- What the key holds of the variable `name`'s value `value`: a cache's place by its kind ([`cache_places`]), any
+--- other value as [`held_value`] holds it.
+local function environment_value(name: string, value: string, digests: declared_key.Digests): string
+  if cache_places[name] == true and value:sub(1, 1) == "/" then return absolute_cache end
+  return held_value(value, digests)
 end
 
 --- What `spec`'s test is given, but for its name, as the lines whose
@@ -972,7 +1045,8 @@ function declared_key.preimage(digests: declared_key.Digests,
     end
     if seen[plain] ~= true then
       seen[plain] = true
-      local answer = if path ~= "" then tree(digests, path) else "outside" end
+      local answer = if path == "" then "outside" elseif plain == "o/cosmic.db" then projection(digests, path) else
+        tree(digests, path) end
       if answer:sub(1, 8) == "refused " then return nil, answer:sub(9) end
       lines[#lines + 1] = part("r", plain, answer)
     end
@@ -1007,7 +1081,7 @@ function declared_key.preimage(digests: declared_key.Digests,
   for _, name in ipairs(names) do
     -- `names` lists the keys of `spec.environment`, which nothing changes here.
     local value = assert(spec.environment[name], "a name listed from the keys of the environment has a value")
-    lines[#lines + 1] = part("e", name, held_value(value, digests))
+    lines[#lines + 1] = part("e", name, environment_value(name, value, digests))
   end
   return table.concat(lines, "\n"), ""
 end

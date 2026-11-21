@@ -30,7 +30,8 @@ local link_index = require("build.link_index")
 local onecrl = require("build.onecrl")
 local roots = require("build.roots")
 local schema = require("build.schema")
-local symbols = require("build.symbols")
+local positions = require("build.positions")
+local symbols = require("cosmic.internal.symbols")
 local work = require("build.work")
 local bind = require("build.bind")
 local rebuild_lock = require("build.rebuild_lock")
@@ -91,27 +92,26 @@ local prune_deflated <const> =
   "DELETE FROM deflated WHERE core <> " .. deflating_core ..
   " OR source_hash NOT IN (SELECT source_hash FROM inputs)"
 
---- Fills `deflated_bytecode` with the compressed chunk of each compile the
---- plan names that it does not yet hold, and drops what no plan key names
---- or another core compressed: the compile key names the bytecode, so a
---- row is never stale, and a first write after a change that moved no
---- compile compresses none of cosmic's own tree's 12 MB. `skipping` leaves
---- out the modules a base supplies ([`insert_modules_reusing`]).
-local function fill_deflated_bytecode(skipping: boolean): string
+--- Fills `kept_bytecode` with the chunk of each compile the plan names that
+--- it does not yet hold, as `string.dump` wrote it, and drops what no plan
+--- key names. A projection's modules take their bytecode from it by key: a
+--- search of `compiled` by key reads each row it compares whole, the Lua
+--- among it. The compile key names the bytecode, so a row is never stale.
+--- `skipping` leaves out the modules a base supplies
+--- ([`insert_modules_reusing`]).
+local function fill_kept_bytecode(skipping: boolean): string
   local unreused = ""
   if skipping then
     unreused = " WHERE p.path NOT IN (SELECT path FROM temp.reused)"
   end
-  return "INSERT OR IGNORE INTO deflated_bytecode (key, core, data) " ..
-    "SELECT c.key, " .. deflating_core .. ", deflate(c.bytecode) FROM compiled c " ..
+  return "INSERT OR IGNORE INTO kept_bytecode (key, data) " ..
+    "SELECT c.key, c.bytecode FROM compiled c " ..
     "WHERE c.key IN (SELECT p.key FROM plan p" .. unreused .. ") " ..
-    "AND NOT EXISTS (SELECT 1 FROM deflated_bytecode b WHERE b.key = c.key AND b.core = " ..
-    deflating_core .. ")"
+    "AND NOT EXISTS (SELECT 1 FROM kept_bytecode b WHERE b.key = c.key)"
 end
 
-local prune_deflated_bytecode <const> =
-  "DELETE FROM deflated_bytecode WHERE core <> " .. deflating_core ..
-  " OR key NOT IN (SELECT key FROM plan)"
+local prune_kept_bytecode <const> =
+  "DELETE FROM kept_bytecode WHERE key NOT IN (SELECT key FROM plan)"
 
 --- The shipped modules: this run's plan joined to the inputs it named
 --- of non-declaration kind and the compiles it found or made, with
@@ -129,7 +129,7 @@ local insert_modules =
   "WHERE e.source_hash = i.source_hash), '') ELSE '' END " ..
   "FROM plan p JOIN inputs i ON i.path = p.path AND " .. AnalysisSchema.not_declaration("i.kind") .. " " ..
   "JOIN deflated d ON d.source_hash = i.source_hash AND d.core = " .. deflating_core .. " " ..
-  "JOIN deflated_bytecode b ON b.key = p.key AND b.core = " .. deflating_core .. " " ..
+  "JOIN kept_bytecode b ON b.key = p.key " ..
   "ORDER BY p.path"
 
 --- The import edges among shipped modules: what each planned module
@@ -171,7 +171,7 @@ local insert_bound =
 --- The documented symbols ([`build.syntax_analyzer`]'s `DocEntry`) found while parsing
 --- each planned module and each declaration ([`cosmic.sys`]'s only source
 --- is the C header it is generated from), in module order and then
---- source order. Which of them a reader sees is [`build.docs`]'s to
+--- source order. Which of them a reader sees is [`cosmic.doc`]'s to
 --- decide: it answers a project only for the public standard library.
 --- `id` is left for SQLite to assign in that order, so it is the same on
 --- every build of the same tree.
@@ -220,7 +220,7 @@ local insert_typed_uses =
 --- beside [`cosmic/json_example.tl`] (or with `cosmic.json_yaml`, were
 --- there one), and `cosmic/jsonx_example.tl` with neither.
 ---
---- Nothing here decides which symbol an example is for. [`build.docs`]
+--- Nothing here decides which symbol an example is for. [`cosmic.doc`]
 --- decides at read time, by matching an example's text and source
 --- against a symbol's name through `examples_fts`: an example calls the
 --- real function it demonstrates, so the symbol's name is already in its
@@ -347,8 +347,7 @@ local insert_modules_reusing <const> =
   "SELECT i.path, i.file, i.kind, CAST(i.source_hash AS BLOB), CAST(p.key AS BLOB), " ..
   "coalesce(r.source, (SELECT d.data FROM deflated d WHERE d.source_hash = i.source_hash " ..
   "AND d.core = " .. deflating_core .. ")), " ..
-  "coalesce(r.bytecode, (SELECT b.data FROM deflated_bytecode b WHERE b.key = p.key " ..
-  "AND b.core = " .. deflating_core .. ")), " ..
+  "coalesce(r.bytecode, (SELECT b.data FROM kept_bytecode b WHERE b.key = p.key)), " ..
   "CASE WHEN r.path IS NOT NULL THEN r.tests " ..
   "WHEN i.kind = 'test' THEN coalesce((SELECT group_concat(name, " ..
   "char(10) ORDER BY ordinal) FROM tests t " ..
@@ -361,8 +360,7 @@ local insert_modules_reusing <const> =
   "LEFT JOIN prev.modules r ON r.path = u.path " ..
   "WHERE u.path IS NOT NULL OR (EXISTS (SELECT 1 FROM deflated d " ..
   "WHERE d.source_hash = i.source_hash AND d.core = " .. deflating_core ..
-  ") AND EXISTS (SELECT 1 FROM deflated_bytecode b WHERE b.key = p.key AND b.core = " ..
-  deflating_core .. ")) " ..
+  ") AND EXISTS (SELECT 1 FROM kept_bytecode b WHERE b.key = p.key)) " ..
   "ORDER BY p.path"
 
 local insert_docs_reusing <const> =
@@ -445,7 +443,7 @@ local function signature_sql(): string
     "coalesce((SELECT group_concat(name || ' ' || sha256, char(10) ORDER BY name) " ..
     "FROM web_assets), '') || char(10) || " ..
     "coalesce((SELECT group_concat(path || ' ' || sha256, char(10) ORDER BY path) " ..
-    "FROM files WHERE path GLOB 'static/*'), '') || char(10) || ?1 || " ..
+    "FROM files WHERE " .. AnalysisSchema.static_files("path") .. "), '') || char(10) || ?1 || " ..
     "char(10) || ?2 || char(10) || ?3 || char(10) || ?4)))"
 end
 
@@ -514,19 +512,21 @@ end
 
 --- Drops the rows of `compressed` that this write cannot use: another
 --- core's, another [`mime_digest`]'s, and those of a file the tree no
---- longer holds as it was (the path and the SHA-256 name a row).
+--- longer holds as it was (the file's path in the tree and the SHA-256 name a
+--- row).
 local prune_compressed <const> =
   "DELETE FROM compressed WHERE core <> " .. deflating_core ..
-  " OR rules <> ?1 OR NOT EXISTS (SELECT 1 FROM files f WHERE f.path = 'static/' || compressed.path " ..
+  " OR rules <> ?1 OR NOT EXISTS (SELECT 1 FROM files f WHERE f.path = compressed.path " ..
   "AND f.sha256 = compressed.sha256)"
 
---- Writes the files under `static/` as the `payload` rows a program reads
---- them from: the path below `static/`, the bytes, their SHA-256 as staged,
+--- Writes the static assets ([`AnalysisSchema.static_asset`]) as the
+--- `payload` rows a program reads them from: the program each is for, the
+--- path below its `static/`, the bytes, their SHA-256 as staged,
 --- the type [`Mime.of`] gives, and the gzip [`Mime.gzip`] and zstd
 --- [`Mime.zstd`] find worth keeping. All are functions of the path and bytes
 --- alone, so the projection stays a function of the tree.
 ---
---- The pair is kept in `compressed` by path, SHA-256, the rules
+--- The pair is kept in `compressed` by the file's path in the tree, SHA-256, the rules
 --- ([`mime_digest`]) and the core that compressed it, as `deflated` keeps a
 --- source's, so a write compresses only a file whose bytes are new; a cached
 --- row is what [`Mime.gzip`] and [`Mime.zstd`] would give, so the projection
@@ -538,21 +538,30 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
     return false, prune_trouble
   end
   local files, trouble = Sqlite.text_rows(db,
-    "SELECT substr(f.path, 8), f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd " ..
-      "FROM files f LEFT JOIN compressed c ON c.path = substr(f.path, 8) AND c.sha256 = f.sha256 " ..
+    "SELECT f.path, f.data, f.sha256, c.path IS NOT NULL, c.gzip, c.zstd, " ..
+      "c.gzip IS NULL, c.zstd IS NULL " ..
+      "FROM files f LEFT JOIN compressed c ON c.path = f.path AND c.sha256 = f.sha256 " ..
       "AND c.rules = ?1 AND c.core = " .. deflating_core ..
-      " WHERE f.path GLOB 'static/*' ORDER BY f.path", { text(rules) })
+      " WHERE " .. AnalysisSchema.static_files("f.path") .. " ORDER BY f.path", { text(rules) })
   if files == nil then
     return false, trouble
   end
+  -- A text row reads NULL as "" and never as null, so whether a cached
+  -- variant is NULL (not worth compressing) is asked of SQLite in columns 7
+  -- and 8; read as "", it would ship as an empty encoding.
   for _, row in ipairs(files) do
-    local path, data, sha256 = row:text(1), row:text(2), row:text(3)
+    local file, data, sha256 = row:text(1), row:text(2), row:text(3)
+    local asset = AnalysisSchema.static_asset(file)
+    if asset == nil then
+      return false, file .. ": the condition the rows were read by holds a file that is no static asset"
+    end
+    local program, path = asset.program, asset.path
     local null: Sqlite.Value = {}
     local packed: string? = nil
     local zstd: string? = nil
     if row:text(4) == "1" then
-      packed = if row:is_null(5) then nil else row:text(5) end
-      zstd = if row:is_null(6) then nil else row:text(6) end
+      packed = if row:text(7) == "1" then nil else row:text(5) end
+      zstd = if row:text(8) == "1" then nil else row:text(6) end
     else
       local gzip_trouble = ""
       local zstd_trouble = ""
@@ -567,22 +576,22 @@ local function fill_payload(db: Sqlite.Handle): boolean, string
         local kept, kept_trouble = Sqlite.run(db,
           "INSERT OR REPLACE INTO compressed (path, sha256, rules, core, gzip, zstd) " ..
             "VALUES (?1, ?2, ?3, " .. deflating_core .. ", ?4, ?5)",
-          { text(path), text(sha256), text(rules),
+          { text(file), text(sha256), text(rules),
             if packed ~= nil then blob(packed) else null end,
             if zstd ~= nil then blob(zstd) else null end })
         if not kept then
-          return false, "static/" .. path .. ": " .. kept_trouble
+          return false, file .. ": " .. kept_trouble
         end
       end
     end
     local ok, failure = Sqlite.run(db,
-      "INSERT INTO out.payload (path, data, sha256, type, gzip, zstd) " ..
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      "INSERT INTO out.payload (program, path, data, sha256, type, gzip, zstd) " ..
+        "VALUES (?7, ?1, ?2, ?3, ?4, ?5, ?6)",
       { text(path), blob(data), text(sha256), text(Mime.of(path)),
         if packed ~= nil then blob(packed) else null end,
-        if zstd ~= nil then blob(zstd) else null end })
+        if zstd ~= nil then blob(zstd) else null end, text(program) })
     if not ok then
-      return false, "static/" .. path .. ": " .. failure
+      return false, file .. ": " .. failure
     end
   end
   return true, ""
@@ -732,6 +741,61 @@ local function find_reused(db: Sqlite.Handle): boolean
   return true
 end
 
+--- Records in `out.public_modules` the modules of the projection being
+--- written that a reader with the binary alone is told of: those any
+--- module may require, by the two rules of [`positions.check`] that hold in
+--- every project. A module of a closed directory that does not say
+--- `--- @public` is its directory's own. In a project so is a module under
+--- any `internal` directory, the root's included, which every module of
+--- the project may require and no user of its program can, and test
+--- support; a test, an example and a program are no module of that kind,
+--- whatever requires one. In cosmic's own tree the modules are the
+--- standard library's ([`symbols.library_modules`]), a declaration and an
+--- example among them, since a project requires nothing else of it.
+local function fill_public(db: Sqlite.Handle, own: boolean): boolean, string
+  local rows, trouble = Sqlite.text_rows(db, "SELECT path, file, kind FROM out.modules ORDER BY path")
+  if rows == nil then
+    return false, trouble
+  end
+  local files: mut {string} = {}
+  for _, row in ipairs(rows) do files[#files + 1] = row:text(2) end
+  local entries = positions.entries(files)
+  local public: mut {string} = {}
+  local closed: mut {string} = {}
+  local unread = ""
+  for _, row in ipairs(rows) do
+    local path, file = row:text(1), row:text(2)
+    if row:text(3) == "module" then
+      local reach = positions.reach(file, entries, function(): boolean
+        local sources, source_trouble = Sqlite.text_rows(db,
+          "SELECT CAST(inflate(source) AS TEXT) FROM out.modules WHERE path = ?1 AND length(source) > 0",
+          { text(path) })
+        if sources == nil then
+          unread = path .. ": " .. source_trouble
+          return false
+        end
+        local source = sources[1]
+        return source ~= nil and AnalysisSchema.declares_public(source:text(1))
+      end, false)
+      if reach ~= nil then
+        closed[#closed + 1] = path
+      elseif not AnalysisSchema.is_support(file) and ("/" .. file):find("/internal/", 1, true) == nil then
+        public[#public + 1] = path
+      end
+    end
+  end
+  if unread ~= "" then
+    return false, unread
+  end
+  if own then
+    return Sqlite.run(db, "INSERT INTO out.public_modules (path) SELECT path FROM (SELECT path FROM out.modules " ..
+        "UNION SELECT path FROM out.decls) WHERE " .. symbols.library_modules("path") ..
+        " AND path NOT IN carray(?1) ORDER BY path", { { texts = closed } })
+  end
+  return Sqlite.run(db, "INSERT INTO out.public_modules (path) SELECT value FROM carray(?1) ORDER BY value",
+    { { texts = public } })
+end
+
 --- Fills the attached `out` schema within the working transaction, signed
 --- `signature` by the writer whose identity is `by`, and naming the
 --- compiler whose identity keyed its modules (`result.tool`) as
@@ -758,8 +822,8 @@ local function project(handle: work.Handle,
   local statements: mut {string} = {}
   statements[#statements + 1] = prune_deflated
   statements[#statements + 1] = fill_deflated
-  statements[#statements + 1] = prune_deflated_bytecode
-  statements[#statements + 1] = fill_deflated_bytecode(reusing)
+  statements[#statements + 1] = prune_kept_bytecode
+  statements[#statements + 1] = fill_kept_bytecode(reusing)
   statements[#statements + 1] = choose(reusing, insert_modules_reusing, insert_modules)
   statements[#statements + 1] = insert_imports
   statements[#statements + 1] = insert_decl_imports
@@ -779,6 +843,10 @@ local function project(handle: work.Handle,
     if not ok then
       return false, failure
     end
+  end
+  local recorded, record_trouble = fill_public(db, work.standing(handle).own)
+  if not recorded then
+    return false, record_trouble
   end
   -- The declarations the new checker types a project against ([`build.checker_declarations`]), which only cosmic's own tree
   -- holds: a tool carries them, a project's projection does not.
@@ -1006,6 +1074,14 @@ function writer.other_code(db: Sqlite.Handle, compiler: string): string?, string
   return nil, ""
 end
 
+local reader_held = false
+
+--- Whether the last [`writer.write_result`] of a lookup's build left the
+--- projection as it was, another run holding the rebuild lock.
+function writer.held(): boolean
+  return reader_held
+end
+
 --- Writes an already-compiled result into a fresh host-independent database
 --- and leaves it at `out`, unless the file there already is that projection.
 --- The attached in-memory projection is filled before the working transaction
@@ -1025,6 +1101,7 @@ end
 function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result, tree_code?: boolean,
                              library?: link_index.Library, reader?: string): boolean, string
+  reader_held = false
   local db = handle.db
   if not handle.inside then
     local begun, begin_trouble = work.begin(handle)
@@ -1101,6 +1178,7 @@ function writer.write_result(handle: work.Handle, out: string,
       taken, lock_trouble = rebuild_lock.try_hold(handle.root, "write", reader)
       if taken == nil and lock_trouble == "" then
         local _, _ = db:exec("DETACH out")
+        reader_held = true
         return true, ""
       end
     else
@@ -1163,7 +1241,8 @@ local dropped_modules <const> =
   "dropped(path) AS (SELECT path FROM whole.modules " ..
   "EXCEPT SELECT path FROM carried) "
 
---- The type a doc row `d` of a `cosmic.internal.*` module is or is
+--- The type a doc row `d` of a library module that is not public (a
+--- `cosmic.internal.*` one, or a closed directory's own) is or is
 --- under, as a public declaration spells it after the name its module
 --- binds the internal one to: `Handle` of [`sqlite.Handle`] and of
 --- [`Handle.exec`].
@@ -1188,21 +1267,22 @@ local carried_alias_signatures <const> =
   "(p.signature GLOB 'type * = *' OR p.signature GLOB '*record * is *' OR " ..
   "p.signature GLOB '*interface * is *')) "
 
---- The condition under which a doc row `d` of a `cosmic.internal.*`
---- module is a nested type -- [`sqlite.Handle`] -- or a member of one
+--- The condition under which a doc row `d` of a library module that is
+--- not public (`cosmic.internal.*`, or a closed directory's own) is a
+--- nested type -- [`sqlite.Handle`] -- or a member of one
 --- ([`Handle.exec`]) that a public declaration reaches: an alias
 --- (`type Handle = raw_sqlite.Handle`) or a base (`record Options is
 --- raw_http.Options`), whose page lists them, through the name its
 --- module binds `d`'s to ([`build.syntax_analyzer`]'s `Bound`). [`symbols.shown_docs`]
 --- still hides these rows from every public query; only that page's
---- resolution ([`build.docs`]) reads them. Written as a join, which
+--- resolution ([`cosmic.doc`]) reads them. Written as a join, which
 --- looks each doc row's module up among the aliases once: an `EXISTS` that
 --- scans them for each of the several hundred internal rows took most of a
 --- second of every tool rebuild.
 local carried_internal_types =
   "d.id IN (SELECT d.id FROM whole.docs d " ..
   "JOIN alias_signatures a ON a.requires = d.module WHERE " ..
-  "d.module LIKE 'cosmic.internal.%' AND d.symbol <> '' AND " ..
+  "d.module LIKE 'cosmic.%' AND d.module NOT IN (SELECT path FROM main.public_modules) AND d.symbol <> '' AND " ..
   "((d.kind IN ('record', 'interface', 'enum') AND instr(d.source_symbol, '.') > 0) OR " ..
   "(d.kind IN ('field', 'value', 'metamethod') AND instr(d.symbol, '.') > 0)) AND " ..
   "(a.signature GLOB '*[ ,]' || a.name || '.' || " .. nested_type .. " OR " ..
@@ -1229,11 +1309,15 @@ local carry: {string} = {
   dropped_modules .. "INSERT INTO main.bound SELECT * FROM whole.bound " ..
     "WHERE path NOT IN dropped ORDER BY path, name",
   "INSERT INTO main.decls SELECT * FROM whole.decls ORDER BY path",
+  -- First of what reads it: each statement below that asks for a public
+  -- module ([`symbols.public_only`]) asks this table.
+  dropped_modules .. "INSERT INTO main.public_modules SELECT path FROM whole.public_modules " ..
+    "WHERE path NOT IN dropped ORDER BY path",
   "INSERT INTO main.stubs SELECT * FROM whole.stubs ORDER BY path",
   "INSERT INTO main.places SELECT * FROM whole.places ORDER BY module, ordinal",
   "INSERT INTO main.members SELECT * FROM whole.members ORDER BY module, ordinal",
   "INSERT INTO main.origins SELECT * FROM whole.origins ORDER BY module",
-  "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY path",
+  "INSERT INTO main.payload SELECT * FROM whole.payload ORDER BY program, path",
   "INSERT INTO main.zoneinfo (name, data) SELECT name, data FROM whole.zoneinfo " ..
     "ORDER BY name",
   "INSERT INTO main.web_assets SELECT * FROM whole.web_assets ORDER BY name",
@@ -1299,7 +1383,13 @@ local carry: {string} = {
 --- reads it from a projection it wrote, and build.reboot's `replaced`
 --- tells a rebuilt tool apart by `boot_hash`, `written_by` and
 --- `compiled_by`, one of which every rebuild moves.
-function writer.carried(whole: string, out: string): boolean, string
+---
+--- `finish`, where given, is run on the filled database before it is
+--- vacuumed, to add what its caller works out of the rows themselves: a
+--- tool's stamps ([`build.stamps`]'s `fill`), which this module does not
+--- require, since working them out takes the code they name.
+function writer.carried(whole: string, out: string,
+                        finish?: function(db: Sqlite.Handle): boolean, string): boolean, string
   local function fill(db: Sqlite.Handle): boolean, string
     local statements: mut {string} = {}
     for _, statement in ipairs(schema.settings("")) do
@@ -1337,6 +1427,12 @@ function writer.carried(whole: string, out: string): boolean, string
     local _, _ = db:exec("DETACH whole")
     if not made then
       return false, refused
+    end
+    if finish ~= nil then
+      local finished, finish_trouble = finish(db)
+      if not finished then
+        return false, finish_trouble
+      end
     end
     local _, _ = Fs.remove(out .. ".building")
     local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1",

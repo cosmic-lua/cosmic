@@ -92,7 +92,7 @@ local function test_the_guide_is_read_as_its_entries()
   local names = documented()
   for _, name in ipairs({ "abs", "->>", "jsonb_each", "decimal", collation("binary"),
       collation("decimal"), PRAGMAS }) do
-    assert(names[name], "the guide's entries do not include " .. name)
+    assert(names[name] == true, "the guide's entries do not include " .. name)
   end
   assert(names["binary"] ~= true, "a collation is read as a collation")
   assert(names["sqlite"] ~= true, "prose in backticks outside an entry is not one")

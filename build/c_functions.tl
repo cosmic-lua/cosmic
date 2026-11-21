@@ -118,7 +118,6 @@ local exempt: {string: string} = {
   ["core/vector.c:dot_i8_avx512_vnni"] = vnni_only,
   ["core/vector.c:dot_i8_avx_vnni"] = vnni_only,
   ["core/store.c:die_unreadable"] = "the store's own database cannot be read, and the process ends",
-  ["core/crypto.c:mbedtls_psa_external_get_random"] = "mbedtls asks for randomness only to make keys, which the core never does",
   ["core/vfs.c:vfs_delete"] = forwarded,
   ["core/vfs.c:vfs_access"] = forwarded,
   ["core/vfs.c:vfs_randomness"] = "SQLite seeds its randomness through the default VFS, never a wrapping one",

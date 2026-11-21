@@ -829,7 +829,7 @@ local y: Row
   for _, d in ipairs(rows) do
     modules[d.module] = true
   end
-  assert(modules["t"], "the first is the module's own")
+  assert(modules["t"] == true, "the first is the module's own")
   -- the second declaration in the function's body is not reachable from outside
   local count = 0
   for m in pairs(modules) do

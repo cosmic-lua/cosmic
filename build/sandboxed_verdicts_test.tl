@@ -154,7 +154,13 @@ local function seeded(tmp: string): mut {string:string}, Said, string
 end
 
 --- Nothing changed, or only a file no test declares: every test stands,
---- and none is assumed or runs every time.
+--- and none is assumed or runs every time. A file beneath a declared
+--- directory that changes runs the test that declares it. That each other
+--- input moves a key (a module of the closure, a variable's value, the
+--- declaration) is build/declared_key_test.tl's, and a run that an edited
+--- module or another variable moves is below
+--- ([`test_a_store_is_keyed_by_its_bytes_not_its_address`]) and in
+--- build/shared_verdicts_tool_test.tl.
 local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tmp: string)
   local _, said, root = seeded(tmp)
   local again = said("0 ran, 3 stood")
@@ -162,29 +168,21 @@ local function test_a_sandboxed_verdict_stands_until_what_it_declares_changes(tm
   -- A file no test declares.
   assert(Fs.write(root .. "/suite/unrelated.txt", "changed\n"))
   said("0 ran, 3 stood")
-end
-
---- A file beneath a declared directory, or a module of a test's
---- closure, runs the test that declares it.
-local function test_a_declared_file_or_module_that_changes_runs_its_test(tmp: string)
-  local _, said, root = seeded(tmp)
   assert(Fs.write(root .. "/suite/data/f", "two\n"))
   said("1 ran, 2 stood")
-  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
-  said("1 ran, 2 stood")
 end
 
---- A declared variable's value, or the declaration itself, that changes
---- runs the test that declares it.
-local function test_a_declared_variable_or_declaration_that_changes_runs_its_test(tmp: string)
-  local env, said, root = seeded(tmp)
-  env["FLAVOUR"] = "salty"
-  said("1 ran, 2 stood")
-  local source = assert(Fs.read(root .. "/suite/data_test.tl"))
-  assert(Fs.write(root .. "/suite/data_test.tl",
-    (source:gsub('{ path = "suite/data/", letters = "r" }',
-      '{ path = "suite/data/", letters = "r" }, { path = "suite/lib.tl", letters = "r" }'))))
-  said("1 ran, 2 stood")
+--- A run reaches the same keys from the stamps the tool carries
+--- ([`build.stamp`]) as from the identities it works out without them
+--- (COSMIC_STAMPS=0): every verdict the first reached stands for the
+--- second, which compiles nothing again. A stamp that is not what the
+--- tool works out would move a key: the harness's and the sealed
+--- program's every verdict's, the checker's code every compile's.
+local function test_a_run_reaches_the_same_keys_from_the_tools_stamps_as_without_them(tmp: string)
+  local env, said, _ = seeded(tmp)
+  env["COSMIC_STAMPS"] = "0"
+  local without = said("0 ran, 3 stood")
+  assert(without:find("(0 compiled, ", 1, true) ~= nil and without:find(" parsed", 1, true) == nil, without)
 end
 
 --- Forced, by `--all` or COSMIC_TEST_ALL, every test runs.
@@ -224,14 +222,14 @@ end
   suite(tmp .. "/beyond", "beyond", '"127.0.0.1", "example.com"', false)
   local refused = run(tmp .. "/beyond", tmp .. "/beyond.out", env, nil, true)
   assert(refused:find('suite/beyond_test.tl:6: test.policy: loopback "example.com": loopback ' ..
-      "takes loopback addresses 127.a.b.c only", 1, true) and
+      "takes loopback addresses 127.a.b.c only", 1, true) ~= nil and
       not refused:find("test: %d+ tests? passed in "), refused)
   suite(tmp .. "/root", "loopback", '"127.0.0.1", "127.0.0.2"', false)
   local first = run(tmp .. "/root", tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
   assert(first:find("1 ran, 0 stood", 1, true), first)
   local again = run(tmp .. "/root", tmp .. "/again.out", env)
-  assert(again:find("0 ran, 1 stood", 1, true) and not again:find("every time", 1, true), again)
+  assert(again:find("0 ran, 1 stood", 1, true) ~= nil and not again:find("every time", 1, true), again)
   suite(tmp .. "/probe", "loopback", '"127.0.0.1"', true)
   local probed = run(tmp .. "/probe", tmp .. "/probe.out", env, nil, true)
   local offline = probed:match("loopback in (%S+) |")
@@ -422,11 +420,21 @@ end
 --- does one that does not declare it.
 local function test_a_tool_test_stands_across_a_rebuild_that_moved_nothing_it_carries(tmp: string)
   local rebuild, ran = tool_project(tmp)
-  ran("0 ran, 2 stood")
   -- Rebuilt for an edit no binary carries: every byte of the program
   -- after its image moved, and nothing it runs.
   rebuild("UPDATE meta SET value = 'two' WHERE key IN ('boot_hash', 'projected')")
   ran("0 ran, 2 stood")
+end
+
+--- A test that declares `tool` stands across a rebuild of the tool at another path: CI places each commit's
+--- checkout at a path of its own, and the tool records it (`built_from`). A sandboxed worker sees it only through /proc mount info, which no test reads.
+local function test_a_tool_test_stands_across_a_rebuild_at_another_path(tmp: string)
+  local rebuild, ran = tool_project(tmp)
+  rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/ci/one/checkout')")
+  ran("0 ran, 2 stood")
+  -- "/tree" is where a worker's own root is: a tool built there answers differently in a sandbox.
+  rebuild("INSERT OR REPLACE INTO meta (key, value) VALUES ('built_from', '/tree')")
+  ran("1 ran, 1 stood")
 end
 
 --- A test that declares `tool` runs again when a module the tool
@@ -444,6 +452,43 @@ local function overwrite(path: string, data: string)
   local fd = assert(sys.open(path, sys.O_WRONLY | sys.O_TRUNC))
   assert(sys.write(fd, data) == #data)
   assert(sys.close(fd))
+end
+
+--- Runs `cosmic test` with `words` in `root` under `env`, whose TMPDIR is `tmp .. "/t"`, its output to `out`: once
+--- a test of it says it started (a file `started` in its directory, which is one of TMPDIR's, sandboxed or not),
+--- `then_do` is given that directory, to move the test's input or stop it. What the run said, and whether it passed.
+local function run_then(tmp: string, root: string, env: {string:string}, out: string, words: {string},
+                        then_do: function(string)): string, boolean
+  local fd = assert(Fs.open_write(out))
+  local args: mut {string} = { "test" }
+  for _, word in ipairs(words) do args[#args + 1] = word end
+  local started = this_program.program(args, {
+    cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
+  })
+  local handle = assert(Child.start(started.argv, started.options))
+  local deadline = Clock.monotonic_ns() + 30000000000
+  local found = ""
+  local ended = false
+  while found == "" and not ended and Clock.monotonic_ns() < deadline do
+    local now, _ = handle:try_wait()
+    ended = now ~= nil and now.finished
+    for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
+      for _, sub in ipairs({ "/real", "/tmp", "" }) do
+        local dir = tmp .. "/t/" .. entry .. sub
+        if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
+          found = dir
+        end
+      end
+    end
+    if found == "" then assert(Clock.sleep_ns(20000000)) end
+  end
+  assert(found ~= "" or ended, "the test never started")
+  if found ~= "" then then_do(found) end
+  local result = assert(handle:wait(Clock.seconds(60)))
+  assert(Fs.close(fd))
+  -- Its directory said it started: marked so the next run's is found.
+  if found ~= "" then local _ = Fs.write(found .. "/stop", "") end
+  return assert(Fs.read(out)), result.ok
 end
 
 --- A verdict reached while a declared input moved under the test is
@@ -493,96 +538,106 @@ end
   assert(Fs.mkdirs(tmp .. "/t"))
   env["TMPDIR"] = assert(Fs.absolute(tmp .. "/t"))
   local step = 0
-  -- A run of `words` after `test`: once its test says it started --
-  -- its directory is one of TMPDIR's, sandboxed or not -- `then_do`
-  -- moves its input or stops it. What the run said, and whether it
-  -- passed.
-  local function run_then(words: {string}, then_do: function(string)): string, boolean
+  local function run_then_here(words: {string}, then_do: function(string)): string, boolean
     step = step + 1
-    local out = tmp .. "/" .. tostring(step) .. ".out"
-    local fd = assert(Fs.open_write(out))
-    local args: mut {string} = { "test" }
-    for _, word in ipairs(words) do args[#args + 1] = word end
-    local started = this_program.program(args, {
-      cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
-    })
-    local handle = assert(Child.start(started.argv, started.options))
-    local deadline = Clock.monotonic_ns() + 30000000000
-    local found = ""
-    local ended = false
-    while found == "" and not ended and Clock.monotonic_ns() < deadline do
-      local now, _ = handle:try_wait()
-      ended = now ~= nil and now.finished
-      for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
-        for _, sub in ipairs({ "/real", "/tmp", "" }) do
-          local dir = tmp .. "/t/" .. entry .. sub
-          if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
-            found = dir
-          end
-        end
-      end
-      if found == "" then assert(Clock.sleep_ns(20000000)) end
-    end
-    assert(found ~= "" or ended, "the test never started")
-    if found ~= "" then then_do(found) end
-    local result = assert(handle:wait(Clock.seconds(60)))
-    assert(Fs.close(fd))
-    -- Its directory said it started: marked so the next run's is found.
-    if found ~= "" then local _ = Fs.write(found .. "/stop", "") end
-    return assert(Fs.read(out)), result.ok
+    return run_then(tmp, root, env, tmp .. "/" .. tostring(step) .. ".out", words, then_do)
   end
   local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
-  local first, first_ok = run_then({}, stop)
+  local first, first_ok = run_then_here({}, stop)
   skip_if_unsandboxed(first)
   assert(first_ok and first:find("1 ran, 0 stood", 1, true) ~= nil, first)
   -- Forced, and moved as it runs: it fails.
-  local forced, forced_ok = run_then({ "--all" }, function(_: string)
+  local forced, forced_ok = run_then_here({ "--all" }, function(_: string)
     overwrite(root .. "/suite/moving.txt", "two\n")
   end)
   assert(not forced_ok and forced:find("it moved", 1, true) ~= nil, forced)
   -- Back as it was: the pass its first run kept is gone with the
   -- failure, so it runs; then it stands.
   overwrite(root .. "/suite/moving.txt", "one\n")
-  local back, back_ok = run_then({}, stop)
+  local back, back_ok = run_then_here({}, stop)
   assert(back_ok and back:find("1 ran, 0 stood", 1, true) ~= nil, back)
   local stands = run(root, tmp .. "/stands.out", env)
   assert(stands:find("0 ran, 1 stood", 1, true), stands)
 end
 
---- The harness's epoch is in every sandboxed key: a bump -- stood in
---- for by COSMIC_TEST_HARNESS_EPOCH, as a binary with another
---- build/harness_epoch.tl would bring -- runs a test that shares nothing
---- else with it again, as does another timeout.
-local function test_a_bump_of_the_epoch_runs_every_test_again(tmp: string)
+--- A pass is not kept either where its input moved after other tests' verdicts were kept: the one look at the
+--- inputs that keeps the tests that wait together ([`test_key.keep_waiting`]) answers for no test that ends
+--- after it. The test it runs passes whatever its input holds, so only the check of its key after it ended
+--- stands between the moved input and a verdict under the key it started from.
+local function test_a_look_that_kept_earlier_verdicts_keeps_no_later_one(tmp: string)
   local root = tmp .. "/root"
-  checkout(root)
+  assert(Fs.mkdirs(root .. "/suite"))
+  -- A directory it reads keeps its worker's directory on the host, where this test finds it.
+  assert(Fs.mkdirs(root .. "/keep"))
+  assert(Fs.write(root .. "/suite/moving.txt", "one\n"))
+  -- Two more quick tests than wait for one look: the verdicts of the first 64 are kept while the last test
+  -- still runs, and the two after them wait with it for the look that follows.
+  local quick: mut {string} = {}
+  for number = 1, 66 do
+    quick[number] = string.format(
+      "local function test_a_quick_%02d()\n  assert(Fs.read(\"suite/moving.txt\") ~= nil)\nend\n", number)
+  end
+  assert(Fs.write(root .. "/suite/moving_test.tl", [[
+local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
+local Test = require("cosmic.test")
+
+Test.policy {
+  grants = {
+    { path = "suite/moving.txt", letters = "r" },
+    { path = "keep", letters = "r" },
+  },
+}
+
+]] .. table.concat(quick, "\n") .. [[
+
+local function test_b_watching(tmp: string)
+  assert(Fs.write(tmp .. "/started", "yes"))
+  local deadline = Clock.monotonic_ns() + 20000000000
+  while Fs.exists(tmp .. "/stop") ~= true and Clock.monotonic_ns() < deadline do
+    assert(Clock.sleep_ns(20000000))
+  end
+  assert(Fs.exists(tmp .. "/stop") == true, "never told to stop")
+end
+]]))
   local env = environment(tmp .. "/cache/verdicts.db")
-  local first = run(root, tmp .. "/first.out", env)
-  skip_if_unsandboxed(first)
-  local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 3 stood", 1, true), again)
-  env["COSMIC_TEST_HARNESS_EPOCH"] = harness_epoch.epoch .. "0"
-  local moved = run(root, tmp .. "/moved.out", env)
-  assert(moved:find("3 ran, 0 stood", 1, true), moved)
-  -- So is the timeout a worker runs under: a pass reached under one
-  -- does not stand under another.
-  env["COSMIC_TEST_HARNESS_EPOCH"] = nil
-  env["COSMIC_TEST_TIMEOUT"] = "31"
-  local longer = run(root, tmp .. "/longer.out", env)
-  assert(longer:find("3 ran, 0 stood", 1, true), longer)
+  env["COSMIC_VERDICT_CACHE"] = "0"
+  assert(Fs.mkdirs(tmp .. "/t"))
+  env["TMPDIR"] = assert(Fs.absolute(tmp .. "/t"))
+  local function stop(dir: string) assert(Fs.write(dir .. "/stop", "")) end
+  local moved, moved_ok = run_then(tmp, root, env, tmp .. "/moved.out", { "--jobs", "2" }, function(dir: string)
+    -- Time for the quick tests still running beside it to end before the input moves.
+    assert(Clock.sleep_ns(Clock.ms(300)))
+    overwrite(root .. "/suite/moving.txt", "two\n")
+    stop(dir)
+  end)
+  skip_if_unsandboxed(moved)
+  assert(moved_ok and moved:find("67 ran, 0 stood", 1, true) ~= nil, moved)
+  -- Back as it was when the run keyed it: a pass kept under that key would stand, and the watching test not run.
+  overwrite(root .. "/suite/moving.txt", "one\n")
+  local back, back_ok = run_then(tmp, root, env, tmp .. "/back.out", { "--jobs", "2" }, stop)
+  assert(back_ok and back:find("%f[%d]0 ran") == nil, back)
 end
 
---- The harness's digest is in every sandboxed key, wired through [`test_key.begin`]: an edit to the
---- harness's code -- stood in for by COSMIC_TEST_HARNESS_SALT, as a binary with other harness bytecode
---- would bring -- runs every test again, and the same salt stands on the verdicts it reached.
-local function test_an_edit_to_the_harness_runs_every_test_again(tmp: string)
+--- The harness's epoch and its digest are in every sandboxed key, wired
+--- through [`test_key.begin`]: a bump -- stood in for by
+--- COSMIC_TEST_HARNESS_EPOCH, as a binary with another
+--- build/harness_epoch.tl would bring -- runs a test that shares nothing
+--- else with it again, and so does an edit to the harness's code -- stood
+--- in for by COSMIC_TEST_HARNESS_SALT, as a binary with other harness
+--- bytecode would bring -- under which the same salt stands on the
+--- verdicts it reached. That the timeout a worker runs under is in its key
+--- too is build/test_timeout_tool_test.tl's.
+local function test_a_bump_of_the_epoch_or_an_edit_to_the_harness_runs_every_test_again(tmp: string)
   local root = tmp .. "/root"
   checkout(root)
   local env = environment(tmp .. "/cache/verdicts.db")
   local first = run(root, tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
-  local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 3 stood", 1, true), again)
+  assert(first:find("3 ran, 0 stood", 1, true), first)
+  env["COSMIC_TEST_HARNESS_EPOCH"] = harness_epoch.epoch .. "0"
+  local bumped = run(root, tmp .. "/bumped.out", env)
+  assert(bumped:find("3 ran, 0 stood", 1, true), bumped)
   local salted = environment(tmp .. "/cache/verdicts.db", "another harness")
   local moved = run(root, tmp .. "/moved.out", salted)
   assert(moved:find("3 ran, 0 stood", 1, true), moved)
@@ -593,8 +648,8 @@ end
 --- A compiler of another identity that makes the same bytecode --
 --- stood in for by COSMIC_TEST_COMPILER_SALT, under which the tree is
 --- compiled again -- moves no key but that of a test whose closure
---- reads the compiler's identity (build/declared_key.tl's
---- `compiler_readers`, which the fixture's [`core.allocation_test`]
+--- reads the compiler's identity (build/key_parts.tl's
+--- `meta_readers`, which the fixture's [`core.allocation_test`]
 --- stands in for by its name): the module's key the key holds is the
 --- compiler's graph key, the store's bytes hold what the compiler made,
 --- and the compiler itself only where it is read.
@@ -633,6 +688,84 @@ end
   assert(row:text(1) == "core.allocation_test", "ran under another compiler: " .. row:text(1))
 end
 
+--- A worker is given the digest of the core's inputs and the compiler's seed
+--- files (`image_hash`) only where its closure holds a reader of it
+--- (build/key_parts.tl's `meta_readers`, which the fixture's
+--- [`build.reboot`] stands in for by its name): else its store holds a
+--- `withheld_meta` row naming it in the value's place, in the closure store
+--- and in the sealed database, and [`Store.meta`] raises for it where a nil
+--- would read as a row never written. [`Store.seal`] in such a worker seals
+--- the marker, without raising. A worker that is not sealed finds the closure
+--- store ahead of the tool's own database and is refused alike: the module
+--- that declares `tool` is such a worker, run sandboxed or not. (A run with
+--- the sandbox off seals the others still when the tool is a portable artifact.)
+local function test_a_worker_is_given_the_image_hash_only_where_its_closure_reads_it(tmp: string)
+  local root = tmp .. "/root"
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.write(root .. "/build/reboot.tl", "local record Reboot\n  value: integer\nend\nlocal reboot: Reboot = { value = 1 }\nreturn reboot\n"))
+  assert(Fs.write(root .. "/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  -- The call is spelled apart, so this module's own source reads none.
+  local function sourced(text: string): string
+    return (text:gsub("READ", 'Store.' .. 'meta("image_' .. 'hash")'))
+  end
+  assert(Fs.write(root .. "/suite/plain_test.tl", sourced([[
+local Sqlite = require("cosmic.sqlite")
+local Store = require("cosmic.store")
+local lib = require("suite.lib")
+
+local function test_a_read_is_refused()
+  local ok, trouble = pcall(function(): string? return READ end)
+  assert(not ok, "a closure that reads no such row was answered")
+  assert(tostring(trouble):find("is withheld from this test's store", 1, true), tostring(trouble))
+end
+
+local function test_a_seal_hands_the_marker_on(tmp: string)
+  assert(lib.value == 1)
+  assert(Store.seal({ "suite.lib" }, tmp .. "/sealed.db"))
+  local db = assert(Sqlite.open(tmp .. "/sealed.db"))
+  local rows = assert(Sqlite.text_rows(db, "SELECT key || '=' || CAST(value AS TEXT) FROM meta ORDER BY key"))
+  assert(db:close())
+  local seen: mut {string} = {}
+  for _, row in ipairs(rows) do seen[#seen + 1] = row:text(1) end
+  local text = table.concat(seen, " ")
+  assert(text:find("withheld_meta=image_hash", 1, true), text)
+  assert(not text:find("image_hash=", 1, true), text)
+end
+]])))
+  -- A module that declares `tool` runs on the tool's own database, not a sealed one.
+  assert(Fs.write(root .. "/suite/tool_test.tl", sourced([[
+local Store = require("cosmic.store")
+local Test = require("cosmic.test")
+
+Test.policy { profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
+
+local function test_a_read_is_refused_unsealed()
+  local ok, trouble = pcall(function(): string? return READ end)
+  assert(not ok, "a closure that reads no such row was answered")
+  assert(tostring(trouble):find("is withheld from this test's store", 1, true), tostring(trouble))
+end
+]])))
+  assert(Fs.write(root .. "/suite/reads_test.tl", sourced([[
+local Store = require("cosmic.store")
+local reboot = require("build.reboot")
+
+local function test_reads()
+  assert(reboot.value == 1)
+  assert(READ ~= nil, "a closure that reads the row was not given it")
+  assert(Store.meta("withheld_meta") == nil, "a store that holds the row withholds it")
+end
+]])))
+  local env = environment(tmp .. "/cache/verdicts.db")
+  local first = run(root, tmp .. "/first.out", env)
+  skip_if_unsandboxed(first)
+  assert(first:find("4 ran, 0 stood", 1, true), first)
+  env["COSMIC_TEST_SANDBOX"] = "0"
+  local bare = run(root, tmp .. "/bare.out", env, { "--all" }, true)
+  assert(bare:find("4 ran", 1, true) ~= nil and not bare:find("FAIL", 1, true), bare)
+  assert(not bare:find("; sandboxed", 1, true), "the run was sandboxed, so it checked nothing unsealed: " .. bare)
+end
+
 --- A processor of other features (stood in for by COSMIC_TEST_CPU_SALT) runs only the modules that
 --- declare `cpu_features`: a verdict earned on the first stands, here as it does across CI's runners
 --- of one image, for every test whose key holds no processor, and not for the one whose key does.
@@ -661,8 +794,6 @@ end
   local first = run(root, tmp .. "/first.out", env)
   skip_if_unsandboxed(first)
   assert(first:find("2 ran, 0 stood", 1, true), first)
-  local again = run(root, tmp .. "/again.out", env)
-  assert(again:find("0 ran, 2 stood", 1, true), again)
   local other: mut {string:string} = {}
   for name, value in pairs(env) do other[name] = value end
   other["COSMIC_TEST_CPU_SALT"] = "another processor"
@@ -675,9 +806,6 @@ end
   assert(db:close())
   local ran = assert(rows[1]):text(1)
   assert(ran == "suite.declared_test", "ran on another processor: " .. ran)
-  -- The host it came from still stands on its own verdicts.
-  local back = run(root, tmp .. "/back.out", env)
-  assert(back:find("0 ran, 2 stood", 1, true), back)
 end
 
 --- A run of the project in `tmp` whose test modules are `modules` (path to source), held to the
@@ -767,8 +895,8 @@ end
 --- A checked run (`--check-types`) stands on verdicts of its own and on none of an unchecked
 --- run's, and the reverse, even for a test whose closure compiles to the same bytes in both modes
 --- and reads no compiler (the key holds the mode by name, `checks`): the hooks of a checked worker
---- can change an outcome without changing a byte of the closure (the fuzz budget). Each mode stands
---- on its own earlier run.
+--- can change an outcome without changing a byte of the closure (the fuzz budget). A checked run
+--- stands on its own earlier run.
 local function test_a_checked_runs_verdicts_never_stand_for_an_unchecked_run(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/suite"))
@@ -806,8 +934,6 @@ end
     "ran: " .. ran_last())
   local again = run(root, tmp .. "/checked-again.out", env, { "--check-types" })
   assert(again:find("0 ran, 2 stood", 1, true), "a checked run did not stand on its own pass: " .. again)
-  local plain_again = run(root, tmp .. "/plain-again.out", env)
-  assert(plain_again:find("0 ran, 2 stood", 1, true), "an unchecked run did not stand on its own pass: " .. plain_again)
 end
 
 --- An edit to the hooks of a checked run moves the keys of a checked run and no others: the checks part holds the
@@ -864,8 +990,6 @@ end
   local first = run(root, tmp .. "/first.out", env, { "--check-types" })
   skip_if_unsandboxed(first)
   assert(first:find("1 ran, 0 stood", 1, true), first)
-  local again = run(root, tmp .. "/again.out", env, { "--check-types" })
-  assert(again:find("0 ran, 1 stood", 1, true), "a store module's checked verdict did not stand: " .. again)
   local plain = run(root, tmp .. "/plain.out", env)
   assert(plain:find("1 ran, 0 stood", 1, true), "a checked verdict stood for an unchecked run: " .. plain)
   -- The tree's own projection is as the unchecked run left it; a module outside the closure, which moves the
@@ -992,7 +1116,7 @@ local function test_a_store_is_keyed_by_its_bytes_not_its_address(tmp: string)
   checkout(tmp .. "/second")
   assert(Fs.write(tmp .. "/second/suite/lib.tl", "local record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nlocal _ = lib.value + 1\nreturn lib\n"))
   local second = run(tmp .. "/second", tmp .. "/second.out", env)
-  assert(second:find("0 ran, 3 stood", 1, true) and
+  assert(second:find("0 ran, 3 stood", 1, true) ~= nil and
       not second:find("closure store", 1, true), second)
   local stores, _ = Fs.list(support.build_dir(tmp .. "/second") .. "/stores")
   assert(stores == nil or #stores == 0, "a checkout that stood wrote a store")
@@ -1028,6 +1152,43 @@ end
     "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 2 }\nreturn lib\n"))
   local changed = run(root, tmp .. "/changed.out", env)
   assert(changed:find("2 ran, 2 stood", 1, true), changed)
+end
+
+--- A sandboxed test given the pure store credits the lines of the module it imports: the store's chunk of it numbers
+--- each instruction ([`build.lua_tail`]'s `numbered`), which the run places at the module's lines in its text. A comment
+--- above them moves no key, so the verdict stands, and its row, which keeps the instructions' numbers, is placed at the
+--- lines of the text with the comment: every line the test ran is credited again, at the line it moved to, and the
+--- figure is whole.
+local function test_a_pure_store_run_credits_an_imports_lines_where_a_comment_moved_them(tmp: string)
+  local _, said, root = seeded(tmp)
+  local function lib_lines(): {string}
+    local db = assert(Sqlite.open(support.build_dir(root) .. "/build.db"))
+    local rows = assert(Sqlite.text_rows(db, "SELECT line FROM coverage WHERE path = 'suite.lib' AND hit > 0 " ..
+        "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage) ORDER BY line"))
+    local all = assert(Sqlite.text_rows(db, "SELECT count(*) FROM coverage WHERE path = 'suite.lib' " ..
+        "AND ran_at_ns = (SELECT max(ran_at_ns) FROM coverage)"))
+    assert(db:close())
+    local out: mut {string} = {}
+    for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
+    assert(#out > 0 and tostring(#out) == support.nth(all, 1):text(1),
+      "the import's lines the test ran are not all credited: " .. table.concat(out, ",") .. " of " ..
+        support.nth(all, 1):text(1))
+    return out
+  end
+  local first = lib_lines()
+  assert(Fs.write(root .. "/suite/lib.tl",
+    "-- a note\n\nlocal record Lib\n  value: integer\nend\nlocal lib: Lib = { value = 1 }\nreturn lib\n"))
+  local stood = said("0 ran, 3 stood")
+  assert(stood:find("partial", 1, true) == nil, stood)
+  local moved = lib_lines()
+  -- The note and the blank line beneath it move every line two down.
+  local shifted: mut {string} = {}
+  for index, line in ipairs(first) do
+    shifted[index] = tostring((math.tointeger(tonumber(line)) or 0) + 2)
+  end
+  assert(table.concat(moved, ",") == table.concat(shifted, ","),
+    "the lines credited are not those of the text with the comment: " .. table.concat(first, ",") .. " then " ..
+      table.concat(moved, ","))
 end
 
 --- A test whose closure holds a module that declares it reads any text (requires [`build.reads.all`]) is given the store

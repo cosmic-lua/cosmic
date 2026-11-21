@@ -16,7 +16,9 @@ local relative_floor <const> = 50
 
 local function test_href_agrees_with_the_whatwg_url_data()
   local text = assert(Fs.read("vendor/wpt-url/urltestdata.json"))
-  local entries = assert(Json.decode(text)) as {any} -- checked: cast_refused
+  local listed, listed_trouble = Json.decode(text)
+  assert(listed ~= nil, listed_trouble)
+  local entries = listed as {any} -- checked: cast_refused
   local checked, relative = 0, 0
   for _, raw in ipairs(entries) do
     -- The data's few strings are comments between its entries.

@@ -55,7 +55,7 @@ local function test_a_standalone_file_runs_on_what_it_loads(tmp: string)
   assert(Fs.write(bad, "local Zip = require(\"cosmic.zip\")\nprint(Zip ~= nil)\n"))
   skip_unless_sandboxed()
   ok, out, err = run({ "--standalone", bad })
-  assert(not ok and err:find("the project has no module `cosmic.zip`", 1, true) ~= nil, out .. err)
+  assert(not ok and err:find("cosmic has no module `cosmic.zip`", 1, true) ~= nil, out .. err)
 end
 
 --- Every name in `standalone_loads` is loaded in this worker, which loads

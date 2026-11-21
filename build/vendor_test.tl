@@ -284,6 +284,22 @@ local function test_help_is_answered_before_anything_is_fetched()
   assert(Vendor.run({ "curl", "-h" }, "build/vendor.tl") == 0)
 end
 
+--- A feed state's timestamp is its top-level member wherever the
+--- object puts it: Mozilla's OneCRL changeset moved it from after
+--- `metadata` to the front.
+local function test_a_feed_timestamp_is_read_from_any_member_order()
+  assert(Vendor.feed_timestamp('{"metadata":{"timestamp":1},"timestamp":1792622041776,"changes":[]}') ==
+      "1792622041776")
+  assert(Vendor.feed_timestamp('{"timestamp":1794348206673,"metadata":{},"changes":[{"timestamp":2}]}') ==
+      "1794348206673")
+  local none, why = Vendor.feed_timestamp('{"metadata":{"timestamp":1},"changes":[]}')
+  assert(none == nil and why == "names no timestamp for its state", why)
+  local text, refused = Vendor.feed_timestamp('{"timestamp":"7"}')
+  assert(text == nil and refused == "names no timestamp for its state", refused)
+  local broken, broken_why = Vendor.feed_timestamp("[1]")
+  assert(broken == nil and broken_why:match("^is no JSON object") ~= nil, broken_why)
+end
+
 --- A feed's PIN is rewritten to name the snapshot: its version the
 --- state's timestamp, its url the feed's asking for that timestamp, its
 --- sha256 the body's; every other line stays as it was.

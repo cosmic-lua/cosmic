@@ -309,7 +309,7 @@ local function test_a_dash_digit_option_value_is_the_users_own_word()
       { "convert", "@0", "--from", "-2" }, { "now", "--format", "-1" } }) do
     local ran = run(words)
     assert(ran.code == 2 and ran.out == "", table.concat(words, " "))
-    assert(ran.err:find(" -", 1, true) and not ran.err:find("\1", 1, true), ran.err)
+    assert(ran.err:find(" -", 1, true) ~= nil and not ran.err:find("\1", 1, true), ran.err)
     assert(ran.err:find(Array.at(words, #words), 1, true), ran.err)
   end
 end
