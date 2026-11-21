@@ -445,7 +445,7 @@ local CASES <const>: {Case} = {
     source = FIND .. "local function f(): integer\n  local s = find()\n  if s == nil then return 0 end\n  s = find()\n" ..
       "  return #s\nend\n",
     msg = "(a test showed it was not nil, and the assignment at 7:3 dropped that)",
-    fix = "test `s` again after the assignment at 7:3 (`if s == nil then return nil, why end`)",
+    fix = "test `s` again after the assignment at 7:3 (`if s == nil then error(\"s is missing\") end`)",
   },
   {
     code = "narrows_unproved", source = "local function is_text(v: any): v is string\n  return true\nend\n", at = { line = 2, column = 3 },
@@ -912,11 +912,50 @@ local function test_a_literal_that_leaves_out_an_optional_field_tells_it_from_a_
   local source = "local record R\n  name: string\n  note: string?\nend\nlocal r: R = { name = \"a\" }\n"
   local e = error_of(source, "literal_missing")
   assert(has(e.msg, "leaves out `note`"), e.msg)
-  assert(has(e.fix, "`note: T?` is a field that must be written, though it may hold nil"), e.fix)
-  assert(has(e.fix, "`note?: T` is a field that may be left out"), e.fix)
-  -- No field that may hold nil, nothing to tell apart.
-  local plain = error_of("local record R\n  name: string\nend\nlocal r: R = {}\n", "literal_missing")
+  assert(has(e.fix, "`note = nil` for a value that may be nil"), e.fix)
+  assert(has(e.fix, "`note: string?` is a field that must be written, though it may hold nil"), e.fix)
+  assert(has(e.fix, "`note?: string` is a field that may be left out"), e.fix)
+  -- No field that may hold nil, nothing to tell apart: the fix names the first field left out, with its own type.
+  local plain = error_of("local record R\n  count: integer\nend\nlocal r: R = {}\n", "literal_missing")
   assert(not has(plain.fix, "must be written"), plain.fix)
+  assert(has(plain.fix, "declare the field `count?: integer`"), plain.fix)
+end
+
+--- A fix that tests a value for nil writes the statement the place takes: a raise in the module's chunk and in a
+--- function whose results take no nil, `return nil, "..."` where it may answer that, and `return` where it answers nothing.
+local function test_a_nil_test_in_a_fix_fits_the_function_it_is_in()
+  local head = "local t: {string: string} = {}\n"
+  local top = error_of(head .. "local v = t[\"a\"]\nlocal n: string = v\nprint(n)\n", "nil_not_allowed")
+  assert(has(top.fix, "`if v == nil then error(\"v is missing\") end`"), top.fix)
+  local failing = error_of(head .. "local function f(): (string?, string?)\n  local v = t[\"a\"]\n  local n: string = v\n" ..
+    "  return n, nil\nend\nprint(f())\n", "nil_not_allowed")
+  assert(has(failing.fix, "`if v == nil then return nil, \"v is missing\" end`"), failing.fix)
+  local silent = error_of(head .. "local function f()\n  local v = t[\"a\"]\n  local n: string = v\n  print(n)\nend\nf()\n",
+    "nil_not_allowed")
+  assert(has(silent.fix, "`if v == nil then return end`"), silent.fix)
+  assert(not has(top.fix .. failing.fix .. silent.fix, "why"))
+end
+
+--- A generic function is shown with the names its author gave its type parameters, not with letters.
+local function test_a_generic_function_is_shown_with_its_own_type_parameter_names()
+  local source = "local function pick<Item, Key>(xs: {Item}, _k: Key): Item\n  return assert(xs[1])\nend\n" ..
+    "local f: function(integer): string = pick\nprint(f)\n"
+  local e = error_of(source, "not_assignable")
+  assert(has(e.msg, "`pick` is `function<Item, Key>({Item}, Key): Item`"), e.msg)
+  -- A function declared in a generic body keeps its names too, beside the binder's in scope.
+  local inner = "local function outer<Item>(x: Item): Item\n  local function pick<Key>(xs: {Key}): Key\n" ..
+    "    return assert(xs[1])\n  end\n  local f: function(integer): string = pick\n  print(f)\n  return x\nend\nprint(outer(1))\n"
+  local nested = error_of(inner, "not_assignable")
+  assert(has(nested.msg, "`function<Key>({Key}): Key`"), nested.msg)
+end
+
+--- Two uses of a declaration with related arguments (`integer` is below `number`) are told the arguments must be the same,
+--- not that `integer` is not below `number`.
+local function test_a_generic_use_with_a_related_argument_is_told_the_arguments_must_be_the_same()
+  local source = "local record Box<T>\n  v: T\nend\nlocal a: Box<integer> = { v = 1 }\nlocal b: Box<number> = a\n"
+  local e = error_of(source, "not_assignable")
+  assert(not has(e.msg, "is not below"), e.msg)
+  assert(has(e.msg, "`integer` and `number` are two types, and a declaration's type arguments must be the same"), e.msg)
 end
 
 local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()

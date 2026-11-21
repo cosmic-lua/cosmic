@@ -1572,8 +1572,8 @@ local function unknown_errors()
       msg = "the type " .. quoted(name) .. " is not declared"
       fix = hint .. "declare it above with `local record " .. name .. " ... end`, `local enum " .. name ..
         " ... end` or `local type " .. name .. " = ...`, or import it with `local type " .. name ..
-        " = require(\"...\")`; a program may use `any`, `boolean`, `integer`, `never`, `number`, `string` " ..
-        "and `thread` with no declaration"
+        " = require(\"...\")`; a program may use `any`, `boolean`, `integer`, `never`, `number` " ..
+        "and `string` with no declaration"
     elseif later ~= nil then
       msg = quoted(name) .. " is used before the " .. KIND_WORDS[later.kind] .. " " .. quoted(name) .. -- checked: nil_not_allowed
         " that is declared at " .. shown(later.declared)
