@@ -2,7 +2,8 @@
 
 `vectors.txt` holds QR codes drawn by two encoders that agree module for
 module: Project Nayuki's qrcodegen 1.8.0 and python-qrcode 8.2, both from
-PyPI. [`cosmic/qr_test.tl`] holds [`cosmic.qr`] to them. This wrote it, run
+PyPI. [`cosmic/qr_test.tl`] holds [`cosmic.qr`] to them, drawing and
+reading. This wrote it, run
 with both installed as `python3 generate.py > vectors.txt`:
 
 ```python
@@ -52,6 +53,54 @@ for text, level, mask, _ in cases:
         rows.append("%0*x" % (len(bits) // 4, int(bits, 2)))
     out.write("\ntext %s\nlevel %s\nmask %s\nversion %d\ndrawn %d\n" % (text.hex(), level,
               "auto" if mask is None else mask, code.get_version(), code.get_mask()))
+    out.write("\n".join(rows) + "\n")
+```
+
+`segments.txt` holds codes qrcodegen 1.8.0 drew in numeric,
+alphanumeric, mixed and ECI segments, which [`cosmic.qr`] reads but does
+not make; [`cosmic/qr_test.tl`] reads each back. This wrote it, run as
+`python3 segments.py > segments.txt`:
+
+```python
+# Writes testdata/qr/segments.txt: QR codes from Project Nayuki's qrcodegen in
+# numeric, alphanumeric, mixed and ECI segments, which cosmic.qr does not make.
+import sys
+from qrcodegen import QrCode, QrSegment
+
+LEVELS = {"L": QrCode.Ecc.LOW, "M": QrCode.Ecc.MEDIUM, "Q": QrCode.Ecc.QUARTILE, "H": QrCode.Ecc.HIGH}
+B, N, A = QrSegment.make_bytes, QrSegment.make_numeric, QrSegment.make_alphanumeric
+# Each case: its name, its segments as (kind, text), and the level.
+cases = [
+    ("numeric", [("N", "0123456789012345678901234567890")], "M"),
+    ("numeric, a pair left", [("N", "12345678")], "L"),
+    ("numeric, one left", [("N", "1234567")], "H"),
+    ("alphanumeric", [("A", "HELLO WORLD $%*+-./: 0123")], "Q"),
+    ("alphanumeric, one left", [("A", "ABC")], "M"),
+    ("mixed", [("A", "HTTPS://EXAMPLE.COM/"), ("B", "path?q="), ("N", "31415926535")], "M"),
+    ("eci utf-8", [("E", "26"), ("B", "snö ☃")], "L"),
+    ("numeric, version 10", [("N", "9" * 600)], "L"),
+    ("alphanumeric, version 32", [("A", "COSMIC QR " * 150)], "Q"),
+    ("numeric, version 30", [("N", "2718281828" * 400)], "L"),
+    ("alphanumeric, version 12", [("A", "QR CODE " * 50)], "M"),
+    ("eci in two bytes", [("E", "899"), ("B", "two-byte eci")], "M"),
+    ("eci in three bytes", [("E", "20000"), ("B", "three-byte eci")], "M"),
+]
+MAKE = {"N": N, "A": A, "B": lambda t: B(t.encode()), "E": lambda t: QrSegment.make_eci(int(t))}
+out = sys.stdout
+out.write("# QR codes from Project Nayuki's qrcodegen 1.8.0 (Python) in the segments named. A case: its\n")
+out.write("# name, the text it reads as in hex, the level, the version and mask drawn, and a row of hex per\n")
+out.write("# line of modules, the leftmost the high bit, padded with light to a whole digit.\n")
+for name, segs, level in cases:
+    code = QrCode.encode_segments([MAKE[k](t) for k, t in segs], LEVELS[level], 1, 40, -1, False)
+    text = "".join(t for k, t in segs if k != "E").encode()
+    n = code.get_size()
+    rows = []
+    for y in range(n):
+        bits = "".join("1" if code.get_module(x, y) else "0" for x in range(n))
+        bits += "0" * (-len(bits) % 4)
+        rows.append("%0*x" % (len(bits) // 4, int(bits, 2)))
+    out.write("\nname %s\ntext %s\nlevel %s\nversion %d\ndrawn %d\n" % (name, text.hex(), level,
+              code.get_version(), code.get_mask()))
     out.write("\n".join(rows) + "\n")
 ```
 

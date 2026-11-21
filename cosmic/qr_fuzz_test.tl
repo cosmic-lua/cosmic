@@ -3,7 +3,9 @@
 --- and never raises; a code is as large as its version says, carries its
 --- finders and the format information of its level and mask, and is the
 --- smallest version that holds the text, within the one allowed; and a refusal comes only for text past what that
---- version holds. `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
+--- version holds. A code reads back as itself, and a damaged one reads
+--- back where its error correction can mend it and never raises.
+--- `FUZZ_SEED` and `FUZZ_ITERS` pick the inputs
 --- (build/fuzz/init.tl).
 
 local Fixture = require("build.qr_fixture")
@@ -68,7 +70,82 @@ local function check(input: string): boolean, string
     return false, "format information"
   end
   if not Fixture.finders(code) then return false, "finder patterns" end
+  local read, read_why = Qr.decode(Qr.rows(code))
+  if read == nil then return false, "does not read back: " .. read_why end
+  if read.text ~= text or read.code.version ~= code.version or read.code.level ~= level or
+      read.code.mask ~= code.mask or read.corrected ~= 0 then
+    return false, "reads back as another code"
+  end
   return true, ""
+end
+
+--- The text, the level and the modules to flip (`x,y` pairs), packed: a
+--- code damaged in a few places, or in many.
+local function gen_damage(src: Fuzz.Source): string
+  local text = Fuzz.bytes(src, 48)
+  local flips: mut {string} = {}
+  local many = src:int(0, 3) == 0
+  for _ = 1, if many then src:int(4, 80) else src:int(0, 3) end do
+    flips[#flips + 1] = ("%d,%d"):format(src:int(0, 40), src:int(0, 40))
+  end
+  return Fuzz.pack({ Fuzz.pick(src, LEVELS), text, table.concat(flips, " ") })
+end
+
+--- Reading a damaged code never raises. Three flipped modules or fewer
+--- touch three codewords at most and three bits of each copy of the
+--- format information, which every level mends, so the text reads back.
+local function check_damage(input: string): boolean, string
+  local fields = Fuzz.unpack(input)
+  local level: Qr.Level = "M"
+  for _, l in ipairs(LEVELS) do
+    if l == fields[1] then level = l end
+  end
+  local text = fields[2] or ""
+  local code = Qr.encode(text, { level = level, mask = 0 })
+  if code == nil then return true, "" end
+  local flipped: mut {integer: boolean} = {}
+  local count = 0
+  for xs, ys in (fields[3] or ""):gmatch("(%d+),(%d+)") do
+    local x, y = assert(math.tointeger(xs)), assert(math.tointeger(ys))
+    if x < code.size and y < code.size and flipped[y * code.size + x] == nil then
+      flipped[y * code.size + x] = true
+      count = count + 1
+    end
+  end
+  local rows: mut {{boolean}} = {}
+  for y, row in ipairs(Qr.rows(code)) do
+    local copy: mut {boolean} = {}
+    for x, v in ipairs(row) do
+      local cx, cy = x - 5, y - 5
+      local inside = cx >= 0 and cy >= 0 and cx < code.size and cy < code.size
+      copy[#copy + 1] = v ~= (inside and flipped[cy * code.size + cx] == true)
+    end
+    rows[#rows + 1] = copy
+  end
+  local read: Qr.Decoded? = nil
+  local why = ""
+  local ok, raised = pcall(function() read, why = Qr.decode(rows) end)
+  if not ok then return false, "raised: " .. tostring(raised) end
+  if count > 3 then
+    Fuzz.label("many flips")
+    if read == nil and why == "" then return false, "refused without a reason" end
+    return true, ""
+  end
+  local got = read
+  if got == nil then return false, ("%d flips do not read back: %s"):format(count, why) end
+  if got.text ~= text then return false, ("%d flips read back as another text"):format(count) end
+  if count > 0 then Fuzz.label("mended") end
+  return true, ""
+end
+
+local function test_a_damaged_code_reads_back_or_is_refused(tmp: string)
+  Fuzz.run({
+    name = "qr decode",
+    dir = tmp,
+    gen = gen_damage,
+    check = check_damage,
+    requires = { "many flips", "mended" },
+  })
 end
 
 local function test_encode_is_total_and_keeps_to_its_options(tmp: string)
