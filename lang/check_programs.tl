@@ -200,8 +200,8 @@ do
     sort: function<A>(mut {A}, function(A, A): boolean)
   end
   global record math
-    max: function(integer, ...: integer): integer
-    max: function(number, ...: number): number
+    max: function<N is Numeric>(N, ...: N): N
+    min: function<N is Numeric>(N, ...: N): N
     tointeger: function(any): integer?
   end
   local record Lib

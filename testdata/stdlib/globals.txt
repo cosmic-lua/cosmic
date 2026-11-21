@@ -106,11 +106,9 @@ global math record
   field ldexp: function(number, integer): number
   field log: function(number, p2?: number): number
   field log10: function(number): number
-  field max: function(integer, ...: integer): integer
-  field max: function(number, ...: number): number
+  field max: function<T is Numeric>(T, ...: T): T
   field maxinteger: integer
-  field min: function(integer, ...: integer): integer
-  field min: function(number, ...: number): number
+  field min: function<T is Numeric>(T, ...: T): T
   field mininteger: integer
   field modf: function(number): integer, number
   field pi: number

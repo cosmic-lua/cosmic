@@ -263,14 +263,14 @@ local function test_a_type_is_told_from_the_other_forms_by_its_tag()
   same(describe(s:fn({ params = { { type = s.string } }, rets = { { items = { s.integer } } } })), "fn of 1")
 end
 
-local function test_only_the_ten_first_types_of_a_store_are_atoms()
+local function test_only_the_twelve_first_types_of_a_store_are_atoms()
   local w = world()
   local s = w.store
   local _ = named(w, "Node")
   local _ = s:array(s.string)
-  assert(#s.types > 10)
+  assert(#s.types > 12)
   for i, t in ipairs(s.types) do
-    assert((t.atom == true) == (i <= 10), "type " .. tostring(i) .. " " .. shown(t))
+    assert((t.atom == true) == (i <= 12), "type " .. tostring(i) .. " " .. shown(t))
   end
 end
 
@@ -738,7 +738,7 @@ local function test_a_path_the_store_and_the_loader_lack_is_an_unknown_declarati
   end)
   local got, reason = wrong:decode('(ref "m" "Gone")')
   assert(got == nil and reason:find("answers for m Gone", 1, true) ~= nil, reason)
-  assert(wrong:find("m", "Other") == nil and wrong:size() == 10, "a declaration of another path is not defined")
+  assert(wrong:find("m", "Other") == nil and wrong:size() == 12, "a declaration of another path is not defined")
 end
 
 local function test_declaration_text_that_is_not_one_is_refused()
@@ -821,7 +821,7 @@ local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused
   local t, why = s:decode('(ref "m" "R1")')
   assert(t == nil and why:find("types:", 1, true) == 1 and why:find("deeper", 1, true) ~= nil, why)
   assert(asked.count <= 1002, "the chain is not followed past the limit: " .. asked.count) -- checked: map_field*2
-  assert(#s:declarations() == 0 and s:size() == 10)
+  assert(#s:declarations() == 0 and s:size() == 12)
 end
 
 local function test_a_loader_that_raises_is_a_refusal_that_says_whose_it_is()
@@ -1218,4 +1218,17 @@ local function test_an_integer_enum_holds_its_member_names_collapses_into_intege
     local bad = s:declare("integer_enum", "m", { "Bad" }, 0)
     s:define(bad, { tparams = {}, supers = {}, fields = { { name = "f", type = s.integer } }, methods = {}, values = {} })
   end, "an enum holds values and nothing else"))
+end
+
+--- A function bounded by `Ordered` or `Numeric` is written with the atom as its bound and read back as the same type.
+local function test_a_builtin_bound_is_encoded_and_decoded()
+  local s = Types.new()
+  local names: {Types.Atom_tag} = { "Ordered", "Numeric" }
+  for _, name in ipairs(names) do
+    local made = s:fn({ tparams = { { bound = s:atom(name) } }, params = { { type = s:var(0, 0) } } })
+    local text = Types.encode(made)
+    assert(text:find("(tp " .. name .. ")", 1, true) ~= nil, text)
+    assert(s:decode(text) == made, text)
+    assert(Types.display(made) == "function<T is " .. name .. ">(T)", Types.display(made))
+  end
 end

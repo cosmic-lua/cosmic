@@ -109,6 +109,8 @@ local record Declarations
     "alias_cycle"
     -- a type parameter bounded by what is no interface
     "bound_not_interface"
+    -- `Ordered` or `Numeric`, a bound, written as the type of a value
+    "bound_as_type"
     -- two return lists that no position of `true` and `false` tells apart
     "lists_overlap"
     -- a type argument that does not list the interface its parameter is bounded by
@@ -367,7 +369,7 @@ end
 Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
-  "type_too_deep", "alias_cycle", "bound_not_interface", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
+  "type_too_deep", "alias_cycle", "bound_not_interface", "bound_as_type", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
   "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "optional_generic", "thread_type",
   "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
 }
@@ -459,8 +461,14 @@ Declarations.catalog = {
   {
     code = "bound_not_interface", rule = "a constraint is one interface",
     why = "a type parameter ranges over all types unless it has a bound, and a bound is one interface used with " ..
-      "no arguments, which the operations of the body are checked against",
-    fix = "bound <parameter> by an interface with no type parameters, or leave it unbounded",
+      "no arguments, or `Ordered` or `Numeric`, which the operations of the body are checked against",
+    fix = "bound <parameter> by an interface with no type parameters, by `Ordered` or `Numeric`, or leave it unbounded",
+  },
+  {
+    code = "bound_as_type", rule = "a constraint is one interface",
+    why = "`Ordered` and `Numeric` say which operators a type parameter's values take; a value of `Ordered` could be a " ..
+      "number or a string, and `<` of the two raises, so neither is the type of a value",
+    fix = "bound a type parameter by it (`<T is Ordered>`) and declare the value `T`",
   },
   {
     code = "lists_overlap", rule = "multiple returns are a matched call",
@@ -578,6 +586,7 @@ local MAX_ALIAS_NESTING <const> = 200
 
 local PRIMITIVES <const>: {string: Types.Atom_tag} = {
   integer = "integer", number = "number", string = "string", boolean = "boolean", any = "any", never = "never",
+  Ordered = "Ordered", Numeric = "Numeric",
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
@@ -1181,6 +1190,12 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
         "remove the type arguments: " .. quoted(head) .. " is a primitive type")
       return store.invalid
     end
+    if Types.builtin_bound(store:atom(primitive)) then
+      report_at(ctx, "bound_as_type", t, quoted(head) .. " is a bound of a type parameter, which no value has as its type",
+        "bound a type parameter by it (`<T is " .. head .. ">`) and declare the value `T`" ..
+          (if head == "Numeric" then ", or declare it `number`" else "" end))
+      return store.invalid
+    end
     return store:atom(primitive)
   end
   -- TODO: drop `thread` here and from the primitives of lang/scopes.tl once cosmic/errors.tl, cosmic/internal/errors.d.tl and
@@ -1228,9 +1243,18 @@ lower_bound = function(ctx: Ctx, p: Ast.TypeParam): Type?
   if constraint == nil then
     return nil
   end
-  local t = lower_name(ctx, constraint)
+  -- `Ordered` and `Numeric` are bounds only where written as the bound itself: through an alias they would be lowered
+  -- as a type, and refused there.
+  local head = constraint.path[1]
+  local primitive: Types.Atom_tag? = nil
+  if #constraint.path == 1 and #constraint.args == 0 and head ~= nil then
+    primitive = PRIMITIVES[head]
+  end
+  local t = if primitive ~= nil and Types.builtin_bound(ctx.store:atom(primitive)) then ctx.store:atom(primitive) else
+    lower_name(ctx, constraint) end
   ctx.types[constraint.id] = t
-  if (t.tag == "named") and t.decl.kind == "interface" and #t.args == 0 then
+  local interface = t.tag == "named" and t.decl.kind == "interface" and #t.args == 0
+  if Types.builtin_bound(t) or interface then
     return t
   end
   if t.tag ~= "invalid" then
@@ -2858,10 +2882,18 @@ local function check_use(ctx: Ctx, use: Use): boolean
           return false
         elseif not met then
           local shown = Types.display(argument, use.names)
-          report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
-              quoted(Types.display(bound, use.names)) .. ", and " .. quoted(shown) .. " does not list it",
-            "list the interface in the declaration of " .. quoted(shown) .. " (`is " .. Types.display(bound, use.names) ..
-              "`), or pass a type that does", { shown })
+          if Types.builtin_bound(bound) then
+            report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
+                quoted(bound.tag) .. ", and " .. quoted(shown) .. (if bound.tag == "Numeric" then " is not `integer` or " ..
+                    "`number`" else " is not a type whose values are all numbers or all strings" end),
+              if bound.tag == "Numeric" then "pass `integer` or `number`" else "pass a number type or a string type" end,
+              { shown })
+          else
+            report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
+                quoted(Types.display(bound, use.names)) .. ", and " .. quoted(shown) .. " does not list it",
+              "list the interface in the declaration of " .. quoted(shown) .. " (`is " .. Types.display(bound, use.names) ..
+                "`), or pass a type that does", { shown })
+          end
         end
       end
       local dense = must(program, req, i - 1, "dense", {})
