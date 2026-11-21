@@ -245,9 +245,9 @@ value loadfile: function(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {strin
 value loadfile: function(p1?: string, p2?: string, p3?: {string: any}): ((function(...: any): any...)?, string?)
 value loadfile: function<T>(p1?: string, p2?: StandardLibrary.LoadMode, p3?: {string: T}): ((function(...: any): any...)?, string?)
 value loadfile: function<T>(p1?: string, p2?: string, p3?: {string: T}): ((function(...: any): any...)?, string?)
-value next: function<T, U>({T: U}, p2?: T): T?, U?
+value next: function<T is Key, U>({T: U}, p2?: T): T?, U?
 value next: function<T>({T}, p2?: integer): integer?, T?
-value pairs: function<T, U>({T: U}): ((function({T: U}, p2?: T): T, U), {T: U}, T)
+value pairs: function<T is Key, U>({T: U}): ((function({T: U}, p2?: T): T, U), {T: U}, T)
 value pcall: function(function()): (true) | (false, any)
 value pcall: function<T>(function(): T): (true, T) | (false, any)
 value pcall: function<T, U>(function(): T, U): (true, T, U) | (false, any)
@@ -278,10 +278,10 @@ value pcall: function<T, U, V, W, X, Y, Z, A>((function(T, U, V, W, X, Y): Z, A)
 value pcall: function<T, U, V, W, X, Y, Z, A, B>((function(T, U, V, W, X, Y): Z, A, B), T, U, V, W, X, Y): (true, Z, A, B) | (false, any)
 value print: function(...: any)
 value rawequal: function(any, any): boolean
-value rawget: function<T, U>({T: U}, T): U?
+value rawget: function<T is Key, U>({T: U}, T): U?
 value rawget: function(any, any): any
 value rawlen: function<T>({T}): integer
-value rawset: function<T, U>(mut {T: U}, T, U): mut {T: U}
+value rawset: function<T is Key, U>(mut {T: U}, T, U): mut {T: U}
 value require: function(string): any
 value select: function<T>(integer, ...: T): T...
 value select: function(integer, ...: any): any...

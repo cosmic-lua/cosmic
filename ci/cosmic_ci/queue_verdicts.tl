@@ -36,13 +36,19 @@ end
 --- How long one lookup may take, in seconds.
 local LOOKUP_SECONDS <const> = 30
 
---- What a run on the list of runs, and an artifact on a run's list, are
---- read for.
+--- What a run on the list of runs, its repository, and an artifact on a
+--- run's list are read for.
 local record RunRow
   id?: any
   head_sha?: any
+  head_branch?: any
+  head_repository?: any
 end
 local RUN_ROW <const> = Shape.record_of("RunRow")
+local record RepositoryRow
+  full_name?: any
+end
+local REPOSITORY_ROW <const> = Shape.record_of("RepositoryRow")
 local record RunList
   workflow_runs?: {any}
 end
@@ -57,23 +63,46 @@ local record ArtifactList
 end
 local ARTIFACT_LIST <const> = Shape.record_of("ArtifactList")
 
---- The id of the newest merge-queue run of ci.yml for `sha` in
---- `repository`, nil and why where none is found.
-local function queue_run(host: Github.Host, repository: string, sha: string): integer?, string
+--- How many of the newest runs that tested a commit are asked for the
+--- artifact: a run the queue started again (its entry put back) holds a
+--- newer id.
+local TRIED <const> = 5
+
+--- Whether `item`, a run on the list, is a merge-queue run of `sha` in
+--- `repository` itself (its branch the queue's, `gh-readonly-queue/`),
+--- and its id.
+local function queue_run_of(item: any, repository: string, sha: string): integer?
+  local run, _ = RUN_ROW:into(item)
+  if run == nil or run.head_sha ~= sha then return nil end
+  local branch = run.head_branch
+  if not (branch is string) or branch:sub(1, #"gh-readonly-queue/") ~= "gh-readonly-queue/" then
+    return nil
+  end
+  local from, _ = REPOSITORY_ROW:into(run.head_repository)
+  if from == nil or from.full_name ~= repository then return nil end
+  local id = run.id
+  if id is integer then return id end
+  return nil
+end
+
+--- The ids of the merge-queue runs of ci.yml that tested `sha` in
+--- `repository`, newest first and at most TRIED; nil and why where the
+--- list cannot be read.
+local function queue_runs(host: Github.Host, repository: string, sha: string): {integer}?, string
   local path = "repos/" .. repository .. "/actions/workflows/ci.yml/runs?event=merge_group&head_sha=" ..
     sha .. "&per_page=20"
   local pages = Github.ask(host, path, false, LOOKUP_SECONDS)
   if pages == nil then return nil, "GitHub did not answer which merge-queue runs tested " .. sha end
   local listed, trouble = RUN_LIST:decode_into(pages[1] or "")
   if listed == nil then return nil, "the list of runs: " .. trouble end
-  local newest: integer? = nil
+  local ids: mut {integer} = {}
   for _, item in ipairs(listed.workflow_runs or {}) do
-    local run, _ = RUN_ROW:into(item)
-    local id = if run ~= nil and run.head_sha == sha then run.id else nil end
-    if id is integer and (newest == nil or id > newest) then newest = id end
+    local id = queue_run_of(item, repository, sha)
+    if id ~= nil then ids[#ids + 1] = id end
   end
-  if newest == nil then return nil, "no merge-queue run tested " .. sha end
-  return newest, ""
+  table.sort(ids, function(a: integer, b: integer): boolean return a > b end)
+  while #ids > TRIED do table.remove(ids) end
+  return ids, ""
 end
 
 --- Whether run `id` holds an artifact `name` that has not expired, and why
@@ -92,7 +121,7 @@ local function holds_artifact(host: Github.Host, repository: string, id: integer
       return true, ""
     end
   end
-  return false, "run " .. tostring(id) .. " uploaded no " .. name
+  return false, "run " .. tostring(id) .. " holds no " .. name .. " that has not expired"
 end
 
 --- `driver.tl queue-run`: writes `run=<id>` to $GITHUB_OUTPUT, the newest
@@ -107,15 +136,18 @@ function QueueVerdicts.find(env: {string:string}, host: Github.Host): integer
         "an artifact and a repository\n")
     return 2
   end
-  local id, why = queue_run(host, repository, sha)
-  if id ~= nil then
-    local held, absent = holds_artifact(host, repository, id, name)
-    if held then
-      host.output("run=" .. tostring(id))
-      host.print("merge-queue run " .. tostring(id) .. " tested " .. sha .. " and uploaded " .. name)
-      return 0
+  local ids, why = queue_runs(host, repository, sha)
+  if ids ~= nil then
+    why = "no merge-queue run of this repository tested " .. sha
+    for _, id in ipairs(ids) do
+      local held, absent = holds_artifact(host, repository, id, name)
+      if held then
+        host.output("run=" .. tostring(id))
+        host.print("merge-queue run " .. tostring(id) .. " tested " .. sha .. " and uploaded " .. name)
+        return 0
+      end
+      why = absent
     end
-    why = absent
   end
   Github.say(host, "no verdicts from the merge queue: " .. why .. "; the push runs what they would have answered")
   return 0
@@ -160,7 +192,13 @@ local function merged(into: string, from: string): integer?, string
           "AND name NOT IN (SELECT name FROM main.sqlite_schema) ORDER BY type = 'index', name")
       if made == nil then return nil, made_trouble end
       for _, row in ipairs(made) do
-        local ok, why = db:exec(row:text(2))
+        -- One statement that makes a table or an index, as SQLite keeps
+        -- it: a file whose schema holds more is no cache of ours.
+        local sql = row:text(2)
+        if sql:match("^CREATE TABLE ") == nil and sql:match("^CREATE INDEX ") == nil or sql:find(";", 1, true) ~= nil then
+          return nil, row:text(1) .. " is made by no single CREATE TABLE or CREATE INDEX"
+        end
+        local ok, why = db:exec(sql)
         if not ok then return nil, "making " .. row:text(1) .. ": " .. why end
       end
       local tables, tables_trouble = column(db, "SELECT name FROM queue.sqlite_schema " ..

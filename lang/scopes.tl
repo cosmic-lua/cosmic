@@ -240,14 +240,20 @@ local record Scopes
   --- The type names a program may use with no declaration.
   primitives: {string: boolean}
 
+  --- The primitives that are bounds of a type parameter, `Ordered`, `Numeric` and `Key`. A declaration may take one
+  --- of their names, and where it is in scope the name is the declaration's.
+  bounds: {string: boolean}
+
   --- Every [`Code`], in the order the enum lists them.
   codes: {Code}
 end
 
 Scopes.primitives = {
   any = true, boolean = true, integer = true, never = true, number = true, string = true, thread = true,
-  Ordered = true, Numeric = true,
+  Ordered = true, Numeric = true, Key = true,
 }
+
+Scopes.bounds = { Ordered = true, Numeric = true, Key = true }
 
 -- A function being walked.
 local record Frame
@@ -659,7 +665,7 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
     prior = stack[#stack - 1] -- checked: nil_not_allowed*2
   end
   local primitive = not is_global and TYPE_KINDS[kind] and Scopes.primitives[name] -- checked: or_mix
-  if primitive then
+  if primitive and Scopes.bounds[name] ~= true then
     report("primitive_type_name", token, quoted(name) .. " is a primitive type, so " .. with_article(KIND_WORDS[kind]) .. -- checked: index_may_be_nil
         " of that name could never be named",
       "rename the " .. KIND_WORDS[kind] .. ", for example to `" .. name:sub(1, 1):upper() .. name:sub(2) .. -- checked: nil_not_allowed
@@ -892,12 +898,16 @@ local function use_type(t: Ast.TypeName)
   if head == nil then
     return
   end
-  if #path == 1 and Scopes.primitives[head] == true then
+  local bound = #path == 1 and Scopes.bounds[head] == true
+  if #path == 1 and Scopes.primitives[head] == true and not bound then
     return
   end
   local v = lookup(head)
   if v ~= nil then
     type_use(t, v)
+    return
+  end
+  if bound then
     return
   end
   local declared = S.declared[head]

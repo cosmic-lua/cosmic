@@ -14,25 +14,37 @@ local function env(): mut {string:string}
   return { SHA = SHA, ARTIFACT = ARTIFACT, GITHUB_REPOSITORY = "o/r" }
 end
 
+--- A run on the list: of `sha`, on the queue's branch of o/r where
+--- `branch` and `repository` say nothing else.
+local function run(id: integer, sha: string, branch?: string, repository?: string): string
+  return '{"id":' .. tostring(id) .. ',"head_sha":"' .. sha .. '","head_branch":"' ..
+    (branch or "gh-readonly-queue/main/pr-1-" .. sha) .. '","head_repository":{"full_name":"' ..
+    (repository or "o/r") .. '"}}'
+end
+
 local function artifacts_of(id: integer): string
   return "repos/o/r/actions/runs/" .. tostring(id) .. "/artifacts?name=" .. ARTIFACT
 end
 
---- The newest run that tested the commit is named, where it uploaded the
---- verdicts; a run of another commit the API lists is not.
+--- The newest run that tested the commit and holds the verdicts is
+--- named: a newer one without them is passed over, and a run of another
+--- commit, of another branch than the queue's or of a fork is never named.
 local function test_the_newest_queue_run_of_the_commit_is_named()
   local fake = GithubFake.new(function(path: string, _nth: integer): string?
     if path == RUNS then
-      return '{"workflow_runs":[{"id":7,"head_sha":"' .. SHA .. '"},{"id":9,"head_sha":"' .. SHA ..
-        '"},{"id":12,"head_sha":"' .. OTHER .. '"}]}'
+      return '{"workflow_runs":[' .. table.concat({ run(7, SHA), run(9, SHA), run(10, SHA), run(12, OTHER),
+        run(13, SHA, "main"), run(14, SHA, nil, "fork/r") }, ",") .. ']}'
     end
-    if path == artifacts_of(9) then
+    if path == artifacts_of(10) then return '{"artifacts":[]}' end
+    if path == artifacts_of(9) or path == artifacts_of(7) then
       return '{"artifacts":[{"name":"' .. ARTIFACT .. '","expired":false}]}'
     end
     return nil
   end)
   assert(QueueVerdicts.find(env(), fake.host) == 0)
   assert(GithubFake.text(fake.outputs) == "run=9\n", GithubFake.text(fake.outputs))
+  assert(GithubFake.count(fake, "runs/12/") + GithubFake.count(fake, "runs/13/") + GithubFake.count(fake, "runs/14/") == 0,
+    table.concat(fake.calls, "\n"))
 end
 
 --- No run, a run with no artifact, an expired one and an API that fails
@@ -48,7 +60,7 @@ local function test_a_push_with_nothing_to_take_writes_nothing()
       if case == "failing" then return nil end
       if path == RUNS then
         if case == "no run" then return answers[case] end
-        return '{"workflow_runs":[{"id":3,"head_sha":"' .. SHA .. '"}]}'
+        return '{"workflow_runs":[' .. run(3, SHA) .. ']}'
       end
       return answers[case]
     end)
@@ -137,4 +149,24 @@ local function test_a_merge_that_cannot_be_made_leaves_the_cache(tmp: string)
   assert(said.code == 0 and said.err:find("left as restored", 1, true) ~= nil, said.out .. said.err)
   assert(rows(into .. "/verdicts.db") == "c=main")
   assert(QueueVerdicts.merge("queue", into).code == 2)
+end
+
+--- A file whose schema holds more than the statement that makes a table
+--- is refused (by SQLite, or by the merge where SQLite reads it), and
+--- nothing of it is taken.
+local function test_a_schema_of_more_than_a_table_is_refused(tmp: string)
+  local from, into = tmp .. "/queue", tmp .. "/verdicts"
+  assert(Fs.mkdirs(from))
+  assert(Fs.mkdirs(into))
+  local db = assert(Sqlite.open(from .. "/verdicts.db", { writable = true }))
+  assert(db:exec("CREATE TABLE declared_v1 (key TEXT PRIMARY KEY, origin TEXT NOT NULL); " ..
+      "INSERT INTO declared_v1 VALUES ('a', 'queue'); PRAGMA writable_schema = ON; " ..
+      "UPDATE sqlite_schema SET sql = sql || '; DROP TABLE kept' WHERE name = 'declared_v1'"))
+  assert(db:close())
+  db = assert(Sqlite.open(into .. "/verdicts.db", { writable = true }))
+  assert(db:exec("CREATE TABLE kept (key TEXT PRIMARY KEY)"))
+  assert(db:close())
+  local said = QueueVerdicts.merge(from, into)
+  assert(said.code == 0 and said.err:find("left as restored", 1, true) ~= nil, said.out .. said.err)
+  assert(rows(into .. "/verdicts.db", "SELECT name FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name") == "kept")
 end

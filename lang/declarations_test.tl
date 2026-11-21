@@ -660,8 +660,8 @@ local function test_a_key_is_an_integer_string_boolean_enum_or_a_declaration_nev
   -- the codes asserted above are seven errors
   assert(has(Array.at(bad, 2).msg, "not keyed by `any`") and has(Array.at(bad, 3).msg, "an optional") and
       has(Array.at(bad, 4).msg, "a collection") and has(Array.at(bad, 5).msg, "a function"), Array.at(bad, 2).msg)
-  local instance = only("local record Set<K>\n  keys: {K: boolean}\nend\nlocal s: Set<number>\n")
-  assert(instance.code == "float_key" and has(instance.msg, "`Set` keys a map by its type parameter 1"), instance.msg)
+  local instance = only("local record Set<K is Key>\n  keys: {K: boolean}\nend\nlocal s: Set<number>\n")
+  assert(instance.code == "float_key" and has(instance.msg, "`Set` bounds its type parameter 1 by `Key`"), instance.msg)
 end
 
 -- names and counts -----------------------------------------------------------------------------
@@ -737,9 +737,14 @@ local function test_a_bound_is_one_interface_used_with_no_arguments()
   assert(args.code == "type_arguments" and has(args.msg, "`G` takes 1 type argument, not 0"), args.msg)
 end
 
-local function test_a_type_parameter_of_the_code_around_a_use_is_not_held_to_a_bound_until_it_is_instantiated()
+local function test_a_type_parameter_of_the_code_around_a_use_meets_a_bound_through_its_own()
   local head = "local interface Named\n  name: string\nend\nlocal record Box<T is Named>\n  value: T\nend\n"
-  assert(#errors_of(head .. "local function f<U>(b: Box<U>)\nend\n") == 0)
+  assert(#errors_of(head .. "local function f<U is Named>(b: Box<U>)\nend\n") == 0)
+  local bare = only(head .. "local function f<U>(b: Box<U>)\nend\n")
+  assert(bare.code == "bound_not_met" and has(bare.msg, "`U` is a type parameter with no bound") and
+      bare.fix == "bound `U` by `Named` where it is declared (`<U is Named>`)", bare.msg)
+  local other = only(head .. "local function f<U is Ordered>(b: Box<U>)\nend\n")
+  assert(other.code == "bound_not_met" and has(other.msg, "bounded by `Ordered`, which is not below it"), other.msg)
   local unmet = only(head .. "local record Plain\n  title: string\nend\nlocal function f<U>(b: Box<Plain>, u: U)\nend\n")
   assert(unmet.code == "bound_not_met", unmet.code)
 end
