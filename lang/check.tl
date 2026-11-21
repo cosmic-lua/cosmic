@@ -360,6 +360,9 @@ local record Ctx
   --- The names of the type parameters of the binders in scope, outermost first, for display, and their bounds.
   binders: mut {{string}}
   bounds: mut {{Types.TParam}}
+  --- The names of the type parameters of the generic functions this module declares, by the id of each one's type, so
+  --- an error shows a function with its author's names (`function<Item>(Item): Item`), not letters.
+  fn_names: mut {integer: {string}}
   --- How many generic-call arguments are being checked: a literal there has no type to be checked against.
   mut lenient: integer
   --- Set while the arguments of a generic call are checked: a function there is held to the parameters of the type it is
@@ -502,8 +505,43 @@ local function quoted(s: string): string
   return "`" .. s .. "`"
 end
 
+--- How an error names what it shows: the type parameters by their authors' names, and the statement a nil test runs.
+local record Naming
+end
+
+--- The names the lowering of `module` kept for the type parameters of the generic functions it declares, by the id of
+--- each one's type: a copy, which the check adds the functions in bodies to.
+function Naming.declared(program: Declarations.Program, module: string): mut {integer: {string}}
+  local out: mut {integer: {string}} = {}
+  local info = program.modules[module]
+  local held = if info ~= nil then info.fn_names else nil end
+  if held ~= nil then
+    for id, names in pairs(held) do
+      out[id] = names
+    end
+  end
+  return out
+end
+
+--- Whether `names` can name a binder inside `binders`: each distinct, and none the name of a type parameter in scope.
+function Naming.free_of(binders: {{string}}, names: {string}): boolean
+  local seen: mut {string: boolean} = {}
+  for _, b in ipairs(binders) do
+    for _, n in ipairs(b) do
+      seen[n] = true
+    end
+  end
+  for _, n in ipairs(names) do
+    if n == "" or seen[n] == true then
+      return false
+    end
+    seen[n] = true
+  end
+  return true
+end
+
 local function show(ctx: Ctx, t: Type): string
-  return Types.display(t, ctx.binders)
+  return Types.display(t, ctx.binders, ctx.fn_names)
 end
 
 local function tq(ctx: Ctx, t: Type): string
@@ -578,6 +616,34 @@ local function dropped_by(ctx: Ctx, node: Ast.Node): Scopes.Place?
   return nil
 end
 
+--- The statement a fix puts in `if <name> == nil then ... end`, written for the place it is in: a function that may
+--- answer `nil, string` returns that, one that may answer nothing or nil returns, and the module's own chunk or a function
+--- whose results take no nil raises.
+function Naming.on_nil(ctx: Ctx, name: string): string
+  local missing = string.format("%q", name .. " is missing")
+  local frame = ctx.frames[#ctx.frames]
+  if frame ~= nil and not frame.chunk then
+    local plain: string? = nil
+    for _, alt in ipairs(frame.alts) do
+      local first = alt.items[1]
+      if #alt.items == 0 and alt.tail == nil then
+        plain = plain or "return"
+      elseif first ~= nil and ctx.judge:subtype(ctx.nil_type, first) then
+        local second = alt.items[2]
+        if #alt.items == 2 and second ~= nil and ctx.judge:subtype(ctx.store:atom("string"), second) then
+          return "return nil, " .. missing
+        elseif #alt.items == 1 then
+          plain = plain or "return nil"
+        end
+      end
+    end
+    if plain ~= nil then
+      return plain
+    end
+  end
+  return "error(" .. missing .. ")"
+end
+
 --- Reports `code` on the tokens of `node`. A value that may be nil because an assignment dropped what a test had
 --- shown is told that (`narrowing_dropped`), with the assignment as the second place.
 local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: string, shown?: {string},
@@ -600,7 +666,7 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
     local name = text_of(ctx, node)
     msg = msg .. " (a test showed it was not nil, and the assignment at " .. at .. " dropped that)"
     fix = "test " .. quoted(name) .. " again after the assignment at " .. at .. " (`if " .. name ..
-      " == nil then return nil, why end`), or read the value into a new local that nothing assigns (`local v = " ..
+      " == nil then " .. Naming.on_nil(ctx, name) .. " end`), or read the value into a new local that nothing assigns (`local v = " ..
       name .. "`) and test that"
   end
   table.insert(ctx.errors, {
@@ -982,10 +1048,10 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
     local call = subject(ctx, e)
     if flag then
       return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
-        "it first (`if v == nil then return nil, why end`); " .. call .. " answers nil when it fails"
+        "it first (`if v == nil then " .. Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
     end
     return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
-      "return nil, why end`); " .. call .. " answers nil when it fails"
+      Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
   end
   if e.kind == "Index" then
     return index_fix(ctx, e, t)
@@ -995,7 +1061,7 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
       (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
   end
-  return "test it first (`if " .. s .. " == nil then return nil, why end`), or " ..
+  return "test it first (`if " .. s .. " == nil then " .. Naming.on_nil(ctx, s) .. " end`), or " ..
     (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
 end
 
@@ -1065,13 +1131,13 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   elseif code == "view_as_mut" then
     -- A view where a `mut` collection of a parameter that nothing else solved is wanted taints it: the collection
     -- wanted is the view, made `mut`.
-    local super = Types.display(r.super, ctx.binders)
+    local super = Types.display(r.super, ctx.binders, ctx.fn_names)
     local made = w
     if names_invalid(r.super) and g:sub(1, 1) == "{" then
       made = "mut " .. g
       super = made
     end
-    local held = Types.display(r.sub, ctx.binders)
+    local held = Types.display(r.sub, ctx.binders, ctx.fn_names)
     local fix = "declare " .. s .. " `" .. made .. "` where it is made or received, or pass a collection made `mut`"
     -- An argument's receiver is a parameter, which may be `mut` by mistake: one typed as the view takes both.
     local callee = where:match("^ as argument %d+ of (`.+`)$")
@@ -1081,8 +1147,8 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
     report(ctx, "view_as_mut", node, s .. " is " .. quoted(g) .. ", where " .. quoted(w) .. " is wanted" .. where ..
         ": the view " .. quoted(held) .. " is not " .. quoted(super) .. ", which the receiver may change", fix, shown)
   elseif code == "invariant_mut" or code == "invariant_key" then
-    report(ctx, "invariant_mut", node, quoted(Types.display(r.sub, ctx.binders)) .. " is not " ..
-        quoted(Types.display(r.super, ctx.binders)) .. " (" .. s .. " is " .. quoted(g) .. ", where " .. quoted(w) ..
+    report(ctx, "invariant_mut", node, quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " is not " ..
+        quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) .. " (" .. s .. " is " .. quoted(g) .. ", where " .. quoted(w) ..
         " is wanted" .. where .. "): a receiver could store another element type through a `mut` collection",
       "pass a view, or declare the receiver's type " .. quoted(g) .. " as the argument has it", shown)
   elseif code == "declaration_value" then
@@ -1144,9 +1210,14 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
     end
   else
     local leaf = ""
-    if r.sub ~= got or r.super ~= want then
-      leaf = " (" .. quoted(Types.display(r.sub, ctx.binders)) .. " is not below " ..
-        quoted(Types.display(r.super, ctx.binders)) .. ")"
+    if code == "invariant_generic" then
+      -- The arguments may well be related (`integer` is below `number`): the uses differ because a declaration's
+      -- arguments must be the same types.
+      leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " and " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
+        " are two types, and a declaration's type arguments must be the same: " .. quoted(g) .. " is no " .. quoted(w) .. ")"
+    elseif r.sub ~= got or r.super ~= want then
+      leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " is not below " ..
+        quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) .. ")"
     end
     local fix = "pass a value of type " .. quoted(w) .. ", or change the declaration to " .. quoted(g)
     local held = where:match("^ in the assignment to `([%a_][%w_]*)`$")
@@ -1187,8 +1258,8 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
           " where it is declared, or declare what takes it `number` (`local " .. target.text .. ": number = " .. start .. "`)"
       end
     elseif code == "not_listed" then
-      fix = "list the interface in the declaration of " .. quoted(Types.display(r.sub, ctx.binders)) .. " with `is " ..
-        Types.display(r.super, ctx.binders) .. "`: a type conforms to an interface only by listing it"
+      fix = "list the interface in the declaration of " .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " with `is " ..
+        Types.display(r.super, ctx.binders, ctx.fn_names) .. "`: a type conforms to an interface only by listing it"
     elseif code == "may_return" then
       fix = "declare the function `: never` and end it with `error`, or pass a function that returns"
     end
@@ -1930,23 +2001,29 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     end
   end
   local missing: mut {string} = {}
-  local optional_field: string? = nil
+  local first_missing: Types.Field? = nil
+  local optional_field: Types.Field? = nil
   for _, f in ipairs(body.fields) do
     if (is_class or f.omittable ~= true) and given[f.name] ~= true and not copied then
       missing[#missing + 1] = quoted(f.name)
+      if first_missing == nil then first_missing = f end
       if optional_field == nil and nilable(f.type) then
-        optional_field = f.name
+        optional_field = f
       end
     end
   end
-  if #missing > 0 and shaped then
+  if #missing > 0 and shaped and first_missing ~= nil then
+    -- The fix shows the forms on a field the literal leaves out, by its own name and type.
+    local example = optional_field or first_missing
+    local plain = show(ctx, ctx.store:non_nil(put_in(ctx, n, example.type)))
     report(ctx, "literal_missing", e, "this literal of " .. owner .. " leaves out " .. listed(missing, "and"),
       if is_class then "add " .. listed(missing, "and") .. " to the literal: a class literal names every field, a field " ..
-          "not yet known as its empty value (`fd = -1`) and a `?` field as `name = nil`" else
-        "add " .. listed(missing, "and") .. " to the literal (`name = nil` for a value that may be nil), or declare " ..
-          (if #missing == 1 then "the field" else "them" end) .. " `name?: T`" ..
-          (if optional_field ~= nil then ": `" .. optional_field .. ": T?` is a field that must be written, though it may " ..
-              "hold nil; `" .. optional_field .. "?: T` is a field that may be left out" else "" end) end)
+          "not yet known as its empty value (`fd = -1`) and a `?` field as `" .. example.name .. " = nil`" else
+        "add " .. listed(missing, "and") .. " to the literal (`" .. example.name .. " = nil` for a value that may be nil), " ..
+          "or declare " .. (if #missing == 1 then "the field" else "them" end) .. " `" .. example.name .. "?: " .. plain .. "`" ..
+          (if optional_field ~= nil then ": `" .. optional_field.name .. ": " .. plain .. "?` is a field that must be " ..
+              "written, though it may hold nil; `" .. optional_field.name .. "?: " .. plain .. "` is a field that may be left out"
+            else "" end) end)
   end
   return n
 end
@@ -4655,6 +4732,7 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   local f: Fn? = (ft.tag == "fn") and ft or nil -- checked: and_ternary
   local generic = f ~= nil and #f.tparams > 0
   if generic and f ~= nil then
+    ctx.fn_names[f.id] = Types.kept_names(ctx.fn_names[f.id], names)
     ctx.judge:enter(f.tparams)
     ctx.binders[#ctx.binders + 1] = names
     ctx.bounds[#ctx.bounds + 1] = f.tparams
@@ -4965,13 +5043,13 @@ local function arity_error(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, off:
     report(ctx, "arity", node, callee .. " takes " .. plural(np, "argument") .. ", but " .. tostring(n) .. " " ..
         (if n == 1 then "is" else "are" end) .. " given",
       "remove the extra " .. (if n - np == 1 then "argument" else "arguments" end) .. ", or declare the parameter in the function " ..
-        "type", { Types.display(f, ctx.binders) })
+        "type", { Types.display(f, ctx.binders, ctx.fn_names) })
   else
     local missing = f.params[n + off + 1]
     report(ctx, "arity", node, callee .. " takes " .. (if required < np then tostring(required) .. " to " .. plural(np, "argument") else
       plural(required, "argument") end) .. ", but " .. tostring(n) .. " " .. (if n == 1 then "is" else "are" end) .. " given",
       "pass the missing argument " .. tostring((n + 1)) .. (if missing ~= nil then ", " .. tq(ctx, missing.type) else "" end) ..
-        ", or declare the parameter `name?: T`", { Types.display(f, ctx.binders) })
+        ", or declare the parameter `name?: T`", { Types.display(f, ctx.binders, ctx.fn_names) })
   end
 end
 
@@ -5136,20 +5214,35 @@ end
 
 --- `t`, a type written in the generic function `declared` (a parameter of it), as a program writes it: the type
 --- parameters of the function have their letters.
+--- The name of the type parameter at `index` (from 1) of the callee `declared`, as its author wrote it where that name
+--- is free, or its letter.
+function Calls.parameter_name(ctx: Ctx, declared: Fn, index: integer): string
+  local own = ctx.fn_names[declared.id]
+  if own ~= nil and #own == #declared.tparams and Naming.free_of(ctx.binders, own) then
+    return assert(own[index])
+  end
+  return Types.letter(index - 1)
+end
+
 function Calls.shown(ctx: Ctx, declared: Fn, t: Type): string
   if #declared.tparams == 0 then
     return show(ctx, t)
   end
-  local names: mut {string} = {}
+  local letters: mut {string} = {}
   for i = 1, #declared.tparams do
-    names[i] = Types.letter(i - 1)
+    letters[i] = Types.letter(i - 1)
   end
   local binders: mut {{string}} = {}
   for i, b in ipairs(ctx.binders) do
     binders[i] = b
   end
+  local names: {string} = letters
+  local own = ctx.fn_names[declared.id]
+  if own ~= nil and #own == #declared.tparams and Naming.free_of(binders, own) then
+    names = own
+  end
   binders[#binders + 1] = names
-  return Types.display(t, binders)
+  return Types.display(t, binders, ctx.fn_names)
 end
 
 function Calls.note_plain(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
@@ -5266,7 +5359,7 @@ end
 
 --- The Teal the overloads are written in, for `overload_none`.
 local function overload_line(ctx: Ctx, f: Type, why: string): string
-  return Types.display(f, ctx.binders) .. (if why ~= "" then ": " .. why else "" end)
+  return Types.display(f, ctx.binders, ctx.fn_names) .. (if why ~= "" then ": " .. why else "" end)
 end
 
 -- Generic calls ----------------------------------------------------------------------------------
@@ -5487,7 +5580,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     problems[#problems + 1] = failure
   end
   for _, k in ipairs(solver.conflicts) do
-    local letter = quoted(Types.letter(k.index - 1))
+    local letter = quoted(Calls.parameter_name(ctx, c, k.index))
     local same = k.first_at == k.second_at
     local msg = letter .. " of " .. name .. " is " .. tq(ctx, k.first) .. " from " .. Calls.source(k.first_at) .. " and " ..
       tq(ctx, k.second) .. " from " .. (if same then "another type in it" else Calls.source(k.second_at) end) .. ", which " ..
@@ -5505,14 +5598,14 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     end
   end
   for _, i in ipairs(unbound) do
-    local letter = quoted(Types.letter(i - 1))
+    local letter = quoted(Calls.parameter_name(ctx, c, i))
     local msg = name .. " is generic, and nothing fixes its type parameter " .. letter .. ": no argument has it, and the " ..
       "call is not expected to answer it"
     problems[#problems + 1] = msg
     if loud then
       report(ctx, "cannot_infer", node, msg,
         "type the result, so the call is expected to have the type (`local v: T = " .. callee .. "(...)`), or pass an " ..
-          "argument that has it", { Types.display(c, ctx.binders) })
+          "argument that has it", { Types.display(c, ctx.binders, ctx.fn_names) })
     end
   end
   for i, tp in ipairs(c.tparams) do
@@ -5599,7 +5692,7 @@ function Calls.holes(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, solved: In
       table.concat(letters, ", ") .. " get no type from the arguments: a parameter that is a union of shapes with " ..
       "a type parameter in each (`{T} | {U}`) says no more of an argument than that it is one of them",
     "give the parameter one shape, or one type parameter for the whole union (`x: T`)",
-    { Types.display(c, ctx.binders) })
+    { Types.display(c, ctx.binders, ctx.fn_names) })
 end
 
 function Calls.mentions_invalid(t: Type): boolean
@@ -8928,7 +9021,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = { -- checked: literal_missing
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, lenient = 0, no_drop = false, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
+    bounds = {}, fn_names = Naming.declared(program, input.module), lenient = 0, no_drop = false, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
     load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
