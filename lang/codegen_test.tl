@@ -1979,3 +1979,69 @@ local function test_the_check_calls_the_hook_with_the_values_and_the_function_ru
   assert(seen == "2 p;t.tl:1;f;a=integer;b=string 7 5", tostring(seen))
   assert(assert(load(with .. "\nreturn f(7, 's')", "=t", "t", {}))() == 7)
 end
+
+local function test_an_integer_enum_read_as_a_value_is_the_table_of_its_members()
+  emits(program(
+    "local enum State: integer",
+    "  OFF = 0",
+    "  ON = 1",
+    "  LOST = -0x2",
+    "end",
+    "local enum Unread: integer",
+    "  A = 0",
+    "end",
+    "local record M",
+    "  enum Code: integer",
+    "    OK = 200",
+    "  end",
+    "  record Inner",
+    "    enum Deep: integer",
+    "      X = 7",
+    "    end",
+    "  end",
+    "end",
+    "local u: Unread = 0",
+    "return { State.ON, State.LOST, M.Code.OK, u }"), [[
+local State = (function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; t.name = function(v) return names[v] end; return t end)({ OFF = 0, ON = 1, LOST = -2 }, { [0] = "OFF", [1] = "ON", [-2] = "LOST" })
+
+
+
+
+
+
+
+local M = { Code = (function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; t.name = function(v) return names[v] end; return t end)({ OK = 200 }, { [200] = "OK" }), Inner = { Deep = (function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; t.name = function(v) return names[v] end; return t end)({ X = 7 }, { [7] = "X" }) } }
+
+
+
+
+
+
+
+
+
+local u = 0
+return { State.ON, State.LOST, M.Code.OK, u }]])
+end
+
+local function test_the_least_integer_is_written_so_that_it_reads_back_an_integer()
+  local least, kind, found, name = run(program(
+    "local enum Edge: integer",
+    "  LEAST = -0x8000000000000000",
+    "end",
+    "return Edge.LEAST, math.type(Edge.LEAST), Edge.of(math.mininteger), Edge.name(Edge.LEAST)"))
+  assert(least == math.mininteger and kind == "integer" and found == math.mininteger and name == "LEAST",
+    tostring(least) .. " " .. tostring(kind) .. " " .. tostring(found) .. " " .. tostring(name))
+end
+
+local function test_the_table_of_an_integer_enum_answers_the_member_an_integer_is_and_a_members_name()
+  -- `1.0` reaches `of` only from untyped code; it answers the member's own integer.
+  local known, unknown, name, kind = run(program(
+    "local enum State: integer",
+    "  OFF = 0",
+    "  ON = 1",
+    "end",
+    "return State.of(1), State.of(7), State.name(State.ON), math.type(State.of(1.0))"))
+  assert(known == 1 and unknown == nil and name == "ON" and kind == "integer",
+    tostring(known) .. " " .. tostring(unknown) .. " " .. tostring(name) .. " " .. tostring(kind))
+end

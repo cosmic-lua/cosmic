@@ -378,6 +378,8 @@ local function members_of(program: Declarations.Program, decl: Types.Decl, value
     if decl.kind == "enum" then
       for _, name in ipairs(body.values) do add(name, nil, false) end
     end
+    -- TODO: complete an integer enum's members and its `of` and `name` after `E.`; today a `decl.kind ==
+    -- "integer_enum"` table offers nothing here.
   else
     if decl.kind == "interface" then
       for _, field in ipairs(Declarations.inherited(program.store, program.judge, decl)) do

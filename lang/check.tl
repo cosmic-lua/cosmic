@@ -604,6 +604,11 @@ local function is_enum(t: Type): boolean
   return (t.tag == "named") and t.decl.kind == "enum"
 end
 
+--- Whether `t` is a value of an integer enum, an `integer` to every operator; the enum's table is not one.
+local function is_integer_enum(t: Type): boolean
+  return (t.tag == "named") and t.decl.kind == "integer_enum" and not t.value
+end
+
 --- `t` as a reader of the collection it is through sees it: a `mut` collection in it is a view, through arrays,
 --- maps and unions and not through a named type.
 local function view(store: Store, t: Type): Type
@@ -820,6 +825,20 @@ local function members_index(ctx: Ctx, decl: Decl, value: boolean): Members?
       index.by_name[f.name] = { { type = f.type, mut = f.mut == true, method = false } }
     end
   end
+  if value and decl.kind == "integer_enum" then
+    -- The table of an integer enum holds its members, each a value of the enum, and two functions: `of` answers the
+    -- member an integer is, or nil, and `name` the name of a member. No member takes either name
+    -- ([`lang.declarations`]).
+    local store = ctx.store
+    local member = store:named(decl, {}, false)
+    for _, v in ipairs(body.values) do
+      index.by_name[v] = { { type = member, mut = false, method = false } }
+    end
+    local of = store:fn({ params = { { type = store.integer } }, rets = { { items = { store:optional(member) } } } })
+    local name = store:fn({ params = { { type = member } }, rets = { { items = { store.string } } } })
+    index.by_name["of"] = { { type = of, mut = false, method = false } }
+    index.by_name["name"] = { { type = name, mut = false, method = false } }
+  end
   if value then
     for name, f in pairs(ctx.program.statics[decl] or {}) do
       local list = index.by_name[name] or {}
@@ -880,7 +899,8 @@ end
 
 --- What a program writes for a declaration kind.
 local KIND_WORDS <const>: {Types.DeclKind: string} = {
-  record = "record", class = "class", interface = "interface", enum = "enum", userdata = "userdata record",
+  record = "record", class = "class", interface = "interface", enum = "enum", integer_enum = "integer enum",
+  userdata = "userdata record",
 }
 
 --- Whether a value of the optional type `t` may be a boolean where it is not nil: `false` is then a value of it, which a
@@ -1052,7 +1072,11 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
     if decl ~= nil then
       name, kind = decl.name, decl.kind
     end
-    if kind ~= "class" then
+    if kind == "integer_enum" and (from.tag == "named") and from.value then
+      report(ctx, "declaration_value", node, s .. " is " .. quoted(g) .. ", the table of the members of the integer enum " ..
+          quoted(name) .. ", where " .. quoted(w) .. " is wanted" .. where,
+        "pass a member (" .. quoted(name .. ".NAME") .. "), not the table", shown)
+    elseif kind ~= "class" then
       -- A module is a record used as a value, and the places that hold one (a field `Seatbelt: Seatbelt`, an array
       -- `{Child}`, `local raw: hash = require(...)`) are typed with the record, whose values are not the module.
       -- The fix is the statement that requires it where it is used, unless the declaration is this module's own or
@@ -1343,7 +1367,7 @@ local function name_value(ctx: Ctx, node: Ast.Name): Type
     return ctx.invalid
   end
   local made = ctx.invalid
-  if v.kind == "record" or v.kind == "class" then
+  if v.kind == "record" or v.kind == "class" or v.kind == "integer_enum" then
     local entry = ctx.lowered.entries[id]
     local decl = entry ~= nil and entry.decl or nil -- checked: and_ternary
     if decl ~= nil then
@@ -2268,10 +2292,51 @@ end
 
 -- Fields and indexes -------------------------------------------------------------------------
 
+--- The integer enum declared as `name` inside `decl`, a record or class with no type parameters, whose table holds the
+--- enum's table under that name ([`lang.codegen`]'s `record_table`); nil where it declares none. A declaration of
+--- another module is asked of the store's loader.
+local function nested_integer_enum(ctx: Ctx, decl: Decl, name: string): Decl?
+  -- TODO: read an integer enum nested in a nested record (`M.Inner.E`), once a nested record is a value: the code
+  -- generator writes its table, and no read reaches it today.
+  --
+  -- TODO: read an integer enum nested in a generic record or class, once the code generator writes the nested tables of
+  -- one: its table is `{}` today, so the read is refused as a field the record does not declare.
+  if (decl.kind ~= "record" and decl.kind ~= "class") or (decl.arity or 0) ~= 0 then
+    return nil
+  end
+  local store = ctx.store
+  local path = decl.name .. "." .. name
+  local found = store:find(decl.module, path)
+  local loader = store.loader
+  if found == nil and loader ~= nil then
+    local text = loader(decl.module, path)
+    if text ~= nil then
+      -- A text the store refuses declares nothing it can read, as a missing one does.
+      local made, _refused = store:decode_declaration(text)
+      found = made
+    end
+  end
+  if found ~= nil and found.kind == "integer_enum" then
+    return found
+  end
+  return nil
+end
+
 --- The members called `name` of `t`, each with the type arguments put in.
 local function member_types(ctx: Ctx, t: Named, name: string): {Member}?
   local index = members_index(ctx, t.decl, t.value)
-  return index ~= nil and index.by_name[name] or nil -- checked: and_ternary
+  if index == nil then
+    return nil
+  end
+  local held = index.by_name[name]
+  if held == nil and t.value then
+    local nested = nested_integer_enum(ctx, t.decl, name)
+    if nested ~= nil then
+      held = { { type = declaration_value(ctx, nested), mut = false, method = false } }
+      index.by_name[name] = held
+    end
+  end
+  return held
 end
 
 local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
@@ -2315,6 +2380,13 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     return
   end
   local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t) -- checked: and_ternary
+  if (t.tag == "named") and t.decl.kind == "integer_enum" and not t.value then
+    report(ctx, "field_unknown", node, owner .. " is an integer enum, whose values are integers and have no fields: " ..
+        quoted(name) .. " is not one",
+      "compare the value with `==` to a member (`" .. t.decl.name .. ".NAME`), or pass it where an `integer` is wanted",
+      { show(ctx, t) })
+    return
+  end
   if is_enum(t) then
     -- A method call on an enum is served by `string` and never gets here: this reads a field, or a function as a value.
     report(ctx, "field_unknown", node, owner .. " is an enum, whose values have no fields: " .. quoted(name) .. " is not one",
@@ -2327,6 +2399,9 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
   end
   local close = nearest(name, names)
   local declare = "declare " .. quoted(name) .. " in " .. owner
+  if (t.tag == "named") and t.value and t.decl.kind == "integer_enum" then
+    declare = "add the member `" .. name .. " = n` to " .. owner
+  end
   if (t.tag == "named") and t.decl.module:sub(1, 7) == "cosmic." and ctx.input.module:sub(1, 7) ~= "cosmic." then
     -- A record of cosmic's own modules is the binary's to a program, which cannot declare a field in it.
     declare = "`cosmic docs " .. t.decl.module .. "` lists what " .. owner .. " has"
@@ -2707,7 +2782,7 @@ end
 --- `invalid`).
 function Operands.arithmetic_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): integer
   local tag = t.tag
-  if tag == "integer" or tag == "never" then
+  if tag == "integer" or tag == "never" or is_integer_enum(t) then
     return 1
   elseif tag == "number" then
     return 2
@@ -2728,7 +2803,7 @@ end
 
 --- Whether `t` is an `integer`, as the operand of a bit operator; reports it where not.
 function Operands.integer_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): boolean
-  if t.tag == "integer" or t.tag == "never" then
+  if t.tag == "integer" or t.tag == "never" or is_integer_enum(t) then
     return true
   elseif t.tag == "invalid" then
     return false
@@ -2759,7 +2834,7 @@ function Operands.string_operand(ctx: Ctx, node: Ast.Node, t: Type): boolean
   if t.tag == "invalid" then
     return false
   end
-  if t.tag == "integer" or t.tag == "number" or is_bool(t) then
+  if t.tag == "integer" or t.tag == "number" or is_integer_enum(t) or is_bool(t) then
     report(ctx, "concat_type", node, subject(ctx, node) .. " is " .. tq(ctx, t) .. ", and `..` takes strings",
       "write `tostring(" .. text_of(ctx, node) .. ")` or `string.format(\"%d\", " .. text_of(ctx, node) .. ")`",
       { show(ctx, t) })
@@ -3160,6 +3235,8 @@ function Tests.lua_kind(t: Type): string
     local kind = t.decl.kind
     if kind == "enum" then
       return "string"
+    elseif kind == "integer_enum" and not t.value then
+      return "number"
     elseif kind == "userdata" then
       return "userdata"
     end
@@ -3614,7 +3691,7 @@ function Tests.plain(ctx: Ctx, t: Type): boolean
           waiting[#waiting + 1] = m.key
           waiting[#waiting + 1] = m.value
         elseif (m.tag == "named") then
-          if m.decl.kind ~= "enum" or m.value then
+          if (m.decl.kind ~= "enum" and m.decl.kind ~= "integer_enum") or m.value then
             return false
           end
         elseif not m.atom or m.tag == "any" or m.tag == "invalid" then
@@ -3976,7 +4053,7 @@ end
 function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   local l, r = left, right
   local function number(t: Type): boolean
-    return t.tag == "integer" or t.tag == "number"
+    return t.tag == "integer" or t.tag == "number" or is_integer_enum(t)
   end
   if l.tag == "invalid" or r.tag == "invalid" or l.tag == "never" or r.tag == "never" then
     return
@@ -4194,7 +4271,7 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   local before = #ctx.errors
   if (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
     local word = KIND_WORDS[tested.decl.kind] or "type"
-    refuse((if word == "interface" then "an " else "a " end) .. word .. " leaves nothing to test")
+    refuse((if word:sub(1, 1) == "i" then "an " else "a " end) .. word .. " leaves nothing to test")
   elseif (tested.tag == "named") and tested.decl.kind == "class" and TableLiterals.out_of_reach(ctx, tested.decl) ~= "" then
     report(ctx, "class_scope", node, "`is " .. show(ctx, tested) .. "` tests the metatable of " ..
         TableLiterals.out_of_reach(ctx, tested.decl),
@@ -8318,7 +8395,14 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
     text = text .. "." .. s.path[i].text -- checked: nil_not_allowed
   end
   local ft = function_type(ctx, s.fn, nil, quoted(text))
-  if owner.tag ~= "invalid" then
+  if (owner.tag == "named") and owner.value and owner.decl.kind == "integer_enum" then
+    -- The table of an integer enum is made whole where it is declared: a statement would replace `of` or `name` at run
+    -- time with a function the checker does not read as theirs.
+    report(ctx, "field_fixed", s, quoted(text) .. " defines a function in the table of the integer enum " ..
+        quoted(owner.decl.name) .. ", which holds its members, `of` and `name` and nothing more",
+      "declare the function beside the enum (`local function ...`), and call " .. quoted(owner.decl.name .. ".of") ..
+        " or " .. quoted(owner.decl.name .. ".name") .. " in it", { show(ctx, owner) })
+  elseif owner.tag ~= "invalid" then
     local field_type: Type = owner
     for i = 2, #s.path do
       local part = s.path[i]

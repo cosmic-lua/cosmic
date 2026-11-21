@@ -68,6 +68,7 @@ local record Scopes
     "interface"
     "class"
     "enum"
+    "integer_enum"
     "alias"
     "import"
   end
@@ -585,19 +586,20 @@ end
 
 local SPACES <const>: {Scopes.Kind: Scopes.Space} = {
   ["local"] = "value", ["function"] = "value", param = "value", loop = "value", pattern = "value",
-  typeparam = "type", record = "both", interface = "type", class = "both", enum = "type", alias = "type",
-  import = "both",
+  typeparam = "type", record = "both", interface = "type", class = "both", enum = "type", integer_enum = "both",
+  alias = "type", import = "both",
 }
 
 local KIND_WORDS <const>: {Scopes.Kind: string} = {
   ["local"] = "variable", ["function"] = "function", param = "parameter", loop = "loop variable",
   pattern = "match binding", typeparam = "type parameter", record = "record", interface = "interface",
-  class = "class", enum = "enum", alias = "type", import = "imported module",
+  class = "class", enum = "enum", integer_enum = "integer enum", alias = "type", import = "imported module",
 }
 
 -- The kinds of binding that declare a type.
 local TYPE_KINDS <const>: {Scopes.Kind: boolean} = {
-  typeparam = true, record = true, interface = true, class = true, enum = true, alias = true, import = true,
+  typeparam = true, record = true, interface = true, class = true, enum = true, integer_enum = true, alias = true,
+  import = true,
 }
 
 -- `word` with its indefinite article.
@@ -1250,7 +1252,8 @@ local function stat_assign(s: Ast.Assign)
 end
 
 local KINDS <const>: {string: Scopes.Kind} = {
-  Record = "record", Interface = "interface", Class = "class", Enum = "enum", Alias = "alias", Import = "import",
+  Record = "record", Interface = "interface", Class = "class", Enum = "enum", IntegerEnum = "integer_enum", Alias = "alias",
+  Import = "import",
 }
 
 typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
@@ -1280,7 +1283,8 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
   -- around it; the name is declared once its type is walked.
   local v: Scopes.Var? = nil
   if d.kind ~= "Alias" then
-    v = declare(name, KINDS[d.kind], name.first, not nested, nil, scope == "global") -- checked: index_may_be_nil
+    local key = if (d.kind == "Enum") and d.numeric == true then "IntegerEnum" else d.kind end
+    v = declare(name, KINDS[key], name.first, not nested, nil, scope == "global") -- checked: index_may_be_nil
     v.nested = nested -- checked: field_fixed
   end
   local outermost = S.enclosing_var

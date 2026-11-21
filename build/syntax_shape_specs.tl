@@ -245,6 +245,9 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
       return nil, path .. ": a userdata record has no shape"
     elseif decl.kind == "alias" then
       return nil, path .. ": a recursive alias has no shape"
+    elseif decl.kind == "integer_enum" then
+      -- TODO: give an integer enum a shape that checks its members, once a program of the tree validates one.
+      return nil, path .. ": an integer enum has no shape yet"
     end
     return nil, ("%s: %s has no shape"):format(path, if decl.kind == "interface" then "an interface" else "a class" end)
   elseif t.tag == "fn" then

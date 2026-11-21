@@ -385,7 +385,7 @@ local lua_type: function(t: Ast.Type, hops: integer): string
 --- The type a declaration stands for, as a test of a value of it writes it.
 local function declared_type(declaration: Ast.Node, hops: integer): string -- checked: not_assigned
   if (declaration.kind == "Enum") then
-    return "string"
+    return if declaration.numeric == true then "number" else "string" end
   elseif (declaration.kind == "Alias") then
     if hops > 0 then
       return lua_type(declaration.type, hops - 1)
@@ -1343,12 +1343,35 @@ block = function(b: Ast.Block): Output -- checked: not_assigned
   return out
 end
 
---- The nested records of `members`, written as the table `{ A = {}, B = { C = {} } }`.
+--- The table of the integer enum `node`: its members in the order written, and two functions. `of` answers the member
+--- an integer is, or nil: the member's own integer, so a float such as `1.0` answers `1`. `name` answers a member's
+--- name. Both read a table of the names by integer, written beside the members, so the table names no global but `math`
+--- for the least integer: `(function(t, names) ... return t end)({ A = 0 }, { [0] = "A" })`.
+local function integer_enum_table(node: Ast.Enum): string
+  local members: mut {string} = {}
+  local names: mut {string} = {}
+  for _, v in ipairs(node.values) do
+    local n = v.number or 0
+    -- The text of the least integer reads back as a float, so it is written as the name Lua gives it.
+    local written = if n == math.mininteger then "math.mininteger" else string.format("%d", n) end
+    members[#members + 1] = " " .. v.value .. " = " .. written
+    names[#names + 1] = " [" .. written .. "] = " .. string.format("%q", v.value)
+  end
+  local function table_of(pieces: {string}): string
+    return if #pieces == 0 then "{}" else "{" .. table.concat(pieces, ",") .. " }" end
+  end
+  return "(function(t, names) t.of = function(n) local k = names[n] if k ~= nil then return t[k] end return nil end; " ..
+    "t.name = function(v) return names[v] end; return t end)(" .. table_of(members) .. ", " .. table_of(names) .. ")"
+end
+
+--- The nested records and integer enums of `members`, written as the table `{ A = {}, B = { C = {} }, E = { X = 0 } }`.
 local function record_table(members: {Ast.Member}): string
   local pieces: mut {string} = {}
   for _, m in ipairs(members) do
     if (m.kind == "Record") then
       pieces[#pieces + 1] = " " .. m.name.name .. " = " .. record_table(m.members)
+    elseif (m.kind == "Enum") and m.numeric == true then
+      pieces[#pieces + 1] = " " .. m.name.name .. " = " .. integer_enum_table(m)
     end
   end
   if #pieces == 0 then
@@ -1391,6 +1414,21 @@ local function record_statement(node: Ast.Record): Output
   add_child(out, text(line_of(node.name.first), node.name.name), " ")
   put(out, " =")
   add_child(out, text(y, if #node.typeparams > 0 then "{}" else record_table(node.members) end), " ")
+  return out
+end
+
+--- A `local enum E: integer` that the program uses as a value is `local E = { A = 0, ... }`; an enum of strings is a
+--- type alone.
+local function enum_statement(node: Ast.Enum): Output
+  if node.numeric ~= true or not used_as_value(node.name) then
+    return new(1)
+  end
+  local y = line_of(node.first)
+  local out = new(y)
+  put(out, "local")
+  add_child(out, text(line_of(node.name.first), node.name.name), " ")
+  put(out, " =")
+  add_child(out, text(y, integer_enum_table(node)), " ")
   return out
 end
 
@@ -1785,12 +1823,14 @@ stat = function(s: Ast.Stat): Output
     return record_statement(s)
   elseif (s.kind == "Import") then
     return import_statement(s)
+  elseif (s.kind == "Enum") then
+    return enum_statement(s)
   elseif (s.kind == "Class") then
     return class_statement(s)
   elseif (s.kind == "Interface") then
     refuse_nested_classes(s.members)
   end
-  -- An interface, an enum and an alias are types only; a failed production's [`Ast.Error`] node is a refusal the parser already made.
+  -- An interface, an enum of strings and an alias are types only; a failed production's [`Ast.Error`] node is a refusal the parser already made.
   return new(1)
 end
 

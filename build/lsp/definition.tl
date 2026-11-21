@@ -204,6 +204,7 @@ end
 
 --- Where the field or method `name` of the type `decl` is declared: in the type, or in the interface it lists
 --- that declares it, or by a `function R.f()` statement of the module of either.
+-- TODO: find an integer enum's member (`E.A`), which no [`place_of`] key names today; it answers nothing.
 local function member_site(request: Request, decl: Types.Decl, name: string): Site?
   local owner = decl
   if not Report.has_member(decl, name) then owner = Report.declaring(decl, name) or decl end
