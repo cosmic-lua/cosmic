@@ -54,13 +54,14 @@
 -- (RFC 9773) to time Acme.auto's renewals; a lock on Acme.auto's dir for
 -- processes that share it. Each once a caller needs one.
 
+-- TODO: wait out a 429 on the directory's GET and newNonce's HEAD too,
+-- as a signed request's is, once a server limits those: each is sent
+-- once a client, or once a request, and Let's Encrypt limits neither.
+
 -- TODO: tls-alpn-01 for a caller of the client, the alternate chains a `Link: rel="alternate"`
 -- names, key rollover, account deactivation, revocation, External
 -- Account Binding and renewal information (RFC 9773), once a caller
 -- needs one.
-
--- TODO: wait out a 429 rateLimited answer by its Retry-After, once a
--- caller issues often enough to meet one.
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
@@ -225,6 +226,11 @@ local record Acme
     --- [`Acme.Client.wait`]'s options for every wait [`Acme.Client.issue`]
     --- makes.
     wait?: WaitOptions
+    --- The longest `Retry-After` of a 429 (`rateLimited`) the client
+    --- waits out before it sends the request again, in nanoseconds: 1
+    --- minute when nil, 0 for none. A longer one fails the request,
+    --- saying how long the server asked for.
+    rate_limit_wait_ns?: integer
   end
 
   --- What [`Acme.AutoOptions.dns`] takes: dns-01 in place of http-01.
@@ -268,6 +274,8 @@ local record Acme
     pause?: function(ns: integer): boolean, string
     --- As [`Acme.ClientOptions.wait`].
     wait?: WaitOptions
+    --- As [`Acme.ClientOptions.rate_limit_wait_ns`].
+    rate_limit_wait_ns?: integer
   end
 
   --- A certificate from an ACME CA kept current for a server, from
@@ -747,6 +755,29 @@ local function retry_after(body: Http.Body): integer?
   return Clock.seconds(math.min(seconds, 86400))
 end
 
+--- How long a 429's `Retry-After` asks to wait, in nanoseconds, uncapped
+--- (but by what an integer holds): delta-seconds or an HTTP date, a date
+--- in the past 0; nil for none, or one that reads as neither.
+local function rate_limit_wait(body: Http.Body): integer?
+  local text = body.headers["retry-after"]
+  if text == nil then return nil end
+  local value = text:match("^[ \t]*(.-)[ \t]*$") or ""
+  if value:find("^%d+$") ~= nil then
+    local digits = value:gsub("^0+(%d)", "%1")
+    if #digits > 9 then return math.maxinteger end
+    return Clock.seconds(math.tointeger(tonumber(digits)) or 0)
+  end
+  -- Loaded here alone: cosmic.time brings in cosmic.fs.
+  local Time = require("cosmic.time")
+  local at, _ = Time.parse_http(value)
+  if at == nil then return nil end
+  return math.max(at - Clock.now_ns(), 0)
+end
+
+--- The shortest wait a 429 counts for, so one asking for none is not sent
+--- again without end.
+local RATE_WAIT_LEAST <const> = Clock.ms(100)
+
 local function read_order(url: string, object: {string: Json.Value}): Acme.Order
   local names: mut {string} = {}
   for _, identifier in ipairs(objects_at(object, "identifiers")) do
@@ -825,6 +856,10 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     return Clock.sleep_ns(ns)
   end
   local thumbprint = Acme.thumbprint(key)
+  local rate_limit_most = opts.rate_limit_wait_ns or Clock.minutes(1)
+  if math.type(rate_limit_most) ~= "integer" or rate_limit_most < 0 then
+    error("acme: opts.rate_limit_wait_ns must be an integer of at least 0", 2)
+  end
   local directory: {string: string}? = nil
   local account_url: string? = opts.account
   local nonce: string? = nil
@@ -880,7 +915,9 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
 
   --- Sends `payload` (nil for POST-as-GET) to `url` as a JWS signed by
   --- the account key, under its account URL or, with `with_jwk`, its
-  --- JWK. A badNonce refusal is sent again once.
+  --- JWK. A badNonce refusal is sent again once, and a 429 again after
+  --- its Retry-After while the 429s' waits stay within
+  --- `rate_limit_wait_ns` (each counted as 100 ms at the least).
   local function post(url: string, payload: {string: Json.Value}?, doing: string,
                       with_jwk?: boolean): Http.Body?, string
     local encoded = ""
@@ -889,7 +926,9 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       if text == nil then return nil, "acme: " .. why end
       encoded = Codec.base64url(text)
     end
-    for attempt = 1, 2 do
+    local nonce_retried = false
+    local rate_waited = 0
+    while true do
       local fresh, why = fresh_nonce()
       if fresh == nil then return nil, why end
       local header: mut {string: Json.Value} = { alg = key.alg, nonce = fresh, url = url }
@@ -914,9 +953,22 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       })
       if body == nil then return nil, ("acme: %s: %s"):format(doing, trouble) end
       keep(body)
-      if not (attempt == 1 and is_bad_nonce(body)) then return body, "" end
+      if not nonce_retried and is_bad_nonce(body) then
+        nonce_retried = true
+      elseif body.status == 429 then
+        local asked = rate_limit_wait(body)
+        local wait = if asked ~= nil then math.max(asked, RATE_WAIT_LEAST) else nil end
+        if wait == nil or wait > rate_limit_most - rate_waited then
+          local said = if asked ~= nil then (" (it asks for %d s)"):format((asked + Clock.seconds(1) - 1) // Clock.seconds(1)) else "" end
+          return nil, problem(body, doing) .. said
+        end
+        rate_waited = rate_waited + wait
+        local paused, interrupted = pause_for(wait)
+        if not paused then return nil, ("acme: %s: %s"):format(doing, interrupted) end
+      else
+        return body, ""
+      end
     end
-    error("unreachable")
   end
 
   --- `post`, then the response's JSON object, when its status is 2xx.
@@ -1222,6 +1274,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
       session = Acme.client({
         directory = opts.directory or Acme.LETS_ENCRYPT, key = key,
         request = opts.request, pause = opts.pause, wait = opts.wait,
+        rate_limit_wait_ns = opts.rate_limit_wait_ns,
       })
       client = session
     end

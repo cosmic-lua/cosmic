@@ -5,6 +5,7 @@
 --- checked.
 
 local Acme = require("cosmic.acme")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -355,4 +356,116 @@ local function test_a_token_that_is_not_base64url_is_never_presented()
   })
   assert(chain == nil and not presented)
   assert(why == "acme: the server's token for example.com is not base64url", why)
+end
+
+local function test_a_429_is_waited_out_by_its_retry_after_and_sent_again()
+  local server = new_server()
+  server.rate_limited = 2
+  server.rate_retry_after = "7"
+  local paused: mut {integer} = {}
+  local client = Acme.client({
+    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    request = server.request,
+    pause = function(ns: integer): boolean, string
+      paused[#paused + 1] = ns
+      return true, ""
+    end,
+  })
+  assert(client:account({ terms_agreed = true }) == BASE .. "/acct/1")
+  assert(#paused == 2 and paused[1] == 7000000000 and paused[2] == 7000000000, tostring(#paused))
+end
+
+local function test_a_429_past_the_most_it_waits_fails_saying_how_long()
+  local server = new_server()
+  server.rate_limited = 1
+  server.rate_retry_after = "3600"
+  local url, why = client_of(server):account({ terms_agreed = true })
+  assert(url == nil)
+  assert(why == "acme: newAccount: rateLimited (HTTP 429): too many new orders (it asks for 3600 s)", why)
+  -- The waits add up: two of 40 s pass a minute in all.
+  local again = new_server()
+  again.rate_limited = 2
+  again.rate_retry_after = "40"
+  local _, total = client_of(again):account({ terms_agreed = true })
+  assert(total:find("it asks for 40 s", 1, true) ~= nil, total)
+  -- None waited where the caller takes none, or the server names no time.
+  local none = new_server()
+  none.rate_limited = 1
+  local _, bare = client_of(none):account({ terms_agreed = true })
+  assert(bare == "acme: newAccount: rateLimited (HTTP 429): too many new orders", bare)
+  local zero = new_server()
+  zero.rate_limited = 1
+  zero.rate_retry_after = "1"
+  local paused = false
+  local refused, said = Acme.client({
+    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    request = zero.request, rate_limit_wait_ns = 0,
+    pause = function(_ns: integer): boolean, string
+      paused = true
+      return true, ""
+    end,
+  }):account({ terms_agreed = true })
+  assert(refused == nil and not paused)
+  assert(said:find("it asks for 1 s", 1, true) ~= nil, said)
+  -- What the server asks is told whole, past the day a poll is capped at.
+  local long = new_server()
+  long.rate_limited = 1
+  long.rate_retry_after = "999999"
+  local _, far = client_of(long):account({ terms_agreed = true })
+  assert(far:find("it asks for 999999 s", 1, true) ~= nil, far)
+end
+
+local function test_a_429_asking_for_no_wait_counts_a_tenth_of_a_second_each()
+  local server = new_server()
+  server.rate_limited = 1000
+  server.rate_retry_after = "0"
+  local paused = 0
+  local url, why = Acme.client({
+    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    request = server.request, rate_limit_wait_ns = Clock.seconds(1),
+    pause = function(ns: integer): boolean, string
+      assert(ns == Clock.ms(100), tostring(ns))
+      paused = paused + 1
+      return true, ""
+    end,
+  }):account({ terms_agreed = true })
+  assert(url == nil and why:find("rateLimited", 1, true) ~= nil, why)
+  assert(paused == 10, tostring(paused))
+end
+
+local function test_a_429_with_an_http_date_waits_until_then()
+  local server = new_server()
+  server.rate_limited = 1
+  -- A date long past waits the least.
+  server.rate_retry_after = "Sun, 06 Nov 1994 08:49:37 GMT"
+  local waited: mut {integer} = {}
+  local client = Acme.client({
+    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    request = server.request,
+    pause = function(ns: integer): boolean, string
+      waited[#waited + 1] = ns
+      return true, ""
+    end,
+  })
+  assert(client:account({ terms_agreed = true }) == BASE .. "/acct/1")
+  assert(#waited == 1 and waited[1] == Clock.ms(100), tostring(waited[1]))
+end
+
+local function test_a_pause_that_fails_ends_the_request()
+  local server = new_server()
+  server.rate_limited = 1
+  server.rate_retry_after = "2"
+  local url, why = Acme.client({
+    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    request = server.request,
+    pause = function(_ns: integer): boolean, string return false, "cancelled" end,
+  }):account({ terms_agreed = true })
+  assert(url == nil and why == "acme: newAccount: cancelled", why)
+end
+
+local function test_a_bad_rate_limit_wait_raises()
+  local ok, why = pcall(Acme.client, {
+    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()), rate_limit_wait_ns = -1,
+  })
+  assert(not ok and tostring(why):find("rate_limit_wait_ns", 1, true) ~= nil, tostring(why))
 end
