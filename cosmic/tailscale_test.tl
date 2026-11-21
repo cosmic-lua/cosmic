@@ -368,3 +368,23 @@ local function test_connect_refuses_options_that_conflict()
   local client, empty = Tailscale.connect({ socket = "" })
   assert(client == nil and empty == "tailscale: the socket path is empty", empty)
 end
+
+--- A call waits as a task of the run it is made in, so a server's own
+--- handler can ask the daemon while the run goes on: here the stand-in is
+--- served by the very run that asks it, which a call that held the thread
+--- would never let answer.
+local function test_a_call_in_a_task_lets_the_run_answer_it(tmp: string)
+  local said: mut {string} = {}
+  assert(Server.serve{
+    listeners = { Net.unix(tmp .. "/ts.sock") },
+    on_stop = function(_: Net.Server) end,
+    handle = answer,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local ts = assert(Tailscale.connect({ socket = assert(Array.at(addresses, 1).path), timeout_ns = Clock.seconds(5) }))
+      local who, why = ts:whois("100.64.0.2:443")
+      said[1] = if who ~= nil then who.user.login_name else why end
+      server:stop()
+    end,
+  })
+  assert(said[1] == "will@example.com", said[1])
+end

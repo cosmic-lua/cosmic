@@ -1,0 +1,223 @@
+--- The tailnet middleware of cosmic.web: who a request comes from, as a stand-in whois
+--- says, and what the middleware answers for each kind of answer.
+
+local Array = require("cosmic.array")
+local Clock = require("cosmic.clock")
+local Net = require("cosmic.net")
+local Server = require("cosmic.http.server")
+local Tailscale = require("cosmic.tailscale")
+local Test = require("cosmic.test")
+local Web = require("cosmic.web")
+
+--- The last test serves a stand-in daemon on a socket file.
+Test.policy{ profiles = { "cosmic" }, loopback = { "127.0.0.1" }, requires = { "unix_socket" } }
+
+--- A user's node, which the policy grants `example.com/cap/admin`.
+local WILL <const>: Tailscale.WhoIs = {
+  node = { id = 7, stable_id = "nA", name = "laptop.tail1234.ts.net", host_name = "laptop", os = "macOS",
+    user_id = 42, addresses = { "100.64.0.2" }, tags = {} },
+  user = { id = 42, login_name = "will@example.com", display_name = "Will" },
+  tagged = false,
+  caps = { ["example.com/cap/admin"] = { { level = "all" } } },
+}
+
+--- A tagged node, granted nothing.
+local DB <const>: Tailscale.WhoIs = {
+  node = { id = 8, stable_id = "nB", name = "db.tail1234.ts.net", host_name = "db", os = "linux", user_id = 9,
+    addresses = { "100.64.0.3" }, tags = { "tag:db" } },
+  user = { id = 9, login_name = "tagged-devices", display_name = "Tagged Devices" },
+  tagged = true,
+  caps = {},
+}
+
+--- What a stand-in whois was asked, and the lines the app's sink took.
+local record Seen
+  mut asked: mut {string}
+  mut lines: mut {string}
+end
+
+--- A whois that knows WILL and DB, fails for 100.64.0.99, and says any
+--- other address is no peer's, noting each address it is asked.
+local function stand_in(seen: Seen): function(string): Tailscale.WhoIsResult
+  return function(address: string): Tailscale.WhoIsResult
+    seen.asked[#seen.asked + 1] = address
+    if address == "100.64.0.2" then
+      return { kind = "found", whois = WILL, reason = "", status = 200 }
+    end
+    if address == "100.64.0.3" then
+      return { kind = "found", whois = DB, reason = "", status = 200 }
+    end
+    if address == "100.64.0.99" then
+      return { kind = "failed", reason = "tailscale: connect: refused", status = 0 }
+    end
+    return { kind = "not_a_peer", reason = "tailscale: no node has the address " .. address, status = 404 }
+  end
+end
+
+--- An app behind [`Web.tailnet`] given `opts`, whose `/` says who asked
+--- and whose `/admin` needs `example.com/cap/admin`.
+local function app_of(seen: Seen, opts: Web.TailnetOptions): Web.App
+  return Web.app{
+    sink = { line = function(_self: Web.Sink, text: string) seen.lines[#seen.lines + 1] = text end },
+    middleware = { Web.tailnet(opts) },
+    routes = {
+      Web.get("/", function(req: Web.Request): Web.Response
+        local who = Web.tailnet_identity(req)
+        if who == nil then return Web.text("nobody") end
+        local node = who.node
+        return Web.text(who.login_name .. " " .. who.display_name .. " " .. who.source .. " " ..
+            (if node ~= nil then node.name else "-" end) .. " tagged=" .. tostring(who.tagged))
+      end),
+      Web.get("/admin", function(_: Web.Request): Web.Response
+        return Web.text("the switches")
+      end, { middleware = { Web.require_cap("example.com/cap/admin") } }),
+    },
+  }
+end
+
+local function new_seen(): Seen
+  return { asked = {}, lines = {} }
+end
+
+--- A peer the daemon knows is its user and node, and a capability the
+--- policy grants opens what needs it; a node without it is refused.
+local function test_a_peer_is_its_user_and_a_capability_opens_what_needs_it()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen) }))
+  local will = Net.tcp("100.64.0.2", 50123)
+  local home = client:get("/", { peer = will })
+  assert(home.status == 200 and home.body == "will@example.com Will whois laptop.tail1234.ts.net tagged=false",
+    home.body)
+  local admin = client:get("/admin", { peer = will })
+  assert(admin.status == 200 and admin.body == "the switches", admin.body)
+  local db = Net.tcp("100.64.0.3", 40000)
+  local tagged = client:get("/", { peer = db })
+  assert(tagged.body == "tagged-devices Tagged Devices whois db.tail1234.ts.net tagged=true", tagged.body)
+  local refused = client:get("/admin", { peer = db })
+  assert(refused.status == 403, tostring(refused.status))
+  assert(refused.body:find("example.com/cap/admin", 1, true) ~= nil, refused.body)
+end
+
+--- An address that is no peer's is refused, unless `required` is false;
+--- then the request goes on with no identity, and a capability it needs
+--- is still refused.
+local function test_a_stranger_is_refused_unless_identity_is_optional()
+  local seen = new_seen()
+  local stranger = Net.tcp("192.0.2.7", 1)
+  local strict = Web.test_client(app_of(seen, { whois = stand_in(seen) }))
+  assert(strict:get("/", { peer = stranger }).status == 403)
+  local open = Web.test_client(app_of(seen, { whois = stand_in(seen), required = false }))
+  local home = open:get("/", { peer = stranger })
+  assert(home.status == 200 and home.body == "nobody", home.body)
+  assert(open:get("/admin", { peer = stranger }).status == 403)
+end
+
+--- A daemon that cannot be asked admits nobody: 503, why on the app's
+--- sink, and a failure is not kept, so the next request asks again.
+local function test_a_daemon_that_fails_answers_503_and_is_asked_again()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen) }))
+  local peer = Net.tcp("100.64.0.99", 1)
+  local first = client:get("/", { peer = peer })
+  assert(first.status == 503, tostring(first.status))
+  assert(first.body:find("refused", 1, true) == nil, "the reason stays off the wire: " .. first.body)
+  assert(client:get("/", { peer = peer }).status == 503)
+  assert(#seen.asked == 2, table.concat(seen.asked, ","))
+  assert(Array.at(seen.lines, 1) == "tailnet: tailscale: connect: refused", tostring(seen.lines[1]))
+end
+
+--- An answer is kept for its address, whatever the port, for `cache_ns`;
+--- with 0 every request asks.
+local function test_an_answer_is_kept_per_address()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen) }))
+  assert(client:get("/", { peer = Net.tcp("100.64.0.2", 1) }).status == 200)
+  assert(client:get("/", { peer = Net.tcp("100.64.0.2", 2) }).status == 200)
+  assert(client:get("/", { peer = Net.tcp("192.0.2.7", 1) }).status == 403)
+  assert(client:get("/", { peer = Net.tcp("192.0.2.7", 2) }).status == 403)
+  assert(table.concat(seen.asked, ",") == "100.64.0.2,192.0.2.7", table.concat(seen.asked, ","))
+  local fresh = new_seen()
+  local uncached = Web.test_client(app_of(fresh, { whois = stand_in(fresh), cache_ns = 0 }))
+  assert(uncached:get("/", { peer = Net.tcp("100.64.0.2", 1) }).status == 200)
+  assert(uncached:get("/", { peer = Net.tcp("100.64.0.2", 1) }).status == 200)
+  assert(#fresh.asked == 2, table.concat(fresh.asked, ","))
+  local ok, why = pcall(Web.tailnet, { cache_ns = -1 })
+  assert(not ok and tostring(why):find("cache_ns", 1, true) ~= nil, tostring(why))
+end
+
+--- Behind `tailscale serve` the loopback peer's headers name who asked,
+--- an encoded name decoded and the forwarded capabilities read; without
+--- them a loopback request is nobody's, as one through Funnel is.
+local function test_serve_headers_name_who_asked_from_the_loopback_alone()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen), serve = true }))
+  local headers = {
+    ["Tailscale-User-Login"] = "rene@example.com",
+    ["Tailscale-User-Name"] = "=?utf-8?q?Ren=C3=A9_Doe?=",
+    ["Tailscale-App-Capabilities"] = '{"example.com/cap/admin":[{}]}',
+  }
+  local loopback = Net.tcp("127.0.0.1", 50000)
+  local home = client:get("/", { peer = loopback, headers = headers })
+  assert(home.body == "rene@example.com René Doe serve - tagged=false", home.body)
+  assert(client:get("/admin", { peer = loopback, headers = headers }).status == 200)
+  assert(client:get("/", { peer = Net.tcp("::1", 50000), headers = headers }).status == 200)
+  local funnel = client:get("/", { peer = loopback })
+  assert(funnel.status == 403, tostring(funnel.status))
+  -- From another address the headers are anyone's to send: whois decides.
+  local forged = client:get("/", { peer = Net.tcp("192.0.2.7", 1), headers = headers })
+  assert(forged.status == 403, tostring(forged.status))
+  assert(table.concat(seen.asked, ",") == "192.0.2.7", table.concat(seen.asked, ","))
+end
+
+--- Without `serve` the headers are never read: a loopback peer is asked
+--- about as any other.
+local function test_serve_headers_are_ignored_unless_asked_for()
+  local seen = new_seen()
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen) }))
+  local reply = client:get("/", { peer = Net.tcp("127.0.0.1", 50000),
+    headers = { ["Tailscale-User-Login"] = "rene@example.com" } })
+  assert(reply.status == 403, tostring(reply.status))
+  assert(table.concat(seen.asked, ",") == "127.0.0.1", table.concat(seen.asked, ","))
+end
+
+--- A capability of an empty name is a caller's bug.
+local function test_require_cap_refuses_an_empty_name()
+  local ok, why = pcall(Web.require_cap, "")
+  assert(not ok and tostring(why):find("capability", 1, true) ~= nil, tostring(why))
+end
+
+--- The middleware over a real client: a stand-in daemon on a socket,
+--- served by the same run that serves the request, which the whois waits
+--- in as a task.
+local function test_the_middleware_asks_a_daemon_in_the_requests_own_run(tmp: string)
+  local said: mut {string} = {}
+  local function daemon(req: Server.Request): Server.Reply
+    if req.target == "/localapi/v0/whois?addr=100.64.0.2" then
+      return { status = 200, body = '{"Node": {"ID": 7, "StableID": "nA", "Name": "laptop.tail1234.ts.net.", ' ..
+          '"User": 42, "Addresses": ["100.64.0.2/32"]}, "UserProfile": {"ID": 42, "LoginName": "will@example.com", ' ..
+          '"DisplayName": "Will"}, "CapMap": {"example.com/cap/admin": null}}' }
+    end
+    return { status = 404, body = "no match\n" }
+  end
+  assert(Server.serve{
+    listeners = { Net.unix(tmp .. "/ts.sock") },
+    on_stop = function(_: Net.Server) end,
+    handle = daemon,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local ts = assert(Tailscale.connect({ socket = assert(Array.at(addresses, 1).path),
+        timeout_ns = Clock.seconds(5) }))
+      local seen = new_seen()
+      local client = Web.test_client(app_of(seen, {
+        whois = function(address: string): Tailscale.WhoIsResult return ts:whois_result(address) end,
+      }))
+      local peer = Net.tcp("100.64.0.2", 50123)
+      local home = client:get("/", { peer = peer }).body
+      local admin = tostring(client:get("/admin", { peer = peer }).status)
+      local stranger = tostring(client:get("/", { peer = Net.tcp("192.0.2.7", 1) }).status)
+      said[#said + 1] = home .. "|" .. admin .. "|" .. stranger
+      server:stop()
+    end,
+  })
+  local got = table.concat(said, "|")
+  assert(got == "will@example.com Will whois laptop.tail1234.ts.net tagged=false|200|403", got)
+end

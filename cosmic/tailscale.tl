@@ -19,9 +19,12 @@
 --- [`Client.get`] and [`Client.request`] reach any other endpoint, as
 --- bytes.
 ---
---- A call holds the thread until the daemon answers, as [`cosmic.http`]
---- does. [`Client.watch`] holds it for each event: run it in a process
---- of its own, or in a program that waits for nothing else.
+--- A call waits for the daemon as [`cosmic.net`] waits: in a task of
+--- [`Poll.run`], as a server's handler runs, the other tasks go on
+--- meanwhile, so a whois per request stalls no other connection.
+--- [`Client.watch`] alone holds the thread for each event, as
+--- [`cosmic.http`] does: run it in a process of its own, or in a program
+--- that waits for nothing else.
 ---
 --- What a call may do is the daemon's choice, not this module's. On
 --- Linux the socket is open to every local user, and a request that
@@ -29,11 +32,13 @@
 --- daemon's operator (`tailscale set --operator=$USER`); the daemon
 --- answers 403 otherwise, and the call fails with its message.
 
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
+local Message = require("cosmic.http.message")
 local Net = require("cosmic.net")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
@@ -599,7 +604,10 @@ local function notify_of(line: string): Notify?, string
   }, ""
 end
 
---- The options of one request to `endpoint`. `timeout_ns` is the call's limit, `default_ns` by default; 0 is none.
+--- The options of `watch`'s request to `endpoint`. `timeout_ns` is the call's limit, `default_ns` by default; 0 is none.
+-- TODO: read the IPN bus over cosmic.net, as `sent` does, once a chunked
+-- body can be read a chunk at a time from cosmic.http.message, so that
+-- `watch` waits as a task does.
 local function options(endpoint: Endpoint, default_ns: integer, method: string, body?: string, timeout_ns?: integer): Http.Options
   local headers: mut {string: string} = {
     -- Over a port the URL names 127.0.0.1, which the daemon takes only
@@ -625,11 +633,55 @@ local function options(endpoint: Endpoint, default_ns: integer, method: string, 
   }
 end
 
---- `method` sent to `path` at `endpoint` under the limit `timeout_ns`.
-local function sent(endpoint: Endpoint, default_ns: integer, method: string, path: string, body?: string, timeout_ns?: integer): Http.Body?, string
-  local got, why = Http.request(method, endpoint.url .. path, options(endpoint, default_ns, method, body, timeout_ns))
-  if got == nil then return nil, "tailscale: " .. why end
-  return got, ""
+--- The most bytes of a reply's body: a status of a large tailnet runs
+--- to megabytes.
+local REPLY_BYTES <const> = 256 * 1024 * 1024
+
+--- `method` sent to `path` at `endpoint`, and the whole reply, within
+--- `timeout_ns` (`default_ns` when nil, none when 0) in all. It speaks
+--- HTTP/1.1 over a connection of its own, which it closes, rather than
+--- through [`cosmic.http`]: a wait here is [`cosmic.net`]'s, so in a task
+--- of [`Poll.run`] (a server's handler) the other tasks run meanwhile.
+local function sent(endpoint: Endpoint, default_ns: integer, method: string, path: string, body?: string,
+                    timeout_ns?: integer): Http.Body?, string
+  local limit = timeout_ns or default_ns
+  local deadline = if limit == 0 then nil else Clock.monotonic_ns() + limit end
+  local function left(): integer?
+    if deadline == nil then return nil end
+    return math.max(deadline - Clock.monotonic_ns(), 0)
+  end
+  local headers: mut {string: string} = {
+    ["Host"] = HOST,
+    ["Tailscale-Cap"] = CAPABILITY,
+    ["Connection"] = "close",
+    ["User-Agent"] = "cosmic",
+  }
+  local token = endpoint.token
+  if token ~= nil then headers["Authorization"] = "Basic " .. Codec.base64(":" .. token) end
+  if body ~= nil then headers["Content-Type"] = "application/json" end
+  -- A POST with no body says so, as the daemon's own client does.
+  local sending = body or (if method == "GET" then nil else "" end)
+  local request, bad = Message.format_request({ method = method, target = path, headers = headers, body = sending })
+  if request == nil then return nil, "tailscale: " .. bad end
+  local conn <close>, why = Net.connect(endpoint.via, { timeout_ns = left() })
+  if conn == nil then return nil, "tailscale: " .. why end
+  local wrote, refused = conn:write(request)
+  if not wrote then return nil, "tailscale: " .. refused end
+  local reader = Message.response_reader({ body_bytes = REPLY_BYTES })
+  while true do
+    conn:set_timeout(left())
+    local chunk, trouble = conn:read()
+    local read = if chunk ~= nil then reader:feed(chunk) elseif trouble == "" then reader:finish() else nil end
+    if read == nil then return nil, "tailscale: " .. trouble end
+    if read.status == "done" then
+      local response = read.response
+      if response == nil then return nil, "tailscale: the reply holds no response" end
+      return { status = response.status, body = response.body, headers = response.headers }, ""
+    end
+    if read.status ~= "more" then
+      return nil, "tailscale: the daemon's reply: " .. (if read.reason ~= "" then read.reason else read.status end)
+    end
+  end
 end
 
 --- `path`'s body, or why it is not one of status 200.
