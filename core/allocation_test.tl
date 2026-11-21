@@ -908,6 +908,23 @@ local function test_p256_signing_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "P-256 signing under refusal")
 end
 
+--- So with the RSA bindings, from a fixed key: drawing one is too slow
+--- to repeat once for every allocation the walk refuses, and it makes no
+--- allocation of the core's own before its answer's string.
+local function test_rsa_signing_leaves_nothing_whenever_an_allocation_fails()
+  local secret = Sign.rsa_secret()
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local public = Sign.rsa_public(secret)
+    local signature = Sign.rsa(secret, hello)
+    assert(#signature == 256)
+    assert(Sign.rsa_verify(public, hello, signature))
+  end)
+  assert(ended > 0, "a key and a signature are each a string")
+  assert_c_heap(bytes, blocks, "RSA signing under refusal")
+end
+
 --- Each call holds its numbers in one block of the core's own, under a
 --- guard: a refusal of the block, of the guard or of the answer's string
 --- leaves none. The limbs of the functions that take a time depending on

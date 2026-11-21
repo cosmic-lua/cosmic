@@ -1,10 +1,12 @@
 --- Signatures over raw bytes: a holder of a secret signs a message, and
 --- anyone with the public key checks the signature. [`Codec.hex`] and
 --- [`Codec.base64`] spell a key or a signature for a person or a format.
---- Two schemes are here: Ed25519 (RFC 8032), and ECDSA over the NIST
+--- Three schemes are here: Ed25519 (RFC 8032); ECDSA over the NIST
 --- curve P-256 with SHA-256, which JOSE calls ES256 (RFC 7518) and which
 --- certificate authorities and ACME servers take where they take no
---- Ed25519.
+--- Ed25519; and RSA PKCS #1 v1.5 with SHA-256 (RFC 8017), which JOSE
+--- calls RS256 and X.509 sha256WithRSAEncryption, for a peer that takes
+--- RSA alone.
 ---
 --- - [`Sign.ed25519_public`] is the public key of a seed.
 --- - [`Sign.ed25519`] signs a message under a seed.
@@ -14,6 +16,11 @@
 --- - [`Sign.p256_public`] is the public point of a P-256 secret.
 --- - [`Sign.p256`] signs a message under a P-256 secret.
 --- - [`Sign.p256_verify`] checks a P-256 signature, and is safe to give
+---   bytes from anyone.
+--- - [`Sign.rsa_secret`] draws a new RSA key.
+--- - [`Sign.rsa_public`] is the public key of an RSA secret.
+--- - [`Sign.rsa`] signs a message under an RSA secret.
+--- - [`Sign.rsa_verify`] checks an RSA signature, and is safe to give
 ---   bytes from anyone.
 ---
 ---     local seed = assert(Rand.entropy(32))
@@ -37,6 +44,17 @@
 --- from [`Rand.entropy`] fall outside that range about once in 2^32.
 --- P-256 signing is deterministic too (RFC 6979): a secret and a message
 --- always give the same signature.
+---
+---     local secret = Sign.rsa_secret()
+---     local public = Sign.rsa_public(secret)
+---     local signature = Sign.rsa(secret, "message")
+---     assert(Sign.rsa_verify(public, "message", signature))
+---
+--- An RSA secret is a DER RSAPrivateKey (PKCS #1), the form `openssl
+--- genrsa -traditional` writes as PEM, and its public key a DER
+--- RSAPublicKey: the modulus n and the exponent e. A key is from 2048 to
+--- 4096 bits. RSA signing is deterministic as well, and much slower than
+--- P-256: prefer P-256 where the peer takes it.
 
 -- The raw module behind every function here lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -134,6 +152,52 @@ end
 ---     local ok = Sign.p256_verify(public, "message", signature)
 function Sign.p256_verify(public: string, message: string, signature: string): boolean
   return raw.p256_verify(public, message, signature)
+end
+
+--- A new RSA key of `bits`, 2048, 3072 or 4096 (2048 when nil), with
+--- the public exponent 65537, drawn from the system's entropy: a DER
+--- RSAPrivateKey (RFC 8017 appendix A.1.2). It is the whole secret: keep
+--- it as [`Sign.ed25519`]'s seed is kept. Drawing one takes a while,
+--- up to seconds for 4096 bits. Raises on other bits, and when the
+--- entropy source fails.
+---
+---     local secret = Sign.rsa_secret()
+---     local stronger = Sign.rsa_secret(3072)
+function Sign.rsa_secret(bits?: integer): string
+  return raw.rsa_secret(bits)
+end
+
+--- The DER RSAPublicKey of the RSA `secret`, a DER RSAPrivateKey: the
+--- SEQUENCE of the modulus n and the exponent e (RFC 8017 appendix
+--- A.1.1). Raises on bytes that are no RSAPrivateKey, on a key of fewer
+--- than 2048 bits or more than 4096, and when the system's entropy
+--- source fails: mbedtls blinds its work on a secret with random values.
+---
+---     local public = Sign.rsa_public(secret)
+function Sign.rsa_public(secret: string): string
+  return raw.rsa_public(secret)
+end
+
+--- The RSASSA-PKCS1-v1_5 signature of the SHA-256 of `message`, of any
+--- length, under the RSA `secret` (RFC 8017 section 8.2): as many bytes
+--- as the modulus, the form JWS RS256 (RFC 7518 section 3.3) and an
+--- X.509 sha256WithRSAEncryption signature each take. Signing is
+--- deterministic. Raises as [`Sign.rsa_public`] does.
+---
+---     local signature = Sign.rsa(secret, "message")
+function Sign.rsa(secret: string, message: string): string
+  return raw.rsa(secret, message)
+end
+
+--- Whether `signature`, as [`Sign.rsa`] makes it, is one of the SHA-256
+--- of `message` under the DER RSAPublicKey `public`. Every argument may
+--- come from anyone: bytes that are no key, a key of fewer than 2048
+--- bits or more than 4096, a signature not as long as the modulus and an
+--- argument of the wrong size answer false, and nothing raises.
+---
+---     local ok = Sign.rsa_verify(public, "message", signature)
+function Sign.rsa_verify(public: string, message: string, signature: string): boolean
+  return raw.rsa_verify(public, message, signature)
 end
 
 return Sign

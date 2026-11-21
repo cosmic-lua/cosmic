@@ -17,6 +17,14 @@ function Example.p256_key()
   assert(key.alg == "ES256" and key.jwk["kty"] == "EC")
 end
 
+--- An RSA key, for a server or a client of the certificate that takes
+--- no P-256: its JWK is the modulus `n` and the exponent `e`.
+function Example.rsa_key()
+  local key = Acme.rsa_key(Sign.rsa_secret())
+  print(key.alg, key.jwk["e"])
+  assert(key.alg == "RS256" and key.jwk["kty"] == "RSA" and key.jwk["e"] == "AQAB")
+end
+
 --- The thumbprint joins each challenge's token in its key authorization.
 function Example.thumbprint()
   local key = Acme.p256_key(Sign.p256_secret())

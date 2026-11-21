@@ -77,4 +77,41 @@ function Example.p256_verify()
   assert(not Sign.p256_verify(public, "pay alice 5", "not a signature"))
 end
 
+--- A new RSA key, for a peer that takes no P-256: the secret is a DER
+--- RSAPrivateKey, and a 2048-bit key signs in 256 bytes.
+function Example.rsa_secret()
+  local secret = Sign.rsa_secret()
+  local signature = Sign.rsa(secret, "message")
+  print(#secret > 1000, #signature)
+  assert(#signature == 256)
+end
+
+--- The public key is a DER RSAPublicKey: a SEQUENCE of the modulus and
+--- the exponent, here 65537 in its last five bytes.
+function Example.rsa_public()
+  local public = Sign.rsa_public(Sign.rsa_secret())
+  print(Codec.hex(public:sub(-5)))
+  assert(public:byte(1) == 0x30 and Codec.hex(public:sub(-5)) == "0203010001")
+end
+
+--- Signing a message: the same key and message always give the same
+--- signature.
+function Example.rsa()
+  local secret = Sign.rsa_secret()
+  local signature = Sign.rsa(secret, "sample")
+  print(#signature)
+  assert(signature == Sign.rsa(secret, "sample"))
+end
+
+--- Checking an RSA signature: a changed message, or bytes that are no
+--- signature, answer false.
+function Example.rsa_verify()
+  local secret = Sign.rsa_secret()
+  local public = Sign.rsa_public(secret)
+  local signature = Sign.rsa(secret, "pay alice 5")
+  assert(Sign.rsa_verify(public, "pay alice 5", signature))
+  assert(not Sign.rsa_verify(public, "pay alice 500", signature))
+  assert(not Sign.rsa_verify(public, "pay alice 5", "not a signature"))
+end
+
 return Example

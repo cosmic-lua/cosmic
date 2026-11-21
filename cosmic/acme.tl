@@ -27,18 +27,17 @@
 --- `dns_name`; a wildcard name (`*.example.com`) takes only dns-01.
 ---
 --- An account key and a certificate key are each an [`Acme.Key`]:
---- [`Acme.p256_key`] makes one from a [`Sign.p256_secret`]. Keep the
---- account key's secret: the account is that key, and a lost one means a
---- new account. Use another key for the certificate.
+--- [`Acme.p256_key`] makes one from a [`Sign.p256_secret`], and
+--- [`Acme.rsa_key`] from a [`Sign.rsa_secret`], for a server or a
+--- client of the certificate that takes RSA alone. Keep the account
+--- key's secret: the account is that key, and a lost one means a new
+--- account. Use another key for the certificate.
 ---
 --- Every fallible function answers `value, ""` or `nil, why`, the why
 --- opening `acme: `. A problem document the server sends (RFC 8555
 --- section 6.7) is named in the why by its type and detail. A request
 --- the server refuses for a stale nonce (`badNonce`) is sent again once
 --- with the fresh nonce it handed back, as section 6.5 asks.
-
--- TODO: RSA account and certificate keys, once cosmic.sign signs with
--- RSA.
 
 -- TODO: tls-alpn-01, the alternate chains a `Link: rel="alternate"`
 -- names, key rollover, account deactivation, revocation, External
@@ -59,19 +58,22 @@ local record Acme
   --- A key that signs ACME requests (as the account's key) or a
   --- certificate signing request (as the certificate's key).
   record Key
-    --- The JWS algorithm the key signs with, as RFC 7518 names it: "ES256".
+    --- The JWS algorithm the key signs with, as RFC 7518 names it:
+    --- "ES256" or "RS256".
     alg: string
     --- The public key as a JSON Web Key (RFC 7517), its members in hand
-    --- for a thumbprint: `crv`, `kty`, `x` and `y` for an EC key.
+    --- for a thumbprint: `crv`, `kty`, `x` and `y` for an EC key, `e`,
+    --- `kty` and `n` for an RSA key.
     jwk: {string: string}
     --- The DER SubjectPublicKeyInfo of the public key (RFC 5280).
     spki: string
     --- The DER AlgorithmIdentifier of the X.509 signature the key makes.
     signature_algorithm: string
-    --- The JWS signature of `message`: for ES256, R then S.
+    --- The JWS signature of `message`: for ES256, R then S; for RS256,
+    --- the PKCS #1 v1.5 signature.
     sign: function(message: string): string
     --- The X.509 signature of `message`: for ECDSA, the DER SEQUENCE of R
-    --- and S.
+    --- and S; for RSA, the PKCS #1 v1.5 signature as it is.
     x509_sign: function(message: string): string
   end
 
@@ -292,9 +294,26 @@ local function der_bits(bytes: string): string
   return der(0x03, "\0" .. bytes)
 end
 
+local DER_NULL <const> = "\5\0"
+
+--- The content of the element at `at` of the DER `bytes`, and the
+--- index after it. The bytes are mbedtls's own, never a peer's.
+local function der_content(bytes: string, at: integer): string, integer
+  local first = bytes:byte(at + 1) or 0
+  local length, start = first, at + 2
+  if first >= 0x80 then
+    length = 0
+    for i = 1, first & 0x7f do length = (length << 8) | (bytes:byte(at + 1 + i) or 0) end
+    start = at + 2 + (first & 0x7f)
+  end
+  return bytes:sub(start, start + length - 1), start + length
+end
+
 local OID_EC_PUBLIC_KEY <const> = "1.2.840.10045.2.1"
 local OID_P256 <const> = "1.2.840.10045.3.1.7"
 local OID_ECDSA_SHA256 <const> = "1.2.840.10045.4.3.2"
+local OID_RSA_ENCRYPTION <const> = "1.2.840.113549.1.1.1"
+local OID_RSA_SHA256 <const> = "1.2.840.113549.1.1.11"
 local OID_COMMON_NAME <const> = "2.5.4.3"
 local OID_EXTENSION_REQUEST <const> = "1.2.840.113549.1.9.14"
 local OID_SUBJECT_ALT_NAME <const> = "2.5.29.17"
@@ -323,6 +342,39 @@ function Acme.p256_key(secret: string): Acme.Key
     x509_sign = function(message: string): string
       local signature = Sign.p256(secret, message)
       return der_sequence(der_unsigned(signature:sub(1, 32)), der_unsigned(signature:sub(33, 64)))
+    end,
+  }
+end
+
+--- An [`Acme.Key`] over the RSA `secret`, a [`Sign.rsa_secret`] (a DER
+--- RSAPrivateKey of 2048 to 4096 bits): it signs JWS as RS256 and X.509
+--- as sha256WithRSAEncryption. Raises on a secret [`Sign.rsa_public`]
+--- refuses.
+---
+---     local key = Acme.rsa_key(Sign.rsa_secret())
+---     assert(key.alg == "RS256" and key.jwk.e == "AQAB")
+function Acme.rsa_key(secret: string): Acme.Key
+  local public = Sign.rsa_public(secret)
+  -- An RSAPublicKey is the SEQUENCE of the INTEGERs n and e, each
+  -- positive: a JWK spells each without the zero a DER INTEGER leads with.
+  local numbers = der_content(public, 1)
+  local n, after = der_content(numbers, 1)
+  local e = der_content(numbers, after)
+  assert(#n > 0 and #e > 0, "an RSAPublicKey holds n and e")
+  return {
+    alg = "RS256",
+    jwk = {
+      e = Codec.base64url((e:gsub("^\0+", ""))),
+      kty = "RSA",
+      n = Codec.base64url((n:gsub("^\0+", ""))),
+    },
+    spki = der_sequence(der_sequence(der_oid(OID_RSA_ENCRYPTION), DER_NULL), der_bits(public)),
+    signature_algorithm = der_sequence(der_oid(OID_RSA_SHA256), DER_NULL),
+    sign = function(message: string): string
+      return Sign.rsa(secret, message)
+    end,
+    x509_sign = function(message: string): string
+      return Sign.rsa(secret, message)
     end,
   }
 end
@@ -514,7 +566,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     error("acme: opts.directory is the directory's URL", 2)
   end
   if type(opts.key) ~= "table" or type(opts.key.sign) ~= "function" then
-    error("acme: opts.key is an Acme.Key, as Acme.p256_key makes", 2)
+    error("acme: opts.key is an Acme.Key, as Acme.p256_key or Acme.rsa_key makes", 2)
   end
   local key = opts.key
   local request: Acme.Request = opts.request or default_request
