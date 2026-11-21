@@ -87,9 +87,12 @@ local record c
   record Job
     file: integer
     variant: integer
+    --- Whether the job runs clang's static analyzer over the file (under the first variant), not a dump of its tree.
+    analyze?: boolean
   end
 
   mut variants: {c.Variant}
+  mut own_warnings: {string}
 end
 
 --- How many compilers run at once.
@@ -168,19 +171,41 @@ c.variants = {
   { name = "x86_64-linux-musl checked", target = "x86_64-linux-musl", defines = checked_defines, tells = checked_tells },
 }
 
+--- The warnings the core's own C builds under, as errors (build.zig's `own_warnings`, which build/c/variants_test.tl
+--- holds this to): the analyzer runs under them, as `bin/zig build analyze` does.
+c.own_warnings = {
+  "-Wall", "-Wextra", "-Werror", "-Wshadow", "-Wconversion", "-Wsign-conversion", "-Wundef", "-Wwrite-strings",
+  "-Wmissing-prototypes", "-Wstrict-prototypes", "-Wimplicit-fallthrough", "-Wvla", "-Wmissing-noreturn",
+}
+
 --- The compiler's command line for `file` under `variant`, `zig` the
---- program that runs it ([`compiler`]).
-local function command(root: string, zig: string, file: string, cwd: string, variant: c.Variant): {string}
-  local out: mut {string} = {
-    zig, "cc", "-target", variant.target,
-    "-E", "-o", "/dev/null", "-Xclang", "-ast-dump",
-    "-fno-color-diagnostics", "-std=c11", "-Wno-unused-command-line-argument",
-    "-DLUA_USE_POSIX", "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
-    "-DTF_PSA_CRYPTO_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
-    "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
-    "-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C(1)",
-    "-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID=1",
-  }
+--- program that runs it ([`compiler`]): a dump of its syntax tree, or with `analyze` a run of clang's static analyzer
+--- whose every finding is an error, with the flags build.zig's `analyze` gives it, its report written to `report`
+--- (`/dev/null` in the command line a memo's key is made of, the same from run to run).
+local function command(root: string, zig: string, file: string, cwd: string, variant: c.Variant, analyze?: boolean,
+                       report?: string): {string}
+  local out: mut {string} = { zig, "cc", "-target", variant.target }
+  if analyze == true then
+    -- zig moves the report clang writes to the file `-o` names, which must be one it can write beside.
+    for _, word in ipairs({ "-S", "--analyze", "-Xanalyzer", "-analyzer-werror", "-o", report or "/dev/null" }) do
+      out[#out + 1] = word
+    end
+    for _, word in ipairs(c.own_warnings) do out[#out + 1] = word end
+  else
+    for _, word in ipairs({ "-E", "-o", "/dev/null", "-Xclang", "-ast-dump" }) do
+      out[#out + 1] = word
+    end
+  end
+  for _, word in ipairs({
+      "-fno-color-diagnostics", "-std=c11", "-Wno-unused-command-line-argument",
+      "-DLUA_USE_POSIX", "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+      "-DTF_PSA_CRYPTO_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
+      "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
+      "-DCOSMIC_PORTABLE_REQUIRED_TARGET_MASK=UINT64_C(1)",
+      "-DCOSMIC_PORTABLE_RELEASE_CONFIGURATION_ID=1",
+  }) do
+    out[#out + 1] = word
+  end
   for _, define in ipairs(variant.defines) do out[#out + 1] = define end
   for _, dir in ipairs(include_dirs(root, cwd)) do
     out[#out + 1] = "-I" .. dir
@@ -496,6 +521,29 @@ local function outcome(root: string, file: string, result: Child.Result?, troubl
     rules.unit(decls, file, declared)
 end
 
+--- What the memo keeps of a run the analyzer passed: a run that found something is run again, so it says so again.
+local analyzed_clean <const> = "analyzed 1"
+
+--- What a run of the analyzer over `file` came to: a finding for each warning it reports (every one fails, as
+--- `-analyzer-werror` and `-Werror` make it), or, where clang failed and named no line, why.
+local function analysis(file: string, result: Child.Result?, trouble: string): c.Outcome
+  if result == nil then return { file = file, trouble = trouble } end
+  if result.ok then return { file = file, findings = {} } end
+  local err = tostring(result.stderr or "")
+  local findings: mut {rules.Finding} = {}
+  for line in err:gmatch("[^\n]+") do
+    local at, row, kind, message = line:match("^(.-):(%d+):%d+: (%a+): (.*)$")
+    if at ~= nil and row ~= nil and message ~= nil and (kind == "warning" or kind == "error") then
+      findings[#findings + 1] = { file = at, line = math.tointeger(row) or 0, rule = "analyzer", within = "the file",
+        message = message, variants = { assert(c.variants[1]).name } }
+    end
+  end
+  if #findings == 0 then
+    return { file = file, trouble = "the analyzer could not read it:\n" .. (err:gsub("\n+$", "")) }
+  end
+  return { file = file, findings = findings }
+end
+
 --- Whether `files` are every C file under `cwd` that compiles on its
 --- own: only then is what refers to a function across files all known.
 local function whole(cwd: string, files: {string}): boolean
@@ -578,8 +626,10 @@ end
 --- file whose tree is larger is refused rather than half checked. With `store`, a database for [`build.check_memo`],
 --- a compile whose inputs have not changed ([`build.c.inputs`]) is not run again: what the checks made of its tree is
 --- read from the memo, and one that is made is kept there. A run over every C file drops the rows it did not use.
-function c.check(root: string, files: {string}, cwd?: string, limit?: integer, store?: Sqlite.Handle):
-    {c.Outcome}
+--- Each file `analyze` names is also run through clang's static analyzer, under the first variant and the core's own
+--- warnings, and what it reports joins the file's findings (rule `analyzer`); the memo keeps a run that found nothing.
+function c.check(root: string, files: {string}, cwd?: string, limit?: integer, store?: Sqlite.Handle,
+                 analyze?: {string: boolean}): {c.Outcome}
   cwd = cwd or root
   local declared = declared_in(root)
   local outcomes: mut {c.Outcome} = {}
@@ -593,6 +643,15 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   for i, _ in ipairs(files) do
     ran[i] = { 1 }
     jobs[#jobs + 1] = { file = i, variant = 1 }
+  end
+  -- One run of the analyzer for each file `analyze` names, after every dump, so that a file's first job
+  -- under each variant is its dump.
+  if analyze ~= nil then
+    for i, file in ipairs(files) do
+      if analyze[file] == true then
+        jobs[#jobs + 1] = { file = i, variant = 1, analyze = true }
+      end
+    end
   end
   for v = 2, #c.variants do
     memo[v] = {}
@@ -637,25 +696,36 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     local readers: mut {integer: inputs.Reader} = {}
     for j, job in ipairs(jobs) do
       local file = assert(files[job.file])
-      local words = command(root, zig, file, cwd, assert(c.variants[job.variant]))
-      local reader = readers[job.variant]
+      local words = command(root, zig, file, cwd, assert(c.variants[job.variant]), job.analyze)
+      -- The analyzer's command line is a reader of its own.
+      local which_reader = if job.analyze == true then 0 else job.variant end
+      local reader = readers[which_reader]
       if reader == nil then
         reader = inputs.reader(dirs, words)
-        readers[job.variant] = reader
+        readers[which_reader] = reader
       end
       local read = inputs.key(reader, absolute(file), words, assert(install))
       if read ~= nil then
         local key = check_memo.key(salt, "c", context .. "\0" .. read)
         local text = check_memo.get(store, "c", key)
         local findings, unit: mut {rules.Finding}?, rules.Unit?
-        if text ~= nil then
-          findings, unit = decoded(file, text)
-        end
-        if findings ~= nil and unit ~= nil then
-          results[j] = { file = file, findings = findings }
-          units[j] = unit
+        if job.analyze == true then
+          -- Only a run the analyzer passed is kept.
+          if text == analyzed_clean then
+            results[j] = { file = file, findings = {} }
+          else
+            keys[j] = key
+          end
         else
-          keys[j] = key
+          if text ~= nil then
+            findings, unit = decoded(file, text)
+          end
+          if findings ~= nil and unit ~= nil then
+            results[j] = { file = file, findings = findings }
+            units[j] = unit
+          else
+            keys[j] = key
+          end
         end
       end
     end
@@ -669,10 +739,11 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
         -- A compile the memo answered is not run.
         if results[next_job] == nil then
           local handle, trouble = Child.start(
-            command(root, zig, nth(files, job.file), cwd, nth(c.variants, job.variant)), {
-              cwd = cwd, env = env, stdout = "capture", stderr = "capture",
-              capture_limit = limit or dump_limit,
-            })
+            command(root, zig, nth(files, job.file), cwd, nth(c.variants, job.variant), job.analyze,
+              deps .. "/analysis-" .. tostring(next_job) .. ".plist"), {
+                cwd = cwd, env = env, stdout = "capture", stderr = "capture",
+                capture_limit = limit or dump_limit,
+              })
           if handle == nil then
             results[next_job] = { file = nth(files, job.file), trouble = trouble }
           else
@@ -696,14 +767,22 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
           local result, wait_trouble = done:wait()
           local finished = held_in(which, done)
           local job = nth(jobs, finished)
-          local made, unit = outcome(root, nth(files, job.file), result,
-            wait_trouble, declared, limit or dump_limit)
+          local made, unit: c.Outcome, rules.Unit?
+          if job.analyze == true then
+            made = analysis(nth(files, job.file), result, wait_trouble)
+            local made_key = keys[finished]
+            if store ~= nil and made_key ~= nil and made.findings ~= nil and #assert(made.findings) == 0 then
+              check_memo.put(store, "c", made_key, analyzed_clean)
+            end
+          else
+            made, unit = outcome(root, nth(files, job.file), result, wait_trouble, declared, limit or dump_limit)
+          end
           results[finished] = made
           if unit ~= nil then units[finished] = unit end
           local made_findings = made.findings
           local made_key = keys[finished]
           -- A compile that made findings made a unit too.
-          if store ~= nil and made_key ~= nil and made_findings ~= nil and unit ~= nil then
+          if job.analyze ~= true and store ~= nil and made_key ~= nil and made_findings ~= nil and unit ~= nil then
             check_memo.put(store, "c", made_key, encoded(made_findings, unit))
           end
           local still: mut {Child.Handle} = {}
@@ -837,6 +916,20 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     -- A file whose first variant could not be read has no findings to
     -- keep from the others.
     if out.trouble ~= nil then out.findings = nil end
+  end
+  -- The analyzer's findings join the file's; a run that could not be read fails the file, as a dump that could not does.
+  for j, job in ipairs(jobs) do
+    if job.analyze == true then
+      local result = held_in(results, j)
+      local out = nth(outcomes, job.file)
+      local reported, out_findings = result.findings, out.findings
+      if reported == nil then
+        out.findings = nil
+        out.trouble = out.trouble or ("the analyzer: " .. assert(result.trouble))
+      elseif out_findings ~= nil then
+        for _, f in ipairs(reported) do out_findings[#out_findings + 1] = f end
+      end
+    end
   end
   if is_whole then
     local every: mut {rules.Unit} = {}
