@@ -660,6 +660,9 @@ local record Types
     --- Leave a Reader body unread in `stream` (false: it is read whole
     --- into `body`).
     stream?: boolean
+    --- Where the request comes from: a numeric TCP address, as the server
+    --- names a connection's far end (127.0.0.1, port 50000, by default).
+    peer?: Net.Address
   end
 
   --- A reply as a test client saw it.

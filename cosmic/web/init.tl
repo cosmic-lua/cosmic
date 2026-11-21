@@ -60,6 +60,9 @@ local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local type Json = require("cosmic.json")
 local Types = require("cosmic.web.types")
+-- Only the type: the tailnet middleware, and the client of tailscaled it
+-- carries, load where an app asks for it.
+local type Tailnet = require("cosmic.web.tailnet")
 
 local record Web
   --- What a handler answers: the server's own [`Server.Reply`].
@@ -222,6 +225,19 @@ local record Web
   --- A sink writing lines to standard error: see [`Stack.stderr_sink`].
   stderr_sink: function(name?: string): Types.Sink
 
+  --- Who a request comes from on the tailnet: see [`Tailnet.Identity`].
+  type TailnetIdentity = Tailnet.Identity
+  --- What [`Web.tailnet`] takes: see [`Tailnet.Options`].
+  type TailnetOptions = Tailnet.Options
+  --- Middleware that finds who each request comes from on the tailnet:
+  --- see [`Tailnet.middleware`].
+  tailnet: function(opts?: Tailnet.Options): Types.Middleware
+  --- The identity [`Web.tailnet`] found: see [`Tailnet.identity`].
+  tailnet_identity: function(req: Types.Request): Tailnet.Identity?
+  --- Middleware that refuses a request without a tailnet capability:
+  --- see [`Tailnet.require_cap`].
+  require_cap: function(name: string): Types.Middleware
+
   --- Compiles routes and middleware into an app: see [`App.new`].
   app: function(spec: Types.AppSpec): Types.App
   --- Serves an app until the server stops: see [`App.serve`].
@@ -272,6 +288,15 @@ Web.delete_typed = Typed.delete_typed
 Web.access_log = Stack.access_log
 Web.stderr_sink = Stack.stderr_sink
 Web.app = App.new
+Web.tailnet = function(opts?: Tailnet.Options): Types.Middleware
+  return require("cosmic.web.tailnet").middleware(opts)
+end
+Web.tailnet_identity = function(req: Types.Request): Tailnet.Identity?
+  return require("cosmic.web.tailnet").identity(req)
+end
+Web.require_cap = function(name: string): Types.Middleware
+  return require("cosmic.web.tailnet").require_cap(name)
+end
 Web.serve = App.serve
 Web.test_client = Testing.test_client
 Web.with_client = Testing.with_client
