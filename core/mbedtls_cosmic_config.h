@@ -119,9 +119,9 @@
 #define MBEDTLS_HAVE_TIME
 #define MBEDTLS_HAVE_TIME_DATE
 
-/* The TLS 1.2/1.3 client, and the server under cosmic.net's TLS
- * listeners (core/tls.c), which signs its handshakes with an ECDSA or
- * an RSA key. */
+/* The TLS 1.2/1.3 client, curl's and cosmic.net's (core/tls.c), and
+ * the server under cosmic.net's TLS listeners (core/tls.c), which signs
+ * its handshakes with an ECDSA or an RSA key. */
 #define MBEDTLS_SSL_TLS_C
 #define MBEDTLS_SSL_CLI_C
 #define MBEDTLS_SSL_SRV_C
@@ -153,8 +153,8 @@
  * answered with a no_renegotiation alert, and a server refuses a
  * client's), session tickets and caches (no resumption, either side; a
  * TLS 1.3 NewSessionTicket is read and ignored, and a server sends
- * none), client certificates on a server, file-system loading of CA/CRL/key files (the trust store
- * reaches curl through core/http.c), CRLs, and writing certificates.
+ * none), file-system loading of CA/CRL/key files (the trust store
+ * reaches curl through core/http.c, and core/tls.c as PEM), CRLs, and writing certificates.
  * curl's mbedtls backend guards each of those on the matching macro and
  * reports the option that needs one as not built in
  * (CURLE_NOT_BUILT_IN) rather than ignoring it. */

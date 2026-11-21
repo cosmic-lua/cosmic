@@ -988,6 +988,13 @@ end
 --- A unix path too long to connect to whole is connected to from its
 --- directory, and raises where the process cannot return to its working
 --- directory after. An `address` that is no [`Net.Address`] raises.
+--- With `opts.tls` the connection is answered once its TLS handshake is
+--- done and the server verified; one that fails is closed, and its why
+--- answered.
+---
+---     local client = assert(Tls.client())
+---     local conn = assert(Net.connect(Net.tcp("93.184.215.14", 443),
+---       { tls = client, server_name = "example.com", timeout_ns = Clock.seconds(10) }))
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?, string
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, 2) end
@@ -997,7 +1004,16 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?
   if socket == nil then
     return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
   end
-  return Connection.new(socket, timeout_ns), ""
+  local conn = Connection.new(socket, timeout_ns)
+  local client = if opts ~= nil then opts.tls else nil end
+  if client == nil then return conn, "" end
+  local name = opts and opts.server_name or address.host
+  local secured, why = conn:start_tls(client, name)
+  if not secured then
+    local _, _ = conn:close()
+    return nil, named(address) .. ": " .. why
+  end
+  return conn, ""
 end
 
 resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolved}?, string

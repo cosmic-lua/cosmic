@@ -1,5 +1,6 @@
 #include "tls.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -10,6 +11,7 @@
 
 #include "check.h"
 #include "errnos.h"
+#include "http.h"
 #include "lauxlib.h"
 #include "mbedtls/error.h"
 #include "mbedtls/pk.h"
@@ -29,13 +31,21 @@ struct pair {
   mbedtls_pk_context key;
 };
 
-/* A server's configuration: what every session made of it shares. Its
- * pairs are each initialized when it is made, so its __gc frees all of
- * them however far filling it got. A session holds its configuration
- * as its user value, so the configuration outlives every session of
- * it. */
+/* A configuration, a server's or a client's: what every session made
+ * of it shares. Its pairs and roots are each initialized when it is
+ * made, so its __gc frees all of them however far filling it got. A
+ * session holds its configuration as its user value, so the
+ * configuration outlives every session of it. A server's pairs are
+ * those it presents; a client's, at most one, the certificate it
+ * presents to a server that asks for one. */
 struct config {
   mbedtls_ssl_config conf;
+  /* A client's, rather than a server's. */
+  bool client;
+  /* Whether the peer's certificate is verified against `roots`. */
+  bool verify;
+  /* The roots a peer's chain must lead to; empty where none are. */
+  mbedtls_x509_crt roots;
   int count;
   const char *alpn[alpn_most + 1];
   char alpn_bytes[alpn_most * (name_most + 1)];
@@ -51,9 +61,17 @@ struct session {
   /* The errno a send or a receive last failed with, 0 for none. */
   int failure;
   bool live;
-  /* The name the client asked for (SNI), as it sent it. */
+  /* The name the client asked for (SNI), as it sent it; on a client's
+   * session, the name it asked for. */
   size_t name_size;
   char name[name_most];
+  /* On a client's session to an IP address: the address, which the
+   * server's certificate must name among its IP Subject Alternative
+   * Names, as no name is sent; ip_size 0 otherwise. */
+  size_t ip_size;
+  unsigned char ip[16];
+  /* What the trust store's distrust dates and OneCRL refused. */
+  struct cosmic_distrust_note note;
 };
 
 /* Pushes `code`'s description, as "tls: <words> (-0xNNNN)". */
@@ -75,6 +93,7 @@ static int config_failed (lua_State *L, const char *what, int index,
 }
 
 static void config_free (struct config *c, int capacity) {
+  mbedtls_x509_crt_free(&c->roots);
   for (int i = 0; i < capacity; i++) {
     mbedtls_x509_crt_free(&c->pair[i].chain);
     mbedtls_pk_free(&c->pair[i].key);
@@ -175,12 +194,12 @@ static int chosen (mbedtls_ssl_context *ssl) {
   return 0;
 }
 
-/* Reads pair `index` of the table at argument 1 into `p`: its `cert`,
+/* Reads pair `index` of the table at argument `arg` into `p`: its `cert`,
  * a PEM chain with the leaf first, and its `key`, the leaf's private
  * key, PEM. 0, or the library's failure, with `*what` naming which. */
-static int pair_read (lua_State *L, int index, struct pair *p,
+static int pair_read (lua_State *L, int arg, int index, struct pair *p,
                       const char **what) {
-  if (lua_geti(L, 1, index) != LUA_TTABLE) {
+  if (lua_geti(L, arg, index) != LUA_TTABLE) {
     return luaL_error(L, "tls: pair %d is not a table", index);
   }
   lua_getfield(L, -1, "cert");
@@ -212,36 +231,42 @@ static int pair_read (lua_State *L, int index, struct pair *p,
   return code;
 }
 
-/* config(pairs, alpn?): a server configuration of `pairs`, each a table
- * of `cert` and `key`, PEM, offering the protocols of `alpn` by ALPN;
- * or nil and why, where a pair cannot be read or its key is not its
- * certificate's. TLS 1.2 and 1.3. */
-static int tls_config (lua_State *L) {
-  luaL_checktype(L, 1, LUA_TTABLE);
-  lua_Integer count = luaL_len(L, 1);
-  luaL_argcheck(L, count >= 1 && count <= pairs_most, 1,
-                "one pair or more, and at most 64");
-  int alpn_count = 0;
-  if (!lua_isnoneornil(L, 2)) {
-    luaL_checktype(L, 2, LUA_TTABLE);
-    lua_Integer listed = luaL_len(L, 2);
-    luaL_argcheck(L, listed >= 0 && listed <= alpn_most, 2,
-                  "at most 8 protocols");
-    alpn_count = (int)listed;
-  }
+/* The number of ALPN protocols the table at `arg` lists, at most 8;
+ * 0 where it is nil. Raises on more. */
+static int alpn_counted (lua_State *L, int arg) {
+  if (lua_isnoneornil(L, arg)) return 0;
+  luaL_checktype(L, arg, LUA_TTABLE);
+  lua_Integer listed = luaL_len(L, arg);
+  luaL_argcheck(L, listed >= 0 && listed <= alpn_most, arg,
+                "at most 8 protocols");
+  return (int)listed;
+}
+
+/* A new configuration, on the stack, for `endpoint` (a client's or a
+ * server's), with room for `count` pairs, read from the table at
+ * `pairs_arg`, and the `alpn_count` protocols of the table at
+ * `alpn_arg`. Nil and why on the stack in its place where the library
+ * refuses it, or a pair cannot be read: 2 then, 1 otherwise. Raises on
+ * arguments of the wrong shape. */
+static int config_new (lua_State *L, int endpoint, int pairs_arg, int count,
+                       int alpn_arg, int alpn_count, struct config **made) {
   struct config *c = lua_newuserdatauv(
       L, sizeof *c + (size_t)count * sizeof c->pair[0], 0);
   c->count = 0;
+  c->client = endpoint == MBEDTLS_SSL_IS_CLIENT;
+  c->verify = false;
   mbedtls_ssl_config_init(&c->conf);
-  for (int i = 0; i < (int)count; i++) {
+  mbedtls_x509_crt_init(&c->roots);
+  for (int i = 0; i < count; i++) {
     mbedtls_x509_crt_init(&c->pair[i].chain);
     mbedtls_pk_init(&c->pair[i].key);
   }
-  c->count = (int)count;
+  c->count = count;
   luaL_setmetatable(L, CONFIG_TYPE);
+  *made = c;
   char *bytes = c->alpn_bytes;
   for (int i = 0; i < alpn_count; i++) {
-    lua_geti(L, 2, i + 1);
+    lua_geti(L, alpn_arg, i + 1);
     size_t size;
     const char *name = lua_tolstring(L, -1, &size);
     if (name == NULL || lua_type(L, -1) != LUA_TSTRING || size == 0 ||
@@ -257,7 +282,7 @@ static int tls_config (lua_State *L) {
     lua_pop(L, 1);
   }
   c->alpn[alpn_count] = NULL;
-  int code = mbedtls_ssl_config_defaults(&c->conf, MBEDTLS_SSL_IS_SERVER,
+  int code = mbedtls_ssl_config_defaults(&c->conf, endpoint,
                                          MBEDTLS_SSL_TRANSPORT_STREAM,
                                          MBEDTLS_SSL_PRESET_DEFAULT);
   if (code != 0) {
@@ -267,7 +292,6 @@ static int tls_config (lua_State *L) {
   }
   mbedtls_ssl_conf_min_tls_version(&c->conf, MBEDTLS_SSL_VERSION_TLS1_2);
   mbedtls_ssl_conf_authmode(&c->conf, MBEDTLS_SSL_VERIFY_NONE);
-  mbedtls_ssl_conf_cert_cb(&c->conf, chosen);
   if (alpn_count > 0) {
     code = mbedtls_ssl_conf_alpn_protocols(&c->conf, c->alpn);
     if (code != 0) {
@@ -278,11 +302,78 @@ static int tls_config (lua_State *L) {
   }
   for (int i = 0; i < c->count; i++) {
     const char *what = "";
-    code = pair_read(L, i + 1, &c->pair[i], &what);
+    code = pair_read(L, pairs_arg, i + 1, &c->pair[i], &what);
     if (code != 0) return config_failed(L, what, i + 1, code);
     code = mbedtls_ssl_conf_own_cert(&c->conf, &c->pair[i].chain,
                                      &c->pair[i].key);
     if (code != 0) return config_failed(L, "certificate", i + 1, code);
+  }
+  return 1;
+}
+
+/* config(pairs, alpn?): a server configuration of `pairs`, each a table
+ * of `cert` and `key`, PEM, offering the protocols of `alpn` by ALPN;
+ * or nil and why, where a pair cannot be read or its key is not its
+ * certificate's. TLS 1.2 and 1.3. */
+static int tls_config (lua_State *L) {
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_Integer count = luaL_len(L, 1);
+  luaL_argcheck(L, count >= 1 && count <= pairs_most, 1,
+                "one pair or more, and at most 64");
+  int alpn_count = alpn_counted(L, 2);
+  struct config *c = NULL;
+  int pushed = config_new(L, MBEDTLS_SSL_IS_SERVER, 1, (int)count, 2,
+                          alpn_count, &c);
+  if (pushed != 1) return pushed;
+  mbedtls_ssl_conf_cert_cb(&c->conf, chosen);
+  return 1;
+}
+
+/* client(roots, alpn?, identity?): a client configuration that verifies
+ * a server's chain against the PEM certificates of `roots`, or, where
+ * `roots` is false, verifies nothing; that offers the protocols of
+ * `alpn` by ALPN; and that presents `identity`, a table of `cert` and
+ * `key` as a server's pairs are, to a server that asks for a
+ * certificate. Nil and why where `roots` holds no certificate mbedtls
+ * reads, or the identity cannot be read or its key is not its
+ * certificate's. TLS 1.2 and 1.3. */
+static int tls_client (lua_State *L) {
+  size_t roots_size = 0;
+  const char *roots = NULL;
+  if (lua_type(L, 1) == LUA_TBOOLEAN) {
+    luaL_argcheck(L, !lua_toboolean(L, 1), 1, "PEM roots, or false");
+  } else {
+    roots = luaL_checklstring(L, 1, &roots_size);
+  }
+  int alpn_count = alpn_counted(L, 2);
+  int count = 0;
+  if (!lua_isnoneornil(L, 3)) {
+    luaL_checktype(L, 3, LUA_TTABLE);
+    /* The identity is read as the only pair of a list of one. */
+    lua_createtable(L, 1, 0);
+    lua_pushvalue(L, 3);
+    lua_rawseti(L, -2, 1);
+    lua_replace(L, 3);
+    count = 1;
+  }
+  struct config *c = NULL;
+  int pushed = config_new(L, MBEDTLS_SSL_IS_CLIENT, 3, count, 2, alpn_count,
+                          &c);
+  if (pushed != 1) return pushed;
+  if (roots != NULL) {
+    /* PEM is parsed with its terminating NUL, which a Lua string has. A
+     * positive answer counts certificates it could not read, which are
+     * left out, trusted no more than missing ones. */
+    int code = mbedtls_x509_crt_parse(&c->roots, (const unsigned char *)roots,
+                                      roots_size + 1);
+    if (code < 0 || c->roots.raw.len == 0) {
+      lua_pushnil(L);
+      push_code(L, "the roots", code < 0 ? code : MBEDTLS_ERR_X509_INVALID_FORMAT);
+      return 2;
+    }
+    c->verify = true;
+    mbedtls_ssl_conf_ca_chain(&c->conf, &c->roots, NULL);
+    mbedtls_ssl_conf_authmode(&c->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
   }
   return 1;
 }
@@ -406,6 +497,67 @@ static struct session *checked_session (lua_State *L) {
   return s;
 }
 
+/* Pushes why the peer's chain was refused: each reason mbedtls gives,
+ * and what the trust store's distrust dates or OneCRL said. */
+static void push_unverified (lua_State *L, struct session *s) {
+  uint32_t flags = mbedtls_ssl_get_verify_result(&s->ssl);
+  char info[512];
+  int size = mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
+  if (size < 0) size = 0;
+  /* One line a reason, the last ended too: joined with "; ". */
+  while (size > 0 && info[size - 1] == '\n') info[--size] = '\0';
+  for (int i = 0; i < size; i++) {
+    if (info[i] == '\n') info[i] = ';';
+  }
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addstring(&b, "tls: the peer's certificate is not trusted: ");
+  for (int i = 0; i < size; i++) {
+    luaL_addchar(&b, info[i]);
+    if (info[i] == ';') luaL_addchar(&b, ' ');
+  }
+  if (size == 0) luaL_addstring(&b, "its chain does not verify");
+  if (s->note.revoked[0] != '\0') {
+    luaL_addstring(&b, "; the certificate ");
+    luaL_addstring(&b, s->note.revoked);
+    luaL_addstring(&b, " is revoked by Mozilla's OneCRL");
+  }
+  if (s->note.distrusted[0] != '\0') {
+    luaL_addstring(&b, "; ");
+    luaL_addstring(&b, s->note.distrusted);
+  }
+  luaL_pushresult(&b);
+}
+
+/* Whether an IP Subject Alternative Name of `crt` is the `size` bytes
+ * of `ip`. */
+static bool names_ip (const mbedtls_x509_crt *crt, const unsigned char *ip,
+                      size_t size) {
+  for (const mbedtls_x509_sequence *san = &crt->subject_alt_names;
+       san != NULL && san->buf.p != NULL; san = san->next) {
+    if (san->buf.tag ==
+            (MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_X509_SAN_IP_ADDRESS) &&
+        san->buf.len == size && memcmp(san->buf.p, ip, size) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* mbedtls's verify callback, for each certificate of a chain it
+ * verifies, the root first: adds what the trust store's distrust dates
+ * and OneCRL refuse, and, on a client's session to an IP address, that
+ * the server's own certificate does not name it. */
+static int verified (void *context, mbedtls_x509_crt *crt, int depth,
+                     uint32_t *flags) {
+  struct session *s = context;
+  *flags |= cosmic_roots_distrust(crt, depth, &s->note);
+  if (depth == 0 && s->ip_size > 0 && !names_ip(crt, s->ip, s->ip_size)) {
+    *flags |= MBEDTLS_X509_BADCERT_CN_MISMATCH;
+  }
+  return 0;
+}
+
 /* What a call that did not finish answers in its third value. */
 enum { stop_failed = 0, stop_read = 1, stop_write = 2, stop_ended = 3 };
 
@@ -423,6 +575,9 @@ static int unfinished (lua_State *L, struct session *s, int code,
   int stop = stop_failed;
   switch (code) {
     case MBEDTLS_ERR_SSL_WANT_READ:
+    /* A TLS 1.3 server's ticket is read and set aside: a session is
+     * never resumed. */
+    case MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET:
     stop = stop_read;
     break;
     case MBEDTLS_ERR_SSL_WANT_WRITE:
@@ -437,6 +592,8 @@ static int unfinished (lua_State *L, struct session *s, int code,
   }
   if (stop != stop_failed) {
     lua_pushliteral(L, "");
+  } else if (code == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
+    push_unverified(L, s);
   } else if (s->failure != 0) {
     int failure = s->failure;
     s->failure = 0;
@@ -448,12 +605,29 @@ static int unfinished (lua_State *L, struct session *s, int code,
   return 3;
 }
 
-/* session(config, fd): a server session of `config` over the accepted
- * socket `fd`, which it does not own. Nil and why where the library
- * cannot set one up. */
+/* session(config, fd, server_name?): a session of `config` over the
+ * socket `fd`, which it does not own: a server's over an accepted
+ * socket, or a client's over a connected one. A client's asks for
+ * `server_name` (SNI) and verifies that the server's certificate names
+ * it, where its configuration verifies; an IP address is asked for by
+ * no name, and must be among the certificate's IP Subject Alternative
+ * Names. Nil and why where the library cannot set one up. Raises on a
+ * client's verifying session with no `server_name`, or a name of a NUL
+ * or more than 255 bytes. */
 static int tls_session (lua_State *L) {
   struct config *c = luaL_checkudata(L, 1, CONFIG_TYPE);
   int fd = cosmic_checkfd(L, 2);
+  size_t name_size = 0;
+  const char *name = luaL_optlstring(L, 3, NULL, &name_size);
+  if (c->client) {
+    luaL_argcheck(L, name != NULL || !c->verify, 3,
+                  "a server name, which a client that verifies needs");
+    luaL_argcheck(L, name == NULL || (name_size >= 1 && name_size <= name_most &&
+                                      memchr(name, '\0', name_size) == NULL),
+                  3, "1 to 255 bytes, no NUL");
+  } else {
+    luaL_argcheck(L, name == NULL, 3, "none, on a server's session");
+  }
   struct session *s = lua_newuserdatauv(L, sizeof *s, 1);
   mbedtls_ssl_init(&s->ssl);
   s->config = c;
@@ -461,6 +635,9 @@ static int tls_session (lua_State *L) {
   s->failure = 0;
   s->live = true;
   s->name_size = 0;
+  s->ip_size = 0;
+  s->note.revoked[0] = '\0';
+  s->note.distrusted[0] = '\0';
   luaL_setmetatable(L, SESSION_TYPE);
   lua_pushvalue(L, 1);
   lua_setiuservalue(L, -2, 1);
@@ -472,6 +649,31 @@ static int tls_session (lua_State *L) {
   }
   mbedtls_ssl_set_user_data_p(&s->ssl, s);
   mbedtls_ssl_set_bio(&s->ssl, s, bio_send, bio_recv, NULL);
+  mbedtls_ssl_set_verify(&s->ssl, verified, s);
+  if (c->client) {
+    const char *asked = name;
+    if (name != NULL) {
+      memcpy(s->name, name, name_size);
+      s->name_size = name_size;
+      /* An address is sent as no name (RFC 6066 3), and checked by
+       * `verified`: mbedtls would send it, and match it as a DNS name. */
+      if (strchr(name, ':') == NULL && inet_pton(AF_INET, name, s->ip) == 1) {
+        s->ip_size = 4;
+        asked = NULL;
+      } else if (inet_pton(AF_INET6, name, s->ip) == 1) {
+        s->ip_size = 16;
+        asked = NULL;
+      }
+    }
+    /* Called with NULL too: mbedtls then checks no name, rather than
+     * refusing to verify without one. */
+    code = mbedtls_ssl_set_hostname(&s->ssl, asked);
+    if (code != 0) {
+      lua_pushnil(L);
+      push_code(L, "the server name", code);
+      return 2;
+    }
+  }
   return 1;
 }
 
@@ -529,12 +731,83 @@ static int session_close_notify (lua_State *L) {
   return 1;
 }
 
+/* Pushes the Subject Alternative Names of `crt` whose tag is `tag`,
+ * as a list: each as the certificate holds it, an IP address in its
+ * text form. */
+static void push_sans (lua_State *L, const mbedtls_x509_crt *crt, int tag) {
+  lua_newtable(L);
+  int count = 0;
+  for (const mbedtls_x509_sequence *san = &crt->subject_alt_names;
+       san != NULL && san->buf.p != NULL; san = san->next) {
+    if (san->buf.tag != (MBEDTLS_ASN1_CONTEXT_SPECIFIC | tag)) continue;
+    if (tag == MBEDTLS_X509_SAN_IP_ADDRESS) {
+      char text[64];
+      int family = san->buf.len == 4 ? AF_INET : AF_INET6;
+      if ((san->buf.len != 4 && san->buf.len != 16) ||
+          inet_ntop(family, san->buf.p, text, sizeof text) == NULL) {
+        continue;
+      }
+      lua_pushstring(L, text);
+    } else {
+      lua_pushlstring(L, (const char *)san->buf.p, san->buf.len);
+    }
+    lua_rawseti(L, -2, ++count);
+  }
+}
+
+/* Pushes the distinguished name `dn` as mbedtls words it
+ * ("CN=example.com, O=Example"), or "" where it cannot. */
+static void push_dn (lua_State *L, const mbedtls_x509_name *dn) {
+  char words[1024];
+  if (mbedtls_x509_dn_gets(words, sizeof words, dn) < 0) words[0] = '\0';
+  lua_pushstring(L, words);
+}
+
+/* Pushes what the peer's certificate `crt` says of itself, as
+ * cosmic/internal/tls.d.tl's Peer. */
+static void push_peer (lua_State *L, struct session *s,
+                       const mbedtls_x509_crt *crt) {
+  lua_createtable(L, 0, 12);
+  lua_pushlstring(L, (const char *)crt->raw.p, crt->raw.len);
+  lua_setfield(L, -2, "der");
+  lua_pushlstring(L, (const char *)crt->pk_raw.p, crt->pk_raw.len);
+  lua_setfield(L, -2, "public_key");
+  push_dn(L, &crt->subject);
+  lua_setfield(L, -2, "subject");
+  push_dn(L, &crt->issuer);
+  lua_setfield(L, -2, "issuer");
+  char serial[128];
+  if (mbedtls_x509_serial_gets(serial, sizeof serial, &crt->serial) < 0) {
+    serial[0] = '\0';
+  }
+  lua_pushstring(L, serial);
+  lua_setfield(L, -2, "serial");
+  push_sans(L, crt, MBEDTLS_X509_SAN_DNS_NAME);
+  lua_setfield(L, -2, "names");
+  push_sans(L, crt, MBEDTLS_X509_SAN_IP_ADDRESS);
+  lua_setfield(L, -2, "addresses");
+  push_sans(L, crt, MBEDTLS_X509_SAN_UNIFORM_RESOURCE_IDENTIFIER);
+  lua_setfield(L, -2, "uris");
+  push_sans(L, crt, MBEDTLS_X509_SAN_RFC822_NAME);
+  lua_setfield(L, -2, "emails");
+  lua_pushinteger(L, unix_seconds(&crt->valid_from));
+  lua_setfield(L, -2, "not_before");
+  lua_pushinteger(L, unix_seconds(&crt->valid_to));
+  lua_setfield(L, -2, "not_after");
+  /* Verified only where the configuration asked, and the chain passed:
+   * a configuration that verifies nothing reports a peer unverified. */
+  bool checked = s->config->verify &&
+                 mbedtls_ssl_get_verify_result(&s->ssl) == 0;
+  lua_pushboolean(L, checked);
+  lua_setfield(L, -2, "verified");
+}
+
 /* info(): the version the handshake settled on ("TLSv1.3"), the
- * protocol ALPN chose, and the name the client asked for, the last two
- * nil where there is none. */
+ * protocol ALPN chose, the name the client asked for, and what the
+ * peer's certificate says, the last three nil where there is none. */
 static int session_info (lua_State *L) {
   struct session *s = checked_session(L);
-  lua_createtable(L, 0, 3);
+  lua_createtable(L, 0, 4);
   lua_pushstring(L, mbedtls_ssl_get_version(&s->ssl));
   lua_setfield(L, -2, "version");
   const char *alpn = mbedtls_ssl_get_alpn_protocol(&s->ssl);
@@ -545,6 +818,11 @@ static int session_info (lua_State *L) {
   if (s->name_size > 0) {
     lua_pushlstring(L, s->name, s->name_size);
     lua_setfield(L, -2, "server_name");
+  }
+  const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&s->ssl);
+  if (peer != NULL && peer->raw.len > 0) {
+    push_peer(L, s, peer);
+    lua_setfield(L, -2, "peer");
   }
   return 1;
 }
@@ -575,6 +853,7 @@ static const luaL_Reg session_methods[] = {
 
 static const luaL_Reg module[] = {
   {"config", tls_config},
+  {"client", tls_client},
   {"session", tls_session},
   {"leaf", tls_leaf},
   {NULL, NULL},
