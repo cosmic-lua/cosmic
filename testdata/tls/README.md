@@ -8,9 +8,15 @@ Certificates for the tests of [`cosmic.tls`] and the TLS listeners of
 - `b.pem`, `b.key`: an RSA 2048 leaf for `b.test` and the IP address
   127.0.0.1.
 - `c.pem`: `a.key`'s leaf again, valid only in January 2020, so expired.
+- `client-ca.pem`: a P-256 CA, "cosmic test client CA", the root a
+  server that asks for client certificates trusts.
+- `client.pem`, `client.key`: a P-256 client leaf it signed, "cosmic
+  test client", for the URI `spiffe://cosmic.test/client` and the email
+  `client@cosmic.test`, for client authentication alone.
 
 Each leaf is signed by the CA and valid from 2026-01-01 to 2126-01-01
-but `c.pem`. They were made with OpenSSL 3.0:
+but `c.pem`. They were made with OpenSSL 3.0 (the client's as the
+second block shows, with `ca.cnf` copying no extensions):
 
 ```sh
 openssl ecparam -name prime256v1 -genkey -noout -out ca.key
@@ -29,6 +35,17 @@ openssl ca -batch -config ca.cnf -cert ca.pem -keyfile ca.key -in b.csr -extfile
   -startdate 20260101000000Z -enddate 21260101000000Z -out b.pem
 openssl ca -batch -config ca.cnf -cert ca.pem -keyfile ca.key -in a.csr -extfile a.ext -notext \
   -startdate 20200101000000Z -enddate 20200201000000Z -out c.pem
+```
+
+```sh
+openssl ecparam -name prime256v1 -genkey -noout -out client-ca.key
+openssl req -x509 -new -key client-ca.key -sha256 -days 36500 -subj "/CN=cosmic test client CA" \
+  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign" -out client-ca.pem
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out client.key
+openssl req -new -key client.key -subj "/CN=cosmic test client" -out client.csr
+printf 'subjectAltName=URI:spiffe://cosmic.test/client,email:client@cosmic.test\nbasicConstraints=CA:FALSE\nextendedKeyUsage=clientAuth\n' > client.ext
+openssl ca -batch -config ca.cnf -cert client-ca.pem -keyfile client-ca.key -in client.csr -extfile client.ext -notext \
+  -startdate 20260101000000Z -enddate 21260101000000Z -out client.pem
 ```
 
 [`cosmic.net`]: ../../cosmic/net.tl

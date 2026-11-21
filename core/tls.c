@@ -316,10 +316,36 @@ static int config_new (lua_State *L, int endpoint, int pairs_arg, int count,
   return 1;
 }
 
-/* config(pairs, alpn?): a server configuration of `pairs`, each a table
- * of `cert` and `key`, PEM, offering the protocols of `alpn` by ALPN;
- * or nil and why, where a pair cannot be read or its key is not its
- * certificate's. TLS 1.2 and 1.3. */
+/* Parses the PEM certificates `pem` into `c`'s roots, and verifies the
+ * peer against them, asking for its certificate as `authmode` says.
+ * Nil and why on the stack, and 2, where `pem` holds no certificate
+ * mbedtls reads; 0 otherwise. A certificate it cannot read is left
+ * out, trusted no more than a missing one. */
+static int roots_set (lua_State *L, struct config *c, const char *pem,
+                      size_t size, int authmode) {
+  /* PEM is parsed with its terminating NUL, which a Lua string has. */
+  int code = mbedtls_x509_crt_parse(&c->roots, (const unsigned char *)pem,
+                                    size + 1);
+  if (code < 0 || c->roots.raw.len == 0) {
+    lua_pushnil(L);
+    push_code(L, "the roots", code < 0 ? code : MBEDTLS_ERR_X509_INVALID_FORMAT);
+    return 2;
+  }
+  c->verify = true;
+  mbedtls_ssl_conf_ca_chain(&c->conf, &c->roots, NULL);
+  mbedtls_ssl_conf_authmode(&c->conf, authmode);
+  return 0;
+}
+
+/* config(pairs, alpn?, clients?, required?): a server configuration of
+ * `pairs`, each a table of `cert` and `key`, PEM, offering the
+ * protocols of `alpn` by ALPN; with `clients`, PEM roots, it asks each
+ * client for a certificate and verifies one against them, refusing a
+ * client that presents none or one that does not verify where
+ * `required`, and otherwise going on with the session, its peer
+ * unverified. Nil and why, where a pair cannot be read or its key is
+ * not its certificate's, or `clients` holds no certificate. TLS 1.2
+ * and 1.3. */
 static int tls_config (lua_State *L) {
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_Integer count = luaL_len(L, 1);
@@ -327,10 +353,19 @@ static int tls_config (lua_State *L) {
                 "one pair or more, and at most 64");
   int alpn_count = alpn_counted(L, 2);
   struct config *c = NULL;
+  size_t clients_size = 0;
+  const char *clients = luaL_optlstring(L, 3, NULL, &clients_size);
+  bool required = lua_toboolean(L, 4);
   int pushed = config_new(L, MBEDTLS_SSL_IS_SERVER, 1, (int)count, 2,
                           alpn_count, &c);
   if (pushed != 1) return pushed;
   mbedtls_ssl_conf_cert_cb(&c->conf, chosen);
+  if (clients != NULL) {
+    pushed = roots_set(L, c, clients, clients_size,
+                       required ? MBEDTLS_SSL_VERIFY_REQUIRED
+                                : MBEDTLS_SSL_VERIFY_OPTIONAL);
+    if (pushed != 0) return pushed;
+  }
   return 1;
 }
 
@@ -366,19 +401,8 @@ static int tls_client (lua_State *L) {
                           &c);
   if (pushed != 1) return pushed;
   if (roots != NULL) {
-    /* PEM is parsed with its terminating NUL, which a Lua string has. A
-     * positive answer counts certificates it could not read, which are
-     * left out, trusted no more than missing ones. */
-    int code = mbedtls_x509_crt_parse(&c->roots, (const unsigned char *)roots,
-                                      roots_size + 1);
-    if (code < 0 || c->roots.raw.len == 0) {
-      lua_pushnil(L);
-      push_code(L, "the roots", code < 0 ? code : MBEDTLS_ERR_X509_INVALID_FORMAT);
-      return 2;
-    }
-    c->verify = true;
-    mbedtls_ssl_conf_ca_chain(&c->conf, &c->roots, NULL);
-    mbedtls_ssl_conf_authmode(&c->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    pushed = roots_set(L, c, roots, roots_size, MBEDTLS_SSL_VERIFY_REQUIRED);
+    if (pushed != 0) return pushed;
   }
   return 1;
 }
