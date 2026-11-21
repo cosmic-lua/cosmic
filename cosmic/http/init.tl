@@ -26,6 +26,15 @@
 --- To call a rate-limited API in a loop, with [`Http.Options.retry`] and
 --- [`Http.Options.pace`], see [the rate-limit guide](../../doc/guides/http-pacing.md).
 ---
+--- In a task of [`Poll.run`] -- a server's handler, say -- a request waits
+--- through the run, as [`cosmic.net`] waits: the other tasks go on
+--- while it waits for the server, so a handler that calls another
+--- service stalls no other connection, and a request to this program's
+--- own server is answered. A cancelled task's request ends with
+--- [`Poll.CANCELLED`], and, as in [`cosmic.net`], a signal does not end
+--- one. Anywhere else a request holds the thread until it is answered,
+--- or a signal the innermost [`Signal.guard`] caught ends it.
+---
 --- The server is [`cosmic.http.server`], apart from this client so that a
 --- program that only fetches does not carry the networking stack a
 --- server needs.
@@ -36,6 +45,7 @@ local Compress = require("cosmic.compress")
 local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
 local Innermost = require("cosmic.internal.innermost_guard")
+local Poll = require("cosmic.poll")
 local Store = require("cosmic.store")
 
 -- The raw module behind this one lives under the reserved
@@ -51,6 +61,31 @@ local Stream = require("cosmic.stream")
 -- not load it.
 local type Net = require("cosmic.net")
 
+--- The longest one wait through a run for the shared transfers lasts
+--- before they are pumped again, as the core's own wait does.
+local PUMP_MOST_NS <const> = 1000000000
+
+--- In a task of [`Poll.run`]: waits through the run, the other tasks
+--- going on, until a shared transfer has something to do or curl's
+--- timers come due, and then does it. False and [`Poll.CANCELLED`]
+--- once the task is cancelled, or false and the failure of curl's
+--- multi handle.
+local function pump(): boolean, string
+  local fds, events, ms = http.pump_fds()
+  local wait = if ms < 0 then PUMP_MOST_NS else math.min(ms * 1000000, PUMP_MOST_NS) end
+  if #fds > 0 then
+    local _, why = Poll.ready(fds, events, wait)
+    if why == Poll.CANCELLED then return false, why end
+  else
+    -- A wait of 0 too, so a loop of pumps lets the other tasks run.
+    local waited, why = Poll.delay(wait)
+    if not waited then return false, why end
+  end
+  local pumped, why = http.pump()
+  if pumped == nil then return false, why end
+  return true, ""
+end
+
 --- The body of a curl handle, which it owns.
 local class HandleReader is Stream.Reader -- declared: interface_disagrees
   handle: raw_http.Handle
@@ -58,6 +93,14 @@ local class HandleReader is Stream.Reader -- declared: interface_disagrees
 
   function read(self, max_bytes?: integer): string?, string
     if self.closed then return nil, "http: the response is closed" end
+    if Poll.in_task() then
+      while self.handle:waiting() do
+        local pumped, why = pump()
+        if not pumped then return nil, why end
+        -- Another task may close the response while this one waits.
+        if self.closed then return nil, "http: the response is closed" end
+      end
+    end
     return self.handle:read(max_bytes)
   end
 
@@ -1076,6 +1119,8 @@ local function raw_options(given: Http.Options, method?: string,
     script = script,
     pin = pin_of(opts),
     ca_blob = blob,
+    -- In a task the run waits for the headers ([`opened`]), not curl.
+    wait = not Poll.in_task(),
   }, ""
 end
 
@@ -1187,12 +1232,15 @@ end
 -- The longest stretch a wait sleeps before asking the guard again.
 local PAUSE_SLICE <const> = 100 * MS
 
---- Sleeps `ns`, in slices, and answers false as soon as the innermost open
---- [`Signal.guard`] catches a signal or closes during it, or `cancelled`
---- answers true, asked before the wait and after each slice. A signal
---- caught before the wait began is not one: the stamp is taken when it starts.
-local function pause(ns: integer, cancelled: (function(): boolean)?): boolean
-  if cancelled ~= nil and cancelled() then return false end
+--- Waits `ns`, in slices: true and "" once it has, or false and
+--- "interrupted" as soon as the innermost open [`Signal.guard`] catches a
+--- signal or closes during it, or `cancelled` answers true, asked before
+--- the wait and after each slice. A signal caught before the wait began
+--- is not one: the stamp is taken when it starts. In a task the other
+--- tasks go on meanwhile, and a cancelled task's pause answers false and
+--- [`Poll.CANCELLED`].
+local function pause(ns: integer, cancelled: (function(): boolean)?): boolean, string
+  if cancelled ~= nil and cancelled() then return false, "interrupted" end
   local guard = Innermost.active()
   local stamp = 0
   if guard ~= nil then
@@ -1200,29 +1248,42 @@ local function pause(ns: integer, cancelled: (function(): boolean)?): boolean
     stamp = guard.state.read
   end
   local began = Clock.monotonic_ns()
+  local in_task = Poll.in_task()
   while true do
     local left = ns - (Clock.monotonic_ns() - began)
-    if left <= 0 then return true end
-    local slept, _ = Clock.sleep_ns(math.min(left, PAUSE_SLICE))
+    if left <= 0 then return true, "" end
+    local slice = math.min(left, PAUSE_SLICE)
+    if in_task then
+      local waited, why = Poll.delay(slice)
+      if not waited then return false, why end
+    end
+    local slept = true
+    if not in_task then
+      local done, _ = Clock.sleep_ns(slice)
+      slept = done
+    end
     if guard ~= nil then
       local _ = guard:cancelled()
-      if guard.state.closed or guard.state.read ~= stamp then return false end
+      if guard.state.closed or guard.state.read ~= stamp then return false, "interrupted" end
     end
-    if cancelled ~= nil and cancelled() then return false end
-    if not slept then return true end
+    if cancelled ~= nil and cancelled() then return false, "interrupted" end
+    if not slept then return true, "" end
   end
 end
 
 --- Waits out what is left of `pacer`'s interval since its last start, ending
---- as [`pause`] does, then marks now as its start. False, and no start
---- marked, when the wait was cut short.
-local function take_turn(pacer: PacerObject, cancelled: (function(): boolean)?): boolean
+--- as [`pause`] does, then marks now as its start. False and why, and no
+--- start marked, when the wait was cut short.
+local function take_turn(pacer: PacerObject, cancelled: (function(): boolean)?): boolean, string
   if pacer.started then
     local left = pacer.interval_ns - (Clock.monotonic_ns() - pacer.last_ns)
-    if left > 0 and not pause(left, cancelled) then return false end
+    if left > 0 then
+      local waited, why = pause(left, cancelled)
+      if not waited then return false, why end
+    end
   end
   pacer.started, pacer.last_ns = true, Clock.monotonic_ns()
-  return true
+  return true, ""
 end
 
 --- Raises, blaming the caller of a public entry point, where `opts` is
@@ -1256,10 +1317,26 @@ local function opened(url: string, opts: Http.Options, method: string?): Respons
   -- connection of the one before.
   local first = 1
   while true do
-    if pacer ~= nil and not take_turn(pacer, cancelled) then
-      return nil, "interrupted"
+    if pacer ~= nil then
+      local turned, why = take_turn(pacer, cancelled)
+      if not turned then return nil, why end
     end
     local handle, trouble, code = http.open(url, raw)
+    if handle ~= nil and raw.wait == false then
+      -- Opened with `wait = false`: the run waits for the final headers.
+      local waited, why = true, ""
+      while waited and not handle:ready() do waited, why = pump() end
+      if not waited then
+        handle:close()
+        handle, trouble, code = nil, why, nil
+      else
+        local settled, failure, failed = handle:settled()
+        if settled == nil then
+          handle:close()
+          handle, trouble, code = nil, failure, failed
+        end
+      end
+    end
     if handle == nil then
       if opts.via ~= nil then
         return nil, socket_trouble(opts.via, trouble, code)
@@ -1272,8 +1349,9 @@ local function opened(url: string, opts: Http.Options, method: string?): Respons
       if wait <= policy.max_wait_ns then
         first = first + handle:connections()
         handle:close()
-        if (wait > 0 or cancelled ~= nil) and not pause(wait, cancelled) then
-          return nil, "interrupted"
+        if wait > 0 or cancelled ~= nil then
+          local waited, why = pause(wait, cancelled)
+          if not waited then return nil, why end
         end
         again = true
       end

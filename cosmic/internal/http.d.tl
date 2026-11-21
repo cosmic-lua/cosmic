@@ -32,6 +32,17 @@ local record http
     -- one per connection it opened, a followed redirect's included; 0
     -- for a transfer over the network.
     connections: function(Handle): integer
+    -- Whether the final response's headers are known, or the transfer
+    -- is over: an `open` with `wait = false` is pumped until it is.
+    ready: function(Handle): boolean
+    -- Once ready: true and "", or, where the transfer failed before any
+    -- header arrived, nil, why and the failure's code, as a waiting
+    -- `open` answers.
+    settled: function(Handle): boolean?, string, string?
+    -- Whether `read` would pump before it answered: no body held and
+    -- the transfer not over. A paused transfer is resumed first, as
+    -- `read` resumes it.
+    waiting: function(Handle): boolean
     close: function(Handle)
   end
 
@@ -46,6 +57,10 @@ local record http
     body?: string
     -- Whether to follow redirects; true by default.
     follow?: boolean
+    -- Whether `open` waits for the headers itself; true by default.
+    -- False answers the handle at once, for a caller that waits
+    -- through [`pump_fds`] and [`pump`] until `ready`, then `settled`.
+    wait?: boolean
     -- The most redirects followed, 10 by default.
     max_redirects?: integer
     -- The schemes a redirect may lead to, "http" and "https" by default.
@@ -106,6 +121,15 @@ local record http
   -- also returns a third value naming the failure: "couldnt_connect"
   -- when it could not connect, "failed" for any other.
   open: function(url: string, opts?: Options): Handle?, string, string?
+
+  -- What the shared transfers wait on, for a caller that waits itself:
+  -- the descriptors, the poll(2) events of each, and how long curl's
+  -- timers let it wait, in milliseconds (-1: no limit).
+  pump_fds: function(): {integer}, {integer}, integer
+
+  -- Does what the shared transfers have to do now, without waiting:
+  -- true and "", or nil and the failure of curl's multi handle.
+  pump: function(): boolean?, string
 
   -- The trust store `open` verifies a server against when given no
   -- `ca_blob`, made the first time it is wanted, and "", or `nil, err`
