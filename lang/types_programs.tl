@@ -112,7 +112,10 @@ function Programs.fixture(store: Types.Store): Programs.Fixture
     tparams = {}, supers = { reader }, fields = { { name = "path", type = store.string },
       { name = "open", type = store.boolean, mut = true } }, values = {},
     methods = { { name = "close", type = store:fn({ params = { { type = file } },
-      rets = { { items = { store.boolean } } } }) } },
+      rets = { { items = { store.boolean } } } }) }, { name = "read", type = store:fn({
+        params = { { type = file }, { type = store.integer, omittable = true } },
+        rets = { { items = { store:optional(store.string) } }, { items = { store.never } } },
+      }) } },
   })
   for _, name in ipairs({ "T", "T_1" }) do
     store:define(declared(d, name), { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} })

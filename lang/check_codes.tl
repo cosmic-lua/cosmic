@@ -419,10 +419,11 @@ Codes.catalog = {
   },
   {
     code = "bound_unmet", rule = "generic bodies compare, pass and store",
-    why = "a type parameter bounded by an interface (`T is Shape`) takes only the types that list it, since the body " ..
-      "does with a `T` only what the interface declares; a type conforms to an interface only by listing it. `Ordered` " ..
-      "takes a number type or a string type, and `Numeric` `integer` or `number`, for the operators the body applies",
-    fix = "list the interface in the declaration of <type> (`is <interface>`), or pass a type that does",
+    why = "a type parameter bounded by an interface (`T is Shape`) takes only the types that conform to it, since the " ..
+      "body does with a `T` only what the interface declares; a type conforms by having each field of the interface as " ..
+      "it declares them (of exactly its type, `mut` and omittable alike), or by listing it. `Ordered` takes a number " ..
+      "type or a string type, and `Numeric` `integer` or `number`, for the operators the body applies",
+    fix = "declare the interface's fields in <type>, or pass a type that has them",
   },
   {
     code = "return_arity", rule = "returns are checked against the declared list",

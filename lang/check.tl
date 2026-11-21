@@ -1258,8 +1258,21 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
           " where it is declared, or declare what takes it `number` (`local " .. target.text .. ": number = " .. start .. "`)"
       end
     elseif code == "not_listed" then
-      fix = "list the interface in the declaration of " .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " with `is " ..
-        Types.display(r.super, ctx.binders, ctx.fn_names) .. "`: a type conforms to an interface only by listing it"
+      local sub = quoted(Types.display(r.sub, ctx.binders, ctx.fn_names))
+      local field = r.field
+      if field ~= nil then
+        -- A type conforms to an interface by having each of its fields as the interface declares them.
+        local written = (if field.mut == true then "mut " else "" end) .. field.name ..
+          (if field.omittable == true then "?" else "" end) .. ": " ..
+          Types.display(if field.omittable == true then ctx.store:non_nil(field.type) else field.type end, ctx.binders,
+            ctx.fn_names)
+        leaf = leaf .. " (" .. sub .. (if r.has_name == true then " has `" .. field.name .. "`, but not as " else
+          " has no field " end) .. quoted(written) .. ", which " .. quoted(Types.display(r.super, ctx.binders,
+            ctx.fn_names)) .. " declares)"
+        fix = "declare `" .. written .. "` in " .. sub .. ", as the interface does, or pass a value that has it"
+      else
+        fix = "pass a record, class or interface that has the interface's fields, or one that lists it with `is`"
+      end
     elseif code == "may_return" then
       fix = "declare the function `: never` and end it with `error`, or pass a function that returns"
     end
@@ -3131,10 +3144,10 @@ local function subsume(ctx: Ctx, t: Type): Type
     return t
   end
   local members = members_of(ctx.store, t)
-  -- A record or a class is nominal: it is below another named type only when that is an interface it lists, or its own
-  -- declaration ([`lang.relation`]). Members that are all records and classes of declarations apart (a tagged union
-  -- is one), and `nil`, are below none of each other, and the pairs need not be asked: for a union of many members
-  -- that is all the cost of a join, and a left fold of joins asks every pair of every union it makes.
+  -- A record or a class is below another record or class only when that is its own declaration ([`lang.relation`]).
+  -- Members that are all records and classes of declarations apart (a tagged union is one), and `nil`, are below none
+  -- of each other, and the pairs need not be asked: for a union of many members that is all the cost of a join, and a
+  -- left fold of joins asks every pair of every union it makes.
   local declared: mut {Decl: boolean} = {}
   local apart = true
   for _, m in ipairs(members) do
@@ -5181,6 +5194,7 @@ local record Calls
     Literals.Call?
   literal_text: function(ctx: Ctx, e: Ast.Node): string?
   library_value: function(ctx: Ctx, e: Ast.Node): string?
+  lacking: function(ctx: Ctx, held: Type, bound: Type): string?
   kind_type: function(ctx: Ctx, kind: string): Type
   refine: function(ctx: Ctx, call: Literals.Call, f: Fn): Fn
   refine_overloads: function(ctx: Ctx, call: Literals.Call, list: {Type}): {Type}
@@ -5253,8 +5267,17 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prep
   return prep
 end
 
---- `t`, a type written in the generic function `declared` (a parameter of it), as a program writes it: the type
---- parameters of the function have their letters.
+--- The field of the interface `bound` that `held` lacks, as the interface declares it (`mut name?: T`), or nil.
+function Calls.lacking(ctx: Ctx, held: Type, bound: Type): string?
+  local r = ctx.judge:refuse(held, bound)
+  local field = if r ~= nil then r.field else nil end
+  if field == nil then
+    return nil
+  end
+  return (if field.mut == true then "mut " else "" end) .. field.name .. (if field.omittable == true then "?" else "" end) ..
+    ": " .. show(ctx, if field.omittable == true then ctx.store:non_nil(field.type) else field.type end)
+end
+
 --- The name of the type parameter at `index` (from 1) of the callee `declared`, as its author wrote it where that name
 --- is free, or its letter.
 function Calls.parameter_name(ctx: Ctx, declared: Fn, index: integer): string
@@ -5417,6 +5440,9 @@ function Calls.hooks(ctx: Ctx): Generics.Hooks
     end,
     listed = function(n: Named): {Type}
       return ctx.judge:listed(n).types
+    end,
+    fields = function(pattern: Named, actual: Named): {Type}?
+      return Relation.field_pairs(ctx.judge, pattern, actual)
     end,
     array_part = function(n: Named): Type?
       local index = members_index(ctx, n.decl, false)
@@ -5657,10 +5683,12 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     local held = given[i]
     if bound ~= nil and held.tag ~= "invalid" and not below(ctx, held, bound) then -- checked: nil_not_allowed
       local builtin = Types.builtin_bound(bound)
+      local lacking = Calls.lacking(ctx, held, bound)
       local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
         ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) ..
-        (if not builtin then " does not list it" elseif bound.tag == "Numeric" then " is not `integer` or `number`" else
-          " is not a type whose values are all numbers or all strings" end)
+        (if builtin then (if bound.tag == "Numeric" then " is not `integer` or `number`" else
+          " is not a type whose values are all numbers or all strings" end) elseif lacking ~= nil then
+          " has no field " .. quoted(lacking) .. " as it declares" else " neither lists it nor has its fields" end)
       problems[#problems + 1] = msg
       if loud and builtin then
         report(ctx, "bound_unmet", node, msg,
@@ -5672,8 +5700,10 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         local declarable = held.tag == "var" or (held.tag == "named" and (held.decl.kind == "record" or
           held.decl.kind == "class" or held.decl.kind == "interface"))
         report(ctx, "bound_unmet", node, msg,
-          (if declarable then "list the interface in the declaration of " .. tq(ctx, held) .. " (`is " .. show(ctx, bound) ..
-              "`), or pass a type that does" else "pass a type that lists `is " .. show(ctx, bound) .. "`" end),
+          (if declarable and lacking ~= nil then "declare `" .. lacking .. "` in " .. tq(ctx, held) ..
+              ", as the interface does, or pass a type that has it" elseif declarable then
+            "declare the fields of " .. tq(ctx, bound) .. " in " .. tq(ctx, held) .. ", or pass a type that has them" else
+            "pass a type that has the fields of " .. tq(ctx, bound) end),
           { show(ctx, held), show(ctx, bound) })
       end
       Calls.replace_type(given, i, ctx.invalid)
