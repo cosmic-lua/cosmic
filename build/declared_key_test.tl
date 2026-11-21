@@ -825,7 +825,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
     system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
     cpu_features = { "aes", "fma", "fma", "aes" }, machine = "x86_64",
     status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
-    sysname = "Linux", own_proc = true, host_id = "h1", uid = 1,
+    sysname = "Linux", landlock = 3, own_proc = true, host_id = "h1", uid = 1,
   }
   local function identity(): string
     return declared_key.host_identity(declared_key.digests(tmp), sources)
