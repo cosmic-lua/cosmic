@@ -213,6 +213,38 @@ local function refusals_of_generated(trouble: string): {Refusal}
   return refusals_of_lines(lines)
 end
 
+--- `refusals` with the places the checker gave each that `outcome` holds: the span of the place at fault, the second place,
+--- and whether it is a warning. A refusal is matched to the problem of its line, column and code; one that no problem
+--- matches (a refusal of the pipeline's own, a line that counts errors) is left as its words placed it.
+local function placed_by(refusals: {Refusal}, outcome?: Driver.Outcome): {Refusal}
+  if outcome == nil then return refusals end
+  local found: mut {string: Driver.Problem} = {}
+  for _, list in ipairs({ outcome.syntax, outcome.scope_errors, outcome.declared, outcome.bodies, outcome.warnings }) do
+    for _, problem in ipairs(list) do
+      local key = tostring(problem.y) .. ":" .. tostring(problem.x) .. ":" .. problem.code
+      if found[key] == nil then found[key] = problem end
+    end
+  end
+  local out: mut {Refusal} = {}
+  for _, refusal in ipairs(refusals) do
+    local code = refusal.code
+    local problem: Driver.Problem? = nil
+    if code ~= nil then
+      problem = found[tostring(refusal.line) .. ":" .. tostring(refusal.column) .. ":" .. code]
+    end
+    if problem == nil then
+      out[#out + 1] = refusal
+    else
+      local other = problem.other
+      out[#out + 1] = {
+        line = refusal.line, column = refusal.column, message = refusal.message, code = code, offset = problem.offset,
+        length = problem.length, other = if other ~= nil then other.offset else nil end, warning = problem.kind ~= "error",
+      }
+    end
+  end
+  return out
+end
+
 --- What the new checker refuses of the module `compiled` in the program of `pipeline` that a session holds ([`build.lsp.held`]),
 --- whose text is the document's as spliced ([`build.lsp.syntax_read`]): every error and warning the checker finds and what else the pipeline
 --- refuses ([`Pipeline.review`]: in a module of the discipline its contracts and the calls it judged no rule of, in a
@@ -224,7 +256,7 @@ local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Buil
   if not AnalysisSchema.is_declaration(compiled.kind) then
     local made, trouble = Pipeline.review(compiled, pipeline, hints)
     if made == nil then
-      return { refusals = refusals_of_generated(trouble) }
+      return { refusals = placed_by(refusals_of_generated(trouble), pipeline.build:result(compiled.path, true)) }
     end
     return { refusals = {} }
   end
@@ -246,7 +278,7 @@ local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Buil
       lines[#lines + 1] = ErrorRender.line(compiled.file, warning)
     end
   end
-  return { refusals = refusals_of_lines(lines) }
+  return { refusals = placed_by(refusals_of_lines(lines), outcome) }
 end
 
 --- [`generated_of`] and what the modules `sites` (the document's `require`s) are refused for ([`broken`]), where `listed` says

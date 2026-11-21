@@ -14,6 +14,7 @@ local Declarations = require("lang.declarations")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local type Codes = require("lang.check_codes")
+local type Scopes = require("lang.scopes")
 
 local record SourceParse
   --- The text of a module and what the driver does with it.
@@ -57,6 +58,10 @@ local record SourceParse
     y: integer
     x: integer
     offset: integer
+    --- How many bytes from `offset` the place at fault spans: 0 where the error names a point.
+    length: integer
+    --- The second place the error involves (where a name was first given, where a field is declared), where it has one.
+    other?: Scopes.Place
     --- Whether the fix is what to write instead of a name cosmic removed ([`build.removed_fix`]), in place of the checker's own.
     removed: boolean
     --- The call whose argument the checker refused, for an error filed for a value given to a parameter ([`Codes.Argument`]); nil
@@ -195,7 +200,7 @@ function SourceParse.parse(source: SourceParse.Source): SourceParse.Parsed
   for _, e in ipairs(read.errors) do
     syntax[#syntax + 1] = {
       kind = "error", stage = "syntax", code = tostring(e.code), msg = e.msg, fix = e.fix, y = e.y, x = e.x, offset = e.offset,
-      removed = false,
+      length = e.length, removed = false,
     }
   end
   return { text = read.text, chunk = read.chunk, syntax = syntax }

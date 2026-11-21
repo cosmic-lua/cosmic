@@ -376,8 +376,9 @@ local record Entry
 end
 
 local function problem_of(kind: string, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
-                          offset: integer): Driver.Problem
-  return { kind = kind, stage = stage, code = code, msg = msg, fix = fix, y = y, x = x, offset = offset, removed = false }
+                          offset: integer, length: integer): Driver.Problem
+  return { kind = kind, stage = stage, code = code, msg = msg, fix = fix, y = y, x = x, offset = offset, length = length,
+    removed = false }
 end
 
 --- The problem for an error: its fix is the words of [`cosmic.removed`] where it is about a name cosmic removed
@@ -386,7 +387,8 @@ local TEMPLATE_CONDITION <const> = "`{{if}}` and `{{with}}` need a value that ca
   "drop the `{{if}}`"
 
 local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
-                        offset: integer, length: integer, types: {string}, argument?: Check.Argument): Driver.Problem
+                        offset: integer, length: integer, types: {string}, argument?: Check.Argument,
+                        other?: Scopes.Place): Driver.Problem
   local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length, types)
   -- A condition of a template is written by the generator, over a local it names: the checker's fix would tell the template's
   -- author to write a test of that local. What a template can say is whether a value is there.
@@ -401,7 +403,7 @@ local function error_of(result: Driver.Outcome, stage: string, code: string, msg
   end
   return {
     kind = "error", stage = stage, code = code, msg = msg, fix = told, y = y, x = x, offset = offset,
-    removed = instead ~= nil, argument = argument,
+    length = length, other = other, removed = instead ~= nil, argument = argument,
   }
 end
 
@@ -538,7 +540,7 @@ function Driver.new(options: Driver.Options): Driver.Build
     needs[source.module] = required
     local syntax: mut {Driver.Problem} = {}
     for _, e in ipairs(read.errors) do
-      syntax[#syntax + 1] = problem_of("error", "syntax", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset)
+      syntax[#syntax + 1] = problem_of("error", "syntax", tostring(e.code), e.msg, e.fix, e.y, e.x, e.offset, e.length)
     end
     local result: Driver.Outcome = {
       module = source.module, source = source, text = read.text, never_false = Truthiness.never_false, chunk = read.chunk,
@@ -941,7 +943,7 @@ function Driver.new(options: Driver.Options): Driver.Build
             msg = msg .. meant(result, e.offset)
           end
           table.insert(result.bodies, error_of(result, "checked", code, msg, e.fix, e.y, e.x, e.offset, e.length, e.types,
-            e.argument))
+            e.argument, e.other))
         end
         local exempt: {integer: boolean} = {}
         if source.tests then
@@ -951,7 +953,7 @@ function Driver.new(options: Driver.Options): Driver.Build
           if not (w.code == "unused_function" and exempt[w.offset] == true) then
             result.warnings[#result.warnings + 1] = {
               kind = w.kind, stage = "warning", code = w.code, msg = w.msg, fix = w.fix, y = w.y, x = w.x,
-              offset = w.offset, removed = false,
+              offset = w.offset, length = w.length, removed = false,
             }
           end
         end
@@ -969,12 +971,12 @@ function Driver.new(options: Driver.Options): Driver.Build
       entry.checked = true
       for _, e in ipairs(result.scoped.errors) do
         table.insert(result.scope_errors, error_of(result, "scoped", tostring(e.code), e.msg, e.fix, e.y, e.x,
-          e.offset, e.length, {}))
+          e.offset, e.length, {}, nil, e.other))
       end
       if lowered ~= nil then
         for _, e in ipairs(build.program:errors(result.module)) do
           table.insert(result.declared, error_of(result, "declared", tostring(e.code), e.msg, e.fix, e.y, e.x,
-            e.offset, e.length, e.types))
+            e.offset, e.length, e.types, nil, e.other))
         end
       end
     end
