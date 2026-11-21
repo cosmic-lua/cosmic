@@ -82,7 +82,7 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
       'local own = assert(again("if require(\'cosmic.fs\').exists(" .. ' ..
       'string.format("%q", given) .. ") == true then return 0 end return 1"):wait()) ' ..
       'Fs.put(1, (if own.code == 0 then "own-name" else "no-own-name" end) .. "\\n")', { hidden, given },
-    { cwd = "/given", stdout = "capture", stderr = "stdout",
+    { timeout_ns = Child.FOREVER, cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then
     Test.skip("no sandbox for the child: " .. tostring(trouble))
@@ -91,6 +91,6 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   assert(r.ok and r.stdout == "in\n/given\nhidden-absent\nno-own-name\n", tostring(r.stdout))
   Test.raises(function()
     Child.start({ "/bin/sh" },
-      { sandbox = { unveil = { reads = { "relative" } } } } as Child.Options) -- checked: cast_refused
+      { timeout_ns = Child.FOREVER, sandbox = { unveil = { reads = { "relative" } } } })
   end)
 end

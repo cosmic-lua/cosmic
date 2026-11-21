@@ -25,7 +25,7 @@ local function reply(n: integer, status: string, head: string, body?: string): s
 end
 
 local function test_a_429_with_retry_after_zero_is_sent_again()
-  local got = assert(Http.get(url, { retry = { attempts = 2 }, script = {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60), retry = { attempts = 2 }, script = {
     reply(1, "429 Too Many Requests", "Retry-After: 0\r\n", "slow down"),
     reply(2, "200 OK", "", "fine"),
   } }))
@@ -35,7 +35,7 @@ local function test_a_429_with_retry_after_zero_is_sent_again()
 end
 
 local function test_without_retry_a_429_is_returned()
-  local got = assert(Http.get(url, { script = {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60), script = {
     reply(1, "429 Too Many Requests", "Retry-After: 0\r\n"), reply(2, "200 OK", ""),
   } }))
   assert(got.status == 429 and got.headers["x-n"] == "1", tostring(got.status))
@@ -48,23 +48,23 @@ local function test_a_503_every_time_returns_the_last_after_the_attempts()
     reply(3, "503 Service Unavailable", ""),
     reply(4, "200 OK", ""),
   }
-  local got = assert(Http.get(url, { retry = { attempts = 3, backoff_ns = 0 }, script = script }))
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60), retry = { attempts = 3, backoff_ns = 0 }, script = script }))
   assert(got.status == 503, tostring(got.status))
   assert(got.headers["x-n"] == "3", "the request was sent " .. tostring(got.headers["x-n"]) .. " times")
 end
 
 local function test_a_500_is_retried_only_when_statuses_names_it()
   local script = { reply(1, "500 Internal Server Error", ""), reply(2, "200 OK", "") }
-  local plain = assert(Http.get(url, { retry = { attempts = 2, backoff_ns = 0 }, script = script }))
+  local plain = assert(Http.get(url, { timeout_ns = Clock.seconds(60), retry = { attempts = 2, backoff_ns = 0 }, script = script }))
   assert(plain.status == 500 and plain.headers["x-n"] == "1", tostring(plain.status))
-  local named = assert(Http.get(url, {
+  local named = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2, backoff_ns = 0, statuses = { 500 } }, script = script,
   }))
   assert(named.status == 200 and named.headers["x-n"] == "2", tostring(named.status))
 end
 
 local function test_a_post_body_is_sent_again()
-  local response = assert(Http.open(url, {
+  local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60),
     method = "POST", body = "payload",
     retry = { attempts = 2, backoff_ns = 0 },
     script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
@@ -80,7 +80,7 @@ local function test_a_retry_after_beyond_max_wait_returns_the_response_at_once()
   local began = Clock.monotonic_ns()
   -- The first 429 is within the limit and retried, the second beyond it
   -- and returned, so a request that never retries fails here too.
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     retry = { attempts = 4, backoff_ns = 0, max_wait_ns = Clock.seconds(5) },
     script = {
       reply(1, "429 Too Many Requests", "Retry-After: 0\r\n"),
@@ -93,7 +93,7 @@ local function test_a_retry_after_beyond_max_wait_returns_the_response_at_once()
 end
 
 local function test_one_attempt_sends_the_request_once()
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     retry = { attempts = 1, backoff_ns = 0 },
     script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
   }))
@@ -102,7 +102,7 @@ end
 
 local function test_a_backoff_above_max_wait_is_capped()
   local began = Clock.monotonic_ns()
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2, backoff_ns = Clock.seconds(30), max_wait_ns = Clock.ms(200) },
     script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
   }))
@@ -117,7 +117,7 @@ end
 local function test_a_retry_after_with_leading_zeros_or_padding_is_read()
   for _, value in ipairs({ "0000000000000", " \t0 \t", "000" }) do
     local began = Clock.monotonic_ns()
-    local got = assert(Http.get(url, {
+    local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
       retry = { attempts = 2, backoff_ns = 0, max_wait_ns = Clock.seconds(6) },
       script = {
         reply(1, "429 Too Many Requests", "Retry-After: " .. value .. "\r\n"),
@@ -132,7 +132,7 @@ end
 local function test_a_retry_after_date_in_the_past_is_no_wait()
   local began = Clock.monotonic_ns()
   local past = Time.format_http(Clock.now_ns() - Clock.seconds(3600))
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     -- A backoff that would show if the date were not read.
     retry = { attempts = 2, backoff_ns = Clock.seconds(30) },
     script = {
@@ -147,7 +147,7 @@ end
 local function test_a_retry_after_date_ahead_is_waited_out()
   local ahead = Time.format_http(Clock.now_ns() + Clock.ms(1500))
   local began = Clock.monotonic_ns()
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2, backoff_ns = 0 },
     script = {
       reply(1, "429 Too Many Requests", "Retry-After: " .. ahead .. "\r\n"),
@@ -162,7 +162,7 @@ end
 
 local function test_without_retry_after_the_backoff_is_waited()
   local began = Clock.monotonic_ns()
-  local got = assert(Http.get(url, {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2, backoff_ns = Clock.ms(300) },
     script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "") },
   }))
@@ -172,13 +172,13 @@ end
 
 local function test_a_download_retries_a_429_then_writes_the_body(tmp: string)
   local path = tmp .. "/got"
-  local ok, why = Http.download(url, path, { retry = { attempts = 2 }, script = {
+  local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), retry = { attempts = 2 }, script = {
     reply(1, "429 Too Many Requests", "Retry-After: 0\r\n", "no"),
     reply(2, "200 OK", "", "the file"),
   } })
   assert(ok, why)
   assert(Fs.read(path) == "the file")
-  local result = Http.download_result(url, tmp .. "/again", { retry = { attempts = 2 }, script = {
+  local result = Http.download_result(url, tmp .. "/again", { timeout_ns = Clock.seconds(60), retry = { attempts = 2 }, script = {
     reply(1, "503 Service Unavailable", "Retry-After: 0\r\n", "no"),
     reply(2, "200 OK", "", "again"),
   } })
@@ -187,7 +187,7 @@ local function test_a_download_retries_a_429_then_writes_the_body(tmp: string)
 end
 
 local function test_a_request_retries_with_its_method()
-  local got = assert(Http.request("PUT", url, {
+  local got = assert(Http.request("PUT", url, { timeout_ns = Clock.seconds(60),
     body = "x", retry = { attempts = 2, backoff_ns = 0 },
     script = { reply(1, "503 Service Unavailable", ""), reply(2, "200 OK", "", "done") },
   }))
@@ -199,7 +199,7 @@ end
 --- (the 200 would write a file).
 local function test_a_cancelled_download_does_not_wait_or_retry(tmp: string)
   local began = Clock.monotonic_ns()
-  local result = Http.download_result(url, tmp .. "/got", {
+  local result = Http.download_result(url, tmp .. "/got", { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2 },
     cancelled = function(): boolean return true end,
     script = {
@@ -215,7 +215,7 @@ end
 --- `cancelled` answering true during the wait ends it between slices.
 local function test_a_download_cancelled_during_the_wait_stops_waiting(tmp: string)
   local began = Clock.monotonic_ns()
-  local ok, why = Http.download(url, tmp .. "/got", {
+  local ok, why = Http.download(url, tmp .. "/got", { timeout_ns = Clock.seconds(60),
     retry = { attempts = 2 },
     cancelled = function(): boolean return Clock.monotonic_ns() - began > Clock.ms(300) end,
     script = {
@@ -232,7 +232,7 @@ end
 local function test_an_attempt_that_followed_a_redirect_leaves_the_next_the_entries_after_it()
   -- The first attempt uses entries 1 and 2 (the redirect and the 429),
   -- so the second must read entry 3, not entry 2 again.
-  local got = assert(Http.get(url, { retry = { attempts = 2, backoff_ns = 0 }, script = {
+  local got = assert(Http.get(url, { timeout_ns = Clock.seconds(60), retry = { attempts = 2, backoff_ns = 0 }, script = {
     reply(1, "302 Found", "Location: http://cosmic.test/elsewhere\r\n"),
     reply(2, "429 Too Many Requests", "Retry-After: 0\r\n"),
     reply(3, "200 OK", "", "fine"),
@@ -244,7 +244,7 @@ local function test_an_attempt_that_followed_a_redirect_leaves_the_next_the_entr
 end
 
 local function test_a_failed_open_is_not_retried()
-  local response, why = Http.open(url, {
+  local response, why = Http.open(url, { timeout_ns = Clock.seconds(60),
     retry = { attempts = 3, backoff_ns = 0 },
     script = {},
   })
@@ -271,7 +271,7 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
   for _, case in ipairs(cases) do
     local option, policy = "opts.retry." .. case.option, case.policy
     local function opts(): Http.Options
-      return { retry = policy, script = { reply(1, "200 OK", "") } }
+      return { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } }
     end
     local entries: {string:function()} = {
       open = function() local _ = Http.open(url, opts()) end,
@@ -332,19 +332,19 @@ local function test_a_policy_of_the_wrong_lua_type_raises_naming_the_option(tmp:
     local option = "opts.retry." .. case.option
     local entries: {string:function(Http.Retry)} = {
       open = function(policy: Http.Retry)
-        local _ = Http.open(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.open(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       get = function(policy: Http.Retry)
-        local _ = Http.get(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.get(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       request = function(policy: Http.Retry)
-        local _ = Http.request("PUT", url, { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download = function(policy: Http.Retry)
-        local _ = Http.download(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download_result = function(policy: Http.Retry)
-        local _ = Http.download_result(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
     }
     for name, entry in pairs(entries) do
@@ -362,19 +362,19 @@ local function test_a_retry_that_is_no_table_raises_naming_the_option(tmp: strin
   for _, literal in ipairs({ '"x"', "3", "true" }) do
     local entries: {string:function(Http.Retry)} = {
       open = function(policy: Http.Retry)
-        local _ = Http.open(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.open(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       get = function(policy: Http.Retry)
-        local _ = Http.get(url, { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.get(url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       request = function(policy: Http.Retry)
-        local _ = Http.request("PUT", url, { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.request("PUT", url, { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download = function(policy: Http.Retry)
-        local _ = Http.download(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.download(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
       download_result = function(policy: Http.Retry)
-        local _ = Http.download_result(url, tmp .. "/never", { retry = policy, script = { reply(1, "200 OK", "") } })
+        local _ = Http.download_result(url, tmp .. "/never", { timeout_ns = Clock.seconds(60), retry = policy, script = { reply(1, "200 OK", "") } })
       end,
     }
     for name, entry in pairs(entries) do

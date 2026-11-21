@@ -40,7 +40,7 @@ end
 --- `script` run by the host's shell, with `...` its arguments.
 local function shell(script: string, ...: string): Child.Result
   return (assert(Child.run({ "/bin/sh", "-c", script, "sh", ... },
-    { env = {}, stdout = "capture", stderr = "capture" })))
+    { timeout_ns = Child.FOREVER, env = {}, stdout = "capture", stderr = "capture" })))
 end
 
 --- A host program the worker starts cannot read the artifact through

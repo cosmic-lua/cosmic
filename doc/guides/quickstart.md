@@ -378,7 +378,7 @@ argv[#argv + 1] = "-e"
 argv[#argv + 1] = "require('cosmic.clock').sleep_ns(500000000) return 3"
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
-local sleeper <close> = assert(Child.start(argv, { env = env, fds = relaunch.fds }))
+local sleeper <close> = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds }))
 local done, trouble = Child.wait_any({ sleeper }, Clock.ms(10))
 if done == nil and trouble ~= Poll.TIMEOUT then error(trouble) end
 print(if done == nil then "still running" else "finished" end)

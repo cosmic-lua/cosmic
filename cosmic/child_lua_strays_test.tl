@@ -55,10 +55,10 @@ local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
         'argv[#argv + 1] = "while true do ' .. sleep(1000):gsub('"', '\\"') .. ' end" ' ..
         "local env: mut {string:string} = Env.all() " ..
         "for name, value in pairs(relaunch.env) do env[name] = value end " ..
-        'local h = assert(Child.start(argv, { env = env, fds = relaunch.fds, process_group = false, ' ..
+        'local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds, process_group = false, ' ..
         'stdout = "null", stderr = "null" })) ' ..
         'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
-      { stdout = "capture", process_group = false })))
+      { timeout_ns = Child.FOREVER, stdout = "capture", process_group = false })))
     local pid = assert(math.tointeger(tonumber(r.stdout)))
     local name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
     local by = Clock.monotonic_ns() + Clock.seconds(5)
@@ -81,9 +81,9 @@ local function test_end_strays_spares_a_stray_in_a_spared_group()
   -- the stray as.
   assert(Child.run(lua("")))
   local r = assert(Child.run(lua(AGAIN .. "local h = again('" .. sleep(30000) ..
-      "', { process_group = false, stdout = \"null\", stderr = \"null\" }) " .. FS ..
+      "', { timeout_ns = -1, process_group = false, stdout = \"null\", stderr = \"null\" }) " .. FS ..
       'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
-    { stdout = "capture", process_group = false })))
+    { timeout_ns = Child.FOREVER, stdout = "capture", process_group = false })))
   local pid = assert(math.tointeger(tonumber(r.stdout)))
   local group = assert(sys.getpgid(0))
   assert(sys.getpgid(pid) == group)

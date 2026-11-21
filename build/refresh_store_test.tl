@@ -323,7 +323,7 @@ return function(): integer
     local certificate = message(11, string.pack(">I3", #der + 3) .. string.pack(">I3", #der) .. der)
     local records = hello .. certificate
     local flight = "\22\3\3" .. string.pack(">I2", #records) .. records
-    local _, why = Http.open("https://cosmic.test/", { script = { flight } })
+    local _, why = Http.open("https://cosmic.test/", { timeout_ns = 60000000000, script = { flight } })
     print((why:gsub("\n", " ")))
   end
   return 0

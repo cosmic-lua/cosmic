@@ -350,7 +350,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     end
   end
-  local options: Http.Options = { script = to.script, roots = roots, ca = ca, pin = pins }
+  local options: Http.Options = { timeout_ns = Http.FOREVER, script = to.script, roots = roots, ca = ca, pin = pins }
   options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] == true) -- checked: field_fixed
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. tostring(status))

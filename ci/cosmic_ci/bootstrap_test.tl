@@ -9,6 +9,11 @@ local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
+-- names a release whose Child has it: ci/ runs on that release, where a
+-- limit must be stated for the tree's checker yet FOREVER is not there.
+local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
+
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -169,7 +174,7 @@ local function driver_project(tmp: string): string
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R",
-    assert(Fs.absolute(".")) .. "/cosmic_ci", project })).ok)
+    assert(Fs.absolute(".")) .. "/cosmic_ci", project }, { timeout_ns = CEILING_NS })).ok)
   return project
 end
 
@@ -347,7 +352,7 @@ end
 --- `dir` as `pwd -P` prints it, links resolved.
 local function physical(dir: string): string
   local got = assert(Child.run({ "/bin/sh", "-c", "pwd -P" },
-    { cwd = dir, stdout = "capture" }))
+    { timeout_ns = CEILING_NS, cwd = dir, stdout = "capture" }))
   return ((assert(got.stdout)):gsub("\n$", ""))
 end
 
@@ -613,7 +618,7 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   local command = { runner, driver, "run", "interrupted", tostring(Clock.seconds(30)), "--", "/bin/sh", "-c",
     "printf ready > \"$1\"; sleep 30", "sh", ready }
   local fd = assert(Fs.open_write(tmp .. "/interrupted.out"))
-  local child = assert(Child.start(command, { cwd = project, env = environment(ctx_env),
+  local child = assert(Child.start(command, { timeout_ns = CEILING_NS, cwd = project, env = environment(ctx_env),
     stdout = fd, stderr = fd, process_group = true }))
   for _ = 1, driver_timeout // Clock.ms(20) do
     if Predicate.exists(ready) then break end

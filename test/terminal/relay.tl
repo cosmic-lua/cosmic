@@ -146,7 +146,7 @@ do
     "stty size",
     "echo got:$line",
     "exit 7",
-  }, "\n"), { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
+  }, "\n"), { timeout_ns = Child.FOREVER, stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
   wait_for(caller, "37 111", 30)
   -- The caller's terminal is raw while the program runs.
   assert(not restored(caller), "the caller's terminal was not made raw")
@@ -184,7 +184,7 @@ do
     "printf 'to-stderr\\n' >&2",
     "read line",
     "echo got:$line",
-  }, "\n"), { stdin = caller.slave, stdout = out_fd, stderr = err_fd })
+  }, "\n"), { timeout_ns = Child.FOREVER, stdin = caller.slave, stdout = out_fd, stderr = err_fd })
   -- The program has written its stderr, so it is about to read.
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while read_file(err) ~= "to-stderr\n" or restored(caller) do
@@ -216,7 +216,7 @@ do
     "read line",
     "echo got:$line",
     "printf '" .. output .. "'",
-  }, "\n"), { stdin = "stream", stdout = caller.slave, stderr = caller.slave })
+  }, "\n"), { timeout_ns = Child.FOREVER, stdin = "stream", stdout = caller.slave, stderr = caller.slave })
   assert((assert(child.stdin_stream)):write("piped\n"))
   assert(assert(child.stdin_stream):close())
   local result = assert(child:wait())
@@ -266,7 +266,7 @@ end
 -- A terminal as a policy's `relay_log` is refused naming the option.
 do
   local caller = new_caller()
-  local started, why = Child.start({ exe, "--help" }, { policy = { profiles = { "cosmic" },
+  local started, why = Child.start({ exe, "--help" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" },
     connect = { "127.0.0.2:9" } }, relay_log = caller.slave })
   assert(started == nil, "a terminal as the relay's log was taken")
   print("relay: refused: " .. tostring(why))
@@ -277,7 +277,7 @@ end
 -- once the terminal is restored.
 do
   local caller = new_caller()
-  local child = start("echo ready\nread line", { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
+  local child = start("echo ready\nread line", { timeout_ns = Child.FOREVER, stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
   wait_for(caller, "ready", 30)
   assert(not restored(caller))
   assert(child:stop(sys.SIGTERM))
@@ -295,7 +295,7 @@ end
 do
   local caller = new_caller()
   local blocking_before = (assert(sys.fd_status(caller.slave))) & sys.O_NONBLOCK
-  local child = start("echo flooding\nexec yes", { stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
+  local child = start("echo flooding\nexec yes", { timeout_ns = Child.FOREVER, stdin = caller.slave, stdout = caller.slave, stderr = caller.slave })
   -- The terminal's queue fills while nothing reads it; what the program wrote
   -- before that is read here to know the run has begun.
   wait_for(caller, "flooding", 30)

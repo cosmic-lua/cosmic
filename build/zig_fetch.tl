@@ -93,11 +93,10 @@ local BACKOFF_NS <const> = 2 * SECOND
 ---   a 12-minute budget: none starts once it is spent, and each one's
 ---   limits are cut to what is left of it, so the mirrors together cost
 ---   at most about 12 minutes.
---- - The fallback, ziglang.org, keeps the 10 s connect limit and only a
+--- - The fallback, ziglang.org, keeps the 10 s connect limit and a
 ---   stall guard, under 1 KiB/s for 60 s, which catches a dead stream
----   and nothing slower: no ceiling, and the budget does not cut it, so
----   a slow link still installs. It is bounded only by that guard, by
----   design. It is tried once a round, and once more, last, when the
+---   and nothing slower, and a ceiling of 6 hours; the budget does not
+---   cut it, so a slow link still installs. It is tried once a round, and once more, last, when the
 ---   budget runs out partway through the mirrors -- at most `ROUNDS`
 ---   times in all.
 local CONNECT_TIMEOUT_NS <const> = 10 * SECOND
@@ -106,6 +105,11 @@ local MIRROR_LOW_SPEED_NS <const> = 20 * SECOND
 local MIRROR_TIMEOUT_NS <const> = 3 * 60 * SECOND
 local FALLBACK_LOW_SPEED_BYTES <const> = 1024
 local FALLBACK_LOW_SPEED_NS <const> = 60 * SECOND
+-- TODO: give the fallback no ceiling, Http.FOREVER, as the limits above
+-- say, once ci/cosmic-driver.pin names a release whose Http has it: this
+-- runs on that release, whose Http has no FOREVER, and the tree's Http
+-- requires a limit. Until then the ceiling is long enough for a slow link.
+local FALLBACK_TIMEOUT_NS <const> = 6 * 60 * 60 * SECOND
 local BUDGET_NS <const> = 12 * 60 * SECOND
 
 --- The URLs to fetch `name`, zig `version`'s release tarball, from, in
@@ -163,7 +167,7 @@ end
 
 --- Native nanosecond download limits; no rounding changes the budget.
 function ZigFetch.limits(connect_ns: integer, low_speed_bytes: integer, low_speed_ns: integer,
-                         timeout_ns?: integer, sha256?: string): Http.Options
+                         timeout_ns: integer, sha256?: string): Http.Options
   -- A community mirror's certificate may come from any CA Mozilla trusts,
   -- and the download is held to its sha256 whoever serves it, so it
   -- trusts every root rather than the minimal set a request trusts by
@@ -235,7 +239,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     end
     if fallback ~= nil then
       local result = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
-        FALLBACK_LOW_SPEED_NS, nil, sha256))
+        FALLBACK_LOW_SPEED_NS, FALLBACK_TIMEOUT_NS, sha256))
       if result.kind == "downloaded" then
         return true, ""
       end

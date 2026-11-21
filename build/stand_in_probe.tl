@@ -262,13 +262,13 @@ local verbs: {string:function(string, string): integer?} = {
     return failed("status-field", "no " .. name)
   end,
   run = function(program: string, argument: string): integer?
-    local result, _ = Child.run(argv_of(program, argument), { process_group = false })
+    local result, _ = Child.run(argv_of(program, argument), { timeout_ns = Child.FOREVER, process_group = false })
     if result == nil then return 127 end
     if not result.ok then return Child.shell_status(result) end
     return nil
   end,
   start = function(program: string, argument: string): integer?
-    local handle, trouble = Child.start(argv_of(program, argument), { process_group = false })
+    local handle, trouble = Child.start(argv_of(program, argument), { timeout_ns = Child.FOREVER, process_group = false })
     if handle == nil then return failed("start", trouble) end
     started[#started + 1] = handle
     return nil
@@ -281,7 +281,7 @@ local verbs: {string:function(string, string): integer?} = {
     local count = 0
     local refusal = ""
     for _ = 1, wanted do
-      local handle, trouble = Child.start(argv_of(program, argument), { process_group = false })
+      local handle, trouble = Child.start(argv_of(program, argument), { timeout_ns = Child.FOREVER, process_group = false })
       if handle == nil then
         refusal = trouble
         break
@@ -409,7 +409,7 @@ local verbs: {string:function(string, string): integer?} = {
     return put_all(1, "connected\n")
   end,
   ["start-isolated"] = function(program: string): integer?
-    local handle, trouble = Child.start({ program }, { policy = {
+    local handle, trouble = Child.start({ program }, { timeout_ns = Child.FOREVER, policy = {
       isolate = { "file" }, grants = { { path = program, letters = "rx" },
         { path = ".", letters = "r" } } } })
     if handle == nil then return put_all(1, trouble .. "\n") end
@@ -417,14 +417,14 @@ local verbs: {string:function(string, string): integer?} = {
     return put_all(1, "started\n")
   end,
   ["run-isolated"] = function(program: string, script: string): integer?
-    local result, trouble = Child.run({ program, script }, { policy = {
+    local result, trouble = Child.run({ program, script }, { timeout_ns = Child.FOREVER, policy = {
       isolate = { "file" }, grants = { { path = program, letters = "rx" },
         { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
     if result == nil then return put_all(1, trouble .. "\n") end
     return put_all(1, "exit " .. tostring(result.code) .. "\n" .. (result.stdout or ""))
   end,
   ["run-looped"] = function(program: string, script: string): integer?
-    local result, trouble = Child.run({ program, script }, { policy = {
+    local result, trouble = Child.run({ program, script }, { timeout_ns = Child.FOREVER, policy = {
       isolate = { "file" }, loopback = { "127.0.0.1" }, grants = { { path = program, letters = "rx" },
         { path = ".", letters = "r" } } }, stdout = "capture", stderr = "stdout" })
     if result == nil then return put_all(1, trouble .. "\n") end

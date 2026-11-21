@@ -88,7 +88,9 @@ local handshake: {string} = {
 -- cosmic/test.tl), so another project's tests start their program this
 -- way: today it lives in build/, which they cannot reach.
 function this_program.program(args: {string}, opts?: Child.Options): this_program.Program
-  local given: Child.Options = opts or {}
+  -- -1 is Child.FOREVER, which a worker loading this cannot read: cosmic.child
+  -- is not in its store before the test runs. A test's runner bounds it.
+  local given: Child.Options = opts or { timeout_ns = -1 }
   if given.policy ~= nil and given.env ~= nil then
     error("this_program.program: env beside a policy: the policy's env and set_env are the " ..
         "child's whole environment", 2)

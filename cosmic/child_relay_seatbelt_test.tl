@@ -356,7 +356,7 @@ end
 
 --- A handle to a program that waits under a policy with `connect`.
 local function waiting(tmp: string): Child.Handle
-  local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
+  local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" } },
     stdout = "null", stderr = "null" })
   assert(handle, explained(handle == nil, tostring(why)))
@@ -625,7 +625,7 @@ end
 --- that names one is refused on macOS too.
 local function test_a_policy_with_connect_may_not_set_a_proxy_variable(tmp: string)
   SeatbeltFixture.macos_only()
-  local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { policy = {
+  local handle, why = Child.start({ assert(Proc.executable()), "wait" }, { timeout_ns = Child.FOREVER, policy = {
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { "127.0.0.1:9" },
     set_env = { HTTPS_PROXY = "http://elsewhere:1" } } })
   assert(handle == nil and why:find("HTTPS_PROXY is set by the relay", 1, true) ~= nil, tostring(why))

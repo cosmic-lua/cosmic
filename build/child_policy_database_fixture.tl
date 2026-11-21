@@ -62,7 +62,7 @@ local function probe(mode, scratch, beside)
   end
   say("fds_into_them", through)
   local function below(policy, next_mode)
-    local r, why = Child.run({ core, "x", next_mode, scratch }, { policy = policy,
+    local r, why = Child.run({ core, "x", next_mode, scratch }, { timeout_ns = Child.FOREVER, policy = policy,
       stdout = "capture", stderr = "capture" })
     if r == nil then say("grand_refused", why) return end
     say("grand_code", r.code)

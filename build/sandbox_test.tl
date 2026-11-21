@@ -45,7 +45,7 @@ end
 local function run(words: {string}, answer?: Answer): Ran
   local argv: mut {string} = { "sandbox" }
   for _, word in ipairs(words) do argv[#argv + 1] = word end
-  local ran: Ran = { code = -1, err = "", opts = {} }
+  local ran: Ran = { code = -1, err = "", opts = { timeout_ns = Child.FOREVER } }
   local given = answer or { result = finished(0) }
   ran.code = sandbox.run(argv, {
     err = function(line: string) ran.err = ran.err .. line .. "\n" end,
@@ -126,7 +126,7 @@ local function test_a_policy_with_no_option_is_the_empty_one()
   assert(ran.code == 0)
   local policy = assert(ran.opts.policy)
   assert(#(policy.grants or {}) == 0 and #(policy.profiles or {}) == 0 and policy.tmp ~= true)
-  assert(ran.opts.timeout_ns == nil and next(assert(ran.opts.fds)) == nil)
+  assert(ran.opts.timeout_ns == Child.FOREVER and next(assert(ran.opts.fds)) == nil)
 end
 
 local function test_a_value_is_the_next_word_or_follows_an_equals_sign()

@@ -172,9 +172,9 @@ local function test_fetch_asks_the_fallback_again_after_a_mismatch(tmp: string)
 end
 
 --- Mirrors are held to a ceiling cut to what is left of the budget;
---- the fallback has none, and once the budget is spent it is tried one
---- last time on its own.
-local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tmp: string)
+--- the fallback has a ceiling the budget does not cut, and once the
+--- budget is spent it is tried one last time on its own.
+local function test_fetch_bounds_mirrors_by_the_budget_and_the_fallback_by_its_own(tmp: string)
   local calls: mut {string} = {}
   local sleeps: mut {integer} = {}
   local seen: {Http.Options} = {}
@@ -194,8 +194,8 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tm
   assert(support.nth(seen, 3).timeout_ns == Clock.seconds(118), tostring(support.nth(seen, 3).timeout_ns))
   assert(support.nth(seen, 1).low_speed_bytes == 64 * 1024)
   for _, i in ipairs({ 2, 4, 5 }) do
-    assert(support.nth(seen, i).timeout_ns == nil,
-      "the fallback has a ceiling")
+    assert(support.nth(seen, i).timeout_ns == Clock.hours(6),
+      "the fallback's ceiling is not the one a slow link needs")
     assert(support.nth(seen, i).low_speed_bytes == 1024 and support.nth(seen, i).low_speed_ns == Clock.seconds(60))
   end
   assert(trouble:find("mirrors out of time; every source failed after 5 attempts", 1, true) ~= nil,
@@ -248,8 +248,8 @@ local function test_limits_preserve_native_nanoseconds()
   assert(options.timeout_ns == Clock.ms(7) + 1)
   assert(options.low_speed_bytes == 1024)
   assert(options.roots == "mozilla", "a mirror's certificate may come from any CA Mozilla trusts")
-  local brief = ZigFetch.limits(1, 1024, 1)
-  assert(brief.connect_timeout_ns == 1 and brief.low_speed_ns == 1 and brief.timeout_ns == nil)
+  local brief = ZigFetch.limits(1, 1024, 1, 2)
+  assert(brief.connect_timeout_ns == 1 and brief.low_speed_ns == 1 and brief.timeout_ns == 2)
 end
 
 local function test_fetch_classifies_mismatches_independently_of_reason_text(tmp: string)

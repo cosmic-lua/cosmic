@@ -42,7 +42,7 @@ local function test_program_starts_the_relaunch_or_else_the_executable()
         table.concat(argv, " "))
     end)
   relaunching(nil, function()
-    local started = this_program.program({ "-e", "" }, { env = { HOME = "/home",
+    local started = this_program.program({ "-e", "" }, { timeout_ns = Child.FOREVER, env = { HOME = "/home",
       COSMIC_PORTABLE_STARTUP_TEST_READY = "r", COSMIC_PORTABLE_STARTUP_TEST_GO = "g" },
       fds = { [3] = 1 } })
     local argv = started.argv
@@ -97,7 +97,9 @@ local function test_program_adds_the_relaunch_to_a_copy_of_the_options()
     assert(fds[254] == nil and fds[255] == nil)
     -- A descriptor the relaunch hands the core its artifact as, named
     -- by the caller too, raises rather than being dropped.
-    Test.raises(function() this_program.program({}, { fds = { [254] = "capture" } }) end, "descriptor 254")
+    Test.raises(function()
+      this_program.program({}, { timeout_ns = Child.FOREVER, fds = { [254] = "capture" } })
+    end, "descriptor 254")
     -- No environment given: this process's whole, which a child given
     -- none would have inherited, with the relaunch's added. A worker's
     -- is the variables it declares and the pinned ones; TMPDIR is
@@ -150,7 +152,7 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     env = { COSMIC_PORTABLE_ARTIFACT = "/a" }, fds = { [254] = 7 } }
   relaunching(relaunch, function()
     local policy: Sandbox.Policy = { profiles = { "cosmic" } }
-    local started = this_program.program({ "-e", "x" }, { policy = policy, cwd = "/w",
+    local started = this_program.program({ "-e", "x" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = "/w",
       fds = { [3] = 1 } })
     local argv = started.argv
     assert(#argv == 3 and argv[1] == assert(Proc.executable()) and argv[2] == "-e" and
@@ -160,10 +162,12 @@ local function test_program_under_a_policy_leaves_the_relaunch_to_the_start()
     assert(opts.env == nil, "the policy's env and set_env are the whole environment")
     assert(assert(opts.fds)[3] == 1 and assert(opts.fds)[254] == nil)
     -- The relaunch's descriptors are not this start's to refuse.
-    assert(assert(this_program.program({}, { policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==
+    assert(assert(this_program.program({}, { timeout_ns = Child.FOREVER, policy = policy, fds = { [254] = "capture" } }).options.fds)[254] ==
         "capture")
     -- Child.start refuses an env beside a policy; so does this, rather than drop it.
-    Test.raises(function() this_program.program({}, { policy = policy, env = { A = "1" } }) end, "env beside a policy")
+    Test.raises(function()
+      this_program.program({}, { timeout_ns = Child.FOREVER, policy = policy, env = { A = "1" } })
+    end, "env beside a policy")
   end)
   -- Without a policy the relaunch is still there.
   relaunching(relaunch, function()

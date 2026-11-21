@@ -89,12 +89,12 @@ local function test_a_database_policy_refuses_another_program_and_this_ones_own_
   local path = tmp .. "/sealed.db"
   fixture.seal(tmp, path)
   local executable = assert(Proc.executable())
-  local other, why = Child.start({ "/bin/sh", "-c", "true" }, { policy = { database = { path = path } } })
+  local other, why = Child.start({ "/bin/sh", "-c", "true" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path } } })
   assert(other == nil and why:find("is not this program", 1, true) ~= nil, tostring(why))
-  local file, file_why = Child.start({ executable, "x" }, { policy = { database = { path = path },
+  local file, file_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
     grants = { { path = executable, letters = "r" } } } })
   assert(file == nil and file_why:find("own file", 1, true) ~= nil, tostring(file_why))
-  local above, above_why = Child.start({ executable, "x" }, { policy = { database = { path = path },
+  local above, above_why = Child.start({ executable, "x" }, { timeout_ns = Child.FOREVER, policy = { database = { path = path },
     grants = { { path = assert(executable:match("^(.*)/[^/]+$")), letters = "r" } } } })
   assert(above == nil and above_why:find("own file", 1, true) ~= nil, tostring(above_why))
   -- The profile that grants the program's file is left out beside a
@@ -124,7 +124,7 @@ local function test_a_decoded_policy_refuses_a_database_that_changed_since(tmp: 
   local executable = assert(Proc.executable())
   local bytes = assert(Fs.read(path))
   assert(Fs.write(path, bytes .. "x"))
-  local started, why = Child.start({ executable, executable }, { policy = policy })
+  local started, why = Child.start({ executable, executable }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(started == nil and why:find("has changed since", 1, true) ~= nil, tostring(why))
 end
 

@@ -38,7 +38,7 @@ local confine = require("build.confine")
 local ok, why = confine.forbid_running(confine.itself(), %s)
 assert(ok, why)
 local function ran(argv: {string}): string
-  local result, trouble = Child.run(argv)
+  local result, trouble = Child.run(argv, { timeout_ns = Child.FOREVER })
   if result == nil then return trouble end
   return "ran " .. tostring(result.code)
 end
@@ -51,7 +51,7 @@ local out = {
 require("cosmic.fs").put(1, table.concat(out, "\n"))
 ]=], "{ " .. string.format("%q, %q, %q", within[1], within[2], within[3]) .. " }",
     program, tmp .. "/links/program", sibling)
-  local started = this_program.program({ "-e", chunk }, { stdout = "capture", stderr = "stdout" })
+  local started = this_program.program({ "-e", chunk }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout" })
   local result = assert(Child.run(started.argv, started.options))
   local said = assert(result.stdout)
   assert(said:find("program child: start: Permission denied", 1, true), said)

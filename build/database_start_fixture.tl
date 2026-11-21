@@ -192,7 +192,7 @@ return function(args)
   if args[1] == "sandboxed" then
     -- This program's own file is the core, which the profile grants.
     local result, why = Child.run({ Proc.executable(), "child", "z" },
-      { policy = { profiles = { "cosmic" } }, stdout = "capture", stderr = "capture" })
+      { timeout_ns = Child.FOREVER, policy = { profiles = { "cosmic" } }, stdout = "capture", stderr = "capture" })
     if result == nil then
       say("sandbox_refused", why)
     else
@@ -206,7 +206,7 @@ return function(args)
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
     argv[#argv + 1] = "child"
     argv[#argv + 1] = "x y"
-    local result = assert(Child.run(argv, { env = relaunch.env, fds = relaunch.fds,
+    local result = assert(Child.run(argv, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds,
       cwd = relaunch.cwd, stdout = "capture", stderr = "capture" }))
     say("child_code", result.code)
     say("child_stderr", result.stderr)

@@ -132,7 +132,7 @@ end
 local function listening(tmp: string, words: {string}): Listening
   local err = tmp .. "/lsp.err"
   local fd = assert(Fs.open_write(err))
-  local start = this_program.program(words, { cwd = tmp, stdout = fd, stderr = fd })
+  local start = this_program.program(words, { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
   local handle = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
@@ -233,7 +233,7 @@ end
 local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
   local err = tmp .. "/lsp.err"
   local fd = assert(Fs.open_write(err))
-  local start = this_program.program({ "lsp", "--listen", "0.0.0.0:0" }, { cwd = tmp, stdout = fd, stderr = fd })
+  local start = this_program.program({ "lsp", "--listen", "0.0.0.0:0" }, { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
   local handle = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)

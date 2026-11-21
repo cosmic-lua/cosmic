@@ -13,6 +13,11 @@ local Shape = require("cosmic.shape")
 local Test = require("cosmic.test")
 local TestSupport = require("cosmic_ci.test_support")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
+-- names a release whose Child has it: ci/ runs on that release, where a
+-- limit must be stated for the tree's checker yet FOREVER is not there.
+local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
+
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole;
 -- that is a script /bin/sh runs, hence "system", and the driver is copied
@@ -964,7 +969,7 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
     RUNNER_TEMP = tmp .. "/driver-runner",
   })
   local function driver(command: string): Child.Result
-    return (assert(Child.run({ host, "cosmic_ci/driver.tl", command }, { cwd = project,
+    return (assert(Child.run({ host, "cosmic_ci/driver.tl", command }, { timeout_ns = CEILING_NS, cwd = project,
       env = env, stdout = "capture", stderr = "capture" })))
   end
   local staged_run = driver("prerelease-stage")
@@ -976,7 +981,7 @@ local function test_driver_stages_and_refuses_to_publish_without_a_token(tmp: st
       output(refusal.stderr):find("GH_TOKEN", 1, true), refusal.stderr)
   assert(not exists(assert(env["RUNNER_TEMP"]) .. "/prerelease"))
   local usage = assert(Child.run({ host, "cosmic_ci/driver.tl", "prerelease-stage", "word" },
-    { cwd = project, env = env, stdout = "capture", stderr = "capture" }))
+    { timeout_ns = CEILING_NS, cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(usage.code == 1 and output(usage.stderr):find("usage: driver.tl prerelease-stage", 1, true) ~= nil,
     usage.stderr)
 end

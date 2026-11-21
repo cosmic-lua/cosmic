@@ -21,7 +21,7 @@ Fs.take(Fs.stdin, 1)
 assert(db:close())
 ]]
   local command = this_program.program({ "-e", script:format(path) },
-    { stdin = "stream", stdout = "stream", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child <close> = assert(Child.start(command.argv, command.options))
   assert(Stream.lines(assert(child.stdout_stream)):read() == "held")
   local db = assert(Sqlite.open(path, { writable = true }))
@@ -56,7 +56,7 @@ assert(statement:step_result() == "done")
 statement:finalize()
 assert(db:close())
 ]]
-  local command = this_program.program({ "-e", script }, { stdout = "capture", stderr = "capture" })
+  local command = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(command.argv, command.options))
   local result = assert(child:wait(Clock.seconds(5)))
   assert(result.ok, result.stderr)

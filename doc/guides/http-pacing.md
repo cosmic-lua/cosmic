@@ -48,7 +48,7 @@ local api = Http.pacer(interval_ns)
 
 -- `script` is for tests alone: a real call leaves it nil.
 local function fetch(id: integer, script: {string}?): Http.Body?, string
-  return Http.get("http://api.test/items/" .. tostring(id), {
+  return Http.get("http://api.test/items/" .. tostring(id), { timeout_ns = Clock.seconds(30),
     pace = api, retry = { attempts = 3, backoff_ns = backoff_ns }, script = script,
   })
 end
@@ -109,7 +109,7 @@ local function get_paced(url: string, pacer: Http.Pacer, limit: integer,
     script_for: function(integer): {string}?): Http.Body?, string
   local here = url
   for hop = 0, limit do
-    local got, trouble = Http.get(here, {
+    local got, trouble = Http.get(here, { timeout_ns = Clock.seconds(30),
       pace = pacer, follow = false, script = script_for(hop),
     })
     if got == nil then return nil, trouble end
@@ -168,13 +168,13 @@ passes and the loop reads `status`.
 ```teal continue
 local past = "Retry-After: Wed, 21 Oct 2015 07:28:00 GMT\r\n"
 local limited = reply("429 Too Many Requests", past, "slow down")
-local sent_again = assert(Http.get("http://api.test/items/9", {
+local sent_again = assert(Http.get("http://api.test/items/9", { timeout_ns = Clock.seconds(30),
   retry = { attempts = 2 }, script = { limited, reply("200 OK", "", "nine") },
 }))
-local gave_up = assert(Http.get("http://api.test/items/9", {
+local gave_up = assert(Http.get("http://api.test/items/9", { timeout_ns = Clock.seconds(30),
   retry = { attempts = 2 }, script = { limited, limited },
 }))
-local too_long = assert(Http.get("http://api.test/items/9", {
+local too_long = assert(Http.get("http://api.test/items/9", { timeout_ns = Clock.seconds(30),
   retry = { attempts = 5 },
   script = { reply("503 Service Unavailable", "Retry-After: 3600\r\n", "") },
 }))
@@ -387,7 +387,7 @@ of an open after a signal is this:
 ```teal continue
 local again = assert(Signal.guard())
 assert(sys.kill(sys.getpid(), sys.SIGINT))
-local none, interrupted = Http.get("http://api.test/items/1", {
+local none, interrupted = Http.get("http://api.test/items/1", { timeout_ns = Clock.seconds(30),
   pace = Http.pacer(interval_ns), retry = { attempts = 3 }, script = canned[1],
 })
 local _ = assert(again:release())
@@ -429,13 +429,13 @@ local function send_again(send: function(): Http.Body?, string, tries: integer,
 end
 
 -- In a real program, `send` is:
---   function() return Http.get(url, { pace = api, retry = { attempts = 3 } }) end
+--   function() return Http.get(url, { timeout_ns = Clock.seconds(30), pace = api, retry = { attempts = 3 } }) end
 local replies = { "not http\r\n\r\n", "not http\r\n\r\n", reply("200 OK", "", "one") }
 local tries_made = 0
 local function flaky(): Http.Body?, string
   tries_made = tries_made + 1
   local script = { assert(replies[tries_made]) }
-  return Http.get("http://api.test/items/1", { pace = api, script = script })
+  return Http.get("http://api.test/items/1", { timeout_ns = Clock.seconds(30), pace = api, script = script })
 end
 
 local got = assert(send_again(flaky, 3, Clock.ms(10), never))

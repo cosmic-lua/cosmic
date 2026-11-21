@@ -12,7 +12,7 @@ Test.policy{
 
 --- What checking `chunk` said, and whether it was taken.
 local function checking(chunk: string): boolean, string
-  local started = this_program.program({ "-e", chunk }, { stdout = "capture", stderr = "capture" })
+  local started = this_program.program({ "-e", chunk }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local r = assert(Child.run(started.argv, started.options))
   return r.ok, tostring(r.stdout) .. tostring(r.stderr)
 end

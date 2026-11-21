@@ -146,7 +146,7 @@ local function test_a_start_takes_as_many_grants_as_a_sandbox_unveils_paths_less
     assert(read.said == "xx", tostring(count) .. " grants: " .. read.said)
   end
   local none, why = Child.start({ at.probe, "print hi" },
-    { policy = { isolate = { "file" }, grants = grants(most + 1) }, cwd = at.work })
+    { timeout_ns = Child.FOREVER, policy = { isolate = { "file" }, grants = grants(most + 1) }, cwd = at.work })
   assert(none == nil, "a start over the most was made")
   assert(why:find("^child: start: sandbox: grants: "), why)
   assert(why:find("/proc is one more", 1, true), why)
@@ -263,7 +263,7 @@ local function test_a_grant_of_tmp_with_x_makes_the_sandboxs_own_tmp_executable(
   -- /tmp has no other letters than the two.
   local odd: Sandbox.Policy = { isolate = { "file" }, tmp = true,
     grants = ChildPolicy.with(at.grants, { path = "/tmp", letters = "r" }) }
-  local why = select(2, Child.run({ at.probe, "print x" }, { policy = odd, cwd = at.work }))
+  local why = select(2, Child.run({ at.probe, "print x" }, { timeout_ns = Child.FOREVER, policy = odd, cwd = at.work }))
   assert(tostring(why):find("sandbox's own /tmp, which tmp makes", 1, true), tostring(why))
 end
 
@@ -352,7 +352,7 @@ local function test_a_u_grant_beside_a_directory_of_sockets_is_refused_or_held(t
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.bare,
     { path = tmp .. "/socks", letters = "r" }, { path = tmp .. "/socks/s.sock", letters = "u" }) }
   local result, why = Child.run({ at.probe, "connect " .. tmp .. "/socks/s2.sock" },
-    { policy = policy, cwd = at.home, stdout = "capture", stderr = "stdout" })
+    { timeout_ns = Child.FOREVER, policy = policy, cwd = at.home, stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why:find("ABI 9", 1, true) then
       assert(why:find("beside a directory", 1, true), why)
@@ -445,7 +445,7 @@ local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: stri
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.bare,
     { path = "/x", letters = "r", from = tmp .. "/linked" },
     { path = "/x/l/y", letters = "r", from = tmp .. "/under" }) }
-  local result, why = Child.run({ at.probe, "print hi" }, { policy = policy, cwd = at.home })
+  local result, why = Child.run({ at.probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = at.home })
   assert(result == nil)
   if not why:find("root could not be built", 1, true) then
     assert(ChildPolicy.unsandboxable(why), why)
@@ -458,7 +458,7 @@ end
 
 local function test_a_directory_nothing_grants_cannot_be_started_in_under_isolate_file(tmp: string)
   local at = placed(tmp)
-  local result, why = Child.run({ at.probe, "print hi" }, { cwd = tmp .. "/other",
+  local result, why = Child.run({ at.probe, "print hi" }, { timeout_ns = Child.FOREVER, cwd = tmp .. "/other",
     policy = { isolate = { "file" }, grants = at.grants } })
   assert(result == nil)
   if ChildPolicy.unsandboxable(why) then

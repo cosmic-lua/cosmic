@@ -34,7 +34,7 @@ local Env = require("cosmic.env")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local function shell_limit(): string
-  local r = assert(Child.run({ "/bin/sh", "-c", "ulimit -Sn" }, { stdout = "capture" }))
+  local r = assert(Child.run({ "/bin/sh", "-c", "ulimit -Sn" }, { timeout_ns = Child.FOREVER, stdout = "capture" }))
   return (assert(r.stdout):gsub("%s+$", ""))
 end
 local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
@@ -46,7 +46,7 @@ argv[#argv + 1] = "-e"
 argv[#argv + 1] = "print('relaunched')"
 local env: mut {string:string} = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
-local r, why = Child.run(argv, { env = env, fds = relaunch.fds, stdout = "capture",
+local r, why = Child.run(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds, stdout = "capture",
   stderr = "capture" })
 if r ~= nil then print((assert(r.stdout):gsub("%s+$", ""))) else print(why) end
 print(shell_limit())

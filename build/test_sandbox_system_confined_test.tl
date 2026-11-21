@@ -34,7 +34,7 @@ local function test_a_confined_process_is_given_the_system_s_paths(tmp: string)
   local code: support.Cell<integer> = {}
   local ran = confine.call(function() -- checked: not_assignable
     confine.confine({ reads = { probe } })
-    local r = assert(Child.run({ probe, "present /usr || exit 3" }, { env = {} }))
+    local r = assert(Child.run({ probe, "present /usr || exit 3" }, { timeout_ns = Child.FOREVER, env = {} }))
     confine.confine(nil)
     code.value = r.code
   end, nil, { own })

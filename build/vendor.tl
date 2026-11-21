@@ -46,6 +46,7 @@
 --- name it ([`Vendor.feed_pin`]): the state's timestamp, and the feed's
 --- URL asking for that timestamp.
 local Archive = require("cosmic.archive")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -55,6 +56,11 @@ local Json = require("cosmic.json")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
+
+-- TODO: Http.FOREVER in place of CEILING_NS once
+-- ci/cosmic-driver.pin names a release whose Http has it: this file runs
+-- standalone on that release. Until then a ceiling no run reaches.
+local CEILING_NS <const> = Clock.minutes(24 * 60)
 
 local record Vendor
   record Pin
@@ -212,7 +218,8 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
   -- default.
   local want: mut {string:string} = {}
   for _, digest in ipairs(digests) do want[digest.algorithm] = digest.hex end
-  local options: Http.Options = { roots = "mozilla", sha256 = want["sha256"], sha3_256 = want["sha3-256"] }
+  local options: Http.Options = { timeout_ns = CEILING_NS, roots = "mozilla", sha256 = want["sha256"],
+    sha3_256 = want["sha3-256"] }
   local ok, trouble = Http.download(url, path, options)
   if not ok then
     return nil, trouble
@@ -509,7 +516,7 @@ local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
   end
   local path = cache .. "/" .. pin.file
   local _, _ = Fs.remove(path)
-  local ok, trouble = Http.download(pin.feed, path)
+  local ok, trouble = Http.download(pin.feed, path, { timeout_ns = CEILING_NS })
   if not ok then
     return 0, pin.feed .. ": " .. trouble
   end

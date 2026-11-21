@@ -87,7 +87,7 @@ local function test_the_filter_refuses_a_socket_and_a_process(tmp: string)
     string.format([[
 local conn, why = Net.connect(Net.tcp("127.0.0.1", 9))
 say("socket", conn ~= nil, why)
-local started, trouble = Child.start({ %q, "print hi" }, { process_group = false })
+local started, trouble = Child.start({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false })
 say("fork", started ~= nil, trouble)
 ]], probe)))
   -- Not "Connection refused", which a socket the filter let through would meet.
@@ -102,7 +102,7 @@ local function test_the_fork_promise_lets_a_process_start(tmp: string)
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
-local result, trouble = Child.run({ %q, "print hi" }, { process_group = false, stdout = "capture" })
+local result, trouble = Child.run({ %q, "print hi" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture" })
 if result ~= nil then say("fork", result.ok, result.stdout) else say("fork", false, trouble) end
 ]], probe)))
   assert(assert(said.lines["fork"]):find("^true"), said.raw)
@@ -115,13 +115,13 @@ end
 local function test_the_signal_scope_lets_a_forked_process_signal_what_is_inside(tmp: string)
   local abi, _ = require("cosmic.internal.process").landlock_abi()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local sibling = assert(Child.start({ probe, "sleep-forever" }, { process_group = false }))
+  local sibling = assert(Child.start({ probe, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rx\" } }, promises = { \"fork\" } }", probe),
     string.format([[
-local own = Child.run({ %q, "signal TERM" }, { process_group = false, stdout = "capture", stderr = "stdout" })
+local own = Child.run({ %q, "signal TERM" }, { timeout_ns = Child.FOREVER, process_group = false, stdout = "capture", stderr = "stdout" })
 if own ~= nil then say("self", own.signal, own.code, own.stdout) else say("self", nil, nil, nil) end
-local held = assert(Child.start({ %q, "sleep-forever" }, { process_group = false }))
+local held = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 local ended, kill_why = sys.kill(held.pid, sys.SIGKILL)
 say("child", ended, kill_why)
 local waited = held:wait()
@@ -318,7 +318,7 @@ end
 local function test_a_child_reaped_does_not_refuse(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local said = Restrict.in_child(string.format([[
-local running = assert(Child.start({ %q, "sleep-forever" }, { process_group = false }))
+local running = assert(Child.start({ %q, "sleep-forever" }, { timeout_ns = Child.FOREVER, process_group = false }))
 assert(running:close())
 local after, trouble = Sandbox.restrict({})
 say("reaped", after, trouble)

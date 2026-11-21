@@ -58,7 +58,7 @@ Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
 
 local held: mut {Child.Handle} = {}
 local function test_hangs()
-  table.insert(held, (assert(Child.start({ "bin/probe", "sleep-forever", "MARKER" }))))
+  table.insert(held, (assert(Child.start({ "bin/probe", "sleep-forever", "MARKER" }, { timeout_ns = Child.FOREVER }))))
   -- Still running a moment on, so what is found gone below was there:
   -- a probe that never started, or ended at once, fails this instead
   -- of timing out.
