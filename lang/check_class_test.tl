@@ -80,6 +80,28 @@ end
 
 -- a value is made by a literal -------------------------------------------------------------------------------
 
+local function test_a_record_or_class_has_the_fields_of_the_interfaces_it_lists_that_it_leaves_out()
+  local head = "local interface Named\n  name: string\n  mut seen: integer\n  note?: string\nend\n" ..
+    "local interface Titled is Named\n  title: string\nend\n" ..
+    "local record Page is Titled\nend\n"
+  -- A record has each field of what it lists, and of what that lists, as the interface declares it.
+  accepted(head .. "local p: Page = { name = \"a\", seen = 0, title = \"t\" }\nlocal n: string = p.name\n" ..
+      "p.seen = p.seen + 1\nlocal t: string = p.title\nlocal o: string? = p.note\nlocal x: Named = p\n")
+  refused(head .. "local p: Page = { name = \"a\", seen = 0 }\n", "literal_missing", "leaves out `title`")
+  refused(head .. "local p: Page = { name = \"a\", seen = 0, title = \"t\" }\nlocal n: integer = p.name\n", "not_assignable")
+  refused(head .. "local p: Page = { name = \"a\", seen = 0, title = \"t\" }\np.name = \"b\"\n", "field_fixed")
+  -- The arguments of a listing are put in.
+  accepted("local interface Holder<T>\n  item: T\nend\nlocal record Box<T> is Holder<T>\nend\n" ..
+      "local b: Box<integer> = { item = 1 }\nlocal i: integer = b.item\n")
+  refused("local interface Holder<T>\n  item: T\nend\nlocal record Box<T> is Holder<T>\nend\n" ..
+      "local b: Box<integer> = { item = \"x\" }\n", "not_assignable")
+  -- A class has the data fields, and a literal of it names each; a method it must write itself.
+  accepted(head .. "local class Card is Named\n  function shout(self): string\n    return self.name\n  end\nend\n" ..
+      "local c: Card = { name = \"a\", seen = 0, note = nil }\nlocal s: string = c:shout()\n")
+  declared_wrong("local interface Sized\n  size: function(self: Sized): integer\nend\nlocal class Bag is Sized\nend\n",
+    "interface_disagrees", "`Bag` lists `Sized` but has no field or method `size`")
+end
+
 local function test_a_literal_of_a_class_names_every_field_a_field_not_yet_known_by_its_empty_value()
   local head = "local class Handle\n  fd: integer\n  name?: string\n  mut tries: integer\nend\n"
   refused(head .. "local h: Handle = { fd = -1, tries = 0 }\n", "literal_missing", "this literal of `Handle` leaves out `name`")

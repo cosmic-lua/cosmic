@@ -1376,7 +1376,7 @@ end
 
 --- The Reader of a child's streamed output: it takes what `pump` queued,
 --- pumping every stream of the child while it waits.
-local class PipeReader is Stream.Reader -- declared: interface_disagrees
+local class PipeReader is Stream.Reader
   child: Handle
   pipe: Pipe
   mut closed: boolean
@@ -1416,7 +1416,7 @@ local function pipe_reader(self: Handle, index: integer): Stream.Reader
   local pipe = assert(self._streams)[index]
   local owner: Consumption = setmetatable({ pipes = { pipe }, discard = false }, consumption_mt) -- checked: array_of_optional, setmetatable_call -- untyped: call
   local r: PipeReader =
-    { child = self, pipe = pipe, closed = false, failed = "", owner = owner } -- checked: nil_not_allowed
+    { child = self, pipe = pipe, closed = false, failed = "", owner = owner, skip = nil } -- checked: nil_not_allowed
   return r
 end
 

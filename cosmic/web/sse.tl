@@ -314,7 +314,7 @@ local record Guard
 end
 
 --- The Reader that is a stream's body.
-local record Body is Stream.Reader -- declared: interface_disagrees
+local record Body is Stream.Reader
   app: Types.App
   source: Sse.EventSource
   heartbeat_ns: integer
@@ -526,7 +526,7 @@ local record Entry
   event: Sse.Event
 end
 
-local record Sub is Sse.Subscription -- declared: interface_disagrees
+local record Sub is Sse.Subscription
   queue: Channel.Queue<Sse.Event>
   mut detach: function()
   next: function(Sub, timeout_ns?: integer): Sse.Event?, string
@@ -741,7 +741,7 @@ function State.subscribe(self: State, topics: {string}, opts?: Sse.SubscribeOpti
   for _, ev in ipairs(replay) do assert(queue:try_send(ev)) end
   -- `detach` closes over `sub`, which does not exist until its literal is built: the no-op is
   -- replaced before `sub` is handed out.
-  local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close, -- checked: literal_unknown
+  local sub: Sub = { queue = queue, gap = gap, next = Sub.next, close = Sub.close,
     closed = Sub.closed, dropped = Sub.dropped, detach = function() end }
   local attached: boolean = true
   sub.detach = function()

@@ -158,7 +158,7 @@ end
 
 --- A Reader of `data` in pieces of `sizes`, then the rest whole; a read
 --- asking for less gets less.
-local class Pieces is Stream.Reader -- declared: interface_disagrees
+local class Pieces is Stream.Reader
   data: string
   sizes: {integer}
   mut at: integer
@@ -180,7 +180,7 @@ local class Pieces is Stream.Reader -- declared: interface_disagrees
 end
 
 local function pieces(data: string, sizes: {integer}): Stream.Reader
-  local r: Pieces = { data = data, sizes = sizes, at = 1, next_size = 1 }
+  local r: Pieces = { data = data, sizes = sizes, at = 1, next_size = 1, skip = nil }
   return r
 end
 

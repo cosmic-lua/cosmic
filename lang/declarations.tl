@@ -18,7 +18,8 @@
 --- - agreement: a type that lists an interface has every field of it and of every interface it
 ---   extends, of exactly the interface's type (the receiver, the first parameter that is the
 ---   interface itself, is the implementing type's own) and `mut` and omittable where the interface
----   is: `interface_disagrees`. What it lists is an interface, and no declaration lists itself, even
+---   is. One it leaves out it has from the interface, but a class writes a method for each fixed
+---   function field: `interface_disagrees`. What it lists is an interface, and no declaration lists itself, even
 ---   through the declarations it lists: `super_not_interface`, `super_cycle`, `listing_too_large`.
 --- - tags: a union with two records or more is legal only if each has one shared fixed field typed
 ---   by an enum, and no value of it is in two members: `untagged_union`.
@@ -81,7 +82,7 @@ local type Decl = Types.Decl
 local record Declarations
   --- What an error is, so that a reader does not parse its `msg`.
   enum Code
-    -- a type that lists an interface and does not have a field of it as it declares it
+    -- a type that lists an interface and declares a field of it otherwise, or a class that lacks a method of it
     "interface_disagrees"
     -- a type after `is` that is not an interface
     "super_not_interface"
@@ -352,7 +353,7 @@ local record Declarations
   --- The names of the type parameters of `list`.
   parameter_names: function(list: {Ast.TypeParam}): {string}
 
-  --- The fields `decl`, an interface, has from the interfaces it lists ([`Declarations.inherited`]).
+  --- The fields `decl` has from the interfaces it lists and leaves out ([`Declarations.inherited`]).
   inherited: function(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
 
   --- Whether `made`, the type of a method named `__close`, is what Lua calls at the end of a `<close>` local's block:
@@ -378,10 +379,10 @@ Declarations.catalog = {
   {
     code = "interface_disagrees", rule = "interface agreement",
     why = "a type conforms to an interface by having its fields, and one that lists it with `is` is checked once, where " ..
-      "the type is declared: so each field of the interface has to be there, of exactly the interface's type " ..
-      "(the receiver of a function field is the implementing type) and `mut` exactly where the interface is, " ..
-      "or a value of the type could not stand for the interface; an interface may leave a field out, and has it " ..
-      "from the interfaces it lists, which must declare it alike",
+      "the type is declared: so each field it declares has exactly the interface's type " ..
+      "(the receiver of a function field is the implementing type) and is `mut` exactly where the interface is, " ..
+      "or a value of the type could not stand for the interface; a field it leaves out it has from the interfaces " ..
+      "it lists, which must declare it alike, except that a class writes a method for each fixed function field",
     fix = "declare <field> in <type> as <interface> declares it: <type of the field>",
   },
   {
@@ -2416,7 +2417,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
             local mine = quoted(decl.name .. "." .. f.name)
             local s = found[1]
             if s == nil then
-              if decl.kind ~= "interface" then
+              if not Relation.brought_in(decl, f) then
                 local shown_type: Type = expected
                 if f.omittable == true then
                   shown_type = store:non_nil(expected)
@@ -2429,7 +2430,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
                     (if is_class and (expected.tag == "fn") and f.mut ~= true then " (or write the method `function " .. f.name .. "(self, ...)` of that type)" else "" end),
                   if tainted(ctx, expected) then {} else { display(expected) } end)
               else
-                -- An interface that leaves a field out has it from the interfaces it lists, so they must say it alike.
+                -- A declaration that leaves a field out has it from the interfaces it lists, so they must say it alike.
                 local held = inherited[f.name]
                 if held == nil then
                   inherited[f.name] = { from = x, type = expected, mut = f.mut == true, omittable = f.omittable == true }
@@ -3134,15 +3135,16 @@ Declarations.Program.lower = function(self: Program, input: Declarations.Input):
   }
 end
 
---- The fields `decl`, an interface, has from the interfaces it lists and the ones they list, those it leaves out
---- (interface agreement): each from the first interface of its closure that declares
+--- The fields `decl`, an interface, record or class, has from the interfaces it lists and the ones they list, those
+--- it leaves out (interface agreement): each from the first interface of its closure that declares
 --- it, with that interface's arguments put in and the receiver of a function field replaced by `decl`. Where those
 --- interfaces declare a field differently `interface_disagrees` says so at the declaration, and the first is the one
---- given. Nothing for another kind: a record or class must declare every field it lists.
+--- given. A class has none of the fixed function fields, which it meets with a method ([`Relation.brought_in`]).
 function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
   local out: mut {Types.Field} = {}
   local body = decl.body
-  if decl.kind ~= "interface" or body == nil or #body.supers == 0 then
+  local kind = decl.kind
+  if (kind ~= "interface" and kind ~= "record" and kind ~= "class") or body == nil or #body.supers == 0 then
     return out
   end
   local self_type = store:named(decl, identity(store, #body.tparams))
@@ -3153,6 +3155,9 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
   for _, f in ipairs(body.fields) do
     held[f.name] = true
   end
+  for _, m in ipairs(body.methods) do
+    held[m.name] = true
+  end
   for _, x in ipairs(judge:listed(self_type).types) do
     local xbody: Types.Body? = nil
     if x.tag == "named" then
@@ -3162,7 +3167,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
       for _, f in ipairs(xbody.fields) do
         if held[f.name] ~= true then
           local made = Relation.as_listed(store, x, f.type, self_type)
-          if made ~= nil then
+          if made ~= nil and Relation.brought_in(decl, f) then
             held[f.name] = true
             out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable }
           end

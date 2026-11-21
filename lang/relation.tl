@@ -276,6 +276,9 @@ local record Relation
   --- function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
   as_listed: function(store: Store, x: Named, field_type: Type, self_type: Type): Type?
 
+  --- Whether a declaration that leaves `f` out of an interface it lists has it from the interface.
+  brought_in: function(decl: Types.Decl, f: Types.Field): boolean
+
   --- For each field of the interface `pattern`, and of those it lists: the field's type as `pattern` declares it, with
   --- its arguments put in and a function field's receiver `actual`, then as `actual` has it, in pairs. Nil where
   --- `actual` is no record, class or interface, or has no field of one of the names. A solver reads the arguments of `pattern` from
@@ -799,6 +802,13 @@ function Relation.as_listed(store: Store, x: Named, field_type: Type, self_type:
   return with_receiver_of(store, instance, { [x.id] = true }, self_type)
 end
 
+--- Whether a declaration `decl` that lists an interface declaring `f`, and leaves `f` out, has it from the interface:
+--- an interface or a record has each such field, and a class each but a fixed function field, which it meets with a
+--- method of its own.
+function Relation.brought_in(decl: Types.Decl, f: Types.Field): boolean
+  return decl.kind ~= "class" or f.mut == true or f.type.tag ~= "fn"
+end
+
 --- A field or method that `n` has, with the arguments of `n` put in.
 local record Supplied
   type: Type
@@ -806,8 +816,8 @@ local record Supplied
   omittable: boolean
 end
 
---- The fields and methods of `n`'s declaration named `name`, and, for an interface, the fields it has from the
---- interfaces it lists, which it may leave out.
+--- The fields and methods of `n`'s declaration named `name`, and the fields it has from the interfaces it lists: for an
+--- interface each of theirs, and for a record or class those it leaves out.
 local function supplied(j: Relation.Judge, n: Named, name: string): {Supplied}
   local out: mut {Supplied} = {}
   local body = n.decl.body
@@ -835,7 +845,9 @@ local function supplied(j: Relation.Judge, n: Named, name: string): {Supplied}
       add(own(m.type), false, false)
     end
   end
-  if n.decl.kind == "interface" then
+  local kind = n.decl.kind
+  if kind == "interface" or (#out == 0 and (kind == "record" or kind == "class")) then
+    -- What the declaration leaves out it has from the interfaces it lists ([`Relation.brought_in`]).
     for _, x in ipairs(closure_of(j, n).list) do
       local xbody: Types.Body? = nil
       if (x.tag == "named") then
@@ -843,7 +855,7 @@ local function supplied(j: Relation.Judge, n: Named, name: string): {Supplied}
       end
       if (x.tag == "named") and xbody ~= nil then
         for _, f in ipairs(xbody.fields) do
-          if f.name == name then
+          if f.name == name and (kind == "interface" or Relation.brought_in(n.decl, f)) then
             add(Relation.as_listed(j.store, x, f.type, n), f.mut == true, f.omittable == true)
           end
         end
