@@ -73,7 +73,8 @@ local record Qr
     --- ones and the quiet zone. Leave it off for a terminal of light text
     --- on a dark ground, the common case: the characters then show the
     --- light modules, and the terminal's ground shows the dark ones. Set
-    --- it for a terminal of dark text on a light ground, and for paper.
+    --- it for a terminal of dark text on a light ground, and for paper;
+    --- `color` is clear on either.
     invert?: boolean
     --- ASCII alone, for a terminal or a font without block characters:
     --- each module is two characters, `##` or two spaces, and each row a
@@ -1101,24 +1102,35 @@ local INK_BELOW <const>: {string: boolean} = { [" "] = false, ["\u{2580}"] = fal
 
 --- The ink of `drawing`, text [`Qr.text`] drew, as rows; nil and why.
 --- What copying it from a terminal, a page or a message adds is taken
---- back out: colour escapes, no-break spaces for spaces, CRLF, blank
---- lines around it, and an indent its lines share.
+--- back out: terminal escapes, no-break spaces for spaces, CRLF, blank
+--- lines around it, spaces at the ends of lines, and an indent of spaces
+--- and tabs its lines share.
 local function text_ink(drawing: string): {{boolean}}?, string
-  local plain = (drawing:gsub("\27%[[%d;]*m", ""):gsub("\u{a0}", " "))
+  local plain = (drawing:gsub("\27%[[%d;:?]*%a", ""):gsub("\u{a0}", " "))
   local lines: mut {string} = {}
   for line in (plain .. "\n"):gmatch("([^\n]*)\n") do
-    lines[#lines + 1] = (line:gsub("\r$", ""))
+    lines[#lines + 1] = (line:gsub("[ \t\r]+$", ""))
   end
   while #lines > 0 and lines[#lines]:match("^%s*$") ~= nil do table.remove(lines) end
   while #lines > 0 and lines[1]:match("^%s*$") ~= nil do table.remove(lines, 1) end
   if #lines == 0 then return nil, "qr: the text draws nothing" end
-  -- The spaces every line that is not blank starts with: an indent, or a
-  -- quiet zone drawn as spaces, which the code needs no more of to read.
-  local indent = math.maxinteger
+  -- The spaces and tabs every line that is not blank starts with: an
+  -- indent, or a quiet zone drawn as spaces, which a reader can do without.
+  local indent: string? = nil
   for _, line in ipairs(lines) do
-    if line:match("^%s*$") == nil then indent = math.min(indent, #(line:match("^ *") or "")) end
+    if line ~= "" then
+      local lead = line:match("^[ \t]*") or ""
+      if indent == nil then
+        indent = lead
+      else
+        local n = 0
+        while n < #indent and n < #lead and indent:byte(n + 1) == lead:byte(n + 1) do n = n + 1 end
+        indent = indent:sub(1, n)
+      end
+    end
   end
-  for n, line in ipairs(lines) do lines[n] = line:sub(indent + 1) end
+  local cut = #(indent or "")
+  for n, line in ipairs(lines) do lines[n] = line:sub(cut + 1) end
   local blocks = false
   for _, char in ipairs({ "\u{2580}", "\u{2584}", "\u{2588}" }) do
     if plain:find(char, 1, true) ~= nil then blocks = true end
@@ -1200,8 +1212,9 @@ end
 
 --- Reads the code in `drawing`: an SVG [`Qr.svg`] drew, or text
 --- [`Qr.text`] drew, half blocks or ASCII, inverted, in colour or
---- neither, with any quiet zone, indented or not. It reads those drawings, not images: an SVG from another
---- program, or a photo, is refused. Nil and why where it is neither, or
+--- neither, with any quiet zone, indented or not. It reads those
+--- drawings, not images: an SVG from another program, or a photo, is
+--- refused. Nil and why where it is neither, or
 --- [`Qr.decode`] cannot read the code.
 ---
 ---     local code = assert(Qr.encode("https://example.com/"))

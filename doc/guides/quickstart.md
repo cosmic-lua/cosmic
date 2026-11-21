@@ -105,8 +105,8 @@ rand` has the rest. A program draws a UUID of its own with [`Rand.uuid`].
 `cosmic qr https://example.com/` prints a code a phone can scan from the
 terminal, and `echo https://example.com/ | cosmic qr` reads the text from
 standard input. The blocks show the light modules, for a dark terminal;
-`--invert` suits a light one, and `--ascii` a font with no block
-characters. `cosmic qr --svg code.svg https://example.com/` writes an image
+`--invert` suits a light one, `--color` paints it black on white for
+either, and `--ascii` suits a font with no block characters. `cosmic qr --svg code.svg https://example.com/` writes an image
 instead (`--svg -` prints it), and `cosmic qr --read code.svg` reads either
 drawing back. `cosmic help qr` has the rest. A program draws its own with
 [`Qr.text`] and [`Qr.svg`], and reads one with [`Qr.read`].

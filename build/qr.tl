@@ -98,7 +98,8 @@ local function arguments(argv: {string}): Request?, string
       reading = file }, ""
   end
   local request: Request = { level = "M", max_version = 40, quiet = 4, invert = parsed.set["--invert"] == true,
-    ascii = parsed.set["--ascii"] == true, color = parsed.set["--color"] == true, scale = 8, svg = parsed.values["--svg"], title = parsed.values["--title"] }
+    ascii = parsed.set["--ascii"] == true, color = parsed.set["--color"] == true, scale = 8,
+    svg = parsed.values["--svg"], title = parsed.values["--title"] }
   local level = parsed.values["--level"]
   if level ~= nil then
     local named = LEVELS[level:upper()]

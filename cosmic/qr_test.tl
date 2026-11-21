@@ -464,6 +464,13 @@ local function test_text_copied_indented_or_with_no_break_spaces_still_reads()
       local read, why = Qr.read(indented)
       assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, indent %d: %s"):format(n, #indent, why))
     end
+    -- A tab before each line, and spaces after it.
+    local tabbed = drawn:gsub("[^\n]+", function(line: string): string
+      return "\t" .. line .. "   "
+    end)
+    local read_tabbed, tabbed_why = Qr.read(tabbed)
+    assert(read_tabbed ~= nil and read_tabbed.text == "https://example.com/", ("drawing %d, tabbed: %s"):format(n,
+      tabbed_why))
     -- Spaces a copy turned into no-break spaces.
     local read, why = Qr.read((drawn:gsub(" ", "\u{a0}")))
     assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, no-break spaces: %s"):format(n, why))
@@ -486,6 +493,8 @@ local function test_color_paints_each_line_dark_on_light_and_reads_back()
     assert(select(2, plain:gsub("\n", "")) == lines)
     assert(assert(Qr.read(painted)).text == "https://example.com/")
     assert(assert(Qr.read((painted:gsub("[^\n]+", "  %0")))).text == "https://example.com/")
+    -- Escapes a terminal adds besides colour, such as erase to the end of the line.
+    assert(assert(Qr.read((painted:gsub("\n", "\27[K\n")))).text == "https://example.com/")
   end
 end
 
