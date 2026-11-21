@@ -187,10 +187,10 @@ local CASES <const>: {Case} = {
   },
   {
     code = "bound_not_met",
-    source = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+    source = "local interface Named\n  name: string\nend\nlocal record Plain\n  title: string\nend\n" ..
       "local record Box<T is Named>\n  value: T\nend\nlocal b: Box<Plain>\n",
-    msg = "`Box` bounds its type parameter 1 by `Named`, and `Plain` does not list it",
-    fix = "list the interface in the declaration of `Plain` (`is Named`), or pass a type that does",
+    msg = "`Box` bounds its type parameter 1 by `Named`, and `Plain` has no field `name: string` as it declares",
+    fix = "declare `name: string` in `Plain`, as the interface does, or pass a type that has them",
   },
   {
     code = "outer_type_parameter",
@@ -742,7 +742,7 @@ end
 local function test_a_type_parameter_of_the_code_around_a_use_is_not_held_to_a_bound_until_it_is_instantiated()
   local head = "local interface Named\n  name: string\nend\nlocal record Box<T is Named>\n  value: T\nend\n"
   assert(#errors_of(head .. "local function f<U>(b: Box<U>)\nend\n") == 0)
-  local unmet = only(head .. "local record Plain\n  name: string\nend\nlocal function f<U>(b: Box<Plain>, u: U)\nend\n")
+  local unmet = only(head .. "local record Plain\n  title: string\nend\nlocal function f<U>(b: Box<Plain>, u: U)\nend\n")
   assert(unmet.code == "bound_not_met", unmet.code)
 end
 

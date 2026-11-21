@@ -377,7 +377,7 @@ Declarations.codes = {
 Declarations.catalog = {
   {
     code = "interface_disagrees", rule = "interface agreement",
-    why = "a type conforms to an interface only by listing it with `is`, and the listing is checked once, where " ..
+    why = "a type conforms to an interface by having its fields, and one that lists it with `is` is checked once, where " ..
       "the type is declared: so each field of the interface has to be there, of exactly the interface's type " ..
       "(the receiver of a function field is the implementing type) and `mut` exactly where the interface is, " ..
       "or a value of the type could not stand for the interface; an interface may leave a field out, and has it " ..
@@ -480,8 +480,9 @@ Declarations.catalog = {
   {
     code = "bound_not_met", rule = "a constraint is one interface",
     why = "a type argument takes the place of a type parameter that the body treats as the interface it is bounded by, " ..
-      "and a type conforms to an interface only by listing it, so an argument that does not list it breaks the body",
-    fix = "list the interface in the declaration of <type> (`is <interface>`), or pass a type that does",
+      "and a type conforms to an interface by listing it or by having each of its fields as it declares them, so an " ..
+      "argument that does neither breaks the body",
+    fix = "declare the interface's fields in <type>, or pass a type that has them",
   },
   {
     code = "outer_type_parameter", rule = "a declaration is closed over its own parameters",
@@ -2304,23 +2305,6 @@ end
 
 -- Checks that read other bodies -----------------------------------------------------------
 
---- `f` with its first parameter `receiver`.
-local function with_receiver(store: Store, f: Types.Fn, receiver: Type): Type
-  local params: mut {Types.Param} = {}
-  for i, p in ipairs(f.params) do
-    params[i] = { type = i == 1 and receiver or p.type, omittable = p.omittable } -- checked: and_ternary
-  end
-  local rets: mut {Types.Alt} = {}
-  for i, alt in ipairs(f.rets) do
-    local narrows = alt.narrows
-    rets[i] = {
-      items = alt.items, tail = alt.tail,
-      narrows = if narrows ~= nil then { param = narrows.param, to = narrows.to, asserts = narrows.asserts } else nil end,
-    }
-  end
-  return store:fn({ tparams = f.tparams, params = params, rest = f.rest, rets = rets })
-end
-
 --- A field or method of a body that supplies what an interface declares under `name`.
 local record Supply
   type: Type
@@ -2342,36 +2326,6 @@ local function supplies(body: Types.Body, name: string): {Supply}
     end
   end
   return out
-end
-
---- The type of a field of `x`, an interface that `self_type` lists, as `self_type` has it: `x`'s arguments put in and the
---- receiver of a function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
-local function as_listed(store: Store, x: Named, field_type: Type, self_type: Type): Type?
-  local instance: Type? = field_type
-  if #x.args > 0 then
-    instance = Relation.instantiate(store, field_type, x.args)
-  end
-  if instance == nil then
-    return nil
-  end
-  -- An omittable function field is `function(...)?`: the receiver is the function's.
-  local optional = (instance.tag == "union") and instance.nilable
-  local callable: Type = instance
-  if optional then
-    callable = store:non_nil(instance)
-  end
-  local receiver: Types.Param? = nil
-  if callable.tag == "fn" then
-    receiver = callable.params[1]
-  end
-  if (callable.tag == "fn") and receiver ~= nil and #callable.tparams == 0 and receiver.type == x then
-    local replaced = with_receiver(store, callable, self_type)
-    if optional then
-      return store:optional(replaced)
-    end
-    return replaced
-  end
-  return instance
 end
 
 --- What an interface has of a field from an interface it lists.
@@ -2443,7 +2397,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
     end
     if (x.tag == "named") and xbody ~= nil then
       for _, f in ipairs(xbody.fields) do
-        local instance = as_listed(store, x, f.type, self_type)
+        local instance = Relation.as_listed(store, x, f.type, self_type)
         if instance ~= nil then
           local expected: Type = instance
           local found = supplies(body, f.name)
@@ -2889,10 +2843,18 @@ local function check_use(ctx: Ctx, use: Use): boolean
               if bound.tag == "Numeric" then "pass `integer` or `number`" else "pass a number type or a string type" end,
               { shown })
           else
+            local r = ctx.program.judge:refuse(argument, bound)
+            local field = if r ~= nil then r.field else nil end
+            local lacking = if field ~= nil then (if field.mut == true then "mut " else "" end) .. field.name ..
+                (if field.omittable == true then "?" else "" end) .. ": " .. Types.display(if field.omittable == true then
+                  ctx.store:non_nil(field.type) else field.type end, use.names) else nil end
             report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
-                quoted(Types.display(bound, use.names)) .. ", and " .. quoted(shown) .. " does not list it",
-              "list the interface in the declaration of " .. quoted(shown) .. " (`is " .. Types.display(bound, use.names) ..
-                "`), or pass a type that does", { shown })
+                quoted(Types.display(bound, use.names)) .. ", and " .. quoted(shown) ..
+                (if lacking ~= nil then " has no field " .. quoted(lacking) .. " as it declares" else
+                  " neither lists it nor has its fields" end),
+              (if lacking ~= nil then "declare `" .. lacking .. "` in " .. quoted(shown) .. ", as the interface does" else
+                "declare the fields of " .. quoted(Types.display(bound, use.names)) .. " in " .. quoted(shown) end) ..
+                ", or pass a type that has them", { shown })
           end
         end
       end
@@ -3199,7 +3161,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
     if (x.tag == "named") and xbody ~= nil then
       for _, f in ipairs(xbody.fields) do
         if held[f.name] ~= true then
-          local made = as_listed(store, x, f.type, self_type)
+          local made = Relation.as_listed(store, x, f.type, self_type)
           if made ~= nil then
             held[f.name] = true
             out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable }

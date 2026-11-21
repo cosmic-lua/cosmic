@@ -52,7 +52,9 @@ local function chain_of(n: integer): Chain
     if previous ~= nil then
       supers[1] = previous
     end
-    store:define(decl, { tparams = {}, supers = supers, fields = {}, methods = {}, values = {} })
+    -- A field of its own, so that an earlier interface of the chain does not have what a later one declares.
+    store:define(decl, { tparams = {}, supers = supers, fields = { { name = "f" .. tostring(i), type = store.integer } },
+      methods = {}, values = {} })
     previous = store:named(decl)
     first = first or previous
   end
