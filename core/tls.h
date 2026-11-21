@@ -1,6 +1,7 @@
-/* The TLS server under [`cosmic.net`]'s TLS listeners, over mbedtls: a
- * configuration of certificates and keys, and a session of it over one
- * accepted socket. */
+/* TLS for [`cosmic.net`], over mbedtls: a server's configuration of
+ * certificates and keys, under its TLS listeners; a client's of the
+ * roots it verifies a server against, under [`Net.connect`]'s `tls`;
+ * and a session of either over one socket. */
 
 #ifndef COSMIC_TLS_H
 #define COSMIC_TLS_H
