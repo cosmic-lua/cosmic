@@ -139,9 +139,8 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("table", "remove", "function<T>(mut {T}, p2?: integer): T?")
   -- a function that changes the collection it is given declares it `mut`
   same("table", "insert", "function<T>(mut {T}, integer, T)", "function<T>(mut {T}, T)")
-  same("table", "sort", "function(mut {integer}, p2?: function(integer, integer): boolean)",
-    "function(mut {number}, p2?: function(number, number): boolean)", "function(mut {string}, p2?: function(string, string): boolean)",
-    "function<T>(mut {T}, function(T, T): boolean)")
+  -- an array of any type `<` orders, a class that declares `__lt` and `__le` among them, or of any type and a comparator
+  same("table", "sort", "function<T is Ordered>(mut {T})", "function<T>(mut {T}, function(T, T): boolean)")
   same("table", "move", "function<T>(mut {T}, integer, integer, integer): mut {T}",
     "function<T>({T}, integer, integer, integer, mut {T}): mut {T}")
   same("StandardLibrary", "rawset", "function<T is Key, U>(mut {T: U}, T, U): mut {T: U}")

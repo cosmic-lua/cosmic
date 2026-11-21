@@ -194,9 +194,7 @@ do
     concat: function({string}, p2?: string): string
     unpack: function<A>({A}): A...
     remove: function<A>(mut {A}, p2?: integer): A?
-    sort: function(mut {integer}, ? function(integer, integer): boolean)
-    sort: function(mut {number}, ? function(number, number): boolean)
-    sort: function(mut {string}, ? function(string, string): boolean)
+    sort: function<A is Ordered>(mut {A})
     sort: function<A>(mut {A}, function(A, A): boolean)
   end
   global record math

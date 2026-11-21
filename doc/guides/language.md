@@ -432,13 +432,42 @@ intro
 ## comparing and adding values of a type parameter
 
 A type parameter ranges over every type, so a generic body may not apply `<` or `+` to its values (`generic_op`). A
-bound says which operators it takes. `T is Ordered` takes a number type or a string type: two values of `T` compare
-with `<`, `<=`, `>` and `>=`. `N is Numeric` takes `integer` or `number`: two values of `N` take `+`, `-`, `*`, `%`,
+bound says which operators it takes. `T is Ordered` takes a number type, a string type, or a class that declares
+`__lt` and `__le`: two values of `T` compare with `<`, `<=`, `>` and `>=`. `N is Numeric` takes `integer` or `number`: two values of `N` take `+`, `-`, `*`, `%`,
 `//` and unary `-`, which answer `N`, and compare with any number. `/` and `^` answer `number`, as they do for integers.
 
 A type whose values may be a number or a string, such as `integer | string`, is no `Ordered`, because `1 < "a"` raises.
 An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered`, `Numeric` and `Key`
 are bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
+
+A class orders its values with the methods `__lt`, which `<` and `>` call, and `__le`, which `<=` and `>=` call. Each
+takes the value and another of the class and answers a `boolean` (`metamethod_signature`). Two values of a class compare
+with the operators whose methods it declares, and a class that declares both is `Ordered`, so `table.sort` of an array
+of its values needs no comparator.
+
+```teal
+local class Version
+  major: integer
+  minor: integer
+  function __lt(self, other: Version): boolean
+    return self.major < other.major or (self.major == other.major and self.minor < other.minor)
+  end
+  function __le(self, other: Version): boolean
+    return not (other < self)
+  end
+end
+
+local all: mut {Version} = { { major = 2, minor = 0 }, { major = 1, minor = 4 } }
+table.sort(all)
+for _, v in ipairs(all) do
+  print(v.major .. "." .. v.minor)
+end
+```
+
+```output
+1.4
+2.0
+```
 
 ```teal
 local function largest<T is Ordered>(xs: {T}, first: T): T
@@ -510,7 +539,7 @@ local function unique_sorted<T is Ordered & Key>(xs: {T}): {T}
       out[#out + 1] = x
     end
   end
-  table.sort(out, function(a: T, b: T): boolean return a < b end)
+  table.sort(out)
   return out
 end
 

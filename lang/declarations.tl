@@ -35,8 +35,9 @@
 --- - optional fields: a field that may be nil is a plain value of one type, never a metamethod (`optional_metamethod`)
 ---   and never a generic function (`optional_generic`).
 --- - classes: a method named for a metamethod, other than `__close` (which takes the value, and the error object as `any` if it likes, and answers
----   nothing) and `__tostring` (which also answers a `string`), and a function of a class with such a name:
----   `class_metamethod`, `metamethod_signature`.
+---   nothing), `__tostring` (which also answers a `string`) and `__lt` and `__le` (which take the value and another
+---   of the class and answer a `boolean`), and a function of a class with such a name: `class_metamethod`,
+---   `metamethod_signature`.
 --- - the form of a type: the count of type arguments (`type_arguments`), a type that nests deeper
 ---   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), except in the element of an
 ---   array or the value of a map, where the alias is given a name (a declaration of kind `alias`) and the type may be
@@ -506,17 +507,18 @@ Declarations.catalog = {
   },
   {
     code = "metamethod_signature", rule = "compiler-written classes",
-    why = "Lua runs `__close` with the value at the end of its block and `tostring` calls `__tostring` with the " ..
-      "value and takes a string, so a class that writes either with other parameters, or a `__tostring` that " ..
-      "answers another type, breaks at the call",
-    fix = "write `function __close(self)` (or `function __close(self, err: any)`) and `function __tostring(self): string`",
+    why = "Lua runs `__close` with the value at the end of its block, `tostring` calls `__tostring` with the " ..
+      "value and takes a string, and `<` and `<=` call `__lt` and `__le` with two values and take a boolean, so a class " ..
+      "that writes one with other parameters, or answering another type, breaks at the call",
+    fix = "write `function __close(self)` (or `function __close(self, err: any)`), `function __tostring(self): string`, " ..
+      "or `function __lt(self, other: C): boolean` and `__le` alike"
   },
   {
     code = "class_metamethod", rule = "dispatch only through declared types",
     why = "the table of a class's methods is the metatable of its values, so a method or function of a name that " ..
-      "begins with two underscores is read by Lua as a metamethod: a class has `__close` and `__tostring` and no other, " ..
-      "since no other runs code the program can see; a field of such a name is refused too, since a value that lacks it " ..
-      "reads the table for it",
+      "begins with two underscores is read by Lua as a metamethod: a class has `__close`, `__tostring`, `__lt` and `__le` " ..
+      "and no other, since no other runs code the program can see; a field of such a name is refused too, since a value " ..
+      "that lacks it reads the table for it",
     fix = "rename <name>, and call it as a method (`v:name(...)`)",
   },
   {
@@ -1956,20 +1958,37 @@ function Declarations.close_is_callable(made: Type): boolean
 end
 
 --- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
---- takes the value and may take the error object, and answers nothing) or `__tostring` (it takes the value alone and
---- answers a `string`), and refuses a name of any other metamethod.
+--- takes the value and may take the error object, and answers nothing), `__tostring` (it takes the value alone and
+--- answers a `string`) or `__lt` or `__le` (it takes the value and another of the class and answers a `boolean`, for
+--- `<`, `>`, `<=` and `>=`), and refuses a name of any other metamethod.
 local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Type)
   local name = m.name.name
   local class = quoted(build.decl.name)
-  if name ~= "__close" and name ~= "__tostring" then
+  local compares = name == "__lt" or name == "__le"
+  if name ~= "__close" and name ~= "__tostring" and not compares then
     if metamethod_name(name) then
       report_at(ctx, "class_metamethod", m.name, "the method " .. quoted(name) .. " of " .. class .. " would be read " ..
-          "by Lua as a metamethod of its values, and a class has `__close` and `__tostring` and no other",
+          "by Lua as a metamethod of its values, and a class has `__close`, `__tostring`, `__lt` and `__le` and no other",
         "rename " .. quoted(name) .. " and call it as a method (`v:" .. name:gsub("^_+", "") .. "(...)`)")
     end
     return
   end
   if not ((made.tag == "fn")) then
+    return
+  end
+  if compares then
+    local other = made.params[2]
+    local alt = made.rets[1]
+    local answers = alt ~= nil and #made.rets == 1 and alt.tail == nil and #alt.items == 1 and
+      alt.items[1] == ctx.store.boolean
+    if #made.params ~= 2 or made.rest ~= nil or other == nil or other.omittable == true or other.type ~= build.self_type or
+        not answers then
+      local shown = Types.display(build.self_type, { Declarations.parameter_names(typeparams_of(build.node)) })
+      report_at(ctx, "metamethod_signature", m.name, "the method " .. quoted(name) .. " of " .. class .. " is not " ..
+          "what `" .. (if name == "__lt" then "<" else "<=" end) .. "` calls: Lua passes the two values compared, both of " ..
+          class .. ", and takes a `boolean`",
+        "write `function " .. name .. "(self, other: " .. shown .. "): boolean`")
+    end
     return
   end
   if name == "__close" then
@@ -2305,7 +2324,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     local name = assert(f.path[2], "`collect_statics` keeps the functions whose path has two names").text
     if decl.kind == "class" and metamethod_name(name) then
       report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
-          "metamethod of the values of " .. quoted(decl.name) .. ", and `__close` and `__tostring` are written as methods",
+          "metamethod of the values of " .. quoted(decl.name) .. ", and `__close`, `__tostring`, `__lt` and `__le` are written as methods",
         "rename " .. quoted(name) .. ", or write it as a method inside the class")
     elseif decl.kind == "class" and build.overloads[name] ~= nil then
       local first = build.first_of[name]
@@ -3010,7 +3029,8 @@ local function check_use(ctx: Ctx, use: Use): boolean
             elseif Types.builtin_bound(bound) then
               report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
                   quoted(bound.tag) .. ", and " .. quoted(shown) .. (if bound.tag == "Numeric" then " is not `integer` or " ..
-                      "`number`" else " is not a type whose values are all numbers or all strings" end),
+                      "`number`" else " is not a type whose values are all numbers or all strings, nor a class that declares `__lt` " ..
+                      "and `__le`" end),
                 "pass " .. Types.bound_meets(bound.tag), { shown })
             else
               local r = ctx.program.judge:refuse(argument, bound)

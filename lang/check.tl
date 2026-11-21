@@ -1971,9 +1971,9 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     if why == "" then
       ctx.literals[e.id] = n.decl
       if ctx.load.waiting > 0 then
-        -- Lua runs the two metamethods a class admits by itself, at a `tostring` or the end of a `<close>` local, on any value
-        -- the literals make: the value is mentioned with them.
-        for _, meta in ipairs({ "__tostring", "__close" }) do
+        -- Lua runs the metamethods a class admits by itself, at a `tostring`, the end of a `<close>` local or a comparison, on
+        -- any value the literals make: the value is mentioned with them.
+        for _, meta in ipairs({ "__tostring", "__close", "__lt", "__le" }) do
           LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_static(n.decl, meta, quoted(n.decl.name .. "." .. meta)))
         end
       end
@@ -4301,6 +4301,16 @@ function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   if l == r and Operands.bounded_by(ctx, l, "Ordered") then
     return
   end
+  -- Two values of a class compare through the metamethod it declares: `<` and `>` call `__lt`, `<=` and `>=` `__le`.
+  if l == r and (l.tag == "named") and l.decl.kind == "class" and not l.value then
+    local meta = if node.op == "<" or node.op == ">" then "__lt" else "__le" end
+    if Types.declares_method(l, meta) then
+      return
+    end
+    Operands.bad_operand(ctx, node.left, l, node.op, "numbers, strings, or values of a class that declares `" .. meta .. "`",
+      "declare `function " .. meta .. "(self, other: " .. show(ctx, l) .. "): boolean` in " .. tq(ctx, l))
+    return
+  end
   if (Operands.bounded_by(ctx, l, "Numeric") or number(l)) and (Operands.bounded_by(ctx, r, "Numeric") or number(r)) then
     return
   end
@@ -5490,7 +5500,7 @@ Calls.fixes = { -- checked: field_fixed
   xpcall = "`xpcall` passes on at most 3 values, takes a function that answers at most 3 values and none that answers " ..
     "`T...`, and takes no function that may be nil: pass arguments one overload accepts, in its order",
   ["table.sort"] = "pass a comparator (`table.sort(xs, function(a, b) return a.key < b.key end)`), because `<` orders only " ..
-    "numbers and strings of one type; or pass arguments one overload accepts, in its order",
+    "numbers and strings of one type, and classes that declare `__lt` and `__le`; or pass arguments one overload accepts, in its order",
 }
 
 --- Where a type came from, in the words of a message: the receiver, or an argument.
@@ -5718,7 +5728,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
           ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) ..
           (if held.tag == "var" then " is not bounded by it" elseif builtin then
-            (if bound.tag == "Ordered" then " is not a type whose values are all numbers or all strings" else
+            (if bound.tag == "Ordered" then " is not a type whose values are all numbers or all strings, nor a class that declares `__lt` " ..
+                "and `__le`" else
               " is not " .. Types.bound_meets(bound.tag) end) elseif lacking ~= nil then
             " has no field " .. quoted(lacking) .. " as it declares" else " neither lists it nor has its fields" end)
         problems[#problems + 1] = msg
@@ -5738,7 +5749,9 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         elseif loud and builtin then
           report(ctx, "bound_unmet", node, msg,
             if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
-              bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" else
+              bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" elseif
+              held.tag == "named" and held.decl.kind == "class" then "declare `function __lt(self, other: " ..
+                show(ctx, held) .. "): boolean` and `__le` alike in " .. tq(ctx, held) .. ", or pass numbers or strings" else
               "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
                 "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
         elseif loud then
