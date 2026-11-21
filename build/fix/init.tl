@@ -1282,11 +1282,13 @@ local function lay_out_c(ctx: Fix)
     local opened, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
     memo = opened
   end
-  -- The core's own C (a file directly under `core/`) is also run through clang's static analyzer, as `bin/zig build
+  -- The core's own C that build.zig's `analyze` reads is also run through clang's static analyzer, as `bin/zig build
   -- analyze` runs it, so that a finding fails here and not in CI's checked leg alone.
+  local analyzed: mut {string: boolean} = {}
+  for _, name in ipairs(c_check.analyzed) do analyzed["core/" .. name] = true end
   local analyze: mut {string: boolean} = {}
   for _, file in ipairs(compiled) do
-    if file:match("^core/[^/]+%.c$") ~= nil then analyze[file] = true end
+    if analyzed[under(root, file) or file] == true then analyze[file] = true end
   end
   local outcomes = c_check.check(root, compiled, nil, nil, memo, analyze)
   if memo ~= nil then
@@ -1628,16 +1630,22 @@ end
 --- of those files and of the same files at the base, so it costs a narrowed run little, and a marker that rose fails here
 --- and not minutes later in CI's check of the tree. The other tree checks still need the whole tree.
 local function hold_named_markers(root: string, files: {string}, findings: mut {string})
+  local env = Env.all()
+  -- CI holds the markers in its check of the tree, which names the base; a narrowed run there has none to name.
+  if env["GITHUB_ACTIONS"] == "true" and (env["COSMIC_CEILINGS_BASE"] or "") == "" then return end
   local counts: mut {string: {string: integer}} = {}
   for _, file in ipairs(files) do
+    -- The base's files are named from the root, as the whole tree's are.
+    local named = under(root, file)
+    local path = if named ~= nil then (named:gsub("/+", "/")) else nil end
     local source, _ = Fs.read(file)
-    if source ~= nil and Markers.mentions(source) then
-      local held = Markers.counts(source, file)
-      if next(held) ~= nil then counts[file] = held end
+    if path ~= nil and path ~= "" and source ~= nil and Markers.mentions(source) then
+      local held = Markers.counts(source, path)
+      if next(held) ~= nil then counts[path] = held end
     end
   end
   if next(counts) == nil then return end
-  local held = CeilingsBase.check(root, Env.all(), CeilingsBase.live_git(), counts)
+  local held = CeilingsBase.check(root, env, CeilingsBase.live_git(), counts)
   for _, line in ipairs(held.lines) do
     findings[#findings + 1] = "ceilings: " .. line
   end

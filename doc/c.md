@@ -11,10 +11,9 @@ because the core's calls take const-dropping casts by design.
 
 `bin/zig build analyze` runs the static analyzer over the same files, and
 `bin/zig build sanitized` runs it too, so CI fails on a finding. `cosmic
-fix` runs it over each file of `core/` it is given, under the same
-warnings, so a finding fails the local loop first; it keeps a pass in the
-build directory, and a file whose inputs have not changed is not analyzed
-again.
+fix` runs it too, over each of those files it is given, so a finding
+fails the local loop first; it keeps a pass in the build directory, and a
+file whose inputs have not changed is not analyzed again.
 
 ## what `cosmic fix` checks
 

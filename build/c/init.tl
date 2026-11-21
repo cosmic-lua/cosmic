@@ -93,6 +93,7 @@ local record c
 
   mut variants: {c.Variant}
   mut own_warnings: {string}
+  mut analyzed: {string}
 end
 
 --- How many compilers run at once.
@@ -178,6 +179,22 @@ c.own_warnings = {
   "-Wmissing-prototypes", "-Wstrict-prototypes", "-Wimplicit-fallthrough", "-Wvla", "-Wmissing-noreturn",
 }
 
+--- The files under `core/` that build.zig's `analyze` runs clang's static analyzer over (its `core_sources` and the
+--- extras it names), written out here as the variants are; build/c/variants_test.tl holds them to build.zig.
+c.analyzed = {
+  "assertions.c", "bigint.c", "boot.c", "cipher.c", "coverage.c", "compress.c", "connector.c", "crypto.c",
+  "environment.c", "errnos.c", "executable.c", "hash.c", "html.c", "http.c", "json.c", "xml.c", "namespace_calls.c",
+  "sign.c", "protobuf.c", "socket.c", "sqlite.c", "store.c", "strnlen.c", "surface.c", "syscalls.c", "syscalls_fs.c",
+  "vector.c", "vfs.c", "main.c", "portable.c", "promises.c", "rand.c", "startup.c",
+  "entry.c", "startup_hook.c", "testing.c", "testing_checked.c", "unzstd.c",
+}
+
+--- The defines build.zig's `analyze` gives the analyzer in place of a target's (`addSyntaxFlags`).
+local analyze_defines <const>: {string} = {
+  "-DCOSMIC_TARGET_ID=1", "-DCOSMIC_TARGET_NAME=\"analyze\"",
+  "-DCOSMIC_CONFIGURATION_ID=1", "-DCOSMIC_CONFIGURATION_NAME=\"analyze\"",
+}
+
 --- The compiler's command line for `file` under `variant`, `zig` the
 --- program that runs it ([`compiler`]): a dump of its syntax tree, or with `analyze` a run of clang's static analyzer
 --- whose every finding is an error, with the flags build.zig's `analyze` gives it, its report written to `report`
@@ -206,7 +223,9 @@ local function command(root: string, zig: string, file: string, cwd: string, var
   }) do
     out[#out + 1] = word
   end
-  for _, define in ipairs(variant.defines) do out[#out + 1] = define end
+  for _, define in ipairs(if analyze == true then analyze_defines else variant.defines end) do
+    out[#out + 1] = define
+  end
   for _, dir in ipairs(include_dirs(root, cwd)) do
     out[#out + 1] = "-I" .. dir
   end
@@ -532,8 +551,8 @@ local function analysis(file: string, result: Child.Result?, trouble: string): c
   local err = tostring(result.stderr or "")
   local findings: mut {rules.Finding} = {}
   for line in err:gmatch("[^\n]+") do
-    local at, row, kind, message = line:match("^(.-):(%d+):%d+: (%a+): (.*)$")
-    if at ~= nil and row ~= nil and message ~= nil and (kind == "warning" or kind == "error") then
+    local at, row, kind, message = line:match("^(.-):(%d+):%d+: ([%a ]+): (.*)$")
+    if at ~= nil and row ~= nil and message ~= nil and (kind == "warning" or kind == "error" or kind == "fatal error") then
       findings[#findings + 1] = { file = at, line = math.tointeger(row) or 0, rule = "analyzer", within = "the file",
         message = message, variants = { assert(c.variants[1]).name } }
     end
@@ -646,9 +665,11 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   end
   -- One run of the analyzer for each file `analyze` names, after every dump, so that a file's first job
   -- under each variant is its dump.
+  local analyzing = false
   if analyze ~= nil then
     for i, file in ipairs(files) do
       if analyze[file] == true then
+        analyzing = true
         jobs[#jobs + 1] = { file = i, variant = 1, analyze = true }
       end
     end
@@ -754,9 +775,13 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
         next_job = next_job + 1
       end
       if #running > 0 then
-        local done, trouble = Child.wait_any(running, Clock.seconds(120))
+        -- The analyzer takes far longer over a large file than a dump does.
+        local limit_s = if analyzing then 600 else 120 end
+        local done, trouble = Child.wait_any(running, Clock.seconds(limit_s))
         if done == nil then
-          if trouble == Poll.TIMEOUT then trouble = "clang gave no answer in 120 seconds" end
+          if trouble == Poll.TIMEOUT then
+            trouble = "clang gave no answer in " .. tostring(limit_s) .. " seconds"
+          end
           for _, handle in ipairs(running) do
             local _, _ = handle:close()
             local stopped = held_in(which, handle)
@@ -962,7 +987,9 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
     if o_findings ~= nil then
       local kept: mut {rules.Finding} = {}
       for _, f in ipairs(o_findings) do
-        local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule
+        -- The analyzer can report several things on one line; each is its own.
+        local said = if f.rule == "analyzer" then ":" .. f.message else "" end
+        local key = f.file .. ":" .. tostring(f.line) .. ":" .. f.rule .. said
         if seen[key] ~= true then
           seen[key] = true
           kept[#kept + 1] = f
