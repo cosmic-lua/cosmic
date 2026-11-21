@@ -172,7 +172,7 @@ local sys <const> = 'local sys = require("cosmic.sys")'
 local cli <const> = 'local Cli = require("cosmic.cli")'
 local http <const> = 'local Http = require("cosmic.http")'
 local upload <const> = "no caller in the tree sent a streamed request body; send one whole with " ..
-  "Http.request(\"PUT\", url, { body = body }) (" .. http .. ")"
+  "Http.request(\"PUT\", url, { timeout_ns = limit, body = body }) (" .. http .. ")"
 local server <const> = 'local Server = require("cosmic.http.server")'
 --- The replacement text for a member of cosmic.http.server.
 local function moved_to_server(member: string): string
@@ -220,7 +220,7 @@ local replacements: {string:string} = {
     "nothing to flush (" .. fs .. ")",
   ["io.tmpfile"] = "use Fs.mkdtemp(prefix) for a private directory, then " ..
     "Fs.open_write(dir .. \"/name\") (" .. fs .. ")",
-  ["io.popen"] = "use Child.run(argv, { stdout = \"capture\" }); argv is a " ..
+  ["io.popen"] = "use Child.run(argv, { timeout_ns = limit, stdout = \"capture\" }); argv is a " ..
     "list, run without a shell or a PATH search (" .. child .. ")",
   ["io.type"] = "a descriptor is a plain integer, and nothing tells an open one " ..
     "from a closed one or from any other integer: the number Fs.close frees " ..

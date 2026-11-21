@@ -16,6 +16,11 @@ local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once
+-- ci/cosmic-driver.pin names a release whose Child has it: this file runs
+-- standalone on that release. Until then a ceiling no run reaches.
+local CEILING_NS <const> = Clock.minutes(24 * 60)
+
 local record VerifyCodesign
 end
 
@@ -58,7 +63,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
       argv[#argv + 1] = word
     end
     argv[#argv + 1] = binary
-    local result, trouble = Child.run(argv, { timeout_ns = Clock.minutes(5) })
+    local result, trouble = Child.run(argv, { timeout_ns = CEILING_NS })
     -- 127 whatever the reason it did not start; the message says which.
     if result == nil then
       log:complain(tool .. ": " .. trouble)

@@ -110,7 +110,7 @@ local function becomes(tmp: string, probe: string, exec: string): string
   return r.stdout or ""
 end
 
---- `Proc.exec(argv, { env })` is `Child.start(argv, { env })`'s, with the
+--- `Proc.exec(argv, { env })` is `Child.start(argv, { timeout_ns = limit, env })`'s, with the
 --- process replaced: argv[1] the program, `env` its whole environment
 --- and, left out, this process's own.
 local function test_exec_takes_argv_and_the_whole_environment(tmp: string)

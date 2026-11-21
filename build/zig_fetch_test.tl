@@ -172,9 +172,9 @@ local function test_fetch_asks_the_fallback_again_after_a_mismatch(tmp: string)
 end
 
 --- Mirrors are held to a ceiling cut to what is left of the budget;
---- the fallback has none, and once the budget is spent it is tried one
---- last time on its own.
-local function test_fetch_bounds_mirrors_by_the_budget_and_never_the_fallback(tmp: string)
+--- the fallback has a ceiling the budget does not cut, and once the
+--- budget is spent it is tried one last time on its own.
+local function test_fetch_bounds_mirrors_by_the_budget_and_the_fallback_by_its_own(tmp: string)
   local calls: mut {string} = {}
   local sleeps: mut {integer} = {}
   local seen: {Http.Options} = {}

@@ -83,7 +83,6 @@
 local bare = require("build.bare")
 local Signal = require("cosmic.signal")
 local Cli = require("cosmic.cli")
-local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -351,7 +350,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       end
     end
   end
-  local options: Http.Options = { timeout_ns = Clock.seconds(60), script = to.script, roots = roots, ca = ca, pin = pins }
+  local options: Http.Options = { timeout_ns = Http.FOREVER, script = to.script, roots = roots, ca = ca, pin = pins }
   options.redirect_protocols = verb.redirect_protocols(url, parsed.set["--allow-downgrade"] == true) -- checked: field_fixed
   local function failed_status(status: integer): integer
     complain(shown .. ": HTTP " .. tostring(status))

@@ -232,7 +232,7 @@ refresh.tzdata_rules = {
 --- the running binary carries, since what it fetches is what a binary
 --- trusts next, and nothing checks it but the connection it came over.
 function refresh.fetching(): Http.Options
-  return { timeout_ns = Clock.seconds(60), roots = "minimal" }
+  return { timeout_ns = Http.FOREVER, roots = "minimal" }
 end
 
 --- The body `url` answers, refusing anything but a 2xx.
@@ -411,7 +411,7 @@ local tzdata: refresh.Dataset = {
     end
     source.path = scratch .. "/tzdata-sdist"
     local ok, download_trouble = Http.download(source.url, source.path,
-      { timeout_ns = Clock.seconds(60), sha256 = source.sha256, roots = refresh.fetching().roots })
+      { timeout_ns = Http.FOREVER, sha256 = source.sha256, roots = refresh.fetching().roots })
     if not ok then
       return nil, source.url .. ": " .. download_trouble
     end

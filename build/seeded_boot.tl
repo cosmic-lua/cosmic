@@ -68,6 +68,11 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once
+-- ci/cosmic-driver.pin names a release whose Child has it: this file runs
+-- standalone on that release. Until then a ceiling no run reaches.
+local CEILING_NS <const> = Clock.minutes(24 * 60)
+
 local record SeededBoot
   listed: function(text: string): string
   mut vendored: {string}
@@ -257,7 +262,7 @@ end
 --- (`--core`), its launcher having extracted it.
 local function core_of(program: string, script: string, work: string): string?, string
   local result, trouble = Child.run({ program, "--standalone", script, "--core" },
-    { cwd = work, stdout = "capture", stderr = "capture", timeout_ns = Clock.minutes(5) })
+    { cwd = work, stdout = "capture", stderr = "capture", timeout_ns = CEILING_NS })
   if result == nil then return nil, trouble end
   local core = (result.stdout or ""):match("^(/[^\n]+)\n")
   if not result.ok or core == nil then return nil, "it names no core: " .. (result.stderr or "") end
@@ -345,7 +350,7 @@ local function compile_seed(root: string, into: string): boolean, string
   for name, value in pairs(Env.all()) do env[name] = value end
   for name, value in pairs(relaunch.env) do env[name] = value end
   local result, run_trouble = Child.run(argv, { cwd = root, env = env, fds = relaunch.fds,
-    stdout = "capture", stderr = "capture", timeout_ns = Clock.minutes(60) })
+    stdout = "capture", stderr = "capture", timeout_ns = CEILING_NS })
   if result == nil then return false, run_trouble end
   if not result.ok then
     return false, "the seed did not compile: " .. (result.stderr or "") .. (result.stdout or "")
@@ -373,7 +378,7 @@ local function boot(root: string, output: string, manifest: string, core: string
   if not placed then return false, place_trouble end
   for _, mode in ipairs({ "--stage", "--assemble" }) do
     local result, trouble = Child.run({ own, "--boot", root, seed, "--host-only", mode, target, records, output },
-      { cwd = root, timeout_ns = Clock.minutes(120) })
+      { cwd = root, timeout_ns = CEILING_NS })
     if result == nil then return false, trouble end
     if not result.ok then
       return false, "the bridge's " .. mode .. " ended with " .. tostring(result.code)

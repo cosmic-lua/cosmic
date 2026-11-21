@@ -109,7 +109,8 @@ local function test_a_redirect_to_a_scheme_outside_redirect_protocols_is_refused
 end
 
 local function test_a_redirect_to_a_listed_scheme_is_followed()
-  for _, protocols in ipairs({ { "http" }, { "http", "https" } } as {{string}}) do -- checked: cast_refused
+  local lists: {{string}} = { { "http" }, { "http", "https" } }
+  for _, protocols in ipairs(lists) do
     local response, body = fetch({ reply("302 Found", "Location: http://other.test/next\r\n"), reply("200 OK", "", "yes") },
       { timeout_ns = Clock.seconds(60), redirect_protocols = protocols })
     assert(response.status == 200 and body == "yes", body)
@@ -664,15 +665,23 @@ local function test_a_refused_option_is_raised_at_the_callers_line()
     assert(file ~= nil, tostring(err))
     return file, math.tointeger(tonumber(line)) or 0
   end
+  -- A limit out of range, and none at all, which the type checker
+  -- refuses where the literal is written.
+  local unlimited = { follow = false } as Http.Options -- checked: cast_refused
+  local refusals: {Http.Options} = { { timeout_ns = -5, script = {} }, unlimited }
   for name, entry in pairs(entries) do
     local good: Http.Options = { timeout_ns = Clock.seconds(60), script = {} }
     local file, ahead = raised_at(entry, good, "ahead")
     local _, behind = raised_at(entry, good, "behind")
-    local refused, at = raised_at(entry, { timeout_ns = -5, script = {} }, "")
-    assert(refused == file and ahead < at and at < behind,
-      name .. ": raised at " .. refused .. ":" .. tostring(at) .. ", not between " .. file .. ":" ..
-        tostring(ahead) .. " and " .. tostring(behind))
+    for _, refusing in ipairs(refusals) do
+      local refused, at = raised_at(entry, refusing, "")
+      assert(refused == file and ahead < at and at < behind,
+        name .. ": raised at " .. refused .. ":" .. tostring(at) .. ", not between " .. file .. ":" ..
+          tostring(ahead) .. " and " .. tostring(behind))
+    end
   end
+  local _, why = pcall(Http.get, url, unlimited)
+  assert(tostring(why):find("http: opts.timeout_ns is required", 1, true) ~= nil, tostring(why))
 end
 
 local function test_zero_integer_options_are_accepted()

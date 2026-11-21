@@ -1054,7 +1054,8 @@ local function raw_options(given: Http.Options, method?: string,
   end
   local script = opts.script
   if first ~= nil and script ~= nil then script = { table.unpack(script, first) } end
-  -- Counted here, not in the literal, so a refusal is raised at `CALLER`.
+  -- FOREVER is no limit. Counted here: an `if` expression in the literal
+  -- would add a call level, and a refusal would not be raised at `CALLER`.
   local whole_ms: integer? = nil
   if opts.timeout_ns ~= Http.FOREVER then
     whole_ms = counted(opts.timeout_ns, MS, math.maxinteger, "timeout_ns")
@@ -1341,7 +1342,7 @@ function Http.get(url: string, opts: Http.Options): Http.Body?, string
         format(method), 2)
   end
   if opts.body ~= nil then
-    error("http: Http.get sends no body; send one with Http.request(method, url, { timeout_ns = Clock.seconds(60), body = ... })", 2)
+    error("http: Http.get sends no body; send one with Http.request(method, url, { timeout_ns = ..., body = ... })", 2)
   end
   local response, trouble = opened(url, opts, nil)
   if response == nil then
