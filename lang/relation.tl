@@ -1340,8 +1340,8 @@ end
 --- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
 --- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
 --- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
---- raises: a union of a number and a string is none. `Numeric` is below `Ordered`, and a type variable is below a
---- bound where its own bound is.
+--- raises: a union of a number and a string is none. `Numeric` is below `Ordered`. `Key` holds the types a map is
+--- keyed by ([`Types.keys_a_map`]), an interface among them. A type variable is below a bound where its own bound is.
 local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if (a.tag == "var") then
     return from_var(j, a, b, why)
@@ -1351,7 +1351,11 @@ local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): 
     if a.tag == "integer" or a.tag == "number" then
       return nil
     end
-  elseif a.tag ~= "Ordered" and a.tag ~= "Numeric" and
+  elseif b.tag == "Key" then
+    if Types.keys_a_map(a) then
+      return nil
+    end
+  elseif a.tag ~= "Ordered" and a.tag ~= "Key" and a.tag ~= "Numeric" and
       (rel(j, a, j.store.number, false) == nil or rel(j, a, j.store.string, false) == nil) then
     return nil
   end
@@ -1527,7 +1531,7 @@ Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -
       -- The bound is read as it is, with no variable of a binder outside it to shift.
       if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
           #bound.args > 0) then
-        error("relation: a bound is an interface used with no arguments, `Ordered` or `Numeric`, not " ..
+        error("relation: a bound is an interface used with no arguments, `Ordered`, `Numeric` or `Key`, not " ..
             Types.display(bound), 2)
       end
     end

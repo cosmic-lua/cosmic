@@ -437,8 +437,8 @@ with `<`, `<=`, `>` and `>=`. `N is Numeric` takes `integer` or `number`: two va
 `//` and unary `-`, which answer `N`, and compare with any number. `/` and `^` answer `number`, as they do for integers.
 
 A type whose values may be a number or a string, such as `integer | string`, is no `Ordered`, because `1 < "a"` raises.
-An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered` and `Numeric` are
-bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
+An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered`, `Numeric` and `Key`
+are bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
 
 ```teal
 local function largest<T is Ordered>(xs: {T}, first: T): T
@@ -466,6 +466,31 @@ print(total({ 1, 2, 3 }, 0), total({ 0.5, 0.25 }, 0.0))
 ```output
 9	pear
 6	0.75
+```
+
+## keying a map by a type parameter
+
+A map is keyed by `integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata. A type parameter
+keys a map only where `Key` bounds it, or an interface does: an unbounded `K` may be `number`, a union or a function,
+which no key is (`key_type`). A generic record that keys a map by its parameter bounds it the same way, and a type
+parameter passed on to a bounded one is bounded by it too (`bound_not_met`, `bound_unmet`). A declaration may take the
+name `Key`, `Ordered` or `Numeric`; where it is in scope, the name is the declaration's.
+
+```teal
+local function index<K is Key, V>(xs: {V}, key: function(V): K): {K: V}
+  local out: mut {K: V} = {}
+  for _, x in ipairs(xs) do
+    out[key(x)] = x
+  end
+  return out
+end
+
+local by_length = index({ "fig", "pear" }, function(s: string): integer return #s end)
+print(by_length[3], by_length[4])
+```
+
+```output
+fig	pear
 ```
 
 [`cosmic.array`]: ../../cosmic/array.tl

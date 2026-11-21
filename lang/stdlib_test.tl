@@ -144,7 +144,7 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
     "function<T>(mut {T}, function(T, T): boolean)")
   same("table", "move", "function<T>(mut {T}, integer, integer, integer): mut {T}",
     "function<T>({T}, integer, integer, integer, mut {T}): mut {T}")
-  same("StandardLibrary", "rawset", "function<T, U>(mut {T: U}, T, U): mut {T: U}")
+  same("StandardLibrary", "rawset", "function<T is Key, U>(mut {T: U}, T, U): mut {T: U}")
   -- `assert` answers its argument without the nil, and its message too where one is given
   same("StandardLibrary", "assert", "function<T>(T?): T", "function<T, U>(T?, U, ...: any): T, U, any...")
   -- the numbers a function takes are numbers, and a call with none is refused
@@ -210,14 +210,14 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
     "function<T>(string | (function(): string?), p2?: string, p3?: StandardLibrary.LoadMode, " ..
       "p4?: {string: T}): ((function(...: any): any...)?, string?)", "function<T>(string | (function(): string?), p2?: string, " ..
       "p3?: string, p4?: {string: T}): ((function(...: any): any...)?, string?)")
-  same("StandardLibrary", "rawget", "function<T, U>({T: U}, T): U?", "function(any, any): any")
+  same("StandardLibrary", "rawget", "function<T is Key, U>({T: U}, T): U?", "function(any, any): any")
   -- the array of the values `table.pack` packs, and `table.unpack` of an array
   same("table", "pack", "function<T>(...: T): table.PackTable<T>", "function(...: any): table.PackTable<any>")
   same("table", "unpack", "function<T>({T}, p2?: number, p3?: number): T...")
   -- unchanged: the values past the first of a `select` and the captures of a match are tails, read `T?` as one value
   same("StandardLibrary", "select", "function<T>(integer, ...: T): T...", "function(integer, ...: any): any...",
     "function(string, ...: any): integer")
-  same("StandardLibrary", "next", "function<T, U>({T: U}, p2?: T): T?, U?", "function<T>({T}, p2?: integer): integer?, T?")
+  same("StandardLibrary", "next", "function<T is Key, U>({T: U}, p2?: T): T?, U?", "function<T>({T}, p2?: integer): integer?, T?")
   assert(#problems == 0, table.concat(problems, "\n"))
 end
 

@@ -26,7 +26,8 @@
 --- - dense arrays: `{T?}`, `{K: V?}` and an instance that makes one (`List<string?>` for `record
 ---   List<T>` that holds a `{T}`): `array_of_optional`.
 --- - keys: a map's key is `integer`, `string`, `boolean`, an enum or a record, class, interface or
----   userdata, never `number` (`float_key`), `any`, an optional or a union (`key_type`).
+---   userdata, never `number` (`float_key`), `any`, an optional or a union (`key_type`). A type
+---   parameter keys a map only where it is bounded by `Key` or an interface (`key_type`).
 --- - distinct names: a field or a method of the name another has, apart from the overloads of a
 ---   declaration file, and an enum value written twice: `repeated_field`, `repeated_value`. A class
 ---   holds its fields, its methods and its functions (`function C.m(...)`) in one namespace, since the
@@ -217,7 +218,6 @@ local record Declarations
   --- another declaration.
   record Requires
     dense: mut {integer: boolean}
-    key: mut {integer: boolean}
     optional: mut {integer: boolean}
     flows: mut {Flow}
   end
@@ -424,8 +424,8 @@ Declarations.catalog = {
     code = "key_type", rule = "what a map is keyed by",
     why = "a key is an `integer`, a `string`, a `boolean`, an enum or a record, class, interface or userdata by " ..
       "identity: a union or an optional has more than one way to be equal, and `any` and a function none the " ..
-      "program can name",
-    fix = "key by one of those types, or by an enum that names the keys",
+      "program can name; a type parameter is one of those only where `Key` or an interface bounds it",
+    fix = "key by one of those types, or by an enum that names the keys; bound a type parameter by `Key` (`<K is Key>`)",
   },
   {
     code = "repeated_field", rule = "distinct names",
@@ -462,13 +462,14 @@ Declarations.catalog = {
   {
     code = "bound_not_interface", rule = "a constraint is one interface",
     why = "a type parameter ranges over all types unless it has a bound, and a bound is one interface used with " ..
-      "no arguments, or `Ordered` or `Numeric`, which the operations of the body are checked against",
-    fix = "bound <parameter> by an interface with no type parameters, by `Ordered` or `Numeric`, or leave it unbounded",
+      "no arguments, or `Ordered`, `Numeric` or `Key`, which the operations of the body are checked against",
+    fix = "bound <parameter> by an interface with no type parameters, by `Ordered`, `Numeric` or `Key`, or leave it " ..
+      "unbounded",
   },
   {
     code = "bound_as_type", rule = "a constraint is one interface",
-    why = "`Ordered` and `Numeric` say which operators a type parameter's values take; a value of `Ordered` could be a " ..
-      "number or a string, and `<` of the two raises, so neither is the type of a value",
+    why = "`Ordered`, `Numeric` and `Key` say what a type parameter's values take part in; a value of `Ordered` could be " ..
+      "a number or a string, and `<` of the two raises, so none is the type of a value",
     fix = "bound a type parameter by it (`<T is Ordered>`) and declare the value `T`",
   },
   {
@@ -588,7 +589,7 @@ local MAX_ALIAS_NESTING <const> = 200
 
 local PRIMITIVES <const>: {string: Types.Atom_tag} = {
   integer = "integer", number = "number", string = "string", boolean = "boolean", any = "any", never = "never",
-  Ordered = "Ordered", Numeric = "Numeric",
+  Ordered = "Ordered", Numeric = "Numeric", Key = "Key",
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
@@ -628,6 +629,8 @@ local record Frame
   --- The index from 0 of each type parameter, by the id of its binding.
   ids: {integer: integer}
   names: {string}
+  --- The bound of each type parameter, by its index from 0, once it is lowered.
+  bounds: mut {integer: Type}
 end
 
 --- A declaration whose body is being gathered.
@@ -660,6 +663,8 @@ local record Use
   alias: AliasInfo?
   args: {Type}
   names: {{string}}
+  --- The bound of each argument that is a type parameter of the code around, by the argument's index from 1.
+  held: {integer: Type}
 end
 
 local type AliasInfo = Declarations.AliasInfo
@@ -756,7 +761,9 @@ local function push_frame(ctx: Ctx, barrier: boolean, params: {Ast.TypeParam})
   for i, p in ipairs(params) do
     ids[p.name.id] = i - 1
   end
-  table.insert(ctx.frames, { barrier = barrier, count = #params, ids = ids, names = Declarations.parameter_names(params) })
+  table.insert(ctx.frames, {
+    barrier = barrier, count = #params, ids = ids, names = Declarations.parameter_names(params), bounds = {},
+  })
 end
 
 local function pop_frame(ctx: Ctx)
@@ -786,6 +793,34 @@ local function parameter_type(ctx: Ctx, id: integer): Type?, boolean
     end
   end
   return nil, false
+end
+
+--- The bound of the type variable `v` of a binder in `ctx.frames`, or nil where it has none.
+local function variable_bound(ctx: Ctx, v: Types.Var): Type?
+  local depth = 0
+  for i = #ctx.frames, 1, -1 do
+    local f = ctx.frames[i]
+    assert(f, "`i` runs over the indexes of `ctx.frames`")
+    if f.count > 0 then
+      if depth == v.depth then
+        return f.bounds[v.index]
+      end
+      depth = depth + 1
+    end
+  end
+  return nil
+end
+
+--- The bound of each of `args` that is a type variable of a binder in `ctx.frames`, by its index from 1.
+local function held_bounds(ctx: Ctx, args: {Type}): {integer: Type}
+  local out: mut {integer: Type} = {}
+  for i, a in ipairs(args) do
+    local bound = if (a.tag == "var") then variable_bound(ctx, a) else nil end
+    if bound ~= nil then
+      out[i] = bound
+    end
+  end
+  return out
 end
 
 --- The variables of the binder of `count` parameters at depth 0, as the arguments of a use of
@@ -852,19 +887,18 @@ local function attempt(ctx: Ctx, node: Ast.Node, build: function(): Type): Type
   return ctx.store.invalid
 end
 
---- Whether a map keyed by `k` is legal: nil, or the code and a word for what `k` is.
-local function key_refusal(k: Type): Declarations.Code?
-  if k.tag == "invalid" or (k.tag == "var") then
+--- Whether a map keyed by `k` is legal: nil, or the code that refuses it. A type variable is read by `bound`, its
+--- bound.
+local function key_refusal(k: Type, bound?: Type): Declarations.Code?
+  if k.tag == "invalid" or Types.keys_a_map(k) then
     return nil
-  elseif k.tag == "integer" or k.tag == "string" or k.tag == "boolean" then
-    return nil
-  elseif k.tag == "number" then
-    return "float_key"
-  elseif (k.tag == "named") then
-    if k.decl.kind == "record" or k.decl.kind == "class" or k.decl.kind == "interface" or k.decl.kind == "userdata" or k.decl.kind == "enum" or
-        k.decl.kind == "integer_enum" then
+  elseif (k.tag == "var") then
+    if bound ~= nil and (bound.tag == "Key" or (bound.tag == "named")) then
       return nil
     end
+    return "key_type"
+  elseif k.tag == "number" then
+    return "float_key"
   end
   return "key_type"
 end
@@ -879,6 +913,8 @@ local function key_word(k: Type, names: {{string}}): string
     return "a collection, which has no identity the language can name"
   elseif (k.tag == "fn") then
     return "a function"
+  elseif (k.tag == "var") then
+    return "the type parameter " .. quoted(Types.display(k, names)) .. ", which `Key` does not bound"
   end
   return quoted(Types.display(k, names))
 end
@@ -1127,7 +1163,9 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
       made = store:named(decl, args)
     end
     if #args > 0 and made.tag ~= "invalid" then
-      table.insert(ctx.uses, { node = t, decl = decl, args = args, names = binder_names(ctx.frames) }) -- checked: literal_missing
+      table.insert(ctx.uses, { -- checked: literal_missing
+        node = t, decl = decl, args = args, names = binder_names(ctx.frames), held = held_bounds(ctx, args),
+      })
     end
     return made
   end
@@ -1173,7 +1211,9 @@ local function use_entry(ctx: Ctx, t: Ast.TypeName, e: Entry): Type
         tostring(MAX_DEPTH) .. " types deep", "name a part of the arguments with a record, which a type does not unfold")
     return store.invalid
   end
-  table.insert(ctx.uses, { node = t, alias = alias, args = args, names = binder_names(ctx.frames) }) -- checked: literal_missing
+  table.insert(ctx.uses, { -- checked: literal_missing
+    node = t, alias = alias, args = args, names = binder_names(ctx.frames), held = held_bounds(ctx, args),
+  })
   return made
 end
 
@@ -1186,6 +1226,10 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
     return store.invalid
   end
   local primitive = #path == 1 and PRIMITIVES[head] or nil -- checked: and_ternary
+  -- A declaration in scope takes the name of a bound.
+  if primitive ~= nil and Scopes.bounds[head] == true and ctx.scoped.resolved[t.id] ~= nil then
+    primitive = nil
+  end
   if primitive ~= nil then
     if #t.args > 0 then
       report_at(ctx, "type_arguments", t, quoted(head) .. " takes no type arguments, not " .. tostring(#t.args),
@@ -1245,11 +1289,11 @@ lower_bound = function(ctx: Ctx, p: Ast.TypeParam): Type?
   if constraint == nil then
     return nil
   end
-  -- `Ordered` and `Numeric` are bounds only where written as the bound itself: through an alias they would be lowered
+  -- `Ordered`, `Numeric` and `Key` are bounds only where written as the bound itself: through an alias they would be lowered
   -- as a type, and refused there.
   local head = constraint.path[1]
   local primitive: Types.Atom_tag? = nil
-  if #constraint.path == 1 and #constraint.args == 0 and head ~= nil then
+  if #constraint.path == 1 and #constraint.args == 0 and head ~= nil and ctx.scoped.resolved[constraint.id] == nil then
     primitive = PRIMITIVES[head]
   end
   local t = if primitive ~= nil and Types.builtin_bound(ctx.store:atom(primitive)) then ctx.store:atom(primitive) else
@@ -1257,6 +1301,14 @@ lower_bound = function(ctx: Ctx, p: Ast.TypeParam): Type?
   ctx.types[constraint.id] = t
   local interface = t.tag == "named" and t.decl.kind == "interface" and #t.args == 0
   if Types.builtin_bound(t) or interface then
+    for i = #ctx.frames, 1, -1 do
+      local f = assert(ctx.frames[i], "`i` runs over the indexes of `ctx.frames`")
+      local index = f.ids[p.name.id]
+      if index ~= nil then
+        f.bounds[index] = t
+        break
+      end
+    end
     return t
   end
   if t.tag ~= "invalid" then
@@ -1440,10 +1492,19 @@ local function lower_collection_parts(ctx: Ctx, t: Ast.Type, mutable: boolean): 
   elseif (t.kind == "TypeMap") then
     local key = lower_type(ctx, t.key)
     local value = lower_type(ctx, t.value)
-    local refusal = key_refusal(key)
+    local refusal = key_refusal(key, if (key.tag == "var") then variable_bound(ctx, key) else nil end)
     if refusal == "float_key" then
       report_at(ctx, "float_key", t.key, "a map is keyed by `integer`, not `number`: a float key faults on NaN and `1.0` is the key `1`",
         "key by `integer`, and convert a float with `math.tointeger(n)` or `math.floor(n)`", { show(ctx, key) })
+      return store.invalid
+    elseif refusal ~= nil and (key.tag == "var") then
+      local name = show(ctx, key)
+      local own = variable_bound(ctx, key)
+      report_at(ctx, "key_type", t.key, "a map is not keyed by " .. key_word(key, binder_names(ctx.frames)) ..
+          ": it may be `number`, a union or a function, which no key is",
+        "bound " .. quoted(name) .. " by `Key` where it is declared" .. (if own ~= nil then ", in place of " ..
+            quoted(show(ctx, own)) else " (`<" .. name .. " is Key>`)" end) .. ": " .. Types.bound_meets("Key") ..
+          " meets it", { name })
       return store.invalid
     elseif refusal ~= nil then
       report_at(ctx, "key_type", t.key, "a map is not keyed by " .. key_word(key, binder_names(ctx.frames)),
@@ -2707,9 +2768,9 @@ end
 -- Instances ---------------------------------------------------------------------------------
 
 --- What the parameters of a declaration or alias must be: every place a type parameter is the element of
---- an array, the value or key of a map, or an argument another declaration needs of its own.
+--- an array or the value of a map, or an argument another declaration needs of its own.
 local function scan_requires(roots: {Type}): Requires
-  local req: Requires = { dense = {}, key = {}, optional = {}, flows = {} }
+  local req: Requires = { dense = {}, optional = {}, flows = {} }
   local seen: {string: boolean} = {}
   local walk: function(t: Type, level: integer)
   walk = function(t: Type, level: integer) -- checked: not_assigned
@@ -2729,9 +2790,6 @@ local function scan_requires(roots: {Type}): Requires
       walk(e, level)
     elseif (t.tag == "map") then
       local k, v = t.key, t.value
-      if (k.tag == "var") and k.depth == level then
-        req.key[k.index + 1] = true
-      end
       if (v.tag == "var") and v.depth == level then
         req.dense[v.index + 1] = true
       end
@@ -2800,16 +2858,11 @@ local function requires_of(program: Program, decl: Decl): Requires?
   return made
 end
 
---- Whether parameter `index` (from 0) of what `req` describes must be dense (`kind` "dense"), a key ("key") or is
---- made optional ("optional"), or nil where a declaration it passes the parameter to has no body yet.
+--- Whether parameter `index` (from 0) of what `req` describes must be dense (`kind` "dense") or is made optional
+--- ("optional"), or nil where a declaration it passes the parameter to has no body yet. A key is a bound, `Key`.
 local function must(program: Program, req: Requires, index: integer, kind: string,
                     seen: mut {Decl: {string: boolean}}): boolean?
-  local direct = req.key
-  if kind == "dense" then
-    direct = req.dense
-  elseif kind == "optional" then
-    direct = req.optional
-  end
+  local direct = if kind == "dense" then req.dense else req.optional end
   if direct[index + 1] == true then
     return true
   end
@@ -2888,19 +2941,54 @@ local function check_use(ctx: Ctx, use: Use): boolean
     if not tainted(ctx, argument) then
       local param = params[i]
       local bound = param ~= nil and param.bound or nil -- checked: and_ternary
-      -- A variable of the code around stays unchecked until it is instantiated.
+      if bound ~= nil and (argument.tag == "var") then
+        -- A type parameter of the code around meets the bound through its own.
+        local held = use.held[i]
+        local met = if held ~= nil then bound_met(ctx, held, bound) else false end
+        if met == nil then
+          return false
+        elseif not met then
+          local shown = Types.display(argument, use.names)
+          local wanted = Types.display(bound, use.names)
+          report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
+              quoted(wanted) .. ", and " .. quoted(shown) .. " is a type parameter " ..
+              (if held ~= nil then "bounded by " .. quoted(Types.display(held, use.names)) .. ", which is not below it" else
+                "with no bound" end),
+            if held ~= nil then "bound " .. quoted(shown) .. " by " .. quoted(wanted) .. " where it is declared, in place of " ..
+                quoted(Types.display(held, use.names)) else "bound " .. quoted(shown) .. " by " .. quoted(wanted) ..
+                " where it is declared (`<" .. shown .. " is " .. wanted .. ">`)" end, { shown })
+        end
+      end
+      -- A built-in bound holds atoms, named types and type parameters: a union, an optional, a collection or a function
+      -- made of variables of the code around meets none, whatever they are.
+      if bound ~= nil and Types.builtin_bound(bound) and argument.open > 0 and not (argument.tag == "var") and
+          not (bound.tag == "Key" and Types.keys_a_map(argument)) then
+        local shown = Types.display(argument, use.names)
+        report_at(ctx, if bound.tag == "Key" then "key_type" else "bound_not_met" end, use.node, quoted(name) ..
+            " bounds its type parameter " .. tostring(i) .. " by " .. quoted(bound.tag) .. ", and " .. quoted(shown) ..
+            " is not " .. Types.bound_meets(bound.tag) .. ", whatever its type parameters are",
+          "pass " .. Types.bound_meets(bound.tag), { shown })
+      end
+      -- A type made of variables of the code around stays unchecked until it is instantiated.
       if bound ~= nil and argument.open == 0 then
         local met = bound_met(ctx, argument, bound)
         if met == nil then
           return false
         elseif not met then
           local shown = Types.display(argument, use.names)
-          if Types.builtin_bound(bound) then
+          if bound.tag == "Key" then
+            local refused = key_refusal(argument)
+            local code: Declarations.Code = if refused ~= nil then refused else "key_type" end
+            report_at(ctx, code, use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by `Key`, so " ..
+                quoted(shown) .. " would key a map by " .. (if code == "float_key" then "a float" else
+                  key_word(argument, use.names) end),
+              if code == "float_key" then "pass `integer`, and convert a float with `math.tointeger(n)` or `math.floor(n)`" else
+                "pass " .. Types.bound_meets("Key") end, { shown })
+          elseif Types.builtin_bound(bound) then
             report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
                 quoted(bound.tag) .. ", and " .. quoted(shown) .. (if bound.tag == "Numeric" then " is not `integer` or " ..
                     "`number`" else " is not a type whose values are all numbers or all strings" end),
-              if bound.tag == "Numeric" then "pass `integer` or `number`" else "pass a number type or a string type" end,
-              { shown })
+              "pass " .. Types.bound_meets(bound.tag), { shown })
           else
             local r = ctx.program.judge:refuse(argument, bound)
             local field = if r ~= nil then r.field else nil end
@@ -2928,10 +3016,6 @@ local function check_use(ctx: Ctx, use: Use): boolean
           "pass " .. quoted(Types.display(ctx.store:non_nil(argument), use.names)) .. ", which is not optional; an array is dense, " ..
             "and a map's missing key already answers nil", { shown })
       end
-      local key = must(program, req, i - 1, "key", {})
-      if key == nil then
-        return false
-      end
       local optional = must(program, req, i - 1, "optional", {})
       if optional == nil then
         return false
@@ -2942,14 +3026,6 @@ local function check_use(ctx: Ctx, use: Use): boolean
             " optional, so " .. quoted(shown) .. " would be a generic function that may be nil",
           "pass a function type with its type arguments fixed, or make the field the declaration holds it in required",
           { shown })
-      end
-      if key and key_refusal(argument) ~= nil then
-        local shown = Types.display(argument, use.names)
-        local code = key_refusal(argument) or "key_type"
-        report_at(ctx, code, use.node, quoted(name) .. " keys a map by its type parameter " .. tostring(i) .. ", so " .. -- checked: not_assignable
-            quoted(shown) .. " would make a map keyed by " .. (if code == "float_key" then "a float" else key_word(argument, use.names) end),
-          if code == "float_key" then "pass `integer`, and convert a float with `math.tointeger(n)` or `math.floor(n)`" else
-            "pass `integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata" end, { shown })
       end
     end
   end

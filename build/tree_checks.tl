@@ -85,7 +85,7 @@ local function nth<T>(list: {T}, position: integer): T
 end
 
 --- The value kept under `key` in `map`, a key taken from `map` or set before it is read.
-local function lookup_in<K, V>(map: {K: V}, key: K): V
+local function lookup_in<K is Key, V>(map: {K: V}, key: K): V
   return (assert(map[key], "the key is one of the map's"))
 end
 
