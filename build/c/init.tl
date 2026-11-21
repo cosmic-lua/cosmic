@@ -780,7 +780,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
         local done, trouble = Child.wait_any(running, Clock.seconds(limit_s))
         if done == nil then
           if trouble == Poll.TIMEOUT then
-            trouble = "clang gave no answer in " .. tostring(limit_s) .. " seconds"
+            trouble = "clang gave no answer in " .. plural.count(limit_s, "second")
           end
           for _, handle in ipairs(running) do
             local _, _ = handle:close()
