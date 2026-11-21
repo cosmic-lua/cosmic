@@ -31,7 +31,9 @@
 --- [`Acme.rsa_key`] from a [`Sign.rsa_secret`], for a server or a
 --- client of the certificate that takes RSA alone. Keep the account
 --- key's secret: the account is that key, and a lost one means a new
---- account. Use another key for the certificate.
+--- account. Use another key for the certificate. A key's `pem` is its
+--- secret as a web server reads one, and [`Acme.read_key`] reads it
+--- back, or a key OpenSSL wrote.
 ---
 --- Every fallible function answers `value, ""` or `nil, why`, the why
 --- opening `acme: `. A problem document the server sends (RFC 8555
@@ -75,6 +77,12 @@ local record Acme
     --- The X.509 signature of `message`: for ECDSA, the DER SEQUENCE of R
     --- and S; for RSA, the PKCS #1 v1.5 signature as it is.
     x509_sign: function(message: string): string
+    --- The private key as PEM, the form a web server reads a certificate's
+    --- key in and [`Acme.read_key`] reads back: "EC PRIVATE KEY" (SEC 1)
+    --- for P-256, "RSA PRIVATE KEY" (PKCS #1) for RSA. It holds the
+    --- secret: write it to a file only its owner reads, and never log or
+    --- print a key whole.
+    pem?: string
   end
 
   --- The kinds of challenge [`Acme.Client.issue`] can answer.
@@ -296,17 +304,60 @@ end
 
 local DER_NULL <const> = "\5\0"
 
---- The content of the element at `at` of the DER `bytes`, and the
---- index after it. The bytes are mbedtls's own, never a peer's.
-local function der_content(bytes: string, at: integer): string, integer
-  local first = bytes:byte(at + 1) or 0
+--- One element of a DER SEQUENCE: its tag and its content.
+local record Element
+  tag: integer
+  content: string
+  --- The index after the element in what it was read from.
+  after: integer
+end
+
+--- The element at `at` of the DER `bytes`, or nil where it is cut short
+--- or its length is indefinite or of more than four bytes. It reads BER's
+--- longer spellings of a length too, and a tag of one byte alone.
+local function der_read(bytes: string, at: integer): Element?
+  local tag, first = bytes:byte(at, at + 1)
+  if tag == nil or first == nil or first == 0x80 or first > 0x84 then return nil end
   local length, start = first, at + 2
-  if first >= 0x80 then
+  if first > 0x80 then
     length = 0
     for i = 1, first & 0x7f do length = (length << 8) | (bytes:byte(at + 1 + i) or 0) end
     start = at + 2 + (first & 0x7f)
   end
-  return bytes:sub(start, start + length - 1), start + length
+  if start + length - 1 > #bytes then return nil end
+  return { tag = tag, content = bytes:sub(start, start + length - 1), after = start + length }
+end
+
+--- The elements of the constructed content `content`, or nil where one
+--- is cut short.
+local function der_elements(content: string): {Element}?
+  local out: mut {Element} = {}
+  local at = 1
+  while at <= #content do
+    local element = der_read(content, at)
+    if element == nil then return nil end
+    out[#out + 1] = element
+    at = element.after
+  end
+  return out
+end
+
+--- The elements of the DER SEQUENCE that is the whole of `der_bytes`,
+--- or nil.
+local function der_sequence_of(der_bytes: string): {Element}?
+  local element = der_read(der_bytes, 1)
+  if element == nil or element.tag ~= 0x30 or element.after ~= #der_bytes + 1 then return nil end
+  return der_elements(element.content)
+end
+
+--- The PEM of the DER `der` under `label` (RFC 7468): base64 in lines of
+--- 64 characters between the BEGIN and END lines.
+local function pem(label: string, der_bytes: string): string
+  local text = Codec.base64(der_bytes)
+  local lines: mut {string} = { "-----BEGIN " .. label .. "-----" }
+  for i = 1, #text, 64 do lines[#lines + 1] = text:sub(i, i + 63) end
+  lines[#lines + 1] = "-----END " .. label .. "-----"
+  return table.concat(lines, "\n") .. "\n"
 end
 
 local OID_EC_PUBLIC_KEY <const> = "1.2.840.10045.2.1"
@@ -336,6 +387,8 @@ function Acme.p256_key(secret: string): Acme.Key
     },
     spki = der_sequence(der_sequence(der_oid(OID_EC_PUBLIC_KEY), der_oid(OID_P256)), der_bits(public)),
     signature_algorithm = der_sequence(der_oid(OID_ECDSA_SHA256)),
+    pem = pem("EC PRIVATE KEY", der_sequence(der_unsigned("\1"), der(0x04, secret),
+      der(0xa0, der_oid(OID_P256)), der(0xa1, der_bits(public)))),
     sign = function(message: string): string
       return Sign.p256(secret, message)
     end,
@@ -357,10 +410,8 @@ function Acme.rsa_key(secret: string): Acme.Key
   local public = Sign.rsa_public(secret)
   -- An RSAPublicKey is the SEQUENCE of the INTEGERs n and e, each
   -- positive: a JWK spells each without the zero a DER INTEGER leads with.
-  local numbers = der_content(public, 1)
-  local n, after = der_content(numbers, 1)
-  local e = der_content(numbers, after)
-  assert(#n > 0 and #e > 0, "an RSAPublicKey holds n and e")
+  local numbers = assert(der_sequence_of(public), "an RSAPublicKey is a SEQUENCE")
+  local n, e = assert(numbers[1], "n").content, assert(numbers[2], "e").content
   return {
     alg = "RS256",
     jwk = {
@@ -370,6 +421,7 @@ function Acme.rsa_key(secret: string): Acme.Key
     },
     spki = der_sequence(der_sequence(der_oid(OID_RSA_ENCRYPTION), DER_NULL), der_bits(public)),
     signature_algorithm = der_sequence(der_oid(OID_RSA_SHA256), DER_NULL),
+    pem = pem("RSA PRIVATE KEY", secret),
     sign = function(message: string): string
       return Sign.rsa(secret, message)
     end,
@@ -377,6 +429,118 @@ function Acme.rsa_key(secret: string): Acme.Key
       return Sign.rsa(secret, message)
     end,
   }
+end
+
+--- A failure of [`cosmic.sign`]'s, raised as `sign: why`, as this
+--- module's.
+local function sign_refusal(raised: any): string
+  local message = tostring(raised)
+  return "acme: " .. (message:match("sign: (.*)$") or message)
+end
+
+--- The P-256 secret of the DER ECPrivateKey `der_bytes` (SEC 1 section
+--- C.4) whose curve, where it or `curve` names one, is P-256, or nil and
+--- why.
+local function sec1_secret(der_bytes: string, curve?: string): string?, string
+  local parts = der_sequence_of(der_bytes)
+  local version = if parts == nil then nil else parts[1] end
+  local secret = if parts == nil then nil else parts[2] end
+  if parts == nil or version == nil or version.tag ~= 0x02 or version.content ~= "\1" or
+      secret == nil or secret.tag ~= 0x04 or #secret.content == 0 then
+    return nil, "acme: not an EC private key: no SEC 1 ECPrivateKey"
+  end
+  local named = curve
+  for i = 3, #parts do
+    local part = assert(parts[i])
+    if part.tag == 0xa0 then named = part.content end
+  end
+  if named ~= nil and named ~= der_oid(OID_P256) then
+    return nil, "acme: an EC key is on P-256, not another curve"
+  end
+  if #secret.content > 32 then return nil, "acme: a P-256 secret is 32 bytes at most" end
+  return string.rep("\0", 32 - #secret.content) .. secret.content, ""
+end
+
+--- The [`Acme.Key`] over the P-256 `secret`, or nil and why it is out
+--- of range.
+local function p256_of(secret: string): Acme.Key?, string
+  local readable, why = pcall(Sign.p256_public, secret)
+  if not readable then return nil, sign_refusal(why) end
+  return Acme.p256_key(secret), ""
+end
+
+--- The [`Acme.Key`] over the DER RSAPrivateKey `secret`, or nil and why
+--- it is refused.
+local function rsa_of(secret: string): Acme.Key?, string
+  local readable, why = pcall(Sign.rsa_public, secret)
+  if not readable then return nil, sign_refusal(why) end
+  return Acme.rsa_key(secret), ""
+end
+
+--- The key of the DER PrivateKeyInfo `der_bytes` (RFC 5208), P-256 or
+--- RSA, or nil and why.
+local function pkcs8_key(der_bytes: string): Acme.Key?, string
+  local parts = der_sequence_of(der_bytes)
+  local version = if parts == nil then nil else parts[1] end
+  local algorithm = if parts == nil then nil else parts[2] end
+  local inner = if parts == nil then nil else parts[3] end
+  if version == nil or version.tag ~= 0x02 or (version.content ~= "\0" and version.content ~= "\1") or
+      algorithm == nil or algorithm.tag ~= 0x30 or
+      inner == nil or inner.tag ~= 0x04 then
+    return nil, "acme: not a private key: no PKCS #8 PrivateKeyInfo"
+  end
+  local identifiers = der_elements(algorithm.content)
+  local oid = if identifiers == nil then nil else identifiers[1] end
+  local parameters = if identifiers == nil then nil else identifiers[2] end
+  local oid_der = if oid == nil then "" else der(oid.tag, oid.content) end
+  if oid_der == der_oid(OID_RSA_ENCRYPTION) then return rsa_of(inner.content) end
+  if oid_der == der_oid(OID_EC_PUBLIC_KEY) then
+    local curve = if parameters == nil then nil else der(parameters.tag, parameters.content) end
+    local secret, why = sec1_secret(inner.content, curve)
+    if secret == nil then return nil, why end
+    return p256_of(secret)
+  end
+  return nil, "acme: a private key is P-256 or RSA, not another algorithm"
+end
+
+--- The labels of the PEM blocks [`Acme.read_key`] reads.
+local KEY_LABELS <const>: {string: boolean} = {
+  ["EC PRIVATE KEY"] = true, ["RSA PRIVATE KEY"] = true, ["PRIVATE KEY"] = true,
+}
+
+--- The [`Acme.Key`] in the PEM `text`, as [`Acme.Key`]'s `pem` writes it
+--- or as OpenSSL does: "EC PRIVATE KEY" (SEC 1) on P-256, "RSA PRIVATE
+--- KEY" (PKCS #1), or "PRIVATE KEY" (PKCS #8) holding either. Text
+--- around the block is skipped, an "EC PARAMETERS" block in front
+--- included; the first key block decides. Nil and why for text with no such block, a block whose
+--- base64 or DER is broken, a key on another curve or of another
+--- algorithm, a P-256 secret out of range, or an RSA key of fewer than
+--- 2048 bits or more than 4096. An encrypted key ("ENCRYPTED PRIVATE
+--- KEY", or a block with a `Proc-Type` header) is not read: decrypt it
+--- first (`openssl pkey -in key.pem -out plain.pem`).
+---
+---     local key = assert(Acme.read_key(assert(Fs.read("account.pem"))))
+function Acme.read_key(text: string): Acme.Key?, string
+  for label, body in text:gmatch("%-%-%-%-%-BEGIN ([%u ]+)%-%-%-%-%-(.-)%-%-%-%-%-END %1%-%-%-%-%-") do
+    if label == "ENCRYPTED PRIVATE KEY" then
+      return nil, "acme: the key is encrypted: decrypt it first"
+    end
+    if KEY_LABELS[label] == true then
+      if body:find("Proc-Type:", 1, true) ~= nil then
+        return nil, "acme: the key is encrypted: decrypt it first"
+      end
+      local der_bytes, undecoded = Codec.unbase64((body:gsub("%s", "")))
+      if der_bytes == nil then
+        return nil, "acme: the " .. label .. " block is not base64: " .. undecoded
+      end
+      if label == "PRIVATE KEY" then return pkcs8_key(der_bytes) end
+      if label == "RSA PRIVATE KEY" then return rsa_of(der_bytes) end
+      local secret, why = sec1_secret(der_bytes)
+      if secret == nil then return nil, why end
+      return p256_of(secret)
+    end
+  end
+  return nil, "acme: no private key in the text: no EC, RSA or PKCS #8 PRIVATE KEY block"
 end
 
 --- The thumbprint of `key`'s JWK (RFC 7638): the base64url SHA-256 of
