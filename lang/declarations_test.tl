@@ -432,9 +432,8 @@ end
 
 local function test_a_missing_field_a_fixed_field_declared_mut_and_a_required_one_declared_omittable_disagree()
   local base = "local interface I\n  mut a: integer\n  b?: integer\n  c: integer\nend\n"
-  local missing = only(base .. "local record R is I\n  mut a: integer\n  b?: integer\nend\n")
-  assert(missing.code == "interface_disagrees" and has(missing.msg, "`R` lists `I` but has no field `c`"), missing.msg)
-  assert(has(missing.fix, "declare `c: integer` in `R`, as `I` declares it"), missing.fix)
+  -- A field the record leaves out it has from the interface.
+  assert(#errors_of(base .. "local record R is I\n  mut a: integer\n  b?: integer\nend\n") == 0)
   local fixed = only(base .. "local record R is I\n  a: integer\n  b?: integer\n  c: integer\nend\n")
   assert(has(fixed.msg, "`R.a` is fixed, but `I` declares it `mut`") and has(fixed.fix, "declare `mut a` in `R`"), fixed.msg)
   local mutable = only(base .. "local record R is I\n  mut a: integer\n  b?: integer\n  mut c: integer\nend\n")
@@ -506,8 +505,7 @@ local function test_an_omittable_function_field_agrees_with_the_receiver_replace
   local base = "local interface I\n  mut skip?: function(I, n: integer): boolean\nend\n"
   assert(#errors_of(base .. "local record R is I\n  mut skip?: function(R, n: integer): boolean\nend\n") == 0)
   assert(#errors_of(base .. "local class C is I\n  mut skip?: function(C, n: integer): boolean\nend\n") == 0)
-  local missing = only(base .. "local record R is I\nend\n")
-  assert(has(missing.msg, "`R` lists `I` but has no field `skip`") and has(missing.fix, "declare `mut skip?: function(R, integer): boolean`"), missing.fix)
+  assert(#errors_of(base .. "local record R is I\nend\n") == 0)
   local required = only(base .. "local record R is I\n  mut skip: function(R, n: integer): boolean\nend\n")
   assert(has(required.msg, "`R.skip` is `function(R, integer): boolean`, but `I` declares it as"), required.msg)
   local fixed = only(base .. "local record R is I\n  skip?: function(R, n: integer): boolean\nend\n")
@@ -517,13 +515,13 @@ local function test_an_omittable_function_field_agrees_with_the_receiver_replace
 end
 
 local function test_the_fix_of_a_missing_field_shows_the_types_in_the_names_the_declaration_gives_and_never_invalid()
-  local generic = only("local interface Source<T>\n  next: function(Source<T>): T?\nend\nlocal record Box<T> is Source<T>\nend\n")
-  assert(has(generic.msg, "`Box` lists `Source<T>` but has no field `next`"), generic.msg)
+  local generic = only("local interface Source<T>\n  next: function(Source<T>): T?\nend\nlocal class Box<T> is Source<T>\nend\n")
+  assert(has(generic.msg, "`Box` lists `Source<T>` but has no field or method `next`"), generic.msg)
   assert(has(generic.fix, "declare `next: function(Box<T>): T?` in `Box`"), generic.fix)
   assert(not has(generic.fix, "?0.0"))
   -- a field typed by a name nothing declares is invalid, and the fix says only to declare it
   local program = fresh()
-  local result = Programs.lower(program, "t", "local interface I\n  a: Missing\nend\nlocal record R is I\nend\n")
+  local result = Programs.lower(program, "t", "local interface I\n  a: function(I): Missing\nend\nlocal class R is I\nend\n")
   local e = Array.at(result.lowered.errors, 1) -- the field naming `Missing` is invalid, so the program has an error
   assert(#result.lowered.errors == 1 and e.code == "interface_disagrees" and not has(e.fix, "invalid") and has(e.fix, "declare `a` in `R`"), e.fix)
 end
@@ -789,7 +787,7 @@ end
 
 local function test_a_provider_declares_a_module_not_yet_lowered_and_a_check_waits_for_its_body()
   local program = fresh()
-  local b = "local record B\n  interface I\n    n: integer\n  end\nend\nreturn B\n"
+  local b = "local record B\n  interface I\n    n: function(I): integer\n  end\nend\nreturn B\n"
   program.provider = function(self: Declarations.Program, module: string): boolean -- checked: field_fixed
     if module ~= "b" then
       return false

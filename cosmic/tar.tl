@@ -523,7 +523,7 @@ local class EntryReader is Tar.Reader
 end
 
 --- An entry's body: a Reader bounded to the entry's size.
-local class BodyReader is Stream.Reader -- declared: interface_disagrees
+local class BodyReader is Stream.Reader
   state: EntryReader
   generation: integer
   mut left: integer
@@ -580,7 +580,7 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
         if r.opened then return refuse("entry already opened once") end
         r.opened = true
         local body: BodyReader = {
-          state = r, generation = r.generation, left = r.size, failed = nil, closed = false,
+          state = r, generation = r.generation, left = r.size, failed = nil, closed = false, skip = nil,
         }
         return body, ""
       end,

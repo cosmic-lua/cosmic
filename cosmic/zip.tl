@@ -333,7 +333,7 @@ end
 --- offset, without walking whatever came before it. `held`, when set,
 --- is the start of those bytes, already read along with the local
 --- header. Its methods live on a shared metatable.
-local class SpanReader is Stream.Reader -- declared: interface_disagrees
+local class SpanReader is Stream.Reader
   pread: Pread
   mut pos: integer
   mut left: integer
@@ -384,7 +384,7 @@ end
 --- against `crc` at end of file; fails the moment more than `size`
 --- bytes arrive, so a body lying about its size is never expanded
 --- much past it.
-local class CheckedReader is Stream.Reader -- declared: interface_disagrees
+local class CheckedReader is Stream.Reader
   inner: Stream.Reader
   crc: integer
   size: integer
@@ -455,7 +455,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     if held == "" then held = nil end
   end
   local raw: SpanReader = {
-    pread = pread, pos = e.offset + skip, left = csize, held = held, failed = nil,
+    pread = pread, pos = e.offset + skip, left = csize, held = held, failed = nil, skip = nil,
   }
   local body: Stream.Reader
   local method = e.method
@@ -478,7 +478,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     return refuse("unsupported compression method " .. tostring(method))
   end
   local checked: CheckedReader = {
-    inner = body, crc = e.crc32, size = e.size, seen = 0, state = nil, failed = nil,
+    inner = body, crc = e.crc32, size = e.size, seen = 0, state = nil, failed = nil, skip = nil,
   }
   return checked, ""
 end
