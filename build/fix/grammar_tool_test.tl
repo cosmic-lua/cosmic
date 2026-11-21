@@ -37,6 +37,7 @@ local function test_a_tree_the_new_checker_refuses_fails_in_its_words(tmp: strin
     local failed, out = fix_new(root, check)
     assert(not failed.ok, out)
     assert(out:find("a.tl:1:", 1, true) ~= nil and out:find("): ", 1, true) ~= nil, out)
+    assert(out:find('  1 | local x: integer = "no"\n    |                    ^', 1, true) ~= nil, out)
     assert(out:find("fix: the tree not building, ", 1, true) ~= nil, out)
   end
   assert(Fs.write(root .. "/a.tl", "local x: integer = 1\n\nreturn x\n"))

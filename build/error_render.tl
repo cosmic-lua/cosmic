@@ -58,10 +58,12 @@ local record ErrorRender
   complain: function(result: Driver.Outcome, hints?: Hints): string
 
   --- `text`, a report a person reads, with the source line under each line of it that names a place and a code
-  --- (`file:line:column: what is wrong (code): fix`), and a caret under the column. `read` gives a file's text by the name
-  --- the line uses, or nil; a line whose file it cannot give, or whose line is past the file's end, is left alone. Only what
-  --- is printed for a person goes through it: every reader of the lines themselves (the LSP, the tree checks) reads them
-  --- without.
+  --- (`file:line:column: what is wrong (code): fix`, after a `fix: FAIL  ` where `cosmic fix` puts one), and a caret under
+  --- the column. `read` gives a file's text by the name the line uses, or nil. Left alone: a line whose file is no `.tl`
+  --- (a template's or a guide's lines are of the Teal made from it, not of the file), whose file `read` cannot give, whose
+  --- line is past the file's end, or whose path holds a space. The caret counts a UTF-8 character as one column and a tab
+  --- as a tab. Only what is printed for a person goes through it: every reader of the lines themselves (the LSP, the tree
+  --- checks) reads them without.
   annotated: function(text: string, read: function(file: string): string?): string
 end
 
@@ -197,7 +199,7 @@ function ErrorRender.annotated(text: string, read: function(file: string): strin
   local ended = text:sub(-1) == "\n"
   for line in (if ended then text else text .. "\n" end):gmatch("([^\n]*)\n") do
     out[#out + 1] = line
-    local file, y, x = line:match("^([^:\n ]+):(%d+):(%d+): .- %(%l[%l%d_]*%)")
+    local file, y, x = line:gsub("^fix: FAIL  ", ""):match("^([^:\n ]+%.tl):(%d+):(%d+): .- %(%l[%l%d_]*%)")
     local row, column = math.tointeger(tonumber(y)), math.tointeger(tonumber(x))
     if file ~= nil and row ~= nil and column ~= nil and unread[file] ~= true then
       local source = texts[file]
@@ -210,7 +212,7 @@ function ErrorRender.annotated(text: string, read: function(file: string): strin
         local number = tostring(row)
         local gutter = string.rep(" ", #number)
         -- The caret keeps the tabs before the column, so that it stands under the column however wide a tab is shown.
-        local before = shown:sub(1, math.max(column - 1, 0)):gsub("[^\t]", " ")
+        local before = shown:sub(1, math.max(column - 1, 0)):gsub("[\128-\191]", ""):gsub("[^\t]", " ")
         out[#out + 1] = "  " .. number .. " | " .. shown
         out[#out + 1] = "  " .. gutter .. " | " .. before .. "^"
       end
