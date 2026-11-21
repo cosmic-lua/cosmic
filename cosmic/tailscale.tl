@@ -465,6 +465,7 @@ end
 
 --- A TCP port of the node the daemon passes on, bytes as they come.
 local record ServeForward
+  --- The node's port the connections come to.
   port: integer
   --- Where the connections go: `127.0.0.1:5432`.
   to: string
@@ -477,7 +478,9 @@ end
 
 --- What [`Client.serve`] puts up. Two entries may not share a port.
 local record ServeSpec
+  --- The web servers, one a port.
   sites?: {ServeSite}
+  --- The TCP ports passed on, one a port.
   forwards?: {ServeForward}
   --- The name the sites answer to: the node's first certificate name
   --- by default, else its MagicDNS name.
@@ -1232,7 +1235,7 @@ local class Client
         return failed("tailscale: serve-config: " .. put.body:gsub("%s+$", "") .. " (status " .. tostring(put.status) .. ")")
       end
     end
-    return failed("tailscale: serve-config: others kept changing it; tried " .. tostring(SERVE_TRIES) .. " times")
+    return failed("tailscale: serve-config: others changed it between each read and write")
   end
 end
 
