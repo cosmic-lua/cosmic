@@ -880,6 +880,11 @@ local function test_a_parameter_with_several_bounds_takes_what_each_gives()
   assert(Array.at(flag.errors, 1).msg:find("which is bounded by `Ordered`", 1, true) ~= nil, Array.at(flag.errors, 1).msg)
 end
 
+--- What a call is expected to answer does not fix a parameter where it fails the parameter's bounds: the arguments do.
+local function test_an_expected_type_that_fails_the_bounds_does_not_fix_the_parameter()
+  stands(SORTED .. "local names: {string | integer} = sorted_set({ \"pear\", \"fig\" })\nprint(names[1])\n", "fig")
+end
+
 local PERSON <const> = "local interface Titled\n  title: string\nend\nlocal interface Aged\n  age: integer\nend\n" ..
   "local function label<T is Titled & Aged>(t: T): string\n  return t.title .. \" \" .. tostring(t.age)\nend\n"
 
