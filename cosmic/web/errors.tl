@@ -121,7 +121,7 @@ local function fault(req: Types.Request, trace: string): Types.Response
     return page(500, message, trace)
   end
   local ok, res = pcall(respond, req, 500)
-  if ok then return res end -- checked: any_use
+  if ok then return res end
   return Response.text("Internal Server Error\n", { status = 500 })
 end
 
@@ -133,7 +133,7 @@ local function answer_abort(req: Types.Request, abort: Response.Abort): Types.Re
       abort.detail or ""))
   end
   local answered, answer = pcall(respond, req, abort.status, abort.detail, abort.extra)
-  if answered then return answer end -- checked: any_use
+  if answered then return answer end
   return fault(req, tostring(answer))
 end
 
@@ -152,17 +152,12 @@ function Errors.wrap(inner: Types.Handler): Types.Handler
       if req.app.spec.debug == true then
         -- The server's own words for an answer that is no reply (see
         -- `reply_trouble` in cosmic/http/server.tl).
-        local trouble: string
-        if res == nil then
-          trouble = "the handler answered nil, not a Server.Reply"
-        else
-          trouble = Server.check(res, req.method) -- checked: any_use
-        end
+        local trouble = Server.check(res, req.method)
         if trouble ~= "" then
           return fault(req, "web: the handler's response cannot be sent: " .. trouble)
         end
       end
-      return res -- checked: any_use
+      return res
     end
     local abort = Response.aborted(res)
     if abort == nil then return fault(req, tostring(res)) end
@@ -180,7 +175,7 @@ end
 function Errors.guard(inner: Types.Handler): Types.Handler
   return function(req: Types.Request): Types.Response
     local ok, res = xpcall(inner, traced, req)
-    if ok then return res end -- checked: any_use
+    if ok then return res end
     local abort = Response.aborted(res)
     if abort == nil then error(res, 0) end
     return answer_abort(req, abort)

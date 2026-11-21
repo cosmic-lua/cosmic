@@ -465,8 +465,8 @@ local function relay_connector(endpoints: {Connector.Endpoint}, wait_ns: integer
                                public?: Connector.Public): Connector.Process?, string
   local called, process, why = pcall(Connector.start, endpoints, (wait_ns + 999999) // 1000000, public)
   if not called then return nil, (tostring(process):gsub("^.-:%d+: ", "")) end
-  if process == nil then return nil, why or "child: could not start the connector" end
-  return process, "" -- checked: any_use
+  if process == nil then return nil, why end
+  return process, ""
 end
 
 --- The connectors the relay of the `connect` targets `connect` is handed

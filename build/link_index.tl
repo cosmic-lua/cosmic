@@ -156,7 +156,11 @@ function link_index.running(): link_index.Library
       if not ok then
         return nil, "the standard library a project's links name: " .. tostring(all)
       end
-      return { all[#all] }, "" -- checked: any_use*2
+      local last = all[#all]
+      if last == nil then
+        return {}, ""
+      end
+      return { last }, ""
     end,
   }
 end
