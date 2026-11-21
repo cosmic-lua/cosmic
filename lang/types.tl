@@ -514,6 +514,13 @@ local record Types
   --- a letter, and `P` and the index from the 27th.
   letter: function(index: integer): string
 
+  --- The names to keep for a generic function type, which `held` already has from another declaration, when a
+  --- declaration gives it `names`: `held` where the two agree, none (`{}`, so display writes letters) where two
+  --- declarations of one type differ, since a type does not say which declaration a value came from.
+  --- TODO: name a value by its own declaration (the binding an expression reads), so that two functions of one type
+  --- each keep their names; and keep the names of another module's generics, which this module's table lacks.
+  kept_names: function(held: {string}?, names: {string}): {string}
+
   --- The canonical text of the type. Raises for a type of more than 100,000 types of text: a
   --- type that shares its parts has the text of the tree it unfolds to.
   encode: function(t: Type): string
@@ -823,6 +830,21 @@ local function parameter_name(names: Names, level: integer, index: integer): str
     name = name .. "_"
   end
   return name
+end
+
+function Types.kept_names(held: {string}?, names: {string}): {string}
+  if held == nil then
+    return names
+  end
+  if #held ~= #names then
+    return held
+  end
+  for i, n in ipairs(names) do
+    if held[i] ~= n then
+      return {}
+    end
+  end
+  return held
 end
 
 function Types.letter(index: integer): string

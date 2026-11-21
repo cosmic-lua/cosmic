@@ -2011,7 +2011,7 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
   if #missing > 0 and shaped and first_missing ~= nil then
     -- The fix shows the forms on a field the literal leaves out, by its own name and type.
     local example = optional_field or first_missing
-    local plain = show(ctx, ctx.store:non_nil(example.type))
+    local plain = show(ctx, ctx.store:non_nil(put_in(ctx, n, example.type)))
     report(ctx, "literal_missing", e, "this literal of " .. owner .. " leaves out " .. listed(missing, "and"),
       if is_class then "add " .. listed(missing, "and") .. " to the literal: a class literal names every field, a field " ..
           "not yet known as its empty value (`fd = -1`) and a `?` field as `" .. example.name .. " = nil`" else
@@ -4728,9 +4728,7 @@ local function function_body(ctx: Ctx, params: {Ast.Param}, body: Ast.Block, ft:
   local f: Fn? = (ft.tag == "fn") and ft or nil -- checked: and_ternary
   local generic = f ~= nil and #f.tparams > 0
   if generic and f ~= nil then
-    if ctx.fn_names[f.id] == nil and #names == #f.tparams then
-      ctx.fn_names[f.id] = names
-    end
+    ctx.fn_names[f.id] = Types.kept_names(ctx.fn_names[f.id], names)
     ctx.judge:enter(f.tparams)
     ctx.binders[#ctx.binders + 1] = names
     ctx.bounds[#ctx.bounds + 1] = f.tparams
@@ -5212,6 +5210,16 @@ end
 
 --- `t`, a type written in the generic function `declared` (a parameter of it), as a program writes it: the type
 --- parameters of the function have their letters.
+--- The name of the type parameter at `index` (from 1) of the callee `declared`, as its author wrote it where that name
+--- is free, or its letter.
+function Calls.parameter_name(ctx: Ctx, declared: Fn, index: integer): string
+  local own = ctx.fn_names[declared.id]
+  if own ~= nil and #own == #declared.tparams and free_of(ctx.binders, own) then
+    return assert(own[index])
+  end
+  return Types.letter(index - 1)
+end
+
 function Calls.shown(ctx: Ctx, declared: Fn, t: Type): string
   if #declared.tparams == 0 then
     return show(ctx, t)
@@ -5568,7 +5576,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     problems[#problems + 1] = failure
   end
   for _, k in ipairs(solver.conflicts) do
-    local letter = quoted(Types.letter(k.index - 1))
+    local letter = quoted(Calls.parameter_name(ctx, c, k.index))
     local same = k.first_at == k.second_at
     local msg = letter .. " of " .. name .. " is " .. tq(ctx, k.first) .. " from " .. Calls.source(k.first_at) .. " and " ..
       tq(ctx, k.second) .. " from " .. (if same then "another type in it" else Calls.source(k.second_at) end) .. ", which " ..
@@ -5586,7 +5594,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     end
   end
   for _, i in ipairs(unbound) do
-    local letter = quoted(Types.letter(i - 1))
+    local letter = quoted(Calls.parameter_name(ctx, c, i))
     local msg = name .. " is generic, and nothing fixes its type parameter " .. letter .. ": no argument has it, and the " ..
       "call is not expected to answer it"
     problems[#problems + 1] = msg

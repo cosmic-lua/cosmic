@@ -928,7 +928,7 @@ local function test_a_nil_test_in_a_fix_fits_the_function_it_is_in()
   local top = error_of(head .. "local v = t[\"a\"]\nlocal n: string = v\nprint(n)\n", "nil_not_allowed")
   assert(has(top.fix, "`if v == nil then error(\"v is missing\") end`"), top.fix)
   local failing = error_of(head .. "local function f(): (string?, string?)\n  local v = t[\"a\"]\n  local n: string = v\n" ..
-    "  return n, nil\nend\nprint(f())\n", "nil_not_allowed")
+      "  return n, nil\nend\nprint(f())\n", "nil_not_allowed")
   assert(has(failing.fix, "`if v == nil then return nil, \"v is missing\" end`"), failing.fix)
   local silent = error_of(head .. "local function f()\n  local v = t[\"a\"]\n  local n: string = v\n  print(n)\nend\nf()\n",
     "nil_not_allowed")
@@ -947,6 +947,35 @@ local function test_a_generic_function_is_shown_with_its_own_type_parameter_name
     "    return assert(xs[1])\n  end\n  local f: function(integer): string = pick\n  print(f)\n  return x\nend\nprint(outer(1))\n"
   local nested = error_of(inner, "not_assignable")
   assert(has(nested.msg, "`function<Key>({Key}): Key`"), nested.msg)
+end
+
+--- The literal_missing fix of a generic record shows the field's type with the use's arguments put in.
+local function test_a_generic_record_literal_is_told_the_type_its_field_has_at_the_use()
+  local e = error_of("local record G<T>\n  a: T\nend\nlocal r: G<integer> = {}\nprint(r)\n", "literal_missing")
+  assert(has(e.fix, "`a?: integer`"), e.fix)
+end
+
+--- Two generic functions of one type that their authors named apart are shown with letters, since the type does not say
+--- which one a value is; a call that fixes no type parameter names it as its author did.
+local function test_two_generic_functions_of_one_type_named_apart_are_shown_with_letters()
+  local source = "local function a<A>(x: A): A\n  return x\nend\nlocal function b<B>(x: B): B\n  return x\nend\n" ..
+    "local f: function(integer): string = b\nprint(a, f)\n"
+  local e = error_of(source, "not_assignable")
+  assert(has(e.msg, "`function<T>(T): T`"), e.msg)
+  local unbound = error_of("local function make<Item>(): {Item}\n  return {}\nend\nlocal v = make()\nprint(v)\n",
+    "cannot_infer")
+  assert(has(unbound.msg, "its type parameter `Item`"), unbound.msg)
+end
+
+--- A function that may answer nil alone returns nil in the fix; one whose results take no nil raises.
+local function test_a_nil_test_in_a_fix_returns_nil_or_raises_as_the_results_take()
+  local head = "local t: {string: string} = {}\n"
+  local optional = error_of(head .. "local function f(): string?\n  local v = t[\"a\"]\n  local n: string = v\n" ..
+      "  return n\nend\nprint(f())\n", "nil_not_allowed")
+  assert(has(optional.fix, "`if v == nil then return nil end`"), optional.fix)
+  local plain = error_of(head .. "local function f(): string\n  local v = t[\"a\"]\n  local n: string = v\n" ..
+      "  return n\nend\nprint(f())\n", "nil_not_allowed")
+  assert(has(plain.fix, "`if v == nil then error(\"v is missing\") end`"), plain.fix)
 end
 
 --- Two uses of a declaration with related arguments (`integer` is below `number`) are told the arguments must be the same,

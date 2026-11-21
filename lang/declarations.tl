@@ -270,7 +270,7 @@ local record Declarations
     mut globals: boolean
     errors: {Error}
     --- The names of the type parameters of the generic functions it declares, by the id of each one's type, so an
-    --- error shows a function with the names its author wrote; the first declaration of a type gives them.
+    --- error shows a function with the names its author wrote ([`Types.kept_names`]).
     mut fn_names?: mut {integer: {string}}
   end
 
@@ -1320,21 +1320,18 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
   return alts
 end
 
---- Keeps the names `typeparams` gives the generic function type `made`, for display, where no declaration of this module
---- gave that type names first.
+--- Keeps the names `typeparams` gives the generic function type `made`, for display.
 local function name_parameters(ctx: Ctx, typeparams: {Ast.TypeParam}, made: Type)
   if #typeparams == 0 or not ((made.tag == "fn")) then
     return
   end
   local held = ctx.info.fn_names or {}
   ctx.info.fn_names = held
-  if held[made.id] == nil then
-    local names: mut {string} = {}
-    for i, p in ipairs(typeparams) do
-      names[i] = p.name.name
-    end
-    held[made.id] = names
+  local names: mut {string} = {}
+  for i, p in ipairs(typeparams) do
+    names[i] = p.name.name
   end
+  held[made.id] = Types.kept_names(held[made.id], names)
 end
 
 --- Reports the type parameters of `typeparams` that the function type `made` does not use.
