@@ -35,7 +35,8 @@
 --- A P-256 secret is a scalar from 1 to the group order n less 1, as 32
 --- big-endian bytes: draw it with [`Sign.p256_secret`], since 32 bytes
 --- from [`Rand.entropy`] fall outside that range about once in 2^32.
---- P-256 signing is deterministic too (RFC 6979), so it draws no entropy.
+--- P-256 signing is deterministic too (RFC 6979): a secret and a message
+--- always give the same signature.
 
 -- The raw module behind every function here lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -90,7 +91,8 @@ end
 
 --- A new P-256 secret: a scalar from 1 to n - 1 as 32 big-endian
 --- bytes, drawn from the system's entropy. It is the whole secret: keep
---- it as [`Sign.ed25519`]'s seed is kept.
+--- it as [`Sign.ed25519`]'s seed is kept. Raises when the entropy source
+--- fails.
 ---
 ---     local secret = Sign.p256_secret()
 function Sign.p256_secret(): string
@@ -99,7 +101,9 @@ end
 
 --- The 65-byte public point of the P-256 `secret`, uncompressed as SEC 1
 --- spells it: the byte 0x04, then X and Y as 32 big-endian bytes each.
---- Raises on a secret that is not 32 bytes, or that is 0 or n or more.
+--- Raises on a secret that is not 32 bytes, or that is 0 or n or more,
+--- and when the system's entropy source fails: mbedtls blinds its work
+--- on a secret with random values.
 ---
 ---     local public = Sign.p256_public(secret)
 ---     local x, y = public:sub(2, 33), public:sub(34, 65)
@@ -123,7 +127,9 @@ end
 --- the SHA-256 of `message` under the 65-byte uncompressed point
 --- `public`. Every argument may come from anyone: a point that is not on
 --- the curve, an R or S of 0 or n or more, and an argument of the wrong
---- size answer false, and nothing raises.
+--- size answer false, and nothing raises. Both S and n - S verify, as
+--- ECDSA has it: a signature is not unique to its message, so do not
+--- take one as an identifier of what was signed.
 ---
 ---     local ok = Sign.p256_verify(public, "message", signature)
 function Sign.p256_verify(public: string, message: string, signature: string): boolean

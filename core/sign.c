@@ -76,14 +76,16 @@ enum {
 };
 
 /* The attributes of a P-256 key pair that signs SHA-256 digests by
- * deterministic ECDSA (RFC 6979), so no signature draws entropy. */
-static psa_key_attributes_t p256_attributes (void) {
+ * deterministic ECDSA (RFC 6979): the signature is a function of the
+ * key and the message, though mbedtls still draws entropy to blind the
+ * computation. `usage` adds to signing, as PSA_KEY_USAGE_EXPORT does
+ * for a new key that is exported. */
+static psa_key_attributes_t p256_attributes (psa_key_usage_t usage) {
   psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
   psa_set_key_type(&attributes,
                    PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
   psa_set_key_bits(&attributes, 256);
-  psa_set_key_usage_flags(&attributes,
-                          PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_EXPORT);
+  psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_MESSAGE | usage);
   psa_set_key_algorithm(&attributes,
                         PSA_ALG_DETERMINISTIC_ECDSA(PSA_ALG_SHA_256));
   return attributes;
@@ -91,47 +93,49 @@ static psa_key_attributes_t p256_attributes (void) {
 
 /* Imports the 32-byte secret at argument 1 as a volatile key. Raises on
  * a secret of another length, or one that is not a scalar from 1 to the
- * group order less 1. The caller destroys the key before any Lua call
- * that can raise. */
+ * group order less 1, and on any other failure of the library, with its
+ * status. The caller destroys the key before any Lua call that can
+ * raise. */
 static psa_key_id_t p256_import (lua_State *L) {
   size_t size;
   const char *secret = luaL_checklstring(L, 1, &size);
   if (size != p256_secret_size) {
     luaL_error(L, "sign: a P-256 secret is 32 bytes");
   }
-  psa_key_attributes_t attributes = p256_attributes();
+  psa_key_attributes_t attributes = p256_attributes(0);
   psa_key_id_t key = PSA_KEY_ID_NULL;
   psa_status_t status = psa_import_key(&attributes, (const uint8_t *)secret,
                                        size, &key);
-  if (status != PSA_SUCCESS) {
+  if (status == PSA_ERROR_INVALID_ARGUMENT) {
     luaL_error(L, "sign: not a P-256 secret: no scalar from 1 to n - 1");
+  }
+  if (status != PSA_SUCCESS) {
+    luaL_error(L, "sign: importing a P-256 secret failed (%d)", (int)status);
   }
   return key;
 }
 
 static int sign_p256_secret (lua_State *L) {
-  /* The secret is exported straight into the result's buffer, sized
-   * before the key exists, so no Lua call that can raise comes between
-   * the key's creation and its destruction, and no copy is left on the
-   * C stack. */
-  luaL_Buffer buffer;
-  char *out = luaL_buffinitsize(L, &buffer, p256_secret_size);
-  psa_key_attributes_t attributes = p256_attributes();
+  psa_key_attributes_t attributes = p256_attributes(PSA_KEY_USAGE_EXPORT);
   psa_key_id_t key = PSA_KEY_ID_NULL;
   psa_status_t status = psa_generate_key(&attributes, &key);
   if (status != PSA_SUCCESS) {
     return luaL_error(L, "sign: generating a P-256 key failed (%d)",
                       (int)status);
   }
+  uint8_t secret[p256_secret_size];
   size_t length = 0;
-  status = psa_export_key(key, (uint8_t *)out, p256_secret_size, &length);
+  status = psa_export_key(key, secret, sizeof secret, &length);
   psa_destroy_key(key);
-  if (status != PSA_SUCCESS || length != p256_secret_size) {
-    mbedtls_platform_zeroize(out, p256_secret_size);
+  if (status != PSA_SUCCESS || length != sizeof secret) {
+    mbedtls_platform_zeroize(secret, sizeof secret);
     return luaL_error(L, "sign: exporting a P-256 key failed (%d)",
                       (int)status);
   }
-  luaL_pushresultsize(&buffer, p256_secret_size);
+  /* A refused push raises past the wipe, leaving this frame's copy on
+   * the stack; the key itself is already destroyed. */
+  lua_pushlstring(L, (const char *)secret, sizeof secret);
+  mbedtls_platform_zeroize(secret, sizeof secret);
   return 1;
 }
 
@@ -184,7 +188,9 @@ static int sign_p256_verify (lua_State *L) {
     psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_VERIFY_MESSAGE);
     psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
     psa_key_id_t key = PSA_KEY_ID_NULL;
-    /* An import refuses a point that is not on the curve. */
+    /* An import refuses a point that is not on the curve. Any failure,
+     * the library's own included, answers false: the contract is that
+     * verify never raises. */
     if (psa_import_key(&attributes, (const uint8_t *)public, public_length,
                        &key) == PSA_SUCCESS) {
       verified = psa_verify_message(

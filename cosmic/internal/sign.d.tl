@@ -14,9 +14,11 @@ local record sign
   -- a key that is not 32 bytes or a signature that is not 64.
   ed25519_verify: function(public: string, message: string, signature: string): boolean
   -- A new 32-byte P-256 secret scalar, drawn from the system's entropy.
+  -- Raises when the entropy source fails.
   p256_secret: function(): string
   -- The 65-byte uncompressed public point (0x04, X, Y) of a 32-byte
-  -- secret. Raises on a secret of another length or out of range.
+  -- secret. Raises on a secret of another length or out of range, and
+  -- when the entropy source mbedtls blinds with fails.
   p256_public: function(secret: string): string
   -- The 64-byte signature (R, S) of message's SHA-256 under a 32-byte
   -- secret, by deterministic ECDSA. Raises as p256_public does.

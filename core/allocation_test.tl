@@ -889,10 +889,10 @@ local function test_sign_leaves_nothing_whenever_an_allocation_fails()
   assert_c_heap(bytes, blocks, "signing under refusal")
 end
 
---- A P-256 key lives in an mbedtls key slot only between its import and
---- its destruction, which no Lua call comes between, so a refused
---- allocation (the answer's string, or the buffer a new secret is
---- exported into) leaves no slot and no C memory.
+--- The one allocation of the core's own each P-256 binding makes is the
+--- string it answers with, made after its key is destroyed, so a refusal
+--- raises and leaves no C memory. mbedtls's key slots and allocations are
+--- its own, which the walk neither refuses nor counts.
 local function test_p256_signing_leaves_nothing_whenever_an_allocation_fails()
   local secret = string.rep("\1", 32)
   collectgarbage("collect")

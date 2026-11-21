@@ -312,8 +312,13 @@ end
 
 local function test_a_p256_key_or_signature_of_the_wrong_shape_answers_false()
   local public, signature = bytes(p256_public), bytes(assert(p256_vectors[1]).signature)
-  for _, key in ipairs({ "", public:sub(1, 64), public .. "\0", public:sub(2), "\2" .. public:sub(2, 33) }) do
-    assert(not Sign.p256_verify(key, "sample", signature), "a key of " .. tostring(#key) .. " bytes")
+  local keys = {
+    "", public:sub(1, 64), public .. "\0", public:sub(2), "\2" .. public:sub(2, 33),
+    -- 65 bytes that are no uncompressed point: another prefix, or the zero point.
+    "\0" .. public:sub(2), "\2" .. public:sub(2), "\5" .. public:sub(2), "\4" .. string.rep("\0", 64),
+  }
+  for i, key in ipairs(keys) do
+    assert(not Sign.p256_verify(key, "sample", signature), "key " .. tostring(i))
   end
   for _, sig in ipairs({ "", signature:sub(1, 63), signature .. "\0" }) do
     assert(not Sign.p256_verify(public, "sample", sig), "a signature of " .. tostring(#sig) .. " bytes")
