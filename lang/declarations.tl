@@ -269,6 +269,9 @@ local record Declarations
     --- Whether it declares a global (a type or a value): a module that every other can name with no `require`.
     mut globals: boolean
     errors: {Error}
+    --- The names of the type parameters of the generic functions it declares, by the id of each one's type, so an
+    --- error shows a function with the names its author wrote ([`Types.kept_names`]).
+    mut fn_names?: mut {integer: {string}}
   end
 
   --- A check that waits for the declarations it reads: it answers whether it ran.
@@ -1317,6 +1320,20 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
   return alts
 end
 
+--- Keeps the names `typeparams` gives the generic function type `made`, for display.
+local function name_parameters(ctx: Ctx, typeparams: {Ast.TypeParam}, made: Type)
+  if #typeparams == 0 or not ((made.tag == "fn")) then
+    return
+  end
+  local held = ctx.info.fn_names or {}
+  ctx.info.fn_names = held
+  local names: mut {string} = {}
+  for i, p in ipairs(typeparams) do
+    names[i] = p.name.name
+  end
+  held[made.id] = Types.kept_names(held[made.id], names)
+end
+
 --- Reports the type parameters of `typeparams` that the function type `made` does not use.
 --- A signature that drew an error since `before` errors (it names a type that is none) is left to that error.
 local function unused_parameters(ctx: Ctx, typeparams: {Ast.TypeParam}, made: Type, before: integer)
@@ -1371,6 +1388,7 @@ local function lower_function(ctx: Ctx, t: Ast.TypeFunction): Type
     return store:fn({ tparams = tparams, params = params, rest = rest, rets = alts })
   end)
   unused_parameters(ctx, t.typeparams, made, before)
+  name_parameters(ctx, t.typeparams, made)
   return made
 end
 
@@ -1788,6 +1806,7 @@ local function lower_fn(ctx: Ctx, fn: Ast.Fn, tparams: {Types.TParam}, typeparam
     end)
     ctx.types[fn.id] = made
     unused_parameters(ctx, typeparams, made, before)
+    name_parameters(ctx, typeparams, made)
   end
 end
 

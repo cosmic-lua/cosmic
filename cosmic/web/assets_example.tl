@@ -46,4 +46,16 @@ function Example.directory()
   assert(Fs.remove_tree(root))
 end
 
+--- One source from several: a program's own images under `images/` of a
+--- larger source, its favicon alone from another, and the shared files
+--- under both. The first layer that holds a path answers it.
+function Example.layered()
+  local carried = Assets.memory({ ["images/logo.png"] = "own", ["images/bg.png"] = "bg", ["app.js"] = "x" })
+  local shared = Assets.memory({ ["logo.png"] = "shared", ["favicon.ico"] = "icon", ["robots.txt"] = "" })
+  local source = Assets.layered({ Assets.under(carried, "images/"), Assets.only(shared, { "favicon.ico" }), shared })
+  print(table.concat(source:paths(), " "))
+  assert(table.concat(source:paths(), " ") == "bg.png favicon.ico logo.png robots.txt")
+  assert(assert(source:get("logo.png")).data == "own")
+end
+
 return Example -- checked: export_not_declared

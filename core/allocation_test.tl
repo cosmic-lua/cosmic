@@ -27,6 +27,7 @@
 --- also requires the children file in this process's mounted /proc.
 
 local AllocationFixture = require("build.allocation_fixture")
+local rsa_fixture = require("build.rsa_fixture")
 local Bigint = require("cosmic.bigint")
 local Cipher = require("cosmic.cipher")
 local Codec = require("cosmic.codec")
@@ -906,6 +907,23 @@ local function test_p256_signing_leaves_nothing_whenever_an_allocation_fails()
   end)
   assert(ended > 0, "a secret, a key and a signature are each a string")
   assert_c_heap(bytes, blocks, "P-256 signing under refusal")
+end
+
+--- So with the RSA bindings, from a fixed key: drawing one is too slow
+--- to repeat once for every allocation the walk refuses, and it makes no
+--- allocation of the core's own before its answer's string.
+local function test_rsa_signing_leaves_nothing_whenever_an_allocation_fails()
+  local secret = rsa_fixture.FIRST
+  collectgarbage("collect")
+  local bytes, blocks = testing.c_heap()
+  local ended = AllocationFixture.under_every_failure(function()
+    local public = Sign.rsa_public(secret)
+    local signature = Sign.rsa(secret, hello)
+    assert(#signature == 256)
+    assert(Sign.rsa_verify(public, hello, signature))
+  end)
+  assert(ended > 0, "a key and a signature are each a string")
+  assert_c_heap(bytes, blocks, "RSA signing under refusal")
 end
 
 --- Each call holds its numbers in one block of the core's own, under a

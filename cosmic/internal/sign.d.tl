@@ -1,6 +1,7 @@
 -- Ed25519 signatures (RFC 8032) at the Lua boundary, as the core
 -- provides them through Monocypher, and ECDSA over P-256 (FIPS 186-5)
--- as it provides them through mbedtls.
+-- and RSA PKCS #1 v1.5 signatures (RFC 8017) as it provides them
+-- through mbedtls.
 --- @kind binding
 
 local record sign
@@ -26,6 +27,21 @@ local record sign
   -- Whether signature is one of message under the 65-byte public point;
   -- false for any argument of the wrong size or shape.
   p256_verify: function(public: string, message: string, signature: string): boolean
+  -- A new RSA key of `bits` (2048, 3072 or 4096; 2048 when nil) and
+  -- e = 65537, as a DER RSAPrivateKey. Raises on other bits, and when the
+  -- entropy source fails.
+  rsa_secret: function(bits?: integer): string
+  -- The DER RSAPublicKey of a DER RSAPrivateKey. Raises on bytes that
+  -- are none, on a key of fewer than 2048 bits or more than 4096, and
+  -- when the entropy source mbedtls blinds with fails.
+  rsa_public: function(secret: string): string
+  -- The PKCS #1 v1.5 signature of message's SHA-256 under a DER
+  -- RSAPrivateKey, as long as the modulus. Raises as rsa_public does.
+  rsa: function(secret: string, message: string): string
+  -- Whether signature is one of message under the DER RSAPublicKey;
+  -- false for any argument of the wrong size or shape, and for a key of
+  -- fewer than 2048 bits or more than 4096.
+  rsa_verify: function(public: string, message: string, signature: string): boolean
 end
 
 return sign

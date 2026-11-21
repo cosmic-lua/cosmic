@@ -506,12 +506,20 @@ local record Types
   unfold: function(t: Type): Type
 
   --- The type in the grammar's own spelling, as an error prints it. `binders` names the
-  --- type parameters a free variable stands for, outermost first.
-  display: function(t: Type, binders?: {{string}}): string
+  --- type parameters a free variable stands for, outermost first. `fns` holds the names a generic function was
+  --- declared with, by the id of its type: it is shown with them, not with letters, where they are free.
+  display: function(t: Type, binders?: {{string}}, fns?: {integer: {string}}): string
 
   --- The name display gives the type parameter at `index` (from 0) of a function type that has no binder around it:
   --- a letter, and `P` and the index from the 27th.
   letter: function(index: integer): string
+
+  --- The names to keep for a generic function type, which `held` already has from another declaration, when a
+  --- declaration gives it `names`: `held` where the two agree, none (`{}`, so display writes letters) where two
+  --- declarations of one type differ, since a type does not say which declaration a value came from.
+  --- TODO: name a value by its own declaration (the binding an expression reads), so that two functions of one type
+  --- each keep their names; and keep the names of another module's generics, which this module's table lacks.
+  kept_names: function(held: {string}?, names: {string}): {string}
 
   --- The canonical text of the type. Raises for a type of more than 100,000 types of text: a
   --- type that shares its parts has the text of the tree it unfolds to.
@@ -774,6 +782,9 @@ local record Names
   --- does not take. Found when the first type parameter is named.
   root: Type
   mut taken: {string: boolean}?
+  --- The names a generic function was declared with, by the id of its type, which it is shown with where they take
+  --- no name already in use.
+  fns?: {integer: {string}}
 end
 
 local NAME_LETTERS <const> = "TUVWXYZABCDEFGHIJKLMNOPQRS"
@@ -819,6 +830,21 @@ local function parameter_name(names: Names, level: integer, index: integer): str
     name = name .. "_"
   end
   return name
+end
+
+function Types.kept_names(held: {string}?, names: {string}): {string}
+  if held == nil then
+    return names
+  end
+  if #held ~= #names then
+    return held
+  end
+  for i, n in ipairs(names) do
+    if held[i] ~= n then
+      return {}
+    end
+  end
+  return held
 end
 
 function Types.letter(index: integer): string
@@ -983,13 +1009,39 @@ local function show_rets(f: Fn, names: Names): string
   return ": " .. table.concat(out, " | ")
 end
 
+--- Whether `given` are names a function's own type parameters can be shown with: each distinct, none the name of a type
+--- parameter in scope or of a declaration in the type shown, so that no name is read as another.
+local function free_names(names: Names, given: {string}): boolean
+  local taken: {string: boolean} = names.taken or declared_names(names.root)
+  names.taken = taken
+  local seen: mut {string: boolean} = {}
+  for _, b in ipairs(names.binders) do
+    for _, n in ipairs(b) do
+      seen[n] = true
+    end
+  end
+  for _, n in ipairs(given) do
+    if n == "" or seen[n] == true or taken[n] == true then
+      return false
+    end
+    seen[n] = true
+  end
+  return true
+end
+
 local function show_fn(f: Fn, names: Names): string
   local generic = #f.tparams > 0
   local header = "function"
   if generic then
-    local own: mut {string} = {}
+    local letters: mut {string} = {}
     for i = 1, #f.tparams do
-      own[i] = parameter_name(names, #names.binders, i - 1)
+      letters[i] = parameter_name(names, #names.binders, i - 1)
+    end
+    local own: {string} = letters
+    local fns = names.fns
+    local declared_as = if fns ~= nil then fns[f.id] else nil end
+    if declared_as ~= nil and #declared_as == #f.tparams and free_names(names, declared_as) then
+      own = declared_as
     end
     names.binders[#names.binders + 1] = own
     local declared: mut {string} = {}
@@ -1077,8 +1129,8 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
   return ""
 end
 
-function Types.display(t: Type, binders?: {{string}}): string
-  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t } -- checked: literal_missing
+function Types.display(t: Type, binders?: {{string}}, fns?: {integer: {string}}): string
+  local names: Names = { binders = {}, budget = DISPLAY_BUDGET, root = t, fns = fns } -- checked: literal_missing
   for _, b in ipairs(binders or {}) do
     names.binders[#names.binders + 1] = b
   end

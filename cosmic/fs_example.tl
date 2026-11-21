@@ -145,6 +145,20 @@ function Example.scratch()
   assert(Fs.remove_tree(parent))
 end
 
+--- Where a program keeps its data, and its cache: a directory named for
+--- it under `XDG_DATA_HOME` (`~/.local/share`) and under `XDG_CACHE_HOME`
+--- (`~/.cache`), each made 0700 and refused where another user could
+--- have put what it holds. `environment` stands in for the process's own.
+function Example.data_dir()
+  local home = assert(Fs.mkdtemp("cosmic-fs-example-"))
+  local data = assert(Fs.data_dir("ledger", { environment = { HOME = home } }))
+  local cache = assert(Fs.program_cache_dir("ledger", { environment = { HOME = home } }))
+  print(data:sub(#home + 1), cache:sub(#home + 1))
+  assert(data == home .. "/.local/share/ledger" and cache == home .. "/.cache/ledger")
+  assert(assert(Fs.stat(data)).mode & 0x3f == 0)
+  assert(Fs.remove_tree(home))
+end
+
 --- Each path [`Fs.walk`] answers is relative to the root it was given,
 --- with no leading `./`, so a file is opened as `root .. "/" .. path`.
 function Example.walk()
