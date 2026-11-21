@@ -7,7 +7,7 @@
 ---
 ---     cosmic-driver cosmic_ci/driver.tl leg-host-id NAME IMAGE RUNNER STARTED
 ---
---- NAME is the leg's (matrix.name). On a Linux leg, IMAGE is its
+--- NAME is the leg's (matrix.leg). On a Linux leg, IMAGE is its
 --- container's image and STARTED a hash of how the container is started
 --- (ci.yml's hashFiles of leg-container.sh, seccomp-profile.sh and the
 --- seccomp profile), and COSMIC_HOST_ID is those two and the container
