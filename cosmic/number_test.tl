@@ -72,6 +72,7 @@ local function test_integer_refuses_a_base_outside_2_to_36()
   assert(refused("1", 37):find("base 37 is not 2 to 36", 1, true))
   assert(refused("1", 0):find("base 0 is not 2 to 36", 1, true))
   assert(refused("1", -10):find("base -10 is not 2 to 36", 1, true))
+  assert(refused("1", 37):find("cosmic.number_test:", 1, true))
 end
 
 local function test_integer_agrees_across_the_length_that_tonumber_reads_and_the_one_it_does_not()
@@ -124,9 +125,12 @@ local function test_read_integer_answers_nil_and_why_where_integer_raises()
     assert(value == want and why == "", text)
   end
   assert(Number.read_integer("ff", 16) == 255)
+  local past, why = Number.read_integer("8", 8)
+  assert(past == nil and why:find("no base 8 digit", 1, true) ~= nil, why)
 end
 
 local function test_read_integer_raises_for_a_base_outside_2_to_36()
-  local ok, why = pcall(Number.read_integer, "1", 37)
+  local ok, why = pcall(function(): integer? return (Number.read_integer("1", 37)) end)
   assert(not ok and tostring(why):find("base 37 is not 2 to 36", 1, true) ~= nil, tostring(why))
+  assert(tostring(why):find("cosmic.number_test:", 1, true) ~= nil, tostring(why))
 end

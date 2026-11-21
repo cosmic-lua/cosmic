@@ -1357,14 +1357,15 @@ function Flags.dispatch(argv: {string}, from: integer,
   return { code = run(parsed), help = "" }, ""
 end
 
---- The standard streams: `out` prints a line to standard output, `err`
---- writes one to standard error, as `said` words it where given (the
---- program's name before it, say).
+--- The standard streams: `out` writes a line to standard output as it
+--- is, `err` one to standard error as `said` words it where given (the
+--- program's name before it, say). A write that fails, as to a closed
+--- pipe, is dropped: a command's output has nowhere else to say so.
 ---
 ---     local streams = Flags.std_io(function(line: string): string return "prog: " .. line end)
 ---     streams.err("no such file") -- prog: no such file
 --- @param said function | nil How a line on `err` is worded; as it is where nil
---- @return Io The streams
+--- @return Flags.Io The streams
 function Flags.std_io(said?: function(line: string): string): Flags.Io
   return {
     out = function(line: string)
@@ -1383,7 +1384,7 @@ end
 ---     local ends = Flags.verdicts(Flags.std_io().err)
 ---     return ends.refused("give one path") -- 2
 --- @param err function Where why is said
---- @return Verdicts The two
+--- @return Flags.Verdicts The two
 function Flags.verdicts(err: function(line: string)): Flags.Verdicts
   return {
     failed = function(why: string): integer

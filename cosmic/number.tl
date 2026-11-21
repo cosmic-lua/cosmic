@@ -2,9 +2,12 @@
 --- `math.tointeger` answer nil, and a caller that has already checked the
 --- text's shape (a `%d+` match, a hex group) then asserts or adds to a
 --- nil; here such a caller reads the integer, and a text that is not one
---- raises with the text in the message.
+--- raises with the text in the message. A text not checked yet, as a
+--- command's argument, is read with [`read_integer`], which answers nil and
+--- why instead.
 ---
 ---     local port = Number.integer("8080") -- 8080
+---     local count, why = Number.read_integer("12x") -- nil, why
 
 local record Number
 end
