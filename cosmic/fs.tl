@@ -462,12 +462,11 @@ local function xdg_base(environment: {string:string}?, variable: string, home_de
   return base, ""
 end
 
---- `base` and the directories `names` lists under it, each a path
---- below the one before: the last of them. With `opts.make` false the
---- name alone; otherwise `base` is made where missing and refused where
---- it is owned by another user (root aside), and each of `names` is
---- made 0700 where missing and refused where it is another user's or
---- writable by its group or by others.
+--- The last of `names`, each a path under `base` below the one before.
+--- With `opts.make` false it is the name alone. Otherwise `base` is made
+--- where missing, and refused where another user owns it (root aside).
+--- Each of `names` is made 0700 where missing, and refused where another
+--- user owns it or its group or others may write to it.
 local function own_dir(base: string, names: {string}, opts?: Fs.CacheOptions): string?, string
   local last = base .. "/" .. assert(names[#names])
   if opts ~= nil and opts.make == false then
@@ -527,7 +526,8 @@ end
 --- `$XDG_CACHE_HOME/<name>`, or `$HOME/.cache/<name>`, the cache of the
 --- program named `name`, held to what [`Fs.cache_dir`] holds its
 --- directories to: made 0700 when missing, and refused where it, or the
---- base, is another user's, or it is writable by its group or by others.
+--- base (root aside), is another user's, or it is writable by its group
+--- or by others.
 --- `name` is one directory's name. `opts` are [`Fs.cache_dir`]'s.
 function Fs.program_cache_dir(name: string, opts?: Fs.CacheOptions): string?, string
   local refused = refused_name(name)
@@ -544,7 +544,7 @@ end
 --- `XDG_DATA_HOME` is unset, empty or not absolute: where the program
 --- named `name` keeps what it keeps (its databases, its credentials).
 --- It is made 0700 when missing, and refused, as [`Fs.cache_dir`]
---- refuses its own, where it or the base is another user's, or it is
+--- refuses its own, where it or the base (root aside) is another user's, or it is
 --- writable by its group or by others: nil and why, as with neither
 --- variable naming an absolute path. `name` is one directory's name.
 --- `opts` are [`Fs.cache_dir`]'s: with `opts.make` false the name

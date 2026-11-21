@@ -282,6 +282,27 @@ local function test_mkdirs_makes_each_directory_with_the_mode_given(tmp: string)
   assert(assert(Fs.stat(tmp .. "/there/a")).mode & 0x1ff == 0x1c0, "a directory there took the mode")
 end
 
+--- The mode is the directory's as `mkdir` makes it, less the umask, not
+--- set after it: under a umask of 022, 0777 makes 0755, where a chmod
+--- after would make 0777.
+local function test_mkdirs_gives_the_mode_at_mkdir_less_the_umask(tmp: string)
+  local before = sys.umask(0x12)
+  local made, why = Fs.mkdirs(tmp .. "/open/inner", 0x1ff)
+  sys.umask(before)
+  assert(made, why)
+  for _, path in ipairs({ tmp .. "/open", tmp .. "/open/inner" }) do
+    assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1ed, path)
+  end
+end
+
+local function test_program_cache_dir_refuses_one_others_can_write_to(tmp: string)
+  local environment = { XDG_CACHE_HOME = tmp }
+  local dir = assert(Fs.program_cache_dir("prog", { environment = environment }))
+  assert(sys.chmod(dir, 0x1fd))
+  local none, why = Fs.program_cache_dir("prog", { environment = environment })
+  assert(none == nil and why == dir .. ": writable by its group or others", why)
+end
+
 local function test_data_dir_is_made_private_under_xdg_or_home(tmp: string)
   local dir = assert(Fs.data_dir("prog", { environment = { XDG_DATA_HOME = tmp .. "/xdg", HOME = tmp .. "/home" } }))
   assert(dir == tmp .. "/xdg/prog", dir)
@@ -290,7 +311,8 @@ local function test_data_dir_is_made_private_under_xdg_or_home(tmp: string)
   -- a relative XDG_DATA_HOME is ignored, as the XDG spec says
   dir = assert(Fs.data_dir("prog", { environment = { XDG_DATA_HOME = "rel", HOME = tmp .. "/home" } }))
   assert(dir == tmp .. "/home/.local/share/prog", dir)
-  for _, environment in ipairs({ {}, { XDG_DATA_HOME = "rel", HOME = "also/rel" } }) do -- checked: literal_needs_type
+  local unset: {{string:string}} = { {}, { XDG_DATA_HOME = "rel", HOME = "also/rel" } }
+  for _, environment in ipairs(unset) do
     local none, trouble = Fs.data_dir("prog", { environment = environment, make = false })
     assert(none == nil and trouble:find("no data directory", 1, true) ~= nil, tostring(none))
   end
