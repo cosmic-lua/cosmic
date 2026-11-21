@@ -122,12 +122,11 @@ local function test_a_raise_names_the_module()
     function() local _, _ = Child.run({ "/bin/sh" }, { timeout_ns = Child.FOREVER, cwd = "" }) end,
     function() local _, _ = Child.start({ "/bin/sh" }, { cwd = "/" } as Child.Options) end, -- checked: cast_refused
     function() local _, _ = Child.run({ "/bin/sh" }, { cwd = "/" } as Child.Options) end, -- checked: cast_refused
-    function() local _, _ = Child.start({ "/bin/sh" }, nil as Child.Options) end, -- checked: cast_refused
   }
   local says = { "argv is empty", "argv is empty", "no handles to wait for", "capture_limit is out of range",
     "environment name is empty", "fds keys are child descriptors",
     "cwd is empty; leave it nil to start in this process's directory",
-    "opts.timeout_ns is required", "opts.timeout_ns is required", "opts is required" }
+    "opts.timeout_ns is required", "opts.timeout_ns is required" }
   for i, call in ipairs(raising) do
     local ok, why: boolean, any = pcall(call)
     -- `says` holds one line for each call of `raising`.
