@@ -999,6 +999,9 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, 2) end
   local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
+  if opts ~= nil and opts.server_name ~= nil and opts.tls == nil then
+    error("net: opts.server_name is what opts.tls asks for, and there is no opts.tls", 2)
+  end
   local attempt = connection(address, timeout_ns)
   local socket = attempt.socket
   if socket == nil then

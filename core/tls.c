@@ -82,11 +82,16 @@ static void push_code (lua_State *L, const char *what, int code) {
                   (unsigned)(code < 0 ? -code : code));
 }
 
-/* nil and why, for a configuration that cannot be made. */
-static int config_failed (lua_State *L, const char *what, int index,
-                          int code) {
+/* nil and why, for a configuration whose pair `index` (a client's
+ * identity, where `client`) cannot be read. */
+static int config_failed (lua_State *L, bool client, const char *what,
+                          int index, int code) {
   char where[96];
-  snprintf(where, sizeof where, "pair %d's %s", index, what);
+  if (client) {
+    snprintf(where, sizeof where, "the identity's %s", what);
+  } else {
+    snprintf(where, sizeof where, "pair %d's %s", index, what);
+  }
   lua_pushnil(L);
   push_code(L, where, code);
   return 2;
@@ -303,10 +308,10 @@ static int config_new (lua_State *L, int endpoint, int pairs_arg, int count,
   for (int i = 0; i < c->count; i++) {
     const char *what = "";
     code = pair_read(L, pairs_arg, i + 1, &c->pair[i], &what);
-    if (code != 0) return config_failed(L, what, i + 1, code);
+    if (code != 0) return config_failed(L, c->client, what, i + 1, code);
     code = mbedtls_ssl_conf_own_cert(&c->conf, &c->pair[i].chain,
                                      &c->pair[i].key);
-    if (code != 0) return config_failed(L, "certificate", i + 1, code);
+    if (code != 0) return config_failed(L, c->client, "certificate", i + 1, code);
   }
   return 1;
 }
@@ -501,7 +506,8 @@ static struct session *checked_session (lua_State *L) {
  * and what the trust store's distrust dates or OneCRL said. */
 static void push_unverified (lua_State *L, struct session *s) {
   uint32_t flags = mbedtls_ssl_get_verify_result(&s->ssl);
-  char info[512];
+  /* Room for every reason mbedtls words, each under 80 bytes. */
+  char info[2048];
   int size = mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
   if (size < 0) size = 0;
   /* One line a reason, the last ended too: joined with "; ". */
@@ -575,9 +581,6 @@ static int unfinished (lua_State *L, struct session *s, int code,
   int stop = stop_failed;
   switch (code) {
     case MBEDTLS_ERR_SSL_WANT_READ:
-    /* A TLS 1.3 server's ticket is read and set aside: a session is
-     * never resumed. */
-    case MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET:
     stop = stop_read;
     break;
     case MBEDTLS_ERR_SSL_WANT_WRITE:
@@ -683,6 +686,18 @@ static int session_handshake (lua_State *L) {
   struct session *s = checked_session(L);
   int code = mbedtls_ssl_handshake(&s->ssl);
   if (code != 0) return unfinished(L, s, code, true);
+  /* Checked again here: mbedtls trusts a self-issued certificate found
+   * among the roots without calling `verified`, so an address it does
+   * not name would pass. */
+  const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&s->ssl);
+  if (s->config->client && s->config->verify && s->ip_size > 0 &&
+      (peer == NULL || !names_ip(peer, s->ip, s->ip_size))) {
+    lua_pushboolean(L, 0);
+    lua_pushliteral(L, "tls: the peer's certificate is not trusted: "
+                    "it names not the address connected to among its IP addresses");
+    lua_pushinteger(L, stop_failed);
+    return 3;
+  }
   lua_pushboolean(L, 1);
   return 1;
 }

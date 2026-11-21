@@ -278,7 +278,9 @@ end
 --- `roots` and `ca` as a [`Chosen`]: see [`chosen_of`]. `level` is
 --- where to raise as the caller of this would give it to `error`.
 function Trust.chosen(roots: (string | {string})?, ca: string?, who: string, level: integer): Chosen?, string
-  return chosen_of(roots, ca, who, level + 2)
+  -- A tail call: this frame is gone when `error` counts, so the caller
+  -- is one level up from chosen_of.
+  return chosen_of(roots, ca, who, level + 1)
 end
 
 --- Every carried root, the certificates `$SSL_CERT_FILE` names, and
@@ -290,11 +292,6 @@ end
 --- The PEM of every certificate `chosen` names: see [`trusted`].
 function Trust.pem(chosen: Chosen, who: string): string?, string
   return trusted(chosen, who)
-end
-
---- The certificates `text` holds, as DER: see [`certificates`].
-function Trust.certificates(text: string): {string}?, string
-  return certificates(text)
 end
 
 return Trust

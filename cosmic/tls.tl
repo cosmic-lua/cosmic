@@ -222,21 +222,24 @@ end
 --- What the peer's certificate says of itself, as a connection's
 --- [`Info.peer`] gives it.
 local record Peer
-  --- Its subject and issuer, as the TLS stack words a distinguished
-  --- name: `CN=example.com, O=Example`; "" where it cannot.
+  --- Its subject, as the TLS stack words a distinguished name:
+  --- `CN=example.com, O=Example`; "" where it cannot.
   subject: string
+  --- Its issuer, worded as `subject` is.
   issuer: string
   --- Its serial number, as colon-separated hex bytes (`01:A2:...`).
   serial: string
-  --- Its Subject Alternative Names: the DNS names, the IP addresses as
-  --- text, the URIs (a SPIFFE ID is one), and the email addresses.
+  --- The DNS names among its Subject Alternative Names.
   names: {string}
+  --- The IP addresses among them, as text (`127.0.0.1`, `::1`).
   addresses: {string}
+  --- The URIs among them: a SPIFFE ID is one.
   uris: {string}
+  --- The email addresses among them.
   emails: {string}
-  --- When it becomes valid, and stops, in [`Clock.now_ns`]'s
-  --- nanoseconds.
+  --- When it becomes valid, in [`Clock.now_ns`]'s nanoseconds.
   not_before_ns: integer
+  --- When it stops being valid, the same.
   not_after_ns: integer
   --- Whether its chain was verified against roots the side that read
   --- it trusts, and passed: false where that side verifies nothing.
@@ -277,7 +280,9 @@ local record ClientOptions
   --- are trusted besides, but with "none".
   roots?: string | {string}
   --- Certificates to trust besides `roots`: PEM, or one DER. A private
-  --- CA's root is given here, with `roots = "none"` to trust it alone.
+  --- CA's root is given here, with `roots = "none"` to trust it alone,
+  --- when Mozilla's distrust dates and OneCRL, which come with the
+  --- carried roots, are not read either.
   ca?: string
   --- One public key pin or more, as [`Peer.pin`] words one: the
   --- server's key must be one of them, besides its chain verifying.
@@ -344,6 +349,9 @@ local class Client
     if self.verify and server_name == nil then
       return nil, "tls: a client that verifies needs a server name to verify against"
     end
+    if server_name ~= nil and (#server_name < 1 or #server_name > 255 or server_name:find("%z") ~= nil) then
+      return nil, "tls: a server name is 1 to 255 bytes, with no NUL"
+    end
     return raw.session(self.config, fd, server_name)
   end
 
@@ -409,10 +417,15 @@ function Tls.client(opts?: ClientOptions): Client?, string
   if alpn ~= nil then
     if #alpn > 8 then error("tls: opts.alpn takes at most 8 protocols", 2) end
     for _, name in ipairs(alpn) do
-      if #name < 1 or #name > 255 then error("tls: an ALPN protocol is 1 to 255 bytes", 2) end
+      if type(name) ~= "string" or #name < 1 or #name > 255 then
+        error("tls: an ALPN protocol is a string of 1 to 255 bytes", 2)
+      end
     end
   end
   local verify = o.verify ~= false
+  if not verify and (o.roots ~= nil or o.ca ~= nil) then
+    error("tls: opts.roots and opts.ca choose what to verify against, so take no verify = false", 2)
+  end
   local pins = pins_of(o.pin)
   local roots: string | boolean = false
   if verify then
