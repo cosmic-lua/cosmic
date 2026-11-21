@@ -21,6 +21,7 @@
 local Fs = require("cosmic.fs")
 local Env = require("cosmic.env")
 local Github = require("cosmic_ci.github")
+local Plural = require("cosmic_ci.plural")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 
@@ -277,7 +278,7 @@ function QueueVerdicts.merge(from: string, into: string): QueueVerdicts.Said
     else
       local taken, why = merged(target, source)
       if taken ~= nil then
-        out[#out + 1] = "verdicts-merge: " .. name .. ": took " .. tostring(taken) .. " rows from the merge queue"
+        out[#out + 1] = "verdicts-merge: " .. name .. ": took " .. Plural.count(taken, "row") .. " from the merge queue"
       else
         err[#err + 1] = "verdicts-merge: " .. name .. ": left as restored: " .. why
       end
