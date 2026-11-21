@@ -227,6 +227,16 @@ local function test_the_members_of_an_interface_include_those_of_the_interfaces_
   assert(has(items(ran, 2), { "name", "age" }) == "name,age", answer(ran, 2) .. ran.err)
 end
 
+local function test_the_members_of_a_record_include_the_fields_of_the_interface_it_lists()
+  local root = session_fixture.project()
+  local head = 'local interface Named\n  name: string\nend\nlocal record Dog is Named\n  legs: integer\nend\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", head .. 'local function f(d: Dog): string\n  return d.name\nend\nreturn f\n'),
+    change(root, "main.tl", head .. 'local function f(d: Dog): string\n  return d.\nend\nreturn f\n'),
+    ask(2, root, "main.tl", 7, 11),
+  })
+  assert(has(items(ran, 2), { "name", "legs" }) == "name,legs", answer(ran, 2) .. ran.err)
+end
+
 local function test_an_enum_offers_its_values()
   local root = session_fixture.project()
   local text = 'local enum Color\n  "red"\n  "green"\nend\nlocal _ = Color\n'
@@ -702,6 +712,9 @@ local function test_the_members_of_classes_interfaces_and_enums_of_a_module_are_
     "local interface Aged is Named",
     "  age: integer",
     "end",
+    "local record Dog is Named",
+    "  legs: integer",
+    "end",
     "local class Counter",
     "  n: integer",
     "  --- Adds one.",
@@ -714,6 +727,7 @@ local function test_the_members_of_classes_interfaces_and_enums_of_a_module_are_
     "end",
     "local record kinds",
     "  aged: Aged",
+    "  dog: Dog",
     "  counter: Counter",
     "  color: Color",
     "end",
@@ -730,7 +744,10 @@ local function test_the_members_of_classes_interfaces_and_enums_of_a_module_are_
     ask(4, root, "main.tl", 2, 20),
     change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.color.\n'),
     ask(5, root, "main.tl", 2, 18),
+    change(root, "main.tl", 'local kinds = require("lib.kinds")\nlocal k: kinds = nil\nlocal _ = k.dog.\n'),
+    ask(6, root, "main.tl", 2, 16),
   })
+  assert(has(items(ran, 6), { "name", "legs" }) == "name,legs", answer(ran, 6) .. ran.err)
   assert(has(items(ran, 2), { "name", "age" }) == "name,age", answer(ran, 2) .. ran.err)
   local methods = items(ran, 3)
   assert(has(methods, { "bump", "new", "n" }) == "bump,new", ran.err)

@@ -342,7 +342,7 @@ end
 --- end a chunked reply early, or more than asked, which would run past
 --- the Content-Length -- cuts the reply short instead.
 local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
-  local record Giving is Stream.Reader -- declared: interface_disagrees
+  local record Giving is Stream.Reader
     pieces: mut {string}
     read: function(Giving, max_bytes?: integer): string?, string
     close: function(Giving): boolean, string
