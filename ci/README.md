@@ -201,7 +201,7 @@ that does not establish release publication or immutability.
 `run`, `platform`, and `provenance` read their context from the environment
 rather than from positional arguments: `GITHUB_WORKSPACE` (the candidate
 checkout root), `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `RUNNER_TEMP`,
-`COSMIC_WORKER` (the workflow sets this from `matrix.name`, or to
+`COSMIC_WORKER` (the workflow sets this from `matrix.leg`, or to
 `provenance` for the join, in ci.yml's `ci` job), and, for `platform` only,
 `TARGET`. All driver state lives under `$RUNNER_TEMP/cosmic-ci/`: the operations database
 at `$RUNNER_TEMP/cosmic-ci/operations.db`, the platform work directory at
@@ -398,12 +398,15 @@ are where CI answers for everything. A branch's push runs nothing.
   only those and makes every check spanning files, the markers held to
   that base among them, over the whole tree). No suite, and it saves
   nothing.
-- **the merge queue** (`merge_group`) runs linux-x86_64's leg alone: it
-  boots the tree, checks the bootstrap's scripts, runs the native suite
-  and its boundary, checks the tree's format over the paths the commit
-  changed since main, as a pull request does, checks the pinned CI driver
-  where those reach what its tests read (`ci/`, `.github/`), and probes
-  the sandbox. Main moves only through the queue, so its check of what
+- **the merge queue** (`merge_group`) runs linux-x86_64's leg alone, as
+  two jobs at once, each booting the tree: `linux-x86_64` (part `suite`)
+  runs the native suite and its boundary and probes the sandbox;
+  `linux-x86_64-format` (part `format`) checks the bootstrap's scripts,
+  checks the tree's format over the paths the commit changed since main,
+  as a pull request does, and checks the pinned CI driver where those
+  reach what its tests read (`ci/`, `.github/`). One after the other in
+  one job they took some 15 minutes; an entry now takes the longer of
+  the two. Main moves only through the queue, so its check of what
   changed holds main's whole tree. Nothing else: no assemble, regressions, portable
   suite or product, and no checked or narrowing job, which read as passed
   in the gate, as on a pull request.
@@ -431,21 +434,25 @@ are where CI answers for everything. A branch's push runs nothing.
 Each job is a plain sequence of steps on one runner: no job relays
 verdicts, markers or products to another run, none is split into shares,
 and none waits on another but the gate. That costs main's run its wall
-clock, which no one waits on, rather than runner minutes; the queue's one
-leg takes the time of its boot and native suite.
+clock, which no one waits on, rather than runner minutes. The queue,
+which every change waits on, is the one exception: its leg is two jobs
+(above), each the time of a boot and its part.
 
 `COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled runs,
 the only runs that save a cache, and is decided in the top-level `env`. The
 driver does not read it (it is `COSMIC_CI_*`, which a suite's workers are
 never given).
 
-The platform job's `include` is an expression that chooses one of three
-lists by the kind of run (linux-x86_64 alone for the queue and a pull
-request, every leg but macOS for a push to main, all four otherwise),
-each listing every leg whole: an `include` entry naming a leg no
-dimension holds would start that leg anyway (GitHub adds an entry that
-fits no combination as one of its own). build/workflows_test.tl reads all
-three as GitHub would.
+The platform job's `include` is an expression that chooses one of four
+lists by the kind of run (linux-x86_64 alone for a pull request, its two
+parts for the queue, every leg but macOS for a push to main, all four
+otherwise), each listing every leg whole: an `include` entry naming a leg
+no dimension holds would start that leg anyway (GitHub adds an entry that
+fits no combination as one of its own). Each entry names the job
+(`name`), the host it is (`leg`: its caches, its verdicts,
+`COSMIC_WORKER`) and what of the leg it runs (`part`: `all`, or the
+queue's `suite` or `format`). build/workflows_test.tl reads all four as
+GitHub would.
 
 A newer manual run supersedes a branch's, but every main run finishes and
 main's pushes run
@@ -530,8 +537,9 @@ takes that test's row out of the entry it saves.
 
 ### artifacts
 
-`ci-driver-<leg>`, `portable-product-<leg>` and
-`platform-diagnostics-<leg>` are kept seven days. The `ci` join reads
+`ci-driver-<job>`, `portable-product-<job>` and
+`platform-diagnostics-<job>` (named by the job, `matrix.name`, so the
+queue's two jobs of one leg keep theirs apart) are kept seven days. The `ci` join reads
 the products within the run, and prerelease.yml as the run completes;
 a re-run of either job more than seven days later cannot download them.
 `report` reads the driver databases, so its suite rows cover about the
