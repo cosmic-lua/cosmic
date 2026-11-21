@@ -452,6 +452,43 @@ local function test_text_a_terminal_mangled_still_reads()
   assert(assert(Qr.read(mangled)).text == "https://example.com/")
 end
 
+local function test_text_copied_indented_or_with_no_break_spaces_still_reads()
+  local code = assert(Qr.encode("https://example.com/"))
+  local drawings: {Qr.TextOptions} = { {}, { invert = true }, { ascii = true }, { ascii = true, invert = true },
+    { quiet = 1 }, { quiet = 0, invert = true } }
+  for n, options in ipairs(drawings) do
+    local drawn = Qr.text(code, options)
+    -- An indent of any width, as a page, a message or a log adds.
+    for _, indent in ipairs({ " ", "  ", "   ", "    " }) do
+      local indented = drawn:gsub("[^\n]+", function(line: string): string return indent .. line end)
+      local read, why = Qr.read(indented)
+      assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, indent %d: %s"):format(n, #indent, why))
+    end
+    -- Spaces a copy turned into no-break spaces.
+    local read, why = Qr.read((drawn:gsub(" ", "\u{a0}")))
+    assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, no-break spaces: %s"):format(n, why))
+  end
+end
+
+local function test_color_paints_each_line_dark_on_light_and_reads_back()
+  local code = assert(Qr.encode("https://example.com/"))
+  for _, ascii in ipairs({ false, true }) do
+    local painted = Qr.text(code, { color = true, ascii = ascii })
+    -- The characters are those of the inverted drawing, invert or not.
+    assert(painted == Qr.text(code, { color = true, ascii = ascii, invert = false }))
+    local plain = Qr.text(code, { invert = true, ascii = ascii })
+    local lines = 0
+    for line in painted:gmatch("([^\n]*)\n") do
+      lines = lines + 1
+      assert(line:sub(1, 9) == "\27[30;107m" and line:sub(-4) == "\27[0m", line)
+    end
+    assert(painted:gsub("\27%[[%d;]*m", "") == plain)
+    assert(select(2, plain:gsub("\n", "")) == lines)
+    assert(assert(Qr.read(painted)).text == "https://example.com/")
+    assert(assert(Qr.read((painted:gsub("[^\n]+", "  %0")))).text == "https://example.com/")
+  end
+end
+
 local function test_damage_within_the_level_is_mended_and_past_it_refused()
   local code = assert(Qr.encode("damaged", { level = "H" }))
   local rows = Qr.rows(code, 0)

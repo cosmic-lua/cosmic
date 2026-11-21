@@ -41,10 +41,18 @@ local function test_a_code_piped_into_read_prints_its_text(tmp: string)
   assert(read.code == 0 and read.out == "https://example.com/\n" and read.err == "", read.out .. read.err)
 end
 
+local function test_a_code_copied_indented_and_in_color_reads_back(tmp: string)
+  local drawn = tool_fixture.cosmic(tmp, { "qr", "--color", "https://example.com/" })
+  assert(drawn.code == 0 and drawn.out:find("\27[30;107m", 1, true) ~= nil, drawn.out .. drawn.err)
+  local indented = drawn.out:gsub("[^\n]+", "    %0")
+  local read = tool_fixture.cosmic(tmp, { "qr", "--read" }, indented)
+  assert(read.code == 0 and read.out == "https://example.com/\n" and read.err == "", read.out .. read.err)
+end
+
 local function test_help_names_the_verb_and_its_options(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "qr", "--help" })
   assert(ran.code == 0, ran.err)
-  for _, word in ipairs({ "cosmic qr", "--svg", "--invert", "--ascii", "--quiet", "--level", "--max-version", "--read" }) do
+  for _, word in ipairs({ "cosmic qr", "--svg", "--invert", "--ascii", "--color", "--quiet", "--level", "--max-version", "--read" }) do
     assert(ran.out:find(word, 1, true), "the help does not name " .. word)
   end
 end

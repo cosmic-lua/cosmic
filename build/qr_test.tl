@@ -71,6 +71,9 @@ local function test_the_options_reach_the_drawing()
   local printed = run({ "--svg", "-", "--scale", "2", "--title", "an x", "--level", "H", "--quiet", "0", "x" })
   assert(printed.code == 0 and printed.out == Qr.svg(code, { quiet = 0, scale = 2, title = "an x" }) .. "\n",
     printed.out)
+  local painted = run({ "--color", "--ascii", "x" })
+  assert(painted.code == 0 and painted.out == Qr.text((assert(Qr.encode("x"))), { color = true, ascii = true }),
+    painted.err)
   local written = run({ "--svg", "code.svg", "--level", "H", "x" })
   assert(written.code == 0 and written.out == "" and written.written["code.svg"] == Qr.svg(code) .. "\n")
 end
@@ -92,7 +95,8 @@ local function test_a_command_line_it_refuses_is_exit_2()
     { "--level", "X", "x" }, { "--max-version", "41", "x" }, { "--max-version", "0", "x" },
     { "--quiet", "17", "x" }, { "--quiet", "-1", "x" }, { "--scale", "2", "x" }, { "--title", "t", "x" },
     { "--svg", "-", "--invert", "x" }, { "--svg", "-", "--ascii", "x" }, { "--svg", "", "x" },
-    { "--svg", "-", "--scale", "0", "x" }, { "--nosuch", "x" },
+    { "--svg", "-", "--scale", "0", "x" }, { "--nosuch", "x" }, { "--svg", "-", "--color", "x" },
+    { "--color", "--invert", "x" },
   }
   for _, words in ipairs(refused) do
     local ran = run(words)
@@ -109,7 +113,7 @@ end
 
 local function test_read_prints_the_text_of_each_drawing()
   local text = "https://example.com/ ✓"
-  local drawings: {{string}} = { { "--invert" }, { "--ascii", "--quiet", "0" }, {} }
+  local drawings: {{string}} = { { "--invert" }, { "--ascii", "--quiet", "0" }, {}, { "--color" } }
   for _, words in ipairs(drawings) do
     local argv: mut {string} = {}
     for _, word in ipairs(words) do argv[#argv + 1] = word end
@@ -127,7 +131,7 @@ end
 
 local function test_read_refuses_options_and_what_is_no_code()
   local refused: {{string}} = { { "--read", "--invert" }, { "--read", "--svg", "-" }, { "--read", "a", "b" },
-    { "--read", "" }, { "--read", "--level", "H" } }
+    { "--read", "" }, { "--read", "--level", "H" }, { "--read", "--color" } }
   for _, words in ipairs(refused) do
     local ran = run(words, "")
     assert(ran.code == 2 and ran.out == "" and ran.err:find("^cosmic: qr: ") ~= nil, table.concat(words, " "))

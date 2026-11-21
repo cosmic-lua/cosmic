@@ -3,6 +3,10 @@
 --- [`cosmic.qr`] makes and draws it; this reads the command line and
 --- the text and writes what it drew.
 ---
+--- The text drawing assumes light text on a dark terminal; `--invert`
+--- suits a light one, and `--color` paints the code black on white
+--- with ANSI escapes, so it is clear on either.
+---
 --- The text is the words, joined by spaces, or, with no words, standard
 --- input, less one newline at its end (`echo url | cosmic qr`), since a
 --- shell's line is not part of what was meant. An empty text is refused:
@@ -48,7 +52,7 @@ end
 
 local spec = assert(assert(Cli.verbs["qr"]).spec)
 
-local usage = "cosmic qr [--level L|M|Q|H] [--max-version N] [--quiet N] [--invert] [--ascii] " ..
+local usage = "cosmic qr [--level L|M|Q|H] [--max-version N] [--quiet N] [--invert] [--ascii] [--color] " ..
   "[--svg <file|-> [--scale N] [--title T]] [--] [text...] | cosmic qr --read [file|-]"
 
 local LEVELS <const>: {string: Qr.Level} = { L = "L", M = "M", Q = "Q", H = "H" }
@@ -60,6 +64,7 @@ local record Request
   mut quiet: integer
   mut invert: boolean
   mut ascii: boolean
+  mut color: boolean
   mut svg?: string
   mut scale: integer
   mut title?: string
@@ -89,10 +94,11 @@ local function arguments(argv: {string}): Request?, string
     end
     local file = parsed.words[1] or "-"
     if file == "" then return nil, bare.empty_file end
-    return { level = "M", max_version = 40, quiet = 4, invert = false, ascii = false, scale = 8, reading = file }, ""
+    return { level = "M", max_version = 40, quiet = 4, invert = false, ascii = false, color = false, scale = 8,
+      reading = file }, ""
   end
   local request: Request = { level = "M", max_version = 40, quiet = 4, invert = parsed.set["--invert"] == true,
-    ascii = parsed.set["--ascii"] == true, scale = 8, svg = parsed.values["--svg"], title = parsed.values["--title"] }
+    ascii = parsed.set["--ascii"] == true, color = parsed.set["--color"] == true, scale = 8, svg = parsed.values["--svg"], title = parsed.values["--title"] }
   local level = parsed.values["--level"]
   if level ~= nil then
     local named = LEVELS[level:upper()]
@@ -123,10 +129,13 @@ local function arguments(argv: {string}): Request?, string
       if parsed.values[name] ~= nil then return nil, name .. " is for --svg" end
     end
   else
-    for _, name in ipairs({ "--invert", "--ascii" }) do
+    for _, name in ipairs({ "--invert", "--ascii", "--color" }) do
       if parsed.set[name] == true then return nil, name .. " is for text, not --svg" end
     end
     if request.svg == "" then return nil, bare.empty_file end
+  end
+  if request.color and request.invert then
+    return nil, "--invert is for a drawing without --color, which paints its own ground"
   end
   if #parsed.words > 0 then request.text = table.concat(parsed.words, " ") end
   return request, ""
@@ -205,7 +214,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local svg = request.svg
   if svg == nil then
     return bare.written(complain, to.out(Qr.text(code, { quiet = request.quiet, invert = request.invert,
-      ascii = request.ascii })))
+      ascii = request.ascii, color = request.color })))
   end
   local image = Qr.svg(code, { quiet = request.quiet, scale = request.scale, title = request.title }) .. "\n"
   if svg == "-" then return bare.written(complain, to.out(image)) end
