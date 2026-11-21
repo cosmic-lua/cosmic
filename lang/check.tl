@@ -3868,13 +3868,29 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     end
   elseif (r.kind == "Boolean") or (l.kind == "Boolean") then
     -- What equals `true` or `false` is not nil, which is all the test shows: what differs from one may be the other or
-    -- nil. It is the test `condition_type` sends an optional boolean to, in a condition and in an `assert`.
+    -- nil. It is the test `condition_type` sends an optional boolean to, in a condition and in an `assert`. The first
+    -- local of a tie (`ok == true`) holds only `true` or `false`, so there the test selects the tie's lists.
     local operand = if r.kind == "Boolean" then l else r end
-    local p = place_of(ctx, f, operand)
-    if p ~= nil then
-      yes = Narrowing.when_true(f, p, Tests.not_nil_of(ctx, current(f, p)))
+    local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, operand)
+    if tied_yes ~= nil and tied_no ~= nil then
+      local value = true
+      if r.kind == "Boolean" then
+        value = r.value
+      elseif l.kind == "Boolean" then
+        value = l.value
+      end
+      if value then
+        yes, no = tied_yes, tied_no
+      else
+        yes, no = tied_no, tied_yes
+      end
     else
-      yes = Tests.has_element(ctx, f, operand)
+      local p = place_of(ctx, f, operand)
+      if p ~= nil then
+        yes = Narrowing.when_true(f, p, Tests.not_nil_of(ctx, current(f, p)))
+      else
+        yes = Tests.has_element(ctx, f, operand)
+      end
     end
   elseif (r.kind == "String") and (l.kind == "Call") then
     yes, no = Narrowing.type_edges(ctx, f, l, r.value)
@@ -3886,23 +3902,6 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     yes, no = Narrowing.tag_edges(ctx, f, r, l.value)
   elseif (l.kind == "Unary") or (r.kind == "Unary") then
     yes, no = Tests.length_edges(ctx, f, "==", l, r)
-  elseif r.kind == "Boolean" or l.kind == "Boolean" then
-    local value = true
-    local tested: Ast.Node = l
-    if r.kind == "Boolean" then
-      value = r.value
-    elseif l.kind == "Boolean" then
-      value = l.value
-      tested = r
-    end
-    local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, tested)
-    if tied_yes ~= nil and tied_no ~= nil then
-      if value then
-        yes, no = tied_yes, tied_no
-      else
-        yes, no = tied_no, tied_yes
-      end
-    end
   end
   if node.op == "==" then
     return yes, no
