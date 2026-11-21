@@ -1498,10 +1498,12 @@ local function lower_collection_parts(ctx: Ctx, t: Ast.Type, mutable: boolean): 
       return store.invalid
     elseif refusal ~= nil and (key.tag == "var") then
       local name = show(ctx, key)
+      local own = variable_bound(ctx, key)
       report_at(ctx, "key_type", t.key, "a map is not keyed by " .. key_word(key, binder_names(ctx.frames)) ..
           ": it may be `number`, a union or a function, which no key is",
-        "bound " .. quoted(name) .. " by `Key` where it is declared (`<" .. name .. " is Key>`): " ..
-          Types.bound_meets("Key") .. " meets it", { name })
+        "bound " .. quoted(name) .. " by `Key` where it is declared" .. (if own ~= nil then ", in place of " ..
+            quoted(show(ctx, own)) else " (`<" .. name .. " is Key>`)" end) .. ": " .. Types.bound_meets("Key") ..
+          " meets it", { name })
       return store.invalid
     elseif refusal ~= nil then
       report_at(ctx, "key_type", t.key, "a map is not keyed by " .. key_word(key, binder_names(ctx.frames)),
@@ -2893,9 +2895,20 @@ local function check_use(ctx: Ctx, use: Use): boolean
               quoted(wanted) .. ", and " .. quoted(shown) .. " is a type parameter " ..
               (if held ~= nil then "bounded by " .. quoted(Types.display(held, use.names)) .. ", which is not below it" else
                 "with no bound" end),
-            "bound " .. quoted(shown) .. " by " .. quoted(wanted) .. " where it is declared (`<" .. shown .. " is " .. wanted ..
-              ">`)", { shown })
+            if held ~= nil then "bound " .. quoted(shown) .. " by " .. quoted(wanted) .. " where it is declared, in place of " ..
+                quoted(Types.display(held, use.names)) else "bound " .. quoted(shown) .. " by " .. quoted(wanted) ..
+                " where it is declared (`<" .. shown .. " is " .. wanted .. ">`)" end, { shown })
         end
+      end
+      -- A built-in bound holds atoms, named types and type parameters: a union, an optional, a collection or a function
+      -- made of variables of the code around meets none, whatever they are.
+      if bound ~= nil and Types.builtin_bound(bound) and argument.open > 0 and not (argument.tag == "var") and
+          not (bound.tag == "Key" and Types.keys_a_map(argument)) then
+        local shown = Types.display(argument, use.names)
+        report_at(ctx, if bound.tag == "Key" then "key_type" else "bound_not_met" end, use.node, quoted(name) ..
+            " bounds its type parameter " .. tostring(i) .. " by " .. quoted(bound.tag) .. ", and " .. quoted(shown) ..
+            " is not " .. Types.bound_meets(bound.tag) .. ", whatever its type parameters are",
+          "pass " .. Types.bound_meets(bound.tag), { shown })
       end
       -- A type made of variables of the code around stays unchecked until it is instantiated.
       if bound ~= nil and argument.open == 0 then

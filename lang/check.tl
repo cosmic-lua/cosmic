@@ -5692,8 +5692,12 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
       problems[#problems + 1] = msg
       if loud and builtin and held.tag == "var" then
         local held_name = show(ctx, held)
+        local scope = if (held.tag == "var") then ctx.bounds[#ctx.bounds - held.depth] else nil end
+        local own_param = if scope ~= nil and (held.tag == "var") then scope[held.index + 1] else nil end
+        local own = if own_param ~= nil then own_param.bound else nil end
         report(ctx, "bound_unmet", node, msg, "bound " .. quoted(held_name) .. " by " .. quoted(bound.tag) ..
-            " where it is declared (`<" .. held_name .. " is " .. bound.tag .. ">`)", { held_name, show(ctx, bound) })
+            " where it is declared" .. (if own ~= nil then ", in place of " .. tq(ctx, own) else " (`<" .. held_name ..
+                " is " .. bound.tag .. ">`)" end), { held_name, show(ctx, bound) })
       elseif loud and builtin then
         report(ctx, "bound_unmet", node, msg,
           if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif

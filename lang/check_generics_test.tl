@@ -844,6 +844,17 @@ local function test_a_generic_record_keyed_by_its_parameter_bounds_it_by_key()
   assert(e.msg:find("`Set` bounds its type parameter 1 by `Key`, so `number` would key a map by a float", 1, true) ~= nil, e.msg)
   local union = Programs.run(set .. "local s: Set<string | integer>\n")
   assert(table.concat(union.before, " ") == "key_type", table.concat(union.before, " "))
+  -- an optional, a collection or a union of a parameter is no key, whatever the parameter is
+  for _, shape in ipairs({ "K?", "{K}", "K | string" }) do
+    local open = Programs.run(set .. "local function f<K is Key>(s: Set<" .. shape .. ">) print(s) end\n")
+    assert(table.concat(open.before, " ") == "key_type", shape .. ": " .. table.concat(open.before, " "))
+  end
+  local boxed = Programs.run(set .. "local record Box<T>\n  v: T\nend\nlocal function f<K is Key>(s: Set<Box<K>>) print(s) end\n")
+  assert(#boxed.before == 0 and Programs.codes(boxed) == "", table.concat(boxed.before, " ") .. Programs.codes(boxed))
+  -- a parameter bounded otherwise is told to take `Key` in place of its bound
+  local by_ordered = Programs.run(set .. "local function f<K is Ordered>(s: Set<K>) print(s) end\n")
+  local o = Array.at(by_ordered.lowered.errors, 1)
+  assert(o.code == "bound_not_met" and o.fix == "bound `K` by `Key` where it is declared, in place of `Ordered`", o.fix)
   -- a record that passes its parameter on to `Set` bounds it too
   local through = Programs.run(set .. "local record Index<T>\n  set: Set<T>\nend\nlocal i: Index<number>\n")
   assert(table.concat(through.before, " "):find("bound_not_met", 1, true) ~= nil, table.concat(through.before, " "))
