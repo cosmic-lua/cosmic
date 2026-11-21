@@ -65,7 +65,7 @@ return function(argv: {string}): integer
   local guard = assert(Signal.guard())
   local calls: Calls = { asked = 0 }
   local body = string.rep("z", 300000)
-  local ok, why = Http.download("http://cosmic.test/", assert(argv[1]) .. "/target", { timeout_ns = Clock.seconds(60),
+  local ok, why = Http.download("http://cosmic.test/", assert(argv[1]) .. "/target", { timeout_ns = 60000000000,
     script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#body) ..
       "\r\nConnection: close\r\n\r\n" .. body },
     cancelled = function(): boolean
