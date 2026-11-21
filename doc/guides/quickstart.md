@@ -438,6 +438,7 @@ where to change it. Write `local peak = 0.0`, or annotate
 A function declared `: number` may still
 `return 0`: an integer is a number.
 
+[`Acme.client`]: ../../cosmic/acme.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
