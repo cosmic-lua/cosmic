@@ -25,9 +25,13 @@
 --- commit that is on main already is its own base.
 ---
 --- A fetch is cut off after FETCH_SECONDS (60, 0 for no limit), and one
---- that fails is made again, TRIES (3) in all, after waits of 2 and 4
---- seconds. It writes `sha=<base>` to $GITHUB_OUTPUT (standard output, for
---- a run by hand). A run that must hold a base and finds none fails here,
+--- that fails is made again, TRIES (6) in all, after waits that double
+--- from 5 seconds to at most 60 (5, 10, 20, 40, 60): GitHub refuses a
+--- fetch for a short time under load (HTTP 403), and the waits outlast
+--- that refusal.
+---
+--- It writes `sha=<base>` to $GITHUB_OUTPUT (standard output, for a run
+--- by hand). A run that must hold a base and finds none fails here,
 --- status 1, saying so, and not minutes later in the check, which refuses
 --- a change with no base all the same (run the job again); a run of main
 --- itself holds none, writes nothing and succeeds.
@@ -59,6 +63,11 @@ end
 --- no fetch.
 local LOCAL_SECONDS <const> = 30
 
+--- The first wait, in seconds, before a failed fetch is made again, and
+--- the longest: each wait doubles the one before.
+local FIRST_WAIT <const> = 5
+local LAST_WAIT <const> = 60
+
 --- How a step fetches: the seconds one fetch may take, and how many are
 --- made of one that fails.
 local record Fetching
@@ -81,11 +90,11 @@ end
 
 --- Whether `git fetch` of `want` from origin, its history cut off at what
 --- the ref `exclude` reaches, succeeded: made again after a wait that
---- doubles from 2 seconds, `fetching.tries` in all. A fetch that would
---- bring nothing (all of `want` is reached by `exclude`) fails as one the
---- network failed does.
+--- doubles from FIRST_WAIT seconds to at most LAST_WAIT, `fetching.tries`
+--- in all. A fetch that would bring nothing (all of `want` is reached by
+--- `exclude`) fails as one the network failed does.
 local function fetched(git: ChangedPaths.Git, host: Github.Host, fetching: Fetching, exclude: string, want: string): boolean
-  local wait = 2
+  local wait = FIRST_WAIT
   for try = 1, fetching.tries do
     if git({ "fetch", "--quiet", "--no-tags", "--shallow-exclude=" .. exclude, "origin", want }, fetching.seconds).ok then
       return true
@@ -94,7 +103,7 @@ local function fetched(git: ChangedPaths.Git, host: Github.Host, fetching: Fetch
         tostring(fetching.tries) .. ")")
     if try < fetching.tries then
       host.sleep(wait)
-      wait = wait * 2
+      wait = math.min(wait * 2, LAST_WAIT)
     end
   end
   return false
@@ -191,7 +200,7 @@ end
 function CeilingsBase.ceilings_base(env: {string:string}, host: Github.Host, git: ChangedPaths.Git): integer
   local seconds, why = whole(env, "FETCH_SECONDS", 60)
   local tries: integer?
-  if seconds ~= nil then tries, why = whole(env, "TRIES", 3) end
+  if seconds ~= nil then tries, why = whole(env, "TRIES", 6) end
   if seconds == nil or tries == nil then
     local _, _ = Fs.put(Fs.stderr, "ceilings-base: " .. why .. "\n")
     return 2

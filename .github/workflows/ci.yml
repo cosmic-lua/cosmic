@@ -250,23 +250,6 @@
             "restore-keys": "compiles-${{ matrix.leg }}-\n",
           },
         },
-        # To a path of this commit's and leg's own, so a test that turns
-        # on the tree's path fails some run (driver.tl place-tree). After
-        # every hashFiles, which reads the checkout.
-        # TODO: move it on the macOS leg alone once "check the pinned CI
-        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
-        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
-        # and the pinned release sandboxes its workers by default, knows
-        # `system` and takes `/parent/` grants (orchestration_test
-        # declares its own), but a sandboxed `cosmic test
-        # cosmic_ci` from ci/ still fails tests, for the host programs they
-        # start and the files they read without declaring them (`system`
-        # profiles, grants), which that run lists; the macOS leg has no
-        # sandbox at all.
-        {
-          name: "move the tree to a path of its own",
-          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
-        },
         # The tree's format check (`fix --check .`), the same on every
         # host: linux-x86_64's, on a pull request, in the merge queue, on
         # the weekly and on a manual run. Never on main's push or the
@@ -281,7 +264,10 @@
         # from its checkout, and the other runs fetch the commit's
         # history down to main. Where it finds none it fails the job
         # there, as the check would minutes later, rather than let a
-        # raise through; run it again.
+        # raise through; run it again. Both fetches run before the tree
+        # moves: actions/checkout keeps its credentials in an
+        # `includeIf.gitdir` of the checkout's own path, which a git run
+        # in the moved tree does not match, so it would fetch with none.
         {
           name: "find the base the markers are held to",
           id: "ceilings-base",
@@ -312,6 +298,23 @@
           "continue-on-error": true,
           env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
           run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
+        },
+        # To a path of this commit's and leg's own, so a test that turns
+        # on the tree's path fails some run (driver.tl place-tree). After
+        # every hashFiles, which reads the checkout.
+        # TODO: move it on the macOS leg alone once "check the pinned CI
+        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
+        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # and the pinned release sandboxes its workers by default, knows
+        # `system` and takes `/parent/` grants (orchestration_test
+        # declares its own), but a sandboxed `cosmic test
+        # cosmic_ci` from ci/ still fails tests, for the host programs they
+        # start and the files they read without declaring them (`system`
+        # profiles, grants), which that run lists; the macOS leg has no
+        # sandbox at all.
+        {
+          name: "move the tree to a path of its own",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
         # cosmic_ci's tests read ci/ and, of the tree around it,
         # .github/workflows/ci.yml alone (their Test.policy grants).

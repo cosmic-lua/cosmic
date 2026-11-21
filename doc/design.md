@@ -1105,7 +1105,8 @@ before it runs, and a local that any function assigns is never narrowed. `never`
 bottom type, the type of a call that does not return, and code after it is unreachable. a function type stands for another
 when its parameters accept what the other's do and its returns are subtypes of the other's. a record, class or interface
 is below an interface it lists, or one whose fields it has, each of exactly the type the interface declares (a function
-field's receiver its own), `mut` and omittable alike; two records, or two classes, are two types whatever their fields. a
+field's receiver its own), `mut` and omittable alike, and one that lists an interface has each field of it that it leaves out
+(a class each but a method); two records, or two classes, are two types whatever their fields. a
 type parameter is bounded by an interface, by `Ordered` (a number type or a string type, whose values `<` compares) or by
 `Numeric` (`integer` or `number`, whose arithmetic answers its own type). a record is not a map; an
 enum is a union of strings, and a union of enums is told apart by `is`. a record that is not a class is not tested by `is`:
