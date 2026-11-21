@@ -205,6 +205,174 @@ static int sign_p256_verify (lua_State *L) {
   return 1;
 }
 
+enum {
+  rsa_bits_min = 2048,
+  rsa_bits_max = 4096,
+  rsa_bits_default = 2048,
+  rsa_secret_max = PSA_KEY_EXPORT_RSA_KEY_PAIR_MAX_SIZE(rsa_bits_max),
+  rsa_public_max = PSA_KEY_EXPORT_RSA_PUBLIC_KEY_MAX_SIZE(rsa_bits_max),
+  rsa_signature_max = PSA_BITS_TO_BYTES(rsa_bits_max),
+};
+
+/* The attributes of an RSA key of `type` and `bits` (0: any, as an
+ * import reads them from the key) that signs or checks SHA-256 digests
+ * by PKCS #1 v1.5, which JOSE calls RS256 and X.509
+ * sha256WithRSAEncryption. */
+static psa_key_attributes_t rsa_attributes (psa_key_type_t type, size_t bits,
+                                            psa_key_usage_t usage) {
+  psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+  psa_set_key_type(&attributes, type);
+  psa_set_key_bits(&attributes, bits);
+  psa_set_key_usage_flags(&attributes, usage);
+  psa_set_key_algorithm(&attributes,
+                        PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256));
+  return attributes;
+}
+
+/* The bits of `key`, or 0 when the library cannot say. */
+static size_t rsa_bits (psa_key_id_t key) {
+  psa_key_attributes_t got = PSA_KEY_ATTRIBUTES_INIT;
+  size_t bits = 0;
+  if (psa_get_key_attributes(key, &got) == PSA_SUCCESS) {
+    bits = psa_get_key_bits(&got);
+  }
+  psa_reset_key_attributes(&got);
+  return bits;
+}
+
+/* Imports the DER RSAPrivateKey at argument 1 as a volatile key. Raises
+ * on bytes the library cannot read as one, on a key of fewer than 2048
+ * bits or more than 4096 or whose modulus is not a whole number of
+ * bytes, and on any other failure of the library, with
+ * its status. The caller destroys the key before any Lua call that can
+ * raise. */
+static psa_key_id_t rsa_import (lua_State *L) {
+  size_t size;
+  const char *secret = luaL_checklstring(L, 1, &size);
+  psa_key_attributes_t attributes = rsa_attributes(
+      PSA_KEY_TYPE_RSA_KEY_PAIR, 0, PSA_KEY_USAGE_SIGN_MESSAGE);
+  psa_key_id_t key = PSA_KEY_ID_NULL;
+  psa_status_t status = psa_import_key(&attributes, (const uint8_t *)secret,
+                                       size, &key);
+  /* The library refuses a key of more than 4096 bits, or of a modulus
+   * that is not a whole number of bytes, as not supported. */
+  if (status == PSA_ERROR_NOT_SUPPORTED) {
+    luaL_error(L,
+               "sign: an RSA key is from 2048 to 4096 bits, in whole bytes");
+  }
+  /* The library answers a generic error for bytes after the key's
+   * SEQUENCE, or a component of zero. */
+  if (status == PSA_ERROR_INVALID_ARGUMENT ||
+      status == PSA_ERROR_GENERIC_ERROR) {
+    luaL_error(L, "sign: not an RSA secret: no DER RSAPrivateKey");
+  }
+  if (status != PSA_SUCCESS) {
+    luaL_error(L, "sign: importing an RSA secret failed (%d)", (int)status);
+  }
+  size_t bits = rsa_bits(key);
+  if (bits < rsa_bits_min || bits > rsa_bits_max) {
+    psa_destroy_key(key);
+    luaL_error(L,
+               "sign: an RSA key is from 2048 to 4096 bits, in whole bytes");
+  }
+  return key;
+}
+
+static int sign_rsa_secret (lua_State *L) {
+  lua_Integer bits = luaL_optinteger(L, 1, rsa_bits_default);
+  if (bits != 2048 && bits != 3072 && bits != 4096) {
+    return luaL_error(L, "sign: a new RSA key is 2048, 3072 or 4096 bits");
+  }
+  psa_key_attributes_t attributes =
+      rsa_attributes(PSA_KEY_TYPE_RSA_KEY_PAIR, (size_t)bits,
+                     PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_EXPORT);
+  psa_key_id_t key = PSA_KEY_ID_NULL;
+  psa_status_t status = psa_generate_key(&attributes, &key);
+  if (status != PSA_SUCCESS) {
+    return luaL_error(L, "sign: generating an RSA key failed (%d)",
+                      (int)status);
+  }
+  uint8_t secret[rsa_secret_max];
+  size_t length = 0;
+  status = psa_export_key(key, secret, sizeof secret, &length);
+  psa_destroy_key(key);
+  if (status != PSA_SUCCESS) {
+    mbedtls_platform_zeroize(secret, sizeof secret);
+    return luaL_error(L, "sign: exporting an RSA key failed (%d)",
+                      (int)status);
+  }
+  /* A refused push raises past the wipe, leaving this frame's copy on
+   * the stack; the key itself is already destroyed. */
+  lua_pushlstring(L, (const char *)secret, length);
+  mbedtls_platform_zeroize(secret, sizeof secret);
+  return 1;
+}
+
+static int sign_rsa_public (lua_State *L) {
+  psa_key_id_t key = rsa_import(L);
+  uint8_t public[rsa_public_max];
+  size_t length = 0;
+  psa_status_t status = psa_export_public_key(key, public, sizeof public,
+                                              &length);
+  psa_destroy_key(key);
+  if (status != PSA_SUCCESS) {
+    return luaL_error(L, "sign: exporting an RSA public key failed (%d)",
+                      (int)status);
+  }
+  lua_pushlstring(L, (const char *)public, length);
+  return 1;
+}
+
+static int sign_rsa (lua_State *L) {
+  size_t size;
+  const char *message = luaL_checklstring(L, 2, &size);
+  psa_key_id_t key = rsa_import(L);
+  uint8_t signature[rsa_signature_max];
+  size_t length = 0;
+  psa_status_t status = psa_sign_message(
+      key, PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256),
+      (const uint8_t *)message, size, signature, sizeof signature, &length);
+  psa_destroy_key(key);
+  if (status != PSA_SUCCESS) {
+    return luaL_error(L, "sign: RSA signing failed (%d)", (int)status);
+  }
+  lua_pushlstring(L, (const char *)signature, length);
+  return 1;
+}
+
+static int sign_rsa_verify (lua_State *L) {
+  size_t public_length;
+  size_t message_length;
+  size_t signature_length;
+  const char *public = luaL_checklstring(L, 1, &public_length);
+  const char *message = luaL_checklstring(L, 2, &message_length);
+  const char *signature = luaL_checklstring(L, 3, &signature_length);
+  bool verified = false;
+  if (public_length <= rsa_public_max &&
+      signature_length <= rsa_signature_max) {
+    psa_key_attributes_t attributes = rsa_attributes(
+        PSA_KEY_TYPE_RSA_PUBLIC_KEY, 0, PSA_KEY_USAGE_VERIFY_MESSAGE);
+    psa_key_id_t key = PSA_KEY_ID_NULL;
+    /* Any failure, the library's own included, answers false: the
+     * contract is that verify never raises. A key outside 2048 to 4096
+     * bits answers false too, as signing refuses one. */
+    if (psa_import_key(&attributes, (const uint8_t *)public, public_length,
+                       &key) == PSA_SUCCESS) {
+      size_t bits = rsa_bits(key);
+      verified = bits >= rsa_bits_min && bits <= rsa_bits_max &&
+                 signature_length == PSA_BITS_TO_BYTES(bits) &&
+                 psa_verify_message(
+                     key, PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256),
+                     (const uint8_t *)message, message_length,
+                     (const uint8_t *)signature, signature_length) ==
+                     PSA_SUCCESS;
+      psa_destroy_key(key);
+    }
+  }
+  lua_pushboolean(L, verified);
+  return 1;
+}
+
 static const luaL_Reg module[] = {
   {"ed25519_public", sign_ed25519_public},
   {"ed25519", sign_ed25519},
@@ -213,6 +381,10 @@ static const luaL_Reg module[] = {
   {"p256_public", sign_p256_public},
   {"p256", sign_p256},
   {"p256_verify", sign_p256_verify},
+  {"rsa_secret", sign_rsa_secret},
+  {"rsa_public", sign_rsa_public},
+  {"rsa", sign_rsa},
+  {"rsa_verify", sign_rsa_verify},
   {NULL, NULL},
 };
 

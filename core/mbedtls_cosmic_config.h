@@ -23,7 +23,9 @@
  * randomness from the OS (crypto.c's mbedtls_psa_external_get_random)
  * rather than the library's own entropy and DRBG modules. cosmic.sign
  * (core/sign.c) also generates P-256 keys and signs with them by
- * deterministic ECDSA, from the same ECC and ECDSA flags.
+ * deterministic ECDSA, from the same ECC and ECDSA flags, and generates
+ * RSA keys and signs with them by PKCS#1 v1.5: the RSA key pair's
+ * EXPORT and GENERATE flags are for it alone.
  *
  * Most of the classic MBEDTLS_xxx_C module flags (ECP_C, RSA_C,
  * BIGNUM_C, ASN1_PARSE_C, AES_C, GCM_C, CHACHA20_C, ...) are derived
@@ -54,7 +56,8 @@
 
 /* Key agreement, signing and signature verification for the
  * ECDHE_ECDSA and ECDHE_RSA cipher suites and TLS 1.3, as a client and
- * as a server; P-256 key generation and signing for cosmic.sign. */
+ * as a server; P-256 and RSA key generation and signing for
+ * cosmic.sign. */
 #define PSA_WANT_ALG_ECDH 1
 #define PSA_WANT_ALG_ECDSA 1
 #define PSA_WANT_ALG_DETERMINISTIC_ECDSA 1
@@ -71,6 +74,8 @@
 #define PSA_WANT_ECC_MONTGOMERY_255 1
 #define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_IMPORT 1
 #define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_BASIC 1
+#define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_EXPORT 1
+#define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_GENERATE 1
 #define PSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY 1
 
 /* Record protection: AES-GCM and ChaCha20-Poly1305. */
