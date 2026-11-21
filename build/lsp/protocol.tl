@@ -157,7 +157,7 @@ local record protocol
 
   record Diagnostic
     range: Range
-    --- 1 for an error, 2 for a warning.
+    --- 1 for an error, 2 for a warning, 4 for a hint.
     severity: integer
     source: string
     message: string

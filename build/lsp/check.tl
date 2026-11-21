@@ -795,16 +795,21 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
     local other = refusal.other
     if other ~= nil and not checked.generated then
       local at = document_byte(other)
+      local after = at + math.max(#(document.text:match("^[%w_]+", at) or ""), 1)
+      local other_length = refusal.other_length
+      if other_length ~= nil and other_length > 0 then
+        after = math.max(document_byte(other + other_length), at + 1)
+      end
       related = { {
         location = { uri = document.uri, range = protocol.range(lines.position(text_lines, at, encoding),
-          lines.position(text_lines, at + math.max(#(document.text:match("^[%w_]+", at) or ""), 1), encoding)) },
+          lines.position(text_lines, after, encoding)) },
         message = "the other place this is about",
       } }
     end
     local diagnostic: protocol.Diagnostic = {
       range = protocol.range(lines.position(text_lines, offset, encoding), lines.position(text_lines, stop, encoding)),
       -- A build refuses a warning as it does an error; the editor shows which it is.
-      severity = if refusal.warning == true then 2 else 1 end,
+      severity = if refusal.severity == "warning" then 2 elseif refusal.severity == "hint" then 4 else 1 end,
       source = "cosmic",
       message = refusal.message,
       code = refusal.code,

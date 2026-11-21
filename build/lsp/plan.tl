@@ -19,15 +19,25 @@ local record plan
     --- The code the checker words after the message, `unused_variable` in
     --- "unused variable b (unused_variable): name it ...", where it does.
     code?: string
-    --- The byte the place at fault starts at in the checked text, from 1, and how many bytes it spans, where the checker
-    --- said so ([`build.lsp.syntax_read`]): a refusal read from words alone has neither, and is placed at its column.
+    --- The byte the place at fault starts at in the checked text, from 1, where the checker said so
+    --- ([`build.lsp.syntax_read`]): a refusal read from words alone has none, and is placed at its column.
     offset?: integer
+    --- How many bytes from `offset` the place at fault spans, where the checker said so.
     length?: integer
     --- The second place the finding involves, its first byte in the checked text: where a name was first given, where a
     --- field is declared.
     other?: integer
-    --- Whether the checker files it as a warning (an unused name) rather than an error. A build refuses both.
-    warning?: boolean
+    --- How many bytes the second place spans.
+    other_length?: integer
+    --- What the checker files it as: an error, a warning (an unused name) or a hint. A build refuses each; nil is an error.
+    severity?: Severity
+  end
+
+  --- How a finding is shown in an editor.
+  enum Severity
+    "error"
+    "warning"
+    "hint"
   end
 
   --- What [`build.lsp.syntax_read`]'s `plan_of` makes of a document: the plan a build makes of it,
