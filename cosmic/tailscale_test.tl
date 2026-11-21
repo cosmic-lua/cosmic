@@ -22,7 +22,7 @@ local WHOIS <const> = [[{
     "Hostinfo": {"Hostname": "laptop", "OS": "macOS"}, "Key": "nodekey:00"},
   "UserProfile": {"ID": 42, "LoginName": "will@example.com", "DisplayName": "Will",
     "ProfilePicURL": ""},
-  "CapMap": {"example.com/cap/admin": [{"level": "all"}], "example.com/cap/read": []}
+  "CapMap": {"example.com/cap/admin": [{"level": "all"}], "example.com/cap/read": [], "example.com/cap/ping": null}
 }]]
 
 local TAGGED <const> = [[{
@@ -76,7 +76,12 @@ local function answer(req: Server.Request): Server.Reply
   if target == "/localapi/v0/whois?addr=100.64.0.2%3A443" then
     return { status = 200, body = WHOIS }
   end
-  if target == "/localapi/v0/whois?addr=100.64.0.3" then return { status = 200, body = TAGGED } end
+  if target == "/localapi/v0/whois?addr=100.64.0.3" or target == "/localapi/v0/whois?addr=%5Bfd7a%3A115c%3Aa1e0%3A%3A3%5D%3A443" then
+    return { status = 200, body = TAGGED }
+  end
+  if target == "/localapi/v0/whois?addr=100.64.0.4" then
+    return { status = 403, body = "whois access denied\n" }
+  end
   if target == "/localapi/v0/whois?addr=100.64.0.66" then
     return { status = 200, body = '{"Node": {"ID": "seven"}, "UserProfile": {}}' }
   end
@@ -94,10 +99,19 @@ local function answer(req: Server.Request): Server.Reply
   if target == "/localapi/v0/ping?ip=100.64.0.2&type=disco" and req.method == "POST" then
     return { status = 200, body = '{"LatencySeconds": 0.0125, "Endpoint": "192.0.2.1:41641", "DERPRegionCode": ""}' }
   end
+  if target == "/localapi/v0/ping?ip=100.64.0.8&type=disco" then
+    return { status = 500, body = '{"error":"no matching peer"}\n' }
+  end
   if target == "/localapi/v0/ping?ip=100.64.0.9&type=TSMP" then
     return { status = 200, body = '{"Err": "timeout"}' }
   end
   if target == "/localapi/v0/watch-ipn-bus?mask=2" then return { status = 200, body = EVENTS } end
+  if target == "/localapi/v0/watch-ipn-bus?mask=16387" then
+    return { status = 200, body = '{"State":null,"LoginFinished":null}\n' }
+  end
+  if target == "/localapi/v0/watch-ipn-bus?mask=0" then
+    return { status = 200, body = '{"State":4}\n' }
+  end
   return { status = 404, body = "404 page not found\n" }
 end
 
@@ -159,17 +173,21 @@ local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: st
   local Json = require("cosmic.json")
   local admin = assert(who.caps["example.com/cap/admin"])
   say("admin=" .. assert(Json.encode_any(admin)) .. " read=" .. tostring(#assert(who.caps["example.com/cap/read"])) ..
+    " ping=" .. tostring(#assert(who.caps["example.com/cap/ping"])) ..
     " write=" .. tostring(who.caps["example.com/cap/write"]))
   local tagged = assert(ts:whois("100.64.0.3"))
   say(tagged.node.name .. " " .. table.concat(tagged.node.tags, ",") .. " tagged=" .. tostring(tagged.tagged) ..
     " " .. tagged.user.login_name .. " host=" .. tagged.node.host_name)
+  local six = assert(ts:whois("[fd7a:115c:a1e0::3]:443"))
+  say(six.node.name)
 ]]))
   assert(said == table.concat({
     "laptop.tail1234.ts.net laptop macOS 7",
     "100.64.0.2,fd7a:115c:a1e0::2 tags=0 tagged=false",
     "will@example.com Will nil",
-    'admin=[{"level":"all"}] read=0 write=nil',
+    'admin=[{"level":"all"}] read=0 ping=0 write=nil',
     "db.tail1234.ts.net tag:db tagged=true tagged-devices host=",
+    "db.tail1234.ts.net",
     "",
   }, "\n"), said)
   assert(seen[1] == "GET /localapi/v0/whois?addr=100.64.0.2%3A443 host=local-tailscaled.sock cap=130 auth=",
@@ -181,17 +199,20 @@ end
 local function test_whois_result_tells_a_stranger_from_a_daemon_that_is_not_there(tmp: string)
   local said, _ = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
   local stranger = ts:whois_result("192.0.2.7")
-  say(stranger.kind .. " " .. stranger.reason .. " " .. tostring(stranger.whois))
+  say(stranger.kind .. " " .. tostring(stranger.status) .. " " .. stranger.reason .. " " .. tostring(stranger.whois))
+  local refused = ts:whois_result("100.64.0.4")
+  say(refused.kind .. " " .. tostring(refused.status) .. " " .. refused.reason)
   local who, why = ts:whois("192.0.2.7")
   say(tostring(who) .. " " .. why)
   local gone = assert(Tailscale.connect({ socket = (argv[1] or "") .. ".none" }))
   local failed = gone:whois_result("100.64.0.2")
-  say(failed.kind .. " " .. tostring(failed.reason:find("tailscale: ", 1, true) == 1))
+  say(failed.kind .. " " .. tostring(failed.status) .. " " .. tostring(failed.reason:find("tailscale: ", 1, true) == 1))
 ]]))
   assert(said == table.concat({
-    "not_a_peer tailscale: no node has the address 192.0.2.7 nil",
+    "not_a_peer 404 tailscale: no node has the address 192.0.2.7 nil",
+    "failed 403 tailscale: /localapi/v0/whois: whois access denied",
     "nil tailscale: no node has the address 192.0.2.7",
-    "failed true",
+    "failed 0 true",
     "",
   }, "\n"), said)
 end
@@ -259,12 +280,14 @@ end
 local function test_ping_answers_the_round_trip_or_why_none_came(tmp: string)
   local said, seen = across(tmp, Net.unix(tmp .. "/ts.sock"), over_socket([[
   local ping = assert(ts:ping("100.64.0.2"))
-  say(tostring(ping.latency_ns) .. " " .. tostring(ping.endpoint) .. " " .. tostring(ping.derp_region) ..
-    " local=" .. tostring(ping.local_address))
+  say(tostring(ping.latency_ns) .. " " .. tostring(ping.endpoint) .. " " .. tostring(ping.derp_region))
   local _, why = ts:ping("100.64.0.9", "TSMP")
   say(why)
+  local _, refused = ts:ping("100.64.0.8")
+  say(refused)
 ]]))
-  assert(said == "12500000 192.0.2.1:41641 nil local=false\ntailscale: ping 100.64.0.9: timeout\n", said)
+  assert(said == "12500000 192.0.2.1:41641 nil\ntailscale: ping 100.64.0.9: timeout\n" ..
+      "tailscale: /localapi/v0/ping: no matching peer\n", said)
   local first = Array.at(seen, 1)
   assert(first:match("^POST ") ~= nil, first)
 end
@@ -283,12 +306,19 @@ local function test_watch_reads_an_event_a_line(tmp: string)
     say(tostring(event.state) .. " " .. tostring(event.browse_url) .. " " .. tostring(event.login_finished) ..
       " " .. tostring(event.version))
   end
+  local engine <close> = assert(ts:watch({ engine = true, initial_status = true }))
+  local nulls = assert(engine:read())
+  say(tostring(nulls.state) .. " " .. tostring(nulls.login_finished))
+  local bare <close> = assert(ts:watch({ initial_state = false }))
+  say(tostring(assert(bare:read()).state))
 ]]))
   assert(said == table.concat({
     "Starting nil false 1.90.0",
     "nil https://login.example/a false nil",
     "Running nil true nil",
     "end ",
+    "nil false",
+    "Stopped",
     "",
   }, "\n"), said)
 end
@@ -303,11 +333,11 @@ local function test_a_reply_of_the_wrong_shape_fails_naming_the_field(tmp: strin
   say(tostring(missing.status) .. " " .. missing.body)
 ]]))
   assert(said == "failed tailscale: whois: WireWhoIs: $.Node.ID: want integer, got string\n" ..
-    "404 404 page not found\n\n", said)
+      "404 404 page not found\n\n", said)
 end
 
 --- Over a port, as macOS's app listens, every request carries the token
---- as the password of HTTP basic auth, and names the port's own host.
+--- as the password of HTTP basic auth, and the host the daemon requires.
 local function test_a_port_sends_its_token_as_basic_auth(tmp: string)
   local said, seen = across(tmp, Net.tcp("127.0.0.1", 0), [[
 local Fs = require("cosmic.fs")
@@ -324,7 +354,7 @@ end
   -- base64(":abc123")
   local first = Array.at(seen, 1)
   assert(first:match(" auth=Basic OmFiYzEyMw==$") ~= nil, first)
-  assert(first:match(" host=127%.0%.0%.1:%d+ ") ~= nil, first)
+  assert(first:match(" host=local%-tailscaled%.sock ") ~= nil, first)
 end
 
 --- Options that cannot be met together are a caller's bug and raise.

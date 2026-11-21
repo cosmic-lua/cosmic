@@ -10,9 +10,9 @@
 ---     local status = assert(ts:status())
 ---     print(status.self.dns_name, #status.peers)
 ---
---- [`Tailscale.connect`] finds the daemon and connects to nothing: each
---- call is one HTTP request to it, so a daemon that is down or restarts
---- fails a call, never the client. Every answer is checked against the
+--- [`Tailscale.connect`] finds the daemon but keeps no connection open:
+--- each call is one HTTP request to it, so a daemon that is down or
+--- restarts fails that call, never the client. Every answer is checked against the
 --- shape this module declares and handed back as a record with
 --- snake_case fields, so a reply the daemon changed fails with the path
 --- of the field that does not fit rather than as a nil read far away.
@@ -33,14 +33,16 @@ local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Json = require("cosmic.json")
 local Net = require("cosmic.net")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local Url = require("cosmic.url")
 local sys = require("cosmic.sys")
 
---- The host every request names: the daemon refuses any other, so that a
---- web page cannot reach it through a DNS name that points at the loopback.
+--- The host every request names. Without a token the daemon refuses any
+--- other, so that a web page cannot reach it through a DNS name that
+--- points at the loopback.
 local HOST <const> = "local-tailscaled.sock"
 
 --- The capability version the client says it speaks (`Tailscale-Cap`),
@@ -71,7 +73,6 @@ local record WireNode
   User: integer
   Addresses?: {string}
   Tags?: {string}
-  ComputedName?: string
   Hostinfo?: WireHostinfo
   Online?: boolean
   KeyExpiry?: string
@@ -80,7 +81,7 @@ end
 local record WireWhoIs
   Node: WireNode
   UserProfile: WireUser
-  CapMap?: {string: {any}}
+  CapMap: any
 end
 
 local record WirePeer
@@ -142,7 +143,6 @@ local record WirePing
   PeerRelay?: string
   DERPRegionID?: integer
   DERPRegionCode?: string
-  IsLocalIP?: boolean
 end
 
 local record WireNotify
@@ -222,7 +222,7 @@ local record WhoIs
   --- name (`example.com/cap/admin`) to the JSON values the grants
   --- attach, one a grant, decoded. A name is present, with an empty
   --- list, when a grant names it with no value.
-  caps: {string: {any}}
+  caps: {string: {Json.Value}}
 end
 
 --- Which way [`Client.whois_result`] came out.
@@ -242,6 +242,10 @@ local record WhoIsResult
   whois?: WhoIs
   --- Empty for "found"; otherwise why.
   reason: string
+  --- The daemon's HTTP status: 200 for "found", 404 for "not_a_peer",
+  --- and for "failed" the status that refused the call (403 for a
+  --- caller the daemon will not answer), or 0 where none came back.
+  status: integer
 end
 
 --- A peer of this node, or the node itself, as [`Client.status`] lists it.
@@ -355,8 +359,16 @@ local record Ping
   derp_region?: string
   --- The peer relay that carried it, when one did.
   peer_relay?: string
-  --- Whether the address is this node's own.
-  local_address: boolean
+end
+
+--- What [`Client.cert`] takes; every field is optional.
+local record CertOptions
+  --- How long the call may take, in nanoseconds: 5 minutes by
+  --- default, since the first certificate for a name waits on the CA.
+  timeout_ns?: integer
+  --- How long the certificate must still be valid, in nanoseconds:
+  --- one the daemon holds that expires sooner is renewed first.
+  min_validity_ns?: integer
 end
 
 --- The daemon's state, as [`Notify.state`] names it.
@@ -399,6 +411,7 @@ local record WatchOptions
 end
 
 local DEFAULT_TIMEOUT_NS <const> = 10 * 1000000000
+local CERT_TIMEOUT_NS <const> = 300 * 1000000000
 
 --- `text`, or nil where it is nil or empty.
 local function nonempty(text: string?): string?
@@ -441,7 +454,7 @@ local function node_of(wire: WireNode): Node
     id = wire.ID,
     stable_id = wire.StableID,
     name = undotted(wire.Name),
-    host_name = (info and info.Hostname) or wire.ComputedName or "",
+    host_name = (info and info.Hostname) or "",
     os = (info and info.OS) or "",
     user_id = wire.User,
     addresses = bare(wire.Addresses),
@@ -450,8 +463,14 @@ local function node_of(wire: WireNode): Node
 end
 
 local function whois_of(wire: WireWhoIs): WhoIs
-  local caps: mut {string: {any}} = {}
-  for name, values in pairs(wire.CapMap or {}) do caps[name] = values end
+  local caps: mut {string: {Json.Value}} = {}
+  local granted, _ = Json.to_object(wire.CapMap)
+  for name, values in pairs(granted or {}) do
+    -- A grant with no value is Go's nil slice, which the daemon writes
+    -- as null: the name is granted all the same.
+    local list, _ = Json.to_array(values)
+    caps[name] = list or {}
+  end
   local node = node_of(wire.Node)
   return { node = node, user = user_of(wire.UserProfile), tagged = #node.tags > 0, caps = caps }
 end
@@ -601,7 +620,7 @@ local class Events
   end
 end
 
---- The client of one daemon, as [`connect`] answers it.
+--- The client of one daemon, as [`Tailscale.connect`] answers it.
 local class Client
   --- Internal: where the daemon is. No caller reads it.
   endpoint: Endpoint
@@ -609,8 +628,12 @@ local class Client
   timeout_ns: integer
 
   --- Internal: the options of one request.
-  function options(self, method: string, body?: string, unlimited?: boolean): Http.Options
+  --- `timeout_ns` is the call's limit, the client's by default; 0 is none.
+  function options(self, method: string, body?: string, timeout_ns?: integer): Http.Options
     local headers: mut {string: string} = {
+      -- Over a port the URL names 127.0.0.1, which the daemon takes only
+      -- with a token; this one it always takes, as its own client sends.
+      ["Host"] = HOST,
       ["Tailscale-Cap"] = CAPABILITY,
     }
     local token = self.endpoint.token
@@ -619,13 +642,14 @@ local class Client
     end
     if body ~= nil then headers["Content-Type"] = "application/json" end
     local via = self.endpoint.via
+    local limit = timeout_ns or self.timeout_ns
     return {
       method = method,
       headers = headers,
       body = body,
       via = if via.kind == "unix" then via else nil end,
-      timeout_ns = if unlimited == true then nil else self.timeout_ns end,
-      low_speed_bytes = if unlimited == true then 0 else nil end,
+      timeout_ns = if limit == 0 then nil else limit end,
+      low_speed_bytes = if limit == 0 then 0 else nil end,
       follow = false,
     }
   end
@@ -636,7 +660,12 @@ local class Client
   ---     local got = assert(ts:request("GET", "/localapi/v0/derpmap"))
   function request(self, method: string, path: string, body?: string): Http.Body?, string
     if path:sub(1, 1) ~= "/" then error("tailscale: path must start with /", 2) end
-    local got, why = Http.request(method, self.endpoint.url .. path, self:options(method, body))
+    return self:sent(method, path, body)
+  end
+
+  --- Internal: [`Client.request`] under the limit `timeout_ns`.
+  function sent(self, method: string, path: string, body?: string, timeout_ns?: integer): Http.Body?, string
+    local got, why = Http.request(method, self.endpoint.url .. path, self:options(method, body, timeout_ns))
     if got == nil then return nil, "tailscale: " .. why end
     return got, ""
   end
@@ -647,11 +676,15 @@ local class Client
   end
 
   --- Internal: `path`'s body, or why it is not one of status 200.
-  function ok(self, method: string, path: string, body?: string): Answer
-    local got, why = self:request(method, path, body)
+  function ok(self, method: string, path: string, body?: string, timeout_ns?: integer): Answer
+    local got, why = self:sent(method, path, body, timeout_ns)
     if got == nil then return { reason = why, status = 0 } end
     if got.status ~= 200 then
       local said = got.body:gsub("%s+$", "")
+      -- Some endpoints refuse with `{"error": "..."}`, others with text.
+      local refusal, _ = Json.decode_object(said)
+      local message = if refusal ~= nil then refusal["error"] else nil end
+      if message is string then said = message end
       if said == "" then said = "status " .. tostring(got.status) end
       return { reason = "tailscale: " .. (path:match("^[^?]*") or path) .. ": " .. said, status = got.status }
     end
@@ -678,18 +711,24 @@ local class Client
 
   --- [`Client.whois`], classified: "not_a_peer" where the daemon knows
   --- no node at the address, as for one off the tailnet.
+  -- TODO: take the daemon's `svc_name` and `proto` once a server answers
+  -- for a Tailscale Service, whose grants scope the CapMap to it.
   function whois_result(self, address: string): WhoIsResult
     local answer = self:ok("GET", "/localapi/v0/whois?addr=" .. Url.escape(address))
     local text = answer.body
     if text == nil then
       if answer.status == 404 then
-        return { kind = "not_a_peer", reason = "tailscale: no node has the address " .. address }
+        return { kind = "not_a_peer", reason = "tailscale: no node has the address " .. address, status = 404 }
       end
-      return { kind = "failed", reason = answer.reason }
+      return { kind = "failed", reason = answer.reason, status = answer.status }
     end
-    local wire, bad = WHOIS:decode_into(text)
-    if wire == nil then return { kind = "failed", reason = "tailscale: whois: " .. bad } end
-    return { kind = "found", whois = whois_of(wire), reason = "" }
+    -- Null kept as itself, so that a capability granted with no value
+    -- stays a key of CapMap.
+    local wire, bad = WHOIS:decode_into(text, { null_value = Json.null })
+    if wire == nil then
+      return { kind = "failed", reason = "tailscale: whois: " .. bad, status = 200 }
+    end
+    return { kind = "found", whois = whois_of(wire), reason = "", status = 200 }
   end
 
   --- The node's status and its peers' (`tailscale status`).
@@ -720,11 +759,21 @@ local class Client
   --- tailnet, and a caller the daemon lets have certificates.
   ---
   ---     local pair = assert(ts:cert(assert(status.cert_domains[1])))
-  function cert(self, domain: string): CertPair?, string
+  function cert(self, domain: string, opts?: CertOptions): CertPair?, string
     if domain == "" or domain:find("[/?#%%%s]") ~= nil then
       return nil, "tailscale: cert: no such domain " .. string.format("%q", domain)
     end
-    local answer = self:ok("GET", "/localapi/v0/cert/" .. domain .. "?type=pair")
+    local o: CertOptions = opts or {}
+    local query = "?type=pair"
+    local validity = o.min_validity_ns
+    if validity ~= nil then
+      if math.type(validity) ~= "integer" or validity < 0 then
+        error("tailscale: min_validity_ns must be an integer of at least 0", 2)
+      end
+      -- Go's duration, in whole seconds rounded up.
+      query = query .. "&min_validity=" .. tostring((validity + 999999999) // 1000000000) .. "s"
+    end
+    local answer = self:ok("GET", "/localapi/v0/cert/" .. domain .. query, nil, o.timeout_ns or CERT_TIMEOUT_NS)
     local text = answer.body
     if text == nil then return nil, answer.reason end
     return pair_of(text)
@@ -750,7 +799,6 @@ local class Client
       endpoint = nonempty(wire.Endpoint),
       derp_region = nonempty(wire.DERPRegionCode),
       peer_relay = nonempty(wire.PeerRelay),
-      local_address = wire.IsLocalIP == true,
     }, ""
   end
 
@@ -770,7 +818,7 @@ local class Client
     if o.initial_state ~= false then mask = mask | 2 end
     if o.initial_status == true then mask = mask | (1 << 14) end
     local path = "/localapi/v0/watch-ipn-bus?mask=" .. tostring(mask)
-    local response, why = Http.open(self.endpoint.url .. path, self:options("GET", nil, true))
+    local response, why = Http.open(self.endpoint.url .. path, self:options("GET", nil, 0))
     if response == nil then return nil, "tailscale: " .. why end
     if response.status ~= 200 then
       local said, _ = Stream.read_up_to(response, 4096)
@@ -798,6 +846,7 @@ local record Tailscale
   type CertPair = CertPair
   type PingKind = PingKind
   type Ping = Ping
+  type CertOptions = CertOptions
   type State = State
   type Notify = Notify
   type WatchOptions = WatchOptions
@@ -818,6 +867,17 @@ local record Tailscale
   end
 end
 
+--- `port` of 127.0.0.1 as an endpoint, where something listens there:
+--- a proof file outlives the app that wrote it, until the app starts again.
+local function listening(port: integer, token: string): Endpoint?
+  if port < 1 or port > 65535 then return nil end
+  local address = Net.tcp("127.0.0.1", port)
+  local conn, _ = Net.connect(address, { timeout_ns = 1000000000 })
+  if conn == nil then return nil end
+  local _, _ = conn:close()
+  return { via = address, url = "http://127.0.0.1:" .. tostring(port), token = token }
+end
+
 --- The same-user proof of macOS's standalone app, which its system
 --- extension writes under /Library/Tailscale: `ipnport`, a link whose
 --- target is the port, and `sameuserproof-<port>`, the token.
@@ -829,12 +889,13 @@ local function macsys_proof(): Endpoint?
   if token == nil then return nil end
   token = token:gsub("%s+$", "")
   if token == "" then return nil end
-  return { via = Net.tcp("127.0.0.1", port), url = "http://127.0.0.1:" .. tostring(port), token = token }
+  return listening(port, token)
 end
 
 --- The same-user proof of macOS's App Store app: a file named
 --- `sameuserproof-<port>-<token>` in the app's group container, which
---- only the user who runs the app can list.
+--- only the user who runs the app can list. The first whose port is
+--- listening wins.
 local function app_store_proof(): Endpoint?
   local home = Env.get("HOME")
   if home == nil or home == "" then return nil end
@@ -850,9 +911,8 @@ local function app_store_proof(): Endpoint?
       for _, file in ipairs(files or {}) do
         local port_text, token = file:match("^sameuserproof%-(%d+)%-(%w+)$")
         local port = math.tointeger(tonumber(port_text or ""))
-        if port ~= nil and token ~= nil then
-          return { via = Net.tcp("127.0.0.1", port), url = "http://127.0.0.1:" .. tostring(port), token = token }
-        end
+        local found = if port ~= nil and token ~= nil then listening(port, token) else nil end
+        if found ~= nil then return found end
       end
     end
   end
@@ -863,6 +923,9 @@ end
 --- socket files that exists, else the first, which a call then fails to
 --- reach, naming it.
 local function default_socket(darwin: boolean): string
+  -- TODO: look where Synology, QNAP and gokrazy put the socket
+  -- (tailscale's paths.DefaultTailscaledSocket) once a caller runs there;
+  -- `opts.socket` reaches it until then.
   local candidates: {string} = if darwin then { "/var/run/tailscaled.socket" } else {
     "/var/run/tailscale/tailscaled.sock", "/run/tailscale/tailscaled.sock",
   } end
@@ -881,9 +944,9 @@ end
 --- macOS, the app's same-user proof (the App Store app's, then the
 --- standalone app's) and else the open-source daemon's socket; on Linux
 --- `/var/run/tailscale/tailscaled.sock`, or `/run/tailscale/` where only
---- that exists. `opts.socket` names the socket instead, and `opts.port`
---- a port of 127.0.0.1, with `opts.token` its proof. Nothing is
---- connected to: a daemon that is not there fails the first call.
+--- that exists. An app proof is taken only while its port listens. `opts.socket` names the socket instead, and `opts.port`
+--- a port of 127.0.0.1, with `opts.token` its proof. No connection is
+--- kept open: a daemon that is not there fails the first call.
 --- Raises on options of the wrong shape: both `socket` and `port`, a
 --- `token` without `port`, or a port or timeout out of range.
 ---
@@ -893,7 +956,7 @@ function Tailscale.connect(opts?: Tailscale.ConnectOptions): Client?, string
   if o.socket ~= nil and o.port ~= nil then error("tailscale: give socket or port, not both", 2) end
   if o.token ~= nil and o.port == nil then error("tailscale: token needs port", 2) end
   local port = o.port
-  if port ~= nil and (port < 1 or port > 65535) then
+  if port ~= nil and (math.type(port) ~= "integer" or port < 1 or port > 65535) then
     error("tailscale: port must be from 1 to 65535", 2)
   end
   local timeout_ns = o.timeout_ns or DEFAULT_TIMEOUT_NS
