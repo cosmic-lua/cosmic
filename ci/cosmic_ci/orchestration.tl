@@ -89,7 +89,9 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- The events whose run a suite may stand on verdicts in (`stands`): a
 --- push, main's or a branch's, and the merge queue's run, which restores main's
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
---- merge moved from what main's last run reached. A manual run and
+--- merge moved from what main's last run reached; main's push of
+--- linux-x86_64 takes the queue's verdicts of its commit too
+--- (cosmic_ci/queue_verdicts.tl). A manual run and
 --- main's scheduled one are the backstop, running every test.
 local standing_events: {string:boolean} = { push = true, merge_group = true }
 

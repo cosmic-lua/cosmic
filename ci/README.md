@@ -428,11 +428,23 @@ are where CI answers for everything. A branch's push runs nothing.
   scheduled run chooses by the commit, so its leg runs every test each
   day and saves none.
 
-Each job is a plain sequence of steps on one runner: no job relays
-verdicts, markers or products to another run, none is split into shares,
-and none waits on another but the gate. That costs main's run its wall
-clock, which no one waits on, rather than runner minutes; the queue's one
-leg takes the time of its boot and native suite.
+Each job is a plain sequence of steps on one runner: none is split into
+shares, and none waits on another but the gate. One thing is relayed
+between runs. The merge queue's linux-x86_64 leg, where its native suite
+passed, trims its verdicts to what it used and uploads them
+(`queue-verdicts-linux-x86_64`, kept a day); main's push of the same
+commit finds that run (`driver.tl queue-run`, the job's `actions: read`),
+downloads them and merges them into the verdicts it restored
+(`driver.tl verdicts-merge`, [`cosmic_ci/queue_verdicts.tl`]) before its
+suites. The queue's run saves no cache, its caches scoped to its ref, and
+main's last cache is a commit or more behind, so without them main's push
+ran its whole native suite again for the commit the queue had just
+passed. A row stands only for a test whose key is the same, so the relay
+decides how many tests stand, never whether one is right, and no step of
+it fails the leg. No other markers, products or verdicts pass between
+runs. That costs main's run its wall clock, which no one waits on, rather
+than runner minutes; the queue's one leg takes the time of its boot and
+native suite.
 
 `COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled runs,
 the only runs that save a cache, and is decided in the top-level `env`. The
@@ -574,6 +586,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
+[`cosmic_ci/queue_verdicts.tl`]: cosmic_ci/queue_verdicts.tl
 [`Fixture.figure`]: cosmic_ci/fixture.tl
 [`Islands.complaint`]: cosmic_ci/islands.tl
 [`Islands.paths`]: cosmic_ci/islands.tl

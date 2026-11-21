@@ -1531,14 +1531,17 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
 end
 
 --- Only main's push and the weekly run save a cache (COSMIC_CI_SAVES):
---- every save holds it, or follows a step that does. Nothing is relayed
---- between runs: no job downloads another run's artifacts, and none
---- holds `actions: write`.
-local function test_only_main_saves_and_no_run_relays_to_another()
+--- every save holds it, or follows a step that does. One thing is relayed
+--- between runs: main's push of a commit takes the verdicts the merge
+--- queue's run of the same commit reached (cosmic_ci/queue_verdicts.tl).
+--- No other step downloads another run's artifacts, only the platform
+--- job reads the runs (`actions: read`), and none holds `actions: write`.
+local function test_only_main_saves_and_only_the_queue_relays_to_main()
   local ci = ci_workflow()
   assert(map_of(ci.env)["COSMIC_CI_SAVES"] == MAIN_SAVES, "the saves' condition: " .. tostring(map_of(ci.env)["COSMIC_CI_SAVES"]))
   for name, job in pairs(ci.jobs) do
-    assert(map_of(job.permissions)["actions"] == nil, name .. " holds actions permission")
+    local actions = map_of(job.permissions)["actions"]
+    assert(actions == nil or (name == "platform" and actions == "read"), name .. " holds actions permission")
     local gated: mut {string: boolean} = {}
     for _, step in ipairs(job.steps) do
       local condition = step["if"] or ""
@@ -1552,9 +1555,49 @@ local function test_only_main_saves_and_no_run_relays_to_another()
         end
         assert(held, name .. "'s " .. tostring(step.name) .. " saves off main: " .. condition)
       end
-      assert(with_of(step)["run-id"] == nil, name .. "'s " .. tostring(step.name) .. " takes another run's artifact")
+      assert(with_of(step)["run-id"] == nil or step.id == "queue-download",
+        name .. "'s " .. tostring(step.name) .. " takes another run's artifact")
     end
   end
+  -- The verdicts' save holds the saves' condition itself: the queue trims them too, for the relay.
+  local save = step_named(job_of(ci.jobs, "platform").steps, "save test verdicts")
+  assert((save["if"] or ""):find(SAVES, 1, true) ~= nil, "the queue saves its verdicts: " .. tostring(save["if"]))
+end
+
+--- The queue's linux-x86_64 leg uploads the verdicts it trimmed where
+--- its native suite passed, and main's push of the leg finds that run by
+--- its commit, downloads them and merges them in after it restores its
+--- cache and before its suites. The relay never fails the leg.
+local function test_mains_push_takes_the_queues_verdicts_before_its_suites()
+  local steps = job_of(ci_workflow().jobs, "platform").steps
+  local _, restore_at = step_with_id(steps, "verdicts-restore")
+  local find, find_at = step_with_id(steps, "queue-run")
+  local download, download_at = step_with_id(steps, "queue-download")
+  local merge, merge_at = step_named(steps, "take in the merge queue's verdicts")
+  local _, suite_at = step_with_id(steps, "release-suite")
+  assert(restore_at < find_at and find_at < download_at and download_at < merge_at and merge_at < suite_at,
+    "the queue's verdicts are taken in out of order")
+  assert(find["if"] == "matrix.name == 'linux-x86_64' && github.event_name == 'push'" and
+      map_of(find.env)["SHA"] == "${{ github.sha }}" and
+      map_of(find.env)["ARTIFACT"] == "queue-verdicts-${{ matrix.name }}" and
+      (find.run or ""):find("driver.tl queue-run", 1, true) ~= nil,
+    "the queue's run is looked for otherwise: " .. tostring(find["if"]))
+  assert(download["if"] == "steps.queue-run.outputs.run != ''" and
+      with_of(download)["run-id"] == "${{ steps.queue-run.outputs.run }}" and
+      with_of(download)["name"] == "queue-verdicts-${{ matrix.name }}",
+    "the queue's verdicts are downloaded otherwise")
+  assert((merge.run or ""):find("driver.tl verdicts-merge", 1, true) ~= nil and
+      merge["if"] == "steps.queue-download.outcome == 'success'", "the queue's verdicts are merged otherwise")
+  for _, step in ipairs({ find, download, merge }) do
+    assert(step["continue-on-error"] == true, tostring(step.name) .. " can fail the leg")
+  end
+  local upload, upload_at = step_named(steps, "upload the merge queue's verdicts")
+  local _, trim_at = step_with_id(steps, "verdicts-trim")
+  assert(trim_at < upload_at and suite_at < upload_at, "the queue uploads its verdicts before it trims them")
+  assert(upload["if"] == "always() && github.event_name == 'merge_group' && " ..
+      "steps.release-suite.outcome == 'success' && steps.verdicts-trim.outputs.digest != ''" and
+      with_of(upload)["name"] == "queue-verdicts-${{ matrix.name }}",
+    "the queue uploads its verdicts otherwise: " .. tostring(upload["if"]))
 end
 
 --- The gate (`ci`, the one check a ruleset requires) needs every job and
