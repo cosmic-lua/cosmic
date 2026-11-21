@@ -1181,7 +1181,7 @@ local function test_the_checked_suite_runs_in_jobs_of_its_own_and_the_format_che
       formats = formats + 1
       -- linux-x86_64's, on every run but main's push and the daily one,
       -- whose commit the merge queue checked.
-      assert(step["if"] == "matrix.name == 'linux-x86_64' && github.event_name != 'push' && " ..
+      assert(step["if"] == "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && " ..
           "github.event.schedule != '41 3 * * 1-6'" and assert(step.env)["COSMIC_CI_FORMAT"] == "run",
         "the format check runs on another leg, or is skipped: " .. tostring(step["if"]))
     end
@@ -2037,8 +2037,8 @@ end
 local function test_only_the_two_linux_legs_ask_for_the_fixture_lanes()
   local legs, env = platform_legs_and_env()
   local value = assert(env["COSMIC_CI_FIXTURE_BUDGET"], "ci.yml's platform job sets no COSMIC_CI_FIXTURE_BUDGET")
-  local one, two = value:match("^%${{ %(matrix%.name == '([%w_-]+)' || " ..
-      "matrix%.name == '([%w_-]+)'%) && 'run' || 'skip' }}$")
+  local one, two = value:match("^%${{ %(matrix%.leg == '([%w_-]+)' || " ..
+      "matrix%.leg == '([%w_-]+)'%) && 'run' || 'skip' }}$")
   assert(one ~= nil and two ~= nil and legs[one] ~= nil and legs[two] ~= nil and
       ((one == "linux-aarch64" and two == "alpine-x86_64") or
         (two == "linux-aarch64" and one == "alpine-x86_64")),
