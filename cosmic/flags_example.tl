@@ -302,4 +302,32 @@ function Example.wrapping()
   }, "\n"))
 end
 
+--- A command that writes what was asked on `out` and ends with a verdict
+--- on `err`: a test passes streams that keep the lines, a program
+--- [`Flags.std_io`]'s.
+function Example.verdicts()
+  local said: mut {string} = {}
+  local streams: Flags.Io = { out = function(line: string) said[#said + 1] = line end,
+    err = function(line: string) said[#said + 1] = "prog: " .. line end }
+  local ends = Flags.verdicts(streams.err)
+  local function main(argv: {string}): integer
+    local path = argv[1]
+    if #argv ~= 1 or path == nil then return ends.refused("give one path") end
+    streams.out("read " .. path)
+    return 0
+  end
+  assert(main({}) == Flags.REFUSED and main({ "a.csv" }) == 0)
+  print(table.concat(said, "\n"))
+  assert(said[1] == "prog: give one path" and said[2] == "read a.csv", table.concat(said, "|"))
+end
+
+--- [`Flags.std_io`] writes to the standard streams; a failure ends with
+--- [`Flags.FAILED`] after saying why there.
+function Example.std_io()
+  local streams = Flags.std_io(function(line: string): string return "prog: " .. line end)
+  streams.out("read a.csv") -- read a.csv
+  local ends = Flags.verdicts(streams.err)
+  assert(ends.failed("a.csv: no such file") == Flags.FAILED) -- prog: a.csv: no such file, on stderr
+end
+
 return Example -- checked: export_not_declared

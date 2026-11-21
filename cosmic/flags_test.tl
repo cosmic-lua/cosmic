@@ -1,6 +1,8 @@
 local Array = require("cosmic.array")
 local Flags = require("cosmic.flags")
+local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 
 local spec: {string:boolean} = { ["--check"] = false, ["--jobs"] = true }
 
@@ -1227,4 +1229,35 @@ local function test_dispatch_raises_for_a_topic_whose_guide_is_no_guide()
   -- The index lists a guide's topic by its about, read from no store.
   local index = Flags.program_help("prog", commands, { topics = { pairing = { guide = "pairing", about = "Once." } } })
   assert(index:find("\ntopics:\n  pairing  Once.\n", 1, true) ~= nil, index)
+end
+
+local function test_the_verdicts_say_why_on_err_and_answer_their_codes()
+  local said: mut {string} = {}
+  local ends = Flags.verdicts(function(line: string) said[#said + 1] = line end)
+  assert(ends.failed("no catalog") == Flags.FAILED and Flags.FAILED == 1)
+  assert(ends.refused("give one path") == Flags.REFUSED and Flags.REFUSED == 2)
+  assert(#said == 2 and said[1] == "no catalog" and said[2] == "give one path", table.concat(said, "|"))
+end
+
+--- What `run` wrote to the descriptor `fd` (1 or 2), pointed at a file in
+--- `dir` while it runs.
+local function captured(fd: integer, dir: string, run: function()): string
+  local path = dir .. "/captured." .. tostring(fd)
+  local file = assert(sys.open(path, sys.O_RDWR | sys.O_CREAT | sys.O_TRUNC, 0x180))
+  local saved = assert(sys.dup(fd))
+  assert(sys.dup2(file, fd))
+  local ok, failure = pcall(run)
+  assert(sys.dup2(saved, fd))
+  assert(sys.close(saved))
+  assert(sys.close(file))
+  if not ok then error(failure) end
+  return (assert(Fs.read(path)))
+end
+
+local function test_std_io_writes_out_to_stdout_and_err_as_said_to_stderr(tmp: string)
+  local streams = Flags.std_io(function(line: string): string return "prog: " .. line end)
+  assert(captured(1, tmp, function() streams.out("asked") end) == "asked\n")
+  assert(captured(2, tmp, function() streams.err("wrong") end) == "prog: wrong\n")
+  local plain = Flags.std_io()
+  assert(captured(2, tmp, function() plain.err("wrong") end) == "wrong\n")
 end
