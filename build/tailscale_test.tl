@@ -75,7 +75,9 @@ end
 
 --- The stand-in's answer to `target`; `status` is the status reply.
 local function answer(target: string, status: string): Server.Reply
-  if target == "/localapi/v0/status" then return { status = 200, body = status } end
+  if target == "/localapi/v0/status" or target == "/localapi/v0/status?peers=false" then
+    return { status = 200, body = status }
+  end
   if target == "/localapi/v0/whois?addr=100.64.0.2" then return { status = 200, body = WHOIS } end
   if target == "/localapi/v0/whois?addr=100.64.0.3" then return { status = 200, body = TAGGED } end
   if target:match("^/localapi/v0/whois%?") ~= nil then
@@ -221,6 +223,7 @@ local function test_whois_prints_the_node_its_user_and_its_capabilities(tmp: str
   assert(json.out:find('"tags":["tag:db","tag:prod"]', 1, true) ~= nil, json.out)
   local caps = run(tmp, { "whois", "--json", "100.64.0.2" })
   assert(caps.out:find('"example.com/cap/read":[]', 1, true) ~= nil, caps.out)
+  assert(caps.out:find('"own":false', 1, true) ~= nil, caps.out)
   assert(caps.out:find('"example.com/cap/admin":[{"level":"all"}]', 1, true) ~= nil, caps.out)
 end
 

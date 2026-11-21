@@ -109,6 +109,17 @@ local record WirePeer
   KeyExpiry?: string
 end
 
+--- The part of the status [`Client.whois_result`] reads: which node
+--- this one is.
+local record WireSelf
+  ID: string
+  TailscaleIPs?: {string}
+end
+
+local record WireMe
+  Self?: WireSelf
+end
+
 local record WireTailnet
   Name: string
   MagicDNSSuffix: string
@@ -163,6 +174,7 @@ end
 
 local WHOIS <const> = Shape.record_of("WireWhoIs")
 local STATUS <const> = Shape.record_of("WireStatus")
+local ME <const> = Shape.record_of("WireMe")
 local PREFS <const> = Shape.record_of("WirePrefs")
 local PING <const> = Shape.record_of("WirePing")
 local NOTIFY <const> = Shape.record_of("WireNotify")
@@ -235,6 +247,11 @@ local record WhoIs
   --- attach, one a grant, decoded. A name is present, with an empty
   --- list, when a grant names it with no value.
   caps: {string: {Json.Value}}
+  --- Whether `node` is this node itself. Any process on this machine
+  --- (a proxy, or a Serve or Funnel forward to a tailnet address)
+  --- connects from the node's own address, so `user`, its owner, is
+  --- not who asked.
+  own: boolean
 end
 
 --- Which way [`Client.whois_result`] came out.
@@ -544,7 +561,7 @@ local function node_of(wire: WireNode): Node
   }
 end
 
-local function whois_of(wire: WireWhoIs): WhoIs
+local function whois_of(wire: WireWhoIs, own: boolean): WhoIs
   local caps: mut {string: {Json.Value}} = {}
   local granted, _ = Json.to_object(wire.CapMap)
   for name, values in pairs(granted or {}) do
@@ -554,7 +571,7 @@ local function whois_of(wire: WireWhoIs): WhoIs
     caps[name] = list or {}
   end
   local node = node_of(wire.Node)
-  return { node = node, user = user_of(wire.UserProfile), tagged = #node.tags > 0, caps = caps }
+  return { node = node, user = user_of(wire.UserProfile), tagged = #node.tags > 0, caps = caps, own = own }
 end
 
 --- Go's zero time, which the daemon writes for a time it does not know.
@@ -1011,7 +1028,9 @@ local class Client
   ---     if who.caps["example.com/cap/admin"] == nil then return forbidden() end
   ---
   --- [`Client.whois_result`] tells an address that is no peer's from a
-  --- daemon that cannot be asked.
+  --- daemon that cannot be asked. An answer whose `own` is true names
+  --- this node itself: some process on this machine connected, and the
+  --- owner in `user` is not who asked.
   function whois(self, address: string): WhoIs?, string
     local result = self:whois_result(address)
     local whois = result.whois
@@ -1038,7 +1057,28 @@ local class Client
     if wire == nil then
       return { kind = "failed", reason = "tailscale: whois: " .. bad, status = 200 }
     end
-    return { kind = "found", whois = whois_of(wire), reason = "", status = 200 }
+    -- The daemon answers its own address with its own node; only its
+    -- status tells that node from a peer's.
+    local mine = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/status?peers=false")
+    local status_text = mine.body
+    if status_text == nil then
+      return { kind = "failed", reason = mine.reason, status = mine.status }
+    end
+    local status, unread = ME:decode_into(status_text)
+    if status == nil then
+      return { kind = "failed", reason = "tailscale: status: " .. unread, status = 200 }
+    end
+    -- A node that cannot be told from this one is taken for it.
+    local me = status.Self
+    if me == nil or me.ID == "" or wire.Node.StableID == "" then
+      return { kind = "failed", reason = "tailscale: status: the daemon names no node of its own", status = 200 }
+    end
+    local host = address:match("^%[(.*)%]") or address:match("^([^:]*):%d+$") or address
+    local own = me.ID == wire.Node.StableID
+    for _, mine_ip in ipairs(me.TailscaleIPs or {}) do
+      if mine_ip == host then own = true end
+    end
+    return { kind = "found", whois = whois_of(wire, own), reason = "", status = 200 }
   end
 
   --- The node's status and its peers' (`tailscale status`).

@@ -12,6 +12,7 @@ local Test = require("cosmic.test")
 local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local TypeWatch = require("build.type_watch")
 
 --- A bare name is not looked for on PATH, and the failure says so and
 --- names what finds it; a path that is not there gets no such hint.
@@ -128,8 +129,12 @@ local function test_a_raise_names_the_module()
     "environment name is empty", "fds keys are child descriptors",
     "cwd is empty; leave it nil to start in this process's directory",
     "opts.timeout_ns is required", "opts.timeout_ns is required", "opts is required" }
-  for i, call in ipairs(raising) do
-    local ok, why: boolean, any = pcall(call)
+  -- A checked run (`cosmic test --check-types`) refuses the last call's
+  -- nil `opts` at the typed parameter, before the module's own check can
+  -- name it, so it runs every call but that one.
+  local last = if TypeWatch.checked() then #raising - 1 else #raising end
+  for i = 1, last do
+    local ok, why: boolean, any = pcall(Array.at(raising, i))
     -- `says` holds one line for each call of `raising`.
     local expected = Array.at(says, i)
     assert(not ok and tostring(why):find(": child: " .. expected, 1, true) ~= nil,

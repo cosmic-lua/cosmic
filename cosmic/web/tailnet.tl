@@ -31,9 +31,11 @@
 ---   asks admits nobody.
 ---
 --- The address asked about is the connection's own, never one a header
---- names: `trusted_proxy` moves [`Web.Request.client`], not this. A whois
---- waits as a task of the server's run, so other connections go on
---- meanwhile, and an answer is kept for `cache_ns` per address.
+--- names: `trusted_proxy` moves [`Web.Request.client`], not this. A
+--- whois waits as a task of the server's run, so other connections go
+--- on meanwhile, and an answer is kept for `cache_ns` per address. A
+--- connection from this node's own address has no identity: any process
+--- here can make one, a proxy or a Serve or Funnel forward among them.
 ---
 --- Behind `tailscale serve`, the connection comes from the loopback and
 --- the daemon passes who asked in headers instead (`Tailscale-User-Login`,
@@ -293,8 +295,9 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
             if sink ~= nil then sink:line("tailnet: " .. result.reason) end
             return Response.problem(503, "who this request is from cannot be told")
           end
+          -- This node's own address is any process here, not its owner.
           local who = result.whois
-          if who ~= nil then identity = of_whois(who) end
+          if who ~= nil and not who.own then identity = of_whois(who) end
         end
       end
       if funneled then req:set(FUNNEL, true) end

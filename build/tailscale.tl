@@ -320,7 +320,8 @@ local function show_whois(to: verb.Io, complain: function(line: string), ts: Tai
       os = who.node.os, user_id = who.node.user_id, addresses = strings(who.node.addresses),
       tags = strings(who.node.tags),
     }
-    local value: {string: Json.Value} = { node = node, user = user_json(who.user), tagged = who.tagged, caps = caps }
+    local value: {string: Json.Value} = { node = node, user = user_json(who.user), tagged = who.tagged, caps = caps,
+      own = who.own }
     return bare.written(complain, to.out(json_line(value)))
   end
   local lines: mut {{string}} = {

@@ -19,6 +19,7 @@ local WILL <const>: Tailscale.WhoIs = {
   user = { id = 42, login_name = "will@example.com", display_name = "Will" },
   tagged = false,
   caps = { ["example.com/cap/admin"] = { { level = "all" } } },
+  own = false,
 }
 
 --- A tagged node, granted nothing.
@@ -28,6 +29,7 @@ local DB <const>: Tailscale.WhoIs = {
   user = { id = 9, login_name = "tagged-devices", display_name = "Tagged Devices" },
   tagged = true,
   caps = {},
+  own = false,
 }
 
 --- What a stand-in whois was asked, and the lines the app's sink took.
@@ -240,6 +242,17 @@ end
 local function test_the_middleware_asks_a_daemon_in_the_requests_own_run(tmp: string)
   local said: mut {string} = {}
   local function daemon(req: Server.Request): Server.Reply
+    if req.target == "/localapi/v0/status?peers=false" then
+      return { status = 200, body = '{"Version": "1.90.0", "BackendState": "Running", "MagicDNSSuffix": "", ' ..
+          '"Self": {"ID": "nSELF", "HostName": "box", "DNSName": "box.tail1234.ts.net.", "OS": "linux", ' ..
+          '"UserID": 42, "TailscaleIPs": ["100.64.0.1"], "Online": true, "Active": false, "ExitNode": false, ' ..
+          '"ExitNodeOption": false, "Relay": "", "CurAddr": "", "LastSeen": "0001-01-01T00:00:00Z"}}' }
+    end
+    if req.target == "/localapi/v0/whois?addr=100.64.0.1" then
+      return { status = 200, body = '{"Node": {"ID": 1, "StableID": "nSELF", "Name": "box.tail1234.ts.net.", ' ..
+          '"User": 42, "Addresses": ["100.64.0.1/32"]}, "UserProfile": {"ID": 42, "LoginName": "will@example.com", ' ..
+          '"DisplayName": "Will"}, "CapMap": {"example.com/cap/admin": null}}' }
+    end
     if req.target == "/localapi/v0/whois?addr=100.64.0.2" then
       return { status = 200, body = '{"Node": {"ID": 7, "StableID": "nA", "Name": "laptop.tail1234.ts.net.", ' ..
           '"User": 42, "Addresses": ["100.64.0.2/32"]}, "UserProfile": {"ID": 42, "LoginName": "will@example.com", ' ..
@@ -262,12 +275,15 @@ local function test_the_middleware_asks_a_daemon_in_the_requests_own_run(tmp: st
       local home = client:get("/", { peer = peer }).body
       local admin = tostring(client:get("/admin", { peer = peer }).status)
       local stranger = tostring(client:get("/", { peer = Net.tcp("192.0.2.7", 1) }).status)
-      said[#said + 1] = home .. "|" .. admin .. "|" .. stranger
+      -- The node's own address: a process here, which the owner's
+      -- identity does not name.
+      local here = tostring(client:get("/", { peer = Net.tcp("100.64.0.1", 50124) }).status)
+      said[#said + 1] = home .. "|" .. admin .. "|" .. stranger .. "|" .. here
       server:stop()
     end,
   })
   local got = table.concat(said, "|")
-  assert(got == "will@example.com Will whois laptop.tail1234.ts.net tagged=false|200|403", got)
+  assert(got == "will@example.com Will whois laptop.tail1234.ts.net tagged=false|200|403|403", got)
 end
 
 --- A peer that a listener on `::` names in IPv6 (`::ffff:100.64.0.2`) is
