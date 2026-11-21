@@ -206,7 +206,8 @@ local function test_a_csr_refuses_no_names_and_a_name_that_is_no_dns_name()
   local key = Acme.p256_key(Sign.p256_secret())
   local csr, why = Acme.csr(key, {})
   assert(csr == nil and why == "acme: a certificate request needs a name", why)
-  for _, name in ipairs({ "", "a b.example", "example.com\0", "*.", "x/y" }) do
+  for _, name in ipairs({ "", "a b.example", "example.com\0", "*.", "x/y", "bad..com", ".example.com",
+      "example.com.", "-a.example", "a-.example", "*.*.example", string.rep("a", 64) .. ".example" }) do
     local refused, trouble = Acme.csr(key, { name })
     assert(refused == nil and trouble == ("acme: %q is not a DNS name"):format(name), trouble)
   end
