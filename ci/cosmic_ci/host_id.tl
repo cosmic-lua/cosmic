@@ -73,10 +73,14 @@ local record HostId
   --- The first 16 hex digits of a sha256 of what of this host every
   --- sandboxed verdict's key holds and differs between runners of one
   --- leg (build/declared_key.tl's `host_identity` and `host_kernel`,
-  --- which answer the same digest): the kernel's release and version, as
-  --- their files hold them, a missing one as empty -- on macOS, the
-  --- system volume's SystemVersion.plist, which names its build, and
-  --- nothing. The processor's features are not part of it.
+  --- which answer the same digest): the series of the kernel's release
+  --- (`7.0` of `7.0.0-1017-azure`), or the whole release where it names
+  --- none, a missing one as empty -- on macOS, the system volume's
+  --- SystemVersion.plist, which names its build. The kernel's build and
+  --- version are not part of it: hosted runners of one leg run builds of
+  --- one series from more than one cloud, and a key holds what a test
+  --- can tell of a kernel where its module declares it (Landlock's ABI,
+  --- a procfs of its own). The processor's features are not part of it.
   kernel: function(facts: Facts): string
   --- The processor's features a key holds for a module that declares
   --- `cpu_features` (build/declared_key.tl's `host_cpu`), by the names
@@ -89,8 +93,8 @@ local record HostId
   --- two differ only where the kernel hides a flag the processor has,
   --- which costs a cache hit, not a verdict.
   cpu_flags: function(facts: Facts): {string}
-  --- What a step logs of the host: the kernel's release and version as
-  --- `kernel` hashes them, the processor's model, the features a key
+  --- What a step logs of the host: the kernel `kernel` hashes, and its
+  --- release and version, the processor's model, the features a key
   --- holds ([`cpu_flags`]) and those a core chooses code by that this
   --- processor lacks, a line each, ending in a line break.
   describe: function(facts: Facts): string
@@ -176,15 +180,26 @@ function HostId.cpu_flags(facts: HostId.Facts): {string}
 end
 
 --- The kernel's release and version as `facts` holds them, which
---- [`HostId.kernel`] hashes: macOS's alone is the system volume's
+--- [`HostId.describe`] logs: macOS's alone is the system volume's
 --- SystemVersion.plist.
 local function kernel_parts(facts: HostId.Facts): {string}
   if facts.sysname == "Darwin" then return { facts.read(darwin_system) or "" } end
   return { facts.read("/proc/sys/kernel/osrelease") or "", facts.read("/proc/sys/kernel/version") or "" }
 end
 
+--- What [`HostId.kernel`] hashes of [`kernel_parts`]: on Linux, the
+--- release's series alone (`7.0` of `7.0.0-1017-azure`), or the whole
+--- release where it names none; on macOS, the system volume's
+--- SystemVersion.plist whole.
+local function kernel_text(facts: HostId.Facts): string
+  local parts = kernel_parts(facts)
+  local release = parts[1] or ""
+  if facts.sysname == "Darwin" then return release end
+  return release:match("^(%d+%.%d+)") or release
+end
+
 function HostId.kernel(facts: HostId.Facts): string
-  return Hash.hex_sha256(table.concat(kernel_parts(facts))):sub(1, 16)
+  return Hash.hex_sha256(kernel_text(facts)):sub(1, 16)
 end
 
 function HostId.describe(facts: HostId.Facts): string
