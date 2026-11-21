@@ -9,6 +9,8 @@ local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local type Json = require("cosmic.json")
+local type Tailscale = require("cosmic.tailscale")
+local type Tls = require("cosmic.tls")
 local Url = require("cosmic.url")
 
 local record Types
@@ -600,9 +602,35 @@ local record Types
   end
 
   --- What [`Web.serve`] takes.
+  --- How [`ServeOptions.tailnet`] serves the app to the tailnet; every
+  --- field is optional.
+  record TailnetServe
+    --- The daemon to ask: [`Tailscale.connect`]'s by default.
+    client?: Tailscale.Client
+    --- The port to listen at on each tailnet address (443); 0 for one
+    --- the kernel chooses for each.
+    port?: integer
+    --- The name to serve, one of [`cosmic.tailscale.Status.cert_domains`]:
+    --- the node's first by default.
+    domain?: string
+  end
+
   record ServeOptions
-    --- Where to listen, as [`Server.ServeSpec.listeners`].
-    listeners: {Net.Address}
+    --- Where to listen, as [`Server.ServeSpec.listeners`]; nil, or more
+    --- besides, with `tailnet`.
+    listeners?: {Net.Address}
+    --- Serves HTTPS, as [`Server.ServeSpec.tls`].
+    tls?: Tls.Certs
+    --- Serves the app to the tailnet over HTTPS: at each of the node's
+    --- tailnet addresses, port 443, with the certificate the machine's
+    --- tailscaled gets for its `ts.net` name and renews
+    --- ([`cosmic.tailscale.Client.certs`]); `true` for the defaults, or a
+    --- [`TailnetServe`]. The node's addresses and name are read once,
+    --- as the server starts: a daemon that cannot be asked, or a tailnet
+    --- without HTTPS, fails [`Web.serve`], saying why. With `tls` too it
+    --- raises. Pair it with [`Web.tailnet`] to know who each request
+    --- comes from.
+    tailnet?: boolean | TailnetServe
     --- As [`Server.ServeSpec.limits`].
     limits?: Server.ServeSpec.Limits
     --- As [`Server.ServeSpec.timeout_ns`].

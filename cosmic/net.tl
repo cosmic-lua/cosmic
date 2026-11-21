@@ -67,6 +67,7 @@ local Resolv = require("cosmic.internal.relay_resolv")
 local Connection = require("cosmic.internal.connection")
 local Signal = require("cosmic.signal")
 local Leaf = require("cosmic.internal.connector")
+local Tls = require("cosmic.tls")
 
 --- The raw module behind this one lives under the reserved
 --- `cosmic.internal.` namespace, which only cosmic's own tree may require.
@@ -521,6 +522,16 @@ local record Net
     end
     --- Bounds on what the server takes on; nil for none.
     limits?: Limits
+    --- Serves every connection over TLS, presenting these certificates:
+    --- see [`cosmic.tls`]. The server loads them before it listens
+    --- where they are not loaded yet (a source that fails fails
+    --- [`Net.serve`]), and renews them in a task of its run as they
+    --- come due, a failure given to `on_error` and the old ones served
+    --- meanwhile. A connection's handshake happens at its first read or
+    --- write, or at [`Net.Conn`]'s `handshake`, under its timeout like
+    --- any read; one that fails fails that read, and every one after.
+    --- Nil to serve in the clear.
+    tls?: Tls.Certs
     --- Each connection's `timeout_ns`: how long any one read or write of
     --- it waits, from 0; nil for no limit.
     timeout_ns?: integer
@@ -1160,6 +1171,8 @@ local record Serving
   stopper?: Poll.Task
   --- Waits out the grace while the server drains.
   mut grace?: Poll.Task
+  --- Renews the certificates of `spec.tls`, while there are any.
+  renewer?: Poll.Task
   --- Set once a signal has ended the grace.
   mut hurried: boolean
   --- Set once a signal `guard` caught has stopped the server: only
@@ -1231,7 +1244,18 @@ local function accept_loop(s: Serving, a: Accepting)
     local socket, why, errno = raw.accept(a.fd)
     if socket ~= nil then
       a.failing = 0
-      serve_conn(s, Connection.new(socket, s.spec.timeout_ns))
+      local certs = s.spec.tls
+      local config = if certs ~= nil then certs:config() else nil end
+      if config == nil then
+        serve_conn(s, Connection.new(socket, s.spec.timeout_ns))
+      else
+        local conn, refused = Connection.secured(socket, s.spec.timeout_ns, config)
+        if conn ~= nil then
+          serve_conn(s, conn)
+        else
+          report(s, "accepting at " .. named(a.listener.address) .. ": " .. refused)
+        end
+      end
     elseif errno == raw.EAGAIN then
       a.failing = 0
       -- `stop` cancels this wait, as it does the pause below.
@@ -1308,6 +1332,8 @@ local function stop(s: Serving)
     local task = a.task
     if task ~= nil then task:cancel() end
   end
+  local renewer = s.renewer
+  if renewer ~= nil then renewer:cancel() end
   assert(s.waiter):cancel()
 end
 
@@ -1343,6 +1369,11 @@ local function serving(spec: Net.ServeSpec): boolean, string
   local guard, guard_trouble = Signal.guard()
   if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard
+  local certs = spec.tls
+  if certs ~= nil and certs:config() == nil then
+    local loaded, why = certs:load()
+    if not loaded then return false, why end
+  end
   local addresses: mut {Net.Address} = {}
   for i, address in ipairs(spec.listeners) do
     local opened, trouble = listening(address, {}, 1)
@@ -1369,6 +1400,13 @@ local function serving(spec: Net.ServeSpec): boolean, string
       local _, _ = waiter:join()
       local ok, trouble: boolean, any = xpcall(on_stop, traced, server) -- checked: any_use
       if not ok then report(s, tostring(trouble)) end
+    end)
+  end
+  if certs ~= nil then
+    s.renewer = Poll.spawn(function()
+      certs:keep(function(trouble: string) report(s, trouble) end, function(): boolean
+        return s.stopping
+      end)
     end)
   end
   resume_accepting(s)

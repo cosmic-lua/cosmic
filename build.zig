@@ -206,10 +206,11 @@ const mbedtls_config = [_][]const u8{
     "-DMBEDTLS_CONFIG_FILE=\"mbedtls_cosmic_config.h\"",
 };
 
-/// The TLS 1.2/1.3 client and X.509 chain sources under mbedtls's own
-/// `library/`. Server-only (`ssl_tls12_server.c`, `ssl_tls13_server.c`),
-/// session-cache/ticket/cookie, DTLS, CRL and certificate-writing sources
-/// are left out: nothing here serves, resumes from a ticket, or signs.
+/// The TLS 1.2/1.3 client and server and X.509 chain sources under
+/// mbedtls's own `library/`. The server sources serve `cosmic.net`'s TLS
+/// listeners (core/tls.c). Session-cache/ticket/cookie, DTLS, CRL and
+/// certificate-writing sources are left out: nothing here resumes from a
+/// ticket or writes a certificate.
 /// `ssl_msg.c`, which reads <arm_neon.h> where the rest do not, is listed
 /// beside them in [`vendorLibraries`].
 const mbedtls_tls_sources = [_][]const u8{
@@ -218,6 +219,8 @@ const mbedtls_tls_sources = [_][]const u8{
     "ssl_client.c",
     "ssl_tls12_client.c",
     "ssl_tls13_client.c",
+    "ssl_tls12_server.c",
+    "ssl_tls13_server.c",
     "ssl_tls13_generic.c",
     "ssl_tls13_keys.c",
     "error.c",
@@ -511,6 +514,7 @@ const core_sources = [_][]const u8{
     "surface.c",
     "syscalls.c",
     "syscalls_fs.c",
+    "tls.c",
     "vector.c",
     "vfs.c",
     "main.c",

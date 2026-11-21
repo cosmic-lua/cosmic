@@ -48,12 +48,22 @@
 
 local Json = require("cosmic.json")
 local Clock = require("cosmic.clock")
+local Net = require("cosmic.net")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
 local Tailscale = require("cosmic.tailscale")
+local type Tls = require("cosmic.tls")
 local Types = require("cosmic.web.types")
 
+--- Where [`Tailnet.serving`] serves an app, and what it presents.
+local record Reached
+  listeners: {Net.Address}
+  certs: Tls.Certs
+end
+
 local record Tailnet
+  --- Where [`serving`] serves an app, and what it presents.
+  type Reached = Reached
   --- Where [`Identity`] came from.
   enum Source
     --- The daemon's whois of the connection's far end.
@@ -285,6 +295,43 @@ function Tailnet.require_cap(name: string): Types.Middleware
       return inner(req)
     end
   end
+end
+
+--- Where [`Web.serve`]'s `tailnet` listens, and the certificates it
+--- presents: each of the node's tailnet addresses at `o.port` (443), and
+--- the certificate of `o.domain`, the node's first name by default,
+--- from the daemon of `o.client`, [`Tailscale.connect`]'s by default.
+--- Nil and why where the daemon cannot be asked, the node is not
+--- running, or it has no address or no name to get a certificate for.
+function Tailnet.serving(o: Types.TailnetServe): Reached?, string
+  local port = o.port or 443
+  if math.type(port) ~= "integer" or port < 0 or port > 65535 then
+    error("web: tailnet.port must be from 0 to 65535", 3)
+  end
+  local client = o.client
+  if client == nil then
+    local made, why = Tailscale.connect()
+    if made == nil then return nil, "web: tailnet: " .. why end
+    client = made
+  end
+  local status, why = client:status()
+  if status == nil then return nil, "web: tailnet: " .. why end
+  if status.backend_state ~= "Running" then
+    return nil, "web: tailnet: the node is not running (" .. status.backend_state .. ")"
+  end
+  local domain = o.domain or status.cert_domains[1]
+  if domain == nil then
+    return nil, "web: tailnet: the node has no name to get a certificate for: enable HTTPS in the tailnet's DNS settings"
+  end
+  local listeners: mut {Net.Address} = {}
+  -- TODO: leave out an address the host cannot listen at (an IPv6 one
+  -- where the kernel has IPv6 off) once Net.ServeSpec can take a
+  -- listener that may fail; today one such address fails the serve.
+  for _, address in ipairs(status.addresses) do
+    listeners[#listeners + 1] = Net.tcp(address, port)
+  end
+  if #listeners == 0 then return nil, "web: tailnet: the node has no tailnet address" end
+  return { listeners = listeners, certs = client:certs(domain) }, ""
 end
 
 return Tailnet
