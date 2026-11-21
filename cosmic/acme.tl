@@ -190,8 +190,9 @@ local record Acme
     account?: string
     --- Sends a request: [`Http.request`] when nil. A test hands its own.
     request?: Request
-    --- Waits between polls: [`Clock.sleep_ns`] when nil.
-    sleep?: function(ns: integer): boolean, string
+    --- Pauses between polls, for nanoseconds: [`Clock.sleep_ns`] when
+    --- nil. A test hands one that returns at once.
+    pause?: function(ns: integer): boolean, string
     --- [`Acme.Client.wait`]'s options for every wait [`Acme.Client.issue`]
     --- makes.
     wait?: WaitOptions
@@ -517,7 +518,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   end
   local key = opts.key
   local request: Acme.Request = opts.request or default_request
-  local sleep = opts.sleep or Clock.sleep_ns
+  local pause_for = opts.pause or Clock.sleep_ns
   local thumbprint = Acme.thumbprint(key)
   local directory: {string: string}? = nil
   local account_url: string? = opts.account
@@ -709,7 +710,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
         end
         -- A Retry-After of 0 would poll without a pause.
         local pause = math.min(math.max(retry_after(body) or interval, Clock.ms(100)), left)
-        local slept, trouble = sleep(pause)
+        local slept, trouble = pause_for(pause)
         if not slept then return nil, "acme: poll: " .. trouble end
       end
     end,

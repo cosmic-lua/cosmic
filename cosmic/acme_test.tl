@@ -150,6 +150,8 @@ local record Server
   mut retry_after: string
   --- The certificate body.
   mut chain: string
+  --- What each http-01 token starts with.
+  mut token_prefix: string
 end
 
 local function reply(status: integer, value: Json.Value, headers?: {string: string}): Http.Body
@@ -186,6 +188,7 @@ local function new_server(): Server
     accounts = {},
     finalize_slowly = false,
     retry_after = "3",
+    token_prefix = "",
     chain = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
   }
   local function nonce(): string
@@ -317,11 +320,14 @@ local function new_server(): Server
         local value = text(assert(Json.to_object(identifier))["value"])
         local wildcard = value:sub(1, 2) == "*."
         local domain = if wildcard then value:sub(3) else value end
+        -- A token is base64url, so the domain's dots go.
+        local label = (domain:gsub("%.", "_"))
         local challenges: mut {Challenge} = {
-          { type = "dns-01", token = "dns-token-" .. domain, status = "pending" },
+          { type = "dns-01", token = "dns-token-" .. label, status = "pending" },
         }
         if not wildcard then
-          table.insert(challenges, 1, { type = "http-01", token = "http-token-" .. domain, status = "pending" })
+          table.insert(challenges, 1, { type = "http-01", token = server.token_prefix .. "http-token-" .. label,
+            status = "pending" })
         end
         server.authorizations[#server.authorizations + 1] = {
           domain = domain, wildcard = wildcard, status = "pending", challenges = challenges,
@@ -401,7 +407,7 @@ local function new_server(): Server
   return server
 end
 
-local function no_sleep(_ns: integer): boolean, string
+local function no_pause(_ns: integer): boolean, string
   return true, ""
 end
 
@@ -410,7 +416,7 @@ local function client_of(server: Server, key?: Acme.Key): Acme.Client
     directory = BASE .. "/directory",
     key = key or Acme.p256_key(Sign.p256_secret()),
     request = server.request,
-    sleep = no_sleep,
+    pause = no_pause,
   })
 end
 
@@ -434,7 +440,7 @@ local function test_issue_answers_the_chain_after_an_http_01_challenge()
   })
   assert(chain ~= nil, why)
   assert(chain:find("BEGIN CERTIFICATE", 1, true) ~= nil)
-  assert(presented["example.com"] == "http-token-example.com." .. client.thumbprint)
+  assert(presented["example.com"] == "http-token-example_com." .. client.thumbprint)
   assert(presented["www.example.com"] ~= nil and cleaned == 2)
   local csr = read_csr(server.csr)
   assert(csr.verified, "the request's signature verifies under its own key")
@@ -522,7 +528,7 @@ local function test_an_account_url_given_skips_the_lookup()
   local before = #server.log
   local again = Acme.client({
     directory = BASE .. "/directory", key = key, account = BASE .. "/acct/1",
-    request = server.request, sleep = no_sleep,
+    request = server.request, pause = no_pause,
   })
   assert(again:account() == BASE .. "/acct/1" and #server.log == before)
   assert(again:order({ "example.com" }) ~= nil)
@@ -546,7 +552,7 @@ local function test_a_wait_that_runs_out_says_what_is_still_pending()
   server.polls_left = 1000
   local client = Acme.client({
     directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
-    request = server.request, sleep = no_sleep, wait = { timeout_ns = 1, interval_ns = 1 },
+    request = server.request, pause = no_pause, wait = { timeout_ns = 1, interval_ns = 1 },
   })
   assert(client:account())
   local order = assert(client:order({ "example.com" }))
@@ -612,7 +618,7 @@ local function test_a_finalize_that_is_still_processing_is_waited_out()
   local slept: mut {integer} = {}
   local client = Acme.client({
     directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()), request = server.request,
-    sleep = function(ns: integer): boolean, string
+    pause = function(ns: integer): boolean, string
       table.insert(slept, ns)
       return true, ""
     end,
@@ -656,4 +662,19 @@ local function test_a_body_that_is_no_pem_certificate_is_refused()
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
   })
   assert(chain == nil and why == "acme: certificate: the server sent no PEM certificate", why)
+end
+
+local function test_a_token_that_is_not_base64url_is_never_presented()
+  local server = new_server()
+  server.token_prefix = "../"
+  local presented = false
+  local chain, why = client_of(server):issue({ "example.com" }, {
+    key = Acme.p256_key(Sign.p256_secret()),
+    present = function(_c: Acme.Challenge): boolean, string
+      presented = true
+      return true, ""
+    end,
+  })
+  assert(chain == nil and not presented)
+  assert(why == "acme: the server's token for example.com is not base64url", why)
 end

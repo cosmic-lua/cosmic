@@ -33,9 +33,11 @@ function Example.csr()
   assert(csr:byte(1) == 0x30)
 end
 
---- A client for Let's Encrypt's staging server. It sends nothing until
---- a method needs it.
+--- A client for Let's Encrypt's staging server, which issues
+--- untrusted certificates: try a flow there, then use
+--- [`Acme.LETS_ENCRYPT`]. It sends nothing until a method needs it.
 function Example.client()
+  print("staging:", Acme.LETS_ENCRYPT_STAGING, "production:", Acme.LETS_ENCRYPT)
   local client = Acme.client({ directory = Acme.LETS_ENCRYPT_STAGING, key = Acme.p256_key(Sign.p256_secret()) })
   print(client.thumbprint)
   assert(#client.thumbprint == 43)
