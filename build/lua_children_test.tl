@@ -106,7 +106,7 @@ local argv: mut {string} = {}
 for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
 argv[#argv + 1] = "-e"
 argv[#argv + 1] = "local Zip = require('cosmic.zip') print(Zip)"
-local result = assert(Child.run(argv, { env = relaunch.env, fds = relaunch.fds,
+local result = assert(Child.run(argv, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = relaunch.fds,
   stdout = "capture", stderr = "capture" }))
 Fs.put(Fs.stdout, tostring(result.ok) .. " " .. (result.stderr or ""))
 ]]
@@ -140,7 +140,7 @@ local function test_a_stand_in_runs(tmp: string)
       tostring(direct.stderr))
   local ok, out, err = run({ "-e", 'local Child = require("cosmic.child") local Fs = require("cosmic.fs") ' ..
       'local program = ... if program == nil then return 2 end ' ..
-      'local r = assert(Child.run({ program, "print ran" }, { stdout = "capture", stderr = "capture" })) ' ..
+      'local r = assert(Child.run({ program, "print ran" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })) ' ..
       'Fs.put(Fs.stdout, (r.stdout or "") .. (r.stderr or "")) local status = 1 if r.ok then status = 0 end return status', probe })
   assert(ok and out == "ran\n", out .. err)
 end

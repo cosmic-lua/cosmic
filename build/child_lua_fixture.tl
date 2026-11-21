@@ -38,7 +38,7 @@ local function again(chunk: string, opts?: Child.Options): Child.Handle
   for name, value in pairs(relaunch.env) do env[name] = value end
   local group: boolean? = nil
   if opts ~= nil then group = opts.process_group end
-  local handle = assert(Child.start(argv, { env = env, fds = relaunch.fds, process_group = group }))
+  local handle = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds, process_group = group }))
   return handle
 end
 ]]

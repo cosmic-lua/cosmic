@@ -275,17 +275,19 @@ end
 
 local function test_a_type_argument_has_to_meet_the_bound_of_its_parameter()
   local head = "local interface Named\n  name: string\nend\nlocal class Person is Named\n  name: string\nend\n" ..
-    "local record Plain\n  name: string\nend\n" ..
+    "local record Plain\n  title: string\nend\n" ..
     "local function label<T is Named>(x: T): string\n  return x.name\nend\n"
   stands(head .. "local p: Person = { name = \"ann\" }\nprint(label(p))\n", "ann")
-  refused(head .. "local p: Plain = { name = \"ann\" }\nprint(label(p))\n", "bound_unmet")
+  refused(head .. "local p: Plain = { title = \"ann\" }\nprint(label(p))\n", "bound_unmet")
   refused(head .. "print(label(1))\n", "bound_unmet")
-  local r = Programs.run(HEAD .. head .. "local p: Plain = { name = \"ann\" }\nprint(label(p))\n")
+  local r = Programs.run(HEAD .. head .. "local p: Plain = { title = \"ann\" }\nprint(label(p))\n")
   -- The program is refused, so `errors` is not empty.
   local e = Array.at(r.errors, #r.errors)
   assert(e.code == "bound_unmet" and e.msg:find("`Plain` is the type parameter `T` of `label`, which is bounded by `Named`", 1, true) ~= nil,
     e.msg)
-  assert(e.fix:find("list the interface in the declaration of `Plain` (`is Named`)", 1, true) ~= nil, e.fix)
+  assert(e.fix:find("declare `name: string` in `Plain`, as the interface does", 1, true) ~= nil, e.fix)
+  -- A record with the interface's fields meets the bound with no listing.
+  stands(head .. "local record Titled\n  name: string\nend\nlocal t: Titled = { name = \"bo\" }\nprint(label(t))\n", "bo")
   -- A type variable of the caller meets the bound through its own.
   stands(head .. "local function outer<U is Named>(x: U): string\n  return label(x)\nend\n" ..
       "local p: Person = { name = \"bo\" }\nprint(outer(p))\n", "bo")
@@ -530,8 +532,8 @@ end
 -- fails to meet, where it used to be `overload_none`.
 -- It is the answer only where it is why the call fails: a function of another arity is rejected as it is, with or without it.
 local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unmet()
-  local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
-    "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { name = \"ann\" }\n"
+  local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  title: string\nend\n" ..
+    "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { title = \"ann\" }\n"
   refused(head .. "local ok, r = pcall(label, p)\nprint(ok, r)\n", "bound_unmet")
   -- a bound that is not the only failure is not the answer: declaring `Plain is Named` would still leave this call refused
   refused(head .. "local ok, r = pcall(label, p, 5)\nprint(ok, r)\n", "overload_none")
@@ -541,10 +543,10 @@ local function test_a_bound_a_passed_generic_function_does_not_meet_is_bound_unm
   refused(head .. "local ok, r = xpcall(label, print, p)\nprint(ok, r)\n", "overload_none")
   -- every bound a type fails is named in one message, and an interface can be given the one it lacks
   local two = "local interface Named\n  name: string\nend\nlocal interface Other\n  other: string\nend\n" ..
-    "local record Plain\n  name: string\nend\nlocal interface Loose\n  id: string\nend\n" ..
+    "local record Plain\n  title: string\nend\nlocal interface Loose\n  id: string\nend\n" ..
     "local function both<T is Named, U is Other>(a: T, b: U): string\n  return a.name\nend\n" ..
     "local function pair<T is Named, U is Other>(a: T, b: U): string\n  return a.name\nend\n"
-  local p, q = "local p: Plain = { name = \"ann\" }\nlocal q: Plain = { name = \"bo\" }\n", ""
+  local p, q = "local p: Plain = { title = \"ann\" }\nlocal q: Plain = { title = \"bo\" }\n", ""
   local both = Programs.run(HEAD .. two .. p .. q .. "local ok, r = pcall(both, p, q)\nprint(ok, r)\n")
   local named = both.errors[1]
   assert(Programs.codes(both) == "bound_unmet" and named ~= nil and named.msg:find("`T`", 1, true) ~= nil and
@@ -568,9 +570,9 @@ end
 -- Every generic function argument whose bound a type fails is waived together when the call is asked again: waiving only
 -- the first leaves the second to refuse the call as `overload_none`.
 local function test_every_passed_generic_function_with_an_unmet_bound_is_named_once()
-  local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+  local head = "local interface Named\n  name: string\nend\nlocal record Plain\n  title: string\nend\n" ..
     "local function label<T is Named>(x: T): string\n  return x.name\nend\n" ..
-    "local function note<E is Named>(e: E): string\n  return \"n\"\nend\nlocal p: Plain = { name = \"ann\" }\n"
+    "local function note<E is Named>(e: E): string\n  return \"n\"\nend\nlocal p: Plain = { title = \"ann\" }\n"
   local both = Programs.run(HEAD .. head .. "local ok, r = xpcall(label, note, p)\nprint(ok, r)\n")
   local first = both.errors[1]
   assert(Programs.codes(both) == "bound_unmet", Programs.codes(both))
@@ -607,13 +609,13 @@ local OVERLOADS <const> = "local record m\n" ..
   "end\nreturn m\n"
 
 local NAMED <const> = "local m = require(\"m\")\nlocal interface Named\n  name: string\nend\n" ..
-  "local class Person is Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
+  "local class Person is Named\n  name: string\nend\nlocal record Plain\n  title: string\nend\n" ..
   "local function label<T is Named>(x: T): string\n  return x.name\nend\n" ..
   "local function note<T is Named>(x: T): string\n  return \"n\"\nend\n" ..
   "local function sname<T is Named>(x: T): string\n  return x.name\nend\n" ..
   "local function ident<T is Named>(x: T): T\n  return x\nend\n" ..
   "local function mk<T is Named>(x: T): Person\n  return { name = x.name }\nend\n" ..
-  "local p: Plain = { name = \"ann\" }\n"
+  "local p: Plain = { title = \"ann\" }\n"
 
 local function overloads(call: string): Programs.Run
   return Programs.run(HEAD .. NAMED .. call, nil, { m = OVERLOADS })
@@ -650,8 +652,8 @@ local function test_a_bound_nothing_can_meet_does_not_say_declare_it()
       h.msg:find("does not declare", 1, true) == nil and h.fix:find("declare", 1, true) == nil, h and h.msg or Programs.codes(handler))
   local direct = Programs.run(HEAD .. head .. "local function label<T is Named>(x: T): string\n  return \"\"\nend\nprint(label(1))\n")
   local d = direct.errors[1]
-  assert(Programs.codes(direct) == "bound_unmet" and d ~= nil and d.fix:find("list the interface", 1, true) == nil and
-      d.fix:find("pass a type that lists `is Named`", 1, true) ~= nil, d and d.fix or Programs.codes(direct))
+  assert(Programs.codes(direct) == "bound_unmet" and d ~= nil and d.fix:find("declare", 1, true) == nil and
+      d.fix:find("pass a type that has the fields of `Named`", 1, true) ~= nil, d and d.fix or Programs.codes(direct))
 end
 
 local function test_an_iterator_that_is_a_generic_function_is_solved_by_the_state_and_the_control_value()
@@ -667,7 +669,11 @@ local function test_a_class_gives_the_type_arguments_of_the_interface_it_lists_a
     "local function latest<T>(s: Source<T>): T\n  return s.last\nend\nlocal c: Counter = { last = 5 }\n"
   assert(type_of(head .. "local n = latest(c)\n", "n") == "integer")
   stands(head .. "print(latest(c))\n", "5")
-  refused(head .. "local record Plain\n  last: integer\nend\nlocal p: Plain = { last = 1 }\nlocal n = latest(p)\n", "not_assignable")
+  -- A record that has the interface's field conforms by it, and the field gives the argument.
+  assert(type_of(head .. "local record Plain\n  last: integer\nend\nlocal p: Plain = { last = 1 }\nlocal n = latest(p)\n", "n") ==
+      "integer")
+  refused(head .. "local record Plain\n  first: integer\nend\nlocal p: Plain = { first = 1 }\nlocal n = latest(p)\n",
+    "not_assignable")
   -- A record with an array part is a view of that part.
   local rows = "local record Rows is {string}\n  count: integer\nend\nlocal r: Rows = { count = 1, \"a\" }\n"
   assert(type_of(rows .. "local v = first(r)\n", "v") == "string?")

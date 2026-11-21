@@ -41,7 +41,7 @@ end
 --- Returns the pid, and the reader of its stdout where `keep_stream`.
 local function drop_a_sleeper(keep_stream: boolean): integer, Stream.Reader?
   local sleeper = this_program.program({ "-e",
-    'local Clock = require("cosmic.clock")\nClock.sleep_ns(Clock.seconds(30))' }, { stdout = "stream" })
+    'local Clock = require("cosmic.clock")\nClock.sleep_ns(Clock.seconds(30))' }, { timeout_ns = Child.FOREVER, stdout = "stream" })
   local h = assert(Child.start(sleeper.argv, sleeper.options))
   local pid = h.pid
   if keep_stream then return pid, h.stdout_stream end

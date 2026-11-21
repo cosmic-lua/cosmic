@@ -404,7 +404,7 @@ local function test_a_use_of_a_generic_is_invariant_in_its_arguments()
   assert(below(w, named(w, "List", { s.integer }), named(w, "List", { s.integer })))
 end
 
-local function test_a_type_is_below_an_interface_only_where_its_declaration_lists_it()
+local function test_a_type_is_below_an_interface_its_declaration_lists_or_whose_fields_it_has()
   local w = world()
   local s = w.store
   local reader, event = named(w, "Stream.Reader"), named(w, "Event")
@@ -418,13 +418,40 @@ local function test_a_type_is_below_an_interface_only_where_its_declaration_list
   refused(w, named(w, "Handle"), reader, "not_listed")
   refused(w, named(w, "File"), event, "not_listed")
   refused(w, reader, named(w, "File"), "nominal")
-  -- A record with the fields of an interface, and listing nothing, conforms to nothing.
+  -- A record with the fields of an interface, and listing nothing, conforms to it.
   local lookalike = s:declare("record", "m", { "Lookalike" }, 0)
   s:define(lookalike, { tparams = {}, supers = {}, methods = {}, values = {},
     fields = { { name = "name", type = s.string } } })
-  local r = refused(w, s:named(lookalike), event, "not_listed")
-  local lists = r.lists
-  assert(lists ~= nil and #lists == 0)
+  assert(below(w, s:named(lookalike), event))
+  -- One whose field is of another type, or `mut` where the interface's is not, does not; the refusal names the field.
+  local other = s:declare("record", "m", { "Other" }, 0)
+  s:define(other, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "name", type = s.integer } } })
+  local r = refused(w, s:named(other), event, "not_listed")
+  local lists, field = r.lists, r.field
+  assert(lists ~= nil and #lists == 0 and field ~= nil and field.name == "name" and field.type == s.string and
+      r.has_name == true)
+  local changing = s:declare("record", "m", { "Changing" }, 0)
+  s:define(changing, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "name", type = s.string, mut = true } } })
+  refused(w, s:named(changing), event, "not_listed")
+  -- A field the interface may omit is met only by one the record may omit, of the same type, and is no less needed.
+  local maybe = s:declare("interface", "m", { "Maybe" }, 0)
+  s:define(maybe, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "note", type = s:optional(s.string), omittable = true } } })
+  local omits = s:declare("record", "m", { "Omits" }, 0)
+  s:define(omits, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "note", type = s:optional(s.string), omittable = true } } })
+  assert(below(w, s:named(omits), s:named(maybe)))
+  local holds = s:declare("record", "m", { "Holds" }, 0)
+  s:define(holds, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "note", type = s:optional(s.string) } } })
+  refused(w, s:named(holds), s:named(maybe), "not_listed")
+  r = refused(w, s:named(lookalike), s:named(maybe), "not_listed")
+  assert(r.field ~= nil and r.field.name == "note" and r.has_name ~= true)
+  -- The field stays on a refusal inside another type's.
+  r = refused(w, s:array(s:named(other)), s:array(event), "not_listed", "element")
+  assert(r.field ~= nil and r.field.name == "name")
 end
 
 local function test_a_refusal_for_an_unlisted_interface_names_what_the_declaration_lists()
@@ -441,8 +468,10 @@ local function test_an_interface_is_below_the_interfaces_it_extends()
   assert(below(w, read_write, reader))
   assert(below(w, named(w, "Duplex"), read_write))
   assert(below(w, named(w, "Duplex"), reader))
-  refused(w, reader, read_write, "not_listed")
-  refused(w, named(w, "File"), read_write, "not_listed")
+  -- `ReadWriter` adds no field to [`Stream.Reader`]'s, so each has what the other declares.
+  assert(below(w, reader, read_write))
+  assert(below(w, named(w, "File"), read_write))
+  refused(w, named(w, "Handle"), read_write, "not_listed")
   assert(below(w, named(w, "Ranked"), named(w, "Ordered")))
 end
 
@@ -1099,7 +1128,9 @@ local function test_a_chain_of_listings_that_does_not_grow_is_followed_to_its_en
     if previous ~= nil then
       supers[1] = previous
     end
-    s:define(decl, { tparams = {}, supers = supers, fields = {}, methods = {}, values = {} })
+    -- A field of its own, so that an earlier interface does not have what a later one declares.
+    s:define(decl, { tparams = {}, supers = supers, fields = { { name = "f" .. tostring(i), type = s.integer } },
+      methods = {}, values = {} })
     previous = s:named(decl)
     first = first or previous
   end
@@ -1319,10 +1350,12 @@ local function test_a_listing_with_two_arguments_is_read_with_each_in_its_place(
   local w = world()
   local s = w.store
   local i2 = s:declare("interface", "m", { "I2" }, 2)
-  s:define(i2, { tparams = { { name = "A" }, { name = "B" } }, supers = {}, fields = {}, methods = {}, values = {} })
+  s:define(i2, { tparams = { { name = "A" }, { name = "B" } }, supers = {},
+    fields = { { name = "a", type = s:var(0, 0) }, { name = "b", type = s:var(0, 1) } }, methods = {}, values = {} })
   local r2 = s:declare("class", "m", { "R2" }, 2)
   s:define(r2, { tparams = { { name = "A" }, { name = "B" } },
-    supers = { s:named(i2, { s:var(0, 1), s:var(0, 0) }) }, fields = {}, methods = {}, values = {} })
+    supers = { s:named(i2, { s:var(0, 1), s:var(0, 0) }) },
+    fields = { { name = "a", type = s:var(0, 1) }, { name = "b", type = s:var(0, 0) } }, methods = {}, values = {} })
   local function use_i2(a: Types.Type, b: Types.Type): Types.Type
     return s:named(i2, { a, b })
   end
@@ -1381,8 +1414,8 @@ local function test_a_chain_of_listings_longer_than_a_closure_holds_is_followed_
   -- body for and does not walk the chain below each one (4200 steps each, which took seconds).
   -- Both arrays hold an entry for each of 1 to 4200.
   for i = 4200, 1, -1 do
-    s:define(Array.at(decls, i), { tparams = {}, supers = if i > 1 then { Array.at(uses, i - 1) } else {} end, fields = {}, methods = {},
-      values = {} })
+    s:define(Array.at(decls, i), { tparams = {}, supers = if i > 1 then { Array.at(uses, i - 1) } else {} end,
+      fields = { { name = "f" .. tostring(i), type = s.integer } }, methods = {}, values = {} })
   end
   assert(below(w, Array.at(uses, 4200), Array.at(uses, 200)))
   assert(below(w, Array.at(uses, 4200), Array.at(uses, 105)))
@@ -1403,10 +1436,15 @@ local function test_a_chain_of_generic_interfaces_that_pass_their_argument_on_is
     if i < 100 then
       supers[1] = s:named(Array.at(decls, i + 1), { s:var(0, 0) })
     end
-    s:define(Array.at(decls, i), { tparams = { { name = "T" } }, supers = supers, fields = {}, methods = {}, values = {} })
+    s:define(Array.at(decls, i), { tparams = { { name = "T" } }, supers = supers,
+      fields = { { name = "f" .. tostring(i), type = s:var(0, 0) } }, methods = {}, values = {} })
+  end
+  local root_fields: mut {Types.Field} = {}
+  for i = 1, 100 do
+    root_fields[i] = { name = "f" .. tostring(i), type = s.integer }
   end
   local root = s:declare("class", "m", { "UnderG" }, 0)
-  s:define(root, { tparams = {}, supers = { s:named(Array.at(decls, 1), { s.integer }) }, fields = {}, methods = {},
+  s:define(root, { tparams = {}, supers = { s:named(Array.at(decls, 1), { s.integer }) }, fields = root_fields, methods = {},
     values = {} })
   assert(below(w, s:named(root), s:named(Array.at(decls, 100), { s.integer })))
   refused(w, s:named(root), s:named(Array.at(decls, 100), { s.string }), "not_listed")

@@ -11,13 +11,13 @@ local function test_start_on_pty_refuses_what_could_name_a_terminal_of_the_calle
   local function raises(opts: Child.Options, streams: {integer}, why: string)
     Test.raises(function() Child.start_on_pty({ "/bin/true" }, opts, { streams = streams }) end, why)
   end
-  raises({ stdin = "null" }, { 0 }, "takes no stdin")
-  raises({ input = "x" }, { 0 }, "takes no stdin")
-  raises({ stdout = "null" }, { 1 }, "takes no stdin")
-  raises({ stderr = "null" }, { 2 }, "takes no stdin")
-  raises({}, {}, "at least one stream")
-  raises({}, { 0, 0 }, "each of 0, 1 and 2 once")
-  raises({}, { 3 }, "each of 0, 1 and 2 once")
+  raises({ timeout_ns = Child.FOREVER, stdin = "null" }, { 0 }, "takes no stdin")
+  raises({ timeout_ns = Child.FOREVER, input = "x" }, { 0 }, "takes no stdin")
+  raises({ timeout_ns = Child.FOREVER, stdout = "null" }, { 1 }, "takes no stdin")
+  raises({ timeout_ns = Child.FOREVER, stderr = "null" }, { 2 }, "takes no stdin")
+  raises({ timeout_ns = Child.FOREVER }, {}, "at least one stream")
+  raises({ timeout_ns = Child.FOREVER }, { 0, 0 }, "each of 0, 1 and 2 once")
+  raises({ timeout_ns = Child.FOREVER }, { 3 }, "each of 0, 1 and 2 once")
 end
 
 --- The lowest free descriptor, which moves when a refused start leaves one
@@ -34,7 +34,7 @@ local function test_start_on_pty_validates_the_size_before_opening_a_pty()
   local before = lowest_free()
   local function raises(rows: integer?, columns: integer?, why: string)
     for _ = 1, 4 do
-      local ok, trouble = pcall(Child.start_on_pty, { "/bin/true" }, {},
+      local ok, trouble = pcall(Child.start_on_pty, { "/bin/true" }, { timeout_ns = Child.FOREVER },
         { streams = { 1 }, rows = rows, columns = columns })
       assert(not ok and tostring(trouble):find(why, 1, true) ~= nil, tostring(trouble))
     end
@@ -53,7 +53,7 @@ local function test_start_on_pty_applies_the_size()
   assert(probe)
   assert(sys.close(probe.slave))
   assert(sys.close(probe.master))
-  local program = this_program.program({ "-e", "" }, {})
+  local program = this_program.program({ "-e", "" }, { timeout_ns = Child.FOREVER })
   local started = assert(Child.start_on_pty(program.argv, program.options, { streams = { 1 }, rows = 7, columns = 33 }))
   local size = assert(sys.winsize(started.master))
   assert(size.rows == 7 and size.columns == 33)

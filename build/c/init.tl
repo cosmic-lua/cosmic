@@ -761,7 +761,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
         if results[next_job] == nil then
           local handle, trouble = Child.start(
             command(root, zig, nth(files, job.file), cwd, nth(c.variants, job.variant), job.analyze,
-              deps .. "/analysis-" .. tostring(next_job) .. ".plist"), {
+              deps .. "/analysis-" .. tostring(next_job) .. ".plist"), { timeout_ns = Child.FOREVER,
                 cwd = cwd, env = env, stdout = "capture", stderr = "capture",
                 capture_limit = limit or dump_limit,
               })

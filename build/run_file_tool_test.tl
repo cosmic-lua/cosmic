@@ -327,7 +327,7 @@ return function(argv: {string}): integer
   local again: mut {string} = { table.unpack(relaunch.argv) }
   again[#again + 1] = assert(relaunch.script, "a file run's relaunch names its script")
   again[#again + 1] = "shard"
-  local result = assert(Child.run(again, { env = env, fds = relaunch.fds, stdout = "capture", stderr = "capture" }))
+  local result = assert(Child.run(again, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds, stdout = "capture", stderr = "capture" }))
   print(relaunch.script)
   print(result.code, result.stdout, result.stderr)
   return 0
@@ -364,7 +364,7 @@ return function(argv: {string}): integer
   local again: mut {string} = { table.unpack(relaunch.argv) }
   again[#again + 1] = assert(relaunch.script)
   again[#again + 1] = "shard"
-  local result = assert(Child.run(again, { env = env, fds = relaunch.fds, cwd = relaunch.cwd,
+  local result = assert(Child.run(again, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds, cwd = relaunch.cwd,
     stdout = "capture", stderr = "capture" }))
   print(result.code, result.stdout, result.stderr)
   return 0

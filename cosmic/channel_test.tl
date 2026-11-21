@@ -204,14 +204,14 @@ local function test_a_receiver_that_loses_its_item_still_times_out_on_time()
       why = reason
       took = Clock.monotonic_ns() - start
     end)
-    assert(Poll.delay(Clock.ms(30)))
+    -- Late enough that a wait begun again would end near 150 ms or later.
+    assert(Poll.delay(Clock.ms(50)))
     -- The send notices the receiver; the item is gone before it runs.
     assert(queue:send(1))
     assert(queue:receive() == 1)
     assert(receiver:join())
     assert(why == Poll.TIMEOUT)
-    -- A wait that began again with the whole timeout would end near 130 ms.
-    assert(took >= Clock.ms(95) and took < Clock.ms(120), "took " .. tostring(took))
+    assert(took >= Clock.ms(95) and took < Clock.ms(140), "took " .. tostring(took))
   end)
 end
 
@@ -228,13 +228,14 @@ local function test_a_sender_that_loses_its_room_still_times_out_on_time()
       why = reason
       took = Clock.monotonic_ns() - start
     end)
-    assert(Poll.delay(Clock.ms(30)))
+    -- Late enough that a wait begun again would end near 150 ms or later.
+    assert(Poll.delay(Clock.ms(50)))
     -- The receive notices the sender; the room is gone before it runs.
     assert(queue:receive() == 0)
     assert(queue:try_send(2))
     assert(sender:join())
     assert(why == Poll.TIMEOUT)
-    assert(took >= Clock.ms(95) and took < Clock.ms(120), "took " .. tostring(took))
+    assert(took >= Clock.ms(95) and took < Clock.ms(140), "took " .. tostring(took))
     assert(queue:len() == 1 and queue:receive() == 2)
   end)
 end

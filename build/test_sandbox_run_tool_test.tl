@@ -211,7 +211,7 @@ Test.policy {
 local function test_child_reads()
   local r = assert(Child.run({ "bin/probe",
     "cat suite/data.txt; cat suite/later.txt || print |absent" },
-    { stdout = "capture" }))
+    { timeout_ns = Child.FOREVER, stdout = "capture" }))
   local out = r.stdout or ""
   assert(r.ok and out:find("|absent", 1, true) ~= nil, out)
 end
@@ -223,7 +223,7 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "bin/probe", letters = "r" } } }
 
 local function test_child_reads_the_closure_store()
-  assert(assert(Child.run({ "bin/probe", "exit 0" })).ok)
+  assert(assert(Child.run({ "bin/probe", "exit 0" }, { timeout_ns = Child.FOREVER })).ok)
 end
 ]]))
   local env = this_program.environment()
@@ -322,7 +322,7 @@ local function test_second(tmp: string) hold(tmp) end
   local fd = assert(Fs.open_write(output))
   local interrupted = this_program.program(
     { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
-    { cwd = root, env = env, stdout = fd, stderr = fd, process_group = true })
+    { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd, process_group = true })
   local runner, trouble = Child.start(interrupted.argv, interrupted.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)

@@ -29,18 +29,19 @@ local function test_the_client_and_the_server_agree(tmp: string)
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   local base = (argv[1] or "")
   local said: mut {string} = {}
-  local missing = assert(Http.get(base .. "/items/a"))
+  local missing = assert(Http.get(base .. "/items/a", { timeout_ns = Clock.seconds(60) }))
   said[#said + 1] = tostring(missing.status) .. " " .. missing.body
-  local put = assert(Http.request("PUT", base .. "/items/a", { body = "first value" }))
+  local put = assert(Http.request("PUT", base .. "/items/a", { timeout_ns = Clock.seconds(60), body = "first value" }))
   said[#said + 1] = tostring(put.status) .. " " .. put.body
-  local got = assert(Http.get(base .. "/items/a?x=1"))
+  local got = assert(Http.get(base .. "/items/a?x=1", { timeout_ns = Clock.seconds(60) }))
   said[#said + 1] = tostring(got.status) .. " " .. got.body .. " " .. (got.headers["content-type"] or "")
-  local head = assert(Http.request("HEAD", base .. "/items/a"))
+  local head = assert(Http.request("HEAD", base .. "/items/a", { timeout_ns = Clock.seconds(60) }))
   said[#said + 1] = tostring(head.status) .. " [" .. head.body .. "] " .. (head.headers["content-length"] or "")
-  local gone = assert(Http.request("DELETE", base .. "/items/a"))
+  local gone = assert(Http.request("DELETE", base .. "/items/a", { timeout_ns = Clock.seconds(60) }))
   said[#said + 1] = tostring(gone.status)
   local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
   return 0
@@ -96,10 +97,11 @@ local function test_a_name_joined_unescaped_reaches_the_server_escaped(tmp: stri
   assert(Fs.write(script, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 return function(argv: {string}): integer
   local said: mut {string} = {}
   for _, name in ipairs({ "two words.txt", "caf\xc3\xa9.txt", "two%20words.txt", "a=b&c;d?e=f" }) do
-    local got = assert(Http.get((argv[1] or "") .. "/" .. name))
+    local got = assert(Http.get((argv[1] or "") .. "/" .. name, { timeout_ns = Clock.seconds(60) }))
     said[#said + 1] = tostring(got.status) .. " " .. got.body
   end
   local _, _ = Fs.put(Fs.stdout, table.concat(said, "\n"))
@@ -167,7 +169,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local started = this_program.program({ "--standalone", script, marker },
-    { stdout = "capture", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   for _ = 1, 3000 do
     if Fs.stat(marker) ~= nil then break end

@@ -64,9 +64,10 @@ local function test_a_request_goes_over_the_socket_with_the_urls_host(tmp: strin
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local got = assert(Http.get("http://files.test:8080/hello?x=1", { via = Net.unix((argv[1] or "")) }))
+  local got = assert(Http.get("http://files.test:8080/hello?x=1", { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) }))
   local _, _ = Fs.put(Fs.stdout, tostring(got.status) .. " " .. got.body)
   return 0
 end
@@ -82,11 +83,12 @@ local function test_a_redirect_is_not_followed_over_the_socket_unless_asked(tmp:
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
   local via = Net.unix((argv[1] or ""))
-  local moved = assert(Http.get("http://files.test/moved", { via = via }))
-  local followed = assert(Http.get("http://files.test/moved", { via = via, follow = true }))
+  local moved = assert(Http.get("http://files.test/moved", { timeout_ns = Clock.seconds(60), via = via }))
+  local followed = assert(Http.get("http://files.test/moved", { timeout_ns = Clock.seconds(60), via = via, follow = true }))
   local _, _ = Fs.put(Fs.stdout, table.concat({
     tostring(moved.status) .. " " .. (moved.headers["location"] or "") .. " " .. moved.body,
     tostring(followed.status) .. " " .. followed.body,
@@ -104,6 +106,7 @@ end
 local download_prelude = [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local function destination(sock: string): string
   return (sock:gsub("/s%.sock$", "/out"))
@@ -116,10 +119,11 @@ local function test_open_streams_a_body_over_the_socket(tmp: string)
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 local Stream = require("cosmic.stream")
 return function(argv: {string}): integer
-  local response = assert(Http.open("http://files.test:8080/streamed?y=2", { via = Net.unix((argv[1] or "")) }))
+  local response = assert(Http.open("http://files.test:8080/streamed?y=2", { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) }))
   local body = assert(Stream.read_all(response))
   local _, _ = response:close()
   local _, _ = Fs.put(Fs.stdout, tostring(response.status) .. " " .. body)
@@ -135,9 +139,10 @@ local function test_open_does_not_follow_a_redirect_over_the_socket(tmp: string)
   local said, seen = across(tmp, [[
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
+local Clock = require("cosmic.clock")
 local Net = require("cosmic.net")
 return function(argv: {string}): integer
-  local response = assert(Http.open("http://files.test/moved", { via = Net.unix((argv[1] or "")) }))
+  local response = assert(Http.open("http://files.test/moved", { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) }))
   local _, _ = response:close()
   local _, _ = Fs.put(Fs.stdout, tostring(response.status) .. " " .. (response.headers["location"] or ""))
   return 0
@@ -153,7 +158,7 @@ local function test_download_writes_the_body_it_fetched_over_the_socket(tmp: str
   local said, seen = across(tmp, download_prelude .. [[
 return function(argv: {string}): integer
   local dest = destination((argv[1] or ""))
-  local ok, why = Http.download("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix((argv[1] or "")) })
+  local ok, why = Http.download("http://files.test:8080/pkg.tar?z=3", dest, { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) })
   assert(ok, why)
   local _, _ = Fs.put(Fs.stdout, (assert(Fs.read(dest))))
   return 0
@@ -168,7 +173,7 @@ local function test_download_result_writes_the_body_it_fetched_over_the_socket(t
   local said, seen = across(tmp, download_prelude .. [[
 return function(argv: {string}): integer
   local dest = destination((argv[1] or ""))
-  local result = Http.download_result("http://files.test:8080/pkg.tar?z=3", dest, { via = Net.unix((argv[1] or "")) })
+  local result = Http.download_result("http://files.test:8080/pkg.tar?z=3", dest, { timeout_ns = Clock.seconds(60), via = Net.unix((argv[1] or "")) })
   assert(result.kind == "downloaded", result.kind .. ": " .. result.reason)
   local _, _ = Fs.put(Fs.stdout, result.kind .. " " .. result.reason .. "|" .. assert(Fs.read(dest)))
   return 0
@@ -187,14 +192,14 @@ local function test_a_download_over_the_socket_fails_on_a_redirect_unless_asked_
 return function(argv: {string}): integer
   local via = Net.unix((argv[1] or ""))
   local dest = destination((argv[1] or ""))
-  local ok, why = Http.download("http://files.test/moved", dest, { via = via })
-  local result = Http.download_result("http://files.test/moved", dest, { via = via })
+  local ok, why = Http.download("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via })
+  local result = Http.download_result("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via })
   local lines = {
     tostring(ok) .. " " .. why,
     result.kind .. " " .. tostring(result.status),
     "exists " .. tostring((Fs.exists(dest))),
   }
-  local followed, followed_why = Http.download("http://files.test/moved", dest, { via = via, follow = true })
+  local followed, followed_why = Http.download("http://files.test/moved", dest, { timeout_ns = Clock.seconds(60), via = via, follow = true })
   assert(followed, followed_why)
   lines[#lines + 1] = (assert(Fs.read(dest)))
   local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
@@ -210,13 +215,13 @@ end
 --- URL, which a reader would take for a TCP port the request never uses.
 local function test_a_connect_failure_names_the_socket_and_the_reason(tmp: string)
   local missing = tmp .. "/none.sock"
-  local _, why = Http.get("http://authd.local/", { via = Net.unix(missing) })
+  local _, why = Http.get("http://authd.local/", { timeout_ns = Clock.seconds(60), via = Net.unix(missing) })
   assert(why == "cannot connect to unix socket " .. missing .. ": No such file or directory", tostring(why))
   assert(not why:find(":80", 1, true), why)
 
   local plain = tmp .. "/plain"
   assert(Fs.write(plain, "not a socket"))
-  local _, refused = Http.request("POST", "http://authd.local:8080/", { via = Net.unix(plain), body = "x" })
+  local _, refused = Http.request("POST", "http://authd.local:8080/", { timeout_ns = Clock.seconds(60), via = Net.unix(plain), body = "x" })
   -- The errno for connecting to a file that is no socket differs by host.
   assert(refused:find("cannot connect to unix socket " .. plain .. ": ", 1, true) == 1, tostring(refused))
   assert(not refused:find(":8080", 1, true), refused)

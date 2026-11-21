@@ -189,10 +189,10 @@ local CASES <const>: {Case} = {
   },
   {
     code = "bound_unmet",
-    source = "local interface Named\n  name: string\nend\nlocal record Plain\n  name: string\nend\n" ..
-      "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { name = \"a\" }\nlocal s = label(p)\n",
+    source = "local interface Named\n  name: string\nend\nlocal record Plain\n  title: string\nend\n" ..
+      "local function label<T is Named>(x: T): string\n  return x.name\nend\nlocal p: Plain = { title = \"a\" }\nlocal s = label(p)\n",
     at = { line = 11, column = 11 }, msg = "`Plain` is the type parameter `T` of `label`, which is bounded by `Named`",
-    fix = "list the interface in the declaration of `Plain` (`is Named`)",
+    fix = "declare `name: string` in `Plain`, as the interface does, or pass a type that has it",
   },
   {
     code = "return_arity", source = "local function f(): integer, string\n  return 1\nend\n", at = { line = 2, column = 3 },

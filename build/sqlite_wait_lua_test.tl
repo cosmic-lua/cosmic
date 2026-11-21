@@ -17,7 +17,7 @@ Test.policy{ profiles = { "cosmic" } }
 
 local function child(script: string): Child.Handle
   local command = this_program.program({ "-e", script },
-    { stdin = "stream", stdout = "stream", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   return (assert(Child.start(command.argv, command.options)))
 end
 

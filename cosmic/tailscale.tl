@@ -42,6 +42,7 @@ local Message = require("cosmic.http.message")
 local Net = require("cosmic.net")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local Tls = require("cosmic.tls")
 local Url = require("cosmic.url")
 local sys = require("cosmic.sys")
 
@@ -628,7 +629,7 @@ local function options(endpoint: Endpoint, default_ns: integer, method: string, 
     headers = headers,
     body = body,
     via = if via.kind == "unix" then via else nil end,
-    timeout_ns = if limit == 0 then nil else limit end,
+    timeout_ns = if limit == 0 then Http.FOREVER else limit end,
     low_speed_bytes = if limit == 0 then 0 else nil end,
     follow = false,
   }
@@ -846,6 +847,32 @@ local class Client
     local text = answer.body
     if text == nil then return nil, answer.reason end
     return pair_of(text)
+  end
+
+  --- The certificate of `domain`, one of [`Status.cert_domains`], kept
+  --- current for a server's `tls` ([`cosmic.tls`]): each load is a
+  --- [`cert`], asking for leaves valid as long as the renewal needs, so
+  --- the daemon renews its own first where it would not have yet. With
+  --- no `domain`, each load takes the node's first name of
+  --- [`Status.cert_domains`]. Nothing is asked of the daemon until a
+  --- server starts, or [`Tls.Certs.load`] is called.
+  ---
+  ---     assert(Server.serve{ listeners = { Net.tcp(address, 443) }, tls = ts:certs(), handle = handle })
+  function certs(self, domain?: string, opts?: Tls.CertsOptions): Tls.Certs
+    return Tls.certs(function(min_validity_ns?: integer): {Tls.Pair}?, string
+      local name = domain
+      if name == nil then
+        local status, why = self:status()
+        if status == nil then return nil, why end
+        name = status.cert_domains[1]
+        if name == nil then
+          return nil, "tailscale: the node has no name to get a certificate for: is HTTPS enabled for the tailnet?"
+        end
+      end
+      local pair, why = self:cert(name, { min_validity_ns = min_validity_ns })
+      if pair == nil then return nil, why end
+      return { { cert = pair.cert, key = pair.key } }, ""
+    end, opts)
   end
 
   --- How long a ping to the node at `address` takes over the tailnet,

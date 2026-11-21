@@ -20,13 +20,13 @@ Test.policy{
 --- libraries, with nothing else of the system's.
 local function test_a_granted_program_starts_without_the_systems_paths(tmp: string)
   assert(Fs.write(tmp .. "/a", "hello"))
-  local ran, why = Child.run({ "/bin/cat", tmp .. "/a" }, { stdout = "capture", stderr = "capture" })
+  local ran, why = Child.run({ "/bin/cat", tmp .. "/a" }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   assert(ran ~= nil, why)
   assert(ran.ok and ran.stdout == "hello", tostring(ran.code) .. " " .. tostring(ran.stderr))
   -- A program the module does not grant is not there, whatever the host
   -- has, where a sandbox holds the worker: one has the tree at /tree.
   if sys.getcwd() == "/tree" then
-    local other, _ = Child.run({ "/bin/ls", tmp }, { stdout = "capture", stderr = "capture" })
+    local other, _ = Child.run({ "/bin/ls", tmp }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
     assert(other == nil or not other.ok, "/bin/ls ran, which this module does not grant")
   end
 end

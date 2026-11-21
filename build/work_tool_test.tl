@@ -30,7 +30,7 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   local output = tmp .. "/second.out"
   local fd = assert(Fs.open_write(output))
   local build = this_program.program({ "main.tl" },
-    { cwd = tmp, stdout = fd, stderr = fd })
+    { timeout_ns = Child.FOREVER, cwd = tmp, stdout = fd, stderr = fd })
   local second, trouble = Child.start(build.argv, build.options)
   assert(Fs.close(fd))
   assert(second, trouble)

@@ -1,4 +1,4 @@
---- The class piece of the new checker ([`lang.check`], [`lang.declarations`]): classes are nominal, a value of one is
+--- The class piece of the new checker ([`lang.check`], [`lang.declarations`]): classes are nominal to each other, a value of one is
 --- made by a table literal typed as it, a class's names are distinct and its `__close` and `__tostring` are held to
 --- what Lua calls, a `<close>` local holds one with a `__close`, and `is` of one is the test of its metatable. A
 --- declaration used as a value is a type of its own. The code generator's side is [`lang.codegen_test`]'s.
@@ -64,14 +64,18 @@ local function test_a_class_and_a_record_of_one_shape_are_two_types()
   refused(pair .. "local r: R = { n = 1 }\nlocal c: C = r\n", "not_assignable", "where `C` is wanted")
 end
 
-local function test_a_class_is_below_the_interfaces_it_lists_and_no_other()
+local function test_a_class_is_below_the_interfaces_it_lists_and_those_whose_fields_it_has()
   local head = "local interface Sized\n  size: function(self: Sized): integer\nend\n" ..
     "local interface Other\n  size: function(self: Other): integer\nend\n" ..
+    "local interface Named\n  name: string\nend\n" ..
     "local class Bag is Sized\n  function size(self): integer\n    return 1\n  end\nend\n"
   accepted(head .. "local b: Bag = {}\nlocal s: Sized = b\n")
-  refused(head .. "local b: Bag = {}\nlocal o: Other = b\n", "not_assignable", "`b` is `Bag`, where `Other` is wanted")
-  local r = Programs.run(head .. "local b: Bag = {}\nlocal o: Other = b\n")
-  assert(Array.at(r.errors, 1).fix:find("list the interface in the declaration of `Bag` with `is Other`", 1, true) ~= nil, Array.at(r.errors, 1).fix)
+  -- `Other` declares the method `Bag` has, with `Other` as its receiver: `Bag` conforms with no listing.
+  accepted(head .. "local b: Bag = {}\nlocal o: Other = b\n")
+  refused(head .. "local b: Bag = {}\nlocal n: Named = b\n", "not_assignable",
+    "`b` is `Bag`, where `Named` is wanted as the value of `n` (`Bag` has no field `name: string`, which `Named` declares)")
+  local r = Programs.run(head .. "local b: Bag = {}\nlocal n: Named = b\n")
+  assert(Array.at(r.errors, 1).fix:find("declare `name: string` in `Bag`", 1, true) ~= nil, Array.at(r.errors, 1).fix)
 end
 
 -- a value is made by a literal -------------------------------------------------------------------------------

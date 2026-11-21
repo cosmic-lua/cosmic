@@ -14,7 +14,7 @@ local this_program = require("build.this_program")
 Test.policy{ profiles = { "cosmic" } }
 
 local function start(script: string, options?: Child.Options): Child.Handle
-  local started = this_program.program({ "-e", script }, options or { stdout = "stream" })
+  local started = this_program.program({ "-e", script }, options or { timeout_ns = Child.FOREVER, stdout = "stream" })
   return (assert(Child.start(started.argv, started.options)))
 end
 
@@ -47,7 +47,7 @@ local function test_both_streams_are_fair_under_small_repeated_budgets()
   local h <close> = start([[
 local Fs = require("cosmic.fs")
 for _ = 1, 256 do assert(Fs.put(1, "abcd")) assert(Fs.put(2, "WXYZ")) end]],
-    { stdout = "stream", stderr = "stream", capture_limit = 17 })
+    { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "stream", capture_limit = 17 })
   local out, err = Stream.collect(), Stream.collect()
   local opts = { ...options(out, 3), stderr = err }
   assert(finish(h, opts) == 2048)
@@ -67,7 +67,7 @@ end
 
 local function test_zero_timeout_copies_one_round_without_waiting()
   local h <close> = start('assert(require("cosmic.fs").put(1, string.rep("x", 131072)))',
-    { stdout = "stream", capture_limit = 262144 })
+    { timeout_ns = Child.FOREVER, stdout = "stream", capture_limit = 262144 })
   assert(assert(h:wait()).ok)
   local out = Stream.collect()
   local got = h:drain(options(out, 262144, 0))
@@ -78,7 +78,7 @@ end
 
 local function test_deadline_keeps_the_child_running()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   local got = h:drain(options(Stream.collect(), nil, Clock.ms(10)))
   assert(got ~= nil and got.kind == "timeout" and got.bytes == 0) -- checked: compare_disjoint
   assert(not assert(h:try_wait()).finished)
@@ -163,7 +163,7 @@ end
 
 local function test_a_parked_reader_refuses_drain_until_its_task_is_killed()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
     local reader = Poll.spawn(function() local _, _ = assert(h.stdout_stream):read() end)
     assert(Poll.delay(0))
@@ -175,7 +175,7 @@ end
 
 local function test_cooperative_cancel_releases_drain_ownership()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
     local got: Child.DrainResult? = nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
@@ -190,7 +190,7 @@ end
 
 local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   local guard = assert(Signal.guard())
   Poll.run(function()
     local got: Child.DrainResult? = nil
@@ -207,7 +207,7 @@ end
 
 local function test_closing_the_captured_guard_under_another_ends_the_wait()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   local outer = assert(Signal.guard())
   Poll.run(function()
     local got: Child.DrainResult? = nil
@@ -225,7 +225,7 @@ end
 
 local function test_an_explicit_handle_close_wakes_drain_before_cleanup_finishes()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
     local got: Child.DrainResult? = nil
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
@@ -239,7 +239,7 @@ end
 
 local function test_a_parked_drain_refuses_another_read_and_drain()
   local h <close> = start('assert(require("cosmic.fs").take(0, 1))',
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
@@ -313,7 +313,7 @@ local function test_merged_stderr_uses_only_stdout_sink()
   local h <close> = start([[
 local Fs = require("cosmic.fs")
 assert(Fs.put(1, "first")) assert(Fs.put(2, "second"))]],
-    { stdout = "stream", stderr = "stdout" })
+    { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "stdout" })
   local out = Stream.collect()
   assert(finish(h, options(out, 2)) == 11 and out:result() == "firstsecond")
 end
@@ -322,7 +322,7 @@ local function test_eof_does_not_claim_a_still_running_child_finished()
   local h <close> = start([[
 local Fs = require("cosmic.fs")
 assert(Fs.close(1)) assert(Fs.take(0, 1))]],
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   local got = h:drain(options(Stream.collect()))
   assert(got ~= nil and got.kind == "eof") -- checked: compare_disjoint
   assert(not assert(h:try_wait()).finished)
@@ -332,12 +332,12 @@ local function escaped(script: string): Child.Handle
   local chunk = [[
 local Child = require("cosmic.child")
 local sys = require("cosmic.sys")
-local program = require("build.this_program").program({ "-e", ... }, { process_group = false })
+local program = require("build.this_program").program({ "-e", ... }, { timeout_ns = -1, process_group = false })
 assert(Child.start(program.argv, program.options))
 sys.exit(0)
 ]]
   return start((chunk:gsub("%.%.%.", function(): string return string.format("%q", script) end)),
-    { stdout = "stream", process_group = false })
+    { timeout_ns = Child.FOREVER, stdout = "stream", process_group = false })
 end
 
 local function test_escaped_writer_is_drained_after_the_leader_exits()
@@ -376,7 +376,7 @@ local function test_shielded_drain_continues_after_task_cancel()
   local h <close> = start([[
 local Fs = require("cosmic.fs")
 assert(Fs.take(0, 1)) assert(Fs.put(1, "finished"))]],
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   Poll.run(function()
     local got: Child.DrainResult? = nil
     local sink = Stream.collect()
@@ -395,7 +395,7 @@ end
 local function test_tiny_budgets_alternate_when_both_queues_are_ready()
   local h <close> = start([[local Fs = require("cosmic.fs")
 assert(Fs.put(1, "abcd")) assert(Fs.put(2, "WXYZ"))]],
-    { stdout = "stream", stderr = "stream" })
+    { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "stream" })
   assert(assert(h:wait()).ok)
   local out, err = Stream.collect(), Stream.collect()
   local opts = { ...options(out, 1), stderr = err }
@@ -411,7 +411,7 @@ end
 local function test_missing_stdout_sink_cannot_fall_back_to_stderr_sink()
   local h <close> = start([[local Fs = require("cosmic.fs")
 assert(Fs.put(1, "output")) assert(Fs.put(2, "error"))]],
-    { stdout = "stream", stderr = "stream" })
+    { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "stream" })
   assert(assert(h:wait()).ok)
   local out, err = Stream.collect(), Stream.collect()
   local incomplete: Child.DrainOptions = { stderr = err, max_bytes = 100, timeout_ns = 0 }

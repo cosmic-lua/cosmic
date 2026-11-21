@@ -158,7 +158,7 @@ local function test_the_signal_verbs(tmp: string)
   -- starts it in a process group of its own, which it leads.
   local group = tmp .. "/group"
   local grouped = assert(Child.start({ probe, "trap 0; wait-for " .. group ..
-      "; signal INT @" .. group .. "; exit 3" }, { env = {} }))
+      "; signal INT @" .. group .. "; exit 3" }, { timeout_ns = Child.FOREVER, env = {} }))
   assert(Fs.write(group .. ".writing", "-" .. tostring(grouped.pid) .. "\n"))
   assert(Fs.rename(group .. ".writing", group))
   local grouped_ended = assert(grouped:wait(Clock.seconds(30)))
@@ -168,7 +168,7 @@ local function test_the_signal_verbs(tmp: string)
   -- One sleeping, then waiting, under a trap that the signal ends.
   local ready = tmp .. "/ready"
   local sleeper = assert(Child.start({ probe, "trap 9; sleep 20; write " .. ready ..
-      " ready; wait-for " .. tmp .. "/never; sleep-forever" }, { env = {} }))
+      " ready; wait-for " .. tmp .. "/never; sleep-forever" }, { timeout_ns = Child.FOREVER, env = {} }))
   await(ready)
   local started = Clock.monotonic_ns()
   local other = run({ probe, "signal TERM " .. tostring(sleeper.pid) .. "; print sent" })
@@ -178,7 +178,7 @@ local function test_the_signal_verbs(tmp: string)
   assert(Clock.monotonic_ns() - started < Clock.seconds(10))
 
   -- `sleep-forever` untrapped ends of the signal itself.
-  local forever = assert(Child.start({ probe, "sleep-forever" }, { env = {} }))
+  local forever = assert(Child.start({ probe, "sleep-forever" }, { timeout_ns = Child.FOREVER, env = {} }))
   assert(forever:stop(sys.SIGTERM))
   local stopped = assert(forever:wait(Clock.seconds(30)))
   assert(stopped.signal == sys.SIGTERM, tostring(stopped.code))
@@ -194,7 +194,7 @@ local function test_it_sleeps_and_waits(tmp: string)
   assert(Clock.monotonic_ns() - started >= Clock.ms(60))
   local flag = tmp .. "/flag"
   local waiting = assert(Child.start({ probe, "write " .. tmp .. "/waiting w; wait-for " ..
-      flag .. "; print seen" }, { env = {}, stdout = "capture" }))
+      flag .. "; print seen" }, { timeout_ns = Child.FOREVER, env = {}, stdout = "capture" }))
   await(tmp .. "/waiting")
   assert(Fs.write(flag, ""))
   local seen = assert(waiting:wait(Clock.seconds(30)))

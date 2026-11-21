@@ -3,6 +3,7 @@
 --- tree moves.
 
 local Array = require("cosmic.array")
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -46,12 +47,12 @@ end
 --- signature broken is not.
 local function test_an_https_peer_is_verified_against_the_carried_roots()
   local root = carried_root("ISRG Root X1")
-  local _, trusted = Http.open("https://cosmic.test/", { script = { first_flight(root) } })
+  local _, trusted = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { first_flight(root) } })
   assert(trusted:find("Common Name", 1, true), trusted)
   assert(not trusted:find("not correctly signed", 1, true),
     "a carried root is not trusted: " .. trusted)
   local broken = root:sub(1, -2) .. string.char(String.byte_at(root, #root) ~ 1)
-  local _, refused = Http.open("https://cosmic.test/", { script = { first_flight(broken) }, roots = "mozilla" })
+  local _, refused = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { first_flight(broken) }, roots = "mozilla" })
   assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
   -- Trusting every root the binary carries, the carried roots may be what
   -- is stale: the failure says how to get newer ones.
@@ -59,7 +60,7 @@ local function test_an_https_peer_is_verified_against_the_carried_roots()
   assert(not trusted:find("cosmic refresh", 1, true), trusted)
   -- Trusting the minimal roots, as a request does by default, it says
   -- how to trust them all.
-  local _, fewer = Http.open("https://cosmic.test/", { script = { first_flight(broken) } })
+  local _, fewer = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), script = { first_flight(broken) } })
   assert(fewer:find("COSMIC_CA_ROOTS=mozilla", 1, true), fewer)
 end
 
@@ -85,7 +86,7 @@ end
 --- certificate stands for no host), else the failure.
 local function verdict(der: string, opts: Http.Options): string
   local response, why = Http.open("https://cosmic.test/",
-    { script = { first_flight(der) }, roots = opts.roots, ca = opts.ca, pin = opts.pin })
+    { timeout_ns = Clock.seconds(60), script = { first_flight(der) }, roots = opts.roots, ca = opts.ca, pin = opts.pin })
   assert(response == nil, "a canned first flight completes no handshake")
   if why:find("Common Name", 1, true) ~= nil and why:find("not correctly signed", 1, true) == nil then
     return "trusted"
@@ -114,15 +115,15 @@ local OUTSIDE <const> = "Telia RSA TLS Root CA v3"
 local function test_minimal_roots_trust_only_their_own()
   local listed = carried_root("ISRG Root X1")
   local outside = carried_root(OUTSIDE)
-  assert(verdict(listed, { roots = "minimal" }) == "trusted")
-  local refused = verdict(outside, { roots = "minimal" })
+  assert(verdict(listed, { timeout_ns = Clock.seconds(60), roots = "minimal" }) == "trusted")
+  local refused = verdict(outside, { timeout_ns = Clock.seconds(60), roots = "minimal" })
   assert(refused:find("not correctly signed by the trusted CA", 1, true), refused)
   assert(refused:find('opts.roots = "mozilla"', 1, true), refused)
   assert(not refused:find("cosmic refresh", 1, true), refused)
-  assert(verdict(listed, {}) == "trusted")
-  local default = verdict(outside, {})
+  assert(verdict(listed, { timeout_ns = Clock.seconds(60) }) == "trusted")
+  local default = verdict(outside, { timeout_ns = Clock.seconds(60) })
   assert(default:find("not correctly signed by the trusted CA", 1, true) ~= nil, default)
-  assert(verdict(outside, { roots = "mozilla" }) == "trusted")
+  assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = "mozilla" }) == "trusted")
 end
 
 --- A list of digests trusts exactly the carried roots it names, in
@@ -131,9 +132,9 @@ local function test_roots_by_digest_trust_only_those()
   local outside = carried_root(OUTSIDE)
   local hex = Codec.hex(Hash.sha256(outside))
   local colons = hex:upper():gsub("(%x%x)", "%1:"):sub(1, -2)
-  assert(verdict(outside, { roots = { hex } }) == "trusted")
-  assert(verdict(outside, { roots = { colons } }) == "trusted")
-  local refused = verdict(carried_root("ISRG Root X1"), { roots = { hex } })
+  assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = { hex } }) == "trusted")
+  assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = { colons } }) == "trusted")
+  local refused = verdict(carried_root("ISRG Root X1"), { timeout_ns = Clock.seconds(60), roots = { hex } })
   assert(refused:find("not correctly signed", 1, true), refused)
 end
 
@@ -143,17 +144,17 @@ end
 local function test_ca_pins_a_certificate_in_code()
   local outside = carried_root(OUTSIDE)
   local listed = carried_root("ISRG Root X1")
-  assert(verdict(outside, { roots = "none", ca = pem(outside) }) == "trusted")
-  assert(verdict(outside, { roots = "none", ca = outside }) == "trusted")
-  assert(verdict(outside, { roots = "minimal", ca = pem(outside) }) == "trusted")
-  local refused = verdict(listed, { roots = "none", ca = pem(outside) })
+  assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = "none", ca = pem(outside) }) == "trusted")
+  assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = "none", ca = outside }) == "trusted")
+  assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = "minimal", ca = pem(outside) }) == "trusted")
+  local refused = verdict(listed, { timeout_ns = Clock.seconds(60), roots = "none", ca = pem(outside) })
   assert(refused:find("not correctly signed", 1, true), refused)
-  local _, nothing = Http.open("https://cosmic.test/", { roots = "none" })
+  local _, nothing = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), roots = "none" })
   assert(nothing:find("no CA roots to trust", 1, true), nothing)
   -- An empty list trusts none of the carried roots ($SSL_CERT_FILE's
   -- may still be trusted, or nothing at all).
   local none_listed: {string} = {}
-  assert(verdict(outside, { roots = none_listed }) ~= "trusted")
+  assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = none_listed }) ~= "trusted")
 end
 
 --- A `ca` the TLS stack cannot read fails the request, naming which.
@@ -166,7 +167,7 @@ local function test_an_unreadable_ca_fails_the_request()
     ["-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"] = "holds no certificate",
   }
   for ca, want in pairs(cases) do
-    local response, why = Http.open("https://cosmic.test/", { ca = ca, script = { "" } })
+    local response, why = Http.open("https://cosmic.test/", { timeout_ns = Clock.seconds(60), ca = ca, script = { "" } })
     assert(response == nil and why:find(want, 1, true) ~= nil, want .. ": " .. tostring(why))
   end
 end
@@ -178,12 +179,12 @@ local function test_trust_options_of_the_wrong_shape_raise()
     assert(not ok, "no raise")
     return tostring(err)
   end
-  assert(raised({ roots = "everything" }):find("opts.roots must be", 1, true))
-  assert(raised({ roots = { "abc" } }):find("opts.roots[1]", 1, true))
-  assert(raised({ roots = { string.rep("g", 64) } }):find("opts.roots[1]", 1, true))
-  assert(raised({ pin = "sha256//short=" }):find("opts.pin[1]", 1, true))
+  assert(raised({ timeout_ns = Clock.seconds(60), roots = "everything" }):find("opts.roots must be", 1, true))
+  assert(raised({ timeout_ns = Clock.seconds(60), roots = { "abc" } }):find("opts.roots[1]", 1, true))
+  assert(raised({ timeout_ns = Clock.seconds(60), roots = { string.rep("g", 64) } }):find("opts.roots[1]", 1, true))
+  assert(raised({ timeout_ns = Clock.seconds(60), pin = "sha256//short=" }):find("opts.pin[1]", 1, true))
   local no_pins: {string} = {}
-  assert(raised({ pin = no_pins }):find("opts.pin must hold a pin", 1, true))
+  assert(raised({ timeout_ns = Clock.seconds(60), pin = no_pins }):find("opts.pin must hold a pin", 1, true))
 end
 
 --- A public key pin is the base64 SHA-256 of the certificate's
@@ -202,7 +203,7 @@ local function test_public_key_pin_is_the_spki_hash()
   -- TODO: show a pin the server's key does not hash to failing the
   -- request, once a test can complete a TLS handshake: a canned first
   -- flight stops before curl checks the pin, and cosmic serves no TLS.
-  assert(verdict(root, { pin = { want, want } }) == "trusted")
+  assert(verdict(root, { timeout_ns = Clock.seconds(60), pin = { want, want } }) == "trusted")
 end
 
 --- Each of [`Http.minimal_roots`] is a root this binary carries, named

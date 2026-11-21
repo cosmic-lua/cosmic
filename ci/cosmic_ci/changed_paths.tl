@@ -32,6 +32,11 @@ local Plural = require("cosmic_ci.plural")
 local Proc = require("cosmic.proc")
 local StepEnv = require("cosmic_ci.step_env")
 
+-- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
+-- names a release whose Child has it: ci/ runs on that release, where a
+-- limit must be stated for the tree's checker yet FOREVER is not there.
+local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
+
 local record ChangedPaths
   --- What a run of git came to: whether it exited 0, and what it wrote to standard output.
   record Ran
@@ -66,7 +71,7 @@ function ChangedPaths.live_git(env: {string:string}): ChangedPaths.Git
     local timeout_ns: integer? = nil
     if seconds > 0 then timeout_ns = Clock.seconds(seconds) end
     local result, _ = Child.run(words, { env = env, stdin = "null", stdout = "capture",
-      timeout_ns = timeout_ns })
+      timeout_ns = timeout_ns or CEILING_NS })
     if result == nil or not result.ok then return { ok = false, output = "" } end
     return { ok = true, output = result.stdout or "" }
   end

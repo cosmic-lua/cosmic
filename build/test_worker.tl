@@ -1401,12 +1401,14 @@ function worker.invocation(given: worker.Invocation): worker.Command
       loopback = held.loopback, env = held.env, tmp = held.tmp, limits = held.limits,
       database = held.database }
     policy.set_env = env -- checked: field_fixed
-    return { argv = argv, options = {
+    -- `timeout_ns` is Child.FOREVER, which the harness cannot read: it
+    -- requires no cosmic.child value. The runner ends a worker past its limit.
+    return { argv = argv, options = { timeout_ns = -1,
       policy = policy, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
       fds = fds, process_group = false,
     } }
   end
-  return { argv = argv, options = {
+  return { argv = argv, options = { timeout_ns = -1, -- Child.FOREVER, as above
     env = env, cwd = given.cwd, stdin = "null", stdout = "capture", stderr = "stdout",
     fds = fds, process_group = true,
   } }

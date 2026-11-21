@@ -25,6 +25,7 @@ local Number = require("cosmic.number")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Time = require("cosmic.time")
+local type Tls = require("cosmic.tls")
 local errors = require("cosmic.internal.errors")
 local wire = require("cosmic.http.wire")
 
@@ -73,6 +74,10 @@ local record Server
     --- where one sits between (no header is read). Nil where the
     --- connection has none ([`Net.Conn`]'s `peer` says when).
     peer?: Net.Address
+    --- What the connection's TLS handshake settled -- its version, the
+    --- protocol ALPN chose, the host the client asked for (SNI) --
+    --- where [`Server.ServeSpec.tls`] serves it; nil in the clear.
+    tls?: Tls.Info
   end
 
   --- What a handler answers. The server writes `Date`,
@@ -140,6 +145,9 @@ local record Server
     end
     --- Bounds on what the server takes on; nil for every default.
     limits?: Limits
+    --- Serves HTTPS, presenting these certificates: see
+    --- [`Net.ServeSpec.tls`]. Nil to serve in the clear.
+    tls?: Tls.Certs
     --- How long any one read or write of a connection waits once a
     --- request's head is in -- the body's reads, the reply's writes
     --- -- (30 seconds); see [`Net.ServeSpec.timeout_ns`].
@@ -250,7 +258,7 @@ local LINGER_NS <const> = Clock.seconds(1)
 local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
-  listeners = true, handle = true, limits = true, compress = true, timeout_ns = true, grace_ns = true,
+  listeners = true, handle = true, limits = true, tls = true, compress = true, timeout_ns = true, grace_ns = true,
   idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_stop = true,
   on_error = true,
 }
@@ -775,6 +783,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local request: Server.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
+    tls = conn:tls(),
   }
   local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of
@@ -1032,6 +1041,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     listeners = listeners,
     serve = function(conn: Net.Conn) serve_conn(s, conn) end,
     limits = { connections = limits.connections or 256 },
+    tls = spec.tls,
     timeout_ns = s.timeout_ns,
     grace_ns = spec.grace_ns,
     on_ready = spec.on_ready,

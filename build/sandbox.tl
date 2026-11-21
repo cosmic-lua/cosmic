@@ -704,7 +704,7 @@ local function execute(argv: {string}, io: verb.Io?, held: mut {string}): intege
   -- default. A proxy of the caller's (https_proxy) is the relay's upstream,
   -- which the relay says once at its start, on the same line.
   local result, started = run(request.argv, {
-    policy = policy, fds = request.fds, timeout_ns = request.timeout_ns, cwd = request.cwd,
+    policy = policy, fds = request.fds, timeout_ns = request.timeout_ns or Child.FOREVER, cwd = request.cwd,
     relay_log = "inherit",
   })
   if result == nil then

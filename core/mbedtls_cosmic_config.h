@@ -54,9 +54,10 @@
 #define PSA_WANT_ALG_HMAC 1
 #define PSA_WANT_KEY_TYPE_HMAC 1
 
-/* Key agreement and signature verification for the ECDHE_ECDSA and
- * ECDHE_RSA cipher suites and TLS 1.3; P-256 and RSA key generation
- * and signing for cosmic.sign. */
+/* Key agreement, signing and signature verification for the
+ * ECDHE_ECDSA and ECDHE_RSA cipher suites and TLS 1.3, as a client and
+ * as a server; P-256 and RSA key generation and signing for
+ * cosmic.sign. */
 #define PSA_WANT_ALG_ECDH 1
 #define PSA_WANT_ALG_ECDSA 1
 #define PSA_WANT_ALG_DETERMINISTIC_ECDSA 1
@@ -72,6 +73,7 @@
 #define PSA_WANT_ECC_SECP_R1_521 1
 #define PSA_WANT_ECC_MONTGOMERY_255 1
 #define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_IMPORT 1
+#define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_BASIC 1
 #define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_EXPORT 1
 #define PSA_WANT_KEY_TYPE_RSA_KEY_PAIR_GENERATE 1
 #define PSA_WANT_KEY_TYPE_RSA_PUBLIC_KEY 1
@@ -117,16 +119,19 @@
 #define MBEDTLS_HAVE_TIME
 #define MBEDTLS_HAVE_TIME_DATE
 
-/* The TLS 1.2/1.3 client. */
+/* The TLS 1.2/1.3 client, and the server under cosmic.net's TLS
+ * listeners (core/tls.c), which signs its handshakes with an ECDSA or
+ * an RSA key. */
 #define MBEDTLS_SSL_TLS_C
 #define MBEDTLS_SSL_CLI_C
+#define MBEDTLS_SSL_SRV_C
 #define MBEDTLS_SSL_PROTO_TLS1_2
 #define MBEDTLS_SSL_PROTO_TLS1_3
 #define MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_EPHEMERAL_ENABLED
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
 /* SNI: a plain HTTP client is always talking to a virtual-hosted
- * server. ALPN: see patch/curl -- some TLS-terminating proxies refuse a
+ * server, and a server picks the certificate for the name asked. ALPN: see patch/curl -- some TLS-terminating proxies refuse a
  * ClientHello without it. */
 #define MBEDTLS_SSL_SERVER_NAME_INDICATION
 #define MBEDTLS_SSL_ALPN
@@ -136,7 +141,8 @@
 #define MBEDTLS_SSL_EXTENDED_MASTER_SECRET
 /* TLS 1.3's middlebox compatibility mode (RFC 8446 D.4): looks like a
  * TLS 1.2 session resumption on the wire, which some middleboxes and
- * proxies need to let the handshake through. */
+ * proxies need to let the handshake through; a server answers a client
+ * that uses it in kind. */
 #define MBEDTLS_SSL_TLS1_3_COMPATIBILITY_MODE
 /* TLS 1.3 forbids rsa_pkcs1_* in CertificateVerify; an RSA leaf needs
  * rsa_pss_rsae_* offered, which mbedtls gates on this rather than on
@@ -144,9 +150,10 @@
  * RSA-keyed server fails with handshake_failure. */
 #define MBEDTLS_X509_RSASSA_PSS_SUPPORT
 /* Left out on purpose: renegotiation (a server's HelloRequest is
- * answered with a no_renegotiation alert), session tickets (no
- * ticket-based resumption; a TLS 1.3 NewSessionTicket is read and
- * ignored), file-system loading of CA/CRL/key files (the trust store
+ * answered with a no_renegotiation alert, and a server refuses a
+ * client's), session tickets and caches (no resumption, either side; a
+ * TLS 1.3 NewSessionTicket is read and ignored, and a server sends
+ * none), client certificates on a server, file-system loading of CA/CRL/key files (the trust store
  * reaches curl through core/http.c), CRLs, and writing certificates.
  * curl's mbedtls backend guards each of those on the matching macro and
  * reports the option that needs one as not built in

@@ -27,11 +27,15 @@
 --- - A recursive alias (a [`Named`] of kind `alias`) is below what its body is below and above what is below its
 ---   body, one level read at a time; two aliases are related only where they are one, and a record, a class or an interface is below none.
 --- - A named type is nominal. Two uses of one declaration are related when their
----   arguments are the same types; a use is below an interface only when its
+---   arguments are the same types. A use is below an interface when its
 ---   declaration lists the interface, or one that extends it, with `is`, the
----   arguments of each listing read through the declaration. A record is not a
----   map and a map is not a record. A declaration used as a value (a [`Named`] with
----   `value`) is below itself alone: it is no instance of the declaration, lists no
+---   arguments of each listing read through the declaration. A record, class or
+---   interface that lists none of them is below the interface when it has each
+---   field and method of the interface and of what the interface extends, of the
+---   same type, `mut` and omittable as declared there, with the interface's
+---   receiver read as the type. A record is not a map and a map is not a record.
+---   A declaration used as a value (a [`Named`] with `value`) is below itself
+---   alone: it is no instance of the declaration, has no fields, lists no
 ---   interface and has no array part.
 --- - A function is below another when every argument count the other takes is
 ---   accepted (a parameter the other may omit is omittable here, one it does not
@@ -87,7 +91,8 @@ local record Relation
   ---
   --- - `mismatch`: no rule relates the two forms. `nominal`: two declarations, the target
   ---   not an interface. `not_listed`: the target is an interface the source's declaration
-  ---   does not list. `declaration_value`: a declaration used as a value, the table of its
+  ---   neither lists nor has each field of; `field` is the first field it lacks.
+  ---   `declaration_value`: a declaration used as a value, the table of its
   ---   functions, where a value of it is wanted, or the reverse. `variable`: a type variable, below only itself and its bound.
   --- - `nil`: the source is `nil` and the target admits none. `number_for_integer`: a `number`
   ---   where an `integer` is wanted. `never_target`: nothing is below `never`.
@@ -185,6 +190,10 @@ local record Relation
     --- For `not_listed`, every interface the declaration of `sub` lists, directly or
     --- through the ones it extends, as the uses its arguments make.
     lists?: {Type}
+    --- For `not_listed`, the first field of the interface that `sub` does not have as the interface declares it, the
+    --- type `sub` would have it at, and whether `sub` has a field or method of that name at all.
+    field?: Types.Field
+    has_name?: boolean
   end
 
   --- The binders a judge reads the bounds of type variables from, and what it settled
@@ -263,6 +272,16 @@ local record Relation
   --- declaration has no body.
   binder: function(decl: Types.Decl): {Types.TParam}
 
+  --- The type of a field of `x`, an interface, as `self_type` has it: `x`'s arguments put in and the receiver of a
+  --- function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
+  as_listed: function(store: Store, x: Named, field_type: Type, self_type: Type): Type?
+
+  --- For each field of the interface `pattern`, and of those it lists: the field's type as `pattern` declares it, with
+  --- its arguments put in and a function field's receiver `actual`, then as `actual` has it, in pairs. Nil where
+  --- `actual` is no record, class or interface, or has no field of one of the names. A solver reads the arguments of `pattern` from
+  --- them where `actual` conforms by its fields.
+  field_pairs: function(judge: Judge, pattern: Named, actual: Named): {Type}?
+
   --- The generic function type `f` with each of its type parameters replaced by the matching type of `args`, which
   --- stand where the function is used: a function type with no type parameters. Nil where the type it makes would
   --- nest deeper than the store allows. The variables of the binders around `f` keep their meaning.
@@ -306,7 +325,7 @@ local function through(why: boolean, kind: Relation.StepKind, index: integer?, r
   end
   return {
     code = r.code, path = path, sub = r.sub, super = r.super, index = r.index,
-    alternatives = r.alternatives, lists = r.lists,
+    alternatives = r.alternatives, lists = r.lists, field = r.field, has_name = r.has_name,
   }
 end
 
@@ -709,7 +728,7 @@ local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Re
   end
   return {
     code = r.code, path = r.path, sub = r.sub == ua and a or r.sub, super = r.super == ub and b or r.super, -- checked: and_ternary*2
-    index = r.index, alternatives = r.alternatives, lists = r.lists,
+    index = r.index, alternatives = r.alternatives, lists = r.lists, field = r.field, has_name = r.has_name,
   }
 end
 
@@ -728,6 +747,213 @@ local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Rel
     return nil
   end
   return leaf(j, why, "mismatch", a, b)
+end
+
+--- `f` with `receiver` as the type of its first parameter.
+local function with_receiver(store: Store, f: Fn, receiver: Type): Type
+  local params: mut {Types.Param} = {}
+  for i, p in ipairs(f.params) do
+    params[i] = { type = if i == 1 then receiver else p.type end, omittable = p.omittable }
+  end
+  local rets: mut {Alt} = {}
+  for i, alt in ipairs(f.rets) do
+    local narrows = alt.narrows
+    rets[i] = {
+      items = alt.items, tail = alt.tail,
+      narrows = if narrows ~= nil then { param = narrows.param, to = narrows.to, asserts = narrows.asserts } else nil end,
+    }
+  end
+  return store:fn({ tparams = f.tparams, params = params, rest = f.rest, rets = rets })
+end
+
+--- `t`, a field's type, with the receiver of a function replaced by `self_type` where it is one of `receivers`.
+local function with_receiver_of(store: Store, t: Type, receivers: {integer: boolean}, self_type: Type): Type
+  -- An omittable function field is `function(...)?`: the receiver is the function's.
+  local optional = (t.tag == "union") and t.nilable
+  local callable: Type = t
+  if optional then
+    callable = store:non_nil(t)
+  end
+  local receiver: Types.Param? = nil
+  if callable.tag == "fn" then
+    receiver = callable.params[1]
+  end
+  if (callable.tag == "fn") and receiver ~= nil and #callable.tparams == 0 and receivers[receiver.type.id] == true then
+    local replaced = with_receiver(store, callable, self_type)
+    if optional then
+      return store:optional(replaced)
+    end
+    return replaced
+  end
+  return t
+end
+
+function Relation.as_listed(store: Store, x: Named, field_type: Type, self_type: Type): Type?
+  local instance: Type? = field_type
+  if #x.args > 0 then
+    instance = instantiate_within(store, field_type, x.args)
+  end
+  if instance == nil then
+    return nil
+  end
+  return with_receiver_of(store, instance, { [x.id] = true }, self_type)
+end
+
+--- A field or method that `n` has, with the arguments of `n` put in.
+local record Supplied
+  type: Type
+  mut: boolean
+  omittable: boolean
+end
+
+--- The fields and methods of `n`'s declaration named `name`, and, for an interface, the fields it has from the
+--- interfaces it lists, which it may leave out.
+local function supplied(j: Relation.Judge, n: Named, name: string): {Supplied}
+  local out: mut {Supplied} = {}
+  local body = n.decl.body
+  if body == nil then
+    return out
+  end
+  local function add(t: Type?, is_mut: boolean, omittable: boolean)
+    if t ~= nil then
+      out[#out + 1] = { type = t, mut = is_mut, omittable = omittable }
+    end
+  end
+  local function own(t: Type): Type?
+    if #n.args > 0 then
+      return instantiate_within(j.store, t, n.args)
+    end
+    return t
+  end
+  for _, f in ipairs(body.fields) do
+    if f.name == name then
+      add(own(f.type), f.mut == true, f.omittable == true)
+    end
+  end
+  for _, m in ipairs(body.methods) do
+    if m.name == name then
+      add(own(m.type), false, false)
+    end
+  end
+  if n.decl.kind == "interface" then
+    for _, x in ipairs(closure_of(j, n).list) do
+      local xbody: Types.Body? = nil
+      if (x.tag == "named") then
+        xbody = x.decl.body
+      end
+      if (x.tag == "named") and xbody ~= nil then
+        for _, f in ipairs(xbody.fields) do
+          if f.name == name then
+            add(Relation.as_listed(j.store, x, f.type, n), f.mut == true, f.omittable == true)
+          end
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- A copy of `list`, which a refusal hands to code that may change it.
+local function copy_of(list: {Type}): {Type}
+  local out: mut {Type} = {}
+  for i, t in ipairs(list) do
+    out[i] = t
+  end
+  return out
+end
+
+--- Whether `a`, a record, class or interface, has every field of the interface `b` and of the interfaces it lists as
+--- they declare it: of exactly the type (a function field's receiver is `a`), `mut` exactly where it is, and
+--- omittable exactly where it is, the rule a listing with `is` is held to ([`lang.declarations`]). Nil where it
+--- does, else the refusal naming the first field it lacks.
+local function conforms(j: Relation.Judge, a: Named, b: Named, why: boolean, closure: Relation.Closure): Relation.Refusal?
+  local kind = a.decl.kind
+  if kind ~= "record" and kind ~= "class" and kind ~= "interface" and kind ~= "userdata" then
+    if not why then
+      return j.none
+    end
+    return { code = "not_listed", path = {}, sub = a, super = b, lists = copy_of(closure.list) }
+  end
+  defined(a)
+  defined(b)
+  local wanted: mut {Named} = { b }
+  -- A function field takes as its receiver the interface that declares it, or one that interface lists.
+  local receivers: mut {integer: boolean} = { [b.id] = true }
+  for _, x in ipairs(closure_of(j, b).list) do
+    if (x.tag == "named") then
+      wanted[#wanted + 1] = x
+      receivers[x.id] = true
+    end
+  end
+  local bbody = b.decl.body
+  if bbody ~= nil and bbody.array ~= nil then
+    -- An interface with an array part, which only a store's caller can build (the grammar has none), is met only by a
+    -- listing, which checks the part.
+    return { code = "not_listed", path = {}, sub = a, super = b, lists = copy_of(closure.list) }
+  end
+  for _, x in ipairs(wanted) do
+    local xbody = x.decl.body
+    local fields: {Types.Field} = if xbody ~= nil then xbody.fields else {} end
+    for _, f in ipairs(fields) do
+      local listed = Relation.as_listed(j.store, x, f.type, a)
+      local expected = if listed ~= nil then with_receiver_of(j.store, listed, receivers, a) else nil end
+      local found = supplied(j, a, f.name)
+      local ok = false
+      for _, s in ipairs(found) do
+        -- `invalid` stands for a mistake already reported, and for whatever type was meant.
+        local same = expected ~= nil and (s.type == expected or s.type.tag == "invalid" or expected.tag == "invalid")
+        if same and s.mut == (f.mut == true) and s.omittable == (f.omittable == true) then
+          ok = true
+          break
+        end
+      end
+      if not ok then
+        if not why then
+          return j.none
+        end
+        return {
+          code = "not_listed", path = {}, sub = a, super = b, lists = copy_of(closure.list),
+          field = { name = f.name, type = expected or f.type, mut = f.mut, omittable = f.omittable }, has_name = #found > 0,
+        }
+      end
+    end
+  end
+  return nil
+end
+
+--- For the solver: each field of the interface `b` and of those it lists, as `b` declares it and as `a` has it, in
+--- pairs; nil where `a` is no record, class or interface, or lacks a field by name.
+local function field_pairs(j: Relation.Judge, b: Named, a: Named): {Type}?
+  local kind = a.decl.kind
+  if a.value or (kind ~= "record" and kind ~= "class" and kind ~= "interface" and kind ~= "userdata") then
+    return nil
+  end
+  defined(a)
+  defined(b)
+  local wanted: mut {Named} = { b }
+  local receivers: mut {integer: boolean} = { [b.id] = true }
+  for _, x in ipairs(closure_of(j, b).list) do
+    if (x.tag == "named") then
+      wanted[#wanted + 1] = x
+      receivers[x.id] = true
+    end
+  end
+  local out: mut {Type} = {}
+  for _, x in ipairs(wanted) do
+    local xbody = x.decl.body
+    local fields: {Types.Field} = if xbody ~= nil then xbody.fields else {} end
+    for _, f in ipairs(fields) do
+      local listed = Relation.as_listed(j.store, x, f.type, a)
+      local found = supplied(j, a, f.name)[1]
+      if listed == nil or found == nil then
+        -- A type that lacks a field conforms to no use of the interface: nothing is read from the rest.
+        return nil
+      end
+      out[#out + 1] = with_receiver_of(j.store, listed, receivers, a)
+      out[#out + 1] = found.type
+    end
+  end
+  return out
 end
 
 local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): Relation.Refusal?
@@ -758,14 +984,8 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       if lists(closure, b) then
         return nil
       end
-      if not why then
-        return j.none
-      end
-      local copied: mut {Type} = {}
-      for i, listed in ipairs(closure.list) do
-        copied[i] = listed
-      end
-      return { code = "not_listed", path = {}, sub = a, super = b, lists = copied }
+      -- A type that lists no interface of `b`'s declaration conforms to it by having its fields.
+      return conforms(j, a, b, why, closure)
     end
     return leaf(j, why, "nominal", a, b)
   elseif b.tag == "string" and a.decl.kind == "enum" then
@@ -1009,6 +1229,9 @@ local function hooks_of(j: Relation.Judge): Generics.Hooks
     end,
     array_part = function(n: Named): Type?
       return array_part_of(j, n)
+    end,
+    fields = function(pattern: Named, actual: Named): {Type}?
+      return field_pairs(j, pattern, actual)
     end,
   }
 end
@@ -1265,6 +1488,12 @@ Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, 
     return nil
   end
   return self:refuse(argument, param)
+end
+
+function Relation.field_pairs(self: Relation.Judge, pattern: Named, actual: Named): {Type}?
+  owned(self, pattern)
+  owned(self, actual)
+  return field_pairs(self, pattern, actual)
 end
 
 Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listing -- checked: field_unknown

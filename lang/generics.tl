@@ -40,6 +40,10 @@ local record Generics
     listed: function(n: Named): {Type}
     --- The element type of the array part of the record `n`, or nil.
     array_part: function(n: Named): Type?
+    --- For each field of the interface `pattern`, the field's type as `pattern` declares it (its arguments put in, a
+    --- function field's receiver `actual`) and as `actual` has it, in pairs; nil where `actual` is no record, class or
+    --- interface, or lacks a field by name.
+    fields: function(pattern: Named, actual: Named): {Type}?
   end
 
   --- Two types a variable has no one type for.
@@ -450,7 +454,16 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
           break
         end
       end
-      if not found then
+      -- A type that lists no use of the interface conforms to it by its fields, which give the arguments.
+      local pairs_of = if found then nil else s.hooks.fields(pattern, actual) end
+      if pairs_of ~= nil then
+        for k = 1, #pairs_of - 1, 2 do
+          local p, a = pairs_of[k], pairs_of[k + 1]
+          if p ~= nil and a ~= nil then
+            visit(s, p, a, "both", at)
+          end
+        end
+      elseif not found then
         taint(s, pattern)
       end
     else

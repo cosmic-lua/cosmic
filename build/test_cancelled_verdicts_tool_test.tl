@@ -61,7 +61,7 @@ local function test_d_unstarted() assert(true) end
     local fd = assert(Fs.open_write(output))
     local args: mut {string} = { "test", "--jobs", "1" }
     for _, word in ipairs(words) do args[#args + 1] = word end
-    local start = this_program.program(args, { cwd = root, env = env, stdout = fd, stderr = fd })
+    local start = this_program.program(args, { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
     local result = assert(Child.run(start.argv, start.options))
     assert(Fs.close(fd))
     local text = assert(Fs.read(output))
@@ -83,7 +83,7 @@ local function test_d_unstarted() assert(true) end
   local output = tmp .. "/cancelled.out"
   local fd = assert(Fs.open_write(output))
   local start = this_program.program({ "test", "--all", "--jobs", "1" },
-    { cwd = root, env = env, stdout = fd, stderr = fd })
+    { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
   local handle <close> = assert(Child.start(start.argv, start.options))
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)

@@ -107,7 +107,7 @@ local OWNER_ONLY <const> = 0x180
 local READABLE <const> = 0x1a4
 
 local function default_run(argv: {string}): boolean, string
-  local result, why = Child.run(argv, { stdout = 2 })
+  local result, why = Child.run(argv, { timeout_ns = Child.FOREVER, stdout = 2 })
   if result == nil then return false, why end
   if not result.ok then
     local how = if result.code ~= nil then "exited " .. tostring(result.code)

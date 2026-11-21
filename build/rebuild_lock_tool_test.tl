@@ -53,7 +53,7 @@ local function start_test(root: string, output: string): Child.Handle
   local env = this_program.environment()
   env.COSMIC_TEST_SANDBOX = "0" -- checked: map_field
   env.COSMIC_VERDICT_CACHE = "0" -- checked: map_field
-  local started = this_program.program({ "test" }, {
+  local started = this_program.program({ "test" }, { timeout_ns = Child.FOREVER,
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true,
   })
   local h = assert(Child.start(started.argv, started.options))
@@ -82,7 +82,7 @@ local function test_a_named_holder_says_how_long_it_has_held_the_lock(tmp: strin
   assert(support.build_dir(root))
   local file = support.build_dir(root) .. "/rebuild.lock.pid"
   local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep_ns(60000000000))' },
-    { cwd = root, env = this_program.environment(), process_group = true })
+    { timeout_ns = Child.FOREVER, cwd = root, env = this_program.environment(), process_group = true })
   local sleeper <close> = assert(Child.start(started.argv, started.options))
   local now = Clock.now_ns() // Clock.seconds(1)
   assert(Fs.write(file, tostring(sleeper.pid) .. "\ntest\n"))
@@ -170,7 +170,7 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local output = tmp .. "/run.out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "hello.tl" }, {
+  local started = this_program.program({ "hello.tl" }, { timeout_ns = Child.FOREVER,
     cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
     process_group = true,
   })
@@ -227,7 +227,7 @@ local function test_a_build_commits_its_row_before_it_waits_to_publish(tmp: stri
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local output = tmp .. "/run.out"
   local fd = assert(Fs.open_write(output))
-  local started = this_program.program({ "hello.tl" }, {
+  local started = this_program.program({ "hello.tl" }, { timeout_ns = Child.FOREVER,
     cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
     process_group = true,
   })
@@ -266,7 +266,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
     assert(rebuild_lock.take(root, 0, "test") == "held")
     local output = root .. "/a.out"
     local fd = assert(Fs.open_write(output))
-    local started = this_program.program({ "main.tl" }, {
+    local started = this_program.program({ "main.tl" }, { timeout_ns = Child.FOREVER,
       cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
       process_group = true,
     })
@@ -302,7 +302,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         assert(db:close())
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
-        local command = this_program.program({ "main.tl" }, {
+        local command = this_program.program({ "main.tl" }, { timeout_ns = Child.FOREVER,
           cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
         })
         local failed = assert(Child.run(command.argv, command.options))

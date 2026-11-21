@@ -136,7 +136,7 @@ return function(argv: {string}): integer
   for target, source in pairs(relaunch.fds) do fds[target] = source end
   local proc_sys, _ = sys.stat("/proc/sys")
   local own = proc_sys == nil
-  local r, trouble = Child.run(words, { env = relaunch.env, fds = fds, cwd = "/", process_group = false,
+  local r, trouble = Child.run(words, { timeout_ns = Child.FOREVER, env = relaunch.env, fds = fds, cwd = "/", process_group = false,
     sandbox = { unveil = { reads = reads, writes = { reports } }, offline = true } })
   if r == nil then
     print("refused " .. (if own then "own" else "host" end) .. " " .. trouble)

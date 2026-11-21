@@ -187,19 +187,33 @@ end
 --- @return string Why not
 function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local sink = assert(app.spec.sink)
+  local listeners: mut {Net.Address} = {}
+  for _, address in ipairs(opts.listeners or {}) do listeners[#listeners + 1] = address end
+  local tls = opts.tls
+  local tailnet = opts.tailnet
+  if tailnet ~= nil and tailnet ~= false then
+    if tls ~= nil then error("web: serve takes tls or tailnet, not both", 2) end
+    -- Required here, so an app that serves no tailnet loads no client of
+    -- tailscaled.
+    local Tailnet = require("cosmic.web.tailnet")
+    local reached, why = Tailnet.serving(if tailnet is boolean then {} else tailnet end)
+    if reached == nil then return false, why end
+    for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
+    tls = reached.certs
+  end
   if app.spec.dev == true then
     if app.spec.trusted_proxy == true then
       return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
-    for _, address in ipairs(opts.listeners or {}) do -- checked: condition_type, literal_needs_type
+    for _, address in ipairs(listeners) do
       if not loopback(address) then
         return false, "web: an app in development mode (Dev.app) serves only on the loopback"
       end
     end
   end
   if app.spec.debug == true then
-    for _, address in ipairs(opts.listeners or {}) do -- checked: condition_type, literal_needs_type
+    for _, address in ipairs(listeners) do
       if not loopback(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..
             "a fault shows its stack to whoever asks")
@@ -221,7 +235,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()
     served.ok, served.err = Server.serve({
-      listeners = opts.listeners, limits = opts.limits, timeout_ns = opts.timeout_ns,
+      listeners = listeners, limits = opts.limits, tls = tls, timeout_ns = opts.timeout_ns,
       idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns,
       grace_ns = opts.grace_ns or GRACE_NS, on_ready = opts.on_ready, handle = app.handle,
       on_stop = function(server: Net.Server)

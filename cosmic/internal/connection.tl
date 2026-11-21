@@ -6,14 +6,20 @@
 --- cosmic.net requires: naming cosmic.net's types from it would be an
 --- import cycle.
 
+local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local type Stream = require("cosmic.stream")
 local type raw_socket = require("cosmic.internal.socket")
+local type raw_tls = require("cosmic.internal.tls")
 
 local raw = require("cosmic.internal.socket")
+local tls = require("cosmic.internal.tls")
 
 local DEFAULT_READ <const> = 64 * 1024
+
+--- The most a TLS session's read answers: one record's plaintext.
+local RECORD_BYTES <const> = 16 * 1024
 
 --- Waits for `fd` to be readable, or writable, at most `timeout_ns`, which
 --- the caller has held to what a wait can last: in a
@@ -36,6 +42,18 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer?): boo
   if errno == raw.ETIMEDOUT then return false, Poll.TIMEOUT end
   if errno == raw.EINTR then return false, "interrupted" end
   return false, trouble
+end
+
+--- When a call that waits `limit` (nil for no limit) from now must end.
+local function deadline_of(limit: integer?): integer?
+  if limit == nil then return nil end
+  return Clock.monotonic_ns() + limit
+end
+
+--- What is left of a wait that ends at `deadline`, from 0; nil for none.
+local function left(deadline: integer?): integer?
+  if deadline == nil then return nil end
+  return math.max(deadline - Clock.monotonic_ns(), 0)
 end
 
 --- Which direction of a connection [`SocketConn.shutdown`] ends.
@@ -72,9 +90,15 @@ local class SocketConn is Duplex
   mut write_failure: string
   --- Never present: [`Stream.skip`] reads and discards a connection's bytes.
   skip?: function(SocketConn, n: integer): boolean, string
+  --- Internal: the TLS session every read and write goes through, on a
+  --- connection a TLS listener accepted; nil for one in the clear. No
+  --- caller reads or writes it.
+  mut session?: raw_tls.Session
 
   --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
-  --- nil for no limit. A connection starts with the `timeout_ns` it
+  --- nil for no limit. On a connection a TLS listener accepted it bounds
+  --- the whole call, the handshake and every wait for a record's bytes
+  --- with it. A connection starts with the `timeout_ns` it
   --- was made with: [`Net.connect`]'s, or its listener's or server's.
   --- A value no wait can last raises, naming `timeout_ns`, at the
   --- caller.
@@ -105,6 +129,25 @@ local class SocketConn is Duplex
     if not self.open then return nil, "net: the connection is closed" end
     if self.read_failure ~= "" then return nil, self.read_failure end
     local fd = self.fd
+    local session = self.session
+    if session ~= nil then
+      -- One deadline for the call, however many waits a handshake or a
+      -- record takes: a peer sending a byte a wait would hold a read for
+      -- ever, and the server's head and idle deadlines with it.
+      local deadline = deadline_of(self.limit)
+      while true do
+        local data, why, stop = session:read(math.min(max_bytes or RECORD_BYTES, RECORD_BYTES))
+        if data ~= nil then return data, "" end
+        if stop == tls.ENDED then return nil, "" end
+        if stop == tls.FAILED then
+          self.read_failure = why
+          return nil, why
+        end
+        local ready, waiting = waited(fd, stop == tls.WRITE, left(deadline))
+        if not ready then return nil, waiting end
+        if not self.open then return nil, "net: the connection is closed" end
+      end
+    end
     while true do
       local data, why, errno = sys.read(fd, max_bytes or DEFAULT_READ)
       if data == "" then return nil, "" end
@@ -132,6 +175,28 @@ local class SocketConn is Duplex
     if self.write_failure ~= "" then return false, self.write_failure end
     local fd = self.fd
     local from = 1
+    local session = self.session
+    if session ~= nil then
+      local deadline = deadline_of(self.limit)
+      while from <= #data do
+        local took, why, stop = session:write(data, from)
+        if took ~= nil then
+          from = from + took
+        elseif stop == tls.FAILED or stop == tls.ENDED then
+          local trouble = if stop == tls.ENDED then "tls: the peer ended the session" else why end
+          self.write_failure = trouble
+          return false, trouble
+        else
+          local ready, waiting = waited(fd, stop == tls.WRITE, left(deadline))
+          if not ready then
+            self.write_failure = waiting
+            return false, waiting
+          end
+          if not self.open then return false, "net: the connection is closed" end
+        end
+      end
+      return true, ""
+    end
     while from <= #data do
       local sent, why, errno = raw.send(fd, data, from)
       if sent ~= nil then
@@ -149,6 +214,43 @@ local class SocketConn is Duplex
       end
     end
     return true, ""
+  end
+
+  --- Completes the TLS handshake of a connection a TLS listener
+  --- accepted, waiting as a read does; true at once for one in the
+  --- clear, and for one whose handshake is done. A read or a write
+  --- handshakes first by itself: this is for a caller that would know
+  --- what [`tls`] says before it reads. False and why otherwise, which
+  --- is every read's and write's after.
+  function handshake(self): boolean, string
+    local session = self.session
+    if session == nil then return true, "" end
+    if not self.open then return false, "net: the connection is closed" end
+    if self.read_failure ~= "" then return false, self.read_failure end
+    local deadline = deadline_of(self.limit)
+    while true do
+      local done, why, stop = session:handshake()
+      if done then return true, "" end
+      if stop == tls.FAILED or stop == tls.ENDED then
+        local trouble = if stop == tls.ENDED then "tls: the peer left during the handshake" else why end
+        self.read_failure = trouble
+        self.write_failure = trouble
+        return false, trouble
+      end
+      local ready, waiting = waited(self.fd, stop == tls.WRITE, left(deadline))
+      if not ready then return false, waiting end
+      if not self.open then return false, "net: the connection is closed" end
+    end
+  end
+
+  --- What the TLS handshake settled -- the version, the protocol ALPN
+  --- chose, the name the client asked for -- on a connection a TLS
+  --- listener accepted, once [`handshake`] or a read has completed it;
+  --- nil for a connection in the clear, or one closed.
+  function tls(self): raw_tls.Info?
+    local session = self.session
+    if session == nil or not self.open then return nil end
+    return session:info()
   end
 
   --- Where the peer is: its numeric TCP address, as the kernel names it
@@ -197,6 +299,14 @@ local class SocketConn is Duplex
       error("net: how must be \"read\", \"write\" or \"both\"", 2)
     end
     if not self.open then return false, "net: the connection is closed" end
+    local session = self.session
+    if session ~= nil and how ~= "read" then
+      -- The peer reads the end of what was sent from the alert: a TCP
+      -- end alone may be an attacker's truncation. Sent if the socket
+      -- takes it now; a TLS session is never resumed, so one lost costs
+      -- the peer only that certainty.
+      local _, _ = session:close_notify()
+    end
     local ok, why = raw.shutdown(self.fd, how)
     if not ok then return false, why end
     return true, ""
@@ -207,6 +317,12 @@ local class SocketConn is Duplex
     if not self.open then return true, "" end
     self.open = false
     Poll.closing(self.fd)
+    local session = self.session
+    if session ~= nil then
+      -- As in `shutdown`: sent if the socket takes it at once.
+      if self.write_failure == "" then local _, _ = session:close_notify() end
+      session:free()
+    end
     local ok, why = self.socket:close()
     if not ok then return false, why end
     return true, ""
@@ -256,6 +372,11 @@ local record Connection
   --- The connection over `socket`, waiting `timeout_ns` on its reads and writes.
   new: function(socket: raw_socket.Socket, timeout_ns: integer?): Conn
 
+  --- The connection over the accepted `socket`, as [`new`]'s, through
+  --- a TLS session of `config`, the server's side; nil and why where
+  --- the session cannot be set up, the socket closed.
+  secured: function(socket: raw_socket.Socket, timeout_ns: integer?, config: raw_tls.Config): Conn?, string
+
   --- Waits for `fd` to be readable, or writable, at most `timeout_ns`.
   waited: function(fd: integer, writable: boolean, timeout_ns: integer?): boolean, string
 end
@@ -263,8 +384,19 @@ end
 function Connection.new(socket: raw_socket.Socket, timeout_ns: integer?): SocketConn
   local conn: SocketConn = {
     socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
-    read_failure = "", write_failure = "", skip = nil }
+    read_failure = "", write_failure = "", skip = nil, session = nil }
   return conn
+end
+
+function Connection.secured(socket: raw_socket.Socket, timeout_ns: integer?, config: raw_tls.Config): SocketConn?, string
+  local conn = Connection.new(socket, timeout_ns)
+  local session, why = tls.session(config, conn.fd)
+  if session == nil then
+    local _, _ = socket:close()
+    return nil, why
+  end
+  conn.session = session
+  return conn, ""
 end
 
 function Connection.waited(fd: integer, writable: boolean, timeout_ns: integer?): boolean, string

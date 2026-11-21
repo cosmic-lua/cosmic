@@ -25,7 +25,7 @@ local CAT <const> = "/bin/cat"
 --- Runs `/bin/cat file` under `policy`: its output and status; the test is
 --- skipped where this host gives no Landlock or seccomp.
 local function cat(policy: Sandbox.Policy, file: string): string, integer
-  local result, why = Child.run({ CAT, file }, { policy = policy, stdout = "capture", stderr = "stdout" })
+  local result, why = Child.run({ CAT, file }, { timeout_ns = Child.FOREVER, policy = policy, stdout = "capture", stderr = "stdout" })
   if result == nil then
     if why:find("Landlock", 1, true) or why:find("seccomp", 1, true) or why:find("not implemented", 1, true) then
       Test.skip(why)
@@ -56,7 +56,7 @@ end
 
 local function test_without_the_profile_the_loader_is_not_granted_and_the_start_says_so(tmp: string)
   local real = assert(sys.realpath(CAT))
-  local none, why = Child.start({ CAT, tmp }, { policy = { grants = { { path = real, letters = "rx" } } } })
+  local none, why = Child.start({ CAT, tmp }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = real, letters = "rx" } } } })
   -- A static program, as on some hosts, needs nothing more and starts.
   if none ~= nil then
     Test.skip("a static program needs no loader, so its start is not refused")

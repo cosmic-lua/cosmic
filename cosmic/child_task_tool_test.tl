@@ -23,8 +23,8 @@ Test.policy{
 --- The functions of cosmic.child these tests call, of one copy of the module. A copy loaded again is no value of the
 --- module's record, so a test reads the two functions it calls and not the module.
 local record Entry
-  run: function(argv: {string}, opts?: Child.Options): Child.Result?, string
-  start: function(argv: {string}, opts?: Child.Options): Child.Handle?, string
+  run: function(argv: {string}, opts: Child.Options): Child.Result?, string
+  start: function(argv: {string}, opts: Child.Options): Child.Handle?, string
 end
 
 --- cosmic.child over a raw table whose members `alter` replaces on a copy of
@@ -53,7 +53,7 @@ local function reloaded(alter: function({string: any})): Entry
     if not ok then error(err, 0) end
   end
   return {
-    run = function(argv: {string}, opts?: Child.Options): Child.Result?, string
+    run = function(argv: {string}, opts: Child.Options): Child.Result?, string
       local result: Child.Result? = nil
       local why: string = ""
       standing(function()
@@ -62,7 +62,7 @@ local function reloaded(alter: function({string: any})): Entry
       end)
       return result, why
     end,
-    start = function(argv: {string}, opts?: Child.Options): Child.Handle?, string
+    start = function(argv: {string}, opts: Child.Options): Child.Handle?, string
       local handle: Child.Handle? = nil
       local why: string = ""
       standing(function()
@@ -133,7 +133,7 @@ local function test_a_run_in_a_task_lets_the_others_run()
   for _, module in ipairs(both()) do
     local r: Child.Result? = nil
     local ticks = ticking(function()
-      r = assert(module.run(lua(sleep(300) .. 'print("done")', { stdout = "capture" })))
+      r = assert(module.run(lua(sleep(300) .. 'print("done")', { timeout_ns = Child.FOREVER, stdout = "capture" })))
     end)
     local finished = assert(r)
     assert(finished.ok and finished.stdout == "done\n", tostring(finished.stdout))
@@ -174,7 +174,7 @@ local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
     -- wake every second to reap orphans, and so look.
     local h <close> = assert(module.start(lua(
       'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end',
-      { stdin = "stream", process_group = false })))
+      { timeout_ns = Child.FOREVER, stdin = "stream", process_group = false })))
     local exited = assert(exit_watch(h.pid))
     local waiter = Poll.spawn(function()
       waited = assert(h:wait())
@@ -217,7 +217,7 @@ local function test_every_child_started_here_has_an_exit_watch()
     for _ = 1, 3 do
       local h <close> = assert(module.start(lua(
         'local Fs = require("cosmic.fs") while assert(Fs.take(0, 4096)) ~= "" do end',
-        { stdin = "stream", process_group = false })))
+        { timeout_ns = Child.FOREVER, stdin = "stream", process_group = false })))
       assert(assert(h.stdin_stream):close())
       assert(assert(h:wait()).ok)
     end
@@ -502,7 +502,7 @@ local function test_streams_in_a_task_let_the_others_run()
     local ticks = ticking(function()
       local h <close> = assert(module.start(lua(
         'local Fs = require("cosmic.fs") assert(Fs.put(1, "a")) ' .. sleep(200) ..
-          'assert(Fs.put(1, "b"))', { stdout = "stream" })))
+          'assert(Fs.put(1, "b"))', { timeout_ns = Child.FOREVER, stdout = "stream" })))
       local reader = assert(h.stdout_stream)
       while true do
         local chunk, why = reader:read()
@@ -516,7 +516,7 @@ local function test_streams_in_a_task_let_the_others_run()
       fed = assert(module.run(lua(
         'local Fs = require("cosmic.fs") ' .. sleep(100) ..
           'while true do local s = assert(Fs.take(0, 65536)) if s == "" then break end ' ..
-          'assert(Fs.put(1, s)) end', { input = input, stdout = "capture" })))
+          'assert(Fs.put(1, s)) end', { timeout_ns = Child.FOREVER, input = input, stdout = "capture" })))
     end)
     assert(table.concat(got) == "ab", table.concat(got, "|"))
     local echoed = assert(fed, "the child never answered")
@@ -582,7 +582,7 @@ Poll.run(function()
     argv[#argv + 1] = 'require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(100000))'
     local env: mut {string:string} = Env.all()
     for name, value in pairs(relaunch.env) do env[name] = value end
-    local r, why = Child.run(argv, { env = env, fds = relaunch.fds })
+    local r, why = Child.run(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds })
     held.answer = tostring(r) .. " " .. why
   end)
   local ticker = Poll.spawn(function()
@@ -620,7 +620,7 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
   Poll.run(function()
     -- The child outlives the write, and its handle's close ends it: one
     -- that exited first would fail the write with EPIPE instead.
-    local h <close> = assert(Child.start(lua(sleep(100000), { stdin = "stream" })))
+    local h <close> = assert(Child.start(lua(sleep(100000), { timeout_ns = Child.FOREVER, stdin = "stream" })))
     local stream = assert(h.stdin_stream)
     local writer = Poll.spawn(function()
       wrote, why = stream:write(string.rep("x", 1 << 20))

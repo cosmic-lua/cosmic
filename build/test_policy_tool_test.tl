@@ -182,7 +182,7 @@ Test.policy {}
 
 local function test_the_program_is_refused()
   local launched = assert(Proc.relaunch())
-  local result, why = Child.run({ assert(launched.argv[1]), "-e", "return" })
+  local result, why = Child.run({ assert(launched.argv[1]), "-e", "return" }, { timeout_ns = Child.FOREVER })
   assert(result == nil and tostring(why):find("Permission denied", 1, true) ~= nil, tostring(why))
 end
 ]]))
@@ -312,7 +312,7 @@ local Proc = require("cosmic.proc")
 local function test_runs_the_core()
   local launched, _ = Proc.relaunch()
   if launched == nil then return end
-  local result, why = Child.run({ assert(launched.argv[1]), "-e", "" }, { process_group = false,
+  local result, why = Child.run({ assert(launched.argv[1]), "-e", "" }, { timeout_ns = Child.FOREVER, process_group = false,
     stdout = "capture", stderr = "stdout" })
   assert(result ~= nil, tostring(why))
 end

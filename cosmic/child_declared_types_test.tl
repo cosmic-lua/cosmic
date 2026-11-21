@@ -23,7 +23,7 @@ end
 
 local function test_an_ended_stream_and_a_passed_deadline_are_as_declared()
   local found = TypeWatch.during(function()
-    local done = run('assert(require("cosmic.fs").put(1, "hi"))', { stdout = "capture", stderr = "capture" })
+    local done = run('assert(require("cosmic.fs").put(1, "hi"))', { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
     assert(done.ok and done.stdout == "hi")
     local late = run("while true do end", { stdout = "capture", timeout_ns = Clock.ms(200) })
     assert(not late.ok)
