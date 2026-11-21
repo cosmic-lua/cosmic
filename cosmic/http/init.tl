@@ -52,7 +52,7 @@ local Stream = require("cosmic.stream")
 local type Net = require("cosmic.net")
 
 --- The body of a curl handle, which it owns.
-local class HandleReader is Stream.Reader -- declared: interface_disagrees
+local class HandleReader is Stream.Reader
   handle: raw_http.Handle
   mut closed: boolean
 
@@ -112,7 +112,7 @@ end
 
 --- The Response over a handle whose final headers are known.
 local function respond(handle: raw_http.Handle): Response
-  local body: HandleReader = { handle = handle, closed = false }
+  local body: HandleReader = { handle = handle, closed = false, skip = nil }
   local response: Response = {
     status = handle:status(),
     headers = handle:headers(),
@@ -1393,7 +1393,7 @@ end
 
 --- A Reader over a Response that fails with "interrupted" once
 --- `cancelled` answers true.
-local class CancellableReader is Stream.Reader -- declared: interface_disagrees
+local class CancellableReader is Stream.Reader
   response: Response
   cancelled: function(): boolean
 
@@ -1415,7 +1415,7 @@ end
 --- body, so a body that came whole is still refused after a cancel.
 local function cancellable(response: Response, cancelled: function(): boolean): Stream.Reader
   local reader: CancellableReader = {
-    response = response, cancelled = cancelled,
+    response = response, cancelled = cancelled, skip = nil,
   }
   return reader
 end

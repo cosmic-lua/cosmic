@@ -226,7 +226,7 @@ end
 local function test_head_is_answered_with_no_body()
   local read_from: boolean = false
   local closed: boolean = false
-  local record Watched is Stream.Reader -- declared: interface_disagrees
+  local record Watched is Stream.Reader
     read: function(Watched, max_bytes?: integer): string?, string
     close: function(Watched): boolean, string
   end
@@ -629,7 +629,7 @@ end
 --- goes to on_error.
 local function test_a_reply_body_that_raises_closes_the_connection()
   local closed: boolean = false
-  local record Raising is Stream.Reader -- declared: interface_disagrees
+  local record Raising is Stream.Reader
     read: function(Raising, max_bytes?: integer): string?, string
     close: function(Raising): boolean, string
   end
@@ -660,7 +660,7 @@ end
 --- bytes after it are no request to serve.
 local function test_a_body_failing_under_the_reply_closes_the_connection()
   local paths: mut {string} = {}
-  local record Lenient is Stream.Reader -- declared: interface_disagrees
+  local record Lenient is Stream.Reader
     source: Stream.Reader
     read: function(Lenient, max_bytes?: integer): string?, string
     close: function(Lenient): boolean, string

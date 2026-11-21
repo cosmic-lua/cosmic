@@ -43,8 +43,6 @@ local record Stream
     read: function(Reader, max_bytes?: integer): string?, string
     --- Releases what the Reader holds. Safe to call more than once.
     close: function(Reader): boolean, string
-    -- TODO: declare `skip?:` (set nil in the constructor) in each Reader that lacks it (the `declared: interface_disagrees`
-    -- rows), and `pending?:` of Transform.
 
     --- Present only on a Reader that can move forward without reading
     --- (one over a regular file): skips `n` bytes, failing when that
@@ -624,7 +622,7 @@ local function step(self: TransformReader): string?, string
   return codec:update(chunk)
 end
 
-local class TransformReader is Stream.Reader -- declared: interface_disagrees
+local class TransformReader is Stream.Reader
   source: Stream.Reader
   codec: Stream.Transform
   -- `batch` holds the codec's last batch of output, and `at` is how
@@ -681,11 +679,11 @@ end
 --- still holding. A codec or `reader` error ends it, stickily.
 function Stream.transform(reader: Stream.Reader, codec: Stream.Transform): Stream.Reader
   local r: TransformReader = { source = reader, codec = codec, batch = "", at = 1,
-    at_eof = false, finished = false, failed = nil, closed = false }
+    at_eof = false, finished = false, failed = nil, closed = false, skip = nil }
   return r
 end
 
-local class LimitReader is Stream.Reader -- declared: interface_disagrees
+local class LimitReader is Stream.Reader
   source: Stream.Reader
   mut left: integer
   mut closed: boolean
@@ -711,11 +709,11 @@ end
 --- however much `reader` still has. Closing it does not close `reader`,
 --- since the usual reason for a limit is more of `reader` still to come.
 function Stream.limit(reader: Stream.Reader, n: integer): Stream.Reader
-  local r: LimitReader = { source = reader, left = n, closed = false }
+  local r: LimitReader = { source = reader, left = n, closed = false, skip = nil }
   return r
 end
 
-local class PrependReader is Stream.Reader -- declared: interface_disagrees
+local class PrependReader is Stream.Reader
   prefix: string
   source: Stream.Reader
   mut at: integer
@@ -747,7 +745,7 @@ end
 --- closes `reader`. It cannot `skip`.
 function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
   local r: PrependReader = { prefix = prefix, source = reader, at = 1,
-    closed = false }
+    closed = false, skip = nil }
   return r
 end
 
@@ -894,7 +892,7 @@ local rested <const> = "stream: these lines ended at `rest`; read the Reader it 
 
 -- What `rest` gives once the Reader has nothing more to read through:
 -- `why` on every read ("" for the end), and the Reader closed on close.
-local class SpentReader is Stream.Reader -- declared: interface_disagrees
+local class SpentReader is Stream.Reader
   source: Stream.Reader
   why: string
   mut closed: boolean
@@ -1000,7 +998,7 @@ local class LineReader is Stream.Lines
     self.chunk, self.at, self.parts, self.held = "", 1, {}, 0
     if self.failed ~= "" or self.ended then
       local spent: SpentReader = { source = self.source, why = self.failed,
-        closed = false }
+        closed = false, skip = nil }
       return Stream.prepend(ahead, spent)
     end
     return Stream.prepend(ahead, self.source)
