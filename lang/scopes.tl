@@ -246,6 +246,7 @@ end
 
 Scopes.primitives = {
   any = true, boolean = true, integer = true, never = true, number = true, string = true, thread = true,
+  Ordered = true, Numeric = true,
 }
 
 -- A function being walked.

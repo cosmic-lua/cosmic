@@ -216,8 +216,6 @@ do
   end
 
   global record math
-    type Numeric = number | integer
-
     abs: function(integer): integer
     abs: function(number): number
     acos: function(number): number

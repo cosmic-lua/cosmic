@@ -419,8 +419,9 @@ Codes.catalog = {
   },
   {
     code = "bound_unmet", rule = "generic bodies compare, pass and store",
-    why = "a type parameter bounded by an interface (`T is Ordered`) takes only the types that list it, since the body " ..
-      "does with a `T` only what the interface declares; a type conforms to an interface only by listing it",
+    why = "a type parameter bounded by an interface (`T is Shape`) takes only the types that list it, since the body " ..
+      "does with a `T` only what the interface declares; a type conforms to an interface only by listing it. `Ordered` " ..
+      "takes a number type or a string type, and `Numeric` `integer` or `number`, for the operators the body applies",
     fix = "list the interface in the declaration of <type> (`is <interface>`), or pass a type that does",
   },
   {
@@ -521,9 +522,9 @@ Codes.catalog = {
   },
   {
     code = "generic_op", rule = "generic bodies compare, pass and store",
-    why = "a type variable ranges over every type, so an operator is defined on it only through the interface it " ..
-      "is bounded by",
-    fix = "bound <parameter> by an interface that declares the operation (`T is Ordered`)",
+    why = "a type variable ranges over every type, so an operator is defined on it only through its bound: `Ordered` " ..
+      "gives `<` of two of its values, and `Numeric` arithmetic and `<` with any number",
+    fix = "bound <parameter> by `Ordered` to compare its values (`T is Ordered`), or by `Numeric` for arithmetic",
   },
   {
     code = "cast_refused", rule = "no casts",

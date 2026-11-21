@@ -672,3 +672,71 @@ local function test_a_class_gives_the_type_arguments_of_the_interface_it_lists_a
   local rows = "local record Rows is {string}\n  count: integer\nend\nlocal r: Rows = { count = 1, \"a\" }\n"
   assert(type_of(rows .. "local v = first(r)\n", "v") == "string?")
 end
+
+-- the built-in bounds `Ordered` and `Numeric` -------------------------------------------------------------------------
+
+local MAX <const> = "local function max<T is Ordered>(a: T, b: T): T\n  if a < b then\n    return b\n  end\n  return a\nend\n"
+local SUM <const> = "local function sum<N is Numeric>(xs: {N}, zero: N): N\n  local t = zero\n  for _, x in ipairs(xs) do\n" ..
+  "    t = t + x * 2 - 1\n  end\n  return -(-t)\nend\n"
+
+--- A parameter bounded by `Ordered` compares two of its values; a number type or a string type meets it, and the call
+--- answers the argument's type.
+local function test_a_parameter_bounded_by_ordered_compares_its_values()
+  stands(MAX .. "print(max(1, 2), max(2.5, 1.5), max(\"a\", \"b\"))\n", "2\t2.5\tb")
+  assert(type_of(MAX .. "local s = max(\"a\", \"b\")\n", "s") == "string")
+  assert(type_of(MAX .. "local n = max(1, 2)\n", "n") == "integer")
+  -- An enum is a string type.
+  stands("local enum Size\n  \"small\" \"large\"\nend\n" .. MAX .. "local a: Size = \"small\"\nlocal b: Size = \"large\"\n" ..
+      "print(max(a, b))\n", "small")
+end
+
+--- `Ordered` is met by no type whose values may be numbers and strings, since `<` of the two raises, nor by a type
+--- with no order; a parameter's values compare with no value of another type.
+local function test_ordered_refuses_a_type_that_mixes_numbers_and_strings()
+  refused(MAX .. "print(max(true, false))\n", "bound_unmet")
+  refused(MAX .. "local function g(u: integer | string)\n  print(max(u, u))\nend\ng(1)\n", "bound_unmet")
+  refused(MAX .. "local function g(u: integer?)\n  print(max(u, u))\nend\ng(1)\n", "bound_unmet")
+  refused("local function f<T is Ordered>(a: T): boolean\n  return a < 1\nend\nprint(f(1))\n", "generic_op")
+  refused("local function f<T is Ordered, U is Ordered>(a: T, b: U): boolean\n  return a < b\nend\nprint(f(1, \"a\"))\n",
+    "generic_op")
+  local r = Programs.run(MAX .. "print(max(true, false))\n")
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("`boolean` is the type parameter `T` of `max`, which is bounded by `Ordered`, and `boolean` is not " ..
+      "a type whose values are all numbers or all strings", 1, true) ~= nil, e.msg)
+end
+
+--- A parameter bounded by `Numeric` takes arithmetic, which answers its own type with itself or an integer, a number
+--- with a float or by `/`; it compares with a number too.
+local function test_a_parameter_bounded_by_numeric_takes_arithmetic_of_its_own_type()
+  stands(SUM .. "print(sum({ 1, 2 }, 0), sum({ 1.5 }, 0.0))\n", "4\t2.0")
+  assert(type_of(SUM .. "local n = sum({ 1, 2 }, 0)\n", "n") == "integer")
+  assert(type_of(SUM .. "local n = sum({ 1.5 }, 0.0)\n", "n") == "number")
+  stands("local function small<N is Numeric>(x: N): boolean\n  return x < 10 and x >= 0.5\nend\nprint(small(3), small(20.5))\n",
+    "true\tfalse")
+  refused("local function half<N is Numeric>(x: N): N\n  return x / 2\nend\nprint(half(1))\n", "not_assignable")
+  refused("local function scale<N is Numeric>(x: N): N\n  return x * 1.5\nend\nprint(scale(1))\n", "not_assignable")
+  refused(SUM .. "print(sum({ \"a\" }, \"b\"))\n", "bound_unmet")
+  -- An integer enum is no `Numeric`: the sum of two members is no member.
+  refused("local enum Level: integer\n  Low = 1\n  High = 2\nend\n" .. SUM .. "local xs: {Level} = { Level.Low }\n" ..
+      "print(sum(xs, Level.Low))\n", "bound_unmet")
+end
+
+--- An operator a parameter's bound does not give it is told the bound that does, by the parameter's own name.
+local function test_an_operator_on_a_parameter_is_told_the_bound_that_gives_it()
+  local r = Programs.run("local function f<Item>(a: Item, b: Item): boolean\n  return a < b\nend\nprint(f(1, 2))\n")
+  local e = Array.at(r.errors, 1)
+  assert(e.code == "generic_op" and e.fix:find("bound `Item` by `Ordered` where it is declared (`<Item is Ordered>`)", 1, true) ~=
+      nil, e.fix)
+  local plus = Programs.run("local function f<Item is Ordered>(a: Item): Item\n  return a + a\nend\nprint(f(1))\n")
+  local p = Array.at(plus.errors, 1)
+  assert(p.msg:find("is bounded by `Ordered` alone", 1, true) ~= nil, p.msg)
+  assert(p.fix:find("`<Item is Numeric>`", 1, true) ~= nil, p.fix)
+end
+
+--- `Ordered` and `Numeric` are bounds and the types of no value.
+local function test_a_builtin_bound_is_the_type_of_no_value()
+  local r = Programs.run("local x: Ordered = 1\nprint(x)\n")
+  assert(#r.before == 1 and r.before[1]:find("bound_as_type", 1, true) ~= nil, table.concat(r.before, " "))
+  local named = Programs.run("local interface Ordered\nend\n")
+  assert(#named.before == 1 and named.before[1]:find("primitive_type_name", 1, true) ~= nil, table.concat(named.before, " "))
+end

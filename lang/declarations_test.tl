@@ -174,6 +174,12 @@ local CASES <const>: {Case} = {
     fix = "bound `T` by an interface that takes no type parameters, or write no bound",
   },
   {
+    code = "bound_as_type",
+    source = "local function f(x: Numeric): Numeric\n  return x\nend\n",
+    msg = "`Numeric` is a bound of a type parameter, which no value has as its type",
+    fix = "bound a type parameter by it (`<T is Numeric>`) and declare the value `T`, or declare it `number`",
+  },
+  {
     code = "lists_overlap",
     source = "local type Reply = function(): (integer, string) | (string, integer)\n",
     msg = "the return lists `(integer, string)` and `(string, integer)` are told apart by no position that is `true` in one and `false` in the other",

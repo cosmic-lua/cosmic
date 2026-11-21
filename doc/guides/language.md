@@ -376,4 +376,43 @@ print(word)
 hello
 ```
 
+## comparing and adding values of a type parameter
+
+A type parameter ranges over every type, so a generic body may not apply `<` or `+` to its values (`generic_op`). A
+bound says which operators it takes. `T is Ordered` takes a number type or a string type: two values of `T` compare
+with `<`, `<=`, `>` and `>=`. `N is Numeric` takes `integer` or `number`: two values of `N` take `+`, `-`, `*`, `%`,
+`//` and unary `-`, which answer `N`, and compare with any number. `/` and `^` answer `number`, as they do for integers.
+
+A type whose values may be a number or a string, such as `integer | string`, is no `Ordered`, because `1 < "a"` raises.
+An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered` and `Numeric` are
+bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
+
+```teal
+local function largest<T is Ordered>(xs: {T}, first: T): T
+  local best = first
+  for _, x in ipairs(xs) do
+    if best < x then
+      best = x
+    end
+  end
+  return best
+end
+
+local function total<N is Numeric>(xs: {N}, zero: N): N
+  local sum = zero
+  for _, x in ipairs(xs) do
+    sum = sum + x
+  end
+  return sum
+end
+
+print(largest({ 3, 9, 4 }, 0), largest({ "pear", "fig" }, ""))
+print(total({ 1, 2, 3 }, 0), total({ 0.5, 0.25 }, 0.0))
+```
+
+```output
+9	pear
+6	0.75
+```
+
 [`cosmic.array`]: ../../cosmic/array.tl
