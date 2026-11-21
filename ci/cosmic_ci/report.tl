@@ -105,9 +105,10 @@ local function count_text(count: integer?): string
 end
 
 --- The join job of ci.yml (`ci`): every other job of a run but `reuse`
---- and `seed`'s legs is a leg of the platform matrix, named by its leg,
+--- and `seed`'s legs is a job of the platform matrix, named by its leg (or,
+--- in the queue, `linux-x86_64-format`, the format part of linux-x86_64's),
 --- or a job of the checked suite (`linux-x86_64-checked`, its shares, its
---- narrowing run) or the format check, which run beside them.
+--- narrowing run), which run beside them.
 local join_job <const> = "ci"
 --- The suites whose key parts decide whether a run qualifies: the
 --- checked suite's and each leg's native one (orchestration.tl's

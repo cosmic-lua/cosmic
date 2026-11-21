@@ -62,9 +62,10 @@
     # the complete product, its regressions and its portable suite, the
     # bytes it ran uploaded for the join. The merge queue runs
     # linux-x86_64's native suite and the tree's format check, and no more:
-    # a light, fast gate, as two jobs at once, each booting the tree, since
-    # one after the other they took some 15 minutes. A pull request runs lighter still, linux-x86_64's
-    # boot and the format check of what it changed. A push to main runs
+    # a light, fast gate, as two jobs at once, each booting the tree: one
+    # after the other, the two took some 15 minutes. A pull request runs
+    # lighter still, linux-x86_64's boot and the format check of what it
+    # changed. A push to main runs
     # three legs whole, all but macOS; the daily scheduled run and a
     # manual run run all four, macOS among them.
     platform: {
