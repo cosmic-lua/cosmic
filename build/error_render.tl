@@ -56,6 +56,13 @@ local record ErrorRender
 
   --- [`ErrorRender.lines`] as one string, a line each: "" where the module has no error and no warning.
   complain: function(result: Driver.Outcome, hints?: Hints): string
+
+  --- `text`, a report a person reads, with the source line under each line of it that names a place and a code
+  --- (`file:line:column: what is wrong (code): fix`), and a caret under the column. `read` gives a file's text by the name
+  --- the line uses, or nil; a line whose file it cannot give, or whose line is past the file's end, is left alone. Only what
+  --- is printed for a person goes through it: every reader of the lines themselves (the LSP, the tree checks) reads them
+  --- without.
+  annotated: function(text: string, read: function(file: string): string?): string
 end
 
 ErrorRender.queries = {
@@ -171,6 +178,45 @@ end
 
 function ErrorRender.complain(result: Driver.Outcome, hints?: ErrorRender.Hints): string
   return table.concat(ErrorRender.lines(result, hints), "\n")
+end
+
+--- The line `y` of `text`, without its line break, or nil past its end.
+local function line_of(text: string, y: integer): string?
+  local n = 0
+  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+    n = n + 1
+    if n == y then return (line:gsub("\r$", "")) end
+  end
+  return nil
+end
+
+function ErrorRender.annotated(text: string, read: function(file: string): string?): string
+  local texts: mut {string: string} = {}
+  local unread: mut {string: boolean} = {}
+  local out: mut {string} = {}
+  local ended = text:sub(-1) == "\n"
+  for line in (if ended then text else text .. "\n" end):gmatch("([^\n]*)\n") do
+    out[#out + 1] = line
+    local file, y, x = line:match("^([^:\n ]+):(%d+):(%d+): .- %(%l[%l%d_]*%)")
+    local row, column = math.tointeger(tonumber(y)), math.tointeger(tonumber(x))
+    if file ~= nil and row ~= nil and column ~= nil and unread[file] ~= true then
+      local source = texts[file]
+      if source == nil then
+        source = read(file)
+        if source == nil then unread[file] = true else texts[file] = source end
+      end
+      local shown = if source ~= nil then line_of(source, row) else nil end
+      if shown ~= nil then
+        local number = tostring(row)
+        local gutter = string.rep(" ", #number)
+        -- The caret keeps the tabs before the column, so that it stands under the column however wide a tab is shown.
+        local before = shown:sub(1, math.max(column - 1, 0)):gsub("[^\t]", " ")
+        out[#out + 1] = "  " .. number .. " | " .. shown
+        out[#out + 1] = "  " .. gutter .. " | " .. before .. "^"
+      end
+    end
+  end
+  return table.concat(out, "\n") .. (if ended then "\n" else "" end)
 end
 
 return ErrorRender

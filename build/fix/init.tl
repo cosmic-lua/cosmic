@@ -65,6 +65,7 @@ local links = require("build.links")
 local near = require("build.fix.near")
 local ignored = require("build.fix.ignored")
 local Ast = require("lang.ast")
+local ErrorRender = require("build.error_render")
 local SyntaxAnalyzer = require("build.syntax_analyzer")
 local SyntaxLinks = require("build.syntax_links")
 local SyntaxNode = require("build.syntax_node")
@@ -1898,15 +1899,20 @@ local function report(ctx: Fix): integer
     return (line:gsub("^%./([^:]*): %./", "%1: "))
   end
   local failed: mut {string:boolean} = {}
+  -- A person reads the failures: each line that names a place shows the source line under it.
+  local function read(named: string): string?
+    local text, _ = Fs.read(named)
+    return text
+  end
   for _, line in ipairs(failures) do
     failed[plain(line)] = true
-    log:say("fix: FAIL  " .. line)
+    log:say("fix: FAIL  " .. ErrorRender.annotated(line, read))
   end
   for _, file in ipairs(unlaid) do
     log:say("fix: FAIL  not laid out  " .. file)
   end
   for _, line in ipairs(findings) do
-    log:say("fix: FAIL  " .. line)
+    log:say("fix: FAIL  " .. ErrorRender.annotated(line, read))
   end
   -- A file that does not parse is refused by its own check and by the
   -- build in the same words: the line is said once. The build's refusal
@@ -1921,7 +1927,7 @@ local function report(ctx: Fix): integer
         rest = rest .. line
       end
     end
-    if rest ~= "" then log:say("fix: FAIL  " .. rest) end
+    if rest ~= "" then log:say("fix: FAIL  " .. ErrorRender.annotated(rest, read)) end
   end
   for _, line in ipairs(broken) do
     log:say("fix: FAIL  " .. line)
