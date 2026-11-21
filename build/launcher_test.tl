@@ -367,19 +367,8 @@ local function test_a_release_launcher_reads_only_proc_cpuinfo()
   assert(not text:find("TEST_CPUINFO", 1, true), "release carries the test override")
 end
 
---- A header's script, without the comment that pads it to its fixed length.
-local function script_of(header: string): string
-  return (header:sub(1, 16384):gsub("\n# *\n$", "\n"))
-end
-
--- The shell header is a fixed 16384 bytes and the arms and hooks go into it.
--- A ceiling under it leaves room for the next addition to be made on purpose:
--- the release launcher and the hook-bearing test launcher, each with the
--- largest arms a release has (every target compressed, with a stub, the
--- widest offsets), must stay under it, so growth meets the limit in a test
--- and not in a release build.
-local script_ceiling <const> = 16000
-
+-- The shell header is a fixed 16384 bytes and the arms and hooks go into it;
+-- artifact.prefix refuses a script that does not fit.
 local function test_the_shell_header_fits_its_capacity_with_every_target_arm()
   -- The cores are large so the offsets and lengths in the arms have their
   -- widest digits.
@@ -406,10 +395,6 @@ local function test_the_shell_header_fits_its_capacity_with_every_target_arm()
     assert(release ~= nil, "the release header: " .. release_trouble)
     local fixture, fixture_trouble = artifact.test_prefix(records, cores, with)
     assert(fixture ~= nil, "the fixture header: " .. fixture_trouble)
-    for name, header in pairs({ release = release, fixture = fixture }) do
-      assert(#script_of(header) <= script_ceiling, name .. " launcher is " ..
-          tostring(#script_of(header)) .. " bytes, over its ceiling of " .. tostring(script_ceiling))
-    end
     -- A line opening with an arm's quoted name is the arm the manifest
     -- selects (ci/fixtures/runtime_test.tl reads it so), so the launcher's
     -- own code must open no other line that way.

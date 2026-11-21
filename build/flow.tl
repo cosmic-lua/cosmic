@@ -904,7 +904,7 @@ local function paired(old: {flow.Item}, new: {any}): {integer: flow.Item}
       elseif a[i] == b[j] then
         row[j] = run_from(lcs, i + 1, j + 1) + 1
       else
-        row[j] = math.max(run_from(lcs, i + 1, j), row[j + 1]) -- checked: overload_none -- untyped: call
+        row[j] = math.max(run_from(lcs, i + 1, j), assert(row[j + 1]))
       end
     end
   end

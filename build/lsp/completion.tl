@@ -962,7 +962,10 @@ local function name_items(request: Request, scope: {string: Scopes.Var}, types: 
   end
   local globals: mut {string} = {}
   if types then
-    for name in pairs(Scopes.primitives) do globals[#globals + 1] = name end
+    -- `Ordered` and `Numeric` are bounds, written after `is`, and the type of no value.
+    for name in pairs(Scopes.primitives) do
+      if name ~= "Ordered" and name ~= "Numeric" then globals[#globals + 1] = name end
+    end
     for name, entry in pairs(program.globals) do
       if entry.decl ~= nil then globals[#globals + 1] = name end
     end

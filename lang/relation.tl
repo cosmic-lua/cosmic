@@ -723,6 +723,9 @@ local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Rel
     return nil
   elseif tag == "number" and b.tag == "integer" then
     return leaf(j, why, "number_for_integer", a, b)
+  elseif tag == "Numeric" and b.tag == "number" then
+    -- A parameter bounded by `Numeric` is `integer` or `number`, both below `number`.
+    return nil
   end
   return leaf(j, why, "mismatch", a, b)
 end
@@ -1099,6 +1102,27 @@ local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relat
   return nil
 end
 
+--- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
+--- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
+--- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
+--- raises: a union of a number and a string is none. `Numeric` is below `Ordered`, and a type variable is below a
+--- bound where its own bound is.
+local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
+  if (a.tag == "var") then
+    return from_var(j, a, b, why)
+  elseif a.tag == "Numeric" and b.tag == "Ordered" then
+    return nil
+  elseif b.tag == "Numeric" then
+    if a.tag == "integer" or a.tag == "number" then
+      return nil
+    end
+  elseif a.tag ~= "Ordered" and a.tag ~= "Numeric" and
+      (rel(j, a, j.store.number, false) == nil or rel(j, a, j.store.string, false) == nil) then
+    return nil
+  end
+  return leaf(j, why, "mismatch", a, b)
+end
+
 --- `a` below `b` where they are different types, neither `invalid`, `a` is not `never`, and the
 --- result is not known.
 local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
@@ -1108,6 +1132,8 @@ local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation
     return leaf(j, why, "any_source", a, b)
   elseif b.tag == "any" then
     return leaf(j, why, "any_sink", a, b)
+  elseif Types.builtin_bound(b) and not is_alias(a) then
+    return into_builtin(j, a, b, why)
   elseif (a.tag == "union") then
     return from_union(j, a, b, why)
   elseif is_alias(a) or is_alias(b) then
@@ -1258,8 +1284,10 @@ Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -
     if bound ~= nil then
       owned(self, bound)
       -- The bound is read as it is, with no variable of a binder outside it to shift.
-      if not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or #bound.args > 0 then
-        error("relation: a bound is an interface used with no arguments, not " .. Types.display(bound), 2)
+      if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
+          #bound.args > 0) then
+        error("relation: a bound is an interface used with no arguments, `Ordered` or `Numeric`, not " ..
+            Types.display(bound), 2)
       end
     end
     copied[i] = tp

@@ -246,6 +246,7 @@ end
 
 Scopes.primitives = {
   any = true, boolean = true, integer = true, never = true, number = true, string = true, thread = true,
+  Ordered = true, Numeric = true,
 }
 
 -- A function being walked.
@@ -675,7 +676,7 @@ local function declare(binding: Ast.Binding, kind: Scopes.Kind, from: integer, c
   local top = #S.frames == 1 and #S.marks == 1
   local v: Scopes.Var = {
     id = binding.id, name = name, kind = kind, space = space, attr = attr, exported = is_global, top = top, -- checked: nil_not_allowed
-    declared = token, from = from, to = math.max(from, S.ends[#S.ends]), owner = f.id, depth = #S.frames, -- checked: overload_none -- untyped: call
+    declared = token, from = from, to = math.max(from, assert(S.ends[#S.ends])), owner = f.id, depth = #S.frames,
     loop = f.loop,
     module = "", readonly = attr ~= nil, reads = {}, writes = {}, type_uses = {},
     assigned = false, closure_assigned = false, captures = {}, nested = false,
@@ -1462,7 +1463,7 @@ local function settle(v: Scopes.Var)
   end
   local newest = 0
   for i = 1, #ends do
-    newest = math.max(newest, ends[i]) -- checked: overload_none -- untyped: call
+    newest = math.max(newest, assert(ends[i]))
   end
   -- The loops inside the scope of `v` that hold an assignment, and so any function made in one of them.
   local level, parent = S.loop_level, S.loop_parent

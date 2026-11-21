@@ -72,6 +72,7 @@ local function test_integer_refuses_a_base_outside_2_to_36()
   assert(refused("1", 37):find("base 37 is not 2 to 36", 1, true))
   assert(refused("1", 0):find("base 0 is not 2 to 36", 1, true))
   assert(refused("1", -10):find("base -10 is not 2 to 36", 1, true))
+  assert(refused("1", 37):find("cosmic.number_test:", 1, true))
 end
 
 local function test_integer_agrees_across_the_length_that_tonumber_reads_and_the_one_it_does_not()
@@ -106,4 +107,30 @@ local function test_integer_reads_back_what_every_base_writes()
       assert(Number.integer("-" .. written(value, base), base) == -value, ("-%d in base %d"):format(value, base))
     end
   end
+end
+
+--- What `integer` raises for, `read_integer` answers nil and the same
+--- reason for; what it reads, it reads alike.
+local function test_read_integer_answers_nil_and_why_where_integer_raises()
+  for _, text in ipairs({ "", "-", "0x10", "1e2", " 7", "+1", "1.5", "9223372036854775808", "12x4" }) do
+    local value, why = Number.read_integer(text)
+    assert(value == nil, ("%q was read as %s"):format(text, tostring(value)))
+    local raised = refused(text)
+    assert(raised:find(why, 1, true) ~= nil, ("%q: %s is not %s"):format(text, why, raised))
+  end
+  local read: {string:integer} = { ["0"] = 0, ["-12"] = -12, ["9223372036854775807"] = math.maxinteger,
+    ["-9223372036854775808"] = math.mininteger }
+  for text, want in pairs(read) do
+    local value, why = Number.read_integer(text)
+    assert(value == want and why == "", text)
+  end
+  assert(Number.read_integer("ff", 16) == 255)
+  local past, why = Number.read_integer("8", 8)
+  assert(past == nil and why:find("no base 8 digit", 1, true) ~= nil, why)
+end
+
+local function test_read_integer_raises_for_a_base_outside_2_to_36()
+  local ok, why = pcall(function(): integer? return (Number.read_integer("1", 37)) end)
+  assert(not ok and tostring(why):find("base 37 is not 2 to 36", 1, true) ~= nil, tostring(why))
+  assert(tostring(why):find("cosmic.number_test:", 1, true) ~= nil, tostring(why))
 end

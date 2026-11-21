@@ -280,7 +280,7 @@ local CASES <const>: {Case} = {
   {
     code = "generic_op", source = "local function lt<T>(a: T, b: T): boolean\n  return a < b\nend\n",
     msg = "`a` is the type parameter `T`, which ranges over every type, and `<` takes numbers or strings",
-    fix = "bound the type parameter by an interface that declares the operation (`T is Ordered`)",
+    fix = "bound `T` by `Ordered` where it is declared (`<T is Ordered>`)",
   },
   {
     code = "cast_refused", source = "local x = 1\nlocal y = x as number\n",

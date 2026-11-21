@@ -2864,6 +2864,11 @@ end
 local record Operands
 end
 
+local ARITHMETIC <const>: {string: boolean} = { ["+"] = true, ["-"] = true, ["*"] = true, ["%"] = true, ["//"] = true }
+local DIVISION <const>: {string: boolean} = { ["/"] = true, ["^"] = true }
+local BITWISE <const>: {string: boolean} = { ["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true }
+local ORDERED <const>: {string: boolean} = { ["<"] = true, [">"] = true, ["<="] = true, [">="] = true }
+
 --- Reports that the operand `node`, of type `t`, is not what `op` takes.
 function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, takes: string, fix: string)
   local s = subject(ctx, node)
@@ -2871,9 +2876,24 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
     report(ctx, "any_use", node, s .. " is untrusted data (`any`), and " .. quoted(op) .. " takes " .. takes,
       "validate it with a [`cosmic.shape`] validator, or test its tag, and use the checked value", { "any" })
   elseif (t.tag == "var") then
-    report(ctx, "generic_op", node, s .. " is the type parameter " .. tq(ctx, t) .. ", which ranges over every type, and " ..
-        quoted(op) .. " takes " .. takes,
-      "bound the type parameter by an interface that declares the operation (`T is Ordered`)", { show(ctx, t) })
+    local name = show(ctx, t)
+    local bound = if ORDERED[op] == true then "Ordered" elseif ARITHMETIC[op] == true or DIVISION[op] == true or
+        op == "-" or op:find("^for ") ~= nil then "Numeric" else nil end
+    local ordered = ctx.judge:subtype(t, ctx.store:atom("Ordered"))
+    local numeric = ctx.judge:subtype(t, ctx.store:atom("Numeric"))
+    if bound == "Ordered" and ordered then
+      -- `Ordered` says two values of the parameter compare, and nothing of a value of another type.
+      bound = "Numeric"
+    end
+    local bound_fix = if bound ~= nil then "bound " .. quoted(name) .. " by `" .. bound .. "` where it is declared (`<" .. name ..
+        " is " .. bound .. ">`): " .. (if bound == "Ordered" then "a number type or a string type meets it, and `<` " ..
+            "compares two values of " .. quoted(name) else "`integer` and `number` meet it, and arithmetic of two values of " ..
+            quoted(name) .. " answers " .. quoted(name) end) else
+      "convert the value first, or declare the parameter with the type " .. quoted(op) .. " takes: no bound declares it" end
+    report(ctx, "generic_op", node, s .. " is the type parameter " .. tq(ctx, t) .. ", which " ..
+        (if numeric then "is bounded by `Numeric`, which takes arithmetic and comparison with numbers" elseif ordered then
+          "is bounded by `Ordered` alone, which compares two of its values"
+          else "ranges over every type" end) .. ", and " .. quoted(op) .. " takes " .. takes, bound_fix, { name })
   elseif nilable(t) then
     report(ctx, "nil_not_allowed", node, s .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. quoted(op) .. " takes " .. takes,
       nil_fix(ctx, node, t), { show(ctx, t) })
@@ -2883,8 +2903,13 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
   end
 end
 
---- What `t` is as an operand of a number operator: 1 `integer`, 2 `number`, 0 anything else (reported unless it is
---- `invalid`).
+--- Whether `t` is a type parameter bounded by `bound` (`Ordered` or `Numeric`), or by one below it.
+function Operands.bounded_by(ctx: Ctx, t: Type, bound: Types.Atom_tag): boolean
+  return (t.tag == "var") and ctx.judge:subtype(t, ctx.store:atom(bound))
+end
+
+--- What `t` is as an operand of a number operator: 1 `integer`, 2 `number`, 3 a type parameter bounded by `Numeric`,
+--- 0 anything else (reported unless it is `invalid`).
 function Operands.arithmetic_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string): integer
   local tag = t.tag
   if tag == "integer" or tag == "never" or is_integer_enum(t) then
@@ -2893,6 +2918,8 @@ function Operands.arithmetic_operand(ctx: Ctx, node: Ast.Node, t: Type, op: stri
     return 2
   elseif tag == "invalid" then
     return 0
+  elseif Operands.bounded_by(ctx, t, "Numeric") then
+    return 3
   end
   local inner = nilable(t) and ctx.store:non_nil(t) or t -- checked: and_ternary
   local fix = if is_text(t) then "convert it with `tonumber(" .. text_of(ctx, node) .. ")`" else
@@ -4200,11 +4227,6 @@ end
 
 -- Binary and unary operators ---------------------------------------------------------------
 
-local ARITHMETIC <const>: {string: boolean} = { ["+"] = true, ["-"] = true, ["*"] = true, ["%"] = true, ["//"] = true }
-local DIVISION <const>: {string: boolean} = { ["/"] = true, ["^"] = true }
-local BITWISE <const>: {string: boolean} = { ["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true }
-local ORDERED <const>: {string: boolean} = { ["<"] = true, [">"] = true, ["<="] = true, [">="] = true }
-
 --- The checks of a binary or unary operator, and of the `is` test and the `if` expression.
 local record Operators
 end
@@ -4230,6 +4252,13 @@ function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
     return
   end
   if number(l) and number(r) or is_text(l) and is_text(r) then
+    return
+  end
+  -- Two values of one parameter bounded by `Ordered` are both numbers or both strings; one bounded by `Numeric` is a number.
+  if l == r and Operands.bounded_by(ctx, l, "Ordered") then
+    return
+  end
+  if (Operands.bounded_by(ctx, l, "Numeric") or number(l)) and (Operands.bounded_by(ctx, r, "Numeric") or number(r)) then
     return
   end
   local fix = "compare two numbers or two strings: " .. quoted(node.op) .. " converts nothing"
@@ -4372,6 +4401,15 @@ function Operators.binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type
     if l == 0 or r == 0 then
       return ctx.invalid
     end
+    if (l == 3 or r == 3) and ARITHMETIC[op] == true then
+      -- A `Numeric` parameter is `integer` or `number`: with itself or an integer the operation answers its own type, as
+      -- Lua's arithmetic of two integers is an integer and of a float a float.
+      if l == 3 and (r == 1 or right == left) then
+        return left
+      elseif r == 3 and l == 1 then
+        return right
+      end
+    end
     return (l == 1 and r == 1 and ARITHMETIC[op]) and store.integer or store.number -- checked: or_mix
   elseif BITWISE[op] == true then
     local l, r = Operands.integer_operand(ctx, node.left, left, op), Operands.integer_operand(ctx, node.right, right, op)
@@ -4398,6 +4436,9 @@ function Operators.unary(ctx: Ctx, node: Ast.Unary, operand: Type): Type
     return Operands.length_operand(ctx, node.operand, operand) and ctx.store.integer or ctx.invalid -- checked: and_ternary
   elseif op == "-" then
     local c = Operands.arithmetic_operand(ctx, node.operand, operand, "-")
+    if c == 3 then
+      return operand
+    end
     return c == 1 and ctx.store.integer or c == 2 and ctx.store.number or ctx.invalid -- checked: and_ternary, or_mix
   end
   return Operands.integer_operand(ctx, node.operand, operand, "~") and ctx.store.integer or ctx.invalid -- checked: and_ternary
@@ -5492,14 +5533,17 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           local bound, held = tp.bound, solved[k]
           if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
             local wanted_bound = "`is " .. show(ctx, bound) .. "`"
-            local fix = "pass a type that declares " .. wanted_bound
+            local fix = if bound.tag == "Numeric" then "pass a function over `integer` or `number`" elseif
+              bound.tag == "Ordered" then "pass a function over a number type or a string type" else
+              "pass a type that declares " .. wanted_bound end
             -- Only a type the program declares can be given the interface.
-            local declarable = held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
-              held.decl.kind == "interface")
+            local declarable = not Types.builtin_bound(bound) and held.tag == "named" and (held.decl.kind == "record" or
+              held.decl.kind == "class" or held.decl.kind == "interface")
             if declarable then
               fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
             end
-            local why = tq(ctx, held) .. " does not declare " .. wanted_bound
+            local why = tq(ctx, held) .. (if Types.builtin_bound(bound) then " does not meet " .. quoted(bound.tag) else
+              " does not declare " .. wanted_bound end)
             if fixed and not declarable and held.tag ~= "var" then
               -- No declaration gives this type the interface, and the call cannot pass another.
               why = "the declaration of " .. quoted(callee) .. " gives it " .. tq(ctx, held) .. ", so this argument cannot " ..
@@ -5612,10 +5656,18 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     local bound = tp.bound
     local held = given[i]
     if bound ~= nil and held.tag ~= "invalid" and not below(ctx, held, bound) then -- checked: nil_not_allowed
-      local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Types.letter(i - 1)) .. " of " .. name ..
-        ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) .. " does not list it"
+      local builtin = Types.builtin_bound(bound)
+      local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
+        ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) ..
+        (if not builtin then " does not list it" elseif bound.tag == "Numeric" then " is not `integer` or `number`" else
+          " is not a type whose values are all numbers or all strings" end)
       problems[#problems + 1] = msg
-      if loud then
+      if loud and builtin then
+        report(ctx, "bound_unmet", node, msg,
+          if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" else
+            "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
+              "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
+      elseif loud then
         -- Only a type the program declares, or a type variable of the caller, can be given the interface.
         local declarable = held.tag == "var" or (held.tag == "named" and (held.decl.kind == "record" or
           held.decl.kind == "class" or held.decl.kind == "interface"))

@@ -64,7 +64,7 @@
 ---     (array (ref "cosmic.stream" "Stream.Reader"))   {Stream.Reader}
 ---     (val "cosmic.stream" "Stream")                  the declaration Stream used as a value
 ---     (mmap string (union (ref "sys" "Fd") nil))      mut {string: Fd?}
----     (fn (tp (ref "m" "Ordered")) ((var 0 0)) (rets ((var 0 0))))
+---     (fn (tp Ordered) ((var 0 0)) (rets ((var 0 0))))
 ---                                                     function<T is Ordered>(T): T
 ---     (fn (tp) () (rets (true string) (false any)))
 ---                                         function(): (true, string) | (false, any)
@@ -98,7 +98,7 @@ local record Types
   --- by it. No value is in the enums of two forms (`untagged_union` otherwise), and a tag is never `mut`. A form repeats
   --- these fields, since a record lists the fields of an interface alike.
   interface Base
-    --- Whether it is an atom, for the code that treats the ten atoms alike without listing their tags.
+    --- Whether it is an atom, for the code that treats the twelve atoms alike without listing their tags.
     atom: boolean
     --- Its position among the types of its store, from 1, in the order they were made.
     --- Store-local: nothing outside the store keeps one.
@@ -119,7 +119,7 @@ local record Types
     mut height: integer
   end
 
-  --- The tag of an [`Atom`]: its name. Ten values in one member, which no other member shares.
+  --- The tag of an [`Atom`]: its name. Twelve values in one member, which no other member shares.
   enum Atom_tag
     "integer"
     "number"
@@ -131,10 +131,15 @@ local record Types
     "never"
     "any"
     "invalid"
+    "Ordered"
+    "Numeric"
   end
 
-  --- `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`, `never`, `any` or
-  --- `invalid` (what a type that failed to lower becomes). The tag is the name.
+  --- `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`, `never`, `any`,
+  --- `invalid` (what a type that failed to lower becomes), or one of the two built-in bounds of a type parameter:
+  --- `Ordered`, which the types `<` takes two values of are below (a number type, a string type), and `Numeric`, which
+  --- the types arithmetic answers its own type for are below (`integer`, `number`). The tag is the name. A bound is
+  --- the type of no value.
   record Atom is Base
     tag: Atom_tag
     atom: boolean
@@ -514,6 +519,9 @@ local record Types
   --- a letter, and `P` and the index from the 27th.
   letter: function(index: integer): string
 
+  --- Whether `t` is `Ordered` or `Numeric`, the bounds the language declares.
+  builtin_bound: function(t: Type): boolean
+
   --- The names to keep for a generic function type, which `held` already has from another declaration, when a
   --- declaration gives it `names`: `held` where the two agree, none (`{}`, so display writes letters) where two
   --- declarations of one type differ, since a type does not say which declaration a value came from.
@@ -555,7 +563,7 @@ local type FnSpec = Types.FnSpec
 local type Loader = Types.Loader
 
 local ATOMS <const>: {Atom_tag} = {
-  "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any", "invalid",
+  "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any", "invalid", "Ordered", "Numeric",
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
@@ -847,6 +855,10 @@ function Types.kept_names(held: {string}?, names: {string}): {string}
   return held
 end
 
+function Types.builtin_bound(t: Type): boolean
+  return t.tag == "Ordered" or t.tag == "Numeric"
+end
+
 function Types.letter(index: integer): string
   if index < #NAME_LETTERS then
     return NAME_LETTERS:sub(index + 1, index + 1)
@@ -859,7 +871,7 @@ end
 --- types, collections, variables and functions.
 local ATOM_RANK <const>: {string: integer} = {
   integer = 1, number = 2, string = 3, boolean = 4, ["true"] = 5, ["false"] = 6, ["nil"] = 7,
-  never = 8, any = 9, invalid = 10,
+  never = 8, any = 9, invalid = 10, Ordered = 11, Numeric = 12,
 }
 
 local function rank(t: Type): integer
@@ -967,14 +979,14 @@ local function alt_order(alt: Alt, text: string): string
   return table.concat(ranks) .. "|" .. text
 end
 
-local record Ordered
+local record SortedAlt
   text: string
   order: string
 end
 
 --- The returns of a function type, with their `: `, or "" where it answers nothing.
 local function show_rets(f: Fn, names: Names): string
-  local alts: mut {Ordered} = {}
+  local alts: mut {SortedAlt} = {}
   for _, alt in ipairs(f.rets) do
     local text = show_alt(alt, names)
     alts[#alts + 1] = { text = text, order = alt_order(alt, text) }
@@ -996,7 +1008,7 @@ local function show_rets(f: Fn, names: Names): string
     end
     return if text == "" then "" else ": " .. text end
   end
-  table.sort(alts, function(a: Ordered, b: Ordered): boolean
+  table.sort(alts, function(a: SortedAlt, b: SortedAlt): boolean
     return a.order < b.order
   end)
   -- TODO: spell an alternative that is empty or ends in `T...` among several, once the grammar's
@@ -1321,8 +1333,12 @@ end
 --- arguments.
 local function bound_ok(store: Store, bound: Type)
   owned(store, bound)
+  if Types.builtin_bound(bound) then
+    return
+  end
   if not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or #bound.args > 0 then
-    error("types: a type parameter is bounded by an interface and no arguments, not " .. Types.display(bound), 3)
+    error("types: a type parameter is bounded by an interface and no arguments, or by `Ordered` or `Numeric`, not " ..
+        Types.display(bound), 3)
   end
 end
 
