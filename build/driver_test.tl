@@ -907,7 +907,7 @@ end
 local function test_a_cycle_of_modules_keeps_the_errors_of_the_check_that_waited_for_the_other()
   local build = build_of({
     { "a.tl", "local type B = require(\"b\")\nlocal class C is B.I\nend\nreturn C\n" },
-    { "b.tl", "local type A = require(\"a\")\nlocal record B\n  interface I\n    n: integer\n  end\nend\nreturn B\n" },
+    { "b.tl", "local type A = require(\"a\")\nlocal record B\n  interface I\n    n: function(I): integer\n  end\nend\nreturn B\n" },
   })
   build:lower({ "b" })
   local a = assert(build:result("a", true))
