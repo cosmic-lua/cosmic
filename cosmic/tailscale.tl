@@ -1,7 +1,8 @@
 --- The machine's own Tailscale node, through tailscaled's LocalAPI: who
 --- a tailnet address belongs to, the node's status and preferences, a
---- TLS certificate for its `ts.net` name, a ping across the tailnet, and
---- the daemon's stream of events.
+--- TLS certificate for its `ts.net` name, a ping across the tailnet,
+--- the daemon's stream of events, and sites and ports put up through
+--- Serve and Funnel for as long as the program runs ([`Client.serve`]).
 ---
 ---     local Tailscale = require("cosmic.tailscale")
 ---     local ts = assert(Tailscale.connect())
@@ -157,6 +158,7 @@ local record WireNotify
   State?: integer
   BrowseToURL?: string
   LoginFinished: any
+  SessionID?: string
 end
 
 local WHOIS <const> = Shape.record_of("WireWhoIs")
@@ -414,6 +416,9 @@ local record Notify
   browse_url?: string
   --- Whether a login just finished.
   login_finished: boolean
+  --- The stream's own name, in its first event: what a foreground
+  --- serve configuration is filed under (see [`Client.serve`]).
+  session?: string
   --- The event as the daemon sent it, one line of JSON.
   json: string
 end
@@ -428,6 +433,55 @@ local record WatchOptions
   initial_status?: boolean
   --- Send changes to the network map, peers and engine as they happen.
   engine?: boolean
+end
+
+--- What one path of a [`ServeSite`] answers with: exactly one field.
+local record ServeHandler
+  --- The URL of a local server the daemon passes requests to, with
+  --- the `Tailscale-User-*` headers that name the tailnet user:
+  --- `http://127.0.0.1:8080`, or `https+insecure://...` to skip
+  --- checking its certificate.
+  proxy?: string
+  --- A body the daemon answers with itself.
+  text?: string
+  --- A file or directory of the daemon's machine it serves.
+  path?: string
+end
+
+--- A web server the daemon runs on a port of the node's tailnet name.
+local record ServeSite
+  --- The port: 443 by default, 80 where `http` is set.
+  port?: integer
+  --- Plain HTTP rather than HTTPS with the node's `ts.net` certificate.
+  http?: boolean
+  --- Open the site to the internet as well (Funnel): ports 443, 8443
+  --- and 10000 only, and only where the tailnet's policy lets the
+  --- node.
+  funnel?: boolean
+  --- What each path answers, by the path it is mounted at (`/`,
+  --- `/api`); the longest that a request's path starts with wins.
+  handlers: {string: ServeHandler}
+end
+
+--- A TCP port of the node the daemon passes on, bytes as they come.
+local record ServeForward
+  port: integer
+  --- Where the connections go: `127.0.0.1:5432`.
+  to: string
+  --- End TLS with the node's `ts.net` certificate before passing the
+  --- bytes on.
+  terminate_tls?: boolean
+  --- Open the port to the internet as well, as [`ServeSite.funnel`].
+  funnel?: boolean
+end
+
+--- What [`Client.serve`] puts up. Two entries may not share a port.
+local record ServeSpec
+  sites?: {ServeSite}
+  forwards?: {ServeForward}
+  --- The name the sites answer to: the node's first certificate name
+  --- by default, else its MagicDNS name.
+  domain?: string
 end
 
 local DEFAULT_TIMEOUT_NS <const> = 10 * 1000000000
@@ -601,6 +655,7 @@ local function notify_of(line: string): Notify?, string
     error = nonempty(wire.ErrMessage),
     browse_url = nonempty(wire.BrowseToURL),
     login_finished = wire.LoginFinished ~= nil,
+    session = nonempty(wire.SessionID),
     json = line,
   }, ""
 end
@@ -639,13 +694,14 @@ end
 --- to megabytes.
 local REPLY_BYTES <const> = 256 * 1024 * 1024
 
---- `method` sent to `path` at `endpoint`, and the whole reply, within
---- `timeout_ns` (`default_ns` when nil, none when 0) in all. It speaks
+--- `method` sent to `path` at `endpoint`, with `extra` headers, and the
+--- whole reply, within `timeout_ns` (`default_ns` when nil, none when 0)
+--- in all. It speaks
 --- HTTP/1.1 over a connection of its own, which it closes, rather than
 --- through [`cosmic.http`]: a wait here is [`cosmic.net`]'s, so in a task
 --- of [`Poll.run`] (a server's handler) the other tasks run meanwhile.
 local function sent(endpoint: Endpoint, default_ns: integer, method: string, path: string, body?: string,
-                    timeout_ns?: integer): Http.Body?, string
+                    timeout_ns?: integer, extra?: {string: string}): Http.Body?, string
   local limit = timeout_ns or default_ns
   local deadline = if limit == 0 then nil else Clock.monotonic_ns() + limit end
   local function left(): integer?
@@ -661,6 +717,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   local token = endpoint.token
   if token ~= nil then headers["Authorization"] = "Basic " .. Codec.base64(":" .. token) end
   if body ~= nil then headers["Content-Type"] = "application/json" end
+  for name, value in pairs(extra or {}) do headers[name] = value end
   -- A POST with no body says so, as the daemon's own client does.
   local sending = body or (if method == "GET" then nil else "" end)
   local request, bad = Message.format_request({ method = method, target = path, headers = headers, body = sending })
@@ -705,6 +762,126 @@ local function ok(endpoint: Endpoint, default_ns: integer, method: string, path:
   return { body = got.body, reason = "", status = 200 }
 end
 
+--- The ports Funnel opens to the internet.
+local FUNNEL_PORTS <const>: {integer: boolean} = { [443] = true, [8443] = true, [10000] = true }
+
+--- How many times [`Client.serve`] reads the configuration again after
+--- another writer changed it between its read and its write.
+local SERVE_TRIES <const> = 8
+
+--- Raises, naming `where`, unless `port` is one a node can serve.
+local function checked_port(port: integer, where: string): integer
+  if math.type(port) ~= "integer" or port < 1 or port > 65535 then
+    error("tailscale: " .. where .. ".port must be 1 to 65535", 4)
+  end
+  return port
+end
+
+--- The daemon's handler for `handler`, mounted at `mount` of `where`;
+--- raises on one that is not exactly one thing.
+local function handler_of(handler: ServeHandler, mount: string, where: string): {string: Json.Value}
+  if mount:sub(1, 1) ~= "/" then
+    error("tailscale: " .. where .. ": a mount path starts with /", 4)
+  end
+  local out: mut {string: Json.Value} = {}
+  local count = 0
+  local proxy = handler.proxy
+  if proxy ~= nil then
+    if proxy:match("^https?://.") == nil and proxy:match("^https%+insecure://.") == nil then
+      error("tailscale: " .. where .. "[" .. mount .. "].proxy must be an http://, https:// or https+insecure:// URL", 4)
+    end
+    out["Proxy"] = proxy
+    count = count + 1
+  end
+  if handler.text ~= nil then
+    out["Text"] = handler.text
+    count = count + 1
+  end
+  if handler.path ~= nil then
+    out["Path"] = handler.path
+    count = count + 1
+  end
+  if count ~= 1 then
+    error("tailscale: " .. where .. "[" .. mount .. "] takes exactly one of proxy, text and path", 4)
+  end
+  return out
+end
+
+--- What [`Client.serve`] files for `spec` at `domain`, as the daemon's
+--- JSON reads it, and the URLs of its sites. Raises on a spec it
+--- cannot file: one of the wrong shape, or Funnel where it does not go.
+local function foreground_of(spec: ServeSpec, domain: string): {string: Json.Value}, {string}
+  local tcp: mut {string: Json.Value} = {}
+  local web: mut {string: Json.Value} = {}
+  local funnel: mut {string: Json.Value} = {}
+  local urls: mut {string} = {}
+  local used: mut {integer: boolean} = {}
+  local function claim(port: integer, where: string, opened: boolean)
+    if used[port] == true then
+      error("tailscale: " .. where .. ": port " .. tostring(port) .. " is served twice", 4)
+    end
+    used[port] = true
+    if opened and FUNNEL_PORTS[port] ~= true then
+      error("tailscale: " .. where .. ": Funnel opens ports 443, 8443 and 10000 only, not " .. tostring(port), 4)
+    end
+  end
+  for i, site in ipairs(spec.sites or {}) do
+    local where = "sites[" .. tostring(i) .. "]"
+    local plain = site.http == true
+    local port = checked_port(site.port or (if plain then 80 else 443 end), where)
+    if plain and site.funnel == true then
+      error("tailscale: " .. where .. ": Funnel serves HTTPS only, not plain HTTP", 3)
+    end
+    claim(port, where, site.funnel == true)
+    local host = domain .. ":" .. tostring(port)
+    local handlers: mut {string: Json.Value} = {}
+    local any = false
+    for mount, handler in pairs(site.handlers) do
+      handlers[mount] = handler_of(handler, mount, where .. ".handlers")
+      any = true
+    end
+    if not any then error("tailscale: " .. where .. ".handlers is empty", 3) end
+    tcp[tostring(port)] = if plain then { HTTP = true } else { HTTPS = true } end
+    web[host] = { Handlers = handlers }
+    if site.funnel == true then funnel[host] = true end
+    local default = if plain then 80 else 443 end
+    urls[#urls + 1] = (if plain then "http://" else "https://" end) .. domain ..
+      (if port == default then "" else ":" .. tostring(port) end) .. "/"
+  end
+  for i, forward in ipairs(spec.forwards or {}) do
+    local where = "forwards[" .. tostring(i) .. "]"
+    local port = checked_port(forward.port, where)
+    if forward.to:match("^.+:%d+$") == nil then
+      error("tailscale: " .. where .. ".to must be host:port", 3)
+    end
+    if forward.funnel == true and forward.terminate_tls ~= true then
+      error("tailscale: " .. where .. ": Funnel forwards only what it terminates TLS for (terminate_tls)", 3)
+    end
+    claim(port, where, forward.funnel == true)
+    local handler: mut {string: Json.Value} = { TCPForward = forward.to }
+    if forward.terminate_tls == true then handler["TerminateTLS"] = domain end
+    tcp[tostring(port)] = handler
+    if forward.funnel == true then funnel[domain .. ":" .. tostring(port)] = true end
+  end
+  if next(used) == nil then error("tailscale: serve takes at least one site or forward", 3) end
+  local config: mut {string: Json.Value} = { TCP = tcp }
+  if next(web) ~= nil then config["Web"] = web end
+  if next(funnel) ~= nil then config["AllowFunnel"] = funnel end
+  return config, urls
+end
+
+--- The ports `config` (the daemon's JSON, or one of its foreground
+--- entries) serves, by number.
+local function ports_of(config: {string: Json.Value}): {integer: boolean}
+  local ports: mut {integer: boolean} = {}
+  local tcp, _ = Json.to_object(config["TCP"])
+  for key, _ in pairs(tcp or {}) do
+    local port = math.tointeger(tonumber(key))
+    if port ~= nil then ports[port] = true end
+  end
+  return ports
+end
+
 --- The events of [`Client.watch`], one a read: a line of JSON an
 --- event. A class, so a `<close>` local holds one.
 local class Events
@@ -733,6 +910,50 @@ local class Events
   function close(self): boolean, string
     self.closed = true
     return self.response:close()
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
+
+--- The events at `endpoint` that `mask` asks for, as [`Client.watch`]
+--- answers them.
+local function bus(endpoint: Endpoint, default_ns: integer, mask: integer): Events?, string
+  local path = "/localapi/v0/watch-ipn-bus?mask=" .. tostring(mask)
+  local response, why = Http.open(endpoint.url .. path, options(endpoint, default_ns, "GET", nil, 0))
+  if response == nil then return nil, "tailscale: " .. why end
+  if response.status ~= 200 then
+    local said, _ = Stream.read_up_to(response, 4096)
+    local _, _ = response:close()
+    return nil, "tailscale: watch-ipn-bus: " .. ((said or ""):gsub("%s+$", "")) .. " (status " ..
+      tostring(response.status) .. ")"
+  end
+  local events: Events = { response = response, lines = Stream.lines(response, 64 * 1024 * 1024),
+    closed = false }
+  return events, ""
+end
+
+--- The events of the stream [`Client.serve`] files under: the daemon's
+--- state first, which names the stream, and no private key in any.
+local SERVE_MASK <const> = 2 | 16
+
+--- What [`Client.serve`] put up, for as long as it holds the stream it
+--- filed it under. A class, so a `<close>` local holds one.
+local class Serving
+  --- The stream's name, under which the configuration is filed.
+  session: string
+  --- The name the sites answer to.
+  domain: string
+  --- The URLs of the sites, in the order of [`ServeSpec.sites`].
+  urls: {string}
+  --- Internal: the stream the daemon ties the configuration to.
+  events: Events
+
+  --- Takes the configuration down: the daemon drops it once the
+  --- stream ends. Safe to call more than once.
+  function close(self): boolean, string
+    return self.events:close()
   end
 
   function __close(self)
@@ -913,18 +1134,105 @@ local class Client
     if o.engine == true then mask = mask | 1 end
     if o.initial_state ~= false then mask = mask | 2 end
     if o.initial_status == true then mask = mask | (1 << 14) end
-    local path = "/localapi/v0/watch-ipn-bus?mask=" .. tostring(mask)
-    local response, why = Http.open(self.endpoint.url .. path, options(self.endpoint, self.timeout_ns, "GET", nil, 0))
-    if response == nil then return nil, "tailscale: " .. why end
-    if response.status ~= 200 then
-      local said, _ = Stream.read_up_to(response, 4096)
-      local _, _ = response:close()
-      return nil, "tailscale: watch-ipn-bus: " .. ((said or ""):gsub("%s+$", "")) .. " (status " ..
-        tostring(response.status) .. ")"
+    return bus(self.endpoint, self.timeout_ns, mask)
+  end
+
+  --- Puts up `spec` through the daemon's Serve, and Funnel where a site
+  --- asks for it: the daemon terminates TLS with the node's `ts.net`
+  --- certificate and passes each request on. The configuration is the
+  --- program's own, filed in the daemon as a foreground one (as
+  --- `tailscale serve` without `--bg` files its own) under a stream of
+  --- [`Client.watch`] that the answer holds. The daemon drops it when
+  --- that stream ends, which [`Serving.close`] does, and so does the
+  --- program's exit, however it ends; it never changes what the node
+  --- serves for others, and fails where they already serve a port it
+  --- names. A daemon that restarts drops it too, and the program is not
+  --- told. Holds the thread while it opens the stream, as `watch` does.
+  --- Raises on a spec it cannot file, before it asks the daemon.
+  ---
+  ---     local served <close> = assert(ts:serve({
+  ---       sites = { { funnel = true, handlers = { ["/"] = { proxy = "http://127.0.0.1:8080" } } } },
+  ---     }))
+  ---     print(served.urls[1]) -- https://box.tail1234.ts.net/
+  function serve(self, spec: ServeSpec): Serving?, string
+    -- The spec is checked before the daemon is asked.
+    local _, _ = foreground_of(spec, spec.domain or "")
+    local domain = spec.domain
+    if domain == nil then
+      local status, why = self:status()
+      if status == nil then return nil, why end
+      local own = status.self
+      domain = status.cert_domains[1] or (if own ~= nil then undotted(own.dns_name) else nil end)
+      if domain == nil or domain == "" then
+        return nil, "tailscale: serve: the node has no name yet: is it logged in?"
+      end
     end
-    local events: Events = { response = response, lines = Stream.lines(response, 64 * 1024 * 1024),
-      closed = false }
-    return events, ""
+    local config, urls = foreground_of(spec, domain)
+    local events, why = bus(self.endpoint, self.timeout_ns, SERVE_MASK)
+    if events == nil then return nil, why end
+    local function failed(reason: string): Serving?, string
+      local _, _ = events:close()
+      return nil, reason
+    end
+    local first, bad = events:read()
+    if first == nil then
+      return failed(if bad ~= "" then bad else "tailscale: serve: the daemon ended the stream" end)
+    end
+    local session = first.session
+    if session == nil then
+      return failed("tailscale: serve: the daemon names no session: it predates foreground serving")
+    end
+    local wanted = ports_of(config)
+    for _ = 1, SERVE_TRIES do
+      local got, trouble = sent(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/serve-config")
+      if got == nil then return failed(trouble) end
+      if got.status ~= 200 then
+        return failed("tailscale: serve-config: " .. got.body:gsub("%s+$", "") .. " (status " .. tostring(got.status) .. ")")
+      end
+      local text = got.body:gsub("%s+$", "")
+      local whole: mut {string: Json.Value} = {}
+      if text ~= "null" and text ~= "" then
+        local decoded, wrong = Json.decode_object(text)
+        if decoded == nil then return failed("tailscale: serve-config: " .. wrong) end
+        for name, value in pairs(decoded) do whole[name] = value end
+      end
+      local foreground: mut {string: Json.Value} = {}
+      local others, _ = Json.to_object(whole["Foreground"])
+      local served: mut {{string: Json.Value}} = { whole }
+      for name, other in pairs(others or {}) do
+        local entry, _ = Json.to_object(other)
+        if entry ~= nil then
+          foreground[name] = entry
+          served[#served + 1] = entry
+        end
+      end
+      for _, taken in ipairs(served) do
+        for port, _ in pairs(ports_of(taken)) do
+          if wanted[port] == true then
+            return failed("tailscale: serve: port " .. tostring(port) .. " is already served")
+          end
+        end
+      end
+      foreground[session] = config
+      whole["Foreground"] = foreground
+      local body, unencodable = Json.encode(whole)
+      if body == nil then return failed("tailscale: serve-config: " .. unencodable) end
+      local etag = got.headers["etag"]
+      if etag == nil then
+        return failed("tailscale: serve-config: the daemon's reply holds no ETag")
+      end
+      local put, lost = sent(self.endpoint, self.timeout_ns, "POST", "/localapi/v0/serve-config", body, nil,
+        { ["If-Match"] = etag })
+      if put == nil then return failed(lost) end
+      if put.status == 200 then
+        local serving: Serving = { session = session, domain = domain, urls = urls, events = events }
+        return serving, ""
+      end
+      if put.status ~= 412 then
+        return failed("tailscale: serve-config: " .. put.body:gsub("%s+$", "") .. " (status " .. tostring(put.status) .. ")")
+      end
+    end
+    return failed("tailscale: serve-config: others kept changing it; tried " .. tostring(SERVE_TRIES) .. " times")
   end
 end
 
@@ -949,6 +1257,11 @@ local record Tailscale
   type Notify = Notify
   type WatchOptions = WatchOptions
   type Events = Events
+  type ServeHandler = ServeHandler
+  type ServeSite = ServeSite
+  type ServeForward = ServeForward
+  type ServeSpec = ServeSpec
+  type Serving = Serving
 
   --- How [`Tailscale.connect`] reaches the daemon. With none of these,
   --- it looks where the platform's daemon listens.
