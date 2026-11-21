@@ -723,6 +723,9 @@ local function from_atom(j: Relation.Judge, a: Atom, b: Type, why: boolean): Rel
     return nil
   elseif tag == "number" and b.tag == "integer" then
     return leaf(j, why, "number_for_integer", a, b)
+  elseif tag == "Numeric" and b.tag == "number" then
+    -- A parameter bounded by `Numeric` is `integer` or `number`, both below `number`.
+    return nil
   end
   return leaf(j, why, "mismatch", a, b)
 end
@@ -1099,8 +1102,6 @@ local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relat
   return nil
 end
 
---- `a` below `b` where they are different types, neither `invalid`, `a` is not `never`, and the
---- result is not known.
 --- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
 --- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
 --- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
@@ -1122,6 +1123,8 @@ local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): 
   return leaf(j, why, "mismatch", a, b)
 end
 
+--- `a` below `b` where they are different types, neither `invalid`, `a` is not `never`, and the
+--- result is not known.
 local function rule(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if b.tag == "never" then
     return leaf(j, why, "never_target", a, b)
@@ -1284,7 +1287,7 @@ Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -
       if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
           #bound.args > 0) then
         error("relation: a bound is an interface used with no arguments, `Ordered` or `Numeric`, not " ..
-          Types.display(bound), 2)
+            Types.display(bound), 2)
       end
     end
     copied[i] = tp

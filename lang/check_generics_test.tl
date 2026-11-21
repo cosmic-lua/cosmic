@@ -740,3 +740,31 @@ local function test_a_builtin_bound_is_the_type_of_no_value()
   local named = Programs.run("local interface Ordered\nend\n")
   assert(#named.before == 1 and named.before[1]:find("primitive_type_name", 1, true) ~= nil, table.concat(named.before, " "))
 end
+
+--- A bound is `Ordered` or `Numeric` only where written as the bound: an alias of one is a type, and refused, wherever
+--- the alias is declared.
+local function test_an_alias_of_a_builtin_bound_is_refused_even_when_declared_after_its_use()
+  local late = Programs.run("local function g<T is A>(a: T) print(a) end\nlocal type A = Ordered\ng(1)\n")
+  assert(table.concat(late.before, " "):find("bound_as_type", 1, true) ~= nil, table.concat(late.before, " "))
+  local listed = Programs.run("local function g<T is Ordered>(a: T) print(a) end\nlocal type A = {Ordered}\ng(1)\n")
+  assert(table.concat(listed.before, " "):find("bound_as_type", 1, true) ~= nil, table.concat(listed.before, " "))
+end
+
+--- A `Numeric` value is a `number`, and `math.max` and `math.min` answer the type of their arguments.
+local function test_a_numeric_parameter_is_a_number_and_math_max_keeps_its_type()
+  stands("local function f<N is Numeric>(a: N, b: N): number\n  local m: N = math.max(a, b)\n  return m\nend\n" ..
+      "print(f(1, 2), f(0.5, 0.25))\n", "2\t0.5")
+  assert(type_of("local n = math.max(1, 2)\n", "n") == "integer")
+  assert(type_of("local n = math.min(1, 2.5)\n", "n") == "number")
+  local r = Programs.run("local function f<N is Numeric>(a: N): N\n  return a & 1\nend\nprint(f(1))\n")
+  local e = Array.at(r.errors, 1)
+  assert(e.msg:find("is bounded by `Numeric`, which takes arithmetic", 1, true) ~= nil, e.msg)
+end
+
+--- A generic record bounded by a built-in bound takes the types that meet it.
+local function test_a_generic_record_bounded_by_ordered_takes_the_types_that_meet_it()
+  stands("local record Range<T is Ordered>\n  low: T\n  high: T\nend\nlocal r: Range<integer> = { low = 1, high = 2 }\n" ..
+      "print(r.low < r.high)\n", "true")
+  local r = Programs.run("local record Range<T is Ordered>\n  low: T\nend\nlocal r: Range<boolean> = { low = true }\nprint(r)\n")
+  assert(table.concat(r.before, " "):find("bound_not_met", 1, true) ~= nil, table.concat(r.before, " "))
+end

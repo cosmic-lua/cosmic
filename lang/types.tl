@@ -98,7 +98,7 @@ local record Types
   --- by it. No value is in the enums of two forms (`untagged_union` otherwise), and a tag is never `mut`. A form repeats
   --- these fields, since a record lists the fields of an interface alike.
   interface Base
-    --- Whether it is an atom, for the code that treats the ten atoms alike without listing their tags.
+    --- Whether it is an atom, for the code that treats the twelve atoms alike without listing their tags.
     atom: boolean
     --- Its position among the types of its store, from 1, in the order they were made.
     --- Store-local: nothing outside the store keeps one.
@@ -1338,7 +1338,7 @@ local function bound_ok(store: Store, bound: Type)
   end
   if not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or #bound.args > 0 then
     error("types: a type parameter is bounded by an interface and no arguments, or by `Ordered` or `Numeric`, not " ..
-      Types.display(bound), 3)
+        Types.display(bound), 3)
   end
 end
 

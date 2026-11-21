@@ -2880,6 +2880,7 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
     local bound = if ORDERED[op] == true then "Ordered" elseif ARITHMETIC[op] == true or DIVISION[op] == true or
         op == "-" or op:find("^for ") ~= nil then "Numeric" else nil end
     local ordered = ctx.judge:subtype(t, ctx.store:atom("Ordered"))
+    local numeric = ctx.judge:subtype(t, ctx.store:atom("Numeric"))
     if bound == "Ordered" and ordered then
       -- `Ordered` says two values of the parameter compare, and nothing of a value of another type.
       bound = "Numeric"
@@ -2890,7 +2891,8 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
             quoted(name) .. " answers " .. quoted(name) end) else
       "convert the value first, or declare the parameter with the type " .. quoted(op) .. " takes: no bound declares it" end
     report(ctx, "generic_op", node, s .. " is the type parameter " .. tq(ctx, t) .. ", which " ..
-        (if ordered then "is bounded by `Ordered` alone, which compares two of its values"
+        (if numeric then "is bounded by `Numeric`, which takes arithmetic and comparison with numbers" elseif ordered then
+          "is bounded by `Ordered` alone, which compares two of its values"
           else "ranges over every type" end) .. ", and " .. quoted(op) .. " takes " .. takes, bound_fix, { name })
   elseif nilable(t) then
     report(ctx, "nil_not_allowed", node, s .. " is " .. tq(ctx, t) .. ", so it may be nil, and " .. quoted(op) .. " takes " .. takes,
@@ -5531,14 +5533,17 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           local bound, held = tp.bound, solved[k]
           if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
             local wanted_bound = "`is " .. show(ctx, bound) .. "`"
-            local fix = "pass a type that declares " .. wanted_bound
+            local fix = if bound.tag == "Numeric" then "pass a function over `integer` or `number`" elseif
+              bound.tag == "Ordered" then "pass a function over a number type or a string type" else
+              "pass a type that declares " .. wanted_bound end
             -- Only a type the program declares can be given the interface.
-            local declarable = held.tag == "named" and (held.decl.kind == "record" or held.decl.kind == "class" or
-              held.decl.kind == "interface")
+            local declarable = not Types.builtin_bound(bound) and held.tag == "named" and (held.decl.kind == "record" or
+              held.decl.kind == "class" or held.decl.kind == "interface")
             if declarable then
               fix = "declare " .. wanted_bound .. " on " .. tq(ctx, held) .. ", or " .. fix
             end
-            local why = tq(ctx, held) .. " does not declare " .. wanted_bound
+            local why = tq(ctx, held) .. (if Types.builtin_bound(bound) then " does not meet " .. quoted(bound.tag) else
+              " does not declare " .. wanted_bound end)
             if fixed and not declarable and held.tag ~= "var" then
               -- No declaration gives this type the interface, and the call cannot pass another.
               why = "the declaration of " .. quoted(callee) .. " gives it " .. tq(ctx, held) .. ", so this argument cannot " ..

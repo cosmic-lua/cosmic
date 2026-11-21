@@ -694,8 +694,6 @@ local record Ctx
   mut collections: integer
   mut kids: mut {integer: Ast.Node}
   lowering: boolean
-  --- Whether the name being lowered is the bound of a type parameter, the one place `Ordered` and `Numeric` are written.
-  mut bounding: boolean
   --- The checks that wait for every declaration of the module to be defined.
   checks: mut {function(): boolean}
   --- The `function R.m` statements of the module's top level, by the declaration `R` names, and the ids of
@@ -1192,7 +1190,7 @@ local function lower_name(ctx: Ctx, t: Ast.TypeName): Type
         "remove the type arguments: " .. quoted(head) .. " is a primitive type")
       return store.invalid
     end
-    if Types.builtin_bound(store:atom(primitive)) and not ctx.bounding then
+    if Types.builtin_bound(store:atom(primitive)) then
       report_at(ctx, "bound_as_type", t, quoted(head) .. " is a bound of a type parameter, which no value has as its type",
         "bound a type parameter by it (`<T is " .. head .. ">`) and declare the value `T`" ..
           (if head == "Numeric" then ", or declare it `number`" else "" end))
@@ -1245,9 +1243,15 @@ lower_bound = function(ctx: Ctx, p: Ast.TypeParam): Type?
   if constraint == nil then
     return nil
   end
-  ctx.bounding = true
-  local t = lower_name(ctx, constraint)
-  ctx.bounding = false
+  -- `Ordered` and `Numeric` are bounds only where written as the bound itself: through an alias they would be lowered
+  -- as a type, and refused there.
+  local head = constraint.path[1]
+  local primitive: Types.Atom_tag? = nil
+  if #constraint.path == 1 and #constraint.args == 0 and head ~= nil then
+    primitive = PRIMITIVES[head]
+  end
+  local t = if primitive ~= nil and Types.builtin_bound(ctx.store:atom(primitive)) then ctx.store:atom(primitive) else
+    lower_name(ctx, constraint) end
   ctx.types[constraint.id] = t
   if Types.builtin_bound(t) or (t.tag == "named") and t.decl.kind == "interface" and #t.args == 0 then -- checked: or_mix
     return t
@@ -3073,7 +3077,7 @@ local function new_ctx(program: Program, input: Declarations.Input, lowering: bo
     program = program, store = program.store, input = input, module = input.module, filename = input.filename,
     tokens = input.chunk.tokens, scoped = input.scoped, decl_file = input.dialect == "decl", info = info,
     frames = {}, entry_of = {}, by_binding = {}, types = {}, decls = {}, aliases = {}, errors = info.errors, -- checked: view_as_mut
-    unions = {}, uses = {}, tainted = {}, alias_depth = 0, collections = 0, kids = {}, lowering = lowering, bounding = false, checks = {},
+    unions = {}, uses = {}, tainted = {}, alias_depth = 0, collections = 0, kids = {}, lowering = lowering, checks = {},
     statics = {}, static_done = {},
   }
 end

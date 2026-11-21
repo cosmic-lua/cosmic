@@ -1219,3 +1219,16 @@ local function test_an_integer_enum_holds_its_member_names_collapses_into_intege
     s:define(bad, { tparams = {}, supers = {}, fields = { { name = "f", type = s.integer } }, methods = {}, values = {} })
   end, "an enum holds values and nothing else"))
 end
+
+--- A function bounded by `Ordered` or `Numeric` is written with the atom as its bound and read back as the same type.
+local function test_a_builtin_bound_is_encoded_and_decoded()
+  local s = Types.new()
+  local names: {Types.Atom_tag} = { "Ordered", "Numeric" }
+  for _, name in ipairs(names) do
+    local made = s:fn({ tparams = { { bound = s:atom(name) } }, params = { { type = s:var(0, 0) } } })
+    local text = Types.encode(made)
+    assert(text:find("(tp " .. name .. ")", 1, true) ~= nil, text)
+    assert(s:decode(text) == made, text)
+    assert(Types.display(made) == "function<T is " .. name .. ">(T)", Types.display(made))
+  end
+end

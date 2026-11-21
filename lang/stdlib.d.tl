@@ -5,7 +5,7 @@
 --
 -- A function that answers nil where Lua does says so (`string.find`, `tonumber`, `math.tointeger`), one that changes a
 -- collection it is given takes it `mut`, and one that the fork types by a special case in its checker (`assert`,
--- `math.abs`, `math.max`) is declared by overloads. `pcall`, `xpcall` and the `coroutine` library are typed over
+-- `math.abs`) is declared by overloads, and `math.max` and `math.min` over a `Numeric` type parameter. `pcall`, `xpcall` and the `coroutine` library are typed over
 -- `Coroutine<Y, R, S>`, which the language has no other form for.
 do
   -- What a coroutine's body is given to yield through, since `coroutine.yield` is dynamically scoped and no type says
@@ -238,13 +238,11 @@ do
     log: function(number, arg2?: number): number
     log10: function(number): number
 
-    max: function(integer, ...: integer): integer
-    max: function(number, ...: number): number
+    max: function<N is Numeric>(N, ...: N): N
 
     maxinteger: integer
 
-    min: function(integer, ...: integer): integer
-    min: function(number, ...: number): number
+    min: function<N is Numeric>(N, ...: N): N
 
     mininteger: integer
 
