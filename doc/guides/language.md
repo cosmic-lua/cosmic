@@ -155,7 +155,8 @@ A call with a string in place of its arguments, `f "x"`, is not in the grammar (
 ## an enum of integers
 
 `enum E: integer` declares named integers, such as the values of a wire format. Each member is `NAME = n`, `n` an integer
-literal or its negation. The declaration gives two things: the type `E`, and the table `E` of its members. `E.NAME` is a
+literal or its negation; the least integer is written `-0x8000000000000000`, since Lua reads the decimal
+`9223372036854775808` as a float. The declaration gives two things: the type `E`, and the table `E` of its members. `E.NAME` is a
 value of `E`. A misspelled member is refused where it is written (`field_unknown`), with the nearest name. A name or an
 integer written twice is refused (`repeated_value`).
 

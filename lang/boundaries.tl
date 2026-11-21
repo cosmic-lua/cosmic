@@ -119,6 +119,9 @@ local function add(seen: Seen, t: Types.Type)
         end
       end
     elseif kind == "integer_enum" and not current.value then
+      -- TODO: check that the integer is a member, as an enum of strings checks its strings, so untyped code cannot pass
+      -- 99 as a `State` and have [`State.name`] answer nil. Waits on the type store keeping each member's integer, which
+      -- today only the syntax tree and the generated Lua hold.
       seen.found["integer"] = true
     elseif kind == "userdata" and not current.value and #current.decl.names == 1 and
         THREADS[current.decl.name] == true then
