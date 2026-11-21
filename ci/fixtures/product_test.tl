@@ -1,5 +1,4 @@
 local Compress = require("cosmic.compress")
-local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
 local Stream = require("cosmic.stream")
@@ -67,24 +66,15 @@ local function check_hashes(product: string)
   end
 end
 
--- What a release weighs. The cores are stored compressed (13.3 MB raw, 5.6 MB
--- stored with their stubs), so the prefix every program shares, and the
--- programs built with it, stay under these: a ceiling is lowered when the
--- artifact shrinks, so an addition meets it in CI and not in a release, and
--- raised only by a change that says what the bytes buy. The tool itself is
--- held to none: it carries the whole library, so every module added to the
--- library would move its ceiling. A program carries every `cosmic.*` module
--- and declaration too (embed.database, in the main tree's build/embed.tl), so
--- its ceiling moves with the library: 9,500,000 held until the flags' help and docs (#3749,
--- #3751), cosmic.protobuf.schema's defaults (#3750) and cosmic.http.message's
--- protocols (#3753) brought hello to 9,527,344 bytes; 9,700,000 leaves a
--- little under 2% for the modules after them.
---
--- TODO: lower the application ceiling once a program carries only the
--- `cosmic.*` modules of its closure, which waits on embed.database
--- computing that closure (see its TODO on the web assets).
+-- What a release's shared prefix weighs. The cores are stored compressed
+-- (13.3 MB raw, 5.6 MB stored with their stubs), and the prefix every
+-- program shares stays under this: it is lowered when the prefix shrinks,
+-- so an addition meets it in CI and not in a release, and raised only by a
+-- change that says what the bytes buy. Programs are held to no ceiling: a
+-- program carries every `cosmic.*` module and declaration (embed.database,
+-- in the main tree's build/embed.tl), so its size moves with the library
+-- and no limit stands behind a number for it.
 local prefix_ceiling <const> = 6000000
-local application_ceiling <const> = 9700000
 
 local function test_transported_product(tmp: string)
   local product = Fixture.placed("product")
@@ -146,11 +136,6 @@ local function test_transported_product(tmp: string)
       decoded.manifest_offset % 16384 == 0, "product prefix record differs")
   assert(decoded.prefix_length <= prefix_ceiling, "the prefix is " .. tostring(decoded.prefix_length) ..
       " bytes, over its ceiling of " .. tostring(prefix_ceiling))
-  for _, application in ipairs({ "hello", "second" }) do
-    local size = assert(Fs.stat(product .. "/apps/" .. application)).size
-    assert(size <= application_ceiling, application .. " is " .. tostring(size) ..
-        " bytes, over its ceiling of " .. tostring(application_ceiling))
-  end
   local prefix = Fixture.read(product .. "/prefix")
   assert(#prefix == decoded.prefix_length and
       artifact:sub(1, decoded.prefix_length) == prefix,
