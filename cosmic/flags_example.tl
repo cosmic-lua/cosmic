@@ -316,9 +316,9 @@ function Example.verdicts()
     streams.out("read " .. path)
     return 0
   end
-  print(main({}), main({ "a.csv" }))
   assert(main({}) == Flags.REFUSED and main({ "a.csv" }) == 0)
-  assert(said[1] == "prog: give one path" and said[3] == "read a.csv", table.concat(said, "|"))
+  print(table.concat(said, "\n"))
+  assert(said[1] == "prog: give one path" and said[2] == "read a.csv", table.concat(said, "|"))
 end
 
 return Example -- checked: export_not_declared

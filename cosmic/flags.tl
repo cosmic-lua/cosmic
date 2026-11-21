@@ -1371,8 +1371,8 @@ function Flags.std_io(said?: function(line: string): string): Flags.Io
       local _, _ = Fs.put(Fs.stdout, line .. "\n")
     end,
     err = function(line: string)
-      local shown = if said ~= nil then said(line) else line end
-      local _, _ = Fs.put(Fs.stderr, shown .. "\n")
+      local worded = if said ~= nil then said(line) else line end
+      local _, _ = Fs.put(Fs.stderr, worded .. "\n")
     end,
   }
 end
