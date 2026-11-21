@@ -23,6 +23,7 @@
 --- [`Web.require_client_cert`] refuses it; nor is one that has expired
 --- since, on a connection kept open. Behind a proxy that ends TLS itself
 --- (`trusted_proxy`, Serve) no request has one, so every one is refused.
+--- @public
 
 local Clock = require("cosmic.clock")
 local Response = require("cosmic.web.response")
