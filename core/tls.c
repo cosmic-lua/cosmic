@@ -181,7 +181,7 @@ static int chosen (mbedtls_ssl_context *ssl) {
 static int pair_read (lua_State *L, int index, struct pair *p,
                       const char **what) {
   if (lua_geti(L, 1, index) != LUA_TTABLE) {
-    luaL_error(L, "tls: pair %d is not a table", index);
+    return luaL_error(L, "tls: pair %d is not a table", index);
   }
   lua_getfield(L, -1, "cert");
   lua_getfield(L, -2, "key");
@@ -191,8 +191,8 @@ static int pair_read (lua_State *L, int index, struct pair *p,
   const char *key = lua_tolstring(L, -1, &key_size);
   if (cert == NULL || key == NULL || lua_type(L, -2) != LUA_TSTRING ||
       lua_type(L, -1) != LUA_TSTRING) {
-    luaL_error(L, "tls: pair %d needs a cert and a key, each a string",
-               index);
+    return luaL_error(L, "tls: pair %d needs a cert and a key, each a string",
+                      index);
   }
   /* PEM is parsed with its terminating NUL, which a Lua string has. */
   *what = "certificate";
@@ -246,8 +246,9 @@ static int tls_config (lua_State *L) {
     const char *name = lua_tolstring(L, -1, &size);
     if (name == NULL || lua_type(L, -1) != LUA_TSTRING || size == 0 ||
         size > name_most || memchr(name, '\0', size) != NULL) {
-      luaL_error(L, "tls: ALPN protocol %d must be 1 to 255 bytes, no NUL",
-                 i + 1);
+      return luaL_error(L,
+                        "tls: ALPN protocol %d must be 1 to 255 bytes, no NUL",
+                        i + 1);
     }
     memcpy(bytes, name, size);
     bytes[size] = '\0';
