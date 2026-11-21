@@ -169,8 +169,11 @@ end
 
 --- Where the daemon listens, and what proves the caller may talk to it.
 local record Endpoint
+  --- The socket file, or the port of 127.0.0.1.
   via: Net.Address
+  --- The URL a request's path follows.
   url: string
+  --- The same-user proof a port asks for.
   token?: string
 end
 
@@ -212,6 +215,7 @@ end
 --- user it acts for, and the capabilities the tailnet policy grants it
 --- on this node.
 local record WhoIs
+  --- The node the address belongs to.
   node: Node
   --- The owner of `node`; for a tagged node, the tailnet's
   --- `tagged-devices` user, whom no person logs in as.
@@ -237,6 +241,7 @@ end
 
 --- What [`Client.whois_result`] answers.
 local record WhoIsResult
+  --- Which way it came out.
   kind: WhoIsKind
   --- Present only for "found".
   whois?: WhoIs
@@ -252,12 +257,17 @@ end
 local record Peer
   --- The node's stable id.
   id: string
+  --- Its host name, as the machine reports it.
   host_name: string
   --- Its MagicDNS name, with no final dot.
   dns_name: string
+  --- Its operating system, as the machine reports it.
   os: string
+  --- The id of the user that owns it ([`User.id`]).
   user_id: integer
+  --- Its tailnet addresses.
   addresses: {string}
+  --- Its ACL tags (`tag:server`).
   tags: {string}
   --- Whether the node is connected to the control server.
   online: boolean
@@ -308,6 +318,7 @@ end
 
 --- A subset of the node's preferences, what `tailscale set` changes.
 local record Prefs
+  --- The control server it logs in to.
   control_url: string
   --- Whether it takes the subnet routes peers offer (`--accept-routes`).
   accept_routes: boolean
@@ -323,7 +334,9 @@ local record Prefs
   shields_up: boolean
   --- The host name it asks for; "" for the machine's own.
   host_name: string
+  --- The ACL tags it asks to be given (`--advertise-tags`).
   advertise_tags: {string}
+  --- The subnet routes it offers (`--advertise-routes`).
   advertise_routes: {string}
   --- The local user the daemon lets act as root; "" for none.
   operator: string
@@ -385,6 +398,7 @@ end
 --- One event of [`Client.watch`]. Each field is present only when the
 --- event carries it; `json` is the whole event, for what else it holds.
 local record Notify
+  --- The daemon's version.
   version?: string
   --- The daemon's new state.
   state?: State
@@ -585,6 +599,55 @@ local function notify_of(line: string): Notify?, string
   }, ""
 end
 
+--- The options of one request to `endpoint`. `timeout_ns` is the call's limit, `default_ns` by default; 0 is none.
+local function options(endpoint: Endpoint, default_ns: integer, method: string, body?: string, timeout_ns?: integer): Http.Options
+  local headers: mut {string: string} = {
+    -- Over a port the URL names 127.0.0.1, which the daemon takes only
+    -- with a token; this one it always takes, as its own client sends.
+    ["Host"] = HOST,
+    ["Tailscale-Cap"] = CAPABILITY,
+  }
+  local token = endpoint.token
+  if token ~= nil then
+    headers["Authorization"] = "Basic " .. Codec.base64(":" .. token)
+  end
+  if body ~= nil then headers["Content-Type"] = "application/json" end
+  local via = endpoint.via
+  local limit = timeout_ns or default_ns
+  return {
+    method = method,
+    headers = headers,
+    body = body,
+    via = if via.kind == "unix" then via else nil end,
+    timeout_ns = if limit == 0 then nil else limit end,
+    low_speed_bytes = if limit == 0 then 0 else nil end,
+    follow = false,
+  }
+end
+
+--- `method` sent to `path` at `endpoint` under the limit `timeout_ns`.
+local function sent(endpoint: Endpoint, default_ns: integer, method: string, path: string, body?: string, timeout_ns?: integer): Http.Body?, string
+  local got, why = Http.request(method, endpoint.url .. path, options(endpoint, default_ns, method, body, timeout_ns))
+  if got == nil then return nil, "tailscale: " .. why end
+  return got, ""
+end
+
+--- `path`'s body, or why it is not one of status 200.
+local function ok(endpoint: Endpoint, default_ns: integer, method: string, path: string, body?: string, timeout_ns?: integer): Answer
+  local got, why = sent(endpoint, default_ns, method, path, body, timeout_ns)
+  if got == nil then return { reason = why, status = 0 } end
+  if got.status ~= 200 then
+    local said = got.body:gsub("%s+$", "")
+    -- Some endpoints refuse with `{"error": "..."}`, others with text.
+    local refusal, _ = Json.decode_object(said)
+    local message = if refusal ~= nil then refusal["error"] else nil end
+    if message is string then said = message end
+    if said == "" then said = "status " .. tostring(got.status) end
+    return { reason = "tailscale: " .. (path:match("^[^?]*") or path) .. ": " .. said, status = got.status }
+  end
+  return { body = got.body, reason = "", status = 200 }
+end
+
 --- The events of [`Client.watch`], one a read: a line of JSON an
 --- event. A class, so a `<close>` local holds one.
 local class Events
@@ -627,68 +690,18 @@ local class Client
   --- Internal: how long a call may take.
   timeout_ns: integer
 
-  --- Internal: the options of one request.
-  --- `timeout_ns` is the call's limit, the client's by default; 0 is none.
-  function options(self, method: string, body?: string, timeout_ns?: integer): Http.Options
-    local headers: mut {string: string} = {
-      -- Over a port the URL names 127.0.0.1, which the daemon takes only
-      -- with a token; this one it always takes, as its own client sends.
-      ["Host"] = HOST,
-      ["Tailscale-Cap"] = CAPABILITY,
-    }
-    local token = self.endpoint.token
-    if token ~= nil then
-      headers["Authorization"] = "Basic " .. Codec.base64(":" .. token)
-    end
-    if body ~= nil then headers["Content-Type"] = "application/json" end
-    local via = self.endpoint.via
-    local limit = timeout_ns or self.timeout_ns
-    return {
-      method = method,
-      headers = headers,
-      body = body,
-      via = if via.kind == "unix" then via else nil end,
-      timeout_ns = if limit == 0 then nil else limit end,
-      low_speed_bytes = if limit == 0 then 0 else nil end,
-      follow = false,
-    }
-  end
-
   --- `method` sent to `path` of the LocalAPI (`/localapi/v0/status`),
   --- with `body` when given, and the whole reply, whatever its status.
   ---
   ---     local got = assert(ts:request("GET", "/localapi/v0/derpmap"))
   function request(self, method: string, path: string, body?: string): Http.Body?, string
     if path:sub(1, 1) ~= "/" then error("tailscale: path must start with /", 2) end
-    return self:sent(method, path, body)
-  end
-
-  --- Internal: [`Client.request`] under the limit `timeout_ns`.
-  function sent(self, method: string, path: string, body?: string, timeout_ns?: integer): Http.Body?, string
-    local got, why = Http.request(method, self.endpoint.url .. path, self:options(method, body, timeout_ns))
-    if got == nil then return nil, "tailscale: " .. why end
-    return got, ""
+    return sent(self.endpoint, self.timeout_ns, method, path, body)
   end
 
   --- A GET of `path`, as [`Client.request`] sends it.
   function get(self, path: string): Http.Body?, string
     return self:request("GET", path)
-  end
-
-  --- Internal: `path`'s body, or why it is not one of status 200.
-  function ok(self, method: string, path: string, body?: string, timeout_ns?: integer): Answer
-    local got, why = self:sent(method, path, body, timeout_ns)
-    if got == nil then return { reason = why, status = 0 } end
-    if got.status ~= 200 then
-      local said = got.body:gsub("%s+$", "")
-      -- Some endpoints refuse with `{"error": "..."}`, others with text.
-      local refusal, _ = Json.decode_object(said)
-      local message = if refusal ~= nil then refusal["error"] else nil end
-      if message is string then said = message end
-      if said == "" then said = "status " .. tostring(got.status) end
-      return { reason = "tailscale: " .. (path:match("^[^?]*") or path) .. ": " .. said, status = got.status }
-    end
-    return { body = got.body, reason = "", status = 200 }
   end
 
   --- Who `address` is: an IP address of the tailnet, alone or with a
@@ -714,7 +727,7 @@ local class Client
   -- TODO: take the daemon's `svc_name` and `proto` once a server answers
   -- for a Tailscale Service, whose grants scope the CapMap to it.
   function whois_result(self, address: string): WhoIsResult
-    local answer = self:ok("GET", "/localapi/v0/whois?addr=" .. Url.escape(address))
+    local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/whois?addr=" .. Url.escape(address))
     local text = answer.body
     if text == nil then
       if answer.status == 404 then
@@ -733,7 +746,7 @@ local class Client
 
   --- The node's status and its peers' (`tailscale status`).
   function status(self): Status?, string
-    local answer = self:ok("GET", "/localapi/v0/status")
+    local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/status")
     local text = answer.body
     if text == nil then return nil, answer.reason end
     local wire, bad = STATUS:decode_into(text)
@@ -743,7 +756,7 @@ local class Client
 
   --- The node's preferences (`tailscale debug prefs`).
   function prefs(self): Prefs?, string
-    local answer = self:ok("GET", "/localapi/v0/prefs")
+    local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/prefs")
     local text = answer.body
     if text == nil then return nil, answer.reason end
     local wire, bad = PREFS:decode_into(text)
@@ -773,7 +786,7 @@ local class Client
       -- Go's duration, in whole seconds rounded up.
       query = query .. "&min_validity=" .. tostring((validity + 999999999) // 1000000000) .. "s"
     end
-    local answer = self:ok("GET", "/localapi/v0/cert/" .. domain .. query, nil, o.timeout_ns or CERT_TIMEOUT_NS)
+    local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/cert/" .. domain .. query, nil, o.timeout_ns or CERT_TIMEOUT_NS)
     local text = answer.body
     if text == nil then return nil, answer.reason end
     return pair_of(text)
@@ -787,7 +800,7 @@ local class Client
       { name = "ip", value = address },
       { name = "type", value = kind or "disco" },
     })
-    local answer = self:ok("POST", "/localapi/v0/ping?" .. query)
+    local answer = ok(self.endpoint, self.timeout_ns, "POST", "/localapi/v0/ping?" .. query)
     local text = answer.body
     if text == nil then return nil, answer.reason end
     local wire, bad = PING:decode_into(text)
@@ -818,7 +831,7 @@ local class Client
     if o.initial_state ~= false then mask = mask | 2 end
     if o.initial_status == true then mask = mask | (1 << 14) end
     local path = "/localapi/v0/watch-ipn-bus?mask=" .. tostring(mask)
-    local response, why = Http.open(self.endpoint.url .. path, self:options("GET", nil, 0))
+    local response, why = Http.open(self.endpoint.url .. path, options(self.endpoint, self.timeout_ns, "GET", nil, 0))
     if response == nil then return nil, "tailscale: " .. why end
     if response.status ~= 200 then
       local said, _ = Stream.read_up_to(response, 4096)
@@ -835,6 +848,8 @@ end
 local record Tailscale
   --- A client of one daemon, as [`Tailscale.connect`] answers it.
   type Client = Client
+  --- Where a [`Client`] reaches its daemon.
+  type Endpoint = Endpoint
   type User = User
   type Node = Node
   type WhoIs = WhoIs
@@ -854,7 +869,7 @@ local record Tailscale
 
   --- How [`Tailscale.connect`] reaches the daemon. With none of these,
   --- it looks where the platform's daemon listens.
-  record ConnectOptions
+  record Daemon
     --- The daemon's socket file, as `tailscaled --socket` names it.
     socket?: string
     --- A port of 127.0.0.1 the daemon listens at, as macOS's app does.
@@ -951,8 +966,8 @@ end
 --- `token` without `port`, or a port or timeout out of range.
 ---
 ---     local ts = assert(Tailscale.connect({ socket = "/tmp/ts/tailscaled.sock" }))
-function Tailscale.connect(opts?: Tailscale.ConnectOptions): Client?, string
-  local o: Tailscale.ConnectOptions = opts or {}
+function Tailscale.connect(opts?: Tailscale.Daemon): Client?, string
+  local o: Tailscale.Daemon = opts or {}
   if o.socket ~= nil and o.port ~= nil then error("tailscale: give socket or port, not both", 2) end
   if o.token ~= nil and o.port == nil then error("tailscale: token needs port", 2) end
   local port = o.port

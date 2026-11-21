@@ -210,6 +210,8 @@ allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..
   "design's test phase lands (the TODO at build.confine's forbid_running)"
+allowed["cosmic.tailscale.connect"] = "public API: the module's entry, the only way a program " ..
+  "gets a client of tailscaled"
 allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..
   "which the build's own reading of one (build.syntax_analyzer, which cannot require this " ..
   "module) is held to by cosmic/test_policy_test.tl"
