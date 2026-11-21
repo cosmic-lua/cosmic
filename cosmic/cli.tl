@@ -610,7 +610,7 @@ local record Cli
   --- the server or a challenge refused the issue or a request failed, 2
   --- for a command line, a key file or a write it refuses
   acme: string
-  --- `cosmic tailscale <status|whois|cert|ping> ...`: the machine's own
+  --- `cosmic tailscale <status|whois|cert|ping|file> ...`: the machine's own
   --- Tailscale node, asked through tailscaled's LocalAPI with no
   --- `tailscale` binary. `status` prints this node and each peer, a line
   --- each: its address, MagicDNS name, owner or tags, OS and how traffic
@@ -624,6 +624,13 @@ local record Cli
   --- that expires sooner first. `ping <address|name>` prints the round trip and
   --- the path it took (`--kind disco|ICMP|TSMP|peerapi`). `--json` prints
   --- the answer as JSON; `--socket <path>` names the daemon's socket.
+  --- `file` is Taildrop: `file targets` lists the nodes a file can go to,
+  --- `file send <file|-> <target>` sends one to a node by name, address or
+  --- stable id (`--name` renames it), `file list` lists the files that wait
+  --- here, and `file get <dir>` writes each into the directory and drops
+  --- it from the daemon (`--keep` leaves it; `--wait` waits for one;
+  --- `--conflict skip|overwrite|rename` for a name already taken, skip by
+  --- default).
   --- Examples: `cosmic tailscale status`, `cosmic tailscale whois
   --- 100.101.102.103`, `cosmic tailscale cert`. A program asks the daemon
   --- with [`cosmic.tailscale`]. It prints no summary. Exits 0 when it
@@ -1282,15 +1289,19 @@ local module: Module = {
       },
     },
     tailscale = {
-      about = "this machine's Tailscale node: its status, a peer's identity, a certificate",
-      usage = "<status|whois|cert|ping> [options] [address|domain]",
+      about = "this machine's Tailscale node: its status, a peer's identity, a certificate, Taildrop",
+      usage = "<status|whois|cert|ping|file> [options] [words...]",
       spec = {
         ["--socket"] = { value = "path", about = "the daemon's socket, where it is not where it is looked for" },
-        ["--json"] = { about = "status, whois, ping: the answer as JSON" },
+        ["--json"] = { about = "status, whois, ping, file targets, file list: the answer as JSON" },
         ["--cert-file"] = { value = "file", about = "cert: write the chain here (default <domain>.crt; -: standard output)" },
         ["--key-file"] = { value = "file", about = "cert: write the key here (default <domain>.key; -: standard output)" },
         ["--min-validity"] = { value = "duration", about = "cert: renew first one that expires within this, such as 30d" },
         ["--kind"] = { value = "kind", about = "ping: disco (default), ICMP, TSMP or peerapi" },
+        ["--name"] = { value = "name", about = "file send: the name the file goes under (default: its own)" },
+        ["--wait"] = { about = "file get: wait for a file when none waits" },
+        ["--conflict"] = { value = "how", about = "file get: skip (default), overwrite or rename a name already taken" },
+        ["--keep"] = { about = "file get: leave each file waiting in the daemon too" },
       },
     },
     docs = {
