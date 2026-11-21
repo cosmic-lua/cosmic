@@ -1253,7 +1253,8 @@ lower_bound = function(ctx: Ctx, p: Ast.TypeParam): Type?
   local t = if primitive ~= nil and Types.builtin_bound(ctx.store:atom(primitive)) then ctx.store:atom(primitive) else
     lower_name(ctx, constraint) end
   ctx.types[constraint.id] = t
-  if Types.builtin_bound(t) or (t.tag == "named") and t.decl.kind == "interface" and #t.args == 0 then -- checked: or_mix
+  local interface = t.tag == "named" and t.decl.kind == "interface" and #t.args == 0
+  if Types.builtin_bound(t) or interface then
     return t
   end
   if t.tag ~= "invalid" then
