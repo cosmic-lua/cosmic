@@ -26,11 +26,25 @@ local record session_fixture
     character: integer
   end
 
+  --- The second place a diagnostic is about: the document and its range.
+  record Location
+    uri: string
+    range: {string: Place}
+  end
+
+  record Related
+    location: Location
+    message: string
+  end
+
   record Diagnostic
     --- Its `start` and its `end`, a name no record field can have.
     range: {string: Place}
+    --- 1 for an error, 2 for a warning.
+    severity: integer
     message: string
     code: string?
+    relatedInformation?: {Related}
   end
 
   --- A publication's document and diagnostics.

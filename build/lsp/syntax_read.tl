@@ -213,6 +213,54 @@ local function refusals_of_generated(trouble: string): {Refusal}
   return refusals_of_lines(lines)
 end
 
+--- `refusals` with the places the checker gave each that `outcome` holds: the span of the place at fault, the second place,
+--- and whether it is a warning or a hint. A refusal is matched to a problem of its line, column and code whose message its
+--- words begin with, so that two findings of one code at one place keep their own spans; one that no problem matches (a
+--- refusal of the pipeline's own, a line that counts errors) is left as its words placed it.
+-- TODO: take the problems from [`Pipeline.review`] beside its lines, once it answers them, so that a refusal is not joined
+-- to its problem by the place and code read back out of its words ([`plan.refusal_of`]).
+-- TODO: carry the opener a syntax error names ([`Parser.Error.other`], the `if` an `end` is missing for) into its problem,
+-- once [`Driver.Problem`]'s `other` takes a parser's place as well as a scope's.
+local function placed_by(refusals: {Refusal}, outcome?: Driver.Outcome): {Refusal}
+  if outcome == nil then return refusals end
+  local found: mut {string: mut {Driver.Problem}} = {}
+  for _, list in ipairs({ outcome.syntax, outcome.scope_errors, outcome.declared, outcome.bodies, outcome.warnings }) do
+    for _, problem in ipairs(list) do
+      local key = tostring(problem.y) .. ":" .. tostring(problem.x) .. ":" .. problem.code
+      local same = found[key]
+      if same == nil then
+        found[key] = { problem }
+      else
+        same[#same + 1] = problem
+      end
+    end
+  end
+  local out: mut {Refusal} = {}
+  for _, refusal in ipairs(refusals) do
+    local code = refusal.code
+    local problem: Driver.Problem? = nil
+    if code ~= nil then
+      for _, candidate in ipairs(found[tostring(refusal.line) .. ":" .. tostring(refusal.column) .. ":" .. code] or {}) do
+        if problem == nil and refusal.message:sub(1, #candidate.msg) == candidate.msg then
+          problem = candidate
+        end
+      end
+    end
+    if problem == nil then
+      out[#out + 1] = refusal
+    else
+      local other = problem.other
+      out[#out + 1] = {
+        line = refusal.line, column = refusal.column, message = refusal.message, code = code, offset = problem.offset,
+        length = problem.length, other = if other ~= nil then other.offset else nil end,
+        other_length = if other ~= nil then other.length else nil end,
+        severity = if problem.kind == "error" then "error" elseif problem.kind == "hint" then "hint" else "warning" end,
+      }
+    end
+  end
+  return out
+end
+
 --- What the new checker refuses of the module `compiled` in the program of `pipeline` that a session holds ([`build.lsp.held`]),
 --- whose text is the document's as spliced ([`build.lsp.syntax_read`]): every error and warning the checker finds and what else the pipeline
 --- refuses ([`Pipeline.review`]: in a module of the discipline its contracts and the calls it judged no rule of, in a
@@ -224,7 +272,7 @@ local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Buil
   if not AnalysisSchema.is_declaration(compiled.kind) then
     local made, trouble = Pipeline.review(compiled, pipeline, hints)
     if made == nil then
-      return { refusals = refusals_of_generated(trouble) }
+      return { refusals = placed_by(refusals_of_generated(trouble), pipeline.build:result(compiled.path, true)) }
     end
     return { refusals = {} }
   end
@@ -246,7 +294,7 @@ local function generated_of(compiled: build_module.Plan, pipeline: Pipeline.Buil
       lines[#lines + 1] = ErrorRender.line(compiled.file, warning)
     end
   end
-  return { refusals = refusals_of_lines(lines) }
+  return { refusals = placed_by(refusals_of_lines(lines), outcome) }
 end
 
 --- [`generated_of`] and what the modules `sites` (the document's `require`s) are refused for ([`broken`]), where `listed` says

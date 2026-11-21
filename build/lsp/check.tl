@@ -775,27 +775,50 @@ function check.diagnose(checker: Checker, document: Document, encoding: string):
   local text_lines = lines.lines_of(document.text)
   local starts = lines.checker_starts(checked.text)
   local out: mut {string} = {}
-  --- The diagnostic `message` at the checker's line `y` and column `x`.
-  local function add(y: integer, x: integer, message: string, code: string?)
-    local line = math.min(math.max(y, 1), #starts)
-    local at = math.min(assert(starts[line]) + math.max(x, 1) - 1, #checked.text + 1)
-    local offset = syntax_read.unspliced(checked.splices, at)
+  --- The byte of the document that the byte `at` of the checked text stands for.
+  local function document_byte(at: integer): integer
     -- A place in a template's Teal is none in the template.
-    if checked.generated then offset = 1 end
-    local word = document.text:match("^[%w_]+", offset) or ""
+    if checked.generated then return 1 end
+    return syntax_read.unspliced(checked.splices, math.min(math.max(at, 1), #checked.text + 1))
+  end
+  --- The diagnostic of `refusal`: over the span the checker gave it, or the word at its line and column where it gave none.
+  local function add(refusal: plan.Refusal)
+    local line = math.min(math.max(refusal.line, 1), #starts)
+    local given = refusal.offset
+    local offset = document_byte(given or (assert(starts[line]) + math.max(refusal.column, 1) - 1))
+    local stop = offset + math.max(#(document.text:match("^[%w_]+", offset) or ""), 1)
+    local length = refusal.length
+    if given ~= nil and length ~= nil and length > 0 and not checked.generated then
+      stop = math.max(document_byte(given + length), offset + 1)
+    end
+    local related: {protocol.DiagnosticRelatedInformation}? = nil
+    local other = refusal.other
+    if other ~= nil and not checked.generated then
+      local at = document_byte(other)
+      local after = at + math.max(#(document.text:match("^[%w_]+", at) or ""), 1)
+      local other_length = refusal.other_length
+      if other_length ~= nil and other_length > 0 then
+        after = math.max(document_byte(other + other_length), at + 1)
+      end
+      related = { {
+        location = { uri = document.uri, range = protocol.range(lines.position(text_lines, at, encoding),
+          lines.position(text_lines, after, encoding)) },
+        message = "the other place this is about",
+      } }
+    end
     local diagnostic: protocol.Diagnostic = {
-      range = protocol.range(lines.position(text_lines, offset, encoding),
-        lines.position(text_lines, offset + math.max(#word, 1), encoding)),
-      -- A build refuses a warning as it does an error.
-      severity = 1,
+      range = protocol.range(lines.position(text_lines, offset, encoding), lines.position(text_lines, stop, encoding)),
+      -- A build refuses a warning as it does an error; the editor shows which it is.
+      severity = if refusal.severity == "warning" then 2 elseif refusal.severity == "hint" then 4 else 1 end,
       source = "cosmic",
-      message = message,
-      code = code,
+      message = refusal.message,
+      code = refusal.code,
+      relatedInformation = related,
     }
     table.insert(out, (assert(Json.encode_any(diagnostic))))
   end
   for _, refusal in ipairs(checked.refusals) do
-    add(refusal.line, refusal.column, refusal.message, refusal.code)
+    add(refusal)
   end
   document.published = out
   document.published_basis = assert(document.kept).basis

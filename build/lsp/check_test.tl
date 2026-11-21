@@ -705,3 +705,29 @@ local function test_the_probe_made_for_a_document_goes_when_the_document_is_clos
   assert(checker.probed == nil)
   check.close(checker)
 end
+
+--- A diagnostic of the checker spans the place it names, not one word from its column; a finding about two places links the
+--- second; a warning is published as one, though a build refuses it too.
+local function test_a_checker_diagnostic_carries_its_span_its_other_place_and_its_kind()
+  local root = project()
+  local text = 'local n: integer = "abc"\nlocal unused = 1\nprint(n)\n' ..
+    "local function g(): integer return 1 end\nlocal function g(): integer return 2 end\nprint(g())\n"
+  local told = nth(served(root, { initialize(root), open(root, "main.tl", text) }), 1)
+  local by_code: mut {string: session_fixture.Diagnostic} = {}
+  for _, d in ipairs(told) do
+    local code = d.code
+    if code ~= nil then by_code[code] = d end
+  end
+  local wrong = assert(by_code["not_assignable"], messages_of(told))
+  local start, stop = edge(wrong, "start"), edge(wrong, "end")
+  assert(start.line == 0 and start.character == 19 and stop.line == 0 and stop.character == 24,
+    tostring(start.character) .. "-" .. tostring(stop.character))
+  assert(wrong.severity == 1, tostring(wrong.severity))
+  local unused = assert(by_code["unused_variable"], messages_of(told))
+  assert(unused.severity == 2, tostring(unused.severity))
+  local shadows = assert(by_code["shadows"], messages_of(told))
+  local related = assert((shadows.relatedInformation or {})[1], "no related place")
+  local first = assert(related.location.range["start"])
+  assert(related.location.uri:sub(-8) == "/main.tl" and first.line == 3 and first.character == 15,
+    related.location.uri .. " " .. tostring(first.line) .. ":" .. tostring(first.character))
+end

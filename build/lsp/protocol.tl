@@ -149,12 +149,20 @@ local record protocol
   --- A range: its `start` and its `end`, a name no record field can have.
   type Range = {string: Position}
 
+  --- A second place a diagnostic is about, and what it is there.
+  record DiagnosticRelatedInformation
+    location: Location
+    message: string
+  end
+
   record Diagnostic
     range: Range
+    --- 1 for an error, 2 for a warning, 4 for a hint.
     severity: integer
     source: string
     message: string
     code: string?
+    relatedInformation?: {DiagnosticRelatedInformation}
   end
 
   record MarkupContent

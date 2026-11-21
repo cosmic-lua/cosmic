@@ -260,7 +260,7 @@ local function test_the_fix_of_a_removed_name_beats_the_pointer_of_an_argument()
   local function marked(removed: boolean): Driver.Problem
     return {
       kind = problem.kind, stage = problem.stage, code = "not_assignable", msg = problem.msg, fix = problem.fix, y = problem.y,
-      x = problem.x, offset = problem.offset, removed = removed,
+      x = problem.x, offset = problem.offset, length = problem.length, removed = removed,
       argument = { callee = "Hash.hex", module = "cosmic.hash", position = 1 },
     }
   end
