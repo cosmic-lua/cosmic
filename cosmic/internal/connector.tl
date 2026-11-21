@@ -630,8 +630,11 @@ local class Served
   --- ended, or whose stream fell out of step, fails every request
   --- waiting on it, and is started again for the next, unless the
   --- relay's starter handed it over (a relay's connectors are not started
-  --- again). An `address` that is no tcp
-  --- [`Net.Address`], or a `timeout_ns` that is no integer from 0, raises.
+  --- again). With `opts.tls`, the connection is answered once its TLS
+  --- handshake is done and the server verified, as [`Net.connect`]
+  --- answers one; one that fails is closed. An `address` that is no tcp
+  --- [`Net.Address`], a `timeout_ns` that is no integer from 0, or a
+  --- `server_name` without `tls`, raises.
   function connect(self, address: Connection.Address, opts?: Connection.ConnectOptions):
       Connection.Conn?, string
     local unusable = registered.address_trouble(address)
@@ -640,6 +643,10 @@ local class Served
     local conn_ns = if opts ~= nil then opts.timeout_ns else nil end
     if conn_ns ~= nil and (math.type(conn_ns) ~= "integer" or conn_ns < 0) then
       error("net: timeout_ns must be an integer from 0", 2)
+    end
+    local client = if opts ~= nil then opts.tls else nil end
+    if opts ~= nil and opts.server_name ~= nil and client == nil then
+      error("net: opts.server_name is what opts.tls asks for, and there is no opts.tls", 2)
     end
     if not self.open then return nil, "net: the connector is closed" end
     local target, port = assert(address.host), assert(address.port)
@@ -674,7 +681,14 @@ local class Served
     if channel == nil then return nil, why end
     local socket, asked = ask(channel, body, host, port, deadline, refusal, kind)
     if socket == nil then return nil, asked end
-    return Connection.new(socket, conn_ns), ""
+    local conn = Connection.new(socket, conn_ns)
+    if client == nil then return conn, "" end
+    local secured, refused = conn:start_tls(client, opts and opts.server_name or target)
+    if not secured then
+      local _, _ = conn:close()
+      return nil, named(target, port) .. ": " .. refused
+    end
+    return conn, ""
   end
 
   --- Whether the connector serves no request any more: it is closed, or

@@ -12,7 +12,7 @@ local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 local Tls = require("cosmic.tls")
 
-Test.policy{ loopback = { "127.0.0.1" }, grants = { { path = "testdata/tls", letters = "r" } } }
+Test.policy{ loopback = { "127.0.0.1" }, promises = { "fork" }, grants = { { path = "testdata/tls", letters = "r" } } }
 
 --- The fixture `name` of testdata/tls.
 local function fixture(name: string): string
@@ -126,6 +126,21 @@ local function test_a_chain_to_no_trusted_root_is_refused()
     local none, why = Net.connect(Net.tcp("127.0.0.1", port), { tls = client, server_name = "localhost" })
     assert(none == nil and why:find("^127%.0%.0%.1:%d+: tls: the peer's certificate is not trusted: ") ~= nil and
         why:find("not correctly signed", 1, true) ~= nil and why:find("opts.roots", 1, true) ~= nil, why)
+  end)
+end
+
+local function test_a_connector_connects_over_tls_as_net_connect_does()
+  served(A, function(port: integer)
+    local connector <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
+    local conn <close> = assert(connector:connect(Net.tcp("127.0.0.1", port),
+      { tls = trusting(), server_name = "localhost" }))
+    assert(round_trip(conn, "x") == "TLSv1.3 - localhost\nx")
+    assert(assert(assert(conn:tls()).peer).verified)
+    local none, why = connector:connect(Net.tcp("127.0.0.1", port), { tls = trusting(), server_name = "b.test" })
+    assert(none == nil and why:find("^127%.0%.0%.1:%d+: tls: the peer's certificate is not trusted") ~= nil, why)
+    Test.raises(function()
+      local _, _ = connector:connect(Net.tcp("127.0.0.1", port), { server_name = "localhost" })
+    end, "there is no opts.tls")
   end)
 end
 
