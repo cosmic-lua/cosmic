@@ -670,8 +670,9 @@ local function serves(g: Grade, args: {string}, log?: string): Served?
   local what = g.name .. " " .. table.concat(args, " ")
   local out_path = g.logs .. "/" .. (log or "check-serve.out")
   local out = assert(Fs.open_write(out_path))
+  -- The server runs until the grade ends it; the ceiling only stops one left behind.
   local options: Child.Options = { cwd = g.empty, env = {}, stdout = out, stderr = out,
-    stdin = if g.null_stdin then "null" else nil end }
+    stdin = if g.null_stdin then "null" else nil end, timeout_ns = Clock.minutes(60) }
   local server, trouble = Child.start(argv_of(g, args), options)
   local _, _ = Fs.close(out)
   if server == nil then
@@ -1344,7 +1345,7 @@ local function jobs_interrupt(g: Grade, w: string): integer
   local args = { "run", "w/term.json" }
   local started = Clock.monotonic_ns()
   local handle, trouble = Child.start(argv_of(g, args), { cwd = g.empty, env = {},
-    stdout = "capture", stderr = "capture", stdin = "null", process_group = false })
+    stdout = "capture", stderr = "capture", stdin = "null", process_group = false, timeout_ns = Clock.minutes(15) })
   if handle == nil then
     fail(g, label(g, args) .. " did not start: " .. trouble)
     return 0

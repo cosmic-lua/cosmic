@@ -40,7 +40,7 @@ end
 
 --- Why a start under `policy` is refused before any child exists.
 local function refused(argv: {string}, policy: Sandbox.Policy): string
-  local handle, why = Child.start(argv, { policy = policy })
+  local handle, why = Child.start(argv, { timeout_ns = Child.FOREVER, policy = policy })
   assert(handle == nil, "the start was not refused")
   return why
 end
@@ -82,7 +82,7 @@ local function test_a_start_under_a_policy_is_refused_where_the_platform_has_no_
   for i, policy in ipairs(policies) do
     -- It starts in the directory that holds the probe: under isolate file the
     -- start directory must be at, beneath or above a grant.
-    local result, why = Child.run({ probe, "print hi" }, { policy = policy, cwd = probe:match("^(.*)/") })
+    local result, why = Child.run({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = probe:match("^(.*)/") })
     assert(result == nil, "policy " .. tostring(i) .. " started a child where there is no sandbox")
     assert(ChildPolicy.unsandboxable(why), "policy " .. tostring(i) .. ": " .. why)
   end
@@ -91,14 +91,14 @@ end
 local function test_a_program_nobody_granted_does_not_start_and_the_failure_names_the_grant(tmp: string)
   local probe = stand_in_of(tmp)
   local real = assert(sys.realpath(probe))
-  local none, why = Child.start({ probe, "print hi" }, { policy = {} })
+  local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = {} })
   assert(none == nil)
   assert(why:find("^child: start: sandbox: "), why)
   assert(why:find(real, 1, true) and why:find("r and x", 1, true), why)
   assert(why:find("system", 1, true) and why:find("the program", 1, true), why)
   -- Read without run names what is missing.
   local read, trouble = Child.start({ probe, "print hi" },
-    { policy = { grants = { { path = probe, letters = "r" } } } })
+    { timeout_ns = Child.FOREVER, policy = { grants = { { path = probe, letters = "r" } } } })
   assert(read == nil and trouble:find("not granted x:", 1, true) ~= nil, trouble)
 end
 
@@ -107,22 +107,22 @@ local function test_an_interpreter_must_be_granted_too(tmp: string)
   assert(Fs.mkdirs(tmp .. "/scripts"))
   assert(Fs.write(tmp .. "/scripts/run", "#!" .. probe .. "\nprint scripted\n", 493))
   local policy: Sandbox.Policy = { grants = { { path = tmp .. "/scripts", letters = "rx" } } }
-  local none, why = Child.start({ tmp .. "/scripts/run" }, { policy = policy })
+  local none, why = Child.start({ tmp .. "/scripts/run" }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(none == nil and why:find("interpreter", 1, true) ~= nil and why:find(assert(sys.realpath(probe)), 1, true) ~= nil, why)
 end
 
 local function test_a_program_named_without_a_path_must_be_found(tmp: string)
   local probe = stand_in_of(tmp)
-  local none, why = Child.start({ "no-such-program-here" }, { policy = { grants = itself(probe) } })
+  local none, why = Child.start({ "no-such-program-here" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) } })
   assert(none == nil and why:find("no-such-program-here", 1, true) ~= nil, why)
 end
 
 local function test_env_beside_a_policy_raises(tmp: string)
   local probe = stand_in_of(tmp)
   Test.raises(function()
-    Child.start({ probe }, { policy = { grants = itself(probe) }, env = {} })
+    Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe) }, env = {} })
   end, "policy and env exclude each other")
-  local other, trouble = pcall(Child.start, { probe }, { policy = {}, sandbox = { offline = true } })
+  local other, trouble = pcall(Child.start, { probe }, { timeout_ns = Child.FOREVER, policy = {}, sandbox = { offline = true } })
   assert(not other and tostring(trouble):find("policy and sandbox", 1, true) ~= nil, tostring(trouble))
 end
 
@@ -143,14 +143,14 @@ local function test_a_policy_that_is_not_met_fails_naming_the_field(tmp: string)
     { policy = { grants = grants(), set_env_digests = { X = string.rep("0", 64) } }, says = 'set_env_digests "X"' },
   }
   for _, case in ipairs(cases) do
-    local none, why = Child.start({ probe, "print hi" }, { policy = case.policy })
+    local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = case.policy })
     assert(none == nil, case.says)
     assert(why:find("^child: start: sandbox: ") and why:find(case.says, 1, true), why)
     assert(why:find("not yet available", 1, true) or why:find("cannot start", 1, true), why)
   end
   local from = grants()
   from[#from + 1] = { path = "/data", letters = "r", from = "/srv/data" }
-  local none, why = Child.start({ probe }, { policy = { grants = from } })
+  local none, why = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = from } })
   assert(none == nil and why:find('grant "/data"', 1, true) ~= nil and why:find("from", 1, true) ~= nil, why)
   assert(why:find('isolate "file"', 1, true), why)
 end
@@ -172,7 +172,7 @@ local function test_a_policy_with_connect_may_not_name_a_proxy_variable(tmp: str
       assert(why:find('connect "example.com:443"', 1, true) and why:find(how, 1, true), why)
     end
   end
-  local free, why = Child.run({ probe, "env-of HTTPS_PROXY" }, { policy = { grants = itself(probe),
+  local free, why = Child.run({ probe, "env-of HTTPS_PROXY" }, { timeout_ns = Child.FOREVER, policy = { grants = itself(probe),
     set_env = { HTTPS_PROXY = "http://mine:1" } }, stdout = "capture", cwd = probe:match("^(.*)/") })
   if free == nil then
     assert(ChildPolicy.unsandboxable(why), why)
@@ -184,7 +184,7 @@ end
 local function test_a_relay_log_is_null_inherit_or_a_descriptor(tmp: string)
   local probe = stand_in_of(tmp)
   for _, value in ipairs({ -1, 4294967296 }) do
-    local wrong: Child.Options = { relay_log = value }
+    local wrong: Child.Options = { timeout_ns = Child.FOREVER, relay_log = value }
     local refused_ok, refused_why = pcall(Child.start, { probe }, wrong)
     assert(not refused_ok and tostring(refused_why):find("or a descriptor", 1, true) ~= nil, tostring(value))
   end
@@ -207,9 +207,9 @@ end
 
 local function test_a_policy_that_does_not_merge_fails_naming_the_field(tmp: string)
   local probe = stand_in_of(tmp)
-  local none, why = Child.start({ probe }, { policy = { grants = { { path = probe, letters = "q" } } } })
+  local none, why = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = probe, letters = "q" } } } })
   assert(none == nil and why:find("$.grants[0].letters", 1, true) ~= nil, why)
-  local profile, trouble = Child.start({ probe }, { policy = { profiles = { "bogus" } } })
+  local profile, trouble = Child.start({ probe }, { timeout_ns = Child.FOREVER, policy = { profiles = { "bogus" } } })
   assert(profile == nil and trouble:find("bogus", 1, true) ~= nil, trouble)
 end
 
@@ -224,7 +224,7 @@ local function test_a_policy_of_too_many_grants_fails_before_it_makes_anything(t
       local grant: Sandbox.Grant = { path = tmp .. "/g" .. tostring(i), letters = "r" }
       grants[#grants + 1] = grant
     end
-    local none, why = Child.start({ probe, "print hi" }, { policy = { grants = grants, tmp = true } })
+    local none, why = Child.start({ probe, "print hi" }, { timeout_ns = Child.FOREVER, policy = { grants = grants, tmp = true } })
     assert(none == nil, "a start over the most was made")
     assert(why:find("^child: start: sandbox: grants: "), why)
     assert(why:find("takes, " .. tostring(most) .. ";", 1, true), why)
@@ -306,7 +306,7 @@ local function test_a_root_caller_that_cannot_map_a_user_fails_naming_why()
     Test.skip("this process can map the user a sandbox runs as, so none of its starts is refused for it")
     return
   end
-  local handle, why = Child.start({ "/bin/true" }, { policy = { isolate = { "proc" }, profiles = { "system" } }, cwd = "/" })
+  local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { isolate = { "proc" }, profiles = { "system" } }, cwd = "/" })
   assert(handle == nil, "the start was not refused")
   assert(why:find("never runs as root", 1, true) and why:find("CAP_SETFCAP", 1, true), why)
 end

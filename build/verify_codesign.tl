@@ -10,6 +10,7 @@
 --- bootstrap cosmic, as bin/zig runs build/zig.tl: it requires
 --- `cosmic.*` modules only.
 local Child = require("cosmic.child")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Log = require("cosmic.log")
 local Proc = require("cosmic.proc")
@@ -57,7 +58,7 @@ function VerifyCodesign.verify(sysname: string, binary: string, path?: string): 
       argv[#argv + 1] = word
     end
     argv[#argv + 1] = binary
-    local result, trouble = Child.run(argv)
+    local result, trouble = Child.run(argv, { timeout_ns = Clock.minutes(5) })
     -- 127 whatever the reason it did not start; the message says which.
     if result == nil then
       log:complain(tool .. ": " .. trouble)

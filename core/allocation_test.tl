@@ -1103,15 +1103,15 @@ end
 --- body, a chunked one, a redirect curl follows, an interim 100
 --- Continue, and a POST with a body and a header.
 local exchanges: {Exchange} = {
-  { name = "a Content-Length body", options = { script = { reply("200 OK", "", hello) } } },
-  { name = "a chunked body", options = { script = {
+  { name = "a Content-Length body", options = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", hello) } } },
+  { name = "a chunked body", options = { timeout_ns = Clock.seconds(60), script = {
     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
       "7\r\nhello, \r\n7\r\ncosmic!\r\n0\r\n\r\n" } } },
-  { name = "a redirect", options = { script = {
+  { name = "a redirect", options = { timeout_ns = Clock.seconds(60), script = {
     reply("302 Found", "Location: /next\r\n", "moved"), reply("200 OK", "", hello) } } },
-  { name = "a 100 Continue", options = { script = {
+  { name = "a 100 Continue", options = { timeout_ns = Clock.seconds(60), script = {
     "HTTP/1.1 100 Continue\r\n\r\n" .. reply("200 OK", "", hello) } } },
-  { name = "a POST", options = { method = "POST", body = "payload",
+  { name = "a POST", options = { timeout_ns = Clock.seconds(60), method = "POST", body = "payload",
     headers = { ["X-One"] = "1" }, script = { reply("200 OK", "", hello) } } },
 }
 

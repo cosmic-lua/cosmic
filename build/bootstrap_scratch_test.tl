@@ -21,7 +21,7 @@ print("held")
 Fs.take(Fs.stdin, 1)
 ]]
   local command = this_program.program({ "-e", script:format(path) },
-    { stdin = "stream", stdout = "stream", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(command.argv, command.options))
   assert(Stream.lines(assert(child.stdout_stream)):read() == "held")
   return child
@@ -91,7 +91,7 @@ require("build.zig_fetch").install(cache, cache .. "/install", "v", "host", nil)
 ]] end
     local body = if patch then script:format(root, cache) else script:format(cache) end
     body = 'print("started")\n' .. body .. '\nprint("finished")'
-    local command = this_program.program({ "-e", body }, { stdout = "stream", stderr = "capture" })
+    local command = this_program.program({ "-e", body }, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "capture" })
     local child = assert(Child.start(command.argv, command.options))
     local lines = Stream.lines(assert(child.stdout_stream))
     assert(lines:read() == "started")
@@ -123,7 +123,7 @@ print(path)
   local children: mut {Child.Handle} = {}
   for _ = 1, 4 do
     local command = this_program.program({ "-e", script:format(tmp, cache) },
-      { stdout = "capture", stderr = "capture" })
+      { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
     children[#children + 1] = assert(Child.start(command.argv, command.options))
   end
   local published = ""

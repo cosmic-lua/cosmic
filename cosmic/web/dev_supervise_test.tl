@@ -17,7 +17,7 @@ local DEADLINE_NS <const> = Clock.seconds(8)
 --- Starts the chunk `chunk` as the program, given the environment.
 local function program(chunk: string): function(env: {string:string}): Child.Handle?, string
   return function(env: {string:string}): Child.Handle?, string
-    local started = fixture.lua(chunk, nil, { env = env })
+    local started = fixture.lua(chunk, nil, { timeout_ns = Child.FOREVER, env = env })
     return Child.start(started.argv, started.options)
   end
 end

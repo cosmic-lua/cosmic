@@ -3,6 +3,7 @@
 --- binds it.
 
 local TestSandboxFixture = require("build.test_sandbox_fixture")
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -90,7 +91,7 @@ local function sandboxed_worker(tmp: string): {string}
   -- Given no environment but the relaunch's, as `cosmic test` gives
   -- its worker none but what it pins.
   local worker = this_program.program(test_child.words(tmp, "build.confine_test", "worker", { given, hidden, probe }),
-    { env = {} })
+    { timeout_ns = Child.FOREVER, env = {} })
   local argv, opts = worker.argv, worker.options
   local output = assert(sys.open(tmp .. "/said", sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
   local process = require("cosmic.internal.process")

@@ -354,7 +354,7 @@ function Solve.main(argv: {string}): integer
   -- that, in place of this probe.
   local probe, probe_trouble = Child.run(Solve.proc_probe(Proc.pid()), { env = {},
     cwd = arena .. "/project", stdin = "null", stdout = "null", stderr = "null",
-    sandbox = { unveil = unveil } })
+    sandbox = { unveil = unveil }, timeout_ns = Clock.minutes(1) })
   if probe == nil then
     complain(probe_trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
     return 2

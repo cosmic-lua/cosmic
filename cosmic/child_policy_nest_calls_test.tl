@@ -100,7 +100,7 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
       { path = "/rw", letters = "rwc", from = work .. "/rw" },
       { path = work, letters = "r" } } }
   local started = this_program.program(test_child.words(work, "cosmic.child_policy_nest_calls_test", "nested calls"),
-    { policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
+    { timeout_ns = Child.FOREVER, policy = policy, cwd = work, stdout = "capture", stderr = "stdout" })
   local result, why = Child.run(started.argv, started.options)
   if result == nil then
     assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)

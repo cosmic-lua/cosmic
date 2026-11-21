@@ -64,7 +64,7 @@ end
 function child_policy_fixture.under(program: string, policy: Sandbox.Policy, cwd: string, script: string,
                                     fds?: {integer:integer | string}): child_policy_fixture.Outcome
   local result, why = Child.run({ program, script },
-    { policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
+    { timeout_ns = Child.FOREVER, policy = policy, cwd = cwd, stdout = "capture", stderr = "stdout", fds = fds })
   if result == nil then
     assert(child_policy_fixture.unsandboxable(why), "the start was refused: " .. why)
     Test.skip(why)
@@ -80,7 +80,7 @@ end
 --- @param cwd the directory it starts in
 --- @return the refusal
 function child_policy_fixture.refused(program: string, policy: Sandbox.Policy, cwd: string): string
-  local handle, why = Child.start({ program, "print hi" }, { policy = policy, cwd = cwd })
+  local handle, why = Child.start({ program, "print hi" }, { timeout_ns = Child.FOREVER, policy = policy, cwd = cwd })
   if handle ~= nil then
     local _, _ = handle:wait()
     return ""

@@ -749,7 +749,7 @@ local function boot(root: string, argv: {string}, host_only: boolean, why: strin
     boot_environment = rebuild_lock.hand(run_in, root)
   end
   local result, trouble = Child.run(reboot.boot_command(root .. "/bin/zig", host_only),
-    { cwd = root, env = boot_environment, stdout = 2 })
+    { timeout_ns = Child.FOREVER, cwd = root, env = boot_environment, stdout = 2 })
   if result == nil then
     return command .. ": " .. trouble
   end

@@ -100,7 +100,7 @@ local function test_a_root_caller_s_policy_with_no_namespace_drops_to_a_pool_use
   local first, last = pool()
   local result, why = Child.run({ at.probe,
     "status-field Uid; status-field Gid; cat /proc/self/uid_map; create made x" },
-    { policy = { grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "rwc" },
+    { timeout_ns = Child.FOREVER, policy = { grants = { { path = at.probe, letters = "rx" }, { path = at.work, letters = "rwc" },
       { path = "/proc", letters = "r" } } },
       cwd = at.work, stdout = "capture", stderr = "stdout" })
   if result == nil then
@@ -141,7 +141,7 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
     { path = dir, letters = "rwc" }, { path = "/proc", letters = "r" } } }
   for round = 1, 2 do
     local result, why = Child.run({ at.probe, "status-field Uid; cat " .. dir .. "/inside; " ..
-        "append " .. dir .. "/made " .. tostring(round) }, { policy = policy, cwd = at.work, stdout = "capture",
+        "append " .. dir .. "/made " .. tostring(round) }, { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, stdout = "capture",
           stderr = "stdout" })
     assert(result ~= nil, "the start was refused: " .. tostring(why))
     local said = result.stdout or ""
@@ -185,7 +185,7 @@ local function test_a_root_caller_s_concurrent_sandboxes_run_as_different_users(
   local running: mut {Child.Handle} = {}
   for i = 1, 3 do
     local handle, why = Child.start({ at.probe, "status-field Uid; sleep 300" },
-      { policy = policy, cwd = at.work, stdout = "capture", stderr = "stdout" })
+      { timeout_ns = Child.FOREVER, policy = policy, cwd = at.work, stdout = "capture", stderr = "stdout" })
     if handle == nil then
       Test.skip(why)
       return

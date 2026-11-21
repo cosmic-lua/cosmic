@@ -245,7 +245,7 @@ local replacements: {string:string} = {
   ["os.rename"] = "use Fs.rename(from, to) (" .. fs .. ")",
   ["os.tmpname"] = "use Fs.mkdtemp(prefix), which makes a private " ..
     "directory rather than naming a file (" .. fs .. ")",
-  ["os.execute"] = "use Child.run(argv); argv is a list, run without a " ..
+  ["os.execute"] = "use Child.run(argv, { timeout_ns = limit }); argv is a list, run without a " ..
     "shell or a PATH search (" .. child .. ")",
   ["os.setlocale"] = "cosmic runs in the C locale, and there is no way to " ..
     "change it",
@@ -410,11 +410,11 @@ local module: Module = {
     ["cosmic.sys.Unveil"] = "there is no public way to unveil a child's filesystem " ..
       "yet; start one with Child.start(argv, opts) (" .. child .. ")",
     ["cosmic.sys.ChildStatus"] = "use Child.Result, what h:wait() answers (" .. child .. ")",
-    ["cosmic.sys.pipe"] = "use Child.start(argv, { stdin = \"stream\" }) and " ..
+    ["cosmic.sys.pipe"] = "use Child.start(argv, { timeout_ns = limit, stdin = \"stream\" }) and " ..
       "h.stdin_stream, or stdout = \"capture\" (" .. child .. ")",
-    ["cosmic.sys.Pipe"] = "use Child.start(argv, { stdin = \"stream\" }) and " ..
+    ["cosmic.sys.Pipe"] = "use Child.start(argv, { timeout_ns = limit, stdin = \"stream\" }) and " ..
       "h.stdin_stream, or stdout = \"capture\" (" .. child .. ")",
-    ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { stdin = \"stream\" }), or " ..
+    ["cosmic.sys.ignore_sigpipe"] = "Child.start(argv, { timeout_ns = limit, stdin = \"stream\" }), or " ..
       "{ input = bytes }, ignores SIGPIPE for this process, so a write to a child " ..
       "that has gone fails with EPIPE instead (" .. child .. ")",
     ["cosmic.child.guard"] = "use Signal.guard(), the same guard, and hold it in a " ..

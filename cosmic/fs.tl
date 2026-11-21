@@ -9,7 +9,7 @@
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
 --- it. One holds a value whose type has a [`__close`] metamethod, written
---- `local h <close> = assert(Child.start(argv))`: `assert` narrows the
+--- `local h <close> = assert(Child.start(argv, { timeout_ns = Child.FOREVER }))`: `assert` narrows the
 --- `T | nil` an opener answers, which `<close>` refuses, to `T`.
 ---
 --- `basename`, `dirname`, `within` and `relative` work on a path's

@@ -142,7 +142,7 @@ local function test_a_child_under_a_policy_is_refused_after_the_restriction()
   SeatbeltFixture.macos_only("a process")
   local said = in_child([[
 say("restrict", Sandbox.restrict({ profiles = { "system" } }))
-local started, why = Child.start({ "/bin/cat" }, { policy = { profiles = { "system" } },
+local started, why = Child.start({ "/bin/cat" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "system" } },
   stdin = "null" })
 say("policy", started ~= nil, why)
 ]])
@@ -164,7 +164,7 @@ local fd = assert(sys.open(%q, sys.O_RDONLY))
 say("fd", fd)
 say("unnamed", Sandbox.restrict({}))
 assert(sys.close(fd))
-local running = assert(Child.start({ "/bin/sleep", "30" }, { process_group = false }))
+local running = assert(Child.start({ "/bin/sleep", "30" }, { timeout_ns = Child.FOREVER, process_group = false }))
 say("child", Sandbox.restrict({}))
 assert(running:close())
 say("still", reads(%q))
@@ -255,9 +255,9 @@ local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp:
   local said = in_child(string.format([[
 say("restrict", Sandbox.restrict({ profiles = { "system" }, promises = { "fork" },
   grants = { { path = %q, letters = "r" } } }))
-local granted = Child.run({ "/bin/cat", %q }, { stdout = "capture", stderr = "capture" })
+local granted = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if granted ~= nil then say("granted", granted.ok, granted.stdout) else say("granted", nil, nil) end
-local other = Child.run({ "/bin/cat", %q }, { stdout = "capture", stderr = "capture" })
+local other = Child.run({ "/bin/cat", %q }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
 if other ~= nil then say("other", other.ok, other.stdout, other.stderr) else say("other", nil, nil, nil) end
 ]], tmp .. "/granted", tmp .. "/granted", tmp .. "/other"))
   assert(said.lines["restrict"] == "true ", said.raw)

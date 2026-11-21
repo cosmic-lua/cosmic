@@ -50,7 +50,7 @@ if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
   local started = this_program.program({ "-e", (if flock == true then flock_tool else sql_tool end):format(support.build_dir(root), wait_ns) },
-    { stdin = "stream", stdout = "stream", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   local line = assert(Stream.lines(assert(child.stdout_stream)):read())
   return child, line
@@ -104,7 +104,7 @@ Zig.with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function(_: {string:strin
 end)
 ]]
   local started = this_program.program({ "-e", script:format(build_paths.required(root), tmp .. "/other-lock") },
-    { stdin = "stream", stdout = "stream", stderr = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot = assert(Child.start(started.argv, started.options))
   local waiting = Stream.lines(assert(boot.stderr_stream)):read()
   finish(old)
@@ -236,7 +236,7 @@ print("cancelled")
 Fs.take(Fs.stdin, 1)
 ]]
   local command = this_program.program({ "-e", script:format(build_paths.required(root)) },
-    { stdin = "stream", stdout = "stream", stderr = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "stream" })
   local boot <close> = assert(Child.start(command.argv, command.options))
   local waiting = Stream.lines(assert(boot.stderr_stream)):read()
   assert(waiting ~= nil and waiting:find("waiting for it", 1, true) ~= nil, waiting)

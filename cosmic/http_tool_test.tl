@@ -32,7 +32,7 @@ local function refused_with_cert_file(tmp: string, cert_file: string): string
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
-local _, trouble = Http.open("http://127.0.0.1:1/", { connect_timeout_ns = Clock.seconds(2) })
+local _, trouble = Http.open("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
 local _, _ = Fs.put(Fs.stdout, trouble)
 ]]))
   local started = this_program.program({ "--standalone", script },
@@ -92,7 +92,7 @@ end
   local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/"
   local marker = tmp .. "/marker"
   local started = this_program.program({ "--standalone", script, url, marker },
-    { stdout = "capture", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local conn <close> = assert(server:accept())
   local head = ""
@@ -113,7 +113,7 @@ end
 --- stalls ends when a guard catches a signal.
 local function test_a_caught_signal_ends_a_read_that_waits(tmp: string)
   local said = interrupted(tmp, [[
-  local response = assert(Http.open(url))
+  local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60) }))
   assert(assert(response:read()) == "part")
   assert(Fs.write(marker, ""))
   local data, why = response:read()
@@ -131,7 +131,7 @@ end
 local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
   local said = interrupted(tmp, [[
   local target = marker .. ".target"
-  local ok, why = Http.download(url, target, {
+  local ok, why = Http.download(url, target, { timeout_ns = Clock.seconds(60),
     cancelled = function(): boolean
       if not Fs.stat(marker) then assert(Fs.write(marker, "")) end
       return guard:cancelled() ~= 0
@@ -170,7 +170,7 @@ end
   local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/items/1"
   local args = { "--standalone", script, method, url }
   if body ~= nil then args[#args + 1] = body end
-  local started = this_program.program(args, { stdout = "capture", stderr = "capture" })
+  local started = this_program.program(args, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local accepted, refused = server:accept()
   if accepted == nil then
@@ -267,7 +267,7 @@ end
 ]]))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "https://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/"
-  local started = this_program.program({ "--standalone", script, url }, { stdout = "capture", stderr = "capture" })
+  local started = this_program.program({ "--standalone", script, url }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local conn <close> = assert(server:accept())
   local hello = tls_record(conn, "")

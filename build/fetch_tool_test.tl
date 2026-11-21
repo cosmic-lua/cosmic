@@ -65,7 +65,7 @@ return function(argv: {string}): integer
   local guard = assert(Signal.guard())
   local calls: Calls = { asked = 0 }
   local body = string.rep("z", 300000)
-  local ok, why = Http.download("http://cosmic.test/", assert(argv[1]) .. "/target", {
+  local ok, why = Http.download("http://cosmic.test/", assert(argv[1]) .. "/target", { timeout_ns = Clock.seconds(60),
     script = { "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring(#body) ..
       "\r\nConnection: close\r\n\r\n" .. body },
     cancelled = function(): boolean
@@ -98,7 +98,7 @@ local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(20) }))
   local url = "http://127.0.0.1:" .. tostring(assert(server.address.port)) .. "/big"
   local started = this_program.program({ "fetch", "-o", tmp .. "/target", url },
-    { cwd = tmp, stdout = "null", stderr = "capture" })
+    { timeout_ns = Child.FOREVER, cwd = tmp, stdout = "null", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   local conn <close> = assert(server:accept())
   local request = ""

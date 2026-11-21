@@ -190,7 +190,7 @@ local function test_second(tmp: string) hold(tmp, "second") end
   local fd = assert(Fs.open_write(output))
   local held = this_program.program(
     { "test", "--jobs", "2", "--timeout", "60", "suite/held_test.tl" },
-    { cwd = root, env = env, stdout = fd, stderr = fd })
+    { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
   local runner, trouble = Child.start(held.argv, held.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)
@@ -247,7 +247,7 @@ end
   local fd = assert(Fs.open_write(output))
   local failed = this_program.program(
     { "test", "--jobs", "1", "--timeout", "60", "suite/failed_test.tl" },
-    { cwd = root, env = env, stdout = fd, stderr = fd })
+    { timeout_ns = Child.FOREVER, cwd = root, env = env, stdout = fd, stderr = fd })
   local runner, trouble = Child.start(failed.argv, failed.options)
   assert(Fs.close(fd))
   local handle <close> = assert(runner, trouble)

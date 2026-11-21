@@ -118,7 +118,7 @@ local function ran_under(argv: {string}, fds: {integer:integer | string},
   -- signal guard a caller running tests in-process may hold.
   -- No group of its own to end, nor strays to adopt: its sandbox gives
   -- it a pid namespace of its own, which ends when it does.
-  local handle, trouble = Child.start(argv, { policy = policy, fds = given, cwd = "/",
+  local handle, trouble = Child.start(argv, { timeout_ns = Child.FOREVER, policy = policy, fds = given, cwd = "/",
     stdin = "null", stdout = "capture", stderr = "stdout", process_group = false })
   if handle == nil then
     return { ok = false, why = test_sandbox.refusal(trouble), broken = not host_limit(trouble) }

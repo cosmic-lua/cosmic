@@ -78,7 +78,7 @@ local probe = ...
 if probe == nil then return 2 end
 -- Feeding a child its input is what makes this process ignore
 -- SIGPIPE, so a write to a child that has gone cannot end it.
-local fed = assert(Child.start({ probe, "exit 0" }, { input = "" }))
+local fed = assert(Child.start({ probe, "exit 0" }, { timeout_ns = Child.FOREVER, input = "" }))
 assert(fed:wait())
 local own = assert(assert(Fs.read("/proc/self/status")):match("SigIgn:%s*(%x+)"))
 assert((math.tointeger(tonumber(own, 16)) or 0) & ]] .. "(1 << " .. tostring(sys.SIGPIPE - 1) .. ")" .. [[ ~= 0, "SIGPIPE is not ignored")

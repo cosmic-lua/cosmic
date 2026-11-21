@@ -59,7 +59,7 @@ end
 local function test_a_stalled_transfer_ends_after_the_low_speed_time()
   local server <close>, url = silent()
   local began = Clock.monotonic_ns()
-  local response, why = Http.open(url, { low_speed_bytes = 1000, low_speed_ns = Clock.seconds(1) })
+  local response, why = Http.open(url, { timeout_ns = Clock.seconds(60), low_speed_bytes = 1000, low_speed_ns = Clock.seconds(1) })
   local took = Clock.monotonic_ns() - began
   assert(response == nil, "a stalled request was answered")
   assert(took >= Clock.ms(500) and took < Clock.seconds(20),

@@ -12,6 +12,7 @@
 --- core/fault_tool_test.tl.
 
 local AllocationFixture = require("build.allocation_fixture")
+local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local testing = require("cosmic.internal.testing")
 local Test = require("cosmic.test")
@@ -41,7 +42,7 @@ end
 
 --- A request that succeeds: nothing a fault did lingers.
 local function succeeds(what: string)
-  local response, trouble = Http.open(url, { script = { reply("200 OK", "", "hello") },
+  local response, trouble = Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     headers = { ["X-One"] = "1" } })
   assert(response ~= nil, "after " .. what .. ", a request failed: " .. trouble)
   assert(read_all(response) == "hello", "after " .. what .. ", the body is wrong")
@@ -107,7 +108,7 @@ local function test_each_fault_point_in_open_fails_the_request_cleanly(tmp: stri
   for _, fault in ipairs(faults) do
     local what = fault.point .. " (skipping " .. tostring(fault.skip or 0) .. ")"
     testing.fail_at(fault.point, fault.skip)
-    local response, trouble = Http.open(url, { method = "POST", body = "payload",
+    local response, trouble = Http.open(url, { timeout_ns = Clock.seconds(60), method = "POST", body = "payload",
       headers = { ["X-One"] = "1" }, roots = fault.roots, script = { reply("200 OK", "", "hello") } })
     assert(not testing.fail_at(), what .. " was never reached")
     assert(response == nil, what .. " did not fail the request")
@@ -132,7 +133,7 @@ local function test_a_fault_point_in_read_fails_the_read_cleanly(tmp: string)
   local before = held(tmp)
   local body = string.rep("0123456789abcdef", 256 * 1024)
   for _, point in ipairs({ "curl_multi_poll", "curl_multi_perform" }) do
-    local response = assert(Http.open(url, { script = { reply("200 OK", "", body) } }))
+    local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", body) } }))
     testing.fail_at(point)
     local got, trouble = read_all(response)
     assert(not testing.fail_at(), point .. " was never reached by read")

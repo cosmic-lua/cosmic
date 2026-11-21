@@ -169,7 +169,7 @@ function artifact_fd_fixture.swapped_link_changes_nothing(tmp: string, policy?: 
   local opened = assert(sys.open(copy, sys.O_RDONLY))
   local fds = { [slot] = opened, [core_slot] = artifact_fd_fixture.fd_of(relaunch, core_slot) }
   local flipping = assert(Child.start({ artifact_fd_fixture.program_of(relaunch), "--artifact", copy, "-e",
-    filled(flipper, values) }, { env = env, fds = fds, stdin = "stream", stdout = "stream",
+    filled(flipper, values) }, { timeout_ns = Child.FOREVER, env = env, fds = fds, stdin = "stream", stdout = "stream",
       stderr = "capture" }))
   local said, _ = Stream.lines(assert(flipping.stdout_stream)):read()
   if said ~= "flipping" then

@@ -344,7 +344,7 @@ local function real_system(): Round.System
     start = function(argv: {string}, log: string): integer?
       local fd, _ = Fs.open_write(log)
       if fd == nil then return nil end
-      local handle, _ = Child.start(argv, { stdout = fd, stderr = fd, stdin = "null" })
+      local handle, _ = Child.start(argv, { stdout = fd, stderr = fd, stdin = "null", timeout_ns = Clock.minutes(15) })
       if handle == nil then
         local _, _ = Fs.close(fd)
         return nil

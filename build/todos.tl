@@ -250,7 +250,7 @@ local function spawning(program: string, root: string): Blamer
       for _, each in ipairs(args) do
         argv[#argv + 1] = each
       end
-      local handle, _ = Child.start(argv, { stdin = "null", stdout = "capture", stderr = "null" })
+      local handle, _ = Child.start(argv, { timeout_ns = Child.FOREVER, stdin = "null", stdout = "capture", stderr = "null" })
       if handle == nil then return nil end
       local run: BlameRun = {
         file = file,

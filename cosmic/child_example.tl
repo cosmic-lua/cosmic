@@ -37,7 +37,7 @@ function Example.guard()
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
     argv[#argv + 1] = "return " .. tostring(i)
-    table.insert(running, (assert(Child.start(argv, { env = again.env, fds = again.fds }))))
+    table.insert(running, (assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = again.env, fds = again.fds }))))
   end
   while #running > 0 and guard:cancelled() == 0 do
     local done, trouble = Child.wait_any(running, Clock.ms(100))
@@ -72,7 +72,7 @@ function Example.supervisor()
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
     argv[#argv + 1] = "require('cosmic.clock').sleep_ns(60 * 1000000000)"
-    local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
+    local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = again.env, fds = again.fds }))
     running[#running + 1] = h
     names[h] = name
   end
@@ -118,7 +118,7 @@ function Example.release()
   local argv = { table.unpack(again.argv) }
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = ""
-  local h = assert(Child.start(argv, { env = again.env, fds = again.fds }))
+  local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = again.env, fds = again.fds }))
   local result: Child.Result?
   while result == nil do
     local state = assert(h:try_wait())
@@ -156,7 +156,7 @@ while true do
   assert(Fs.put(1, s:upper()))
 end]]
   local h <close> = assert(Child.start(argv,
-    { env = again.env, fds = again.fds, stdin = "stream", stdout = "stream" }))
+    { timeout_ns = Child.FOREVER, env = again.env, fds = again.fds, stdin = "stream", stdout = "stream" }))
   local stdin = assert(h.stdin_stream)
   assert(stdin:write("streamed\n"))
   assert(stdin:close())
@@ -176,7 +176,7 @@ function Example.tee()
 local Fs = require("cosmic.fs")
 assert(Fs.put(1, "compiling\n"))
 assert(Fs.put(1, "linking\n"))]]
-  local h <close> = assert(Child.start(argv, { env = again.env, fds = again.fds, stdout = "stream" }))
+  local h <close> = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = again.env, fds = again.fds, stdout = "stream" }))
   local lines = Stream.lines(assert(h.stdout_stream))
   local kept: mut {string} = {}
   for line in lines:each() do
@@ -199,7 +199,7 @@ local Fs = require("cosmic.fs")
 assert(Fs.put(1, "output\n"))
 assert(Fs.put(2, "diagnostic\n"))]]
   local h <close> = assert(Child.start(argv,
-    { env = again.env, fds = again.fds, stdout = "stream", stderr = "stream" }))
+    { timeout_ns = Child.FOREVER, env = again.env, fds = again.fds, stdout = "stream", stderr = "stream" }))
   local options: Child.DrainOptions = {
     stdout = Stream.to_fd(Fs.stdout), stderr = Stream.to_fd(Fs.stderr),
     timeout_ns = Clock.seconds(5), max_bytes = 8,

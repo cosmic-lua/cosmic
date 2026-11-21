@@ -65,7 +65,7 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
     'local db = assert(Sqlite.open(' .. string.format("%q", path) .. ')) ' ..
     'assert(db:exec("BEGIN")) assert(Sqlite.rows(db,"SELECT * FROM keep")) ' ..
     'assert(Fs.put(1,"r")) assert(Fs.take(0,1)) assert(db:exec("ROLLBACK")) assert(db:close())'
-  local reader_start = this_program.program({ "-e", script }, { cwd = tmp,
+  local reader_start = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER, cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture" })
   local reader <close> = assert(Child.start(reader_start.argv, reader_start.options))
   assert(assert(reader.stdout_stream):read(1) == "r")
@@ -92,7 +92,7 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE untouched (value TEXT); BEGIN IMMEDIATE"))
   local started = this_program.program({ "cache", "trim", "compiles", path, "--since-ns", "0", "--json" },
-    { cwd = tmp, stdout = "stream", stderr = "capture", process_group = false })
+    { timeout_ns = Child.FOREVER, cwd = tmp, stdout = "stream", stderr = "capture", process_group = false })
   local child <close> = assert(Child.start(started.argv, started.options))
   local output = assert(child.stdout_stream)
   local real = assert(sys.realpath(path))

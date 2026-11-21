@@ -421,7 +421,7 @@ local function test_a_boot_says_how_long_a_holder_has_held_the_lock(tmp: string)
   local root = tmp .. "/tree"
   assert(support.build_dir(root))
   local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep_ns(60000000000))' },
-    { cwd = tmp, env = this_program.environment(), process_group = true })
+    { timeout_ns = Child.FOREVER, cwd = tmp, env = this_program.environment(), process_group = true })
   local sleeper <close> = assert(Child.start(started.argv, started.options))
   local file = support.build_dir(root) .. "/rebuild.lock.pid"
   assert(Fs.write(file, tostring(sleeper.pid) .. "\ntest\n"))

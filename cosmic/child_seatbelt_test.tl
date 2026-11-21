@@ -102,7 +102,7 @@ end
 local function test_another_user_is_refused_before_a_child_starts()
   SeatbeltFixture.macos_only()
   if sys.getuid() == 0 then Test.skip("root is refused") end
-  local handle, why = Child.start({ "/bin/true" }, { policy = { profiles = { "system" },
+  local handle, why = Child.start({ "/bin/true" }, { timeout_ns = Child.FOREVER, policy = { profiles = { "system" },
     user = sys.getuid() + 1 }, stdin = "null", stdout = "null", stderr = "null" })
   assert(handle == nil and why:find("cannot change them", 1, true) ~= nil, why)
 end
@@ -162,7 +162,7 @@ end
 
 --- What `policy` is refused for, in [`Child.start`]'s words.
 local function refusal(policy: Sandbox.Policy): string
-  local child, why = Child.start({ CAT }, { policy = policy })
+  local child, why = Child.start({ CAT }, { timeout_ns = Child.FOREVER, policy = policy })
   assert(child == nil, "the start was not refused")
   return why
 end
@@ -221,7 +221,7 @@ end
 local function test_a_program_nobody_granted_fails_the_start_naming_the_grant(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
-  local child, why = Child.start({ CAT, granted }, { policy = { grants = { { path = granted, letters = "r" } } } })
+  local child, why = Child.start({ CAT, granted }, { timeout_ns = Child.FOREVER, policy = { grants = { { path = granted, letters = "r" } } } })
   assert(child == nil)
   assert(why:find("^child: start: sandbox: ") and why:find("not granted r and x", 1, true), why)
 end
@@ -290,7 +290,7 @@ local function test_a_policy_child_leads_a_session_and_opens_no_terminal(tmp: st
     { path = granted, letters = "r" }, { path = "/dev/tty", letters = "rw" } } }
   local none = run({ SH, "-c", ": </dev/tty" }, granting)
   expect(not none.ok, none)
-  local child = assert(Child.start({ "/bin/sleep", "30" }, { policy = policy }))
+  local child = assert(Child.start({ "/bin/sleep", "30" }, { timeout_ns = Child.FOREVER, policy = policy }))
   local pid = child.pid
   local group = sys.getpgid(pid)
   child:stop(sys.SIGKILL)
@@ -303,7 +303,7 @@ end
 local function test_a_policy_start_that_keeps_the_callers_group_is_refused(tmp: string)
   SeatbeltFixture.macos_only()
   local granted = files(tmp)
-  local child, why = Child.start({ CAT, granted }, { process_group = false,
+  local child, why = Child.start({ CAT, granted }, { timeout_ns = Child.FOREVER, process_group = false,
     policy = { profiles = { "system" }, grants = { { path = granted, letters = "r" } } } })
   assert(child == nil, "a start that keeps the caller's group ran")
   assert(why:find("process_group = false is refused", 1, true), why)

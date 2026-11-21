@@ -254,7 +254,7 @@ local function standalone(root: string, script: string,
   for _, word in ipairs(words) do
     argv[#argv + 1] = word
   end
-  local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture" })
+  local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture", timeout_ns = Clock.minutes(60) })
   if result == nil then
     return nil, script .. ": " .. trouble
   end
@@ -729,7 +729,10 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   local g <close> = opened
   local signals: Signals = { pending = 0 }
   local function supervise(): Child.Result?, string
-    local h, trouble = Child.start(argv, { process_group = false, env = env })
+    -- TODO: Child.FOREVER, as zig runs as long as its build does, once
+    -- ci/cosmic-driver.pin names a release whose Child has it: this file
+    -- runs standalone on that release. Until then a ceiling no build reaches.
+    local h, trouble = Child.start(argv, { process_group = false, env = env, timeout_ns = Clock.minutes(24 * 60) })
     if h == nil then
       return nil, trouble
     end

@@ -73,7 +73,7 @@ if sys.flock(fd, "exclusive") then print("taken") else print("refused") end
 --- ends, by default), and the first line it printed.
 local function start(script: string, root: string, hold_ns?: integer): Child.Handle, string
   local started = this_program.program({ "-e", script:format(root, hold_ns or -1) },
-    { stdin = "stream", stdout = "stream" })
+    { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })
   local child = assert(Child.start(started.argv, started.options))
   local line, trouble = Stream.lines(child.stdout_stream as Stream.Reader):read() -- checked: cast_refused
   assert(line ~= nil, trouble)
@@ -187,7 +187,7 @@ local function start_handed(root: string, role: string, output: string): Child.H
   local env = this_program.environment()
   env.COSMIC_REBUILD_LOCK_HANDED = support.build_dir(root) .. "/./rebuild.lock" -- checked: map_field
   local started = this_program.program({ "-e", holding:format(root, role) },
-    { env = env, stdout = fd, stderr = fd, process_group = true })
+    { timeout_ns = Child.FOREVER, env = env, stdout = fd, stderr = fd, process_group = true })
   local h = assert(Child.start(started.argv, started.options))
   assert(Fs.close(fd))
   return h

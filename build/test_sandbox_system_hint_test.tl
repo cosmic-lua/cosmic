@@ -46,17 +46,17 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "suite/run.sh", letters = "r" } } }
 
 local function test_bare()
-  local r = Child.run({ "/bin/sh", "-c", "exit 0" })
+  local r = Child.run({ "/bin/sh", "-c", "exit 0" }, { timeout_ns = Child.FOREVER })
   assert(r)
 end
 
 local function test_why()
-  local r, why = Child.run({ "/bin/sh", "-c", "exit 0" })
+  local r, why = Child.run({ "/bin/sh", "-c", "exit 0" }, { timeout_ns = Child.FOREVER })
   assert(r, why)
 end
 
 local function test_script()
-  local r = Child.run({ "/tree/suite/run.sh" })
+  local r = Child.run({ "/tree/suite/run.sh" }, { timeout_ns = Child.FOREVER })
   assert(r)
 end
 
@@ -79,7 +79,7 @@ local Test = require("cosmic.test")
 Test.policy { profiles = { "system" } }
 
 local function test_declared()
-  local r = assert(Child.run({ "/bin/sh", "-c", "exit 3" }))
+  local r = assert(Child.run({ "/bin/sh", "-c", "exit 3" }, { timeout_ns = Child.FOREVER }))
   assert(r.code == 0, "ran|" .. tostring(r.code) .. "|end")
 end
 ]]))

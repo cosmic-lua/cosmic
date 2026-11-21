@@ -33,7 +33,7 @@ end
 local function test_a_process_started_under_the_stand_in_is_as_declared(tmp: string)
   honest("build.confine", function()
     local ran = confine.call(function() -- checked: not_assignable
-      local started = this_program.program({ "-e", "return" }, { stdout = "capture" })
+      local started = this_program.program({ "-e", "return" }, { timeout_ns = Child.FOREVER, stdout = "capture" })
       assert(Child.run(started.argv, started.options))
     end, nil, { tmp })
     assert(ran.ok, tostring(ran.produced))

@@ -16,21 +16,21 @@ local sys = require("cosmic.sys")
 --- A bare name is not looked for on PATH, and the failure says so and
 --- names what finds it; a path that is not there gets no such hint.
 local function test_a_bare_name_not_found_points_at_proc_find(tmp: string)
-  local _, trouble = Child.run({ "cosmic-no-such-program" }, { cwd = tmp })
+  local _, trouble = Child.run({ "cosmic-no-such-program" }, { timeout_ns = Child.FOREVER, cwd = tmp })
   assert(trouble:sub(1, 13) == "child: start:", trouble)
   assert(trouble:find("with no PATH search; " ..
       "Proc.find(\"cosmic-no-such-program\") answers", 1, true) ~= nil, trouble)
-  local _, pathed = Child.run({ tmp .. "/cosmic-no-such-program" })
+  local _, pathed = Child.run({ tmp .. "/cosmic-no-such-program" }, { timeout_ns = Child.FOREVER })
   assert(pathed:find("Proc.find(", 1, true) == nil, pathed)
   -- A missing directory, or a script whose interpreter is missing, fails
   -- with the same ENOENT; the name is not what is missing there.
-  local _, no_dir = Child.run({ "ls" }, { cwd = tmp .. "/not-here" })
+  local _, no_dir = Child.run({ "ls" }, { timeout_ns = Child.FOREVER, cwd = tmp .. "/not-here" })
   assert(no_dir:find("Proc.find(", 1, true) == nil, no_dir)
   assert(Fs.write(tmp .. "/script", "#!/cosmic/no/such/interpreter\n"))
   assert(sys.chmod(tmp .. "/script", 0x1c0))
-  local _, script = Child.run({ "script" }, { cwd = tmp })
+  local _, script = Child.run({ "script" }, { timeout_ns = Child.FOREVER, cwd = tmp })
   assert(script ~= "" and script:find("Proc.find(", 1, true) == nil, script)
-  local _, empty = Child.run({ "" }, { cwd = tmp })
+  local _, empty = Child.run({ "" }, { timeout_ns = Child.FOREVER, cwd = tmp })
   assert(empty:find("Proc.find(", 1, true) == nil, empty)
 end
 
@@ -39,18 +39,18 @@ end
 local function test_a_missing_cwd_is_named(tmp: string)
   local missing = tmp .. "/not-here"
   for _, argv in ipairs({ { "ls" }, { tmp .. "/never-started" } }) do
-    local started, trouble = Child.start(argv, { cwd = missing })
+    local started, trouble = Child.start(argv, { timeout_ns = Child.FOREVER, cwd = missing })
     assert(started == nil and trouble:sub(1, 13) == "child: start:", trouble)
     assert(trouble:find(": cwd \"" .. missing .. "\" does not exist", 1, true) ~= nil, trouble)
   end
-  local _, beneath = Child.run({ "ls" }, { cwd = missing .. "/deeper" })
+  local _, beneath = Child.run({ "ls" }, { timeout_ns = Child.FOREVER, cwd = missing .. "/deeper" })
   assert(beneath:find("cwd \"" .. missing .. "/deeper\" does not exist", 1, true) ~= nil, beneath)
-  local _, there = Child.run({ tmp .. "/never-started" }, { cwd = tmp })
+  local _, there = Child.run({ tmp .. "/never-started" }, { timeout_ns = Child.FOREVER, cwd = tmp })
   assert(there:find("cwd", 1, true) == nil, there)
   assert(Fs.write(tmp .. "/file", ""))
-  local _, a_file = Child.run({ tmp .. "/never-started" }, { cwd = tmp .. "/file" })
+  local _, a_file = Child.run({ tmp .. "/never-started" }, { timeout_ns = Child.FOREVER, cwd = tmp .. "/file" })
   assert(a_file:find("does not exist", 1, true) == nil, a_file)
-  local _, under_a_file = Child.run({ "ls" }, { cwd = tmp .. "/file/x" })
+  local _, under_a_file = Child.run({ "ls" }, { timeout_ns = Child.FOREVER, cwd = tmp .. "/file/x" })
   assert(under_a_file:find("cwd \"" .. tmp .. "/file/x\" does not exist", 1, true) ~= nil,
     under_a_file)
 end
@@ -66,7 +66,7 @@ local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
   end
   local null = assert(sys.open("/dev/null", sys.O_RDONLY))
   assert(sys.setrlimit(sys.RLIMIT_NOFILE, 256, limits.hard))
-  local ok, child, trouble = pcall(Child.start, { tmp .. "/never-started" }, { fds = { [255] = null } })
+  local ok, child, trouble = pcall(Child.start, { tmp .. "/never-started" }, { timeout_ns = Child.FOREVER, fds = { [255] = null } })
   assert(sys.setrlimit(sys.RLIMIT_NOFILE, limits.soft, limits.hard))
   sys.close(null)
   assert(ok, tostring(child))
@@ -82,7 +82,7 @@ local function test_a_refused_option_names_the_caller_s_line()
   for _, opts in ipairs({
       { cwd = "/tmp\0bad" } as Child.Options, -- checked: cast_refused
       { cwd = "" } as Child.Options, -- checked: cast_refused
-      { timeout_ns = -1 } as Child.Options, -- checked: cast_refused
+      { timeout_ns = -2 } as Child.Options, -- checked: cast_refused
   }) do
     local ok, why: boolean, any = pcall(function()
       local _, _ = Child.run({ "/bin/sh" }, opts)
@@ -98,7 +98,7 @@ local function test_the_stream_enums_are_named_through_the_module()
   local stdin: integer | Child.Stdin = "null"
   local stdout: integer | Child.Stdout = "stream"
   local stderr: integer | Child.Stderr = "capture"
-  local opts: Child.Options = { stdin = stdin, stdout = stdout, stderr = stderr }
+  local opts: Child.Options = { timeout_ns = Child.FOREVER, stdin = stdin, stdout = stdout, stderr = stderr }
   assert(opts.stdin == "null" and opts.stdout == "stream" and opts.stderr == "capture")
 end
 
@@ -106,15 +106,19 @@ end
 --- handle, and an option of no valid value.
 local function test_a_raise_names_the_module()
   local raising: {function()} = {
-    function() local _, _ = Child.start({}) end,
-    function() local _, _ = Child.run({}) end,
+    function() local _, _ = Child.start({}, { timeout_ns = Child.FOREVER }) end,
+    function() local _, _ = Child.run({}, { timeout_ns = Child.FOREVER }) end,
     function() local _, _ = Child.wait_any({}) end,
-    function() local _, _ = Child.start({ "/bin/sh" }, { capture_limit = 0 } as Child.Options) end, -- checked: cast_refused
     function()
-      local _, _ = Child.start({ "/bin/sh" }, { env = { [""] = "x" } } as Child.Options) -- checked: cast_refused
+      local _, _ = Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, capture_limit = 0 })
     end,
-    function() local _, _ = Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end, -- checked: cast_refused
-    function() local _, _ = Child.run({ "/bin/sh" }, { cwd = "" }) end,
+    function()
+      local _, _ = Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, env = { [""] = "x" } })
+    end,
+    function()
+      local _, _ = Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, fds = { [2] = 1 } })
+    end,
+    function() local _, _ = Child.run({ "/bin/sh" }, { timeout_ns = Child.FOREVER, cwd = "" }) end,
   }
   local says = { "argv is empty", "argv is empty", "no handles to wait for", "capture_limit is out of range",
     "environment name is empty", "fds keys are child descriptors",
@@ -129,23 +133,31 @@ local function test_a_raise_names_the_module()
 end
 
 local function test_run_refuses_a_stream()
-  for _, opts in ipairs({ -- checked: cast_refused
-      { stdin = "stream" }, { stdout = "stream" }, { stderr = "stream" },
-  } as {Child.Options}) do
+  local streamed: {Child.Options} = {
+    { timeout_ns = Child.FOREVER, stdin = "stream" }, { timeout_ns = Child.FOREVER, stdout = "stream" },
+    { timeout_ns = Child.FOREVER, stderr = "stream" },
+  }
+  for _, opts in ipairs(streamed) do
     Test.raises(function() Child.run({ "/bin/sh", "-c", "exit 0" }, opts) end, "Child.start")
   end
   Test.raises(function()
-    Child.start({ "/bin/sh" }, { stdin = "stream", input = "x" } as Child.Options) -- checked: cast_refused
+    Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, stdin = "stream", input = "x" })
   end)
 end
 
 local function test_options_are_validated()
   Test.raises(function()
-    Child.start({ "/bin/sh" }, { stdin = "null", input = "x" } as Child.Options) -- checked: cast_refused
+    Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, stdin = "null", input = "x" })
   end)
-  Test.raises(function() Child.start({ "/bin/sh" }, { fds = { [2] = 1 } } as Child.Options) end) -- checked: cast_refused
-  Test.raises(function() Child.start({ "/bin/sh" }, { fds = { [256] = 1 } } as Child.Options) end) -- checked: cast_refused
-  Test.raises(function() Child.start({ "/bin/sh" }, { capture_limit = 0 } as Child.Options) end) -- checked: cast_refused
+  Test.raises(function()
+    Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, fds = { [2] = 1 } })
+  end)
+  Test.raises(function()
+    Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, fds = { [256] = 1 } })
+  end)
+  Test.raises(function()
+    Child.start({ "/bin/sh" }, { timeout_ns = Child.FOREVER, capture_limit = 0 })
+  end)
 end
 
 --- Bad IDs and namespace combinations are rejected before opening any
@@ -157,17 +169,19 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
     { user = 4294967295, group = 1 }, { user = 1, group = 4294967295 },
   }
   for _, credentials in ipairs(bad) do
-    Test.raises(function() Child.start({ "/never-started" }, { credentials = credentials }) end, "credentials need integer user and group")
+    Test.raises(function()
+      Child.start({ "/never-started" }, { timeout_ns = Child.FOREVER, credentials = credentials })
+    end, "credentials need integer user and group")
   end
   for _, sandbox in ipairs({ -- checked: arms_differ, cast_refused
       { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 }, -- checked: literal_needs_type
   } as {Child.Sandbox}) do
     local ok, why = pcall(Child.start, { "/never-started" },
-      { credentials = { user = 1, group = 1 }, sandbox = sandbox })
+      { timeout_ns = Child.FOREVER, credentials = { user = 1, group = 1 }, sandbox = sandbox })
     assert(not ok and tostring(why):find("credentials exclude sandbox", 1, true) ~= nil, tostring(why))
   end
   local ok, why = pcall(Child.start, { "/never-started" },
-    { credentials = { user = 1, group = 1 }, policy = {} })
+    { timeout_ns = Child.FOREVER, credentials = { user = 1, group = 1 }, policy = {} })
   assert(not ok and tostring(why):find("policy and credentials exclude each other", 1, true) ~= nil,
     tostring(why))
 end

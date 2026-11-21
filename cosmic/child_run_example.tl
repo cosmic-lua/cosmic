@@ -18,7 +18,7 @@ local Example = {} -- checked: literal_needs_type
 function Example.run()
   local result = assert(Child.run(
     { "/bin/sh", "-c", "echo out; echo warning >&2; exit 3" },
-    { stdout = "capture", stderr = "capture" }))
+    { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" }))
   print(result.stdout, result.stderr, result.code)
   assert(result.stdout == "out\n", result.stdout)
   assert(result.stderr == "warning\n", result.stderr)
