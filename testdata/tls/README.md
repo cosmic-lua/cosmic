@@ -14,8 +14,9 @@ Certificates for the tests of [`cosmic.tls`] and the TLS listeners of
   test client", for the URI `spiffe://cosmic.test/client` and the email
   `client@cosmic.test`, for client authentication alone.
 
-Each leaf is signed by the CA and valid from 2026-01-01 to 2126-01-01
-but `c.pem`. They were made with OpenSSL 3.0 (the client's as the
+Each leaf is signed by its CA and valid from 2026-01-01 to 2126-01-01
+but `c.pem`; each CA is valid from when it was made, for a hundred
+years. They were made with OpenSSL 3.0 (the client's as the
 second block shows, with `ca.cnf` copying no extensions):
 
 ```sh

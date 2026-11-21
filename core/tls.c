@@ -78,8 +78,10 @@ struct session {
 static void push_code (lua_State *L, const char *what, int code) {
   char words[160];
   mbedtls_strerror(code, words, sizeof words);
-  lua_pushfstring(L, "tls: %s: %s (-0x%04X)", what, words,
-                  (unsigned)(code < 0 ? -code : code));
+  /* lua_pushfstring takes no %X. */
+  char hex[16];
+  snprintf(hex, sizeof hex, "-0x%04X", (unsigned)(code < 0 ? -code : code));
+  lua_pushfstring(L, "tls: %s: %s (%s)", what, words, hex);
 }
 
 /* nil and why, for a configuration whose pair `index` (a client's
@@ -581,7 +583,9 @@ static bool names_ip (const mbedtls_x509_crt *crt, const unsigned char *ip,
 static int verified (void *context, mbedtls_x509_crt *crt, int depth,
                      uint32_t *flags) {
   struct session *s = context;
-  *flags |= cosmic_roots_distrust(crt, depth, &s->note);
+  /* Mozilla's distrust dates are for server certificates: a client's
+   * chain is held to its roots alone. */
+  if (s->config->client) *flags |= cosmic_roots_distrust(crt, depth, &s->note);
   if (depth == 0 && s->ip_size > 0 && !names_ip(crt, s->ip, s->ip_size)) {
     *flags |= MBEDTLS_X509_BADCERT_CN_MISMATCH;
   }
@@ -619,7 +623,12 @@ static int unfinished (lua_State *L, struct session *s, int code,
   }
   if (stop != stop_failed) {
     lua_pushliteral(L, "");
-  } else if (code == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
+  } else if (code == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED ||
+             (code == MBEDTLS_ERR_SSL_BAD_CERTIFICATE &&
+              mbedtls_ssl_get_verify_result(&s->ssl) != 0 &&
+              mbedtls_ssl_get_verify_result(&s->ssl) != UINT32_MAX)) {
+    /* A certificate for another use is refused as a bad one, its
+     * reason among the verify flags. */
     push_unverified(L, s);
   } else if (s->failure != 0) {
     int failure = s->failure;

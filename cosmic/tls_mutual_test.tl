@@ -121,6 +121,16 @@ local function test_an_optional_certificate_serves_clients_with_and_without()
   assert(#failures == 0, table.concat(failures, "; "))
 end
 
+local function test_a_certificate_not_for_client_authentication_is_refused()
+  local failures: mut {string} = {}
+  -- a.pem is for serverAuth alone, and signed by ca.pem.
+  served(asking({ ca = fixture("ca.pem") }), failures, function(port: integer)
+    local said = answer(port, presenting(A))
+    assert(said:find("^failed: ") ~= nil, said)
+  end)
+  assert(#failures == 1 and Array.at(failures, 1):find("extendedKeyUsage", 1, true) ~= nil, table.concat(failures, "; "))
+end
+
 local function test_certs_refuses_clients_without_roots()
   Test.raises(function() local _ = Tls.certs(Tls.static({ A }), { clients = { ca = "" } }) end,
     "opts.clients.ca must be")
@@ -161,17 +171,20 @@ local function test_require_client_cert_admits_the_clients_it_accepts()
     app: Web.App
     who: string
     want: string
+    roots: string
   end
   local cases: {Case} = {
-    { app = app, who = "client", want = "200 hello spiffe://cosmic.test/client" },
-    { app = app, who = "none", want = "403" },
-    { app = strict, who = "client", want = "403" },
+    { app = app, who = "client", want = "200 hello spiffe://cosmic.test/client", roots = "client-ca.pem" },
+    { app = app, who = "none", want = "403", roots = "client-ca.pem" },
+    { app = strict, who = "client", want = "403", roots = "client-ca.pem" },
+    -- Presented, and served, but not verified: no certificate to the app.
+    { app = app, who = "client", want = "403", roots = "ca.pem" },
   }
   for _, case in ipairs(cases) do
     local served_app, who, want = case.app, case.who, case.want
     assert(Web.serve(served_app, {
       listeners = { Net.tcp("127.0.0.1", 0) },
-      tls = asking({ ca = fixture("client-ca.pem"), required = false }),
+      tls = asking({ ca = fixture(case.roots), required = false }),
       on_ready = function(addresses: {Net.Address}, server: Net.Server)
         local ok, trouble: boolean, any = pcall(function()
           local identity = if who == "client" then CLIENT else nil end

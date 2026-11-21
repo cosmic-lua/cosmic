@@ -20,8 +20,11 @@
 ---
 --- A certificate the handshake did not verify -- a server with
 --- `required = false` serves such a client -- is never answered here, and
---- [`Web.require_client_cert`] refuses it.
+--- [`Web.require_client_cert`] refuses it; nor is one that has expired
+--- since, on a connection kept open. Behind a proxy that ends TLS itself
+--- (`trusted_proxy`, Serve) no request has one, so every one is refused.
 
+local Clock = require("cosmic.clock")
 local Response = require("cosmic.web.response")
 local type Tls = require("cosmic.tls")
 local Types = require("cosmic.web.types")
@@ -30,13 +33,13 @@ local record ClientCert
 end
 
 --- The certificate `req`'s client presented, where the server verified
---- it; nil where it presented none, or one that did not verify, or the
---- request came in the clear.
+--- it and it is still valid; nil where it presented none, or one that
+--- did not verify or has expired, or the request came in the clear.
 function ClientCert.peer(req: Types.Request): Tls.Peer?
   local tls = req.raw.tls
   if tls == nil then return nil end
   local peer = tls.peer
-  if peer == nil or not peer.verified then return nil end
+  if peer == nil or not peer.verified or peer.not_after_ns <= Clock.now_ns() then return nil end
   return peer
 end
 
