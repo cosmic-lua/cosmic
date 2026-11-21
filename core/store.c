@@ -27,6 +27,7 @@
 #include "process.h"
 #include "protobuf.h"
 #include "sign.h"
+#include "tls.h"
 #include "socket.h"
 #include "http.h"
 #include "json.h"
@@ -112,6 +113,7 @@ static const struct raw_value {
   {"cosmic.internal.xml", cosmic_open_xml, 1},
   {"cosmic.internal.protobuf", cosmic_open_protobuf, 1},
   {"cosmic.internal.sign", cosmic_open_sign, 1},
+  {"cosmic.internal.tls", cosmic_open_tls, 1},
   {"cosmic.internal.bigint", cosmic_open_bigint, 1},
   {"cosmic.internal.budget", cosmic_open_budget, 0},
   {"cosmic.internal.assertions", cosmic_open_assertions, 0},

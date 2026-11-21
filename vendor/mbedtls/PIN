@@ -41,8 +41,6 @@ drop library/ssl_cache.c
 drop library/ssl_cookie.c
 drop library/ssl_debug_helpers_generated.c
 drop library/ssl_ticket.c
-drop library/ssl_tls12_server.c
-drop library/ssl_tls13_server.c
 drop library/timing.c
 drop library/version_features.c
 drop library/x509_create.c

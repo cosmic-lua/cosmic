@@ -296,10 +296,9 @@ promises lean on come first:
   (RFC 3986 section 5), which a client following a `Location` or a crawler
   needs and [`Url.parse`] refuses; and an IPv6 host with a zone
   (`[fe80::1%25eth0]`, RFC 6874), which [`Url.parse`] refuses.
-- [`Server.serve`] past HTTP/1.1 over plain sockets, each once a caller
-  needs it: TLS, for a server reached past the loopback (a certificate
-  and key handed to the listener, over the TLS stack curl already
-  carries); HTTP/2; routing, a table of methods and path patterns to
+- [`Server.serve`] past HTTP/1.1 over plain sockets and TLS
+  ([`Server.ServeSpec.tls`]), each once a caller needs it: HTTP/2;
+  routing, a table of methods and path patterns to
   handlers in place of one handler's `if`s; static files, a directory
   served by [`Url.segments`] with types, answering ranges
   ([`Server.range`]) and conditional requests ([`Server.none_match`]);
@@ -327,9 +326,8 @@ promises lean on come first:
 - [`cosmic.net`] past stream sockets over unix socket files and TCP, each
   once a caller needs it: a host name looked up (c-ares, which curl
   already carries) where a "tcp" `Address` takes a numeric one; TLS
-  over a connection, for the
-  loopback server build/fetch_test.tl's https `TODO:` waits on;
-  datagrams past [`Net.datagram`]'s UDP socket and its multicast: one over a unix socket
+  on a connection this program opens, its client side (the server side
+  is [`Net.ServeSpec.tls`]); datagrams past [`Net.datagram`]'s UDP socket and its multicast: one over a unix socket
   file ("unixgram"), a socket connected to one peer, a group joined for
   some senders alone (source-specific multicast), and an IPv4 group's
   interface named by its index; a [`Net.serve`] listener taking a
@@ -610,6 +608,7 @@ four-producer provenance join.
 [`Mdns.responder`]: ../cosmic/mdns.tl
 [`Net.datagram`]: ../cosmic/net.tl
 [`Net.serve`]: ../cosmic/net.tl
+[`Net.ServeSpec.tls`]: ../cosmic/net.tl
 [`Plist.decode`]: ../cosmic/plist.tl
 [`Plist.form`]: ../cosmic/plist.tl
 [`Plist.Value`]: ../cosmic/plist.tl
@@ -620,6 +619,7 @@ four-producer provenance join.
 [`Server.none_match`]: ../cosmic/http/server.tl
 [`Server.range`]: ../cosmic/http/server.tl
 [`Server.serve`]: ../cosmic/http/server.tl
+[`Server.ServeSpec.tls`]: ../cosmic/http/server.tl
 [`Shape.list`]: ../cosmic/shape.tl
 [`Shape.map`]: ../cosmic/shape.tl
 [`Shape.record_of`]: ../cosmic/shape.tl

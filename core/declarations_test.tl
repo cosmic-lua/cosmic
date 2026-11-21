@@ -243,6 +243,29 @@ local function reply(): string
   return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 end
 
+--- A certificate and its key for the tls maker: testdata/tls's a.pem
+--- and a.key.
+local TLS_CERT <const> = [[
+-----BEGIN CERTIFICATE-----
+MIIBoTCCAUigAwIBAgIBBzAKBggqhkjOPQQDAjAZMRcwFQYDVQQDDA5jb3NtaWMg
+dGVzdCBDQTAgFw0yNjAxMDEwMDAwMDBaGA8yMTI2MDEwMTAwMDAwMFowFDESMBAG
+A1UEAwwJbG9jYWxob3N0MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuqeslHBU
+8qYNECi65n7dfVGt/Wm0tVDBKis27JZR/ndHnJDFLIT4dhajLUuXhWMG3zrXnKsL
+z/OBRx5cycIOOqOBgzCBgDAeBgNVHREEFzAVgglsb2NhbGhvc3SCCCouYS50ZXN0
+MAkGA1UdEwQCMAAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwHQYDVR0OBBYEFObRbyWV
+RijVWE5TyUq6xWuwexZbMB8GA1UdIwQYMBaAFFVNXgtPsw4jT0RKDGD26cus1Xi+
+MAoGCCqGSM49BAMCA0cAMEQCIDltxKh0LAnkdbeXKW2ivm6jiW/I88iQRK3oSOTj
+vBvPAiBFSszKo6W8Xg0FkmXfKFNXZ8h/GsRiR31QRANeZ3ZTSg==
+-----END CERTIFICATE-----
+]]
+local TLS_KEY <const> = [[
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg/6GCdzqgO8UveGK4
+6xkVvX4ER/xO5EeOWeFTIfi1eD+hRANCAAS6p6yUcFTypg0QKLrmft19Ua39abS1
+UMEqKzbsllH+d0eckMUshPh2FqMtS5eFYwbfOtecqwvP84FHHlzJwg46
+-----END PRIVATE KEY-----
+]]
+
 --- One of each userdata a raw module makes, by record name, and what
 --- releases them.
 local record Made
@@ -287,6 +310,15 @@ local makers: {string: function(raw: {string: any}): Made} = {
         call(members(socket)["close"], socket)
         call(members(lookup)["close"], lookup)
       end }
+  end,
+  tls = function(raw: {string: any}): Made
+    -- testdata/tls's a.pem and a.key, which guard nothing.
+    local pair = { cert = TLS_CERT, key = TLS_KEY }
+    local config = assert(call(raw["config"], { pair }))
+    -- The session never reads or writes its descriptor, so any will do.
+    local session = assert(call(raw["session"], config, 0))
+    return { instances = { Config = config, Session = session },
+      release = function() call(members(session)["free"], session) end }
   end,
   xml = function(raw: {string: any}): Made
     local parser = assert(call(raw["parser"]))

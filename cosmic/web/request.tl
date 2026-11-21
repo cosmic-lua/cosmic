@@ -189,7 +189,7 @@ end
 --- @return Types.Request The request
 function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts): Types.Request
   local headers = raw.headers
-  local scheme = "http"
+  local scheme = if raw.tls ~= nil then "https" else "http" end
   local host = headers["host"]
   local client: Types.Client? = nil
   local peer = raw.peer
