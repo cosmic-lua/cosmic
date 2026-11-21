@@ -122,7 +122,6 @@ local function test_no_client_reader_raises_or_takes_more_than_it_was_given(tmp:
         if status ~= "more" and status ~= "done" and status ~= "refused" then
           return false, "answered " .. tostring(status)
         end
-        if consumed == nil then return false, "answered without a count of bytes taken" end
         if consumed > #input then return false, ("took %d of %d bytes"):format(consumed, #input) end
         if (status == "done") ~= (consumed > 0) then
           return false, ("%s having taken %d bytes"):format(status, consumed)

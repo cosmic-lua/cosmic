@@ -915,6 +915,21 @@ local function pick_u(): A | B | integer?
   end
   return nil
 end
+local function pair(): (true, integer) | (false, string)
+  if tick() % 3 ~= 0 then
+    return true, tick()
+  end
+  return false, "err"
+end
+local function mixed(): integer | string
+  if tick() % 5 < 2 then
+    return 4
+  end
+  return "s"
+end
+local function flip(): boolean
+  return tick() % 7 < 3
+end
 local enum AK "a" end
 local enum BK "b" end
 local record TA
@@ -948,7 +963,7 @@ end
 
 --- A shape: a function with a test and a call that runs it, drawn over the sources of [`SHAPES_HEAD`].
 local function gen_shape(g: Gen)
-  local k = g.src:int(0, 9)
+  local k = g.src:int(0, 10)
   local n = fresh(g, "f")
   local test = Fuzz.pick(g.src, { "is", "type" })
   local line = function(text: string)
@@ -1070,6 +1085,67 @@ local function gen_shape(g: Gen)
     line("  return #o")
     line("end")
     line("print(" .. n .. "())")
+  elseif k == 10 then
+    -- The locals of a call that answers `(true, integer) | (false, string)`: a test of the first narrows the second, until
+    -- either is assigned, in a branch, a loop or a function.
+    line("local function " .. n .. "(): integer")
+    line("  local ok, r = pair()")
+    line("  local total = 0")
+    local first, second = "ok", "r"
+    local tied = true
+    local function assigned(): string
+      local to = Fuzz.pick(g.src, { first .. ", " .. second .. " = pair()", first .. " = flip()", second .. " = mixed()",
+        first .. ", " .. second .. " = flip(), mixed()" })
+      return to
+    end
+    -- A read of the second local the first does not select is refused, so one is drawn now and then, and otherwise only
+    -- while no assignment has come since the call.
+    local function reads(): boolean
+      return tied or g.src:int(0, 2) == 0
+    end
+    for _ = 1, g.src:int(2, 6) do
+      local step = g.src:int(0, 9)
+      if step == 0 and reads() then
+        line("  if " .. first .. " then total = total + " .. second .. " end")
+      elseif step == 1 and reads() then
+        line("  if not " .. first .. " then total = total + #" .. second .. " end")
+      elseif step == 2 and reads() then
+        line("  total = total + (if " .. first .. " then " .. second .. " else #" .. second .. " end)")
+      elseif step == 3 then
+        line("  " .. assigned())
+        tied = false
+      elseif step == 4 and reads() then
+        line("  if not " .. first .. " then return total end")
+        line("  total = total + " .. second)
+      elseif step == 5 then
+        line("  if flip() then " .. assigned() .. " end")
+        tied = false
+      elseif step == 6 and reads() then
+        line("  for _ = 1, 2 do")
+        line("    if " .. first .. " then total = total + " .. second .. " end")
+        if g.src:int(0, 3) == 0 then
+          line("    " .. assigned())
+          tied = false
+        end
+        line("  end")
+      elseif step == 7 and reads() then
+        local poke = fresh(g, "poke")
+        line("  local " .. poke .. " = function() " .. assigned() .. " end")
+        line("  " .. poke .. "()")
+        line("  if " .. first .. " then total = total + " .. second .. " end")
+        tied = false
+      elseif step == 8 and reads() then
+        line("  if " .. first .. " == true then total = total + " .. second .. " elseif " .. first .. " == false then total = total + #" ..
+            second .. " end")
+      elseif step == 9 then
+        first, second = fresh(g, "ok"), fresh(g, "r")
+        line("  local " .. first .. ", " .. second .. " = pair()")
+        tied = true
+      end
+    end
+    line("  return total")
+    line("end")
+    line("print(" .. n .. "(), " .. n .. "(), " .. n .. "())")
   else
     -- A narrowing declaration, and a body that may assign the parameter it narrows.
     local body = Fuzz.pick(g.src, { "", "  v = \"x\"" })
@@ -1102,7 +1178,7 @@ end
 local SHAPE_CONSTRUCTS <const>: {Construct} = {
   { label = "enum", pattern = "is Color" }, { label = "type test", pattern = "type%(v%) == " }, { label = "class", pattern = "v is A" }, { label = "tag", pattern = "v.kind" }, { label = "table", pattern = "is table" },
   { label = "closure", pattern = "local g = function" }, { label = "coroutine", pattern = "coroutine.wrap" }, { label = "assignment", pattern = "o = " }, { label = "declaration", pattern = "v is string" },
-  { label = "assignment after closure", pattern = "  x = " },
+  { label = "assignment after closure", pattern = "  x = " }, { label = "pair", pattern = "ok, r = pair%(%)" },
 }
 
 local function check_shapes(source: string): boolean, string
@@ -1140,7 +1216,7 @@ local function test_a_program_of_enum_class_tag_and_closure_shapes_the_flow_take
     gen = gen_shapes,
     check = check_shapes,
     requires = { "accepted", "ran", "refused", "narrowed read", "ran with enum", "ran with class", "ran with tag", "ran with table",
-      "ran with closure", "ran with coroutine", "ran with assignment", "ran with declaration" },
+      "ran with closure", "ran with coroutine", "ran with assignment", "ran with declaration", "ran with pair" },
     shares = { accepted = 0.1, ["narrowed read"] = 0.1 },
   })
 end

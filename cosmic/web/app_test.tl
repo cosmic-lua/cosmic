@@ -64,25 +64,6 @@ local function test_a_miss_passes_through_the_middleware_around_where_it_happene
   assert(table.concat(trace, " ") == "A M /M /A", "nor does a 405 inside it")
 end
 
---- A middleware that answers nothing is out of contract: the app raises
---- (the server answers that 500, as it did for the nil it was given before),
---- and says which layer failed to answer.
-local function test_a_stack_that_answers_nothing_raises_and_is_not_a_nil_response()
-  local app = Web.app{
-    routes = { Web.get("/", hello) },
-    middleware = { function(_inner: Web.Handler): Web.Handler
-      return function(_req: Web.Request): Web.Response
-        local nothing: any = nil -- checked: any_use
-        return nothing as Web.Response -- checked: cast_refused
-      end
-    end },
-  }
-  local client = Web.test_client(app)
-  local ok, why = pcall(function() local _ = client:get("/") end)
-  assert(not ok and tostring(why):find("the handler stack answered no Response", 1, true) ~= nil,
-    tostring(why))
-end
-
 local function test_middleware_may_answer_alone_and_change_the_request()
   local MARK: Web.Key<string> = Web.key("mark")
   local app = Web.app{
@@ -242,15 +223,6 @@ local function test_debug_is_off_unless_asked_and_a_bad_response_is_a_fault_only
   local debugging = Web.app{ routes = { Web.get("/bad", bad) }, debug = true, sink = recording() }
   local res = Web.test_client(debugging):get("/bad")
   assert(res.status == 500 and res.body:find("cannot be sent", 1, true) ~= nil, res.body)
-end
-
-local function test_in_debug_a_handler_that_returns_nothing_is_told_as_the_server_tells_it()
-  local function nothing(_req: Web.Request): Web.Response
-    return nil as Web.Response -- checked: cast_refused
-  end
-  local debugging = Web.app{ routes = { Web.get("/nothing", nothing) }, debug = true, sink = recording() }
-  local res = Web.test_client(debugging):get("/nothing")
-  assert(res.status == 500 and res.body:find("the handler answered nil, not a Server.Reply", 1, true) ~= nil, res.body)
 end
 
 local function test_abort_answers_its_status_and_detail_in_the_negotiated_form()

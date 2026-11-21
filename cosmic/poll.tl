@@ -875,7 +875,10 @@ local function step(task: State, ok: boolean, why: string)
     -- can fail (no memory for it), and the close below must still run.
     if err is string and not err:find("\nstack traceback:", 1, true) then
       local traced, text = pcall(errors.trace_of, task.co, err)
-      if traced then err = text end
+      if traced then
+        local _, _ = coroutine.close(task.co)
+        error(text, 0)
+      end
     end
     -- resume leaves a coroutine that raised with its `<close>` variables
     -- open: close answers the error again, which is already in hand.

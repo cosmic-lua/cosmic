@@ -71,7 +71,7 @@ local function test_a_start_past_the_descriptor_limit_names_it(tmp: string)
   sys.close(null)
   assert(ok, tostring(child))
   assert(child == nil, "started past the limit")
-  assert(trouble ~= nil and trouble:find("handed descriptor 255", 1, true) ~= nil and
+  assert(trouble:find("handed descriptor 255", 1, true) ~= nil and
       trouble:find("RLIMIT_NOFILE's soft limit of 256", 1, true) ~= nil, trouble)
 end
 

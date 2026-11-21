@@ -88,9 +88,9 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         return Input.bind_strings(q, spec, { secret = { "name" }, repeated = if which == 2 then "error" else nil end })
       end)
       if not ok then return false, "raised: " .. tostring(r) end
-      local invalid = r.invalid -- checked: any_use
+      local invalid = r.invalid
       if invalid == nil then
-        local r_value = r.value -- checked: any_use
+        local r_value = r.value
         if r_value == nil then return false, "neither a value nor a refusal" end
         local again, why = Shape.into(r_value, spec)
         if again == nil then return false, "the value fails its own spec: " .. why end
@@ -98,7 +98,7 @@ local function test_binding_never_raises_and_answers_a_value_or_every_error(tmp:
         return true, ""
       end
       local bad = invalid
-      if r.value ~= nil then return false, "both a value and a refusal" end -- checked: any_use
+      if r.value ~= nil then return false, "both a value and a refusal" end
       if bad.status ~= 422 or #bad.errors == 0 or bad.message == "" then
         return false, ("a refusal of status %d with %d errors"):format(bad.status, #bad.errors)
       end

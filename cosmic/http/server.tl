@@ -781,7 +781,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- it: its raise, or its reply, followed from the failed read.
   local state = body.state
   if state == "over" or state == "bad" or state == "failed" then
-    if ok then drop_body(reply) end -- checked: not_assignable
+    if ok then drop_body(reply) end
     if state ~= "failed" then
       answer(s, conn, head, if state == "over" then 413 else 400 end, (body.failure:gsub("^http: ", "")))
       linger(conn)
@@ -803,17 +803,15 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   if reply == nil then -- checked: compare_disjoint
     trouble = reply_trouble(reply)
   else
-    trouble = Server.check(reply, head.method) -- checked: not_assignable
+    trouble = Server.check(reply, head.method)
   end
   if trouble ~= "" or reply == nil then -- checked: compare_disjoint
-    drop_body(reply) -- checked: not_assignable
+    drop_body(reply)
     report(s, "http: " .. where .. ": " .. trouble)
     answer(s, conn, head, 500, "")
     if body.state == "open" then linger(conn) end
     return false
   end
-  -- The handler ran (`ok`), so `reply` is its answer, not an error's text.
-  if reply is string then error("http: a handler's answer is text", 0) end
   local given: Server.Reply = reply
   if s.compress_from ~= nil then
     local compressing, result = xpcall(compressed, traced, s.compress_from, head.headers["accept-encoding"], given)
@@ -825,7 +823,6 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       if body.state == "open" then linger(conn) end
       return false
     end
-    if result is string then error("http: compressing answered text", 0) end
     given = result
   end
   local close = given.close == true or head.close or s.stopping
@@ -864,11 +861,11 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local result = sent
   if result == nil then return false end -- checked: compare_disjoint
   local failed = body.state ~= "open" and body.state ~= "done"
-  if result.body_failure ~= "" and not failed then -- checked: field_unknown
-    report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure) -- checked: field_unknown
+  if result.body_failure ~= "" and not failed then
+    report(s, "http: " .. where .. ": the reply's body: " .. result.body_failure)
   end
-  if result.close then -- checked: field_unknown
-    if result.write_failure == "" and body.state == "open" then linger(conn) end -- checked: field_unknown
+  if result.close then
+    if result.write_failure == "" and body.state == "open" then linger(conn) end
     return false
   end
   -- A reply Reader that read the request's body may have ended cleanly

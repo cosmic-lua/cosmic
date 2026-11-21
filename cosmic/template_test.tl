@@ -1616,7 +1616,7 @@ local function test_an_attribute_name_with_a_vertical_tab_or_form_feed_never_mak
       local src = HEAD .. "<a {{if .a}}b" .. space .. "c" .. tail .. "{{end}}>"
       local ok, out, why = pcall(Template.compile, src, "t.tmpl")
       assert(ok, "compile raised on " .. string.format("%q", src) .. ": " .. tostring(out))
-      assert(out ~= nil or why ~= nil, "neither a template nor a refusal")
+      assert(out ~= nil or why ~= "", "neither a template nor a refusal")
     end
   end
 end
