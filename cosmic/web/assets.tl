@@ -347,7 +347,8 @@ end
 
 --- One source of `sources`, each laid over those after it: a path is
 --- answered by the first that holds it, and `paths` is every path any of
---- them holds, once each, sorted. It is dynamic where any of them is.
+--- them holds, once each, sorted. It is dynamic where any of them is. A
+--- miss says why the last of them missed.
 --- [`Assets.default`] lays a program's own static files over the shared
 --- ones so.
 --- @param sources {Assets.Source} The sources, the one that wins first
@@ -355,10 +356,13 @@ end
 function Assets.layered(sources: {Assets.Source}): Assets.Source
   return {
     get = function(_self: Assets.Source, path: string): Assets.Asset?, string
+      local why = ""
       for _, source in ipairs(sources) do
-        local asset, _ = source:get(path)
+        local asset, missed = source:get(path)
         if asset ~= nil then return asset, "" end
+        why = missed
       end
+      if why ~= "" then return nil, why end
       return miss(path, "no layer holds it")
     end,
     paths = function(_self: Assets.Source): {string}
@@ -388,9 +392,13 @@ end
 --- rest of its path: `get("a.png")` answers `source`'s "images/a.png",
 --- with that rest as its `path`.
 --- @param source Assets.Source The source
+--- Raises for a `prefix` that is not "" and does not end in a slash.
 --- @param prefix string What each path begins with, its slash included
 --- @return Assets.Source The source
 function Assets.under(source: Assets.Source, prefix: string): Assets.Source
+  if prefix ~= "" and prefix:sub(-1) ~= "/" then
+    error(("assets: the prefix %q does not end in a slash"):format(prefix), 2)
+  end
   return {
     get = function(_self: Assets.Source, path: string): Assets.Asset?, string
       local refusal = path_refusal(path)

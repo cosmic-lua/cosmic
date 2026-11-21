@@ -40,4 +40,17 @@ function Example.retry_after()
   assert(Attempts.retry_after(Clock.ms(1500)) == "2")
 end
 
+--- Bytes a client may upload in a minute, weighed as they come: the count
+--- of a key's window is what it has sent since the window began, and
+--- `wait_ns` says how long until a new window lets it send again.
+function Example.tally()
+  local uploaded = Attempts.tally{ window_ns = Clock.minutes(1) }
+  local limit = 1000
+  assert(uploaded:add("10.0.0.1", 600) == 600)
+  local count = uploaded:add("10.0.0.1", 600)
+  print(count, count > limit)
+  assert(count == 1200 and uploaded:wait_ns("10.0.0.1") > 0)
+  assert(uploaded:count("10.0.0.2") == 0, "another client counts alone")
+end
+
 return Example

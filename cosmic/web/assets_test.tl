@@ -234,3 +234,15 @@ local function test_only_answers_the_names_it_lists()
   assert(none == nil and why:find("b.css", 1, true) ~= nil, why)
   assert(table.concat(one:paths(), ",") == "a.css")
 end
+
+local function test_under_refuses_a_prefix_without_a_slash_and_layered_says_why_the_last_missed()
+  local source = Assets.memory({ ["images/a.png"] = "a" })
+  local ok, why = pcall(Assets.under, source, "images")
+  assert(not ok and tostring(why):find("does not end in a slash", 1, true) ~= nil, tostring(why))
+  assert(assert(Assets.under(source, ""):get("images/a.png")).data == "a")
+  local _, missed = Assets.layered({ source, source }):get("/abs")
+  assert(missed:find("absolute", 1, true) ~= nil, missed)
+  local dynamic = Assets.layered({ source, { get = source.get, paths = source.paths,
+    dynamic = function(_self: Assets.Source): boolean return true end } })
+  assert(dynamic:dynamic() and not Assets.layered({ source }):dynamic())
+end

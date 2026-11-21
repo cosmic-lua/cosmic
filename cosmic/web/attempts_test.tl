@@ -259,3 +259,13 @@ local function test_a_tally_refuses_a_window_or_max_keys_below_1()
   ok, why = pcall(Attempts.tally, { window_ns = 1, max_keys = 0 })
   assert(not ok and tostring(why):find("max_keys must be an integer of at least 1", 1, true) ~= nil, tostring(why))
 end
+
+local function test_a_tally_adds_0_without_a_window_and_stops_at_the_most_an_integer_holds()
+  local fake: Fake = { now = 0 }
+  local t = tally(fake, 100)
+  assert(t:add("k", 0) == 0 and t:wait_ns("k") == 0, "adding 0 began a window")
+  assert(t:add("k", math.maxinteger) == math.maxinteger)
+  assert(t:add("k", 2) == math.maxinteger, "the count wrapped")
+  local ok, why = pcall(function() t:add("k", -1) end)
+  assert(not ok and tostring(why):find("at least 0", 1, true) ~= nil, tostring(why))
+end

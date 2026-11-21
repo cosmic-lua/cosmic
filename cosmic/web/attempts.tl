@@ -103,7 +103,9 @@ local record Attempts
   interface Tally
     --- How long a key's window lasts, in nanoseconds.
     window_ns: integer
-    --- Adds `n` to `key`'s count, and answers the count of its window.
+    --- Adds `n`, an integer of at least 0, to `key`'s count, and answers
+    --- the count of its window, which stops at `math.maxinteger`. Adding 0
+    --- begins no window. Raises for any other `n`.
     add: function(Tally, key: string, n: integer): integer
     --- `key`'s count in its window: 0 where it has none.
     count: function(Tally, key: string): integer
@@ -263,8 +265,12 @@ local class Counted is Attempts.Tally
   end
 
   function add(self, key: string, n: integer): integer
+    if math.type(n) ~= "integer" or n < 0 then
+      error("attempts: a tally adds an integer of at least 0", 2)
+    end
     local now = self:tick()
     local window = self:live(key, now)
+    if window == nil and n == 0 then return 0 end
     if window == nil then
       if self.windows[key] == nil then
         if self.size >= self.max_keys then self:make_room(now) end
@@ -273,7 +279,8 @@ local class Counted is Attempts.Tally
       window = { start = now, count = 0 }
       self.windows[key] = window
     end
-    window.count = window.count + n
+    -- Held at the most an integer holds, so a weight cannot wrap it below the limit.
+    window.count = if window.count > math.maxinteger - n then math.maxinteger else window.count + n end
     return window.count
   end
 
@@ -319,9 +326,9 @@ end
 --- A count for each key in fixed windows of `opts.window_ns`, each begun
 --- by the key's first count after its last window ended: a rate limit
 --- that weighs what it counts (bytes, messages), or "say this once a
---- minute" with one key. O(1) a count. At most `opts.max_keys` keys are
---- kept: a new key past that drops those whose windows have ended, and,
---- where none has, every key, so a flood of new keys starts every count
+--- minute" with one key. A count is O(1) but for a new key past
+--- `opts.max_keys` keys, which sweeps them: it drops those whose windows
+--- have ended, and, where none has, every key, so a flood of new keys starts every count
 --- over; key what is limited by something a client cannot make up, or
 --- raise `max_keys` past what one can send in a window. Raises, naming
 --- the option, for a window or `max_keys` that is not an integer of at
