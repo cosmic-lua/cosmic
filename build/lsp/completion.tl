@@ -381,10 +381,8 @@ local function members_of(program: Declarations.Program, decl: Types.Decl, value
     -- TODO: complete an integer enum's members and its `of` and `name` after `E.`; today a `decl.kind ==
     -- "integer_enum"` table offers nothing here.
   else
-    if decl.kind == "interface" then
-      for _, field in ipairs(Declarations.inherited(program.store, program.judge, decl)) do
-        add(field.name, field.type, false)
-      end
+    for _, field in ipairs(Declarations.inherited(program.store, program.judge, decl)) do
+      add(field.name, field.type, false)
     end
     -- The table of a class is the metatable of its values: a function there is a method of them.
     if decl.kind == "class" and (decl.arity or 0) == 0 then
@@ -660,7 +658,7 @@ local function rows_of(request: Request, decl: Types.Decl, value: boolean, depth
       out[#out + 1] = { name = row.name, type = declared, method = row.kind == "method", row = row }
     end
   end
-  if owner.kind == "interface" and not value then
+  if (owner.kind == "interface" or owner.kind == "record" or owner.kind == "class") and not value then
     -- The rows list the interfaces as written and the declaration as resolved: they are the same when they are as many.
     if #owner.supers ~= #body.supers then return nil end
     local generic = false

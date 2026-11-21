@@ -124,6 +124,17 @@ with `--staging` first, as Let's Encrypt's limits are lower in
 production. `cosmic help acme` has the rest. A program asks for its own
 with [`Acme.client`].
 
+## a node of your tailnet
+
+`cosmic tailscale status` lists this machine's Tailscale node and its
+peers, asking tailscaled itself, so no `tailscale` binary is needed.
+`cosmic tailscale whois 100.101.102.103` says which node and user an
+address of the tailnet is, and what the policy's grants let it do here.
+`cosmic tailscale cert` writes the node's `ts.net` certificate and key
+(HTTPS must be on for the tailnet), and `cosmic tailscale ping <address>`
+times a round trip. `--json` prints any answer as JSON. A program asks
+the daemon with [`Tailscale.connect`].
+
 ## questions about a data file
 
 A question about a data file -- what is in it, how many of these it
@@ -470,3 +481,4 @@ A function declared `: number` may still
 [`Rand.uuid`]: ../../cosmic/rand.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
 [`Store.seal`]: ../../cosmic/store.tl
+[`Tailscale.connect`]: ../../cosmic/tailscale.tl

@@ -8,6 +8,7 @@
 
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
+local Tls = require("cosmic.tls")
 local sys = require("cosmic.sys")
 local type Stream = require("cosmic.stream")
 local type raw_socket = require("cosmic.internal.socket")
@@ -91,8 +92,8 @@ local class SocketConn is Duplex
   --- Never present: [`Stream.skip`] reads and discards a connection's bytes.
   skip?: function(SocketConn, n: integer): boolean, string
   --- Internal: the TLS session every read and write goes through, on a
-  --- connection a TLS listener accepted; nil for one in the clear. No
-  --- caller reads or writes it.
+  --- connection a TLS listener accepted or [`start_tls`] secured; nil
+  --- for one in the clear. No caller reads or writes it.
   mut session?: raw_tls.Session
 
   --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
@@ -217,8 +218,9 @@ local class SocketConn is Duplex
   end
 
   --- Completes the TLS handshake of a connection a TLS listener
-  --- accepted, waiting as a read does; true at once for one in the
-  --- clear, and for one whose handshake is done. A read or a write
+  --- accepted, or [`start_tls`] or [`serve_tls`] secured, waiting as a
+  --- read does; true at once for one in the clear, and for one whose
+  --- handshake is done. A read or a write
   --- handshakes first by itself: this is for a caller that would know
   --- what [`tls`] says before it reads. False and why otherwise, which
   --- is every read's and write's after.
@@ -244,13 +246,79 @@ local class SocketConn is Duplex
   end
 
   --- What the TLS handshake settled -- the version, the protocol ALPN
-  --- chose, the name the client asked for -- on a connection a TLS
-  --- listener accepted, once [`handshake`] or a read has completed it;
-  --- nil for a connection in the clear, or one closed.
-  function tls(self): raw_tls.Info?
+  --- chose, the name asked for, the peer's certificate ([`Tls.Info`])
+  --- -- on a connection over TLS, once [`handshake`] or a read has
+  --- completed it; nil for a connection in the clear, or one closed.
+  function tls(self): Tls.Info?
     local session = self.session
     if session == nil or not self.open then return nil end
-    return session:info()
+    return Tls.info(session)
+  end
+
+  --- Secures a connection in the clear as the client of a TLS session
+  --- of `client`, and completes its handshake, waiting as a read does:
+  --- what STARTTLS does once the peer has agreed to it. It asks for
+  --- `server_name` (SNI), and, where `client` verifies, the server's
+  --- certificate must name it: a DNS name, or an IP address among the
+  --- certificate's own. Every read and write after goes through the
+  --- session. Bytes the peer sent in the clear after the request to
+  --- start TLS were never read here, so they are read as TLS: a buffer
+  --- the caller read ahead into ([`Stream.lines`]) must hold none. True,
+  --- or false and why: the handshake failed, the chain or name did not
+  --- verify, or the key is not pinned. A connection that fails so is
+  --- left of no further use but to close. Raises on one already over
+  --- TLS.
+  function start_tls(self, client: Tls.Client, server_name?: string): boolean, string
+    if self.session ~= nil then error("net: the connection is already over TLS", 2) end
+    if not self.open then return false, "net: the connection is closed" end
+    local session, why = client:session(self.fd, server_name)
+    if session == nil then
+      self.read_failure = why
+      self.write_failure = why
+      return false, why
+    end
+    self.session = session
+    local done, failed = self:handshake()
+    if not done then
+      local trouble = client:explained(failed)
+      self.write_failure = trouble
+      self.read_failure = trouble
+      return false, trouble
+    end
+    local accepted, refused = client:accepts(Tls.info(session))
+    if not accepted then
+      self.read_failure = refused
+      self.write_failure = refused
+      return false, refused
+    end
+    return true, ""
+  end
+
+  --- Secures a connection in the clear as the server of a TLS session,
+  --- presenting `certs`'s newest pairs, and completes its handshake,
+  --- waiting as a read does: a server's side of STARTTLS. What
+  --- [`start_tls`] says of bytes read ahead holds here too. `certs` is
+  --- loaded where it is not yet ([`Tls.Certs.load`]), and not renewed
+  --- here: a server that holds it renews it. True, or false and why. A
+  --- connection that fails so is of no further use but to close. Raises
+  --- on one already over TLS.
+  function serve_tls(self, certs: Tls.Certs): boolean, string
+    if self.session ~= nil then error("net: the connection is already over TLS", 2) end
+    if not self.open then return false, "net: the connection is closed" end
+    local config = certs:config()
+    if config == nil then
+      local loaded, why = certs:load()
+      if not loaded then return false, why end
+      config = assert(certs:config(), "tls: a load that succeeded left no configuration")
+    end
+    local session, why = tls.session(config, self.fd)
+    if session == nil then
+      self.read_failure = why
+      self.write_failure = why
+      return false, why
+    end
+    self.session = session
+    return self:handshake()
   end
 
   --- Where the peer is: its numeric TCP address, as the kernel names it
@@ -359,6 +427,16 @@ local record Connection
     --- [`ConnectorOptions.timeout_ns`], and a nil `timeout_ns` waits the
     --- ceiling; the connection's reads and writes wait `timeout_ns` as here.
     timeout_ns?: integer
+    --- Connects over TLS as this client: once the connection is made,
+    --- its handshake is completed before it is answered, within
+    --- `timeout_ns` too, as [`Net.Conn`]'s [`start_tls`] does. Nil to connect in
+    --- the clear.
+    tls?: Tls.Client
+    --- The name `tls` asks for (SNI) and verifies the server's
+    --- certificate against; nil for the address's host, an IP address,
+    --- which is then verified against the certificate's own. A
+    --- connection to a unix socket that verifies needs one.
+    server_name?: string
   end
 
   --- Which direction of a connection [`SocketConn.shutdown`] ends.

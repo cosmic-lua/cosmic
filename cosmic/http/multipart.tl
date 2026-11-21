@@ -111,7 +111,7 @@ local TOKEN <const> = "[%w!#$%%&'*+.^_`|~-]+"
 --- The body of a part. What it asks of its parser (the generation it is on, its state and failure, the bytes of the part it
 --- hands out, and failing it) it asks through the functions the parser gave it: the parser is no type of this record, whose
 --- class stands above the parser's, which makes it.
-local class BodyReader is Stream.Reader -- declared: interface_disagrees
+local class BodyReader is Stream.Reader
   generation: integer
   mut finished: boolean
   parsed_generation: function(): integer
@@ -504,7 +504,7 @@ local class Parser is Multipart.Reader
       state = function(): string return self.state end,
       failure = function(): string return self.failure end,
       take = function(max: integer): string?, string return take(self, max) end,
-      fail = function(reason: string): nil, string return fail(self, reason) end,
+      fail = function(reason: string): nil, string return fail(self, reason) end, skip = nil,
     }
     local part, bad = read_part_headers(self, body)
     if part == nil then return fail(self, bad) end

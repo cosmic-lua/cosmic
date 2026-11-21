@@ -326,7 +326,7 @@ end
 --- A connection read under a deadline: each read waits at most `each`,
 --- and none past `deadline`, a [`Clock.monotonic_ns`] reading (nil for
 --- none).
-local class Timed is Stream.Reader -- declared: interface_disagrees
+local class Timed is Stream.Reader
   conn: Net.Conn
   each: integer
   mut deadline?: integer
@@ -900,7 +900,7 @@ end
 --- Serves `conn`, one request after another, until it closes, fails,
 --- or idles past `idle_ns`.
 local function serve_conn(s: Serving, conn: Net.Conn)
-  local timed: Timed = { conn = conn, each = s.timeout_ns, deadline = nil }
+  local timed: Timed = { conn = conn, each = s.timeout_ns, deadline = nil, skip = nil }
   local input = wire.input(timed)
   -- Nil where the connection has none (a unix one); the request then has no peer.
   local peer, _ = conn:peer()
