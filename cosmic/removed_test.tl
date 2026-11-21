@@ -289,8 +289,8 @@ end
 --- through [`Http.request`], [`sys.ftruncate`], and `cache_dir` with `make = false`.
 local function test_the_removed_fs_and_http_members_name_their_replacements()
   for member, want in pairs({ -- checked: cast_refused
-      ["http.upload"] = "Http.request(\"PUT\", url, { body = body })",
-      ["http.Upload"] = "Http.request(\"PUT\", url, { body = body })",
+      ["http.upload"] = "Http.request(\"PUT\", url, { timeout_ns = limit, body = body })",
+      ["http.Upload"] = "Http.request(\"PUT\", url, { timeout_ns = limit, body = body })",
       ["fs.truncate"] = "sys.ftruncate(fd, length)",
       ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
   } as {string:string}) do
