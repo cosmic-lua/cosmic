@@ -73,12 +73,19 @@ local record Qr
     --- ones and the quiet zone. Leave it off for a terminal of light text
     --- on a dark ground, the common case: the characters then show the
     --- light modules, and the terminal's ground shows the dark ones. Set
-    --- it for a terminal of dark text on a light ground, and for paper.
+    --- it for a terminal of dark text on a light ground, and for paper;
+    --- `color` is clear on either.
     invert?: boolean
     --- ASCII alone, for a terminal or a font without block characters:
     --- each module is two characters, `##` or two spaces, and each row a
     --- line, so the code is twice as tall in lines.
     ascii?: boolean
+    --- Paint each line with ANSI escapes, black on a bright white ground,
+    --- so the code shows dark on light whatever the terminal's colours:
+    --- the characters draw the dark modules and `invert` is not read.
+    --- [`Qr.read`] reads it back, escapes and all. Leave it off for a
+    --- pipe or a file that is not shown on a terminal.
+    color?: boolean
   end
 
   --- What [`Qr.svg`] may be told. The image is deterministic: the same
@@ -587,16 +594,24 @@ end
 
 -- The half blocks by what each half of a cell shows: ink above, ink below.
 local HALVES <const>: {string} = { " ", "\u{2584}", "\u{2580}", "\u{2588}" }
+-- What `color` puts around each line: black on bright white, then the
+-- terminal's own colours again before the newline, so no ground runs on.
+local PAINT <const> = "\27[30;107m"
+local UNPAINT <const> = "\27[0m"
 
 --- `code` as text for a terminal, each line ended by a newline. Each
 --- character holds two rows of modules, with the half blocks `▀`, `▄`
 --- and `█` and a space, so the code is about square in most fonts; a
 --- last row alone has nothing below it. The quiet zone is drawn too.
 --- Without `invert`, the characters show the light modules, for a dark
---- terminal ([`Qr.TextOptions`] says which to choose).
+--- terminal ([`Qr.TextOptions`] says which to choose); with `color`,
+--- they show the dark modules on a ground the escapes paint.
 function Qr.text(code: Qr.Code, options?: Qr.TextOptions): string
   local quiet = bounded(options and options.quiet, 4, 0, 16, "a quiet zone")
-  local invert = options ~= nil and options.invert == true
+  local color = options ~= nil and options.color == true
+  local invert = color or (options ~= nil and options.invert == true)
+  local before = if color then PAINT else "" end
+  local after = if color then UNPAINT else "" end
   local side = Qr.size(code, quiet)
   -- Whether a module of the drawing, quiet zone and all, takes ink.
   local function ink(x: integer, y: integer): boolean
@@ -608,7 +623,7 @@ function Qr.text(code: Qr.Code, options?: Qr.TextOptions): string
     for y = 0, side - 1 do
       local line: mut {string} = {}
       for x = 0, side - 1 do line[#line + 1] = if ink(x, y) then "##" else "  " end end
-      lines[#lines + 1] = table.concat(line) .. "\n"
+      lines[#lines + 1] = before .. table.concat(line) .. after .. "\n"
     end
   else
     for y = 0, side - 1, 2 do
@@ -616,7 +631,7 @@ function Qr.text(code: Qr.Code, options?: Qr.TextOptions): string
       for x = 0, side - 1 do
         line[#line + 1] = HALVES[(if ink(x, y) then 2 else 0 end) + (if ink(x, y + 1) then 1 else 0 end) + 1] or " "
       end
-      lines[#lines + 1] = table.concat(line) .. "\n"
+      lines[#lines + 1] = before .. table.concat(line) .. after .. "\n"
     end
   end
   return table.concat(lines)
@@ -1086,16 +1101,40 @@ local INK_BELOW <const>: {string: boolean} = { [" "] = false, ["\u{2580}"] = fal
   ["\u{2588}"] = true }
 
 --- The ink of `drawing`, text [`Qr.text`] drew, as rows; nil and why.
+--- What copying it from a terminal, a page or a message adds is taken
+--- back out: terminal escapes, no-break spaces for spaces, CRLF, blank
+--- lines around it, spaces at the ends of lines, and an indent of spaces
+--- and tabs its lines share.
 local function text_ink(drawing: string): {{boolean}}?, string
+  local plain = (drawing:gsub("\27%[[%d;:?]*%a", ""):gsub("\u{a0}", " "))
   local lines: mut {string} = {}
-  for line in (drawing .. "\n"):gmatch("([^\n]*)\n") do
-    lines[#lines + 1] = (line:gsub("\r$", ""))
+  for line in (plain .. "\n"):gmatch("([^\n]*)\n") do
+    lines[#lines + 1] = (line:gsub("[ \t\r]+$", ""))
   end
-  -- Blank lines before and after are no part of it: a terminal adds them.
   while #lines > 0 and lines[#lines]:match("^%s*$") ~= nil do table.remove(lines) end
   while #lines > 0 and lines[1]:match("^%s*$") ~= nil do table.remove(lines, 1) end
   if #lines == 0 then return nil, "qr: the text draws nothing" end
-  local blocks = drawing:find("[\u{2580}\u{2584}\u{2588}]") ~= nil
+  -- The spaces and tabs every line that is not blank starts with: an
+  -- indent, or a quiet zone drawn as spaces, which a reader can do without.
+  local indent: string? = nil
+  for _, line in ipairs(lines) do
+    if line ~= "" then
+      local lead = line:match("^[ \t]*") or ""
+      if indent == nil then
+        indent = lead
+      else
+        local n = 0
+        while n < #indent and n < #lead and indent:byte(n + 1) == lead:byte(n + 1) do n = n + 1 end
+        indent = indent:sub(1, n)
+      end
+    end
+  end
+  local cut = #(indent or "")
+  for n, line in ipairs(lines) do lines[n] = line:sub(cut + 1) end
+  local blocks = false
+  for _, char in ipairs({ "\u{2580}", "\u{2584}", "\u{2588}" }) do
+    if plain:find(char, 1, true) ~= nil then blocks = true end
+  end
   local rows: mut {{boolean}} = {}
   if blocks then
     local width = 0
@@ -1172,9 +1211,10 @@ local function svg_rows(svg: string): {{boolean}}?, string
 end
 
 --- Reads the code in `drawing`: an SVG [`Qr.svg`] drew, or text
---- [`Qr.text`] drew, half blocks or ASCII, inverted or not, with any
---- quiet zone. It reads those drawings, not images: an SVG from another
---- program, or a photo, is refused. Nil and why where it is neither, or
+--- [`Qr.text`] drew, half blocks or ASCII, inverted, in colour or
+--- neither, with any quiet zone, indented or not. It reads those
+--- drawings, not images: an SVG from another program, or a photo, is
+--- refused. Nil and why where it is neither, or
 --- [`Qr.decode`] cannot read the code.
 ---
 ---     local code = assert(Qr.encode("https://example.com/"))
