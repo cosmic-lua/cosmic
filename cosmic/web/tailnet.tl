@@ -39,15 +39,23 @@
 --- the daemon passes who asked in headers instead (`Tailscale-User-Login`,
 --- `Tailscale-User-Name`, `Tailscale-User-Profile-Pic`, and
 --- `Tailscale-App-Capabilities` where the serve config forwards
---- capabilities). `serve = true` reads them from a loopback peer, and only
---- there. Any local process can connect to the loopback and send them, so
---- turn it on only where the app listens on the loopback alone and the
---- machine's users are trusted. A request through Funnel comes from the
---- internet and carries none of them: it has no identity.
+--- capabilities), deleting any copy a client sent. `serve = true` reads
+--- them from a loopback peer or a unix socket's, and only there. Any
+--- local process can connect to the loopback and send them, so behind a
+--- loopback port turn it on only where the machine's users are trusted.
+--- [`Web.serve`]'s `tailnet = { via = "serve" }` is the safer way: it
+--- listens at a unix socket of a private directory, which only the
+--- daemon and the program's own user can reach, and files the daemon's
+--- Serve configuration itself, taking it down when the server stops.
+--- `via = "funnel"` opens the site to the internet as well. A request
+--- through Funnel carries none of the headers and has no identity;
+--- [`Web.tailnet_funnel`] tells it apart, so a public app can answer
+--- `required = false` and still know who on the tailnet asks.
 --- @public
 
 local Json = require("cosmic.json")
 local Clock = require("cosmic.clock")
+local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
@@ -57,10 +65,19 @@ local Types = require("cosmic.web.types")
 
 --- Where [`Tailnet.serving`] serves an app, and what it presents.
 local record Reached
-  --- Each of the node's tailnet addresses, at the port.
+  --- Each of the node's tailnet addresses, at the port; or, through
+  --- the daemon's Serve, the one unix socket it passes requests to.
   listeners: {Net.Address}
-  --- The node's certificate, from its daemon, kept current.
-  certs: Tls.Certs
+  --- The node's certificate, from its daemon, kept current; nil
+  --- through Serve, where the daemon presents it.
+  certs?: Tls.Certs
+  --- Through Serve: files the daemon's configuration, once the
+  --- listener is open. The answer takes it down when closed.
+  put_up?: function(): Tailscale.Serving?, string
+  --- Through Serve: removes the socket and its directory.
+  cleanup?: function()
+  --- Through Serve: the socket's path.
+  socket?: string
 end
 
 local record Tailnet
@@ -70,7 +87,8 @@ local record Tailnet
   enum Source
     --- The daemon's whois of the connection's far end.
     "whois"
-    --- The headers of `tailscale serve`, from a loopback peer.
+    --- The headers of `tailscale serve`, from a loopback peer or a
+    --- unix socket's.
     "serve"
   end
 
@@ -104,8 +122,8 @@ local record Tailnet
     --- Answer 403 to a request with no identity (true); false lets it
     --- through with none.
     required?: boolean
-    --- Read `tailscale serve`'s identity headers from a loopback peer
-    --- (false): see the module's description.
+    --- Read `tailscale serve`'s identity headers from a loopback peer or
+    --- a unix socket's (false): see the module's description.
     serve?: boolean
     --- How long an answer of the daemon is kept for its address, in
     --- nanoseconds (60 seconds); 0 keeps none. A failure is never kept.
@@ -115,6 +133,9 @@ end
 
 --- The key a request's identity is kept under.
 local IDENTITY: Types.Key<Tailnet.Identity> = Request.key("tailnet.identity")
+
+--- The key that marks a request Funnel brought from the internet.
+local FUNNEL: Types.Key<boolean> = Request.key("tailnet.funnel")
 
 --- The most addresses a cache holds before it starts again.
 local CACHE_ENTRIES <const> = 4096
@@ -248,10 +269,23 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
     return function(req: Types.Request): Types.Response
       local peer = req.raw.peer
       local identity: Tailnet.Identity? = nil
-      if peer ~= nil and peer.kind == "tcp" and peer.host ~= nil then
+      local funneled = false
+      local at = req.raw.listener
+      local own = req.app.serve_socket
+      if at ~= nil and at.kind == "unix" and own ~= nil and at.path == own then
+        -- The socket Web.serve opened for the daemon's Serve, in a
+        -- directory only the daemon and this user can reach: the
+        -- daemon's headers say who asked.
+        funneled = req.headers["tailscale-funnel-request"] == "?1"
+        if not funneled then identity = of_serve(req) end
+      elseif peer == nil or peer.kind == "unix" then
+        -- Any other unix socket: nobody this middleware can name.
+        identity = nil
+      elseif peer.kind == "tcp" and peer.host ~= nil then
         local host = unmapped(assert(peer.host))
         if serve and loopback(host) then
-          identity = of_serve(req)
+          funneled = req.headers["tailscale-funnel-request"] == "?1"
+          if not funneled then identity = of_serve(req) end
         else
           local result = asked(host)
           if result.kind == "failed" then
@@ -263,6 +297,7 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
           if who ~= nil then identity = of_whois(who) end
         end
       end
+      if funneled then req:set(FUNNEL, true) end
       if identity ~= nil then
         req:set(IDENTITY, identity)
       elseif required then
@@ -277,6 +312,13 @@ end
 --- (or does not run).
 function Tailnet.identity(req: Types.Request): Tailnet.Identity?
   return req:get(IDENTITY)
+end
+
+--- Whether [`Web.tailnet`] found that Funnel brought `req` from the
+--- internet, as `serve = true` reads the daemon's
+--- `Tailscale-Funnel-Request` header. Such a request has no identity.
+function Tailnet.funnel(req: Types.Request): boolean
+  return req:get(FUNNEL) == true
 end
 
 --- Middleware that answers 403 to a request whose identity lacks the
@@ -299,16 +341,69 @@ function Tailnet.require_cap(name: string): Types.Middleware
   end
 end
 
+--- Where an app served through the daemon's Serve listens: a unix
+--- socket of a fresh private directory (mode 0700, so the daemon, as
+--- root, and the program's own user alone can reach it), which the
+--- daemon's site at `port` of `domain` (the node's first name by
+--- default) passes every path to.
+local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, via: Types.TailnetVia,
+                             port: integer, domain?: string): Reached?, string
+  local dir, why = Fs.mkdtemp("cosmic-serve-")
+  if dir == nil then return nil, "web: tailnet: " .. why end
+  local socket = dir .. "/s"
+  -- The most a socket's path holds on macOS, less its NUL; Linux holds 107.
+  if #socket > 103 then
+    local _, _ = Fs.remove_tree(dir)
+    return nil, "web: tailnet: the socket's path " .. socket .. " is longer than a socket's path may be: set a shorter TMPDIR"
+  end
+  local caps = o.caps
+  local spec: Tailscale.ServeSpec = {
+    domain = domain,
+    sites = { {
+      port = port,
+      funnel = via == "funnel",
+      handlers = { ["/"] = { proxy = "unix:" .. socket, accept_caps = caps } },
+    } },
+  }
+  return {
+    listeners = { Net.unix(socket) },
+    certs = nil,
+    put_up = function(): Tailscale.Serving?, string
+      local served, refused = client:serve(spec)
+      if served == nil then return nil, "web: tailnet: " .. refused end
+      return served, ""
+    end,
+    cleanup = function()
+      local _, _ = Fs.remove_tree(dir)
+    end,
+    socket = socket,
+  }, ""
+end
+
 --- Where [`Web.serve`]'s `tailnet` listens, and the certificates it
 --- presents: each of the node's tailnet addresses at `o.port` (443), and
 --- the certificate of `o.domain`, the node's first name by default,
 --- from the daemon of `o.client`, [`Tailscale.connect`]'s by default.
 --- Nil and why where the daemon cannot be asked, the node is not
 --- running, or it has no address or no name to get a certificate for.
+--- With `o.via` "serve" or "funnel", it listens at a private unix
+--- socket instead, and the daemon serves the node's name, passing each
+--- request on: see [`Types.TailnetVia`].
 function Tailnet.serving(o: Types.TailnetServe): Reached?, string
+  local via: Types.TailnetVia = o.via or "listen"
+  if via ~= "listen" and via ~= "serve" and via ~= "funnel" then
+    error("web: tailnet.via must be listen, serve or funnel", 3)
+  end
   local port = o.port or 443
-  if math.type(port) ~= "integer" or port < 0 or port > 65535 then
-    error("web: tailnet.port must be from 0 to 65535", 3)
+  local least = if via == "listen" then 0 else 1 end
+  if math.type(port) ~= "integer" or port < least or port > 65535 then
+    error("web: tailnet.port must be from " .. tostring(least) .. " to 65535", 3)
+  end
+  if o.caps ~= nil and via == "listen" then
+    error("web: tailnet.caps needs via serve or funnel", 3)
+  end
+  if via == "funnel" and port ~= 443 and port ~= 8443 and port ~= 10000 then
+    error("web: tailnet: Funnel opens ports 443, 8443 and 10000 only", 3)
   end
   local client = o.client
   if client == nil then
@@ -322,6 +417,7 @@ function Tailnet.serving(o: Types.TailnetServe): Reached?, string
     return nil, "web: tailnet: the node is not running (" .. status.backend_state .. ")"
   end
   local domain = o.domain or status.cert_domains[1]
+  if via ~= "listen" then return through_serve(client, o, via, port, domain) end
   if domain == nil then
     return nil, "web: tailnet: the node has no name to get a certificate for: enable HTTPS in the tailnet's DNS settings"
   end

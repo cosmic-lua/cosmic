@@ -439,13 +439,18 @@ end
 local record ServeHandler
   --- The URL of a local server the daemon passes requests to, with
   --- the `Tailscale-User-*` headers that name the tailnet user:
-  --- `http://127.0.0.1:8080`, or `https+insecure://...` to skip
-  --- checking its certificate.
+  --- `http://127.0.0.1:8080`, `https+insecure://...` to skip
+  --- checking its certificate, or `unix:/path` for a server at a unix
+  --- socket, which only the users who can reach the path can send to.
   proxy?: string
   --- A body the daemon answers with itself.
   text?: string
   --- A file or directory of the daemon's machine it serves.
   path?: string
+  --- The capabilities the daemon passes on to `proxy`, in a
+  --- `Tailscale-App-Capabilities` header: those of each name here the
+  --- tailnet policy grants the peer (`example.com/cap/admin`).
+  accept_caps?: {string}
 end
 
 --- A web server the daemon runs on a port of the node's tailnet name.
@@ -790,8 +795,10 @@ local function handler_of(handler: ServeHandler, mount: string, where: string): 
   local count = 0
   local proxy = handler.proxy
   if proxy ~= nil then
-    if proxy:match("^https?://.") == nil and proxy:match("^https%+insecure://.") == nil then
-      error("tailscale: " .. where .. "[" .. mount .. "].proxy must be an http://, https:// or https+insecure:// URL", 4)
+    if proxy:match("^https?://.") == nil and proxy:match("^https%+insecure://.") == nil and
+        proxy:match("^unix:/.") == nil then
+      error("tailscale: " .. where .. "[" .. mount .. "].proxy must be an http://, https:// or " ..
+          "https+insecure:// URL, or unix:/path", 4)
     end
     out["Proxy"] = proxy
     count = count + 1
@@ -806,6 +813,15 @@ local function handler_of(handler: ServeHandler, mount: string, where: string): 
   end
   if count ~= 1 then
     error("tailscale: " .. where .. "[" .. mount .. "] takes exactly one of proxy, text and path", 4)
+  end
+  local caps = handler.accept_caps
+  if caps ~= nil and #caps > 0 then
+    if proxy == nil then
+      error("tailscale: " .. where .. "[" .. mount .. "].accept_caps needs a proxy", 4)
+    end
+    local names: mut {Json.Value} = {}
+    for _, name in ipairs(caps) do names[#names + 1] = name end
+    out["AcceptAppCaps"] = names
   end
   return out
 end

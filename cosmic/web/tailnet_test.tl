@@ -169,6 +169,45 @@ local function test_serve_headers_name_who_asked_from_the_loopback_alone()
   assert(table.concat(seen.asked, ",") == "192.0.2.7", table.concat(seen.asked, ","))
 end
 
+--- At the socket Web.serve opened for Serve, the daemon's headers name
+--- who asked, with or without `serve`; one that Funnel brought has
+--- none, and is marked so. At any other unix socket they name nobody,
+--- and nobody is asked.
+local function test_serve_headers_name_who_asked_at_the_apps_own_socket()
+  local seen = new_seen()
+  local own = Net.unix("/run/app/s")
+  local client_side = Net.unix("")
+  local who = { ["Tailscale-User-Login"] = "rene@example.com", ["Tailscale-User-Name"] = "Rene" }
+  local app = app_of(seen, { whois = stand_in(seen) })
+  app.serve_socket = "/run/app/s"
+  local client = Web.test_client(app)
+  local home = client:get("/", { peer = client_side, listener = own, headers = who })
+  assert(home.body == "rene@example.com Rene serve - tagged=false", home.body)
+  local other = client:get("/", { peer = client_side, listener = Net.unix("/run/app/admin"), headers = who })
+  assert(other.status == 403, tostring(other.status))
+  -- Without a socket of its own the app trusts no unix socket, `serve` or not.
+  local plain = Web.test_client(app_of(seen, { whois = stand_in(seen), serve = true }))
+  assert(plain:get("/", { peer = client_side, listener = own, headers = who }).status == 403)
+  local open = Web.app{
+    middleware = { Web.tailnet({ whois = stand_in(seen), serve = true, required = false }) },
+    routes = {
+      Web.get("/", function(req: Web.Request): Web.Response
+        return Web.text(tostring(Web.tailnet_funnel(req)) .. " " .. tostring(Web.tailnet_identity(req) ~= nil))
+      end),
+    },
+  }
+  open.serve_socket = "/run/app/s"
+  local public = Web.test_client(open)
+  local funneled = public:get("/", { peer = client_side, listener = own,
+    headers = { ["Tailscale-Funnel-Request"] = "?1", ["Tailscale-User-Login"] = "forged@example.com" } })
+  assert(funneled.body == "true false", funneled.body)
+  assert(public:get("/", { peer = client_side, listener = own, headers = who }).body == "false true")
+  -- Funnel is told on the loopback too, where `serve` trusts it.
+  assert(public:get("/", { peer = Net.tcp("127.0.0.1", 50000),
+    headers = { ["Tailscale-Funnel-Request"] = "?1" } }).body == "true false")
+  assert(#seen.asked == 0, table.concat(seen.asked, ","))
+end
+
 --- Without `serve` the headers are never read: a loopback peer is asked
 --- about as any other.
 local function test_serve_headers_are_ignored_unless_asked_for()
@@ -178,6 +217,15 @@ local function test_serve_headers_are_ignored_unless_asked_for()
     headers = { ["Tailscale-User-Login"] = "rene@example.com" } })
   assert(reply.status == 403, tostring(reply.status))
   assert(table.concat(seen.asked, ",") == "127.0.0.1", table.concat(seen.asked, ","))
+end
+
+--- Serving through Serve refuses what cannot be served before it asks
+--- any daemon.
+local function test_serving_through_serve_refuses_options_out_of_range()
+  local Tailnet = require("cosmic.web.tailnet")
+  Test.raises(function() local _, _ = Tailnet.serving({ via = "serve", port = 0 }) end, "from 1 to 65535")
+  Test.raises(function() local _, _ = Tailnet.serving({ via = "funnel", port = 8080 }) end, "443, 8443 and 10000")
+  Test.raises(function() local _, _ = Tailnet.serving({ caps = { "example.com/cap/admin" } }) end, "needs via serve")
 end
 
 --- A capability of an empty name is a caller's bug.

@@ -74,6 +74,10 @@ local record Server
     --- where one sits between (no header is read). Nil where the
     --- connection has none ([`Net.Conn`]'s `peer` says when).
     peer?: Net.Address
+    --- The listener that accepted the connection, as
+    --- [`cosmic.http.server.ServeSpec.listeners`] names it: how a handler tells a request
+    --- that came to one socket from another.
+    listener?: Net.Address
     --- What the connection's TLS handshake settled -- its version, the
     --- protocol ALPN chose, the host the client asked for (SNI) --
     --- where [`Server.ServeSpec.tls`] serves it; nil in the clear.
@@ -783,7 +787,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local request: Server.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
-    tls = conn:tls(),
+    listener = conn.listener, tls = conn:tls(),
   }
   local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of
