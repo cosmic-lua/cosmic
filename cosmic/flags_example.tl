@@ -321,4 +321,13 @@ function Example.verdicts()
   assert(said[1] == "prog: give one path" and said[2] == "read a.csv", table.concat(said, "|"))
 end
 
+--- [`Flags.std_io`] writes to the standard streams; a failure ends with
+--- [`Flags.FAILED`] after saying why there.
+function Example.std_io()
+  local streams = Flags.std_io(function(line: string): string return "prog: " .. line end)
+  streams.out("read a.csv") -- read a.csv
+  local ends = Flags.verdicts(streams.err)
+  assert(ends.failed("a.csv: no such file") == Flags.FAILED) -- prog: a.csv: no such file, on stderr
+end
+
 return Example -- checked: export_not_declared

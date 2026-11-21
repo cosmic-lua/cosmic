@@ -187,7 +187,9 @@ local record Flags
   --- what went wrong. [`Flags.std_io`] gives the standard streams; a test
   --- passes functions that keep the lines.
   record Io
+    --- Writes a line of what was asked.
     out: function(line: string)
+    --- Writes a line of what went wrong.
     err: function(line: string)
   end
 
