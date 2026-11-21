@@ -40,7 +40,7 @@
 ---   array or the value of a map, where the alias is given a name (a declaration of kind `alias`) and the type may be
 ---   recursive (`type Json = string | {Json}`), a bound that
 ---   is no interface (`bound_not_interface`), return lists that no position of `true` and `false` tells apart
----   (`lists_overlap`), a type argument that does not list the interface its parameter is bounded by
+---   (`lists_overlap`), a type argument that neither lists nor has the fields of the interface its parameter is bounded by
 ---   (`bound_not_met`), a declaration that names the type parameter of
 ---   the one around it (`outer_type_parameter`), a name that a module or a record does not
 ---   declare (`member_missing`), a parameter of a method with no type (`param_untyped`) and
@@ -113,7 +113,7 @@ local record Declarations
     "bound_as_type"
     -- two return lists that no position of `true` and `false` tells apart
     "lists_overlap"
-    -- a type argument that does not list the interface its parameter is bounded by
+    -- a type argument that neither lists nor has the fields of the interface its parameter is bounded by
     "bound_not_met"
     -- a declaration that names a type parameter of the code around it
     "outer_type_parameter"

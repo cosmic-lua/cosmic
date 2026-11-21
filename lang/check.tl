@@ -3144,10 +3144,10 @@ local function subsume(ctx: Ctx, t: Type): Type
     return t
   end
   local members = members_of(ctx.store, t)
-  -- A record or a class is nominal: it is below another named type only when that is an interface it lists, or its own
-  -- declaration ([`lang.relation`]). Members that are all records and classes of declarations apart (a tagged union
-  -- is one), and `nil`, are below none of each other, and the pairs need not be asked: for a union of many members
-  -- that is all the cost of a join, and a left fold of joins asks every pair of every union it makes.
+  -- A record or a class is below another record or class only when that is its own declaration ([`lang.relation`]).
+  -- Members that are all records and classes of declarations apart (a tagged union is one), and `nil`, are below none
+  -- of each other, and the pairs need not be asked: for a union of many members that is all the cost of a join, and a
+  -- left fold of joins asks every pair of every union it makes.
   local declared: mut {Decl: boolean} = {}
   local apart = true
   for _, m in ipairs(members) do
@@ -5267,8 +5267,6 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prep
   return prep
 end
 
---- `t`, a type written in the generic function `declared` (a parameter of it), as a program writes it: the type
---- parameters of the function have their letters.
 --- The field of the interface `bound` that `held` lacks, as the interface declares it (`mut name?: T`), or nil.
 function Calls.lacking(ctx: Ctx, held: Type, bound: Type): string?
   local r = ctx.judge:refuse(held, bound)

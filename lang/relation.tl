@@ -27,11 +27,15 @@
 --- - A recursive alias (a [`Named`] of kind `alias`) is below what its body is below and above what is below its
 ---   body, one level read at a time; two aliases are related only where they are one, and a record, a class or an interface is below none.
 --- - A named type is nominal. Two uses of one declaration are related when their
----   arguments are the same types; a use is below an interface only when its
+---   arguments are the same types. A use is below an interface when its
 ---   declaration lists the interface, or one that extends it, with `is`, the
----   arguments of each listing read through the declaration. A record is not a
----   map and a map is not a record. A declaration used as a value (a [`Named`] with
----   `value`) is below itself alone: it is no instance of the declaration, lists no
+---   arguments of each listing read through the declaration. A record, class or
+---   interface that lists none of them is below the interface when it has each
+---   field and method of the interface and of what the interface extends, of the
+---   same type, `mut` and omittable as declared there, with the interface's
+---   receiver read as the type. A record is not a map and a map is not a record.
+---   A declaration used as a value (a [`Named`] with `value`) is below itself
+---   alone: it is no instance of the declaration, has no fields, lists no
 ---   interface and has no array part.
 --- - A function is below another when every argument count the other takes is
 ---   accepted (a parameter the other may omit is omittable here, one it does not
@@ -87,7 +91,8 @@ local record Relation
   ---
   --- - `mismatch`: no rule relates the two forms. `nominal`: two declarations, the target
   ---   not an interface. `not_listed`: the target is an interface the source's declaration
-  ---   neither lists nor conforms to by having each of its fields. `declaration_value`: a declaration used as a value, the table of its
+  ---   neither lists nor has each field of; `field` is the first field it lacks.
+  ---   `declaration_value`: a declaration used as a value, the table of its
   ---   functions, where a value of it is wanted, or the reverse. `variable`: a type variable, below only itself and its bound.
   --- - `nil`: the source is `nil` and the target admits none. `number_for_integer`: a `number`
   ---   where an `integer` is wanted. `never_target`: nothing is below `never`.
@@ -320,7 +325,7 @@ local function through(why: boolean, kind: Relation.StepKind, index: integer?, r
   end
   return {
     code = r.code, path = path, sub = r.sub, super = r.super, index = r.index,
-    alternatives = r.alternatives, lists = r.lists,
+    alternatives = r.alternatives, lists = r.lists, field = r.field, has_name = r.has_name,
   }
 end
 
@@ -723,7 +728,7 @@ local function from_alias(j: Relation.Judge, a: Type, b: Type, why: boolean): Re
   end
   return {
     code = r.code, path = r.path, sub = r.sub == ua and a or r.sub, super = r.super == ub and b or r.super, -- checked: and_ternary*2
-    index = r.index, alternatives = r.alternatives, lists = r.lists,
+    index = r.index, alternatives = r.alternatives, lists = r.lists, field = r.field, has_name = r.has_name,
   }
 end
 
@@ -882,7 +887,8 @@ local function conforms(j: Relation.Judge, a: Named, b: Named, why: boolean, clo
   end
   local bbody = b.decl.body
   if bbody ~= nil and bbody.array ~= nil then
-    -- An interface with an array part is met only by a listing, which checks the part.
+    -- An interface with an array part, which only a store's caller can build (the grammar has none), is met only by a
+    -- listing, which checks the part.
     return { code = "not_listed", path = {}, sub = a, super = b, lists = copy_of(closure.list) }
   end
   for _, x in ipairs(wanted) do

@@ -435,6 +435,23 @@ local function test_a_type_is_below_an_interface_its_declaration_lists_or_whose_
   s:define(changing, { tparams = {}, supers = {}, methods = {}, values = {},
     fields = { { name = "name", type = s.string, mut = true } } })
   refused(w, s:named(changing), event, "not_listed")
+  -- A field the interface may omit is met only by one the record may omit, of the same type, and is no less needed.
+  local maybe = s:declare("interface", "m", { "Maybe" }, 0)
+  s:define(maybe, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "note", type = s:optional(s.string), omittable = true } } })
+  local omits = s:declare("record", "m", { "Omits" }, 0)
+  s:define(omits, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "note", type = s:optional(s.string), omittable = true } } })
+  assert(below(w, s:named(omits), s:named(maybe)))
+  local holds = s:declare("record", "m", { "Holds" }, 0)
+  s:define(holds, { tparams = {}, supers = {}, methods = {}, values = {},
+    fields = { { name = "note", type = s:optional(s.string) } } })
+  refused(w, s:named(holds), s:named(maybe), "not_listed")
+  r = refused(w, s:named(lookalike), s:named(maybe), "not_listed")
+  assert(r.field ~= nil and r.field.name == "note" and r.has_name ~= true)
+  -- The field stays on a refusal inside another type's.
+  r = refused(w, s:array(s:named(other)), s:array(event), "not_listed", "element")
+  assert(r.field ~= nil and r.field.name == "name")
 end
 
 local function test_a_refusal_for_an_unlisted_interface_names_what_the_declaration_lists()
