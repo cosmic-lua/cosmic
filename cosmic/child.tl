@@ -76,6 +76,8 @@ local RelayStart = require("cosmic.internal.relay_start")
 local Innermost = require("cosmic.internal.innermost_guard")
 local Signal = require("cosmic.signal")
 local Rules = require("cosmic.sandbox")
+local Tailnet = require("cosmic.sandbox.tailnet")
+local type Tailscale = require("cosmic.tailscale")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
@@ -391,6 +393,14 @@ local record Options
   ---   process's hard limit allows.
   --- - `fds` names the only descriptors above 2 the child gets, as it
   ---   always has.
+  --- - `connect` may name nodes of the machine's tailnet: `tag:db:5432`
+  ---   grants each address of every peer tagged `tag:db`, and
+  ---   `user:will@example.com:*` of every untagged peer that user owns, as
+  ---   tailscaled's status lists them when the start runs (`tailscale`
+  ---   names the daemon). Only addresses of Tailscale's ranges are
+  ---   granted. A peer that joins later is not granted; a start whose
+  ---   daemon cannot be asked, whose node is not running, or one of whose
+  ---   targets names no peer fails, naming the target.
   --- - `connect` gives the child a network namespace of its own, with
   ---   its loopback up and inet sockets, whose only way out is the network
   ---   relay this start runs: a process of this
@@ -562,6 +572,12 @@ local record Options
   --- error fails the start. A policy with no `connect` starts no relay, and
   --- this has no effect.
   relay_log?: RelayLog | integer
+  --- The tailscaled a policy's tailnet `connect` targets (`tag:db:5432`,
+  --- `user:will@example.com:*`) are resolved through, once, as the start
+  --- runs ([`cosmic.sandbox.tailnet`]): [`Tailscale.connect`]'s options,
+  --- the machine's own daemon when nil. A daemon that cannot be asked, or
+  --- a node that is not running, fails the start.
+  tailscale?: Tailscale.Daemon
 end
 
 --- What [`Handle.try_wait`] answers.
@@ -3038,13 +3054,16 @@ end
 --- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
 --- directory is [`make_tmp`]'s.
 local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Held?, string
-  local merged, why = Rules.merge(policy)
-  if merged == nil then return nil, why end
-  local trouble = unmet(merged)
+  local joined, why = Rules.merge(policy)
+  if joined == nil then return nil, why end
+  local trouble = unmet(joined)
   if trouble ~= "" then return nil, "sandbox: " .. trouble end
-  local relayed = #(merged.connect or {}) > 0
-  local reserved = reserved_by_relay(merged)
+  local reserved = reserved_by_relay(joined)
   if reserved ~= "" then return nil, reserved end
+  -- The daemon is asked only of a policy the checks above let start.
+  local merged, unresolved = Tailnet.policy(joined, opts.tailscale)
+  if merged == nil then return nil, unresolved end
+  local relayed = #(merged.connect or {}) > 0
   local file = isolates(merged, "file")
   local proc = isolates(merged, "proc")
   local nest = nests(merged)
@@ -3327,12 +3346,16 @@ end
 --- It acquires nothing.
 local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Policy, pty?: Pty,
                                 serves_relay?: integer): Held?, string
-  local merged, why = Rules.merge(policy)
-  if merged == nil then return nil, why end
-  local credentials = seatbelt_credentials(merged)
+  local joined, why = Rules.merge(policy)
+  if joined == nil then return nil, why end
+  local credentials = seatbelt_credentials(joined)
   if credentials ~= "" then return nil, "sandbox: " .. credentials end
-  local reserved = reserved_by_relay(merged)
+  local reserved = reserved_by_relay(joined)
   if reserved ~= "" then return nil, reserved end
+  local merged, unresolved = Tailnet.policy(joined, opts.tailscale)
+  if merged == nil then return nil, unresolved end
+  -- The profile holds the addresses the tailnet targets resolved to.
+  policy = Tailnet.applied(policy, merged)
   local relayed = #(merged.connect or {}) > 0
   -- The child leads a session of its own, so that it has no controlling
   -- terminal (the caller's would let it push input into the caller's

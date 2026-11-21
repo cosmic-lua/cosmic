@@ -13,6 +13,10 @@
 --- - `*`, which grants every name (never an address, private or numeric:
 ---   those need a grant that names them).
 ---
+--- A target of the machine's tailnet, `tag:db:5432` or
+--- `user:will@example.com:*`, is read by [`Grant.tailnet`] instead: it
+--- names nodes, whose addresses the sandbox's start grants.
+---
 --- and the port is a decimal number from 1 to 65535 with no leading zero,
 --- or `*` for any. A pattern such as `*.example.com` is none of these: the
 --- relay matches whole names, so a grant of it would open nothing, and it is
@@ -51,6 +55,31 @@ local record Grant
     port: integer
     --- The target in its canonical text: `host:port` with an IPv6 host in
     --- brackets and "*" for a port of any.
+    text: string
+  end
+
+  --- What a tailnet target names.
+  enum TailnetKind
+    --- The nodes of the tailnet that carry an ACL tag.
+    "tag"
+    --- The nodes a user of the tailnet owns, untagged.
+    "user"
+  end
+
+  --- One `connect` target that names nodes of the machine's tailnet, read:
+  --- `tag:<tag>:<port>` or `user:<login>:<port>`. It opens nothing itself:
+  --- the sandbox's start asks tailscaled which nodes it names and grants
+  --- their addresses ([`cosmic.sandbox.tailnet`]).
+  record Tailnet
+    --- What it names.
+    kind: TailnetKind
+    --- For "tag", the tag with its prefix (`tag:db`), as the tailnet
+    --- policy writes it; for "user", the login name, lower-cased
+    --- (`will@example.com`).
+    name: string
+    --- The port, 0 for any.
+    port: integer
+    --- The target in its canonical text.
     text: string
   end
 end
@@ -307,6 +336,47 @@ function Grant.parse(text: string): Grant.Target?, string
   local name, why = Grant.name(host)
   if name == nil then return nil, why end
   return { kind = "name", host = name, port = port, text = text_of("name", name, port) }, ""
+end
+
+--- The most bytes of a tag's name or a login name.
+local MAX_TAILNET_NAME <const> = 256
+
+--- A tailnet `connect` target `text` read, or nil and why: `tag:` then a
+--- letter and letters, digits and hyphens, as an ACL tag is written, or
+--- `user:` then a login name (`will@example.com`, `alice@github`), then
+--- ":" and a port or "*". Nil and "" for a text that is neither kind
+--- (`tag:443` is a host named `tag`), so
+--- the caller reads it as a [`Grant.parse`] target instead.
+--- @param text string The target
+--- @return Grant.Tailnet|nil The target
+--- @return string Why it is no target, "" for a text of neither kind
+function Grant.tailnet(text: string): Grant.Tailnet?, string
+  if type(text) ~= "string" then return nil, "" end
+  -- A host named `tag` or `user` (`tag:443`) is a name, for Grant.parse:
+  -- a tailnet target has a name between two colons.
+  local kind = text:match("^(%a+):.*:[^:]*$") or ""
+  if kind ~= "tag" and kind ~= "user" then return nil, "" end
+  local name, at = text:match("^%a+:(.*):([^:]+)$")
+  if name == nil or at == nil then return nil, kind .. ": is " .. kind .. ":<name>:<port>" end
+  local port = 0
+  if at ~= "*" then
+    local number, why = Grant.port(at)
+    if number == nil then return nil, why end
+    port = number
+  end
+  if #name > MAX_TAILNET_NAME then return nil, "a " .. kind .. " is at most 256 bytes" end
+  local shown = if port == 0 then "*" else tostring(port) end
+  if kind == "tag" then
+    if name:match("^%a[%w%-]*$") == nil then
+      return nil, "a tag is a letter, then letters, digits and hyphens (tag:db)"
+    end
+    return { kind = "tag", name = "tag:" .. name, port = port, text = "tag:" .. name .. ":" .. shown }, ""
+  end
+  local login = name:lower()
+  if login:match("^[%w._%%+%-]+@[%w._%-]+$") == nil then
+    return nil, "a user is a login name, such as will@example.com or alice@github"
+  end
+  return { kind = "user", name = login, port = port, text = "user:" .. login .. ":" .. shown }, ""
 end
 
 return Grant
