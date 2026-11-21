@@ -852,6 +852,8 @@ local record Ast
     mut id: integer
     scope?: Scope
     name: Binding
+    --- `enum E: integer`, whose values are named integers and whose name is also the table of them.
+    numeric?: boolean
     values: {EnumValue}
   end
   enum EnumValue_kind
@@ -862,7 +864,10 @@ local record Ast
     first: integer
     mut last: integer
     mut id: integer
+    --- The string of a string enum, or the name of a member of an integer enum.
     value: string
+    --- The integer a member of an integer enum stands for.
+    number?: integer
     doc?: {Lexer.Comment}
   end
   enum TypeAlias_kind
@@ -1011,7 +1016,7 @@ local SPEC <const>: {string: string} = {
   Record = "scope name typeparams* supers* array members*",
   Interface = "scope name typeparams* supers* members*",
   Class = "scope name typeparams* supers* members*",
-  Enum = "scope name values*", EnumValue = "value",
+  Enum = "scope name values* numeric", EnumValue = "value number",
   Alias = "scope name typeparams* type", Import = "scope name module",
   FieldDecl = "name mut omittable type", Method = "name params* rets body",
   Userdata = "", Error = "",

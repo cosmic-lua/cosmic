@@ -275,6 +275,8 @@ local function shape_of(t: Type, omittable: boolean): Shape?, string
       if repeated then return nil, "a list of Unknown has no encoding" end
       return { base = "unknown", repeated = false, optional = optional }, ""
     end
+    -- TODO: take an integer enum (`enum E: integer`) as a field's type, whose members are their own numbers and need no
+    -- `enum_of` table, once a program of the tree declares a schema with one.
     if decl.kind == "enum" then
       return { base = "enum", repeated = repeated, optional = optional, decl = decl }, ""
     end

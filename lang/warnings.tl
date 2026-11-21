@@ -179,7 +179,7 @@ local function declares_of(v: Scopes.Var, t: Types.Type?): string
   elseif kind == "function" then
     return "function"
   elseif kind == "record" or kind == "interface" or kind == "class" or kind == "enum" or kind == "alias" or
-      kind == "import" then
+      kind == "import" or kind == "integer_enum" then
     return "type"
   elseif t ~= nil and (t.tag == "fn") then
     return "function"

@@ -580,8 +580,11 @@ type_docs = function(chunk: Ast.Chunk, lines: {string}, symbol: string, decl: As
     local line = line_of(chunk, decl)
     for _, value in ipairs(decl.values) do
       local full = symbol .. "." .. value.value
+      local n = value.number
+      -- A member of an integer enum is a name and the integer it stands for; a value of a string enum is the string.
+      local signature = if n ~= nil then value.value .. " = " .. string.format("%d", n) else string.format("%q", value.value) end
       table.insert(out, { symbol = full, source_symbol = full, exported = false, kind = "value",
-        signature = string.format("%q", value.value), text = doc_text(value.doc), line = line })
+        signature = signature, text = doc_text(value.doc), line = line })
     end
   elseif (decl.kind == "Record") then
     members_docs(chunk, lines, symbol, decl.members, out)

@@ -8,6 +8,15 @@ defines the target; once something ships, it leaves this file.
 
 ## language and self-check
 
+- integer enums (`enum E: integer`): [`cosmic.protobuf`]'s `message_of` and
+  `enum_of` take only enums of strings, and [`cosmic.shape`] has no validator of
+  one. An integer enum nested in a nested record, or in a generic record, has no
+  reader: a nested record is no value, and a generic record's table holds
+  nothing.
+- decide whether a chain of `==` tests that covers every member of an enum ends
+  a function, for both kinds of enum: today a comparison with a literal or a
+  member narrows nothing, so such a chain still needs a last `return` or
+  `error(...)`.
 - declare cosmic.stream's interface methods with a named receiver
   (`read: function(self: Reader, ...)`) and drop each implementing record's
   redeclaration of them, so that the design note above `FromStringReader` in

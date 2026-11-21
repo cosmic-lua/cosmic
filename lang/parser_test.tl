@@ -266,6 +266,10 @@ local DECLARATIONS <const>: {Case} = {
     want = "(Class \"local\" (Binding \"Box\") [(TypeParam (Binding \"T\"))] _ [(FieldDecl (Binding \"item\") mut _ (TypeName [\"T\"])) (Method (Binding \"get\") [(Param (Binding \"self\"))] (Rets [[(TypeName [\"T\"])]]) (Block [(Return [(Field (Name \"self\") \"item\")])]))])" },
   { source = "local enum Mode\n  -- the read mode\n  \"r\"\n  \"w\"\nend",
     want = "(Enum \"local\" (Binding \"Mode\") [(EnumValue \"r\") (EnumValue \"w\")])" },
+  { source = "local enum Code: integer\n  OK = 0\n  -- gone\n  LOST = -2\n  BIG = 0x10\nend",
+    want = "(Enum \"local\" (Binding \"Code\") [(EnumValue \"OK\" 0) (EnumValue \"LOST\" -2) (EnumValue \"BIG\" 16)] numeric)" },
+  { source = "local record M\n  enum Code: integer\n    OK = 0\n  end\n  code: Code\nend",
+    want = "(Record \"local\" (Binding \"M\") _ _ _ [(Enum _ (Binding \"Code\") [(EnumValue \"OK\" 0)] numeric) (FieldDecl (Binding \"code\") _ _ (TypeName [\"Code\"]))])" },
   { source = "local type Key<T> = Types.Key<T>",
     want = "(Alias \"local\" (Binding \"Key\") [(TypeParam (Binding \"T\"))] (TypeName [\"Types\" \"Key\"] [(TypeName [\"T\"])]))" },
   { source = "local type Reply = function(): (true, string) | (false, string)",
@@ -423,6 +427,9 @@ local function test_a_doc_comment_is_the_run_of_comments_on_the_lines_before_a_d
   local e = assert(clean("local enum E\n  -- first\n  \"a\"\n  \"b\"\nend").chunk.body.stats[1])
   assert((e.kind == "Enum"))
   same(lines(assert(e.values[1]).doc) .. "/" .. lines(assert(e.values[2]).doc), "-- first/", "enum values")
+  local n = assert(clean("local enum N: integer\n  -- zero\n  A = 0\n  B = 1\nend").chunk.body.stats[1])
+  assert((n.kind == "Enum"))
+  same(lines(assert(n.values[1]).doc) .. "/" .. lines(assert(n.values[2]).doc), "-- zero/", "integer enum members")
   local f = assert(clean("-- the function\nlocal function f() end").chunk.body.stats[1])
   assert((f.kind == "LocalFunction"))
   same(lines(f.name.doc), "-- the function", "local function")
