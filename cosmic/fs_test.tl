@@ -268,6 +268,60 @@ local function test_cache_dir_refuses_one_others_can_write_to(tmp: string)
   assert(dir == nil, tostring(dir))
 end
 
+--- Each directory `mkdirs` makes has the mode it was given from the
+--- start; one that is there keeps its own.
+local function test_mkdirs_makes_each_directory_with_the_mode_given(tmp: string)
+  assert(sys.mkdir(tmp .. "/there"))
+  assert(sys.chmod(tmp .. "/there", 0x1ed))
+  assert(Fs.mkdirs(tmp .. "/there/a/b", 0x1c0))
+  for _, path in ipairs({ tmp .. "/there/a", tmp .. "/there/a/b" }) do
+    assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1c0, path)
+  end
+  assert(assert(Fs.stat(tmp .. "/there")).mode & 0x1ff == 0x1ed, "a directory there took the mode")
+  assert(Fs.mkdirs(tmp .. "/there/a", 0x1ff))
+  assert(assert(Fs.stat(tmp .. "/there/a")).mode & 0x1ff == 0x1c0, "a directory there took the mode")
+end
+
+local function test_data_dir_is_made_private_under_xdg_or_home(tmp: string)
+  local dir = assert(Fs.data_dir("prog", { environment = { XDG_DATA_HOME = tmp .. "/xdg", HOME = tmp .. "/home" } }))
+  assert(dir == tmp .. "/xdg/prog", dir)
+  local st = assert(Fs.stat(dir))
+  assert(st.uid == sys.getuid() and st.mode & 0x3f == 0, dir)
+  -- a relative XDG_DATA_HOME is ignored, as the XDG spec says
+  dir = assert(Fs.data_dir("prog", { environment = { XDG_DATA_HOME = "rel", HOME = tmp .. "/home" } }))
+  assert(dir == tmp .. "/home/.local/share/prog", dir)
+  for _, environment in ipairs({ {}, { XDG_DATA_HOME = "rel", HOME = "also/rel" } }) do -- checked: literal_needs_type
+    local none, trouble = Fs.data_dir("prog", { environment = environment, make = false })
+    assert(none == nil and trouble:find("no data directory", 1, true) ~= nil, tostring(none))
+  end
+end
+
+local function test_data_dir_refuses_one_others_can_write_to_and_names_that_are_not_one(tmp: string)
+  local environment = { XDG_DATA_HOME = tmp }
+  local named = assert(Fs.data_dir("prog", { environment = environment, make = false }))
+  assert(Fs.exists(named) == false, "the name alone made a directory")
+  assert(Fs.data_dir("prog", { environment = environment }) == named)
+  assert(sys.chmod(named, 0x1ff))
+  local dir, trouble = Fs.data_dir("prog", { environment = environment })
+  assert(dir == nil and trouble == named .. ": writable by its group or others", trouble)
+  for _, name in ipairs({ "", ".", "..", "a/b" }) do
+    local none, why = Fs.data_dir(name, { environment = environment })
+    assert(none == nil and why:find("is not the name of one directory", 1, true) ~= nil, name)
+  end
+end
+
+local function test_program_cache_dir_is_outside_cosmics_own(tmp: string)
+  local environment = { XDG_CACHE_HOME = tmp .. "/xdg", HOME = tmp .. "/home" }
+  local dir = assert(Fs.program_cache_dir("prog", { environment = environment }))
+  assert(dir == tmp .. "/xdg/prog", dir)
+  assert(assert(Fs.stat(dir)).mode & 0x3f == 0, dir)
+  assert(Fs.exists(tmp .. "/xdg/cosmic") == false, "made cosmic's own")
+  dir = assert(Fs.program_cache_dir("prog", { environment = { HOME = tmp .. "/home" }, make = false }))
+  assert(dir == tmp .. "/home/.cache/prog", dir)
+  local none, trouble = Fs.program_cache_dir("a/b", { environment = environment })
+  assert(none == nil and trouble:find("is not the name of one directory", 1, true) ~= nil, tostring(none))
+end
+
 local function test_mkdirs_with_a_trailing_slash_makes_every_parent()
   local root = assert(Fs.mkdtemp("mkdirs"))
   local ok, trouble = Fs.mkdirs(root .. "/a/b/c/")
