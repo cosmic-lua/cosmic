@@ -2675,9 +2675,23 @@ local function member_read(ctx: Ctx, node: Ast.Node, t: Type, name: string): Typ
   elseif (t.tag == "var") then
     local scope = ctx.bounds[#ctx.bounds - t.depth]
     local parameter = scope ~= nil and scope[t.index + 1] or nil -- checked: and_ternary
-    local bound = parameter ~= nil and parameter.bound or nil
-    if bound ~= nil then
-      return member_read(ctx, node, bound, name)
+    local bounds = if parameter ~= nil then parameter.bounds else nil end
+    if bounds ~= nil then
+      -- `T is A & B` has the fields of each: the first bound that declares one gives it.
+      for _, bound in ipairs(bounds) do
+        local index = if (bound.tag == "named") then members_index(ctx, bound.decl, false) else nil end
+        if index ~= nil and index.by_name[name] ~= nil then
+          return member_read(ctx, node, bound, name)
+        end
+      end
+      if #bounds == 1 then
+        return member_read(ctx, node, assert(bounds[1]), name)
+      end
+      report(ctx, "not_indexable", node, "the type parameter " .. tq(ctx, t) .. " has no field " .. quoted(name) ..
+          ": none of its bounds, " .. quoted(Types.bounds_text(bounds, function(b: Type): string return show(ctx, b) end)) ..
+          ", declares it",
+        "bound it by an interface that declares " .. quoted(name) .. " as well (`T is A & I`)", { show(ctx, t) })
+      return ctx.invalid
     end
     report(ctx, "not_indexable", node, "the type parameter " .. tq(ctx, t) .. " has no field " .. quoted(name),
       "bound it by an interface that declares " .. quoted(name) .. " (`T is I`)", { show(ctx, t) })
@@ -5569,8 +5583,9 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         local fixes: mut {string} = {}
         local shown: mut {string} = {}
         for k, tp in ipairs(given_fn.tparams) do
-          local bound, held = tp.bound, solved[k]
-          if meets and bound ~= nil and held ~= nil and not below(ctx, held, bound) then
+          local held = solved[k]
+          for _, bound in ipairs(tp.bounds or {}) do
+          if meets and held ~= nil and not below(ctx, held, bound) then
             local wanted_bound = "`is " .. show(ctx, bound) .. "`"
             local fix = if Types.builtin_bound(bound) then "pass a function over " .. Types.bound_meets(bound.tag) else
               "pass a type that declares " .. wanted_bound end
@@ -5594,6 +5609,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
             fixes[#fixes + 1] = fix
             shown[#shown + 1] = show(ctx, held)
             shown[#shown + 1] = show(ctx, bound)
+          end
           end
         end
         if #said > 0 then meets = false end
@@ -5691,9 +5707,9 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     end
   end
   for i, tp in ipairs(c.tparams) do
-    local bound = tp.bound
     local held = given[i]
-    if bound ~= nil and held.tag ~= "invalid" and not below(ctx, held, bound) then -- checked: nil_not_allowed
+    for _, bound in ipairs(tp.bounds or {}) do
+    if held.tag ~= "invalid" and not below(ctx, held, bound) then -- checked: nil_not_allowed
       local builtin = Types.builtin_bound(bound)
       local lacking = Calls.lacking(ctx, held, bound)
       local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
@@ -5707,10 +5723,15 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         local held_name = show(ctx, held)
         local scope = if (held.tag == "var") then ctx.bounds[#ctx.bounds - held.depth] else nil end
         local own_param = if scope ~= nil and (held.tag == "var") then scope[held.index + 1] else nil end
-        local own = if own_param ~= nil then own_param.bound else nil end
+        local own = if own_param ~= nil then own_param.bounds else nil end
+        local wanted: mut {Type} = {}
+        for _, b in ipairs(own or {}) do
+          wanted[#wanted + 1] = b
+        end
+        wanted[#wanted + 1] = bound
         report(ctx, "bound_unmet", node, msg, "bound " .. quoted(held_name) .. " by " .. quoted(bound.tag) ..
-            " where it is declared" .. (if own ~= nil then ", in place of " .. tq(ctx, own) else " (`<" .. held_name ..
-                " is " .. bound.tag .. ">`)" end), { held_name, show(ctx, bound) })
+            " where it is declared (`<" .. held_name .. " is " .. Types.bounds_text(assert(Types.bounds(wanted)),
+              function(b: Type): string return show(ctx, b) end) .. ">`)", { held_name, show(ctx, bound) })
       elseif loud and builtin then
         report(ctx, "bound_unmet", node, msg,
           if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
@@ -5729,6 +5750,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           { show(ctx, held), show(ctx, bound) })
       end
       Calls.replace_type(given, i, ctx.invalid)
+      break
+    end
     end
   end
   if #problems > 0 and not loud then

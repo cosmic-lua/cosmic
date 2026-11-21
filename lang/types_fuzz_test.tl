@@ -109,8 +109,7 @@ local function label_all(t: Types.Type, seen: mut {integer: boolean})
       end
     end
     for _, tp in ipairs(t.tparams) do
-      local bound = tp.bound
-      if bound ~= nil then
+      if tp.bounds ~= nil then
         Fuzz.label("bound")
       end
     end
@@ -215,8 +214,7 @@ end
 local function fn_parts(t: Types.Fn): {Types.Type}
   local parts: mut {Types.Type} = {}
   for _, tp in ipairs(t.tparams) do
-    local bound = tp.bound
-    if bound ~= nil then
+    for _, bound in ipairs(tp.bounds or {}) do
       parts[#parts + 1] = bound
     end
   end

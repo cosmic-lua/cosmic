@@ -272,6 +272,9 @@ local record Relation
   --- declaration has no body.
   binder: function(decl: Types.Decl): {Types.TParam}
 
+  --- Whether `a` meets every one of `bounds`, the bounds of a type parameter, under the binders `j` has entered.
+  meets: function(j: Judge, a: Type, bounds: {Type}): boolean
+
   --- The type of a field of `x`, an interface, as `self_type` has it: `x`'s arguments put in and the receiver of a
   --- function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
   as_listed: function(store: Store, x: Named, field_type: Type, self_type: Type): Type?
@@ -374,8 +377,11 @@ local function rewrite(
     local inside = if #t.tparams > 0 then level + 1 else level end
     local tparams: mut {Types.TParam} = {}
     for i, tp in ipairs(t.tparams) do
-      local bound = tp.bound
-      tparams[i] = { bound = bound ~= nil and rewrite(store, bound, inside, on_var, memo) or nil } -- checked: and_ternary
+      local bounds: mut {Type} = {}
+      for k, bound in ipairs(tp.bounds or {}) do
+        bounds[k] = rewrite(store, bound, inside, on_var, memo)
+      end
+      tparams[i] = { bounds = if #bounds > 0 then bounds else nil end }
     end
     local params: mut {Types.Param} = {}
     for i, p in ipairs(t.params) do
@@ -618,8 +624,8 @@ local function memo_of(j: Relation.Judge, a: Type, b: Type): {integer: boolean}
   return j.free
 end
 
---- The bound of the type variable `v` under the binders entered, or nil.
-local function bound_of(j: Relation.Judge, v: Var): Type?
+--- The bounds of the type variable `v` under the binders entered, or nil where it has none.
+local function bounds_of(j: Relation.Judge, v: Var): {Type}?
   local scope = j.scopes[#j.scopes - v.depth]
   if scope == nil then
     return nil
@@ -628,7 +634,7 @@ local function bound_of(j: Relation.Judge, v: Var): Type?
   if tparam == nil then
     return nil
   end
-  return tparam.bound
+  return tparam.bounds
 end
 
 --- The ids of the members of a union.
@@ -1289,13 +1295,14 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
     return leaf(j, why, "generic_function", a, b)
   end
   for i, tp in ipairs(a.tparams) do
-    local bound = tp.bound
     local solved = args[i]
     if solved == nil then
       return leaf(j, why, "generic_function", a, b)
     end
-    if bound ~= nil and rel(j, solved, bound, false) ~= nil then
-      return leaf(j, why, "generic_function", a, b)
+    for _, bound in ipairs(tp.bounds or {}) do
+      if rel(j, solved, bound, false) ~= nil then
+        return leaf(j, why, "generic_function", a, b)
+      end
     end
   end
   local instance = specialize_within(j.store, a, args)
@@ -1325,16 +1332,23 @@ local function from_fn(j: Relation.Judge, a: Fn, b: Type, why: boolean): Relatio
   return returns_below(j, a, b, why)
 end
 
+--- A variable is below what one of its bounds is below: `T is A & B` has the fields of both, and is below each.
 local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relation.Refusal?
-  local bound = bound_of(j, a)
-  if bound == nil or (b.tag == "var") then
+  local bounds = bounds_of(j, a)
+  if bounds == nil or (b.tag == "var") then
     return leaf(j, why, "variable", a, b)
   end
-  local r = rel(j, bound, b, why)
-  if r ~= nil then
-    return through(why, "bound", nil, r)
+  local first: Relation.Refusal? = nil
+  for _, bound in ipairs(bounds) do
+    local r = rel(j, bound, b, why)
+    if r == nil then
+      return nil
+    end
+    if first == nil then
+      first = r
+    end
   end
-  return nil
+  return through(why, "bound", nil, (assert(first, "a type parameter with bounds has one")))
 end
 
 --- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
@@ -1525,8 +1539,7 @@ end
 Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -- checked: field_unknown
   local copied: mut {Types.TParam} = {}
   for i, tp in ipairs(tparams) do
-    local bound = tp.bound
-    if bound ~= nil then
+    for _, bound in ipairs(tp.bounds or {}) do
       owned(self, bound)
       -- The bound is read as it is, with no variable of a binder outside it to shift.
       if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
@@ -1584,13 +1597,23 @@ function Relation.binder(decl: Types.Decl): {Types.TParam}
     error("relation: " .. decl.name .. " is not defined", 0)
   end
   for i, tp in ipairs(body.tparams) do
-    local bound = tp.bound
-    if bound ~= nil and bound.owner ~= decl.owner then
-      error("relation: a type of another store", 2)
+    for _, bound in ipairs(tp.bounds or {}) do
+      if bound.owner ~= decl.owner then
+        error("relation: a type of another store", 2)
+      end
     end
-    out[i] = { bound = bound }
+    out[i] = { bounds = tp.bounds }
   end
   return out
+end
+
+function Relation.meets(j: Relation.Judge, a: Type, bounds: {Type}): boolean
+  for _, bound in ipairs(bounds) do
+    if not j:subtype(a, bound) then
+      return false
+    end
+  end
+  return true
 end
 
 function Relation.trace(r: Relation.Refusal): string

@@ -259,9 +259,11 @@ local record Types
     index: integer
   end
 
-  --- A type parameter of a function type or a declaration, and its bound, one interface.
+  --- A type parameter of a function type or a declaration, and its bounds: nil for none, else each an interface used
+  --- with no arguments or a built-in bound, every one of which a type argument meets (`T is A & B`). A store holds
+  --- them in the order of their text, each once ([`Types.bounds`]).
   record TParam
-    bound?: Type
+    bounds?: {Type}
   end
 
   --- A parameter. `type` is as the checker reads it inside: where `omittable` (`name?: T`) it is
@@ -343,7 +345,8 @@ local record Types
   --- A type parameter of a declaration.
   record DeclParam
     name: string
-    mut bound?: Type
+    --- As [`TParam.bounds`].
+    mut bounds?: {Type}
   end
 
   --- What a declaration holds besides its path: the type parameters, the types it lists after
@@ -531,6 +534,12 @@ local record Types
   --- What meets the built-in bound `tag`, for a message: "a number type or a string type" for `Ordered`.
   bound_meets: function(tag: string): string
 
+  --- The bounds `list` as a store holds them: nil for none, else in the order of their text, each once.
+  bounds: function(list: {Type}?): {Type}?
+
+  --- The bounds `list` as written after `is`, `A & B`, with `show` writing each.
+  bounds_text: function(list: {Type}, show: function(Type): string): string
+
   --- The names to keep for a generic function type, which `held` already has from another declaration, when a
   --- declaration gives it `names`: `held` where the two agree, none (`{}`, so display writes letters) where two
   --- declarations of one type differ, since a type does not say which declaration a value came from.
@@ -670,8 +679,18 @@ local function render(t: Type, sub: function(Type): string): string
   local f: Fn = t
   local parts: mut {string} = { "(fn (tp" }
   for _, tp in ipairs(f.tparams) do
-    local bound = tp.bound
-    parts[#parts + 1] = " " .. (bound ~= nil and sub(bound) or "_") -- checked: and_ternary
+    local bounds = tp.bounds
+    if bounds == nil then
+      parts[#parts + 1] = " _"
+    elseif #bounds == 1 then
+      parts[#parts + 1] = " " .. sub(assert(bounds[1]))
+    else
+      local each: mut {string} = {}
+      for i, b in ipairs(bounds) do
+        each[i] = sub(b)
+      end
+      parts[#parts + 1] = " (and " .. table.concat(each, " ") .. ")"
+    end
   end
   parts[#parts + 1] = ") ("
   local params: mut {string} = {}
@@ -703,8 +722,7 @@ function Types.parts(t: Type): {Type}
     return t.members
   elseif (t.tag == "fn") then
     for _, tp in ipairs(t.tparams) do
-      local bound = tp.bound
-      if bound ~= nil then
+      for _, bound in ipairs(tp.bounds or {}) do
         parts[#parts + 1] = bound
       end
     end
@@ -877,6 +895,36 @@ function Types.keys_a_map(t: Type): boolean
       kind == "integer_enum"
   end
   return false
+end
+
+function Types.bounds(list: {Type}?): {Type}?
+  if list == nil or #list == 0 then
+    return nil
+  end
+  local out: mut {Type} = {}
+  local seen: mut {integer: boolean} = {}
+  for _, b in ipairs(list) do
+    if seen[b.id] ~= true then
+      seen[b.id] = true
+      out[#out + 1] = b
+    end
+  end
+  table.sort(out, function(x: Type, y: Type): boolean
+    local a, b = Types.display(x), Types.display(y)
+    if a ~= b then
+      return a < b
+    end
+    return x.digest < y.digest
+  end)
+  return out
+end
+
+function Types.bounds_text(list: {Type}, show: function(Type): string): string
+  local each: mut {string} = {}
+  for i, b in ipairs(list) do
+    each[i] = show(b)
+  end
+  return table.concat(each, " & ")
 end
 
 function Types.bound_meets(tag: string): string
@@ -1087,8 +1135,10 @@ local function show_fn(f: Fn, names: Names): string
     names.binders[#names.binders + 1] = own
     local declared: mut {string} = {}
     for i, tp in ipairs(f.tparams) do
-      local bound = tp.bound
-      declared[i] = assert(own[i]) .. (if bound ~= nil then " is " .. show(bound, names, false) else "" end)
+      local bounds = tp.bounds
+      declared[i] = assert(own[i]) .. (if bounds ~= nil then " is " .. Types.bounds_text(bounds, function(b: Type): string
+        return show(b, names, false)
+      end) else "" end)
     end
     header = header .. "<" .. table.concat(declared, ", ") .. ">"
   end
@@ -1502,11 +1552,11 @@ end
 Types.Store.fn = function(self: Store, spec: FnSpec): Type -- checked: field_unknown
   local tparams: mut {TParam} = {}
   for i, tp in ipairs(spec.tparams or {}) do
-    local bound = tp.bound
-    if bound ~= nil then
+    local bounds = Types.bounds(tp.bounds)
+    for _, bound in ipairs(bounds or {}) do
       bound_ok(self, bound)
     end
-    tparams[i] = { bound = bound }
+    tparams[i] = { bounds = bounds }
   end
   local params: mut {Param} = {}
   for i, p in ipairs(spec.params or {}) do
@@ -1788,8 +1838,8 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
   local made: Body = { tparams = {}, supers = {}, fields = {}, methods = {}, values = {} }
   local roots: mut {Type} = {}
   for _, tp in ipairs(body.tparams) do
-    local bound = tp.bound
-    if bound ~= nil then
+    local bounds = Types.bounds(tp.bounds)
+    for _, bound in ipairs(bounds or {}) do
       bound_ok(store, bound)
       roots[#roots + 1] = bound
     end
@@ -1797,7 +1847,7 @@ local function normal_body(store: Store, decl: Decl, body: Body): Body
       error("types: a type parameter's name is a name the lexer reads and does not reserve, not " ..
           string.format("%q", tp.name), 3)
     end
-    made.tparams[#made.tparams + 1] = { name = tp.name, bound = bound }
+    made.tparams[#made.tparams + 1] = { name = tp.name, bounds = bounds }
   end
   for _, super in ipairs(body.supers) do
     owned(store, super)
@@ -1915,8 +1965,11 @@ local function declaration_text(decl: Decl, body: Body): string
   local parts: mut {string} = { "(decl ", decl.kind, " ", decl.text }
   parts[#parts + 1] = " (tparams"
   for _, tp in ipairs(body.tparams) do
-    local bound = tp.bound
-    parts[#parts + 1] = " (tparam " .. quote(tp.name) .. (if bound ~= nil then " " .. written(bound) else "" end) .. ")"
+    parts[#parts + 1] = " (tparam " .. quote(tp.name)
+    for _, bound in ipairs(tp.bounds or {}) do
+      parts[#parts + 1] = " " .. written(bound)
+    end
+    parts[#parts + 1] = ")"
   end
   parts[#parts + 1] = ") (supers"
   for _, super in ipairs(body.supers) do
@@ -2141,8 +2194,16 @@ local function read_fn(r: Reader): Type
     if r.text:match("^_%f[^%w_%.]", r.at) ~= nil then
       atom(r)
       tparams[#tparams + 1] = {}
+    elseif head(r) == "and" then
+      expect(r, "and")
+      local bounds: mut {Type} = {}
+      while peek(r) ~= ")" do
+        bounds[#bounds + 1] = read_type(r)
+      end
+      close(r)
+      tparams[#tparams + 1] = { bounds = bounds }
     else
-      tparams[#tparams + 1] = { bound = read_type(r) }
+      tparams[#tparams + 1] = { bounds = { read_type(r) } }
     end
   end
   close(r)
@@ -2234,9 +2295,11 @@ local function read_body(r: Reader, decl: Decl): Body
   while peek(r) ~= ")" do
     expect(r, "tparam")
     local param: DeclParam = { name = string_of(r) }
-    if peek(r) ~= ")" then
-      param.bound = read_type(r)
+    local bounds: mut {Type} = {}
+    while peek(r) ~= ")" do
+      bounds[#bounds + 1] = read_type(r)
     end
+    param.bounds = Types.bounds(bounds)
     close(r)
     body.tparams[#body.tparams + 1] = param
   end

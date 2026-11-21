@@ -806,7 +806,7 @@ local function test_a_generic_function_is_below_a_function_type_only_if_its_inst
   local s = w.store
   local v = s:var(0, 0)
   local source = named(w, "Source", { s.integer })
-  local bounded = s:fn({ tparams = { { bound = named(w, "Event") } }, params = { { type = v } }, rets = { { items = { v } } } })
+  local bounded = s:fn({ tparams = { { bounds = { named(w, "Event") } } }, params = { { type = v } }, rets = { { items = { v } } } })
   local key = named(w, "KeyEvent")
   assert(below(w, bounded, func(w, { key }, { key })))
   refused(w, bounded, func(w, { source }, { source }), "generic_function")
@@ -872,7 +872,7 @@ local function test_a_type_variable_is_below_itself_and_its_bound()
   local s = w.store
   local reader = named(w, "Stream.Reader")
   local v = s:var(0, 0)
-  w.judge:enter({ { bound = reader } })
+  w.judge:enter({ { bounds = { reader } } })
   assert(below(w, v, v))
   assert(below(w, v, reader))
   assert(below(w, v, s:optional(reader)))
@@ -904,7 +904,7 @@ local function test_a_type_variable_is_bounded_by_the_binder_it_names()
   local s = w.store
   local reader = named(w, "Stream.Reader")
   local outer, inner = s:var(1, 0), s:var(0, 0)
-  w.judge:enter({ { bound = reader } })
+  w.judge:enter({ { bounds = { reader } } })
   w.judge:enter({ {} })
   assert(below(w, outer, reader))
   refused(w, inner, reader, "variable")
@@ -919,7 +919,7 @@ local function test_a_pair_that_mentions_a_variable_is_settled_for_the_binders_i
   local reader = named(w, "Stream.Reader")
   local v = s:var(0, 0)
   refused(w, v, reader, "variable")
-  w.judge:enter({ { bound = reader } })
+  w.judge:enter({ { bounds = { reader } } })
   assert(below(w, v, reader))
   w.judge:leave()
   w.judge:enter({ {} })
@@ -933,7 +933,7 @@ local function test_the_binder_of_a_declaration_is_its_type_parameters_and_their
   local s = w.store
   local ordered = named(w, "Ordered")
   local bounded = s:declare("record", "m", { "Bounded" }, 1)
-  s:define(bounded, { tparams = { { name = "T", bound = ordered } }, supers = {}, fields = {}, methods = {}, values = {} })
+  s:define(bounded, { tparams = { { name = "T", bounds = { ordered } } }, supers = {}, fields = {}, methods = {}, values = {} })
   w.judge:enter(Relation.binder(bounded))
   assert(below(w, s:var(0, 0), ordered))
   w.judge:leave()
@@ -1180,7 +1180,7 @@ local function test_a_bound_of_another_store_is_refused_where_a_binder_is_entere
   local other = Types.new()
   local foreign = other:named(other:declare("interface", "m", { "Foreign" }, 0))
   local ok, why = pcall(function()
-    w.judge:enter({ { bound = foreign } })
+    w.judge:enter({ { bounds = { foreign } } })
   end)
   assert(not ok and tostring(why):find("another store", 1, true) ~= nil, tostring(why))
   -- and nothing was entered
@@ -1188,7 +1188,7 @@ local function test_a_bound_of_another_store_is_refused_where_a_binder_is_entere
     w.judge:leave()
   end)
   local holder = w.store:declare("record", "m", { "Holder" }, 1)
-  w.store:define(holder, { tparams = { { name = "T", bound = named(w, "Event") } }, supers = {}, fields = {},
+  w.store:define(holder, { tparams = { { name = "T", bounds = { named(w, "Event") } } }, supers = {}, fields = {},
     methods = {}, values = {} })
   assert(#Relation.binder(holder) == 1)
   holder.owner = holder.owner + 1000
@@ -1277,7 +1277,7 @@ local function test_a_bound_that_is_not_an_interface_with_no_arguments_is_refuse
     s:array(v) }
   for _, bound in ipairs(bad) do
     local ok, why = pcall(function()
-      w.judge:enter({ { bound = bound }, {} })
+      w.judge:enter({ { bounds = { bound } }, {} })
     end)
     assert(not ok and tostring(why):find("relation: a bound is an interface", 1, true) ~= nil,
       shown(bound) .. ": " .. tostring(why))
@@ -1286,7 +1286,7 @@ local function test_a_bound_that_is_not_an_interface_with_no_arguments_is_refuse
   Test.raises(function()
     w.judge:leave()
   end)
-  w.judge:enter({ { bound = named(w, "Event") } })
+  w.judge:enter({ { bounds = { named(w, "Event") } } })
   assert(below(w, s:var(0, 0), named(w, "Event")))
   w.judge:leave()
 end

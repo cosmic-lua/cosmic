@@ -1108,8 +1108,9 @@ is below an interface it lists, or one whose fields it has, each of exactly the 
 field's receiver its own), `mut` and omittable alike, and one that lists an interface has each field of it that it leaves out
 (a class each but a method); two records, or two classes, are two types whatever their fields. a
 type parameter is bounded by an interface, by `Ordered` (a number type or a string type, whose values `<` compares), by
-`Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), and
-keys a map only where `Key` or an interface bounds it. a record is not a map; an
+`Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), or by
+several of these (`T is A & B`), each of which its argument meets; it keys a map only where `Key` or an interface
+bounds it. a record is not a map; an
 enum is a union of strings, and a union of enums is told apart by `is`. a record that is not a class is not tested by `is`:
 a tagged union is told by its tag. there is no implicit conversion: `integer` is not concatenated without `tostring`, and
 a number does not compare with a string. the error-slot discipline of the third principle ([`build/syntax_contracts.tl`])

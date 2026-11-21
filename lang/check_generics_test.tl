@@ -851,11 +851,65 @@ local function test_a_generic_record_keyed_by_its_parameter_bounds_it_by_key()
   end
   local boxed = Programs.run(set .. "local record Box<T>\n  v: T\nend\nlocal function f<K is Key>(s: Set<Box<K>>) print(s) end\n")
   assert(#boxed.before == 0 and Programs.codes(boxed) == "", table.concat(boxed.before, " ") .. Programs.codes(boxed))
-  -- a parameter bounded otherwise is told to take `Key` in place of its bound
+  -- a parameter bounded otherwise is told to take `Key` beside its bound
   local by_ordered = Programs.run(set .. "local function f<K is Ordered>(s: Set<K>) print(s) end\n")
   local o = Array.at(by_ordered.lowered.errors, 1)
-  assert(o.code == "bound_not_met" and o.fix == "bound `K` by `Key` where it is declared, in place of `Ordered`", o.fix)
+  assert(o.code == "bound_not_met" and o.fix == "bound `K` by `Key` where it is declared (`<K is Key & Ordered>`)", o.fix)
   -- a record that passes its parameter on to `Set` bounds it too
   local through = Programs.run(set .. "local record Index<T>\n  set: Set<T>\nend\nlocal i: Index<number>\n")
   assert(table.concat(through.before, " "):find("bound_not_met", 1, true) ~= nil, table.concat(through.before, " "))
+end
+
+-- several bounds, `T is A & B` --------------------------------------------------------------------------------------
+
+local SORTED <const> = "local function sorted_set<T is Ordered & Key>(xs: {T}): {T}\n" ..
+  "  local seen: mut {T: boolean} = {}\n  local out: mut {T} = {}\n  for _, x in ipairs(xs) do\n" ..
+  "    if seen[x] ~= true then\n      seen[x] = true\n      out[#out + 1] = x\n    end\n  end\n" ..
+  "  table.sort(out, function(a: T, b: T): boolean return a < b end)\n  return out\nend\n"
+
+--- A parameter with several bounds takes what each gives, a key and `<` here, and a call passes a type that meets
+--- every one.
+local function test_a_parameter_with_several_bounds_takes_what_each_gives()
+  stands(SORTED .. "print(table.concat(sorted_set({ \"b\", \"a\", \"b\" }), \",\"), #sorted_set({ 3, 1, 3 }))\n", "a,b\t2")
+  local float = Programs.run(SORTED .. "print(sorted_set({ 1.5 }))\n")
+  assert(Programs.codes(float) == "bound_unmet", Programs.codes(float))
+  assert(Array.at(float.errors, 1).msg:find("which is bounded by `Key`, and `number` is not", 1, true) ~= nil,
+    Array.at(float.errors, 1).msg)
+  local flag = Programs.run(SORTED .. "print(sorted_set({ true }))\n")
+  assert(Programs.codes(flag) == "bound_unmet", Programs.codes(flag))
+  assert(Array.at(flag.errors, 1).msg:find("which is bounded by `Ordered`", 1, true) ~= nil, Array.at(flag.errors, 1).msg)
+end
+
+local PERSON <const> = "local interface Titled\n  title: string\nend\nlocal interface Aged\n  age: integer\nend\n" ..
+  "local function label<T is Titled & Aged>(t: T): string\n  return t.title .. \" \" .. tostring(t.age)\nend\n"
+
+--- A parameter bounded by two interfaces has the fields of both, and a type argument has every field of each.
+local function test_a_parameter_bounded_by_two_interfaces_has_the_fields_of_both()
+  stands(PERSON .. "local record Book\n  title: string\n  age: integer\nend\nlocal b: Book = { title = \"b\", age = 3 }\n" ..
+      "print(label(b))\n", "b 3")
+  local short = Programs.run(PERSON .. "local record Note\n  title: string\nend\nlocal n: Note = { title = \"n\" }\n" ..
+      "print(label(n))\n")
+  assert(Programs.codes(short) == "bound_unmet", Programs.codes(short))
+  assert(Array.at(short.errors, 1).msg:find("has no field `age: integer`", 1, true) ~= nil, Array.at(short.errors, 1).msg)
+  local missing = Programs.run(PERSON .. "local function g<T is Titled & Aged>(t: T): string\n  return t.name\nend\n")
+  local e = Array.at(missing.errors, 1)
+  assert(e.code == "not_indexable" and e.msg:find("none of its bounds, `Aged & Titled`, declares it", 1, true) ~= nil, e.msg)
+end
+
+--- The bounds of a parameter are a set: their order and a repeat change no type, and the type shows them in one order.
+local function test_the_bounds_of_a_parameter_are_a_set()
+  local both = PERSON .. "local h: function<T is Aged & Titled & Aged>(T): string = label\nlocal _ = h\nprint(\"same\")\n"
+  stands(both, "same")
+  assert(type_of(PERSON, "label") == "function<T is Aged & Titled>(T): string", type_of(PERSON, "label"))
+end
+
+--- A record bounded by several bounds holds its arguments to each, and a type parameter passed on to it has them all.
+local function test_a_record_with_several_bounds_holds_a_parameter_passed_on_to_each()
+  local set = "local record Sorted<K is Ordered & Key>\n  keys: {K: boolean}\n  low: K\nend\n"
+  stands(set .. "local s: Sorted<string> = { keys = {}, low = \"a\" }\nprint(s.low < \"b\")\n", "true")
+  local only_key = Programs.run(set .. "local function f<K is Key>(s: Sorted<K>) print(s) end\n")
+  local e = Array.at(only_key.lowered.errors, 1)
+  assert(e.code == "bound_not_met" and e.fix == "bound `K` by `Ordered` where it is declared (`<K is Key & Ordered>`)", e.fix)
+  local both = Programs.run(set .. "local function f<K is Key & Ordered>(s: Sorted<K>) print(s) end\n")
+  assert(#both.before == 0, table.concat(both.before, " "))
 end
