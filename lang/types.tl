@@ -1039,7 +1039,7 @@ local function show_fn(f: Fn, names: Names): string
     end
     local own: {string} = letters
     local fns = names.fns
-    local declared_as = fns ~= nil and fns[f.id] or nil -- checked: and_ternary
+    local declared_as = if fns ~= nil then fns[f.id] else nil end
     if declared_as ~= nil and #declared_as == #f.tparams and free_names(names, declared_as) then
       own = declared_as
     end

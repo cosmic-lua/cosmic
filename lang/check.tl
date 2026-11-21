@@ -505,12 +505,16 @@ local function quoted(s: string): string
   return "`" .. s .. "`"
 end
 
+--- How an error names what it shows: the type parameters by their authors' names, and the statement a nil test runs.
+local record Naming
+end
+
 --- The names the lowering of `module` kept for the type parameters of the generic functions it declares, by the id of
 --- each one's type: a copy, which the check adds the functions in bodies to.
-local function declared_fn_names(program: Declarations.Program, module: string): mut {integer: {string}}
+function Naming.declared(program: Declarations.Program, module: string): mut {integer: {string}}
   local out: mut {integer: {string}} = {}
   local info = program.modules[module]
-  local held = info ~= nil and info.fn_names or nil -- checked: and_ternary
+  local held = if info ~= nil then info.fn_names else nil end
   if held ~= nil then
     for id, names in pairs(held) do
       out[id] = names
@@ -520,7 +524,7 @@ local function declared_fn_names(program: Declarations.Program, module: string):
 end
 
 --- Whether `names` can name a binder inside `binders`: each distinct, and none the name of a type parameter in scope.
-local function free_of(binders: {{string}}, names: {string}): boolean
+function Naming.free_of(binders: {{string}}, names: {string}): boolean
   local seen: mut {string: boolean} = {}
   for _, b in ipairs(binders) do
     for _, n in ipairs(b) do
@@ -615,7 +619,7 @@ end
 --- The statement a fix puts in `if <name> == nil then ... end`, written for the place it is in: a function that may
 --- answer `nil, string` returns that, one that may answer nothing or nil returns, and the module's own chunk or a function
 --- whose results take no nil raises.
-local function on_nil(ctx: Ctx, name: string): string
+function Naming.on_nil(ctx: Ctx, name: string): string
   local missing = string.format("%q", name .. " is missing")
   local frame = ctx.frames[#ctx.frames]
   if frame ~= nil and not frame.chunk then
@@ -662,7 +666,7 @@ local function report(ctx: Ctx, code: Code, node: Ast.Node, msg: string, fix: st
     local name = text_of(ctx, node)
     msg = msg .. " (a test showed it was not nil, and the assignment at " .. at .. " dropped that)"
     fix = "test " .. quoted(name) .. " again after the assignment at " .. at .. " (`if " .. name ..
-      " == nil then " .. on_nil(ctx, name) .. " end`), or read the value into a new local that nothing assigns (`local v = " ..
+      " == nil then " .. Naming.on_nil(ctx, name) .. " end`), or read the value into a new local that nothing assigns (`local v = " ..
       name .. "`) and test that"
   end
   table.insert(ctx.errors, {
@@ -1044,10 +1048,10 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
     local call = subject(ctx, e)
     if flag then
       return "name the value and say it is there (`local v = " .. text_of(ctx, e) .. "` then `assert(v ~= nil)`), or test " ..
-        "it first (`if v == nil then " .. on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
+        "it first (`if v == nil then " .. Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
     end
     return "take the value with `local v = assert(" .. text_of(ctx, e) .. ")`, or test it first (`if v == nil then " ..
-      on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
+      Naming.on_nil(ctx, "v") .. " end`); " .. call .. " answers nil when it fails"
   end
   if e.kind == "Index" then
     return index_fix(ctx, e, t)
@@ -1057,7 +1061,7 @@ local function nil_fix(ctx: Ctx, node: Ast.Node, t: Type): string
     return "copy " .. quoted(s) .. " to a local and test that: `local v = " .. s .. " if v ~= nil then ... end`, or " ..
       (if flag then "say it is there with `assert(v ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
   end
-  return "test it first (`if " .. s .. " == nil then " .. on_nil(ctx, s) .. " end`), or " ..
+  return "test it first (`if " .. s .. " == nil then " .. Naming.on_nil(ctx, s) .. " end`), or " ..
     (if flag then "say it is there with `assert(" .. s .. " ~= nil)`" else "take it with `assert(" .. s .. ")`" end)
 end
 
@@ -5214,7 +5218,7 @@ end
 --- is free, or its letter.
 function Calls.parameter_name(ctx: Ctx, declared: Fn, index: integer): string
   local own = ctx.fn_names[declared.id]
-  if own ~= nil and #own == #declared.tparams and free_of(ctx.binders, own) then
+  if own ~= nil and #own == #declared.tparams and Naming.free_of(ctx.binders, own) then
     return assert(own[index])
   end
   return Types.letter(index - 1)
@@ -5234,7 +5238,7 @@ function Calls.shown(ctx: Ctx, declared: Fn, t: Type): string
   end
   local names: {string} = letters
   local own = ctx.fn_names[declared.id]
-  if own ~= nil and #own == #declared.tparams and free_of(binders, own) then
+  if own ~= nil and #own == #declared.tparams and Naming.free_of(binders, own) then
     names = own
   end
   binders[#binders + 1] = names
@@ -9017,7 +9021,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
   local ctx: Ctx = { -- checked: literal_missing
     program = program, store = store, judge = program.judge, input = input, lowered = lowered, scoped = input.scoped,
     tokens = input.chunk.tokens, filename = input.filename, errors = {}, vars = {}, frames = {}, binders = {},
-    bounds = {}, fn_names = declared_fn_names(program, input.module), lenient = 0, no_drop = false, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
+    bounds = {}, fn_names = Naming.declared(program, input.module), lenient = 0, no_drop = false, members = {}, value_members = {}, pending = {}, within = 0, probes = {},
     load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
