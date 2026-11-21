@@ -201,3 +201,48 @@ local function test_directory_of_the_filesystem_root_serves_its_files(tmp: strin
   local asset, why = Assets.directory("/"):get(real:sub(2) .. "/f.txt")
   assert(asset ~= nil and asset.data == "inside", why)
 end
+
+--- A path is answered by the first layer that holds it; `paths` lists
+--- each path once.
+local function test_layered_answers_each_path_from_the_first_source_that_holds_it()
+  local over = Assets.memory({ ["a.css"] = "over", ["b.css"] = "b" })
+  local under = Assets.memory({ ["a.css"] = "under", ["c.css"] = "c" })
+  local both = Assets.layered({ over, under })
+  assert(assert(both:get("a.css")).data == "over")
+  assert(assert(both:get("c.css")).data == "c")
+  local none, why = both:get("d.css")
+  assert(none == nil and why:find("d.css", 1, true) ~= nil, why)
+  assert(table.concat(both:paths(), ",") == "a.css,b.css,c.css", table.concat(both:paths(), ","))
+  assert(not both:dynamic())
+end
+
+local function test_under_names_the_files_below_a_prefix_by_the_rest_of_their_paths()
+  local source = Assets.memory({ ["images/a.png"] = "a", ["images/sub/b.png"] = "b", ["top.png"] = "t" })
+  local images = Assets.under(source, "images/")
+  local a = assert(images:get("a.png"))
+  assert(a.data == "a" and a.path == "a.png" and a.type == "image/png", a.path)
+  assert(images:get("top.png") == nil and images:get("images/a.png") == nil)
+  assert(images:get("../top.png") == nil, "a path out of the prefix was answered")
+  assert(table.concat(images:paths(), ",") == "a.png,sub/b.png", table.concat(images:paths(), ","))
+end
+
+local function test_only_answers_the_names_it_lists()
+  local source = Assets.memory({ ["a.css"] = "a", ["b.css"] = "b" })
+  local one = Assets.only(source, { "a.css", "missing.css" })
+  assert(assert(one:get("a.css")).data == "a")
+  local none, why = one:get("b.css")
+  assert(none == nil and why:find("b.css", 1, true) ~= nil, why)
+  assert(table.concat(one:paths(), ",") == "a.css")
+end
+
+local function test_under_refuses_a_prefix_without_a_slash_and_layered_says_why_the_last_missed()
+  local source = Assets.memory({ ["images/a.png"] = "a" })
+  local ok, why = pcall(Assets.under, source, "images")
+  assert(not ok and tostring(why):find("does not end in a slash", 1, true) ~= nil, tostring(why))
+  assert(assert(Assets.under(source, ""):get("images/a.png")).data == "a")
+  local _, missed = Assets.layered({ source, source }):get("/abs")
+  assert(missed:find("absolute", 1, true) ~= nil, missed)
+  local dynamic = Assets.layered({ source, { get = source.get, paths = source.paths,
+    dynamic = function(_self: Assets.Source): boolean return true end } })
+  assert(dynamic:dynamic() and not Assets.layered({ source }):dynamic())
+end
