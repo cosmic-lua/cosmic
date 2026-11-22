@@ -138,6 +138,22 @@ local function cache_names(p: Project): string
   return table.concat(names, " ")
 end
 
+--- A relative XDG_CACHE_HOME is no cache base, as the XDG spec says: the
+--- launcher caches under HOME, never in the directory it was called in,
+--- where a file of anyone's could stand in for the release.
+local function test_a_relative_cache_home_is_passed_over_for_home(tmp: string)
+  local p = project(tmp)
+  local cwd = p.tmp .. "/elsewhere"
+  local home = p.tmp .. "/home"
+  assert(Fs.mkdirs(home))
+  local result = run(p, cwd, { "fix" }, { XDG_CACHE_HOME = "xdg", HOME = home })
+  assert(result.code == 0, tostring(result.stderr))
+  assert(Fs.is_dir(home .. "/.cache/cosmic/bootstrap") == true, "the cache is under HOME")
+  assert(Fs.is_dir(cwd .. "/xdg") ~= true, "nothing is cached in the called directory")
+  local relative = run(p, cwd, { "fix" }, { XDG_CACHE_HOME = "xdg", HOME = "home" })
+  assert(relative.code ~= 0 and (relative.stderr or ""):find("absolute path", 1, true) ~= nil, tostring(relative.stderr))
+end
+
 --- A cold run downloads the release, caches it by its digest and runs it
 --- in the caller's directory with the arguments as given, answering its
 --- exit status; a warm run downloads nothing.

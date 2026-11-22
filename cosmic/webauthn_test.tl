@@ -367,7 +367,8 @@ local function test_cose_keys_that_are_refused()
   refused(cose_of({ { 1, 2 }, { 3, -7 }, { -1, 1 }, { -2, x }, { -3, y:sub(2) } }), "32 bytes")
   refused(cose_of({ { 1, 1 }, { 3, -8 }, { -1, 4 }, { -2, x } }), "Ed25519")
   refused(cose_of({ { 1, 3 }, { 3, -257 }, { -1, x } }), "n and e")
-  refused(cose_of({ { 1, 3 }, { 3, -257 }, { -1, x }, { -2, "\1\0\1" } }), "2048")
+  -- An n with a first byte of zero is refused for that before its size.
+  refused(cose_of({ { 1, 3 }, { 3, -257 }, { -1, "\1" .. x:sub(2) }, { -2, "\1\0\1" } }), "2048")
   refused(Cbor.encode(Cbor.array({})), "no COSE key")
 end
 

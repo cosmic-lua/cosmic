@@ -168,11 +168,17 @@ esac
 # stand-in toolchain, and keep no compile memo under it).
 print_entry() {
   raw=$1
-  if [ -n "${XDG_CACHE_HOME:-}" ]; then
-    entries=$XDG_CACHE_HOME/cosmic/bootstrap
-  else
-    entries=${HOME:?HOME is unset}/.cache/cosmic/bootstrap
-  fi
+  # A relative XDG_CACHE_HOME is ignored, as the XDG spec says, and a
+  # relative HOME refused: either would name a cache in whatever
+  # directory the script runs from.
+  case ${XDG_CACHE_HOME:-} in
+    /*) entries=$XDG_CACHE_HOME/cosmic/bootstrap ;;
+    *)
+      case ${HOME:-} in
+        /*) entries=$HOME/.cache/cosmic/bootstrap ;;
+        *) die "neither XDG_CACHE_HOME nor HOME is an absolute path" ;;
+      esac ;;
+  esac
   mkdir -p "$entries"
   find "$entries" -name '.entry-*.part' -mmin +60 -exec rm -f {} + 2>/dev/null || true
   sum=$(printf '%s\n%s\n' "$root" "$raw" | sha256_text)
@@ -271,11 +277,17 @@ case $attempts in
   *) die "COSMIC_BOOTSTRAP_ATTEMPTS=$attempts is not a count from 1 to 20" ;;
 esac
 
-if [ -n "${XDG_CACHE_HOME:-}" ]; then
-  cache=$XDG_CACHE_HOME/cosmic/bootstrap
-else
-  cache=${HOME:?HOME is unset}/.cache/cosmic/bootstrap
-fi
+# A relative XDG_CACHE_HOME is ignored, as the XDG spec says, and a
+# relative HOME refused: either would name a cache in whatever directory
+# the script runs from.
+case ${XDG_CACHE_HOME:-} in
+  /*) cache=$XDG_CACHE_HOME/cosmic/bootstrap ;;
+  *)
+    case ${HOME:-} in
+      /*) cache=$HOME/.cache/cosmic/bootstrap ;;
+      *) die "neither XDG_CACHE_HOME nor HOME is an absolute path" ;;
+    esac ;;
+esac
 cached=$cache/cosmic-$digest
 
 if [ -e "$cached" ] || [ -L "$cached" ]; then
