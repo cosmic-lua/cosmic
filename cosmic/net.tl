@@ -614,6 +614,32 @@ function Net.udp(host: string, port: integer): Net.Address
   return { kind = "udp", host = host, port = port }
 end
 
+--- Whether `address` reaches only this machine: a socket file, or a
+--- host on the loopback, 127.0.0.0/8 or ::1, the IPv4 ones also as an
+--- IPv6 listener names them (`::ffff:127.0.0.1`). A host is read as a
+--- number in the spelling the system writes a peer's in, never as a name,
+--- so `localhost` and `127.0.0.1.example` are not the loopback; a bare
+--- host string is read as [`Net.tcp`]'s is.
+function Net.is_loopback(address: Net.Address | string): boolean
+  local host: string
+  if address is string then
+    host = address
+  else
+    if address.kind == "unix" then return true end
+    host = address.host or ""
+  end
+  host = host:match("^::[Ff][Ff][Ff][Ff]:(%d+%.%d+%.%d+%.%d+)$") or host
+  if host == "::1" then return true end
+  local a, b, c = host:match("^127%.(%d+)%.(%d+)%.(%d+)$")
+  if a == nil or b == nil or c == nil then return false end
+  for _, octet in ipairs({ a, b, c }) do
+    if #octet > 3 or (#octet > 1 and octet:sub(1, 1) == "0") or assert(math.tointeger(octet)) > 255 then
+      return false
+    end
+  end
+  return true
+end
+
 --- What a failed call says: its own words for a deadline or a signal,
 --- the bound a name too long ran past, what a host must be, and why a
 --- unix listener answered EAGAIN, which errno's words leave unsaid.

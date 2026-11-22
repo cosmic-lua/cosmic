@@ -712,3 +712,19 @@ local function test_a_close_local_holds_a_listener()
   local conn, why = assert(listener):accept()
   assert(conn == nil and why == "net: the listener is closed", why)
 end
+
+--- The loopback is a socket file, or a host of 127.0.0.0/8 or ::1, read
+--- as a number, an IPv4 one also as an IPv6 listener names it.
+local function test_is_loopback_reads_a_host_as_a_number()
+  for _, host in ipairs({ "127.0.0.1", "127.1.2.3", "127.255.0.0", "::1", "::ffff:127.0.0.1", "::FFFF:127.0.0.9" }) do
+    assert(Net.is_loopback(host), host)
+    assert(Net.is_loopback(Net.tcp(host, 80)), host)
+  end
+  for _, host in ipairs({ "", "localhost", "10.0.0.1", "::2", "127.0.0.1.example", "x127.0.0.1",
+      "::ffff:10.0.0.1", "[::1]",
+      "127.256.0.1", "127.0.0.01", "127.0.0.1000", "::ffff:127.999.1.1" }) do
+    assert(not Net.is_loopback(host), host)
+    assert(not Net.is_loopback(Net.udp(host, 80)), host)
+  end
+  assert(Net.is_loopback(Net.unix("/tmp/app.sock")))
+end
