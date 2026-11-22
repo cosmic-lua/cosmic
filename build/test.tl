@@ -912,8 +912,8 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
       end,
       hits, run_at_ns)
     if wrote == nil then return false, module_trouble end
-    totals["hit"] = (totals["hit"] or 0) + wrote.hit
-    totals["lines"] = (totals["lines"] or 0) + wrote.lines
+    totals.hit = totals.hit + wrote.hit
+    totals.lines = totals.lines + wrote.lines
     for _, native in ipairs(sorted_native) do
       local path = native.key
       local hit_here = hits[path] or {}

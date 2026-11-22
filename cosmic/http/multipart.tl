@@ -536,7 +536,7 @@ end
 function Multipart.reader(source: Stream.Reader, opts: Multipart.Options): Multipart.Reader?, string
   for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes, -- checked: array_of_optional
       max_header_lines = opts.max_header_lines }) do
-    if v ~= nil and v < 1 then
+    if v < 1 then
       error(("multipart: %s is a positive integer, not %d"):format(field, v), 2)
     end
   end

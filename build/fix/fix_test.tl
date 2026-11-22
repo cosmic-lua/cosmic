@@ -392,8 +392,8 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
     local found = fix.links(source.context, { root .. "/a.md" })
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
-    assert(opened.value == 1, "opened " .. opened.value .. " times") -- checked: map_field*2
-    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. rebuilt.value) -- checked: map_field*2
+    assert(opened.value == 1, "opened " .. tostring(opened.value) .. " times") -- checked: map_field*2
+    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. tostring(rebuilt.value)) -- checked: map_field*2
   end
 end
 

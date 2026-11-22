@@ -1024,6 +1024,55 @@ local function field_pairs(j: Relation.Judge, b: Named, a: Named): {Type}?
   return out
 end
 
+--- Whether `a`, a record inferred for a literal of named items ([`Types.inferred_record`]), is below the record `b`,
+--- declared or inferred, as the literal would be: it has each field of `b` that is not omittable or nilable, and no
+--- field `b` lacks; a field `b` declares `mut` is of exactly its type, since a write through `b` would store one, and
+--- another is below its type. Nil where it is, else the refusal naming the first field that differs.
+local function shaped(j: Relation.Judge, a: Named, b: Named, why: boolean): Relation.Refusal?
+  defined(b)
+  local abody = assert(a.decl.body, "an inferred record is defined where it is made")
+  local bbody = assert(b.decl.body, "`defined` holds a body")
+  if b.decl.kind ~= "record" or bbody.array ~= nil or #bbody.methods > 0 then
+    return leaf(j, why, "nominal", a, b)
+  end
+  local have: mut {string: Types.Field} = {}
+  for _, f in ipairs(abody.fields) do
+    have[f.name] = f
+  end
+  local wanted: mut {string: boolean} = {}
+  local function refused(f: Types.Field, found: boolean): Relation.Refusal
+    if not why then
+      return j.none
+    end
+    return { code = "not_listed", path = {}, sub = a, super = b, lists = {}, field = f, has_name = found }
+  end
+  for _, f in ipairs(bbody.fields) do
+    wanted[f.name] = true
+    local s = supplied(j, b, f.name)[1]
+    local mine = have[f.name]
+    if s ~= nil then
+      local field: Types.Field = { name = f.name, type = s.type, mut = s.mut, omittable = s.omittable }
+      if mine == nil then
+        if not s.omittable and not (s.type.tag == "nil" or ((s.type.tag == "union") and s.type.nilable)) then
+          return refused(field, false)
+        end
+      elseif s.mut then
+        if mine.type ~= s.type and mine.type.tag ~= "invalid" and s.type.tag ~= "invalid" then
+          return refused(field, true)
+        end
+      elseif rel(j, mine.type, if s.omittable then j.store:optional(s.type) else s.type end, false) ~= nil then
+        return refused(field, true)
+      end
+    end
+  end
+  for _, f in ipairs(abody.fields) do
+    if wanted[f.name] ~= true then
+      return leaf(j, why, "nominal", a, b)
+    end
+  end
+  return nil
+end
+
 local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): Relation.Refusal?
   if (b.tag == "named") and a.value ~= b.value then
     return leaf(j, why, "declaration_value", a, b)
@@ -1046,6 +1095,9 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
         end
       end
       return nil
+    end
+    if not a.value and not b.value and Types.inferred_record(a.decl) and b.decl.kind ~= "interface" then
+      return shaped(j, a, b, why)
     end
     if b.decl.kind == "interface" then
       local closure = closure_of(j, a)
@@ -1071,6 +1123,30 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
     local r = rel(j, part, b.element, why)
     if r ~= nil then
       return through(why, "array_part", nil, r)
+    end
+    return nil
+  elseif (b.tag == "map") and not a.value and Types.inferred_record(a.decl) then
+    -- A record inferred for a literal of named items is a map of strings to what each of its fields is below, read
+    -- only: a write through the map would add a key or change the type of a field.
+    if b.mut then
+      return leaf(j, why, "view_as_mut", a, b)
+    end
+    if b.key ~= j.store.string then
+      local r = if (b.key.tag == "var") then rel(j, j.store.string, b.key, why) else leaf(j, why, "record_as_map", a, b) end
+      if r ~= nil then
+        return through(why, "key", nil, r)
+      end
+    end
+    for _, f in ipairs(assert(a.decl.body, "an inferred record is defined where it is made").fields) do
+      -- A field that may be nil is a key that may be missing, which a read of the map answers alike.
+      local held = f.type
+      if (held.tag == "union") and held.nilable then
+        held = j.store:non_nil(held)
+      end
+      local r = rel(j, held, b.value, why)
+      if r ~= nil then
+        return through(why, "value", nil, r)
+      end
     end
     return nil
   elseif (b.tag == "map") then

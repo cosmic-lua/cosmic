@@ -1082,7 +1082,7 @@ local fn = two
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
   local got = shown(r, { "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r1", "r2", "fn" })
   local want: {string: string} = {
-    a = "integer", b = "number", c = "string", d = "boolean", e = "nil", f = "mut {integer}", g = "mut {string: integer}",
+    a = "integer", b = "number", c = "string", d = "boolean", e = "nil", f = "mut {integer}", g = "{ x: integer }",
     h = "{string}?", i = "number", j = "integer", k = "integer", l = "boolean", m = "boolean", n = "number", o = "string",
     p = "integer", q = "number", r1 = "integer", r2 = "string?", fn = "function(): integer, string?",
   }

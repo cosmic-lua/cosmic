@@ -8,6 +8,11 @@ local Poll = require("cosmic.poll")
 local Relay = require("cosmic.internal.relay_server")
 local type Net = require("cosmic.net")
 
+--- `v` as untrusted data: a value reaches `any` as an argument to a parameter declared `any`.
+local function untyped(v: any): any
+  return v
+end
+
 --- A stand-in for a connector, named `name`: it records each request in
 --- `log` as "<name> <host> <timeout_ns>", holds it for `hold_ns`, and
 --- then refuses it, or ends where it `dies`. One made `gone` has ended
@@ -15,7 +20,7 @@ local type Net = require("cosmic.net")
 local function fake(name: string, log: mut {string}, hold_ns?: integer, dies?: boolean, gone?: boolean): Net.Connector
   local hold = hold_ns or 0
   local ended = { value = gone == true }
-  local stand_in: any = { -- checked: arms_differ
+  local stand_in: any = untyped({
     connect = function(_: any, address: Net.Address, opts: Net.ConnectOptions): any, string
       table.insert(log, name .. " " .. assert(address.host) .. " " .. tostring(assert(opts.timeout_ns)))
       if hold > 0 then
@@ -35,7 +40,7 @@ local function fake(name: string, log: mut {string}, hold_ns?: integer, dies?: b
       ended.value = true -- checked: map_field
       return true, ""
     end,
-  }
+  })
   return stand_in as Net.Connector -- cast: it has every method the relay calls -- checked: cast_refused
 end
 

@@ -375,7 +375,7 @@ local function test_a_restricted_member_used_outside_its_files_is_refused(dir: s
   assert(#found == 1, table.concat(found, "\n"))
   assert(support.nth(found, 1):find("^build/other_test%.tl:%d+: build%.probe has is used outside build/asker%.tl: ask the host") ~=
       nil, found[1])
-  rules["build.probe has"].files = { "build/asker.tl", "build/other_test.tl" }
+  rules = { ["build.probe has"] = { files = { "build/asker.tl", "build/other_test.tl" }, why = "ask the host" } }
   found = tree_checks.restricted(db, rules)
   assert(#found == 0, table.concat(found, "\n"))
 end

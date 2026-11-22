@@ -225,7 +225,7 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
     end
     return table.concat(parts), ""
   end })
-  assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. calls.value) -- checked: map_field*2
+  assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. tostring(calls.value)) -- checked: map_field*2
 end
 
 local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()

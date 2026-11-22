@@ -355,23 +355,28 @@ local function test_each_limit_is_answered()
   assert(#troubles == 0, troubles[1])
 end
 
+--- `v` as untrusted data: a value reaches `any` as an argument to a parameter declared `any`.
+local function untyped(v: any): any
+  return v
+end
+
 --- A handler that raises, or answers what is no reply the server can
 --- send, is answered 500, the connection closed, and the trouble goes
 --- to on_error: a raise with its stack.
 local function test_a_failing_handler_is_answered_500()
   local bad: {string: any} = {
     ["/nil"] = nil, -- checked: any_use
-    ["/owned"] = { status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } }, -- checked: arms_differ
-    ["/unsent"] = { status = 200, headers = { ["Content-Length"] = "3" } }, -- checked: arms_differ
-    ["/mismatch"] = { status = 200, headers = { ["content-length"] = "4" }, body = "hello" }, -- checked: arms_differ
-    ["/cr"] = { status = 200, headers = { ["X-Bad"] = "a\r\nb" } }, -- checked: arms_differ
-    ["/nocontent"] = { status = 204, body = "not empty" }, -- checked: arms_differ
-    ["/interim"] = { status = 101 }, -- checked: any_use
+    ["/owned"] = untyped({ status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } }),
+    ["/unsent"] = untyped({ status = 200, headers = { ["Content-Length"] = "3" } }),
+    ["/mismatch"] = untyped({ status = 200, headers = { ["content-length"] = "4" }, body = "hello" }),
+    ["/cr"] = untyped({ status = 200, headers = { ["X-Bad"] = "a\r\nb" } }),
+    ["/nocontent"] = untyped({ status = 204, body = "not empty" }),
+    ["/interim"] = untyped({ status = 101 }),
     ["/typo"] = { status = 200, header = {} }, -- checked: any_use, literal_needs_type
-    ["/crlist"] = { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } }, -- checked: arms_differ
-    ["/lenlist"] = { status = 200, headers = { ["Content-Length"] = { "0" } } }, -- checked: arms_differ
-    ["/datelist"] = { status = 200, headers = { Date = { "x" } } }, -- checked: arms_differ
-    ["/numlist"] = { status = 200, headers = { ["Set-Cookie"] = { 1 } } }, -- checked: arms_differ
+    ["/crlist"] = untyped({ status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } }),
+    ["/lenlist"] = untyped({ status = 200, headers = { ["Content-Length"] = { "0" } } }),
+    ["/datelist"] = untyped({ status = 200, headers = { Date = { "x" } } }),
+    ["/numlist"] = untyped({ status = 200, headers = { ["Set-Cookie"] = { 1 } } }),
   }
   local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo", "/unsent",
     "/mismatch", "/crlist", "/lenlist", "/datelist", "/numlist" }

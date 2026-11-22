@@ -143,7 +143,8 @@ local function test_a_class_value_is_made_by_nothing_but_a_literal_typed_as_the_
     "cast_refused")
   refused(COUNTER .. "local c = setmetatable({ n = 0 }, Counter)\n", "setmetatable_call", "a program has no `setmetatable`")
   -- a literal without the class to make it from is no class value
-  refused(COUNTER .. "local t = { n = 0 }\nlocal c: Counter = t\n", "record_as_map")
+  refused(COUNTER .. "local t = { n = 0 }\nlocal c: Counter = t\n", "not_assignable",
+    "`t` is `{ n: integer }`, where `Counter` is wanted")
   -- a literal is the class only where it is checked against it
   refused(COUNTER .. "local interface Bumper\n  n: integer\nend\nlocal b: Bumper = { n = 0 }\n", "literal_shape")
   accepted(COUNTER .. "local c: Counter = { n = 0 }\nlocal d: Counter? = { n = 1 }\n" ..

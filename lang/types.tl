@@ -534,6 +534,10 @@ local record Types
   --- Whether `t` is a class that declares the method `name`, as a class declares a metamethod (`__lt`, `__le`).
   declares_method: function(t: Type, name: string): boolean
 
+  --- Whether `decl` is a record the checker inferred for a table literal of named items, which is shown by its fields
+  --- (`{ x: integer }`) and named `__literal` and a number.
+  inferred_record: function(decl: Decl): boolean
+
   --- What meets the built-in bound `tag`, for a message: "a number type, a string type, or a class that declares `__lt` and `__le`" for `Ordered`.
   bound_meets: function(tag: string): string
 
@@ -922,6 +926,10 @@ function Types.bounds(list: {Type}?): {Type}?
   return out
 end
 
+function Types.inferred_record(decl: Decl): boolean
+  return decl.kind == "record" and #decl.names == 1 and decl.name:find("^__literal%d+$") ~= nil
+end
+
 function Types.declares_method(t: Type, name: string): boolean
   if not ((t.tag == "named")) or t.decl.kind ~= "class" or t.value then
     return false
@@ -1205,6 +1213,14 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
     -- TODO: write the module before the name where two types in scope share it, once the
     -- checker's errors say what is in scope.
     local text = t.decl.name
+    local body = t.decl.body
+    if body ~= nil and Types.inferred_record(t.decl) then
+      local fields: mut {string} = {}
+      for _, f in ipairs(body.fields) do
+        fields[#fields + 1] = (if f.mut == true then "mut " else "" end) .. f.name .. ": " .. show(f.type, names, false)
+      end
+      text = "{ " .. table.concat(fields, ", ") .. " }"
+    end
     if #t.args > 0 then
       text = text .. "<" .. table.concat(show_list(t.args, names), ", ") .. ">"
     end

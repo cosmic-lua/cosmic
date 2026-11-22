@@ -319,12 +319,17 @@ local function test_a_cyclic_value_is_walked_as_deep_as_the_spec()
   assert(Json.encode_any(v) == '{"name":"loop","self":{"name":"loop"}}')
 end
 
+--- `v` as untrusted data: a value reaches `any` as an argument to a parameter declared `any`.
+local function untyped(v: any): any
+  return v
+end
+
 local function test_into_answers_only_the_first_of_several_failures()
   local spec = Shape.record_of("Cfg").spec
   local value: {string: any} = {
     port = "8080", level = "warn", -- checked: any_use*2
     rows = { { id = 1 }, { id = "b" }, { id = true } }, -- checked: arms_differ
-    tags = { b = 1, a = "x", c = true }, -- checked: arms_differ
+    tags = untyped({ b = 1, a = "x", c = true }),
   }
   fails(value, spec, "$.host: missing")
   value.host = "h" -- checked: map_field
