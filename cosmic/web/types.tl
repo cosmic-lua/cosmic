@@ -616,7 +616,7 @@ local record Types
     --- The unix socket [`Web.serve`] listens at for the daemon's Serve,
     --- while it serves `tailnet = { via = "serve" }`: [`Web.tailnet`]
     --- trusts the identity headers of a request that came to it, and of
-    --- no other socket.
+    --- no other socket but the one its `socket` names.
     mut serve_socket?: string
     --- The capabilities the daemon's Serve passes on to `serve_socket`,
     --- which [`Web.tailnet`] reads from its header there, and no others.
@@ -653,7 +653,7 @@ local record Types
     --- The machine's tailscaled serves HTTPS on the node's name and
     --- passes each request to the server at a unix socket of a private
     --- directory, saying who sent it ([`cosmic.tailscale.Client.serve`]):
-    --- pair it with `Web.tailnet{ serve = true }`.
+    --- pair it with [`Web.tailnet`], which reads who at that socket.
     "serve"
     --- As "serve", and open to the internet as well (Funnel). A request
     --- from the internet has no identity: see [`Web.tailnet_funnel`].
