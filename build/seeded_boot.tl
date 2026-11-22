@@ -20,10 +20,10 @@
 ---   is the one this process runs on, its commit the pin's first line, and
 ---   its bytes those of the pin's digest, which [`bin/cosmic-bootstrap`]
 ---   holds it to;
---- - with COSMIC_BOOT_SEED=newest, the newest release of the repository,
----   by its tag (`<date>-<commit>`): its `cosmic` is fetched once, held to
----   the digest its SHA256SUMS names, kept beside the bootstrap cosmic, and
----   hashed again each time it is taken from there.
+--- - the newest release of the repository, by its tag
+---   (`<date>-<commit>`): its `cosmic` is fetched once, held to the digest
+---   its SHA256SUMS names, kept beside the bootstrap cosmic, and hashed
+---   again each time it is taken from there.
 ---
 --- Whether the tree's C is a release's is git's answer: the files the
 --- release's commit holds under `c_inputs` are the files the index holds
@@ -39,24 +39,21 @@
 --- the first asks for that zig's core, and the second's core is not the
 --- pin's.
 ---
---- The pinned release is the only one taken unasked, since the checkout
---- itself names its digest. Nothing but its own SHA256SUMS vouches for the
---- newest release, so it is taken only where COSMIC_BOOT_SEED=newest asks
---- for it.
---- COSMIC_BOOT_SEED=0 turns the seeded boot off, and `pin` keeps it to the
---- pinned release and to the commits the checkout has: it asks the network
---- nothing. Any other value is refused, and zig builds the core
---- ([`SeededBoot.plan`]).
+--- The checkout itself names the pinned release's digest. Nothing but its
+--- own SHA256SUMS vouches for the newest one. COSMIC_BOOT_SEED=0 turns the
+--- seeded boot off, and `pin` keeps it to the pinned release and to the
+--- commits the checkout has: it asks the network nothing. Any other value
+--- is refused, and zig builds the core ([`SeededBoot.plan`]).
 ---
 --- It answers 0 where the tree is booted, 4 where no release's core is
 --- the tree's (the build directory as it was), and 1 where a boot it began
 --- failed.
 
--- TODO: try the newest release unasked once it carries a provenance this
--- script can check, such as a signed attestation of the CI run that built
--- it: prerelease.yml publishes none, and the pinned release has no
--- verifier for one. Until then a tree whose C is the newest release's and
--- not the pin's builds its core with zig unless COSMIC_BOOT_SEED=newest.
+-- TODO: hold the newest release to a provenance this script can check,
+-- such as a signed attestation of the CI run that built it, and not to
+-- its own SHA256SUMS alone: prerelease.yml publishes none, and the pinned
+-- release has no verifier for one. Until then the newest release stays
+-- the default, and COSMIC_BOOT_SEED=pin takes the pinned release alone.
 -- TODO: run the two checks of the core's C a zig boot runs (build.zig's
 -- strnlen-check and environment-check) and install the host's
 -- cosmic-unzstd, on a boot that takes a release's core: today it skips
@@ -95,9 +92,9 @@ local record SeededBoot
   end
   listed: function(text: string): string
   --- The plan COSMIC_BOOT_SEED's value `mode` asks for: unset or empty,
-  --- the pinned release alone; `pin`, the same with no network; `newest`,
-  --- the pinned release and then the newest one. nil and "" for `0`, which
-  --- builds the core with zig, and nil and a complaint for any other value.
+  --- the pinned release and then the newest one; `pin`, the pinned release
+  --- alone, with no network. nil and "" for `0`, which builds the core with
+  --- zig, and nil and a complaint for any other value.
   plan: function(mode: string): Plan?, string
   --- Whether the file at `path` is there and has the sha256 `digest`, as
   --- a release kept in the cache must before it runs: one with other bytes
@@ -236,12 +233,10 @@ local function own_core(): string?
 end
 
 function SeededBoot.plan(mode: string): SeededBoot.Plan?, string
-  if mode == "" then return { offline = false, newest = false }, "" end
+  if mode == "" then return { offline = false, newest = true }, "" end
   if mode == "pin" then return { offline = true, newest = false }, "" end
-  if mode == "newest" then return { offline = false, newest = true }, "" end
   if mode == "0" then return nil, "" end
-  return nil, "COSMIC_BOOT_SEED is " .. mode .. ": set it to 0, pin or newest, or leave it unset; " ..
-    "building the core with zig"
+  return nil, "COSMIC_BOOT_SEED is " .. mode .. ": set it to 0 or pin, or leave it unset; building the core with zig"
 end
 
 function SeededBoot.kept(path: string, digest: string): boolean

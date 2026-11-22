@@ -99,11 +99,12 @@ residual below:
   `build/seeded_boot.tl` that way: its `standalone(` calls are counted, and
   each file must be in the list.
 - `build/seeded_boot.tl`, which starts the release again to compile the
-  seed (`Proc.relaunch`), and, under `COSMIC_BOOT_SEED=newest` alone,
-  starts the repository's newest release, a binary it fetched, with
-  `--standalone` on itself to ask where that release's core is. That binary
-  is not the pinned one, and nothing but the release's own SHA256SUMS
-  vouches for it.
+  seed (`Proc.relaunch`), and starts the repository's newest release, a
+  binary it fetched, with `--standalone` on itself to ask where that
+  release's core is (`COSMIC_BOOT_SEED=pin` keeps it to the pinned one).
+  That binary is not the pinned one, and nothing but the release's own
+  SHA256SUMS vouches for it; it is hashed again each time it is taken from
+  the cache.
 - `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be

@@ -62,20 +62,18 @@ local function test_two_listings_of_one_tree_are_the_same()
   assert(SeededBoot.listed("") == "")
 end
 
---- Unasked, a boot tries the pinned release alone, whose digest the
---- checkout names: the newest release, vouched for by nothing but its own
---- SHA256SUMS, is tried only under `newest`. `pin` asks the network
---- nothing, `0` is no seeded boot, and any other value is refused.
-local function test_only_newest_tries_the_newest_release()
+--- Unasked, a boot tries the pinned release and then the newest one;
+--- `pin` keeps it to the pinned release, whose digest the checkout names,
+--- and asks the network nothing. `0` is no seeded boot, and any other
+--- value is refused.
+local function test_pin_keeps_a_boot_to_the_pinned_release()
   local unset = assert(SeededBoot.plan(""))
-  assert(not unset.newest and not unset.offline)
+  assert(unset.newest and not unset.offline)
   local pin = assert(SeededBoot.plan("pin"))
   assert(not pin.newest and pin.offline)
-  local newest = assert(SeededBoot.plan("newest"))
-  assert(newest.newest and not newest.offline)
   local off, off_why = SeededBoot.plan("0")
   assert(off == nil and off_why == "", off_why)
-  for _, other in ipairs({ "1", "yes", "NEWEST", "pin " }) do
+  for _, other in ipairs({ "1", "yes", "newest", "PIN", "pin " }) do
     local refused, why = SeededBoot.plan(other)
     assert(refused == nil and why:find("COSMIC_BOOT_SEED is " .. other .. ":", 1, true) == 1, why)
   end

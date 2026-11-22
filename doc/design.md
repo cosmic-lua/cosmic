@@ -673,8 +673,8 @@ database: compile, check, record, embed. `build.zig` owns the C.
 and `zig build` installs them under the build directory's `vendor/` and produces the core
 for each target (`zig build boot` builds the host's alone unless given `-Dboot-cores=all`,
 and puts a placeholder script where each other core goes). a plain `bin/zig build boot` first
-asks git whether the tree's C is the C of the pinned release (or, with
-`COSMIC_BOOT_SEED=newest`, of the repository's newest), and where it is
+asks git whether the tree's C is the C of a release this host has or can
+fetch, the pinned one and then the repository's newest, and where it is
 takes that release's core, installs the patched trees and runs the bridge
 itself, with no zig ([`build/seeded_boot.tl`]): a core is a function of its
 C alone, and the tool written is the same bytes either way. `zig build boot`
