@@ -71,7 +71,7 @@ local function test_call_with_descriptors_refuses_a_missing_path(tmp: string)
     { [8] = tmp .. "/eight", [9] = tmp .. "/absent" })
   assert(not called and tostring(failure):find("absent", 1, true) ~= nil,
     tostring(failure))
-  assert(not Fs.stat(tmp .. "/logs/missing.out"), "a child started anyway")
+  assert(Fs.exists(tmp .. "/logs/missing.out") ~= true, "a child started anyway")
 end
 
 --- A child a fixture starts compiles cold, whatever cache the fixture's

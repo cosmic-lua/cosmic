@@ -1798,7 +1798,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   local discovery: mut {string:sys.Stat} = {}
   if own_tree then
     local st, trouble = Fs.stat(root)
-    if st == nil then return nil, trouble end
+    if st == nil then return nil, tostring(trouble) end
     discovery[""] = st
   end
   local skip_path = if own_tree then identity.skip_in_own_tree else identity.skip_input end
@@ -1913,7 +1913,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     local st, stat_trouble = Fs.stat(root .. "/" .. file)
     if st == nil then
       finish(put)
-      return nil, stat_trouble
+      return nil, tostring(stat_trouble)
     end
     if scan and st.size > scanned_limit then
       scan = false

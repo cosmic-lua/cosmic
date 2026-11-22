@@ -489,7 +489,7 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
       real = resolved
     end
     if what == nil then
-      refused[#refused + 1] = missing
+      refused[#refused + 1] = tostring(missing)
     elseif real ~= nil and under_static(real) then
       refused[#refused + 1] = path .. ": a static asset, which is carried verbatim, not laid out"
     elseif own and real ~= nil and foreign_tree_in(root, real) ~= nil then

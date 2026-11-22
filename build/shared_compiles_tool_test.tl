@@ -197,7 +197,7 @@ local function test_the_cache_turned_off_writes_nothing(tmp: string)
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   checkout(tmp .. "/second")
   built(tmp .. "/second", env, "(3 compiled, 0 cached;")
-  assert(Fs.stat(tmp .. "/cache") == nil, "a cache turned off was written")
+  assert(Fs.exists(tmp .. "/cache") ~= true, "a cache turned off was written")
 end
 
 local function test_a_broken_cache_never_fails_a_build(tmp: string)
@@ -271,7 +271,7 @@ local function test_a_cache_others_can_write_is_refused(tmp: string)
   checkout(tmp .. "/first")
   local first = built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   assert(first:find("writable by its group or others", 1, true), first)
-  assert(Fs.stat(tmp .. "/open/cache.db") == nil, "a cache others can write was written")
+  assert(Fs.exists(tmp .. "/open/cache.db") ~= true, "a cache others can write was written")
 end
 
 --- A file holding an earlier format's table is taken up, not refused:
@@ -305,7 +305,7 @@ local function test_a_cache_file_that_is_a_link_is_refused(tmp: string)
   checkout(tmp .. "/first")
   local first = built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   assert(first:find("a symbolic link", 1, true), first)
-  assert(Fs.stat(tmp .. "/elsewhere.db") == nil, "the link was followed")
+  assert(Fs.exists(tmp .. "/elsewhere.db") ~= true, "the link was followed")
 end
 
 local function test_two_builds_writing_at_once_keep_both(tmp: string)

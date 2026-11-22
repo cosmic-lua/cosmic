@@ -251,7 +251,7 @@ function Assets.directory(root: string): Assets.Source
       local prefix = if base:sub(-1) == "/" then base else base .. "/" end
       if real:sub(1, #prefix) ~= prefix then return miss(path, "outside the root") end
       local st, st_why = Fs.stat(real)
-      if st == nil then return miss(path, st_why) end
+      if st == nil then return miss(path, tostring(st_why)) end
       if st.kind ~= "file" then return miss(path, "not a file") end
       if st.size > MAX_BYTES then return miss(path, "past the 16 MiB limit") end
       local before = seen[path]

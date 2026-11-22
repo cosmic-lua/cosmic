@@ -515,8 +515,8 @@ local function copied(handle: Sqlite.Handle, name: string, format: string, text:
   -- A path that cannot be inspected is read from `text`, as a pipe is.
   local st: sys.Stat? = nil
   if path ~= nil then
-    local _: string
-    st, _ = Fs.stat(path)
+    local got, _ = Fs.stat(path)
+    st = got
   end
   if path ~= nil and st ~= nil and st.kind == "file" and st.size == #text then
     source.path = path

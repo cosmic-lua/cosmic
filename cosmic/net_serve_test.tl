@@ -37,7 +37,7 @@ end
 --- (core/socket.c), do not step over. A listener still open takes the probe
 --- connection, which is closed at once.
 local function released(address: Net.Address): boolean
-  if address.kind == "unix" then return Fs.stat(assert(address.path)) == nil end
+  if address.kind == "unix" then return Fs.exists(assert(address.path)) ~= true end
   local conn, why = Net.connect(address, { timeout_ns = Clock.seconds(1) })
   if conn == nil then return why ~= Poll.TIMEOUT end
   local _, _ = conn:close()
@@ -247,7 +247,7 @@ local function test_a_listener_that_cannot_listen_fails_the_server(tmp: string)
   }
   assert(not ok and why:find(tmp .. "/missing/b.sock: ", 1, true) == 1, why)
   assert(not called)
-  assert(Fs.stat(tmp .. "/a.sock") == nil, "the first listener's file was left")
+  assert(Fs.exists(tmp .. "/a.sock") ~= true, "the first listener's file was left")
 end
 
 --- A spec with a value the server cannot take raises, naming the field; so
@@ -272,7 +272,7 @@ local function test_a_spec_with_a_bad_value_raises_naming_the_field(tmp: string)
     assert(not ok and tostring(why):find("net: serve runs a Poll.run of its own", 1, true) ~= nil,
       tostring(why))
   end)
-  assert(Fs.stat(tmp .. "/s.sock") == nil)
+  assert(Fs.exists(tmp .. "/s.sock") ~= true)
 end
 
 --- A value that runs `on_close` when a `<close>` variable holding it goes out of scope.

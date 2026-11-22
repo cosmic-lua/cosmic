@@ -128,7 +128,7 @@ local function test_an_unenforced_run_shares_only_through_a_named_cache(tmp: str
   move(tmp .. "/first", tmp .. "/moved", env)
   checkout(tmp .. "/first")
   says(tmp .. "/first", tmp .. "/second.out", env, "2 ran, 0 stood")
-  assert(Fs.stat(tmp .. "/xdg/cosmic/verdicts/verdicts.db") == nil,
+  assert(Fs.exists(tmp .. "/xdg/cosmic/verdicts/verdicts.db") ~= true,
     "it made the shared cache every checkout reads by default")
 end
 

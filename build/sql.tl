@@ -191,7 +191,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
   end
   local st, stat_trouble = Fs.stat(path)
   if st == nil then
-    return nil, stat_trouble
+    return nil, tostring(stat_trouble)
   end
   if st.kind ~= "file" then
     return nil, "not a regular file (its kind is " .. st.kind .. "), so not a database"
@@ -221,7 +221,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
     end
     local wal_stat, wal_stat_trouble = Fs.stat(wal)
     if wal_stat == nil then
-      return nil, wal_stat_trouble
+      return nil, tostring(wal_stat_trouble)
     end
     return wal_stat.size > 0, ""
   end

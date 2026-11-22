@@ -152,7 +152,7 @@ local function test_the_darwin_list_names_test_modules_of_the_tree()
     assert(seen[module] ~= true, module .. ": listed twice")
     seen[module] = true
     assert(module:match("^[%w_/]+_test%.tl$"), module .. ": not a test module's path")
-    local st = Fs.stat(module)
+    local st, _ = Fs.stat(module)
     assert(st ~= nil and st.kind == "file", module .. ": no such test module")
   end
 end
@@ -175,7 +175,7 @@ local function test_a_file_run_without_markers_has_none()
   for _, file in ipairs(files) do
     assert(seen[file] ~= true, file .. ": listed twice")
     seen[file] = true
-    local st = Fs.stat(file)
+    local st, _ = Fs.stat(file)
     assert(st ~= nil and st.kind == "file", file .. ": no such file")
     local text = assert(Fs.read(file))
     local marked = Markers.counts(text, file)
@@ -199,7 +199,7 @@ local function test_the_files_the_portable_probe_reaches_are_listed()
       if name:sub(1, 7) ~= "cosmic." then
         local base = name:gsub("%.", "/")
         for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl" }) do
-          local st = Fs.stat(candidate)
+          local st, _ = Fs.stat(candidate)
           if st ~= nil then
             visit(candidate)
             break
