@@ -5,9 +5,8 @@
 --- The program is this program's core on a database sealed for it, which sends
 --- an HTTP CONNECT and a SOCKS5 request to the relay and says what came back.
 --- The servers are this test's own, at 127.0.0.2 of the worker's network,
---- which the relay's connectors (started by the start, in the worker's
---- network) reach and the program (a network of its own) and the relay
---- (which makes no socket) do not. They need a sandbox that nests
+--- which the relay (started by the start, in the worker's network) reaches
+--- and the program (a network of its own) does not. They need a sandbox that nests
 --- (`requires`): where the platform has none they are not applicable, and where
 --- this host gives no user namespace, Landlock or seccomp each skips itself
 --- (Test.skip).
@@ -19,7 +18,6 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Proc = require("cosmic.proc")
 local RelayConfig = require("cosmic.internal.relay_config")
-local RelayStart = require("cosmic.internal.relay_start")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
@@ -412,7 +410,7 @@ local function test_an_upstream_whose_host_does_not_resolve_fails_the_start(tmp:
   local said = assert(result.stdout)
   if said:find("Landlock", 1, true) or said:find("namespace", 1, true) then Test.skip(said) end
   assert(said:find("^refused: child: start: sandbox: relay: https_proxy's host proxy.invalid "), said)
-  assert(said:find("running: \n", 1, true), "a program or connector was left running: " .. said)
+  assert(said:find("running: \n", 1, true), "a program was left running: " .. said)
   assert(said:find("directories: $"), "the relay's database was left: " .. said)
 end
 
@@ -497,43 +495,6 @@ local function test_the_relays_log_goes_to_a_descriptor_the_caller_gives(tmp: st
   local refusal_value = refusal
   if refusal_value ~= nil then Test.skip(refusal_value) end
   assert(not tostring(program_stderr):find("not granted", 1, true), "the program's own standard error holds no line")
-end
-
---- A relay whose connector has ended can reach nothing again: at the next
---- connection it logs why and ends,
---- and so its program is ended, rather than refused each such connection
---- for the rest of its life.
-local function test_a_relay_whose_connector_has_ended_ends_with_its_program(tmp: string)
-  local database = sealed_client(tmp)
-  assert(sys.mkfifo(tmp .. "/log", 384))
-  local reader = assert(sys.open(tmp .. "/log", sys.O_RDONLY | sys.O_NONBLOCK, 0))
-  local writer = assert(sys.open(tmp .. "/log", sys.O_WRONLY, 0))
-  local refusal: string? = nil
-  serving(function(granted: integer, _: integer)
-    local options = { ...granting(database, granted), stdin = "stream", stdout = "null", stderr = "null",
-      relay_log = writer }
-    local handle, why = Child.start({ assert(Proc.executable()), "later", tostring(granted) }, options)
-    if handle == nil then
-      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-      refusal = why
-      return
-    end
-    local relay = assert(handle._relay)
-    -- The connector the relay was handed ends, and only then does the
-    -- program ask for its target.
-    assert(relay._handover).close()
-    assert(assert(handle.stdin_stream):close())
-    local result = assert(handle:wait(Clock.seconds(20)))
-    assert(result.signal == sys.SIGKILL and not result.timed_out,
-      "the program was ended: " .. tostring(result.signal) .. " " .. tostring(result.timed_out))
-    assert(gone(relay.pid), "the relay ended")
-    local lines = assert(sys.read(reader, 65536))
-    assert(lines:find("relay: the connector has ended: the relay ends", 1, true), "it says why: " .. lines)
-  end)
-  assert(sys.close(reader))
-  assert(sys.close(writer))
-  local refusal_value = refusal
-  if refusal_value ~= nil then Test.skip(refusal_value) end
 end
 
 --- The directories of a start's making that are in the temporary directory.
@@ -636,57 +597,10 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   assert(sys.close(fd))
 end
 
---- The relay runs offline: a program under the very policy its process is
---- started under ([`cosmic.internal.relay_start`]'s `policy`) cannot connect to a
---- server this process reaches, as its filter refuses the socket, so the
---- relay reaches nothing but through the connectors it is handed.
-local function test_the_relays_policy_gives_it_no_network_of_its_own(tmp: string)
-  local database, digest = sealed_client(tmp)
-  local said: string? = nil
-  local refusal: string? = nil
-  serving(function(granted: integer, _ungranted: integer)
-    local reached = assert(Net.connect(Net.tcp("127.0.0.2", granted), { timeout_ns = Clock.seconds(5) }))
-    assert(reached:close())
-    local result, why = Child.run({ assert(Proc.executable()), "dial", "127.0.0.2", tostring(granted) },
-      { policy = RelayStart.policy(database, digest), stdout = "capture", stderr = "capture",
-        timeout_ns = Clock.seconds(60) })
-    if result == nil then
-      assert(ChildPolicy.unsandboxable(why), "the start was refused: " .. why)
-      refusal = why
-      return
-    end
-    assert(result.ok, "exit " .. tostring(result.code) .. ": " .. tostring(result.stderr))
-    said = fixture.fields(assert(result.stdout))["dial"]
-  end)
-  local refusal_value = refusal
-  if refusal_value ~= nil then Test.skip(refusal_value) end
-  local said_value = said
-  assert(said_value ~= nil and said_value ~= "connected", "the relay's policy made a connection: " .. tostring(said_value))
-  assert(said_value:find("not permitted", 1, true), "the kernel refused the socket: " .. said_value)
-end
-
---- A policy that names more addresses literally than the relay's
---- connector holds fails to start, saying so, with nothing left running.
-local function test_more_literal_targets_than_a_connector_holds_fail_the_start(tmp: string)
-  local given = granting(sealed_client(tmp), 9)
-  local targets: mut {string} = {}
-  for port = 1, 129 do targets[port] = "127.0.0.2:" .. tostring(port) end
-  local options = { ...given, policy = { ...assert(given.policy), connect = targets } }
-  local started, why = Child.start({ assert(Proc.executable()), "wait" }, options)
-  if started ~= nil then
-    assert(started:stop())
-    assert(false, "a start with 129 literal targets went on")
-  end
-  if ChildPolicy.unsandboxable(why) then Test.skip(why) end
-  assert(why:find("relay: connect names 129 endpoints, more than the " ..
-      "128 a connector holds; grant fewer addresses, or names", 1, true), why)
-  assert(#relay_directories() == 0, "the relay's database was left")
-end
-
---- An upstream proxy the caller names by address is reached through the
---- relay's connector: the program's flow goes to it, and it is
---- asked to CONNECT to the target.
-local function test_the_upstream_proxy_is_reached_through_the_table(tmp: string)
+--- An upstream proxy the caller names by address is reached by the relay:
+--- the program's flow goes to it, and it is asked to CONNECT to the
+--- target.
+local function test_the_upstream_proxy_is_reached_by_the_relay(tmp: string)
   local script = tmp .. "/flows.tl"
   assert(Fs.write(script, FLOWS))
   local database = sealed_client(tmp)

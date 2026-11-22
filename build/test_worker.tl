@@ -1634,7 +1634,7 @@ end
 --- A stream for a forking worker's records ([`worker.Invocation`]'s `report`), or nil and why. It carries the
 --- runner's word back too ([`worker.go_on`], [`worker.stop`]), so it is a pair of sockets, not a pipe.
 function worker.relay(): worker.Relay?, string
-  local pair, trouble = process.connector_pair()
+  local pair, trouble = process.stream_pair()
   if pair == nil then return nil, trouble end
   local reader, writer = assert(pair[1]), assert(pair[2])
   -- The runner's word to a worker that has ended must fail, not end the run: a write to a stream whose reader is

@@ -111,6 +111,24 @@ COSMIC_SYSCALL(executable, 0) {
 
 /* Directory-service lookup is confined to the calling process. The
  * buffer bound limits this wrapper, not libc's own work or its latency. */
+COSMIC_SYSCALL(stream_pair, 0) {
+  lua_createtable(L, 2, 0);
+  int pair[2];
+#if defined(__linux__)
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) != 0) return cosmic_fail(L, errno);
+#else
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) return cosmic_fail(L, errno);
+  if (fcntl(pair[0], F_SETFD, FD_CLOEXEC) != 0 || fcntl(pair[1], F_SETFD, FD_CLOEXEC) != 0) {
+    int failure = errno;
+    close(pair[0]); close(pair[1]);
+    return cosmic_fail(L, failure);
+  }
+#endif
+  lua_pushinteger(L, pair[0]); lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, pair[1]); lua_rawseti(L, -2, 2);
+  return 1;
+}
+
 COSMIC_SYSCALL(user, 1) {
   luaL_checktype(L, 1, LUA_TSTRING);
   size_t length;
@@ -4328,7 +4346,7 @@ COSMIC_SYSCALL(spawn, 12) {
   const char *unveiled[UNVEIL_MAX];
   const char *unveiled_at[UNVEIL_MAX];
   int unveiled_writable[UNVEIL_MAX];
-  int unveiling = 0, unveil_count = 0, offline = 0, noexec_scratch = 0;
+  int unveiling = 0, unveil_count = 0, offline = 0, online = 0, noexec_scratch = 0;
   int relay_channel = -1;
   int relay_ports[2] = { 3128, 1080 };
   int unveiled_noexec[UNVEIL_MAX];
@@ -4622,6 +4640,12 @@ COSMIC_SYSCALL(spawn, 12) {
     lua_rawget(L, 10);
     offline = lua_toboolean(L, -1);
     lua_pop(L, 1);
+    lua_pushliteral(L, "online");
+    lua_rawget(L, 10);
+    if (!lua_isnil(L, -1) && !lua_isboolean(L, -1))
+      return luaL_argerror(L, 10, "online must be a boolean");
+    online = lua_toboolean(L, -1);
+    lua_pop(L, 1);
     lua_pushliteral(L, "relay");
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
@@ -4683,8 +4707,12 @@ COSMIC_SYSCALL(spawn, 12) {
     if (tmp_bytes != 0 && !unveiling) return luaL_argerror(L, 10, "unveil's tmp requires unveil");
     if (tmp_bytes != 0 && !strict) return luaL_argerror(L, 10, "unveil's tmp requires strict");
     if (tmp_exec && tmp_bytes == 0) return luaL_argerror(L, 10, "unveil's tmp_exec requires tmp");
-    if (sockets != 0 && !offline)
-      return luaL_argerror(L, 10, "sockets require offline: the network namespace is their hold");
+    if (online && offline) return luaL_argerror(L, 10, "online and offline exclude each other");
+    if (online && sockets != COSMIC_SOCKETS_INET)
+      return luaL_argerror(L, 10, "online needs sockets of \"inet\" alone: it is what it gives");
+    if (sockets != 0 && !offline && !online)
+      return luaL_argerror(L, 10, "sockets require offline, the network namespace that holds them, "
+                           "or online, which says nothing does");
     /* What `nest` leaves to the child's own root and pid namespace: its files, which Landlock
      * would hold but for the mounts it refuses, and its signals, which the filter lets reach
      * any pid. */

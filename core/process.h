@@ -62,22 +62,6 @@
  * count times this, plus the last one's number, which is below it. */
 #define SIGNAL_STAMP_UNIT 64
 
-/* The native connector's protocol (core/connector.c), which
- * core/socket.c's lookups through a connector and cosmic.net speak too.
- * The connector says CONNECTOR_HELLO first, "CNC" and the protocol's
- * version as one big-endian word, so a client of another version is
- * told so before it asks anything. A request is CONNECTOR_REQUEST_BYTES;
- * a reply carries its tag back, and replies come in the order the
- * connects end. At most CONNECTOR_FLIGHT connects are made at once: a
- * request for another is answered CONNECTOR_BUSY. CONNECTOR_DENIED is a
- * public connector's refusal by its lists. Both are past any errno, so a
- * kernel's failure to connect is never taken for either. */
-#define CONNECTOR_HELLO 0x434e4302
-#define CONNECTOR_REQUEST_BYTES 36
-#define CONNECTOR_FLIGHT 64
-#define CONNECTOR_DENIED 0x10000
-#define CONNECTOR_BUSY 0x10001
-
 /* Raises RLIMIT_NOFILE's soft limit toward the hard one, as far as
  * 10240 (macOS's OPEN_MAX) or kern.maxfilesperproc where that is lower,
  * as a Go program's runtime does at its start:
@@ -202,67 +186,12 @@ _Noreturn void cosmic_trampoline (int argc, char **argv);
 COSMIC_SYSCALL(user, 1);
 
 /*
- * --- One numeric TCP endpoint already resolved and approved by the sandbox's trusted launcher. Port 0 grants ports 1 through 65535 at this address; it does not grant another address.
- * ---@class ConnectorEndpoint
- * ---@field host string a canonical numeric IPv4 or IPv6 address, without a scope
- * ---@field port integer the granted port, or 0 for any nonzero port
- */
-
-/*
- * --- Makes the private stream socketpair a native connector uses. Both descriptors are close-on-exec and the caller must close both. No child is started.
- * ---@return {integer}|nil pair two owned Unix stream descriptors, or nil on failure
+ * --- Makes a private unix stream socketpair, such as the channel a sandbox's relay is handed its listeners over (`Relay`). Both descriptors are close-on-exec and the caller must close both. No child is started.
+ * ---@return {integer}|nil pair two owned unix stream descriptors, or nil on failure
  * ---@return string error what went wrong, when pair is nil
  * ---@return integer errno the error number, when pair is nil
  */
-COSMIC_SYSCALL(connector_pair, 0);
-
-/*
- * --- What a public native connector refuses, as data its caller owns: the connector holds no list of its own. Each `deny` entry is a numeric "address/bits" prefix, IPv4 or IPv6; each `own` entry a numeric address of the host, which an IPv4-mapped IPv6 spelling reduces to the IPv4 address it carries. At most 128 deny entries and 256 own addresses. An address is refused when a deny prefix or an own address holds it, and an IPv6 address also unless it is in 2000::/3, so IPv4-mapped and NAT64 forms are refused undecoded.
- * ---@class ConnectorPublic
- * ---@field deny {string} the refused prefixes, such as "10.0.0.0/8" and "fc00::/7"
- * ---@field own {string}|nil the host's own numeric addresses, refused as their own
- */
-
-/*
- * --- Starts the sandbox's native TCP connector, held to at most 128 approved numeric endpoints in immutable memory and no file access, exec, fork or descriptor replacement. Wildcard port tables together hold at most 262144 addresses. The caller supplies one end of connector_pair, retains ownership of it, and closes its copy after starting. The connector first writes `CONNECTOR_HELLO` (socket's constants), a big-endian word, and then serves requests, each `CONNECTOR_REQUEST_BYTES` (36): big-endian words of a tag, a 1-based endpoint index, a port, a wait in milliseconds (the connect's, at most `timeout_ms`; 0 for `timeout_ms`) and a family, then 16 address bytes; a table request's family and address are zero (EINVAL otherwise). Up to `CONNECTOR_FLIGHT` connects are made at once, a request for another answered `CONNECTOR_BUSY`. A reply is the request's tag and an errno, big-endian words, then, on success only, the NUL marker and one SCM_RIGHTS descriptor recvfds expects; replies come as connects end, in any order, each whole. Closing the other end ends the connector; the caller owns and reaps its pid. Linux x86_64 and aarch64; ENOSYS elsewhere.
- * --- With `public`, the connector also connects to an address no table holds. Its request's index is 4294967295 (0xffffffff), its family 4 or 6 and its 16 address bytes the address (an IPv4 address in the first four, the rest zero). Index 0 is refused (EPERM) by every connector. The connector classifies the address against `public`'s data in its own confined process and, if allowed, connects through a writable scratch slot its filter accepts beside the table's immutable ones. The reply is the table's, with `CONNECTOR_DENIED` for an address its lists refuse, EINVAL for a malformed request and EPERM where the connector is not public. Port 0 asks only for the decision: errno 0 for an allowed address, and no socket or descriptor. The table may then be empty.
- * ---@param endpoints {ConnectorEndpoint} the launcher's checked, frozen numeric endpoints; empty only with `public`
- * ---@param control integer the private Unix stream descriptor, checked like every descriptor
- * ---@param timeout_ms integer connect deadline, from 1 to 60000 milliseconds
- * ---@param public ConnectorPublic|nil what a public connector refuses; nil for a table-only connector
- * ---@return integer|nil pid the confined child, or nil on failure
- * ---@return string error what went wrong, when pid is nil
- * ---@return integer errno the error number, when pid is nil
- */
-COSMIC_SYSCALL(connector_start, 4);
-
-/*
- * --- A synthetic immutable address-table range used to inspect the connector's seccomp program, without installing one.
- * ---@class ConnectorRange
- * ---@field base integer address of the first 128-byte table slot, aligned to 128
- * ---@field slots integer number of slots, from 1 to 65535
- * ---@field length integer sockaddr size: 16 for Linux IPv4, 28 for Linux IPv6
- */
-
-/*
- * --- Builds the native connector's actual seccomp program for either supported Linux architecture; its layout is promise_filter's eight-byte instructions. No filter is applied.
- * ---@param architecture string "x86_64" or "aarch64"
- * ---@param ranges {ConnectorRange} the immutable table ranges, at most 128
- * ---@param control integer the protected private Unix stream descriptor
- * ---@param status integer the startup pipe descriptor
- * ---@return string program the generated classic BPF program
- */
-COSMIC_SYSCALL(connector_filter, 4);
-
-/*
- * --- Runs a fixed native security probe in a child under the connector's actual filter, with one approved endpoint (a "scratch_" one with an empty-deny public connector). No arbitrary code is run. An operation refused by seccomp returns its errno; a killed probe returns minus its signal number.
- * ---@param endpoint ConnectorEndpoint the approved endpoint
- * ---@param operation string "pointer", "length", "mutation", "mprotect", "remap", "dup", "recvmsg", "sendto", "sendmsg", "close_control", "udp", "open", "exec" or "fork"; or, on a public connector's scratch page, "scratch_mprotect", "scratch_remap", "scratch_pointer", "scratch_length", "scratch_offset", "scratch_past" or "scratch_swapped"; or "unscratched", on a table-only connector with a writable page its filter does not list
- * ---@return integer|nil result the refusal errno or negative terminating signal, or nil on setup failure
- * ---@return string error what went wrong, when result is nil
- * ---@return integer errno the setup error number, when result is nil
- */
-COSMIC_SYSCALL(connector_probe, 2);
+COSMIC_SYSCALL(stream_pair, 0);
 
 /*
  * --- The paths a sandbox unveils, each absolute; at most `UNVEIL_MAX` in all.
@@ -309,8 +238,9 @@ COSMIC_SYSCALL(connector_probe, 2);
  * ---@field noexec_scratch boolean|nil with `unveil`, a fresh writable tmpfs at /noexec whose files cannot execute. No unveiled path or alias may occupy /, /noexec or beneath /noexec. This option does not change ordinary /tmp policy. Reading, interpreting or copying its bytes elsewhere is allowed. Linux only; creation failure is reported without a host-directory fallback
  * ---@field strict boolean|nil a policy's sandbox, in which a start met whole or failing: with `unveil`, no /tmp but `unveil`'s `tmp`; a root's own tmpfs (so the user must be mapped: EPERM for a root inside another sandbox, which has none); a procfs of its own or no start, with no fallback to the host's /proc; and `grants` given Landlock's rules for its own /proc and /tmp. A start that fails in making its namespaces, its procfs or its root answers a message naming the remedy -- unprivileged user namespaces (user.max_user_namespaces, kernel.unprivileged_userns_clone, kernel.apparmor_restrict_unprivileged_userns), or the container option a procfs needs (--security-opt systempaths=unconfined) -- and its errno
  * ---@field proc boolean|nil a pid namespace and a procfs of its own over the host's /proc, in a mount namespace of its own, the host's filesystem otherwise and not a root of its own: the child is pid 2 beneath an init, as with `unveil`, whose other namespaces and session it shares; no fallback to the host's /proc, a refusal fails the start. Not with `unveil`
- * ---@field sockets {string}|nil with `promises`, the socket families the child may make with socket(): "unix" (AF_UNIX) and "inet" (AF_INET and AF_INET6, and the NETLINK_ROUTE socket the interfaces of its network namespace are listed over); any other netlink socket and packet sockets never. With `grants`, "inet" leaves TCP unhandled (below Landlock ABI 4 it always was), the network namespace being what holds it: give it with `offline`, which `sockets` requires
+ * ---@field sockets {string}|nil with `promises`, the socket families the child may make with socket(): "unix" (AF_UNIX) and "inet" (AF_INET and AF_INET6, and the NETLINK_ROUTE socket the interfaces of its network namespace are listed over); any other netlink socket and packet sockets never. With `grants`, "inet" leaves TCP unhandled (below Landlock ABI 4 it always was), the network namespace being what holds it: give it with `offline`, or with `online`, which says nothing holds it; `sockets` requires one of the two
  * ---@field offline boolean|nil a network namespace of its own, with nothing but a loopback, which is up: a connection to 127.0.0.1 reaches a listener of the child's own processes, or is refused
+ * ---@field online boolean|nil with `sockets` of "inet" alone, and never with `offline`: the child makes inet sockets in this process's own network, and nothing holds what it connects to or listens at but the program itself. For a trusted program that checks every address itself, such as the sandbox's relay
  * ---@field relay Relay|nil with `offline`: the child binds TCP listeners on 127.0.0.1 in its network namespace, as the one thing it does there before any Landlock ruleset or filter holds it, and sends both descriptors, listening, in one message over `relay`'s channel, so this process accepts what a program in the sandbox connects to those ports. A failure of the sockets, a bind, a listen or the send fails the start before exec and answers a message naming the relay's listeners, strict or not; the child inherits this process's seccomp filter, so a parent pledged without \"inet\" cannot make them (EPERM, reported as a relay failure). Raises without `offline`
  * ---@field user integer|nil with `unveil` or `proc` and `group`, the user the child runs as in place of this process's root, which must hold CAP_SETUID, CAP_SETGID and CAP_SETFCAP where that user and group are mapped (root, most often), or nil to run as this process's own: its namespace maps root and that user beside it, written from outside by a process of this one's, and its root is built by root there, with what it makes owned by that user, as an unprivileged caller's child's is; then it gives root up for that user and group, with no supplementary group, and, where its /proc is its own, makes a user namespace mapping that user and group alone, as such a caller's child has -- so, as that one can, it confines one of its own at any depth. Neither 0 nor -1. EPERM where this process may not map them
  * ---@field group integer|nil the group the child runs as with `user`, which needs one

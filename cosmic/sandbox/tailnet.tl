@@ -13,7 +13,6 @@
 --- @public
 
 local Grant = require("cosmic.relay.grant")
-local RelayStart = require("cosmic.internal.relay_start")
 local rules = require("cosmic.sandbox.policy")
 local type Tailscale = require("cosmic.tailscale")
 
@@ -121,9 +120,7 @@ end
 --- answers ([`Tailscale.connect`]; the machine's own when nil). Nil and why,
 --- naming the target, where they cannot be, where one names no peer
 --- (a typo, or a tag no node carries yet, which would start the program
---- with less than it was meant to reach), or where the addresses they
---- name are more than the relay's connector holds (128 endpoints; an
---- address at any port takes far more of its table than one at a port).
+--- with less than it was meant to reach).
 function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): rules.Policy?, string
   local connect = merged.connect or {}
   if not tailnet.named(connect) then return merged, "" end
@@ -140,12 +137,7 @@ function tailnet.policy(merged: rules.Policy, daemon?: Tailscale.Daemon): rules.
       end
     end
   end
-  local resolved = tailnet.resolved(connect, assert(status))
-  local _, too_many = RelayStart.plan(resolved, {})
-  if too_many ~= "" then
-    return nil, "sandbox: the tailnet targets of connect resolve to more than the relay holds: " .. too_many
-  end
-  return rules.with_connect(merged, resolved), ""
+  return rules.with_connect(merged, tailnet.resolved(connect, assert(status))), ""
 end
 
 --- `policy` with the `connect` of `merged`, the policy [`tailnet.policy`]

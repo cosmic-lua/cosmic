@@ -2,7 +2,7 @@
 --- host's own loopback that a `connect` target names, at 127.0.0.1: its
 --- `NO_PROXY` leaves that address out, so curl sends it to the relay
 --- (cosmic/internal/relay_config.tl's `proxy_env`). The server is this test's own,
---- at 127.0.0.1 of the worker's network, which the start's connector
+--- at 127.0.0.1 of the worker's network, which the relay, started in it,
 --- reaches and the program's network of its own does not. Like
 --- cosmic/child_relay_test.tl, it needs a sandbox that nests, and skips
 --- itself where this host gives none.

@@ -1744,6 +1744,13 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   says(refused_sandbox({ promises = {}, sockets = { "packet" } }), "a socket family is") -- checked: literal_needs_type
   says(refused_sandbox({ promises = {}, sockets = { "inet" } }), "sockets require offline") -- checked: literal_needs_type
   says(refused_sandbox({ relay = { fd = 3 } }), "relay requires offline")
+  local both: raw_process.Sandbox = { promises = {}, sockets = { "inet" }, online = true, offline = true }
+  says(refused_sandbox(both), "online and offline exclude each other")
+  local unsocketed: raw_process.Sandbox = { promises = {}, online = true }
+  says(refused_sandbox(unsocketed), "online needs sockets of \"inet\" alone")
+  local unix_online: raw_process.Sandbox = { promises = {}, sockets = { "inet", "unix" }, online = true }
+  says(refused_sandbox(unix_online), "online needs sockets of \"inet\" alone")
+  says(refused_sandbox({ online = "yes" }), "online must be a boolean")
   says(refused_sandbox({ relay = 3 }), "relay must be a table")
   says(refused_sandbox({ relay = {}, offline = true }), "relay's fd must be a descriptor") -- checked: literal_needs_type
   local below: raw_process.Sandbox = { relay = { fd = -1 }, offline = true }

@@ -1,4 +1,3 @@
-local ConnectorFixture = require("build.connector_fixture")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Fixture = require("build.relay_wire_fixture")
@@ -12,13 +11,13 @@ local Udp = require("build.udp_fixture")
 Test.policy{ loopback = { "127.0.0.1" } }
 
 -- The relay is exercised against servers of the test's own on 127.0.0.1,
--- through a connector that stands in for the native one (which
--- core/connector_test.tl holds to its filter) and records what it was
--- asked to connect to. Names resolve through a hosts file the test writes.
+-- through a `connect` that stands in for Net.connect and records what it
+-- was asked to connect to. Names resolve through a hosts file the test
+-- writes.
 
 --- The addresses a name resolves to in the test's hosts file: loopback
 --- (which only a literal grant opens), and a name whose answers mix a
---- private address with two public ones, which the connector below maps to
+--- private address with two public ones, which the `connect` below maps to
 --- a server of the test's.
 local HOSTS <const> = table.concat({
   "127.0.0.1 svc.test other.test direct.test",
@@ -127,13 +126,12 @@ local record Options
   timeouts?: Relay.Timeouts
   limits?: Relay.Limits
   tls_ports?: {integer}
-  connector?: Relay.Connector
+  connect?: Relay.Connect
   resolve?: Net.ResolveOptions
   --- Address of a name's answer, to the port of the server it stands for.
   redirect?: {string: integer}
   own_addresses?: {string}
   token?: string
-  unresolved?: string
   --- Serve both protocols at one listener, as a relay on the host's
   --- loopback does: `http` and `socks` are then its one address.
   mixed?: boolean
@@ -146,9 +144,9 @@ local record Rig
   mut server: Relay.Serving
   --- The decision lines.
   log: mut {string}
-  --- The connections the connector was asked for, as "address:port".
+  --- The connections `connect` was asked for, as "address:port".
   asked: mut {string}
-  --- The timeouts the connector was given.
+  --- The timeouts `connect` was given.
   given: mut {integer}
   listeners: {Net.Listener}
 end
@@ -175,11 +173,10 @@ local function start(tmp: string, opts: Options): Rig
     http = http, socks = socks, mixed = if mixed ~= nil then { mixed } else nil end, grants = opts.grants, upstream = opts.upstream,
     timeouts = opts.timeouts, limits = opts.limits, tls_ports = opts.tls_ports,
     resolve = resolve, own_addresses = opts.own_addresses, token = opts.token,
-    unresolved = opts.unresolved,
     log = function(line: string)
       rig.log[#rig.log + 1] = line
     end,
-    connector = opts.connector or function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
+    connect = opts.connect or function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
       table.insert(rig.asked, address .. ":" .. tostring(port))
       rig.given[#rig.given + 1] = timeout_ns
       return Net.connect(Net.tcp(if redirect[address] ~= nil then "127.0.0.1" else address end, redirect[address] or port),
@@ -244,9 +241,9 @@ end
 local function socks_to(rig: Rig, host: string, port: integer): Net.Conn, integer
   local conn = dial(rig.socks)
   assert(conn:write("\5\1\0"))
-  assert(ConnectorFixture.read_exact(conn, 2) == "\5\0")
+  assert(Fixture.read_exact(conn, 2) == "\5\0")
   assert(conn:write(Fixture.socks_request(1, 3, string.char(#host) .. host, port)))
-  local reply = ConnectorFixture.read_exact(conn, 10)
+  local reply = Fixture.read_exact(conn, 10)
   local code = reply:byte(2)
   assert(code, "the reply holds a code")
   return conn, code
@@ -288,11 +285,11 @@ local function test_a_granted_name_is_carried_both_ways_over_connect(tmp: string
     local conn, head = connect_to(rig, "svc.test:" .. tostring(port))
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     assert(conn:write("hello "))
-    assert(ConnectorFixture.read_exact(conn, 6) == "hello ")
+    assert(Fixture.read_exact(conn, 6) == "hello ")
     assert(conn:write("again"))
-    assert(ConnectorFixture.read_exact(conn, 5) == "again")
+    assert(Fixture.read_exact(conn, 5) == "again")
     assert(rig.asked[1] == "127.0.0.1:" .. tostring(port) and #rig.asked == 1, table.concat(rig.asked, ","))
-    assert(rig.given[1] == Clock.seconds(10), "the connector is given the connect timeout")
+    assert(rig.given[1] == Clock.seconds(10), "the connect timeout is given to `connect`")
     assert(#lines_with(rig, "allowed via 127.0.0.1:" .. tostring(port)) == 1, table.concat(rig.log, "\n"))
     local _, _ = conn:close()
     until_it(function(): boolean return rig.server:stats().open == 0 end)
@@ -309,15 +306,15 @@ local function test_a_granted_name_is_carried_both_ways_over_socks5(tmp: string)
     local conn, code = socks_to(rig, "svc.test", port)
     assert(code == 0, code)
     assert(conn:write("socks"))
-    assert(ConnectorFixture.read_exact(conn, 5) == "socks")
+    assert(Fixture.read_exact(conn, 5) == "socks")
     -- An address request, as a client that resolved by itself would send it, is a literal.
     local direct = dial(rig.socks)
     assert(direct:write("\5\1\0"))
-    assert(ConnectorFixture.read_exact(direct, 2) == "\5\0")
+    assert(Fixture.read_exact(direct, 2) == "\5\0")
     assert(direct:write(Fixture.socks_request(1, 1, "\127\0\0\1", port)))
-    assert(ConnectorFixture.read_exact(direct, 10):byte(2) == 0, "a literal grant opens the address")
+    assert(Fixture.read_exact(direct, 10):byte(2) == 0, "a literal grant opens the address")
     assert(direct:write("direct"))
-    assert(ConnectorFixture.read_exact(direct, 6) == "direct")
+    assert(Fixture.read_exact(direct, 6) == "direct")
     local _, _ = conn:close()
     local _, _ = direct:close()
     finish(rig, server)
@@ -433,7 +430,7 @@ local function test_an_ip_literal_a_grant_names_is_connected(tmp: string)
     local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(conn:write("literal"))
-    assert(ConnectorFixture.read_exact(conn, 7) == "literal")
+    assert(Fixture.read_exact(conn, 7) == "literal")
     local _, _ = conn:close()
     -- The grant is of its own port: the same address on another is refused.
     local other, answer = connect_to(rig, "127.0.0.1:" .. tostring((port % 60000 + 1)))
@@ -452,7 +449,7 @@ local function test_a_name_connects_to_the_first_allowed_answer_that_answers(tmp
     local conn, head = connect_to(rig, "multi.test:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(conn:write("mixed"))
-    assert(ConnectorFixture.read_exact(conn, 5) == "mixed")
+    assert(Fixture.read_exact(conn, 5) == "mixed")
     assert(#rig.asked == 1, table.concat(rig.asked, ","))
     assert(rig.asked[1] == "93.184.216.34:" .. tostring(port) or rig.asked[1] == "93.184.216.35:" .. tostring(port), rig.asked[1])
     local _, _ = conn:close()
@@ -460,10 +457,10 @@ local function test_a_name_connects_to_the_first_allowed_answer_that_answers(tmp
   end)
 end
 
---- A connector that fails the first address it is asked and connects the
+--- A `connect` that fails the first address it is asked and connects the
 --- others to the loopback `port`, recording each address and the time it
 --- was given.
-local function first_fails_connector(how: string, port: integer, asked: mut {string}, given: mut {integer}): Relay.Connector
+local function first_fails_connect(how: string, port: integer, asked: mut {string}, given: mut {integer}): Relay.Connect
   return function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
     asked[#asked + 1] = address
     given[#given + 1] = timeout_ns
@@ -486,11 +483,11 @@ local function test_a_name_whose_first_address_fails_connects_to_the_next(tmp: s
       local port = server.port
       local asked, given: mut {string}, mut {integer} = {}, {}
       local rig = start(tmp, { grants = { "multi.test:" .. tostring(port) },
-        connector = first_fails_connector(how, port, asked, given) })
+        connect = first_fails_connect(how, port, asked, given) })
       local conn, head = connect_to(rig, "multi.test:" .. tostring(port))
       assert(status_line(head):find("^HTTP/1.1 200 "), how .. ": " .. head)
       assert(conn:write("second"))
-      assert(ConnectorFixture.read_exact(conn, 6) == "second")
+      assert(Fixture.read_exact(conn, 6) == "second")
       assert(#asked == 2 and asked[1] ~= asked[2], table.concat(asked, ","))
       -- Only the public answers are candidates: the private one is never tried.
       assert(not contains(asked, "10.1.2.3"), table.concat(asked, ","))
@@ -509,7 +506,7 @@ local function test_a_name_none_of_whose_addresses_answer_is_refused_once_naming
   Poll.run(function()
     local asked, given: mut {string}, mut {integer} = {}, {}
     local rig = start(tmp, { grants = { "multi.test:80" },
-      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
+      connect = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         return nil, "Connection refused"
@@ -532,7 +529,7 @@ local function test_the_connect_timeout_bounds_every_address_together(tmp: strin
   Poll.run(function()
     local asked, given: mut {string}, mut {integer} = {}, {}
     local rig = start(tmp, { grants = { "multi.test:80" }, timeouts = { connect = Clock.ms(600) },
-      connector = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
+      connect = function(address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         -- A host that never answers: the attempt lasts what it is given.
@@ -580,31 +577,6 @@ local function test_a_name_that_does_not_resolve_is_unreachable(tmp: string)
     assert(code == 4, code)
     local _, _ = socks:close()
     finish(rig)
-  end)
-end
-
---- A relay whose name servers could not be read still serves: every name
---- is refused, saying why, and a literally granted address is connected.
-local function test_a_relay_without_name_servers_refuses_names_and_reaches_granted_addresses(tmp: string)
-  Poll.run(function()
-    local server = origin(echo)
-    local port = server.port
-    local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) },
-      unresolved = "no name servers here" })
-    local conn, head = connect_to(rig, "svc.test:" .. tostring(port))
-    local line = status_line(head)
-    assert(line:find("^HTTP/1.1 502 ") and line:find("could not resolve svc.test: no name servers here", 1, true), line)
-    local _, _ = conn:close()
-    local socks, code = socks_to(rig, "svc.test", port)
-    assert(code == 4, code)
-    local _, _ = socks:close()
-    local literal, answer = connect_to(rig, "127.0.0.1:" .. tostring(port))
-    assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
-    assert(literal:write("literal"))
-    assert(ConnectorFixture.read_exact(literal, 7) == "literal")
-    local _, _ = literal:close()
-    assert(#lines_with(rig, "no name is resolved") == 1, table.concat(rig.log, "\n"))
-    finish(rig, server)
   end)
 end
 
@@ -656,7 +628,7 @@ local function test_a_lookup_that_is_not_answered_stalls_only_its_own_connection
     local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(port))
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
     assert(conn:write("meanwhile"))
-    assert(ConnectorFixture.read_exact(conn, 9) == "meanwhile")
+    assert(Fixture.read_exact(conn, 9) == "meanwhile")
     local meanwhile = (Clock.monotonic_ns() - began) // 1000000
     assert(meanwhile < 1000, "a tunnel waited " .. tostring(meanwhile) .. " ms behind another connection's lookup")
     assert(not slow_answered, "the lookup ended before its time")
@@ -693,7 +665,7 @@ local function test_a_lookup_out_of_time_is_refused_while_another_is_answered(tm
     local conn, answer = connect_to(rig, "svc.test:" .. tostring(port))
     assert(status_line(answer):find("^HTTP/1.1 200 "), answer)
     assert(conn:write("hosts"))
-    assert(ConnectorFixture.read_exact(conn, 5) == "hosts")
+    assert(Fixture.read_exact(conn, 5) == "hosts")
     assert(head == "", "the slow lookup ended before its time")
     until_it(function(): boolean return head ~= "" end)
     local line = status_line(head)
@@ -711,8 +683,8 @@ local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
     local outcome = "Connection refused"
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(port) },
       timeouts = { connect = Clock.ms(750) },
-      connector = function(_address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
-        assert(timeout_ns == Clock.ms(750), "the connect timeout reaches the connector")
+      connect = function(_address: string, _port: integer, timeout_ns: integer): Net.Conn?, string
+        assert(timeout_ns == Clock.ms(750), "the connect timeout reaches `connect`")
         assert(Poll.delay(Clock.ms(5)))
         return nil, outcome
       end })
@@ -736,9 +708,9 @@ local function test_a_connection_that_fails_or_times_out_says_which(tmp: string)
       local _, _ = conn:close()
       local socks = dial(rig.socks)
       assert(socks:write("\5\1\0"))
-      assert(ConnectorFixture.read_exact(socks, 2) == "\5\0")
+      assert(Fixture.read_exact(socks, 2) == "\5\0")
       assert(socks:write(Fixture.socks_request(1, 1, "\127\0\0\1", port)))
-      assert(ConnectorFixture.read_exact(socks, 10):byte(2) == case.reply, case.outcome)
+      assert(Fixture.read_exact(socks, 10):byte(2) == case.reply, case.outcome)
       local _, _ = socks:close()
     end
     finish(rig)
@@ -767,7 +739,7 @@ local function test_an_sni_that_differs_from_the_host_is_refused(tmp: string)
     local hello = Fixture.records(Fixture.hello({ name = "SVC.test" }))
     local same = connect_to(rig, "svc.test:" .. tostring(port))
     assert(same:write(hello))
-    assert(ConnectorFixture.read_exact(same, 3) == "ack")
+    assert(Fixture.read_exact(same, 3) == "ack")
     assert(server.received == hello, "the hello arrived unchanged")
     local _, _ = same:close()
     finish(rig, server)
@@ -787,13 +759,13 @@ local function test_a_hello_split_across_writes_is_judged_whole(tmp: string)
     assert(Poll.delay(Clock.ms(30)))
     assert(server.received == "", "nothing is passed on while the hello is incomplete")
     assert(conn:write(hello:sub(4)))
-    assert(ConnectorFixture.read_exact(conn, 3) == "ack")
+    assert(Fixture.read_exact(conn, 3) == "ack")
     assert(server.received == hello)
     local _, _ = conn:close()
     -- And bytes that follow the hello in the same write go with it.
     local followed = connect_to(rig, "svc.test:" .. tostring(port))
     assert(followed:write(hello .. "more"))
-    assert(ConnectorFixture.read_exact(followed, 3) == "ack")
+    assert(Fixture.read_exact(followed, 3) == "ack")
     assert(server.received == hello .. hello .. "more")
     local _, _ = followed:close()
     finish(rig, server)
@@ -850,7 +822,7 @@ local function test_a_hello_with_no_name_is_refused_on_a_tls_port_only(tmp: stri
     local plain = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) } })
     local open = connect_to(plain, "svc.test:" .. tostring(port))
     assert(open:write(nameless))
-    assert(ConnectorFixture.read_exact(open, 3) == "ack")
+    assert(Fixture.read_exact(open, 3) == "ack")
     local _, _ = open:close()
     finish(plain)
     -- Named a TLS port, the same hello is refused.
@@ -863,7 +835,7 @@ local function test_a_hello_with_no_name_is_refused_on_a_tls_port_only(tmp: stri
     -- A connection to an address names no host to match: a nameless hello is what it sends.
     local literal = connect_to(strict, "127.0.0.1:" .. tostring(port))
     assert(literal:write(nameless))
-    assert(ConnectorFixture.read_exact(literal, 3) == "ack")
+    assert(Fixture.read_exact(literal, 3) == "ack")
     local _, _ = literal:close()
     finish(strict, server)
   end)
@@ -893,7 +865,7 @@ local function test_bytes_that_are_not_tls_pass_on_any_port(tmp: string)
     local rig = start(tmp, { grants = { "svc.test:" .. tostring(port), "127.0.0.1:" .. tostring(port) }, tls_ports = { port } })
     local conn = connect_to(rig, "svc.test:" .. tostring(port))
     -- A server that speaks first is not waited on for the client's hello.
-    assert(ConnectorFixture.read_exact(conn, 16) == "SSH-2.0-origin\r\n")
+    assert(Fixture.read_exact(conn, 16) == "SSH-2.0-origin\r\n")
     assert(conn:write("SSH-2.0-client\r\n"))
     assert(Poll.delay(Clock.ms(30)))
     assert(server.received == "SSH-2.0-client\r\n", server.received)
@@ -903,7 +875,7 @@ local function test_bytes_that_are_not_tls_pass_on_any_port(tmp: string)
     local _, _ = conn:close()
     -- The first bytes the client sends are read as a hello, whenever they come.
     local late = connect_to(rig, "svc.test:" .. tostring(port))
-    assert(ConnectorFixture.read_exact(late, 16) == "SSH-2.0-origin\r\n")
+    assert(Fixture.read_exact(late, 16) == "SSH-2.0-origin\r\n")
     assert(late:write(Fixture.records(Fixture.hello({ name = "evil.test" }))))
     assert(read_all(late) == "\21\3\3\0\2\2\40")
     local _, _ = late:close()
@@ -916,7 +888,7 @@ local function test_a_client_that_waits_for_a_server_that_speaks_first_is_not_ti
     local server = origin(banner)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) }, timeouts = { head = Clock.ms(150) } })
     local conn = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
-    assert(ConnectorFixture.read_exact(conn, 16) == "SSH-2.0-origin\r\n")
+    assert(Fixture.read_exact(conn, 16) == "SSH-2.0-origin\r\n")
     -- Silent for longer than the head timeout, as a client waiting on a prompt is.
     assert(Poll.delay(Clock.ms(450)))
     assert(rig.server:stats().open == 1, "still open")
@@ -944,7 +916,7 @@ local function test_a_hello_sent_with_the_request_is_judged_and_passed(tmp: stri
     local pipelined = dial(rig.http)
     assert(pipelined:write(Fixture.connect("svc.test:" .. tostring(port)) .. hello))
     assert(status_line(read_head(pipelined)):find("^HTTP/1.1 200 "))
-    assert(ConnectorFixture.read_exact(pipelined, 3) == "ack")
+    assert(Fixture.read_exact(pipelined, 3) == "ack")
     assert(server.received == hello)
     local _, _ = pipelined:close()
     local bad = dial(rig.http)
@@ -956,10 +928,10 @@ local function test_a_hello_sent_with_the_request_is_judged_and_passed(tmp: stri
     -- SOCKS5: the request and the hello in one write after the greeting.
     local socks = dial(rig.socks)
     assert(socks:write("\5\1\0"))
-    assert(ConnectorFixture.read_exact(socks, 2) == "\5\0")
+    assert(Fixture.read_exact(socks, 2) == "\5\0")
     assert(socks:write(Fixture.socks_request(1, 3, "\8svc.test", port) .. hello))
-    assert(ConnectorFixture.read_exact(socks, 10):byte(2) == 0)
-    assert(ConnectorFixture.read_exact(socks, 3) == "ack")
+    assert(Fixture.read_exact(socks, 10):byte(2) == 0)
+    assert(Fixture.read_exact(socks, 3) == "ack")
     local _, _ = socks:close()
     finish(rig, server)
   end)
@@ -986,7 +958,7 @@ local function test_a_connection_made_after_stop_is_closed(tmp: string)
   Poll.run(function()
     local server = origin(echo)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) },
-      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
+      connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         assert(Poll.delay(Clock.ms(150)))
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
       end })
@@ -1018,7 +990,7 @@ local function test_each_side_ending_what_it_sends_is_passed_on(tmp: string)
     local _, _ = conn:close()
     -- The server ends first: the program reads the end, and can still send.
     local other = connect_to(rig, "127.0.0.1:" .. tostring(greeter.port))
-    assert(ConnectorFixture.read_exact(other, 5) == "greet")
+    assert(Fixture.read_exact(other, 5) == "greet")
     local data, why = other:read()
     assert(data == nil and why == "", "the end of what the server sends")
     assert(other:write("late"))
@@ -1040,7 +1012,7 @@ local function test_a_tunnel_nothing_moves_in_ends_at_the_idle_timeout(tmp: stri
     for _ = 1, 4 do
       assert(Poll.delay(Clock.ms(100)))
       assert(conn:write("x"))
-      assert(ConnectorFixture.read_exact(conn, 1) == "x")
+      assert(Fixture.read_exact(conn, 1) == "x")
     end
     assert(Clock.monotonic_ns() - started > Clock.ms(350))
     -- Then none do.
@@ -1195,7 +1167,7 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     local conn, head = connect_to(rig, "api.test:443")
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     assert(conn:write("tunnelled"))
-    assert(ConnectorFixture.read_exact(conn, 9) == "tunnelled")
+    assert(Fixture.read_exact(conn, 9) == "tunnelled")
     assert(through.head:find("^CONNECT api.test:443 HTTP/1.1\r\nHost: api.test:443\r\nProxy%-Authorization: Basic dTpw\r\n\r\n"),
       through.head)
     assert(rig.asked[1] == "127.0.0.1:" .. tostring(through.server.port) and #rig.asked == 1, table.concat(rig.asked, ","))
@@ -1223,17 +1195,17 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
   end)
 end
 
---- A relay that resolves no name still reaches an upstream proxy named by
---- its numeric address, which needs no lookup.
-local function test_a_numeric_upstream_is_reached_by_a_relay_that_resolves_no_name(tmp: string)
+--- An upstream proxy named by its numeric address is reached with no
+--- lookup.
+local function test_a_numeric_upstream_is_reached_with_no_lookup(tmp: string)
   Poll.run(function()
     local through = proxy("200")
     local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
-    local rig = start(tmp, { grants = { "api.test:443" }, upstream = up, unresolved = "no name servers here" })
+    local rig = start(tmp, { grants = { "api.test:443" }, upstream = up })
     local conn, head = connect_to(rig, "api.test:443")
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     assert(conn:write("tunnelled"))
-    assert(ConnectorFixture.read_exact(conn, 9) == "tunnelled")
+    assert(Fixture.read_exact(conn, 9) == "tunnelled")
     local _, _ = conn:close()
     finish(rig, through.server)
   end)
@@ -1263,7 +1235,7 @@ local function test_an_upstream_proxy_is_reached_at_the_next_of_its_addresses(tm
     local up: Relay.Upstream = { host = "proxy.test", port = through.server.port, no_proxy = {},
       addresses = { "192.0.2.1", "127.0.0.1" } }
     local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
-      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
+      connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         given[#given + 1] = timeout_ns
         if address == "192.0.2.1" then return nil, "No route to host" end
@@ -1272,7 +1244,7 @@ local function test_an_upstream_proxy_is_reached_at_the_next_of_its_addresses(tm
     local conn, head = connect_to(rig, "api.test:443")
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     assert(conn:write("proxied"))
-    assert(ConnectorFixture.read_exact(conn, 7) == "proxied")
+    assert(Fixture.read_exact(conn, 7) == "proxied")
     assert(table.concat(asked, ",") == "192.0.2.1,127.0.0.1", table.concat(asked, ","))
     local _, _ = conn:close()
     finish(rig, through.server)
@@ -1284,7 +1256,7 @@ local function test_an_upstream_proxy_none_of_whose_addresses_answer_is_refused_
     local up: Relay.Upstream = { host = "proxy.test", port = 3128, no_proxy = {}, addresses = { "192.0.2.1", "192.0.2.2" } }
     local asked: mut {string} = {}
     local rig = start(tmp, { grants = { "api.test:443" }, upstream = up,
-      connector = function(address: string, _port: integer, _timeout_ns: integer): Net.Conn?, string
+      connect = function(address: string, _port: integer, _timeout_ns: integer): Net.Conn?, string
         asked[#asked + 1] = address
         return nil, "Connection refused"
       end })
@@ -1384,7 +1356,7 @@ local function test_stop_closes_open_tunnels(tmp: string)
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(server.port) } })
     local conn = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(conn:write("a"))
-    assert(ConnectorFixture.read_exact(conn, 1) == "a")
+    assert(Fixture.read_exact(conn, 1) == "a")
     rig.server:stop()
     local data, _ = conn:read()
     assert(data == nil, "the tunnel was closed")
@@ -1417,13 +1389,13 @@ local function test_stop_does_not_wait_for_a_request_that_is_not_finished(tmp: s
 end
 
 local function test_a_spec_that_is_no_spec_raises()
-  local ok = pcall(Relay.start, { grants = {}, connector = function(): Net.Conn?, string -- checked: alternatives_as_value
+  local ok = pcall(Relay.start, { grants = {}, connect = function(): Net.Conn?, string -- checked: alternatives_as_value
     return nil, ""
   end })
   assert(not ok, "start runs in a task")
   Poll.run(function()
     local listener = listen_here()
-    local function connector(): Net.Conn?, string
+    local function connect(): Net.Conn?, string
       return nil, "unused"
     end
     local record Case
@@ -1431,20 +1403,20 @@ local function test_a_spec_that_is_no_spec_raises()
       says: string
     end
     local cases: {Case} = {
-      { spec = { grants = {}, connector = connector }, says = "an http, a socks or a mixed listener" },
-      { spec = { http = listener, grants = {}, connector = connector, timeouts = { idle = 0 } }, says = "timeouts.idle must be an integer from 1" },
-      { spec = { http = listener, grants = {}, connector = connector, limits = { total = -1 } }, says = "limits.total must be an integer from 1" },
-      { spec = { http = listener, grants = {}, connector = connector, tls_ports = { 0 } }, says = "tls_ports" },
-      { spec = { http = listener, grants = {}, connector = connector, token = "" }, says = "spec.token must be a string of 16 to 255 bytes" },
-      { spec = { http = listener, grants = {}, connector = connector, token = ("t"):rep(15) }, says = "spec.token must be a string of 16" },
-      { spec = { http = listener, grants = {}, connector = connector, timeouts = { auth = 0 } }, says = "timeouts.auth must be an integer from 1" },
-      { spec = { http = listener, grants = {}, connector = connector, token = ("t"):rep(256) }, says = "spec.token must be a string" },
-      { spec = { http = listener, grants = {}, connector = connector, token = "a\nb" }, says = "spec.token must be a string" },
-      { spec = { http = listener, grants = {}, connector = connector, limits = { pre_auth = 0 } }, says = "limits.pre_auth must be an integer from 1" },
-      { spec = { http = listener, grants = {}, connector = connector, own_addresses = { "nope" } }, says = "not numeric" },
-      { spec = { http = listener, grants = {}, connector = connector, upstream = { host = "", port = 80, no_proxy = {} } }, says = "upstream.host" },
-      { spec = { http = listener, grants = {}, connector = connector, upstream = { host = "p", port = 0, no_proxy = {} } }, says = "upstream.port" },
-      { spec = { http = listener, grants = {}, connector = connector,
+      { spec = { grants = {}, connect = connect }, says = "an http, a socks or a mixed listener" },
+      { spec = { http = listener, grants = {}, connect = connect, timeouts = { idle = 0 } }, says = "timeouts.idle must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connect = connect, limits = { total = -1 } }, says = "limits.total must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connect = connect, tls_ports = { 0 } }, says = "tls_ports" },
+      { spec = { http = listener, grants = {}, connect = connect, token = "" }, says = "spec.token must be a string of 16 to 255 bytes" },
+      { spec = { http = listener, grants = {}, connect = connect, token = ("t"):rep(15) }, says = "spec.token must be a string of 16" },
+      { spec = { http = listener, grants = {}, connect = connect, timeouts = { auth = 0 } }, says = "timeouts.auth must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connect = connect, token = ("t"):rep(256) }, says = "spec.token must be a string" },
+      { spec = { http = listener, grants = {}, connect = connect, token = "a\nb" }, says = "spec.token must be a string" },
+      { spec = { http = listener, grants = {}, connect = connect, limits = { pre_auth = 0 } }, says = "limits.pre_auth must be an integer from 1" },
+      { spec = { http = listener, grants = {}, connect = connect, own_addresses = { "nope" } }, says = "not numeric" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "", port = 80, no_proxy = {} } }, says = "upstream.host" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 0, no_proxy = {} } }, says = "upstream.port" },
+      { spec = { http = listener, grants = {}, connect = connect,
         upstream = { host = "p", port = 80, authorization = "x\r\nHost: y", no_proxy = {} } }, says = "upstream.authorization" },
     }
     for _, case in ipairs(cases) do
@@ -1468,7 +1440,7 @@ end
 --- A SOCKS5 greeting offering `methods`, and the method answer.
 local function socks_greet(conn: Net.Conn, methods: string): string
   assert(conn:write("\5" .. string.char(#methods) .. methods))
-  return ConnectorFixture.read_exact(conn, 2)
+  return Fixture.read_exact(conn, 2)
 end
 
 --- The username and password message for `user` and `password`.
@@ -1493,7 +1465,7 @@ local function test_a_token_lets_a_connect_with_its_basic_credential_through(tmp
       local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic(user, TOKEN) })
       assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
       assert(conn:write("ping"))
-      assert(ConnectorFixture.read_exact(conn, 4) == "ping")
+      assert(Fixture.read_exact(conn, 4) == "ping")
       local _, _ = conn:close()
     end
     -- The scheme's name is no case.
@@ -1558,21 +1530,21 @@ local function test_a_socks5_client_with_the_password_goes_through(tmp: string)
     local conn = dial(rig.socks)
     assert(socks_greet(conn, "\0\2") == "\5\2")
     assert(conn:write(auth_message("whoever", TOKEN)))
-    assert(ConnectorFixture.read_exact(conn, 2) == "\1\0")
+    assert(Fixture.read_exact(conn, 2) == "\1\0")
     assert(conn:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
-    assert(ConnectorFixture.read_exact(conn, 10):byte(2) == 0, "the request is served")
+    assert(Fixture.read_exact(conn, 10):byte(2) == 0, "the request is served")
     assert(conn:write("socks"))
-    assert(ConnectorFixture.read_exact(conn, 5) == "socks")
+    assert(Fixture.read_exact(conn, 5) == "socks")
     -- The whole exchange in one write, and the request's first byte split off.
     local pipelined = dial(rig.socks)
     local request = Fixture.socks_request(1, 1, "\127\0\0\1", server.port)
     assert(pipelined:write("\5\1\2"))
-    assert(ConnectorFixture.read_exact(pipelined, 2) == "\5\2")
+    assert(Fixture.read_exact(pipelined, 2) == "\5\2")
     assert(pipelined:write(auth_message("u", TOKEN) .. request:sub(1, 1)))
-    assert(ConnectorFixture.read_exact(pipelined, 2) == "\1\0")
+    assert(Fixture.read_exact(pipelined, 2) == "\1\0")
     assert(pipelined:write(request:sub(2) .. "tail"))
-    assert(ConnectorFixture.read_exact(pipelined, 10):byte(2) == 0)
-    assert(ConnectorFixture.read_exact(pipelined, 4) == "tail")
+    assert(Fixture.read_exact(pipelined, 10):byte(2) == 0)
+    assert(Fixture.read_exact(pipelined, 4) == "tail")
     local _, _ = conn:close()
     local _, _ = pipelined:close()
     assert(#lines_with(rig, "not authenticated") == 0, table.concat(rig.log, "\n"))
@@ -1594,16 +1566,16 @@ local function test_a_mixed_listener_reads_each_connection_as_its_first_byte_say
     local conn, head = connect_to(rig, "127.0.0.1:" .. tostring(server.port), { basic("cosmic", TOKEN) })
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
     assert(conn:write("over-connect"))
-    assert(ConnectorFixture.read_exact(conn, 12) == "over-connect")
+    assert(Fixture.read_exact(conn, 12) == "over-connect")
     local _, _ = conn:close()
     local socks = dial(rig.socks)
     assert(socks_greet(socks, "\2") == "\5\2")
     assert(socks:write(auth_message("cosmic", TOKEN)))
-    assert(ConnectorFixture.read_exact(socks, 2) == "\1\0")
+    assert(Fixture.read_exact(socks, 2) == "\1\0")
     assert(socks:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
-    assert(ConnectorFixture.read_exact(socks, 10):byte(2) == 0, "the request is served")
+    assert(Fixture.read_exact(socks, 10):byte(2) == 0, "the request is served")
     assert(socks:write("over-socks"))
-    assert(ConnectorFixture.read_exact(socks, 10) == "over-socks")
+    assert(Fixture.read_exact(socks, 10) == "over-socks")
     local _, _ = socks:close()
     local bare, refused = connect_to(rig, "127.0.0.1:" .. tostring(server.port))
     assert(status_line(refused) == "HTTP/1.1 407 Proxy Authentication Required", refused)
@@ -1655,7 +1627,7 @@ local function test_a_socks5_client_with_a_wrong_password_fails_authentication(t
       local conn = dial(rig.socks)
       assert(socks_greet(conn, "\2") == "\5\2")
       assert(conn:write(message))
-      local answer = ConnectorFixture.read_exact(conn, 2)
+      local answer = Fixture.read_exact(conn, 2)
       replies = replies .. answer
       assert(answer == "\1\1", "authentication fails")
       assert(ended(conn), "and the relay closes")
@@ -1665,7 +1637,7 @@ local function test_a_socks5_client_with_a_wrong_password_fails_authentication(t
     local early = dial(rig.socks)
     assert(socks_greet(early, "\2") == "\5\2")
     assert(early:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
-    assert(ConnectorFixture.read_exact(early, 2) == "\1\1" and ended(early))
+    assert(Fixture.read_exact(early, 2) == "\1\1" and ended(early))
     local _, _ = early:close()
     assert(server.connections == 0 and #rig.asked == 0, "nothing reached the upstream")
     assert(#lines_with(rig, "allowed") == 0)
@@ -1746,7 +1718,7 @@ local function test_without_a_token_no_credential_is_asked_or_read(tmp: string)
     local socks = dial(rig.socks)
     assert(socks_greet(socks, "\0\2") == "\5\0")
     assert(socks:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
-    assert(ConnectorFixture.read_exact(socks, 10):byte(2) == 0)
+    assert(Fixture.read_exact(socks, 10):byte(2) == 0)
     local _, _ = socks:close()
     local only = dial(rig.socks)
     assert(socks_greet(only, "\2") == "\5\255")
@@ -1775,7 +1747,7 @@ local function test_a_token_with_colons_is_matched_as_the_whole_password(tmp: st
     local socks = dial(rig.socks)
     assert(socks_greet(socks, "\2") == "\5\2")
     assert(socks:write(auth_message("u", colons)))
-    assert(ConnectorFixture.read_exact(socks, 2) == "\1\0")
+    assert(Fixture.read_exact(socks, 2) == "\1\0")
     local _, _ = socks:close()
     finish(rig, server)
   end)
@@ -1804,10 +1776,10 @@ local function test_authenticating_has_its_own_short_wait_and_the_request_its_ow
     local late = dial(rig.socks)
     assert(socks_greet(late, "\2") == "\5\2")
     assert(late:write(auth_message("u", TOKEN)))
-    assert(ConnectorFixture.read_exact(late, 2) == "\1\0")
+    assert(Fixture.read_exact(late, 2) == "\1\0")
     assert(Poll.delay(Clock.ms(500)))
     assert(late:write(Fixture.socks_request(1, 1, "\127\0\0\1", server.port)))
-    assert(ConnectorFixture.read_exact(late, 10):byte(2) == 0, "the request has the head wait")
+    assert(Fixture.read_exact(late, 10):byte(2) == 0, "the request has the head wait")
     local _, _ = late:close()
     finish(rig, server)
   end)

@@ -405,14 +405,10 @@ local record Options
   ---   its loopback up and inet sockets, whose only way out is the network
   ---   relay this start runs: a process of this
   ---   program's core on a database sealed for it, held by a pid namespace
-  ---   and the files its resolver reads, which makes no socket of its own.
-  ---   It reaches the network only through the native connectors this
-  ---   process starts and hands it: one whose
-  ---   table holds the addresses a target names literally (at most 128, with
-  ---   the upstream proxy's: a policy with more fails to start, saying so),
-  ---   and, where a target names a host the relay reaches directly, one that
-  ---   reaches the system's name servers alone, over TCP, and one that
-  ---   connects to the public addresses a name resolves to. The program reaches it at 127.0.0.1 ports 3128
+  ---   and the files its resolver reads, in this process's own network,
+  ---   where it connects and resolves itself: no kernel rule holds where
+  ---   it connects, so its own checks below are the only ones. The
+  ---   program reaches it at 127.0.0.1 ports 3128
   ---   (HTTP CONNECT) and 1080 (SOCKS5), which the child's environment names:
   ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
   ---   `NODE_USE_ENV_PROXY=1` and a `NO_PROXY` of `localhost`, 127.0.0.1, ::1
@@ -435,9 +431,7 @@ local record Options
   ---   the proxy's host is resolved once, as the start runs, and a host that
   ---   does not resolve fails the start. It lives as long
   ---   as the child's handle does: it is ended with the child, and a relay
-  ---   that dies first ends the child (SIGKILL, at its next wait), as one
-  ---   does once a connector it was handed has ended, since none is started
-  ---   anew. A relay that
+  ---   that dies first ends the child (SIGKILL, at its next wait). A relay that
   ---   will not start fails the start, naming why, and ends the child. The
   ---   relay's decision lines go where `relay_log` says. It needs this
   ---   program to carry the relay's modules
@@ -1701,8 +1695,8 @@ local class Handle
   --- Whether the relay was found dead while the child ran, which ended
   --- the child for want of its way out.
   mut _relay_gone: boolean
-  --- Of a relay's own handle, the connectors its starter handed it, ended
-  --- with it; nil for any other handle.
+  --- Of a relay's own handle, what its starter handed it, closed with it;
+  --- nil for any other handle.
   mut _handover?: RelayConfig.Handover
   --- The finalizer that ends the child should this handle be collected unclosed.
   mut _finalizer?: Finalizer
@@ -3053,7 +3047,7 @@ end
 --- environment, the limits, what isolates it and, for `tmp`, the
 --- directory. Nil and why when it cannot. It acquires nothing: `tmp`'s
 --- directory is [`make_tmp`]'s.
-local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Held?, string
+local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, online: boolean): Held?, string
   local joined, why = Rules.merge(policy)
   if joined == nil then return nil, why end
   local trouble = unmet(joined)
@@ -3274,15 +3268,21 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy): Hel
   -- namespace is their hold) when it declared a loopback or `connect`, and
   -- unix ones when it was granted `u`.
   local inet = #(merged.loopback or {}) > 0 or relayed
+  -- The relay's own start (`online`) makes inet sockets in this process's
+  -- network instead: it connects and resolves itself, and holds no
+  -- loopback, `connect` or `u` grant of its own.
+  if online and (inet or unix) then
+    return nil, "sandbox: the relay's policy holds no network of its own"
+  end
   local sockets: mut {string} = {}
   if unix then sockets[#sockets + 1] = "unix" end
-  if inet then sockets[#sockets + 1] = "inet" end
+  if inet or online then sockets[#sockets + 1] = "inet" end
   -- Under `nest` no ruleset holds the paths: the kernel refuses a mount to
   -- a process Landlock holds, so the root, which only the grants are bound
   -- into, does ([`nest_unheld`]).
   local sandbox: raw_process.Sandbox = { grants = if not nest then grants else nil end, promises = promises,
     rlimits = rlimits,
-    sockets = sockets, offline = inet or unix, strict = file or proc or inet or unix,
+    sockets = sockets, offline = inet or unix, online = online, strict = file or proc or inet or unix,
     proc = proc and not file, user = if user ~= nil and drop == nil then user.uid else nil end,
     group = if user ~= nil and drop == nil then user.gid else nil end }
   if root ~= nil then
@@ -3577,7 +3577,7 @@ local record RelayPrep
   config: string
   --- Where its decision lines go.
   log: RelayLog | integer
-  --- The connectors the relay is handed, which the start closes where the
+  --- What the relay is told and handed, which the start closes where the
   --- relay never starts, and the relay's handle once it has.
   handover: RelayConfig.Handover
   --- Whether the relay is held by Seatbelt and listens on the host's
@@ -3640,9 +3640,9 @@ local function relay_token(): string?, string
 end
 
 --- What the relay of a policy with `connect` needs before a program is
---- started: the host's own addresses, the sealed database, the connectors
---- it is handed, started, and the config; under Seatbelt (`seatbelt`), no
---- connector and a token. Nil and why, with nothing left running, where it
+--- started: the host's own addresses, the sealed database and the config;
+--- under Seatbelt (`seatbelt`), the listeners on the host's loopback and a
+--- token too. Nil and why, with nothing left running, where it
 --- cannot have them.
 local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean): RelayPrep?, string
   -- A descriptor given as the relay's log is the relay's standard error, on
@@ -3671,13 +3671,8 @@ local function prepare_relay(connect: {string}, opts: Options, seatbelt: boolean
   end
   local program, seal_trouble = seal_relay()
   if program == nil then return nil, seal_trouble end
-  local handover, handover_trouble: RelayConfig.Handover, string
-  if seatbelt then
-    handover, handover_trouble = RelayStart.direct_handover(connect, addresses) -- checked: nil_not_allowed
-  else
-    handover, handover_trouble = RelayStart.handover(connect, addresses) -- checked: nil_not_allowed
-  end
-  if handover == nil then -- checked: compare_disjoint
+  local handover, handover_trouble = RelayStart.handover(connect, addresses)
+  if handover == nil then
     local _, _ = Fs.remove_tree(program.dir)
     return nil, handover_trouble
   end
@@ -3717,7 +3712,7 @@ local record RelayLaunch
   lines: Stream.Lines
 end
 
---- Ends `relay` at once, and the connectors it was handed, for a start
+--- Ends `relay` at once, and what it was handed, for a start
 --- that goes no further.
 local function kill_relay(relay: Handle)
   local _, _ = sys.kill(target(relay), sys.SIGKILL)
@@ -3766,7 +3761,7 @@ end
 --- also makes it the child's controlling terminal.
 local begin_relay: function(RelayPrep, integer?): RelayLaunch?, string
 
-local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer): Handle?, string -- checked: not_assigned
+local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: integer, relays?: boolean): Handle?, string -- checked: not_assigned
   -- Refuse an explicit terminal before inspecting any platform policy:
   -- it needs a relay even on a host that cannot apply that policy.
   if opts.policy ~= nil then
@@ -3785,7 +3780,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
     if holds_by_seatbelt() then
       made, why = held_by_seatbelt(argv, opts, policy, pty, serves_relay)
     else
-      made, why = held_to(argv, opts, policy)
+      made, why = held_to(argv, opts, policy, relays == true)
     end
     if made == nil then return refuse("start: " .. why) end
     held = made
@@ -3936,7 +3931,7 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
         return refuse("start: sandbox: relay: " .. relay_trouble)
       end
       prep = made
-      local pair, pair_trouble = raw.connector_pair()
+      local pair, pair_trouble = raw.stream_pair()
       if pair == nil then
         unwire(wiring, false)
         abandon_relay(made)
@@ -4073,9 +4068,11 @@ end
 --- Starts the relay's process of `prep` as a child of its own: this
 --- program's core on the sealed database, whose descriptor 3 is `channel`,
 --- the end of the program's relay channel that will carry the listeners,
---- whose descriptors from 4 are the control streams of the connectors it
---- is handed, and whose standard input carries the config and, held open,
---- keeps it alive. The relay's handle owns the connectors from then on.
+--- or, on macOS, whose descriptors from 3 are its listeners on the host's
+--- loopback; held in this process's own network, where it connects and
+--- resolves itself; and whose standard input carries the config and, held
+--- open, keeps it alive. The relay's handle owns what it was handed from
+--- then on.
 --- It answers once the relay says it has opened its database, which it
 --- does before it waits for the listeners: the database is then no longer
 --- needed. Nil and why where it cannot start or ends first.
@@ -4094,7 +4091,7 @@ begin_relay = function(prep: RelayPrep, channel: integer?): RelayLaunch?, string
   for number, fd in pairs(prep.handover.fds) do fds[number] = fd end
   local started, trouble = start({ program }, { policy = prep.policy, cwd = "/", stdin = "stream",
     stdout = "stream", stderr = log, fds = fds, capture_limit = 4096, timeout_ns = RELAY_READY_NS },
-    nil, prep.port)
+    nil, prep.port, true)
   if started == nil then return nil, (trouble:gsub("^child: start: ", "")) end
   local relay: Handle = started
   relay._handover = prep.handover

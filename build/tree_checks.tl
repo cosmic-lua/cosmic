@@ -217,9 +217,6 @@ allowed["build.c.own_warnings"] = "the warnings the C check's analyzer runs unde
   "has no form to read them from; build/c/variants_test.tl holds them to it"
 allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
   "has no form to read them from; build/c/variants_test.tl holds them to it"
-allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..
-  "which ResolveOptions.connector takes; its callers in the tree start the process with " ..
-  "cosmic.internal.connector and adopt it there instead"
 allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that calls it " ..
   "for good, so a worked example would hold the run that shows it; the test restricts " ..
   "a child of this program, and the harness holds its workers with it once the " ..

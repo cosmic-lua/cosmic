@@ -306,44 +306,26 @@ COSMIC_SYSCALL(wait, 3);
  */
 
 /*
- * --- One name server a lookup through a connector asks.
- * ---@class ThroughServer
- * ---@field host string its numeric IPv4 or IPv6 address
- * ---@field port integer its TCP port, 1 through 65535
- * ---@field index integer the 1-based index of the connector's table entry that reaches it at that port
- */
-
-/*
  * --- A host name lookup in progress, which owns its c-ares channel and every socket c-ares holds for it: `close`, `<close>` or the collector ends the lookup and closes them, a query still pending among them. It never blocks by itself: the caller runs it with `step`, which reports the descriptors c-ares watches and when it next needs a call, and waits for them as it likes (a task of a poll loop, or `wait`).
  * ---@class Lookup: userdata
- * ---@field step fun(self:Lookup,fds:{integer}|nil,events:{integer}|nil):boolean,{integer},{integer},integer,{Want} hands c-ares what the caller found (`fds` and `events` pair, each event word poll's bits, a hang-up or an error reading as readable), runs its timers, and answers whether the lookup is done, the descriptors c-ares watches, the events it wants of each (poll's `POLLIN` and `POLLOUT` bits), how many milliseconds it may wait before it needs a call again (-1 for no timer, and once done), and the connects it has asked for since the last step, each told once. A descriptor of a connect waiting for its socket is not listed. Raises for fds and events that do not pair.
+ * ---@field step fun(self:Lookup,fds:{integer}|nil,events:{integer}|nil):boolean,{integer},{integer},integer hands c-ares what the caller found (`fds` and `events` pair, each event word poll's bits, a hang-up or an error reading as readable), runs its timers, and answers whether the lookup is done, the descriptors c-ares watches, the events it wants of each (poll's `POLLIN` and `POLLOUT` bits), how many milliseconds it may wait before it needs a call again (-1 for no timer, and once done). Raises for fds and events that do not pair.
  * ---@field wait fun(self:Lookup,timeout_ms:integer):boolean,string,integer waits at most `timeout_ms` (-1 for no limit beyond a tenth of a second) for a descriptor c-ares watches or its timer, then hands it what happened: true, or false, what went wrong and the error number: EINTR where a `Signal.guard` caught a signal. It returns after one slice, done or not, and listing nothing; `step` reports where the lookup is
- * ---@field supply fun(self:Lookup,id:integer,fd:integer|nil,errno:integer|nil):boolean,string,integer answers the connect `id` that a step reported with the connected stream socket `fd`, which is copied in place of c-ares's stand-in (the caller closes its own), or with none, which leaves that server failing; `errno` ETIMEDOUT with none says the server went unanswered for want of time. True, or false, what went wrong and the error number: ENOENT for a connect c-ares has since given up on
  * ---@field result fun(self:Lookup):{Resolved}|nil,string,integer what the lookup answered once a step said it is done, as `lookup` lists the errors; a lookup not done is ETIMEDOUT
  * ---@field close fun(self:Lookup) ends the lookup; nothing once closed
  * ---@field __close fun(self:Lookup) ends it as `close` does
  */
 
 /*
- * --- One connect a lookup through a connector has asked for.
- * ---@class Want
- * ---@field id integer names the connect to `supply`
- * ---@field index integer the 1-based index of the connector's table entry that reaches the server
- * ---@field port integer the server's TCP port
- */
-
-/*
- * --- Starts a lookup of a host name with c-ares and answers it as a `Lookup`, to be run to the end by `step`. It answers every address the system's resolver returns, IPv4 and IPv6, in the order c-ares gives them, with none dropped and none filtered. The system's configuration is read as c-ares reads it: resolv.conf and hosts (and, on macOS, the system's DNS configuration), HOSTALIASES ignored. A numeric IPv4 or IPv6 address, written as a "tcp" address's host is, answers itself and asks no one; a name, and a literal that is not numeric in that grammar, is looked up. Hosts file entries answer as a server's records do. The answer is every address RECEIVED: one family's lookup failing while the other's succeeds answers the addresses of the one that succeeded, as c-ares does, and nothing says that one failed. A caller that checks addresses must connect only to the ones returned and never look the name up again. A name with fewer dots than the system's ndots may be tried under its search domains first (resolv.conf's `search`), so a single-label name may resolve under one; `servers`, `hosts` and `through` are for tests and trusted callers, never for values a sandboxed program chose. Nothing is cached between calls. With `through`, the lookup goes over TCP alone and reaches the network only through the connections its caller supplies: c-ares is refused every datagram socket, each connect to one of `through`'s servers is reported by `step` to be asked of a native connector (core/connector.c) by the entry's table index, and answered with `supply`. The servers are `through`'s, never the system's, each tried once with the whole time; the rest of the system's configuration is read as above. Linux only: elsewhere ENOSYS once the arguments are checked, as no connector runs there. The lookup's `timeout_ms` bounds c-ares's own clocks, and the caller ends the lookup at its deadline. A degenerate argument raises, a malformed server included; a name that is empty, over 254 bytes (253 and a trailing dot), holds a NUL or a "%" fails EINVAL, as a name may come from bytes the caller did not write.
+ * --- Starts a lookup of a host name with c-ares and answers it as a `Lookup`, to be run to the end by `step`. It answers every address the system's resolver returns, IPv4 and IPv6, in the order c-ares gives them, with none dropped and none filtered. The system's configuration is read as c-ares reads it: resolv.conf and hosts (and, on macOS, the system's DNS configuration), HOSTALIASES ignored. A numeric IPv4 or IPv6 address, written as a "tcp" address's host is, answers itself and asks no one; a name, and a literal that is not numeric in that grammar, is looked up. Hosts file entries answer as a server's records do. The answer is every address RECEIVED: one family's lookup failing while the other's succeeds answers the addresses of the one that succeeded, as c-ares does, and nothing says that one failed. A caller that checks addresses must connect only to the ones returned and never look the name up again. A name with fewer dots than the system's ndots may be tried under its search domains first (resolv.conf's `search`), so a single-label name may resolve under one; `servers` and `hosts` are for tests and trusted callers, never for values a sandboxed program chose. Nothing is cached between calls. The lookup's `timeout_ms` bounds c-ares's own clocks, and the caller ends the lookup at its deadline. A degenerate argument raises; a name that is empty, over 254 bytes (253 and a trailing dot), holds a NUL or a "%" fails EINVAL, as a name may come from bytes the caller did not write.
  * ---@param name string the host name or numeric address
  * ---@param timeout_ms integer how long c-ares waits at most, from 0, -1 for no limit beyond its own retries and timeouts
  * ---@param servers? string name servers to ask in place of the system's, as c-ares writes them: `host[:port]`, an IPv6 host in brackets before its port, comma-separated; a malformed list fails EINVAL
  * ---@param hosts? string a hosts file to read in place of the system's
- * ---@param through? {ThroughServer} the name servers to ask through a connector, 1 through 128, in place of `servers`, which must then be nil
  * ---@return Lookup|nil lookup the lookup, or nil on failure
  * ---@return string error what went wrong, when lookup is nil
  * ---@return integer errno the error number, when lookup is nil: `RESOLVE_` codes and errnos as `Lookup.result` lists them, ENOMEM, or EINVAL for a name or server list c-ares refuses
  */
-COSMIC_SYSCALL(lookup, 5);
+COSMIC_SYSCALL(lookup, 4);
 
 /*
  * --- The name servers the system's configuration names, as c-ares reads it for `resolve` (resolv.conf; on macOS, the system's DNS configuration first), in its order: c-ares's own list, `host:port` comma-separated, an IPv6 host in brackets, a link-local one followed by `%` and its interface, and a server whose TCP port differs from its UDP one written as a `dns://` URI with a `tcpport` query. With none configured, c-ares's default, 127.0.0.1:53.
@@ -368,11 +350,6 @@ COSMIC_SYSCALL(nameservers, 1);
  * ---@field EINVAL integer a "tcp" host is no numeric address
  * ---@field ENAMETOOLONG integer a unix path's file name is past `SOCKET_NAME_MAX`, or its directory past the platform's bound on a path
  * ---@field SOCKET_NAME_MAX integer the most bytes a socket file's own name may take: 107 on Linux, 103 on macOS
- * ---@field CONNECTOR_HELLO integer what a native connector (core/connector.c) says first on its control stream, a big-endian word: "CNC" and its protocol's version
- * ---@field CONNECTOR_REQUEST_BYTES integer the length of a request to a native connector
- * ---@field CONNECTOR_FLIGHT integer the most connects a native connector makes at once
- * ---@field CONNECTOR_DENIED integer a public connector's reply for an address its lists refuse, past any errno
- * ---@field CONNECTOR_BUSY integer a connector's reply for a connect past `CONNECTOR_FLIGHT`, past any errno
  * ---@field RESOLVE_NOTFOUND integer `Lookup.result`: the name does not exist (NXDOMAIN), -2 on every OS
  * ---@field RESOLVE_NODATA integer `Lookup.result`: the name exists and has no IPv4 or IPv6 address, -5 on every OS
  * ---@field RESOLVE_FAILED integer `Lookup.result`: the servers answered with a failure or a malformed answer, -4 on every OS
@@ -388,11 +365,6 @@ COSMIC_CONSTANT(ENOTCONN)
 COSMIC_CONSTANT(EINVAL)
 COSMIC_CONSTANT(ENAMETOOLONG)
 COSMIC_CONSTANT(SOCKET_NAME_MAX)
-COSMIC_CONSTANT(CONNECTOR_HELLO)
-COSMIC_CONSTANT(CONNECTOR_REQUEST_BYTES)
-COSMIC_CONSTANT(CONNECTOR_FLIGHT)
-COSMIC_CONSTANT(CONNECTOR_DENIED)
-COSMIC_CONSTANT(CONNECTOR_BUSY)
 COSMIC_CONSTANT(RESOLVE_NOTFOUND)
 COSMIC_CONSTANT(RESOLVE_NODATA)
 COSMIC_CONSTANT(RESOLVE_FAILED)

@@ -90,7 +90,7 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
         local server = Relay.start({
           http = http, socks = socks, grants = { "127.0.0.1:80" }, token = TOKEN,
           timeouts = { auth = Clock.ms(300) }, log = function(_: string) end,
-          connector = function(): Net.Conn?, string
+          connect = function(): Net.Conn?, string
             asked = asked + 1
             return nil, "Connection refused"
           end,
@@ -115,7 +115,7 @@ local function test_no_bytes_but_the_token_reach_the_upstream(tmp: string)
         local _, _ = http:close()
         local _, _ = socks:close()
         if asked ~= 0 then
-          trouble = "the connector was asked for a connection"
+          trouble = "`connect` was asked for a connection"
         elseif stats.accepted ~= 0 or stats.open ~= 0 then
           trouble = ("%d accepted, %d open"):format(stats.accepted, stats.open)
         elseif reply:find("200 Connection established", 1, true) ~= nil or (first == "S" and reply:sub(3, 4) == "\1\0") then

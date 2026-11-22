@@ -61,30 +61,12 @@ local init_only <const> =
 local maps_ids <const> =
   "runs only in a sandboxed child that made a user namespace: where unshare is refused it is never entered, though on a " ..
   "host that lets unshare(CLONE_NEWUSER) through and refuses the uid_map write (AppArmor's restriction) it is"
-local connector_only <const> =
-  "runs only in the native connector, whose filter forbids coverage files and whose inherited descriptors are " ..
-  "closed: the connector's live kernel probes and TCP handoff tests enter it, but it cannot report coverage"
-
 local vnni_only <const> =
   "runs only on a CPU with that encoding of VNNI, which not every x86_64 host has (an aarch64 core builds neither); " ..
   "cosmic/vector_storage_test.tl's kernel comparison enters each a host has"
 
 --- The C functions no test can enter, by [`key_of`], and why.
 local exempt: {string: string} = {
-  ["core/connector.c:connector_attack"] = connector_only,
-  ["core/connector.c:connector_attack_scratch"] = connector_only,
-  ["core/connector.c:connector_begin"] = connector_only,
-  ["core/connector.c:connector_decode"] = connector_only,
-  ["core/connector.c:connector_public_allowed"] = connector_only,
-  ["core/connector.c:connector_public_connect"] = connector_only,
-  ["core/connector.c:connector_serve"] = connector_only,
-  ["core/connector.c:connector_settle"] = connector_only,
-  ["core/connector.c:connector_within"] = connector_only,
-  ["core/connector.c:connector_connect"] = connector_only,
-  ["core/connector.c:connector_hold"] = connector_only,
-  ["core/connector.c:connector_loop"] = connector_only,
-  ["core/connector.c:connector_now"] = connector_only,
-  ["core/connector.c:connector_reply"] = connector_only,
   ["core/vfs.c:file_write"] = read_only,
   ["core/vfs.c:file_truncate"] = read_only,
   ["core/vfs.c:file_sync"] = read_only,
@@ -141,9 +123,6 @@ local exempt_on: {string: {string: string}} = {
     ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
       "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
       "(core/promises_child_test.tl)",
-    ["core/socket.c:lookup_supply"] = "answers the connects of a lookup through a connector, which Darwin has " ..
-      "none of (the lookup fails ENOSYS before any is parked); a Linux run enters it " ..
-      "(core/lookup_test.tl)",
   },
 }
 

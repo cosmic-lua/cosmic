@@ -129,21 +129,6 @@ local function test_a_chain_to_no_trusted_root_is_refused()
   end)
 end
 
-local function test_a_connector_connects_over_tls_as_net_connect_does()
-  served(A, function(port: integer)
-    local connector <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
-    local conn <close> = assert(connector:connect(Net.tcp("127.0.0.1", port),
-      { tls = trusting(), server_name = "localhost" }))
-    assert(round_trip(conn, "x") == "TLSv1.3 - localhost\nx")
-    assert(assert(assert(conn:tls()).peer).verified)
-    local none, why = connector:connect(Net.tcp("127.0.0.1", port), { tls = trusting(), server_name = "b.test" })
-    assert(none == nil and why:find("^127%.0%.0%.1:%d+: tls: the peer's certificate is not trusted") ~= nil, why)
-    Test.raises(function()
-      local _, _ = connector:connect(Net.tcp("127.0.0.1", port), { server_name = "localhost" })
-    end, "there is no opts.tls")
-  end)
-end
-
 local function test_a_client_that_verifies_nothing_takes_what_it_is_given()
   served(A, function(port: integer)
     local client = assert(Tls.client({ verify = false }))

@@ -2,12 +2,11 @@
 --- by a [`cosmic.sandbox`] policy with `connect`, an HTTP CONNECT and a
 --- SOCKS5 listener whose requests it matches against the policy's `connect`
 --- grants, resolves, checks and connects, and then carries bytes for. It
---- runs in the tasks of one [`Poll.run`] and holds no host socket of its
---- own that is not yet connected: a connection leaves through the
---- `connector` it is given, which is handed only addresses the relay has
---- checked. The relay parses what the untrusted program sends, so a flaw
---- in that parsing finds no socket it could aim at an address the checks
---- refused.
+--- runs in the tasks of one [`Poll.run`]: a connection leaves through the
+--- `connect` it is given, which is handed only addresses the relay has
+--- checked. The relay parses what the untrusted program sends, and the
+--- sandbox's relay may connect anywhere its checks allow, so these checks
+--- are the only ones between the program and the network.
 ---
 --- Each connection is decided in this order, and the decision is one line
 --- on the relay's log, naming the remedy of a refusal
@@ -28,7 +27,7 @@
 ---    connected to, tried in the order received (step 4): never another.
 ---    A loopback, private or metadata answer is allowed only by a literal
 ---    grant of that address.
---- 4. The `connector` connects the first of them that answers, one after
+--- 4. The `connect` connects the first of them that answers, one after
 ---    another within the one `connect` timeout, each given an equal share
 ---    of what is left, so with several addresses a slow but working first
 ---    one gets only its share (the `connect` timeout divided by their
@@ -55,7 +54,7 @@
 --- instead -- at the addresses its starter resolved once
 --- ([`Relay.Upstream.addresses`]), or its host resolved for the
 --- connection where it gave none, its answers checked and connected
---- through the connector -- and ask it to CONNECT: the upstream resolves the
+--- through the `connect` -- and ask it to CONNECT: the upstream resolves the
 --- name, so the address checks do not apply to what it reaches, which the
 --- relay says once, at its start. The upstream's own address is the one the
 --- caller's `https_proxy` names, so it needs no grant (a proxy on loopback or
@@ -108,7 +107,9 @@
 ---     local server = Relay.start({
 ---       http = http_listener, socks = socks_listener,
 ---       grants = { "api.github.com:443" },
----       connector = connect_through_the_connector,
+---       connect = function(address, port, timeout_ns)
+---         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
+---       end,
 ---     })
 ---     server:wait()
 
@@ -128,9 +129,8 @@ local record Relay
   --- Connects to the numeric `address` and `port` the relay has checked,
   --- waiting at most `timeout_ns`: the connection, or nil and why
   --- ("Connection refused", [`Poll.TIMEOUT`], ...). The sandbox's is
-  --- the native connector ([`Net.connector`]), reached through
-  --- [`Relay.handed`], which connects nothing but numeric endpoints.
-  type Connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
+  --- [`Net.connect`] of the address.
+  type Connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
 
   --- How long each wait may last, in nanoseconds; a nil field takes its
   --- default.
@@ -169,23 +169,6 @@ local record Relay
   --- says to reach directly ([`cosmic.internal.relay_config`]'s [`Upstream`]).
   type Upstream = Config.Upstream
 
-  --- The connector a relay was handed by its starter, which
-  --- [`Relay.handed`] makes the relay's [`Connector`] of.
-  record Handed
-    --- The one connector the relay connects through: its table holds the
-    --- addresses a grant names literally and the upstream's, and, where a
-    --- grant names a host the relay reaches directly, it is public
-    --- ([`Net.connector`]'s `public`) for the addresses those names
-    --- resolve to. A [`Net.Connector`]'s `connect` asks the table first, so an
-    --- address the table holds is reached whatever the public lists refuse.
-    mut connector?: Net.Connector
-    --- Told why the first time a request finds the connector has ended:
-    --- nothing it reaches can be reached again, as no connector is started
-    --- anew. The relay's process ends then ([`cosmic.internal.relay_main`]). Nil to
-    --- fail each such request alone.
-    mut lost?: function(why: string)
-  end
-
   --- What a relay serves, and how.
   record Spec
     --- The listener that takes HTTP CONNECT requests, already bound; nil
@@ -201,17 +184,11 @@ local record Relay
     --- The policy's `connect` targets, `host:port`.
     grants: {string}
     --- How a connection is made.
-    connector: Connector
-    --- The resolver's options ([`Net.ResolveOptions`]): `servers`,
-    --- `hosts_file` and `connector`, which are the trusted caller's own.
-    --- The sandbox's relay resolves through a connector of the name
-    --- servers alone, over TCP ([`cosmic.internal.relay_start`]). Its `timeout_ns`
-    --- is [`Timeouts.resolve`]'s.
+    connect: Connect
+    --- The resolver's options ([`Net.ResolveOptions`]): `servers` and
+    --- `hosts_file`, which are the trusted caller's own; nil for the
+    --- system's. Its `timeout_ns` is [`Timeouts.resolve`]'s.
     resolve?: Net.ResolveOptions
-    --- Why no name can be resolved, or nil: set, every name fails with it
-    --- (502, "host_unreachable") and nothing is asked, while an address a
-    --- grant names literally is still connected.
-    unresolved?: string
     --- The host's own addresses, which the relay refuses to connect to
     --- ([`cosmic.relay.address`]'s `own_addresses`).
     own_addresses?: {string}
@@ -232,11 +209,6 @@ local record Relay
     --- writes them in a printable form (hex, base64url): a guess is bounded
     --- by nothing but the token's entropy.
     token?: string
-    --- Told why, once, the first time a lookup fails through a `resolve`
-    --- connector that has ended: no name can be resolved again, as no
-    --- connector is started anew. The relay's process ends then
-    --- ([`cosmic.internal.relay_main`]). Nil to fail each such lookup alone.
-    lost?: function(why: string)
   end
 
   --- What a running relay has done.
@@ -356,45 +328,6 @@ local function target(host: string, port: integer): string
   return host .. ":" .. tostring(port)
 end
 
---- The [`Connector`] of the one connector a relay's starter handed it
---- ([`cosmic.internal.relay_start`]): an address and port its table holds is
---- reached through the table, and any other through its public lists,
---- which refuse what its deny list does; a table-only connector refuses
---- every other address. It makes several connections at once, each asked
---- with its own `timeout_ns`, so a connect that hangs holds up no other
---- until the connector's capacity is in use. Once it has
---- ended, a connection fails saying so, and `handed.lost` is told the
---- first time. A `handed` with no connector raises.
---- @param handed Relay.Handed The connector
---- @return Relay.Connector What [`Relay.Spec.connector`] takes
-function Relay.handed(handed: Relay.Handed): Relay.Connector
-  local connector = handed.connector
-  if connector == nil then
-    error("relay: handed needs a connector", 2)
-  end
-  local lost = handed.lost
-  local told: boolean = false
-  --- Tells `lost`, the first time, that the connector has ended.
-  local function ended(): string
-    local why = "relay: the connector has ended"
-    if lost ~= nil and told ~= true then
-      told = true
-      lost(why)
-    end
-    return why
-  end
-  return function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
-    if connector:ended() then return nil, ended() end
-    -- A connect raises only for arguments it refuses, which this module's
-    -- own are not.
-    local conn, why = connector:connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
-    if conn ~= nil then return conn, "" end
-    -- The connector ended under the request: why it did is the request's.
-    if connector:ended() then ended() end
-    return nil, why
-  end
-end
-
 --- Whether `no_proxy` says to reach `host` on `port` directly.
 local function bypasses(no_proxy: {string}, host: string, port: integer): boolean
   for _, listed in ipairs(no_proxy) do
@@ -442,8 +375,6 @@ local record Running
   --- The lookups in progress, each a task of its own that `stop` cancels,
   --- so a connection waiting for a name does not hold the stop back.
   lookups: mut {Poll.Task: boolean}
-  --- Whether `spec.lost` has been told the name servers' connector ended.
-  mut told_lost: boolean
 end
 
 --- One connection's request and what has been decided of it.
@@ -760,16 +691,10 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
       answers[i] = { address = address, family = if address:find(":", 1, true) then "ipv6" else "ipv4" end }
     end
   else
-    -- A numeric host, as an upstream proxy's may be, answers itself.
-    if run.spec.unresolved ~= nil and Address.parse(name) == nil then
-      return { addresses = {}, refused = refusal(("could not resolve %s: %s"):format(name, run.spec.unresolved), 502,
-        "host_unreachable") }
-    end
     local opts: Net.ResolveOptions = { timeout_ns = run.timeouts.resolve }
     local resolve = run.spec.resolve
     if resolve ~= nil then
       opts.servers, opts.hosts_file = resolve.servers, resolve.hosts_file
-      opts.connector = resolve.connector
     end
     -- A connection between `stop` setting this and its cancellation must
     -- not start a lookup `stop` has already passed over.
@@ -792,12 +717,6 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     elseif found == nil and why == nil then
       -- Ended without an answer, which a cancel or a stop does not do.
       why = "the lookup ended without an answer"
-    end
-    local connector = opts.connector
-    local lost = run.spec.lost
-    if found == nil and connector ~= nil and connector:ended() and lost ~= nil and not run.told_lost then
-      run.told_lost = true
-      lost("relay: the name servers' connector has ended")
     end
     if found == nil then
       if why == Poll.TIMEOUT then
@@ -862,7 +781,7 @@ local function connect_any(run: Running, addresses: {string}, port: integer, dea
       last = connect_failure(label .. target(address, port), Poll.TIMEOUT)
       break
     end
-    local conn, trouble = run.spec.connector(address, port, math.max(1, left // (#addresses - i + 1)))
+    local conn, trouble = run.spec.connect(address, port, math.max(1, left // (#addresses - i + 1)))
     if conn ~= nil then return { conn = conn, address = address } end
     failures[#failures + 1] = ("%s: %s"):format(target(address, port), trouble)
     last = connect_failure(label .. target(address, port), trouble)
@@ -1397,13 +1316,9 @@ function Relay.start(spec: Relay.Spec): Relay.Serving
         local _, _ = logger:complain(clean)
       end
     end,
-    stopping = false, told_lost = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {}, lookups = {},
+    stopping = false, pending = 0, open = 0, accepted = 0, refused = 0, next_id = 0, live = {}, tasks = {}, acceptors = {}, lookups = {},
   }
   for _, note in ipairs(notes) do run.log(note) end
-  local spec_unresolved = spec.unresolved
-  if spec_unresolved ~= nil then
-    run.log("no name is resolved, so only an address a grant names is reached: " .. spec_unresolved)
-  end
   local spec_upstream = spec.upstream
   if spec_upstream ~= nil then
     local up = spec_upstream
