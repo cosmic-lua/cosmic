@@ -1332,7 +1332,14 @@ typedecl = function(d: Ast.Node, nested: boolean) -- checked: not_assigned
     if (m.kind == "FieldDecl") then -- checked: nil_not_allowed
       ty(m.type)
     elseif (m.kind == "Method") then
+      -- A method's type parameters are visible in its signature and body, as a function's are.
+      open(m.last)
+      local deferring_method = S.defer
+      S.defer = true
+      walk_typeparams(m.typeparams)
+      S.defer = deferring_method
       walk_function(m.id, m.last, m.params, m.rets, m.body, nil)
+      close()
     elseif KINDS[m.kind] ~= nil then
       typedecl(m, true)
     end

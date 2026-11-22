@@ -1973,6 +1973,13 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
     end
     return
   end
+  if #m.typeparams > 0 then
+    -- Lua calls a metamethod with the values alone, so nothing would give its type parameters.
+    report_at(ctx, "metamethod_signature", m.name, "the method " .. quoted(name) .. " of " .. class .. " takes type " ..
+        "parameters, which Lua never gives a metamethod: it is called with the values alone",
+      "drop `<...>` from " .. quoted(name))
+    return
+  end
   if not ((made.tag == "fn")) then
     return
   end
@@ -2016,7 +2023,15 @@ end
 -- TODO: refuse `any` outside a parameter in an annotation,
 -- once the checker for expressions lands: it is checked with the types the bodies are checked with.
 local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
+  local before = #ctx.errors
   local store = ctx.store
+  -- A generic method's type parameters are a binder of its own, inside the class's.
+  push_frame(ctx, false, m.typeparams)
+  local tparams: mut {Types.TParam} = {}
+  for _, p in ipairs(m.typeparams) do
+    local bounds = lower_bound(ctx, p)
+    tparams[#tparams + 1] = { bounds = bounds }
+  end
   local params: mut {Types.Param} = {}
   local names: mut {string} = {}
   local rest: Type?
@@ -2024,7 +2039,8 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
     local binding = p.name
     local pname = binding ~= nil and binding.name or "" -- checked: and_ternary
     if i == 1 then
-      params[1] = { type = build.self_type }
+      -- Under a generic method's own binder, the class's parameters are one binder further out.
+      params[1] = { type = Relation.shifted(store, build.self_type, if #m.typeparams > 0 then 1 else 0 end) }
       names[#names + 1] = pname
     else
       local given = p.type
@@ -2049,14 +2065,18 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   if declared ~= nil then
     alts = lower_rets(ctx, declared, names_positions(names))
     if alts == nil then
+      pop_frame(ctx)
       ctx.types[m.id] = store.invalid
       return
     end
   end
   local made = attempt(ctx, m, function(): Type
-    return store:fn({ params = params, rest = rest, rets = alts })
+    return store:fn({ tparams = tparams, params = params, rest = rest, rets = alts })
   end)
+  pop_frame(ctx)
   ctx.types[m.id] = made
+  unused_parameters(ctx, m.typeparams, made, before)
+  name_parameters(ctx, m.typeparams, made)
   check_metamethod(ctx, build, m, made)
   if claim(ctx, build, m, m.name, false) then
     build.methods[#build.methods + 1] = { name = m.name.name, type = made }
@@ -2295,7 +2315,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       end
     elseif (m.kind == "Method") then
       lower_method(ctx, build, m)
-      kids[#kids + 1] = m.body
+      kids[#kids + 1] = m
     elseif DECLARATIONS[m.kind] == true then
       kids[#kids + 1] = m
     end
@@ -2490,7 +2510,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
             local mine = quoted(decl.name .. "." .. f.name)
             local s = found[1]
             if s == nil then
-              if not Relation.brought_in(decl, f, instance, self_type) then
+              if not Relation.brought_in(store, decl, f, instance, self_type) then
                 local shown_type: Type = expected
                 if f.omittable == true then
                   shown_type = store:non_nil(expected)
@@ -2628,7 +2648,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
       for _, f in ipairs(xbody.fields) do
         if held[f.name] ~= true then
           local made = Relation.as_listed(store, x, f.type, self_type)
-          if made ~= nil and Relation.brought_in(decl, f, made, self_type) then
+          if made ~= nil and Relation.brought_in(store, decl, f, made, self_type) then
             held[f.name] = true
             out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable }
           end
@@ -3108,6 +3128,10 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
   elseif (node.kind == "FunctionLit") then
     lower_fn(ctx, node.fn, {}, {})
     return { node.fn.body }, false
+  elseif (node.kind == "Method") then
+    -- Its signature was lowered with its class; its body names its own type parameters.
+    push_frame(ctx, false, node.typeparams)
+    return { node.body }, true
   elseif node.kind == "Record" or node.kind == "Interface" or node.kind == "Class" then
     return enter_declaration(ctx, node), true
   elseif (node.kind == "Enum") then

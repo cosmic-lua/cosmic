@@ -284,7 +284,15 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
       bracket(base.first, base.last, "(", { head }, true, false)
     elseif kind == "Fn" or kind == "Method" then
       local params = of_kind(kids, "Param")
-      local open = if kind == "Fn" then base.first elseif head ~= nil then head.last + 1 else base.first end
+      -- A method's parameters open after its name, and after its type parameters where it has some.
+      local typeparams = of_kind(kids, "TypeParam")
+      local last_typeparam = typeparams[#typeparams]
+      local open = base.first
+      if kind == "Method" and last_typeparam ~= nil then
+        open = last_typeparam.last + 2
+      elseif kind == "Method" and head ~= nil then
+        open = head.last + 1
+      end
       local last = params[#params]
       bracket(open, if last ~= nil then last.last + 1 else open + 1 end, "(", params, false, true)
       local body = body_of(kids)

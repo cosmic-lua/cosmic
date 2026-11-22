@@ -30,8 +30,6 @@ local record Request
   end
 end
 
-local type Req = Types.Request
-
 --- A key for a typed value of the request or the app: see [`Web.key`].
 --- @param name string The name, for messages
 --- @return Types.Key<T> The key
@@ -92,78 +90,74 @@ function Request.parse_host(value: string): Request.HostPort?
   return { host = host, port = port }
 end
 
-local function header(self: Req, name: string): string?
-  return self.headers[name:lower()]
-end
-
-local function bytes(self: Req): string?, string
-  local body_text = self.body_text
-  if body_text ~= nil then return body_text, "" end
-  local body_failure = self.body_failure
-  if body_failure ~= nil then return nil, body_failure end
-  local data, why = Stream.read_all(self.raw.body)
-  if data == nil then
-    -- The reader is spent: a second call answers the same failure.
-    self.body_failure = why
-    return nil, why
+--- What [`Request.new`] makes.
+local class Made is Types.Request
+  function header(self, name: string): string?
+    return self.headers[name:lower()]
   end
-  self.body_text = data
-  self.raw.body = Stream.from_string(data)
-  return data, ""
-end
 
-local function text(self: Req): string?, string
-  local data, why = bytes(self)
-  if data == nil then return nil, why end
-  if not utf8.len(data) then return nil, "web: the body is not valid UTF-8" end
-  return data, ""
-end
-
-local function get<T>(self: Req, key: Types.Key<T>): T?
-  -- cast: a slot holds the T that `set` stored under this very key.
-  return self.slots[key] as T -- checked: cast_refused
-end
-
-local function set<T>(self: Req, key: Types.Key<T>, value: T)
-  self.slots[key] = value
-end
-
-local function query(self: Req): Url.Query?, string
-  local cached = get(self, QUERY)
-  if cached ~= nil then return cached, "" end
-  local decoded, why = Url.decode_query(self.query_string)
-  if decoded == nil then return nil, why end
-  set(self, QUERY, decoded)
-  return decoded, ""
-end
-
-local function accepts(self: Req, offers: {string}): string?
-  return Negotiate.best(self.headers["accept"], offers)
-end
-
-local function url_for(self: Req, name: string, params?: {string: string | integer},
-                       queries?: {string:string}): string?, string
-  return self.app:url_for(name, params, queries)
-end
-
-local function base_url(self: Req): string?, string
-  if self.app.spec.trusted_hosts == nil then
-    return nil, "web: base_url needs trusted_hosts, since the Host header is the client's"
+  function bytes(self): string?, string
+    local body_text = self.body_text
+    if body_text ~= nil then return body_text, "" end
+    local body_failure = self.body_failure
+    if body_failure ~= nil then return nil, body_failure end
+    local data, why = Stream.read_all(self.raw.body)
+    if data == nil then
+      -- The reader is spent: a second call answers the same failure.
+      self.body_failure = why
+      return nil, why
+    end
+    self.body_text = data
+    self.raw.body = Stream.from_string(data)
+    return data, ""
   end
-  local host = self.host
-  if host == nil then return nil, "web: the request names no host" end
-  local parsed = Request.parse_host(host)
-  if parsed == nil then return nil, "web: the request's host is not a host name" end
-  local port = parsed.port
-  return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. tostring(port) else "" end), ""
+
+  function text(self): string?, string
+    local data, why = self:bytes()
+    if data == nil then return nil, why end
+    if not utf8.len(data) then return nil, "web: the body is not valid UTF-8" end
+    return data, ""
+  end
+
+  function get<T>(self, key: Types.Key<T>): T?
+    -- cast: a slot holds the T that `set` stored under this very key.
+    return self.slots[key] as T -- checked: cast_refused
+  end
+
+  function set<T>(self, key: Types.Key<T>, value: T)
+    self.slots[key] = value
+  end
+
+  function query(self): Url.Query?, string
+    local cached = self:get(QUERY)
+    if cached ~= nil then return cached, "" end
+    local decoded, why = Url.decode_query(self.query_string)
+    if decoded == nil then return nil, why end
+    self:set(QUERY, decoded)
+    return decoded, ""
+  end
+
+  function accepts(self, offers: {string}): string?
+    return Negotiate.best(self.headers["accept"], offers)
+  end
+
+  function url_for(self, name: string, params?: {string: string | integer},
+                   queries?: {string:string}): string?, string
+    return self.app:url_for(name, params, queries)
+  end
+
+  function base_url(self): string?, string
+    if self.app.spec.trusted_hosts == nil then
+      return nil, "web: base_url needs trusted_hosts, since the Host header is the client's"
+    end
+    local host = self.host
+    if host == nil then return nil, "web: the request names no host" end
+    local parsed = Request.parse_host(host)
+    if parsed == nil then return nil, "web: the request's host is not a host name" end
+    local port = parsed.port
+    return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. tostring(port) else "" end), ""
+  end
 end
-
-local methods = {
-  header = header, bytes = bytes, text = text, query = query, accepts = accepts,
-  url_for = url_for, get = get, set = set, base_url = base_url,
-}
-
-local request_mt: metatable<Req> = { __index = methods } -- checked: literal_missing
 
 --- The last entry of a comma-separated forwarding header: the one the
 --- proxy next to the app added, since the entries before it are the
@@ -348,13 +342,13 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
     local from = forwarded_client(proxies, headers["x-forwarded-for"])
     if from ~= nil then client = { host = from } end
   end
-  local request: Types.Request = { -- checked: literal_missing
+  local request: Made = {
     raw = raw, method = raw.method, path = parts.path, segments = parts.segments,
     query_string = raw.query, headers = headers, params = {}, mount_path = "", app = app,
     state = {}, client = client, scheme = scheme, host = host, trailing = parts.trailing,
-    slots = {}, bodies = {},
+    slots = {}, bodies = {}, route = nil, outcome = nil, body_text = nil, body_failure = nil,
   }
-  return setmetatable(request, request_mt) -- checked: setmetatable_call -- untyped: call
+  return request
 end
 
 return Request

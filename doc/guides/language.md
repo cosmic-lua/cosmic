@@ -696,6 +696,29 @@ local all: mut {Version} = { { major = 2, minor = 0 }, { major = 1, minor = 4 } 
 table.sort(all) -- 1.4, then 2.0
 ```
 
+## a method with type parameters of its own
+
+A method of a class may take type parameters, written after its name as a function's are. Each call solves them from
+its arguments, and a class's own parameters stay in scope. An interface's generic function field, such as
+`get: function<T>(Store, Key<T>): T?`, is met by a generic method of the same type.
+
+```text
+local class Bag
+  items: {integer}
+
+  function map<U>(self, f: function(integer): U): {U}
+    local out: mut {U} = {}
+    for i, item in ipairs(self.items) do
+      out[i] = f(item)
+    end
+    return out
+  end
+end
+
+local b: Bag = { items = { 1, 2 } }
+local names = b:map(function(n: integer): string return "#" .. tostring(n) end) -- { "#1", "#2" }
+```
+
 ## keying a map by a type parameter
 
 A map is keyed by `integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata. A type parameter

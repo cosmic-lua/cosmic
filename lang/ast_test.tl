@@ -75,6 +75,7 @@ local interface Conn<T> is Stream.Reader
 end
 local class Counter<T> is Resettable
   function bump(self, by: integer): integer return by end
+  function pick<U>(self, u: U): U return u end
 end
 local enum Mode "r" "w" end
 local type Key<T> = Types.Key<T>
