@@ -376,6 +376,9 @@ local record Ctx
   fn_names: mut {integer: {string}}
   --- How many generic-call arguments are being checked: a literal there has no type to be checked against.
   mut lenient: integer
+  --- The `==` or `~=` an operand of which is being checked against the other's type: a string literal there that is no
+  --- member of an enum makes a test that is always false (or true).
+  mut comparing?: Ast.Binary
   --- Set while the arguments of a generic call are checked: a function there is held to the parameters of the type it is
   --- instantiated to, which no declaration spells, so it never drops a trailing parameter.
   mut no_drop: boolean
@@ -1714,8 +1717,13 @@ local function string_value(ctx: Ctx, node: Ast.Node, value: string, expected: T
     end
     shown[#shown + 1] = quoted(string.format("%q", v))
   end
+  local test = ctx.comparing
+  local always = ""
+  if test ~= nil and (peel(test.left) == node or peel(test.right) == node) then
+    always = ", so the test is always " .. (if test.op == "==" then "false" else "true" end)
+  end
   report(ctx, "enum_member", node, quoted(string.format("%q", value)) .. " is not a member of " .. tq(ctx, expected) ..
-      (if close ~= "" then ", nearest " .. quoted(string.format("%q", close)) else "" end),
+      (if close ~= "" then ", nearest " .. quoted(string.format("%q", close)) else "" end) .. always,
     "write " .. listed(shown), { show(ctx, expected) })
   return ctx.invalid
 end
@@ -3734,8 +3742,6 @@ local record Tests
   record_tag: function(ctx: Ctx, value: Type, r: Type): {string}?
   --- Adds the warning `code` on the tokens of `node`; none in a pass that reports nothing.
   warn: function(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, fix: string)
-  --- Reports `type(x) == "name"` where `type` never answers the name.
-  type_name: function(ctx: Ctx, node: Ast.Binary)
   --- Reports `(x) is T` where `x` is a place, which the parentheses make a value.
   parenthesized: function(ctx: Ctx, node: Ast.IsTest)
   --- The place `e` counts, if `e` is `#place` and the place holds an array.
@@ -3781,34 +3787,6 @@ function Tests.warn(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, 
   end
   local b = base_of(node)
   Warnings.add(ctx.warnings, ctx.filename, ctx.tokens, code, b.first, b.last, msg, fix)
-end
-
-function Tests.type_name(ctx: Ctx, node: Ast.Binary)
-  local left, right = peel(node.left), peel(node.right)
-  local call: Ast.Call? = nil
-  local name: Ast.String? = nil
-  if (left.kind == "Call") and (right.kind == "String") then
-    call, name = left, right
-  elseif (right.kind == "Call") and (left.kind == "String") then
-    call, name = right, left
-  end
-  if call == nil or name == nil then
-    return
-  end
-  local callee = call.callee
-  if not ((callee.kind == "Name")) or callee.text ~= "type" or #call.args ~= 1 then
-    return
-  end
-  local answers = { "nil", "boolean", "number", "string", "table", "function", "thread", "userdata" }
-  for _, each in ipairs(answers) do
-    if each == name.value then
-      return
-    end
-  end
-  report(ctx, "type_name", name, "`type` never answers \"" .. name.value .. "\": it answers " ..
-      table.concat(answers, ", ", 1, #answers - 1) .. " or " .. answers[#answers] .. ", so the test is always " .. -- checked: nil_not_allowed
-      (if node.op == "==" then "false" else "true" end),
-    "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\", and `x is T` tests a type declared in the program")
 end
 
 function Tests.parenthesized(ctx: Ctx, node: Ast.IsTest)
@@ -4853,7 +4831,6 @@ end
 
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
 function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
-  Tests.type_name(ctx, node)
   if not Operands.overlaps(ctx, left, right) then
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
@@ -5044,7 +5021,10 @@ function Operators.binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type
   if op == "or" or op == "and" then
     return Operators.logical(ctx, node, left, expected)
   end
+  local outer = ctx.comparing
+  if op == "==" or op == "~=" then ctx.comparing = node end
   local right = expr(ctx, node.right, (op == "==" or op == "~=") and left or nil) -- checked: and_ternary
+  ctx.comparing = outer
   if op == ".." then
     local l, r = Operands.string_operand(ctx, node.left, left), Operands.string_operand(ctx, node.right, right)
     return (l and r) and store.string or ctx.invalid -- checked: and_ternary
@@ -5072,7 +5052,9 @@ function Operators.binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type
   end
   local left_node = node.left
   if (left_node.kind == "String") and has_enum(ctx, right) then
+    ctx.comparing = node
     local _ = string_literal(ctx, left_node, right)
+    ctx.comparing = outer
   end
   Operators.equality(ctx, node, left, right)
   return store.boolean

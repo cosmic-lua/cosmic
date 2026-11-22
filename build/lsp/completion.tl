@@ -59,12 +59,10 @@
 -- broken statement declares again (`local type Bar = `, or a `local x: Foo` inside a function a broken statement leaves
 -- open) is typed by the outer binding the last text that parsed has, as before this probe.
 
--- TODO: name the placeholders of a call inserted for a function after its parameters where its type is the checker's and
--- not written and its declaration is no local function statement of the document (a global of the standard library, a
--- member the rows do not hold, a local bound to a function value): they are `arg1`, `arg2`, ... there. Waits on the
--- names of a function's parameters being read from its declaration: a [`Types.Field`] or [`Types.Method`] of a declaration's
--- body carries only a name and a type (and is not shared by digest as a function type is, so it can hold more), once a
--- field or a method carries the names of its parameters, lowered by [`lang.declarations`] and decoded by [`lang.types`].
+-- TODO: name the placeholders of a call inserted for a global function of the standard library (`tostring(`) and for a
+-- local bound to a function value: they are `arg1`, `arg2`, ... there. A member is named by the parameters its field
+-- writes ([`Declarations.Program`]'s `params`); a global is a value a declaration file binds to such a field
+-- (`global tostring <const> = StandardLibrary.tostring`), which the program does not yet keep.
 
 local Ast = require("lang.ast")
 local Declarations = require("lang.declarations")
@@ -115,6 +113,9 @@ local record completion
     method: boolean
     --- Where the member is a row: its type as written, its documentation and its kind.
     row: source.MemberRow?
+    --- The names of its parameters its declaration writes ([`Declarations.Program`]'s `params`), where it is a function
+    --- field the rows do not hold.
+    params?: {string}
   end
 end
 
@@ -363,10 +364,11 @@ local function members_of(program: Declarations.Program, decl: Types.Decl, value
   local out: mut {Member} = {}
   if body == nil then return out end
   local seen: mut {string: boolean} = {}
+  local params = program.params[decl] or {}
   local function add(name: string, t: Types.Type?, method: boolean)
     if seen[name] == true then return end
     seen[name] = true
-    out[#out + 1] = { name = name, type = t, method = method, row = nil }
+    out[#out + 1] = { name = name, type = t, method = method, row = nil, params = params[name] }
   end
   local absent = program.absent[decl] or {}
   for _, field in ipairs(body.fields) do
@@ -820,7 +822,8 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
     local methods: mut {Member} = {}
     for _, member in ipairs(members) do
       local t = member.type
-      methods[#methods + 1] = { name = member.name, type = t, method = t ~= nil and t.tag == "fn", row = member.row }
+      methods[#methods + 1] = { name = member.name, type = t, method = t ~= nil and t.tag == "fn", row = member.row,
+        params = member.params }
     end
     members = methods
   end
@@ -865,7 +868,9 @@ local function member_items(request: Request, d: hover.Docs, decl: Types.Decl, v
       elseif entry ~= nil and entry.signature ~= "" then
         params = written_params(entry.signature:gsub("^function%s+[%w_.:]*", "function"), context.method)
       end
-      if params == nil then params = typed_params(t, context.method and member.method) end
+      if params == nil then
+        params = typed_params(t, context.method and member.method, member.params)
+      end
       if params ~= nil then
         item.textEdit = { range = edit, newText = call_snippet(member.name, params) }
         item.insertTextFormat = 2

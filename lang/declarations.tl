@@ -317,6 +317,11 @@ local record Declarations
     --- no statement of the module gives the table of its functions (`function R.m(...)` or `R.m = ...` at the top level): a
     --- field every value holds, such as `m: function(self: R, ...)` that the constructor fills, and absent from the module.
     absent: mut {Decl: {string: boolean}}
+    --- The names of the parameters a function field of a declaration writes, by field name and in order, from the first
+    --- declaration of it (`find: function(s: string, pattern: string)` gives `{ "s", "pattern" }`): "" where only a type
+    --- is written, and no name for `...`. A function type holds no names ([`Types`]), so a tool that names the arguments
+    --- of a call (completion) reads them here.
+    params: mut {Decl: {string: {string}}}
 
     --- Makes `name` another name of the module `module`, which the program knows.
     alias: function(Program, name: string, module: string)
@@ -2277,9 +2282,18 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     end
   end
   local kids: mut {Ast.Node} = {}
+  local written_params: mut {string: {string}} = {}
   for _, m in ipairs(members_of(node)) do
     if (m.kind == "FieldDecl") then
       lower_field(ctx, build, m)
+      local written = m.type
+      if (written.kind == "TypeFunction") and written_params[m.name.name] == nil then
+        local names: mut {string} = {}
+        for _, p in ipairs(written.params) do
+          if not p.variadic then names[#names + 1] = p.name or "" end
+        end
+        written_params[m.name.name] = names
+      end
     elseif (m.kind == "Method") then
       lower_method(ctx, build, m)
       kids[#kids + 1] = m.body
@@ -2310,6 +2324,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       ctx.program.statics[decl] = named
     end
   end
+  ctx.program.params[decl] = written_params
   if node.kind == "Interface" or node.kind == "Record" or node.kind == "Class" then
     finish_build(ctx, build, binder_names(ctx.frames))
   end
@@ -3158,7 +3173,7 @@ local program_mt: metatable<Program> = { __index = Declarations.Program } -- che
 function Declarations.new(store?: Store, library?: {string: boolean}): Program
   local s = store or Types.new()
   local program: Program = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {},
+    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {}, params = {},
   }, program_mt)
   return program
 end
@@ -3329,6 +3344,7 @@ function Declarations.forget(self: Program, modules: {string}): boolean
     self.requires[decl] = nil
     self.statics[decl] = nil
     self.absent[decl] = nil
+    self.params[decl] = nil
   end
   local kept: mut {Declarations.Waiting} = {}
   for _, w in ipairs(self.waiting) do

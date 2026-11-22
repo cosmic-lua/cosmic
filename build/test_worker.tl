@@ -531,7 +531,7 @@ local function keep(sites: mut {string:worker.Violation}, at: string, met: worke
 end
 
 local function note(check: Check, index: integer, value: any, absent: boolean)
-  local actual = lua_type(value)
+  local actual: string = lua_type(value)
   if actual == "number" then
     local subtype = math_type(value)
     -- `assert` is no call to make here: the test's count of them is read after it ran, and this runs inside it.
@@ -618,7 +618,7 @@ local function verify(fact: Fact, value: any): any
     broken = kinds[kind] ~= true or (kind == "number" and fact.integral and math_type(value) ~= "integer")
   end
   if not broken then return value end
-  local actual = kind
+  local actual: string = kind
   if actual == "number" then
     local subtype = math_type(value)
     if subtype == nil then lua_error("a number has an integer or float subtype", 0) end
@@ -798,7 +798,7 @@ local function fact(v: any, taken?: string, name: string, strings?: {string}, cl
   if taken ~= "" or strings ~= nil then
     local kind = lua_type(v)
     if lua_find(taken, kind, 1, true) ~= nil then
-      local actual = kind
+      local actual: string = kind
       if kind == "number" then actual = shown(v) end
       fact_broken(at or raw_errors.where(2) or "?", name, "not " .. (lua_gsub(taken, ",", "|")), actual)
     end
