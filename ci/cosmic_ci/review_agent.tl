@@ -364,7 +364,7 @@ local function read_lock(): ReviewAgent.Lock?, string
   local present, _ = Fs.exists(lock_path)
   if present ~= true then return {}, "" end
   local text, why = Fs.read(lock_path)
-  if text == nil then return nil, why end
+  if text == nil then return nil, tostring(why) end
   return ReviewAgent.decode_lock(text)
 end
 
@@ -444,7 +444,7 @@ function ReviewAgent.draft_pr_command(argv: {string}): integer
     return complain("usage: review-draft-pr BRANCH TITLE BODY_FILE")
   end
   local body, read_trouble = Fs.read(body_file)
-  if body == nil then return complain(body_file .. ": " .. read_trouble) end
+  if body == nil then return complain(tostring(read_trouble)) end
   local client, why = GithubApi.live(Env.all())
   if client == nil then return complain(why) end
   local repo = repository
@@ -461,7 +461,7 @@ function ReviewAgent.issue_command(argv: {string}): integer
     return complain("usage: review-issue TITLE BODY_FILE")
   end
   local body, read_trouble = Fs.read(body_file)
-  if body == nil then return complain(body_file .. ": " .. read_trouble) end
+  if body == nil then return complain(tostring(read_trouble)) end
   local client, why = GithubApi.live(Env.all())
   if client == nil then return complain(why) end
   local repo = repository
