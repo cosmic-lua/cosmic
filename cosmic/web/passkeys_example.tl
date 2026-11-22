@@ -63,6 +63,8 @@ function Example.passkeys()
   end
 
   local first = Web.test_client(app)
+  -- A browser on an https page: the session cookie is Secure.
+  first.scheme = "https"
   print(first:post("/auth/passkey/register/begin", { json = none }).status)
   local _ = first:post("/signup")
   local challenge = challenge_of(first:post("/auth/passkey/register/begin", { json = none }))
@@ -85,6 +87,7 @@ function Example.passkeys()
   print(registered.status)
 
   local second = Web.test_client(app)
+  second.scheme = "https"
   print(second:get("/"):text())
   challenge = challenge_of(second:post("/auth/passkey/login/begin", { json = none }))
   local data = Hash.sha256("example.com") .. "\x1d" .. string.pack(">I4", 0)

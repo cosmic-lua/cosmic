@@ -29,6 +29,14 @@ local record Key
   mut count: integer
 end
 
+--- A client acting as a browser on an https page, which sends the Secure
+--- session cookie back.
+local function browser(app: Web.App): Web.TestClient
+  local client = Web.test_client(app)
+  client.scheme = "https"
+  return client
+end
+
 local function key_new(): Key
   return { secret = assert(Rand.entropy(32)), id = assert(Rand.entropy(16)), count = 0 }
 end
@@ -167,7 +175,7 @@ end
 local function test_a_passkey_registers_and_logs_in()
   local rig = rig_of()
   local key = key_new()
-  local first = Web.test_client(rig.app)
+  local first = browser(rig.app)
   local made = register(first, key, "ada")
   assert(made.status == 201, made.body)
   assert(assert(Json.to_object((made:json())))["id"] == Codec.base64url(key.id))
@@ -175,7 +183,7 @@ local function test_a_passkey_registers_and_logs_in()
   local kept = assert(assert(rig.store:list("handle-ada"))[1])
   assert(kept.id == key.id and kept.user_handle == "handle-ada" and kept.transports[1] == "internal")
   -- Another browser, with no user named, logs in by the passkey alone.
-  local second = Web.test_client(rig.app)
+  local second = browser(rig.app)
   assert(second:get("/"):text() == "nobody")
   local res = log_in(second, key, "handle-ada", "/admin")
   assert(res.status == 200, res.body)
@@ -185,7 +193,7 @@ end
 
 local function test_a_registration_needs_a_user()
   local rig = rig_of()
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local res = post(client, "/register/begin")
   assert(res.status == 401, res.body)
   -- Begun for one user, it does not finish for another, nor for none.
@@ -202,8 +210,8 @@ end
 local function test_a_credential_id_registers_once()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local again = register(Web.test_client(rig.app), key, "eve")
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local again = register(browser(rig.app), key, "eve")
   assert(again.status == 409, again.body)
   assert(#assert(rig.store:list("handle-eve")) == 0)
 end
@@ -211,7 +219,7 @@ end
 local function test_begin_excludes_the_user_s_passkeys()
   local rig = rig_of()
   local key = key_new()
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   assert(register(client, key, "ada").status == 201)
   local options = assert(Json.to_object((post(client, "/register/begin", nil, { ["X-User"] = "ada" }):json())))
   local excluded = assert(Json.to_array(options["excludeCredentials"]))
@@ -223,17 +231,17 @@ end
 local function test_a_challenge_is_used_once()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local client = Web.test_client(rig.app)
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local client = browser(rig.app)
   local challenge = challenge_of(post(client, "/login/begin"))
   local answer = assertion(key, "handle-ada", challenge)
   assert(post(client, "/login/finish", answer).status == 200)
   local again = post(client, "/login/finish", answer)
   assert(again.status == 400, again.body)
   -- A finish with no begin, and one with another browser's challenge.
-  local fresh = Web.test_client(rig.app)
+  local fresh = browser(rig.app)
   assert(post(fresh, "/login/finish", answer).status == 400)
-  local theirs = challenge_of(post(Web.test_client(rig.app), "/login/begin"))
+  local theirs = challenge_of(post(browser(rig.app), "/login/begin"))
   local _ = post(fresh, "/login/begin")
   local res = post(fresh, "/login/finish", assertion(key, "handle-ada", theirs))
   assert(res.status == 400 and res.body:find("under way", 1, true) ~= nil, res.body)
@@ -244,27 +252,27 @@ end
 local function test_a_copied_cookie_does_not_replay_a_login()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local client = Web.test_client(rig.app)
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local client = browser(rig.app)
   local challenge = challenge_of(post(client, "/login/begin"))
-  local saved = assert(client.jar["session"])
+  local saved = assert(client.jar["__Host-session"])
   local answer = assertion(key, "handle-ada", challenge)
   assert(post(client, "/login/finish", answer).status == 200)
-  local thief = Web.test_client(rig.app)
-  local res = thief:post("/auth/passkey/login/finish", { json = answer, cookies = { session = saved } })
+  local thief = browser(rig.app)
+  local res = thief:post("/auth/passkey/login/finish", { json = answer, cookies = { ["__Host-session"] = saved } })
   assert(res.status == 400 and res.body:find("answered already", 1, true) ~= nil, res.body)
   assert(thief:get("/"):text() == "nobody")
   -- So with a registration's.
   local other = key_new()
-  local registering = Web.test_client(rig.app)
+  local registering = browser(rig.app)
   local headers = { ["X-User"] = "eve" }
   local begun = challenge_of(post(registering, "/register/begin", nil, headers))
-  local kept = assert(registering.jar["session"])
+  local kept = assert(registering.jar["__Host-session"])
   local made = registration(other, begun)
   assert(post(registering, "/register/finish", made, headers).status == 201)
   assert(rig.store:remove(other.id) == true)
-  local again = Web.test_client(rig.app):post("/auth/passkey/register/finish", {
-    json = made, headers = headers, cookies = { session = kept },
+  local again = browser(rig.app):post("/auth/passkey/register/finish", {
+    json = made, headers = headers, cookies = { ["__Host-session"] = kept },
   })
   assert(again.status == 400 and again.body:find("answered already", 1, true) ~= nil, again.body)
 end
@@ -274,8 +282,8 @@ end
 local function test_logins_under_way_at_once()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local client = Web.test_client(rig.app)
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local client = browser(rig.app)
   local first = challenge_of(post(client, "/login/begin"))
   local second = challenge_of(post(client, "/login/begin"))
   assert(post(client, "/login/finish", assertion(key, "handle-ada", first)).status == 200)
@@ -296,8 +304,8 @@ end
 local function test_a_challenge_from_the_future_is_not_taken()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local client = Web.test_client(rig.app)
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local client = browser(rig.app)
   local challenge = challenge_of(post(client, "/login/begin"))
   rig.time.now = rig.time.now - 10
   local res = post(client, "/login/finish", assertion(key, "handle-ada", challenge))
@@ -336,10 +344,10 @@ end
 local function test_a_store_that_fails_is_a_500()
   local inner = assert(Web.passkey_store((assert(Sqlite.memory()))))
   local key = key_new()
-  assert(register(Web.test_client(rig_of({ store = inner }).app), key, "ada").status == 201)
+  assert(register(browser(rig_of({ store = inner }).app), key, "ada").status == 201)
   for _, fails in ipairs({ "find", "list", "add", "update", "spend" }) do
     local rig = rig_of({ store = failing(inner, fails, "the disk is full") })
-    local client = Web.test_client(rig.app)
+    local client = browser(rig.app)
     local res: Web.TestResponse
     if fails == "list" then
       res = post(client, "/register/begin", nil, { ["X-User"] = "eve" })
@@ -355,7 +363,7 @@ local function test_a_store_that_fails_is_a_500()
   -- A passkey removed between its lookup and its update logs nobody in.
   local rig = rig_of({ store = failing(inner, "update", "") })
   key.count = key.count + 1
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local res = log_in(client, key, "handle-ada")
   assert(res.status == 401 and res.body:find("not registered", 1, true) ~= nil, res.body)
   assert(client:get("/"):text() == "nobody")
@@ -364,8 +372,8 @@ end
 local function test_a_login_unverified_says_so()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local client = Web.test_client(rig.app)
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local client = browser(rig.app)
   local challenge = challenge_of(post(client, "/login/begin"))
   assert(post(client, "/login/finish", assertion(key, "handle-ada", challenge, 0x19)).status == 200)
   assert(client:get("/"):text() == "handle-ada")
@@ -374,7 +382,7 @@ end
 --- A request the router turned away is not answered here.
 local function test_a_bad_host_is_not_answered()
   local rig = rig_of({ trusted_hosts = { "example.com" } })
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local res = post(client, "/login/begin", nil, { Host = "evil.example" })
   assert(res.status == 400 and res.body:find("challenge", 1, true) == nil, res.body)
   assert(post(client, "/login/begin", nil, { Host = "example.com" }).status == 200)
@@ -382,15 +390,15 @@ end
 
 local function test_a_handle_past_64_bytes_raises()
   local rig = rig_of({ handle = function(_: string): string return ("h"):rep(65) end })
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   Test.raises(function() post(client, "/register/begin", nil, { ["X-User"] = "ada" }) end, "1 to 64 bytes")
 end
 
 local function test_a_challenge_lapses()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local client = Web.test_client(rig.app)
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local client = browser(rig.app)
   local challenge = challenge_of(post(client, "/login/begin"))
   rig.time.now = rig.time.now + 331
   local res = post(client, "/login/finish", assertion(key, "handle-ada", challenge))
@@ -399,24 +407,24 @@ end
 
 local function test_a_passkey_not_kept_does_not_log_in()
   local rig = rig_of()
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local res = log_in(client, key_new(), "handle-ada")
   assert(res.status == 401 and res.body:find("not registered", 1, true) ~= nil, res.body)
   assert(client:get("/"):text() == "nobody")
   -- Removed, a passkey that logged in logs in no more.
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
+  assert(register(browser(rig.app), key, "ada").status == 201)
   assert(rig.store:remove(key.id) == true)
   assert(rig.store:remove(key.id) == false)
-  assert(log_in(Web.test_client(rig.app), key, "handle-ada").status == 401)
+  assert(log_in(browser(rig.app), key, "handle-ada").status == 401)
 end
 
 local function test_a_signature_that_does_not_check_does_not_log_in()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
+  assert(register(browser(rig.app), key, "ada").status == 201)
   local forged: Key = { secret = assert(Rand.entropy(32)), id = key.id, count = 0 }
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local res = log_in(client, forged, "handle-ada")
   assert(res.status == 401 and res.body:find("does not check", 1, true) ~= nil, res.body)
   assert(client:get("/"):text() == "nobody")
@@ -426,12 +434,12 @@ local function test_the_counter_is_kept()
   local rig = rig_of()
   local key = key_new()
   key.count = 5
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
+  assert(register(browser(rig.app), key, "ada").status == 201)
   key.count = 6
-  assert(log_in(Web.test_client(rig.app), key, "handle-ada").status == 200)
+  assert(log_in(browser(rig.app), key, "handle-ada").status == 200)
   assert(assert(rig.store:find(key.id)).sign_count == 6)
   -- A copy of the authenticator that has not moved on is refused.
-  local res = log_in(Web.test_client(rig.app), key, "handle-ada")
+  local res = log_in(browser(rig.app), key, "handle-ada")
   assert(res.status == 401 and res.body:find("cloned", 1, true) ~= nil, res.body)
 end
 
@@ -439,13 +447,13 @@ local function test_a_login_regenerates_the_session()
   local sessions = assert(SessionSqlite.store((assert(Sqlite.memory()))))
   local rig = rig_of({ sessions = sessions })
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
-  local client = Web.test_client(rig.app)
+  assert(register(browser(rig.app), key, "ada").status == 201)
+  local client = browser(rig.app)
   local _ = post(client, "/login/begin")
-  local before = assert(client.jar["session"])
+  local before = assert(client.jar["__Host-session"])
   local challenge = challenge_of(post(client, "/login/begin"))
   assert(post(client, "/login/finish", assertion(key, "handle-ada", challenge)).status == 200)
-  local after = assert(client.jar["session"])
+  local after = assert(client.jar["__Host-session"])
   assert(before ~= after)
   assert(client:get("/"):text() == "handle-ada verified")
   -- Both sessions are Ada's: the registration's and the login's.
@@ -455,7 +463,7 @@ end
 local function test_logout_ends_the_session()
   local rig = rig_of()
   local key = key_new()
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   assert(register(client, key, "ada").status == 201)
   local res = post(client, "/logout")
   assert(res.status == 303 and res.redirect_location == "/", res.body)
@@ -465,13 +473,13 @@ end
 local function test_next_stays_on_the_app()
   local rig = rig_of()
   local key = key_new()
-  assert(register(Web.test_client(rig.app), key, "ada").status == 201)
+  assert(register(browser(rig.app), key, "ada").status == 201)
   for _, case in ipairs({
       { "//evil.example", "/" }, { "https://evil.example/", "/" }, { "/a?b=c", "/a?b=c" },
       { "/" .. ("x"):rep(600), "/" },
   }) do
     local asked, want = assert(case[1]), assert(case[2])
-    local res = log_in(Web.test_client(rig.app), key, "handle-ada", Url.escape(asked))
+    local res = log_in(browser(rig.app), key, "handle-ada", Url.escape(asked))
     assert(res.status == 200, res.body)
     local next_path = assert(Json.to_object((res:json())))["next"]
     assert(next_path == want, asked .. " went to " .. tostring(next_path))
@@ -480,7 +488,7 @@ end
 
 local function test_the_endpoints_take_json_posts_from_the_origin_alone()
   local rig = rig_of()
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local other = post(client, "/login/begin", nil, { Origin = "https://evil.example" })
   assert(other.status == 403, other.body)
   assert(post(client, "/login/begin", nil, { Origin = ORIGIN }).status == 200)
@@ -503,7 +511,7 @@ end
 
 local function test_the_script_names_the_prefix()
   local rig = rig_of({ prefix = "/keys" })
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local res = client:get("/keys/script.js")
   assert(res.status == 200 and (res.headers["content-type"] or ""):find("text/javascript", 1, true) == 1)
   assert(res.body:find('const prefix = "/keys";', 1, true) ~= nil, res.body)
@@ -518,7 +526,7 @@ end
 
 local function test_max_age_ends_a_login()
   local rig = rig_of({ max_age = 60 })
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   assert(register(client, key_new(), "ada").status == 201)
   assert(client:get("/"):text() == "handle-ada verified")
   rig.time.now = rig.time.now + 60
@@ -528,7 +536,7 @@ end
 local function test_verification_can_be_required()
   local rig = rig_of({ require_verification = true })
   local key = key_new()
-  local client = Web.test_client(rig.app)
+  local client = browser(rig.app)
   local options = assert(Json.to_object((post(client, "/register/begin", nil, { ["X-User"] = "ada" }):json())))
   local selection = assert(Json.to_object(options["authenticatorSelection"]))
   assert(selection["userVerification"] == "required")
