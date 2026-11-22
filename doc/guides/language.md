@@ -61,6 +61,29 @@ The rules of the spread (`literal_spread`, `cosmic docs literal_spread`):
 
 `readonly f: T` is a form of the old grammar. The parser refuses it (`expected_token`): write `f: T`.
 
+## a keyword names a field
+
+Every word Lua reserves names a field: after `.`, as a key of a table literal, as a field of a declaration, and as a
+function of a record (`function M.end()`). Data from JSON or a protocol often has a field named `end`, `function` or `not`.
+The Lua that the compiler makes writes such a field as a string index (`t["end"]`). A method call of a Lua keyword
+(`t:end()`) cannot be written that way, so the parser refuses it (`reserved_method`), and a method of a class
+cannot have a keyword as its name. A keyword after `.` or `:` is a field only on the line of the dot: on the next line it
+begins a statement.
+
+```teal
+local record Span
+  start: integer
+  end: integer
+end
+
+local span: Span = { start = 2, end = 5 }
+print(span.end - span.start)
+```
+
+```output
+3
+```
+
 ## narrowing
 
 A test tells the checker what a value is, inside the branch it guards. After `if job.note ~= nil`, `job.note` is a `string`
