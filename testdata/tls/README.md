@@ -11,6 +11,9 @@ Certificates for the tests of [`cosmic.tls`] and the TLS listeners of
 - `d.pem`: `a.key`'s leaf for `localhost` alone, signed by `a.key`
   itself, so a client that trusts `d.pem` takes it: what the fake
   ACME CA of the tests of [`Acme.auto`] issues.
+- `e.pem`: `a.key`'s leaf for `localhost` and `*.a.test`, signed by
+  `a.key` itself and valid only from 2125-01-01 to 2126-01-01, so not
+  yet valid.
 - `client-ca.pem`: a P-256 CA, "cosmic test client CA", the root a
   server that asks for client certificates trusts.
 - `client.pem`, `client.key`: a P-256 client leaf it signed, "cosmic
@@ -18,7 +21,7 @@ Certificates for the tests of [`cosmic.tls`] and the TLS listeners of
   `client@cosmic.test`, for client authentication alone.
 
 Each leaf is signed by its CA (`d.pem` by itself) and valid from
-2026-01-01 to 2126-01-01 but `c.pem`; each CA is valid from when it
+2026-01-01 to 2126-01-01 but `c.pem` and `e.pem`; each CA is valid from when it
 was made, for a hundred years. They were made with OpenSSL 3.0 (the
 client's as the second block shows, with `ca.cnf` copying no
 extensions):
@@ -43,6 +46,8 @@ openssl ca -batch -config ca.cnf -cert ca.pem -keyfile ca.key -in a.csr -extfile
 printf 'subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' > d.ext
 openssl ca -batch -selfsign -config ca.cnf -keyfile a.key -in a.csr -extfile d.ext -notext \
   -startdate 20260101000000Z -enddate 21260101000000Z -out d.pem
+openssl ca -batch -selfsign -config ca.cnf -keyfile a.key -in a.csr -extfile a.ext -notext \
+  -startdate 21250101000000Z -enddate 21260101000000Z -out e.pem
 ```
 
 ```sh

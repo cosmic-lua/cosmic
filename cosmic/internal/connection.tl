@@ -142,6 +142,10 @@ local class SocketConn is Duplex
       while true do
         local data, why, stop = session:read(math.min(max_bytes or RECORD_BYTES, RECORD_BYTES))
         if data ~= nil then return data, "" end
+        -- TODO: an end with no close_notify (a TCP end alone) is ENDED as
+        -- close_notify is, so an HTTP/1.x body read to the connection's end
+        -- cannot tell truncation from the end: answer the two apart here,
+        -- from core/tls.c, and refuse a body so cut, once #3853 merges.
         if stop == tls.ENDED then return nil, "" end
         if stop == tls.FAILED then
           self.read_failure = why
