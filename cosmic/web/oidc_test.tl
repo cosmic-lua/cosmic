@@ -8,6 +8,7 @@ local Http = require("cosmic.http")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
@@ -50,6 +51,8 @@ local record Provider
   --- Whether its discovery document, and its keys, cannot be reached.
   mut discovery_down: boolean
   mut keys_down: boolean
+  --- What its token endpoint waits on before it answers, where given.
+  mut hold?: Poll.Notifier
   --- The time, in seconds since the epoch.
   mut now: integer
   --- The lines the app's sink took.
@@ -101,6 +104,8 @@ local function fetch_of(p: Provider): Web.OidcFetch
       return json_body({ keys = Json.array(jwks) }), ""
     end
     if url == ISSUER .. "/token" and method == "POST" then
+      local hold = p.hold
+      if hold ~= nil then hold:wait() end
       local form = assert(Url.decode_query(opts.body or ""))
       local seen: mut {string: string} = {}
       for _, pair in ipairs(form.pairs) do seen[pair.name] = pair.value end
@@ -581,6 +586,78 @@ local function test_a_limited_trade_keeps_its_state()
   p.token_status = 200
   p.now = p.now + 60
   assert(callback(client, state).status == 303)
+end
+
+--- One address that logs in again and again is held back, the login
+--- under way kept to come back to.
+local function test_trades_from_one_address_are_limited()
+  local p = provider_new()
+  local client = browser(app_of(p))
+  for _ = 1, 30 do assert(callback(client, start(client, p)).status == 303) end
+  local state = start(client, p)
+  assert(callback(client, state).status == 429)
+  p.now = p.now + 60
+  assert(callback(client, state).status == 303)
+end
+
+--- Logins that succeed count for their address alone: many addresses
+--- logging in leave the limit of all trades to the ones that fail.
+local function test_logins_leave_the_limit_of_all_alone()
+  local p = provider_new()
+  local client = browser(app_of(p))
+  local function trade(host: string): integer
+    local peer = Net.tcp(host, 50000)
+    local location = assert(client:get("/auth/login", { peer = peer }).redirect_location)
+    local query = query_of(location)
+    p.nonce = assert(Url.query_first(query, "nonce"))
+    local state = assert(Url.query_first(query, "state"))
+    return client:get("/auth/callback", { query = { state = state, code = "x" }, peer = peer }).status
+  end
+  for i = 1, 610 do
+    assert(trade(("198.51.%d.%d"):format(i // 200, i % 200)) == 303)
+  end
+  p.token_status = 400
+  assert(trade("203.0.113.1") == 401)
+end
+
+--- Trades from one address that all wait on the provider count while
+--- they wait: the eleventh is refused, and the count falls once they end.
+local function test_trades_under_way_from_one_address_are_limited()
+  local p = provider_new()
+  local app = app_of(p)
+  local browsers: mut {Web.TestClient} = {}
+  local states: mut {string} = {}
+  for _ = 1, 11 do
+    local b = browser(app)
+    browsers[#browsers + 1] = b
+    local state = start(b, p)
+    states[#states + 1] = state
+  end
+  p.token_status = 400
+  local statuses: mut {integer: integer} = {}
+  Poll.run(function()
+    local hold = Poll.notifier()
+    p.hold = hold
+    local tasks: mut {Poll.Task} = {}
+    for i = 1, 10 do
+      local b, state = assert(browsers[i]), assert(states[i])
+      tasks[#tasks + 1] = Poll.spawn(function() statuses[i] = callback(b, state).status end)
+    end
+    while hold:waiting() < 10 do assert(Poll.delay(1000000)) end
+    statuses[11] = callback(assert(browsers[11]), assert(states[11])).status
+    p.hold = nil
+    hold:notify_all()
+    for _, task in ipairs(tasks) do assert(task:join()) end
+  end)
+  for i = 1, 10 do assert(statuses[i] == 401, statuses[i]) end
+  assert(statuses[11] == 429, statuses[11])
+  assert(p.fetched[TOKEN] == 10, p.fetched[TOKEN])
+  -- Once the ten failures age out, the refused login goes on: none is
+  -- left counted as under way. The last login started was its, so the
+  -- provider answers with its nonce.
+  p.now = p.now + 60
+  p.token_status = 200
+  assert(callback(assert(browsers[11]), assert(states[11])).status == 303)
 end
 
 local function test_trades_of_a_code_are_limited_in_all()

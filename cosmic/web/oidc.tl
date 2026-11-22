@@ -62,11 +62,12 @@
 --- to the app's sink. A discovery or fetch of the keys that fails is not
 --- tried again for 10 seconds: the requests in between answer 503 at
 --- once. Since a stranger can start a trade of a code for tokens with
---- two requests, one client address may have 10 trades the provider
---- refused or that failed in a minute, and 10 under way, and all clients
---- together may start 600 a minute; past that the callback answers 429,
---- and the login under way can come back to it. Behind a proxy, every client has the proxy's
---- address unless the app sets `trusted_proxy`.
+--- two requests, the trades are limited: one client address may start 30
+--- a minute, have 10 fail or be refused in a minute and have 10 under way,
+--- and all clients together may have 600 fail or be refused in a minute.
+--- Past that the callback answers 429, and the login under way can come
+--- back to it. Behind a proxy, every client has the proxy's address unless
+--- the app sets `trusted_proxy`.
 ---
 --- A login under way is kept in the session too: its `state`, `nonce`
 --- and PKCE verifier. The signed cookie store
@@ -230,11 +231,16 @@ local REQUEST_TIMEOUT <const> = 5 * 1000000000
 --- without asking the provider, in seconds: while the provider is down or
 --- slow, a stream of requests costs one fetch a period.
 local RETRY_SECONDS <const> = 10
---- The trades of a code for tokens that one client address may have
---- failed in `EXCHANGE_WINDOW`, and may have under way at once; and the
---- trades all clients together may start in it.
-local EXCHANGES_PER_ADDRESS <const> = 10
-local EXCHANGES <const> = 600
+--- The trades of a code for tokens one client address may start in
+--- `EXCHANGE_WINDOW`.
+local EXCHANGES_PER_ADDRESS <const> = 30
+--- The trades one client address may have fail or be refused in
+--- `EXCHANGE_WINDOW`, and may have under way at once.
+local FAILURES_PER_ADDRESS <const> = 10
+--- The trades all clients together may have fail or be refused in
+--- `EXCHANGE_WINDOW`. A success counts only for its address, so that one
+--- address cannot use up what every other has.
+local FAILURES <const> = 600
 local EXCHANGE_WINDOW <const> = Clock.minutes(1)
 --- How long the provider's keys are kept before they are fetched again.
 local KEYS_SECONDS <const> = 3600
@@ -412,8 +418,9 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   -- A test's clock moves the limits too.
   local now_ns: (function(): integer)? = nil
   if opts.now ~= nil then now_ns = function(): integer return now() * 1000000000 end end
-  local per_address = Attempts.limiter{ limit = EXCHANGES_PER_ADDRESS, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
-  local everyone = Attempts.limiter{ limit = EXCHANGES, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
+  local by_address = Attempts.limiter{ limit = EXCHANGES_PER_ADDRESS, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
+  local failed_by_address = Attempts.limiter{ limit = FAILURES_PER_ADDRESS, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
+  local everyone = Attempts.limiter{ limit = FAILURES, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
   -- The trades under way, by client address.
   local trading: mut {string: integer} = {}
 
@@ -598,7 +605,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
 
   --- Trades `code`, of the login under way `entry`, for tokens at `p`:
   --- the claims to keep of who logged in, or nil and the answer that
-  --- refuses the login. It raises nothing a fetch does not.
+  --- refuses the login.
   local function exchange(req: Types.Request, p: Oidc.Provider, entry: {string: Json.Value},
                           code: string): {string: Json.Value}?, Types.Response?
     local form: mut {Url.Pair} = {
@@ -684,8 +691,9 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     -- Nothing waits between asking and counting, and an address counts its
     -- trades under way, so that trades waiting on the provider count too.
     local address = if req.client ~= nil then req.client.host else "-" end
-    local wait_ns = math.max(per_address:wait_ns(address), everyone:wait_ns(""))
-    if wait_ns == 0 and (trading[address] or 0) >= EXCHANGES_PER_ADDRESS then
+    local wait_ns = math.max(by_address:wait_ns(address), failed_by_address:wait_ns(address),
+      everyone:wait_ns(""))
+    if wait_ns == 0 and (trading[address] or 0) >= FAILURES_PER_ADDRESS then
       wait_ns = Clock.seconds(1)
     end
     if wait_ns > 0 then return Attempts.too_many(wait_ns, "too many logins; try again later") end
@@ -695,13 +703,16 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     if (iss == nil and p.iss_in_answer == true) or (iss ~= nil and iss ~= p.issuer) then
       return Response.problem(400, "the answer is not from the issuer")
     end
-    everyone:failed("")
+    by_address:failed(address)
     trading[address] = (trading[address] or 0) + 1
-    local kept, refusal = exchange(req, p, entry, assert(code))
+    -- The count under way falls whatever the trade does, a raise included.
+    local called, kept, refusal = pcall(exchange, req, p, entry, assert(code))
     local left = (trading[address] or 1) - 1
     if left > 0 then trading[address] = left else trading[address] = nil end
+    if not called then error(kept, 0) end
     if kept == nil then
-      per_address:failed(address)
+      failed_by_address:failed(address)
+      everyone:failed("")
       return assert(refusal)
     end
     session:regenerate()
