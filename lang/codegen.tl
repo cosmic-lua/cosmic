@@ -186,7 +186,7 @@ local record State
   mut served: boolean
   --- The statement that checks the parameters of a function, by the id of its node.
   mut checks: {integer: string}
-  --- How `v is R` tests a record by its tag, by the id of the tested type's node ([`Check.Result`]'s `tags`).
+  --- How `v is R` tests a record by its tag, by the id of the tested type's node ([`Check.Checked`]'s `tags`).
   mut tags: {integer: {string}}
   --- The names of the fields the spread of a table literal copies, by the id of the literal.
   mut spreads: {integer: {string}}
@@ -848,12 +848,24 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
     if field ~= "" then
       local members: mut {string} = {}
       for i = 2, #tag do
-        members[#members + 1] = "[" .. string.format("%q", tag[i]):gsub("\\\n", "\\n") .. "] = true"
+        members[#members + 1] = string.format("%q", tag[i]):gsub("\\\n", "\\n")
       end
-      put(out, " and ({" .. table.concat(members, ", ") .. "})[")
+      local read = if RESERVED_FIELDS[field] == true then "[\"" .. field .. "\"]" else "." .. field end
       -- The value is read again, as a name or as the parameter that holds it.
-      add_child(out, if operand ~= nil then exp(operand) else text(y, "__v") end, "", G.indent)
-      put(out, (if RESERVED_FIELDS[field] == true then "[\"" .. field .. "\"]" else "." .. field end) .. "] == true")
+      local again = if operand ~= nil then exp(operand) else text(y, "__v") end
+      if #members == 1 then
+        put(out, " and ")
+        add_child(out, again, "", G.indent)
+        put(out, read .. " == " .. (members[1] or ""))
+      else
+        local keyed: mut {string} = {}
+        for i, m in ipairs(members) do
+          keyed[i] = "[" .. m .. "] = true"
+        end
+        put(out, " and ({" .. table.concat(keyed, ", ") .. "})[")
+        add_child(out, again, "", G.indent)
+        put(out, read .. "] == true")
+      end
     end
     put(out, ")")
     return out

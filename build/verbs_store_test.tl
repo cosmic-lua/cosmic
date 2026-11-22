@@ -83,7 +83,7 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
     local options = command.spec or {}
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout
     for name, entry in pairs(options) do
-      assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "", -- checked: is_on_record
+      assert(entry is Flags.Option and entry.about ~= nil and entry.about ~= "",
         verb .. " " .. name .. " says nothing of what it does")
       local value = entry.value
       local shown = if value ~= nil then name .. " <" .. value .. ">" else name end

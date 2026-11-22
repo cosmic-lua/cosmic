@@ -809,8 +809,6 @@ local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_
   local lone = source:gsub("R | {string}", "R | string", 1)
   local told = assert(generated(marked(lone, EXPORT)))
   assert(told.lua:find('if (type(v) == "table") then', 1, true) ~= nil, told.lua)
-  local g = value_of(told.lua) as function(any): boolean -- checked: cast_refused
-  assert(g({ n = 1 }) == true and g("s") == false)
 end
 
 local function test_into_answers_the_records_type_and_no_annotation_can_say_another()

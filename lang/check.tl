@@ -396,7 +396,7 @@ local record Ctx
   literals: mut {integer: Decl}
   --- The fields each table literal with a spread copies, by the id of its node.
   spreads: mut {integer: {string}}
-  --- The tests of a record by its tag, by the id of the tested type's node ([`Check.Result`]'s `tags`).
+  --- The tests of a record by its tag, by the id of the tested type's node ([`Check.Checked`]'s `tags`).
   tags: mut {integer: {string}}
   --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
   --- is not yet its table.
@@ -5060,13 +5060,31 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   end
   local before = #ctx.errors
   local tag = if (tested.tag == "named") and tested.decl.kind == "record" then Tests.record_tag(ctx, value, tested) else nil end
+  local untold: Type? = nil
+  if (tested.tag == "union") then
+    -- An alias of a union is tested for each member, and a record among them by a test the code generator writes for
+    -- the alias wherever it is used: none is written, and the test is refused.
+    for _, m in ipairs(members_of(store, tested)) do
+      if untold == nil and (m.tag == "named") and m.decl.kind == "record" and not m.value then
+        untold = m
+      end
+    end
+  end
   if tag ~= nil then
     -- The record is the one table the value may be, or the one its tag says.
     ctx.tags[node.type.id] = tag
-  elseif (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
+  elseif untold ~= nil then
+    refuse("an alias of a union is tested for each member, and the record " .. tq(ctx, untold) .. " among them is not",
+      "test each record apart (`v is A or v is B`), which reads its tag")
+  elseif (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" and
+      Operators.testable(ctx, value, tested) then
     local word = KIND_WORDS[tested.decl.kind] or "type"
     local tables = Tests.table_members(ctx, value)
-    if tested.decl.kind == "record" and #tested.args == 0 and tables ~= nil and #tables > 1 then
+    local records = tables ~= nil
+    for _, m in ipairs(tables or {}) do
+      records = records and (m.tag == "named") and (m.decl.kind == "record" or m.decl.kind == "class")
+    end
+    if tested.decl.kind == "record" and #tested.args == 0 and tables ~= nil and #tables > 1 and records then
       -- A record is told by its tag where the other tables the value may be have one too.
       refuse(subject(ctx, node.value) .. " is " .. tq(ctx, value) .. ", whose tables no tag field tells apart",
         "give each record of the union a fixed field of its own string literal type (`kind: \"" ..

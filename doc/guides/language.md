@@ -167,7 +167,8 @@ print(area({ kind = "square", side = 2 }))
 4
 ```
 
-`s is Circle` tests the tag too: it is `s.kind == "circle"` where `s` is the union, and narrows alike. A record that is
+`s is Circle` tests the tag too: where `s` is the union, it runs as a test of `s.kind` against the strings of
+`Circle`'s tag, and narrows alike. `s is Circle | Square` tests each record so. A record that is
 the one table a value may be (`R | string`) is told by `type(v) == "table"`. Where no tag tells a record from the other
 tables a value may be, `is` is refused (`is_on_record`), and the fix is a tag field of a literal type in each record.
 

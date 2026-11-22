@@ -29,9 +29,43 @@ local function test_the_one_table_a_value_may_be_is_told_by_its_kind()
 end
 
 local function test_a_record_no_tag_tells_from_the_other_tables_is_refused()
+  local untagged = Programs.run("local record P\n  x: integer\nend\nlocal record Q\n  y: integer\nend\n" ..
+    "local function f(v: P | Q): integer\n  if v is P then\n    return v.x\n  end\n  return 0\nend\n")
+  assert(table.concat(untagged.before, " ") == "untagged_union", table.concat(untagged.before, " "))
+  assert(Programs.codes(untagged) == "is_on_record", Programs.codes(untagged))
+  -- an array beside the record is a table no tag tells from it
   refused("local record P\n  x: integer\nend\nlocal function f(v: P | {string}): integer\n  if v is P then\n" ..
-      "    return v.x\n  end\n  return 0\nend\nprint(f({ x = 1 }))\n", "is_on_record", "whose tables no tag field tells apart",
-    "give each record of the union a fixed field of its own string literal type (`kind: \"p\"`)")
+      "    return v.x\n  end\n  return 0\nend\nprint(f({ x = 1 }))\n", "is_on_record", "a record leaves nothing to test")
   refused("local record P\n  x: integer\nend\nlocal function f(v: any): integer\n  if v is P then\n    return 1\n  end\n" ..
       "  return 0\nend\nprint(f(1))\n", "is_on_record", "a record leaves nothing to test")
+end
+
+local function test_an_alias_of_a_union_of_records_is_refused_and_each_record_is_told_apart()
+  local three = SHAPES .. "local record Dot\n  kind: \"dot\"\nend\nlocal type Round = Circle | Dot\n"
+  refused(three .. "local function round(v: Circle | Square | Dot): boolean\n  return v is Round\nend\n" ..
+      "print(round({ kind = \"dot\" }))\n", "is_on_record", "an alias of a union is tested for each member",
+    "test each record apart (`v is A or v is B`)")
+  Programs.stands(three .. "local function round(v: Circle | Square | Dot): boolean\n  return v is Circle or v is Dot\nend\n" ..
+      "print(round({ kind = \"dot\" }))\nprint(round({ kind = \"square\", s = 1 }))\n", "true,false")
+end
+
+local function test_a_tag_of_several_strings_and_a_test_inside_other_operators()
+  local source = "local enum Round\n  \"circle\"\n  \"oval\"\nend\nlocal record Curve\n  kind: Round\nend\n" ..
+    "local record Box\n  kind: \"box\"\nend\nlocal function f(v: Curve | Box, b: boolean): boolean\n" ..
+    "  return v is Box or (b and not (v is Curve))\nend\n" ..
+    "print(f({ kind = \"oval\" }, false))\nprint(f({ kind = \"box\" }, true))\nprint(f({ kind = \"circle\" }, true))\n"
+  Programs.stands(source, "false,true,false")
+end
+
+local function test_a_class_among_the_tables_is_told_by_its_tag_too()
+  -- a class value carries its fields, the tag among them
+  Programs.stands("local class C\n  kind: \"c\"\nend\nlocal record R\n  kind: \"r\"\nend\nlocal function f(v: C | R): string\n" ..
+      "  if v is R then\n    return \"r\"\n  end\n  return \"c\"\nend\nprint(f({ kind = \"r\" }))\n", "r")
+end
+
+local function test_a_tag_that_may_change_or_be_missing_tells_nothing()
+  local r = Programs.run("local record A\n  mut kind: \"a\"\nend\nlocal record B\n  kind: \"b\"\nend\n" ..
+    "local function f(v: A | B): boolean\n  return v is A\nend\n")
+  assert(table.concat(r.before, " ") == "untagged_union", table.concat(r.before, " "))
+  assert(Programs.codes(r) == "is_on_record", Programs.codes(r))
 end

@@ -1340,7 +1340,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     assert(statement:reset())
     assert(statement:bind_integer(1, 0))
     local failed = statement:step_result()
-    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "") -- checked: is_on_record
+    assert(failed is Sqlite.ExecResult and failed.code == 1 and failed.reason ~= "")
     statement:finalize()
   end)
   assert(ended > 0)
