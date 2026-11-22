@@ -452,7 +452,9 @@ do
     -- trusted code. Lua checks no bytecode, so a crafted chunk breaks the VM's memory safety: it reads and writes
     -- memory it was given no reference to and reaches anything the process can, whatever environment it is given. Load
     -- bytecode only from this program's own `string.dump` or a build of yours, never from a file, a peer or a store
-    -- another program writes; load anything else with mode "t".
+    -- another program writes; load anything else with mode "t". `loadfile` and `dofile` are removed, so a file's bytes
+    -- reach a chunk only through this `load`, under the same modes. A TODO in core/surface.c, at `load_with`, is to refuse
+    -- bytecode here too.
     --
     -- The environment of the chunk is a table: an empty literal takes the type `{string: any}`, and the overloads over `V` are
     -- for a table of one value type (`{string: integer}`).

@@ -281,9 +281,10 @@ end
 --- and the expiry are kept for the requests that follow. It takes more
 --- than a browser does. `Domain`, `SameSite` and `HttpOnly` are not read,
 --- as the client has one host and sends every request itself. A `Secure`
---- cookie, and one named `__Secure-` or `__Host-`, is kept whatever the
---- scheme and attributes, where a browser refuses it from an http page or
---- without the attributes its prefix needs.
+--- cookie is stored whatever the client's scheme, and sent only while it
+--- is "https"; one named `__Secure-` or `__Host-` is kept whatever its
+--- attributes. A browser refuses either from an http page, and the
+--- second without the attributes its prefix needs.
 local function remember(client: Testing.Client, line: string, path: string)
   local parsed, _ = Cookies.parse_set_cookie(line)
   if parsed == nil then return end
