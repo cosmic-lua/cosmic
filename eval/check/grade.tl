@@ -2364,7 +2364,7 @@ local function grade_checks(g: Grade, task: Task, testdata: string): boolean
   else
     local bytes, failure = Fs.read(g.exe)
     local copied = bytes ~= nil
-    local trouble = if failure ~= nil then tostring(failure) else "" end
+    local trouble = if bytes == nil then tostring(failure) else "" end
     if copied then copied, trouble = Fs.remove_tree(g.empty) end
     if copied then copied, trouble = Fs.mkdirs(g.empty) end
     if copied then copied, trouble = Fs.write(g.empty .. "/" .. name, assert(bytes), 0x1ed) end
