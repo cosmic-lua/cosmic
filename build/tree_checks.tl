@@ -116,6 +116,12 @@ allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept cu
   "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
 allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..
   "internet from one of the tailnet; no app of the tree serves through Funnel"
+allowed["cosmic.failure.message"] = "public API: the words of a failure a call answers as `(T) | (nil, Failure)`, " ..
+  "which a caller reads; the standard library's own calls move to it one module at a time"
+allowed["cosmic.failure.path"] = "public API: the path a failure concerns, which a caller reads; the standard " ..
+  "library's own calls move to it one module at a time"
+allowed["cosmic.failure.new"] = "public API: a failure no system call answered, which a program's own function " ..
+  "answers; the standard library's own calls move to it one module at a time"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
   "the tree's own clients speak through cosmic.http, so only its tests make one"
 allowed["cosmic.web.client_cert"] = "public API: the client certificate an app reads of a request over mutual TLS; " ..

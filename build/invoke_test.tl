@@ -3,6 +3,7 @@
 --- verb over every module's docs, the databases it searches -- is
 --- build/invoke_store_test.tl's.
 
+local Failure = require("cosmic.failure")
 local Store = require("cosmic.store")
 local invoke = require("build.invoke")
 local sys = require("cosmic.sys")
@@ -50,7 +51,7 @@ local function test_what_only_a_process_can_do_raises(tmp: string)
 end
 
 --- An uncaught error ends the run as it ends the binary: its message on
---- stderr after `cosmic: `, or `failed` for one that is no text, and
+--- stderr after `cosmic: `, its text for one with a `__tostring`, or `failed` for one with neither, and
 --- exit 1.
 local function test_an_uncaught_error_exits_1(tmp: string)
   local result = invoke.run({ "-e", "error('boom', 0)" }, { cwd = tmp })
@@ -59,6 +60,10 @@ local function test_an_uncaught_error_exits_1(tmp: string)
   local table_error = invoke.run({ "-e", "local value: {string:string} = {} error(value)" }, { cwd = tmp })
   assert(table_error.code == 1 and table_error.stderr == "cosmic: failed\n",
     table_error.stderr)
+  -- A failure is reported by its text, as the binary reports it; cosmic.failure, required above, is in the store.
+  local failure = invoke.run({ "-e", "error(require('cosmic.failure').new('gone', 'a.conf'))" }, { cwd = tmp })
+  assert(failure.code == 1 and failure.stderr == "cosmic: " .. tostring(Failure.new("gone", "a.conf")) .. "\n",
+    failure.stderr)
   local number_error = invoke.run({ "-e", "error(42)" }, { cwd = tmp })
   assert(number_error.code == 1 and number_error.stderr == "cosmic: 42\n",
     number_error.stderr)

@@ -259,6 +259,21 @@ client's own to write; where there is none, the client is the proxy itself.
 Name the proxy alone: a prefix wider than the proxy
 lets every address in it say what it likes.
 
+"The one the proxy added" holds only where the proxy sets each of the three
+headers on every request. One that passes a header on as the client sent it
+leaves its last entry to the client. nginx sets none of them unless told, so
+its configuration names all three: the first two replace what the client
+sent, and the third appends the client's address to it, whose last entry the
+app reads (`$http_host` keeps a port the client named):
+
+```text
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $http_host;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+Caddy's `reverse_proxy` and Tailscale Serve set all three already.
+
 `trusted_hosts` lists the hosts the app answers to; a request for another
 host, at any port, is a 400. The `Host` header is the client's, so an app
 that builds absolute links from it, or that sits behind a proxy forwarding

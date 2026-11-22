@@ -271,6 +271,14 @@ local function test_a_tree_keeps_content_in_order()
   assert(why:match("^xml: ") ~= nil, why)
 end
 
+--- `text` walks a tree as deep as a parse builds without running out of
+--- the Lua stack.
+local function test_text_reads_a_deeply_nested_tree()
+  local levels = 200000
+  local root = assert(Xml.tree(string.rep("<a>", levels) .. "deep" .. string.rep("</a>", levels)))
+  assert(Xml.text(root) == "deep")
+end
+
 --- Subtrees at a path come whole, one as each closes, however the
 --- chunks split the document; `*` stands for any name, and an element
 --- at the path inside another is part of it, not answered apart.

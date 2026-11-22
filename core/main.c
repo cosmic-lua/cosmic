@@ -308,9 +308,40 @@ static bool source_position (lua_State *L, const char *message) {
   return false;
 }
 
+/* The text of the error object at 1 that is no string or number: what
+ * its `__tostring` answers (a cosmic.failure's `path: message`), which
+ * luaL_tolstring runs, or nil where it has none or it raises. */
+static int error_text (lua_State *L) {
+  if (luaL_getmetafield(L, 1, "__tostring") == LUA_TNIL) {
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_pop(L, 1);
+  luaL_tolstring(L, 1, NULL);
+  return 1;
+}
+
 /* An uncaught error: its message, then where in the Teal source it was
- * raised, then the guidance the catalog holds for it. */
+ * raised, then the guidance the catalog holds for it. An error object
+ * that is a value with a `__tostring` is reported by the text it
+ * answers, or by the error that `__tostring` raised. */
 static int failed (lua_State *L) {
+  if (!lua_isstring(L, -1) && lua_checkstack(L, 3)) {
+    int top = lua_gettop(L);
+    lua_pushcfunction(L, error_text);
+    lua_pushvalue(L, top);
+    int called = lua_pcall(L, 1, 1, 0);
+    if (called == LUA_OK && lua_type(L, -1) == LUA_TSTRING) {
+      lua_replace(L, top);
+    } else if (called != LUA_OK && lua_type(L, -1) == LUA_TSTRING) {
+      /* Its own error says why the text could not be read, which a bare
+       * "failed" would lose. */
+      lua_pushfstring(L, "an error whose __tostring raised: %s",
+                      lua_tostring(L, -1));
+      lua_replace(L, top);
+    }
+    lua_settop(L, top);
+  }
   const char *message = lua_tostring(L, -1);
   fprintf(stderr, "cosmic: %s\n", message == NULL ? "failed" : message);
   source_position(L, message);

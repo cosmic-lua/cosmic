@@ -100,11 +100,17 @@ case $attempts in
   *) die "COSMIC_TOOL_ATTEMPTS=$attempts is not a count from 1 to 20" ;;
 esac
 
-if [ -n "${XDG_CACHE_HOME:-}" ]; then
-  cache=$XDG_CACHE_HOME/cosmic/bootstrap
-else
-  cache=${HOME:?HOME is unset}/.cache/cosmic/bootstrap
-fi
+# A relative XDG_CACHE_HOME is ignored, as the XDG spec says, and a
+# relative HOME refused: either would name a cache in whatever directory
+# the script runs from.
+case ${XDG_CACHE_HOME:-} in
+  /*) cache=$XDG_CACHE_HOME/cosmic/bootstrap ;;
+  *)
+    case ${HOME:-} in
+      /*) cache=$HOME/.cache/cosmic/bootstrap ;;
+      *) die "neither XDG_CACHE_HOME nor HOME is an absolute path" ;;
+    esac ;;
+esac
 cached=$cache/cosmic-$digest
 
 sha256_file() {

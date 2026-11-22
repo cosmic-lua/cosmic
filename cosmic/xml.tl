@@ -248,19 +248,31 @@ function Xml.child(element: Xml.Element, name: string): Xml.Element?
   return nil
 end
 
---- The text `element` holds, its children's included, in document order.
+--- The text `element` holds, its children's included, in document order,
+--- at any depth: the walk keeps its own stack, so a document nested as
+--- deep as a parse allows does not run out of the Lua one.
 function Xml.text(element: Xml.Element): string
   local out: mut {string} = {}
-  local function walk(e: Xml.Element)
-    for _, item in ipairs(e.content) do
+  -- Each element under way, and the index of its next item.
+  local record Frame
+    element: Xml.Element
+    mut at: integer
+  end
+  local frames: mut {Frame} = { { element = element, at = 1 } }
+  while #frames > 0 do
+    local frame = assert(frames[#frames])
+    local item = frame.element.content[frame.at]
+    if item == nil then
+      table.remove(frames)
+    else
+      frame.at = frame.at + 1
       if item is string then
         out[#out + 1] = item
       else
-        walk(item)
+        frames[#frames + 1] = { element = item, at = 1 }
       end
     end
   end
-  walk(element)
   return table.concat(out)
 end
 

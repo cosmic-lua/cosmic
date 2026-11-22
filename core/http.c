@@ -122,6 +122,14 @@ struct transfer {
   int ready;  /* the final response's headers are known, or it is over */
   int headed; /* the final response's header block has ended */
   int follow; /* curl follows a redirect's Location itself */
+  /* The request's body goes again on a followed 307 or 308, and on a
+   * 301 or 302 too when `keeps_body` (a method curl sends as a custom
+   * one, [`set_method`]). */
+  int sends_body;
+  int keeps_body;
+  /* Why the transfer was stopped, in place of curl's words; NULL when
+   * it was not. */
+  const char *refusal;
   int paused; /* the write callback paused the transfer */
   int done;   /* curl_multi says the transfer is over */
   int closed; /* close() (or __gc) has run */
@@ -791,10 +799,20 @@ static size_t header_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
     if (curl_easy_header(t->easy, "Location", 0, CURLH_HEADER, -1,
                          &location) == CURLHE_OK &&
         location->value[0] != '\0') {
-      if (t->dropping && !t->stripped) {
+      int resends = t->sends_body &&
+                    (status == 307 || status == 308 ||
+                     (t->keeps_body && (status == 301 || status == 302)));
+      if (resends || (t->dropping && !t->stripped)) {
         const char *from = NULL;
         curl_easy_getinfo(t->easy, CURLINFO_EFFECTIVE_URL, &from);
-        if (from == NULL || leaves_origin(from, location->value)) {
+        int leaves = from == NULL || leaves_origin(from, location->value);
+        if (leaves && resends) {
+          /* The body is the caller's for the origin it named: a token
+           * form, a client secret. Returning short stops the transfer. */
+          t->refusal = "http: a redirect to another origin would send the request's body there";
+          return 0;
+        }
+        if (leaves && t->dropping && !t->stripped) {
           /* curl reads the list as it builds each request, so the next
            * hop goes with the shorter one; curl's own check drops only
            * Authorization and Cookie, and sends them again on a hop
@@ -802,6 +820,12 @@ static size_t header_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
           t->stripped = 1;
           (void)curl_easy_setopt(t->easy, CURLOPT_HTTPHEADER, t->redirect_headers);
         }
+      }
+      /* A 303, or a 301 or 302 after a method curl does not send as a
+       * custom one, turns the request into a GET with no body, and every
+       * hop after it goes without one. */
+      if (status == 303 || ((status == 301 || status == 302) && !t->keeps_body)) {
+        t->sends_body = 0;
       }
       return len;
     }
@@ -897,6 +921,7 @@ static CURLMcode pump_step (const char **which) {
  * Linux and macOS; route curlx_strerror through core/errnos.h with a
  * patch record under patch/curl/ to make it the same on both. */
 static const char *transfer_error (struct transfer *t) {
+  if (t->refusal != NULL) return t->refusal;
   if (t->errbuf[0] == '\0') return curl_easy_strerror(t->result);
   size_t end = strlen(t->errbuf);
   while (end > 0 && isspace((unsigned char)t->errbuf[end - 1])) {
@@ -1277,6 +1302,7 @@ static CURLcode set_method (struct transfer *t, const struct request *r,
     return CURLE_OK;
   }
   if (r->body != NULL) {
+    t->sends_body = r->body_len > 0;
     SET(CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)r->body_len);
     SET(CURLOPT_POSTFIELDS, r->body);
   } else if (method != NULL && strcmp(method, "POST") == 0) {
@@ -1291,6 +1317,7 @@ static CURLcode set_method (struct transfer *t, const struct request *r,
       strcmp(method, "GET") != 0) {
     SET(CURLOPT_CUSTOMREQUEST, method);
     SET(CURLOPT_POSTREDIR, (long)(CURL_REDIR_POST_301 | CURL_REDIR_POST_302));
+    t->keeps_body = 1;
   }
   return CURLE_OK;
 }

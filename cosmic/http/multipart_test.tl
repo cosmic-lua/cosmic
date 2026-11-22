@@ -203,6 +203,9 @@ local function test_a_filename_is_metadata_reduced_to_a_basename()
     assert(why:find(wanted), why)
   end
   bad('filename="a\0.jpg"', "control")
+  for _, dots in ipairs({ ".", "..", "a/..", "x\\..", "/.", "C:\\.." }) do
+    bad('filename="' .. dots .. '"', "directory")
+  end
   bad('filename="a%0Ab"', "control")
   bad('filename="a%0Db"', "control")
   bad('filename="a\1b"', "control")
