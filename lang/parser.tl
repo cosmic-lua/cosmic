@@ -1764,7 +1764,14 @@ local function parse_method(first: integer, seen: mut {string: boolean}): Ast.Me
     advance()
     advance()
   end
-  local name = binding("a method")
+  local name: Ast.Binding
+  if S.kind == "keyword" and ADDED[S.text] == true then
+    -- A word only this grammar reserves is a name to Lua, so a method may have it, as a field may: `r:match(x)` calls it.
+    name = { kind = "Binding", id = 0, first = S.pos, last = S.pos, name = S.text }
+    advance()
+  else
+    name = binding("a method")
+  end
   if name.name ~= "" then
     local declares_type = seen[name.name] == true and seen["\0method " .. name.name] ~= true
     if seen[name.name] ~= nil then

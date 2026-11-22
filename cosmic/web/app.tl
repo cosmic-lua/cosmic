@@ -44,21 +44,26 @@ local function raised_by(fn: function()): string?
   return tostring(err)
 end
 
-local function url_for(self: Types.App, name: string, params?: {string: string | integer},
-                       query?: {string:string}): string?, string
-  return self.router:reverse(name, params, query)
+--- What [`App.new`] makes.
+local class Built is Types.App
+  function url_for(self, name: string, params?: {string: string | integer},
+                   query?: {string:string}): string?, string
+    return self.router:reverse(name, params, query)
+  end
+
+  function stopping(self): boolean
+    return self.stopped
+  end
+
+  function on_stop(self, fn: function())
+    self.stoppers[#self.stoppers + 1] = fn
+  end
 end
 
-local function stopping(self: Types.App): boolean
-  return self.stopped
+--- The handler of an app [`App.new`] has not finished making.
+local function unbuilt(_: Server.Request): Types.Response
+  error("web: the app is not built yet", 2)
 end
-
-local function on_stop(self: Types.App, fn: function())
-  self.stoppers[#self.stoppers + 1] = fn
-end
-
-local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop }
-local app_mt: metatable<Types.App> = { __index = app_methods } -- checked: literal_missing
 
 --- Compiles `spec` into an app. Raises, naming it, for a route that cannot
 --- be registered ([`Web.router`]).
@@ -111,7 +116,7 @@ function App.new(spec: Types.AppSpec): Types.App
     end
   end
   local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
-  local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {}, -- checked: literal_missing
+  local app: Built = { spec = kept, state = {}, router = router, handle = unbuilt, stopped = false, stoppers = {},
     streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT, serve_socket = nil,
     serve_caps = nil, proxies = proxies }
   local function dispatch(req: Types.Request): Types.Response
@@ -175,7 +180,7 @@ function App.new(spec: Types.AppSpec): Types.App
     answered.reply = reply
     return reply
   end
-  return setmetatable(app, app_mt) -- checked: setmetatable_call -- untyped: call
+  return app
 end
 
 --- Runs `app` over [`Server.serve`]: its lifespan first, then the server

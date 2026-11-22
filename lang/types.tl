@@ -405,7 +405,7 @@ local record Types
   end
 
   --- The types of one check. It is not re-entrant, and its types are valid in it alone.
-  record Store
+  interface Store
     -- The fields down to `depth` are the store's own.
     owner: integer
     mut count: integer
@@ -1520,97 +1520,6 @@ local function bound_ok(store: Store, bound: Type)
   end
 end
 
-Types.Store.atom = function(self: Store, name: Atom_tag): Type -- checked: field_unknown
-  return atom_of(self, name)
-end
-
-Types.Store.array = function(self: Store, element: Type, mutable?: boolean): Type -- checked: field_unknown
-  owned(self, element)
-  local array: Array = {
-    tag = "array", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
-    weight = 1, height = 1,
-    element = element, mut = mutable == true,
-  }
-  return intern(self, array)
-end
-
-Types.Store.map = function(self: Store, key: Type, value: Type, mutable?: boolean): Type -- checked: field_unknown
-  owned(self, key)
-  owned(self, value)
-  local map: Map = {
-    tag = "map", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
-    weight = 1, height = 1,
-    key = key, value = value, mut = mutable == true,
-  }
-  return intern(self, map)
-end
-
-Types.Store.union = function(self: Store, members: {Type}): Type -- checked: field_unknown
-  return union_of(self, members)
-end
-
-Types.Store.optional = function(self: Store, t: Type): Type -- checked: field_unknown
-  owned(self, t)
-  if (t.tag == "union") and t.nilable then
-    return t
-  end
-  return union_of(self, { t, atom_of(self, "nil") })
-end
-
-Types.Store.non_nil = function(self: Store, t: Type): Type -- checked: field_unknown
-  owned(self, t)
-  if (t.atom == true) and t.tag == "nil" then
-    return self.never
-  elseif (t.tag == "union") and t.nilable then
-    return union_of(self, t.members)
-  end
-  return t
-end
-
-Types.Store.var = function(self: Store, depth: integer, index: integer): Type -- checked: field_unknown
-  if math.type(depth) ~= "integer" or math.type(index) ~= "integer" or depth < 0 or index < 0 then
-    error("types: a variable has a depth and an index of 0 or more", 2)
-  end
-  local var: Var = {
-    tag = "var", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
-    weight = 1, height = 1,
-    depth = depth, index = index,
-  }
-  return intern(self, var)
-end
-
-Types.Store.named = function(self: Store, decl: Decl, args?: {Type}, value?: boolean): Type -- checked: field_unknown
-  if decl.owner ~= self.owner then
-    error("types: a declaration of another store", 2)
-  end
-  local copied: mut {Type} = {}
-  for i, a in ipairs(args or {}) do
-    owned(self, a)
-    copied[i] = a
-  end
-  local arity = decl.arity
-  if arity ~= nil and arity ~= #copied then
-    error("types: " .. decl.name .. " takes " .. tostring(arity) .. " type arguments, not " .. tostring(#copied), 2)
-  end
-  local named: Named = {
-    tag = "named", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
-    weight = 1, height = 1,
-    decl = decl, args = copied, value = value == true,
-  }
-  local made = intern(self, named)
-  if arity == nil and made == named then
-    -- Checked when the declaration says how many it takes.
-    local key = path_key(decl.module, decl.name)
-    local uses = self.pending[key] or {}
-    uses[#uses + 1] = named
-    self.pending[key] = uses
-    if self.transactions > 0 then
-      self.journal[#self.journal + 1] = { what = "use", key = key }
-    end
-  end
-  return made
-end
-
 --- The alternative as the store keeps it, or nil where it has a `never` in it and is no list.
 local function normal_alt(store: Store, alt: Alt): Alt?
   local narrows = alt.narrows
@@ -1646,73 +1555,6 @@ end
 local record Keyed
   text: string
   alt: Alt
-end
-
-Types.Store.fn = function(self: Store, spec: FnSpec): Type -- checked: field_unknown
-  local tparams: mut {TParam} = {}
-  for i, tp in ipairs(spec.tparams or {}) do
-    for _, bound in ipairs(tp.bounds or {}) do
-      bound_ok(self, bound)
-    end
-    local bounds = Types.bounds(tp.bounds)
-    tparams[i] = { bounds = bounds }
-  end
-  local params: mut {Param} = {}
-  for i, p in ipairs(spec.params or {}) do
-    owned(self, p.type)
-    local omittable = p.omittable == true
-    params[i] = { type = if omittable then self:optional(p.type) else p.type end, omittable = omittable }
-  end
-  local rest = spec.rest
-  if rest ~= nil then
-    owned(self, rest)
-  end
-  local keyed: mut {Keyed} = {}
-  local given: {Alt} = spec.rets or { { items = {} } }
-  for _, alt in ipairs(given) do
-    local narrows = alt.narrows
-    if narrows ~= nil and #given > 1 then
-      error("types: a narrowing declaration is the whole return list", 2)
-    end
-    if narrows ~= nil and narrows.param > #params then
-      error("types: a narrowing declaration names parameter " .. tostring(narrows.param) .. " of " .. tostring(#params), 2)
-    end
-    local normal = normal_alt(self, alt)
-    if normal ~= nil then
-      keyed[#keyed + 1] = { text = render_alt(normal, digest_text), alt = normal }
-    end
-  end
-  table.sort(keyed, function(a: Keyed, b: Keyed): boolean
-    return a.text < b.text
-  end)
-  local rets: mut {Alt} = {}
-  local previous = ""
-  for _, entry in ipairs(keyed) do
-    if #rets == 0 or entry.text ~= previous then
-      rets[#rets + 1] = entry.alt
-      previous = entry.text
-    end
-  end
-  local f: Fn = {
-    tag = "fn", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
-    weight = 1, height = 1,
-    tparams = tparams, params = params, rest = rest, rets = rets,
-  }
-  if #tparams > 0 then
-    -- Its own variables, which may be anywhere in it, name a parameter it has.
-    local seen: {string: boolean} = {}
-    for _, part in ipairs(Types.parts(f)) do
-      local why = unbound(part, 0, #tparams, seen) -- checked: view_as_mut
-      if why ~= "" then
-        error("types: " .. why, 2)
-      end
-    end
-  end
-  return intern(self, f)
-end
-
-Types.Store.size = function(self: Store): integer -- checked: field_unknown
-  return self.count
 end
 
 -- Declarations ------------------------------------------------------------------
@@ -1768,35 +1610,6 @@ local function set_arity(store: Store, decl: Decl, arity: integer)
   end
   note(store, decl)
   decl.arity = arity
-end
-
-Types.Store.declare = function(self: Store, kind: Types.DeclKind, module: string, names: {string}, arity?: integer): Decl -- checked: field_unknown
-  if arity ~= nil and (math.type(arity) ~= "integer" or arity < 0) then
-    error("types: a declaration takes a count of type arguments of 0 or more", 2)
-  end
-  local name = declaration_name(module, names)
-  local key = path_key(module, name)
-  local found = self.declared[key]
-  if found ~= nil then
-    if found.kind ~= kind then
-      error("types: " .. module .. " " .. name .. " is declared as a " .. found.kind .. ", not a " .. kind, 2)
-    end
-    if arity ~= nil then
-      set_arity(self, found, arity)
-    end
-    return found
-  end
-  local copied: mut {string} = {}
-  for i, n in ipairs(names) do
-    copied[i] = n
-  end
-  local decl: Decl = {
-    kind = kind, module = module, names = copied, name = name, owner = self.owner,
-    text = quote(module) .. " " .. quote(name), arity = arity,
-  }
-  self.declared[key] = decl
-  self.list[#self.list + 1] = decl
-  return decl
 end
 
 function Types.forget(self: Store, decls: {Decl})
@@ -1859,10 +1672,6 @@ function Types.forget(self: Store, decls: {Decl})
   end
 end
 
-Types.Store.find = function(self: Store, module: string, name: string): Decl? -- checked: field_unknown
-  return self.declared[path_key(module, name)]
-end
-
 function Types.literal(store: Store, value: string): Type
   local name = literal_name(value)
   local decl = store:declare("enum", Types.LITERALS, { name }, 0)
@@ -1870,14 +1679,6 @@ function Types.literal(store: Store, value: string): Type
     store:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = { value } })
   end
   return store:named(decl)
-end
-
-Types.Store.declarations = function(self: Store): {Decl} -- checked: field_unknown
-  local out: mut {Decl} = {}
-  for i, d in ipairs(self.list) do
-    out[i] = d
-  end
-  return out
 end
 
 function Types.unfold(t: Type): Type
@@ -2083,17 +1884,6 @@ local function give_body(store: Store, decl: Decl, body: Body)
   note(store, decl)
   decl.arity = #body.tparams
   decl.body = body
-end
-
-Types.Store.define = function(self: Store, decl: Decl, body: Body): Decl -- checked: field_unknown
-  if decl.owner ~= self.owner then
-    error("types: a declaration of another store", 2)
-  end
-  if decl.body ~= nil then
-    error("types: " .. decl.name .. " has a body already", 2)
-  end
-  give_body(self, decl, normal_body(self, decl, body))
-  return decl
 end
 
 -- Declaration text -----------------------------------------------------------------
@@ -2636,37 +2426,248 @@ local function attempt(store: Store, work: function()): string
   return message:sub(at)
 end
 
-Types.Store.decode = function(self: Store, text: string): Type?, string -- checked: field_unknown
-  local r: Reader = { text = text, at = 1, store = self }
-  local read: mut {Type} = {}
-  local why = attempt(self, function()
-    check_utf8(r)
-    read[1] = read_type(r)
-    skip(r)
-    if r.at <= #text then
-      fail(r, "text follows the type")
-    end
-  end)
-  if why == "" then
-    return read[1], ""
-  end
-  return nil, why
-end
-
-Types.Store.decode_declaration = function(self: Store, text: string): Decl?, string -- checked: field_unknown
-  local read: mut {Decl} = {}
-  local why = attempt(self, function()
-    read[1] = read_declaration(self, text, nil, nil)
-  end)
-  if why == "" then
-    return read[1], ""
-  end
-  return nil, why
-end
-
 -- The store ---------------------------------------------------------------------------
 
-local store_mt: metatable<Store> = { __index = Types.Store } -- checked: field_unknown, literal_missing
+--- The Store that [`Types.new`] makes.
+local class Made is Types.Store
+  function atom(self, name: Atom_tag): Type
+    return atom_of(self, name)
+  end
+
+  function array(self, element: Type, mutable?: boolean): Type
+    owned(self, element)
+    local array: Array = {
+      tag = "array", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
+      weight = 1, height = 1,
+      element = element, mut = mutable == true,
+    }
+    return intern(self, array)
+  end
+
+  function map(self, key: Type, value: Type, mutable?: boolean): Type
+    owned(self, key)
+    owned(self, value)
+    local map: Map = {
+      tag = "map", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
+      weight = 1, height = 1,
+      key = key, value = value, mut = mutable == true,
+    }
+    return intern(self, map)
+  end
+
+  function union(self, members: {Type}): Type
+    return union_of(self, members)
+  end
+
+  function optional(self, t: Type): Type
+    owned(self, t)
+    if (t.tag == "union") and t.nilable then
+      return t
+    end
+    return union_of(self, { t, atom_of(self, "nil") })
+  end
+
+  function non_nil(self, t: Type): Type
+    owned(self, t)
+    if (t.atom == true) and t.tag == "nil" then
+      return self.never
+    elseif (t.tag == "union") and t.nilable then
+      return union_of(self, t.members)
+    end
+    return t
+  end
+
+  function var(self, depth: integer, index: integer): Type
+    if math.type(depth) ~= "integer" or math.type(index) ~= "integer" or depth < 0 or index < 0 then
+      error("types: a variable has a depth and an index of 0 or more", 2)
+    end
+    local var: Var = {
+      tag = "var", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
+      weight = 1, height = 1,
+      depth = depth, index = index,
+    }
+    return intern(self, var)
+  end
+
+  function named(self, decl: Decl, args?: {Type}, value?: boolean): Type
+    if decl.owner ~= self.owner then
+      error("types: a declaration of another store", 2)
+    end
+    local copied: mut {Type} = {}
+    for i, a in ipairs(args or {}) do
+      owned(self, a)
+      copied[i] = a
+    end
+    local arity = decl.arity
+    if arity ~= nil and arity ~= #copied then
+      error("types: " .. decl.name .. " takes " .. tostring(arity) .. " type arguments, not " .. tostring(#copied), 2)
+    end
+    local named: Named = {
+      tag = "named", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
+      weight = 1, height = 1,
+      decl = decl, args = copied, value = value == true,
+    }
+    local made = intern(self, named)
+    if arity == nil and made == named then
+      -- Checked when the declaration says how many it takes.
+      local key = path_key(decl.module, decl.name)
+      local uses = self.pending[key] or {}
+      uses[#uses + 1] = named
+      self.pending[key] = uses
+      if self.transactions > 0 then
+        self.journal[#self.journal + 1] = { what = "use", key = key }
+      end
+    end
+    return made
+  end
+
+  function fn(self, spec: FnSpec): Type
+    local tparams: mut {TParam} = {}
+    for i, tp in ipairs(spec.tparams or {}) do
+      for _, bound in ipairs(tp.bounds or {}) do
+        bound_ok(self, bound)
+      end
+      local bounds = Types.bounds(tp.bounds)
+      tparams[i] = { bounds = bounds }
+    end
+    local params: mut {Param} = {}
+    for i, p in ipairs(spec.params or {}) do
+      owned(self, p.type)
+      local omittable = p.omittable == true
+      params[i] = { type = if omittable then self:optional(p.type) else p.type end, omittable = omittable }
+    end
+    local rest = spec.rest
+    if rest ~= nil then
+      owned(self, rest)
+    end
+    local keyed: mut {Keyed} = {}
+    local given: {Alt} = spec.rets or { { items = {} } }
+    for _, alt in ipairs(given) do
+      local narrows = alt.narrows
+      if narrows ~= nil and #given > 1 then
+        error("types: a narrowing declaration is the whole return list", 2)
+      end
+      if narrows ~= nil and narrows.param > #params then
+        error("types: a narrowing declaration names parameter " .. tostring(narrows.param) .. " of " .. tostring(#params), 2)
+      end
+      local normal = normal_alt(self, alt)
+      if normal ~= nil then
+        keyed[#keyed + 1] = { text = render_alt(normal, digest_text), alt = normal }
+      end
+    end
+    table.sort(keyed, function(a: Keyed, b: Keyed): boolean
+      return a.text < b.text
+    end)
+    local rets: mut {Alt} = {}
+    local previous = ""
+    for _, entry in ipairs(keyed) do
+      if #rets == 0 or entry.text ~= previous then
+        rets[#rets + 1] = entry.alt
+        previous = entry.text
+      end
+    end
+    local f: Fn = {
+      tag = "fn", atom = false, id = 0, owner = self.owner, digest = "", open = 0, has_mut = false,
+      weight = 1, height = 1,
+      tparams = tparams, params = params, rest = rest, rets = rets,
+    }
+    if #tparams > 0 then
+      -- Its own variables, which may be anywhere in it, name a parameter it has.
+      local seen: {string: boolean} = {}
+      for _, part in ipairs(Types.parts(f)) do
+        local why = unbound(part, 0, #tparams, seen) -- checked: view_as_mut
+        if why ~= "" then
+          error("types: " .. why, 2)
+        end
+      end
+    end
+    return intern(self, f)
+  end
+
+  function size(self): integer
+    return self.count
+  end
+
+  function declare(self, kind: Types.DeclKind, module: string, names: {string}, arity?: integer): Decl
+    if arity ~= nil and (math.type(arity) ~= "integer" or arity < 0) then
+      error("types: a declaration takes a count of type arguments of 0 or more", 2)
+    end
+    local name = declaration_name(module, names)
+    local key = path_key(module, name)
+    local found = self.declared[key]
+    if found ~= nil then
+      if found.kind ~= kind then
+        error("types: " .. module .. " " .. name .. " is declared as a " .. found.kind .. ", not a " .. kind, 2)
+      end
+      if arity ~= nil then
+        set_arity(self, found, arity)
+      end
+      return found
+    end
+    local copied: mut {string} = {}
+    for i, n in ipairs(names) do
+      copied[i] = n
+    end
+    local decl: Decl = {
+      kind = kind, module = module, names = copied, name = name, owner = self.owner,
+      text = quote(module) .. " " .. quote(name), arity = arity,
+    }
+    self.declared[key] = decl
+    self.list[#self.list + 1] = decl
+    return decl
+  end
+
+  function find(self, module: string, name: string): Decl?
+    return self.declared[path_key(module, name)]
+  end
+
+  function declarations(self): {Decl}
+    local out: mut {Decl} = {}
+    for i, d in ipairs(self.list) do
+      out[i] = d
+    end
+    return out
+  end
+
+  function define(self, decl: Decl, body: Body): Decl
+    if decl.owner ~= self.owner then
+      error("types: a declaration of another store", 2)
+    end
+    if decl.body ~= nil then
+      error("types: " .. decl.name .. " has a body already", 2)
+    end
+    give_body(self, decl, normal_body(self, decl, body))
+    return decl
+  end
+
+  function decode(self, text: string): Type?, string
+    local r: Reader = { text = text, at = 1, store = self }
+    local read: mut {Type} = {}
+    local why = attempt(self, function()
+      check_utf8(r)
+      read[1] = read_type(r)
+      skip(r)
+      if r.at <= #text then
+        fail(r, "text follows the type")
+      end
+    end)
+    if why == "" then
+      return read[1], ""
+    end
+    return nil, why
+  end
+
+  function decode_declaration(self, text: string): Decl?, string
+    local read: mut {Decl} = {}
+    local why = attempt(self, function()
+      read[1] = read_declaration(self, text, nil, nil)
+    end)
+    if why == "" then
+      return read[1], ""
+    end
+    return nil, why
+  end
+end
 
 function Types.new(loader?: Loader): Store
   counter.stores = counter.stores + 1
@@ -2682,13 +2683,14 @@ function Types.new(loader?: Loader): Store
     interned[name] = made
     types[i] = made
   end
-  local store: Store = setmetatable({ -- checked: setmetatable_call -- untyped: call
+  local store: Made = {
     owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {},
     atoms = atoms, loader = loader, pending = {}, journal = {}, building = {}, building_order = {}, depth = 0,
     transactions = 0, dead = 0,
-    integer = atoms["integer"], number = atoms["number"], string = atoms["string"], boolean = atoms["boolean"],
-    never = atoms["never"], any = atoms["any"], invalid = atoms["invalid"],
-  }, store_mt)
+    integer = assert(atoms["integer"]), number = assert(atoms["number"]), string = assert(atoms["string"]),
+    boolean = assert(atoms["boolean"]),
+    never = assert(atoms["never"]), any = assert(atoms["any"]), invalid = assert(atoms["invalid"]),
+  }
   return store
 end
 

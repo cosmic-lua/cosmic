@@ -119,7 +119,7 @@ local record wire
     mut failure: string
     --- Called once, before the first byte is read from the connection:
     --- where the server sends `100 Continue`.
-    on_first_read: function()
+    on_first_read?: function()
     --- Whether anything was asked of it yet.
     mut touched: boolean
     --- Reads to the end, discarding: true once the body is done, false
@@ -683,7 +683,7 @@ local function trailers(self: BodyReader): boolean, string
   end
 end
 
-local class BodyReader is wire.Body -- declared: interface_disagrees
+local class BodyReader is wire.Body
   input: wire.Input
   limits: wire.Limits
   head: wire.Head
@@ -704,7 +704,7 @@ local class BodyReader is wire.Body -- declared: interface_disagrees
     if most < 1 then error("http: read's max_bytes must be positive", 2) end
     if not self.touched then
       self.touched = true
-      if self.on_first_read ~= nil then self.on_first_read() end -- checked: field_unknown*2 -- untyped: call
+      if self.on_first_read ~= nil then self.on_first_read() end
     end
     if not self.head.chunked then
       if self.left == 0 then
@@ -774,7 +774,7 @@ function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
   local r: BodyReader = {
     input = input, limits = limits, head = head, left = head.length or 0,
     phase = "size", total = 0, failure = "", closed = false, touched = false,
-    on_first_read = on_first_read, -- checked: literal_unknown
+    on_first_read = on_first_read,
     state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end, skip = nil,
   }
   return r

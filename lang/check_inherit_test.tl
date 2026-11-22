@@ -236,6 +236,74 @@ end
 
 -- run -------------------------------------------------------------------------------------------------------
 
+--- A function field that takes some other type first is data a value holds, as a handler is: a class has it from the
+--- interface and its literal gives it. One that takes the interface first is a method the class writes.
+local function test_a_function_field_that_takes_another_type_first_is_a_field_of_the_class_and_not_a_method()
+  local source = [[
+local interface Routes
+  miss: function(string): string
+  find: function(Routes, string): string
+end
+local class Table is Routes
+  function find(self, path: string): string
+    return self.miss(path)
+  end
+end
+local t: Table = { miss = function(path: string): string return "no " .. path end }
+local r: Routes = t
+print(r:find("/x"), r.miss("/y"))
+]]
+  local done = Programs.execute(source, false)
+  assert(done.ran and done.fault == nil, tostring(done.fault) .. Programs.codes(done.run) .. first_msg(done.run))
+  assert(done.printed[1] == "no /x\tno /y", done.printed[1])
+  declared_wrong("local interface Routes\n  find: function(Routes, string): string\nend\nlocal class Table is Routes\nend\n",
+    "interface_disagrees", "has no field or method `find`")
+end
+
+--- A method of a generic interface takes the interface with its own arguments first; a function field that takes it
+--- with other arguments is data, as one that takes another type is.
+local function test_a_field_of_a_generic_interface_is_a_method_only_where_it_takes_the_interface_as_listed()
+  local source = [[
+local interface Box<T>
+  get: function(Box<T>): T
+  peek: function(Box<string>): string
+end
+local class IntBox is Box<integer>
+  n: integer
+  function get(self): integer
+    return self.n
+  end
+end
+local b: IntBox = { n = 3, peek = function(other: Box<string>): string return other:get() end }
+local r: Box<integer> = b
+print(r:get())
+]]
+  local done = Programs.execute(source, false)
+  assert(done.ran and done.fault == nil, tostring(done.fault) .. Programs.codes(done.run) .. first_msg(done.run))
+  assert(done.printed[1] == "3", done.printed[1])
+end
+
+--- A word only cosmic reserves names a method that an interface declares, and the call runs.
+local function test_a_method_named_by_a_word_only_cosmic_reserves_meets_the_interface_and_runs()
+  local source = [[
+local interface Pattern
+  match: function(Pattern, string): boolean
+end
+local class Prefix is Pattern
+  head: string
+  function match(self, text: string): boolean
+    return text:sub(1, #self.head) == self.head
+  end
+end
+local made: Prefix = { head = "ab" }
+local p: Pattern = made
+print(p:match("abc"), p:match("x"))
+]]
+  local done = Programs.execute(source, false)
+  assert(done.ran and done.fault == nil, tostring(done.fault) .. Programs.codes(done.run) .. first_msg(done.run))
+  assert(done.printed[1] == "true\tfalse", done.printed[1])
+end
+
 local function test_the_call_of_an_inherited_method_on_a_value_of_the_interface_runs()
   local source = CHAIN .. [[
 local class Buf is Counted

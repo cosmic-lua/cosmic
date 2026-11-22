@@ -82,6 +82,9 @@ local function test_every_reserved_word_names_a_field_and_a_lua_keyword_is_calle
   clean("x = t.match + t.continue + t.mut + t.is + t.as + t.asserts + t.userdata + t.goto + t.global")
   clean("t:match(p)\nt.goto()\nx = { match = 1, goto = 2, global = 3, as = 4 }")
   clean("local record R\n  match: integer\n  goto?: string\n  mut global: T\nend")
+  -- A word only this grammar reserves is a name to Lua, so it names a method, which `t:match(p)` calls.
+  clean("local class C\n  function match(self, p: string): boolean\n    return p == \"\"\n  end\nend")
+  assert(codes(parse("local class C\n  function goto(self)\n  end\nend")) == "reserved_word")
 end
 
 local function test_an_end_that_closes_a_body_is_no_field_where_a_colon_begins_the_next_line()

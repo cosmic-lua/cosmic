@@ -231,7 +231,7 @@ local record Relation
   end
 
   --- The relation of one store.
-  record Judge
+  interface Judge
     store: Store
     --- Pairs of closed types, and pairs of types that mention a variable under no binder.
     closed: {integer: boolean}
@@ -285,8 +285,10 @@ local record Relation
   --- function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
   as_listed: function(store: Store, x: Named, field_type: Type, self_type: Type): Type?
 
-  --- Whether a declaration that leaves `f` out of an interface it lists has it from the interface.
-  brought_in: function(decl: Types.Decl, f: Types.Field): boolean
+  --- Whether a declaration that leaves `f` out of an interface it lists has it from the interface, where `listed` is
+  --- the field's type as `self_type` has it ([`as_listed`]): a class writes a method for each fixed function field
+  --- whose first parameter is then `self_type`, the interface as listed, and has every other field.
+  brought_in: function(decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
 
   --- For each field of the interface `pattern`, and of those it lists: the field's type as `pattern` declares it, with
   --- its arguments put in and a function field's receiver `actual`, then as `actual` has it, in pairs. Nil where
@@ -312,8 +314,6 @@ local MAX_ALTERNATIVES <const> = 16
 --- stops here, and [`Relation.Judge.listed`] says it did, so that [`lang.declarations`] refuses
 --- the declaration whose closure it is.
 local MAX_LISTED <const> = 4096
-
-local judge_mt: metatable<Relation.Judge> = { __index = Relation.Judge } -- checked: field_unknown, literal_missing
 
 -- Results ------------------------------------------------------------------------------------
 
@@ -847,10 +847,15 @@ function Relation.as_listed(store: Store, x: Named, field_type: Type, self_type:
 end
 
 --- Whether a declaration `decl` that lists an interface declaring `f`, and leaves `f` out, has it from the interface:
---- an interface or a record has each such field, and a class each but a function field that is neither `mut` nor
---- omittable, which it meets with a method of its own.
-function Relation.brought_in(decl: Types.Decl, f: Types.Field): boolean
-  return decl.kind ~= "class" or f.mut == true or f.type.tag ~= "fn"
+--- an interface or a record has each such field, and a class each but a fixed function field that takes the interface
+--- as listed first (`listed` takes `self_type` first), which it meets with a method of its own. A field that takes
+--- another type first, or the interface with other arguments, is data the class holds.
+function Relation.brought_in(decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
+  if decl.kind ~= "class" or f.mut == true or f.type.tag ~= "fn" or listed == nil or listed.tag ~= "fn" then
+    return true
+  end
+  local first = listed.params[1]
+  return first == nil or first.type ~= self_type
 end
 
 --- A field or method that `n` has, with the arguments of `n` put in.
@@ -899,8 +904,11 @@ local function supplied(j: Relation.Judge, n: Named, name: string): {Supplied}
       end
       if (x.tag == "named") and xbody ~= nil then
         for _, f in ipairs(xbody.fields) do
-          if f.name == name and (kind == "interface" or Relation.brought_in(n.decl, f)) then
-            add(Relation.as_listed(j.store, x, f.type, n), f.mut == true, f.omittable == true)
+          if f.name == name then
+            local listed = Relation.as_listed(j.store, x, f.type, n)
+            if kind == "interface" or Relation.brought_in(n.decl, f, listed, n) then
+              add(listed, f.mut == true, f.omittable == true)
+            end
           end
         end
       end
@@ -1828,21 +1836,6 @@ local function owned(j: Relation.Judge, t: Type)
   end
 end
 
-Relation.Judge.subtype = function(self: Relation.Judge, a: Type, b: Type): boolean -- checked: field_unknown
-  owned(self, a)
-  owned(self, b)
-  return rel(self, a, b, false) == nil
-end
-
-Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relation.Refusal? -- checked: field_unknown
-  owned(self, a)
-  owned(self, b)
-  self.explained = {} -- checked: field_fixed
-  local r = rel(self, a, b, true)
-  self.explained = {} -- checked: field_fixed
-  return r
-end
-
 --- Whether the function `a` is below the function `b` with trailing parameters dropped.
 local function known_below(j: Relation.Judge, a: Type, b: Type): boolean
   if a.tag ~= "fn" or #a.tparams > 0 then
@@ -1883,59 +1876,10 @@ function Relation.refuse_known(self: Relation.Judge, a: Type, b: Type): Relation
   return r
 end
 
-Relation.Judge.accepts = function(self: Relation.Judge, argument: Type, param: Type): boolean -- checked: field_unknown
-  owned(self, argument)
-  owned(self, param)
-  return param.tag == "any" or rel(self, argument, param, false) == nil
-end
-
-Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, param: Type): Relation.Refusal? -- checked: field_unknown
-  if param.tag == "any" then
-    owned(self, argument)
-    owned(self, param)
-    return nil
-  end
-  return self:refuse(argument, param)
-end
-
 function Relation.field_pairs(self: Relation.Judge, pattern: Named, actual: Named): {Type}?
   owned(self, pattern)
   owned(self, actual)
   return field_pairs(self, pattern, actual)
-end
-
-Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listing -- checked: field_unknown
-  owned(self, n)
-  local closure = closure_of(self, n)
-  local copied: mut {Type} = {}
-  for i, listed in ipairs(closure.list) do
-    copied[i] = listed
-  end
-  return { types = copied, complete = closure.complete }
-end
-
-Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -- checked: field_unknown
-  local copied: mut {Types.TParam} = {}
-  for i, tp in ipairs(tparams) do
-    for _, bound in ipairs(tp.bounds or {}) do
-      owned(self, bound)
-      -- The bound is read as it is, with no variable of a binder outside it to shift.
-      if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
-          #bound.args > 0) then
-        error("relation: a bound is an interface used with no arguments, `Ordered`, `Numeric` or `Key`, not " ..
-            Types.display(bound), 2)
-      end
-    end
-    copied[i] = tp
-  end
-  self.scopes[#self.scopes + 1] = { tparams = copied, memo = {} }
-end
-
-Relation.Judge.leave = function(self: Relation.Judge) -- checked: field_unknown
-  if #self.scopes == 0 then
-    error("relation: leave without enter", 2)
-  end
-  self.scopes[#self.scopes] = nil
 end
 
 function Relation.instantiate(store: Store, t: Type, args: {Type}): Type?
@@ -1957,15 +1901,6 @@ function Relation.specialize(store: Store, f: Fn, args: {Type}): Fn?
     end
   end
   return specialize_within(store, f, args)
-end
-
-function Relation.new(store: Store): Relation.Judge
-  local judge: Relation.Judge = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    store = store, closed = {}, free = {}, scopes = {}, closures = {}, variances = {}, sets = {}, explained = {},
-    none = { code = "mismatch", path = {}, sub = store.invalid, super = store.invalid },
-    nil_type = store:atom("nil"),
-  }, judge_mt)
-  return judge
 end
 
 function Relation.binder(decl: Types.Decl): {Types.TParam}
@@ -1993,6 +1928,82 @@ function Relation.trace(r: Relation.Refusal): string
   end
   local where = #parts > 0 and table.concat(parts, " > ") or "here" -- checked: and_ternary
   return r.code .. " at " .. where .. ": " .. Types.display(r.sub) .. " is not below " .. Types.display(r.super)
+end
+
+--- The Judge that [`Relation.new`] makes.
+local class Made is Relation.Judge
+  function subtype(self, a: Type, b: Type): boolean
+    owned(self, a)
+    owned(self, b)
+    return rel(self, a, b, false) == nil
+  end
+
+  function refuse(self, a: Type, b: Type): Relation.Refusal?
+    owned(self, a)
+    owned(self, b)
+    self.explained = {} -- checked: field_fixed
+    local r = rel(self, a, b, true)
+    self.explained = {} -- checked: field_fixed
+    return r
+  end
+
+  function accepts(self, argument: Type, param: Type): boolean
+    owned(self, argument)
+    owned(self, param)
+    return param.tag == "any" or rel(self, argument, param, false) == nil
+  end
+
+  function refuse_argument(self, argument: Type, param: Type): Relation.Refusal?
+    if param.tag == "any" then
+      owned(self, argument)
+      owned(self, param)
+      return nil
+    end
+    return self:refuse(argument, param)
+  end
+
+  function listed(self, n: Named): Relation.Listing
+    owned(self, n)
+    local closure = closure_of(self, n)
+    local copied: mut {Type} = {}
+    for i, listed in ipairs(closure.list) do
+      copied[i] = listed
+    end
+    return { types = copied, complete = closure.complete }
+  end
+
+  function enter(self, tparams: {Types.TParam})
+    local copied: mut {Types.TParam} = {}
+    for i, tp in ipairs(tparams) do
+      for _, bound in ipairs(tp.bounds or {}) do
+        owned(self, bound)
+        -- The bound is read as it is, with no variable of a binder outside it to shift.
+        if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
+            #bound.args > 0) then
+          error("relation: a bound is an interface used with no arguments, `Ordered`, `Numeric` or `Key`, not " ..
+              Types.display(bound), 2)
+        end
+      end
+      copied[i] = tp
+    end
+    self.scopes[#self.scopes + 1] = { tparams = copied, memo = {} }
+  end
+
+  function leave(self)
+    if #self.scopes == 0 then
+      error("relation: leave without enter", 2)
+    end
+    self.scopes[#self.scopes] = nil
+  end
+end
+
+function Relation.new(store: Store): Relation.Judge
+  local judge: Made = {
+    store = store, closed = {}, free = {}, scopes = {}, closures = {}, variances = {}, sets = {}, explained = {},
+    none = { code = "mismatch", path = {}, sub = store.invalid, super = store.invalid },
+    nil_type = store:atom("nil"),
+  }
+  return judge
 end
 
 return Relation

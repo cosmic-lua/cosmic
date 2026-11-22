@@ -390,8 +390,10 @@ local function test_abort_from_app_middleware_is_answered_and_seen_by_the_middle
   }
   local res = Web.test_client(app):get("/", { headers = { accept = "application/json" } })
   assert(res.status == 403, "answered, not raised")
-  local body = assert(res:json()) as {string:any} -- checked: cast_refused
-  assert(body.detail == "no entry" and body.status == 403)
+  local value, why = res:json()
+  assert(value ~= nil, why)
+  local body = assert(Json.to_object(value))
+  assert(body["detail"] == "no entry" and body["status"] == 403)
   assert(table.concat(trace, " ") == "A abort /A", table.concat(trace, " "))
   assert(#lines == 1 and lines[1]:find("^GET / 403 ") ~= nil, table.concat(lines, "|"))
   assert(Web.test_client(app):get("/").status == 403, "an error page, negotiated like any")

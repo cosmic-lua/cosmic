@@ -45,7 +45,9 @@ local PROBLEM <const> = Shape.record_of("Problem")
 --- The error a refused request got, as a test needs to read it.
 local function problem(reply: Web.TestResponse): Problem
   assert(reply.headers["content-type"] == "application/problem+json", reply.headers["content-type"])
-  local seen, why = PROBLEM:into((assert(reply:json())))
+  local value, reason = reply:json()
+  assert(value ~= nil, reason)
+  local seen, why = PROBLEM:into(value)
   assert(seen ~= nil, why)
   return seen
 end
