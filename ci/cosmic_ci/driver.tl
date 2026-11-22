@@ -16,6 +16,7 @@ local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
+local ReviewAgent = require("cosmic_ci.review_agent")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local QueueVerdicts = require("cosmic_ci.queue_verdicts")
@@ -146,6 +147,14 @@ local commands: {string:Command} = {
     usage = "", handler = Images.build_command },
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
+  ["review-agent-apply"] = { about = "create or update the weekly review agent and its schedule on Claude Managed Agents (ANTHROPIC_API_KEY, REVIEW_GITHUB_TOKEN)",
+    usage = "", handler = ReviewAgent.apply_command },
+  ["review-agent-run"] = { about = "start the weekly review once, now",
+    usage = "", handler = ReviewAgent.run_command },
+  ["review-draft-pr"] = { about = "open a draft pull request from a weekly-review/ branch, for the review agent",
+    usage = "BRANCH TITLE BODY_FILE", handler = ReviewAgent.draft_pr_command },
+  ["review-issue"] = { about = "open the weekly review's report as an issue, for the review agent",
+    usage = "TITLE BODY_FILE", handler = ReviewAgent.issue_command },
   report = { about = "print CI's recent runs' times and suites, from GitHub's API",
     usage = "[options]", spec = Report.spec(), options = Report.command },
 }
