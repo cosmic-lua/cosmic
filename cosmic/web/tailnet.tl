@@ -53,6 +53,12 @@
 --- Serve configuration itself, taking it down when the server stops.
 --- There the headers are read with or without `serve`, with the
 --- capabilities its `caps` names, once the daemon is seen to keep them.
+--- Where a Serve configuration filed outside the app passes requests to
+--- a unix socket the app listens at (a Tailscale Service's, say),
+--- `socket` names that socket, and its headers are read there, with no
+--- capabilities, as on the loopback. Any process that can connect to it
+--- can send them: keep it where only the daemon and the program's own
+--- user reach it.
 --- A request whose `X-Forwarded-For` (the last entry, which the daemon
 --- sets) is this node's own address has no identity, as a connection
 --- from it has none: the daemon names the node's owner then, though any
@@ -102,8 +108,8 @@ local record Tailnet
   enum Source
     --- The daemon's whois of the connection's far end.
     "whois"
-    --- The headers of `tailscale serve`, from a loopback peer or a
-    --- unix socket's.
+    --- The headers of `tailscale serve`, from a loopback peer (with
+    --- `serve`) or at the socket the daemon's Serve passes requests to.
     "serve"
   end
 
@@ -137,9 +143,15 @@ local record Tailnet
     --- Answer 403 to a request with no identity (true); false lets it
     --- through with none.
     required?: boolean
-    --- Read `tailscale serve`'s identity headers from a loopback peer or
-    --- a unix socket's (false): see the module's description.
+    --- Read `tailscale serve`'s identity headers from a loopback peer
+    --- (false): see the module's description.
     serve?: boolean
+    --- The path of a unix socket a Serve configuration filed outside the
+    --- app passes requests to: `tailscale serve`'s identity headers are
+    --- read from a request that comes in at it, as from a loopback peer
+    --- with `serve`. It is the path exactly as the listener names it. See
+    --- the module's description.
+    socket?: string
     --- How long an answer of the daemon is kept for its address, in
     --- nanoseconds (60 seconds); 0 keeps none. A failure is never kept.
     cache_ns?: integer
@@ -286,6 +298,10 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
   local whois = o.whois or daemon_whois()
   local required = o.required ~= false
   local serve = o.serve == true
+  local named = o.socket
+  if named ~= nil and (type(named) ~= "string" or named == "") then
+    error("web: tailnet: socket must be a socket's path", 2)
+  end
   -- Peers and strangers apart, so that addresses off the tailnet,
   -- which anyone has many of, never push a peer's answer out.
   local peers: Cache = { entries = {}, held = 0 }
@@ -337,12 +353,16 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
       local funneled = false
       local at = req.raw.listener
       local own = req.app.serve_socket
-      if at ~= nil and at.kind == "unix" and own ~= nil and at.path == own then
+      local filed = at ~= nil and at.kind == "unix" and own ~= nil and at.path == own
+      if filed or (at ~= nil and at.kind == "unix" and named ~= nil and at.path == named) then
         -- The socket Web.serve opened for the daemon's Serve, in a
-        -- directory only the daemon and this user can reach: the
-        -- daemon's headers say who asked.
+        -- directory only the daemon and this user can reach, or the one
+        -- `socket` names: the daemon's headers say who asked. Only the
+        -- first is known to forward capabilities.
         funneled = req.headers["tailscale-funnel-request"] == "?1"
-        if not funneled then identity = of_serve(req, req.app.serve_caps or {}) end
+        if not funneled then
+          identity = of_serve(req, if filed then req.app.serve_caps or {} else {} end)
+        end
         local from = if identity ~= nil then forwarded_from(req) else nil end
         if from ~= nil and from.kind == "failed" then return unasked(req, from) end
         if from ~= nil and (from.kind ~= "found" or assert(from.whois).own) then identity = nil end
@@ -387,8 +407,8 @@ function Tailnet.identity(req: Types.Request): Tailnet.Identity?
 end
 
 --- Whether [`Web.tailnet`] found that Funnel brought `req` from the
---- internet, as `serve = true` reads the daemon's
---- `Tailscale-Funnel-Request` header. Such a request has no identity.
+--- internet, as the daemon's `Tailscale-Funnel-Request` header says
+--- wherever its other headers are read. Such a request has no identity.
 function Tailnet.funnel(req: Types.Request): boolean
   return req:get(FUNNEL) == true
 end
