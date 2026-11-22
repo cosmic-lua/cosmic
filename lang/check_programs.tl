@@ -241,7 +241,10 @@ do
     xpcall: function<A1, A2, H>((function(A1, A2)), (function(any): H), A1, A2): (true) | (false, H | string)
     xpcall: function<A1, A2, R1, H>((function(A1, A2): R1), (function(any): H), A1, A2): (true, R1) | (false, H | string)
     xpcall: function<A1, A2, R1, R2, H>((function(A1, A2): (R1, R2)), (function(any): H), A1, A2): (true, R1, R2) | (false, H | string)
-    type: function(any): string
+    enum Type
+      "nil" "boolean" "number" "string" "table" "function" "thread" "userdata"
+    end
+    type: function(any): Type
     setmetatable: function<A>(A, any): A
   end
   global print <const> = Lib.print

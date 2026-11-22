@@ -497,9 +497,9 @@ local CASES <const>: {Case} = {
     fix = "write `x is integer` without the parentheses, so that the test narrows it",
   },
   {
-    code = "type_name", at = { line = 2, column = 15 }, source = "local x = 1\nif type(x) == \"int\" then\n  print(x)\nend\n",
-    msg = "`type` never answers \"int\": it answers nil, boolean, number, string, table, function, thread or userdata, so the test is always false",
-    fix = "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\"",
+    code = "enum_member", at = { line = 2, column = 15 }, source = "local x = 1\nif type(x) == \"int\" then\n  print(x)\nend\n",
+    msg = "`\"int\"` is not a member of `Lib.Type`, so the test is always false",
+    fix = "write `\"nil\"`, `\"boolean\"`, `\"number\"`",
   },
   {
     code = "assign_repeated", source = "local x = 1\nx, x = 2, 3\n", at = { line = 2, column = 4 },
@@ -2510,10 +2510,10 @@ local function test_type_is_compared_with_the_eight_names_it_answers_and_is_test
     return codes_of(source)
   end
   -- the name on either side, either test, a name that is a type of the program, and a name held in a variable
-  assert(refused("local x = 1\nprint(\"int\" == type(x))\n") == "type_name")
-  assert(refused("local x = 1\nprint(type(x) ~= \"integer\")\n") == "type_name")
-  assert(refused("local x = 1\nprint((type(x)) == \"float\")\n") == "type_name")
-  assert(refused("local x = 1\nprint(type(x) == \"Number\")\n") == "type_name")
+  assert(refused("local x = 1\nprint(\"int\" == type(x))\n") == "enum_member")
+  assert(refused("local x = 1\nprint(type(x) ~= \"integer\")\n") == "enum_member")
+  assert(refused("local x = 1\nprint((type(x)) == \"float\")\n") == "enum_member")
+  assert(refused("local x = 1\nprint(type(x) == \"Number\")\n") == "enum_member")
   assert(refused("local x = 1\nlocal k = \"int\"\nprint(type(x) == k)\n") == "")
   assert(refused("local x = 1\nlocal y = tostring(x)\nprint(y == \"int\")\n") == "")
   -- `(x) is T` for a name or a field is refused; any other parenthesized value is a test of that value
@@ -2548,7 +2548,7 @@ local function test_the_arguments_of_a_library_call_are_read_where_they_are_writ
     codes_of("print(string.packsize(\"z\"), string.packsize(\"i4\"))\n"),
     codes_of("local x = 1\nprint(type(x, 1) == \"int\")\n"),
   }
-  assert(table.concat(said, " | ") == " | pattern_malformed | pattern_malformed | nil_not_allowed |  | arity |  | pack_malformed | arity",
+  assert(table.concat(said, " | ") == " | pattern_malformed | pattern_malformed | nil_not_allowed |  | arity |  | pack_malformed | arity enum_member",
     table.concat(said, " | "))
   -- the error stands on the literal: the receiver of a method call is the first argument
   local r = Programs.run("local x = (\"%y\"):format(1)\nprint(x)\n")

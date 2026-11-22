@@ -151,9 +151,9 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("math", "max", "function<T is Numeric>(T, ...: T): T")
   same("math", "min", "function<T is Numeric>(T, ...: T): T")
   same("math", "tointeger", "function(any): integer?")
-  same("math", "type", "function(any): string?")
-  same("utf8", "len", "function(string, p2?: number, p3?: number, p4?: boolean): integer?, integer?")
-  same("utf8", "offset", "function(string, number, p3?: number): integer?")
+  same("math", "type", "function(any): math.NumberType?")
+  same("utf8", "len", "function(string, p2?: integer, p3?: integer, p4?: boolean): integer?, integer?")
+  same("utf8", "offset", "function(string, integer, p3?: integer): integer?")
   same("io", "open", "function(string, p2?: io.OpenMode): FILE?, string?, integer?")
   same("io", "popen", "function(string, p2?: io.OpenMode): FILE?, string?, integer?")
   same("io", "tmpfile", "function(): FILE?, string?, integer?")
@@ -197,8 +197,8 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
     "function(StandardLibrary.CollectGarbageSetValue, integer): number",
     "function(StandardLibrary.CollectGarbageIsRunning): boolean", "function(string, p2?: number): number | string | boolean")
   same("io", "read", "function(): string?", "function(...: FileNumberMode): number...",
-    "function(...: number | FileStringMode): string...", "function(...: number | FileMode): number | string...",
-    "function(...: number | string): string...")
+    "function(...: integer | FileStringMode): string...", "function(...: integer | FileMode): number | string...",
+    "function(...: integer | string): string...")
   same("os", "getenv", "function(string): string?")
   same("os", "remove", "function(string): boolean?, string?, integer?")
   same("FILE", "seek", "function(FILE, p2?: FILE.SeekWhence, p3?: integer): integer?, string?, integer?")
@@ -212,7 +212,7 @@ local function test_a_function_that_answers_nil_where_lua_does_is_declared_so()
   same("StandardLibrary", "rawget", "function<T is Key, U>({T: U}, T): U?", "function(any, any): any")
   -- the array of the values `table.pack` packs, and `table.unpack` of an array
   same("table", "pack", "function<T>(...: T): table.PackTable<T>", "function(...: any): table.PackTable<any>")
-  same("table", "unpack", "function<T>({T}, p2?: number, p3?: number): T...")
+  same("table", "unpack", "function<T>({T}, p2?: integer, p3?: integer): T...")
   -- unchanged: the values past the first of a `select` and the captures of a match are tails, read `T?` as one value
   same("StandardLibrary", "select", "function<T>(integer, ...: T): T...", "function(integer, ...: any): any...",
     "function(string, ...: any): integer")
@@ -471,4 +471,26 @@ local function test_an_enum_or_a_union_of_enums_calls_the_functions_of_string()
   assert(Types.display(Programs.var(r, "x")) == "string")
   assert(Types.display(Programs.var(r, "n")) == "integer")
   assert(Programs.codes(run(head .. "local x: Kind = k:rep(2)\n")) == "not_assignable")
+end
+
+local function test_type_and_math_type_answer_an_enum_so_a_misspelt_kind_is_refused()
+  local head = "local v: integer | string | {integer} = 1\n"
+  local first = Programs.codes(run(head .. 'local _ = type(v) == "table" or math.type(v) == "float"\n'))
+  assert(first == "", first)
+  local typo = run(head .. 'local _ = type(v) == ("tabel")\n')
+  local e = assert(typo.errors[1])
+  assert(e.code == "enum_member" and e.msg:find("so the test is always false", 1, true) ~= nil, e.msg)
+  assert(Programs.codes(run(head .. 'local _ = math.type(v) == "int"\n')) == "enum_member")
+  -- A kind is still a string where one is wanted.
+  assert(Programs.codes(run(head .. 'local s: string = type(v) .. (math.type(v) or "")\nprint(s)\n')) == "")
+end
+
+local function test_a_float_is_its_own_integral_part_and_a_position_is_an_integer()
+  local r = run("local whole, _ = math.modf(2.5)\nlocal n: integer = whole\nprint(n)\n")
+  assert(Programs.codes(r) == "not_assignable", Programs.codes(r))
+  assert(Programs.codes(run("local whole, _ = math.modf(2)\nlocal n: integer = whole\nprint(n)\n")) == "")
+  for _, call in ipairs({ "table.unpack({ 1 }, 1.5)", "utf8.char(65.5)", "utf8.len(\"a\", 1.5)", "math.ult(1.5, 2)" }) do
+    local got = Programs.codes(run("print(" .. call .. ")\n"))
+    assert(got ~= "", call .. " stood")
+  end
 end
