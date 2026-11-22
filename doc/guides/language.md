@@ -765,6 +765,7 @@ print(numbers.value)
 ```output
 6
 2
+```
 
 ## a value or a failure
 
