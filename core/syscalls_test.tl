@@ -511,6 +511,20 @@ local function closed_on_exec(fd: integer): boolean
   return flags & sys.FD_CLOEXEC ~= 0
 end
 
+--- `stream_pair` gives two connected sockets, each closed on exec, that carry bytes both ways.
+local function test_stream_pair_carries_bytes_both_ways()
+  local pair = assert(process.stream_pair())
+  local a, b = assert(pair[1]), assert(pair[2])
+  assert(closed_on_exec(a) and closed_on_exec(b), "both ends are closed on exec")
+  assert(sys.write(a, "there") == 5)
+  assert(sys.read(b, 64) == "there")
+  assert(sys.write(b, "back") == 4)
+  assert(sys.read(a, 64) == "back")
+  assert(sys.close(a))
+  assert(sys.read(b, 64) == "", "the other end reads the end of the stream")
+  assert(sys.close(b))
+end
+
 --- A copy names what its original does and is closed on exec; `dup2`
 --- points a descriptor at another's file, which is how a caller takes
 --- over its own standard output for a while: what `print` writes from C
