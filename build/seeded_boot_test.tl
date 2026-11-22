@@ -3,6 +3,7 @@
 --- trees it installs, which build.zig writes where zig boots the tree.
 
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Test = require("cosmic.test")
 local SeededBoot = require("build.seeded_boot")
 
@@ -59,4 +60,46 @@ local function test_two_listings_of_one_tree_are_the_same()
     assert(SeededBoot.listed(tree) ~= SeededBoot.listed(other), other)
   end
   assert(SeededBoot.listed("") == "")
+end
+
+--- Unasked, a boot tries the pinned release and then the newest one;
+--- `pin` keeps it to the pinned release, whose digest the checkout names,
+--- and asks the network nothing. `0` is no seeded boot, and any other
+--- value is refused.
+local function test_pin_keeps_a_boot_to_the_pinned_release()
+  local unset = assert(SeededBoot.plan(""))
+  assert(unset.newest and not unset.offline)
+  local pin = assert(SeededBoot.plan("pin"))
+  assert(not pin.newest and pin.offline)
+  local off, off_why = SeededBoot.plan("0")
+  assert(off == nil and off_why == "", off_why)
+  for _, other in ipairs({ "1", "yes", "newest", "PIN", "pin " }) do
+    local refused, why = SeededBoot.plan(other)
+    assert(refused == nil and why:find("COSMIC_BOOT_SEED is " .. other .. ":", 1, true) == 1, why)
+  end
+end
+
+--- A release kept in the cache under its digest's name is hashed again
+--- before it runs, against a stale or poisoned cache: one whose bytes are
+--- not that digest's is not taken, and is removed so that it is fetched
+--- again, and so is a link there, even to the right bytes.
+local function test_a_kept_release_is_hashed_before_it_runs(tmp: string)
+  local good = "the release's bytes"
+  local digest = Hash.hex_sha256(good)
+  local path = tmp .. "/cosmic-" .. digest
+  local kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == nil and why == "it is not there", why)
+  assert(Fs.write(path, good, 0x1ed))
+  kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == path and why == "", why)
+  assert(Fs.write(path, "other bytes", 0x1ed))
+  kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == nil and why == "its bytes are not its digest's", why)
+  assert(Fs.exists(path) == false, "a release with other bytes was kept")
+  assert(Fs.write(tmp .. "/elsewhere", good, 0x1ed))
+  assert(Fs.symlink(tmp .. "/elsewhere", path))
+  kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == nil and why == "a link stood there", why)
+  local link, _ = Fs.readlink(path)
+  assert(link == nil and Fs.exists(path) == false, "a link in the cache was kept")
 end
