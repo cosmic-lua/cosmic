@@ -8,7 +8,7 @@ local BASE <const> = [[(version 1)
 (deny default)
 (allow file-read-metadata)
 (allow file-read-data (literal (param "ROOT")))
-(allow sysctl-read (sysctl-name-prefix "hw.") (sysctl-name-prefix "machdep.") (sysctl-name-prefix "vm.") (sysctl-name-prefix "sysctl.") (sysctl-name-prefix "security.mac.") (sysctl-name-prefix "kern.os") (sysctl-name-prefix "kern.proc.") (sysctl-name "kern.version") (sysctl-name "kern.hostname") (sysctl-name "kern.maxfilesperproc") (sysctl-name "kern.maxfiles") (sysctl-name "kern.maxproc") (sysctl-name "kern.argmax") (sysctl-name "kern.boottime") (sysctl-name "kern.ngroups") (sysctl-name "kern.secure_kernel") (sysctl-name "kern.usrstack64") (sysctl-name "kern.uuid") (sysctl-name "kern.bootsessionuuid") (sysctl-name "kern.clockrate") (sysctl-name "kern.hv_support"))
+(allow sysctl-read)
 (allow signal (target self))
 (allow process-info-pidinfo (target self))
 ]]
@@ -61,7 +61,7 @@ local function test_promises_are_precise_and_fattr_only_reaches_writable_grants(
 (allow file-write-data (literal (param "PATH_2")))
 (allow file-write-mode file-write-owner file-write-times file-write-flags file-write-xattr (literal (param "PATH_2")))
 ]], out.text)
-  assert(not out.text:find("(allow mach", 1, true) and not out.text:find("file-write*", 1, true))
+  assert(not out.text:find("mach", 1, true) and not out.text:find("file-write*", 1, true))
   local read = compile({ promises = { "fattr" }, grants = { { path = "read", letters = "r" } } },
     { read = { path = "/read", directory = false } })
   assert(not read.text:find("file-write", 1, true))

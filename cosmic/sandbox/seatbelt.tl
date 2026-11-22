@@ -155,21 +155,6 @@ local function allow(text: mut {string}, fattr: boolean, letters: string, at: st
   end
 end
 
---- The sysctl names a held program may read: the kernel's facts libSystem,
---- the dynamic loader and the C runtime read as a program starts, and
---- kern.proc's listing of processes. kern.procargs and kern.procargs2, which
---- answer the arguments and environment of any process of the same user,
---- are not among them.
-local SYSCTLS <const> = table.concat({
-  '(sysctl-name-prefix "hw.")', '(sysctl-name-prefix "machdep.")', '(sysctl-name-prefix "vm.")',
-  '(sysctl-name-prefix "sysctl.")', '(sysctl-name-prefix "security.mac.")', '(sysctl-name-prefix "kern.os")',
-  '(sysctl-name-prefix "kern.proc.")', '(sysctl-name "kern.version")', '(sysctl-name "kern.hostname")',
-  '(sysctl-name "kern.maxfilesperproc")', '(sysctl-name "kern.maxfiles")', '(sysctl-name "kern.maxproc")',
-  '(sysctl-name "kern.argmax")', '(sysctl-name "kern.boottime")', '(sysctl-name "kern.ngroups")',
-  '(sysctl-name "kern.secure_kernel")', '(sysctl-name "kern.usrstack64")', '(sysctl-name "kern.uuid")',
-  '(sysctl-name "kern.bootsessionuuid")', '(sysctl-name "kern.clockrate")', '(sysctl-name "kern.hv_support")',
-}, " ")
-
 --- Produces a default-deny profile without reading the host. `options`
 --- carries canonical host paths and directory kinds obtained by the
 --- enforcement caller. A file uses `literal`, a directory `subpath`.
@@ -276,18 +261,21 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   --   file-read-metadata: stat of any path. dyld and libc stat each
   --     component of every path they open, from the root down, so a
   --     grant's own path is not enough to reach it. It shows that a path
-  --     exists and its size, mode and times (that ~/.ssh holds a key, say),
-  --     never what it holds.
+  --     exists and its size, mode and times, never what it holds.
   --   file-read-data of the root alone: dyld reads "/" itself as a
   --     directory as it starts, and an abort follows a refusal. It lists
   --     the root's entries, and nothing below it.
-  --   sysctl-read of SYSCTLS: the kernel's facts a program reads as it
-  --     starts, which hold nothing of the user's. kern.procargs2 is not
-  --     among them, so a program's own arguments are refused too; it has
-  --     them from its start (_NSGetArgv), not from there.
+  --   sysctl-read: the kernel's facts (hw.*, kern.osversion, ...) libSystem
+  --     reads as it starts. Whatever the rule, a held program can still
+  --     read kern.procargs2: the arguments and environment of every process
+  --     of the same user, tokens and keys among them.
+  -- TODO: refuse kern.procargs2 to a held program. A held copy of ps read
+  -- another process's arguments under a deny of kern.procargs, a
+  -- require-not of it and an allowlist of names alike, so it waits on a
+  -- Seatbelt operation that reaches the read (perhaps a process-info one).
   local text: mut {string} = { "(version 1)", "(deny default)",
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
-    "(allow sysctl-read " .. SYSCTLS .. ")",
+    "(allow sysctl-read)",
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
   for _, promise in ipairs(merged.promises or {}) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
