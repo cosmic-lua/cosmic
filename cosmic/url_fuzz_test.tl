@@ -235,7 +235,7 @@ end
 local SCHEMES <const> = { "http", "HTTPS", "x+y.z-1", "S" }
 local USERINFO <const> = { "u", "u:p", "", "%40a:b%3A", "a;b=c" }
 local HOSTS <const> = { "example.com", "EXAMPLE.org", "127.0.0.1", "[::1]", "[2001:DB8::A]", "[::ffff:1.2.3.4]",
-  "h-1.x_y~z", "%41" }
+  "h-1.x_y~z", "a!$&'()*+,;=b" }
 local PORTS <const> = { "0", "80", "008080", "65535", "" }
 
 local function test_parse_reads_back_the_parts_a_url_was_built_from(tmp: string)

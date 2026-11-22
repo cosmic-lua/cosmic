@@ -410,6 +410,13 @@ local function read_host(parts: Url.Parts, text: string): boolean, string
     if host:find("[%[%]]") then
       return bad("the host holds a bracket outside an IPv6 address")
     end
+    -- RFC 3986's reg-name, less its escapes: a byte outside it, as a
+    -- non-ASCII one, or an escape, which a browser decodes, would make
+    -- this host differ from the one a browser reaches.
+    if host:find("[^%w%-._~!$&'()*+,;=]") then
+      return bad("the host holds a byte other than a letter, a digit or one of -._~!$&'()*+,;=; " ..
+          "a name not in ASCII goes as its punycode (xn--)")
+    end
   end
   parts.host = host:lower()
   if rest == "" or rest == ":" then
@@ -561,7 +568,9 @@ end
 --- escaped ([`Url.segments`] reads a path, [`Url.unescape`] a piece).
 --- Answers `nil` and why for anything else: a relative reference, a URL
 --- without `//` (`mailto:`), one that names no host (`file:///`), more
---- than one `@`, a malformed port or IPv6 host (one with a zone, as
+--- than one `@`, a `\` in the authority (which a browser reads as `/`),
+--- a host byte outside RFC 3986's reg-name or an escape in the host (a
+--- name not in ASCII goes as its punycode), a malformed port or IPv6 host (one with a zone, as
 --- `[fe80::1%25eth0]`, included), or a space or control byte anywhere,
 --- which a URL holds only escaped ([`Url.escape`]).
 --- @param text string The URL
@@ -581,6 +590,11 @@ function Url.parse(text: string): Url.Parts?, string
   local path_end = last_before(text, "[?#]", authority_end + 1)
   local path = text:sub(authority_end + 1, path_end)
   local parts: Url.Parts = { scheme = scheme:lower(), host = "", path = path }
+  -- A browser reads `\` in an http(s) authority as `/`, so it would end
+  -- the authority where this does not.
+  if authority:find("\\", 1, true) then
+    return refuse("the authority holds a '\\', which a browser reads as '/'; escape it with Url.escape")
+  end
   local hostport = authority
   local at = authority:find("@", 1, true)
   if at ~= nil then
