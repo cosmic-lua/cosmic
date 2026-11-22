@@ -254,7 +254,7 @@ local function test_driver_runs_both_commands(tmp: string)
   local stderr = refused.stderr
   assert(refused.code == 4 and stderr ==
       "image-publish: docker login ghcr.io: exit 4\n", stderr)
-  assert(not ((refused.stdout or "") .. (stderr or "")):find("s3cret", 1, true))
+  assert(not ((refused.stdout or "") .. stderr):find("s3cret", 1, true))
 end
 
 local function test_publish_appends_to_the_summary_link_in_place(tmp: string)
