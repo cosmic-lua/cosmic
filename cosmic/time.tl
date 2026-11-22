@@ -570,7 +570,7 @@ local record Rules
 end
 
 --- Each zone's rules, kept apart from the record a caller holds.
-local rules_of: mut {Time.Zone:Rules} = setmetatable({}, { __mode = "k" }) -- checked: setmetatable_call -- untyped: call
+local rules_of: mut {Time.Zone:Rules} = setmetatable({}, { __mode = "k" })
 
 --- A zone for `rules`, named `name`. Zones are shared -- `zone` answers
 --- one per name, to every caller in the process -- so the record is

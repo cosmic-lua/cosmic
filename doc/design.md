@@ -1090,7 +1090,8 @@ I`, `local enum E` (of strings, or `local enum E: integer` of named integers, wh
 with `E.of(n): E?` and `E.name(v): string`) or `type X = require("m")`; a module returns one of them, or a local
 declared with its type. an optional type is `T?` and an optional field `name?: T`; `T | nil` is refused. a field is fixed unless declared `mut`,
 and a collection parameter is a view unless declared `mut {T}`. there are no casts (`as`), no `;`, no `goto` but a continue,
-no `setmetatable` (a class's methods are written as methods and the compiler writes its metatable), no `global`, no `#!`
+no `setmetatable` (a class's methods are written as methods and the compiler writes its metatable) but the weak table
+`setmetatable({}, { __mode = "k" })`, the `mut` map its place declares (the collector drops its entries when it likes, so a read of it is always optional), no `global`, no `#!`
 first line, no `a and b or c` for a choice (`if ... then ... else ... end` is an expression), and no call with a string
 argument without parentheses. `pcall` and `coroutine.wrap` are typed, and the alternatives of a `pcall` are read with
 `match`. a call that answers several lists (`(true, R) | (false, E)`, `(T) | (nil, E)`) has lists told apart by a

@@ -570,9 +570,11 @@ Codes.catalog = {
   {
     code = "setmetatable_call", rule = "dispatch only through declared types",
     why = "the only metatables on tables a program makes are the compiler's, attached to the literal of a class, " ..
-      "so the only code they run is a class's `__close`, `__tostring`, `__lt` and `__le`",
+      "so the only code they run is a class's `__close`, `__tostring`, `__lt` and `__le`; a weak table, " ..
+      "`setmetatable({}, { __mode = \"k\" })`, only tells the collector what it may drop, and is the `mut` map its place declares",
     fix = "declare a `class` and write the value as a table literal typed as the class; for a temporary change to a " ..
-      "shared table, write the keys in place, keep each key's old value, and restore them after",
+      "shared table, write the keys in place, keep each key's old value, and restore them after; for a weak table, " ..
+      "declare the map where it is made (`local m: mut {K: V} = setmetatable({}, { __mode = \"k\" })`)",
   },
   {
     code = "enum_member", rule = "enums are nominal strings",

@@ -846,13 +846,13 @@ end
 local function test_a_retired_module_leaves_no_syntax_tree_behind()
   local build = build_of({ { "box.tl", RECORD } })
   build:lower({ "box" })
-  local weak: mut {Ast.Chunk} = setmetatable({}, { __mode = "v" }) -- checked: setmetatable_call
-  weak[1] = assert(build:result("box", true)).chunk
+  local weak: mut {string: Ast.Chunk} = setmetatable({}, { __mode = "v" })
+  weak["box"] = assert(build:result("box", true)).chunk
   collectgarbage("collect")
-  assert(weak[1] ~= nil, "the build holds the tree until it is retired")
+  assert(weak["box"] ~= nil, "the build holds the tree until it is retired")
   build:retire("box")
   collectgarbage("collect")
-  assert(weak[1] == nil, "the tokens and the tree of a retired module are garbage")
+  assert(weak["box"] == nil, "the tokens and the tree of a retired module are garbage")
 end
 
 local function test_retiring_every_module_forgets_them_all_and_keeps_the_globals()
