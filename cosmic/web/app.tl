@@ -73,10 +73,18 @@ function App.new(spec: Types.AppSpec): Types.App
   local hubs: {Types.Closable} = spec.hubs or {}
   local routes: {Types.Route} = spec.routes or {}
   local middleware: {Types.Middleware} = spec.middleware or {}
+  local proxies, refused = Request.proxies(spec.trusted_proxy)
+  if refused ~= "" then error(refused, 2) end
+  local proxy_entries: {string}? = nil
+  if proxies ~= nil then
+    local entries: mut {string} = {}
+    for i, entry in ipairs(assert(spec.trusted_proxy)) do entries[i] = entry end
+    proxy_entries = entries
+  end
   local kept: Types.AppSpec = {
     routes = routes, middleware = middleware, lifespan = spec.lifespan,
     debug = spec.debug == true, trailing_slash = spec.trailing_slash,
-    trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
+    trusted_proxy = proxy_entries, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = sink,
     builtin = spec.builtin ~= false,
     hubs = hubs, max_streams = spec.max_streams, dev = spec.dev == true,
@@ -109,7 +117,7 @@ function App.new(spec: Types.AppSpec): Types.App
   local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
   local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {}, -- checked: literal_missing
     streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT, serve_socket = nil,
-    serve_caps = nil }
+    serve_caps = nil, proxies = proxies }
   local function dispatch(req: Types.Request): Types.Response
     local given = req.outcome
     if given == nil and kept.builtin == true then
@@ -226,7 +234,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local everywhere: mut {Net.Address} = { table.unpack(listeners) }
   for _, address in ipairs(clear or {}) do everywhere[#everywhere + 1] = address end
   if app.spec.dev == true then
-    if app.spec.trusted_proxy == true then
+    if app.proxies ~= nil then
       return declined("web: an app in development mode (Dev.app) cannot also have a trusted_proxy")
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")

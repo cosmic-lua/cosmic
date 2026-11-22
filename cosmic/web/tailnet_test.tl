@@ -308,7 +308,7 @@ local function test_a_mapped_peer_is_its_ipv4_address_and_headers_move_nothing()
   assert(served.body == "rene@example.com rene@example.com serve - tagged=false", served.body)
   local proxied = Web.test_client(Web.app{
     sink = { line = function(_self: Web.Sink, _text: string) end },
-    trusted_proxy = true,
+    trusted_proxy = { "192.0.2.9" },
     middleware = { Web.tailnet({ whois = stand_in(seen) }) },
     routes = { Web.get("/", function(_: Web.Request): Web.Response return Web.text("in") end) },
   })

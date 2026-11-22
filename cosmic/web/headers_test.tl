@@ -178,7 +178,7 @@ end
 
 local function test_hsts_is_sent_only_over_https()
   local app = make_app({ hsts = { max_age = 31536000, include_subdomains = true, preload = true } },
-    nil, { trusted_proxy = true })
+    nil, { trusted_proxy = { "loopback" } })
   local client = Web.test_client(app)
   assert(client:get("/").headers["strict-transport-security"] == nil, "never on plain http")
   client.scheme = "https"
@@ -187,7 +187,7 @@ local function test_hsts_is_sent_only_over_https()
   forged.scheme = "https"
   assert(forged:get("/", { headers = { ["X-Forwarded-Proto"] = "https" } }).headers["strict-transport-security"] == nil,
     "a header is believed only with trusted_proxy")
-  local plain = Web.test_client(make_app({ hsts = { max_age = 0 } }, nil, { trusted_proxy = true }))
+  local plain = Web.test_client(make_app({ hsts = { max_age = 0 } }, nil, { trusted_proxy = { "loopback" } }))
   plain.scheme = "https"
   assert(plain:get("/").headers["strict-transport-security"] == "max-age=0")
 end

@@ -6,7 +6,7 @@ A [`cosmic.web`] app ships as one program: `cosmic build` makes an
 executable with `static/` and htmx inside it, and the program is
 configured by its environment. This guide builds `hello`, a tiny app with a
 stylesheet, and the configuration a deployment needs: where it listens, the
-keys, whether a proxy is in front, which hosts it answers to and whether the
+keys, where the proxy in front is, which hosts it answers to and whether the
 site is https for good. It starts from an empty directory and needs only
 what [web apps](web.md) says about routes and the app; the settings it
 touches are explained in [the sessions](web-sessions.md) and
@@ -62,7 +62,7 @@ so that a test can give it any environment it likes:
 | --- | --- |
 | `HELLO_KEYS` | signing keys for the session cookie, newest first (required) |
 | `HELLO_LISTEN` | `host:port` to listen on; default `127.0.0.1:8080` |
-| `HELLO_BEHIND_PROXY` | `1` when a proxy that ends TLS is in front |
+| `HELLO_PROXIES` | where the proxy that ends TLS connects from, comma-separated: `loopback` for one on the same machine, or its addresses and prefixes (`10.0.0.0/8`) |
 | `HELLO_HOSTS` | the host names the app answers to, comma-separated |
 | `HELLO_HTTPS` | `1` when the site is https for good |
 
@@ -80,8 +80,8 @@ local record Config
     --- The address to listen on.
     host: string
     port: integer
-    --- Whether a proxy that ends TLS is in front.
-    behind_proxy: boolean
+    --- Where the proxy that ends TLS connects from; nil for no proxy.
+    proxies?: {string}
     --- The hosts the app answers to; nil for any.
     hosts?: {string}
     --- Whether the site is https for good.
@@ -103,9 +103,11 @@ function Config.read(env: {string:string}): Config.Settings?, string
   local hosts: {string}? = nil
   local listed = env["HELLO_HOSTS"]
   if listed ~= nil then hosts = String.split(listed, ",") end
+  local proxies: {string}? = nil
+  local through = env["HELLO_PROXIES"]
+  if through ~= nil then proxies = String.split(through, ",") end
   return {
-    keys = keys, host = host, port = port, hosts = hosts,
-    behind_proxy = env["HELLO_BEHIND_PROXY"] == "1",
+    keys = keys, host = host, port = port, hosts = hosts, proxies = proxies,
     https = env["HELLO_HTTPS"] == "1",
   }, ""
 end
@@ -115,7 +117,7 @@ return Config
 
 ## the app
 
-`hello.tl` turns the settings into the app. `HELLO_BEHIND_PROXY` becomes
+`hello.tl` turns the settings into the app. `HELLO_PROXIES` becomes
 `trusted_proxy`, and `HELLO_HOSTS` becomes `trusted_hosts`: [the security
 guide](web-security.md) explains both, and why an app behind a proxy should
 name its hosts, since the `Host` header is the client's.
@@ -146,8 +148,8 @@ local record Hello
     keys: {string}
     --- Where `/static` comes from; nil for the executable's own files.
     assets?: Assets.Source
-    --- Whether a proxy that ends TLS is in front.
-    behind_proxy?: boolean
+    --- Where the proxy that ends TLS connects from; nil for no proxy.
+    proxies?: {string}
     --- The hosts the app answers to; nil for any.
     hosts?: {string}
     --- Whether the site is https for good.
@@ -175,7 +177,7 @@ function Hello.app(opts: Hello.Options): Web.App
       Headers.middleware(headers),
       Session.middleware{ store = SessionCookie.store{ keys = opts.keys } },
     },
-    trusted_proxy = opts.behind_proxy,
+    trusted_proxy = opts.proxies,
     trusted_hosts = opts.hosts,
   }
 end
@@ -224,7 +226,7 @@ return function(): integer
     return 2
   end
   local app = Hello.app{
-    keys = settings.keys, behind_proxy = settings.behind_proxy,
+    keys = settings.keys, proxies = settings.proxies,
     hosts = settings.hosts, https = settings.https,
   }
   local ok, trouble = Web.serve(app, {
@@ -249,15 +251,16 @@ options change.
 local Assets = require("cosmic.web.assets")
 local Config = require("config")
 local Hello = require("hello")
+local Net = require("cosmic.net")
 local Secret = require("cosmic.web.secret")
 local Web = require("cosmic.web")
 
 --- The options of an app with a fresh key, with the settings of a deployment as given.
-local function options(behind_proxy?: boolean, hosts?: {string}, https?: boolean): Hello.Options
+local function options(proxies?: {string}, hosts?: {string}, https?: boolean): Hello.Options
   return {
     keys = { Secret.generate() },
     assets = Assets.memory({ ["app.css"] = "body { margin: 0 }" }),
-    behind_proxy = behind_proxy,
+    proxies = proxies,
     hosts = hosts,
     https = https,
   }
@@ -276,19 +279,23 @@ end
 local function test_the_settings_are_read_from_the_environment()
   local key = Secret.generate()
   local settings = assert(Config.read({ HELLO_KEYS = key }))
-  assert(settings.host == "127.0.0.1" and settings.port == 8080 and not settings.behind_proxy)
+  assert(settings.host == "127.0.0.1" and settings.port == 8080 and settings.proxies == nil)
   local set = assert(Config.read({ HELLO_KEYS = key, HELLO_LISTEN = "0.0.0.0:9000",
-    HELLO_BEHIND_PROXY = "1", HELLO_HOSTS = "a.example,b.example", HELLO_HTTPS = "1" }))
-  assert(set.host == "0.0.0.0" and set.port == 9000 and set.behind_proxy and set.https)
-  local hosts = set.hosts
+    HELLO_PROXIES = "10.0.0.2,10.0.1.0/24", HELLO_HOSTS = "a.example,b.example", HELLO_HTTPS = "1" }))
+  assert(set.host == "0.0.0.0" and set.port == 9000 and set.https)
+  local hosts, proxies = set.hosts, set.proxies
   assert(hosts ~= nil and #hosts == 2 and hosts[2] == "b.example")
+  assert(proxies ~= nil and #proxies == 2 and proxies[2] == "10.0.1.0/24")
   assert(Config.read({}) == nil, "no key, no program")
   assert(Config.read({ HELLO_KEYS = key, HELLO_LISTEN = "nowhere" }) == nil)
 end
 
 local function test_a_proxy_is_believed_only_when_named()
   local seen = { ["X-Forwarded-Proto"] = "https", ["X-Forwarded-For"] = "203.0.113.9" }
-  assert(Web.test_client(Hello.app(options(true))):get("/whoami", { headers = seen }):text() == "https 203.0.113.9")
+  local behind = Web.test_client(Hello.app(options({ "loopback" })))
+  assert(behind:get("/whoami", { headers = seen }):text() == "https 203.0.113.9")
+  local direct = behind:get("/whoami", { headers = seen, peer = Net.tcp("192.0.2.7", 1) }):text()
+  assert(direct == "http 192.0.2.7", "a client that reaches the app past the proxy is itself")
   local alone = Web.test_client(Hello.app(options())):get("/whoami", { headers = seen }):text()
   assert(alone:find("^http "), "a header nobody vouched for is ignored")
 end
@@ -303,7 +310,7 @@ local function test_https_for_good_turns_on_hsts_and_the_cookie_is_always_secure
   local plain = Web.test_client(Hello.app(options())):get("/")
   assert(plain.headers["strict-transport-security"] == nil)
   assert((plain.headers["set-cookie"] or ""):find("^__Host%-session=.*; Secure") ~= nil)
-  local client = Web.test_client(Hello.app(options(true, nil, true)))
+  local client = Web.test_client(Hello.app(options({ "loopback" }, nil, true)))
   local reply = client:get("/", { headers = { ["X-Forwarded-Proto"] = "https" } })
   assert(reply.headers["strict-transport-security"] == "max-age=31536000")
   assert((reply.headers["set-cookie"] or ""):find("^__Host%-session=") ~= nil)

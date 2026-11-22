@@ -42,8 +42,9 @@ local record Testing
     attrs: mut {string:JarEntry}
     --- "http" (the default) or "https": whether the client acts as a browser
     --- on an https page. A `Secure` cookie is sent only when it is "https",
-    --- which also adds `X-Forwarded-Proto: https` for an app with
-    --- `trusted_proxy`.
+    --- which also adds `X-Forwarded-Proto: https`, believed by an app whose
+    --- `trusted_proxy` names the request's peer (`127.0.0.1` unless the
+    --- request gives another, so `"loopback"`).
     mut scheme: string
     --- Whether the app's lifespan has run.
     mut started: boolean

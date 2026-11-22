@@ -373,7 +373,7 @@ end
 --- An app behind a proxy that names the client, over `store`, at the time `clock` answers.
 local function seen_app(store: Session.Store, clock: function(): integer): Web.App
   return Web.app{
-    trusted_proxy = true,
+    trusted_proxy = { "loopback" },
     routes = {
       Web.post("/in", function(req: Web.Request): Web.Response
         local session = Session.of(req)

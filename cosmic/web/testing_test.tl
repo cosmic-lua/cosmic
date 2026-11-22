@@ -302,7 +302,7 @@ local function test_the_jar_expires_a_cookie_by_max_age_and_by_expires_date()
 end
 
 local function test_the_jar_sends_a_secure_cookie_only_for_an_https_client()
-  local app = Web.app{ trusted_proxy = true, routes = {
+  local app = Web.app{ trusted_proxy = { "loopback" }, routes = {
     Web.get("/set", function(_req: Web.Request): Web.Response
       local res = Web.text("set")
       Web.add_header(res, "Set-Cookie", "s=1; Secure")

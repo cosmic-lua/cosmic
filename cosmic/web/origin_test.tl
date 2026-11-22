@@ -45,7 +45,7 @@ local function test_the_origin_of_a_request_is_its_scheme_and_host()
   local app = Web.app{ routes = { Web.get("/", function(req: Web.Request): Web.Response
     table.insert(seen, Origin.of_request(req) or "-")
     return Web.text("ok")
-  end) }, trusted_proxy = true }
+  end) }, trusted_proxy = { "loopback" } }
   local client = Web.test_client(app)
   client:get("/", { headers = { Host = "App.Example:8080" } })
   client:get("/", { headers = { Host = "app.example", ["X-Forwarded-Proto"] = "https" } })
