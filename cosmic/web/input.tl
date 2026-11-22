@@ -59,6 +59,7 @@
 --- @public
 
 local Codec = require("cosmic.codec")
+local Defer = require("cosmic.defer")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Multipart = require("cosmic.http.multipart")
@@ -409,11 +410,6 @@ local record Spooled
   mut made?: string
 end
 
---- The value of a `<close>` variable: only its `__close` matters.
-local record Unwinding
-  __close: function(Unwinding)
-end
-
 --- The multipart body of `req`, at most `limit` bytes, read once and kept.
 --- The text parts are held in memory, each file part is spooled to disk
 --- as it arrives, and a part over its cap ends the read at once: memory
@@ -482,15 +478,14 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- is spooled so far.
   local settled = false
   local spooling: Spool = {}
-  local unwinding_mt: metatable<Unwinding> = { __close = function() -- checked: literal_missing
+  local _unwinding <close> = Defer.new(function()
     if settled then return end
     local writer = spooling.writer
     if writer ~= nil then
       local _, _ = writer:abort()
     end
     m:discard()
-  end }
-  local _unwinding <close>: Unwinding = setmetatable({}, unwinding_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+  end)
   -- The body is spent from here, whatever the outcome: a later reader of
   -- the bytes is told so, not given an empty body.
   local source, total = counted(req.raw.body, limit)

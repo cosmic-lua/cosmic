@@ -1340,20 +1340,17 @@ end
 
 -- Own both resources while user cancellation code may raise: a failed
 -- call must not leave a staged file waiting for garbage collection.
-local record PendingDownload
+local class PendingDownload
   mut response?: Response
   mut file?: Stream.FileWriter
-  __close: function(PendingDownload)
-end
 
-local pending_mt: metatable<PendingDownload> = { -- checked: literal_missing
-  __close = function(self: PendingDownload)
+  function __close(self)
     local response = self.response
     if response ~= nil then local _, _ = response:close() end
     local file = self.file
     if file ~= nil then local _, _ = file:abort() end
-  end,
-}
+  end
+end
 
 --- [`Http.download_result`]'s work, which each public entry point that
 --- downloads calls itself (`CALLER`).
@@ -1382,7 +1379,7 @@ local function downloading(url: string, path: string,
       checks[#checks + 1] = { algorithm = algorithm, hex = wanted:lower(), hashing = hashing }
     end
   end
-  local pending <close>: PendingDownload = setmetatable({}, pending_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+  local pending <close>: PendingDownload = { response = nil, file = nil }
   -- `opts` is checked here, so a refusal is raised at `CALLER`; the open
   -- goes through [`Http.open`], which finds nothing more to refuse.
   local _, _ = raw_options(opts)

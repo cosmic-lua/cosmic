@@ -1,4 +1,5 @@
 local Array = require("cosmic.array")
+local Defer = require("cosmic.defer")
 local support = require("build.test_support_fixture")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
@@ -121,19 +122,15 @@ local function test_cancel_ends_a_wait_and_every_later_one(tmp: string)
   sys.close(writer)
 end
 
-local record Closer
-  __close: function(Closer)
-end
-
 --- An error ends the run: the other tasks are closed where they wait,
 --- their `<close>` variables with them, and `run` raises it; the next
 --- `run` starts afresh.
 local function test_an_error_ends_the_run_and_closes_the_rest()
   local closed: boolean = false
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
+  local closer = function() closed = true end
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(closer)
       assert(Poll.delay(Clock.seconds(1)))
     end)
     assert(Poll.delay(0))
@@ -364,10 +361,10 @@ end
 --- outside a task would.
 local function test_a_raising_task_closes_its_own_close_variables()
   local closed: boolean = false
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
+  local closer = function() closed = true end
   Test.raises(function()
     Poll.run(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(closer)
       error("broken", 0)
     end)
   end, "broken")
@@ -484,10 +481,10 @@ local function test_kill_ends_a_parked_task_and_its_waits(tmp: string)
   local resumed: boolean = false
   local joined_ok: boolean? = nil
   local joined_why: string? = nil
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
+  local closer = function() closed = true end
   Poll.run(function()
     local sleeper = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(closer)
       local _, _ = Poll.readable(reader, Clock.ms(20))
       resumed = true
     end)
@@ -557,19 +554,19 @@ local function test_kill_raises_what_a_close_handler_raises()
   local closed: boolean = false
   local wait_trouble: string = ""
   local in_task: boolean = false
-  local closer_mt: metatable<Closer> = { __close = function() closed = true end } -- checked: literal_missing
-  local raiser_mt: metatable<Closer> = { __close = function() -- checked: literal_missing
+  local closer = function() closed = true end
+  local raiser = function()
     local _, err: boolean, any = pcall(Poll.delay, 0)
     wait_trouble = tostring(err)
     local _, trouble: boolean, any = pcall(Poll.readable, 0, 0)
     assert(tostring(trouble):find("while its task is killed", 1, true), tostring(trouble))
     in_task = Poll.in_task()
     error("broken close", 0)
-  end }
+  end
   Poll.run(function()
     local task = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
-      local _ <close> = setmetatable({} as Closer, raiser_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(closer)
+      local _ <close> = Defer.new(raiser)
       local _, _ = Poll.delay(Clock.seconds(1))
     end)
     assert(Poll.delay(0))
@@ -584,7 +581,7 @@ local function test_kill_raises_what_a_close_handler_raises()
   Test.raises(function()
     Poll.run(function()
       local task = Poll.spawn(function()
-        local _ <close> = setmetatable({} as Closer, raiser_mt) -- checked: cast_refused, setmetatable_call
+        local _ <close> = Defer.new(raiser)
         local _, _ = Poll.delay(Clock.seconds(1))
       end)
       assert(Poll.delay(0))
@@ -977,11 +974,11 @@ end
 --- still closes one; shielding outside a task, or no function, raises.
 local function test_a_shielded_task_is_killed_and_closed()
   local closed: integer = 0
-  local closer_mt: metatable<Closer> = { __close = function() closed = closed + 1 end } -- checked: literal_missing
+  local closer = function() closed = closed + 1 end
   Poll.run(function()
     local victim = Poll.spawn(function()
       Poll.shielded(function()
-        local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
+        local _ <close> = Defer.new(closer)
         local _, _ = Poll.delay(Clock.minutes(60))
       end)
     end)
@@ -995,7 +992,7 @@ local function test_a_shielded_task_is_killed_and_closed()
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
       Poll.shielded(function()
-        local _ <close> = setmetatable({} as Closer, closer_mt) -- checked: cast_refused, setmetatable_call
+        local _ <close> = Defer.new(closer)
         local _, _ = Poll.delay(Clock.minutes(60))
       end)
     end)
@@ -1146,13 +1143,13 @@ end
 local function test_a_wait_raises_while_the_run_closes_its_tasks(tmp: string)
   local reader, writer = fifo(tmp, "p")
   local trouble: string = ""
-  local waiter_mt: metatable<Closer> = { __close = function() -- checked: literal_missing
+  local waiter = function()
     local _, err: boolean, any = pcall(Poll.wait, reader, sys.POLLIN, 0)
     trouble = tostring(err)
-  end }
+  end
   local ok, err: boolean, any = pcall(Poll.run, function()
     Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, waiter_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(waiter)
       local _, _ = Poll.delay(Clock.seconds(30))
     end)
     assert(Poll.delay(0))
@@ -1300,9 +1297,9 @@ local function test_notify_is_callable_from_a_close_handler()
       done = true
     end)
     assert(Poll.delay(0))
-    local closing_mt: metatable<Closer> = { __close = function() notifier:notify_all() end } -- checked: literal_missing
+    local closing = function() notifier:notify_all() end
     local victim = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closing_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(closing)
       local _, _ = Poll.delay(Clock.seconds(30))
     end)
     assert(Poll.delay(0))

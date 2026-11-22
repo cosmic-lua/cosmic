@@ -167,32 +167,12 @@ end
 --- The pty's slave, which the relay holds until it has read all the program
 --- wrote: macOS drops what the master has not read when the last slave
 --- descriptor closes.
-local record Slave
-  __close: function(Slave)
+local class Slave
   fd: integer
-end
 
-local slave_mt: metatable<Slave> = { -- checked: literal_missing
-  __close = function(self: Slave)
+  function __close(self)
     local _, _ = sys.close(self.fd)
-  end,
-}
-
---- What `run` puts back when it ends, however it does: held in a
---- `<close>` variable, from the pty's start on.
-local record Restoring
-  __close: function(Restoring)
-  input: integer
-  output: integer
-  --- The pty's master, closed last.
-  master: integer
-  --- The descriptors of the caller's output that `run` made non-blocking,
-  --- which are put back to blocking.
-  made_nonblocking: mut {integer}
-  --- The caller's termios as it was, or nil until `run` has put the
-  --- terminal in raw mode.
-  mut saved: string?
-  filter: TermFilter.Filter
+  end
 end
 
 --- Writes `data` to the non-blocking `fd`, waiting for room at most `limit_ms`
@@ -215,8 +195,22 @@ local function write_within(fd: integer, data: string, limit_ms: integer): integ
   return at - 1
 end
 
-local restoring_mt: metatable<Restoring> = { -- checked: literal_missing
-  __close = function(self: Restoring)
+--- What `run` puts back when it ends, however it does: held in a
+--- `<close>` variable, from the pty's start on.
+local class Restoring
+  input: integer
+  output: integer
+  --- The pty's master, closed last.
+  master: integer
+  --- The descriptors of the caller's output that `run` made non-blocking,
+  --- which are put back to blocking.
+  made_nonblocking: mut {integer}
+  --- The caller's termios as it was, or nil until `run` has put the
+  --- terminal in raw mode.
+  mut saved: string?
+  filter: TermFilter.Filter
+
+  function __close(self)
     local saved = self.saved
     -- The termios first, which waits for nothing; the resets after, for
     -- as long as the terminal takes them.
@@ -236,8 +230,8 @@ local restoring_mt: metatable<Restoring> = { -- checked: literal_missing
     -- cosmic.sys.tcflush can name the input queue alone: the call it has
     -- discards the output queue too, which can still hold the program's
     -- last bytes on a slow terminal, so none is made.
-  end,
-}
+  end
+end
 
 --- The size of `fd`'s window, or -1 and -1.
 local function window(fd: integer): integer, integer
@@ -281,12 +275,12 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local started, start_why = Child.start_on_pty(argv, opts, pty)
   if started == nil then return nil, start_why end
   local master = started.master
-  local _slave <close>: Slave = setmetatable({ fd = started.slave }, slave_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+  local _slave <close>: Slave = { fd = started.slave }
   local filter = TermFilter.new()
-  local restoring <close>: Restoring = setmetatable({ -- checked: close_not_closable, setmetatable_call -- untyped: call
+  local restoring <close>: Restoring = {
     input = input, output = shown, master = master, filter = filter,
-    made_nonblocking = {},
-  }, restoring_mt)
+    made_nonblocking = {}, saved = nil,
+  }
   local running <close> = started.child
   local nonblocking, nonblocking_why = sys.set_nonblocking(master, true)
   if not nonblocking then return nil, "terminal: " .. nonblocking_why end

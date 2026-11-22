@@ -3,6 +3,7 @@
 --- other test -- see doc/design.md's `examples` table.
 
 local Clock = require("cosmic.clock")
+local Defer = require("cosmic.defer")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
@@ -111,22 +112,14 @@ function Example.cancel()
   assert(waited["answer"] == Poll.CANCELLED)
 end
 
--- TODO: write the metatable of this example as a class, once the library's handles are classes (a change of its own,
--- library by library): the new checker refuses a call of `setmetatable`, a literal of `metatable` that leaves its
--- fields out and a cast, which the markers on the lines hold until then.
-
 --- A task that waits on whatever its waits answer outlasts `cancel`,
 --- and is ended by `kill` where it waits: its `<close>` variables are
 --- closed, and a join answers [`Poll.CANCELLED`].
 function Example.kill()
-  local lease = { released = false }
-  local record Lease
-    __close: function(Lease)
-  end
-  local lease_mt: metatable<Lease> = { __close = function() lease["released"] = true end } -- checked: literal_missing
+  local released = false
   Poll.run(function()
     local stubborn = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Lease, lease_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(function() released = true end)
       while true do local _, _ = Poll.delay(Clock.seconds(60)) end
     end)
     assert(Poll.delay(0))
@@ -135,8 +128,8 @@ function Example.kill()
     assert(still == Poll.TIMEOUT)
     stubborn:kill()
     local ended, why = stubborn:join()
-    print(lease["released"], ended, why)
-    assert(lease["released"] == true and not ended and why == Poll.CANCELLED)
+    print(released, ended, why)
+    assert(released and not ended and why == Poll.CANCELLED)
   end)
 end
 

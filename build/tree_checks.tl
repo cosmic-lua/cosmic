@@ -122,6 +122,8 @@ allowed["cosmic.failure.path"] = "public API: the path a failure concerns, which
   "library's own calls move to it one module at a time"
 allowed["cosmic.failure.new"] = "public API: a failure no system call answered, which a program's own function " ..
   "answers; the standard library's own calls move to it one module at a time"
+allowed["cosmic.defer.run"] = "the function a Defer runs, which its `__close` calls: a field of the class, set by " ..
+  "Defer.new, that no caller needs to read"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
   "the tree's own clients speak through cosmic.http, so only its tests make one"
 allowed["cosmic.web.client_cert"] = "public API: the client certificate an app reads of a request over mutual TLS; " ..

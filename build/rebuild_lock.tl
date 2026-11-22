@@ -65,6 +65,24 @@ local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 local log = require("build.logger").log
 
+--- The lock's descriptor and SQLite handle, each nil once let go or
+--- never taken; closing it lets both go.
+local class Claim
+  mut fd: integer?
+  mut db?: Sqlite.Handle
+
+  function __close(self)
+    local db, fd = self.db, self.fd
+    self.db, self.fd = nil, nil
+    if db ~= nil then
+      local _, _ = db:close()
+    end
+    if fd ~= nil then
+      local _, _ = sys.close(fd)
+    end
+  end
+end
+
 local record rebuild_lock
 
   --- What the run holding the lock is doing, as a waiting run names it.
@@ -84,11 +102,7 @@ local record rebuild_lock
 
   --- The lock's descriptor and SQLite handle, each nil once let go or
   --- never taken.
-  record Claim
-    mut fd: integer?
-    mut db?: Sqlite.Handle
-    __close: function(Claim)
-  end
+  type Claim = Claim
 end
 
 --- One millisecond, which [`sys.flock`] and SQLite count their waits in.
@@ -144,19 +158,6 @@ end
 
 local type Lock = rebuild_lock.Claim
 
-local lock_mt: metatable<Lock> = { -- checked: literal_missing
-  __close = function(self: Lock)
-    local db, fd = self.db, self.fd
-    self.db, self.fd = nil, nil
-    if db ~= nil then
-      local _, _ = db:close()
-    end
-    if fd ~= nil then
-      local _, _ = sys.close(fd)
-    end
-  end,
-}
-
 --- The lock this process holds, kept here so it lives as long as the
 --- process does, or until the exec that replaces it.
 local record Hold
@@ -200,8 +201,7 @@ local function acquire(path: string, wait_ns: integer): Lock?, string
   if fd == nil then
     return nil, path .. ": " .. open_trouble
   end
-  local opened: Lock = { fd = fd } -- checked: literal_missing
-  local taking <close> = setmetatable(opened, lock_mt) -- checked: setmetatable_call -- untyped: call
+  local taking <close>: Lock = { fd = fd, db = nil }
   local flocked, flock_trouble, errno = sys.flock(fd, "exclusive", Clock.ceil(wait_ns, MS))
   if not flocked then
     local name = sys.errno_name(errno)
@@ -225,9 +225,8 @@ local function acquire(path: string, wait_ns: integer): Lock?, string
       return nil, ""
     end
   end
-  local holding: Lock = { fd = taking.fd, db = taking.db } -- checked: literal_missing
+  local holding: Lock = { fd = taking.fd, db = taking.db }
   taking.fd, taking.db = nil, nil
-  setmetatable(holding, lock_mt) -- checked: setmetatable_call -- untyped: call
   return holding, ""
 end
 
@@ -300,7 +299,9 @@ function rebuild_lock.held_elsewhere(directory: string): boolean?, string
     if trouble == "" then return true, "" end
     return nil, trouble
   end
-  lock_mt.__close(lock)
+  do
+    local _closing <close> = lock
+  end
   return false, ""
 end
 
@@ -314,7 +315,7 @@ function rebuild_lock.release()
   local lock = held.lock
   held.lock, held.path = nil, nil
   if lock ~= nil then
-    local _letting <close> = lock -- checked: close_not_closable
+    local _letting <close> = lock
   end
 end
 

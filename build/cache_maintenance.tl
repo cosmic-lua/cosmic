@@ -49,25 +49,22 @@ local record maintenance
   end
 end
 
-local record Database
+local class Database
   --- Nil once closed, and for a database [`owned`] has none yet.
   mut db?: Sqlite.Handle
   mut transaction: boolean
-  __close: function(Database)
-end
 
-local database_mt: metatable<Database> = { -- checked: literal_missing
-  __close = function(self: Database)
+  function __close(self)
     local db = self.db
     if db ~= nil then
       if self.transaction then local _, _ = db:exec("ROLLBACK") end
       local _, _ = db:close()
     end
-  end,
-}
+  end
+end
 
 local function owned(db?: Sqlite.Handle): Database
-  return setmetatable({ db = db, transaction = false }, database_mt) -- checked: setmetatable_call -- untyped: call
+  return { db = db, transaction = false }
 end
 
 local function close(database: Database): boolean, string
@@ -113,7 +110,7 @@ end
 
 local function shapes(): {string:Shape}
   local memory = assert(Sqlite.memory())
-  local _scratch <close> = owned(memory) -- checked: close_not_closable
+  local _scratch <close> = owned(memory)
   for _, schema in ipairs({ formats.compiles, formats.bridge_statements, formats.verdicts }) do
     for _, sql in ipairs(schema) do assert(memory:exec(sql)) end
   end
@@ -270,7 +267,7 @@ local function maintain_file(path: string, options: maintenance.Options,
   -- users and replacements. Typed failure codes alone authorize no deletion;
   -- keep every unreadable file and omit its save digest.
   if opened == nil then return failed(file, open_why) end
-  local database <close> = owned(opened) -- checked: close_not_closable
+  local database <close> = owned(opened)
   local db = opened
   db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN IMMEDIATE")
@@ -335,7 +332,7 @@ end
 local function feed_rows(hasher: Hash.Hasher, path: string, guard: Signal.Guard): boolean, string
   local opened, open_why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return false, open_why end
-  local database <close> = owned(opened) -- checked: close_not_closable
+  local database <close> = owned(opened)
   local db = opened
   db:busy_timeout(Clock.seconds(10))
   local begun = db:exec_result("BEGIN")
@@ -442,9 +439,9 @@ local function fresh_keys(path: string, restored: string, expected: {string:Shap
                           guard: Signal.Guard): integer?, string
   local opened, why = Sqlite.open(path, { writable = true, create = false })
   if opened == nil then return nil, why end
-  local live <close> = owned(opened) -- checked: close_not_closable
+  local live <close> = owned(opened)
   opened:busy_timeout(Clock.seconds(10))
-  local old <close> = owned(nil) -- checked: close_not_closable
+  local old <close> = owned(nil)
   local st, stat_why, errno = sys.stat(restored)
   if st ~= nil then
     old.db, why = Sqlite.open(restored)

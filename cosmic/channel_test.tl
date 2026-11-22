@@ -1,11 +1,8 @@
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
+local Defer = require("cosmic.defer")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
-
-local record Closer
-  __close: function(Closer)
-end
 
 --- A task that receives until `count` items or a failure, appending what
 --- it gets to `into` and its last failure to `last`.
@@ -323,13 +320,13 @@ end
 local function test_close_from_a_close_handler_wakes_a_waiter()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new()
-    local closing_mt: metatable<Closer> = { __close = function() queue:close() end } -- checked: literal_missing
+    local closing = function() queue:close() end
     local got: mut {integer} = {}
     local last: mut {string} = {}
     local waiter = consumer(queue, got, last)
     assert(Poll.delay(0))
     local victim = Poll.spawn(function()
-      local _ <close> = setmetatable({} as Closer, closing_mt) -- checked: cast_refused, setmetatable_call
+      local _ <close> = Defer.new(closing)
       local _, _ = Poll.delay(Clock.seconds(30))
     end)
     assert(Poll.delay(0))

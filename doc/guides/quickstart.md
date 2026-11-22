@@ -424,7 +424,10 @@ integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
 A type of your own is closable too: declare it a class whose body has
 `function __close(self)`, and make each value as a table literal.
 [`Fs.Scratch`] is one. Without the method the compiler refuses `<close>`
-with `to-be-closed variable h has a non-closable type Handle`.
+with `to-be-closed variable h has a non-closable type Handle`. Code that
+only needs to run at the end of a block, and reads locals of the
+function around it, is a [`cosmic.defer`]:
+`local _ <close> = Defer.new(function() ... end)`.
 
 ## ending early
 
@@ -459,6 +462,7 @@ A function declared `: number` may still
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.defer`]: ../../cosmic/defer.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.net`]: ../../cosmic/net.tl
