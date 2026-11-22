@@ -680,7 +680,7 @@ end
 --- task cancelled in it ends the lookup and fails "cancelled"; anywhere
 --- else it holds the thread until it answers. A `timeout_ns` out of range,
 --- an empty `servers` list or a server port outside 1 to 65535 raises.
-function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string -- checked: not_assigned
+function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string
   opts = opts or {}
   Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", 2)
   local hosts_file = opts.hosts_file
