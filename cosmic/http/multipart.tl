@@ -315,7 +315,9 @@ local function clean_filename(raw: string): string?, string
   local cut = #raw
   while cut > 0 and not raw:find("^[/\\]", cut) do cut = cut - 1 end
   local base = raw:sub(cut + 1)
-  if base == "" and raw ~= "" then return nil, "multipart: a filename names a directory" end
+  if (base == "" and raw ~= "") or base == "." or base == ".." then
+    return nil, "multipart: a filename names a directory"
+  end
   if #base > MAX_FILENAME then return nil, "multipart: a filename is longer than 255 bytes" end
   if not utf8.len(base) then return nil, "multipart: a filename is not UTF-8" end
   return base, ""

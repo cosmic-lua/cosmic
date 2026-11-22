@@ -387,6 +387,20 @@ local record Target
   authority?: string
 end
 
+--- Whether `value` is a Host value (RFC 9110 7.2): empty, or a name or
+--- an IPv4 address, or an IPv6 address in brackets, then a port from 0
+--- to 65535 or not, as [`Url.parse`] reads an authority. A name holds
+--- letters, digits and `-._~!$&'()*+;=`: the reg-name of RFC 3986 less
+--- its comma, which is how two values join into one, and its percent
+--- escapes, which no name a server answers for needs, so that a proxy in
+--- front and the app cannot read one Host two ways.
+local function valid_host(value: string): boolean
+  if value == "" then return true end
+  if value:find("[^%w%-._~!$&'()*+;=:%[%]]") then return false end
+  local parts, _ = Url.parse("http://" .. value .. "/")
+  return parts ~= nil
+end
+
 --- The request line's target as a [`Target`], or nil and why.
 local function target_parts(method: string, target: string): Target?, string
   if target == "*" then
@@ -499,6 +513,9 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   if hosts > 1 or (version == "HTTP/1.1" and hosts == 0) then
     return refused(400, "an HTTP/1.1 request names exactly one Host")
   end
+  if host_values ~= nil and not valid_host(assert(host_values[1])) then
+    return refused(400, "the Host is no host and port")
+  end
   local length: integer? = 0
   local chunked = false
   local te = headers["transfer-encoding"]
@@ -509,6 +526,14 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     end
     if version == "HTTP/1.0" then
       return refused(400, "an HTTP/1.0 request holds Transfer-Encoding")
+    end
+    -- An empty member, or an empty line, is no coding, and is refused
+    -- rather than passed over: a front end may read "chunked, " and
+    -- "chunked" apart.
+    for member in (te .. ","):gmatch("([^,]*),") do
+      if not member:find("[^ \t]") then
+        return refused(400, "a Transfer-Encoding names an empty coding")
+      end
     end
     local codings = wire.members(te:lower())
     if codings[#codings] ~= "chunked" then
@@ -546,7 +571,12 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local authority = parts.authority
   -- An absolute-form target names the host, and Host is replaced by it
   -- (RFC 9112 3.2.2).
-  if authority ~= nil then headers["host"] = authority end
+  if authority ~= nil then
+    if not valid_host(authority) then
+      return refused(400, "the target's host is no host and port")
+    end
+    headers["host"] = authority
+  end
   return { status = 0, why = "", head = {
     method = method, target = target, path = parts.path, query = parts.query, version = version,
     headers = headers, length = length, chunked = chunked, close = close,

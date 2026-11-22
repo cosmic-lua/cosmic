@@ -38,6 +38,23 @@ local function test_the_three_target_forms_are_read()
   assert(refusal("GET /a#b HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
 end
 
+--- A Host is a host and a port or none, so that a proxy in front and
+--- the app read it alike; an absolute-form target's host is held to the
+--- same.
+local function test_a_host_that_is_no_host_and_port_is_refused()
+  for _, host in ipairs({ "h", "h.test:8080", "H.Test", "[::1]", "[::1]:8443", "10.0.0.1:80", "a-b_c~d", "h:",
+      "h:65535", "[2001:db8::1]:443" }) do
+    local got = read("GET / HTTP/1.1\r\nHost: " .. host .. "\r\n\r\n").head
+    assert(got ~= nil and got.headers["host"] == host, host)
+  end
+  assert(assert(read("GET / HTTP/1.0\r\nHost:\r\n\r\n").head).headers["host"] == "")
+  for _, host in ipairs({ "a, b", "a,b", "evil.test/x?y", "u@h", "h:80:80", "h:123456", "%31.2.3.4", "h h",
+      "[::1", "[::1]x", ":80", "h:99999", "h:65536", "[:::]", "[.]", "[a]", "[1:2]", "caf\xc3\xa9.test" }) do
+    assert(refusal("GET / HTTP/1.1\r\nHost: " .. host .. "\r\n\r\n") == 400, host)
+  end
+  assert(refusal("GET http://%31.2.3.4/ HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
+end
+
 --- Repeated Cookie headers are joined as RFC 6265 5.4 has pairs,
 --- every other repeated header with a comma.
 local function test_repeated_cookie_headers_are_joined_with_semicolons()
@@ -131,6 +148,11 @@ local function test_ambiguous_framing_is_refused()
   assert(refusal(head .. "Transfer-Encoding: chunked, chunked\r\n\r\n") == 400)
   assert(refusal(head .. "Transfer-Encoding: gzip, chunked\r\n\r\n") == 501)
   assert(refusal("POST / HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n") == 400)
+  assert(refusal(head .. "Transfer-Encoding: chunked\r\nTransfer-Encoding:\r\n\r\n") == 400)
+  assert(refusal(head .. "Transfer-Encoding:  \r\nTransfer-Encoding: chunked\r\n\r\n") == 400)
+  for _, listed in ipairs({ "chunked, ", "chunked,,", ", chunked", "gzip, , chunked" }) do
+    assert(refusal(head .. "Transfer-Encoding: " .. listed .. "\r\n\r\n") == 400, listed)
+  end
   local agreed = assert(read(head .. "Content-Length: 3\r\nContent-Length: 003\r\n\r\n").head)
   assert(agreed.length == 3)
   local chunked = assert(read(head .. "Transfer-Encoding: Chunked\r\n\r\n").head)

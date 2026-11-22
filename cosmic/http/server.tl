@@ -968,8 +968,9 @@ end
 ---
 --- The server refuses for the handler what HTTP/1.1 (RFC 9112) says to:
 --- a malformed request line or header, no Host or more than one in
---- HTTP/1.1, a request holding both Content-Length and
---- Transfer-Encoding, or a transfer coding other than a last chunked
+--- HTTP/1.1, a Host or an absolute-form target that is no host and
+--- port, a request holding both Content-Length and Transfer-Encoding, an
+--- empty transfer coding, or a transfer coding other than a last chunked
 --- (400, or 501 for a coding it does not decode); a version but 1.0 or
 --- 1.1 (505); a head past `limits.head_bytes` (431); a head slower than
 --- `head_ns` (408), or a body slower than `body_ns` or one of its reads
