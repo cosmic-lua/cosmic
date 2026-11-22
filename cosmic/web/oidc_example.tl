@@ -58,6 +58,8 @@ function Example.oidc()
     },
   }
   local client = Web.test_client(app)
+  -- A browser on an https page: the session cookie is Secure.
+  client.scheme = "https"
   local first = client:get("/", { headers = { Accept = "text/html" } })
   print(first.status, first.redirect_location)
   local sent = client:get(assert(first.redirect_location))

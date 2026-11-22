@@ -24,7 +24,10 @@ local function page_and_form(): Web.TestClient
       end),
     },
   }
-  return Web.test_client(app)
+  local client = Web.test_client(app)
+  -- A browser on an https page: the session cookie is Secure.
+  client.scheme = "https"
+  return client
 end
 
 --- A page renders `Csrf.token(req)`; the form or an htmx request sends it

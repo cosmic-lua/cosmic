@@ -241,9 +241,10 @@ A proxy that ends TLS makes every request arrive as plain http from the
 proxy's address. `trusted_proxy = true` tells the app to believe the proxy:
 the scheme, host and client then come from `X-Forwarded-Proto`,
 `X-Forwarded-Host` and `X-Forwarded-For`, of which only the last entry is
-read, the one the proxy added. Then `Secure` follows the scheme for the
-session cookie, the CSRF origin check compares https origins and HSTS is
-sent. Without it every https `Origin` looks foreign to CSRF. Set it only
+read, the one the proxy added. Then the CSRF origin check compares https
+origins and HSTS is sent. The session cookie is `Secure` and named
+`__Host-session` either way, whatever scheme the app sees ([the sessions
+guide](web-sessions.md)). Without it every https `Origin` looks foreign to CSRF. Set it only
 where a proxy really is in front and clients cannot reach the app any other
 way, since otherwise a client could say anything it likes in those headers.
 
@@ -274,13 +275,20 @@ local function app(): Web.App
   return Guestbook.app(options())
 end
 
+--- A browser on an https page of the app, which sends the Secure session cookie back.
+local function browser(): Web.TestClient
+  local client = Web.test_client(app())
+  client.scheme = "https"
+  return client
+end
+
 --- The CSRF token a page carries in its `hx-headers`.
 local function token_of(client: Web.TestClient): string
   return assert(client:get("/").body:match("X%-CSRF%-Token&quot;:&quot;([%w_-]+)&quot;"))
 end
 
 local function test_a_post_needs_the_token_from_the_page()
-  local client = Web.test_client(app())
+  local client = browser()
   local token = token_of(client)
   assert(client:post("/notes", { form = { text = "hi" } }).status == 403, "no token")
   assert(client:post("/notes", { form = { text = "hi", csrf_token = token } }).status == 201, "the form field")
@@ -290,7 +298,7 @@ local function test_a_post_needs_the_token_from_the_page()
 end
 
 local function test_a_cross_site_post_is_refused_even_with_the_token()
-  local client = Web.test_client(app())
+  local client = browser()
   local token = token_of(client)
   local forged = { ["X-CSRF-Token"] = token, ["Origin"] = "https://evil.example" }
   assert(client:post("/clap", { headers = forged }).status == 403, "another origin")
@@ -299,7 +307,7 @@ local function test_a_cross_site_post_is_refused_even_with_the_token()
 end
 
 local function test_the_nonce_in_the_policy_is_the_one_in_the_tags()
-  local page = Web.test_client(app()):get("/")
+  local page = browser():get("/")
   assert(page.headers["x-content-type-options"] == "nosniff" and page.headers["x-frame-options"] == "DENY")
   local policy = page.headers["content-security-policy"] or ""
   local nonce = assert(policy:match("'nonce%-([%w_-]+)'"))
@@ -315,12 +323,12 @@ local function test_hsts_is_for_https_and_only_when_asked()
   assert(client:get("/").headers["strict-transport-security"] == nil, "not on http")
 end
 
-local function test_the_proxy_decides_the_scheme_and_the_cookie()
+local function test_the_session_cookie_is_secure_with_or_without_the_proxy()
   local secure = { ["X-Forwarded-Proto"] = "https" }
   local behind = Web.test_client(Guestbook.app(options(true))):get("/", { headers = secure })
-  assert((behind.headers["set-cookie"] or ""):find("Secure", 1, true) ~= nil)
+  assert((behind.headers["set-cookie"] or ""):find("^__Host%-session=.*; Secure") ~= nil)
   local alone = Web.test_client(app()):get("/", { headers = secure })
-  assert((alone.headers["set-cookie"] or ""):find("Secure", 1, true) == nil, "a header nobody vouched for is ignored")
+  assert((alone.headers["set-cookie"] or ""):find("^__Host%-session=.*; Secure") ~= nil, "Secure over http too")
 end
 
 local function test_a_host_the_app_does_not_name_is_400()

@@ -27,6 +27,8 @@ function Example.middleware()
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },
   }
   local client = Web.test_client(app)
+  -- A browser on an https page: the session cookie is Secure.
+  client.scheme = "https"
   client:get("/")
   local second = client:get("/")
   print(second:text(), second.headers["vary"])
@@ -50,6 +52,7 @@ function Example.flash()
     middleware = { Session.middleware{ store = SessionCookie.store{ keys = { Secret.generate() } } } },
   }
   local client = Web.test_client(app)
+  client.scheme = "https"
   client:post("/save", { follow_redirects = true })
   local first = client:get("/"):text()
   print(if first == "" then "(none)" else first end)
@@ -99,6 +102,7 @@ function Example.logout_everywhere()
     middleware = { Session.middleware{ store = store } },
   }
   local laptop, phone = Web.test_client(app), Web.test_client(app)
+  laptop.scheme, phone.scheme = "https", "https"
   laptop:post("/login")
   phone:post("/login")
   print(SessionSqlite.destroy_subject(store, "ada"), laptop:get("/me"):text())
@@ -137,6 +141,7 @@ function Example.devices()
     middleware = { Session.middleware{ store = store } },
   }
   local ipad, phone = Web.test_client(app), Web.test_client(app)
+  ipad.scheme, phone.scheme = "https", "https"
   ipad:post("/pair/iPad")
   phone:post("/pair/phone")
   print(ipad:get("/devices"):text())
