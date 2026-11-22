@@ -64,6 +64,9 @@ local record Daemon
   mut socket: string
   --- What it saw, a line each.
   mut lines: mut {string}
+  --- What the app answered a request the daemon passed on before it
+  --- answered the configuration, as a daemon may.
+  mut early: string
   --- Refuse the configuration, as a daemon whose policy forbids Funnel.
   refuse: boolean
 end
@@ -130,10 +133,17 @@ local function answer(d: Daemon, req: Server.Request): Server.Reply
     for name, value in pairs(config) do stored[name] = value end
     d.config = stored
     local proxy = text:match('"Proxy":"unix:([^"]+)"') or ""
-    d.socket = proxy
     local shown = text:gsub('unix:[^"]+', "unix:SOCKET")
     d.lines[#d.lines + 1] = shown
-    if d.refuse then return { status = 403, body = "Funnel not available\n" } end
+    if d.refuse then
+      d.socket = proxy
+      return { status = 403, body = "Funnel not available\n" }
+    end
+    -- Asked before d.socket is set, so the test reads its answer only
+    -- once it is in.
+    d.early = asked(proxy, "Tailscale-User-Login: rene@example.com\r\n" ..
+        'Tailscale-App-Capabilities: {"example.com/cap/admin":[{}]}\r\n')
+    d.socket = proxy
     return { status = 200 }
   end
   return { status = 404, body = "404 page not found\n" }
@@ -141,12 +151,13 @@ end
 
 --- The app files a Funnel site whose one handler is its own private
 --- socket and passes on the capabilities named; a request through it
---- names who asked, one Funnel brought names nobody; and once the app
+--- names who asked, even one the daemon passes on before it answers the
+--- configuration; one Funnel brought names nobody; and once the app
 --- stops, the site is down and the socket's directory is gone.
 local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: string)
   local script = tmp .. "/app.tl"
   assert(Fs.write(script, APP))
-  local d: Daemon = { config = {}, open = 0, socket = "", lines = {}, refuse = false }
+  local d: Daemon = { config = {}, open = 0, socket = "", lines = {}, early = "", refuse = false }
   local said: mut {string} = {}
   local function note(line: string) said[#said + 1] = line end
   assert(Server.serve{
@@ -171,6 +182,7 @@ local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: s
       assert(d.socket ~= "", "the app never filed its site: " .. table.concat(d.lines, "; "))
       local info = assert(Fs.stat(Fs.dirname(d.socket)))
       note(string.format("%o", info.mode & 511))
+      note(d.early)
       note(asked(d.socket, "Tailscale-User-Login: rene@example.com\r\n" ..
           'Tailscale-App-Capabilities: {"example.com/cap/admin":[{}]}\r\n'))
       note(asked(d.socket, "Tailscale-Funnel-Request: ?1\r\n"))
@@ -187,6 +199,7 @@ local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: s
   assert(table.concat(said, "\n") == table.concat({
     "700",
     "rene@example.com admin=true funnel=false",
+    "rene@example.com admin=true funnel=false",
     "nobody admin=false funnel=true",
     "served true",
     "true",
@@ -202,7 +215,7 @@ end
 local function test_a_refused_configuration_fails_the_serve_and_leaves_nothing(tmp: string)
   local script = tmp .. "/app.tl"
   assert(Fs.write(script, APP))
-  local d: Daemon = { config = {}, open = 0, socket = "", lines = {}, refuse = true }
+  local d: Daemon = { config = {}, open = 0, socket = "", lines = {}, early = "", refuse = true }
   local said: mut {string} = {}
   assert(Server.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
