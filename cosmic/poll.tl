@@ -723,8 +723,8 @@ end
 --- In a `<close>` handler of a task the run is ending -- killed, or
 --- closed as the run fails -- it raises, as every wait but a finalizer's
 --- does: such a handler must not hold the thread. In a task, true is no
---- promise that `fd` is ready: [`Poll.wake`] and [`Poll.closing`] answer
---- a wait as though it were, so a caller reads or writes without waiting
+--- promise that `fd` is ready: [`Poll.closing`] answers a wait as though
+--- it were, so a caller reads or writes without waiting
 --- (a nonblocking descriptor) and waits again on EAGAIN.
 function Poll.wait(fd: integer, events: integer, timeout_ns?: integer): boolean, string
   return wait_on(fd, events, timeout_ns, "Poll.wait")
@@ -733,16 +733,14 @@ end
 --- Waits until `fd` can be read without waiting -- data, the end of what
 --- the peer sends, a connection to accept, or an error to read -- at most
 --- `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
---- [`sys.POLLIN`], which [`Poll.wake`] may answer while nothing can be
---- read.
+--- [`sys.POLLIN`].
 function Poll.readable(fd: integer, timeout_ns?: integer): boolean, string
   return wait_on(fd, sys.POLLIN, timeout_ns, "Poll.readable")
 end
 
 --- Waits until `fd` can be written without waiting, or has failed, at
 --- most `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
---- [`sys.POLLOUT`], which [`Poll.wake`] may answer while nothing can be
---- written.
+--- [`sys.POLLOUT`].
 function Poll.writable(fd: integer, timeout_ns?: integer): boolean, string
   return wait_on(fd, sys.POLLOUT, timeout_ns, "Poll.writable")
 end
@@ -754,8 +752,7 @@ end
 --- unasked -- or nil and [`Poll.TIMEOUT`] once `timeout_ns` passes
 --- first, as [`Poll.readable`] fails, or nil and [`Poll.CANCELLED`] once
 --- the task is cancelled. A descriptor another module is about to close
---- ([`Poll.closing`]) answers [`sys.POLLNVAL`], and one another task woke
---- ([`Poll.wake`]) the events asked of it, though it may not have them.
+--- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
 function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {integer}?, string
   local task = current("Poll.ready", 2)
   Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
@@ -988,8 +985,8 @@ local function turn()
 end
 
 --- Answers every wait on `fd` as though it had `answer` (a mask, for a
---- wait on several descriptors), or what it asked where `answer` is nil.
-local function answer_waits(fd: integer, answer: integer?)
+--- wait on several descriptors).
+local function answer_waits(fd: integer, answer: integer)
   local loop = ongoing.loop
   if loop == nil then return end
   local entry = loop.watched[fd]
@@ -998,7 +995,7 @@ local function answer_waits(fd: integer, answer: integer?)
   for index = 1, entry.count do
     local watch = assert(entry.watches[index])
     local w = watch.wait
-    if watch.place > 0 then assert(w.answers)[watch.place] = answer or watch.mask end
+    if watch.place > 0 then assert(w.answers)[watch.place] = answer end
     if w.hit ~= true then
       w.hit = true
       hits[#hits + 1] = w
@@ -1013,15 +1010,6 @@ end
 --- Outside a run, and for a descriptor nothing waits on, it does nothing.
 function Poll.closing(fd: integer)
   answer_waits(fd, sys.POLLNVAL)
-end
-
---- Answers every wait on `fd` as though it were ready for what it asked,
---- for a module whose tasks share the descriptor: one task has read for
---- another what that one waits for, and each waiting task looks again,
---- finding its own answer or waiting anew. Outside a run, and for a
---- descriptor nothing waits on, it does nothing.
-function Poll.wake(fd: integer)
-  answer_waits(fd, nil)
 end
 
 --- Whether the caller is a task of a running [`Poll.run`], whose waits

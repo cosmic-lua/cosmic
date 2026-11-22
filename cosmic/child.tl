@@ -407,7 +407,8 @@ local record Options
   ---   program's core on a database sealed for it, held by a pid namespace
   ---   and the files its resolver reads, in this process's own network,
   ---   where it connects and resolves itself: no kernel rule holds where
-  ---   it connects, so its own checks below are the only ones. The
+  ---   it connects, sends or listens, so its own checks below are the
+  ---   only ones. The
   ---   program reaches it at 127.0.0.1 ports 3128
   ---   (HTTP CONNECT) and 1080 (SOCKS5), which the child's environment names:
   ---   `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` (in both cases),
@@ -3581,7 +3582,7 @@ local record RelayPrep
   --- relay never starts, and the relay's handle once it has.
   handover: RelayConfig.Handover
   --- Whether the relay is held by Seatbelt and listens on the host's
-  --- loopback itself, as on macOS ([`cosmic.internal.relay_config`]'s `direct`).
+  --- loopback itself, as on macOS ([`cosmic.internal.relay_config`]'s `listeners`).
   seatbelt: boolean
   --- The token the program presents to a relay on the host's loopback; nil
   --- for Linux's, whose listeners are in the program's own network.

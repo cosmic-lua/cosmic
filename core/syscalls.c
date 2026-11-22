@@ -109,8 +109,6 @@ COSMIC_SYSCALL(executable, 0) {
   return 1;
 }
 
-/* Directory-service lookup is confined to the calling process. The
- * buffer bound limits this wrapper, not libc's own work or its latency. */
 COSMIC_SYSCALL(stream_pair, 0) {
   lua_createtable(L, 2, 0);
   int pair[2];
@@ -129,6 +127,8 @@ COSMIC_SYSCALL(stream_pair, 0) {
   return 1;
 }
 
+/* Directory-service lookup is confined to the calling process. The
+ * buffer bound limits this wrapper, not libc's own work or its latency. */
 COSMIC_SYSCALL(user, 1) {
   luaL_checktype(L, 1, LUA_TSTRING);
   size_t length;
@@ -6365,7 +6365,8 @@ bool cosmic_signal_caught (void) {
          atomic_load(&child_signal_stamp) != child_signal_read_to;
 }
 
-int64_t cosmic_now_ms (void) {
+/* Milliseconds on the monotonic clock. */
+static int64_t cosmic_now_ms (void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;

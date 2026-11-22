@@ -67,7 +67,7 @@ struct target {
 /* libc's numeric parsers differ on leading zeroes and scoped IPv6.
  * Require four decimal octets without leading zeroes, including the IPv4
  * tail of a mapped IPv6 address; IPv6 otherwise uses only hex and colons. */
-bool cosmic_numeric_host (const char *host, size_t size) {
+static bool cosmic_numeric_host (const char *host, size_t size) {
   bool ipv6 = false;
   const char *v4 = host;
   const char *end = host + size;

@@ -75,7 +75,8 @@ local RELAY_FILES <const>: {string} = {
 --- promise beyond the basics a policy gives. Its network is not the
 --- policy's to say: the start of the relay gives it inet sockets in the
 --- host's own network (`spawn`'s `online`), since it connects and
---- resolves itself, and no filter or ruleset then holds where it connects.
+--- resolves itself, and no filter or ruleset then holds where it
+--- connects, what it sends over UDP, or what it binds and listens at.
 --- @param database string The relay's sealed database
 --- @param digest string The database's SHA-256, in hex
 --- @return rules.Policy The policy
