@@ -2405,7 +2405,7 @@ local function list_arm(): boolean
   local n = 2
   while peek_text(n) ~= ")" do
     local t, k = peek_text(n), peek_kind(n)
-    if not (t == "," or t == "true" or t == "false" or k == "identifier") then
+    if not (t == "," or t == "true" or t == "false" or t == "nil" or k == "identifier") then
       return false
     end
     n = n + 1
@@ -2419,7 +2419,8 @@ local function parse_match(): Ast.Stat
   local scrutinee = parse_expression()
   local scrutinee_last = S.pos - 1
   expect("do", "after the value of a `match`", "write `match v do | Circle c then ... end`, or `match f() do | (true, v) then ... end`")
-  -- An arm that tests positions is a list of `true`, `false` and names, then `then`; one that tests a type names it.
+  -- An arm that tests positions is a list of `true`, `false`, `nil` and names, then `then`; one that tests a type names
+  -- it (`| nil then`, with no parentheses, for the type `nil`).
   local typed = not (S.text == "|" and list_arm())
   local call: Ast.Exp = scrutinee
   if not typed and not ((scrutinee.kind == "Call")) and not ((scrutinee.kind == "MethodCall")) then
