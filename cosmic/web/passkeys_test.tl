@@ -407,22 +407,24 @@ local function test_a_challenge_lapses()
   assert(res.status == 400, res.body)
 end
 
+--- Which of a store's calls takes a second: "find", "spend" or none.
 local record Ticking
-  mut on: boolean
+  mut slow: string
 end
 
 --- An answer replayed, with a copy of the cookie from before the login,
 --- at the last second its challenge could be answered: the store still
---- holds the challenge as spent, even where the checks take a second.
+--- holds the challenge as spent, even where the checks take a second,
+--- and one that lapses while the store is asked is refused, as another
+--- request's spend may have forgotten it.
 local function test_a_spent_challenge_outlives_its_answer()
-  for _, slow in ipairs({ false, true }) do
+  for _, slow in ipairs({ "none", "find", "spend" }) do
     local inner = assert(Web.passkey_store((assert(Sqlite.memory()))))
     local time: Time = { now = 1700000000 }
-    local ticking: Ticking = { on = false }
-    -- A lookup that takes a second, when `ticking.on`.
+    local ticking: Ticking = { slow = "none" }
     local store: Web.PasskeyStore = {
       find = function(_: Web.PasskeyStore, id: string): Webauthn.Credential?, string
-        if ticking.on then time.now = time.now + 1 end
+        if ticking.slow == "find" then time.now = time.now + 1 end
         return inner:find(id)
       end,
       list = function(_: Web.PasskeyStore, h: string): {Webauthn.Credential}?, string
@@ -438,6 +440,11 @@ local function test_a_spent_challenge_outlives_its_answer()
         return inner:remove(id)
       end,
       spend = function(_: Web.PasskeyStore, c: string, lapses: integer, now: integer): boolean, string
+        -- Waited on, and found the row already forgotten.
+        if ticking.slow == "spend" then
+          time.now = time.now + 1
+          return true, ""
+        end
         return inner:spend(c, lapses, now)
       end,
     }
@@ -450,12 +457,12 @@ local function test_a_spent_challenge_outlives_its_answer()
     local saved = assert(client.jar["__Host-session"])
     local answer = assertion(key, "handle-ada", challenge)
     assert(post(client, "/login/finish", answer).status == 200)
-    rig.time.now = begun + 330 - (if slow then 1 else 0 end)
-    ticking.on = slow
+    rig.time.now = begun + 330 - (if slow == "none" then 0 else 1 end)
+    ticking.slow = slow
     local thief = browser(rig.app)
     local res = thief:post("/auth/passkey/login/finish", { json = answer, cookies = { ["__Host-session"] = saved } })
-    assert(res.status == 400, tostring(slow) .. ": " .. res.body)
-    ticking.on = false
+    assert(res.status == 400, slow .. ": " .. res.body)
+    ticking.slow = "none"
     assert(thief:get("/"):text() == "nobody")
   end
 end
@@ -467,21 +474,34 @@ local function test_a_name_as_the_handle_raises()
   Test.raises(function() post(client, "/register/begin", nil, { ["X-User"] = "ada" }) end, "name")
 end
 
---- Removed, a passkey logs out the sessions it logged in; a store that
---- fails to say is a 500.
+--- Removed, a passkey logs out the sessions it logged in, and so does
+--- one of its id kept again for another user. A store that fails to say
+--- is a 500, but for the script and a logout, which still ends the
+--- session.
 local function test_a_removed_passkey_logs_its_sessions_out()
   local rig = rig_of()
   local key = key_new()
   local client = browser(rig.app)
   assert(register(client, key, "ada").status == 201)
   assert(client:get("/"):text() == "handle-ada verified")
+  local kept = assert(rig.store:find(key.id))
   assert(rig.store:remove(key.id) == true)
+  assert(client:get("/"):text() == "nobody")
+  assert(rig.store:add({
+    id = kept.id, user_handle = "handle-eve", public_key = kept.public_key, alg = kept.alg,
+    sign_count = kept.sign_count, backup_eligible = kept.backup_eligible, backed_up = kept.backed_up,
+    transports = kept.transports, user_verified = kept.user_verified, aaguid = kept.aaguid,
+  }) == true)
   assert(client:get("/"):text() == "nobody")
   local broken = rig_of({ store = failing(rig.store, "find", "the disk is full") })
   local other = browser(broken.app)
-  assert(register(other, key_new(), "eve").status == 201)
+  assert(register(other, key_new(), "mel").status == 201)
   local res = other:get("/")
   assert(res.status == 500 and res.body:find("disk", 1, true) == nil, res.body)
+  assert(other:get("/auth/passkey/script.js").status == 200)
+  local out = post(other, "/logout")
+  assert(out.status == 303, out.body)
+  assert(other:get("/"):text() == "nobody")
 end
 
 local function test_a_passkey_not_kept_does_not_log_in()

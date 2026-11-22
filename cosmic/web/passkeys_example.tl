@@ -97,6 +97,8 @@ function Example.passkeys()
   local user_id = assert(Json.to_object(assert(Json.to_object((begun:json())))["user"]))["id"]
   assert(user_id is string)
   local handle = assert(Codec.unbase64url(user_id))
+  -- Drawn at random, not the name: nobody can name it to sign up.
+  assert(#handle == 16 and handle ~= "ada")
   local cose = Cbor.encode(Cbor.map({
     { Cbor.integer(1), Cbor.integer(1) }, { Cbor.integer(3), Cbor.integer(-8) },
     { Cbor.integer(-1), Cbor.integer(6) }, { Cbor.integer(-2), Cbor.bytes(Sign.ed25519_public(secret)) },

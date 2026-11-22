@@ -407,9 +407,14 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
   --- else the response that refuses the answer.
   local function spent(req: Types.Request, took: Taken): Types.Response?
     local fresh, why = store:spend(took.challenge, took.lapses, took.taken_at)
-    if fresh then return nil end
-    if why ~= "" then return failed(req, why) end
-    return Response.problem(400, "this challenge is answered already")
+    if not fresh then
+      if why ~= "" then return failed(req, why) end
+      return Response.problem(400, "this challenge is answered already")
+    end
+    -- Lapsed while the store was asked, the challenge may have been
+    -- forgotten by another request's spend, which this one's then took.
+    if now() >= took.lapses then return Response.problem(400, "this challenge has lapsed") end
+    return nil
   end
 
   local function expected(challenge: string): Webauthn.Expected
@@ -544,34 +549,43 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     ["/login/finish"] = true, ["/logout"] = true,
   }
 
+  --- Sets the request's identity from its session: nil, or the 500 of a
+  --- store that fails.
+  local function identify(req: Types.Request): Types.Response?
+    local session = req:get(Session.KEY)
+    if session == nil then return nil end
+    local identity = kept_identity(session:get(KEPT))
+    if identity == nil or (max_age ~= nil and now() - identity.logged_in_at >= max_age) then
+      return nil
+    end
+    -- A passkey removed from the store logs its sessions out, the
+    -- copies of a signed cookie among them.
+    local credential, why = store:find(identity.credential_id)
+    if credential == nil and why ~= "" then return failed(req, why) end
+    if credential ~= nil and credential.user_handle == identity.user_handle then
+      req:set(IDENTITY, identity)
+    end
+    return nil
+  end
+
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
-      local session = req:get(Session.KEY)
-      if session ~= nil then
-        local identity = kept_identity(session:get(KEPT))
-        if identity ~= nil and (max_age == nil or now() - identity.logged_in_at < max_age) then
-          -- A passkey removed from the store logs its sessions out, the
-          -- copies of a signed cookie among them.
-          local credential, why = store:find(identity.credential_id)
-          if credential == nil and why ~= "" then return failed(req, why) end
-          if credential ~= nil and credential.user_handle == identity.user_handle then
-            req:set(IDENTITY, identity)
-          end
-        end
-      end
       local outcome = req.outcome
       local routed = outcome == nil or (outcome.kind ~= "bad_host" and outcome.kind ~= "bad_path" and
         outcome.kind ~= "redirect")
       local path = req.path
-      if routed and path:sub(1, #prefix + 1) == prefix .. "/" then
-        local step = path:sub(#prefix + 1)
-        if steps[step] == true then return answer(req, step) end
-        if step == "/script.js" and (req.method == "GET" or req.method == "HEAD") then
-          return Response.text(script, { headers = {
-            ["Content-Type"] = "text/javascript; charset=utf-8", ["Cache-Control"] = "no-cache",
-          } })
-        end
+      local step: string? = nil
+      if routed and path:sub(1, #prefix + 1) == prefix .. "/" then step = path:sub(#prefix + 1) end
+      -- Neither asks the store, so a logout works while it fails.
+      if step == "/logout" then return answer(req, "/logout") end
+      if step == "/script.js" and (req.method == "GET" or req.method == "HEAD") then
+        return Response.text(script, { headers = {
+          ["Content-Type"] = "text/javascript; charset=utf-8", ["Cache-Control"] = "no-cache",
+        } })
       end
+      local refused = identify(req)
+      if refused ~= nil then return refused end
+      if step ~= nil and steps[step] == true then return answer(req, step) end
       return inner(req)
     end
   end
