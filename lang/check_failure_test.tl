@@ -56,6 +56,37 @@ local function test_a_test_of_the_first_local_narrows_the_failure()
   refused("local n, why = parse(\"4\")\nif n ~= nil then\n  print(#why)\nend\n", "nil_not_allowed")
 end
 
+local function test_each_form_of_the_test_narrows()
+  stands("local n, why = parse(\"x\")\nif nil == n then\n  print(#why)\nend\n", "15")
+  stands("local n, why = parse(\"4\")\nassert(n ~= nil)\nprint(n + 1)\n", "5")
+  stands("local n, why = parse(\"4\")\nassert(n)\nprint(n + 1)\n", "5")
+  stands("local n, why = parse(\"4\")\nprint(n and n + 1)\n", "5")
+  stands("local n, why = parse(\"x\")\nwhile n == nil do\n  print(#why)\n  break\nend\n", "15")
+end
+
+local function test_a_member_that_may_be_nil_or_false_in_a_union_tells_nothing()
+  -- An alias inside a union is read through: `A | string` may be nil, and `Flag | string` false.
+  local r = Programs.run("local type A = integer?\nlocal function f(): (A | string) | (nil, string)\n  return nil\nend\n")
+  assert(table.concat(r.before, " ") == "lists_overlap", table.concat(r.before, " "))
+  refused("local type Flag = boolean\nlocal function g(on: boolean): (Flag | string) | (nil, string)\n  if on then\n" ..
+    "    return false\n  end\n  return nil, \"x\"\nend\nlocal v, why = g(true)\nif not v then\n  print(#why)\nend\n",
+    "condition_type nil_not_allowed")
+end
+
+local function test_three_lists_are_tied_by_the_one_that_is_nil()
+  local head = "local function f(k: integer): (true, integer) | (false, string) | (nil, string)\n" ..
+    "  if k == 1 then\n    return true, 1\n  elseif k == 2 then\n    return false, \"c\"\n  end\n  return nil, \"no\"\nend\n"
+  Programs.stands(head .. "local v, why = f(3)\nif v == nil then\n  print(#why)\nelse\n  print(v, why)\nend\n", "2")
+  assert(Programs.type_of(head .. "local v, why = f(1)\nif v ~= nil then\n  local seen = why\nend\n", "seen") == "integer | string")
+  -- `false` is a value of the second list, so a test of truth tells nothing.
+  Programs.refused(head .. "local v, why = f(3)\nif v then\n  print(why)\nelse\n  print(#why)\nend\n", "condition_type operand_type")
+end
+
+local function test_a_function_that_assigns_a_local_leaves_it_untied()
+  refused("local n, why = parse(\"x\")\nlocal function poke()\n  why = nil\nend\npoke()\nif n == nil then\n  print(#why)\nend\n",
+    "nil_not_allowed")
+end
+
 local function test_a_first_value_that_may_be_false_is_told_by_nil_and_not_by_truth()
   -- `if v` would take `false` for the failure, so it tells nothing; `v == nil` does.
   refused("local v, why = flag(false)\nif not v then\n  print(#why)\nend\n", "condition_type nil_not_allowed")
@@ -77,6 +108,8 @@ local function test_match_takes_the_lists_apart_with_a_nil_pattern()
   -- A `nil` pattern does not tell a value that may be nil.
   Programs.refused("local function f(): (integer?, string)\n  return nil, \"x\"\nend\nmatch f() do\n  | (nil, s) then print(s)\n" ..
     "  | (n, s) then print(n, s)\nend\n", "match_pattern match_redundant")
+  -- An arm still names each value of a list no arm before it took.
+  refused("match parse(\"4\") do\n  | (nil) then print(0)\n  | (n) then print(n)\nend\n", "match_pattern")
   -- `true` and `false` tell a `nil` from them, and so does a test of the first local against `nil`.
   Programs.stands("local function f(on: boolean): (true, integer) | (nil, string)\n  if on then\n    return true, 1\n  end\n" ..
     "  return nil, \"no\"\nend\nlocal ok, v = f(true)\nif ok ~= nil then\n  print(v + 1)\nelse\n  print(#v)\nend\n", "2")

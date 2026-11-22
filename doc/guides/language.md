@@ -769,12 +769,13 @@ print(numbers.value)
 ## a value or a failure
 
 A function that answers a value or a failure declares both lists: `(T) | (nil, E)`. The lists must be told apart by a
-position, which is `true` in one and `false` in the other, or `nil` in one and never nil in the other. `(integer?) |
-(nil, string)` is refused (`lists_overlap`): a `nil` first value would not say which list the call answered.
+position, which is `true` in one and `false` in the other, or `nil` in one and never nil in the other. An optional,
+`any`, a type parameter, or a union that holds one of them, may be nil, so `(integer?) | (nil, string)` is refused
+(`lists_overlap`): a `nil` first value would not say which list the call answered.
 
 The caller binds the values to locals and tests the first. The test narrows the others: where the value is nil, the
 failure is an `E`, and where it is not, the failure is nil. A test of truth (`if n then`) tells the lists apart only where
-the value is never `false`; for a `boolean` value, test it against `nil`. An assignment to any of the locals ends this.
+the value is never `false`; where it may be `false` (a `boolean`), test it against `nil`. An assignment to any of the locals ends this.
 A `match` takes the lists apart with a `nil` pattern, before the arm that names the value.
 
 ```teal

@@ -3712,9 +3712,6 @@ local record Tests
   --- Whether `t` holds no value that code of the program can run through a function of the standard library: scalars, enums,
   --- and arrays and maps of them. A class value may have a `__tostring`, which `tostring` and `string.format` run.
   plain: function(ctx: Ctx, t: Type): boolean
-  --- Whether a value of `t` may be `false`: a member is `boolean`, `false`, `any`, or a type variable, which stands for
-  --- any type.
-  may_be_false: function(ctx: Ctx, t: Type): boolean
   --- Whether the call of `callee` (nil for a method call) names a function of the standard library that runs code of the
   --- program only through a value or a function it is given: `tostring`, `tonumber`, `select`, `rawlen`, `string.*`,
   --- `math.*`, `utf8.*`, `table.concat` and `table.unpack`. A name a program declares is never one.
@@ -4311,15 +4308,6 @@ function Tests.plain(ctx: Ctx, t: Type): boolean
     end
   end
   return true
-end
-
-function Tests.may_be_false(ctx: Ctx, t: Type): boolean
-  for _, m in ipairs(members_of(ctx.store, t)) do
-    if m.tag == "boolean" or m.tag == "false" or m.tag == "any" or m.tag == "var" or m.tag == "invalid" then
-      return true
-    end
-  end
-  return false
 end
 
 function Tests.inert_callee(callee: Ast.Exp?): boolean
@@ -7756,9 +7744,9 @@ local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
     by_bool = by_bool and first ~= nil and (first.tag == "true" or first.tag == "false")
     -- A list told by `nil` begins with `nil` or with a value that is never nil; a test of its truth tells it only where
     -- that value is never `false` either.
-    local present = first ~= nil and Writes.present(Types.unfold(first)) and first.tag ~= "var"
+    local present = first ~= nil and Types.present(first)
     by_nil = by_nil and first ~= nil and (first.tag == "nil" or present)
-    truth = truth and (first == nil or first.tag == "nil" or not Tests.may_be_false(ctx, first))
+    truth = truth and (first == nil or first.tag == "nil" or not Types.may_be_false(first))
   end
   if not by_bool and not by_nil then
     return
@@ -9563,7 +9551,7 @@ local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
         end
       elseif tag == "nil" then
         verdict = "yes"
-      elseif item ~= nil and Writes.present(Types.unfold(item)) and tag ~= "var" then
+      elseif item ~= nil and Types.present(item) then
         verdict = "no"
       end
       if verdict == "no" then

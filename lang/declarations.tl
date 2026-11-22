@@ -1341,16 +1341,6 @@ local function names_positions(names: {string}): {string: integer}
   return out
 end
 
---- Whether a value of `t` is never nil: no member is `nil`, and it is no `any`, type variable or alias, which may be.
-local function present(t: Type): boolean
-  local whole = Types.unfold(t)
-  if (whole.tag == "named") then
-    return whole.decl.kind ~= "alias"
-  end
-  local tag = whole.tag
-  return not nilable(whole) and tag ~= "any" and tag ~= "invalid" and tag ~= "never" and tag ~= "var"
-end
-
 --- Whether the lists `a` and `b` are told apart at a position: it is `true` in one and `false` in the other, or `nil` in
 --- one and a value that is never nil in the other.
 local function told_apart(a: Types.Alt, b: Types.Alt): boolean
@@ -1362,7 +1352,7 @@ local function told_apart(a: Types.Alt, b: Types.Alt): boolean
     local x, y = left.tag, right.tag
     if (x == "true" and y == "false") or (x == "false" and y == "true") then
       return true
-    elseif (x == "nil" and present(right)) or (y == "nil" and present(left)) then
+    elseif (x == "nil" and Types.present(right)) or (y == "nil" and Types.present(left)) then
       return true
     end
   end

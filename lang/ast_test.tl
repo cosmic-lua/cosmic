@@ -47,6 +47,7 @@ if x then elseif y then else end
 match f() do
   | (true, v) then print(v)
   | (false, _) then print(x)
+  | (nil, w) then print(w)
 end
 match x do
   | T t then print(t)

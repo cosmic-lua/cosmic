@@ -516,6 +516,15 @@ local record Types
   --- needs no unfold to end; a reader of a value calls it once where it looks at the value's form.
   unfold: function(t: Type): Type
 
+  --- Whether no value of `t` is nil: each member, with each alias unfolded, is no `nil`, `any`, type variable, `never`
+  --- or `invalid`, and no alias whose body is not known yet. It is what tells one list of a call from another that has
+  --- `nil` at a position ([`lang.declarations`], [`lang.check`]).
+  present: function(t: Type): boolean
+
+  --- Whether a value of `t` may be `false`: a member, with each alias unfolded, is `boolean`, `false`, `any`, a type
+  --- variable or `invalid`, or an alias whose body is not known yet.
+  may_be_false: function(t: Type): boolean
+
   --- The type in the grammar's own spelling, as an error prints it. `binders` names the
   --- type parameters a free variable stands for, outermost first. `fns` holds the names a generic function was
   --- declared with, by the id of its type: it is shown with them, not with letters, where they are free.
@@ -1883,6 +1892,42 @@ function Types.unfold(t: Type): Type
     end
   end
   return t
+end
+
+--- Whether `test` holds of the tag of no member of `t`, each alias unfolded, the nil flag as `nil`; true for one it cannot read: an alias with no body,
+--- or one met more than `MEMBER_DEPTH` aliases deep. An alias names itself only inside an array or a map, so the
+--- walk ends.
+local MEMBER_DEPTH <const> = 32
+local function no_member(t: Type, test: function(string): boolean, depth: integer): boolean
+  local whole = Types.unfold(t)
+  if (whole.tag == "named") and whole.decl.kind == "alias" then
+    return false
+  elseif depth > MEMBER_DEPTH then
+    return false
+  elseif (whole.tag == "union") then
+    if whole.nilable and test("nil") then
+      return false
+    end
+    for _, m in ipairs(whole.members) do
+      if not no_member(m, test, depth + 1) then
+        return false
+      end
+    end
+    return true
+  end
+  return not test(whole.tag)
+end
+
+function Types.present(t: Type): boolean
+  return no_member(t, function(tag: string): boolean
+    return tag == "nil" or tag == "any" or tag == "var" or tag == "never" or tag == "invalid"
+  end, 0)
+end
+
+function Types.may_be_false(t: Type): boolean
+  return not no_member(t, function(tag: string): boolean
+    return tag == "boolean" or tag == "false" or tag == "any" or tag == "var" or tag == "invalid"
+  end, 0)
 end
 
 function Types.listing_cycle(decl: Decl, supers: {Type}): Decl?
