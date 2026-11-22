@@ -488,7 +488,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   end
   local published, publish_trouble = Fs.write(out, program, 0x1ed)
   if not published then
-    return publish_trouble, false
+    return tostring(publish_trouble), false
   end
 
   -- The wait a verb's own summary never counts: it times the run the new

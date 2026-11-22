@@ -148,7 +148,11 @@ local standard: verb.Io = {
   stdin = function(): string?, string
     return bare.stdin_text("standard input is a terminal; give the text or a file, or pipe it in")
   end,
-  write = function(path: string, data: string): boolean, string return Fs.write(path, data) end,
+  write = function(path: string, data: string): boolean, string
+    local wrote, why = Fs.write(path, data)
+    if not wrote then return false, tostring(why) end
+    return true, ""
+  end,
   read = function(path: string): string?, string
     local text, why = Fs.read(path)
     if text == nil then return nil, tostring(why) end

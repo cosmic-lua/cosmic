@@ -86,7 +86,7 @@ local function write_fixture(case: string, content: string): string?, string
   end
   local ok, write_trouble = Fs.write(root .. "/doc/guides/fixture.md", content)
   if not ok then
-    return nil, write_trouble
+    return nil, tostring(write_trouble)
   end
   return root, ""
 end

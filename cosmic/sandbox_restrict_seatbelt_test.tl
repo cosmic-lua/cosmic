@@ -92,8 +92,10 @@ end
 
 local function test_a_granted_file_is_read_and_another_is_refused(tmp: string)
   SeatbeltFixture.macos_only("a process")
-  assert(Fs.mkdirs(tmp .. "/granted") and Fs.mkdirs(tmp .. "/other"))
-  assert(Fs.write(tmp .. "/granted/a", "alpha") and Fs.write(tmp .. "/other/b", "beta"))
+  assert(Fs.mkdirs(tmp .. "/granted"))
+  assert(Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(tmp .. "/granted/a", "alpha"))
+  assert(Fs.write(tmp .. "/other/b", "beta"))
   local said = in_child(string.format([[
 say("restrict", Sandbox.restrict({ grants = { { path = %q, letters = "r" } } }))
 say("granted", reads(%q))
@@ -156,7 +158,8 @@ end
 --- file no grant names is still read until then.
 local function test_what_cannot_be_held_is_refused_before_anything_is_applied(tmp: string)
   SeatbeltFixture.macos_only("a process")
-  assert(Fs.write(tmp .. "/free", "free") and Fs.write(tmp .. "/held", "held"))
+  assert(Fs.write(tmp .. "/free", "free"))
+  assert(Fs.write(tmp .. "/held", "held"))
   local said = in_child(string.format([[
 say("nest", Sandbox.restrict({ promises = { "nest" } }))
 say("free", reads(%q))
@@ -251,7 +254,8 @@ end
 --- the process's own profile.
 local function test_a_child_started_without_a_policy_is_held_by_the_profile(tmp: string)
   SeatbeltFixture.macos_only("a process")
-  assert(Fs.write(tmp .. "/granted", "granted-bytes") and Fs.write(tmp .. "/other", "other-bytes"))
+  assert(Fs.write(tmp .. "/granted", "granted-bytes"))
+  assert(Fs.write(tmp .. "/other", "other-bytes"))
   local said = in_child(string.format([[
 say("restrict", Sandbox.restrict({ profiles = { "system" }, promises = { "fork" },
   grants = { { path = %q, letters = "r" } } }))

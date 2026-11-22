@@ -31,6 +31,11 @@ local function test_list_and_absolute_answer_a_failure_with_the_path_and_the_err
   assert(#assert(Fs.list(tmp)) == 0)
 end
 
+local function test_write_answers_a_failure_with_the_path_and_the_errno(tmp: string)
+  local wrote, why = Fs.write(tmp .. "/absent/file", "x")
+  assert(not wrote and why.errno == sys.ENOENT and why.path == tmp .. "/absent/file", tostring(why))
+end
+
 local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
   local file = tmp .. "/file"
   assert(Fs.write(file, "contents"))
@@ -130,7 +135,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   local ok, trouble = Fs.write(path, "new")
   sys.write = real_write -- checked: field_fixed
   sys.open_temporary = real_open_temporary -- checked: field_fixed
-  assert(not ok and trouble == path .. ": injected write failure", trouble)
+  assert(not ok and tostring(trouble) == path .. ": injected write failure", tostring(trouble))
   assert(assert(Fs.read(path)) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
@@ -161,7 +166,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   local ok, trouble = Fs.write(path, "new")
   sys.close = real_close -- checked: field_fixed
   sys.open_temporary = real_open_temporary -- checked: field_fixed
-  assert(not ok and trouble == path .. ": injected close failure", trouble)
+  assert(not ok and tostring(trouble) == path .. ": injected close failure", tostring(trouble))
   assert(assert(Fs.read(path)) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
@@ -178,12 +183,12 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
     return file, trouble, number
   end
   sys.rename = function(_from: string, _to: string): boolean, string, integer -- checked: field_fixed
-    return false, "injected rename failure", 0
+    return false, "injected rename failure", sys.EACCES
   end
   local ok, trouble = Fs.write(path, "new")
   sys.rename = real_rename -- checked: field_fixed
   sys.open_temporary = real_open_temporary -- checked: field_fixed
-  assert(not ok and trouble == path .. ": injected rename failure", trouble)
+  assert(not ok and trouble.errno == sys.EACCES and trouble.path == path, tostring(trouble))
   assert(assert(Fs.read(path)) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
@@ -661,7 +666,8 @@ local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(
   assert(Fs.remove_tree(deep))
   assert(Fs.exists(deep) == false)
   -- No descriptor was left open by the failed walk.
-  assert(Fs.mkdirs(tmp .. "/after/a/b") and Fs.remove_tree(tmp .. "/after"))
+  assert(Fs.mkdirs(tmp .. "/after/a/b"))
+  assert(Fs.remove_tree(tmp .. "/after"))
 end
 
 --- A regular file comes back in the one read its size asks for. (A file
@@ -742,7 +748,8 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
 end
 
 local function test_copy_tree_refuses_an_existing_target(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/from") and Fs.mkdirs(tmp .. "/to"))
+  assert(Fs.mkdirs(tmp .. "/from"))
+  assert(Fs.mkdirs(tmp .. "/to"))
   local copied, trouble = Fs.copy_tree(tmp .. "/from", tmp .. "/to")
   assert(not copied and trouble == tmp .. "/to: already exists", trouble)
   local missing, why = Fs.copy_tree(tmp .. "/absent", tmp .. "/new")

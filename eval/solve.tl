@@ -381,7 +381,7 @@ function Solve.main(argv: {string}): integer
   for _, word in ipairs(Solve.arguments(prompt, options)) do command[#command + 1] = word end
   local wrote, wtrouble = Fs.write(arena .. "/started_at", now())
   if not wrote then
-    complain(wtrouble)
+    complain(tostring(wtrouble))
     return 2
   end
   local started = Clock.monotonic_ns()

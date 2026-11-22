@@ -179,7 +179,9 @@ local function fake(tmp: string): Fake
     fetch = function(url: string, to: string): boolean, string
       local zip = f.zips[url:sub(#"https://blob.test/" + 1)]
       if zip == nil then return false, "HTTP 404" end
-      return Fs.write(to, zip)
+      local wrote, written_why = Fs.write(to, zip)
+      if not wrote then return false, tostring(written_why) end
+      return true, ""
     end,
   }
   return f

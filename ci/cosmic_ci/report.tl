@@ -586,7 +586,7 @@ end
 --- they cannot be read.
 local function rows_of(bytes: string, path: string): {State.SuiteRun}?, string
   local written, why = Fs.write(path, bytes)
-  if not written then return nil, why end
+  if not written then return nil, tostring(why) end
   local db, trouble = Sqlite.open(path)
   if db == nil then return nil, trouble end
   local read: Read = { rows = {} }

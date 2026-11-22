@@ -488,7 +488,7 @@ local function run_then(tmp: string, root: string, env: {string:string}, out: st
   local result = assert(handle:wait(Clock.seconds(60)))
   assert(Fs.close(fd))
   -- Its directory said it started: marked so the next run's is found.
-  if found ~= "" then local _ = Fs.write(found .. "/stop", "") end
+  if found ~= "" then local _, _ = Fs.write(found .. "/stop", "") end
   return assert(Fs.read(out)), result.ok
 end
 

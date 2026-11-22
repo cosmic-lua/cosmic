@@ -57,7 +57,8 @@ end
 --- A bin/cosmic-bootstrap that cannot start, as in a test's sandbox that is not given it, is said as a start that
 --- failed, naming the script, not as a fetch that never ran: here a root that holds no script.
 local function test_a_bootstrap_script_that_cannot_start_is_said_so(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/cache") and Fs.mkdirs(tmp .. "/root"))
+  assert(Fs.mkdirs(tmp .. "/cache"))
+  assert(Fs.mkdirs(tmp .. "/root"))
   local found, why = c.bootstrap_cosmic(tmp .. "/root", { HOME = tmp, XDG_CACHE_HOME = tmp .. "/cache" },
     pinned_digest())
   assert(found == nil, tostring(found))

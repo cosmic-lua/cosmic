@@ -27,7 +27,8 @@ local function test_a_must_confined_process_is_confined_or_refused(tmp: string)
   -- the directory the process may change is its own: the files it must not see are beside it, not in it
   local own = tmp .. "/own"
   local hidden = tmp .. "/hidden"
-  assert(Fs.mkdirs(own) and Fs.mkdirs(hidden))
+  assert(Fs.mkdirs(own))
+  assert(Fs.mkdirs(hidden))
   assert(Fs.write(hidden .. "/f", "secret"))
   local data = tmp .. "/data.txt"
   assert(Fs.write(data, "in"))

@@ -396,7 +396,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
       '  local ok, trouble = __doctest_fs.write(tmp .. "/" .. path, content)'
     out[#out + 1] = "  if not ok then"
     out[#out + 1] =
-      '    error("doctest: could not write " .. tmp .. "/" .. path .. ": " .. trouble)'
+      '    error("doctest: could not write " .. tostring(trouble))'
     out[#out + 1] = "  end"
     out[#out + 1] = "end"
     out[#out + 1] = ""

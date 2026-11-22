@@ -283,7 +283,7 @@ local cacert: refresh.Dataset = {
     local path = scratch .. "/certdata.txt"
     local written, write_trouble = Fs.write(path, text)
     if not written then
-      return nil, write_trouble
+      return nil, tostring(write_trouble)
     end
     return { path = path, url = url, version = tag, sha256 = Hash.hex_sha256(text) }, ""
   end,
@@ -369,7 +369,7 @@ local revocations: refresh.Dataset = {
     local path = scratch .. "/onecrl.json"
     local written, write_trouble = Fs.write(path, text)
     if not written then
-      return nil, write_trouble
+      return nil, tostring(write_trouble)
     end
     return { path = path, url = onecrl_feed .. "?_expected=" .. timestamp, version = timestamp,
       sha256 = Hash.hex_sha256(text) }, ""
@@ -608,7 +608,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     local path = scratch .. "/carried.db"
     local written, write_trouble = Fs.write(path, parts.database)
     if not written then
-      return write_trouble
+      return tostring(write_trouble)
     end
     local opened, open_trouble = Sqlite.open(path, { writable = true })
     if opened == nil then
@@ -693,7 +693,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     end
     local published, publish_trouble = Fs.write(out, program, mode)
     if not published then
-      return publish_trouble
+      return tostring(publish_trouble)
     end
     return ""
   end

@@ -419,7 +419,7 @@ local function as_single_file(tree: string, pin: Vendor.Pin, download: string): 
   end
   local written, write_trouble = Fs.write(tree .. "/" .. pin.file, data)
   if not written then
-    return nil, write_trouble
+    return nil, tostring(write_trouble)
   end
   return 1, ""
 end
@@ -538,7 +538,7 @@ local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
   end
   local written, write_trouble = Fs.write(tree .. "/PIN", rewritten.text)
   if not written then
-    return 0, write_trouble
+    return 0, tostring(write_trouble)
   end
   return count, ""
 end

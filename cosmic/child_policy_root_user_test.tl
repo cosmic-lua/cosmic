@@ -134,7 +134,8 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
   local at = ChildPolicy.placed(tmp)
   local named = 4242
   local dir = tmp .. "/theirs"
-  assert(Fs.mkdirs(dir) and Fs.write(dir .. "/inside", "secret\n"))
+  assert(Fs.mkdirs(dir))
+  assert(Fs.write(dir .. "/inside", "secret\n"))
   assert(sys.chown(dir, named, named) and sys.chown(dir .. "/inside", named, named))
   assert(sys.chmod(dir, octal("700")) and sys.chmod(dir .. "/inside", octal("600")))
   local policy: Sandbox.Policy = { user = named, grants = { { path = at.probe, letters = "rx" },
@@ -241,7 +242,8 @@ local function test_a_root_caller_s_named_user_meets_its_own_files_as_the_owner_
   local dir = closed(tmp, "theirs")
   assert(sys.chown(dir, 2000, 2000) and sys.chown(dir .. "/inside", 2000, 2000))
   local function owned(name: string, owner: integer, mode: string)
-    assert(Fs.write(dir .. "/" .. name, name .. "\n") and sys.chown(dir .. "/" .. name, owner, owner))
+    assert(Fs.write(dir .. "/" .. name, name .. "\n"))
+    assert(sys.chown(dir .. "/" .. name, owner, owner))
     assert(sys.chmod(dir .. "/" .. name, octal(mode)))
   end
   owned("open", 4242, "666")

@@ -85,7 +85,9 @@ local function project(tmp: string, name?: string): Project
   local at = assert(Fs.absolute(tmp))
   local bin = at .. "/a project/bin"
   local called = name or "cosmic"
-  assert(Fs.mkdirs(bin) and Fs.mkdirs(at .. "/fake bin") and Fs.mkdirs(at .. "/elsewhere"))
+  assert(Fs.mkdirs(bin))
+  assert(Fs.mkdirs(at .. "/fake bin"))
+  assert(Fs.mkdirs(at .. "/elsewhere"))
   assert(Fs.write(bin .. "/" .. called, (assert(pinned_launcher.script(called))), 0x1ed))
   local digest = Hash.hex_sha256(release_source)
   assert(Fs.write(bin .. "/" .. called .. ".pin", pin_text(digest)))

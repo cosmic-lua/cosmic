@@ -1077,7 +1077,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
     end
     local published, publish_trouble = Fs.write(target, program, 0x1ed)
     if not published then
-      return failed(name, publish_trouble)
+      return failed(name, tostring(publish_trouble))
     end
     if out ~= nil then
       local made_out, out_trouble = Fs.mkdirs(out)
@@ -1086,7 +1086,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
       end
       local copied, copy_trouble = Fs.write(out .. "/" .. name, program, 0x1ed)
       if not copied then
-        return failed(name, copy_trouble)
+        return failed(name, tostring(copy_trouble))
       end
       held[out .. "\t" .. name] = Hash.hex_sha256(program)
       manifest_write(root, held)
@@ -1188,7 +1188,7 @@ function embed.tree_tool(root: string, out?: string): string?, string
     local made, made_trouble = Fs.mkdirs(out)
     if not made then return nil, "--out " .. out .. " cannot be created: " .. made_trouble end
     local copied, copy_trouble = Fs.write(out .. "/cosmic", program, 0x1ed)
-    if not copied then return nil, copy_trouble end
+    if not copied then return nil, tostring(copy_trouble) end
   end
   return tool, ""
 end

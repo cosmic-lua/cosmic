@@ -92,8 +92,10 @@ local DENIED <const> = "Permission denied"
 
 local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
-  assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
+  assert(Fs.mkdirs(tmp .. "/ro"))
+  assert(Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(tmp .. "/ro/a", "alpha\n"))
+  assert(Fs.write(tmp .. "/other/b", "beta\n"))
   local read = under(tmp, probe, { { path = tmp .. "/ro", access = "r" } },
     "cat " .. tmp .. "/ro/a; ls " .. tmp .. "/ro")
   assert(read.code == 0 and read.said == "alpha\na\n", tostring(read.code) .. ": " .. read.said)
@@ -190,7 +192,8 @@ end
 
 local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Fs.mkdirs(tmp .. "/open") and Fs.mkdirs(tmp .. "/shut"))
+  assert(Fs.mkdirs(tmp .. "/open"))
+  assert(Fs.mkdirs(tmp .. "/shut"))
   assert(Fs.write(tmp .. "/shut/old", "x"))
   local grants: {raw_process.Grant} = { { path = tmp .. "/open", access = "cw" } }
   local made = under(tmp, probe, grants,
@@ -212,8 +215,11 @@ end
 
 local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Fs.mkdirs(tmp .. "/a") and Fs.mkdirs(tmp .. "/b") and Fs.mkdirs(tmp .. "/c"))
-  assert(Fs.write(tmp .. "/a/f", "x") and Fs.write(tmp .. "/a/g", "y"))
+  assert(Fs.mkdirs(tmp .. "/a"))
+  assert(Fs.mkdirs(tmp .. "/b"))
+  assert(Fs.mkdirs(tmp .. "/c"))
+  assert(Fs.write(tmp .. "/a/f", "x"))
+  assert(Fs.write(tmp .. "/a/g", "y"))
   local both: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "c" } }
   local moved = under(tmp, probe, both, "rename " .. tmp .. "/a/f " .. tmp .. "/b/f")
   assert(moved.code == 0, "renamed: " .. moved.said)
@@ -258,7 +264,8 @@ end
 
 local function test_a_link_is_followed_to_its_target(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Fs.mkdirs(tmp .. "/real") and Fs.write(tmp .. "/real/a", "alpha\n"))
+  assert(Fs.mkdirs(tmp .. "/real"))
+  assert(Fs.write(tmp .. "/real/a", "alpha\n"))
   assert(sys.symlink(tmp .. "/real", tmp .. "/link"))
   local through = under(tmp, probe, { { path = tmp .. "/link", access = "r" } },
     "cat " .. tmp .. "/real/a")

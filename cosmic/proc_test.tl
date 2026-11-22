@@ -10,7 +10,9 @@ local Test = require("cosmic.test")
 --- executable wins, a name with a slash is taken as it is, and what is
 --- missing or not executable says which.
 local function test_find_searches_a_path_as_a_shell_does(dir: string)
-  assert(Fs.mkdirs(dir .. "/a") and Fs.mkdirs(dir .. "/b") and Fs.mkdirs(dir .. "/c"))
+  assert(Fs.mkdirs(dir .. "/a"))
+  assert(Fs.mkdirs(dir .. "/b"))
+  assert(Fs.mkdirs(dir .. "/c"))
   assert(Fs.write(dir .. "/a/tool", "not executable\n", 0x1a4))
   assert(Fs.write(dir .. "/b/tool", "#!/bin/sh\n", 0x1ed))
   assert(Fs.write(dir .. "/c/tool", "#!/bin/sh\n", 0x1ed))

@@ -165,7 +165,7 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
   end
   for _, write in ipairs(writes) do
     local ok, trouble = Fs.write(assert(write[1]), assert(write[2]))
-    if not ok then return nil, assert(write[1]) .. ": " .. trouble end
+    if not ok then return nil, assert(write[1]) .. ": " .. tostring(trouble) end
     result.manifests = result.manifests + 1
   end
   return result, ""

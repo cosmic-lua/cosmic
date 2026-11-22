@@ -765,7 +765,7 @@ function Store.seal(names: {string}, path?: string,
     end
     local saved, save_trouble = Fs.write(target, bytes)
     if not saved then
-      return nil, save_trouble
+      return nil, tostring(save_trouble)
     end
     return digest, ""
   end

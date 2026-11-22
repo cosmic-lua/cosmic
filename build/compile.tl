@@ -333,7 +333,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
       local target = directory:gsub("/+$", "") .. "/" .. base_of(compiled.path):gsub("%.tl$", ".lua")
       local ok, why = Fs.write(target, code)
       if not ok then
-        complain(said(target, why) .. ": name a directory this run can write in")
+        complain(said(target, tostring(why)) .. ": name a directory this run can write in")
         return bare.refused
       end
     end

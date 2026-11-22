@@ -1439,7 +1439,10 @@ function source.extracted(src: source.View, placed: source.Placed): string?
   local made, trouble = Fs.mkdirs(Fs.dirname(path))
   local text = placed.text()
   if text == nil then return nil end
-  if made then made, trouble = Fs.write(path, text, 0x124) end
+  if made then
+    local wrote_ok, wrote_why = Fs.write(path, text, 0x124)
+    made, trouble = wrote_ok, if wrote_ok then "" else tostring(wrote_why) end
+  end
   if not made then
     src.err("cosmic: lsp: the source of " .. file .. " of the binary: " .. trouble)
     return nil

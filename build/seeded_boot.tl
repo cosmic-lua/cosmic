@@ -361,7 +361,7 @@ local function place(from: string, to: string): boolean, string
   if data == nil then return false, tostring(trouble) end
   local aside = to .. ".part." .. tostring(Proc.pid())
   local written, write_trouble = Fs.write(aside, data)
-  if not written then return false, write_trouble end
+  if not written then return false, tostring(write_trouble) end
   local made, mode_trouble = Fs.chmod(aside, 0x1ed)
   if not made then return false, mode_trouble end
   return Fs.rename(aside, to)
@@ -421,7 +421,7 @@ local function boot(root: string, output: string, manifest: string, core: string
   if not compiled then return false, compile_trouble end
   local records = work .. "/targets.tsv"
   local wrote, write_trouble = Fs.write(records, SeededBoot.records)
-  if not wrote then return false, write_trouble end
+  if not wrote then return false, tostring(write_trouble) end
   local installed, install_trouble = install_vendor(manifest, output)
   if not installed then return false, install_trouble end
   local directory = output .. "/core/" .. target

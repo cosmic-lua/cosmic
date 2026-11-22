@@ -280,7 +280,7 @@ local function assemble(manifest_records: string, images: {string:string},
   local published, publish_trouble =
     Fs.write(output.tool, program, 0x1ed)
   if not published then
-    log:complain("boot: " .. publish_trouble)
+    log:complain("boot: " .. tostring(publish_trouble))
     return nil
   end
   return #database
@@ -473,7 +473,7 @@ local function boot(root: string, argv: {string}): integer
     local stamped, stamp_trouble =
       Fs.write(stamp_path(output), stamp_text(made, database, records))
     if not stamped then
-      log:complain("boot: " .. stamp_trouble)
+      log:complain("boot: " .. tostring(stamp_trouble))
       return 1
     end
     local _, _ = Fs.put(Fs.stderr, "stage: " .. describe(made) .. ", " .. clock.took(started) .. "\n")

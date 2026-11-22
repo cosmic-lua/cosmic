@@ -152,7 +152,9 @@ local standard: verb.Io = {
   out = bare.out,
   err = bare.err,
   write = function(path: string, data: string, mode: integer): boolean, string
-    return Fs.write(path, data, mode)
+    local wrote, why = Fs.write(path, data, mode)
+    if not wrote then return false, tostring(why) end
+    return true, ""
   end,
   rename = function(from: string, to: string): boolean, string return Fs.rename(from, to) end,
   open = function(path: string): verb.Opened?, string

@@ -21,7 +21,8 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 local function project(tmp: string, names: {string}): string
   local root = tmp .. "/project"
   local marks = tmp .. "/marks"
-  assert(Fs.mkdirs(root .. "/suite") and Fs.mkdirs(marks))
+  assert(Fs.mkdirs(root .. "/suite"))
+  assert(Fs.mkdirs(marks))
   local source = ""
   for _, name in ipairs(names) do
     source = source .. string.format([[

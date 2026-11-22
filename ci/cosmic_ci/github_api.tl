@@ -410,7 +410,7 @@ function GithubApi.download(client: GithubApi.Client, path: string, to: string,
       -- may as a redirect: GitHub's documentation allows both.
       if accept then
         local written, trouble = Fs.write(to, reply.body)
-        if not written then return false, "GET " .. path .. ": " .. trouble end
+        if not written then return false, "GET " .. path .. ": " .. tostring(trouble) end
         return true, ""
       end
       return false, "GET " .. path .. ": HTTP " .. tostring(reply.status) .. " with no redirect to a file"

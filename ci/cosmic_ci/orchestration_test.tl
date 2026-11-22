@@ -252,16 +252,19 @@ local function test_attest_records_the_digest_it_ran(tmp: string)
   local work = runner_temp .. "/cosmic-ci/platform"
   local product = work .. "/product"
   local diagnostics = work .. "/portable-diagnostics"
-  assert(Fs.mkdirs(fake) and Fs.mkdirs(product) and Fs.mkdirs(diagnostics))
+  assert(Fs.mkdirs(fake))
+  assert(Fs.mkdirs(product))
+  assert(Fs.mkdirs(diagnostics))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   local built = Fixture.synthetic(tmp .. "/attest.db", "/runner/cosmic")
   local portable = Fixture.synthetic(tmp .. "/attest.db", "/fresh/cosmic")
   local digest = Hash.hex_sha256(built) .. "\n"
   local executed = Hash.hex_sha256(portable) .. "\n"
-  assert(Fs.write(product .. "/cosmic", built) and Fs.write(work .. "/cosmic.before.sha256", digest))
-  assert(Fs.write(diagnostics .. "/cosmic-portable", portable) and
-      Fs.write(diagnostics .. "/portable-artifact.before.sha256", executed) and
-      Fs.write(diagnostics .. "/portable-artifact.after.sha256", executed))
+  assert(Fs.write(product .. "/cosmic", built))
+  assert(Fs.write(work .. "/cosmic.before.sha256", digest))
+  assert(Fs.write(diagnostics .. "/cosmic-portable", portable))
+  assert(Fs.write(diagnostics .. "/portable-artifact.before.sha256", executed))
+  assert(Fs.write(diagnostics .. "/portable-artifact.after.sha256", executed))
   local outcome = Fixture.call("attest", append(base, { "platform", "attest" }),
     project, tmp .. "/logs", context(fake, runner_temp, { TARGET = "x86_64-linux-musl" }))
   assert(outcome.result.ok, "attest answered " .. tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
@@ -275,7 +278,8 @@ local function test_platform_requires_cosmic_worker(tmp: string)
   local base, project = command(tmp)
   local candidate = tmp .. "/candidate"
   local runner_temp = tmp .. "/runner-temp"
-  assert(Fs.mkdirs(candidate) and Fs.write(candidate .. "/AGENTS.md", "fixture\n"))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.write(candidate .. "/AGENTS.md", "fixture\n"))
   assert(Fs.mkdirs(runner_temp))
   local env = context(candidate, runner_temp,
     { TARGET = "x86_64-linux-musl", COSMIC_WORKER = "" })
@@ -357,7 +361,8 @@ end
 local function test_a_local_build_copies_the_project_cache_into_o(tmp: string)
   local base, project = command(tmp)
   local fake, from = tmp .. "/fake", tmp .. "/from"
-  assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(from .. "/o"))
+  assert(Fs.mkdirs(fake .. "/bin"))
+  assert(Fs.mkdirs(from .. "/o"))
   assert(Fs.write(from .. "/o/entry", "compiled"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   Fixture.write(fake .. "/bin/zig", [[#!/bin/sh
@@ -397,7 +402,8 @@ local function test_the_sandbox_phase_fails_where_confinement_is_unavailable(tmp
   for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
     local runner_temp = fake .. "-runner-temp"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(runner_temp))
+    assert(Fs.mkdirs(fake .. "/o/bin"))
+    assert(Fs.mkdirs(runner_temp))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     Fixture.write(fake .. "/o/bin/cosmic", "#!/bin/sh\nprintf '| Part |\\n\\n" ..
         case.said .. "\\nswitch=%s mode=%s.\\n' \"$COSMIC_TEST_SANDBOX\" \"$COSMIC_SANDBOX\"\n", 493)
@@ -838,7 +844,8 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
     local fake = tmp .. "/format-" .. case.name
     local runner_temp = fake .. "-runner-temp"
     local boundary = runner_temp .. "/cosmic-ci/platform/local-diagnostics/local-boundary"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(boundary))
+    assert(Fs.mkdirs(fake .. "/o/bin"))
+    assert(Fs.mkdirs(boundary))
     assert(Fs.write(boundary .. "/hashes.sha256", ""))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.mkdirs(fake .. "/ci"))
@@ -863,7 +870,9 @@ local function test_the_format_check_checks_ci_from_its_own_directory(tmp: strin
   local base, project = command(tmp)
   local fake = tmp .. "/format-ci"
   local runner_temp = fake .. "-runner-temp"
-  assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/ci") and Fs.mkdirs(runner_temp))
+  assert(Fs.mkdirs(fake .. "/o/bin"))
+  assert(Fs.mkdirs(fake .. "/ci"))
+  assert(Fs.mkdirs(runner_temp))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   Fixture.write(fake .. "/o/bin/cosmic", FAKE_TOOL .. 'case "$PWD" in */ci) exit 9;; esac\nexit 0\n', 493)
   local outcome = Fixture.call("format-ci", append(base, { "platform", "format" }), project, tmp .. "/logs",
@@ -888,7 +897,9 @@ local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: strin
     local fake = tmp .. "/format-boundary-" .. case.name
     local runner_temp = fake .. "-runner-temp"
     local diagnostics = runner_temp .. "/cosmic-ci/platform/local-diagnostics"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/ci") and Fs.mkdirs(diagnostics))
+    assert(Fs.mkdirs(fake .. "/o/bin"))
+    assert(Fs.mkdirs(fake .. "/ci"))
+    assert(Fs.mkdirs(diagnostics))
     local kept: mut {string} = {}
     if case.immediate then kept[#kept + 1] = "local-immediate" end
     if case.boundary then kept[#kept + 1] = "local-boundary" end
@@ -933,7 +944,8 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
     local fake = tmp .. "/checked-" .. name
     local runner_temp = fake .. "-runner-temp"
     local format = runner_temp .. "/cosmic-ci/platform/contract/format"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/o/sanitized/bin"))
+    assert(Fs.mkdirs(fake .. "/o/bin"))
+    assert(Fs.mkdirs(fake .. "/o/sanitized/bin"))
     assert(Fs.mkdirs(format))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/o/sanitized/targets.tsv",
@@ -1056,7 +1068,8 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
   local target = "x86_64-linux-musl"
   local fake = tmp .. "/checked-job"
   local runner_temp = fake .. "-runner-temp"
-  assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(runner_temp))
+  assert(Fs.mkdirs(fake .. "/bin"))
+  assert(Fs.mkdirs(runner_temp))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   -- bin/zig logs each build, and leaves what it names.
   Fixture.write(fake .. "/bin/zig", "#!/bin/sh\nmkdir -p o\nprintf '%s\\n' \"$*\" >> o/zig.ran\n" ..
@@ -1100,7 +1113,8 @@ local function test_the_native_suite_writes_its_row_and_a_lost_row_fails_nothing
   for _, case in ipairs(cases) do
     local fake = tmp .. "/native-" .. case.name
     local runner_temp = fake .. "-runner-temp"
-    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(fake .. "/bin"))
+    assert(Fs.mkdirs(fake .. "/ci/testdata/portable"))
     assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
@@ -1303,7 +1317,8 @@ end
 local function test_a_suite_is_given_nothing_that_names_the_run(tmp: string)
   local base, project = command(tmp)
   local fake = tmp .. "/fake"
-  assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+  assert(Fs.mkdirs(fake .. "/bin"))
+  assert(Fs.mkdirs(fake .. "/ci/testdata/portable"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
   local seen = tmp .. "/seen"
@@ -1555,7 +1570,8 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
   for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
     local runner_temp = fake .. "-runner-temp"
-    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(fake .. "/bin"))
+    assert(Fs.mkdirs(fake .. "/ci/testdata/portable"))
     assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     assert(Fs.write(fake .. "/ci/testdata/portable/work_db_integrity.tl", "\n"))
@@ -1618,7 +1634,8 @@ local function run_narrowing_cases(tmp: string, cases: {ChecksCase})
   for _, case in ipairs(cases) do
     local fake = tmp .. "/" .. case.name
     local runner_temp = fake .. "-runner-temp"
-    assert(Fs.mkdirs(fake .. "/bin") and Fs.mkdirs(fake .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(fake .. "/bin"))
+    assert(Fs.mkdirs(fake .. "/ci/testdata/portable"))
     assert(Fs.mkdirs(runner_temp .. "/cosmic-ci"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     -- bin/zig's boot leaves a cosmic that logs the command line and the
@@ -1844,12 +1861,14 @@ end
 local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local driver = tmp .. "/ci/cosmic_ci/driver.tl"
-  assert(Fs.mkdirs(tmp .. "/ci/cosmic_ci") and Fs.mkdirs(tmp .. "/ci/fixtures"))
+  assert(Fs.mkdirs(tmp .. "/ci/cosmic_ci"))
+  assert(Fs.mkdirs(tmp .. "/ci/fixtures"))
   assert(Fs.write(driver, "return 0\n"))
   assert(Fs.write(tmp .. "/ci/fixtures/a_test.tl", "\n"))
   local project = Orchestration.fixture_project(driver, tmp .. "/work")
   local placed = BuildPaths.driven(project) .. "/fixtures/launcher"
-  assert(Fs.mkdirs(placed) and Fs.write(placed .. "/file", "earlier"))
+  assert(Fs.mkdirs(placed))
+  assert(Fs.write(placed .. "/file", "earlier"))
   assert(Orchestration.fixture_project(driver, tmp .. "/work") == project)
   assert(assert(Fs.read(project .. "/fixtures/a_test.tl")) == "\n")
   assert(Fs.exists(placed) ~= true, "the earlier fixture's placement was kept")
@@ -1861,7 +1880,8 @@ end
 local function test_a_fixture_project_takes_the_drivers_json_data(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local driver = tmp .. "/ci/cosmic_ci/driver.tl"
-  assert(Fs.mkdirs(tmp .. "/ci/cosmic_ci") and Fs.mkdirs(tmp .. "/ci/fixtures"))
+  assert(Fs.mkdirs(tmp .. "/ci/cosmic_ci"))
+  assert(Fs.mkdirs(tmp .. "/ci/fixtures"))
   assert(Fs.write(driver, "return 0\n"))
   assert(Fs.write(tmp .. "/ci/cosmic_ci/capabilities.json", "{}\n"))
   assert(Fs.write(tmp .. "/ci/cosmic_ci/run_names.json", "{}\n"))
@@ -1891,7 +1911,9 @@ local function lane_rig(tmp: string): LaneRig
   local Orchestration = require("cosmic_ci.orchestration")
   local Runner = require("cosmic_ci.runner")
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state) and Fs.mkdirs(tmp .. "/logs"))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(state))
+  assert(Fs.mkdirs(tmp .. "/logs"))
   local c: Runner.Context = { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
   local events: mut {string} = {}
@@ -2067,7 +2089,9 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
   }) do
     local fake = tmp .. "/format-changed-" .. assert(case["name"])
     local runner_temp = fake .. "-runner-temp"
-    assert(Fs.mkdirs(fake .. "/o/bin") and Fs.mkdirs(fake .. "/ci") and Fs.mkdirs(runner_temp))
+    assert(Fs.mkdirs(fake .. "/o/bin"))
+    assert(Fs.mkdirs(fake .. "/ci"))
+    assert(Fs.mkdirs(runner_temp))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     Fixture.write(fake .. "/o/bin/cosmic", FAKE_TOOL .. "exit 0\n", 493)
     local outcome = Fixture.call("format-changed-" .. assert(case["name"]), append(base, { "platform", "format" }),

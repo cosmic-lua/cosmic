@@ -8,7 +8,7 @@
 --- a value still return `T | nil, string`: a value and `""` on success,
 --- or nil and an error. A predicate uses the same contract, with false
 --- as a valid answer. A call that only has an effect returns
---- `boolean, string`.
+--- `boolean, string`, but [`Fs.write`] answers `(true) | (false, Failure)`.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
@@ -151,21 +151,23 @@ end
 --- Writes all of `data` to `fd`; a write that moves nothing fails
 --- "`blame`write made no progress", `blame` being "fs: " where no caller
 --- names the file.
-local function write_all(fd: integer, data: string, blame: string): boolean, string
+--- The errno of a failed write is the third value, 0 where no system
+--- call failed.
+local function write_all(fd: integer, data: string, blame: string): (true) | (false, string, integer)
   local at = 1
   while at <= #data do
     -- The whole string the first time, rather than a copy of it.
     local rest = if at == 1 then data else data:sub(at) end
-    local put, trouble = sys.write(fd, rest)
+    local put, trouble, errno = sys.write(fd, rest)
     if put == nil then
-      return false, trouble
+      return false, trouble, errno
     end
     if put == 0 then
-      return false, blame .. "write made no progress"
+      return false, blame .. "write made no progress", 0
     end
     at = at + put
   end
-  return true, ""
+  return true
 end
 
 -- How an object of this module is made: see the note on objects in
@@ -174,8 +176,9 @@ end
 --- Remembers `why` as the file's failure, naming the caller's path: a
 --- failure is sticky, and never names the temporary file, which the
 --- caller never chose and which is gone when it reads the message.
-local function failing(self: StagedFile, why: string): string
+local function failing(self: StagedFile, why: string, errno: integer): string
   self.failed = self.path .. ": " .. why
+  self.failure = if errno ~= 0 then Failure.system(errno, self.path) else Failure.new(why, self.path) end
   return self.failed
 end
 
@@ -186,21 +189,23 @@ local class StagedFile is Fs.Staged
   temporary: sys.TemporaryFile
   -- "" until a call fails.
   mut failed: string
+  -- The same failure as a value, for [`Fs.write`]; nil until a call fails.
+  mut failure?: Failure
   mut closed: boolean
 
   function write(self, data: string): boolean, string
     if self.closed then return false, self.path .. ": the file is closed" end
     if self.failed ~= "" then return false, self.failed end
-    local ok, why = write_all(self.temporary.fd, data, "")
-    if not ok then return false, failing(self, why) end
+    local ok, why, errno = write_all(self.temporary.fd, data, "")
+    if not ok then return false, failing(self, why, errno) end
     return true, ""
   end
 
   function sync(self): boolean, string
     if self.closed then return false, self.path .. ": the file is closed" end
     if self.failed ~= "" then return false, self.failed end
-    local ok, why = sys.fsync(self.temporary.fd)
-    if not ok then return false, failing(self, why) end
+    local ok, why, errno = sys.fsync(self.temporary.fd)
+    if not ok then return false, failing(self, why, errno) end
     return true, ""
   end
 
@@ -224,18 +229,29 @@ local class StagedFile is Fs.Staged
       local _, _ = sys.unlink(temporary.path)
       return false, self.failed
     end
-    local closed, close_trouble = sys.close(temporary.fd)
+    local closed, close_trouble, close_errno = sys.close(temporary.fd)
     if not closed then
       local _, _ = sys.unlink(temporary.path)
-      return false, failing(self, close_trouble)
+      return false, failing(self, close_trouble, close_errno)
     end
-    local moved, why = sys.rename(temporary.path, self.path)
+    local moved, why, errno = sys.rename(temporary.path, self.path)
     if not moved then
       local _, _ = sys.unlink(temporary.path)
-      return false, failing(self, why)
+      return false, failing(self, why, errno)
     end
     return true, ""
   end
+end
+
+--- The file [`Fs.create`] starts, as its own class, so [`Fs.write`] reads
+--- its failure as a value.
+local function staged_file(path: string, mode?: integer): (StagedFile) | (nil, Failure)
+  local temporary, _, errno = sys.open_temporary(path, mode or 0x1a4)
+  if temporary == nil then return nil, Failure.system(errno, path) end
+  local staged: StagedFile = {
+    path = path, temporary = temporary, failed = "", failure = nil, closed = false,
+  }
+  return staged
 end
 
 --- Starts writing a file at `path`: bytes go to a new temporary neighbor,
@@ -249,13 +265,8 @@ end
 --- still lose the write. [`Stream.create`] is this, as a
 --- [`cosmic.stream`] Writer.
 function Fs.create(path: string, mode?: integer): Fs.Staged?, string
-  local temporary, trouble = sys.open_temporary(path, mode or 0x1a4)
-  if temporary == nil then
-    return nil, path .. ": " .. trouble
-  end
-  local staged: StagedFile = {
-    path = path, temporary = temporary, failed = "", closed = false,
-  }
+  local staged, why = staged_file(path, mode)
+  if staged == nil then return nil, tostring(why) end
   return staged, ""
 end
 
@@ -265,18 +276,19 @@ end
 --- failure before the rename leaves the old file. The file is always a
 --- new one, so it gets `mode` (default 0644, less the umask) and never
 --- keeps an existing file's mode. Nothing is synced, so a crash can
---- still lose the write.
-function Fs.write(path: string, data: string, mode?: integer): boolean, string
-  local file, trouble = Fs.create(path, mode)
-  if file == nil then
-    return false, trouble
-  end
-  local ok, why = file:write(data)
-  if not ok then
+--- still lose the write. Answers true, or false and a [`Failure`] that
+--- names `path` and the errno.
+function Fs.write(path: string, data: string, mode?: integer): (true) | (false, Failure)
+  local file, trouble = staged_file(path, mode)
+  if file == nil then return false, trouble end
+  local wrote, _ = file:write(data)
+  if not wrote then
     local _, _ = file:abort()
-    return false, why
+    return false, assert(file.failure)
   end
-  return file:close()
+  local closed, _ = file:close()
+  if not closed then return false, assert(file.failure) end
+  return true
 end
 
 local class AppendFile
@@ -857,7 +869,9 @@ end
 --- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
 --- are the standard-stream descriptors used instead of io.write/io.output.
 function Fs.put(fd: integer, data: string): boolean, string
-  return write_all(fd, data, "fs: ")
+  local ok, why = write_all(fd, data, "fs: ")
+  if not ok then return false, why end
+  return true, ""
 end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is

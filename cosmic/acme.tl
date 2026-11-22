@@ -1470,7 +1470,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
     -- One file, written whole, so a reader never sees a chain with
     -- another's key.
     local wrote, unwritten = Fs.write(dir .. "/certificate.pem", chain .. pair.key, OWNER_FILE)
-    if not wrote then return nil, "acme: " .. unwritten end
+    if not wrote then return nil, "acme: " .. tostring(unwritten) end
     return pair, ""
   end
 

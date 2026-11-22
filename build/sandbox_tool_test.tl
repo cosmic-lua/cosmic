@@ -39,8 +39,10 @@ end
 
 local function test_a_granted_file_is_read_and_an_ungranted_one_is_not(tmp: string)
   searchable.open(tmp)
-  assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
-  assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
+  assert(Fs.mkdirs(tmp .. "/ro"))
+  assert(Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(tmp .. "/ro/a", "alpha\n"))
+  assert(Fs.write(tmp .. "/other/b", "beta\n"))
   local ran = cosmic(tmp, { "sandbox", "--system", "--read", tmp .. "/ro", "--", "cat", tmp .. "/ro/a" })
   assert(ran.code == 0 and ran.out == "alpha\n" and ran.err == "", tostring(ran.code) .. ran.out .. ran.err)
   local denied = cosmic(tmp, { "sandbox", "--system", "--read=" .. tmp .. "/ro", "cat", tmp .. "/other/b" })
@@ -114,7 +116,8 @@ end
 
 local function test_cwd_starts_the_program_there_and_relative_paths_are_its(tmp: string)
   searchable.open(tmp)
-  assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/a", "alpha\n"))
+  assert(Fs.mkdirs(tmp .. "/work"))
+  assert(Fs.write(tmp .. "/work/a", "alpha\n"))
   searchable.open(tmp .. "/work/.")
   local ran = cosmic(tmp, { "sandbox", "--system", "--cwd", "work", "--read", ".", "--", "cat", "a" })
   assert(ran.code == 0 and ran.out == "alpha\n" and ran.err == "", tostring(ran.code) .. ran.out .. ran.err)
@@ -125,7 +128,8 @@ end
 
 local function test_cosmic_alone_runs_this_program_under_the_sandbox(tmp: string)
   searchable.open(tmp)
-  assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/run.tl", 'print("ran")\n'))
+  assert(Fs.mkdirs(tmp .. "/work"))
+  assert(Fs.write(tmp .. "/work/run.tl", 'print("ran")\n'))
   searchable.share(tmp .. "/work")
   searchable.share(tmp .. "/work/run.tl")
   local ran = cosmic(tmp .. "/work", { "sandbox", "--cosmic", "--write", ".", "--",
