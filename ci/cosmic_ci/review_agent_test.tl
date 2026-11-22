@@ -40,11 +40,12 @@ local function flag(body: string?, steps: {string | integer}): boolean?
 end
 
 local made <const> = { "agent_1", "env_1", "vlt_1", "cred_1", "depl_1" }
+local tokens <const>: ReviewAgent.Tokens = { github = "ghp_api", push = "ghp_push" }
 
 local function test_an_apply_with_no_lock_creates_each_resource_in_order_and_fills_the_lock()
   local client, sent = claude(made)
   local lock: ReviewAgent.Lock = {}
-  local applied, why = ReviewAgent.apply(client, lock, "ghp_x")
+  local applied, why = ReviewAgent.apply(client, lock, tokens)
   assert(applied, why)
   local paths: mut {string} = {}
   for _, request in ipairs(sent) do paths[#paths + 1] = request.method .. " " .. request.path end
@@ -56,7 +57,7 @@ end
 
 local function test_the_agent_is_opus_with_no_web_and_no_one_asked()
   local client, sent = claude(made)
-  assert(ReviewAgent.apply(client, {}, "ghp_x"))
+  assert(ReviewAgent.apply(client, {}, tokens))
   local agent = assert(sent[1]).body
   assert(at(agent, { "model", "id" }) == "claude-opus-5-5")
   assert(at(agent, { "tools", 1, "default_config", "permission_policy", "type" }) == "always_allow")
@@ -68,23 +69,29 @@ local function test_the_agent_is_opus_with_no_web_and_no_one_asked()
   assert(flag(environment, { "config", "networking", "allow_package_managers" }) == false)
 end
 
-local function test_the_token_goes_only_to_api_github_com_headers_and_the_git_proxy()
+local function test_each_token_goes_only_where_it_is_used()
   local client, sent = claude(made)
-  assert(ReviewAgent.apply(client, {}, "ghp_x"))
+  assert(ReviewAgent.apply(client, {}, tokens))
   local credential = assert(sent[4]).body
   assert(at(credential, { "auth", "secret_name" }) == "GH_TOKEN")
-  assert(at(credential, { "auth", "secret_value" }) == "ghp_x")
+  assert(at(credential, { "auth", "secret_value" }) == "ghp_api")
   assert(at(credential, { "auth", "networking", "allowed_hosts", 1 }) == "api.github.com")
   assert(at(credential, { "auth", "networking", "allowed_hosts", 2 }) == nil)
   assert(flag(credential, { "auth", "injection_location", "body" }) == false)
   local deployment = assert(sent[5]).body
-  assert(at(deployment, { "resources", 1, "authorization_token" }) == "ghp_x")
+  assert(at(deployment, { "resources", 1, "authorization_token" }) == "ghp_push")
+  assert(not assert(deployment):find("ghp_api", 1, true), "the API token is in the deployment")
+  -- The agent, its environment and its vault hold neither token.
+  for index = 1, 3 do
+    local body = assert(assert(sent[index]).body)
+    assert(not body:find("ghp_", 1, true), body)
+  end
   assert(at(deployment, { "resources", 1, "checkout", "name" }) == "main")
 end
 
 local function test_the_deployment_runs_weekly_with_the_ids_and_a_hard_budget()
   local client, sent = claude(made)
-  assert(ReviewAgent.apply(client, {}, "ghp_x"))
+  assert(ReviewAgent.apply(client, {}, tokens))
   local deployment = assert(sent[5]).body
   assert(at(deployment, { "agent" }) == "agent_1")
   assert(at(deployment, { "environment_id" }) == "env_1")
@@ -98,22 +105,31 @@ end
 local function test_an_apply_with_a_lock_updates_each_resource_by_its_id()
   local client, sent = claude(made)
   local lock: ReviewAgent.Lock = { agent = "a", environment = "e", vault = "v", credential = "c", deployment = "d" }
-  assert(ReviewAgent.apply(client, lock, "ghp_new"))
+  assert(ReviewAgent.apply(client, lock, { github = "ghp_new", push = "ghp_push2" }))
   local paths: mut {string} = {}
   for _, request in ipairs(sent) do paths[#paths + 1] = request.path end
   assert(table.concat(paths, ", ") == "v1/agents/a, v1/environments/e, v1/vaults/v, " ..
       "v1/vaults/v/credentials/c, v1/deployments/d", table.concat(paths, ", "))
   -- A credential's name and hosts cannot change: an update sends the secret alone.
   assert(at(assert(sent[4]).body, { "auth", "secret_value" }) == "ghp_new")
+  assert(at(assert(sent[5]).body, { "resources", 1, "authorization_token" }) == "ghp_push2")
   assert(at(assert(sent[4]).body, { "auth", "secret_name" }) == nil)
   assert(at(assert(sent[5]).body, { "agent" }) == "a")
   assert(lock.agent == "a" and lock.deployment == "d")
 end
 
+local function test_a_credential_without_its_vault_is_made_again_in_the_new_one()
+  local client, sent = claude(made)
+  local lock: ReviewAgent.Lock = { agent = "a", environment = "e", credential = "c" }
+  assert(ReviewAgent.apply(client, lock, tokens))
+  assert(assert(sent[4]).path == "v1/vaults/vlt_1/credentials", assert(sent[4]).path)
+  assert(lock.vault == "vlt_1" and lock.credential == "cred_1")
+end
+
 local function test_a_failed_apply_keeps_the_ids_it_made()
   local client = claude({ "agent_1", "env_1" })
   local lock: ReviewAgent.Lock = {}
-  local applied, why = ReviewAgent.apply(client, lock, "ghp_x")
+  local applied, why = ReviewAgent.apply(client, lock, tokens)
   assert(not applied and why == "POST v1/vaults: HTTP 500: down", why)
   assert(lock.agent == "agent_1" and lock.environment == "env_1" and lock.vault == nil)
 end
@@ -153,7 +169,7 @@ end
 
 local function test_a_branch_outside_weekly_review_is_refused_unsent()
   local client, sent = github("{}")
-  for _, head in ipairs({ "main", "weekly-review/", "feature/weekly-review/x", "Weekly-review/x" }) do
+  for _, head in ipairs({ "main", "weekly-review/", "feature/weekly-review/x", "Weekly-review/x", " weekly-review/x" }) do
     local url, why = ReviewAgent.draft_pr(client, "o/r", head, "t", "b")
     assert(url == nil and why:find("must start with weekly-review/", 1, true) ~= nil, head .. ": " .. why)
   end

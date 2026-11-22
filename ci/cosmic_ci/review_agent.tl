@@ -7,8 +7,15 @@
 --- GitHub token its pull requests are opened with, and the scheduled
 --- deployment, or updates the ones `agents/weekly-review.lock.json`
 --- names, and writes their ids there. `run` starts the deployment once,
---- now. Both read the Claude API key from ANTHROPIC_API_KEY and the
---- GitHub token from REVIEW_GITHUB_TOKEN; they run from `ci/`.
+--- now. Both run from `ci/` and read the Claude API key from
+--- ANTHROPIC_API_KEY. `apply` also reads two GitHub tokens, each held to
+--- what it is for: REVIEW_GITHUB_TOKEN (pull requests and issues, write)
+--- goes in the vault, and REVIEW_PUSH_TOKEN (contents, write) is the
+--- checkout's, which Anthropic's git proxy adds to the agent's pushes.
+--- Neither enters the sandbox. The agent's bash may use either token as
+--- far as its scope goes, so the scope is the boundary: the prefix
+--- `draft-pr` holds a branch to, and what weekly-review.md asks, are not.
+--- The tokens belong to an account that cannot bypass main's ruleset.
 ---
 --- `draft-pr` and `issue` are what the agent runs in its sandbox to open
 --- a draft pull request and its report, through [`GithubApi`]: the
@@ -22,6 +29,12 @@ local Json = require("cosmic.json")
 
 local record ReviewAgent
   --- The ids `apply` made, by kind; nil where none is made yet.
+  --- The GitHub tokens: `github` for the API (pull requests and issues),
+  --- `push` for the git proxy (contents).
+  record Tokens
+    github: string
+    push: string
+  end
   --- The ids a deployment needs, each made.
   record Ids
     agent: string
@@ -219,9 +232,9 @@ function ReviewAgent.credential_body(token: string, update: boolean): ReviewAgen
 end
 
 --- The schedule, with what each run is given: the checkout of main (its
---- pushes take `token` through Anthropic's git proxy, outside the
+--- pushes take `push_token` through Anthropic's git proxy, outside the
 --- sandbox), the vault and the budget.
-function ReviewAgent.deployment_body(ids: ReviewAgent.Ids, token: string): ReviewAgent.Deployment
+function ReviewAgent.deployment_body(ids: ReviewAgent.Ids, push_token: string): ReviewAgent.Deployment
   return {
     name = name,
     agent = ids.agent,
@@ -230,7 +243,7 @@ function ReviewAgent.deployment_body(ids: ReviewAgent.Ids, token: string): Revie
     resources = { {
       type = "github_repository",
       url = "https://github.com/" .. repository,
-      authorization_token = token,
+      authorization_token = push_token,
       mount_path = checkout,
       checkout = { type = "branch", name = "main" },
     } },
@@ -275,7 +288,9 @@ end
 --- so a failed apply keeps what it made: true, or false and why it
 --- stopped.
 function ReviewAgent.apply(client: AnthropicApi.Client, lock: ReviewAgent.Lock,
-                           token: string): boolean, string
+                           tokens: ReviewAgent.Tokens): boolean, string
+  -- A credential lives in its vault: without the vault, its id names nothing to update.
+  if lock.vault == nil then lock.credential = nil end
   local agent, why = put(client, "v1/agents", lock.agent, ReviewAgent.agent_body())
   if agent == nil then return false, why end
   lock.agent = agent
@@ -289,12 +304,12 @@ function ReviewAgent.apply(client: AnthropicApi.Client, lock: ReviewAgent.Lock,
   lock.vault = vault
   local credential: string?
   credential, why = put(client, "v1/vaults/" .. vault .. "/credentials", lock.credential,
-    ReviewAgent.credential_body(token, lock.credential ~= nil))
+    ReviewAgent.credential_body(tokens.github, lock.credential ~= nil))
   if credential == nil then return false, why end
   lock.credential = credential
   local deployment: string?
   deployment, why = put(client, "v1/deployments", lock.deployment,
-    ReviewAgent.deployment_body({ agent = agent, environment = environment, vault = vault }, token))
+    ReviewAgent.deployment_body({ agent = agent, environment = environment, vault = vault }, tokens.push))
   if deployment == nil then return false, why end
   lock.deployment = deployment
   return true, ""
@@ -358,13 +373,22 @@ function ReviewAgent.apply_command(_argv: {string}): integer
   local env = Env.all()
   local client, why = AnthropicApi.live(env)
   if client == nil then return complain(why) end
-  local token = env["REVIEW_GITHUB_TOKEN"]
-  if token == nil or token == "" then return complain("set REVIEW_GITHUB_TOKEN") end
+  local github, push = env["REVIEW_GITHUB_TOKEN"], env["REVIEW_PUSH_TOKEN"]
+  if github == nil or github == "" or push == nil or push == "" then
+    return complain("set REVIEW_GITHUB_TOKEN (pull requests and issues) and REVIEW_PUSH_TOKEN (contents)")
+  end
   local lock, trouble = read_lock()
   if lock == nil then return complain(lock_path .. ": " .. trouble) end
-  local applied, failed = ReviewAgent.apply(client, lock, token)
-  local wrote, write_trouble = Fs.write(lock_path, ReviewAgent.encode_lock(lock))
-  if not wrote then return complain(lock_path .. ": " .. write_trouble) end
+  local applied, failed = ReviewAgent.apply(client, lock, { github = github, push = push })
+  local text = ReviewAgent.encode_lock(lock)
+  local wrote, write_trouble = Fs.write(lock_path, text)
+  if not wrote then
+    -- The ids are all that finds what was made: print them, and both troubles.
+    local _, _ = Fs.put(Fs.stderr, text)
+    local said = lock_path .. ": " .. write_trouble
+    if not applied then said = said .. "; " .. failed end
+    return complain(said)
+  end
   if not applied then return complain(failed) end
   local _, _ = Fs.put(Fs.stdout, "review: applied; ids in " .. lock_path .. "\n")
   return 0
@@ -413,14 +437,6 @@ function ReviewAgent.issue(client: GithubApi.Client, repo: string, title: string
   return url, ""
 end
 
---- The repository a sandbox command opens its pull request or issue in:
---- GITHUB_REPOSITORY's, else cosmic's.
-local function repository_of(env: {string:string}): string
-  local repo = env["GITHUB_REPOSITORY"]
-  if repo == nil or repo == "" then return repository end
-  return repo
-end
-
 --- `review-draft-pr BRANCH TITLE BODY_FILE`.
 function ReviewAgent.draft_pr_command(argv: {string}): integer
   local head, title, body_file = argv[1], argv[2], argv[3]
@@ -429,10 +445,9 @@ function ReviewAgent.draft_pr_command(argv: {string}): integer
   end
   local body, read_trouble = Fs.read(body_file)
   if body == nil then return complain(body_file .. ": " .. read_trouble) end
-  local env = Env.all()
-  local client, why = GithubApi.live(env)
+  local client, why = GithubApi.live(Env.all())
   if client == nil then return complain(why) end
-  local repo = repository_of(env)
+  local repo = repository
   local url, trouble = ReviewAgent.draft_pr(client, repo, head, title, body)
   if url == nil then return complain(trouble) end
   local _, _ = Fs.put(Fs.stdout, url .. "\n")
@@ -447,10 +462,9 @@ function ReviewAgent.issue_command(argv: {string}): integer
   end
   local body, read_trouble = Fs.read(body_file)
   if body == nil then return complain(body_file .. ": " .. read_trouble) end
-  local env = Env.all()
-  local client, why = GithubApi.live(env)
+  local client, why = GithubApi.live(Env.all())
   if client == nil then return complain(why) end
-  local repo = repository_of(env)
+  local repo = repository
   local url, trouble = ReviewAgent.issue(client, repo, title, body)
   if url == nil then return complain(trouble) end
   local _, _ = Fs.put(Fs.stdout, url .. "\n")
