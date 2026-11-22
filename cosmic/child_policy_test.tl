@@ -227,7 +227,7 @@ local function test_limits_default_and_as_given(tmp: string)
   local capped = under(probe, { grants = itself(probe, { { path = searchable.share(tmp), letters = "rwc" } }),
     limits = { file_bytes = 8 } }, "write " .. tmp .. "/small abc; write " .. tmp .. "/big " .. string.rep("x", 64))
   assert(capped.code ~= 0 or capped.signal > 0, "a write of 65 bytes went through: " .. capped.said)
-  assert(Fs.read(tmp .. "/small") == "abc\n")
+  assert(assert(Fs.read(tmp .. "/small")) == "abc\n")
 end
 
 local function test_a_limit_above_this_processs_hard_limit_fails_the_start(tmp: string)

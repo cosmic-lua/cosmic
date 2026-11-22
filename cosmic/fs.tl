@@ -22,6 +22,7 @@
 --- `cosmic docs cosmic.sys` lists every one.
 
 local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
 
 --- A private directory made by [`Fs.scratch`], removed with everything
@@ -110,11 +111,13 @@ local chunk_size = 1 << 16
 -- reads and writes through sys would end.
 --- Reads the whole of a file as bytes, loading it in one call. Use this for
 --- the common io.open/io.read or io.lines case when streaming and Lua file
---- handles are unnecessary.
-function Fs.read(path: string): string?, string
-  local fd, trouble = sys.open(path, sys.O_RDONLY)
+--- handles are unnecessary. It answers the bytes alone, or nil and a
+--- [`Failure`] that names `path` and the errno that says why
+--- (`why.errno == sys.ENOENT` for a file that is not there).
+function Fs.read(path: string): (string) | (nil, Failure)
+  local fd, _, errno = sys.open(path, sys.O_RDONLY)
   if fd == nil then
-    return nil, path .. ": " .. trouble
+    return nil, Failure.system(errno, path)
   end
   -- A regular file says how big it is, so its bytes come in one read
   -- into one string of that size; chunks follow only for whatever it
@@ -126,10 +129,10 @@ function Fs.read(path: string): string?, string
   end
   local parts: mut {string} = {}
   while true do
-    local chunk, failure = sys.read(fd, ask)
+    local chunk, _, read_errno = sys.read(fd, ask)
     if chunk == nil then
       local _, _ = sys.close(fd)
-      return nil, path .. ": " .. failure
+      return nil, Failure.system(read_errno, path)
     end
     if #chunk == 0 then
       break
@@ -138,10 +141,7 @@ function Fs.read(path: string): string?, string
     ask = chunk_size
   end
   local _, _ = sys.close(fd)
-  if #parts == 1 then
-    return parts[1], ""
-  end
-  return table.concat(parts), ""
+  return table.concat(parts)
 end
 
 --- Writes all of `data` to `fd`; a write that moves nothing fails

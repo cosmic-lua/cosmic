@@ -34,13 +34,13 @@ end
 local function test_macos_verifies_then_displays(dir: string)
   local log = fake_codesign(stand_in_under(dir), dir, 0)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 0)
-  assert(Fs.read(log) == "--verify --strict --verbose=2 core\n--display --verbose=4 core\n")
+  assert(assert(Fs.read(log)) == "--verify --strict --verbose=2 core\n--display --verbose=4 core\n")
 end
 
 local function test_a_failed_verification_is_its_status(dir: string)
   local log = fake_codesign(stand_in_under(dir), dir, 3)
   assert(VerifyCodesign.verify("Darwin", "core", dir) == 3)
-  assert(Fs.read(log) == "--verify --strict --verbose=2 core\n")
+  assert(assert(Fs.read(log)) == "--verify --strict --verbose=2 core\n")
 end
 
 local function test_a_codesign_ended_by_a_signal_is_128_past_it(dir: string)

@@ -26,14 +26,14 @@ local function test_an_arena_holds_the_binary_the_task_and_their_hashes(dir: str
   local eval, binary = repository(dir)
   local arena = assert(Arena.lay(eval, "t", binary, dir .. "/runs/one"))
   assert(arena == assert(Fs.absolute(dir)) .. "/runs/one", arena)
-  assert(Fs.read(arena .. "/project/TASK.md") == "# Task\n## Journal\n")
-  assert(Fs.read(arena .. "/PROMPT.md") == Arena.prompt(arena))
+  assert(assert(Fs.read(arena .. "/project/TASK.md")) == "# Task\n## Journal\n")
+  assert(assert(Fs.read(arena .. "/PROMPT.md")) == Arena.prompt(arena))
   assert(assert(Fs.stat(arena .. "/bin/cosmic")).mode & 0x1ff == 0x1ed)
   do
     local held_true, held_why = Fs.is_dir(arena .. "/tmp")
     assert(held_true == true, held_why)
   end
-  assert(Fs.read(arena .. "/inputs.sha256") ==
+  assert(assert(Fs.read(arena .. "/inputs.sha256")) ==
       Hash.hex_sha256("#!/bin/sh\n") .. "  bin/cosmic\n" ..
       Hash.hex_sha256("# Task\n## Journal\n") .. "  project/TASK.md\n" ..
       Hash.hex_sha256(Arena.prompt(arena)) .. "  PROMPT.md\n")

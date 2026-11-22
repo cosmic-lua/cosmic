@@ -159,7 +159,7 @@ local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: s
   local tried = trying(request, { GITHUB_OUTPUT = tmp .. "/output" }, payload)
   seams.fs_exists = original
   assert(tried.ok and tried.err:find("injected inaccessible path", 1, true) ~= nil, tried.err)
-  assert(Fs.read(restored) == "owned" and Predicate.absent(tmp .. "/output"))
+  assert(assert(Fs.read(restored)) == "owned" and Predicate.absent(tmp .. "/output"))
   request.restored = nil
   local append = seams.fs_append
   seams.fs_append = function(name: string, _text: string, _mode?: integer): boolean, string
@@ -213,7 +213,7 @@ local function test_snapshot_identity_failures_retain_snapshot_and_save_nothing(
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   seams.fs_absolute, seams.fs_exists = absolute, exists
   assert(command.code == 0 and command.err:find("snapshot retained", 1, true) ~= nil, command.err)
-  assert(Fs.read(restored) == "owned" and Predicate.absent(tmp .. "/output"))
+  assert(assert(Fs.read(restored)) == "owned" and Predicate.absent(tmp .. "/output"))
 end
 
 local function test_failed_launch_cleans_snapshot_without_publishing(tmp: string)
@@ -289,7 +289,7 @@ local function test_save_outputs_append_without_replacing_or_reading(tmp: string
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
   assert(Fs.readlink(link) == target)
-  assert(Fs.read(target) == prefix .. "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
+  assert(assert(Fs.read(target)) == prefix .. "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
 end
 
 local function test_partial_output_failure_keeps_the_report_and_does_not_retry(tmp: string)
@@ -309,5 +309,5 @@ local function test_partial_output_failure_keeps_the_report_and_does_not_retry(t
   seams.fs_append = append
   assert(tried.ok and calls.value == 1 and tried.out:find("digest", 1, true) ~= nil, tried.out)
   assert(tried.err == "diagnosticcompiles-trim: " .. output .. ": injected append failure\n", tried.err)
-  assert(Fs.read(output) == "earlier=value\ndig")
+  assert(assert(Fs.read(output)) == "earlier=value\ndig")
 end

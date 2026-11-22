@@ -54,8 +54,8 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "]] .. outside .. [[/f", letters = "r" } }, env = { "FLAVOUR" } }
 
 local function test_reads_outside()
-  assert(Fs.read("]] .. outside .. [[/f") == "out\n")
-  assert(Fs.read("]] .. outside .. [[/undeclared") ~= nil)
+  assert(assert(Fs.read("]] .. outside .. [[/f")) == "out\n")
+  assert(Fs.read("]] .. outside .. [[/undeclared"))
   assert(Env.get("FLAVOUR") ~= "sour")
 end
 

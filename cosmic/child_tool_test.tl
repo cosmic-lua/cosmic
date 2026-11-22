@@ -131,12 +131,14 @@ end
   -- spawns anything; on the checked core, on a loaded runner, that has
   -- taken more than 3 s. The wait ends as soon as it is ready.
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while (not path_exists(ready) or Fs.read(ready) ~= "ready") and
-      Clock.monotonic_ns() < deadline do
+  local said, _ = Fs.read(ready)
+  while said ~= "ready" and Clock.monotonic_ns() < deadline do
     Clock.sleep_ns(Clock.ms(10))
+    said, _ = Fs.read(ready)
   end
-  assert(path_exists(ready) and Fs.read(ready) == "ready",
-    "driver did not report readiness; log=" .. (Fs.read(diagnostic) or "<none>"))
+  local log, _ = Fs.read(diagnostic)
+  assert(path_exists(ready) and assert(Fs.read(ready)) == "ready",
+    "driver did not report readiness; log=" .. (log or "<none>"))
   local descendant = assert(child_lua_fixture.host_pid(driver.pid, assert(math.tointeger((assert(tonumber(
     assert(Fs.read(descendant_path)):match("%d+"))))))))
   assert(driver:stop(sys.SIGTERM))
@@ -144,10 +146,11 @@ end
   -- told apart by the signal its Result names, not by the time.
   local stopped = assert(driver:wait(Clock.seconds(8)))
   assert(Fs.close(fd))
+  local stopped_log, _ = Fs.read(diagnostic)
   assert(stopped.signal == sys.SIGTERM,
     "driver cancellation result code=" .. tostring(stopped.code) ..
       " signal=" .. tostring(stopped.signal) .. " log=" ..
-      (Fs.read(diagnostic) or "<none>"))
+      (stopped_log or "<none>"))
   local gone_by = Clock.monotonic_ns() + Clock.seconds(1)
   while sys.kill(descendant, 0) and Clock.monotonic_ns() < gone_by do
     Clock.sleep_ns(Clock.ms(10))
@@ -307,7 +310,7 @@ end
   local cancelled = "true child: cancelled by signal " .. tostring(sys.SIGTERM)
   local expected = table.concat({ cancelled, cancelled, "true", "true", "true",
     "3 false", tostring(sys.SIGTERM) }, "|")
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == expected, tostring(got) .. " " .. tostring(r.stderr))
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
 end
@@ -357,7 +360,7 @@ end
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
       " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == table.concat({ "true child: cancelled by signal " .. term, term, "4", term }, "|"),
     tostring(got))
 end

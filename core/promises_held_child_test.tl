@@ -52,7 +52,8 @@ local function under(tmp: string, probe: string, script: string): Outcome
     { promises = {} }))
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
-  return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
+  local got, _ = Fs.read(path)
+  return { code = status.code, signal = status.signal, said = got or "" }
 end
 
 --- Runs `script` in a stand-in started with `sandbox` (its `promises`
@@ -71,7 +72,8 @@ local function in_sandbox(tmp: string, probe: string, sandbox: raw_process.Sandb
   end
   local status = assert(process.waitpid(assert(pid), false))
   sys.close(output)
-  return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
+  local got, _ = Fs.read(path)
+  return { code = status.code, signal = status.signal, said = got or "" }
 end
 
 local function test_a_child_in_a_user_namespace_of_its_own_sets_its_own_limits(tmp: string)

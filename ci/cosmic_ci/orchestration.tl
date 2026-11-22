@@ -1587,7 +1587,7 @@ local function format_command(root: string): {string}
     text = found
     if found == nil then
       local _, _ = Fs.put(Fs.stderr, "format check: the whole tree, since what changed is not known: " ..
-          trouble .. "\n")
+          tostring(trouble) .. "\n")
     end
   end
   if text == nil then

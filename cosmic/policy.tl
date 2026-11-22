@@ -100,7 +100,7 @@ function PolicyJson.decode(json: string): Sandbox.Policy?, string
   if database ~= nil then
     local bytes, trouble = Fs.read(database.path)
     if bytes == nil then
-      return nil, "sandbox: " .. FieldPath.field(DATABASE, "path") .. ": " .. trouble
+      return nil, "sandbox: " .. FieldPath.field(DATABASE, "path") .. ": " .. tostring(trouble)
     end
     if Hash.hex_sha256(bytes) ~= database.sha256 then
       return nil, "sandbox: " .. FieldPath.field(DATABASE, "sha256") .. ": " .. database.path ..
@@ -172,7 +172,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
           "with Sandbox.database(path), which hashes the file now", 2)
     end
     local bytes, trouble = Fs.read(database.path)
-    if bytes == nil then error("sandbox: encode: database " .. trouble, 2) end
+    if bytes == nil then error("sandbox: encode: database " .. tostring(trouble), 2) end
     if digest ~= Hash.hex_sha256(bytes) then
       error("sandbox: encode: database " .. database.path .. " is not the one the policy " ..
           "names: its SHA-256 has changed since", 2)

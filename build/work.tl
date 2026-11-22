@@ -1952,7 +1952,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
         local data, read_trouble = Fs.read(root .. "/" .. file)
         if data == nil then
           finish(put)
-          return nil, read_trouble
+          return nil, tostring(read_trouble)
         end
         staged.read = staged.read + 1
         if write_files and identity.is_static(file) and
@@ -2224,7 +2224,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     if data == nil then
       local read, read_trouble = Fs.read(handle.root .. "/" .. path)
       if read == nil then
-        return false, read_trouble
+        return false, tostring(read_trouble)
       end
       data = read
       local now_hash = Hash.hex_sha256(data)
@@ -2283,7 +2283,7 @@ function work.read_zoneinfo(dir: string): {string:string}?, string
   for _, name in ipairs(names) do
     local data, read_trouble = Fs.read(dir .. "/" .. name)
     if data == nil then
-      return nil, read_trouble
+      return nil, tostring(read_trouble)
     end
     zones[name] = data
   end
@@ -2363,7 +2363,7 @@ function work.read_web_assets(vendor: string): {work.WebAsset}?, string
   for _, file in ipairs(web_files) do
     local pin, pin_trouble = Fs.read(vendor .. "/" .. file.tree .. "/PIN")
     if pin == nil then
-      return nil, pin_trouble
+      return nil, tostring(pin_trouble)
     end
     local pinned = pin:match("^version%s+(%S+)") or pin:match("\nversion%s+(%S+)")
     if pinned == nil then
@@ -2371,7 +2371,7 @@ function work.read_web_assets(vendor: string): {work.WebAsset}?, string
     end
     local data, read_trouble = Fs.read(vendor .. "/" .. file.tree .. "/" .. file.path)
     if data == nil then
-      return nil, read_trouble
+      return nil, tostring(read_trouble)
     end
     assets[#assets + 1] = { name = file.name, data = data,
       sha256 = Hash.hex_sha256(data), sha384 = Codec.base64(Hash.digest("sha384", data)),

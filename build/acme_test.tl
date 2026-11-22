@@ -261,7 +261,7 @@ local function test_key_creates_its_file_exclusively(tmp: string)
   local made = assert(Fs.read(path))
   assert(Acme.read_key(made) ~= nil and (assert(Fs.stat(path)).mode & 0x1ff) == 0x180)
   assert(acme.run({ "acme", "key", path }) == 2)
-  assert(Fs.read(path) == made, "a key there was written over")
+  assert(assert(Fs.read(path)) == made, "a key there was written over")
   local link = tmp .. "/link.pem"
   assert(Fs.symlink(tmp .. "/elsewhere.pem", link))
   assert(acme.run({ "acme", "key", link }) == 2)

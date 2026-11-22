@@ -46,7 +46,7 @@ end
 local function file_of(module: string): string?
   local stem = module:gsub("%.", "/")
   for _, file in ipairs({ stem .. ".tl", stem .. "/init.tl" }) do
-    if Fs.read(file) ~= nil then
+    if Fs.exists(file) == true then
       return file
     end
   end

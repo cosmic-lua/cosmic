@@ -147,7 +147,11 @@ end
 local standard: verb.Io = {
   out = bare.out,
   err = bare.err,
-  read = function(path: string): string?, string return Fs.read(path) end,
+  read = function(path: string): string?, string
+    local text, why = Fs.read(path)
+    if text == nil then return nil, tostring(why) end
+    return text, ""
+  end,
   write = function(path: string, data: string, mode: integer): boolean, string
     return Fs.write(path, data, mode)
   end,

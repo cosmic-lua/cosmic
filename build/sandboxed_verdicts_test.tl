@@ -57,7 +57,7 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "suite/data/", letters = "r" } } }
 
 local function test_data()
-  assert(Fs.read("suite/data/f") ~= nil)
+  assert(Fs.read("suite/data/f"))
 end
 ]]))
   assert(Fs.write(root .. "/suite/flavour_test.tl", [[
@@ -575,7 +575,7 @@ local function test_a_look_that_kept_earlier_verdicts_keeps_no_later_one(tmp: st
   local quick: mut {string} = {}
   for number = 1, 66 do
     quick[number] = string.format(
-      "local function test_a_quick_%02d()\n  assert(Fs.read(\"suite/moving.txt\") ~= nil)\nend\n", number)
+      "local function test_a_quick_%02d()\n  assert(Fs.read(\"suite/moving.txt\"))\nend\n", number)
   end
   assert(Fs.write(root .. "/suite/moving_test.tl", [[
 local Clock = require("cosmic.clock")

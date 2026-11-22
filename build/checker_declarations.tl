@@ -65,7 +65,7 @@ end
 local function read_as(root: string, file: string, hash: string): string?, string
   local text, why = Fs.read(root .. "/" .. file)
   if text == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   if Hash.hex_sha256(text) ~= hash then
     return nil, file .. " changed while the tool was being built: the tool is written from the file as it was staged"

@@ -268,7 +268,7 @@ function QueueVerdicts.merge(from: string, into: string): QueueVerdicts.Said
     local present, _ = Fs.stat(target)
     if present == nil then
       local bytes, read_trouble = Fs.read(source)
-      local ok, why = false, read_trouble
+      local ok, why = false, tostring(read_trouble)
       if bytes ~= nil then ok, why = Fs.write(target, bytes) end
       if ok then
         out[#out + 1] = "verdicts-merge: " .. name .. ": the merge queue's, whole (none was restored)"

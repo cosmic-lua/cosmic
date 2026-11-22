@@ -120,7 +120,7 @@ local function test_the_file_verbs(tmp: string)
   local here = assert(sys.getcwd())
   assert(r.stdout == "one two\nthree\nfirst\nf\ng\nlog\npipe\nsub\n2\n1\n" .. here ..
       "\nstill here\n", r.stdout)
-  assert(Fs.read(d .. "/where") == here .. "\n")
+  assert(assert(Fs.read(d .. "/where")) == here .. "\n")
   assert(assert(Fs.stat(d .. "/pipe")).kind == "fifo", assert(Fs.stat(d .. "/pipe")).kind)
   assert(assert(Fs.stat(d .. "/sub")).kind == "dir")
   -- `cat` alone copies its input to its end.
@@ -301,7 +301,7 @@ local function test_the_verbs_that_ask_of_a_path(tmp: string)
   assert(r.stdout == "there\nabsent\nopens\na-directory-does-not\nnor-a-missing-file\n750\n" ..
       d .. "/sub/deeper/f\n", r.stdout)
   assert(Fs.exists(d .. "/missing") ~= true, "writable made the file")
-  assert(Fs.read(d .. "/sub/deeper/f") == "x", "writable wrote to the file")
+  assert(assert(Fs.read(d .. "/sub/deeper/f")) == "x", "writable wrote to the file")
   local absent = run({ probe, "present " .. d .. "/missing" })
   assert(absent.code == 1 and assert(absent.stderr):find(d .. "/missing", 1, true) ~= nil,
     tostring(absent.stderr))

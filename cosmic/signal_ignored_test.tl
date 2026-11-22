@@ -58,6 +58,6 @@ end
     { env = nested_cosmic_environment(), stderr = "capture", timeout_ns = Clock.seconds(30) }))
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
       " " .. tostring(r.stderr))
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == "0", tostring(got))
 end

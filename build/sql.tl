@@ -884,7 +884,8 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
     if path == nil then
       text, read_trouble = stdin()
     else
-      text, read_trouble = Fs.read(path)
+      local read, failure = Fs.read(path)
+      text, read_trouble = read, if failure ~= nil then tostring(failure) else "" end
     end
     if text == nil then
       -- A file's failure already names the file; standard input's does not.

@@ -280,7 +280,8 @@ local function flows(tmp: string): Flows
     for _, task in ipairs(tasks) do task:cancel() end
     assert(first:close())
     assert(second:close())
-    local relay_log = Fs.read(log_path) or ""
+    local got, _ = Fs.read(log_path)
+    local relay_log = got or ""
     assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
     local report = redacted("code " .. tostring(result.code) .. ", signal " .. tostring(result.signal) ..
         "\nstdout: " .. tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr) ..
@@ -419,7 +420,8 @@ local function run_under(held: raw_process.Seatbelt, argv: {string}, tmp: string
     assert(Clock.sleep_ns(Clock.ms(20)))
     status = assert(process.waitpid(pid, true))
   end
-  return { refused = "", code = status.code, output = Fs.read(out_path) or "" }
+  local got, _ = Fs.read(out_path)
+  return { refused = "", code = status.code, output = got or "" }
 end
 
 --- The port the program's profile lets it reach, the relay's.
@@ -547,7 +549,8 @@ local function test_a_public_name_is_resolved_and_reached_through_the_relay(tmp:
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { name .. ":443" } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
-  local relay_log = Fs.read(log_path) or ""
+  local got, _ = Fs.read(log_path)
+  local relay_log = got or ""
   assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
   local said = fixture.fields(result.stdout or "")
   holds(said["public"] == "HTTP/1.1 200 Connection established", redacted(tostring(result.stdout)) ..
@@ -563,7 +566,8 @@ local function connect_through(tmp: string, target: string): string, string
     database = { path = sealed_client(tmp) }, profiles = { "system" }, connect = { target } },
     stdout = "capture", stderr = "capture", relay_log = log, timeout_ns = Clock.seconds(90) })
   assert(sys.close(log))
-  local relay_log = Fs.read(log_path) or ""
+  local got, _ = Fs.read(log_path)
+  local relay_log = got or ""
   assert(result, explained(result == nil, tostring(why) .. "\nrelay: " .. relay_log))
   holds(result.ok, redacted(tostring(result.stdout) .. "\nstderr: " .. tostring(result.stderr)) ..
       "\nrelay: " .. relay_log)

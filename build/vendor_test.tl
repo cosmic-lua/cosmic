@@ -74,13 +74,13 @@ local function test_a_tree_keeps_what_the_pin_names(dir: string)
     })
   assert(status == 0)
   local tree = dir .. "/tree"
-  assert(Fs.read(tree .. "/src/one.c") == "one")
-  assert(Fs.read(tree .. "/include/a/b.h") == "header")
+  assert(assert(Fs.read(tree .. "/src/one.c")) == "one")
+  assert(assert(Fs.read(tree .. "/include/a/b.h")) == "header")
   assert(Fs.exists(tree .. "/src/main.c") ~= true)
   assert(Fs.exists(tree .. "/src/deep") ~= true)
   assert(Fs.exists(tree .. "/doc") ~= true)
   assert(Fs.exists(tree .. "/old") ~= true, "the stale tree was not pruned")
-  assert(Fs.read(tree .. "/PIN") ~= nil)
+  assert(Fs.exists(tree .. "/PIN") == true)
   only_the_tree(dir)
 end
 
@@ -91,14 +91,14 @@ local function test_a_link_to_a_directory_is_removed_not_followed(dir: string)
   write_tar(dir .. "/archive.tar", { ["pkg/src/one.c"] = "one" })
   assert(Vendor.run({ dir .. "/tree", dir .. "/archive.tar" }, "build/vendor.tl") == 0)
   assert(Fs.readlink(dir .. "/tree/linked") == nil, "the link was left")
-  assert(Fs.read(dir .. "/outside/kept.c") == "not the tree's", "the link was followed")
+  assert(assert(Fs.read(dir .. "/outside/kept.c")) == "not the tree's", "the link was followed")
 end
 
 local function test_a_leading_dot_slash_is_not_part_of_a_path(dir: string)
   assert(run(dir, "strip pkg/\nkeep src/*.c\n", {
     ["./pkg/src/one.c"] = "one",
   }) == 0)
-  assert(Fs.read(dir .. "/tree/src/one.c") == "one")
+  assert(assert(Fs.read(dir .. "/tree/src/one.c")) == "one")
 end
 
 local function test_permission_bits_survive(dir: string)
@@ -115,19 +115,19 @@ local function test_an_escaping_entry_refuses_the_whole_archive(dir: string)
     ["../escaped.c"] = "out",
   }) == 1)
   assert(Fs.exists(dir .. "/escaped.c") ~= true)
-  assert(Fs.read(dir .. "/tree/old/gone.c") == "stale", "the tree changed")
+  assert(assert(Fs.read(dir .. "/tree/old/gone.c")) == "stale", "the tree changed")
   only_the_tree(dir)
 end
 
 local function test_a_keep_that_matches_nothing_changes_nothing(dir: string)
   assert(run(dir, "keep missing.c\n", { ["a.c"] = "a" }) == 1)
-  assert(Fs.read(dir .. "/tree/old/gone.c") == "stale")
+  assert(assert(Fs.read(dir .. "/tree/old/gone.c")) == "stale")
   assert(Fs.exists(dir .. "/tree/a.c") ~= true)
 end
 
 local function test_a_pin_with_no_keep_at_all_is_refused(dir: string)
   assert(run(dir, "version 1\n", { ["a.c"] = "a" }) == 1)
-  assert(Fs.read(dir .. "/tree/old/gone.c") == "stale")
+  assert(assert(Fs.read(dir .. "/tree/old/gone.c")) == "stale")
 end
 
 local function test_keeps_from_a_zip_archive_too(dir: string)
@@ -138,7 +138,7 @@ local function test_keeps_from_a_zip_archive_too(dir: string)
     ["pkg/doc/readme.txt"] = "prose",
   })
   assert(Vendor.run({ dir .. "/tree", archive }, "build/vendor.tl") == 0)
-  assert(Fs.read(dir .. "/tree/src/one.c") == "one")
+  assert(assert(Fs.read(dir .. "/tree/src/one.c")) == "one")
   assert(Fs.exists(dir .. "/tree/doc") ~= true)
 end
 
@@ -150,7 +150,7 @@ local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: stri
   local download = dir .. "/upstream-name.pem"
   assert(Fs.write(download, "cert bytes"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 0)
-  assert(Fs.read(dir .. "/tree/cacert.pem") == "cert bytes")
+  assert(assert(Fs.read(dir .. "/tree/cacert.pem")) == "cert bytes")
   assert(Fs.exists(dir .. "/tree/old") ~= true, "the stale tree was not pruned")
 end
 
@@ -173,7 +173,7 @@ local function test_an_unreadable_archive_without_a_file_line_is_an_error(dir: s
   local download = dir .. "/pkg.tar.gz"
   assert(Fs.write(download, "not an archive at all"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
-  assert(Fs.read(dir .. "/tree/src/kept.c") == "the tree as it was")
+  assert(assert(Fs.read(dir .. "/tree/src/kept.c")) == "the tree as it was")
   assert(Fs.exists(dir .. "/tree/pkg.tar.gz") ~= true)
 end
 
@@ -240,7 +240,7 @@ local function test_a_pin_may_name_sha3_256_and_every_digest_must_match(dir: str
   assert(not Vendor.matches(path, {}), "no digest matches nothing")
   local fetched, trouble = Vendor.fetch("https://example.invalid/a.zip", path, {})
   assert(fetched == nil and trouble:find("no digest", 1, true) ~= nil, trouble)
-  assert(Fs.read(path) == "hello", "a refused fetch leaves the cache alone")
+  assert(assert(Fs.read(path)) == "hello", "a refused fetch leaves the cache alone")
 end
 
 --- A verified cached download is reused: the url is one no fetch
@@ -264,7 +264,7 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   assert(Fs.mkdirs(tree))
   assert(Fs.write(tree .. "/PIN", "strip thing-1/\nkeep src/*.c\n"))
   assert(Vendor.run({ tree, fetched }, "build/vendor.tl") == 0)
-  assert(Fs.read(tree .. "/src/one.c") == "one")
+  assert(assert(Fs.read(tree .. "/src/one.c")) == "one")
   assert(Fs.exists(tree .. "/doc") ~= true)
 end
 
@@ -331,7 +331,7 @@ local function test_an_unnamed_feed_tree_is_kept_or_refused(dir: string)
   local script = root .. "/build/vendor.tl"
   assert(Fs.write(script, ""))
   assert(Vendor.run({}, script) == 0)
-  assert(Fs.read(root .. "/vendor/feedy/f.json") == "snapshot")
+  assert(assert(Fs.read(root .. "/vendor/feedy/f.json")) == "snapshot")
   assert(Fs.write(root .. "/vendor/feedy/f.json", "changed by hand"))
   assert(Vendor.run({}, script) == 1)
 end

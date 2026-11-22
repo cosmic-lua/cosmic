@@ -29,16 +29,16 @@ local function test_records_are_applied_to_a_copy(dir: string)
   checkout(dir .. "/root", { ["src/a.h"] = "#define X 1\n#define Y 2\n" },
     { ["01-x.txt"] = record("src/a.h", "#define X 1", "#define X 3") })
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
-  assert(Fs.read(dir .. "/out/src/a.h") == "#define X 3\n#define Y 2\n")
-  assert(Fs.read(dir .. "/root/vendor/lib/src/a.h") == "#define X 1\n#define Y 2\n",
+  assert(assert(Fs.read(dir .. "/out/src/a.h")) == "#define X 3\n#define Y 2\n")
+  assert(assert(Fs.read(dir .. "/root/vendor/lib/src/a.h")) == "#define X 1\n#define Y 2\n",
     "the vendored tree itself was edited")
 end
 
 local function test_no_patch_directory_leaves_the_copy_pristine(dir: string)
   checkout(dir .. "/root", { ["src/a.h"] = "same\n" })
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
-  assert(Fs.read(dir .. "/out/src/a.h") == "same\n")
-  assert(Fs.read(dir .. "/out/PIN") ~= nil)
+  assert(assert(Fs.read(dir .. "/out/src/a.h")) == "same\n")
+  assert(Fs.exists(dir .. "/out/PIN") == true)
 end
 
 --- A file keeps its permission bits, which a patched one keeps too; one
@@ -54,8 +54,8 @@ local function test_a_copy_keeps_each_files_mode(dir: string)
   assert(assert(Fs.stat(dir .. "/out/run.sh")).mode & 0x1ff == 0x1ed)
   assert(assert(Fs.stat(dir .. "/out/plain.h")).mode & 0x1ff == 0x180)
   assert(assert(Fs.stat(dir .. "/out/fixed.h")).mode & 0x1ff == 0x124)
-  assert(Fs.read(dir .. "/out/fixed.h") == "y\n")
-  assert(Fs.read(dir .. "/out/run.sh") == "echo new\n")
+  assert(assert(Fs.read(dir .. "/out/fixed.h")) == "y\n")
+  assert(assert(Fs.read(dir .. "/out/run.sh")) == "echo new\n")
 end
 
 --- A file that cannot be written fails the tree, naming the path.
@@ -94,7 +94,7 @@ local function test_a_fence_header_lets_a_record_hold_the_default_fence(dir: str
     { ["01-fence.txt"] = "fence: +++\nfile: doc.txt\nnote: a test\n+++ find\n" ..
         "--- find\nold\n+++ replace\n--- find\nnew\n+++ end\n" })
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
-  assert(Fs.read(dir .. "/out/doc.txt") == "--- find\nnew\n")
+  assert(assert(Fs.read(dir .. "/out/doc.txt")) == "--- find\nnew\n")
 end
 
 --- An empty replace block deletes the find's bytes.
@@ -135,7 +135,7 @@ local function test_records_apply_in_name_order_and_only_txt_counts(dir: string)
     ["03-ignored.orig"] = record("a.h", "three", "four"),
   })
   assert(Patch.tree(dir .. "/root", "lib", dir .. "/out"))
-  assert(Fs.read(dir .. "/out/a.h") == "three\n", Fs.read(dir .. "/out/a.h"))
+  assert(assert(Fs.read(dir .. "/out/a.h")) == "three\n", assert(Fs.read(dir .. "/out/a.h")))
 end
 
 --- The directory a tree is prepared into is named by its contents: the
@@ -146,18 +146,18 @@ local function test_a_prepared_tree_is_named_by_its_contents(dir: string)
   checkout(root, { ["a.h"] = "one\n" }, { ["01.txt"] = record("a.h", "one", "two") })
   local cache = dir .. "/cache"
   local first = assert(Patch.prepare(root, "lib", cache))
-  assert(Fs.read(first .. "/a.h") == "two\n")
+  assert(assert(Fs.read(first .. "/a.h")) == "two\n")
   -- A tree found again is not written again.
   assert(Fs.write(first .. "/marker", "kept"))
   assert(Patch.prepare(root, "lib", cache) == first)
-  assert(Fs.read(first .. "/marker") == "kept")
+  assert(assert(Fs.read(first .. "/marker")) == "kept")
 
   assert(Fs.write(root .. "/vendor/lib/a.h", "one\n\n"))
   local vendored = assert(Patch.prepare(root, "lib", cache))
-  assert(vendored ~= first and Fs.read(vendored .. "/a.h") == "two\n\n")
+  assert(vendored ~= first and assert(Fs.read(vendored .. "/a.h")) == "two\n\n")
   assert(Fs.write(root .. "/patch/lib/01.txt", record("a.h", "one", "three")))
   local recorded = assert(Patch.prepare(root, "lib", cache))
-  assert(recorded ~= vendored and Fs.read(recorded .. "/a.h") == "three\n\n")
+  assert(recorded ~= vendored and assert(Fs.read(recorded .. "/a.h")) == "three\n\n")
   local mode = assert(sys.stat(root .. "/vendor/lib/a.h")).mode & 0x1ff
   assert(sys.chmod(root .. "/vendor/lib/a.h", mode ~ 0x40))
   local moded = assert(Patch.prepare(root, "lib", cache))
@@ -226,11 +226,11 @@ local function test_zig_lib_applies_records_to_a_copy(dir: string)
   local out = dir .. "/cache/lib-key"
   assert(Fs.mkdirs(dir .. "/cache"))
   assert(Patch.zig_lib(dir .. "/root", dir .. "/lib", out))
-  assert(Fs.read(out .. "/std/Cache.zig") == "x y\n")
-  assert(Fs.read(out .. "/std/other.zig") == "same\n")
+  assert(assert(Fs.read(out .. "/std/Cache.zig")) == "x y\n")
+  assert(assert(Fs.read(out .. "/std/other.zig")) == "same\n")
   local st = assert(sys.stat(out .. "/std/Cache.zig"))
   assert(st.mode & 0x1ff == 0x124, string.format("mode %o", st.mode & 0x1ff))
-  assert(Fs.read(dir .. "/lib/std/Cache.zig") == "a b\n", "the release's own library was edited")
+  assert(assert(Fs.read(dir .. "/lib/std/Cache.zig")) == "a b\n", "the release's own library was edited")
 end
 
 --- A record that does not apply fails by name, and leaves nothing at the
@@ -263,7 +263,7 @@ local function test_zig_lib_keeps_one_already_there(dir: string)
   assert(Fs.mkdirs(out .. "/std"))
   assert(Fs.write(out .. "/std/Cache.zig", "theirs\n"))
   assert(Patch.zig_lib(dir .. "/root", dir .. "/lib", out))
-  assert(Fs.read(out .. "/std/Cache.zig") == "theirs\n")
+  assert(assert(Fs.read(out .. "/std/Cache.zig")) == "theirs\n")
 end
 
 --- Every vendored tree with a PIN, in name order.
@@ -290,7 +290,7 @@ local function test_links_are_left_out_and_empty_directories_kept(dir: string)
   assert(Fs.exists(dir .. "/out/linked.h") == false)
   assert(Fs.exists(dir .. "/out/loop") == false)
   assert(assert(Fs.stat(dir .. "/out/empty")).kind == "dir")
-  assert(Fs.read(dir .. "/out/a.h") == "x\n")
+  assert(assert(Fs.read(dir .. "/out/a.h")) == "x\n")
 end
 
 --- Fault injection checks the publication boundary on every platform;
@@ -383,7 +383,7 @@ end
 local function test_native_preparation_flushes_empty_and_nonempty_payloads(tmp: string)
   checkout(tmp .. "/source", { ["src/a.h"] = "native\n" })
   local tree = assert(Patch.prepare(tmp .. "/source", "lib", tmp .. "/cache"))
-  assert(Fs.read(tree .. "/src/a.h") == "native\n")
+  assert(assert(Fs.read(tree .. "/src/a.h")) == "native\n")
   assert(Fs.mkdirs(tmp .. "/empty/vendor/lib"))
   local empty = assert(Patch.prepare(tmp .. "/empty", "lib", tmp .. "/empty-cache"))
   assert(#assert(Fs.list(empty)) == 0)

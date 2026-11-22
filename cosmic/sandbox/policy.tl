@@ -590,7 +590,7 @@ end
 --- [`Sandbox.database`], which says how.
 function rules.database(path: string): rules.Database?, string
   local bytes, why = Fs.read(path)
-  if bytes == nil then return refuse("database " .. why) end
+  if bytes == nil then return refuse("database " .. tostring(why)) end
   return { path = path, sha256 = Hash.hex_sha256(bytes) }, ""
 end
 

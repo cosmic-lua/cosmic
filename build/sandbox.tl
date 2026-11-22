@@ -495,7 +495,7 @@ local function seal_script(file: string, cwd: string?, held: mut {string}): Seal
   local at = file
   if cwd ~= nil and file:sub(1, 1) ~= "/" then at = cwd .. "/" .. file end
   local source, read_trouble = Fs.read(at)
-  if source == nil then return { why = read_trouble, refused = false } end
+  if source == nil then return { why = tostring(read_trouble), refused = false } end
   local code, trouble = standalone.code(file, source)
   if code == nil then return { why = trouble, refused = false } end
   -- The requires are read by the checker that compiled the file: the new one's syntax tree under COSMIC_GRAMMAR=new, the fork's

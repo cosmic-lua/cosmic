@@ -103,7 +103,7 @@ local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: st
   assert(one == assert(Fs.read(tmp .. "/two.tar")), "the same files packed differently")
   local out = Fixture.unpack(tmp .. "/one.tar", tmp .. "/out")
   for _, relative in ipairs(closure) do
-    assert(Fs.read(out .. "/" .. relative) == Fs.read(root .. "/" .. relative), relative)
+    assert(assert(Fs.read(out .. "/" .. relative)) == assert(Fs.read(root .. "/" .. relative)), relative)
   end
   assert(assert(Fs.stat(out .. "/build/a.tl")).mode & 0x1ff == 0x1ed, "a mode was not kept")
 end
@@ -123,7 +123,7 @@ local function test_the_runtime_setup_packs_a_stand_in_for_a_row_of_the_runtime(
   assert(table.concat(closure, " ") == "build/artifact.tl test/portable/probe.tl", table.concat(closure, " "))
   RuntimeSetup.pack(root, closure, tmp .. "/stand.tar", stood_for)
   local out = Fixture.unpack(tmp .. "/stand.tar", tmp .. "/out")
-  assert(Fs.read(out .. "/build/artifact.tl") == "return {}\n")
+  assert(assert(Fs.read(out .. "/build/artifact.tl")) == "return {}\n")
   local missing, _ = Fs.stat(out .. "/build/b.tl")
   assert(missing == nil, "a module the stand-in replaced was packed")
 end

@@ -47,7 +47,7 @@ local function test_absent()
 end
 
 local function test_granted()
-  assert(Fs.read("suite/data/granted.txt") == "granted\n")
+  assert(assert(Fs.read("suite/data/granted.txt")) == "granted\n")
 end
 
 local function test_url()

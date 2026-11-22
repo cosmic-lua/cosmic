@@ -254,7 +254,7 @@ local function arguments(argv: {string}): Request?, string
   request.key = literal
   if key_file ~= nil then
     local text, why = Fs.read(key_file)
-    if text == nil then return nil, "--hmac-file: " .. why end
+    if text == nil then return nil, "--hmac-file: " .. tostring(why) end
     request.key = text
     if text:sub(-1) == "\n" then
       request.warning = "--hmac-file: the key ends in a newline, which is part of it; " ..
@@ -372,7 +372,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   else
     local read, read_why = Fs.read(sums_name)
     if read == nil then
-      complain(read_why)
+      complain(tostring(read_why))
       return bare.refused
     end
     text = read

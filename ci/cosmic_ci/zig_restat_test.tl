@@ -156,7 +156,7 @@ local function test_a_cached_digest_is_compared_to_each_manifest(tmp: string)
   restored(file)
   local result = assert(ZigRestat.restat({ { path = project, prefix = 2 } }, { [4] = tree }))
   assert(result.records == 2 and result.adopted == 1 and result.left == 1 and result.manifests == 1)
-  assert(Fs.read(project .. "/h/" .. name) == first)
+  assert(assert(Fs.read(project .. "/h/" .. name)) == first)
   local records = assert(ZigPrune.records((assert(Fs.read(project .. "/h/" .. other)))))
   assert(assert(records[1]).inode == (assert(sys.stat(file))).ino)
 end
@@ -184,7 +184,7 @@ local function test_what_cannot_be_checked_is_left(tmp: string)
   local written = assert(Fs.read(project .. "/h/" .. name))
   local result2, trouble = ZigRestat.restat({ { path = project, prefix = 2 } }, { [1] = tree })
   assert(result2 == nil and trouble:find(string.rep("d", 32), 1, true) ~= nil, trouble)
-  assert(Fs.read(project .. "/h/" .. name) == written)
+  assert(assert(Fs.read(project .. "/h/" .. name)) == written)
 end
 
 --- The command restats the caches it is given, the global one only
@@ -219,7 +219,7 @@ local function test_a_file_of_another_size_is_left(tmp: string)
   local result = assert(ZigRestat.restat({ { path = project, prefix = 2 },
     { path = shared, prefix = 3 } }, { [4] = tree }))
   assert(result.left == 1 and result.adopted == 0 and result.manifests == 0)
-  assert(Fs.read(project .. "/h/" .. name) == text)
+  assert(assert(Fs.read(project .. "/h/" .. name)) == text)
 end
 
 local function test_the_lib_directory_comes_from_zig_env()

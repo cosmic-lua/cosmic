@@ -77,7 +77,7 @@ local function test_the_smoke_policy_keeps_a_program_from_writing_elsewhere(tmp:
     { timeout_ns = CEILING_NS, policy = Prerelease.smoke_policy(shell, cache), stderr = "capture" })
   assert(result ~= nil, why)
   assert(not result.ok, "the write was allowed")
-  assert(Fs.read(outside) == "kept\n")
+  assert(assert(Fs.read(outside)) == "kept\n")
 end
 
 local function test_manifest_digest()

@@ -171,7 +171,7 @@ end
 function Counts.open(path: string): Counts.Tally?, string
   local text, why = Fs.read(path)
   if text == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   local made: Seen = { words = {} }
   made:add(text)
@@ -277,7 +277,7 @@ local log = Log.new("tally")
 local function input(got: Flags.Parsed): string?
   local text, trouble = Fs.read(got.words[1] or "/dev/stdin")
   if text == nil then
-    log:complain(trouble)
+    log:complain(tostring(trouble))
   end
   return text
 end

@@ -841,7 +841,7 @@ function Lookup.answer(key: string, cache_dir?: string): string
 -- the test: a cache of its own, in its scratch
 local function test_a_lookup_keeps_its_answer_in_the_cache(tmp: string)
   assert(Lookup.answer("a", tmp) == "A")
-  assert(Fs.read(tmp .. "/a") == "A")
+  assert(assert(Fs.read(tmp .. "/a")) == "A")
 end
 ```
 

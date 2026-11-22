@@ -373,7 +373,7 @@ local function workflow_sources(dir: string, root: string): {string}?, string
     if is_yaml(file) then
       local text, read_trouble = Fs.read(base .. "/" .. file)
       if text == nil then
-        return nil, read_trouble
+        return nil, tostring(read_trouble)
       end
       if flow.is_flow(text) then
         out[#out + 1] = prefix .. file
@@ -749,7 +749,7 @@ function fix.lay_out(files: {string}, checking: boolean, changed: mut {string}, 
     local source, read_trouble = Fs.read(file)
     local out, flow_trouble: string?, string
     if source == nil then
-      flow_trouble = read_trouble
+      flow_trouble = tostring(read_trouble)
     elseif not flow.is_flow(source) then
       flow_trouble = "not in flow style: only a YAML file whose value opens with { or [ is laid out"
     else
@@ -851,7 +851,7 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
     local source, read_trouble = Fs.read(file)
     local absolute, absolute_trouble = Fs.absolute(file)
     if source == nil then
-      out[#out + 1] = file .. ": " .. read_trouble
+      out[#out + 1] = file .. ": " .. tostring(read_trouble)
     elseif absolute == nil then
       out[#out + 1] = file .. ": " .. absolute_trouble
     elseif kind ~= nil then
@@ -1233,7 +1233,8 @@ local function check_templates(ctx: Fix)
   for _, file in ipairs(picked.templates) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
-      failures[#failures + 1] = read_trouble -- checked: view_written
+      local said = tostring(read_trouble)
+      failures[#failures + 1] = said -- checked: view_written
     else
       local made, why = template.compile(source, file)
       if made == nil then failures[#failures + 1] = why end -- checked: view_written
@@ -1273,7 +1274,7 @@ local function lay_out_c(ctx: Fix)
     if source ~= nil then
       out, layout_trouble = c_check.laid_out(source)
     else
-      layout_trouble = read_trouble
+      layout_trouble = tostring(read_trouble)
     end
     if out == nil then
       failures[#failures + 1] = file .. ": " .. layout_trouble
@@ -1406,7 +1407,8 @@ local function lay_out_teal(ctx: Fix)
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
-      failures[#failures + 1] = read_trouble
+      local said = tostring(read_trouble)
+      failures[#failures + 1] = said
     else
       local chunk, refusal = SyntaxNode.parse(source, file)
       if chunk == nil then
@@ -1582,7 +1584,8 @@ local function edit_marked(root: string, file: string, edit: function(text: stri
   local path = root .. "/" .. file
   local text, read_trouble = Fs.read(path)
   if text == nil then
-    failures[#failures + 1] = read_trouble
+    local said = tostring(read_trouble)
+    failures[#failures + 1] = said
     return
   end
   local edited = edit(text)
@@ -1680,7 +1683,8 @@ local function run_tree_checks(ctx: Fix)
     else
       local guide, guide_trouble = Fs.read(root .. "/doc/guides/quickstart.md")
       if guide == nil then
-        findings[#findings + 1] = "tree checks: " .. guide_trouble
+        local said = "tree checks: " .. tostring(guide_trouble)
+        findings[#findings + 1] = said
       end
       local carried, carried_trouble = docs_checks.carried(build_paths.resolve(root).projection,
         build_paths.resolve(root).docs_check)

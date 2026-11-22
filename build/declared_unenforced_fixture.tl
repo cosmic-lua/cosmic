@@ -29,7 +29,7 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "suite/data/", letters = "r" } } }
 
 local function test_data()
-  assert(Fs.read("suite/data/f") ~= nil)
+  assert(Fs.read("suite/data/f"))
 end
 ]]))
   assert(Fs.write(root .. "/suite/env_test.tl", [[

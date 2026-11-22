@@ -31,7 +31,7 @@ local function test_a_snippet_that_requires_a_module_the_test_requires_is_typed(
   local chunk, trouble = compile(tmp, [[
 local Fs = require("cosmic.fs")
 return function(argv: {string}): integer
-  local text = Fs.read("/nonexistent")
+  local text, _ = Fs.read("/nonexistent")
   return #argv + (if text == nil then 1 else 0 end)
 end
 ]])
@@ -60,5 +60,5 @@ return function(argv: {string}): integer
   return #argv + size
 end
 ]])
-  assert(chunk == nil and trouble:find("(not_assignable)", 1, true) ~= nil, trouble)
+  assert(chunk == nil and trouble:find("(alternatives_as_value)", 1, true) ~= nil, trouble)
 end

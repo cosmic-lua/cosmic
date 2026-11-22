@@ -81,7 +81,7 @@ local function test_boot_into_reports_a_failed_boot(tmp: string)
   local root = tree_with_zig(tmp, 1)
   local trouble = reboot.boot_into(root, { "test" }, {})
   assert(trouble:find("bin/zig " .. boot_words() .. " failed", 1, true), trouble)
-  assert(Fs.read(root .. "/bin/ran") == boot_words() .. "\n")
+  assert(assert(Fs.read(root .. "/bin/ran")) == boot_words() .. "\n")
 end
 
 --- The boot a run holding the rebuild lock starts is handed that lock
@@ -96,13 +96,13 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   assert(stand_in.place(probe, root .. "/bin/zig",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))
   local _ = reboot.boot_into(root, { "test" }, {})
-  assert(Fs.read(root .. "/bin/handed") == "[]\n", Fs.read(root .. "/bin/handed"))
+  assert(assert(Fs.read(root .. "/bin/handed")) == "[]\n", assert(Fs.read(root .. "/bin/handed")))
   assert(rebuild_lock.take(root, 0, "test") == "held")
   local trouble = reboot.boot_into(root, { "test" }, {})
   rebuild_lock.release()
   assert(trouble:find("bin/zig " .. boot_words() .. " failed", 1, true), trouble)
-  assert(Fs.read(root .. "/bin/handed") == "[" .. layout.lock .. "]\n",
-    Fs.read(root .. "/bin/handed"))
+  assert(assert(Fs.read(root .. "/bin/handed")) == "[" .. layout.lock .. "]\n",
+    assert(Fs.read(root .. "/bin/handed")))
 end
 
 --- After a boot, the tool it wrote is what runs the command again; one
@@ -110,7 +110,7 @@ end
 local function test_boot_into_enters_the_booted_tool(tmp: string)
   local root = tree_with_zig(tmp, 0)
   local trouble = reboot.boot_into(root, { "test" }, {})
-  assert(Fs.read(root .. "/bin/ran") == boot_words() .. "\n")
+  assert(assert(Fs.read(root .. "/bin/ran")) == boot_words() .. "\n")
   assert(trouble ~= "", "boot_into returned without a reason")
 end
 
@@ -152,7 +152,7 @@ local function test_every_core_into_boots_every_core_in_the_checkout(tmp: string
   local trouble, said = complaints(function(): string
     return tostring(reboot.every_core_into({ "build" }, own, {}))
   end)
-  assert(Fs.read(checkout .. "/bin/ran") == every_core_words, Fs.read(checkout .. "/bin/ran"))
+  assert(assert(Fs.read(checkout .. "/bin/ran")) == every_core_words, assert(Fs.read(checkout .. "/bin/ran")))
   assert(said:find("running bin/zig build boot -Dboot-cores=all", 1, true), said)
   -- The stand-in wrote no tool, so there is none to enter.
   assert(trouble ~= "nil" and trouble ~= "", trouble)
@@ -173,7 +173,7 @@ local function test_every_core_into_boots_a_tool_a_stale_reboot_entered(tmp: str
   for _, entered in ipairs({ "1", "2" }) do
     local trouble = reboot.every_core_into({ "build" }, renewed, { COSMIC_REBOOTED = entered })
     assert(trouble ~= nil, "a tool a reboot entered (" .. entered .. ") answered nil")
-    assert(Fs.read(checkout .. "/bin/ran") == every_core_words,
+    assert(assert(Fs.read(checkout .. "/bin/ran")) == every_core_words,
       "a tool a reboot entered (" .. entered .. ") did not boot every core")
     assert(Fs.remove(checkout .. "/bin/ran"))
   end
@@ -186,13 +186,14 @@ local function test_every_core_into_boots_every_core_once(tmp: string)
   local checkout, own = checkout_with_zig(tmp)
   local environment: mut {string:string} = { COSMIC_REBOOTED = "1" }
   assert(reboot.every_core_into({ "build" }, own, environment) ~= nil)
-  assert(Fs.read(checkout .. "/bin/ran") == every_core_words)
+  assert(assert(Fs.read(checkout .. "/bin/ran")) == every_core_words)
   assert(Fs.remove(checkout .. "/bin/ran"))
   -- What the tool it enters runs in, the stand-in having written none to enter.
   assert(environment["COSMIC_REBOOTED"] ~= "1" and environment["COSMIC_REBOOTED"] ~= "2",
     "the boot of every core entered its tool as a stale reboot does")
   assert(reboot.every_core_into({ "build" }, own, environment) == nil, "booted every core a second time")
-  assert(Fs.read(checkout .. "/bin/ran") == nil, "booted every core a second time")
+  local ran, _ = Fs.read(checkout .. "/bin/ran")
+  assert(ran == nil, "booted every core a second time")
 end
 
 --- It boots nothing, and answers nil, where the tool is told not to boot
@@ -201,12 +202,14 @@ end
 local function test_every_core_into_boots_only_where_the_tool_boots(tmp: string)
   local checkout, own = checkout_with_zig(tmp)
   assert(reboot.every_core_into({ "build" }, own, { COSMIC_AUTO_BOOT = "0" }) == nil)
-  assert(Fs.read(checkout .. "/bin/ran") == nil, "booted although told not to")
+  local ran, _ = Fs.read(checkout .. "/bin/ran")
+  assert(ran == nil, "booted although told not to")
 
   local copy: reboot.Seen = { tool = tmp .. "/elsewhere/cosmic", environment = {}, meta = own.meta }
   assert(Fs.mkdirs(tmp .. "/elsewhere"))
   assert(reboot.every_core_into({ "build" }, copy, {}) == nil)
-  assert(Fs.read(checkout .. "/bin/ran") == nil, "a copy of the tool booted its checkout")
+  ran, _ = Fs.read(checkout .. "/bin/ran")
+  assert(ran == nil, "a copy of the tool booted its checkout")
 
   local layout = paths.resolve(checkout)
   local other = assert(sys.open(layout.lock, sys.O_RDWR | sys.O_CREAT, 0x1a4))
@@ -214,11 +217,12 @@ local function test_every_core_into_boots_only_where_the_tool_boots(tmp: string)
   local waited = reboot.every_core_into({ "build" }, own, {})
   assert(sys.close(other))
   assert(waited == nil, tostring(waited))
-  assert(Fs.read(checkout .. "/bin/ran") == nil, "booted a checkout another run holds")
+  ran, _ = Fs.read(checkout .. "/bin/ran")
+  assert(ran == nil, "booted a checkout another run holds")
 
   -- The same tool, with none of those in its way, boots: each case above held it back.
   assert(reboot.every_core_into({ "build" }, own, {}) ~= nil)
-  assert(Fs.read(checkout .. "/bin/ran") == every_core_words, "the tool held back above does not boot at all")
+  assert(assert(Fs.read(checkout .. "/bin/ran")) == every_core_words, "the tool held back above does not boot at all")
 end
 
 --- The tree's compiler has moved from the tool's when their identities
@@ -246,7 +250,7 @@ local function test_rebuild_failed_boots_when_the_compiler_moved(tmp: string)
   local code = reboot.rebuild_failed(root, { "test" },
     "checker: T (unresolved generic)", true, {})
   assert(code == 3, code)
-  assert(Fs.read(root .. "/bin/ran") == boot_words() .. "\n")
+  assert(assert(Fs.read(root .. "/bin/ran")) == boot_words() .. "\n")
 end
 
 --- A boot that then fails says the compile failure it was to mend, which
@@ -269,7 +273,8 @@ local function test_rebuild_failed_does_not_boot_while_the_compiler_stands(tmp: 
   local code = reboot.rebuild_failed(root, { "test" },
     "a type error in the tree", false, {})
   assert(code == 3, code)
-  assert(Fs.read(root .. "/bin/ran") == nil, "a failure of the tree's own booted")
+  local ran, _ = Fs.read(root .. "/bin/ran")
+  assert(ran == nil, "a failure of the tree's own booted")
 end
 
 --- COSMIC_AUTO_BOOT=0 refuses, exit 3, in place of the boot.
@@ -278,7 +283,8 @@ local function test_rebuild_failed_refuses_when_told_not_to_boot(tmp: string)
   local code = reboot.rebuild_failed(root, { "test" },
     "checker: T (unresolved generic)", true, { COSMIC_AUTO_BOOT = "0" })
   assert(code == 3, code)
-  assert(Fs.read(root .. "/bin/ran") == nil, "booted although told not to")
+  local ran, _ = Fs.read(root .. "/bin/ran")
+  assert(ran == nil, "booted although told not to")
 end
 
 --- Only a binary under the tree's o/ is its own tool, judged by the
@@ -702,7 +708,7 @@ local function test_a_fresh_project_run_leaves_the_checkouts_database_unwritten(
     return tostring(reboot.recheck({ "x.tl" }, project, own))
   end)
   assert(code == "nil" and said == "", code .. " " .. said)
-  assert(Fs.read(layout.working) == before, "a project run with a fresh tool wrote the checkout's database")
+  assert(assert(Fs.read(layout.working)) == before, "a project run with a fresh tool wrote the checkout's database")
   local logged, _ = Fs.exists(layout.working .. "-wal")
   assert(logged ~= true, "a project run left a write-ahead log beside the checkout's database")
 end

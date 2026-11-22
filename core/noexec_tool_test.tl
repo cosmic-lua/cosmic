@@ -23,7 +23,7 @@ local function executable(tmp: string): string, string
   local path = noexec .. "/program"
   local bytes = assert(Fs.read(ordinary))
   assert(Fs.write(path, bytes, 0x1c0))
-  assert(Fs.read(path) == bytes)
+  assert(assert(Fs.read(path)) == bytes)
   return ordinary, path
 end
 

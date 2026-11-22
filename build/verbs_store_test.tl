@@ -227,7 +227,7 @@ local function write_programs(tmp: string): string
     assert(Fs.write(tree .. "/cmd/" .. name .. "/main.tl", main))
   end
   assert(Fs.mkdirs(tree .. "/lib"))
-  assert(Fs.write(tree .. "/lib/reader.tl", "local Fs = require(\"cosmic.fs\")\nlocal read: function(string): (string?, string) = Fs.read\nreturn read\n"))
+  assert(Fs.write(tree .. "/lib/reader.tl", "local Fs = require(\"cosmic.fs\")\nlocal function read(path: string): string? local text, _ = Fs.read(path) return text end\nreturn read\n"))
   return tree
 end
 
@@ -396,7 +396,7 @@ local function test_sql_never_stages_the_tree(tmp: string)
     local under = String.starts_with(path, tmp) or String.starts_with(path, real)
     assert(not under, "sql listed " .. path)
   end
-  assert(Fs.read(support.build_dir(tmp) .. "/build.db") == garbage)
+  assert(assert(Fs.read(support.build_dir(tmp) .. "/build.db")) == garbage)
   -- `used` is the record of use that build_dir's own `prepare` made.
   local names = assert(Fs.list(support.build_dir(tmp)))
   assert(table.concat(names, " ") == "build.db used", table.concat(names, " "))

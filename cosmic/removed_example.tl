@@ -426,7 +426,7 @@ function Example.modules_declarations_nil_error()
   local Fs = require("cosmic.fs")
   assert(require("cosmic.fs") == Fs)
   local data, trouble = Fs.read("/no/such/file")
-  assert(data == nil and trouble ~= "")
+  assert(data == nil and tostring(trouble) ~= "")
 end
 
 --- `Removed.message(name, field)` says what replaces a removed global: the

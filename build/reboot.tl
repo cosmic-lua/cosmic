@@ -476,7 +476,7 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   end
   local database, read_trouble = Fs.read(carried_path)
   if database == nil then
-    return closing(handle, read_trouble), false
+    return closing(handle, tostring(read_trouble)), false
   end
   local closed, close_trouble = work.close(handle)
   if not closed then

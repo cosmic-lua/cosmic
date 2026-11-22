@@ -187,7 +187,7 @@ local function test_modules_seals_exactly_the_named_modules(tmp: string)
   assert(whole.code == 3, tostring(whole.code) .. ": " .. whole.out .. whole.err)
   assert(#left_over() == 0, "the sealed database goes with the run")
   -- The core's own module needs no database; as the main it has none to run.
-  local core = cosmic(tmp, { "sandbox", "--modules", "cosmic.fs,cosmic.env,cosmic.sys", "--", program })
+  local core = cosmic(tmp, { "sandbox", "--modules", "cosmic.fs,cosmic.failure,cosmic.env,cosmic.sys", "--", program })
   assert(core.code ~= 125 and core.err:find("not a function", 1, true) ~= nil, tostring(core.code) .. core.err)
   local own = cosmic(tmp, { "sandbox", "--modules", "cosmic.sys,cosmic.fs,cosmic.env", "--", program })
   assert(own.code == 2 and own.err:find("cosmic.sys", 1, true) ~= nil, tostring(own.code) .. own.err)

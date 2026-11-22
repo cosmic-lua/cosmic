@@ -55,7 +55,8 @@ local function start(tmp: string, program: string, grants: {raw_process.Grant}, 
   end
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
-  return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
+  local got, _ = Fs.read(path)
+  return { code = status.code, signal = status.signal, said = (got) or "" }
 end
 
 --- Whether `outcome` is a start refused for want of a sandbox: no Landlock
@@ -123,11 +124,11 @@ local function test_a_write_needs_w_and_a_truncate_too(tmp: string)
   assert(without.code == 1 and without.said:find(DENIED, 1, true) ~= nil, "refused: " .. without.said)
   local blocked = under(tmp, probe, { { path = file, access = "r" } }, "truncate " .. file)
   assert(blocked.code == 1 and blocked.said:find(DENIED, 1, true) ~= nil, "refused: " .. blocked.said)
-  assert(Fs.read(file) == "kept")
+  assert(assert(Fs.read(file)) == "kept")
   local with = under(tmp, probe, { { path = file, access = "w" } },
     "writable " .. file .. " && truncate " .. file)
   assert(with.code == 0, with.said)
-  assert(Fs.read(file) == "")
+  assert(assert(Fs.read(file)) == "")
   -- `w` writes what is there; it makes nothing, in a directory it is given.
   assert(Fs.mkdirs(tmp .. "/d"))
   local made = under(tmp, probe, { { path = tmp .. "/d", access = "rw" } },
@@ -157,7 +158,7 @@ local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: s
     if unsandboxable(read) then Test.skip(assert(read.refused)) end
     assert(read.code == 1 and read.said:find(refusal, 1, true) ~= nil,
       shown .. ": refused: " .. tostring(read.refused) .. " " .. read.said)
-    assert(Fs.read(file) == "kept")
+    assert(assert(Fs.read(file)) == "kept")
     local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
     if ruleset == nil then Test.skip("no ruleset: " .. tostring(trouble)) end
     local path = tmp .. "/said"
@@ -168,20 +169,21 @@ local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: s
     assert(pid ~= nil, tostring(why))
     local status = assert(process.waitpid(pid, false))
     sys.close(output)
-    local said = Fs.read(path) or ""
+    local got, _ = Fs.read(path)
+    local said = got or ""
     assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
       shown .. ": the filter's refusal, though the ruleset gives the file: " ..
         tostring(status.code) .. " " .. said)
-    assert(Fs.read(file) == "kept")
+    assert(assert(Fs.read(file)) == "kept")
     local written = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "rw" } },
       script, promises)
     if abi >= 3 then
       assert(written.code == 0, shown .. ": a `w` grant truncates: " .. written.said)
-      assert(Fs.read(file) == "")
+      assert(assert(Fs.read(file)) == "")
     else
       assert(written.code == 1 and written.said:find("not permitted", 1, true) ~= nil,
         shown .. ": " .. written.said)
-      assert(Fs.read(file) == "kept")
+      assert(assert(Fs.read(file)) == "kept")
     end
   end
 end
@@ -343,7 +345,7 @@ end
 --- Ends the process whose pid file `path` holds, if there is one: a
 --- grandchild a refused signal left running.
 local function end_left_by(path: string)
-  local held = Fs.read(path)
+  local held, _ = Fs.read(path)
   local pid = held and math.tointeger(held:match("^(%d+)"))
   if pid ~= nil then sys.kill(pid, sys.SIGKILL) end
 end
@@ -418,7 +420,8 @@ local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tm
   assert(pid ~= nil, tostring(why))
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
-  local said = Fs.read(path) or ""
+  local got, _ = Fs.read(path)
+  local said = got or ""
   assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
     "its own pid only: " .. tostring(status.code) .. " " .. said)
 end
@@ -445,5 +448,5 @@ local function test_c_on_a_file_grants_nothing(tmp: string)
   assert(read.code == 1 and read.said:find(DENIED, 1, true) ~= nil, "not read: " .. read.said)
   local removed = under(tmp, probe, { { path = file, access = "c" } }, "rm " .. file)
   assert(removed.code == 1 and removed.said:find(DENIED, 1, true) ~= nil, "not removed: " .. removed.said)
-  assert(Fs.read(file) == "kept\n")
+  assert(assert(Fs.read(file)) == "kept\n")
 end

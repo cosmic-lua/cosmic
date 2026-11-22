@@ -167,7 +167,7 @@ end
 --- With no declaration file named, a module of the binary's own is the one it carries, as a standalone run types it: the
 --- mistake after it is reported and nothing is called invalid.
 local function test_a_cosmic_module_is_typed_from_the_binary_when_no_declaration_is_named(tmp: string)
-  local text = "local Fs = require(\"cosmic.fs\")\nlocal data = Fs.read(\"x\")\nlocal n: integer = data\nreturn n\n"
+  local text = "local Fs = require(\"cosmic.fs\")\nlocal data, _ = Fs.read(\"x\")\nlocal n: integer = data\nreturn n\n"
   local ran = run({ "--errors", file(tmp, "uses.tl", text) })
   assert(ran.code == 0, ran.err)
   assert(not ran.err:find("unchecked_binding", 1, true), ran.err)
@@ -178,7 +178,7 @@ end
 --- Given a declaration file, a module of the binary's own is one the checker cannot declare: typed `invalid`, and said so.
 local function test_a_cosmic_module_is_invalid_and_reported_beside_a_declaration_file(tmp: string)
   local decl = file(tmp, "std.d.tl", "--- @kind binding\nglobal print: function(...: any)\n")
-  local text = "local Fs = require(\"cosmic.fs\")\nlocal data = Fs.read(\"x\")\nlocal n: integer = data\nreturn n\n"
+  local text = "local Fs = require(\"cosmic.fs\")\nlocal data, _ = Fs.read(\"x\")\nlocal n: integer = data\nreturn n\n"
   local ran = run({ "--errors", decl, file(tmp, "uses.tl", text) })
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("uses.tl:1:", 1, true) and ran.err:find("(unchecked_binding)", 1, true), ran.err)

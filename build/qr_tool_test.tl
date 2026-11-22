@@ -21,7 +21,7 @@ end
 local function test_it_writes_an_svg_file(tmp: string)
   local ran = tool_fixture.cosmic(tmp, { "qr", "--svg", "code.svg", "x" })
   assert(ran.code == 0 and ran.out == "" and ran.err == "", ran.out .. ran.err)
-  assert(Fs.read(tmp .. "/code.svg") == Qr.svg((assert(Qr.encode("x")))) .. "\n")
+  assert(assert(Fs.read(tmp .. "/code.svg")) == Qr.svg((assert(Qr.encode("x")))) .. "\n")
   local read = tool_fixture.cosmic(tmp, { "qr", "--read", "code.svg" })
   assert(read.code == 0 and read.out == "x\n" and read.err == "", read.out .. read.err)
 end

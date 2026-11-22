@@ -2778,7 +2778,7 @@ local function shared_core(core: string): string?, string
   if there == nil or there.kind ~= "file" or there.uid ~= 0 or there.mode & 0xfff ~= 0x16d then
     local data, read_trouble = Fs.read(core)
     if data == nil then
-      failure = core .. ": " .. read_trouble
+      failure = core .. ": " .. tostring(read_trouble)
     else
       local staged = SHARED_CORES .. "/.staged-" .. tostring(sys.getpid())
       local ok, trouble = Fs.write(staged, data, 0x16d)
@@ -2864,7 +2864,7 @@ local function database_holds(database: Rules.Database, path: string): boolean, 
   local digest = database.sha256
   if digest == nil then return true, "" end
   local bytes, why = Fs.read(path)
-  if bytes == nil then return false, "database " .. why end
+  if bytes == nil then return false, "database " .. tostring(why) end
   if Hash.hex_sha256(bytes) ~= digest then
     return false, "database " .. path .. " is not the one its policy names: " ..
       "its SHA-256 has changed since"

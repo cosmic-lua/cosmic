@@ -39,7 +39,7 @@ end
 
 function fixture.read(path: string): fixture.Artifact?, string
   local bytes, read_trouble = Fs.read(path)
-  if bytes == nil then return nil, read_trouble end
+  if bytes == nil then return nil, tostring(read_trouble) end
   if #bytes < 48 or bytes:sub(-48, -41) ~= "CosmicT1" then
     return nil, path .. ": portable trailer is missing"
   end

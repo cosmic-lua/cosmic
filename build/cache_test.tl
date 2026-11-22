@@ -109,7 +109,7 @@ local function test_whole_verdicts_never_vacuum_or_delete_active_rows(tmp: strin
   local result = trim(path, "verdicts")
   assert(result.complete and support.nth(result.report.files, 1).kept == 1)
   assert(support.nth(result.report.files, 1).removed == 0 and support.nth(result.report.files, 1).reached == nil)
-  assert(Fs.read(path) == before)
+  assert(assert(Fs.read(path)) == before)
 end
 
 local function test_future_shapes_and_constraints_remain_whole(tmp: string)
@@ -151,7 +151,7 @@ local function test_missing_and_unreadable_active_files_are_never_created_or_rem
   assert(Fs.write(path, "not a SQLite database"))
   result = trim(path, "compiles", 5)
   assert(not result.complete and support.nth(result.report.files, 1).state == "failed" and result.report.digest == nil)
-  assert(Fs.read(path) == "not a SQLite database")
+  assert(assert(Fs.read(path)) == "not a SQLite database")
 end
 
 local function test_only_exact_retired_basename_siblings_are_removed(tmp: string)
@@ -166,8 +166,8 @@ local function test_only_exact_retired_basename_siblings_are_removed(tmp: string
   local result = trim(path, "compiles", 5)
   assert(result.complete and #support.nth(result.report.files, 1).removed_set_aside == #retired)
   for _, suffix in ipairs(retired) do assert(Fs.stat(path .. suffix) == nil) end
-  for _, suffix in ipairs(kept) do assert(Fs.read(path .. suffix) == "unowned") end
-  assert(Fs.read(other) == "other")
+  for _, suffix in ipairs(kept) do assert(assert(Fs.read(path .. suffix)) == "unowned") end
+  assert(assert(Fs.read(other)) == "other")
 end
 
 local function test_retired_names_do_not_authorize_removing_other_file_kinds(tmp: string)
@@ -185,7 +185,7 @@ local function test_retired_names_do_not_authorize_removing_other_file_kinds(tmp
   local result = trim(path, "compiles", 5)
   assert(result.complete, support.nth(result.report.files, 1).reason)
   assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
-  assert(Fs.read(directory .. "/keep") == "inside")
+  assert(assert(Fs.read(directory .. "/keep")) == "inside")
   assert(assert(sys.lstat(link)).kind == "link" and Fs.readlink(link) == path)
   assert(assert(sys.lstat(pipe)).kind == "fifo")
   assert(count(path, "compiled_v2") == 1)
@@ -208,7 +208,7 @@ local function test_failed_retired_file_removal_withholds_save_digest(tmp: strin
   assert(ok and not result.complete and result.report.digest == nil)
   assert(support.nth(result.report.files, 1).reason == "injected unlink failure")
   assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
-  assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
+  assert(assert(Fs.read(retired)) == "retired" and count(path, "compiled_v2") == 1)
 end
 
 local function test_retired_file_disappearance_before_inspection_is_harmless(tmp: string)
@@ -245,7 +245,7 @@ local function test_failed_retired_file_inspection_withholds_save_digest(tmp: st
   assert(ok and not result.complete and result.report.digest == nil)
   assert(support.nth(result.report.files, 1).reason == "injected lstat failure")
   assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
-  assert(Fs.read(retired) == "retired" and count(path, "compiled_v2") == 1)
+  assert(assert(Fs.read(retired)) == "retired" and count(path, "compiled_v2") == 1)
 end
 
 local function test_digest_ignores_stamps_pages_and_locations_but_keeps_cell_kinds(tmp: string)
@@ -414,5 +414,5 @@ local function test_one_failed_verdict_file_suppresses_the_aggregate_save(tmp: s
   assert(not result.complete and result.report.digest == nil and result.report.fresh == nil)
   assert(#result.report.files == 2 and support.nth(result.report.files, 1).state == "kept" and
       support.nth(result.report.files, 1).kept == 1 and support.nth(result.report.files, 2).state == "failed")
-  assert(count(healthy, "stores_v1") == 1 and Fs.read(broken) == "unreadable active cache")
+  assert(count(healthy, "stores_v1") == 1 and assert(Fs.read(broken)) == "unreadable active cache")
 end

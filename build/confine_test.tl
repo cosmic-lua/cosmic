@@ -149,7 +149,8 @@ local function test_a_worker_sandboxed_to_what_it_needs_starts_and_confines_its_
   -- Root that has given up CAP_SETFCAP (bit 31 of CapEff) -- as root
   -- in a sandbox has -- may not map root into a user namespace of its
   -- own, so its worker starts unmapped and cannot confine another.
-  local status = Fs.read("/proc/self/status") or ""
+  local got, _ = Fs.read("/proc/self/status")
+  local status = got or ""
   local effective = status:match("\nCapEff:%s*(%x+)") or "0"
   local capabilities = math.tointeger(tonumber(effective:sub(-8), 16)) or 0
   local inner_root = sys.getuid() == 0 and capabilities & (1 << 31) == 0

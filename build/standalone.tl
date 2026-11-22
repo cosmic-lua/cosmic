@@ -219,7 +219,7 @@ function standalone.run(argv: {string}, why?: string): integer
   end
   local source, read_trouble = Fs.read(file)
   if source == nil then
-    log:complain(read_trouble)
+    log:complain(tostring(read_trouble))
     return 1
   end
   local outcome: importer.Outcome = { refused = false }
