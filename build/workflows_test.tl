@@ -1573,7 +1573,8 @@ local function test_only_main_saves_and_only_the_queue_relays_to_main()
         end
         assert(held, name .. "'s " .. tostring(step.name) .. " saves off main: " .. condition)
       end
-      assert(with_of(step)["run-id"] == nil or step.id == "queue-download" or step.id == "queue-checks",
+      assert(with_of(step)["run-id"] == nil or step.id == "queue-download" or step.id == "queue-checks" or
+          step.id == "queue-compiles",
         name .. "'s " .. tostring(step.name) .. " takes another run's artifact")
     end
   end
@@ -1620,6 +1621,48 @@ local function test_the_format_check_takes_the_queues_memo_through_main()
   assert(save["if"] == SAVES .. " && steps.queue-checks-held.outcome == 'success'" and param(save, "path") == file and
       param(save, "key") == "checks-${{ matrix.leg }}-${{ github.sha }}" and save["continue-on-error"] == true,
     "the memo's save: " .. tostring(save["if"]))
+end
+
+--- Main's push takes the compiles and parses of the queue's run of its
+--- commit in place of the entry it restored, and saves them before the
+--- tree moves, minutes ahead of its own save, which it then skips. The
+--- queue uploads them where its native suite passed, as main's save would
+--- keep them; the relay never fails the leg.
+local function test_mains_push_saves_the_queues_compiles_at_once()
+  local steps = job_of(ci_workflow().jobs, "platform").steps
+  local _, find_at = step_with_id(steps, "queue-run")
+  local _, restore_at = step_with_id(steps, "compiles-restore")
+  local download, download_at = step_with_id(steps, "queue-compiles")
+  local taken, taken_at = step_with_id(steps, "queue-compiles-taken")
+  local early, early_at = step_with_id(steps, "queue-compiles-save")
+  local _, placed_at = step_named(steps, "move the tree to a path of its own")
+  local _, boot_at = step_with_id(steps, "boot")
+  local trim, trim_at = step_with_id(steps, "compiles-trim")
+  local upload, upload_at = step_named(steps, "upload the merge queue's compiles and parses")
+  local late = step_named(steps, "save compiles and parses")
+  assert(find_at < download_at and restore_at < download_at and download_at < taken_at and taken_at < early_at and
+      early_at < placed_at and early_at < boot_at and trim_at < upload_at, "the compiles are relayed out of order")
+  local dir = "${{ runner.temp }}/build-cache"
+  assert(download["if"] == "steps.queue-run.outputs.run != ''" and download["continue-on-error"] == true and
+      param(download, "name") == "queue-compiles-${{ matrix.leg }}" and
+      param(download, "run-id") == "${{ steps.queue-run.outputs.run }}" and param(download, "path") ~= dir,
+    "the compiles' download")
+  assert(taken["if"] == "steps.queue-compiles.outcome == 'success'" and taken["continue-on-error"] == true,
+    "the compiles are taken in otherwise")
+  assert(early["if"] == SAVES .. " && steps.queue-compiles-taken.outcome == 'success'" and
+      early["continue-on-error"] == true and param(early, "path") == dir and
+      param(early, "key") == "compiles-${{ matrix.leg }}-queue-${{ github.sha }}", "the queue's compiles' save")
+  assert(trim["if"] == "always() && steps.driver.outcome == 'success' && (" .. SAVES .. " || github.event_name == 'merge_group')",
+    "the compiles' trim: " .. tostring(trim["if"]))
+  assert(upload["if"] == "github.event_name == 'merge_group' && job.status == 'success' && " ..
+      "steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != ''" and
+      upload["continue-on-error"] == true and param(upload, "path") == dir and
+      param(upload, "name") == "queue-compiles-${{ matrix.leg }}", "the compiles' upload: " .. tostring(upload["if"]))
+  -- The trim runs in the queue too, so main's own save holds the saves' condition itself.
+  assert(late["if"] == "always() && " .. SAVES .. " && steps.queue-compiles-save.outcome != 'success' && " ..
+      "steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && " ..
+      "steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
+    "main's own save of the compiles: " .. tostring(late["if"]))
 end
 
 --- The queue's linux-x86_64 leg uploads the verdicts it trimmed where
