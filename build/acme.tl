@@ -158,8 +158,16 @@ local standard: verb.Io = {
     return true, ""
   end,
   create = create,
-  mkdirs = function(path: string): boolean, string return Fs.mkdirs(path) end,
-  remove = function(path: string): boolean, string return Fs.remove(path) end,
+  mkdirs = function(path: string): boolean, string
+    local made, why = Fs.mkdirs(path)
+    if not made then return false, tostring(why) end
+    return true, ""
+  end,
+  remove = function(path: string): boolean, string
+    local removed, why = Fs.remove(path)
+    if not removed then return false, tostring(why) end
+    return true, ""
+  end,
   run = default_run,
   request = function(method: string, url: string, opts: Http.Options): Http.Body?, string
     return Http.request(method, url, opts)

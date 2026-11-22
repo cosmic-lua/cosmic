@@ -219,7 +219,7 @@ function paths.prepare(root: string, environment?: {string:string}): string?, st
     if made == nil then return nil, "build directory base " .. made_trouble end
   else
     local made, made_trouble = mkdirs(dirname(selected.home))
-    if not made then return nil, "COSMIC_BUILD_HOME " .. made_trouble end
+    if not made then return nil, "COSMIC_BUILD_HOME " .. tostring(made_trouble) end
     local created, create_trouble, errno = mkdir(selected.home, 0x1c0)
     if not created and errno ~= EEXIST then
       return nil, "COSMIC_BUILD_HOME " .. selected.home .. ": " .. create_trouble

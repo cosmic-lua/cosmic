@@ -225,7 +225,7 @@ local function clean_aside(file: maintenance.File): boolean, string
           if entry_errno ~= sys.ENOENT then return false, entry_why end
         elseif entry.kind == "file" then
           local ok, remove_why = Fs.remove(path)
-          if not ok then return false, remove_why end
+          if not ok then return false, tostring(remove_why) end
           file.removed_set_aside[#file.removed_set_aside + 1] = path
         end
       end

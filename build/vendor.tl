@@ -310,7 +310,7 @@ local function prune(tree: string, files: {string:boolean}, under?: string): boo
     elseif path ~= "PIN" and files[path] ~= true then
       local gone, why = Fs.remove(tree .. "/" .. path)
       if not gone then
-        return false, why
+        return false, tostring(why)
       end
     end
   end
@@ -334,12 +334,12 @@ local function install(tree: string, scratch: string, files: {string:string}): i
     if dir ~= nil then
       local made, trouble = Fs.mkdirs(tree .. "/" .. dir)
       if not made then
-        return nil, trouble
+        return nil, tostring(trouble)
       end
     end
     local moved, trouble = Fs.rename(scratch .. "/" .. path, tree .. "/" .. under)
     if not moved then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     count = count + 1
   end

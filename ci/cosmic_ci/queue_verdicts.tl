@@ -261,7 +261,7 @@ function QueueVerdicts.merge(from: string, into: string): QueueVerdicts.Said
   local err: mut {string} = {}
   local made, made_trouble = Fs.mkdirs(into)
   if not made then
-    return { code = 0, out = "", err = "verdicts-merge: " .. into .. ": " .. made_trouble .. "\n" }
+    return { code = 0, out = "", err = "verdicts-merge: " .. tostring(made_trouble) .. "\n" }
   end
   for _, name in ipairs(names) do
     local source, target = from .. "/" .. name, into .. "/" .. name

@@ -153,7 +153,7 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
       end
       local removed, why = Fs.remove(workspace)
       if not removed then
-        host.warn("place-tree: " .. why)
+        host.warn("place-tree: " .. tostring(why))
         return 1
       end
     end
@@ -162,7 +162,7 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
     if exists_already ~= true and is_tree == true then
       local moved, why = Fs.rename(tree, workspace)
       if not moved then
-        host.warn("place-tree: " .. why)
+        host.warn("place-tree: " .. tostring(why))
         return 1
       end
       host.print("the tree is back at " .. workspace .. " from " .. tree)
@@ -183,7 +183,7 @@ function PlaceTree.run(host: PlaceTree.Host, mode: string): integer
   end
   local moved, why = Fs.rename(workspace, tree)
   if not moved then
-    host.warn("place-tree: " .. why)
+    host.warn("place-tree: " .. tostring(why))
     return 1
   end
   local made, trouble = Fs.symlink(relative, workspace)

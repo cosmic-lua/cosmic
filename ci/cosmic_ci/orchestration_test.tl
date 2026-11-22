@@ -292,10 +292,11 @@ end
 local function test_platform_protects_paths_and_retains_primary_failure(tmp: string)
   local base, project = command(tmp)
   local fake, seed = tmp .. "/fake", tmp .. "/seed"
-  assert(Fs.mkdirs(fake .. "/bin") and
-      Fs.mkdirs(fake .. "/ci/testdata/portable") and
-      Fs.mkdirs(seed .. "/zig-cache") and Fs.mkdirs(seed .. "/zig-global") and
-      Fs.mkdirs(tmp .. "/temporary"))
+  assert(Fs.mkdirs(fake .. "/bin"))
+  assert(Fs.mkdirs(fake .. "/ci/testdata/portable"))
+  assert(Fs.mkdirs(seed .. "/zig-cache"))
+  assert(Fs.mkdirs(seed .. "/zig-global"))
+  assert(Fs.mkdirs(tmp .. "/temporary"))
   assert(Fs.write(seed .. "/build.db", "poison"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   Fixture.copy("testdata/portable/work_db_integrity.tl",
@@ -1273,8 +1274,9 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests(tmp: strin
   local runner_temp = fake .. "-runner-temp"
   local work = runner_temp .. "/cosmic-ci/platform"
   local diagnostics = work .. "/portable-diagnostics"
-  assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
-      Fs.mkdirs(work .. "/portable-source"))
+  assert(Fs.mkdirs(fake))
+  assert(Fs.mkdirs(diagnostics))
+  assert(Fs.mkdirs(work .. "/portable-source"))
   assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
   local executable = diagnostics .. "/cosmic-portable"
   local seen = fake .. "-seen"
@@ -1394,8 +1396,10 @@ local function test_the_portable_suite_stands_on_the_local_suites_verdicts(tmp: 
     local work = runner_temp .. "/cosmic-ci/platform"
     local diagnostics = work .. "/portable-diagnostics"
     local fresh = work .. "/portable-source"
-    assert(Fs.mkdirs(fake) and Fs.mkdirs(diagnostics) and
-        Fs.mkdirs(fresh .. "/o") and Fs.mkdirs(fresh .. "/ci/testdata/portable"))
+    assert(Fs.mkdirs(fake))
+    assert(Fs.mkdirs(diagnostics))
+    assert(Fs.mkdirs(fresh .. "/o"))
+    assert(Fs.mkdirs(fresh .. "/ci/testdata/portable"))
     assert(Fs.write(fake .. "/AGENTS.md", "fixture\n"))
     build_resolver(fresh)
     assert(Fs.write(fresh .. "/o/build.db", "db"))

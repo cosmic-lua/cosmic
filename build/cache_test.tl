@@ -1,5 +1,5 @@
 --- Real SQLite caches exercise retention, save identities and conservative failures.
-local type Failure = require("cosmic.failure")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
@@ -200,14 +200,14 @@ local function test_failed_retired_file_removal_withholds_save_digest(tmp: strin
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = Fs.remove
-  Fs.remove = function(name: string): boolean, string -- checked: field_fixed
-    if name == retired then return false, "injected unlink failure" end
+  Fs.remove = function(name: string): (true) | (false, Failure) -- checked: field_fixed
+    if name == retired then return false, Failure.new("injected unlink failure", name) end
     return original(name)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.remove = original -- checked: field_fixed
   assert(ok and not result.complete and result.report.digest == nil)
-  assert(support.nth(result.report.files, 1).reason == "injected unlink failure")
+  assert(support.nth(result.report.files, 1).reason == retired .. ": injected unlink failure")
   assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
   assert(assert(Fs.read(retired)) == "retired" and count(path, "compiled_v2") == 1)
 end

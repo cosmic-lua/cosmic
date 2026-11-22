@@ -1020,7 +1020,7 @@ local function let_go_of_another_schema(db: Sqlite.Handle, path: string, file: s
     local removed, remove_trouble = Fs.remove(path)
     if not removed then
       local _, _ = db:close()
-      return false, remove_trouble
+      return false, tostring(remove_trouble)
     end
   end
   local _, _ = db:close()
@@ -1072,7 +1072,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   else
     local made, mkdir_trouble = Fs.mkdirs(dir)
     if not made then
-      return nil, mkdir_trouble
+      return nil, tostring(mkdir_trouble)
     end
     out = dir
   end

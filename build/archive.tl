@@ -423,13 +423,13 @@ local function apply_steps(tree: string, dest: string, aside: string, steps: {St
         step.backup = aside .. "/" .. tostring(slot)
         local moved, why = Fs.rename(target, step.backup)
         if not moved then
-          trouble = why
+          trouble = tostring(why)
           break
         end
       end
       local moved, why = Fs.rename(from, target)
       if not moved then
-        trouble = why
+        trouble = tostring(why)
         if step.replace then local _, _ = Fs.rename(step.backup, target) end
         break
       end
@@ -504,7 +504,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local parents_made, parents_why = Fs.mkdirs(parent)
   if not parents_made then
     local _, _ = inner:close()
-    return fail(bare.refused, trouble_of(file, file, parents_why))
+    return fail(bare.refused, trouble_of(file, file, tostring(parents_why)))
   end
   local made_stage, stage_why = sys.mkdtemp(parent .. "/.cosmic-extract-XXXXXX")
   if made_stage == nil then
@@ -595,7 +595,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
       -- `dest` is a file or a directory that appeared since: say what
       -- a direct extraction would have.
       local made_dest, made_why = Fs.mkdirs(dest)
-      return give_up(fail(bare.refused, trouble_of(file, file, if made_dest then move_why else made_why end)))
+      return give_up(fail(bare.refused, trouble_of(file, file, tostring(if made_dest then move_why else made_why end))))
     end
     local _, _ = Fs.remove_tree(stage)
     return print_written(written, to)

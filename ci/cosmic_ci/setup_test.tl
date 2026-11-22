@@ -74,8 +74,9 @@ end
 --- same bytes, which unpack to what they were.
 local function test_the_runtime_setup_packs_a_closure_the_same_each_time(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/test/portable") and Fs.mkdirs(root .. "/build") and
-      Fs.mkdirs(root .. "/cosmic"))
+  assert(Fs.mkdirs(root .. "/test/portable"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/cosmic"))
   assert(Fs.write(root .. "/test/portable/tool.tl",
     'local Fs = require("cosmic.fs")\nlocal fixture = require("test.portable")\n' ..
       'local a = require( "build.a" )\nlocal gone = require("build.gone")\n' ..

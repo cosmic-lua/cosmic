@@ -111,7 +111,7 @@ local function stage(root: string, working: build_paths.Layout, output: build_pa
                      started: integer): Staged?
   local made, mkdir_trouble = Fs.mkdirs(output.bin)
   if not made then
-    log:complain("boot: " .. mkdir_trouble)
+    log:complain("boot: " .. tostring(mkdir_trouble))
     return nil
   end
   local grammar_trouble = GrammarMode.refusal()

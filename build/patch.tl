@@ -383,7 +383,7 @@ local function write_tree(tree: Tree, out: string): boolean, string
   for _, dir in ipairs(dirs) do
     local made, trouble = Fs.mkdirs(dir)
     if not made then
-      return false, trouble
+      return false, tostring(trouble)
     end
     local moded, mode_trouble = Fs.chmod(dir, tree.dir_mode)
     if not moded then
@@ -467,7 +467,7 @@ function Patch.prepare(root: string, name: string, cache: string): string?, stri
   end
   local made, made_trouble = Fs.mkdirs(cache)
   if not made then
-    return nil, made_trouble
+    return nil, tostring(made_trouble)
   end
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end
@@ -492,7 +492,7 @@ function Patch.prepare(root: string, name: string, cache: string): string?, stri
     if raced == true then
       return dir, ""
     end
-    return nil, move_trouble
+    return nil, tostring(move_trouble)
   end
   -- The rename itself, so the next build finds the tree rather than
   -- writing it again. Best effort: the tree at its name is whole
@@ -550,7 +550,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
       -- A fresh file, for one the copy keeps read-only.
       local removed, remove_trouble = Fs.remove(path)
       if not removed then
-        return false, remove_trouble
+        return false, tostring(remove_trouble)
       end
       local written, write_trouble = write_synced(path, applied, st.mode & 0x1ff)
       if not written then
@@ -565,7 +565,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
     if raced == true then
       return true, ""
     end
-    return false, move_trouble
+    return false, tostring(move_trouble)
   end
   return true, ""
 end

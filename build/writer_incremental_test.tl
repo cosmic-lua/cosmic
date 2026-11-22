@@ -104,7 +104,7 @@ local function write_tree(root: string, tree: string, gone: string)
   assert(Fs.mkdirs(root))
   for name in gone:gmatch("%S+") do
     for _, suffix in ipairs({ ".tl", "_example.tl", ".d.tl" }) do
-      local _ = Fs.remove(root .. "/" .. name .. suffix)
+      local _, _ = Fs.remove(root .. "/" .. name .. suffix)
     end
   end
   for line in tree:gmatch("[^\n]+") do
@@ -114,16 +114,16 @@ local function write_tree(root: string, tree: string, gone: string)
     local declaration = root .. "/" .. spec.name .. ".d.tl"
     if spec.declared > 0 then
       assert(Fs.write(declaration, declaration_source(spec)))
-      local _ = Fs.remove(source)
+      local _, _ = Fs.remove(source)
     else
       assert(Fs.write(source, module_source(spec)))
-      local _ = Fs.remove(declaration)
+      local _, _ = Fs.remove(declaration)
     end
     local example = root .. "/" .. spec.name .. "_example.tl"
     if spec.example > 0 then
       assert(Fs.write(example, example_source(spec)))
     else
-      local _ = Fs.remove(example)
+      local _, _ = Fs.remove(example)
     end
   end
   assert(Fs.write(root .. "/main.tl", "return function(): integer\n  return 0\nend\n"))
@@ -337,7 +337,7 @@ local function write_both(handle: work.Handle, out: string, whole: string, tool:
   assert(writer.write_result(handle, out, result))
   local taken = reused(handle)
   assert(handle.db:exec("DROP TABLE IF EXISTS temp.reused"))
-  local _ = Fs.remove(whole)
+  local _, _ = Fs.remove(whole)
   assert(writer.write_result(handle, whole, result))
   assert(reused(handle) == 0, "a write with nothing standing took modules from a base")
   return taken

@@ -1433,7 +1433,7 @@ function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
 
   local function issued(): Tls.Pair?, string
     local made, unmade = Fs.mkdirs(dir, OWNER_DIR)
-    if not made then return nil, "acme: " .. unmade end
+    if not made then return nil, "acme: " .. tostring(unmade) end
     local session = client
     if session == nil then
       local key, why = account_key(dir .. "/account.pem")

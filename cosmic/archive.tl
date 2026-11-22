@@ -493,7 +493,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   local dest_made, dest_trouble = Fs.mkdirs(dest)
   if not dest_made then
     local _, _ = reader:close()
-    return nil, dest_trouble
+    return nil, tostring(dest_trouble)
   end
 
   local written: mut {string} = {}

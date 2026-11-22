@@ -596,7 +596,7 @@ local function notes_pipe(): Notes?, string
   if reader ~= nil then local _, _ = sys.close(reader) end
   if writer ~= nil then local _, _ = sys.close(writer) end
   if not removed and reader ~= nil and writer ~= nil then
-    why = dir .. ": " .. tostring(remove_why)
+    why = tostring(remove_why)
   end
   return nil, tostring(why)
 end

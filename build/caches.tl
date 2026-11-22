@@ -92,7 +92,7 @@ end
 function caches.make(directories: {string}): boolean, string
   for _, path in ipairs(directories) do
     local made, trouble = Fs.mkdirs(path)
-    if not made then return false, path .. ": " .. trouble end
+    if not made then return false, tostring(trouble) end
   end
   return true, ""
 end

@@ -1595,8 +1595,8 @@ local function sweep(rec: Recording, jobs: {Job}, ended?: boolean)
     if (ended == true or job.passed == true) and scratch ~= nil then
       local gone, trouble = Fs.remove_tree(scratch)
       if not gone then
-        rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory " ..
-          scratch .. ": " .. trouble
+        local said = tostring(trouble)
+        rec.errors[#rec.errors + 1] = job.id .. ": could not remove its directory: " .. said
       end
       job.scratch = nil
     end
@@ -1834,8 +1834,8 @@ local function run_jobs(rec: Recording, jobs: {Job}, limits: State.Limits,
     if scratch ~= nil and not batch.keep_scratch then
       local gone, gone_trouble = Fs.remove_tree(scratch)
       if not gone then
-        rec.errors[#rec.errors + 1] = batch.lead.id .. ": could not remove its worker's directory " .. scratch ..
-          ": " .. gone_trouble
+        local said = tostring(gone_trouble)
+        rec.errors[#rec.errors + 1] = batch.lead.id .. ": could not remove its worker's directory: " .. said
       end
     end
     if bailing() then return end

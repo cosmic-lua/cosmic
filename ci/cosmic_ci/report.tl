@@ -694,7 +694,7 @@ function Report.report(o: Report.Options): string
   end)
   local removed, remove_trouble = Fs.remove_tree(scratch)
   if not called then error(trouble, 0) end
-  assert(removed, remove_trouble)
+  assert(removed, tostring(remove_trouble))
   Report.qualify(runs, #shown)
   return Report.render(shown, o)
 end

@@ -266,7 +266,7 @@ local function unpack(work: string, version: string, host: string,
                       sha256: string): string?, string
   local made, mtrouble = Fs.mkdirs(work)
   if not made then
-    return nil, mtrouble
+    return nil, tostring(mtrouble)
   end
   local name = "zig-" .. host .. "-" .. version .. ".tar.xz"
   local archive = work .. "/" .. name
@@ -298,7 +298,7 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
   local zig = install .. "/zig"
   local made, mtrouble = Fs.mkdirs(cache)
   if not made then
-    return nil, mtrouble
+    return nil, tostring(mtrouble)
   end
   local owned, own_trouble = Fs.scratch(cache)
   if owned == nil then return nil, own_trouble end

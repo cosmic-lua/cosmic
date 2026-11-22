@@ -7,7 +7,7 @@
 --- its own shows, are in build/archive_tool_test.tl.
 
 local Compress = require("cosmic.compress")
-local type Failure = require("cosmic.failure")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
@@ -1071,10 +1071,10 @@ local function test_a_move_that_fails_partway_is_undone(tmp: string)
   local real = Fs.rename
   local patched = Fs as {string:any} -- checked: cast_refused
   local into = 0
-  patched.rename = function(from: string, to: string): boolean, string
+  patched.rename = function(from: string, to: string): (true) | (false, Failure)
     if to:find(dest .. "/", 1, true) == 1 and from:find("/tree/", 1, true) ~= nil then
       into = into + 1
-      if into == 3 then return false, from .. ": injected failure" end
+      if into == 3 then return false, Failure.new("injected failure", from) end
     end
     return real(from, to)
   end

@@ -7,8 +7,10 @@
 --- that names the path and the errno. Other fallible calls that produce
 --- a value still return `T | nil, string`: a value and `""` on success,
 --- or nil and an error. A predicate uses the same contract, with false
---- as a valid answer. A call that only has an effect returns
---- `boolean, string`, but [`Fs.write`] answers `(true) | (false, Failure)`.
+--- as a valid answer. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
+--- [`Fs.remove_tree`] and [`Fs.rename`] only have an effect and answer
+--- `(true) | (false, Failure)`. The other calls that only have an
+--- effect still return `boolean, string`.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
@@ -373,17 +375,17 @@ end
 --- umask, as `mkdir(2)` gives it) as it is made, so a private one is
 --- never open to others for a moment; [`sys.mkdir`]'s default where nil.
 --- A directory that is already there keeps its mode.
-function Fs.mkdirs(path: string, mode?: integer): boolean, string
+function Fs.mkdirs(path: string, mode?: integer): (true) | (false, Failure)
   path = unslashed(path)
   if path == "" then
-    return true, ""
+    return true
   end
-  local directory, inspection = Fs.is_dir(path)
-  if directory == nil then
-    return false, inspection
+  local st, _, errno = sys.stat(path)
+  if st ~= nil and st.kind == "dir" then
+    return true
   end
-  if directory then
-    return true, ""
+  if st == nil and errno ~= sys.ENOENT and errno ~= sys.ENOTDIR then
+    return false, Failure.system(errno, path)
   end
   local parent = path:match("^(.*)/[^/]+$")
   if parent ~= nil and parent ~= "" then
@@ -392,25 +394,29 @@ function Fs.mkdirs(path: string, mode?: integer): boolean, string
       return false, trouble
     end
   end
-  local made, why, number: boolean, string, integer
+  local made, _, number: boolean, string, integer
   if mode ~= nil then
-    made, why, number = sys.mkdir(path, mode)
+    made, _, number = sys.mkdir(path, mode)
   else
-    made, why, number = sys.mkdir(path)
+    made, _, number = sys.mkdir(path)
   end
   if made then
-    return true, ""
+    return true
   end
   if number == sys.EEXIST then
-    local raced, race_trouble = Fs.is_dir(path)
-    if raced == nil then
-      return false, race_trouble
+    local raced, _, race_errno = sys.stat(path)
+    if raced == nil and race_errno ~= sys.ENOENT and race_errno ~= sys.ENOTDIR then
+      return false, Failure.system(race_errno, path)
     end
-    if raced then
-      return true, ""
+    if raced == nil then
+      -- A link to nothing: say that something is there.
+      return false, Failure.system(number, path)
+    end
+    if raced.kind == "dir" then
+      return true
     end
   end
-  return false, path .. ": " .. why
+  return false, Failure.system(number, path)
 end
 
 --- A fresh, empty temporary directory under the system temp directory,
@@ -485,7 +491,7 @@ local function own_dir(base: string, names: {string}, opts?: Fs.CacheOptions): s
   end
   local made, trouble = Fs.mkdirs(base)
   if not made then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local st, strouble = Fs.stat(base)
   if st == nil then
@@ -573,12 +579,12 @@ end
 
 --- Removes a name: the path operation corresponding to os.remove, or
 --- `unlink`. A name that is already gone is not a failure.
-function Fs.remove(path: string): boolean, string
-  local gone, trouble, number = sys.unlink(path)
+function Fs.remove(path: string): (true) | (false, Failure)
+  local gone, _, number = sys.unlink(path)
   if gone or number == sys.ENOENT or number == sys.ENOTDIR then
-    return true, ""
+    return true
   end
-  return false, path .. ": " .. trouble
+  return false, Failure.system(number, path)
 end
 
 --- Removes a path and, when it is a directory, everything under it:
@@ -590,10 +596,10 @@ end
 --- to its entries. A path that is already gone is not a failure. A
 --- directory that cannot be opened, or that something keeps filling,
 --- fails the call, with what was removed gone.
-function Fs.remove_tree(path: string): boolean, string
-  local removed, trouble = sys.remove_tree(path)
-  if not removed then return false, path .. ": " .. trouble end
-  return true, ""
+function Fs.remove_tree(path: string): (true) | (false, Failure)
+  local removed, _, number = sys.remove_tree(path)
+  if not removed then return false, Failure.system(number, path) end
+  return true
 end
 
 --- The names in a directory, sorted, without `.` and `..`.
@@ -789,13 +795,13 @@ function Fs.absolute(path: string): (string) | (nil, Failure)
 end
 
 --- Moves a name, replacing the destination if it is there; this corresponds
---- to os.rename, or `mv -T` within one file system.
-function Fs.rename(from: string, to: string): boolean, string
-  local moved, trouble = sys.rename(from, to)
+--- to os.rename, or `mv -T` within one file system. A failure names `from`.
+function Fs.rename(from: string, to: string): (true) | (false, Failure)
+  local moved, _, number = sys.rename(from, to)
   if not moved then
-    return false, from .. ": " .. trouble
+    return false, Failure.system(number, from)
   end
-  return true, ""
+  return true
 end
 
 --- Sets a path's permission bits, following a link to its target:

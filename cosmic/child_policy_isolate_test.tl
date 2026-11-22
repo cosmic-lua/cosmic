@@ -49,7 +49,8 @@ end
 --- it, `other/b`, which nothing grants.
 local function placed(tmp: string): Place
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
-  local work = assert(Fs.mkdirs(tmp .. "/work") and tmp .. "/work") -- checked: or_mix
+  local work = tmp .. "/work"
+  assert(Fs.mkdirs(work))
   assert(Fs.mkdirs(work .. "/ro"))
   assert(Fs.mkdirs(tmp .. "/other"))
   assert(Fs.write(work .. "/ro/a", "alpha\n"))

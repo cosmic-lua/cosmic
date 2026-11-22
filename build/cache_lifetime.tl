@@ -141,7 +141,8 @@ local function remove(path: string, name: string, base: string, now: integer,
   local aside = base .. "/" .. name .. aside_infix .. tostring(sys.getpid())
   local moved, move_why = Fs.rename(path, aside)
   if not moved then
-    report.troubles[#report.troubles + 1] = move_why
+    local said = tostring(move_why)
+    report.troubles[#report.troubles + 1] = said
     return
   end
   -- A run that recorded its use after the check above, and has not yet
@@ -149,13 +150,15 @@ local function remove(path: string, name: string, base: string, now: integer,
   if age(build_paths.under(aside).used, now) ~= "stale" then
     local back, back_why = Fs.rename(aside, path)
     if not back then
-      report.troubles[#report.troubles + 1] = back_why
+      local said = tostring(back_why)
+      report.troubles[#report.troubles + 1] = said
     end
     return
   end
   local gone, gone_why = Fs.remove_tree(aside)
   if not gone then
-    report.troubles[#report.troubles + 1] = gone_why
+    local said = tostring(gone_why)
+    report.troubles[#report.troubles + 1] = said
     return
   end
   report.removed[#report.removed + 1] = path
@@ -203,7 +206,8 @@ local function sweep(base: string, name: string, now: integer, report: cache_lif
   if gone then
     report.removed[#report.removed + 1] = path
   else
-    report.troubles[#report.troubles + 1] = gone_why
+    local said = tostring(gone_why)
+    report.troubles[#report.troubles + 1] = said
   end
 end
 

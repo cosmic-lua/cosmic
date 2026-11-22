@@ -1181,7 +1181,9 @@ function closure_store.write(whole: string, out: string, names: {string},
     if not vacuumed then return false, vacuum_trouble end
     local synced, sync_trouble = sync(out .. ".building")
     if not synced then return false, sync_trouble end
-    return Fs.rename(out .. ".building", out)
+    local moved, move_why = Fs.rename(out .. ".building", out)
+    if not moved then return false, tostring(move_why) end
+    return true, ""
   end
   local db, open_trouble = Sqlite.memory()
   if db == nil then return false, open_trouble end

@@ -376,11 +376,11 @@ end
 function ZigPrune.apply(plan: ZigPrune.Plan): boolean, string
   for _, path in ipairs(plan.manifests) do
     local ok, trouble = Fs.remove(path)
-    if not ok then return false, path .. ": " .. trouble end
+    if not ok then return false, tostring(trouble) end
   end
   for _, path in ipairs(plan.outputs) do
     local ok, trouble = Fs.remove_tree(path)
-    if not ok then return false, path .. ": " .. trouble end
+    if not ok then return false, tostring(trouble) end
   end
   return true, ""
 end

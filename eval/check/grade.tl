@@ -344,7 +344,7 @@ local function put_back_journal(g: Grade, project: string): boolean
   end
   local back, trouble = Fs.rename(aside, journal)
   if not back then
-    fail(g, "could not put JOURNAL.md back from " .. aside .. ": " .. trouble)
+    fail(g, "could not put JOURNAL.md back: " .. tostring(trouble))
   end
   return true
 end
@@ -365,7 +365,7 @@ local function fix_check(g: Grade, cosmic: string, project: string, set_aside: b
   if moved then
     local back, trouble = Fs.rename(aside, journal)
     if not back then
-      fail(g, "could not put JOURNAL.md back from " .. aside .. ": " .. trouble)
+      fail(g, "could not put JOURNAL.md back: " .. tostring(trouble))
     end
   end
 end
@@ -417,7 +417,7 @@ local function copy_project(project: string, copy: string): boolean, string
     local parent = (copy .. "/" .. rel):match("^(.*)/[^/]*$")
     if parent == nil then return false, copy .. "/" .. rel .. " has no directory" end
     local made, mtrouble = Fs.mkdirs(parent)
-    if not made then return false, mtrouble end
+    if not made then return false, tostring(mtrouble) end
     local wrote, wtrouble = Fs.write(copy .. "/" .. rel, data)
     if not wrote then return false, tostring(wtrouble) end
   end
@@ -455,7 +455,10 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
     ready = wrote
     if not wrote then why = tostring(wrote_why) end
   end
-  if ready then ready, why = Fs.mkdirs(scratch .. "/tmp") end
+  if ready then
+    local mkdirs_ok, mkdirs_why = Fs.mkdirs(scratch .. "/tmp")
+    ready, why = mkdirs_ok, if mkdirs_ok then "" else tostring(mkdirs_why) end
+  end
   local output = ""
   if ready then
     -- A failing test's directory is kept under TMPDIR, which goes with
@@ -2307,7 +2310,7 @@ function Grader.next_logs(dir: string): string?, string
     if n ~= nil and n > highest then highest = n end
   end
   local made, trouble = Fs.mkdirs(dir .. "/grades")
-  if not made then return nil, trouble end
+  if not made then return nil, tostring(trouble) end
   -- An exclusive create, so a grade running at the same time takes the
   -- next number instead of sharing this one.
   for n = highest + 1, highest + 100 do
@@ -2369,8 +2372,14 @@ local function grade_checks(g: Grade, task: Task, testdata: string): boolean
     local bytes, failure = Fs.read(g.exe)
     local copied = bytes ~= nil
     local trouble = if bytes == nil then tostring(failure) else "" end
-    if copied then copied, trouble = Fs.remove_tree(g.empty) end
-    if copied then copied, trouble = Fs.mkdirs(g.empty) end
+    if copied then
+      local remove_tree_ok, remove_tree_why = Fs.remove_tree(g.empty)
+      copied, trouble = remove_tree_ok, if remove_tree_ok then "" else tostring(remove_tree_why) end
+    end
+    if copied then
+      local mkdirs_ok, mkdirs_why = Fs.mkdirs(g.empty)
+      copied, trouble = mkdirs_ok, if mkdirs_ok then "" else tostring(mkdirs_why) end
+    end
     if copied then
       local wrote, wrote_trouble = Fs.write(g.empty .. "/" .. name, assert(bytes), 0x1ed)
       copied = wrote
@@ -2415,7 +2424,10 @@ function Grader.grade(name: string, dir: string, testdata: string,
   local grading = Grader.isolated(env or Env.all(), dir)
   local cache_home = grading["XDG_CACHE_HOME"]
   local homed, htrouble = false, "the grading environment has no XDG_CACHE_HOME"
-  if cache_home ~= nil then homed, htrouble = Fs.mkdirs(cache_home) end
+  if cache_home ~= nil then
+    local mkdirs_ok, mkdirs_why = Fs.mkdirs(cache_home)
+    homed, htrouble = mkdirs_ok, if mkdirs_ok then "" else tostring(mkdirs_why) end
+  end
   if not homed then
     say("FAIL " .. htrouble)
     say("FAIL")

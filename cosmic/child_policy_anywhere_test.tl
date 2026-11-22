@@ -315,7 +315,8 @@ end
 --- A program and a directory to start it in.
 local function place(tmp: string): string, string
   local probe = stand_in_of(tmp)
-  local work = assert(Fs.mkdirs(tmp .. "/work") and tmp .. "/work") -- checked: or_mix
+  local work = tmp .. "/work"
+  assert(Fs.mkdirs(work))
   return probe, work
 end
 

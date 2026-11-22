@@ -305,7 +305,7 @@ end
 function shared_compiles.open(path: string): shared_compiles.Cache?, string
   local dir = Fs.dirname(path)
   local made, made_trouble = Fs.mkdirs(Fs.dirname(dir))
-  if not made then return nil, made_trouble end
+  if not made then return nil, tostring(made_trouble) end
   local _, _, _ = sys.mkdir(dir, 0x1c0)
   local dir_held, dir_trouble = private(dir, "dir")
   if not dir_held then return nil, dir_trouble end

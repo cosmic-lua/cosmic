@@ -320,8 +320,9 @@ end
 --- grader's lines.
 local function graded_api(dir: string, lines: {string}, code: integer,
                           env?: {string:string}, probes?: {string}): integer, string
-  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o") and
-      Fs.mkdirs(dir .. "/testdata"))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/project/o"))
+  assert(Fs.mkdirs(dir .. "/testdata"))
   assert(Fs.write(dir .. "/project/kv.tl", "return {}\n"))
   assert(Fs.write(dir .. "/project/o/marker", "built\n"))
   assert(Fs.write(dir .. "/testdata/kv_api_test.tl", "-- hidden\n"))
