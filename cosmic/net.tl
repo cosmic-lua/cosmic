@@ -1432,7 +1432,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     local address = if in_clear then clear[i - #spec.listeners] else spec.listeners[i] end
     local opened, trouble = listening(assert(address), {}, 1)
     if opened == nil then return false, trouble end
-    s.accepts[#s.accepts + 1] = { listener = opened.listener, fd = opened.fd, clear = in_clear, failing = 0 } -- checked: arms_differ
+    s.accepts[#s.accepts + 1] = { listener = opened.listener, fd = opened.fd, clear = in_clear, failing = 0 }
     addresses[#addresses + 1] = opened.listener.address
   end
   local server: Net.Server = {

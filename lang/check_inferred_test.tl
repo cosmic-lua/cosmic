@@ -92,7 +92,8 @@ local function test_a_mut_field_of_the_record_is_one_the_literal_writes_of_exact
   -- A write through the record would change a field the program knows through its own fixed one: a narrowed `p.by`
   -- would hold what the write put.
   local scale = "local record Scale\n  mut by: number\n  mut note: string\nend\n"
-  refused(scale .. "local s = { by = 1.5, note = \"a\" }\nlocal t: Scale = s\n", "not_assignable", "but not as `mut by: number`")
+  refused(scale .. "local s = { by = 1.5, note = \"a\" }\nlocal t: Scale = s\n", "not_assignable", "but not as `mut by: number`",
+    "give `by` a value of exactly `number` and assign it through `s`")
   refused(scale .. "local s = { by = 1, note = \"a\" }\ns.by = 2\ns.note = \"b\"\nlocal t: Scale = s\n", "not_assignable",
     "but not as `mut by: number`")
   accepted(scale .. "local s = { by = 1.5, note = \"a\" }\ns.by = 2.5\ns.note = \"b\"\nlocal t: Scale = s\n")

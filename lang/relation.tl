@@ -1059,7 +1059,7 @@ local function shaped(j: Relation.Judge, a: Named, b: Named, why: boolean): Rela
         end
       elseif s.mut then
         -- A write through `b` changes the field behind what the program knows of it through its own fixed one.
-        if mine.mut ~= true or (mine.type ~= s.type and mine.type.tag ~= "invalid" and s.type.tag ~= "invalid") then
+        if mine.type.tag ~= "invalid" and s.type.tag ~= "invalid" and (mine.mut ~= true or mine.type ~= s.type) then
           return refused(field, true)
         end
       elseif rel(j, mine.type, if s.omittable then j.store:optional(s.type) else s.type end, false) ~= nil then

@@ -1421,6 +1421,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
             -- A write through the record wanted would change, or add, a field that the literal's own record holds fixed.
             fix = against .. ": a write of `" .. field.name .. "` through " .. quoted(record) ..
               " would change a record whose type does not let it"
+            if r.has_name == true and field.omittable ~= true and name:match("^[%a_][%w_]*$") ~= nil then
+              -- Its own writes make the literal's field `mut`, of the type of its value.
+              fix = fix .. "; or give `" .. field.name .. "` a value of exactly " .. quoted(Types.display(
+                ctx.store:non_nil(field.type), ctx.binders, ctx.fn_names)) .. " and assign it through `" .. name ..
+                "`, which makes it `mut`"
+            end
           end
         end
       else
@@ -2300,7 +2306,7 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
         -- A field of the language's `metatable` declared `any` (`__index`, `__newindex`) is read by Lua alone, which
         -- takes any value there, as a parameter declared `any` does.
         local lua_reads = n.decl.name == "metatable" and #n.decl.names == 1 and #n.args == 1 and
-          n.decl.module:find("prelude", 1, true) ~= nil
+          (n.decl.module == "lang.prelude" or n.decl.module == "checker.prelude")
         local _ = (if lua_reads then expect_argument else expect end)(ctx, value, v, want,
           " as the field " .. quoted(name) .. " of " .. owner)
       end

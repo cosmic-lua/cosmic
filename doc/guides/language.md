@@ -448,7 +448,9 @@ visits	1
 
 The record is below a declared record that has the same fields: a fixed field of the declared record takes a field of a
 type below its own, and a field it may leave out may be missing. A `mut` field of the declared record needs a `mut` field
-of exactly its type, given in the literal, since a write through the declared record changes the literal's record too.
+of exactly its type, given in the literal and assigned through its local, since a write through the declared record
+changes the literal's record too. So a `mut` field the declared record may leave out (`mut note?: string`), which a
+write may set to nil, is not met by a literal's field, and neither is one the literal lacks.
 A class, a record with methods, or a record with an array part is not met by fields: write the literal against it where
 it is made (`local v: Config = { ... }`).
 
