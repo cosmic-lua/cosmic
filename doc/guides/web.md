@@ -481,6 +481,36 @@ do
 end
 ```
 
+A page's own script works beside htmx, and a few things trip it:
+
+- A `<script>` in swapped HTML does not run: [`Htmx.head`] turns off
+  htmx's `allowScriptTags`. Put the behavior in a static script and call
+  it from `htmx.onLoad(fn)`. htmx calls `fn` once with `body` when it has
+  taken in the page, and after a swap once for each top-level element
+  swapped in, so `fn` looks in the element it is given and everything
+  inside it (`el.querySelectorAll(sel)`).
+- [`Htmx.head`] loads htmx with `defer`, and htmx takes in the page, and
+  reads its `htmx-config`, at `DOMContentLoaded`. A `defer` script after
+  htmx's tag runs before that. Add its listeners (`htmx:configRequest`,
+  `htmx:beforeSwap`) there, as the script runs, with
+  `document.addEventListener`: one added later misses the page's first
+  requests, such as a `load` trigger's, and `htmx.on` adds it later, at
+  `DOMContentLoaded`, after htmx's own start. Send no request
+  from there, since htmx's own defaults, not the page's configuration,
+  would still hold.
+- An element with `hx-get` and no `hx-trigger` sends its request on a
+  click (on a change for a text-like `input`, `textarea` and `select`,
+  on a submit for a form). A request the script starts with `htmx.ajax("GET", url,
+  { source, target, swap })` needs no `hx-get` on its element. Leave it
+  out, so a click does not send the request again.
+- `htmx.trigger(element, name)` dispatches the event at once, but an
+  element's `hx-trigger` hears it only after htmx has taken in that
+  element, at `DOMContentLoaded` or after a swap.
+- A URL that answers both a fragment and a whole page varies on the
+  headers that chose: [`Htmx.page`] marks `Vary: HX-Request,
+  HX-History-Restore-Request, HX-Boosted`. A service worker's
+  `cache.match` keeps the two apart unless it is passed `ignoreVary`.
+
 ## static files
 
 The project's stylesheet is a plain file under `static/`.
