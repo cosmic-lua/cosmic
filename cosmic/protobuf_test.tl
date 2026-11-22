@@ -1,6 +1,7 @@
 --- Tests of [`cosmic.protobuf`]. The bytes in hex are what the reference implementation (the `protobuf` package
 --- of Python) writes for a message of these fields, and what it reads is what each case says is read.
 
+local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Protobuf = require("cosmic.protobuf")
 
@@ -1112,4 +1113,53 @@ local function test_describe_answers_nil_and_why_for_bytes_that_are_no_message()
     local shown, why = Protobuf.describe(bytes_of(hex))
     assert(shown == nil and why:find("^protobuf: ") ~= nil, hex)
   end
+end
+
+--- `count` varint fields of 0, each of a number `pick` takes, in order.
+--- A message of one varint field for each of `numbers`.
+local function fields_of(numbers: {integer}): string
+  local parts: mut {string} = {}
+  for _, number in ipairs(numbers) do
+    parts[#parts + 1] = assert(Protobuf.writer():int(number, 0):encode())
+  end
+  return table.concat(parts)
+end
+
+--- How long a decode of `data` takes, in nanoseconds; it must succeed.
+local function decode_ns(data: string): integer
+  local start = Clock.monotonic_ns()
+  assert(Protobuf.decode(data))
+  return Clock.monotonic_ns() - start
+end
+
+--- Field numbers chosen to share the first slots of a table with a fixed
+--- hash (Knuth's multiplier, high bits) decode about as fast as any
+--- others: the table's hash is drawn at random, so no choice of numbers
+--- makes each probe walk a long run of them.
+local function test_chosen_field_numbers_decode_about_as_fast_as_any()
+  local count = 32768
+  local multiplier = 2654435761
+  -- The multiplier's inverse mod 2^32, by Newton's iteration.
+  local inverse = multiplier
+  for _ = 1, 5 do inverse = (inverse * (2 - multiplier * inverse)) & 0xffffffff end
+  -- A table of 65536 slots or more for 32768 fields: shift 16. Each hash
+  -- below 2^20 lands in the first 16 slots; its number is hash * inverse.
+  local crowded: mut {integer} = {}
+  local plain: mut {integer} = {}
+  local hash = 1
+  while #crowded < count do
+    local number = (hash * inverse) & 0xffffffff
+    if number >= 1 and number <= 536870911 then crowded[#crowded + 1] = number end
+    hash = hash + 1
+  end
+  assert(((assert(crowded[count]) * multiplier) & 0xffffffff) >> 16 < 16)
+  for number = 1, count do plain[number] = number end
+  local crowded_data, plain_data = fields_of(crowded), fields_of(plain)
+  local ordinary, chosen = math.maxinteger, math.maxinteger
+  for _ = 1, 3 do
+    ordinary = math.min(ordinary, decode_ns(plain_data))
+    chosen = math.min(chosen, decode_ns(crowded_data))
+  end
+  assert(chosen < ordinary * 20 + 100000000,
+    ("chosen numbers took %d ms, ordinary ones %d ms"):format(chosen // 1000000, ordinary // 1000000))
 end

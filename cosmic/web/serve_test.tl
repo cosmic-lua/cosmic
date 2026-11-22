@@ -183,6 +183,11 @@ local function test_serve_warns_when_debug_meets_a_listener_beyond_the_loopback(
   local ok = Web.serve(app, { listeners = { Net.tcp("10.255.255.1", 0) } })
   assert(not ok)
   assert(#lines >= 1 and lines[1]:find("debug is on", 1, true) ~= nil, table.concat(lines, "|"))
+  -- A socket file is how a proxy reaches an app: beyond the loopback too.
+  local socket_sink, socket_lines = recording()
+  local socket_app = Web.app{ routes = {}, debug = true, sink = socket_sink }
+  local _, _ = Web.serve(socket_app, { listeners = { Net.unix("/nonexistent-dir/app.sock") } })
+  assert(#socket_lines >= 1 and socket_lines[1]:find("debug is on", 1, true) ~= nil, table.concat(socket_lines, "|"))
   local quiet_sink, quiet = recording()
   local local_app = Web.app{ routes = {}, debug = true, sink = quiet_sink }
   assert(Web.serve(local_app, { listeners = { Net.tcp("127.0.0.1", 0) },

@@ -1400,7 +1400,7 @@ static int loopback_up (void) {
    * as a pair, which the promises filter allows where it refuses socket():
    * a program that builds sandboxes (`nest`) starts this one's own. */
   int pair[2];
-  if (socketpair(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0, pair) != 0) return errno;
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) != 0) return errno;
   int fd = pair[0];
   struct ifreq request;
   memset(&request, 0, sizeof request);

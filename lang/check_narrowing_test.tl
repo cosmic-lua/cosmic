@@ -871,7 +871,7 @@ print(guard)
 ]==], "condition_type nil_not_allowed")
   checks("never-open-pcall", [==[local function fail(m: string): never error(m) end
 local function guard(x: string?): integer
-   if x == nil then pcall(fail, "no") end
+   if x == nil then local _, _ = pcall(fail, "no") end
    return x:len()
 end
 print(guard)

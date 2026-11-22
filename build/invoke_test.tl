@@ -39,7 +39,7 @@ local function test_what_only_a_process_can_do_raises(tmp: string)
   end
   local raised, trouble = attempt({ "-e", "require('cosmic.proc').exit(0)" })
   assert(raised and trouble:find("called sys.exit", 1, true) ~= nil, trouble)
-  local swallowed, why = attempt({ "-e", "pcall(require('cosmic.proc').exit, 0)" })
+  local swallowed, why = attempt({ "-e", "local _, _ = pcall(require('cosmic.proc').exit, 0)" })
   assert(swallowed and why:find("called sys.exit", 1, true) ~= nil, why)
   local file, file_trouble = attempt({ "main.tl" })
   assert(file and file_trouble:find("runs a file", 1, true) ~= nil, file_trouble)

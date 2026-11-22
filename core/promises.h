@@ -46,7 +46,8 @@ unsigned cosmic_promise_named (const char *name);
 
 /* The socket families a filter lets a process make with socket(): the
  * bits of the `sockets` of [`cosmic_promises_apply`]. A socketpair of unix
- * sockets is always allowed. With COSMIC_HELD_NETWORK the inet bit also
+ * stream or seqpacket sockets is always allowed, and the unix bit allows
+ * one of any type. With COSMIC_HELD_NETWORK the inet bit also
  * allows a NETLINK_ROUTE socket, which lists the interfaces; any other
  * netlink socket and packet sockets never are. */
 #define COSMIC_SOCKETS_UNIX 0x1u

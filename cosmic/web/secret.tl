@@ -5,9 +5,9 @@
 ---     local keys = assert(Secret.keys_from_env("COSMIC_SESSION_KEYS"))
 ---
 --- The variable holds a comma-separated list, newest key first
---- (`new,old` while a key is rotated out). A key is the bytes of its
---- text, not decoded, so there is no encoding to get wrong; make one with
---- [`Secret.generate`]. No message here holds a key, only its length.
+--- (`new,old` while a key is rotated out). A key is written as the hex,
+--- base64 or base64url of random bytes, and signs as the bytes of that
+--- text, not decoded; make one with [`Secret.generate`]. No message here holds a key, only its length.
 --- @public
 
 local Codec = require("cosmic.codec")
@@ -21,9 +21,25 @@ end
 local MIN_BYTES <const> = 32
 local MAX_KEYS <const> = 5
 
---- Whether `key` is fit to sign with: at least 32 bytes holding at least
---- 10 distinct byte values. That rejects `"aaaa..."` and `"changeme"`
---- repeated; it is a floor, not a proof of entropy. The reason names the
+--- The bytes `key` spells as hex, base64 or base64url (padded or not),
+--- or nil when it is none of them.
+local function spelled(key: string): string?
+  if #key % 2 == 0 and key:find("^%x+$") ~= nil then
+    local bytes, _ = Codec.unhex(key)
+    return bytes
+  end
+  local bare = (key:gsub("=+$", "")):gsub("[+/]", { ["+"] = "-", ["/"] = "_" })
+  local bytes, _ = Codec.unbase64url(bare)
+  return bytes
+end
+
+--- Whether `key` is fit to sign with: the hex, base64 or base64url of at
+--- least 32 bytes (as [`Secret.generate`] and `openssl rand -base64 32`
+--- write them), holding at least 10 distinct byte values. That refuses
+--- `"aaaa..."`, `"changeme"` repeated and a passphrase of words with
+--- spaces or one too short, which a single signed cookie lets anyone
+--- guess offline; it is a floor, not a proof of entropy, so words run
+--- together that happen to spell 32 bytes pass. The reason names the
 --- length found and how to make a key, never the key.
 --- @param key string The key
 --- @return boolean Whether it passes
@@ -32,6 +48,12 @@ function Secret.check(key: string): boolean, string
   if #key < MIN_BYTES then
     return false, ("secret: a key is %s; it must be at least %s (make one with Secret.generate)"):
       format(String.counted(#key, "byte"), String.counted(MIN_BYTES, "byte"))
+  end
+  local bytes = spelled(key)
+  if bytes == nil or #bytes < MIN_BYTES then
+    return false, ("secret: a key of %s is not the hex, base64 or base64url of %s; a key is random " ..
+      "text, never a passphrase (make one with Secret.generate)"):
+      format(String.counted(#key, "byte"), String.counted(MIN_BYTES, "random byte"))
   end
   local seen: mut {integer:boolean} = {}
   local distinct = 0
@@ -61,7 +83,7 @@ function Secret.parse_keys(text: string, name?: string): {string}?, string
   local where = name or "the key list"
   local keys: mut {string} = {}
   for piece in (text .. ","):gmatch("([^,]*),") do
-    local key = assert(piece:match("^%s*(.-)%s*$"))
+    local key = String.trim(piece)
     local ok, why = Secret.check(key)
     if not ok then
       return nil, ("%s (entry %d of %s)"):format(why, #keys + 1, where)

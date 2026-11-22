@@ -767,4 +767,45 @@ print(numbers.value)
 2
 ```
 
+## a value or a failure
+
+A function that answers a value or a failure declares both lists: `(T) | (nil, E)`. The lists must be told apart by a
+position, which is `true` in one and `false` in the other, or `nil` in one and never nil in the other. An optional,
+`any`, a type parameter, or a union that holds one of them, may be nil, so `(integer?) | (nil, string)` is refused
+(`lists_overlap`): a `nil` first value would not say which list the call answered.
+
+The caller binds the values to locals and tests the first. The test narrows the others: where the value is nil, the
+failure is an `E`, and where it is not, the failure is nil. A test of truth (`if n then`) tells the lists apart only where
+the value is never `false`; where it may be `false` (a `boolean`), test it against `nil`. An assignment to any of the locals ends this.
+A `match` takes the lists apart with a `nil` pattern, before the arm that names the value. A call that may answer
+a failure is no statement (`failure_ignored`): bind its values, match it, or discard them on purpose with
+`local _, _ = f()`.
+
+```teal
+local function parse(s: string): (integer) | (nil, string)
+  local n = math.tointeger(tonumber(s))
+  if n == nil then
+    return nil, "not a number: " .. s
+  end
+  return n
+end
+
+local n, why = parse("12")
+if n == nil then
+  print(why:upper())
+else
+  print(n + 1)
+end
+
+match parse("x") do
+  | (nil, reason) then print(reason)
+  | (value) then print(value * 2)
+end
+```
+
+```output
+13
+not a number: x
+```
+
 [`cosmic.array`]: ../../cosmic/array.tl

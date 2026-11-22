@@ -279,6 +279,7 @@ name the shape of their input and have it checked before the handler runs.
 local Html = require("cosmic.html")
 local Input = require("cosmic.web.input")
 local Store = require("store")
+local String = require("cosmic.string")
 local Url = require("cosmic.url")
 local View = require("view")
 local Web = require("cosmic.web")
@@ -304,7 +305,7 @@ function Site.routes(store: Store): {Web.Route}
     local read = Input.form(req)
     local invalid = read.invalid
     if invalid ~= nil then return Web.abort(invalid.status, invalid.message) end
-    local title = assert((Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$"))
+    local title = String.trim(Url.query_last(assert(read.value), "title") or "")
     if title == "" then
       return Web.html(shown("", "give the task a name"), { status = 422 })
     end
@@ -642,7 +643,7 @@ page that reloads the browser when the process is replaced and swaps the
 stylesheets when only a `.css` file changed, and carries the page's CSP
 nonce on that script's tag. An app that shows source paths to whoever asks
 serves the loopback only: [`Web.serve`] refuses a development app a listener
-elsewhere and a `trusted_proxy`, and the app answers only `localhost`,
+elsewhere, a socket file (how a proxy reaches an app) and a `trusted_proxy`, and the app answers only `localhost`,
 `127.0.0.1` and `[::1]` unless `trusted_hosts` names others, so a page on
 another site cannot reach it by a name that resolves to the loopback.
 

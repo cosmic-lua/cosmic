@@ -77,6 +77,8 @@ local record Codes
     "no_value"
     -- a call with several return lists, used as a value
     "alternatives_as_value"
+    -- a call with several return lists, as a statement that drops which one it answered
+    "failure_ignored"
     -- a list a `match` call may answer that no arm takes
     "match_missing"
     -- a `match` arm no list the call answers reaches
@@ -234,7 +236,7 @@ Codes.codes = {
   "declaration_value", "any_use", "view_written", "field_fixed", "array_hole", "float_key", "field_unknown", "map_field",
   "record_index", "not_indexable", "not_callable", "overload_value", "interface_method_value", "static_before_definition", "arity", "overload_none", "cannot_infer", "infer_conflict",
   "bound_unmet", "return_arity",
-  "return_unexpected", "no_value", "alternatives_as_value", "match_missing", "match_redundant", "match_pattern", "value_count", "vararg_outside", "local_untyped",
+  "return_unexpected", "no_value", "alternatives_as_value", "failure_ignored", "match_missing", "match_redundant", "match_pattern", "value_count", "vararg_outside", "local_untyped",
   "param_untyped",
   "condition_type", "or_mix", "and_ternary", "concat_type", "operand_type", "compare_disjoint", "generic_op",
   "cast_refused", "is_on_record", "is_disjoint", "class_scope", "close_not_closable", "setmetatable_call", "enum_member",
@@ -447,7 +449,14 @@ Codes.catalog = {
     code = "alternatives_as_value", rule = "multiple returns are a matched call",
     why = "a function that answers one of several value lists is told apart by `match`; used as a value it would " ..
       "answer none of them",
-    fix = "match the call: `match <call> do | (true, v) then ... end`",
+    fix = "bind its values and test the first (`local v, why = <call>`), or match the call: `match <call> do | ... end`",
+  },
+  {
+    code = "failure_ignored", rule = "multiple returns are a matched call",
+    why = "a function that answers one of several value lists answers a failure in one of them; a call standing as a " ..
+      "statement drops which list it answered, so a failure would pass unseen",
+    fix = "bind its values and test the first (`local v, why = <call>`), match the call, or discard them on purpose: " ..
+      "`local _, _ = <call>`",
   },
   {
     code = "match_missing", rule = "multiple returns are a matched call",

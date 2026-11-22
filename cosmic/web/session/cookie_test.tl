@@ -5,8 +5,8 @@ local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 
-local NEW <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
-local OLD <const> = "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4Nb"
+local NEW <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
+local OLD <const> = "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4NbXz3Lk8Mv5Rs"
 
 local function data(values: mut {string: Json.Value}): Session.Data
   return { values = values, created = 1000, expires = 2000 }

@@ -436,7 +436,7 @@ are where CI answers for everything. A branch's push runs nothing.
   day and saves none.
 
 Each job is a plain sequence of steps on one runner: none is split into
-shares, and none waits on another but the gate. Two things are relayed
+shares, and none waits on another but the gate. Three things are relayed
 between runs. The merge queue's linux-x86_64 leg, where its native suite
 passed, trims its verdicts to what it used and uploads them
 (`queue-verdicts-linux-x86_64`, kept a day); main's push of the same
@@ -457,7 +457,13 @@ downloads it, holds it to a memo with rows, and saves it
 (`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
 check of a pull request or a queue entry restores the newest, so the tree
 checks check again only the files its rows do not answer: from cold they
-take some 3.5 minutes. No other markers, products or verdicts pass between
+take some 3.5 minutes. The queue's suite job also uploads the compiles
+and parses it trimmed (`queue-compiles-linux-x86_64`); main's push puts
+them in place of the entry it restored and saves them at once
+(`compiles-linux-x86_64-queue-<sha>`), not as its run ends 4 to 20 minutes
+later, so a pull request or a queue entry that boots soon after a merge
+takes them rather than compiling the tree from cold (about a minute).
+No other markers, products or verdicts pass between
 runs. That costs main's run its wall clock, which no one waits on, rather
 than runner minutes. The queue, which every change waits on, is the one
 exception: its leg is two jobs (above), each the time of a boot and its

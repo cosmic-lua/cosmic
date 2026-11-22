@@ -33,6 +33,7 @@
 
 local Origin = require("cosmic.web.origin")
 local Response = require("cosmic.web.response")
+local String = require("cosmic.string")
 local Types = require("cosmic.web.types")
 
 local record Cors
@@ -197,8 +198,8 @@ function Cors.middleware(opts: Cors.Options): Types.Middleware
         pass = false
       else
         for piece in headers_asked:gmatch("[^,]+") do
-          local name = piece:match("^%s*(.-)%s*$")
-          if name == nil or not token(name) then
+          local name = String.trim(piece)
+          if not token(name) then
             pass = false
             break
           end

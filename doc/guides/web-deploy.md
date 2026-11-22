@@ -205,7 +205,7 @@ takes:
 The app itself keeps `debug` false, since `debug = true` shows a fault's
 stack; `error_pages` and `error_view` make the pages that answer a status.
 A development app ([`Dev.app`], see the first guide) refuses to listen beyond
-the loopback.
+the loopback, or at a socket file.
 
 ```teal file=app.tl
 --- The program: configured by its environment. `cosmic app.tl` runs it.

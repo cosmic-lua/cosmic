@@ -151,7 +151,7 @@ local function reference(): integer
     local least = math.maxinteger
     for _ = 1, 3 do
       local started = Clock.monotonic_ns()
-      pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
+      local _, _, _ = pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
       least = math.min(least, Clock.monotonic_ns() - started)
     end
     reference_ns = 10 * least

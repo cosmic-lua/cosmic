@@ -33,7 +33,8 @@ eval/round all --model "$model"      # or notes,kv --jobs 2 --max-turns 150 --ti
 
 It takes `<task,...|all>`, `--model` (required), `--tool PATH` (the
 binary under test; by default this checkout's, from build/paths.tl),
-`--out DIR` (default `/tmp/cosmic-evals/<model>-<short commit>`),
+`--out DIR` (default `~/.cache/cosmic/evals/<model>-<short commit>`;
+a shared directory such as /tmp lets another user swap what a round runs),
 `--run N` (the arena is `<out>/<task>/run-<NNN>`, 1 by default),
 `--jobs N` (solvers at once, 3), `--max-turns N` (150) and `--timeout S`
 (600). It lays every arena, runs the solvers up to `--jobs` at a time,
@@ -55,8 +56,8 @@ arena and a fresh agent. Do not show either agent another run's output.
 
 ```sh
 tool=$(bin/cosmic-bootstrap --standalone build/paths.tl "$PWD")/bin/cosmic
-eval/arena notes "$tool" /tmp/cosmic-evals/notes/claude/run-001
-eval/arena notes "$tool" /tmp/cosmic-evals/notes/codex/run-001
+eval/arena notes "$tool" ~/.cache/cosmic/evals/notes/claude/run-001
+eval/arena notes "$tool" ~/.cache/cosmic/evals/notes/codex/run-001
 ```
 
 The arena takes the tool itself, from the build directory build/paths.tl

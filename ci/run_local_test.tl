@@ -282,6 +282,25 @@ local function test_default_base_symlink_is_refused_before_mutation(tmp: string)
   assert(#assert(Fs.list(outside)) == 1, "refusal created state beneath symlink target")
 end
 
+--- The default base's name is known to every local user: one that another
+--- user owns, or that others can write, is refused before anything is put
+--- in it.
+local function test_default_base_of_another_or_open_to_others_is_refused(tmp: string)
+  local root, env = checkout(tmp)
+  local uid = sys.getuid()
+  local base = tmp .. "/cosmic-ci-local-" .. tostring(uid)
+  assert(Fs.mkdirs(base))
+  assert(Fs.chmod(base, 0x1ff))
+  local default = Maps.without(env, { "COSMIC_CI_LOCAL" })
+  assert(invoke(root, default, { "build" }, uid) == 2)
+  assert(#assert(Fs.list(base)) == 0, "a refused base was written")
+  assert(Fs.chmod(base, 0x1c0))
+  local other = tmp .. "/cosmic-ci-local-" .. tostring(uid + 1)
+  assert(Fs.mkdirs(other) and Fs.chmod(other, 0x1c0))
+  assert(invoke(root, default, { "build" }, uid + 1) == 2)
+  assert(#assert(Fs.list(other)) == 0, "another's base was written")
+end
+
 local function test_root_account_refusal_creates_no_state(tmp: string)
   local root, env = checkout(tmp)
   for _, name in ipairs({ "root", "cosmic-user-that-does-not-exist-95672" }) do

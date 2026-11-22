@@ -676,8 +676,8 @@ local function test_a_corpus_is_intact_after_a_refused_allocation()
     local want = assert(corpus:search(query, 64, { metric = "l2" }))
     local ended = AllocationFixture.under_every_failure(function()
       -- Once the add has landed, a later pass only searches.
-      if corpus:count() == 64 then pcall(corpus.add, corpus, 1000, blob) end
-      pcall(corpus.search, corpus, query, 3, { candidates = 10 })
+      if corpus:count() == 64 then local _, _ = pcall(corpus.add, corpus, 1000, blob) end
+      local _, _, _ = pcall(corpus.search, corpus, query, 3, { candidates = 10 })
     end, function()
       local n = corpus:count()
       assert(n == 64 or n == 65, "the count became " .. tostring(n))
@@ -767,7 +767,7 @@ local function test_a_corpus_is_intact_after_a_refused_block()
       for i = 1, 64 do corpus:add(i, corpus_vector(i)) end
       local block = assert(made[from])
       local ended = AllocationFixture.under_every_failure(function()
-        if corpus:count() == 64 then pcall(corpus.add_block, corpus, block) end
+        if corpus:count() == 64 then local _, _ = pcall(corpus.add_block, corpus, block) end
       end, function()
         local n = corpus:count()
         assert(n == 64 or n == 104, "the count became " .. tostring(n))

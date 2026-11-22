@@ -186,6 +186,24 @@ local CASES <const>: {Case} = {
     fix = "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`)",
   },
   {
+    code = "lists_overlap",
+    source = "local type Reply = function(): (integer?) | (nil, string)\n",
+    msg = "the return lists `(integer?)` and `(nil, string)` are told apart by no position",
+    fix = "or `nil` in one and a value that is never nil in the other (`(R) | (nil, E)`)",
+  },
+  {
+    code = "lists_overlap",
+    source = "local type Reply = function(): (any) | (nil, string)\n",
+    msg = "the return lists `(any)` and `(nil, string)` are told apart by no position",
+    fix = "(`(R) | (nil, E)`)",
+  },
+  {
+    code = "lists_overlap",
+    source = "local function f<T>(x: T): (T) | (nil, string)\n  return x\nend\n",
+    msg = "the return lists `(T)` and `(nil, string)` are told apart by no position",
+    fix = "(`(R) | (nil, E)`)",
+  },
+  {
     code = "bound_not_met",
     source = "local interface Named\n  name: string\nend\nlocal record Plain\n  title: string\nend\n" ..
       "local record Box<T is Named>\n  value: T\nend\nlocal b: Box<Plain>\n",

@@ -97,10 +97,9 @@ end
 --- - A point's encoding RFC 8032 refuses to decode is read as the point
 ---   it reduces to: a y of 2^255 - 19 or more, or an x of 0 with the
 ---   sign bit set.
---- - A key of small order is accepted. Under the neutral point as the
----   key, the signature whose R is the neutral point and whose S is 0
----   verifies for every message, so a signature proves who signed only
----   under a key the caller has reason to trust.
+--- - A key of small order, in any of its encodings, is refused: under
+---   the neutral point as the key, the signature whose R is the neutral
+---   point and whose S is 0 would verify for every message.
 ---
 ---     local ok = Sign.ed25519_verify(public, "message", signature)
 function Sign.ed25519_verify(public: string, message: string, signature: string): boolean

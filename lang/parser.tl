@@ -2405,7 +2405,7 @@ local function list_arm(): boolean
   local n = 2
   while peek_text(n) ~= ")" do
     local t, k = peek_text(n), peek_kind(n)
-    if not (t == "," or t == "true" or t == "false" or k == "identifier") then
+    if not (t == "," or t == "true" or t == "false" or t == "nil" or k == "identifier") then
       return false
     end
     n = n + 1
@@ -2419,7 +2419,8 @@ local function parse_match(): Ast.Stat
   local scrutinee = parse_expression()
   local scrutinee_last = S.pos - 1
   expect("do", "after the value of a `match`", "write `match v do | Circle c then ... end`, or `match f() do | (true, v) then ... end`")
-  -- An arm that tests positions is a list of `true`, `false` and names, then `then`; one that tests a type names it.
+  -- An arm that tests positions is a list of `true`, `false`, `nil` and names, then `then`; one that tests a type names
+  -- it (`| nil then`, with no parentheses, for the type `nil`).
   local typed = not (S.text == "|" and list_arm())
   local call: Ast.Exp = scrutinee
   if not typed and not ((scrutinee.kind == "Call")) and not ((scrutinee.kind == "MethodCall")) then
@@ -2444,7 +2445,7 @@ local function parse_match(): Ast.Stat
     local open = S.pos
     if caught then
       report("unreachable_arm", afirst, "this `match` arm can never run: the arm before it matches every value",
-        "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true` or `false`) to the end")
+        "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true`, `false` or `nil`) to the end")
       caught = false
     end
     local pats: mut {Ast.PatItem} = {}
@@ -2467,6 +2468,9 @@ local function parse_match(): Ast.Stat
         if S.text == "true" or S.text == "false" then
           pats[#pats + 1] = { kind = "PatBool", id = 0, first = pfirst, last = pfirst, value = S.text == "true" }
           advance()
+        elseif S.text == "nil" then
+          pats[#pats + 1] = { kind = "PatNil", id = 0, first = pfirst, last = pfirst }
+          advance()
         else
           local b = binding("a bound value")
           pats[#pats + 1] = { kind = "PatBind", id = 0, first = pfirst, last = S.pos - 1, name = b }
@@ -2483,7 +2487,7 @@ local function parse_match(): Ast.Stat
     local bools = 0
     local bound: mut {string: boolean} = {}
     for _, pat in ipairs(pats) do
-      if (pat.kind == "PatBool") then
+      if (pat.kind == "PatBool") or (pat.kind == "PatNil") then
         bools = bools + 1
       elseif (pat.kind == "PatBind") then
         local bound_name = pat.name.name

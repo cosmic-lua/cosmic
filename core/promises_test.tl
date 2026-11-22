@@ -675,13 +675,18 @@ local function test_a_unix_socket_is_made_only_where_it_is_allowed()
   holds_on_both({}, {
     call("socketpair", "allow", 1, 1, 0), call("socketpair", "EPERM", 2, 1, 0),
     call("socketpair", "EPERM", 16, 3, 0), call("socket", "EPERM", 1, 1, 0),
+    call("socketpair", "allow", 1, 5, 0), call("socketpair", "allow", 1, 0x80801, 0),
+    -- A datagram pair would take any peer by connect or sendto.
+    call("socketpair", "EPERM", 1, 2, 0), call("socketpair", "EPERM", 1, 0x80802, 0),
+    call("socketpair", "EPERM", 1, 3, 0), call("socketpair", "EPERM", 1, 4, 0),
+    call("socketpair", "EPERM", 1, 0, 0), call("socketpair", "allow", 1, 0x80005, 0),
     call("sendmsg", "allow"), call("recvmsg", "allow"), call("shutdown", "allow"),
   })
   holds_on_both({}, {
     call("socket", "allow", 1, 1, 0), call("socket", "EPERM", 2, 1, 0),
     call("socket", "EPERM", 10, 1, 0), call("socket", "EPERM", 16, 3, 0),
     call("socket", "EPERM", 17, 3, 0), call("socketpair", "allow", 1, 1, 0),
-    call("socketpair", "EPERM", 2, 1, 0),
+    call("socketpair", "allow", 1, 2, 0), call("socketpair", "EPERM", 2, 1, 0),
   }, { unix = true })
 end
 
@@ -693,6 +698,7 @@ local function test_an_inet_socket_is_made_only_where_it_is_allowed()
     call("socket", "EPERM", 1, 1, 0), call("socket", "EPERM", 16, 3, 0),
     call("socket", "EPERM", 17, 3, 0), call("socket", "EPERM", 9, 1, 0),
     call("socketpair", "allow", 1, 1, 0), call("socketpair", "EPERM", 2, 1, 0),
+    call("socketpair", "EPERM", 1, 2, 0),
   }, { inet = true })
   holds_on_both({}, {
     call("socket", "allow", 1, 1, 0), call("socket", "allow", 2, 1, 0),
@@ -828,7 +834,8 @@ local function test_a_held_process_may_make_a_unix_socket_and_no_other()
       call("socket", "allow", 1, 1, 0), call("socket", "allow", 1, 2, 0),
       call("socket", "EPERM", 2, 1, 0), call("socket", "EPERM", 10, 1, 0),
       call("socket", "EPERM", 16, 3, 0), call("socket", "EPERM", 17, 3, 0),
-      call("socketpair", "allow", 1, 1, 0), call("socketpair", "EPERM", 2, 1, 0),
+      call("socketpair", "allow", 1, 1, 0), call("socketpair", "allow", 1, 2, 0),
+      call("socketpair", "EPERM", 2, 1, 0),
     }, { unix_held = true })
   end
   holds_on_both({}, {
