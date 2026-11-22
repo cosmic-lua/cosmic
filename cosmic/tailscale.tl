@@ -503,6 +503,14 @@ local record WatchOptions
 end
 
 --- What one path of a [`ServeSite`] answers with: exactly one field.
+---
+--- A handler is open to every peer the tailnet's policy lets reach the
+--- site's port, and with [`ServeSite.funnel`] to anyone on the internet.
+--- Each request to its path reaches the local server, file or directory
+--- as the daemon's own machine would, so a `proxy` to a service that
+--- trusts local callers, or a `path` holding more than the site should
+--- show, opens that to them. A request through Funnel names no tailnet
+--- user. Check who asks in the service itself where it matters.
 local record ServeHandler
   --- The URL of a local server the daemon passes requests to, with
   --- the `Tailscale-User-*` headers that name the tailnet user:
