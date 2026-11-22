@@ -54,6 +54,7 @@ local function test_a_load_refuses_what_cannot_be_served_and_keeps_what_it_had()
     { ["pair 1's key"] = { { cert = fixture("a.pem"), key = "not a key" } } },
     { ["tls: pair 2: tls: the certificate"] = { a, { cert = "not a certificate", key = fixture("a.key") } } },
     { ["has expired"] = { { cert = fixture("c.pem"), key = fixture("a.key") } } },
+    { ["is not valid yet"] = { { cert = fixture("e.pem"), key = fixture("a.key") } } },
   }
   for _, case in ipairs(cases) do
     for want, pairs_given in pairs(case) do

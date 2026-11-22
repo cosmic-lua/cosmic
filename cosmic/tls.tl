@@ -149,7 +149,9 @@ local class Certs
   --- connection after, with `min_validity_ns` given to the source. True,
   --- or false and why, the pairs before kept: a source that fails or
   --- raises (what it raised is the why), or answers no pair, a pair whose certificate or key cannot be read,
-  --- a key that is not its certificate's, or a leaf already expired.
+  --- a key that is not its certificate's, or a leaf already expired or
+  --- not yet valid. The names a leaf holds are not checked here: a
+  --- client is offered a pair by them, as [`cosmic.tls`] says.
   function load(self, min_validity_ns?: integer): boolean, string
     local ran, obtained, why = pcall(self.source, min_validity_ns)
     if not ran then return false, "tls: the source raised: " .. tostring(obtained) end
@@ -165,6 +167,9 @@ local class Certs
       if leaf == nil then return false, "tls: pair " .. tostring(i) .. ": " .. bad end
       if leaf.not_after_ns <= now then
         return false, "tls: pair " .. tostring(i) .. "'s certificate has expired"
+      end
+      if leaf.not_before_ns > now then
+        return false, "tls: pair " .. tostring(i) .. "'s certificate is not valid yet"
       end
       leaves[i] = leaf
       local span = math.max(leaf.not_after_ns - leaf.not_before_ns, 0)
