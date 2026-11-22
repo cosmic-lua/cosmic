@@ -811,7 +811,7 @@ function TableLiterals.inferred_of(ctx: Ctx, list: {Types.Field}): Type
     local found = store:find(ctx.input.module, "__literal1")
     while found ~= nil do
       local body = found.body
-      if body ~= nil and key_of(body.fields) == key then
+      if body ~= nil and found.inferred == true and key_of(body.fields) == key then
         break
       end
       count = count + 1
@@ -821,6 +821,7 @@ function TableLiterals.inferred_of(ctx: Ctx, list: {Types.Field}): Type
       decl = found
     else
       decl = store:declare("record", ctx.input.module, { "__literal" .. tostring(count) }, 0)
+      decl.inferred = true
       store:define(decl, { tparams = {}, supers = {}, fields = fields, methods = {}, values = {} })
     end
     ctx.inferred[key] = decl
@@ -1194,6 +1195,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   local s = subject(ctx, node)
   local g, w = show(ctx, got), named or show(ctx, want)
   local shown = { g, w }
+  local alternatives = r.alternatives
+  local only = if alternatives ~= nil and #alternatives == 1 then alternatives[1] else nil end
+  if r.code == "union_none" and only ~= nil and (r.sub.tag == "named") and Types.inferred_record(r.sub.decl) then
+    -- A record inferred for a literal, where one record or nil is wanted: why that record refuses it is the reason.
+    r = only
+  end
   local code = r.code
   local from, into = r.sub, r.super
   if code ~= "declaration_value" then
@@ -1324,7 +1331,8 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       -- arguments must be the same types.
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " and " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
         " are two types, and a declaration's type arguments must be the same: " .. quoted(g) .. " is no " .. quoted(w) .. ")"
-    elseif r.sub ~= got or r.super ~= want then
+    elseif (r.sub ~= got or r.super ~= want) and not (code == "not_listed" and (r.sub.tag == "named") and
+        Types.inferred_record(r.sub.decl)) then
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " is not below " ..
         quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) .. ")"
     end
@@ -1403,8 +1411,17 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
             ctx.fn_names)) .. " declares)"
         fix = "declare `" .. written .. "` in " .. sub .. ", as the interface does, or pass a value that has it"
         if (r.sub.tag == "named") and Types.inferred_record(r.sub.decl) then
+          local record = Types.display(r.super, ctx.binders, ctx.fn_names)
+          local name = text_of(ctx, e)
+          local against = "write the literal against " .. quoted(record) .. " where it is made (`local " ..
+            (if name:match("^[%a_][%w_]*$") then name else "v" end) .. ": " .. record .. " = { ... }`)"
           fix = "give `" .. field.name .. "` in the literal as " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
-            " declares it, or write the literal against " .. quoted(w) .. " where it is made (`local v: " .. w .. " = { ... }`)"
+            " declares it, or " .. against
+          if field.mut == true then
+            -- A write through the record wanted would change, or add, a field that the literal's own record holds fixed.
+            fix = against .. ": a write of `" .. field.name .. "` through " .. quoted(record) ..
+              " would change a record whose type does not let it"
+          end
         end
       else
         fix = "pass a record, class or interface that has the interface's fields, or one that lists it with `is`"
@@ -2259,7 +2276,7 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     end
   end
   local given: mut {string: boolean} = {}
-  local owner = quoted(n.decl.name)
+  local owner = if Types.inferred_record(n.decl) then tq(ctx, n) else quoted(n.decl.name) end
   local array_part = index.array
   local shaped = true
   -- A spread, which `spread_literal` (in [`table_literal`]) has checked, gives every field the items after it do not.
@@ -2282,7 +2299,8 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
         local v = expr(ctx, value, want)
         -- A field of the language's `metatable` declared `any` (`__index`, `__newindex`) is read by Lua alone, which
         -- takes any value there, as a parameter declared `any` does.
-        local lua_reads = n.decl.name == "metatable" and #n.decl.names == 1 and #n.args == 1
+        local lua_reads = n.decl.name == "metatable" and #n.decl.names == 1 and #n.args == 1 and
+          n.decl.module:find("prelude", 1, true) ~= nil
         local _ = (if lua_reads then expect_argument else expect end)(ctx, value, v, want,
           " as the field " .. quoted(name) .. " of " .. owner)
       end

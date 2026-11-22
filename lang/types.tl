@@ -378,6 +378,8 @@ local record Types
     --- How many type arguments a use takes, once the declaration or its maker says.
     mut arity?: integer
     mut body?: Body
+    --- Whether the checker made it, a record for a table literal of named items ([`Types.inferred_record`]).
+    mut inferred?: boolean
   end
 
   --- Gives the text of the declaration at a path ([`Types.encode_declaration`]), or nil where
@@ -927,7 +929,7 @@ function Types.bounds(list: {Type}?): {Type}?
 end
 
 function Types.inferred_record(decl: Decl): boolean
-  return decl.kind == "record" and #decl.names == 1 and decl.name:find("^__literal%d+$") ~= nil
+  return decl.inferred == true
 end
 
 function Types.declares_method(t: Type, name: string): boolean

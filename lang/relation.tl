@@ -1053,11 +1053,13 @@ local function shaped(j: Relation.Judge, a: Named, b: Named, why: boolean): Rela
     if s ~= nil then
       local field: Types.Field = { name = f.name, type = s.type, mut = s.mut, omittable = s.omittable }
       if mine == nil then
-        if not s.omittable and not (s.type.tag == "nil" or ((s.type.tag == "union") and s.type.nilable)) then
+        -- A field written through `b` would be one the record does not know of, and a read of it as a map would miss.
+        if s.mut or (not s.omittable and not (s.type.tag == "nil" or ((s.type.tag == "union") and s.type.nilable))) then
           return refused(field, false)
         end
       elseif s.mut then
-        if mine.type ~= s.type and mine.type.tag ~= "invalid" and s.type.tag ~= "invalid" then
+        -- A write through `b` changes the field behind what the program knows of it through its own fixed one.
+        if mine.mut ~= true or (mine.type ~= s.type and mine.type.tag ~= "invalid" and s.type.tag ~= "invalid") then
           return refused(field, true)
         end
       elseif rel(j, mine.type, if s.omittable then j.store:optional(s.type) else s.type end, false) ~= nil then

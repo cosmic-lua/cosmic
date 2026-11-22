@@ -88,10 +88,34 @@ local function test_an_inferred_record_is_below_a_record_of_its_fields()
   refused(POINT .. "local p = { x = \"a\", y = 2 }\nlocal n = norm(p)\n", "not_assignable", "but not as `x: integer`")
 end
 
-local function test_a_mut_field_of_the_record_takes_exactly_its_type()
-  local scale = "local record Scale\n  mut by: number\nend\n"
-  refused(scale .. "local s = { by = 1 }\nlocal t: Scale = s\n", "not_assignable", "but not as `mut by: number`")
-  accepted(scale .. "local s = { by = 1.5 }\nlocal t: Scale = s\n")
+local function test_a_mut_field_of_the_record_is_one_the_literal_writes_of_exactly_its_type()
+  -- A write through the record would change a field the program knows through its own fixed one: a narrowed `p.by`
+  -- would hold what the write put.
+  local scale = "local record Scale\n  mut by: number\n  mut note: string\nend\n"
+  refused(scale .. "local s = { by = 1.5, note = \"a\" }\nlocal t: Scale = s\n", "not_assignable", "but not as `mut by: number`")
+  refused(scale .. "local s = { by = 1, note = \"a\" }\ns.by = 2\ns.note = \"b\"\nlocal t: Scale = s\n", "not_assignable",
+    "but not as `mut by: number`")
+  accepted(scale .. "local s = { by = 1.5, note = \"a\" }\ns.by = 2.5\ns.note = \"b\"\nlocal t: Scale = s\n")
+  -- a `mut` field the record may leave out can be written nil through it, which the literal's `string` does not hold
+  local tagged = "local record Tagged\n  mut by: number\n  mut note?: string\nend\n"
+  refused(tagged .. "local s = { by = 1.5, note = \"a\" }\ns.by = 2.5\ns.note = \"b\"\nlocal t: Tagged = s\n",
+    "not_assignable", "but not as `mut note?: string`")
+  -- a `mut` field the literal lacks would be written where a read of the literal as a map misses it
+  refused(tagged .. "local s = { by = 1.5 }\ns.by = 2.5\nlocal t: Tagged = s\n", "not_assignable", "has no field `mut note",
+    "write the literal against `Tagged` where it is made (`local s: Tagged = { ... }`)")
+end
+
+local function test_a_literal_written_against_an_inferred_record_is_named_by_its_fields()
+  local source = "local p = { x = 1 }\np = { y = 2 }\n"
+  refused(source, "literal_missing literal_unknown")
+  for _, e in ipairs(Programs.run(source).errors) do
+    assert(e.msg:find("{ x: integer }", 1, true) ~= nil and e.msg:find("__literal", 1, true) == nil, e.msg)
+  end
+end
+
+local function test_a_record_the_program_declares_is_not_an_inferred_one_whatever_its_name()
+  refused("local record __literal1\n  y: string\nend\nlocal p = { x = 1 }\nlocal q: __literal1 = p\n", "not_assignable",
+    "`p` is `{ x: integer }`")
 end
 
 local function test_a_class_value_is_made_by_a_literal_written_against_it()

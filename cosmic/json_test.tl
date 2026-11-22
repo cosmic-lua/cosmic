@@ -145,7 +145,7 @@ local function test_only_rfc_8259_is_read()
 end
 
 local function test_json5_is_read_when_asked()
-  local five = { json5 = true }
+  local five: Json.DecodeOptions = { json5 = true }
   local text = [[
 // a comment
 {
@@ -640,13 +640,13 @@ end
 --- JSON5 alike, and only where it is asked for; a `#` inside a string
 --- stays a character.
 local function test_hash_comments_are_read_when_asked()
-  local hash = { hash_comments = true }
+  local hash: Json.DecodeOptions = { hash_comments = true }
   local list = assert(Json.decode_array('# lead\n[1, # one\n2] # end', hash))
   assert(#list == 2 and list[1] == 1 and list[2] == 2, "comments before, inside and after")
   local strings = assert(Json.decode_array('["#x", "# y"]', hash))
   assert(strings[1] == "#x" and strings[2] == "# y", "a # in a string")
   assert(decoded("1 # no newline", hash) == 1, "a comment the text ends in")
-  local five = { json5 = true, hash_comments = true }
+  local five: Json.DecodeOptions = { json5 = true, hash_comments = true }
   local text = [[
 # the name GitHub shows
 {
