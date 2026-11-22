@@ -1,6 +1,7 @@
 --- Helpers for the tests of [`lang.check`]: a source checked the way a project's modules are (lexed, parsed, scoped,
 --- lowered, checked) against a small standard library written in the grammar.
 local Ast = require("lang.ast")
+local Compiled = require("cosmic.internal.compiled")
 local Check = require("lang.check")
 local Codegen = require("lang.codegen")
 local Codes = require("lang.check_codes")
@@ -646,7 +647,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     if module == nil or not taken(module) then
       error("module '" .. name .. "' not found, or not taken by the checker", 2)
     end
-    local module_chunk, module_why = load(generated(module, {}, kind_only), "=" .. name, "t", env)
+    local module_chunk, module_why = Compiled.load(generated(module, {}, kind_only), "=" .. name, env)
     if module_chunk == nil then
       error("the Lua of " .. name .. " does not load: " .. tostring(module_why), 2)
     end
@@ -654,7 +655,7 @@ function Programs.execute(source: string, facts: boolean, modules?: {string: str
     loaded[name] = value -- checked: view_written
     return value
   end
-  local chunk, why = load(done.lua, "=t", "t", env)
+  local chunk, why = Compiled.load(done.lua, "=t", env)
   if chunk == nil then
     done.fault = "the Lua does not load: " .. tostring(why) -- checked: field_fixed
     return done

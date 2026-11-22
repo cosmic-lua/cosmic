@@ -1,14 +1,22 @@
 --- The reserved form the patched Lua parser (patch/lua/) reads for the code the compiler writes for a class:
 --- `{ ... } @ C` makes the table the constructor makes with the table `C` as its metatable, and `@v` is the
---- metatable of `v`. A chunk loaded from text reaches both, which a program written in Teal cannot spell.
+--- metatable of `v`. Only the compiler's loader ([`cosmic.internal.compiled`]) reads them: a chunk of text a program
+--- loads cannot spell either.
 local Test = require("cosmic.test")
+local Compiled = require("cosmic.internal.compiled")
 
 Test.policy{}
+
+--- `string.dump` of `chunk`, which a loader makes: the one place the vararg return of that type meets the single one
+--- `string.dump` declares.
+local function dump(chunk: function(...: any): any...): string
+  return string.dump(chunk) -- checked: not_assignable
+end
 
 --- Runs `source` as a chunk and answers what it returns.
 local function run(source: string): any, any, any, any, any, any
   local env: {string: any} = { setmetatable = setmetatable, tostring = tostring, string = string, print = print } -- checked: any_use*4
-  local chunk, why = load(source, "=class_form", "t", env)
+  local chunk, why = Compiled.load(source, "=class_form", env)
   assert(chunk ~= nil, tostring(why))
   return chunk()
 end
@@ -96,8 +104,8 @@ local function test_a_class_that_is_no_table_is_an_error_naming_it()
 end
 
 local function test_a_dumped_chunk_runs_after_it_is_loaded_and_names_the_format_of_the_machine_that_wrote_it()
-  local chunk = assert(load("local C = {}; C.__index = C; C.m = function() return 1 end; return ({} @ C):m()", "=dump", "t", {}))
-  local bytes = string.dump(chunk) -- checked: not_assignable
+  local chunk = assert(Compiled.load("local C = {}; C.__index = C; C.m = function() return 1 end; return ({} @ C):m()", "=dump", {}))
+  local bytes = dump(chunk)
   -- the signature, the version, then the format byte: 1 where this machine's instructions follow Lua's
   assert(bytes:byte(5) == 0x55 and bytes:byte(6) == 1, "format " .. tostring(bytes:byte(6)))
   local again = assert(load(bytes, "=dump", "b", {}))
@@ -111,10 +119,66 @@ local function test_the_form_needs_a_constructor_before_the_at_and_a_class_after
   local bad = { "return @", "return {} @", "return 1 @ C", "local C = {}\nreturn {} @ C()\n", "return {} @ 1", "return ({}) @ C" }
   local refused = 0
   for _, source in ipairs(bad) do
-    local chunk = load(source, "=bad", "t", {})
+    local chunk = Compiled.load(source, "=bad", {})
     if chunk == nil or not pcall(chunk) then -- checked: overload_none
       refused = refused + 1
     end
   end
   assert(refused == #bad, "a form was taken: " .. tostring((#bad - refused)))
+end
+
+--- The forms a program's text must not reach: the metatable of a string (the host's own `string` behind it), the
+--- metatable of a value that hides it, and a table made with a metatable of the chunk's choosing.
+local UNREACHABLE = {
+  "return (@'').__index",
+  "local v = ... return @v",
+  "local C = {} return {} @ C",
+}
+
+local function test_a_chunk_a_program_loads_from_text_cannot_spell_either_form()
+  for _, source in ipairs(UNREACHABLE) do
+    local alone, alone_why = load(source)
+    local given, given_why = load(source, "=text", "t", {})
+    local inner, inner_why = assert(load("return load(...)"))(source)
+    local refusal = "'@' is read only in the Lua the compiler writes"
+    assert(alone == nil and tostring(alone_why):find(refusal, 1, true) ~= nil, tostring(alone_why))
+    assert(given == nil and tostring(given_why):find(refusal, 1, true) ~= nil, tostring(given_why))
+    assert(inner == nil and tostring(inner_why):find(refusal, 1, true) ~= nil, tostring(inner_why))
+  end
+end
+
+local function test_a_metatable_a_value_hides_stays_hidden_from_a_chunk_of_text()
+  local hidden = assert(Compiled.load("local M = { __metatable = false }\nreturn {} @ M\n", "=hidden", {}))()
+  local read = load("local v = ... return @v")
+  local seen: any = if read ~= nil then read(hidden) else nil end
+  assert(read == nil and seen == nil, "a chunk of text read the metatable `__metatable` hides")
+  local masked = assert(load("local v = ... return getmetatable(v) == false"))
+  assert(masked(hidden) == true)
+end
+
+local function test_a_program_cannot_ask_load_for_the_mode_that_reads_the_class_forms()
+  Test.raises(function() load("return 1", "=text", "tc", {}) end, "mode 'c' is the compiler's")
+  Test.raises(function() load("return 1", "=text", "c") end, "mode 'c' is the compiler's")
+  local chunk = assert(load("return load('return @\"\"', '=inner', 'tc')"))
+  Test.raises(function() chunk() end, "mode 'c' is the compiler's")
+end
+
+local function test_the_compilers_loader_takes_text_alone()
+  local chunk = assert(Compiled.load("return 1", "=text", {}))
+  local bytes = dump(chunk)
+  local loaded, why = Compiled.load(bytes, "=bytes", {})
+  assert(loaded == nil and tostring(why):find("attempt to load a binary chunk", 1, true) ~= nil, tostring(why))
+end
+
+local function test_a_class_given_to_a_register_that_holds_no_table_is_an_error()
+  local chunk = assert(Compiled.load("local n = 1\nlocal C = {}\nlocal t = {} @ C\nreturn t\n", "=forged", {}))
+  local bytes = dump(chunk)
+  -- OP_SETCLASS (84, the opcode before OP_EXTRAARG's) with A = 2 (`t`) and B = 1 (`C`), little-endian; a binary chunk
+  -- can name any register, so it is written again with A = 0, which holds the number `n`.
+  local setclass = string.char(84, 1, 1, 0)
+  local at = assert(bytes:find(setclass, 1, true), "the dump holds the instruction")
+  assert(bytes:find(setclass, at + 1, true) == nil, "the dump holds it once")
+  local forged = bytes:sub(1, at - 1) .. string.char(84, 0, 1, 0) .. bytes:sub(at + 4)
+  local forged_chunk = assert(load(forged, "=forged", "b", {}))
+  Test.raises(function() forged_chunk() end, "attempt to give a class to a number value")
 end

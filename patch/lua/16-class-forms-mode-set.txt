@@ -1,0 +1,8 @@
+file: src/lparser.c
+note: Set before the first token is read.
+--- find
+  luaX_setinput(L, &lexstate, z, funcstate.f->source, firstchar);
+--- replace
+  lexstate.classforms = cast_byte(classforms != 0);
+  luaX_setinput(L, &lexstate, z, funcstate.f->source, firstchar);
+--- end

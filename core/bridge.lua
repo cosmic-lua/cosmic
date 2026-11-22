@@ -52,6 +52,8 @@ local function read_all(path)
 end
 
 local hash = require('cosmic.internal.hash')
+-- The compiler's Lua holds the class forms, which only this loader reads (core/surface.c).
+local load_compiled = require('cosmic.internal.compiled').load
 local sqlite = require('cosmic.internal.sqlite')
 
 -- Names the row digests and the keys, so a change to what a row holds
@@ -462,7 +464,7 @@ local function requirer(codes, label)
     if held ~= nil then return held end
     local record = codes[name]
     if not record then return require(name) end
-    local chunk, err = load(record.code, '@' .. record.file, 't', env)
+    local chunk, err = load_compiled(record.code, '@' .. record.file, env)
     if not chunk then error(label .. ': ' .. err, 0) end
     local result = chunk(name, record.file)
     if result == nil then result = true end
@@ -766,7 +768,7 @@ local function searcher_for(stage_two, variables)
     local chunk, file
     if record then
       local err
-      chunk, err = load(record.code, '@' .. name, 't', _G)
+      chunk, err = load_compiled(record.code, '@' .. name, _G)
       if not chunk then error(record.file .. ': ' .. err, 0) end
       file = root .. '/' .. record.file
       remember(name, record.file, record.code)
@@ -784,7 +786,7 @@ local function searcher_for(stage_two, variables)
       compiled = compiled + 1
       file = root .. '/' .. module.file
       local err
-      chunk, err = load(module.code, '@' .. name, 't', _G)
+      chunk, err = load_compiled(module.code, '@' .. name, _G)
       if not chunk then error(module.file .. ': ' .. err, 0) end
       dump(name, module.code)
       remember(name, module.file, module.code)

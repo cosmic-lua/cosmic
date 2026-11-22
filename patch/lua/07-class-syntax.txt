@@ -1,5 +1,5 @@
 file: src/lparser.c
-note: The reserved forms of the compiler's Lua: `{ ... } @ C` is the table the constructor makes with the table C as its metatable (C a name or a path of fields), and `@v` the metatable of v. The character is no part of Teal or of Lua, so the text of a program written in either has none; only the compiler writes them.
+note: The reserved forms of the compiler's Lua: `{ ... } @ C` is the table the constructor makes with the table C as its metatable (C a name or a path of fields), and `@v` the metatable of v. The character is no part of Teal or of Lua, so the text of a program written in either has none; only the compiler writes them, and only a load in the compiler's mode reads them (patch/lua/18-class-forms-mode-lexer.txt).
 --- find
 static void simpleexp (LexState *ls, expdesc *v) {
   /* simpleexp -> FLT | INT | STRING | NIL | TRUE | FALSE | ... |

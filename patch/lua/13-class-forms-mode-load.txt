@@ -1,0 +1,8 @@
+file: src/ldo.c
+note: The class forms (patch/lua/07-class-syntax.txt, 09-class-syntax-operator.txt) are read only by a load whose mode holds 'c', which the compiler's loader alone passes (core/surface.c's `cosmic.internal.compiled`; the `load` a program or a loaded chunk calls refuses the letter). It holds for text alone: a binary chunk, which only a `load` naming an environment takes, can hold OP_CLASSOF whatever the mode (core/surface.c's TODO on load_with). Without it a chunk of text could read the real metatable of any value, which `__metatable` hides from `getmetatable`, and give a table any metatable.
+--- find
+    cl = luaY_parser(L, p->z, anchor, &p->buff, &p->dyd, p->name, c);
+--- replace
+    cl = luaY_parser(L, p->z, anchor, &p->buff, &p->dyd, p->name, c,
+                     strchr(mode, 'c') != NULL);
+--- end
