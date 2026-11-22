@@ -30,7 +30,7 @@ end
 
 local function test_a_record_no_tag_tells_from_the_other_tables_is_refused()
   local untagged = Programs.run("local record P\n  x: integer\nend\nlocal record Q\n  y: integer\nend\n" ..
-    "local function f(v: P | Q): integer\n  if v is P then\n    return v.x\n  end\n  return 0\nend\n")
+      "local function f(v: P | Q): integer\n  if v is P then\n    return v.x\n  end\n  return 0\nend\n")
   assert(table.concat(untagged.before, " ") == "untagged_union", table.concat(untagged.before, " "))
   assert(Programs.codes(untagged) == "is_on_record", Programs.codes(untagged))
   -- an array beside the record is a table no tag tells from it
@@ -65,7 +65,7 @@ end
 
 local function test_a_tag_that_may_change_or_be_missing_tells_nothing()
   local r = Programs.run("local record A\n  mut kind: \"a\"\nend\nlocal record B\n  kind: \"b\"\nend\n" ..
-    "local function f(v: A | B): boolean\n  return v is A\nend\n")
+      "local function f(v: A | B): boolean\n  return v is A\nend\n")
   assert(table.concat(r.before, " ") == "untagged_union", table.concat(r.before, " "))
   assert(Programs.codes(r) == "is_on_record", Programs.codes(r))
 end

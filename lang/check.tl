@@ -5076,8 +5076,7 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   elseif untold ~= nil then
     refuse("an alias of a union is tested for each member, and the record " .. tq(ctx, untold) .. " among them is not",
       "test each record apart (`v is A or v is B`), which reads its tag")
-  elseif (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" and
-      Operators.testable(ctx, value, tested) then
+  elseif (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
     local word = KIND_WORDS[tested.decl.kind] or "type"
     local tables = Tests.table_members(ctx, value)
     local records = tables ~= nil
