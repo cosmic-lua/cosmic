@@ -2,26 +2,12 @@
 --- against: a field for each item, of the type of its value, `mut` where the program writes it through the local that
 --- holds the literal. Such a record is below a declared record of the same fields, joins with another, and reads as a
 --- map of strings to its fields.
-local Array = require("cosmic.array")
 local Programs = require("lang.check_programs")
 local Test = require("cosmic.test")
 
 Test.policy{ grants = { { path = "lang/stdlib.d.tl", letters = "r" }, { path = "lang/prelude.d.tl", letters = "r" } } }
 
---- Checks that `source` has exactly the errors `codes` (space separated), and that the first says `msg` and, where
---- given, has the fix `fix`.
-local function refused(source: string, codes: string, msg?: string, fix?: string)
-  local r = Programs.run(source)
-  assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
-  assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source)
-  local first = Array.at(r.errors, 1)
-  if msg ~= nil then
-    assert(first.msg:find(msg, 1, true) ~= nil, first.msg .. "\nwanted " .. msg)
-  end
-  if fix ~= nil then
-    assert(first.fix:find(fix, 1, true) ~= nil, first.fix .. "\nwanted " .. fix)
-  end
-end
+local refused = Programs.says
 
 --- Checks that `source` has no error.
 local function accepted(source: string)

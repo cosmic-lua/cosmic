@@ -161,7 +161,6 @@ local CASES <const>: {Case} = {
   { code = "variadic_type", source = "local x: function(T...)", y = 1, x = 20, says = "`T...` is not in the grammar", fix = "`...: T`" },
   { code = "optional_type", source = "local x: function(? T)", y = 1, x = 19, says = "`? T` is not in the grammar", fix = "write `name?: T`" },
   { code = "tuple_type", source = "local x: {A, B}", y = 1, x = 12, says = "a tuple type `{A, B}`", fix = "`{A | B}` for an array of either" },
-  { code = "string_literal_type", source = "local x: \"a\"", y = 1, x = 10, says = "string-literal types are not in the grammar", fix = "declare an `enum`" },
   { code = "bare_function_type", source = "local x: function", y = 1, x = 18, says = "a bare `function` is not a type", fix = "write the signature: `function(x: T): U`" },
   { code = "metamethod", source = "local record R\n  metamethod __close: function(R)\nend", y = 2, x = 3,
     says = "`metamethod` is not in the grammar", fix = "write the field without it" },

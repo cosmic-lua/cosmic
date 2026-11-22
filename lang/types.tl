@@ -540,6 +540,16 @@ local record Types
   --- (`{ x: integer }`) and named `__literal` and a number.
   inferred_record: function(decl: Decl): boolean
 
+  --- The type of the one string `value`, written `"circle"`: an enum of that value alone, declared in the module of
+  --- literals ([`Types.LITERALS`]), and the same declaration in every store.
+  literal: function(store: Store, value: string): Type
+
+  --- The string `t` is the type of, where `t` is a string literal type (`"circle"`, [`Types.literal`]), or nil.
+  literal_value: function(t: Type): string?
+
+  --- The module that holds the enums of one value that string literal types are.
+  LITERALS: string
+
   --- What meets the built-in bound `tag`, for a message: "a number type, a string type, or a class that declares `__lt` and `__le`" for `Ordered`.
   bound_meets: function(tag: string): string
 
@@ -932,6 +942,40 @@ function Types.inferred_record(decl: Decl): boolean
   return decl.inferred == true
 end
 
+Types.LITERALS = "@"
+
+local HEX_DIGITS = "0123456789abcdef"
+
+--- The name of the declaration of the literal type of `value`: its bytes in hexadecimal after `__`, which any string
+--- has and which is a name.
+local function literal_name(value: string): string
+  local hex = value:gsub(".", function(c: string): string
+    return string.format("%02x", (assert(c:byte(), "a character has a byte")))
+  end)
+  return "__" .. hex
+end
+
+--- The value a literal's declaration name spells, or nil where `name` is not one.
+local function literal_of_name(name: string): string?
+  local hex = name:match("^__([0-9a-f]*)$")
+  if hex == nil or #hex % 2 ~= 0 then
+    return nil
+  end
+  local out = hex:gsub("..", function(pair: string): string
+    local high = assert(HEX_DIGITS:find(pair:sub(1, 1), 1, true), "a hexadecimal digit")
+    local low = assert(HEX_DIGITS:find(pair:sub(2, 2), 1, true), "a hexadecimal digit")
+    return string.char((high - 1) * 16 + low - 1)
+  end)
+  return out
+end
+
+function Types.literal_value(t: Type): string?
+  if not ((t.tag == "named")) or t.value or t.decl.module ~= Types.LITERALS or t.decl.kind ~= "enum" then
+    return nil
+  end
+  return literal_of_name(t.decl.name)
+end
+
 function Types.declares_method(t: Type, name: string): boolean
   if not ((t.tag == "named")) or t.decl.kind ~= "class" or t.value then
     return false
@@ -1216,7 +1260,16 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
     -- checker's errors say what is in scope.
     local text = t.decl.name
     local body = t.decl.body
-    if body ~= nil and Types.inferred_record(t.decl) then
+    local literal = Types.literal_value(t)
+    if literal ~= nil then
+      text = string.format("%q", literal):gsub("\\\n", "\\n")
+      if utf8.len(literal) == nil then
+        -- Bytes that are no UTF-8 are written as Lua escapes, so a message is text.
+        text = text:gsub("[\128-\255]", function(c: string): string
+          return "\\" .. tostring(c:byte())
+        end)
+      end
+    elseif body ~= nil and Types.inferred_record(t.decl) then
       local fields: mut {string} = {}
       for _, f in ipairs(body.fields) do
         fields[#fields + 1] = (if f.mut == true then "mut " else "" end) .. f.name .. ": " .. show(f.type, names, false)
@@ -1801,6 +1854,15 @@ Types.Store.find = function(self: Store, module: string, name: string): Decl? --
   return self.declared[path_key(module, name)]
 end
 
+function Types.literal(store: Store, value: string): Type
+  local name = literal_name(value)
+  local decl = store:declare("enum", Types.LITERALS, { name }, 0)
+  if decl.body == nil then
+    store:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = { value } })
+  end
+  return store:named(decl)
+end
+
 Types.Store.declarations = function(self: Store): {Decl} -- checked: field_unknown
   local out: mut {Decl} = {}
   for i, d in ipairs(self.list) do
@@ -2171,6 +2233,12 @@ local function resolve(r: Reader, module: string, name: string): Decl -- checked
       fail(r, "the declaration " .. module .. " " .. name .. " has no body")
     end
     return found
+  end
+  local literal = if module == Types.LITERALS then literal_of_name(name) else nil end
+  if literal ~= nil then
+    -- A literal type's declaration is made from its name, in any store.
+    local t = Types.literal(store, literal)
+    return if (t.tag == "named") then t.decl else fail(r, "a literal type is an enum") end
   end
   local loader = store.loader
   if loader ~= nil then

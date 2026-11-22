@@ -63,6 +63,7 @@ local record Pair<K, V is Ordered> is Base<K>
   bad: {{K}}
   boo: boolean
   nothing: nil
+  circle: "circle"
 end
 local interface Conn<T> is Stream.Reader
   name: string

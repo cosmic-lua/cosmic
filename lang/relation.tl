@@ -665,6 +665,30 @@ local function from_union(j: Relation.Judge, a: Union, b: Type, why: boolean): R
   return nil
 end
 
+--- Whether each string of the enum `a` is a value of one of the enums `among`: a string literal type is an enum of its
+--- value alone, so `"circle" | "square"` holds `Kind` where `Kind` is those two.
+local function enum_within(a: Named, among: {Type}): boolean
+  local body = a.decl.body
+  if body == nil then
+    return false
+  end
+  local held: mut {string: boolean} = {}
+  for _, m in ipairs(among) do
+    local other = if (m.tag == "named") and not m.value and m.decl.kind == "enum" then m.decl.body else nil end
+    if other ~= nil then
+      for _, v in ipairs(other.values) do
+        held[v] = true
+      end
+    end
+  end
+  for _, v in ipairs(body.values) do
+    if held[v] ~= true then
+      return false
+    end
+  end
+  return true
+end
+
 -- TODO: index the members of a target union by form, once the type report shows a union of many
 -- arrays, maps or functions in the tree: a type below none of n members, or below only the last
 -- of them, is compared with each, and n such types make n^2 comparisons. A member that is one of
@@ -683,6 +707,10 @@ local function into_union(j: Relation.Judge, a: Type, b: Union, why: boolean): R
     if rel(j, a, m, false) == nil then
       return nil
     end
+  end
+  if (a.tag == "named") and not a.value and a.decl.kind == "enum" and enum_within(a, b.members) then
+    -- No member holds each string of the enum, and the members together do.
+    return nil
   end
   if not why then
     return j.none
@@ -1100,6 +1128,13 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
     end
     if not a.value and not b.value and Types.inferred_record(a.decl) and b.decl.kind ~= "interface" then
       return shaped(j, a, b, why)
+    end
+    if not a.value and a.decl.kind == "enum" and b.decl.kind == "enum" then
+      -- An enum is the set of its strings, and is below an enum that holds each of them: `"circle"` is below `Kind`.
+      if enum_within(a, { b }) then
+        return nil
+      end
+      return leaf(j, why, "nominal", a, b)
     end
     if b.decl.kind == "interface" then
       local closure = closure_of(j, a)

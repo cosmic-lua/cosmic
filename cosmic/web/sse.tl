@@ -803,7 +803,7 @@ local function new_hub(opts?: Sse.HubOptions): Sse.Hub
   end
   local hub: State = {
     replay = given.replay or DEFAULT_REPLAY, queue_size = given.queue or DEFAULT_QUEUE,
-    overflow = overflow, max_per_topic = given.max_per_topic, max_total = given.max_total, -- checked: not_assignable
+    overflow = overflow, max_per_topic = given.max_per_topic, max_total = given.max_total,
     max_event_bytes = given.max_event_bytes or DEFAULT_EVENT_BYTES,
     topics = {}, total = 0, seq = 0, shut = false,
     publish = State.publish, subscribe = State.subscribe, subscribers = State.subscribers,

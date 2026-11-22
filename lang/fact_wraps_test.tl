@@ -248,7 +248,8 @@ local function test_a_tag_read_after_a_test_of_it_and_a_call_is_checked()
     "print(f({ s = { kind = \"b\", s = \"x\" } }, function() end))",
     "",
   }, "\n"))
-  assert(count == 1, tostring(count))
+  -- The read of the tag, and the `k` that the test of `\"b\"` left `C_kind`.
+  assert(count == 2, tostring(count))
 end
 
 local function test_the_last_test_of_a_chain_that_names_every_member_is_checked()
