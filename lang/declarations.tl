@@ -1559,6 +1559,8 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
     out = store:atom(if t.value then "true" else "false" end)
   elseif t.kind == "TypeNil" then
     out = store:atom("nil")
+  elseif t.kind == "TypeString" then
+    out = store:literal(t.value)
   elseif t.kind == "TypeArray" or t.kind == "TypeMap" then
     out = lower_collection(ctx, t, false)
   elseif (t.kind == "TypeMut") then

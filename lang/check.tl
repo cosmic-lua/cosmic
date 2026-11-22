@@ -3628,6 +3628,7 @@ local record Tests
   by_kind: function(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
   keep_is: function(ctx: Ctx, cur: Type, tested: Type): Type
   drop_is: function(ctx: Ctx, cur: Type, tested: Type): Type
+  by_literal: function(ctx: Ctx, cur: Type, lit: string, keep: boolean): Type
   --- Adds the warning `code` on the tokens of `node`; none in a pass that reports nothing.
   warn: function(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, fix: string)
   --- Reports `type(x) == "name"` where `type` never answers the name.
@@ -3971,8 +3972,23 @@ function Tests.drop_is(ctx: Ctx, cur: Type, tested: Type): Type
   end
   local store = ctx.store
   local out: mut {Type} = {}
+  local strings = Tests.enum_strings(ctx, tested)
   for _, m in ipairs(members_of(store, cur)) do
-    if m.tag == "invalid" or not below(ctx, m, tested) then
+    local body = if (m.tag == "named") and not m.value and m.decl.kind == "enum" then m.decl.body else nil end
+    if body ~= nil and strings ~= nil and not below(ctx, m, tested) then
+      -- An enum keeps the strings the tested type does not hold, each as its literal type.
+      local dropped: mut {string: boolean} = {}
+      for _, v in ipairs(strings) do
+        dropped[v] = true
+      end
+      local kept: mut {Type} = {}
+      for _, v in ipairs(body.values) do
+        if dropped[v] ~= true then
+          kept[#kept + 1] = store:literal(v)
+        end
+      end
+      out[#out + 1] = if #kept == #body.values then m else store:union(kept) end
+    elseif m.tag == "invalid" or not below(ctx, m, tested) then
       out[#out + 1] = m
     end
   end
@@ -4407,6 +4423,66 @@ function Narrowing.tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: str
   return Narrowing.when_true(f, p, store:union(yes)), after
 end
 
+--- What a value of type `cur` is where a test says it is the string `lit` (`keep`) or is not: an enum that holds `lit`
+--- splits into the literal type of `lit` and the literal types of its other values, and `string` holds `lit` and the
+--- rest. A member that cannot be a string stays where the test fails, and a member the test says nothing of stays in both.
+function Tests.by_literal(ctx: Ctx, cur: Type, lit: string, keep: boolean): Type
+  if cur.tag == "invalid" then
+    return cur
+  end
+  local store = ctx.store
+  local out: mut {Type} = {}
+  for _, m in ipairs(members_of(store, cur)) do
+    local body = if (m.tag == "named") and not m.value and m.decl.kind == "enum" then m.decl.body else nil end
+    if body ~= nil then
+      local holds = false
+      for _, v in ipairs(body.values) do
+        holds = holds or v == lit
+      end
+      if keep and holds then
+        out[#out + 1] = store:literal(lit)
+      elseif not keep and not holds then
+        out[#out + 1] = m
+      elseif not keep then
+        for _, v in ipairs(body.values) do
+          if v ~= lit then
+            out[#out + 1] = store:literal(v)
+          end
+        end
+      end
+    elseif m.tag == "string" then
+      out[#out + 1] = if keep then store:literal(lit) else m end
+    elseif m.atom == true and m.tag ~= "any" and m.tag ~= "invalid" then
+      -- A number, a boolean or nil is no string.
+      if not keep then
+        out[#out + 1] = m
+      end
+    elseif (m.tag == "array") or (m.tag == "map") or (m.tag == "fn") or ((m.tag == "named") and m.decl.kind ~= "userdata") then
+      if not keep then
+        out[#out + 1] = m
+      end
+    else
+      out[#out + 1] = m
+    end
+  end
+  return store:union(out)
+end
+
+--- The edges of `x == "lit"` for a place `x` whose type holds strings: each edge has it as [`Tests.by_literal`] leaves it.
+function Narrowing.literal_edges(ctx: Ctx, yes: Flow.State, no: Flow.State, operand: Ast.Node, lit: string): Flow.State, Flow.State
+  local p = place_of(ctx, yes, operand)
+  local q = place_of(ctx, no, operand)
+  if p == nil or q == nil then
+    return yes, no
+  end
+  local before = current(yes, p)
+  if Tests.enum_strings(ctx, before) == nil and not below(ctx, ctx.store.string, before) then
+    return yes, no
+  end
+  return Narrowing.when_true(yes, p, Tests.by_literal(ctx, before, lit, true)),
+    Narrowing.narrowed_flow(no, q, Tests.by_literal(ctx, current(no, q), lit, false))
+end
+
 --- The edges of `type(x) == "kind"`.
 function Narrowing.type_edges(ctx: Ctx, f: Flow.State, call: Ast.Call, kind: string): Flow.State, Flow.State
   local callee = call.callee
@@ -4466,8 +4542,14 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     yes, no = Narrowing.type_edges(ctx, f, r, l.value)
   elseif (r.kind == "String") and (l.kind == "Field") then
     yes, no = Narrowing.tag_edges(ctx, f, l, r.value)
+    yes, no = Narrowing.literal_edges(ctx, yes, no, l, r.value)
   elseif (l.kind == "String") and (r.kind == "Field") then
     yes, no = Narrowing.tag_edges(ctx, f, r, l.value)
+    yes, no = Narrowing.literal_edges(ctx, yes, no, r, l.value)
+  elseif (r.kind == "String") then
+    yes, no = Narrowing.literal_edges(ctx, f, f, l, r.value)
+  elseif (l.kind == "String") then
+    yes, no = Narrowing.literal_edges(ctx, f, f, r, l.value)
   elseif (l.kind == "Unary") or (r.kind == "Unary") then
     yes, no = Tests.length_edges(ctx, f, "==", l, r)
   end

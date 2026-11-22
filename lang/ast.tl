@@ -38,7 +38,7 @@ local record Ast
     -- function parts
     "Fn" "Rets" "Param" "Binding"
     -- types
-    "TypeName" "TypeBool" "TypeNil" "TypeError" "TypeArray" "TypeMap" "TypeUnion" "TypeOptional"
+    "TypeName" "TypeBool" "TypeString" "TypeNil" "TypeError" "TypeArray" "TypeMap" "TypeUnion" "TypeOptional"
     "TypeMut" "TypeFunction" "PType" "Narrows" "TypeParam"
     -- declarations
     "Record" "Interface" "Class" "Enum" "EnumValue" "Alias" "Import" "FieldDecl" "Method" "Userdata"
@@ -678,6 +678,17 @@ local record Ast
     mut id: integer
     value: boolean
   end
+  enum TypeString_kind
+    "TypeString"
+  end
+  --- A string literal as a type, `"circle"`: the type of that one string.
+  record TypeString is Base
+    kind: TypeString_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+    value: string
+  end
   enum TypeNil_kind
     "TypeNil"
   end
@@ -955,7 +966,7 @@ local record Ast
   type CallExp = Call | MethodCall | Error
   type Item = Positional | Spread | Named | Keyed
   type PatItem = PatBool | PatBind
-  type Type = TypeName | TypeBool | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
+  type Type = TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
     TypeOptional | TypeMut | TypeFunction
   --- An item of a return list.
   type RType = Type | Narrows
@@ -966,7 +977,7 @@ local record Ast
     Continue | While | Repeat | If | Arm | Match | MatchArm | PatBool | PatBind | ForNum | ForIn | Name |
     Nil | Boolean | Integer | Float | String | Vararg | Paren | FunctionLit | Table | Positional | Spread | Named |
     Keyed | Field | Index | Call | MethodCall | Unary | Binary | IsTest | Cast | IfExp | ExpArm | Fn |
-    Rets | Param | Binding | TypeName | TypeBool | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
+    Rets | Param | Binding | TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
     TypeOptional | TypeMut | TypeFunction | PType | Narrows | TypeParam | Record | Interface | Class |
     Enum | EnumValue | TypeAlias | Import | FieldDecl | Method | Userdata | Error
 
@@ -1009,7 +1020,7 @@ local SPEC <const>: {string: string} = {
   ExpArm = "cond value",
   Fn = "params* rets body", Rets = "lists** variadic",
   Param = "name optional type variadic", Binding = "name attr",
-  TypeName = "path* args*", TypeBool = "value", TypeNil = "", TypeError = "",
+  TypeName = "path* args*", TypeBool = "value", TypeString = "value", TypeNil = "", TypeError = "",
   TypeArray = "element", TypeMap = "key value", TypeUnion = "members*",
   TypeOptional = "inner", TypeMut = "inner", TypeFunction = "typeparams* params* rets",
   PType = "name optional variadic type", Narrows = "param type asserts",

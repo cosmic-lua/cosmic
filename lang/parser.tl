@@ -74,11 +74,11 @@ local record Parser
     -- a function body, or a statement of no declaration, in a declaration file
     "body_in_declaration" "statement_in_declaration"
     -- the cut forms: `mut` of what is no collection, `f"s"`, `T...`, `? T`,
-    -- a tuple type, a string as a type, a bare `function` type,
+    -- a tuple type, a bare `function` type,
     -- `metamethod`, several supertypes, a type parameter on a function
     -- literal, an attribute that is not `const` or `close`
     "mut_needs_collection" "string_call" "variadic_type" "optional_type" "tuple_type"
-    "string_literal_type" "bare_function_type" "metamethod" "several_supers"
+    "bare_function_type" "metamethod" "several_supers"
     "generic_function_literal" "bad_attribute"
     -- `f<T>(x)`, a call with a type argument; `{ a: A, b: B }`, a record written as a type in braces
     "type_argument" "inline_record"
@@ -1027,9 +1027,9 @@ parse_base_inner = function(first: integer, t: string, k: Lexer.Kind): Ast.Type
     close(")", first, "parenthesized type")
     return inner
   elseif k == "string" then
-    report("string_literal_type", first, "a string is not a type: string-literal types are not in the grammar",
-      "declare an `enum` of the strings and use its name as the type")
+    local at = S.pos
     advance()
+    return { kind = "TypeString", id = 0, first = first, last = first, value = assert(S.tokens.value[at]) }
   elseif k == "$ERR$" then
     advance()
   else
@@ -2835,7 +2835,7 @@ Parser.codes = {
   "statement_after_return", "chained_optional", "chained_is", "is_union", "bare_function",
   "bare_declaration", "function_path", "global_in_program", "userdata_in_program", "duplicate_field",
   "body_in_declaration", "statement_in_declaration", "mut_needs_collection", "string_call", "variadic_type",
-  "optional_type", "tuple_type", "string_literal_type", "bare_function_type", "metamethod", "several_supers",
+  "optional_type", "tuple_type", "bare_function_type", "metamethod", "several_supers",
   "generic_function_literal", "bad_attribute", "type_argument", "inline_record", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",

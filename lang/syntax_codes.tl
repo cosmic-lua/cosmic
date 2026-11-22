@@ -261,11 +261,6 @@ SyntaxCodes.catalog = {
     fix = "write a record with a field for each position, or `{A | B}` for an array of either",
   },
   {
-    code = "string_literal_type", stage = "parser", rule = LEFT_OUT,
-    why = "a string literal as a type has no form: the strings a value may be are an enum",
-    fix = "declare an `enum` of the strings and use its name as the type",
-  },
-  {
     code = "bare_function_type", stage = "parser", rule = LEFT_OUT,
     why = "`function` alone says nothing of its parameters or results, so a caller could not be checked",
     fix = "write the signature: `function(x: T): U`, and `function()` for a function with no parameters",

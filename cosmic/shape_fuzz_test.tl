@@ -142,7 +142,6 @@ local function gen_value(r: Recipe, spec: Shape.Node, depth: integer, strict: bo
     end
     return t -- checked: any_use
   end
-  return STRAYS[byte(r, #STRAYS) + 1]
 end
 
 local same: function(a: any, b: any): boolean

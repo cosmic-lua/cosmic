@@ -454,6 +454,8 @@ lua_type = function(t: Ast.Type, hops: integer): string
     return "function"
   elseif t.kind == "TypeNil" then
     return "nil"
+  elseif t.kind == "TypeString" then
+    return "string"
   elseif (t.kind == "TypeMut") then
     return lua_type(t.inner, hops)
   end
@@ -874,6 +876,9 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   elseif (t.kind == "TypeBool") then
     add_child(out, value, "", G.indent)
     put(out, if t.value then " == true" else " == false" end)
+  elseif (t.kind == "TypeString") then
+    add_child(out, value, "", G.indent)
+    put(out, " == " .. string.format("%q", t.value):gsub("\\\n", "\\n"))
   else
     put(out, "type(")
     add_child(out, value, "", G.indent)

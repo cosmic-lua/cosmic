@@ -53,7 +53,7 @@ local function test_what_is_laid_out_is_laid_out_as_itself()
   lays(source, source)
   local first = Format.format("local   t={1,2 ,}\n", "f.tl").text
   assert(first == "local t = { 1, 2 }\n", tostring(first))
-  lays(first or "", first or "")
+  lays(first, first)
 end
 
 local function test_a_source_with_an_error_is_refused_in_the_parsers_words()

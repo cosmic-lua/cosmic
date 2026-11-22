@@ -122,7 +122,7 @@ end
 
 --- The kinds of node that are types, whose tokens form a region.
 local TYPE_KINDS <const>: {string: boolean} = {
-  TypeName = true, TypeBool = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
+  TypeName = true, TypeBool = true, TypeString = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
   TypeUnion = true, TypeOptional = true, TypeMut = true, TypeFunction = true, PType = true, Narrows = true,
   Rets = true,
 }

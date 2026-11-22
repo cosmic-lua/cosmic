@@ -64,7 +64,8 @@ The rules of the spread (`literal_spread`, `cosmic docs literal_spread`):
 ## narrowing
 
 A test tells the checker what a value is, inside the branch it guards. After `if job.note ~= nil`, `job.note` is a `string`
-there. A fixed field narrows, and so does a local, whether the test is `~= nil` or `is`. A comparison with a literal (`n == "abc"`) narrows nothing.
+there. A fixed field narrows, and so does a local, whether the test is `~= nil` or `is`. A comparison with a string
+(`k == "abc"`) narrows a place that may hold strings, as the next section shows. A comparison with a number narrows nothing.
 
 ```teal
 local record Job
@@ -128,6 +129,67 @@ end
 
 ```output
 3
+```
+
+## a string is a type of its own
+
+A string literal written as a type, `"circle"`, is the type of that one string. A union of them, `"on" | "off"`, is the
+strings a value may be, as an enum is. A value of a literal type is a `string`. An enum is the set of its strings: it is
+below another enum, or a union of literals, that holds each of them, so `"a"` is below `enum Kind "a" "b" end`, and
+`Kind` is below `"a" | "b"`. A string that the type does not hold is `enum_member` (`cosmic docs enum_member`).
+
+A field of a literal type tags a union of records, with no enum for each tag.
+
+```teal
+local record Circle
+  kind: "circle"
+  r: number
+end
+
+local record Square
+  kind: "square"
+  side: number
+end
+
+local type Shape = Circle | Square
+
+local function area(s: Shape): number
+  if s.kind == "circle" then
+    return 3 * s.r * s.r
+  end
+  return s.side * s.side
+end
+
+print(area({ kind = "square", side = 2 }))
+```
+
+```output
+4
+```
+
+A test of a place against a string narrows it. Where `k == "a"` holds, `k` is `"a"`. Where it fails, an enum or a union
+of literals keeps its other strings, so a chain of tests over every string of an enum ends the function, and the
+checker needs no `return` after it. `k is "a"` narrows alike.
+
+```teal
+local enum Level
+  "low"
+  "high"
+end
+
+local function weight(level: Level): integer
+  if level == "low" then
+    return 1
+  elseif level == "high" then
+    return 10
+  end
+end
+
+print(weight("high"))
+```
+
+```output
+10
 ```
 
 ## an array with named fields
