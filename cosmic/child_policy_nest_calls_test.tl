@@ -89,7 +89,8 @@ local function test_a_nested_program_cannot_widen_what_it_was_given(tmp: string)
   -- Real paths, which a root binds a grant at.
   local base = assert(sys.realpath(searchable.open(tmp)))
   local work = base .. "/work"
-  assert(Fs.mkdirs(work .. "/ro") and Fs.mkdirs(work .. "/rw"))
+  assert(Fs.mkdirs(work .. "/ro"))
+  assert(Fs.mkdirs(work .. "/rw"))
   assert(Fs.write(work .. "/ro/a", "alpha\n"))
   searchable.share(work .. "/rw")
   -- The directories at the names the chunk uses; the working directory is

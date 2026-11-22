@@ -1626,7 +1626,7 @@ local function sealing_for(rec: Recording): Sealing?, string
   if not opened then return fail(directory .. ": " .. tostring(open_trouble)) end
   local path = directory .. "/program.db"
   local written, write_trouble = Fs.write(path, database)
-  if not written then return fail(write_trouble) end
+  if not written then return fail(tostring(write_trouble)) end
   rec.sealing = { directory = directory, program = path }
   return rec.sealing, ""
 end
@@ -1839,7 +1839,9 @@ local function mismatched(rec: Recording, address: string, path: string, digest:
     if data == nil then
       trouble = tostring(read_trouble)
     else
-      saved, trouble = Fs.write(aside, data)
+      local wrote, write_trouble = Fs.write(aside, data)
+      saved = wrote
+      if not wrote then trouble = tostring(write_trouble) end
     end
   end
   rec.errors[#rec.errors + 1] = "the closure store at address " .. address .. " was written " ..

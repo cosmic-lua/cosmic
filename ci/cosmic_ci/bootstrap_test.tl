@@ -79,7 +79,8 @@ end
 --- `digest`. Its cache is `tmp/xdg/cosmic/bootstrap`.
 local function bootstrap_root(tmp: string, commit: string, digest: string): string, string
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/ci"))
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.mkdirs(root .. "/ci"))
   assert(Fs.write(root .. "/bin/cosmic-bootstrap",
     (assert(Fs.read(checkout_root() .. "/bin/cosmic-bootstrap"))), 0x1ed))
   pin(root .. "/ci/cosmic-driver.pin", commit, digest)
@@ -483,7 +484,8 @@ local refusal = "bin/cosmic-bootstrap: build/unlisted.tl is not in ci/bootstrap-
 --- A checkout at `tmp/root` whose list is `list_text` and whose files are all there, with files outside it.
 local function listed_checkout(tmp: string): string
   local root, _ = bootstrap_root(tmp, string.rep("1", 40), string.rep("0", 64))
-  assert(Fs.mkdirs(root .. "/build/sub") and Fs.mkdirs(tmp .. "/outside"))
+  assert(Fs.mkdirs(root .. "/build/sub"))
+  assert(Fs.mkdirs(tmp .. "/outside"))
   -- ci/d is a link to build/sub: `ci/d/..` is build/ where it stands, and ci/ only to a reader that takes `..` before the link.
   assert(Fs.symlink("../build/sub", root .. "/ci/d"))
   assert(Fs.write(root .. "/ci/bootstrap-files.txt", list_text))

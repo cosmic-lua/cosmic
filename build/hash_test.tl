@@ -154,7 +154,9 @@ local function test_a_carriage_return_is_escaped_and_gnus_own_bytes_are_read(tmp
   -- The bytes coreutils 9.4 writes for `a\rb`, `c\d`, and a newline in a name.
   local gnu = file(tmp, "gnu", "\\" .. abc("md5") .. "  a\\rb\n" .. "\\" .. abc("md5") .. "  c\\\\d\n" ..
       "\\" .. abc("md5") .. "  n\\nl\n")
-  assert(Fs.write(tmp .. "/a\rb", "abc") and Fs.write(tmp .. "/c\\d", "abc") and Fs.write(tmp .. "/n\nl", "abc"))
+  assert(Fs.write(tmp .. "/a\rb", "abc"))
+  assert(Fs.write(tmp .. "/c\\d", "abc"))
+  assert(Fs.write(tmp .. "/n\nl", "abc"))
   local checked = run({ "--md5", "--check", gnu }, nil)
   -- The names are relative to `tmp`, which this run is not in: each
   -- fails to open, named as the list escapes it.
@@ -175,7 +177,7 @@ local function test_json_refuses_a_path_it_cannot_write_and_exits_2(tmp: string)
   -- there, and the Linux legs hold this case.
   local wrote, why = Fs.write(odd, "abc")
   if not wrote then
-    assert(why:find("Illegal byte sequence", 1, true), why)
+    assert(tostring(why):find("Illegal byte sequence", 1, true), tostring(why))
     return
   end
   local ran = run({ "--json", odd, good })

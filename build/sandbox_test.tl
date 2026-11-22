@@ -229,7 +229,8 @@ local function test_the_other_values_are_the_decoders_too()
 end
 
 local function test_a_connect_is_the_starts_to_serve_and_its_failure_is_the_starts(tmp: string)
-  assert(Fs.write(tmp .. "/there", "x") and sys.chmod(tmp .. "/there", 493))
+  assert(Fs.write(tmp .. "/there", "x"))
+  assert(sys.chmod(tmp .. "/there", 493))
   local ran = run({ "--connect", "github.com:443", tmp .. "/there" },
     { why = "child: start: sandbox: relay: the relay ended (status 1) before it served" })
   assert(ran.code == 125, tostring(ran.code) .. ran.err)
@@ -292,7 +293,8 @@ local function test_the_programs_end_is_the_exit_status()
 end
 
 local function test_a_start_that_fails_exits_125_with_the_reason(tmp: string)
-  assert(Fs.write(tmp .. "/there", "x") and sys.chmod(tmp .. "/there", 493))
+  assert(Fs.write(tmp .. "/there", "x"))
+  assert(sys.chmod(tmp .. "/there", 493))
   local ran = run({ tmp .. "/there" }, { why = "child: start: Landlock is not available" })
   assert(ran.code == 125 and ran.err == "cosmic: sandbox: child: start: Landlock is not available\n",
     tostring(ran.code) .. ran.err)
@@ -328,7 +330,8 @@ end
 
 local function test_a_relative_program_is_judged_from_cwd(tmp: string)
   assert(Fs.mkdirs(tmp .. "/work"))
-  assert(Fs.write(tmp .. "/work/plain", "x") and sys.chmod(tmp .. "/work/plain", 420))
+  assert(Fs.write(tmp .. "/work/plain", "x"))
+  assert(sys.chmod(tmp .. "/work/plain", 420))
   local ran = run({ "--cwd", tmp .. "/work", "./plain" }, { why = "child: start: Permission denied" })
   assert(ran.code == 126, tostring(ran.code) .. ran.err)
 end
@@ -344,7 +347,8 @@ end
 --- `--database` names the file the policy runs the program on, resolved
 --- against `--cwd`; with no command it is this program that runs.
 local function test_database_sets_the_policys_database(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/work") and Fs.write(tmp .. "/work/p.db", "not a database\n"))
+  assert(Fs.mkdirs(tmp .. "/work"))
+  assert(Fs.write(tmp .. "/work/p.db", "not a database\n"))
   -- The policy holds the real path.
   local real = assert(sys.realpath(tmp .. "/work/p.db"))
   local ran = run({ "--database", tmp .. "/work/p.db", "--", "prog", "a" })

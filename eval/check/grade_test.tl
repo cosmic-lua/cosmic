@@ -95,7 +95,8 @@ end
 --- A build that fails leaves an earlier o/bin/notes where it was, and
 --- the grader must not run that one as if it were this project's.
 local function test_a_failed_build_does_not_run_an_earlier_binary(dir: string)
-  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/project/o/bin"))
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic",
     "[build] eprint build: FAIL\n[build] exit 1\nexit 0"))
@@ -114,7 +115,8 @@ end
 --- vouches for nothing: the earlier o/bin/notes is not run, and
 --- the grade fails for want of one.
 local function test_a_build_that_did_not_write_notes_does_not_run_an_earlier_one(dir: string)
-  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/project/o/bin"))
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic",
     "[build] print build: PASS (no executable: no cmd/<name>/main.tl)\nexit 0"))
@@ -163,7 +165,8 @@ end
 
 --- A build that fails runs no earlier binary, whichever task it is.
 local function test_a_failed_build_runs_no_binary_for_any_task(dir: string)
-  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project/o/bin"))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/project/o/bin"))
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic",
     "[build] eprint build: FAIL\n[build] exit 1\nexit 0"))
@@ -215,7 +218,8 @@ end
 --- command passes and whose `fix` fails where the journal was not set
 --- aside; answers the status and lines.
 local function graded_with_journal(dir: string, journal: string?): integer, string
-  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project"))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/project"))
   if journal ~= nil then
     assert(Fs.write(dir .. "/project/JOURNAL.md", journal))
   end
@@ -404,7 +408,8 @@ end
 --- A grade that outlasts its deadline stops where it is, says TIMEOUT
 --- rather than FAIL and exits 124.
 local function test_a_grade_past_its_deadline_is_a_timeout_not_a_failure(dir: string)
-  assert(Fs.mkdirs(dir .. "/bin") and Fs.mkdirs(dir .. "/project"))
+  assert(Fs.mkdirs(dir .. "/bin"))
+  assert(Fs.mkdirs(dir .. "/project"))
   local probe = assert(stand_in.build(dir .. "/stand-in"))
   assert(stand_in.place(probe, dir .. "/bin/cosmic", "[test] sleep 5000\n[test] exit 0\nexit 0"))
   assert(Fs.write(dir .. "/project/JOURNAL.md", "**Log**\n"))

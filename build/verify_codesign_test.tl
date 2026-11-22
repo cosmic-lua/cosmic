@@ -65,7 +65,8 @@ end
 
 --- The first codesign on the PATH is the one run.
 local function test_the_first_codesign_on_path_runs(dir: string)
-  assert(Fs.mkdirs(dir .. "/a") and Fs.mkdirs(dir .. "/b"))
+  assert(Fs.mkdirs(dir .. "/a"))
+  assert(Fs.mkdirs(dir .. "/b"))
   local probe = stand_in_under(dir)
   local log = fake_codesign(probe, dir .. "/a", 0)
   fake_codesign(probe, dir .. "/b", 5)

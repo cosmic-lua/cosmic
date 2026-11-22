@@ -109,7 +109,8 @@ exit 0
 
 local function fake(tmp: string): {string:string}
   local bin, workspace = tmp .. "/bin", tmp .. "/workspace"
-  assert(Fs.mkdirs(bin) and Fs.mkdirs(workspace))
+  assert(Fs.mkdirs(bin))
+  assert(Fs.mkdirs(workspace))
   assert(Fs.write(bin .. "/docker", fake_docker, 0x1ed))
   return {
     PATH = bin .. ":/usr/bin:/bin", FAKE_LOG = tmp .. "/log",

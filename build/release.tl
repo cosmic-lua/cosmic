@@ -684,11 +684,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
 
   if pin ~= nil then
     local ok, write_trouble = Fs.write(pin, verb.pin_text(release.tag, release.commit, digest))
-    if not ok then return fail(write_trouble) end
+    if not ok then return fail(tostring(write_trouble)) end
   end
   if launcher ~= nil and launcher_text ~= nil then
     local ok, write_trouble = Fs.write(launcher, launcher_text, 0x1ed)
-    if not ok then return fail(write_trouble) end
+    if not ok then return fail(tostring(write_trouble)) end
   end
   if kept ~= nil then return written(to.out(kept .. "\n")) end
   return bare.ok

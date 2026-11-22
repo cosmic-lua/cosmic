@@ -14,7 +14,8 @@ Test.policy{}
 local function seeded(tmp: string): string, {string:string}
   local names = assert(sys.uname())
   local host = assert(Zig.host(names.sysname, names.machine))
-  assert(Fs.mkdirs(tmp .. "/root/bin") and Fs.mkdirs(tmp .. "/cache"))
+  assert(Fs.mkdirs(tmp .. "/root/bin"))
+  assert(Fs.mkdirs(tmp .. "/cache"))
   assert(Fs.write(tmp .. "/root/bin/zig.pin", "version 0.16.0\n" .. host .. " " .. string.rep("a", 64) .. "\n"))
   return tmp .. "/root", { HOME = tmp, XDG_CACHE_HOME = tmp .. "/cache" }
 end

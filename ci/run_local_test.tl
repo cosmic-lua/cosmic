@@ -45,7 +45,8 @@ end
 --- proves the unmodified root entry changes credentials.
 local function checkout(tmp: string): string, {string:string}
   local root = tmp .. "/source tree"
-  assert(Fs.mkdirs(root .. "/o/bin") and Fs.mkdirs(root .. "/ci/cosmic_ci"))
+  assert(Fs.mkdirs(root .. "/o/bin"))
+  assert(Fs.mkdirs(root .. "/ci/cosmic_ci"))
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "fixture driver\n"))
   assert(Fs.mkdirs(root .. "/build"))
   -- The checkout builds in its o/, where the phase tool is; a candidate under the cache its driver is given, as
@@ -263,7 +264,8 @@ local function test_state_paths_refuse_containment_and_symlink_roots(tmp: string
     assert(invoke(root, Maps.with(env, { COSMIC_CI_LOCAL = path }), { "build" }) == 2, "unsafe state accepted: " .. path)
   end
   local outside = tmp .. "/outside"
-  assert(Fs.mkdirs(outside) and Fs.write(outside .. "/sentinel", "unchanged"))
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(outside .. "/sentinel", "unchanged"))
   assert(Fs.chmod(outside, 0x1c0))
   local link = tmp .. "/state-link"
   assert(Fs.symlink(outside, link))
@@ -274,7 +276,8 @@ end
 local function test_default_base_symlink_is_refused_before_mutation(tmp: string)
   local root, env = checkout(tmp)
   local outside = tmp .. "/outside"
-  assert(Fs.mkdirs(outside) and Fs.write(outside .. "/sentinel", "unchanged"))
+  assert(Fs.mkdirs(outside))
+  assert(Fs.write(outside .. "/sentinel", "unchanged"))
   assert(Fs.chmod(outside, 0x1c0))
   assert(Fs.symlink(outside, tmp .. "/cosmic-ci-local-0"))
   assert(invoke(root, Maps.without(env, { "COSMIC_CI_LOCAL" }), { "build" }, 0) == 2)
@@ -296,7 +299,8 @@ local function test_default_base_of_another_or_open_to_others_is_refused(tmp: st
   assert(#assert(Fs.list(base)) == 0, "a refused base was written")
   assert(Fs.chmod(base, 0x1c0))
   local other = tmp .. "/cosmic-ci-local-" .. tostring(uid + 1)
-  assert(Fs.mkdirs(other) and Fs.chmod(other, 0x1c0))
+  assert(Fs.mkdirs(other))
+  assert(Fs.chmod(other, 0x1c0))
   assert(invoke(root, default, { "build" }, uid + 1) == 2)
   assert(#assert(Fs.list(other)) == 0, "another's base was written")
 end

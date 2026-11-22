@@ -500,7 +500,7 @@ local function carried_digest(database: string, kept: string): string?, string
   local trouble = ""
   local written, write_trouble = Fs.write(path, database)
   if not written then
-    trouble = write_trouble
+    trouble = tostring(write_trouble)
   else
     local db, open_trouble = Sqlite.open(path)
     if db == nil then

@@ -59,7 +59,8 @@ end
 
 local function test_wrapper_maintenance_does_not_build_a_broken_candidate(tmp: string)
   local project, candidate = tmp .. "/driver", tmp .. "/broken-candidate"
-  assert(Fs.mkdirs(project) and Fs.mkdirs(candidate .. "/build"))
+  assert(Fs.mkdirs(project))
+  assert(Fs.mkdirs(candidate .. "/build"))
   local here = assert(Fs.absolute("."))
   assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project }, { timeout_ns = CEILING_NS })).ok)
   assert(Fs.write(candidate .. "/cosmic.tl", "invalid candidate source"))

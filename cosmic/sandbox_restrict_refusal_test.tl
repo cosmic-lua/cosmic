@@ -60,7 +60,8 @@ local REFUSED <const>: {Refusal} = {
 --- process as it was: a file no policy granted reads still, and a limit
 --- set past a refusal is not set.
 local function test_every_refusal_holds_nothing(tmp: string)
-  assert(Fs.write(tmp .. "/free", "free") and Fs.write(tmp .. "/held", "held"))
+  assert(Fs.write(tmp .. "/free", "free"))
+  assert(Fs.write(tmp .. "/held", "held"))
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local lines: mut {string} = {}
   for i, case in ipairs(REFUSED) do

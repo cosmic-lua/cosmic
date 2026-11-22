@@ -361,7 +361,7 @@ local function run(argv: {string}, program: string): integer
   end
   local wrote, wtrouble = Fs.write(directory .. "/result.json", text)
   if not wrote then
-    complain(wtrouble)
+    complain(tostring(wtrouble))
     return 1
   end
   local _, _ = Fs.put(Fs.stdout, "result: " .. directory .. "/result.json\n")

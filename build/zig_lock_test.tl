@@ -4,6 +4,7 @@
 
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
+local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
@@ -151,7 +152,7 @@ end
 local function test_an_exception_during_acquisition_releases_the_lock(tmp: string)
   local root = tree(tmp)
   local write = Fs.write
-  Fs.write = function(): boolean, string -- checked: field_fixed
+  Fs.write = function(): (true) | (false, Failure) -- checked: field_fixed
     error("holder write failed", 0)
   end
   local ok, trouble: boolean, any = pcall(Zig.with_lock, build_paths.required(root), {}, function(): integer -- checked: overload_none

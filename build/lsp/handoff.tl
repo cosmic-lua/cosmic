@@ -134,7 +134,9 @@ function handoff.put(launch: string, nonce: string, session: handoff.Session): b
     told_outside = session.told_outside, documents = session.documents, input = session.input }
   local text, encode_trouble = Json.encode_any(bound)
   if text == nil then return false, encode_trouble end
-  return Fs.write(directory .. "/" .. name, text, 0x180)
+  local wrote, why = Fs.write(directory .. "/" .. name, text, 0x180)
+  if not wrote then return false, tostring(why) end
+  return true, ""
 end
 
 --- Removes the file `put` wrote under `nonce` for this process: it was not replaced.

@@ -50,8 +50,10 @@ end
 local function placed(tmp: string): Place
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
   local work = assert(Fs.mkdirs(tmp .. "/work") and tmp .. "/work") -- checked: or_mix
-  assert(Fs.mkdirs(work .. "/ro") and Fs.mkdirs(tmp .. "/other"))
-  assert(Fs.write(work .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
+  assert(Fs.mkdirs(work .. "/ro"))
+  assert(Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(work .. "/ro/a", "alpha\n"))
+  assert(Fs.write(tmp .. "/other/b", "beta\n"))
   return { probe = probe, work = work,
     grants = { { path = probe, letters = "rx" }, { path = work, letters = "r" } },
     bare = { { path = probe, letters = "rx" } }, home = Fs.dirname(probe) }
@@ -173,7 +175,8 @@ end
 
 local function test_a_grant_with_from_appears_at_its_name_and_the_host_path_does_not(tmp: string)
   local at = placed(tmp)
-  assert(Fs.mkdirs(tmp .. "/hostdata") and Fs.write(tmp .. "/hostdata/c", "gamma\n"))
+  assert(Fs.mkdirs(tmp .. "/hostdata"))
+  assert(Fs.write(tmp .. "/hostdata/c", "gamma\n"))
   local policy: Sandbox.Policy = { isolate = { "file" },
     grants = ChildPolicy.with(at.grants, { path = "/data", letters = "r", from = tmp .. "/hostdata" }) }
   local read = ChildPolicy.under(at.probe, policy, at.work, "cat /data/c")
@@ -440,7 +443,8 @@ end
 --- directory bound from the host (core/syscalls.c's make_target) is ELOOP.
 local function test_a_root_that_cannot_be_built_says_which_step_failed(tmp: string)
   local at = placed(tmp)
-  assert(Fs.mkdirs(tmp .. "/linked") and Fs.mkdirs(tmp .. "/under"))
+  assert(Fs.mkdirs(tmp .. "/linked"))
+  assert(Fs.mkdirs(tmp .. "/under"))
   assert(Fs.symlink(".", tmp .. "/linked/l"))
   local policy: Sandbox.Policy = { isolate = { "file" }, grants = ChildPolicy.with(at.bare,
     { path = "/x", letters = "r", from = tmp .. "/linked" },

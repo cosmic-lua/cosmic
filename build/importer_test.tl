@@ -119,7 +119,7 @@ local function write_fixture(case: string, files: {string:string}): string?, str
     end
     local ok, written_trouble = Fs.write(root .. "/" .. filename, source)
     if not ok then
-      return nil, written_trouble
+      return nil, tostring(written_trouble)
     end
   end
   return root, ""

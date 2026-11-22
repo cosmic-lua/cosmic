@@ -60,8 +60,10 @@ end
 
 local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
-  assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
-  assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
+  assert(Fs.mkdirs(tmp .. "/ro"))
+  assert(Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(tmp .. "/ro/a", "alpha\n"))
+  assert(Fs.write(tmp .. "/other/b", "beta\n"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = tmp .. "/ro", letters = "r" } }) }
   local read = under(probe, policy, "cat " .. tmp .. "/ro/a")
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)
@@ -74,8 +76,10 @@ end
 
 local function test_a_relative_grant_is_relative_to_the_childs_directory(tmp: string)
   local probe = assert(stand_in.build(searchable.open(tmp) .. "/stand-in"))
-  assert(Fs.mkdirs(tmp .. "/work/ro") and Fs.mkdirs(tmp .. "/work/shut"))
-  assert(Fs.write(tmp .. "/work/ro/a", "alpha\n") and Fs.write(tmp .. "/work/shut/b", "beta\n"))
+  assert(Fs.mkdirs(tmp .. "/work/ro"))
+  assert(Fs.mkdirs(tmp .. "/work/shut"))
+  assert(Fs.write(tmp .. "/work/ro/a", "alpha\n"))
+  assert(Fs.write(tmp .. "/work/shut/b", "beta\n"))
   local policy: Sandbox.Policy = { grants = itself(probe, { { path = "ro", letters = "r" } }) }
   local read = under(probe, policy, "cat ro/a", { timeout_ns = Child.FOREVER, cwd = tmp .. "/work" })
   assert(read.code == 0 and read.said == "alpha\n", tostring(read.code) .. ": " .. read.said)

@@ -325,7 +325,7 @@ function stand_in.build(dir: string): string?, string
   if program == nil then return nil, "building the stand-in: " .. program_trouble end
   local out = dir .. "/probe"
   local written, write_trouble = Fs.write(out, program, 0x1ed)
-  if not written then return nil, write_trouble end
+  if not written then return nil, tostring(write_trouble) end
   return out, ""
 end
 
@@ -340,9 +340,11 @@ function stand_in.place(probe: string, path: string, script?: string): boolean, 
   local bytes, trouble = Fs.read(probe)
   if bytes == nil then return false, tostring(trouble) end
   local written, write_trouble = Fs.write(path, bytes, 0x1ed)
-  if not written then return false, write_trouble end
+  if not written then return false, tostring(write_trouble) end
   if script ~= nil then
-    return Fs.write(path .. ".do", script)
+    local wrote, written_why = Fs.write(path .. ".do", script)
+    if not wrote then return false, tostring(written_why) end
+    return true, ""
   end
   return true, ""
 end

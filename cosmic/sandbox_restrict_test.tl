@@ -47,8 +47,10 @@ if not restricted then return 0 end
 end
 
 local function test_a_granted_path_is_read_and_its_sibling_is_not(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
-  assert(Fs.write(tmp .. "/ro/a", "alpha") and Fs.write(tmp .. "/other/b", "beta"))
+  assert(Fs.mkdirs(tmp .. "/ro"))
+  assert(Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(tmp .. "/ro/a", "alpha"))
+  assert(Fs.write(tmp .. "/other/b", "beta"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"r\" } } }", tmp .. "/ro"),
     string.format([[
@@ -66,7 +68,8 @@ say("overwrite", writes(%q))
 end
 
 local function test_w_and_c_give_writing_and_creating(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/rw") and Fs.write(tmp .. "/rw/f", "x"))
+  assert(Fs.mkdirs(tmp .. "/rw"))
+  assert(Fs.write(tmp .. "/rw/f", "x"))
   local said = Restrict.in_child(restricted(
     string.format("{ grants = { { path = %q, letters = \"rwc\" } } }", tmp .. "/rw"),
     string.format([[
@@ -178,8 +181,12 @@ say("nofile", limit(sys.RLIMIT_NOFILE))
 end
 
 local function test_restricting_again_narrows(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/a") and Fs.mkdirs(tmp .. "/b") and Fs.mkdirs(tmp .. "/c"))
-  assert(Fs.write(tmp .. "/a/f", "a") and Fs.write(tmp .. "/b/f", "b") and Fs.write(tmp .. "/c/f", "c"))
+  assert(Fs.mkdirs(tmp .. "/a"))
+  assert(Fs.mkdirs(tmp .. "/b"))
+  assert(Fs.mkdirs(tmp .. "/c"))
+  assert(Fs.write(tmp .. "/a/f", "a"))
+  assert(Fs.write(tmp .. "/b/f", "b"))
+  assert(Fs.write(tmp .. "/c/f", "c"))
   local first = string.format("{ grants = { { path = %q, letters = \"r\" }, { path = %q, letters = \"r\" } }, " ..
       "limits = { cpu_seconds = 100 } }", tmp .. "/a", tmp .. "/b")
   local said = Restrict.in_child(restricted(first, string.format([[
@@ -264,7 +271,8 @@ end
 --- program may write put in it: the next restriction must not trust the
 --- number, whichever it is.
 local function replaced_handle(tmp: string, which: integer)
-  assert(Fs.mkdirs(tmp .. "/rw") and Fs.write(tmp .. "/rw/f", "x"))
+  assert(Fs.mkdirs(tmp .. "/rw"))
+  assert(Fs.write(tmp .. "/rw/f", "x"))
   local said = Restrict.in_child(string.format([[
 local before: mut {integer:boolean} = {}
 for n = 3, 80 do

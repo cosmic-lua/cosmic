@@ -760,7 +760,8 @@ function fix.lay_out(files: {string}, checking: boolean, changed: mut {string}, 
     elseif out ~= source then
       local written, write_trouble = true, ""
       if not checking then
-        written, write_trouble = Fs.write(file, out)
+        local wrote_ok, wrote_why = Fs.write(file, out)
+        written, write_trouble = wrote_ok, if wrote_ok then "" else tostring(wrote_why) end
       end
       if written then
         changed[#changed + 1] = file
@@ -872,7 +873,7 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
               source = text
               rewritten[#rewritten + 1] = file
             else
-              out[#out + 1] = file .. ": " .. write_trouble
+              out[#out + 1] = file .. ": " .. tostring(write_trouble)
             end
           end
         end
@@ -1282,7 +1283,10 @@ local function lay_out_c(ctx: Fix)
       changed[#changed + 1] = file
       if ctx.checking ~= true then
         local written, write_trouble = Fs.write(root .. "/" .. file, out)
-        if not written then failures[#failures + 1] = write_trouble end
+        if not written then
+          local said = tostring(write_trouble)
+          failures[#failures + 1] = said
+        end
       end
     end
     if String.ends_with(file, ".c") then compiled[#compiled + 1] = file end
@@ -1359,7 +1363,8 @@ function fix.lay_out_source(file: string, source: string, chunk: Ast.Chunk, chec
   -- The file keeps its mode: a script that is executable stays so. [`Fs.write`] gives the mode less the umask, so it is
   -- set again to what the file had.
   local stat, _ = Fs.stat(file)
-  local written, write_trouble = Fs.write(file, text, if stat ~= nil then stat.mode & 0xfff else nil end)
+  local wrote, wrote_why = Fs.write(file, text, if stat ~= nil then stat.mode & 0xfff else nil end)
+  local written, write_trouble = wrote, if wrote then "" else tostring(wrote_why) end
   if written and stat ~= nil then
     written, write_trouble = Fs.chmod(file, stat.mode & 0xfff)
   end
@@ -1592,7 +1597,8 @@ local function edit_marked(root: string, file: string, edit: function(text: stri
   if edited ~= text then
     local wrote, write_trouble = Fs.write(path, edited)
     if wrote ~= true then
-      failures[#failures + 1] = write_trouble
+      local said = tostring(write_trouble)
+      failures[#failures + 1] = said
     else
       changed[#changed + 1] = file
     end

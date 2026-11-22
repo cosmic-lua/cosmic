@@ -91,7 +91,8 @@ local function test_boot_into_hands_on_the_lock_it_holds(tmp: string)
   local root = tmp .. "/tree"
   assert(Fs.mkdirs(root))
   local layout = paths.resolve(root)
-  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(layout.directory))
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.mkdirs(layout.directory))
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   assert(stand_in.place(probe, root .. "/bin/zig",
     "write $DIR/handed [$COSMIC_REBUILD_LOCK_HANDED]\nexit 1"))

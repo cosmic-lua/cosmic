@@ -45,7 +45,8 @@ local function deadline(): function(): boolean
 end
 
 local function test_a_change_replaces_the_program_with_a_counted_boot(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.mkdirs(tmp .. "/src"))
+  assert(Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(tmp .. "/src/a.tl", "one"))
   local pids: mut {integer} = {}
   local lines: mut {string} = {}
@@ -112,7 +113,9 @@ end
 
 local function test_the_ignored_files_and_the_static_directory_do_not_restart(tmp: string)
   local root = tmp .. "/w"
-  assert(Fs.mkdirs(root .. "/static") and Fs.mkdirs(root .. "/.git") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.mkdirs(root .. "/static"))
+  assert(Fs.mkdirs(root .. "/.git"))
+  assert(Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.mkdirs(root .. "/cmd/spam/static"))
   assert(Fs.write(root .. "/app.tl", "x"))
   local boots: integer = 0
@@ -147,7 +150,8 @@ local function test_the_ignored_files_and_the_static_directory_do_not_restart(tm
 end
 
 local function test_a_burst_of_changes_restarts_once(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.mkdirs(tmp .. "/src"))
+  assert(Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(tmp .. "/src/a.tl", "one"))
   local boots: integer = 0
   local rounds: integer = 0
@@ -176,7 +180,9 @@ end
 
 local function test_a_static_directory_named_by_the_option_is_ignored(tmp: string)
   local root = tmp .. "/w"
-  assert(Fs.mkdirs(root .. "/public") and Fs.mkdirs(root .. "/static") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.mkdirs(root .. "/public"))
+  assert(Fs.mkdirs(root .. "/static"))
+  assert(Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(root .. "/app.tl", "x"))
   local boots: integer = 0
   local rounds: integer = 0
@@ -203,7 +209,8 @@ end
 --- (this process) a SIGTERM once `marks/<ready>` exists, and answers the
 --- program's pid after [`Dev.supervise`] returns.
 local function sigterm_the_supervisor(tmp: string, chunk: string, ready: string, grace_ns?: integer): integer
-  assert(Fs.mkdirs(tmp .. "/src") and Fs.mkdirs(tmp .. "/marks"))
+  assert(Fs.mkdirs(tmp .. "/src"))
+  assert(Fs.mkdirs(tmp .. "/marks"))
   assert(Fs.write(tmp .. "/src/a.tl", "one"))
   local pid: integer = 0
   local sent: boolean = false

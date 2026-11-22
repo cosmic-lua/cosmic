@@ -419,7 +419,7 @@ local function copy_project(project: string, copy: string): boolean, string
     local made, mtrouble = Fs.mkdirs(parent)
     if not made then return false, mtrouble end
     local wrote, wtrouble = Fs.write(copy .. "/" .. rel, data)
-    if not wrote then return false, wtrouble end
+    if not wrote then return false, tostring(wtrouble) end
   end
   return true, ""
 end
@@ -450,7 +450,11 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
   end
   local copy = scratch .. "/project"
   local ready, why = copy_project(project, copy)
-  if ready then ready, why = Fs.write(copy .. "/" .. name, source) end
+  if ready then
+    local wrote, wrote_why = Fs.write(copy .. "/" .. name, source)
+    ready = wrote
+    if not wrote then why = tostring(wrote_why) end
+  end
   if ready then ready, why = Fs.mkdirs(scratch .. "/tmp") end
   local output = ""
   if ready then
@@ -587,7 +591,7 @@ local function write(g: Grade, path: string, data: string)
   end
   local written, trouble = Fs.write(g.empty .. "/" .. path, data)
   if not written then
-    fail(g, "could not write " .. path .. ": " .. trouble)
+    fail(g, "could not write " .. path .. ": " .. tostring(trouble))
   end
 end
 
@@ -2367,7 +2371,11 @@ local function grade_checks(g: Grade, task: Task, testdata: string): boolean
     local trouble = if bytes == nil then tostring(failure) else "" end
     if copied then copied, trouble = Fs.remove_tree(g.empty) end
     if copied then copied, trouble = Fs.mkdirs(g.empty) end
-    if copied then copied, trouble = Fs.write(g.empty .. "/" .. name, assert(bytes), 0x1ed) end
+    if copied then
+      local wrote, wrote_trouble = Fs.write(g.empty .. "/" .. name, assert(bytes), 0x1ed)
+      copied = wrote
+      if not wrote then trouble = tostring(wrote_trouble) end
+    end
     if not copied then
       fail(g, "could not copy " .. g.exe .. " into " .. g.empty .. ": " .. trouble)
     else

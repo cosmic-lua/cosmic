@@ -247,7 +247,10 @@ function cache_lifetime.prune(own: string, now?: integer, budget?: integer): cac
   end
   if finished then
     local written, write_why = Fs.write(pass, "", 0x180)
-    if not written then report.troubles[#report.troubles + 1] = write_why end
+    if not written then
+      local said = tostring(write_why)
+      report.troubles[#report.troubles + 1] = said
+    end
   end
   return report
 end

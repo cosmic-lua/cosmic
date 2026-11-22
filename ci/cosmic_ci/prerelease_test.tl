@@ -284,7 +284,8 @@ local function test_stage_refuses_what_the_lanes_disagree_on(tmp: string)
     end,
     ["no file executed-cosmic.sha256"] = function(p: string)
       local manifest = p .. "/portable-product-linux-aarch64/executed-cosmic.sha256"
-      assert(Fs.remove(manifest) and Fs.mkdirs(manifest))
+      assert(Fs.remove(manifest))
+      assert(Fs.mkdirs(manifest))
     end,
     ["not `<sha256>  cosmic`"] = function(p: string)
       local manifest = p .. "/portable-product-alpine-x86_64/executed-cosmic.sha256"
@@ -596,7 +597,9 @@ local function repo(tmp: string, bytes?: string): Repo
     assert(url:sub(1, #blob) == blob, "a download from " .. url)
     local asset = asset_by(r, url:sub(#blob + 1))
     if asset == nil then return false, "HTTP 404" end
-    return Fs.write(to, asset.data)
+    local wrote, written_why = Fs.write(to, asset.data)
+    if not wrote then return false, tostring(written_why) end
+    return true, ""
   end
   assert(Fs.mkdirs(r.temp))
   return r

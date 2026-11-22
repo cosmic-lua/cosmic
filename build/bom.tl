@@ -576,7 +576,7 @@ local function run(argv: {string}): integer
     end
     local written, write_trouble = Fs.write(path, document .. "\n")
     if not written then
-      log:complain("bom: " .. path .. ": " .. write_trouble)
+      log:complain("bom: " .. path .. ": " .. tostring(write_trouble))
       return 1
     end
     return passed(plural.count(#rows, "component") .. " written to " .. path)

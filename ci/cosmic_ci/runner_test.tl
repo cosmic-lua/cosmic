@@ -20,7 +20,8 @@ end
 
 local function test_runner_records_without_aliasing_subject(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(state))
   local c: Runner.Context = { database = state .. "/operations.db",
     worker = "worker", run = "run", attempt = "1", candidate = candidate }
   local function execute(phase: string, argv: {string}, timeout?: integer): Runner.Outcome
@@ -65,7 +66,8 @@ end
 
 local function test_operation_records_retained_open_failure_as_error(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(state))
   local database = state .. "/operations.db"
   local context: Runner.Context = { database = database, worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
@@ -88,7 +90,8 @@ end
 
 local function test_step_records_work_done_in_process(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(state))
   local database = state .. "/operations.db"
   local context: Runner.Context = { database = database, worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
@@ -137,7 +140,8 @@ end
 
 local function test_phase_keeps_exit_codes_full_errors_and_callback_times(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(state))
   local context: Runner.Context = { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
   local detail = string.rep("full phase failure; ", 100)
@@ -191,7 +195,8 @@ end
 
 local function test_phase_keeps_a_nested_child_timeout_separate(tmp: string)
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(state))
   local context: Runner.Context = { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
   assert(Runner.phase(context, "outer", function(): integer
@@ -234,7 +239,8 @@ end
 
 local function spawn_context(tmp: string): Runner.Context
   local candidate, state = tmp .. "/candidate", tmp .. "/state"
-  assert(Fs.mkdirs(candidate) and Fs.mkdirs(state))
+  assert(Fs.mkdirs(candidate))
+  assert(Fs.mkdirs(state))
   return { database = state .. "/operations.db", worker = "worker",
     run = "run", attempt = "1", candidate = candidate }
 end

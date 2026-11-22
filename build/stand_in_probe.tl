@@ -118,12 +118,12 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   write = function(path: string, text: string): integer?
     local ok, trouble = Fs.write(path, text .. "\n")
-    if not ok then return failed(path, trouble) end
+    if not ok then return failed(path, tostring(trouble)) end
     return nil
   end,
   ["write-pid"] = function(path: string): integer?
     local ok, trouble = Fs.write(path, tostring(sys.getpid()) .. "\n")
-    if not ok then return failed(path, trouble) end
+    if not ok then return failed(path, tostring(trouble)) end
     return nil
   end,
   append = function(path: string, text: string): integer?
@@ -223,7 +223,7 @@ local verbs: {string:function(string, string): integer?} = {
     local bytes, trouble = Fs.read(from)
     if bytes == nil then return failed(from, tostring(trouble)) end
     local ok, write_trouble = Fs.write(to, bytes)
-    if not ok then return failed(to, write_trouble) end
+    if not ok then return failed(to, tostring(write_trouble)) end
     return nil
   end,
   cwd = function(path: string): integer?
@@ -231,7 +231,7 @@ local verbs: {string:function(string, string): integer?} = {
     if here == nil then return failed("cwd", trouble) end
     if path == "" then return put_all(1, here .. "\n") end
     local ok, write_trouble = Fs.write(path, here .. "\n")
-    if not ok then return failed(path, write_trouble) end
+    if not ok then return failed(path, tostring(write_trouble)) end
     return nil
   end,
   mkfifo = function(path: string): integer?

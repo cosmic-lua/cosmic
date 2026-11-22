@@ -160,7 +160,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   for _, file in ipairs(files) do
     local wrote, wtrouble = Fs.write(dir .. "/" .. file.path, file.bytes)
     if not wrote then
-      return nil, wtrouble
+      return nil, tostring(wtrouble)
     end
     hashes[#hashes + 1] = Hash.hex_sha256(file.bytes) .. "  " .. file.path .. "\n"
   end
@@ -171,7 +171,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   end
   local wrote, wtrouble = Fs.write(dir .. "/inputs.sha256", table.concat(hashes))
   if not wrote then
-    return nil, wtrouble
+    return nil, tostring(wtrouble)
   end
   return dir, ""
 end

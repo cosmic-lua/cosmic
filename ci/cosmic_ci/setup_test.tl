@@ -113,7 +113,9 @@ end
 --- its name.
 local function test_the_runtime_setup_packs_a_stand_in_for_a_row_of_the_runtime(tmp: string)
   local root = tmp .. "/root"
-  assert(Fs.mkdirs(root .. "/test/portable") and Fs.mkdirs(root .. "/build") and Fs.mkdirs(root .. "/stand"))
+  assert(Fs.mkdirs(root .. "/test/portable"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/stand"))
   assert(Fs.write(root .. "/test/portable/probe.tl", 'local a = require("build.artifact")\n'))
   assert(Fs.write(root .. "/build/artifact.tl", 'local b = require("build.b")\n'))
   assert(Fs.write(root .. "/build/b.tl", "return {}\n"))

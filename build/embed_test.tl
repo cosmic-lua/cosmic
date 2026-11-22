@@ -78,7 +78,8 @@ end
 --- chooses among a project's programs (`--host`, `--roots`, a path) is refused as a command line, writing nothing.
 local function test_build_in_cosmic_s_own_tree_takes_out_alone(tmp: string)
   local root = tmp .. "/tree"
-  assert(Fs.mkdirs(root .. "/core") and Fs.mkdirs(root .. "/cmd/hello"))
+  assert(Fs.mkdirs(root .. "/core"))
+  assert(Fs.mkdirs(root .. "/cmd/hello"))
   assert(Fs.write(root .. "/cmd/hello/main.tl", "return function(): integer return 0 end\n"))
   local tool = support.build_dir(root) .. "/bin/cosmic"
   assert(Fs.mkdirs(Fs.dirname(tool)))

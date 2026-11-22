@@ -38,8 +38,10 @@ end
 
 local function test_the_system_profile_lets_a_host_program_read_what_is_granted(tmp: string)
   searchable.open(tmp)
-  assert(Fs.mkdirs(tmp .. "/ro") and Fs.mkdirs(tmp .. "/other"))
-  assert(Fs.write(tmp .. "/ro/a", "alpha\n") and Fs.write(tmp .. "/other/b", "beta\n"))
+  assert(Fs.mkdirs(tmp .. "/ro"))
+  assert(Fs.mkdirs(tmp .. "/other"))
+  assert(Fs.write(tmp .. "/ro/a", "alpha\n"))
+  assert(Fs.write(tmp .. "/other/b", "beta\n"))
   local policy: Sandbox.Policy = { profiles = { "system" }, grants = { { path = tmp .. "/ro", letters = "r" } } }
   local said, code = cat(policy, tmp .. "/ro/a")
   assert(code == 0 and said == "alpha\n", tostring(code) .. ": " .. said)

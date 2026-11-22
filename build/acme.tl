@@ -153,7 +153,9 @@ local standard: verb.Io = {
     return text, ""
   end,
   write = function(path: string, data: string, mode: integer): boolean, string
-    return Fs.write(path, data, mode)
+    local wrote, written_why = Fs.write(path, data, mode)
+    if not wrote then return false, tostring(written_why) end
+    return true, ""
   end,
   create = create,
   mkdirs = function(path: string): boolean, string return Fs.mkdirs(path) end,

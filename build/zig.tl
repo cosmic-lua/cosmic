@@ -889,7 +889,7 @@ local function patch(root: string, project: string): string?, string
   if stored == text then return manifest, "" end
   local written, write_trouble = Fs.write(manifest, text)
   if not written then
-    return nil, write_trouble
+    return nil, tostring(write_trouble)
   end
   return manifest, ""
 end

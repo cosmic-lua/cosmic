@@ -200,7 +200,8 @@ end
 --- `cmd/<name>/static/` beside `static/` too, as [`Dev.static`] serves it laid
 --- over: a stylesheet edited there is swapped, not reloaded.
 local function test_the_stream_follows_a_programs_own_static_directory(tmp: string)
-  assert(Fs.mkdirs(tmp .. "/static") and Fs.mkdirs(tmp .. "/cmd/spam/static"))
+  assert(Fs.mkdirs(tmp .. "/static"))
+  assert(Fs.mkdirs(tmp .. "/cmd/spam/static"))
   put(tmp .. "/static/app.css", "a{}", 1000000)
   put(tmp .. "/cmd/spam/static/own.css", "b{}", 1000000)
   local was = assert(Fs.absolute("."))

@@ -259,7 +259,8 @@ end
 local function nest_grants(tmp: string): {Sandbox.Grant}, string, string
   local probe = stand_in_of(tmp)
   local work = tmp .. "/work"
-  assert(Fs.mkdirs(work .. "/rw") and Fs.mkdirs(tmp .. "/extra"))
+  assert(Fs.mkdirs(work .. "/rw"))
+  assert(Fs.mkdirs(tmp .. "/extra"))
   return { { path = probe, letters = "rx" }, { path = work, letters = "r" },
     { path = work .. "/rw", letters = "rwc" } }, probe, tmp .. "/extra"
 end

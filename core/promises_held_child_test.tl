@@ -314,7 +314,8 @@ local function test_a_unix_socket_below_abi_9_fails_a_start_that_binds_a_directo
   -- Read before the local function below, after which the checker no longer knows `abi` is set.
   local below_abi_9 = abi < 9
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Fs.mkdirs(tmp .. "/socks") and Fs.write(tmp .. "/u.file", "x"))
+  assert(Fs.mkdirs(tmp .. "/socks"))
+  assert(Fs.write(tmp .. "/u.file", "x"))
   -- A `u` grant allows unix sockets (the start's `sockets`), so the root alone must
   -- show no directory below ABI 9: Lua's check of it is one stat of a path, which a
   -- swap may outrun, so the child refuses a path that is a directory when bound.
@@ -345,7 +346,8 @@ local function test_a_path_swapped_for_a_directory_after_the_check_fails_the_sta
     Test.skip("this test is about a kernel below Landlock ABI 9, and this one gives " .. tostring(abi))
   end
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  assert(Fs.write(tmp .. "/swap-a", "x") and Fs.mkdirs(tmp .. "/swap-b"))
+  assert(Fs.write(tmp .. "/swap-a", "x"))
+  assert(Fs.mkdirs(tmp .. "/swap-b"))
   local null = assert(sys.open("/dev/null", sys.O_RDWR))
   local racer, started = process.spawn(probe, { probe, "flip " .. tmp .. "/swap-a " .. tmp .. "/swap-b" },
     nil, "/", nil, null, null, false, nil, nil)
