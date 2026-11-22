@@ -1,0 +1,14 @@
+file: src/lapi.c
+note: collectgarbage("collect") and a step that ends a cycle call the finalizers they made pending (patch/lua/19-finalizers-at-calls-gc.txt) before they return, as Lua's own did: a program that collects and then reads what a finalizer wrote finds it written.
+--- find
+    case LUA_GCCOLLECT: {
+      luaC_fullgc(L, 0);
+      break;
+    }
+--- replace
+    case LUA_GCCOLLECT: {
+      luaC_fullgc(L, 0);
+      luaC_runfinalizers(L);
+      break;
+    }
+--- end

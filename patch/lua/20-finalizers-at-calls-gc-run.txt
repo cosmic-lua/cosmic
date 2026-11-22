@@ -1,0 +1,25 @@
+file: src/lgc.c
+note: luaC_runfinalizers, which calls the pending finalizers where the program calls (patch/lua/19-finalizers-at-calls-gc.txt).
+--- find
+  g->gcstate = GCSpropagate;  /* skip restart */
+  if (g->tobefnz != NULL && !g->gcemergency && luaD_checkminstack(L))
+    callallpendingfinalizers(L);
+}
+--- replace
+  g->gcstate = GCSpropagate;  /* skip restart */
+  /* finalizers wait for a call: luaC_runfinalizers */
+}
+
+
+/*
+** Call the pending finalizers, where the program calls a Lua function
+** or collectgarbage: never inside a collection, an emergency one, or
+** a finalizer, and not while the state closes (it calls them itself).
+*/
+void luaC_runfinalizers (lua_State *L) {
+  global_State *g = G(L);
+  while (g->tobefnz != NULL && !g->gcemergency &&
+         !(g->gcstp & (GCSTPGC | GCSTPCLS)) && luaD_checkminstack(L))
+    GCTM(L);
+}
+--- end

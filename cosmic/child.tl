@@ -867,7 +867,7 @@ end
 
 --- Whether a wait here goes through [`Poll.run`]: in one of its tasks,
 --- where the task can yield -- not in a finalizer, say, which a handle's
---- [`Finalizer`] runs in, and which waits on its own.
+--- [`__gc`] runs in, and which waits on its own.
 local function through_run(): boolean
   return Poll.in_task() and coroutine.isyieldable()
 end
@@ -1694,8 +1694,6 @@ local class Handle
   --- Of a relay's own handle, what its starter handed it, closed with it;
   --- nil for any other handle.
   mut _handover?: RelayConfig.Handover
-  --- The finalizer that ends the child should this handle be collected unclosed.
-  mut _finalizer?: Finalizer
   --- The Seatbelt profile and parameters the child was started under, on
   --- macOS; nil for a child no profile holds.
   _seatbelt?: raw_process.Seatbelt
@@ -1831,24 +1829,14 @@ local class Handle
     if not self._closed then local _, _ = end_or_kill(self) end
     end_streamed(self)
   end
+
+  --- Ends a child whose handle was dropped unclosed, when the handle is collected.
+  function __gc(self)
+    closing_outputs(self)
+    if not self._closed then local _, _ = end_or_kill(self) end
+    end_streamed(self)
+  end
 end
-
--- TODO: put `__gc` on [`Handle`] itself and drop [`Finalizer`], once the checker takes `__gc` in a class.
-
---- What ends a child whose handle was dropped unclosed, when the handle is collected. A class declares no `__gc`, so
---- the handle holds this table, which has one and is collected with it.
-local record Finalizer
-  child: Handle
-end
-
-local finalizer_mt: metatable<Finalizer> = { -- checked: literal_missing
-  __gc = function(self: Finalizer)
-    local child = self.child
-    closing_outputs(child)
-    if not child._closed then local _, _ = end_or_kill(child) end
-    end_streamed(child)
-  end,
-}
 
 --- A handle for `pid`, owning it until it settles.
 local function make_handle(pid: integer, process_group: boolean, limit: integer,
@@ -1858,11 +1846,9 @@ local function make_handle(pid: integer, process_group: boolean, limit: integer,
     _explicit_close = false, _drain_next = 1, _deadline = deadline, _relay_gone = false,
     stdout_stream = nil, stderr_stream = nil, stdin_stream = nil, _feed_fd = nil, _result = nil, _status = nil,
     _streams = nil, _input_fd = nil, _input = nil, _input_at = nil, _tmp = nil, _relay = nil, _handover = nil,
-    _finalizer = nil, _seatbelt = nil,
+    _seatbelt = nil,
   }
-  h._finalizer = setmetatable({ child = h }, finalizer_mt) -- checked: setmetatable_call -- untyped: call
-  -- Owned only once it has its finalizer, so the finalizer covers the child from then; a
-  -- failure between the two leaves an unowned child with a finalizer, which waitpid still reaps.
+  -- Owned only once the handle is made, with its finalizer, so the finalizer covers the child from then.
   owned[pid] = true
   return h
 end

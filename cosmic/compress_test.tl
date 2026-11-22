@@ -510,24 +510,32 @@ local function every_kind(): {Kind}
   }
 end
 
-local record Holder
-  mut s: Compress.Stream
+--- The stream a [`Holder`]'s finalizer hands back.
+local revived_stream: mut {integer: Compress.Stream} = {}
+
+--- A table whose finalizer hands back the stream it holds.
+local class Holder
+  mut s?: Compress.Stream
+  function __gc(self)
+    local held = self.s
+    if held ~= nil then revived_stream[1] = held end
+  end
 end
 
 local function test_a_stream_revived_by_a_finalizer_is_finished()
   for _, case in ipairs(every_kind()) do
-    local saved: Compress.Stream? = nil
-    local holder: Holder? = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
-      __gc = function(self: Holder) saved = self.s end,
-    } as metatable<Holder>)
-    if holder ~= nil then holder.s = case.make() end
+    -- The holder is marked for finalization before the stream is made, so the stream's finalizer runs first.
+    do
+      local holder: Holder = { s = nil }
+      holder.s = case.make()
+    end
     -- The stream is collected in the same cycle as the table whose
     -- finalizer hands it back: an update on it must not read freed
     -- codec state.
-    holder = nil
     collectgarbage()
     collectgarbage()
-    local kept = assert(saved, "the finalizer ran")
+    local kept = assert(revived_stream[1], "the finalizer ran")
+    revived_stream[1] = nil
     Test.raises(function() kept:update(case.chunk) end, "compress: the stream is finished")
     Test.raises(function() kept:finish() end)
     assert(not kept:pending())

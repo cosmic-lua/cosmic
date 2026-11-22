@@ -1,0 +1,8 @@
+file: src/lgc.h
+note: luaC_runfinalizers (patch/lua/19-finalizers-at-calls-gc.txt), for ldo.c and lapi.c.
+--- find
+LUAI_FUNC void luaC_fullgc (lua_State *L, int isemergency);
+--- replace
+LUAI_FUNC void luaC_fullgc (lua_State *L, int isemergency);
+LUAI_FUNC void luaC_runfinalizers (lua_State *L);
+--- end

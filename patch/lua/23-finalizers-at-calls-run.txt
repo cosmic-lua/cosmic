@@ -1,0 +1,26 @@
+file: src/ldo.c
+note: A call of a Lua function that is not a tail call runs the pending finalizers the same way (patch/lua/22-finalizers-at-calls-tail.txt).
+--- find
+    case LUA_VLCL: {  /* Lua function */
+      CallInfo *ci;
+      Proto *p = clLvalue(s2v(func))->p;
+      int narg = cast_int(L->top.p - func) - 1;  /* number of real arguments */
+      int nfixparams = p->numparams;
+      int fsize = p->maxstacksize;  /* frame size */
+--- replace
+    case LUA_VLCL: {  /* Lua function */
+      CallInfo *ci;
+      Proto *p;
+      int narg;
+      int nfixparams;
+      int fsize;
+      if (l_unlikely(G(L)->tobefnz != NULL)) {
+        ptrdiff_t f = savestack(L, func);
+        luaC_runfinalizers(L);
+        func = restorestack(L, f);
+      }
+      p = clLvalue(s2v(func))->p;
+      narg = cast_int(L->top.p - func) - 1;  /* number of real arguments */
+      nfixparams = p->numparams;
+      fsize = p->maxstacksize;  /* frame size */
+--- end

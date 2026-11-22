@@ -41,9 +41,11 @@ struct event {
 
 /* A parser and what one call to it has collected. `parser` is NULL once
  * the parser is finished: by `finish`, a failure, a raise inside a
- * call, `__close` or `__gc`. `L` is set while a call is under way: an
- * append can run a finalizer, which must not re-enter the parser, nor
- * free it under expat.
+ * call, `__close` or `__gc`. `L` is set while a call is under way: a
+ * finalizer must not re-enter the parser, nor free it under expat. The VM
+ * runs finalizers only where Lua code is called (patch/lua/19-finalizers-
+ * at-calls-gc.txt), so an append runs none; the guard holds should that
+ * change.
  *
  * No Lua code runs while expat holds the C stack, and nothing raises
  * across it: each event is appended under `lua_pcall`, and a raise there

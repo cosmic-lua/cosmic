@@ -13,8 +13,16 @@ Test.policy{ cpu_features = true }
 
 local fox = "The quick brown fox jumps over the lazy dog"
 
-local record Holder
-  mut h: Hash.Hasher
+--- The hasher a [`Holder`]'s finalizer hands back.
+local revived_hasher: mut {integer: Hash.Hasher} = {}
+
+--- A table whose finalizer hands back the hasher it holds.
+local class Holder
+  mut h?: Hash.Hasher
+  function __gc(self)
+    local held = self.h
+    if held ~= nil then revived_hasher[1] = held end
+  end
 end
 
 local record Vector
@@ -238,15 +246,14 @@ local function test_a_closed_incremental_hmac_is_finished()
 end
 
 local function test_an_incremental_hmac_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher? = nil
-  local holder: Holder? = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
-    __gc = function(self: Holder) saved = self.h end,
-  } as metatable<Holder>)
-  if holder ~= nil then holder.h = assert(Hash.hmac_hasher("sha256", "key")) end
-  holder = nil
+  do
+    local holder: Holder = { h = nil }
+    holder.h = assert(Hash.hmac_hasher("sha256", "key"))
+  end
   collectgarbage()
   collectgarbage()
-  local kept = assert(saved, "the finalizer ran")
+  local kept = assert(revived_hasher[1], "the finalizer ran")
+  revived_hasher[1] = nil
   Test.raises(function() kept:update("abc") end)
   Test.raises(function() kept:digest() end)
 end
@@ -427,15 +434,14 @@ local function test_hasher_and_digest_carry_an_empty_error()
 end
 
 local function test_a_hasher_revived_by_a_finalizer_is_finished()
-  local saved: Hash.Hasher? = nil
-  local holder: Holder? = setmetatable({} as Holder, { -- checked: cast_refused*2, setmetatable_call
-    __gc = function(self: Holder) saved = self.h end,
-  } as metatable<Holder>)
-  if holder ~= nil then holder.h = assert(Hash.hasher("sha256")) end
-  holder = nil
+  do
+    local holder: Holder = { h = nil }
+    holder.h = assert(Hash.hasher("sha256"))
+  end
   collectgarbage()
   collectgarbage()
-  local kept = assert(saved, "the finalizer ran")
+  local kept = assert(revived_hasher[1], "the finalizer ran")
+  revived_hasher[1] = nil
   local ok, why = pcall(function(): any
     kept:update("abc")
     return nil -- checked: any_use

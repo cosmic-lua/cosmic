@@ -142,12 +142,14 @@ local function test_long_names_and_values_read_whole()
   assert(start.name == name and assert(start.attributes)["k"] == value)
 end
 
---- A finalizer that runs while a call appends an event cannot re-enter
---- the parser: a call raises, and closing it is put off until the call
---- returns, which then answers what it read. Teal has no finalizer of its
---- own, so the one here is Lua's, from a chunk: it keeps one armed, and
---- each time it runs it feeds the parser and, the first time, closes it.
-local function test_a_finalizer_cannot_reenter_a_parser_in_a_call()
+--- A finalizer runs where the program calls a Lua function or `collectgarbage`
+--- (patch/lua/19-finalizers-at-calls-gc.txt), so none runs while a call
+--- appends an event, however much the call allocates: the ones it leaves
+--- pending run after it, with the parser free. Teal declares a finalizer as
+--- a class's `__gc`, but this one is Lua's, from a chunk, to reach the
+--- parser's own `__close`: it keeps one armed, and each time it runs it feeds
+--- the parser and, the first time, closes it.
+local function test_no_finalizer_runs_inside_a_parser_call()
   local p = assert(Xml.parser())
   local chunk = assert(load([[
     local p, seen = ...
@@ -169,14 +171,17 @@ local function test_a_finalizer_cannot_reenter_a_parser_in_a_call()
   local seen: mut {string} = {}
   chunk(p, seen)
   local events = assert(p:feed("<r>" .. string.rep("<i>t</i>", 20000)))
-  assert(#seen > 0, "no finalizer ran during the call")
-  -- The first ran during the call; a later one may run after it.
-  local first = assert(seen[1])
-  assert(first:match("the parser is in use") ~= nil, first)
-  for _, why in ipairs(seen) do
-    assert(why:match("the parser is in use") ~= nil or why:match("the parser is finished") ~= nil, why)
-  end
+  assert(#seen == 0, "a finalizer ran during the call")
   assert(#events > 0)
+  collectgarbage()
+  collectgarbage()
+  -- The first ran with the parser free, fed it and closed it; a later one finds it finished.
+  local first = assert(seen[1], "no finalizer ran after the call")
+  assert(first == "fed", first)
+  for i = 2, #seen do
+    local why = assert(seen[i])
+    assert(why:match("the parser is finished") ~= nil, why)
+  end
   local fed, why = pcall(p.feed, p, "</r>")
   assert(not fed and tostring(why):match("the parser is finished") ~= nil, tostring(why))
 end

@@ -1,0 +1,23 @@
+file: src/lgc.c
+note: A finalizer is code of the program, and the checker assumes that no code of the program runs between two of its calls (an array keeps its length from a write to a read, `Writes.keeps_length`), so a collection never calls one where it collects: at an allocation, a step or the end of a young collection. It leaves the objects to finalize on 'tobefnz', marked so that they live, and luaC_runfinalizers calls them where the program calls a Lua function (patch/lua/22-finalizers-at-calls-tail.txt and 23-finalizers-at-calls-run.txt) or collectgarbage (patch/lua/24-finalizers-at-calls-api.txt), which the checker counts as calls that may run any code. A finalizer runs later than it would have, which Lua allows.
+--- find
+    case GCScallfin: {  /* call finalizers */
+      if (g->tobefnz && !g->gcemergency && luaD_checkminstack(L)) {
+        g->gcstopem = 0;  /* ok collections during finalizers */
+        GCTM(L);  /* call one finalizer */
+        stepresult = CWUFIN;
+      }
+      else {  /* no more finalizers or emergency mode or not enough stack
+                 to run finalizers */
+        g->gcstate = GCSpause;  /* finish collection */
+        stepresult = step2pause;
+      }
+      break;
+    }
+--- replace
+    case GCScallfin: {  /* finalizers wait for a call: luaC_runfinalizers */
+      g->gcstate = GCSpause;  /* finish collection */
+      stepresult = step2pause;
+      break;
+    }
+--- end
