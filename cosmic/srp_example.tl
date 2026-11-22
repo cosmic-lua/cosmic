@@ -110,7 +110,9 @@ function Example.Group()
     Srp.group_1024, Srp.group_1536, Srp.group_2048, Srp.group_3072, Srp.group_4096, Srp.group_6144, Srp.group_8192,
   }
   for _, group in ipairs(groups) do
-    local each: Srp.Parameters = { group = group, hash = "sha256", rules = "rfc5054", small_group = #group.prime < 256 }
+    local each: Srp.Parameters = {
+      group = group, hash = "sha256", rules = "rfc5054", small_group = #group.prime < 256,
+    }
     local client = Srp.client(each, "alice", "password123")
     print(#group.prime * 8, group.generator:byte(), #client.public)
     assert(#client.public == #group.prime)

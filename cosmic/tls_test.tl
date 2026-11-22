@@ -69,6 +69,18 @@ local function test_a_load_refuses_what_cannot_be_served_and_keeps_what_it_had()
   assert(not ok and why:find("^tls: the source raised: .*no daemon") ~= nil, why)
 end
 
+--- A leaf that starts within 5 minutes of the clock loads, for a server
+--- whose clock runs behind the CA's; one that starts later is refused.
+local function test_a_load_takes_a_leaf_that_starts_within_five_minutes()
+  local certs = Tls.certs(Tls.static({ { cert = fixture("a.pem"), key = fixture("a.key") } }))
+  local starts = 1767225600 * 1000000000
+  certs.now_ns = function(): integer return starts - Clock.minutes(5) - 1 end
+  local ok, why = certs:load()
+  assert(not ok and why:find("is not valid yet", 1, true) ~= nil, why)
+  certs.now_ns = function(): integer return starts - Clock.minutes(5) end
+  assert(certs:load())
+end
+
 local function test_certs_refuses_options_out_of_range()
   local source = Tls.static({})
   Test.raises(function() Tls.certs(source, { alpn = { "" } }) end, "1 to 255 bytes")

@@ -492,7 +492,9 @@ local function test_the_srptools_rules_strip_a_digest_that_leads_with_zero()
   assert(srptools_xor.key == rfc5054_xor.key and srptools_xor.client_proof ~= rfc5054_xor.client_proof)
 end
 
-local small: Srp.Parameters = { group = Srp.group_1024, small_group = true, hash = "sha256", rules = "rfc5054" }
+local small: Srp.Parameters = {
+  group = Srp.group_1024, small_group = true, hash = "sha256", rules = "rfc5054",
+}
 
 --- A login under `parameters` with fresh secrets, which must end with
 --- one key on both sides.
@@ -521,15 +523,20 @@ end
 --- group, the RFC's own 1536-bit one and a 2047-bit one alike.
 local function test_a_group_under_2048_bits_raises_unless_small_groups_are_taken()
   local short_top = string.char(127) .. Srp.group_2048.prime:sub(2)
-  for _, prime in ipairs({ Srp.group_1024.prime, Srp.group_1536.prime, short_top, " " .. short_top }) do
-    local parameters: Srp.Parameters = { group = { prime = prime, generator = "\2" }, hash = "sha256", rules = "rfc5054" }
+  for _, prime in ipairs({ Srp.group_1024.prime, Srp.group_1536.prime, short_top, "\0" .. short_top }) do
+    local parameters: Srp.Parameters = {
+      group = { prime = prime, generator = "\2" },
+      hash = "sha256",
+      rules = "rfc5054",
+    }
     Test.raises(function() Srp.verifier(parameters, "alice", "password123", "salt") end, "under 2048 bits")
     Test.raises(function() Srp.client(parameters, "alice", "password123") end, "under 2048 bits")
     Test.raises(function() Srp.server(parameters, "alice", "salt", "\7") end, "under 2048 bits")
     local width = #prime - (assert(prime:find("[^\0]")) - 1)
     assert(#Srp.client({ ...parameters, small_group = true }, "alice", "password123").public == width)
   end
-  assert(#Srp.client({ group = Srp.group_2048, hash = "sha256", rules = "rfc5054" }, "alice", "pw").public == 256)
+  local least: Srp.Parameters = { group = Srp.group_2048, hash = "sha256", rules = "rfc5054" }
+  assert(#Srp.client(least, "alice", "pw").public == 256)
 end
 
 local function test_a_client_logs_in_to_a_server_in_the_4096_bit_group()
@@ -732,7 +739,9 @@ local function zero_scrambler(data: string): string
 end
 
 local function test_both_sides_refuse_a_scrambling_value_of_zero()
-  local rigged: Srp.Parameters = { group = small.group, small_group = true, hash = zero_scrambler, rules = "rfc5054" }
+  local rigged: Srp.Parameters = {
+    group = small.group, small_group = true, hash = zero_scrambler, rules = "rfc5054",
+  }
   local verifier = Srp.verifier(rigged, "alice", "password123", "salt")
   assert(verifier == Srp.verifier(small, "alice", "password123", "salt"))
   local client = Srp.client(rigged, "alice", "password123")
@@ -796,7 +805,9 @@ local function test_a_group_that_cannot_be_computed_with_raises()
     generator = { prime = prime, generator = "\1" },
   }
   for word, group in pairs(bad) do
-    local parameters: Srp.Parameters = { group = group, small_group = true, hash = "sha256", rules = "rfc5054" }
+    local parameters: Srp.Parameters = {
+      group = group, small_group = true, hash = "sha256", rules = "rfc5054",
+    }
     Test.raises(function() Srp.verifier(parameters, "alice", "password123", "salt") end, word)
     Test.raises(function() Srp.client(parameters, "alice", "password123") end, word)
     Test.raises(function() Srp.server(parameters, "alice", "salt", "\7") end, word)

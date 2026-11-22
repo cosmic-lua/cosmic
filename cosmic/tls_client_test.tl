@@ -278,5 +278,6 @@ local function test_a_tls_listener_with_no_configuration_serves_nothing_in_the_c
     end,
   })
   assert(not served_plain)
-  assert(#troubles == 1 and troubles[1]:find("no certificates are loaded", 1, true) ~= nil, table.concat(troubles, "\n"))
+  local said = table.concat(troubles, "\n")
+  assert(#troubles == 1 and said:find("no certificates are loaded", 1, true) ~= nil, said)
 end

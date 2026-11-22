@@ -1326,7 +1326,8 @@ local function accept_loop(s: Serving, a: Accepting)
         -- it from accepting before a load, so this is a Certs that lost
         -- its configuration.
         local _, _ = socket:close()
-        report(s, "accepting at " .. named(a.listener.address) .. ": no certificates are loaded; closed the connection")
+        report(s, "accepting at " .. named(a.listener.address) ..
+            ": no certificates are loaded; closed the connection")
       elseif config == nil then
         local conn = Connection.new(socket, s.spec.timeout_ns)
         conn.listener = a.listener.address

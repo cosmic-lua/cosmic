@@ -110,6 +110,13 @@ local record CertsOptions
   clients?: Clients
 end
 
+--- How far ahead of this clock a leaf's start may be and still load. A
+--- CA that does not backdate (Pebble) issues a leaf valid from the
+--- second it signs, which a server whose clock runs behind would refuse
+--- for a while after; a client with a right clock takes the leaf. Five
+--- minutes is the clock skew Kerberos allows by default.
+local NOT_BEFORE_LEEWAY_NS <const> = Clock.minutes(5)
+
 --- The longest wait between tries, however many fail.
 local RETRY_MOST_NS <const> = Clock.hours(1)
 
@@ -144,13 +151,16 @@ local class Certs
   mut due_ns: integer
   --- Internal: how long the newest leaf with the shortest life lasts.
   mut life_ns: integer
+  --- Internal: the clock a load reads, [`Clock.now_ns`]; a test sets
+  --- another.
+  mut now_ns: function(): integer
 
   --- Obtains the pairs from the source now and serves them to every
   --- connection after, with `min_validity_ns` given to the source. True,
   --- or false and why, the pairs before kept: a source that fails or
   --- raises (what it raised is the why), or answers no pair, a pair whose certificate or key cannot be read,
   --- a key that is not its certificate's, or a leaf already expired or
-  --- not yet valid. The names a leaf holds are not checked here: a
+  --- one that starts more than 5 minutes from now. The names a leaf holds are not checked here: a
   --- client is offered a pair by them, as [`cosmic.tls`] says.
   function load(self, min_validity_ns?: integer): boolean, string
     local ran, obtained, why = pcall(self.source, min_validity_ns)
@@ -159,7 +169,7 @@ local class Certs
     if #obtained == 0 then return false, "tls: the source answered no pair" end
     if #obtained > 64 then return false, "tls: the source answered more than 64 pairs" end
     local leaves: mut {Leaf} = {}
-    local now = Clock.now_ns()
+    local now = self.now_ns()
     local due = math.maxinteger
     local life = math.maxinteger
     for i, pair in ipairs(obtained) do
@@ -168,7 +178,7 @@ local class Certs
       if leaf.not_after_ns <= now then
         return false, "tls: pair " .. tostring(i) .. "'s certificate has expired"
       end
-      if leaf.not_before_ns > now then
+      if leaf.not_before_ns > now + NOT_BEFORE_LEEWAY_NS then
         return false, "tls: pair " .. tostring(i) .. "'s certificate is not valid yet"
       end
       leaves[i] = leaf
@@ -517,7 +527,7 @@ function Tls.certs(source: Source, opts?: CertsOptions): Certs
   end
   local certs: Certs = {
     source = source, alpn = alpn, retry_ns = retry, clients = o.clients, current = nil, held = {},
-    due_ns = 0, life_ns = 0,
+    due_ns = 0, life_ns = 0, now_ns = Clock.now_ns,
   }
   return certs
 end

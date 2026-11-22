@@ -36,7 +36,8 @@
 --- value that is not a number from 1 to the prime less 1, a scrambling
 --- value of zero, a proof that is wrong. An argument that is the
 --- caller's own mistake raises (a group whose prime is even or, unless
---- [`Srp.Parameters`] allows it, under 2048 bits, a secret of no bytes), and so does the system's entropy source failing.
+--- [`Srp.Parameters`] allows it, under 2048 bits, a secret of no
+--- bytes), and so does the system's entropy source failing.
 ---
 --- Secrets and time. All the arithmetic on a secret goes through
 --- [`cosmic.bigint`]'s functions for secrets, at widths the parameters
@@ -329,7 +330,8 @@ local function suite_of(parameters: Srp.Parameters, level: integer): Suite
     error("srp: the group's prime is longer than " .. String.counted(Bigint.modulus_bytes, "byte"), level + 1)
   end
   if assert(prime:byte(-1)) % 2 == 0 then error("srp: the group's prime is even", level + 1) end
-  if parameters.small_group ~= true and (#prime < prime_least or (#prime == prime_least and assert(prime:byte(1)) < 128)) then
+  local narrow = #prime < prime_least or (#prime == prime_least and assert(prime:byte(1)) < 128)
+  if narrow and parameters.small_group ~= true then
     error("srp: the group's prime is under 2048 bits, and small_group is not set", level + 1)
   end
   if Bigint.compare(generator, "\1") <= 0 or #generator > #prime or Bigint.compare(generator, prime) >= 0 then
