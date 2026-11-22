@@ -773,12 +773,9 @@ static void close_child_descriptors (int from, long limit) {
  * device ioctls below 5, abstract unix sockets and signals
  * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
  * child to a ruleset under build.confine's `must_confine`: today it
- * handles what the kernel knows and says nothing of the rest, so a
- * child on an older kernel held by it and no promises filter may
- * truncate a file it was given only to read. A child held to promises
- * beside it is refused truncate, and O_TRUNC in an open that does not
- * write, on every kernel, since `spawn` cannot tell what a `ruleset`
- * descriptor handles (COSMIC_HELD_TRUNCATE). */
+ * handles what the kernel knows and says nothing of the rest. Truncation,
+ * which it handles from ABI 3, is held by `spawn`'s filter instead
+ * ([`run_program`]). */
 COSMIC_SYSCALL(landlock_ruleset, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -2106,6 +2103,10 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * clone(CLONE_VM). The filter then drops the PROT_EXEC | PROT_BTI
    * mprotect it allows on aarch64 for glibc's loader. */
   if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises, plan->sockets, plan->held);
+  /* Without a promises filter, one that holds truncation alone, where the
+   * ruleset does not (core/promises.h's `cosmic_truncation_apply`). */
+  else if (!failure && confined >= 0 && (plan->held & COSMIC_HELD_TRUNCATE) == 0)
+    failure = cosmic_truncation_apply();
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -4972,7 +4973,12 @@ COSMIC_SYSCALL(spawn, 12) {
    * TODO: let a child held to a `ruleset` descriptor signal its own
    * processes under the promises filter, once the descriptor can say
    * whether its ruleset scopes signals (COSMIC_HELD_SIGNALS); until
-   * then its filter holds the signal calls to the child's starting pid. */
+   * then its filter holds the signal calls to the child's starting pid.
+   * TODO: let a child held to a `ruleset` descriptor truncate by path, and
+   * open with O_TRUNC without writing, where the ruleset handles truncation
+   * (ABI 3), once the descriptor can say whether it does
+   * (COSMIC_HELD_TRUNCATE); until then its filter, the promises one or
+   * core/promises.h's `cosmic_truncation_apply`'s, refuses them on every kernel. */
   unsigned held = 0;
   char grant_message[PATH_MAX + 512];
   int unix_guard = 0;

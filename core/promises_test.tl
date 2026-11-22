@@ -907,6 +907,44 @@ local function test_a_truncation_by_path_is_allowed_only_where_landlock_holds_it
     pids_held = true, network_held = true, unix = true, inet = true })
 end
 
+--- A child a Landlock ruleset holds with no promises, where the ruleset
+--- does not handle truncation, is held to a program that refuses what
+--- truncates a file without opening it to write, and the calls that would
+--- reach the same another way, and allows every other.
+local function test_the_truncation_filter_refuses_truncation_alone()
+  local options: raw_process.PromiseOptions = { truncation_only = true }
+  holds_on_both({}, {
+    call("truncate", "EPERM", 0, 0),
+    call("open", "EPERM", 0, O_TRUNC), call("open", "EPERM", 0, O_TRUNC | 3),
+    call("openat", "EPERM", -100, 0, O_TRUNC), call("openat", "EPERM", -100, 0, O_TRUNC | 3),
+    call("openat", "EPERM", -100, 0, O_CREAT | O_TRUNC, 0x1a4),
+    call("openat2", "ENOSYS"), call("io_uring_setup", "EPERM"), call("open_by_handle_at", "EPERM"),
+    call("ftruncate", "allow", 3, 0), call("creat", "allow", 0, 0x1a4),
+    call("open", "allow", 0, O_TRUNC | 1), call("openat", "allow", -100, 0, O_TRUNC | 2),
+    call("openat", "allow", -100, 0, 0, 0), call("openat", "allow", -100, 0, 3),
+    call("openat", "allow", -100, 0, O_CREAT | 1, 0x9ed),
+    -- Every other call is the ruleset's and the kernel's to answer.
+    call("read", "allow"), call("ptrace", "allow"), call("mount", "allow"),
+    call("socket", "allow", 2, 1, 0), call("clone", "allow", 0x10000000), call("fork", "allow"),
+  }, options)
+  for _, arch in ipairs(ARCHES) do
+    local insns = decode(process.promise_filter({}, arch, options))
+    local other = if arch == "x86_64" then "aarch64" else "x86_64" end
+    assert(verdict(run(insns, audit_of(other), 76, {})) == "kill", arch .. ": another architecture")
+    for number = 0, process.PROMISE_CALLS_REVIEWED + 2 do
+      local got = verdict(run(insns, audit_of(arch), number, { 0, 0, O_TRUNC, 0 }))
+      assert(got == "allow" or got == "EPERM" or got == "ENOSYS", arch .. " " .. tostring(number) .. " is " .. got)
+    end
+  end
+  -- x32's truncate, 76 with its bit, finds no number to pass by.
+  local x86 = decode(process.promise_filter({}, "x86_64", options))
+  assert(verdict(run(x86, audit_of("x86_64"), 0x40000000 + 76, {})) == "ENOSYS")
+  Test.raises(function() process.promise_filter({ "fork" }, "x86_64", options) end)
+  Test.raises(function()
+    process.promise_filter({}, "x86_64", { truncation_only = true, truncate_held = true })
+  end)
+end
+
 --- In a pid namespace of its own, a pid names a process of the sandbox or
 --- none: getpgid, getsid and setpgid take any. Without one they are held
 --- to the process itself, and what else asks after a process is, whatever

@@ -121,4 +121,14 @@ unsigned cosmic_promise_named (const char *name);
  * it applied. */
 int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held);
 
+/* Holds the calling process, for good, to no truncation but what
+ * Landlock's write right holds: no_new_privs, and a program that refuses
+ * truncate and an open with O_TRUNC that does not write, and allows every
+ * other call (core/promises.c's `truncation_program_for` lists what else it
+ * refuses, so nothing reaches those another way). For a process a
+ * Landlock ruleset that does not handle truncation holds (below ABI 3, or
+ * a ruleset no one can say of), with no promises filter, which would hold
+ * it instead. 0, or an errno; ENOSYS where [`cosmic_promises_apply`] is. */
+int cosmic_truncation_apply (void);
+
 #endif

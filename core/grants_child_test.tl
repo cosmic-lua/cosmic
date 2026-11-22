@@ -136,48 +136,53 @@ local function test_a_write_needs_w_and_a_truncate_too(tmp: string)
 end
 
 --- An open with O_TRUNC that writes nothing asks a ruleset below Landlock
---- ABI 3 for no write right, yet empties the file: the promises filter
---- refuses it, and truncate, wherever the ruleset does not handle
---- truncation, which a `ruleset` descriptor cannot say it does. Where the
---- grants' ruleset does (ABI 3), Landlock's verdict is the answer.
+--- ABI 3 for no write right, yet empties the file. Wherever the ruleset
+--- does not handle truncation -- below ABI 3, or a `ruleset` descriptor,
+--- which cannot say it does -- the child's filter refuses it, and
+--- truncate: the promises filter, or, without `promises`, one that holds
+--- truncation alone. Where the grants' ruleset handles it (ABI 3),
+--- Landlock's verdict is the answer.
 local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: string)
   local abi = abi_or_skip()
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local file = tmp .. "/f"
-  assert(Fs.write(file, "kept"))
   local script = "truncate-unwritten " .. file
-  local read = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "r" } },
-    script, {})
-  if unsandboxable(read) then Test.skip(assert(read.refused)) end
-  assert(read.code == 1, "refused: " .. tostring(read.refused) .. " " .. read.said)
   local refusal = if abi >= 3 then DENIED else "not permitted" end
-  assert(read.said:find(refusal, 1, true) ~= nil, read.said)
-  assert(Fs.read(file) == "kept")
-  local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
-  if ruleset == nil then
-    Test.skip("no ruleset: " .. tostring(trouble))
-    return
-  end
-  local path = tmp .. "/said"
-  local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid, why = process.spawn(probe, { probe, script }, nil, nil, nil, output, output, false, nil,
-    { ruleset = ruleset, promises = {} })
-  sys.close(ruleset)
-  assert(pid ~= nil, tostring(why))
-  local status = assert(process.waitpid(pid, false))
-  sys.close(output)
-  local said = Fs.read(path) or ""
-  assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
-    "the filter's refusal, though the ruleset gives the file: " .. tostring(status.code) .. " " .. said)
-  assert(Fs.read(file) == "kept")
-  local written = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "rw" } },
-    script, {})
-  if abi >= 3 then
-    assert(written.code == 0, "a `w` grant truncates: " .. written.said)
-    assert(Fs.read(file) == "")
-  else
-    assert(written.code == 1 and written.said:find("not permitted", 1, true) ~= nil, written.said)
+  for _, promising in ipairs({ true, false }) do
+    local promises: {string}? = if promising then {} else nil end
+    local shown = if promising then "with promises" else "without promises" end
+    assert(Fs.write(file, "kept"))
+    local read = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "r" } },
+      script, promises)
+    if unsandboxable(read) then Test.skip(assert(read.refused)) end
+    assert(read.code == 1 and read.said:find(refusal, 1, true) ~= nil,
+      shown .. ": refused: " .. tostring(read.refused) .. " " .. read.said)
     assert(Fs.read(file) == "kept")
+    local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
+    if ruleset == nil then Test.skip("no ruleset: " .. tostring(trouble)) end
+    local path = tmp .. "/said"
+    local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
+    local pid, why = process.spawn(probe, { probe, script }, nil, nil, nil, output, output, false,
+      nil, { ruleset = assert(ruleset), promises = promises })
+    sys.close(assert(ruleset))
+    assert(pid ~= nil, tostring(why))
+    local status = assert(process.waitpid(pid, false))
+    sys.close(output)
+    local said = Fs.read(path) or ""
+    assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
+      shown .. ": the filter's refusal, though the ruleset gives the file: " ..
+        tostring(status.code) .. " " .. said)
+    assert(Fs.read(file) == "kept")
+    local written = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "rw" } },
+      script, promises)
+    if abi >= 3 then
+      assert(written.code == 0, shown .. ": a `w` grant truncates: " .. written.said)
+      assert(Fs.read(file) == "")
+    else
+      assert(written.code == 1 and written.said:find("not permitted", 1, true) ~= nil,
+        shown .. ": " .. written.said)
+      assert(Fs.read(file) == "kept")
+    end
   end
 end
 
