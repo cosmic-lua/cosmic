@@ -217,7 +217,10 @@ local record Http
   --- any case: any other might be a credential (Authorization, Cookie,
   --- X-Api-Key, Signature and whatever an API names). A caller who must
   --- send one to the new origin passes `follow = false` and follows
-  --- `Location` itself.
+  --- `Location` itself. A redirect to another origin that would send the
+  --- request's body again -- a 307 or 308, or a 301 or 302 after a
+  --- method other than POST -- fails the request instead: a body is the
+  --- caller's for the origin it named (a token form, a client secret).
   ---
   --- [`Http.request`] and [`Http.get`] read at most `max_bytes` of the
   --- body (16 MiB by default; `math.maxinteger` lifts it): a longer one

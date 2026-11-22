@@ -1448,6 +1448,49 @@ local function test_a_redirect_within_the_origin_keeps_credentials()
   end
 end
 
+--- A redirect to another origin that would send the request's body
+--- again -- a 307 or a 308, or a 301 or 302 after a method curl keeps
+--- the body for -- fails the request before that hop; one within the
+--- origin sends it, and one that turns the request into a GET sends none.
+local function test_a_redirect_to_another_origin_never_sends_the_body_there()
+  local function to(status: string, location: string, method: string): Http.Response?, string, string
+    local response, why = Http.open(url, { timeout_ns = Clock.seconds(60), method = method, body = "secret-body",
+      script = { reply(status, "Location: " .. location .. "\r\n"), reply("200 OK", "", "done") } })
+    if response == nil then return nil, why, "" end
+    while true do
+      local chunk, trouble = response:read()
+      if chunk == nil then
+        assert(trouble == "", trouble)
+        break
+      end
+    end
+    local sent = response:sent()
+    response:close()
+    return response, why, sent
+  end
+  for _, case in ipairs({ { "307 Temporary Redirect", "POST" }, { "308 Permanent Redirect", "POST" },
+      { "302 Found", "PUT" }, { "301 Moved Permanently", "PATCH" }, { "307 Temporary Redirect", "PUT" } }) do
+    local status, method = assert(case[1]), assert(case[2])
+    local response, why = to(status, "http://other.test/next", method)
+    assert(response == nil and why:find("another origin would send the request's body", 1, true) ~= nil,
+      status .. " " .. method .. ": " .. tostring(why))
+  end
+  local kept, _, sent = to("307 Temporary Redirect", "/next", "POST")
+  assert(kept ~= nil and kept.status == 200)
+  local again = assert((sent:find("POST /next HTTP/1.1", 1, true)))
+  assert(count(sent:sub(again), "secret-body") == 1, sent)
+  local turned, _, after = to("303 See Other", "http://other.test/next", "POST")
+  assert(turned ~= nil and turned.status == 200)
+  local turned_at = assert((after:find("GET /next HTTP/1.1", 1, true)))
+  assert(count(after:sub(turned_at), "secret-body") == 0, after)
+  -- Once a 303 has made it a GET, a later 307 has no body to send.
+  local through = assert(Http.open(url, { timeout_ns = Clock.seconds(60), method = "POST", body = "secret-body",
+    script = { reply("303 See Other", "Location: /a\r\n"), reply("307 Temporary Redirect",
+      "Location: http://other.test/n\r\n"), reply("200 OK", "", "done") } }))
+  assert(through.status == 200)
+  through:close()
+end
+
 --- A body longer than `max_bytes` fails the request: at once when its
 --- Content-Length says so, else once the byte past the limit arrives.
 local function test_a_body_over_max_bytes_fails_the_request()
