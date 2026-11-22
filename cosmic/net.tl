@@ -1296,10 +1296,13 @@ local function accept_loop(s: Serving, a: Accepting)
       local certs = s.spec.tls
       local config = if certs ~= nil and not a.clear then certs:config() else nil end
       if config == nil then
-        serve_conn(s, Connection.new(socket, s.spec.timeout_ns))
+        local conn = Connection.new(socket, s.spec.timeout_ns)
+        conn.listener = a.listener.address
+        serve_conn(s, conn)
       else
         local conn, refused = Connection.secured(socket, s.spec.timeout_ns, config)
         if conn ~= nil then
+          conn.listener = a.listener.address
           serve_conn(s, conn)
         else
           report(s, "accepting at " .. named(a.listener.address) .. ": " .. refused)

@@ -211,9 +211,7 @@ global table record
   field pack: function<T>(...: T): table.PackTable<T>
   field pack: function(...: any): table.PackTable<any>
   field remove: function<T>(mut {T}, p2?: integer): T?
-  field sort: function(mut {integer}, p2?: function(integer, integer): boolean)
-  field sort: function(mut {number}, p2?: function(number, number): boolean)
-  field sort: function(mut {string}, p2?: function(string, string): boolean)
+  field sort: function<T is Ordered>(mut {T}, p2?: function(T, T): boolean)
   field sort: function<T>(mut {T}, function(T, T): boolean)
   field unpack: function<T>({T}, p2?: number, p3?: number): T...
 global utf8 record

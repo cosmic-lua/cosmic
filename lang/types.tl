@@ -531,7 +531,10 @@ local record Types
   --- parameter is read by its bounds, and so is not one here.
   keys_a_map: function(t: Type): boolean
 
-  --- What meets the built-in bound `tag`, for a message: "a number type or a string type" for `Ordered`.
+  --- Whether `t` is a class that declares the method `name`, as a class declares a metamethod (`__lt`, `__le`).
+  declares_method: function(t: Type, name: string): boolean
+
+  --- What meets the built-in bound `tag`, for a message: "a number type, a string type, or a class that declares `__lt` and `__le`" for `Ordered`.
   bound_meets: function(tag: string): string
 
   --- The bounds `list` as a store holds them: nil for none, else sorted by how they display (then by digest), each once.
@@ -919,6 +922,22 @@ function Types.bounds(list: {Type}?): {Type}?
   return out
 end
 
+function Types.declares_method(t: Type, name: string): boolean
+  if not ((t.tag == "named")) or t.decl.kind ~= "class" or t.value then
+    return false
+  end
+  local body = t.decl.body
+  if body == nil then
+    return false
+  end
+  for _, m in ipairs(body.methods) do
+    if m.name == name then
+      return true
+    end
+  end
+  return false
+end
+
 function Types.bounds_text(list: {Type}, show: function(Type): string): string
   local each: mut {string} = {}
   for i, b in ipairs(list) do
@@ -933,7 +952,7 @@ function Types.bound_meets(tag: string): string
   elseif tag == "Key" then
     return "`integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata"
   end
-  return "a number type or a string type"
+  return "a number type, a string type, or a class that declares `__lt` and `__le`"
 end
 
 function Types.letter(index: integer): string

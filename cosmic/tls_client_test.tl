@@ -130,6 +130,13 @@ local function test_a_chain_to_no_trusted_root_is_refused()
 end
 
 local function test_a_connector_connects_over_tls_as_net_connect_does()
+  -- Asked before the server runs, whose callback a skip cannot leave.
+  do
+    local probe <close>, unmade = Net.connector({ { host = "127.0.0.1", port = 9 } })
+    if probe == nil and unmade:find("Linux only", 1, true) ~= nil then
+      Test.skip("this host has no native connector: " .. unmade)
+    end
+  end
   served(A, function(port: integer)
     local connector <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
     local conn <close> = assert(connector:connect(Net.tcp("127.0.0.1", port),

@@ -111,6 +111,17 @@ local record WirePeer
   KeyExpiry?: string
 end
 
+--- The part of the status [`Client.whois_result`] reads: which node
+--- this one is.
+local record WireSelf
+  ID: string
+  TailscaleIPs?: {string}
+end
+
+local record WireMe
+  Self?: WireSelf
+end
+
 local record WireTailnet
   Name: string
   MagicDNSSuffix: string
@@ -177,6 +188,7 @@ local WHOIS <const> = Shape.record_of("WireWhoIs")
 local FILE_TARGET <const> = Shape.record_of("WireFileTarget")
 local WAITING_FILE <const> = Shape.record_of("WireWaitingFile")
 local STATUS <const> = Shape.record_of("WireStatus")
+local ME <const> = Shape.record_of("WireMe")
 local PREFS <const> = Shape.record_of("WirePrefs")
 local PING <const> = Shape.record_of("WirePing")
 local NOTIFY <const> = Shape.record_of("WireNotify")
@@ -249,6 +261,11 @@ local record WhoIs
   --- attach, one a grant, decoded. A name is present, with an empty
   --- list, when a grant names it with no value.
   caps: {string: {Json.Value}}
+  --- Whether `node` is this node itself. Any process on this machine
+  --- (a proxy, or a Serve or Funnel forward to a tailnet address)
+  --- connects from the node's own address, so `user`, its owner, is
+  --- not who asked.
+  own: boolean
 end
 
 --- Which way [`Client.whois_result`] came out.
@@ -489,13 +506,18 @@ end
 local record ServeHandler
   --- The URL of a local server the daemon passes requests to, with
   --- the `Tailscale-User-*` headers that name the tailnet user:
-  --- `http://127.0.0.1:8080`, or `https+insecure://...` to skip
-  --- checking its certificate.
+  --- `http://127.0.0.1:8080`, `https+insecure://...` to skip
+  --- checking its certificate, or `unix:/path` for a server at a unix
+  --- socket, which only the users who can reach the path can send to.
   proxy?: string
   --- A body the daemon answers with itself.
   text?: string
   --- A file or directory of the daemon's machine it serves.
   path?: string
+  --- The capabilities the daemon passes on to `proxy`, in a
+  --- `Tailscale-App-Capabilities` header: those of each name here the
+  --- tailnet policy grants the peer (`example.com/cap/admin`).
+  accept_caps?: {string}
 end
 
 --- A web server the daemon runs on a port of the node's tailnet name.
@@ -601,7 +623,7 @@ local function file_name_ok(name: string): boolean
   return name:find("[%c/\\\127]") == nil
 end
 
-local function whois_of(wire: WireWhoIs): WhoIs
+local function whois_of(wire: WireWhoIs, own: boolean): WhoIs
   local caps: mut {string: {Json.Value}} = {}
   local granted, _ = Json.to_object(wire.CapMap)
   for name, values in pairs(granted or {}) do
@@ -611,7 +633,7 @@ local function whois_of(wire: WireWhoIs): WhoIs
     caps[name] = list or {}
   end
   local node = node_of(wire.Node)
-  return { node = node, user = user_of(wire.UserProfile), tagged = #node.tags > 0, caps = caps }
+  return { node = node, user = user_of(wire.UserProfile), tagged = #node.tags > 0, caps = caps, own = own }
 end
 
 --- Go's zero time, which the daemon writes for a time it does not know.
@@ -852,8 +874,10 @@ local function handler_of(handler: ServeHandler, mount: string, where: string): 
   local count = 0
   local proxy = handler.proxy
   if proxy ~= nil then
-    if proxy:match("^https?://.") == nil and proxy:match("^https%+insecure://.") == nil then
-      error("tailscale: " .. where .. "[" .. mount .. "].proxy must be an http://, https:// or https+insecure:// URL", 4)
+    if proxy:match("^https?://.") == nil and proxy:match("^https%+insecure://.") == nil and
+        proxy:match("^unix:/.") == nil then
+      error("tailscale: " .. where .. "[" .. mount .. "].proxy must be an http://, https:// or " ..
+          "https+insecure:// URL, or unix:/path", 4)
     end
     out["Proxy"] = proxy
     count = count + 1
@@ -868,6 +892,15 @@ local function handler_of(handler: ServeHandler, mount: string, where: string): 
   end
   if count ~= 1 then
     error("tailscale: " .. where .. "[" .. mount .. "] takes exactly one of proxy, text and path", 4)
+  end
+  local caps = handler.accept_caps
+  if caps ~= nil and #caps > 0 then
+    if proxy == nil then
+      error("tailscale: " .. where .. "[" .. mount .. "].accept_caps needs a proxy", 4)
+    end
+    local names: mut {Json.Value} = {}
+    for _, name in ipairs(caps) do names[#names + 1] = name end
+    out["AcceptAppCaps"] = names
   end
   return out
 end
@@ -945,6 +978,23 @@ local function ports_of(config: {string: Json.Value}): {integer: boolean}
     if port ~= nil then ports[port] = true end
   end
   return ports
+end
+
+--- How many handlers of `config` (a foreground entry) forward
+--- capabilities, by a non-empty `AcceptAppCaps`.
+local function forwarding(config: {string: Json.Value}): integer
+  local count = 0
+  local web, _ = Json.to_object(config["Web"])
+  for _, site in pairs(web or {}) do
+    local fields, _ = Json.to_object(site)
+    local handlers, _ = Json.to_object((fields or {})["Handlers"])
+    for _, handler in pairs(handlers or {}) do
+      local body, _ = Json.to_object(handler)
+      local names, _ = Json.to_array((body or {})["AcceptAppCaps"])
+      if names ~= nil and #names > 0 then count = count + 1 end
+    end
+  end
+  return count
 end
 
 --- The body of a file the daemon sends, read as it arrives over the
@@ -1228,7 +1278,9 @@ local class Client
   ---     if who.caps["example.com/cap/admin"] == nil then return forbidden() end
   ---
   --- [`Client.whois_result`] tells an address that is no peer's from a
-  --- daemon that cannot be asked.
+  --- daemon that cannot be asked. An answer whose `own` is true names
+  --- this node itself: some process on this machine connected, and the
+  --- owner in `user` is not who asked.
   function whois(self, address: string): WhoIs?, string
     local result = self:whois_result(address)
     local whois = result.whois
@@ -1255,7 +1307,28 @@ local class Client
     if wire == nil then
       return { kind = "failed", reason = "tailscale: whois: " .. bad, status = 200 }
     end
-    return { kind = "found", whois = whois_of(wire), reason = "", status = 200 }
+    -- The daemon answers its own address with its own node; only its
+    -- status tells that node from a peer's.
+    local mine = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/status?peers=false")
+    local status_text = mine.body
+    if status_text == nil then
+      return { kind = "failed", reason = mine.reason, status = mine.status }
+    end
+    local status, unread = ME:decode_into(status_text)
+    if status == nil then
+      return { kind = "failed", reason = "tailscale: status: " .. unread, status = 200 }
+    end
+    -- A node that cannot be told from this one is taken for it.
+    local me = status.Self
+    if me == nil or me.ID == "" or wire.Node.StableID == "" then
+      return { kind = "failed", reason = "tailscale: status: the daemon names no node of its own", status = 200 }
+    end
+    local host = address:match("^%[(.*)%]") or address:match("^([^:]*):%d+$") or address
+    local own = me.ID == wire.Node.StableID
+    for _, mine_ip in ipairs(me.TailscaleIPs or {}) do
+      if mine_ip == host then own = true end
+    end
+    return { kind = "found", whois = whois_of(wire, own), reason = "", status = 200 }
   end
 
   --- The node's status and its peers' (`tailscale status`).
@@ -1580,6 +1653,22 @@ local class Client
         { ["If-Match"] = etag })
       if put == nil then return failed(lost) end
       if put.status == 200 then
+        -- A daemon that predates AcceptAppCaps drops it from what it
+        -- keeps, and passes a client's own Tailscale-App-Capabilities
+        -- on: read the entry back, and fail (which takes it down)
+        -- where a forward was lost.
+        local asked = forwarding(config)
+        if asked > 0 then
+          local kept, unkept = sent(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/serve-config")
+          if kept == nil then return failed(unkept) end
+          local back, _ = Json.decode_object((kept.body:gsub("%s+$", "")))
+          local fore, _ = Json.to_object((back or {})["Foreground"])
+          local mine, _ = Json.to_object((fore or {})[session])
+          if kept.status ~= 200 or mine == nil or forwarding(mine) < asked then
+            return failed("tailscale: serve: the daemon did not keep AcceptAppCaps: it predates forwarding " ..
+                "capabilities, and would pass a client's own header on")
+          end
+        end
         local serving: Serving = { session = session, domain = domain, urls = urls, events = events }
         return serving, ""
       end

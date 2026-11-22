@@ -80,6 +80,10 @@ local function answer(req: Server.Request): Server.Reply
   if target == "/localapi/v0/whois?addr=100.64.0.3" or target == "/localapi/v0/whois?addr=%5Bfd7a%3A115c%3Aa1e0%3A%3A3%5D%3A443" then
     return { status = 200, body = TAGGED }
   end
+  if target == "/localapi/v0/whois?addr=100.64.0.1%3A80" then
+    -- The node's own address, which the status lists.
+    return { status = 200, body = WHOIS }
+  end
   if target == "/localapi/v0/whois?addr=100.64.0.4" then
     return { status = 403, body = "whois access denied\n" }
   end
@@ -89,7 +93,9 @@ local function answer(req: Server.Request): Server.Reply
   if target:match("^/localapi/v0/whois%?") ~= nil then
     return { status = 404, body = "no match for IP:port\n" }
   end
-  if target == "/localapi/v0/status" then return { status = 200, body = STATUS } end
+  if target == "/localapi/v0/status" or target == "/localapi/v0/status?peers=false" then
+    return { status = 200, body = STATUS }
+  end
   if target == "/localapi/v0/prefs" then return { status = 200, body = PREFS } end
   if target == "/localapi/v0/cert/box.tail1234.ts.net?type=pair" then
     return { status = 200, body = PAIR }
@@ -170,7 +176,8 @@ local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: st
   local who = assert(ts:whois("100.64.0.2:443"))
   say(who.node.name .. " " .. who.node.host_name .. " " .. who.node.os .. " " .. tostring(who.node.id))
   say(table.concat(who.node.addresses, ",") .. " tags=" .. tostring(#who.node.tags) .. " tagged=" .. tostring(who.tagged))
-  say(who.user.login_name .. " " .. who.user.display_name .. " " .. tostring(who.user.picture_url))
+  say(who.user.login_name .. " " .. who.user.display_name .. " " .. tostring(who.user.picture_url) ..
+    " own=" .. tostring(who.own))
   local Json = require("cosmic.json")
   local admin = assert(who.caps["example.com/cap/admin"])
   say("admin=" .. assert(Json.encode_any(admin)) .. " read=" .. tostring(#assert(who.caps["example.com/cap/read"])) ..
@@ -181,14 +188,16 @@ local function test_whois_answers_the_node_its_user_and_its_capabilities(tmp: st
     " " .. tagged.user.login_name .. " host=" .. tagged.node.host_name)
   local six = assert(ts:whois("[fd7a:115c:a1e0::3]:443"))
   say(six.node.name)
+  say("here own=" .. tostring(assert(ts:whois("100.64.0.1:80")).own))
 ]]))
   assert(said == table.concat({
     "laptop.tail1234.ts.net laptop macOS 7",
     "100.64.0.2,fd7a:115c:a1e0::2 tags=0 tagged=false",
-    "will@example.com Will nil",
+    "will@example.com Will nil own=false",
     'admin=[{"level":"all"}] read=0 ping=0 write=nil',
     "db.tail1234.ts.net tag:db tagged=true tagged-devices host=",
     "db.tail1234.ts.net",
+    "here own=true",
     "",
   }, "\n"), said)
   assert(seen[1] == "GET /localapi/v0/whois?addr=100.64.0.2%3A443 host=local-tailscaled.sock cap=130 auth=",

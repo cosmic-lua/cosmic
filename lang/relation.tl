@@ -1411,7 +1411,8 @@ end
 --- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
 --- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
 --- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
---- raises: a union of a number and a string is none. `Numeric` is below `Ordered`. `Key` holds the types a map is
+--- raises: a union of a number and a string is none, and a class that declares `__lt` and `__le` is one. `Numeric` is
+--- below `Ordered`. `Key` holds the types a map is
 --- keyed by ([`Types.keys_a_map`]), an interface among them. A type variable is below a bound where one of its own bounds is.
 local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if (a.tag == "var") then
@@ -1426,6 +1427,9 @@ local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): 
     if Types.keys_a_map(a) then
       return nil
     end
+  elseif Types.declares_method(a, "__lt") and Types.declares_method(a, "__le") then
+    -- A class that declares `__lt` and `__le` compares two of its values with each of `<`, `<=`, `>` and `>=`.
+    return nil
   elseif a.tag ~= "Ordered" and a.tag ~= "Key" and a.tag ~= "Numeric" and
       (rel(j, a, j.store.number, false) == nil or rel(j, a, j.store.string, false) == nil) then
     return nil
