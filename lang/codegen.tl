@@ -34,10 +34,10 @@
 --- * A `class` is its method table, which is also the metatable of its values: `local C = {}; C.__index = C`
 ---   on the line of the `class`, then each method as `function C.name(self, ...)` on its line. A method named
 ---   `__close`, `__tostring`, `__lt` or `__le` is the metamethod of that name. The values are made by the reserved form of the
----   patched parser ([`patch/lua/`]): `{ ... } @ C` is the table the constructor makes with `C` as its metatable, and
----   `@v == C` is the test `v is C`, `@v` being the metatable of `v`. Which table literals make a value of a class
----   is the checker's to say ([`lang.check`]'s [`Checked.literals`]), so [`generate`] is told; a literal it is not told
----   of is a plain table.
+---   patched parser ([`patch/lua/`]), which reads it only in a load of [`cosmic.internal.compiled`]: `{ ... } @ C`
+---   is the table the constructor makes with `C` as its metatable, and `@v == C` is the test `v is C`, `@v` being
+---   the metatable of `v`. Which table literals make a value of a class is the checker's to say ([`lang.check`]'s
+---   [`Checked.literals`]), so [`generate`] is told; a literal it is not told of is a plain table.
 ---
 --- What the tree holds and Lua cannot yet say is refused with an [`Error`], and the text then lacks it: a `class`
 --- declared inside another type (`class_nested_refused`), which has no table of its own at run time.
@@ -52,10 +52,9 @@
 --- re-entrant: it runs one generation at a time, as the one thread of a cosmic
 --- program does.
 
--- TODO: write the reserved form of the class only in the code the compiler writes, once the runtime no longer exposes
--- text `load` to programs: a program cannot spell
--- `@` in Teal, but a chunk it loads from text is read by the patched parser, which takes both forms today
--- (`load("return @'abc'")` answers the string metatable), and `@v` reads a metatable whatever its `__metatable` says.
+-- The reserved forms are read only by a load through [`cosmic.internal.compiled`]: the `load` a program or a chunk of
+-- text calls refuses them ("'@' is read only in the Lua the compiler writes"), since `@v` reads a metatable whatever its
+-- `__metatable` says.
 --
 -- TODO: reach the table of a class of another module, for a class literal or an `is` of it there, once the checker
 -- has a use for one ([`lang.check`]'s `class_scope` refuses both): the table is the module's own local.

@@ -1,5 +1,5 @@
 file: src/lvm.c
-note: OP_SETCLASS attaches the class table to the table the constructor just made, as lua_setmetatable does for a table, and checks that it is one since a chunk loaded from text can write any operand. The class table never holds __gc (the checker refuses a class method of that name), so the table is not marked for finalization. OP_CLASSOF answers the metatable of any value the way lua_getmetatable does.
+note: OP_SETCLASS attaches the class table to the table the constructor just made, as lua_setmetatable does for a table. It checks that both are tables: the class is any value the compiler's text names, and a binary chunk can name any register as either operand, where writing the metatable of what is no table would write through a pointer of another type. The class table never holds __gc (the checker refuses a class method of that name), so the table is not marked for finalization. OP_CLASSOF answers the metatable of any value the way lua_getmetatable does.
 --- find
       vmcase(OP_EXTRAARG) {
         lua_assert(0);
@@ -9,6 +9,8 @@ note: OP_SETCLASS attaches the class table to the table the constructor just mad
       vmcase(OP_SETCLASS) {
         StkId ra = RA(i);
         TValue *rb = vRB(i);
+        if (l_unlikely(!ttistable(s2v(ra))))
+          Protect(luaG_typeerror(L, s2v(ra), "give a class to"));
         if (l_unlikely(!ttistable(rb)))
           Protect(luaG_typeerror(L, rb, "use as a class"));
         hvalue(s2v(ra))->metatable = hvalue(rb);

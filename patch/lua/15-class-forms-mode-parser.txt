@@ -1,0 +1,8 @@
+file: src/lparser.c
+note: The parser hands the lexer whether the load reads the class forms (patch/lua/13-class-forms-mode-load.txt).
+--- find
+                       Dyndata *dyd, const char *name, int firstchar) {
+--- replace
+                       Dyndata *dyd, const char *name, int firstchar,
+                       int classforms) {
+--- end
