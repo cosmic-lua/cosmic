@@ -534,7 +534,7 @@ local record Types
   --- Whether `t` is a class that declares the method `name`, as a class declares a metamethod (`__lt`, `__le`).
   declares_method: function(t: Type, name: string): boolean
 
-  --- What meets the built-in bound `tag`, for a message: "a number type or a string type" for `Ordered`.
+  --- What meets the built-in bound `tag`, for a message: "a number type, a string type, or a class that declares `__lt` and `__le`" for `Ordered`.
   bound_meets: function(tag: string): string
 
   --- The bounds `list` as a store holds them: nil for none, else sorted by how they display (then by digest), each once.

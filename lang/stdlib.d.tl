@@ -369,7 +369,7 @@ do
     pack: function(...: any): PackTable<any>
 
     remove: function<A>(mut {A}, arg2?: integer): A?
-    sort: function<A is Ordered>(mut {A})
+    sort: function<A is Ordered>(mut {A}, arg2?: function(A, A): boolean)
     sort: function<A>(mut {A}, function(A, A): boolean)
 
     unpack: function<A>({A}, arg2?: number, arg3?: number): A...

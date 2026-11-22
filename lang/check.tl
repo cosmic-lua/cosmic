@@ -465,6 +465,9 @@ local record Ctx
   --- The calls, by the id of the node, that run no code of the program ([`Tests.inert_callee`]): the facts about the length of
   --- an array stand through them.
   inert: mut {integer: boolean}
+  --- The comparisons, by the id of the node, that run code of the program, as a call does: of two values of a class,
+  --- which call its `__lt` or `__le`, and of two of a type parameter bounded by `Ordered`, which a class may meet.
+  runs: mut {integer: boolean}
   --- The parameters of the functions checked, by the id of the binding of the parameter.
   boundaries: mut {integer: Check.Boundary}
   --- The type of each expression typed, by the id of its node, and the warnings found.
@@ -2917,6 +2920,20 @@ local BITWISE <const>: {string: boolean} = { ["&"] = true, ["|"] = true, ["~"] =
 local ORDERED <const>: {string: boolean} = { ["<"] = true, [">"] = true, ["<="] = true, [">="] = true }
 
 --- Reports that the operand `node`, of type `t`, is not what `op` takes.
+--- The fix for the class `class` held against `Ordered`: the comparison methods it does not declare.
+function Operands.compare_fix(ctx: Ctx, class: Type): string
+  local shown = show(ctx, class)
+  local lt = Types.declares_method(class, "__lt")
+  local le = Types.declares_method(class, "__le")
+  local missing = if lt then "__le" elseif le then "__lt" else nil end
+  if missing ~= nil then
+    return "declare `function " .. missing .. "(self, other: " .. shown .. "): boolean` in " .. tq(ctx, class) .. ": it declares `" ..
+      (if lt then "__lt" else "__le" end) .. "`, and `Ordered` takes a class that declares both"
+  end
+  return "declare `function __lt(self, other: " .. shown .. "): boolean` and `function __le(self, other: " .. shown ..
+    "): boolean` in " .. tq(ctx, class) .. ", or pass numbers or strings"
+end
+
 function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, takes: string, fix: string)
   local s = subject(ctx, node)
   if t.tag == "any" then
@@ -2933,7 +2950,7 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
       bound = "Numeric"
     end
     local bound_fix = if bound ~= nil then "bound " .. quoted(name) .. " by `" .. bound .. "` where it is declared (`<" .. name ..
-        " is " .. bound .. ">`): " .. (if bound == "Ordered" then "a number type or a string type meets it, and `<` " ..
+        " is " .. bound .. ">`): " .. (if bound == "Ordered" then "a number type, a string type, or a class that declares `__lt` and `__le` meets it, and `<` " ..
             "compares two values of " .. quoted(name) else "`integer` and `number` meet it, and arithmetic of two values of " ..
             quoted(name) .. " answers " .. quoted(name) end) else
       "convert the value first, or declare the parameter with the type " .. quoted(op) .. " takes: no bound declares it" end
@@ -3904,6 +3921,8 @@ function Tests.has_call(ctx: Ctx, node: Ast.Node): boolean
     waiting[#waiting] = nil
     if (at.kind == "Call" or at.kind == "MethodCall") and ctx.inert[at.id] ~= true then
       found = true
+    elseif (at.kind == "Binary") and ctx.runs[at.id] == true then
+      found = true
     elseif at.kind ~= "FunctionLit" then
       -- A function made here runs when it is called, and that call is a call.
       Ast.children(at, wait)
@@ -4286,6 +4305,12 @@ function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
 end
 
 --- `a < b` and the rest: two numbers or two strings.
+--- Notes that the comparison `node` runs code of the program, which may shorten any array, as a call may.
+function Operators.runs(ctx: Ctx, node: Ast.Binary)
+  ctx.runs[node.id] = true
+  ctx.flow = Flow.forget_lengths(ctx.flow)
+end
+
 function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   local l, r = left, right
   local function number(t: Type): boolean
@@ -4299,12 +4324,14 @@ function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   end
   -- Two values of one parameter bounded by `Ordered` are both numbers or both strings; one bounded by `Numeric` is a number.
   if l == r and Operands.bounded_by(ctx, l, "Ordered") then
+    Operators.runs(ctx, node)
     return
   end
   -- Two values of a class compare through the metamethod it declares: `<` and `>` call `__lt`, `<=` and `>=` `__le`.
   if l == r and (l.tag == "named") and l.decl.kind == "class" and not l.value then
     local meta = if node.op == "<" or node.op == ">" then "__lt" else "__le" end
     if Types.declares_method(l, meta) then
+      Operators.runs(ctx, node)
       return
     end
     Operands.bad_operand(ctx, node.left, l, node.op, "numbers, strings, or values of a class that declares `" .. meta .. "`",
@@ -4312,6 +4339,20 @@ function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
     return
   end
   if (Operands.bounded_by(ctx, l, "Numeric") or number(l)) and (Operands.bounded_by(ctx, r, "Numeric") or number(r)) then
+    return
+  end
+  -- A value of a class compares only with another of the same class, which is given to its metamethod.
+  local function class_of(t: Type): boolean
+    return (t.tag == "named") and t.decl.kind == "class" and not t.value
+  end
+  if class_of(l) or class_of(r) then
+    local fix = "compare two values of one class, which " .. quoted(node.op) .. " gives to its `" ..
+      (if node.op == "<" or node.op == ">" then "__lt" else "__le" end) .. "`: it converts nothing"
+    if class_of(l) then
+      Operands.bad_operand(ctx, node.right, r, node.op, "a value of " .. tq(ctx, l) .. ", as its left operand is", fix)
+    else
+      Operands.bad_operand(ctx, node.left, l, node.op, "a value of " .. tq(ctx, r) .. ", as its right operand is", fix)
+    end
     return
   end
   local fix = "compare two numbers or two strings: " .. quoted(node.op) .. " converts nothing"
@@ -5750,8 +5791,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           report(ctx, "bound_unmet", node, msg,
             if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
               bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" elseif
-              held.tag == "named" and held.decl.kind == "class" then "declare `function __lt(self, other: " ..
-                show(ctx, held) .. "): boolean` and `__le` alike in " .. tq(ctx, held) .. ", or pass numbers or strings" else
+              held.tag == "named" and held.decl.kind == "class" then Operands.compare_fix(ctx, held) else
               "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
                 "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
         elseif loud then
@@ -7286,10 +7326,11 @@ end
 --- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
 --- below what it was before them, and never assign the local `var`, the index of the loop. The code that may shorten the
 --- array is a call, an iterator of a generic `for` (a call of its own) and the `__close` of a `<close>` local, and a
---- write of a nil or of the array's name. No other code runs in the body, because no metamethod can: `class_metamethod` lets
---- a class declare only `__close` and `__tostring` (both reached by the forms above), `setmetatable_call` refuses
---- `setmetatable`, and `operand_type` refuses an operator on a record. The loop rule must be revisited if any of the three is
---- relaxed; lang/check_test.tl pins them beside the loop tests.
+--- write of a nil or of the array's name, and a comparison that may call a class's `__lt` or `__le`
+--- ([`Writes.plain_compare`]). No other code runs in the body, because no other metamethod can: `class_metamethod` lets
+--- a class declare only `__close`, `__tostring` (both reached by the forms above), `__lt` and `__le`, `setmetatable_call`
+--- refuses `setmetatable`, and `operand_type` refuses any other operator on a record or a class. The loop rule must be
+--- revisited if any of the three is relaxed; lang/check_test.tl pins them beside the loop tests.
 function Writes.scalar_math(call: Ast.Call, var: integer): boolean
   local callee = call.callee
   if not ((callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil and callee.object.text == "math") then
@@ -7303,12 +7344,33 @@ function Writes.scalar_math(call: Ast.Call, var: integer): boolean
   return true
 end
 
+--- The comparison that holds when the operands of another are swapped: `k <= i` is `i >= k`.
+local TURNED <const>: {string: string} = { ["<="] = ">=", ["<"] = ">", [">="] = "<=", [">"] = "<" }
+
+--- Whether the binary `e` runs no code of the program: it is no `<`, `<=`, `>` or `>=`, or an operand is seen to be a
+--- number or a string (a literal, an arithmetic or a concatenation, a unary operator, or the local `var`, the index of a
+--- loop), and so the other is too and no class's `__lt` or `__le` is called.
+function Writes.plain_compare(e: Ast.Binary, var: integer): boolean
+  if TURNED[e.op] == nil then
+    return true
+  end
+  for _, side in ipairs({ e.left, e.right }) do
+    local at = peel(side)
+    if at.kind == "Integer" or at.kind == "Float" or at.kind == "String" or (at.kind == "Unary") or
+        ((at.kind == "Name") and at.binding == var) or ((at.kind == "Binary") and TURNED[at.op] == nil and at.op ~= "and" and
+            at.op ~= "or" and at.op ~= "==" and at.op ~= "~=") then
+      return true
+    end
+  end
+  return false
+end
+
 function Writes.scalar(e: Ast.Exp, var: integer): boolean
   local at = peel(e)
   if (at.kind == "Name") then
     return at.binding == var
   elseif (at.kind == "Binary") then
-    return at.op ~= "and" and at.op ~= "or"
+    return at.op ~= "and" and at.op ~= "or" and Writes.plain_compare(at, var)
   elseif (at.kind == "Unary") then
     return true
   end
@@ -7326,7 +7388,8 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
   while #waiting > 0 and #marks == 0 do
     local node = assert(waiting[#waiting])
     waiting[#waiting] = nil
-    if (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") then
+    if (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") or
+        ((node.kind == "Binary") and not Writes.plain_compare(node, var)) then
       marks[#marks + 1] = true
     elseif (node.kind == "Local") then
       for _, binding in ipairs(node.bindings) do
@@ -7400,9 +7463,6 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
   end
   return { var = s.var.id, object = object, unit = unit }
 end
-
---- The comparison that holds when the operands of another are swapped: `k <= i` is `i >= k`.
-local TURNED <const>: {string: string} = { ["<="] = ">=", ["<"] = ">", [">="] = "<=", [">"] = "<" }
 
 --- A bound that a comparison sets on a local integer ([`Writes.bound`]).
 local record Bound
@@ -9170,7 +9230,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

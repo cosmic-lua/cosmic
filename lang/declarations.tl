@@ -124,9 +124,10 @@ local record Declarations
     "member_missing"
     -- a parameter of a method with no type
     "param_untyped"
-    -- a `__close` that takes more than the value and the error object or answers one, or a `__tostring` that does not answer a string
+    -- a `__close` that takes more than the value and the error object or answers one, a `__tostring` that does not answer a
+    -- string, or a `__lt` or `__le` that takes other than two values of the class or does not answer a boolean
     "metamethod_signature"
-    -- a method or function of a class named for a metamethod other than `__close` and `__tostring`
+    -- a method or function of a class named for a metamethod other than `__close`, `__tostring`, `__lt` and `__le`
     "class_metamethod"
     -- a field named for a metamethod that may be nil
     "optional_metamethod"
@@ -511,7 +512,7 @@ Declarations.catalog = {
       "value and takes a string, and `<` and `<=` call `__lt` and `__le` with two values and take a boolean, so a class " ..
       "that writes one with other parameters, or answering another type, breaks at the call",
     fix = "write `function __close(self)` (or `function __close(self, err: any)`), `function __tostring(self): string`, " ..
-      "or `function __lt(self, other: C): boolean` and `__le` alike"
+      "or `function __lt(self, other: C): boolean` and `__le` alike",
   },
   {
     code = "class_metamethod", rule = "dispatch only through declared types",

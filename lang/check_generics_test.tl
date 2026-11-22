@@ -685,7 +685,8 @@ local MAX <const> = "local function max<T is Ordered>(a: T, b: T): T\n  if a < b
 local SUM <const> = "local function sum<N is Numeric>(xs: {N}, zero: N): N\n  local t = zero\n  for _, x in ipairs(xs) do\n" ..
   "    t = t + x * 2 - 1\n  end\n  return -(-t)\nend\n"
 
---- A parameter bounded by `Ordered` compares two of its values; a number type or a string type meets it, and the call
+--- A parameter bounded by `Ordered` compares two of its values; a number type, a string type, or a class that declares
+--- `__lt` and `__le` meets it, and the call
 --- answers the argument's type.
 local function test_a_parameter_bounded_by_ordered_compares_its_values()
   stands(MAX .. "print(max(1, 2), max(2.5, 1.5), max(\"a\", \"b\"))\n", "2\t2.5\tb")
