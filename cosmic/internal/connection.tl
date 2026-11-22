@@ -369,8 +369,10 @@ local class SocketConn is Duplex
   --- it is written; a caller the checker does not read raises.
   function shutdown(self, how: Shutdown): boolean, string
     -- The type refuses a wrong `how` in checked code; this is for a caller
-    -- the checker does not read.
-    if how ~= "read" and how ~= "write" and how ~= "both" then
+    -- the checker does not read. The test reads `how` as text, which a
+    -- wrong value is, so that no narrowing of it is taken as proved.
+    local text = tostring(how)
+    if text ~= "read" and text ~= "write" and text ~= "both" then
       error("net: how must be \"read\", \"write\" or \"both\"", 2)
     end
     if not self.open then return false, "net: the connection is closed" end
