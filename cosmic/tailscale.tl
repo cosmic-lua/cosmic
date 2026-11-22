@@ -33,6 +33,16 @@
 --- changes something, or asks for a certificate, needs root or the
 --- daemon's operator (`tailscale set --operator=$USER`); the daemon
 --- answers 403 otherwise, and the call fails with its message.
+---
+--- On macOS the app's daemon listens at a port of 127.0.0.1 and takes a
+--- request only with its same-user proof, a token in a file of the app's
+--- that this module reads ([`Tailscale.connect`] says where). The token
+--- is the user's whole LocalAPI: whatever the `tailscale` command run as
+--- that user may do, such as changing preferences, logging out, sending
+--- and taking files, and getting the node's certificate and its key. A
+--- program that can read the file, or is handed a [`Client`] or the
+--- token, holds that power; one kept from it is granted neither the
+--- file nor the port.
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
@@ -1727,8 +1737,6 @@ local record Tailscale
   end
 end
 
---- `port` of 127.0.0.1 as an endpoint, where something listens there:
---- a proof file outlives the app that wrote it, until the app starts again.
 --- Whether `name` may be the name of a file sent with Taildrop: one
 --- path element, not `.` or `..`, with no control byte or backslash, and
 --- not ending in `.partial` or `.deleted`. [`Client.send_file`] refuses
@@ -1737,7 +1745,13 @@ function Tailscale.file_name_ok(name: string): boolean
   return file_name_ok(name)
 end
 
+--- `port` of 127.0.0.1 as an endpoint, where something listens there:
+--- a proof file outlives the app that wrote it, until the app starts again.
 local function listening(port: integer, token: string): Endpoint?
+  -- TODO: refuse a listener that is not the app, once cosmic.net reports
+  -- the process or user behind a TCP connection (LOCAL_PEERPID on macOS).
+  -- Until then another local user who binds the port of a proof the app
+  -- left behind is handed the token, and answers every call as the daemon.
   if port < 1 or port > 65535 then return nil end
   local address = Net.tcp("127.0.0.1", port)
   local conn, _ = Net.connect(address, { timeout_ns = 1000000000 })

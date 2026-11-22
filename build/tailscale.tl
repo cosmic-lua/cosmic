@@ -49,6 +49,12 @@
 --- <path>` names the daemon's socket, where it is not where
 --- [`Tailscale.connect`] looks.
 ---
+--- Each node chooses its own names, OS and tags, so the text a command
+--- prints, and each complaint, has its control bytes, C1 controls, bidi
+--- and other invisible format characters ([`bare.spoofing`]) and bytes
+--- that are not UTF-8 written as `\xHH`; `--json` writes each of those
+--- characters as a `\uXXXX` escape.
+---
 --- Like `cosmic json` it prints no summary. Exit 0 is ok, 1 a daemon that
 --- could not be asked or refused, a node that is not running, or an
 --- address or name no node has, 2 a command
@@ -171,6 +177,15 @@ local standard: verb.Io = {
   end,
 }
 
+--- `text` safe to print: its control bytes, C1 controls, bidi and other
+--- invisible format characters and bytes that are not UTF-8 as `\xHH`
+--- ([`bare.escape`]). Every name, OS and tag the
+--- daemon reports is what the node that owns it chose, so a peer could
+--- otherwise write escape sequences to the terminal.
+local function safe(text: string): string
+  return bare.escape(text, { strict_utf8 = true })
+end
+
 --- `text` with a `-` for nothing, so a column is never blank.
 local function shown(text: string): string
   return if text == "" then "-" else text end
@@ -205,9 +220,16 @@ local function address_of(ts: Tailscale.Client, word: string): string?, string
   return nil, "no node of the tailnet is named " .. word
 end
 
---- `value` as one line of JSON and a newline.
+--- `value` as one line of JSON and a newline, each [`bare.spoofing`]
+--- character as `\uXXXX`: JSON escapes the C0 controls but writes these
+--- as they are, and a terminal shown the JSON obeys them. The encoder
+--- writes valid UTF-8, so each lead byte starts a whole character.
 local function json_line(value: Json.Value): string
-  return assert(Json.encode(value)) .. "\n"
+  local text = assert(Json.encode(value)):gsub("[\194-\244][\128-\191]*", function(char: string): string
+    local c = assert(utf8.codepoint(char), "the encoder writes valid UTF-8")
+    return if bare.spoofing(c) then ("\\u%04x"):format(c) else char end
+  end)
+  return text .. "\n"
 end
 
 --- `list` as a JSON array, an empty one too.
@@ -245,9 +267,15 @@ local function peer_json(peer: Tailscale.Peer): Json.Value
   return out
 end
 
---- `lines`, each a list of columns, as text whose columns line up: two
---- spaces between, the last column unpadded.
-local function aligned(lines: {{string}}): string
+--- `lines`, each a list of columns, made [`safe`], as text whose columns
+--- line up: two spaces between, the last column unpadded.
+local function aligned(raw: {{string}}): string
+  local lines: mut {{string}} = {}
+  for _, columns in ipairs(raw) do
+    local escaped: mut {string} = {}
+    for i, column in ipairs(columns) do escaped[i] = safe(column) end
+    lines[#lines + 1] = escaped
+  end
   local widths: mut {integer: integer} = {}
   for _, columns in ipairs(lines) do
     for i, column in ipairs(columns) do
@@ -344,7 +372,7 @@ local function show_status(to: verb.Io, complain: function(line: string), ts: Ta
   local me = status.self
   if me == nil or not running then
     local auth = status.auth_url
-    text[#text + 1] = status.backend_state .. (if auth ~= nil then ": log in at " .. auth else "" end) .. "\n"
+    text[#text + 1] = safe(status.backend_state .. (if auth ~= nil then ": log in at " .. auth else "" end)) .. "\n"
   end
   local lines: mut {{string}} = {}
   if me ~= nil then lines[#lines + 1] = peer_line(status, me, "this node") end
@@ -352,7 +380,7 @@ local function show_status(to: verb.Io, complain: function(line: string), ts: Ta
     lines[#lines + 1] = peer_line(status, peer, reached(peer))
   end
   text[#text + 1] = aligned(lines)
-  for _, health in ipairs(status.health) do text[#text + 1] = "health: " .. health .. "\n" end
+  for _, health in ipairs(status.health) do text[#text + 1] = "health: " .. safe(health) .. "\n" end
   local wrote = bare.written(complain, to.out(table.concat(text)))
   return if wrote ~= bare.ok or running then wrote else bare.failed end
 end
@@ -569,7 +597,7 @@ local function show_ping(to: verb.Io, complain: function(line: string), ts: Tail
     elseif ping.derp_region ~= nil then "DERP " .. assert(ping.derp_region)
     else "the tailnet" end
   local ms = string.format("%.1fms", ping.latency_ns / 1e6)
-  return bare.written(complain, to.out("pong from " .. address .. " via " .. via .. " in " .. ms .. "\n"))
+  return bare.written(complain, to.out(safe("pong from " .. address .. " via " .. via .. " in " .. ms) .. "\n"))
 end
 
 --- The file target `word` names: its node's stable id, MagicDNS name,
@@ -811,7 +839,9 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
             code = bare.failed
           end
         end
-        if not bare.delivered(complain, to.out(path .. "\n")) then return bare.refused end
+        if not bare.delivered(complain, to.out(prefix .. "/" .. safe(path:sub(#prefix + 2)) .. "\n")) then
+          return bare.refused
+        end
       end
     end
   end
@@ -852,7 +882,9 @@ local SUBCOMMANDS <const>: {string: function(verb.Io, function(string), Tailscal
 --- @param io where output goes and which daemon is asked; the process's own when nil
 function verb.run(argv: {string}, io?: verb.Io): integer
   local to = io or standard
-  local complain = bare.complainer("tailscale", to.err)
+  local said = bare.complainer("tailscale", to.err)
+  -- A complaint can name a peer or a file it sent.
+  local function complain(line: string) said(safe(line)) end
   local got, trouble = Flags.parse(argv, 2, spec)
   if got == nil then
     complain(trouble .. "; " .. usage)
