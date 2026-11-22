@@ -29,6 +29,7 @@
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
 -- the public surface.
 local raw = require("cosmic.internal.cipher")
+local Hash = require("cosmic.hash")
 
 local record Cipher
   --- The algorithms, by exactly these lower-case names. `chacha20-poly1305`
@@ -151,12 +152,13 @@ end
 --- before it in its direction, which is why each direction has a key of
 --- its own: under one key both ends' first messages would share a
 --- nonce. Derive the two from one secret with [`Hash.hkdf`], under two
---- `info` strings.
+--- different `info` strings.
 ---
 --- A channel is for messages that arrive whole and in order (a
 --- stream's frames): one that is lost stops every later one from
 --- opening. Raises when a key is not [`Cipher.key_length`] bytes, when
---- `counter_length` is not 8 or 12, and on a negative count.
+--- the two keys are the same bytes, when `counter_length` is not 8 or
+--- 12, and on a negative count.
 ---
 ---     local alice = Cipher.channel(to_bob, to_alice)
 ---     local bob = Cipher.channel(to_alice, to_bob)
@@ -165,6 +167,10 @@ function Cipher.channel(output_key: string, input_key: string, options?: Cipher.
   local o: Cipher.ChannelOptions = options or {}
   if #output_key ~= Cipher.key_length or #input_key ~= Cipher.key_length then
     error("cipher: a channel's key is 32 bytes", 2)
+  end
+  -- Compared in constant time, as both keys are secret.
+  if Hash.equal(output_key, input_key) then
+    error("cipher: a channel's two keys must differ", 2)
   end
   local length = o.counter_length or 8
   if length ~= 8 and length ~= Cipher.nonce_length then
