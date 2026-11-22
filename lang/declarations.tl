@@ -32,8 +32,7 @@
 ---   declaration file, and an enum value written twice: `repeated_field`, `repeated_value`. A class
 ---   holds its fields, its methods and its functions (`function C.m(...)`) in one namespace, since the
 ---   table of its methods is the metatable of its values.
---- - optional fields: a field that may be nil is a plain value of one type, never a metamethod (`optional_metamethod`)
----   and never a generic function (`optional_generic`).
+--- - optional fields: a field that may be nil is never a metamethod (`optional_metamethod`).
 --- - classes: a method named for a metamethod, other than `__close` (which takes the value, and the error object as `any` if it likes, and answers
 ---   nothing), `__tostring` (which also answers a `string`) and `__lt` and `__le` (which take the value and another
 ---   of the class and answer a `boolean`), and a function of a class with such a name: `class_metamethod`,
@@ -131,8 +130,6 @@ local record Declarations
     "class_metamethod"
     -- a field named for a metamethod that may be nil
     "optional_metamethod"
-    -- a field that may be nil and holds a generic function
-    "optional_generic"
     -- `thread`
     "thread_type"
     -- a type parameter that no parameter and no result of its function names
@@ -215,12 +212,10 @@ local record Declarations
     decl: Decl?
   end
 
-  --- Which type parameters of a declaration or alias have to be dense (not optional) or keys, which are
-  --- made optional (`X?`, or the type of a `name?:` field), and which pass themselves on to the parameter of
-  --- another declaration.
+  --- Which type parameters of a declaration or alias have to be dense (not optional) or keys, and which pass
+  --- themselves on to the parameter of another declaration.
   record Requires
     dense: mut {integer: boolean}
-    optional: mut {integer: boolean}
     flows: mut {Flow}
   end
 
@@ -373,7 +368,7 @@ Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "bound_as_type", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
-  "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "optional_generic", "thread_type",
+  "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "thread_type",
   "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
@@ -529,14 +524,6 @@ Declarations.catalog = {
       "that may be missing where Lua calls it, and the fork refused it (\"a metamethod cannot be optional\")",
     fix = "make <field> a field the literal always gives, or rename it: a name that begins with two underscores is " ..
       "a metamethod's",
-  },
-  {
-    code = "optional_generic", rule = "an optional field is a plain value",
-    why = "the fork refused a field that may be nil and holds a generic function, and the owner's decision keeps it " ..
-      "refused: the checker narrows and calls a " ..
-      "local or a parameter of such a type, so this is a choice and no hole, and it holds for a type parameter that an " ..
-      "instance fills with a generic function as well",
-    fix = "make <field> a field the literal always gives, or write the function type with its type arguments fixed",
   },
   {
     code = "thread_type", rule = "coroutines are typed",
@@ -2072,30 +2059,10 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   end
 end
 
---- Whether `t` is a generic function type, or a union that has one.
-local function generic_function(t: Type): boolean
-  if (t.tag == "fn") then
-    return #t.tparams > 0
-  end
-  if t.tag == "union" then
-    for _, member in ipairs(Types.parts(t)) do
-      if generic_function(member) then
-        return true
-      end
-    end
-  end
-  return false
-end
-
 --- The field `m` of a record, interface or class.
 local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
-  -- A field that may be nil is a plain value of one type: `name?: T`, or a type that has `nil` in it.
-  --
-  -- TODO: take an optional generic function field, once the owner lifts the
-  -- rule that an optional field is a plain value: the checker narrows and
-  -- calls a generic function held in a local or a parameter, so the
-  -- refusal is a choice.
+  -- A field that may be nil (`name?: T`, or a type that has `nil` in it) is never a metamethod.
   if m.omittable or nilable(ft) then
     -- A class refuses every such name already (`class_metamethod`), and one mistake is one error.
     if build.decl.kind ~= "class" and metamethod_name(m.name.name) then
@@ -2103,13 +2070,6 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
           quoted(build.decl.name) .. " is named for a metamethod and may be nil, so Lua may find it missing where it " ..
           "calls it",
         "make " .. quoted(m.name.name) .. " a field the literal always gives, or rename it")
-    end
-    if generic_function(ft) then
-      report_at(ctx, "optional_generic", m.name, "the field " .. quoted(m.name.name) .. " of " ..
-          quoted(build.decl.name) .. " may be nil and holds a generic function, which the checker has no rule to " ..
-          "narrow and call",
-        "make " .. quoted(m.name.name) .. " a field the literal always gives, or write the function type with its " ..
-          "type arguments fixed")
     end
   end
   if build.decl.kind ~= "class" and metamethod_name(m.name.name) and METAMETHODS[m.name.name] ~= true then
@@ -2808,7 +2768,7 @@ end
 --- What the parameters of a declaration or alias must be: every place a type parameter is the element of
 --- an array or the value of a map, or an argument another declaration needs of its own.
 local function scan_requires(roots: {Type}): Requires
-  local req: Requires = { dense = {}, optional = {}, flows = {} }
+  local req: Requires = { dense = {}, flows = {} }
   local seen: {string: boolean} = {}
   local walk: function(t: Type, level: integer)
   walk = function(t: Type, level: integer) -- checked: not_assigned
@@ -2842,9 +2802,6 @@ local function scan_requires(roots: {Type}): Requires
       end
     elseif (t.tag == "union") then
       for _, m in ipairs(t.members) do
-        if t.nilable and (m.tag == "var") and m.depth == level then
-          req.optional[m.index + 1] = true
-        end
         walk(m, level)
       end
     elseif (t.tag == "fn") then
@@ -2896,12 +2853,11 @@ local function requires_of(program: Program, decl: Decl): Requires?
   return made
 end
 
---- Whether parameter `index` (from 0) of what `req` describes must be dense (`kind` "dense") or is made optional
---- ("optional"), or nil where a declaration it passes the parameter to has no body yet. A key is a bound, `Key`.
-local function must(program: Program, req: Requires, index: integer, kind: string,
-                    seen: mut {Decl: {string: boolean}}): boolean?
-  local direct = if kind == "dense" then req.dense else req.optional end
-  if direct[index + 1] == true then
+--- Whether parameter `index` (from 0) of what `req` describes must be dense, or nil where a declaration it passes the
+--- parameter to has no body yet. A key is a bound, `Key`.
+local function must_be_dense(program: Program, req: Requires, index: integer,
+                             seen: mut {Decl: {string: boolean}}): boolean?
+  if req.dense[index + 1] == true then
     return true
   end
   for _, flow in ipairs(req.flows) do
@@ -2911,14 +2867,14 @@ local function must(program: Program, req: Requires, index: integer, kind: strin
         marks = {}
         seen[flow.to] = marks
       end
-      local mark = tostring(flow.into) .. kind
+      local mark = tostring(flow.into)
       if marks[mark] ~= true then
         marks[mark] = true -- checked: view_written
         local theirs = requires_of(program, flow.to)
         if theirs == nil then
           return nil
         end
-        local r = must(program, theirs, flow.into, kind, seen)
+        local r = must_be_dense(program, theirs, flow.into, seen)
         if r == nil or r then
           return r
         end
@@ -3058,7 +3014,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
           end
         end
       end
-      local dense = must(program, req, i - 1, "dense", {})
+      local dense = must_be_dense(program, req, i - 1, {})
       if dense == nil then
         return false
       end
@@ -3068,17 +3024,6 @@ local function check_use(ctx: Ctx, use: Use): boolean
             " in an array or as the value of a map, so " .. quoted(shown) .. " would make elements that may be nil",
           "pass " .. quoted(Types.display(ctx.store:non_nil(argument), use.names)) .. ", which is not optional; an array is dense, " ..
             "and a map's missing key already answers nil", { shown })
-      end
-      local optional = must(program, req, i - 1, "optional", {})
-      if optional == nil then
-        return false
-      end
-      if optional == true and generic_function(argument) then
-        local shown = Types.display(argument, use.names)
-        report_at(ctx, "optional_generic", use.node, quoted(name) .. " makes its type parameter " .. tostring(i) ..
-            " optional, so " .. quoted(shown) .. " would be a generic function that may be nil",
-          "pass a function type with its type arguments fixed, or make the field the declaration holds it in required",
-          { shown })
       end
     end
   end
