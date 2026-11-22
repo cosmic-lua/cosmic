@@ -1,10 +1,7 @@
 --- The types of a connection, which [`cosmic.net`] re-exports as
---- [`Net.Conn`] and [`Net.ConnectOptions`]. They are declared here, below
---- [`cosmic.net`], so that the native connector's client
---- ([`cosmic.internal.connector`]) can answer a connection without
---- requiring cosmic.net. The client is required by cosmic.child, which
---- cosmic.net requires: naming cosmic.net's types from it would be an
---- import cycle.
+--- [`Net.Conn`] and [`Net.ConnectOptions`], and the connection over a
+--- connected socket that [`Net.connect`] and a listener's `accept`
+--- answer.
 
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
@@ -431,10 +428,7 @@ local record Connection
     --- "Resource temporarily unavailable (the listener is busy: its
     --- backlog is full)" on Linux and "Connection refused" on macOS,
     --- which cannot tell a busy listener from none. A caller that would
-    --- wait for room connects again. A [`Net.Connector`]'s `connect` waits
-    --- `min(timeout_ns, ceiling)` to connect instead, the ceiling being
-    --- [`ConnectorOptions.timeout_ns`], and a nil `timeout_ns` waits the
-    --- ceiling; the connection's reads and writes wait `timeout_ns` as here.
+    --- wait for room connects again.
     timeout_ns?: integer
     --- Connects over TLS as this client: once the connection is made,
     --- its handshake is completed before it is answered, within

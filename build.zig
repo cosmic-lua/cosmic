@@ -494,7 +494,6 @@ const core_sources = [_][]const u8{
     "cipher.c",
     "coverage.c",
     "compress.c",
-    "connector.c",
     "crypto.c",
     "environment.c",
     "errnos.c",

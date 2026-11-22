@@ -2,8 +2,8 @@
 --- policy whose `connect` the relay serves ([`cosmic.internal.relay_main`]): the
 --- ports the program reaches the relay at, the proxy environment it is
 --- given, the host's own addresses the relay refuses, the config the
---- relay is handed on its standard input, and the descriptors its
---- connectors' control streams are handed at ([`cosmic.internal.relay_start`]).
+--- relay is handed on its standard input, and the listening sockets a
+--- relay on the host's loopback is handed ([`cosmic.internal.relay_start`]).
 ---
 --- The program is told of the relay through the variables a proxy client
 --- reads (`HTTPS_PROXY`, `ALL_PROXY` and their lower-case spellings); a
@@ -24,16 +24,11 @@ local Grant = require("cosmic.relay.grant")
 local Wire = require("cosmic.internal.relay_wire")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
-local type raw_process = require("cosmic.internal.process")
 
 local lower <const> = Wire.lower
 local number_of <const> = Wire.number_of
 
 local record relay_config
-  --- One numeric endpoint of a connector's table: a numeric `host` and a
-  --- `port`, 0 for any ([`Net.Endpoint`]).
-  type Endpoint = raw_process.ConnectorEndpoint
-
   --- The proxy a caller's `https_proxy` names, and the hosts `no_proxy`
   --- says to reach directly.
   record Upstream
@@ -47,8 +42,8 @@ local record relay_config
     --- match their subdomains too), `host:port`, addresses, or "*".
     no_proxy: mut {string}
     --- The numeric addresses `host` was resolved to, once, by the caller
-    --- (the sandbox's relay is told them by its starter, which put them in
-    --- its connector's table): connected to in their order, as a name's
+    --- (the sandbox's relay is told them by its starter): connected to in
+    --- their order, as a name's
     --- answers are, and `host` is resolved never. Nil to resolve `host`
     --- for each connection through it ([`cosmic.internal.relay_server`]).
     addresses?: {string}
@@ -68,52 +63,30 @@ local record relay_config
     own_addresses: {string}
     --- Where the relay's decision lines go: "stderr" or "null".
     mut log: string
-    --- The table of the connector whose control stream is at
-    --- [`relay_config.connector_fd`], which holds the addresses `grants`
-    --- names literally and the upstream's. Nil where it has none.
-    mut table?: {Endpoint}
-    --- Whether that connector is public, reaching any address its deny
-    --- list allows beside its table, for the names `grants` opens and the
-    --- relay reaches directly. With neither a `table` nor `public`, no
-    --- connector is handed.
-    mut public?: boolean
-    --- The name servers of the connector whose stream is at
-    --- [`relay_config.name_server_fd`], its whole table; nil where none is handed.
-    mut name_servers?: {Endpoint}
-    --- That connector's wait for each server's connection, in nanoseconds.
-    mut name_server_wait_ns?: integer
-    --- Why no name is resolved, or nil: the relay then reaches only what
-    --- a grant names literally, and the upstream.
-    mut unresolved?: string
-    --- Whether the relay serves on the host's loopback, as macOS's start
-    --- has it ([`Child.start`]): it is handed `listeners` listening sockets
-    --- from descriptor 3, at one port of 127.0.0.1 and ::1, each for both
-    --- protocols, behind `token`; and it connects and resolves itself, as its
-    --- own profile allows, rather than through connectors it is handed.
-    --- False for Linux's relay, which is handed the program's listeners
-    --- over a channel.
-    direct?: boolean
-    --- With `direct`, how many listening sockets it is handed, from
-    --- descriptor 3: 1 or 2.
+    --- How many listening sockets the relay is handed from descriptor 3,
+    --- 1 or 2, where it serves on the host's loopback, as macOS's start
+    --- has it ([`Child.start`]): at one port of 127.0.0.1 and ::1, each
+    --- for both protocols, behind `token`. Nil for Linux's relay, which is
+    --- handed the program's listeners over a channel at descriptor 3.
     mut listeners?: integer
     --- The per-sandbox token every connection must present
-    --- ([`cosmic.internal.relay_server`]'s `token`), or nil for none: a `direct`
-    --- relay's listener is one every user of the host can reach.
+    --- ([`cosmic.internal.relay_server`]'s `token`), or nil for none: a
+    --- listener on the host's loopback is one every user of the host can
+    --- reach.
     mut token?: string
   end
 
   --- What the relay's starter, [`Child.start`], makes for it before the
   --- relay starts, from what [`cosmic.internal.relay_start`] answers.
   record Handover
-    --- What the relay is told of what it is handed: `upstream`,
-    --- `table`, `public`, `name_servers`, `name_server_wait_ns`
-    --- and `unresolved` are set; the starter sets the rest.
+    --- What the relay is told: `grants`, `own_addresses` and `upstream`
+    --- are set; the starter sets the rest.
     config: Config
-    --- The starter's ends of the connectors' control streams, by the
-    --- descriptor of the relay's each is handed at.
+    --- The descriptors the relay is handed beside its standard streams,
+    --- by the descriptor of the relay's each is handed at.
     fds: mut {integer: integer}
-    --- Ends the connectors and reaps them, once the relay has ended or
-    --- will not start. Safe to call more than once.
+    --- Closes the starter's own hold of what `fds` names, once the relay
+    --- has ended or will not start. Safe to call more than once.
     mut close: function()
   end
 
@@ -122,23 +95,10 @@ local record relay_config
   http_port: integer
   --- The port of the relay's SOCKS5 listener.
   socks_port: integer
-  --- The relay's descriptor of the control stream of its name servers'
-  --- connector ([`Config.name_servers`]).
-  name_server_fd: integer
-  --- Of its one connector, of the table and, where public, the public
-  --- lists ([`Config.table`], [`Config.public`]).
-  connector_fd: integer
-  --- The longest wait for each connection the connector makes, in
-  --- nanoseconds (10 seconds): the starter starts it with it, and a
-  --- request of the relay's that asks for less is given less.
-  connect_ns: integer
 end
 
 relay_config.http_port = 3128
 relay_config.socks_port = 1080
-relay_config.name_server_fd = 4
-relay_config.connector_fd = 5
-relay_config.connect_ns = 10000000000
 
 --- The variables the relay sets for the program, which a policy with
 --- `connect` may not set itself.
@@ -392,13 +352,6 @@ local function upstream_record(up: relay_config.Upstream): {string: Json.Value}
   return record
 end
 
---- `list` as the array of records [`decode`] reads.
-local function endpoint_records(list: {relay_config.Endpoint}): {Json.Value}
-  local out: mut {Json.Value} = {}
-  for i, entry in ipairs(list) do out[i] = { host = entry.host, port = entry.port } end
-  return Json.array(out)
-end
-
 --- `config` as one line of JSON, the text the relay reads from its
 --- standard input.
 --- @param config Config What the relay is told
@@ -411,18 +364,6 @@ function relay_config.encode(config: relay_config.Config): string
   }
   local upstream = config.upstream
   if upstream ~= nil then fields["upstream"] = upstream_record(upstream) end
-  local entries = config.table
-  if entries ~= nil then fields["table"] = endpoint_records(entries) end
-  local public = config.public
-  if public ~= nil then fields["public"] = public end
-  local name_servers = config.name_servers
-  if name_servers ~= nil then fields["name_servers"] = endpoint_records(name_servers) end
-  local wait = config.name_server_wait_ns
-  if wait ~= nil then fields["name_server_wait_ns"] = wait end
-  local unresolved = config.unresolved
-  if unresolved ~= nil then fields["unresolved"] = unresolved end
-  local direct = config.direct
-  if direct ~= nil then fields["direct"] = direct end
   local listeners = config.listeners
   if listeners ~= nil then fields["listeners"] = listeners end
   local token = config.token
@@ -440,26 +381,6 @@ local function strings(value: Json.Value?, name: string): mut {string}?, string
   for i, entry in ipairs(list) do
     if not entry is string then return nil, name .. "[" .. tostring(i) .. "] is not a string" end
     out[i] = entry
-  end
-  return out, ""
-end
-
---- The endpoints of `value`, a list of at most 128, or nil and why.
-local function endpoints_of(value: Json.Value?, name: string): {relay_config.Endpoint}?, string
-  local list, _ = Json.to_array(value)
-  if list == nil then return nil, name .. " is not a list" end
-  if #list > 128 then return nil, name .. " holds more than 128 endpoints" end
-  local out: mut {relay_config.Endpoint} = {}
-  for i, element in ipairs(list) do
-    local entry, _ = Json.to_object(element)
-    if entry == nil then
-      return nil, name .. "[" .. tostring(i) .. "] is not an endpoint"
-    end
-    local host, port = entry["host"], entry["port"]
-    if not host is string or not port is integer or port < 0 or port > 65535 then
-      return nil, name .. "[" .. tostring(i) .. "] is not a host and a port from 0 to 65535"
-    end
-    out[i] = { host = host, port = port }
   end
   return out, ""
 end
@@ -520,31 +441,6 @@ function relay_config.decode(text: string): relay_config.Config?, string
     if up == nil then return nil, up_why end
     config.upstream = up
   end
-  if value["table"] ~= nil then
-    local listed, why_table = endpoints_of(value["table"], "table")
-    if listed == nil then return nil, why_table end
-    config.table = listed
-  end
-  local public = value["public"]
-  if public ~= nil and not public is boolean then return nil, "public is not a boolean" end
-  config.public = public == true
-  if value["name_servers"] ~= nil then
-    local servers, why_servers = endpoints_of(value["name_servers"], "name_servers")
-    if servers == nil then return nil, why_servers end
-    local wait = value["name_server_wait_ns"]
-    if not wait is integer or wait < 1 then
-      return nil, "name_server_wait_ns is not a positive integer"
-    end
-    config.name_servers, config.name_server_wait_ns = servers, wait
-  end
-  local unresolved = value["unresolved"]
-  if unresolved ~= nil and not unresolved is string then
-    return nil, "unresolved is not a string"
-  end
-  if unresolved is string then config.unresolved = unresolved end
-  local direct = value["direct"]
-  if direct ~= nil and not direct is boolean then return nil, "direct is not a boolean" end
-  config.direct = direct == true -- checked: field_fixed
   local token = value["token"]
   if token ~= nil and not token is string then return nil, "token is not a string" end
   if token is string then config.token = token end

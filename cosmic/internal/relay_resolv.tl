@@ -1,8 +1,6 @@
 --- The name servers the system's resolver configuration names, as
---- numeric endpoints a connector's table takes: what [`Net.resolve`]
---- asks through a connector when its caller names none, and what the
---- relay's starter hands the relay a connector of; and the loop that
---- runs a lookup, which [`Net.resolve`] and the relay's starter share.
+--- numeric endpoints ([`Net.nameservers`]); and the loop that runs a
+--- lookup, which [`Net.resolve`] and the relay's starter share.
 
 local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
@@ -10,7 +8,6 @@ local Address = require("cosmic.relay.address")
 
 --- The raw socket module, cosmic.net's too.
 local type raw_socket = require("cosmic.internal.socket")
-local type raw_process = require("cosmic.internal.process")
 
 local raw = require("cosmic.internal.socket")
 
@@ -26,36 +23,20 @@ local record resolv
     servers?: string
     --- A hosts file to read in place of the system's.
     hosts?: string
-    --- The name servers to ask through a connector, in place of `servers`:
-    --- each connect to one is made by `connect`.
-    through?: {raw_socket.ThroughServer}
-    --- Makes the connection to the entry `index` of the connector's table
-    --- at `port` by `deadline` (a monotonic time in nanoseconds, nil for
-    --- none): the connected socket, or nil and why ([`Poll.TIMEOUT`] where
-    --- the connector's wait ran out, and [`Poll.CANCELLED`] where the task
-    --- was cancelled). It waits in a task of a run through the run, so the
-    --- others go on. Needed when `through` is given: with none, no name server
-    --- is asked through a connector.
-    connect?: function(index: integer, port: integer, deadline: integer?): resolv.Connection?, string
   end
 
-  --- A connected socket `connect` made, for the lookup to copy.
-  record Connection
-    --- The socket's descriptor.
-    fd: integer
-    --- Closes what holds the socket, once the lookup has taken its copy.
-    release: function()
+  --- One numeric endpoint: a numeric `host` and a `port`
+  --- ([`Net.Endpoint`]).
+  record Endpoint
+    host: string
+    port: integer
   end
-
-  --- One numeric endpoint of a connector's table: a numeric `host` and a
-  --- `port` ([`Net.Endpoint`]).
-  type Endpoint = raw_process.ConnectorEndpoint
 end
 
 --- One entry of c-ares's server list: the numeric host and the TCP port,
 --- or nil for an entry of none of the list's forms or a link-local server
---- written with its interface (a "%" and its name), which a connector's
---- endpoint cannot carry.
+--- written with its interface (a "%" and its name), which an
+--- [`resolv.Endpoint`] cannot carry.
 local function nameserver_of(entry: string): resolv.Endpoint?
   local host, port, rest: string?, string?, string?
   local uri = entry:match("^dns://(.*)$")
@@ -79,19 +60,18 @@ end
 
 --- The name servers the system's configuration names, as [`Net.resolve`]
 --- reads it (resolv.conf; on macOS, the system's DNS configuration alone,
---- which `resolv_conf` does not replace), each a numeric endpoint at its TCP port, 53 for every server
---- resolv.conf names: the table of a connector for
---- [`Net.ResolveOptions.connector`] that reaches nothing else. With none
---- configured, the resolver's default, 127.0.0.1 at 53. A link-local
---- server written with its interface is left out, as no connector reaches
---- one; where every server is, the answer is nil and why.
+--- which `resolv_conf` does not replace), each a numeric endpoint at its
+--- TCP port, 53 for every server resolv.conf names. With none configured,
+--- the resolver's default, 127.0.0.1 at 53. A link-local server written
+--- with its interface is left out, as an endpoint carries no interface;
+--- where every server is, the answer is nil and why.
 --- Nil and why where they cannot be listed: the system's words where the
 --- configuration cannot be read.
 --- @param resolv_conf string|nil A resolv.conf to read in place of the system's
 --- @return {Endpoint}|nil The servers
 --- @return string Why there are none, "" otherwise
--- TODO: reach a link-local name server (fe80::1%eth0) through a connector
--- once a connector's endpoint carries an interface: it is left out today.
+-- TODO: list a link-local name server (fe80::1%eth0) once an Endpoint
+-- carries an interface, which Net.resolve's `servers` would then take.
 function resolv.nameservers(resolv_conf?: string): {resolv.Endpoint}?, string
   local listed, trouble = raw.nameservers(resolv_conf)
   if listed == nil then return nil, trouble end
@@ -102,7 +82,7 @@ function resolv.nameservers(resolv_conf?: string): {resolv.Endpoint}?, string
     if server ~= nil then
       servers[#servers + 1] = server
     elseif entry:find("%", 1, true) ~= nil then
-      skipped = "net: the name server " .. entry .. " is scoped to an interface, which a connector cannot reach"
+      skipped = "net: the name server " .. entry .. " is scoped to an interface, which an endpoint cannot carry"
     else
       return nil, "net: the resolver lists a server as " .. entry
     end
@@ -123,65 +103,47 @@ end
 
 --- Runs the lookup of [`resolv.lookup`].
 local function run(name: string, request: resolv.Request): {raw_socket.Resolved}?, string
-  if request.through ~= nil and request.connect == nil then
-    return nil, "resolv: `through` needs `connect`"
-  end
   local timeout_ns = request.timeout_ns
   local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
-  local lookup, why, errno = raw.lookup(name, Poll.milliseconds(timeout_ns), request.servers, request.hosts,
-    request.through)
+  local lookup, why, errno = raw.lookup(name, Poll.milliseconds(timeout_ns), request.servers, request.hosts)
   if lookup == nil then return nil, said(why, errno) end
   local _closing <close> = lookup
   local in_task = Poll.in_task()
   local ready_fds, ready_events: {integer}?, {integer}?
   while true do
-    local done, fds, events, timer_ms, wants = lookup:step(ready_fds, ready_events)
+    local done, fds, events, timer_ms = lookup:step(ready_fds, ready_events)
     ready_fds, ready_events = nil, nil
     if done then
       local found, trouble, number = lookup:result()
       if found == nil then return nil, said(trouble, number) end
       return found, ""
     end
-    for _, want in ipairs(wants) do
-      local connect = assert(request.connect, "resolv: `through` needs `connect`")
-      local connection, trouble = connect(want.index, want.port, deadline)
-      if connection ~= nil then
-        local _, _ = lookup:supply(want.id, connection.fd, nil)
-        connection.release()
+    local left = if deadline ~= nil then deadline - Clock.monotonic_ns() else nil end
+    if left ~= nil and left <= 0 then return nil, Poll.TIMEOUT end
+    local timer_ns = if timer_ms >= 0 then Clock.ms(timer_ms) else Clock.ms(100) end
+    local wait_ns = timer_ns
+    if left ~= nil and left <= timer_ns then wait_ns = left end
+    if in_task then
+      if #fds == 0 then
+        local waited, because = Poll.delay(wait_ns)
+        if not waited then return nil, because end
       else
-        if trouble == Poll.CANCELLED then return nil, trouble end
-        local _, _ = lookup:supply(want.id, nil, if trouble == Poll.TIMEOUT then raw.ETIMEDOUT else 0 end)
-      end
-    end
-    if #wants == 0 then
-      local left = if deadline ~= nil then deadline - Clock.monotonic_ns() else nil end
-      if left ~= nil and left <= 0 then return nil, Poll.TIMEOUT end
-      local timer_ns = if timer_ms >= 0 then Clock.ms(timer_ms) else Clock.ms(100) end
-      local wait_ns = timer_ns
-      if left ~= nil and left <= timer_ns then wait_ns = left end
-      if in_task then
-        if #fds == 0 then
-          local waited, because = Poll.delay(wait_ns)
-          if not waited then return nil, because end
-        else
-          local answers, because = Poll.ready(fds, events, wait_ns)
-          if answers ~= nil then
-            ready_fds, ready_events = fds, answers
-          elseif because == Poll.CANCELLED then
-            return nil, because
-          end
+        local answers, because = Poll.ready(fds, events, wait_ns)
+        if answers ~= nil then
+          ready_fds, ready_events = fds, answers
+        elseif because == Poll.CANCELLED then
+          return nil, because
         end
-      else
-        local waited, because, number = lookup:wait(Poll.milliseconds(wait_ns))
-        if not waited then return nil, said(because, number) end
       end
+    else
+      local waited, because, number = lookup:wait(Poll.milliseconds(wait_ns))
+      if not waited then return nil, said(because, number) end
     end
   end
 end
 
---- Looks `name` up as the system's resolver would, or through the
---- connector `request.connect` reaches, running the lookup c-ares keeps
---- ([`raw_socket.Lookup`]) to its end. In a task of [`Poll.run`] every
+--- Looks `name` up as the system's resolver would, running the lookup
+--- c-ares keeps ([`raw_socket.Lookup`]) to its end. In a task of [`Poll.run`] every
 --- wait goes through the run, so only that task waits for the lookup, up
 --- to `request.timeout_ns`; anywhere else it holds the thread, and a
 --- signal an open [`Signal.guard`] catches ends it. The lookup, and every

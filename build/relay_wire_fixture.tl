@@ -1,5 +1,8 @@
 --- Builders for the tests of [`cosmic.internal.relay_wire`]: the bytes a program
---- sends the relay, whole or damaged by a test.
+--- sends the relay, whole or damaged by a test, and a read of what it
+--- answers.
+
+local type Net = require("cosmic.net")
 
 local record relay_wire_fixture
   --- What a synthetic ClientHello holds.
@@ -148,6 +151,18 @@ end
 --- (its bytes, with a domain's length in front) and `port`.
 function relay_wire_fixture.socks_request(command: integer, atyp: integer, address: string, port: integer): string
   return "\5" .. string.char(command) .. "\0" .. string.char(atyp) .. address .. relay_wire_fixture.be(port, 2)
+end
+
+--- Reads exactly `count` bytes of `conn`, failing the test where it ends
+--- first.
+function relay_wire_fixture.read_exact(conn: Net.Conn, count: integer): string
+  local out = ""
+  while #out < count do
+    local data, why = conn:read(count - #out)
+    assert(data ~= nil, "the connection ended with " .. tostring(#out) .. " read of " .. tostring(count) .. " wanted: " .. why)
+    out = out .. data
+  end
+  return out
 end
 
 return relay_wire_fixture

@@ -101,16 +101,6 @@ local cases: {string: function(at: integer, fd: integer)} = {
   flock_kind = function(_: integer, fd: integer) sys.flock_kind(fd) end,
   set_nonblocking = function(_: integer, fd: integer) sys.set_nonblocking(fd, false) end,
   fd_status = function(_: integer, fd: integer) sys.fd_status(fd) end,
-  connector_start = function(_: integer, fd: integer)
-    process.connector_start({ { host = "127.0.0.1", port = 1 } }, fd, 1, nil)
-  end,
-  connector_filter = function(at: integer, fd: integer)
-    if at == 3 then
-      process.connector_filter("x86_64", { { base = 128, slots = 1, length = 16 } }, fd, 0)
-    else
-      process.connector_filter("x86_64", { { base = 128, slots = 1, length = 16 } }, 0, fd)
-    end
-  end,
   accept = function(_: integer, fd: integer) socket.accept(fd) end,
   adopt = function(_: integer, fd: integer) socket.adopt(fd) end,
   send = function(_: integer, fd: integer) socket.send(fd, "") end,
@@ -191,23 +181,6 @@ local function test_every_descriptor_argument_refuses_the_artifact_descriptor()
   assert(#missing == 0, "bindings that take a descriptor with no case here: " ..
       table.concat(missing, ", "))
   assert(tried >= 18, "only " .. tostring(tried) .. " descriptor arguments were tried")
-end
-
---- A lookup's `supply`, a method the table walk above does not reach,
---- refuses the artifact's descriptor as the socket for a parked connect.
-local function test_a_lookup_refuses_the_retained_artifact_as_a_supplied_socket(tmp: string)
-  local fd = artifact_fd_or_skip()
-  if assert(sys.uname()).sysname ~= "Linux" then
-    Test.skip("a lookup through a connector is Linux only")
-  end
-  local hosts = tmp .. "/hosts"
-  assert(Fs.write(hosts, ""))
-  local lookup <close> = assert(socket.lookup("artifact.example.test", 1000, nil, hosts,
-    { { host = "127.0.0.1", port = 53, index = 1 } }))
-  local _, _, _, _, wants = lookup:step(nil, nil)
-  assert(#wants == 1)
-  local want = assert(wants[1], "the lookup wants one socket")
-  refused("Lookup:supply", function() lookup:supply(want.id, fd, nil) end)
 end
 
 local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload()

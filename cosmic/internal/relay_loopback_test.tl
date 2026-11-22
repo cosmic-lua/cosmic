@@ -1,4 +1,4 @@
---- The relay's process with a `direct` config ([`cosmic.internal.relay_main`]), as
+--- The relay's process with a config that names `listeners` ([`cosmic.internal.relay_main`]), as
 --- macOS's start runs it: it serves the listening sockets it is handed from
 --- descriptor 3, which [`cosmic.internal.relay_start`]'s `loopback_listeners` binds
 --- at one port of 127.0.0.1 and ::1, each for both protocols behind the
@@ -53,14 +53,14 @@ end
 
 --- A relay on the host's loopback must be given its token: one listening
 --- where every user of the host reaches it does not start without.
-local function test_a_direct_relay_without_a_token_does_not_start(tmp: string)
+local function test_a_loopback_relay_without_a_token_does_not_start(tmp: string)
   local loopback = assert(RelayStart.loopback_listeners())
   local fds: mut {integer:integer} = {}
   for i, socket in ipairs(loopback.sockets) do fds[2 + i] = socket:fd() end
   Poll.run(function()
     local relay <close> = relay_started(tmp, fds)
     local feed, lines = assert(relay.stdin_stream), Stream.lines(assert(relay.stdout_stream))
-    assert(feed:write(RelayConfig.encode({ grants = {}, own_addresses = {}, log = "null", direct = true,
+    assert(feed:write(RelayConfig.encode({ grants = {}, own_addresses = {}, log = "null",
       listeners = #loopback.sockets }) .. "\n"))
     assert(lines:read() == "opened")
     local said = assert(lines:read())
@@ -75,7 +75,7 @@ end
 --- and on ::1 where the host has an IPv6 loopback, to a granted server alone,
 --- and only with its token; no other listener can take the port; it ends,
 --- status 0, once its standard input does.
-local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behind_its_token(tmp: string)
+local function test_a_loopback_relay_listens_itself_and_serves_both_protocols_behind_its_token(tmp: string)
   Net.with_loopback(function(conn: Net.Conn)
     local data = conn:read(4)
     if data ~= nil then local _, _ = conn:write("echo:" .. data) end
@@ -91,7 +91,7 @@ local function test_a_direct_relay_listens_itself_and_serves_both_protocols_behi
     for _, socket in ipairs(loopback.sockets) do assert(socket:close()) end
     local feed, lines = assert(relay.stdin_stream), Stream.lines(assert(relay.stdout_stream))
     assert(feed:write(RelayConfig.encode({ grants = { "127.0.0.1:" .. tostring(granted) }, own_addresses = {},
-      log = "null", direct = true, token = TOKEN, listeners = #loopback.sockets }) .. "\n"))
+      log = "null", token = TOKEN, listeners = #loopback.sockets }) .. "\n"))
     assert(lines:read() == "opened")
     assert(lines:read() == "ready")
     local auth = "Proxy-Authorization: Basic " .. Codec.base64("cosmic:" .. TOKEN) .. "\r\n"

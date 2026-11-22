@@ -46,10 +46,6 @@
 --- is right. A literal grant of the carrier opens only the carrier's own
 --- spelling; a grant of the IPv4 address it carries does not.
 ---
---- The classes above are data, [`relay_address.deny_cidrs`]: the native
---- connector ([`cosmic.net`]'s public mode) judges an address by the same
---- list in its own process, so a prefix is added in one place.
----
 --- Addresses are in the strict grammar [`cosmic.net`]'s numeric hosts take:
 --- IPv4 as four decimal octets
 --- with no leading zeros, IPv6 in hex groups of one to four digits with at
@@ -176,17 +172,6 @@ local DENY <const>: {Deny} = {
   -- 2001::/23, past the Teredo and benchmarking prefixes named above.
   { cidr = "2001::/23", class = "special" },
 }
-
---- The refused prefixes as "address/bits" text, the list the native
---- connector takes as its `deny` ([`cosmic.net`]'s [`Net.connector`]). An
---- IPv6 address outside 2000::/3 is refused besides, by a rule of its own
---- and not a prefix here.
---- @return {string} The prefixes, in the order a refusal names them
-function relay_address.deny_cidrs(): {string}
-  local out: mut {string} = {}
-  for i, entry in ipairs(DENY) do out[i] = entry.cidr end
-  return out
-end
 
 local record Prefix
   bytes: {integer}
