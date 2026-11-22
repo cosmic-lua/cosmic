@@ -288,6 +288,17 @@ local function test_the_members_of_a_member_are_read_through_the_chain()
   assert(has(items(ran, 2), { "depth", "inner" }) == "depth", ran.err)
 end
 
+local function test_the_members_of_a_field_named_by_a_keyword_are_read_through_the_chain()
+  local root = session_fixture.project()
+  local text = 'local record Inner\n  depth: integer\nend\nlocal record Outer\n  end: Inner\nend\n' ..
+    'local o: Outer = { end = { depth = 1 } }\nlocal _ = o\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = o\n$", "local _ = o.end.\n"))),
+    ask(2, root, "main.tl", 7, 16),
+  })
+  assert(has(items(ran, 2), { "depth", "end" }) == "depth", ran.err)
+end
+
 local function test_the_modules_a_require_can_name_come_from_the_working_database_and_the_docs()
   local root = session_fixture.project()
   assert(Fs.mkdirs(root .. "/lib"))

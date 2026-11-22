@@ -218,6 +218,9 @@ local function receiver_start(tokens: Lexer.Tokens, last: integer, types: boolea
       else
         return at
       end
+    elseif kind == "keyword" and at > 2 and (Lexer.kind(tokens, at - 1) == "." or (Lexer.kind(tokens, at - 1) == ":" and not types)) then
+      -- A keyword after `.` or `:` names a field (`r.end.`), never a receiver of its own.
+      at = at - 2
     elseif kind == "string" then
       -- A string is the argument of a call where a callee ends before it, else the receiver itself.
       local callee = at - 1
@@ -306,13 +309,14 @@ local function uses_of(tokens: Lexer.Tokens): Uses
   local modules: mut {string: integer} = {}
   for at = 1, Lexer.count(tokens) do
     local kind = Lexer.kind(tokens, at)
-    if kind == "identifier" then
+    if kind == "identifier" or kind == "keyword" then
       local text = Lexer.text(tokens, at)
       local before: Lexer.Kind = "$EOF$"
       if at > 1 then before = Lexer.kind(tokens, at - 1) end
       if before == "." or before == ":" then
         members[text] = (members[text] or 0) + 1
-      else
+      elseif kind == "identifier" then
+        -- A keyword that names no member is grammar, no name in use.
         names[text] = (names[text] or 0) + 1
       end
     elseif kind == "string" and at > 2 and Lexer.text(tokens, at - 2) == "require" then

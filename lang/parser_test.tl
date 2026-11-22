@@ -248,6 +248,19 @@ local TYPES <const>: {Case} = {
     want = "(TypeFunction _ [(PType \"x\" _ _ (TypeName [\"T\"]))] (Rets [[(TypeFunction _ [(PType \"y\" _ _ (TypeName [\"U\"]))] (Rets [[(TypeName [\"V\"])]]))]]))" },
 }
 
+local function test_a_word_lua_reserves_names_a_field()
+  -- After `.` or `:`, as a key of a table literal and as a field of a declaration, where `end`, `if` and `local` would
+  -- otherwise close the body or begin a statement.
+  for _, source in ipairs({
+      "local record R\n  end: integer\n  if?: string\n  local: boolean\nend",
+      "local interface I\n  do?: integer\n  return: string\nend",
+      "local t = { end = 1, nil = 2, while = 3 }\nprint(t.end, t.nil, t.while)",
+      "local M = {}\nfunction M.repeat(): integer\n  return 1\nend",
+  }) do
+    local _ = clean(source)
+  end
+end
+
 local function test_each_type_makes_its_tree()
   for _, case in ipairs(TYPES) do
     same(Dump.dump(assert(the_local("local x: " .. case.source).types[1])), case.want, case.source)

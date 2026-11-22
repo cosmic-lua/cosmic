@@ -257,16 +257,28 @@ for _, word in ipairs(Lexer.declaration_words) do
   DECL_WORD[word] = true
 end
 
---- The reserved words that may stand where a field name does: the ones the
---- grammar adds, and `goto` and `global`. The tree writes no other.
-local FIELD_WORD <const>: mut {string: boolean} = { ["goto"] = true, ["global"] = true }
+--- The reserved words that no name is, which a use as one is refused with a
+--- rename: the ones the grammar adds, and `goto` and `global`.
+local RESERVED_NAME <const>: mut {string: boolean} = { ["goto"] = true, ["global"] = true }
 for word in pairs(ADDED) do
-  FIELD_WORD[word] = true
+  RESERVED_NAME[word] = true
 end
 
---- The reserved words that no name is, which a use as one is refused with a
---- rename.
-local RESERVED_NAME <const>: {string: boolean} = FIELD_WORD
+--- The words Lua reserves, which Lua reads as no name: a field named by one is written `t["end"]` in the Lua made.
+local LUA_WORD <const>: mut {string: boolean} = {}
+for _, word in ipairs(Lexer.lua_words) do
+  LUA_WORD[word] = true
+end
+
+--- The reserved words that may stand where a field name does: every one, since a field name follows a `.`, a `:`, or
+--- begins a field of a declaration or a table literal, where no keyword means anything else.
+local FIELD_WORD <const>: mut {string: boolean} = {}
+for word in pairs(RESERVED_NAME) do
+  FIELD_WORD[word] = true
+end
+for word in pairs(LUA_WORD) do
+  FIELD_WORD[word] = true
+end
 
 --- The tokens that end a block. `$EOF$` has the text "".
 local TERMINATOR <const>: {string: boolean} = { ["end"] = true, ["else"] = true, ["elseif"] = true, ["until"] = true, [""] = true }
@@ -674,7 +686,8 @@ local function is_field_word(): boolean
 end
 
 local function field_name(): string
-  if is_field_word() then
+  -- A keyword on the next line begins a statement, as in `local x = y.` then `local z = 1`, which is reported.
+  if is_field_word() and (S.kind == "identifier" or same_line(S.pos)) then
     local name = S.text
     advance()
     return name
@@ -1479,7 +1492,7 @@ parse_prefix = function(): Ast.Exp
       advance()
       local name_at = S.pos
       local name = field_name()
-      if name == "goto" or name == "global" then
+      if LUA_WORD[name] == true then
         report("reserved_method", name_at, "`" .. name .. "` is a reserved word in Lua 5.5 and cannot be called as a method",
           "call it as a field of the object: `obj[\"" .. name .. "\"](obj, ...)`, or rename the method")
       end
@@ -1714,14 +1727,8 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst, name = S.text }
     advance()
   else
-    local fix = "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body"
-    local msg = "expected a field name, found " .. shown(S.pos)
-    if S.kind == "keyword" and (peek_text(1) == ":" or peek_text(1) == "?") then
-      msg = msg .. ": a keyword cannot name a field here"
-      fix = "a field named by a keyword is declared and indexed as `[\"" .. S.text .. "\"]`: write `[\"" .. S.text ..
-        "\"]: T` in the declaration and `t[\"" .. S.text .. "\"]` to read it"
-    end
-    report("expected_name", S.pos, msg, fix)
+    report("expected_name", S.pos, "expected a field name, found " .. shown(S.pos),
+      "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body")
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst - 1, name = "" }
   end
   local omittable = false
@@ -1870,9 +1877,10 @@ local function parse_member(owner: string, seen: {string: boolean}): Ast.Member 
   return parse_field(first, seen)
 end
 
---- Whether the current token is a keyword written as a field, `end: T` or `if?: T`, in a declaration body.
+--- Whether the current token is a keyword written as a field, `end: T` or `if?: T`, in a declaration body: a word that
+--- would close the body or begin a statement is a field where a `:` or `?` follows it on its line.
 local function keyword_field(): boolean
-  return S.kind == "keyword" and not is_field_word() and (peek_text(1) == ":" or peek_text(1) == "?")
+  return S.kind == "keyword" and (peek_text(1) == ":" or peek_text(1) == "?") and same_line(S.pos + 1)
 end
 
 --- The members up to the `end` that closes the declaration opened at `open`,
@@ -2199,8 +2207,12 @@ local function parse_function_statement(): Ast.Stat
   local joined = path[1] and path[1].text or ""
   if colon then
     local method = path[#path] and path[#path].text or "m"
+    local fix = "declare it inside its class as `function " .. method .. "(self, ...)`"
+    if LUA_WORD[method] == true then
+      fix = "declare it inside its class under a name that is not a keyword, as `function name(self, ...)`"
+    end
     report("method_in_record", first, "`" .. quoted_text(first, S.pos - 1) .. "` is not in the grammar: a method is declared in its class",
-      "declare it inside its class as `function " .. method .. "(self, ...)`")
+      fix)
   elseif #path == 1 then
     report("bare_function", first, "`function " .. joined .. "(...)` declares a global",
       "write `local function " .. joined .. "(...)`; a program's globals are the ones a declaration file declares")
