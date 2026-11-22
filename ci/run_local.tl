@@ -157,6 +157,19 @@ local function owned_root(path: string)
     path .. ": owned root must be a directory, never a symbolic link: " .. tostring(why))
 end
 
+--- Refuses the default base unless it is a directory of `uid`'s, no link,
+--- that neither its group nor others can write: its name is known to every
+--- local user, and another's directory there could hold the driver this runs.
+local function private_base(path: string, uid: integer)
+  local st, why = sys.lstat(path)
+  assert(st ~= nil and st.kind == "dir", path .. ": the base must be a directory, never a symbolic link: " ..
+      tostring(why))
+  assert(st.uid == uid, path .. ": the base belongs to uid " .. tostring(st.uid) .. ", not " .. tostring(uid) ..
+      "; remove it or set COSMIC_CI_LOCAL")
+  assert(st.mode & 0x12 == 0, path .. ": the base is writable by its group or others; remove it or set " ..
+      "COSMIC_CI_LOCAL")
+end
+
 local function execute(argv: {string}, program: string): integer
   local root = Fs.dirname(Fs.dirname((assert(Fs.absolute(program)))))
   local caller_env = current.env_all()
@@ -207,6 +220,11 @@ local function execute(argv: {string}, program: string): integer
   local state = env["COSMIC_CI_LOCAL"]
   if state == nil or state == "" then
     owned_root(base)
+    -- Made first and checked after, so a directory another user makes in
+    -- between is still the one checked.
+    local made, why, errno = sys.mkdir(base, 0x1c0)
+    assert(made or errno == sys.EEXIST, base .. ": " .. tostring(why))
+    private_base(base, uid)
     base = resolved(base)
     state = base .. "/" .. key
   end

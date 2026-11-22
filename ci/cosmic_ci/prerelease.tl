@@ -12,6 +12,7 @@ local ArtifactRow = require("cosmic_ci.artifact_row")
 local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
@@ -231,13 +232,28 @@ end
 
 local required <const> = StepEnv.required
 
---- Runs the tool at `path` with `help`, its portable cores unpacked in a directory of its own, and raises unless it
---- answers.
+--- The policy [`Prerelease.smoke`] runs the tool at `path` under, its cores unpacked in `cache`: it reads and runs
+--- `path` and writes `cache`, and nothing else, so it cannot touch the files whose lines
+--- set the environment of the job's later steps (`GITHUB_ENV`, `GITHUB_PATH`), the publishing one among them, nor
+--- the driver that step runs; of the job's variables it gets `PATH` and `HOME` alone.
+function Prerelease.smoke_policy(path: string, cache: string): Sandbox.Policy
+  return {
+    profiles = { "system" },
+    grants = { { path = path, letters = "rx" }, { path = cache, letters = "rwxc" } },
+    env = { "PATH", "HOME" },
+    set_env = { COSMIC_PORTABLE_CACHE = cache },
+    -- The launcher is a shell script that unpacks its core and marks it
+    -- executable. `fattr` lets the tool change the mode of any file its
+    -- user owns, but not write one outside the cache.
+    promises = { "fork", "fattr" },
+  }
+end
+
+--- Runs the tool at `path` with `help`, under [`Prerelease.smoke_policy`], and raises unless it answers.
 function Prerelease.smoke(path: string)
   local cache = assert(Fs.mkdtemp("cosmic-release-smoke-"))
-  local env = Env.all()
-  env["COSMIC_PORTABLE_CACHE"] = cache
-  local result, trouble = Child.run({ path, "help" }, { timeout_ns = CEILING_NS, env = env })
+  local result, trouble = Child.run({ path, "help" },
+    { timeout_ns = CEILING_NS, policy = Prerelease.smoke_policy(path, cache) })
   local _, _ = Fs.remove_tree(cache)
   assert(result ~= nil, path .. ": " .. tostring(trouble))
   assert(result.ok, path .. ": help failed")
