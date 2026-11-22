@@ -567,7 +567,8 @@ end
 
 --- The "proc" profile: `r` on the host's /proc where there is one (Linux),
 --- the kernel's process information, and nothing on macOS, where sysctl
---- answers with no file to grant. As the "system" profile does, it grants
+--- answers with no file to grant, less the arguments and environment of
+--- other processes, which no profile there gives. As the "system" profile does, it grants
 --- only a path the host has, so a Linux host with no /proc mounted gets none.
 local function proc_profile(): rules.Policy
   if on_darwin() or not present("/proc") then return {} end

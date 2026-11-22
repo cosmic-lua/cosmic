@@ -160,6 +160,28 @@ local function test_no_file_is_written_without_a_grant_to_write(tmp: string)
   assert(Fs.read(granted) == "changed\n", "the granted file was not written")
 end
 
+--- A held child cannot read the arguments of another process of the same
+--- user (kern.procargs2, which `ps` reads), which may hold its tokens; ps
+--- unheld reads them, so the refusal is the profile's.
+local function test_another_process_arguments_are_not_read()
+  SeatbeltFixture.macos_only()
+  local marker = "procargs-marker-" .. tostring(sys.getpid())
+  -- A second command keeps the shell, and its $0, from becoming sleep.
+  local sleeper = assert(Child.start({ SH, "-c", "sleep 30; :", marker }, { timeout_ns = Child.FOREVER }))
+  local pid = tostring(sleeper.pid)
+  local argv = { "/bin/ps", "-ww", "-o", "pid=,args=", "-p", pid }
+  local plain = assert(Child.run(argv, { stdout = "capture", stderr = "capture", stdin = "null",
+    timeout_ns = Clock.seconds(30) }))
+  local held = run(argv, { profiles = { "system" } })
+  sleeper:stop(sys.SIGKILL)
+  sleeper:wait()
+  assert((plain.stdout or ""):find(marker, 1, true) ~= nil, describe(plain))
+  -- ps ran and found the process, and showed no argument of it.
+  local said = held.stdout or ""
+  assert(held.ok and said:find("^%s*" .. pid .. "%s") ~= nil, describe(held))
+  assert(said:find(marker, 1, true) == nil, describe(held))
+end
+
 --- What `policy` is refused for, in [`Child.start`]'s words.
 local function refusal(policy: Sandbox.Policy): string
   local child, why = Child.start({ CAT }, { timeout_ns = Child.FOREVER, policy = policy })

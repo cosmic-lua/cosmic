@@ -136,8 +136,9 @@ end
 --- which is its launcher where it has one: what [`Child.start`] runs as
 --- this program's core, by a relaunch; "proc" is the kernel's process
 --- information: `r` on /proc, where the host has one (Linux), and nothing
---- on macOS, where sysctl answers with no file to grant, so a policy that
---- names it reads the same on both. That is every process's entries
+--- on macOS, where sysctl answers with no file to grant (and refuses every
+--- held program another process's arguments and environment), so a policy
+--- that names it reads the same on both. That is every process's entries
 --- there, not this one's alone; `isolate` "proc" is the other thing, a
 --- /proc of the sandbox's own.
 --- Nil and why for a name it has not, or one this host cannot give.

@@ -261,15 +261,20 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   --   file-read-metadata: stat of any path. dyld and libc stat each
   --     component of every path they open, from the root down, so a
   --     grant's own path is not enough to reach it. It shows that a path
-  --     exists and its size, mode and times, never what it holds.
+  --     exists and its size, mode and times (that ~/.ssh holds a key, say),
+  --     never what it holds.
   --   file-read-data of the root alone: dyld reads "/" itself as a
   --     directory as it starts, and an abort follows a refusal. It lists
   --     the root's entries, and nothing below it.
   --   sysctl-read: the kernel's facts (hw.*, kern.osversion, ...) libSystem
-  --     reads as it starts, which hold nothing of the user's.
+  --     reads as it starts, which hold nothing of the user's. Less
+  --     kern.procargs and kern.procargs2, which answer the arguments and
+  --     environment of any process of the same user: its tokens and keys.
+  --     A rule cannot name a process, so a program's own are refused too;
+  --     it has them from its start (_NSGetArgv), not from these.
   local text: mut {string} = { "(version 1)", "(deny default)",
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
-    "(allow sysctl-read)",
+    "(allow sysctl-read)", '(deny sysctl-read (sysctl-name-prefix "kern.procargs"))',
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
   for _, promise in ipairs(merged.promises or {}) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
