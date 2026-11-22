@@ -1261,3 +1261,40 @@ local function test_std_io_writes_out_to_stdout_and_err_as_said_to_stderr(tmp: s
   local plain = Flags.std_io()
   assert(captured(2, tmp, function() plain.err("wrong") end) == "wrong\n")
 end
+
+--- An Io that keeps what is written to each stream.
+local function kept_io(): Flags.Io, {string}, {string}
+  local out: mut {string} = {}
+  local err: mut {string} = {}
+  return {
+    out = function(line: string) out[#out + 1] = line end,
+    err = function(line: string) err[#err + 1] = line end,
+  }, out, err
+end
+
+--- An empty line is the program's help and a refusal; help is answered
+--- with 0, a command's status is its own, and a refused line says where
+--- the commands are listed.
+local function test_main_answers_help_runs_a_command_and_says_where_to_look()
+  local commands: {string: Flags.Command} = {
+    hello = { about = "Says hello.", run = function(_: Flags.Parsed): integer return 3 end },
+  }
+  local io, out, err = kept_io()
+  assert(Flags.main({}, commands, "prog", nil, io) == Flags.REFUSED)
+  assert(#out == 1 and out[1] == Flags.program_help("prog", commands), tostring(out[1]))
+  assert(Flags.main({ "--help" }, commands, "prog", nil, io) == 0)
+  assert(#out == 2 and out[2] == out[1], tostring(out[2]))
+  assert(Flags.main({ "hello" }, commands, "prog", nil, io) == 3)
+  assert(Flags.main({ "help", "hello" }, commands, "prog", nil, io) == 0)
+  assert(#out == 3 and assert(out[3]):find("Says hello.", 1, true) ~= nil, tostring(out[3]))
+  assert(Flags.main({ "hello", "--help" }, commands, "prog", nil, io) == 0)
+  assert(#out == 4 and out[4] == out[3], tostring(out[4]))
+  assert(#err == 0, table.concat(err, "\n"))
+  assert(Flags.main({ "helo" }, commands, "prog", nil, io) == Flags.REFUSED)
+  assert(table.concat(err, "\n") == "no such command: helo; did you mean one of help, hello?\n`prog help` lists the commands.",
+    table.concat(err, "\n"))
+  local topic_io, _, topical = kept_io()
+  assert(Flags.main({ "helo" }, commands, "prog", { topics = { greeting = { about = "How.", text = "Wave." } } },
+    topic_io) == Flags.REFUSED)
+  assert(topical[2] == "`prog help` lists the commands and topics.", tostring(topical[2]))
+end
