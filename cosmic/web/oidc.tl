@@ -61,10 +61,11 @@
 --- meanwhile. A failure to reach the provider answers 503 and writes why
 --- to the app's sink. A discovery or fetch of the keys that fails is not
 --- tried again for 10 seconds: the requests in between answer 503 at
---- once. A code is traded for tokens at most 10
---- times a minute for one client address and 600 times a minute in all,
---- since a stranger can start a trade with two requests; past that the
---- callback answers 429. Behind a proxy, every client has the proxy's
+--- once. Since a stranger can start a trade of a code for tokens with
+--- two requests, one client address may have 10 trades the provider
+--- refused or that failed in a minute, and 10 under way, and all clients
+--- together may start 600 a minute; past that the callback answers 429,
+--- and the login under way can come back to it. Behind a proxy, every client has the proxy's
 --- address unless the app sets `trusted_proxy`.
 ---
 --- A login under way is kept in the session too: its `state`, `nonce`
@@ -229,8 +230,9 @@ local REQUEST_TIMEOUT <const> = 5 * 1000000000
 --- without asking the provider, in seconds: while the provider is down or
 --- slow, a stream of requests costs one fetch a period.
 local RETRY_SECONDS <const> = 10
---- The codes one client address may trade for tokens in
---- `EXCHANGE_WINDOW`, and all clients together.
+--- The trades of a code for tokens that one client address may have
+--- failed in `EXCHANGE_WINDOW`, and may have under way at once; and the
+--- trades all clients together may start in it.
 local EXCHANGES_PER_ADDRESS <const> = 10
 local EXCHANGES <const> = 600
 local EXCHANGE_WINDOW <const> = Clock.minutes(1)
@@ -280,7 +282,8 @@ end
 --- of the browser's window: one a page makes without the user (an
 --- image, a frame, a script, a fetch). A link followed from another site
 --- is a navigation of a document. A browser that sends no
---- `Sec-Fetch-Site` is not told apart.
+--- `Sec-Fetch-Site` is not told apart; one that sends it without
+--- `Sec-Fetch-Mode` and `Sec-Fetch-Dest` is refused.
 local function cross_site_subresource(req: Types.Request): boolean
   local site = req.headers["sec-fetch-site"]
   if site == nil then return false end
@@ -411,6 +414,8 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   if opts.now ~= nil then now_ns = function(): integer return now() * 1000000000 end end
   local per_address = Attempts.limiter{ limit = EXCHANGES_PER_ADDRESS, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
   local everyone = Attempts.limiter{ limit = EXCHANGES, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
+  -- The trades under way, by client address.
+  local trading: mut {string: integer} = {}
 
   local given = opts.provider
   if given ~= nil and given.issuer ~= opts.issuer then
@@ -591,36 +596,11 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     return Response.redirect(with_query(p.authorization_endpoint, params), { status = 302 })
   end
 
-  local function callback(req: Types.Request): Types.Response
-    local query, bad = req:query()
-    if query == nil then return Response.problem(400, bad) end
-    local state = Url.query_first(query, "state")
-    if state == nil then return Response.problem(400, "the provider's answer has no state") end
-    local session = Session.of(req)
-    local under_way = pending(session)
-    local entry = under_way[state]
-    if entry == nil then
-      return Response.problem(400, "no login of this browser is under way with this state")
-    end
-    under_way[state] = nil
-    session:set(PENDING, if next(under_way) == nil then nil else under_way end)
-    local failed = Url.query_first(query, "error")
-    if failed ~= nil then
-      local said = Url.query_first(query, "error_description")
-      return Response.problem(401, "the provider refused the login: " .. plain(failed) ..
-          (if said ~= nil and said ~= "" then " (" .. plain(said) .. ")" else "" end))
-    end
-    local code = Url.query_first(query, "code")
-    if code == nil or code == "" then
-      return Response.problem(400, "the provider's answer has no code")
-    end
-    local p, why = discovered()
-    if p == nil then return unreachable(req, why) end
-    -- RFC 9207: a provider that names itself must name the issuer asked.
-    local iss = Url.query_first(query, "iss")
-    if (iss == nil and p.iss_in_answer == true) or (iss ~= nil and iss ~= p.issuer) then
-      return Response.problem(400, "the answer is not from the issuer")
-    end
+  --- Trades `code`, of the login under way `entry`, for tokens at `p`:
+  --- the claims to keep of who logged in, or nil and the answer that
+  --- refuses the login. It raises nothing a fetch does not.
+  local function exchange(req: Types.Request, p: Oidc.Provider, entry: {string: Json.Value},
+                          code: string): {string: Json.Value}?, Types.Response?
     local form: mut {Url.Pair} = {
       { name = "grant_type", value = "authorization_code" },
       { name = "code", value = code },
@@ -639,44 +619,95 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     else
       form[#form + 1] = { name = "client_id", value = opts.client_id }
     end
-    -- Counted before the request, with no wait between asking and
-    -- counting, so that trades waiting on the provider count too.
-    local address = if req.client ~= nil then req.client.host else "-" end
-    local wait_ns = math.max(per_address:wait_ns(address), everyone:wait_ns(""))
-    if wait_ns > 0 then return Attempts.too_many(wait_ns, "too many logins; try again later") end
-    per_address:failed(address)
-    everyone:failed("")
     local body, trouble = fetch("POST", p.token_endpoint, {
       headers = headers, body = Url.encode_query(form), timeout_ns = REQUEST_TIMEOUT, follow = false,
     })
-    if body == nil then return unreachable(req, "token: " .. trouble) end
+    if body == nil then return nil, unreachable(req, "token: " .. trouble) end
     if body.status ~= 200 then
       local sink = req.app.spec.sink
       if sink ~= nil then
         sink:line(("oidc: token: %s answered %d"):format(p.token_endpoint, body.status))
       end
-      return Response.problem(401, "the provider did not take the login's code")
+      return nil, Response.problem(401, "the provider did not take the login's code")
     end
     local tokens, wrong = Json.decode_object(body.body)
-    if tokens == nil then return unreachable(req, "token: " .. wrong) end
+    if tokens == nil then return nil, unreachable(req, "token: " .. wrong) end
     local id_token = text(tokens, "id_token")
-    if id_token == nil then return Response.problem(401, "the provider answered no ID token") end
+    if id_token == nil then
+      return nil, Response.problem(401, "the provider answered no ID token")
+    end
     local verdict = checked(p, id_token, assert(text(entry, "nonce")))
     local claims = verdict.claims
     if claims == nil then
-      if verdict.down then return unreachable(req, verdict.reason) end
-      return Response.problem(401, verdict.reason)
+      if verdict.down then return nil, unreachable(req, verdict.reason) end
+      return nil, Response.problem(401, verdict.reason)
     end
     local kept: mut {string: Json.Value} = {}
     for _, name in ipairs(keep) do
       local value = claims[name]
       if value ~= nil then kept[name] = value end
     end
+    return kept, nil
+  end
+
+  local function callback(req: Types.Request): Types.Response
+    local query, bad = req:query()
+    if query == nil then return Response.problem(400, bad) end
+    local state = Url.query_first(query, "state")
+    if state == nil then return Response.problem(400, "the provider's answer has no state") end
+    local session = Session.of(req)
+    local under_way = pending(session)
+    local entry = under_way[state]
+    if entry == nil then
+      return Response.problem(400, "no login of this browser is under way with this state")
+    end
+    -- Each answer that refuses the login uses up its state.
+    local function spend()
+      under_way[state] = nil
+      session:set(PENDING, if next(under_way) == nil then nil else under_way end)
+    end
+    local failed = Url.query_first(query, "error")
+    if failed ~= nil then
+      spend()
+      local said = Url.query_first(query, "error_description")
+      return Response.problem(401, "the provider refused the login: " .. plain(failed) ..
+          (if said ~= nil and said ~= "" then " (" .. plain(said) .. ")" else "" end))
+    end
+    local code = Url.query_first(query, "code")
+    if code == nil or code == "" then
+      spend()
+      return Response.problem(400, "the provider's answer has no code")
+    end
+    local p, why = discovered()
+    if p == nil then return unreachable(req, why) end
+    -- Refused before the state is spent, so the browser can come back to it.
+    -- Nothing waits between asking and counting, and an address counts its
+    -- trades under way, so that trades waiting on the provider count too.
+    local address = if req.client ~= nil then req.client.host else "-" end
+    local wait_ns = math.max(per_address:wait_ns(address), everyone:wait_ns(""))
+    if wait_ns == 0 and (trading[address] or 0) >= EXCHANGES_PER_ADDRESS then
+      wait_ns = Clock.seconds(1)
+    end
+    if wait_ns > 0 then return Attempts.too_many(wait_ns, "too many logins; try again later") end
+    spend()
+    -- RFC 9207: a provider that names itself must name the issuer asked.
+    local iss = Url.query_first(query, "iss")
+    if (iss == nil and p.iss_in_answer == true) or (iss ~= nil and iss ~= p.issuer) then
+      return Response.problem(400, "the answer is not from the issuer")
+    end
+    everyone:failed("")
+    trading[address] = (trading[address] or 0) + 1
+    local kept, refusal = exchange(req, p, entry, assert(code))
+    local left = (trading[address] or 1) - 1
+    if left > 0 then trading[address] = left else trading[address] = nil end
+    if kept == nil then
+      per_address:failed(address)
+      return assert(refusal)
+    end
     session:regenerate()
     session:set(KEPT, { claims = kept, at = now() })
-    session:bind_subject(assert(text(claims, "sub")))
-    local next_path = Response.safe_next(text(entry, "next"), "/")
-    return Response.redirect(next_path)
+    session:bind_subject(assert(text(kept, "sub")))
+    return Response.redirect(Response.safe_next(text(entry, "next"), "/"))
   end
 
   local function logout(req: Types.Request): Types.Response

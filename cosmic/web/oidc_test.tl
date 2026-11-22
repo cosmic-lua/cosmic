@@ -564,6 +564,25 @@ local function test_trades_of_a_code_are_limited()
   assert(callback(client, start(client, p), "x").status == 401)
 end
 
+local function test_logins_from_one_address_are_not_limited()
+  local p = provider_new()
+  local client = browser(app_of(p))
+  for _ = 1, 15 do assert(callback(client, start(client, p)).status == 303) end
+end
+
+--- A refused trade leaves the login under way, to come back to.
+local function test_a_limited_trade_keeps_its_state()
+  local p = provider_new()
+  p.token_status = 400
+  local client = browser(app_of(p))
+  for _ = 1, 10 do assert(callback(client, start(client, p), "x").status == 401) end
+  local state = start(client, p)
+  assert(callback(client, state).status == 429)
+  p.token_status = 200
+  p.now = p.now + 60
+  assert(callback(client, state).status == 303)
+end
+
 local function test_trades_of_a_code_are_limited_in_all()
   local p = provider_new()
   p.token_status = 400
@@ -619,6 +638,22 @@ local function test_logout_from_another_site_is_refused()
   assert(assert(p.lines[1]):find("csrf: refused POST /auth/logout", 1, true) ~= nil, p.lines[1])
   local res = logout({ ["Sec-Fetch-Site"] = "same-origin" })
   assert(res.status == 303 and assert(res.redirect_location):find(ISSUER .. "/logout", 1, true) == 1)
+  assert(client:get("/"):text() == "nobody")
+end
+
+--- A browser sends its own origin with a POST of a form on the app's
+--- page; a client that is no browser sends neither it nor Sec-Fetch.
+local function test_logout_from_the_app_s_own_page()
+  local p = provider_new()
+  local client = browser(app_of(p))
+  callback(client, start(client, p))
+  local res = client:request("POST", "/auth/logout", { headers = {
+    Origin = "http://testserver", ["Sec-Fetch-Site"] = "same-origin",
+  } })
+  assert(res.status == 303 and res.redirect_location == "/", res.status)
+  assert(client:get("/"):text() == "nobody")
+  callback(client, start(client, p))
+  assert(client:request("POST", "/auth/logout").status == 303)
   assert(client:get("/"):text() == "nobody")
 end
 
