@@ -49,8 +49,11 @@
         # downloaded products and sleeps before the download's second try.
         # The write token reaches only the driver's publish step, where
         # cosmic_ci/github_api.tl sends it to the GitHub API and the
-        # release upload host and no other. The candidate bytes the job
-        # downloads are data only: none of them is ever executed.
+        # release upload host and no other. Of the candidate bytes the job
+        # downloads, only the staged executable is run, once, with `help`,
+        # in a sandbox that lets it write its own cache alone
+        # (cosmic_ci/prerelease.tl's smoke), so it cannot change the files
+        # that set a later step's environment or the driver that step runs.
         {
           uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
           with: {
