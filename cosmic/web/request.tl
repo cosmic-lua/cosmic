@@ -225,14 +225,24 @@ local LOOPBACK <const>: {string} = { "127.0.0.0/8", "::1/128" }
 --- The prefix `entry` names, an address or "address/bits", or nil and
 --- why not.
 local function proxy_prefix(entry: string): Types.ProxyPrefix?, string
+  if entry:find("%", 1, true) then return nil, "names a zone, which a proxy's address cannot" end
   local address, bits_text = entry:match("^([^/]*)/(%d+)$")
-  local octets = address_bytes(address or entry)
-  if octets == nil then return nil, "is no address, prefix, \"loopback\" or \"unix\"" end
+  local spelled = Grant.address(address or entry)
+  if spelled == nil then return nil, "is no address, prefix, \"loopback\" or \"unix\"" end
+  local octets = assert(address_bytes(address or entry))
+  -- An IPv4 address mapped into IPv6 is matched as IPv4 ([`address_bytes`]),
+  -- so a prefix of the mapped range is the IPv4 prefix it spells.
+  local shift = #spelled * 8 - #octets * 8
   local bits = #octets * 8
   if bits_text ~= nil then
     local given = math.tointeger(tonumber(bits_text))
-    if given == nil or given > bits then return nil, "has a prefix longer than its address" end
-    bits = given
+    if given == nil or given > #spelled * 8 then
+      return nil, "has a prefix longer than its address"
+    end
+    if given < shift then
+      return nil, "is an IPv4-mapped prefix shorter than /96, which spans more than IPv4: name the IPv4 prefix"
+    end
+    bits = given - shift
     for i, byte in ipairs(octets) do
       local kept = math.max(0, math.min(8, bits - (i - 1) * 8))
       if byte & (0xff >> kept) ~= 0 then return nil, "has bits set past its prefix" end
@@ -248,7 +258,8 @@ end
 --- @return Types.Proxies | nil The peers
 --- @return string Why not, "" for none
 function Request.proxies(list: {string}?): Types.Proxies?, string
-  if list == nil then return nil, "" end
+  -- `false` too, which a Lua caller may write for none.
+  if not list then return nil, "" end
   if type(list) ~= "table" then
     return nil, ("web: trusted_proxy lists the proxy's peers, such as { \"loopback\" }, " ..
       "{ \"10.0.0.2\" }, { \"10.0.0.0/8\" } or { \"unix\" }, not %s"):format(tostring(list))
@@ -289,10 +300,11 @@ end
 --- The client `X-Forwarded-For`'s `value` names, behind `proxies`: the
 --- right-most entry that is none of their addresses, since each proxy
 --- appends the address it was reached from and everything left of the
---- first stranger is the stranger's to write. Where that entry is no
---- address, the hop before it, the last proxy that wrote one; where every
---- entry is a proxy's, the left-most. Nil where the proxy next to the
---- app wrote no address.
+--- first stranger is the stranger's to write. An IPv6 entry is lower-cased,
+--- so one client has one spelling. Nil, so the client is the peer, where an
+--- entry met before that one is no bare address (a port, brackets, a zone
+--- or junk), or every entry is a proxy's: the left-most is then still
+--- one the client could have written.
 local function forwarded_client(proxies: Types.Proxies, value: string?): string?
   if value == nil then return nil end
   local entries: mut {string} = {}
@@ -303,14 +315,12 @@ local function forwarded_client(proxies: Types.Proxies, value: string?): string?
     if comma == nil then break end
     from = comma + 1
   end
-  local passed: string? = nil
   for i = #entries, 1, -1 do
     local entry = assert(entries[i])
-    if address_bytes(entry) == nil then return passed end
-    if not proxy_address(proxies, entry) then return entry end
-    passed = entry
+    if address_bytes(entry) == nil then return nil end
+    if not proxy_address(proxies, entry) then return entry:lower() end
   end
-  return passed
+  return nil
 end
 
 --- Wraps `raw`, the server's request, for `app`, with the path `parts`

@@ -297,7 +297,9 @@ local function test_a_proxy_on_a_unix_socket_is_believed_only_where_named()
 end
 
 --- Each proxy appends the address it was reached from, so the entries
---- left of the first address that is no proxy's are the client's own.
+--- left of the first address that is no proxy's are the client's own; a
+--- chain of proxies alone, or one broken by an entry that is no bare
+--- address, names nobody past the peer.
 local function test_the_client_is_the_right_most_forwarded_address_that_is_no_proxy()
   local app, seen = recording({ trusted_proxy = { "10.0.0.0/8", "loopback" } })
   local client = Web.test_client(app)
@@ -308,11 +310,17 @@ local function test_the_client_is_the_right_most_forwarded_address_that_is_no_pr
   local cases: {Chain} = {
     { header = "6.6.6.6, 203.0.113.9, 10.0.0.7", host = "203.0.113.9" },
     { header = "6.6.6.6, 203.0.113.9", host = "203.0.113.9" },
-    { header = "10.0.0.5, 10.0.0.7", host = "10.0.0.5" },
-    { header = "junk, 10.1.2.3", host = "10.1.2.3" },
-    { header = "203.0.113.9, junk, 10.1.2.3", host = "10.1.2.3" },
-    { header = "203.0.113.9,,10.1.2.3", host = "10.1.2.3" },
+    { header = "10.0.0.5, 10.0.0.7", host = "127.0.0.1" },
+    { header = "10.0.0.5", host = "127.0.0.1" },
+    { header = "junk, 10.1.2.3", host = "127.0.0.1" },
+    { header = "203.0.113.9, junk, 10.1.2.3", host = "127.0.0.1" },
+    { header = "203.0.113.9,,10.1.2.3", host = "127.0.0.1" },
     { header = "11.0.0.1, ::1", host = "11.0.0.1" },
+    { header = "2001:DB8::A, 10.0.0.7", host = "2001:db8::a" },
+    { header = "6.6.6.6,\t203.0.113.9 ,\t 10.0.0.7\t", host = "203.0.113.9" },
+    { header = "[2001:db8::1]:443", host = "127.0.0.1" },
+    { header = "203.0.113.9:80, 10.0.0.7", host = "127.0.0.1" },
+    { header = "fe80::1%eth0", host = "127.0.0.1" },
   }
   for i, case in ipairs(cases) do
     client:get("/items/1", { headers = { ["x-forwarded-for"] = case.header } })
@@ -327,14 +335,42 @@ local function test_a_trusted_proxy_that_names_no_peer_raises_when_the_app_is_ma
       "return tostring(ok) .. ' ' .. tostring(err)"))
   local said = tostring(flagged(Web.app))
   assert(said:find("^false .*trusted_proxy lists the proxy's peers") ~= nil, said)
+  local unset = assert(load("return tostring((pcall(..., { routes = {}, trusted_proxy = false })))"))
+  assert(tostring(unset(Web.app)) == "true", "false is none, as nil is")
   for _, entry in ipairs({ "", "proxy.example", "10.0.0.1/8", "10.0.0.0/33", "::1/129", "10.0.0.0/", "1.2.3.4:80",
-      "[::1]", "Loopback" }) do
+      "[::1]", "Loopback", "fe80::1%eth0", "::ffff:0:0/95", "::ffff:10.0.0.1/104" }) do
     local raised, why = pcall(Web.app, { routes = {}, trusted_proxy = { entry } })
     assert(not raised and tostring(why):find(("%q"):format(entry), 1, true) ~= nil, entry .. ": " .. tostring(why))
   end
-  for _, entry in ipairs({ "10.0.0.0/8", "fd00::/8", "::ffff:10.0.0.2", "0.0.0.0/0", "::/0", "unix", "loopback" }) do
+  for _, entry in ipairs({ "10.0.0.0/8", "fd00::/8", "::ffff:10.0.0.2", "0.0.0.0/0", "::/0", "unix", "loopback",
+      "::ffff:0:0/96", "::ffff:10.0.0.0/104" }) do
     Web.app({ routes = {}, trusted_proxy = { entry } })
   end
+  local zoned, why = pcall(Web.app, { routes = {}, trusted_proxy = { "fe80::1%eth0" } })
+  assert(not zoned and tostring(why):find("zone", 1, true) ~= nil, tostring(why))
+end
+
+--- Whether each peer is believed, naming `forwarded` as the client, by an
+--- app trusting `proxies`, as `want` says.
+local function believed(proxies: {string}, forwarded: string, want: {string: boolean})
+  local app, seen = recording({ trusted_proxy = proxies })
+  local client = Web.test_client(app)
+  for peer, wanted in pairs(want) do
+    client:get("/items/1", { headers = { ["x-forwarded-for"] = forwarded }, peer = Net.tcp(peer, 1) })
+    local host = assert(assert(seen[#seen]).client).host
+    assert((host == forwarded) == wanted, ("%s behind %s gave %s"):format(peer, table.concat(proxies, ","), host))
+  end
+end
+
+local function test_a_prefix_holds_the_peers_it_spells_and_no_others()
+  believed({ "172.16.0.0/12", "2001:db8:1::/48", "192.0.2.7/32", "::ffff:198.51.100.0/120" }, "203.0.113.9", {
+    ["172.16.0.1"] = true, ["172.31.255.255"] = true, ["172.32.0.1"] = false, ["172.15.255.255"] = false,
+    ["2001:db8:1::5"] = true, ["2001:DB8:1:ffff::1"] = true, ["2001:db8:2::5"] = false,
+    ["192.0.2.7"] = true, ["192.0.2.8"] = false, ["::ffff:192.0.2.7"] = true,
+    ["198.51.100.9"] = true, ["::ffff:198.51.100.9"] = true, ["198.51.101.1"] = false,
+  })
+  believed({ "0.0.0.0/0" }, "2001:db8::99", { ["192.0.2.200"] = true, ["::ffff:192.0.2.200"] = true, ["2001:db8::1"] = false })
+  believed({ "::/0" }, "203.0.113.9", { ["2001:db8::1"] = true, ["::1"] = true, ["::ffff:192.0.2.1"] = false, ["192.0.2.1"] = false })
 end
 
 local function test_a_forwarded_client_is_an_address_or_the_peer()
@@ -347,7 +383,7 @@ local function test_a_forwarded_client_is_an_address_or_the_peer()
   local cases: {Forwarded} = {
     { header = "203.0.113.9", host = "203.0.113.9" },
     { header = "2001:db8::1", host = "2001:db8::1" },
-    { header = "::1", host = "::1" },
+    { header = "::1", host = "127.0.0.1" },
     { header = "999.1.1.1", host = "127.0.0.1" },
     { header = "1.2.3.4.5", host = "127.0.0.1" },
     { header = "1.2.3", host = "127.0.0.1" },

@@ -255,7 +255,8 @@ cannot pass for https, another host or another address. Only the last
 entry of `X-Forwarded-Proto` and `X-Forwarded-Host` is read, the one the
 proxy added. The client is the right-most entry of `X-Forwarded-For` that
 is none of the proxy's addresses, since every entry left of it is the
-client's own to write. Name the proxy alone: a prefix wider than the proxy
+client's own to write; where there is none, the client is the proxy itself.
+Name the proxy alone: a prefix wider than the proxy
 lets every address in it say what it likes.
 
 `trusted_hosts` lists the hosts the app answers to; a request for another

@@ -541,7 +541,10 @@ local record Types
     --- entry of `X-Forwarded-Proto` and `X-Forwarded-Host` is read, the
     --- one the proxy next to the app added. The client is the right-most
     --- entry of `X-Forwarded-For` that is none of these peers, since the
-    --- entries before it are the client's to write.
+    --- entries before it are the client's to write; it is the peer where
+    --- every entry is a proxy's or one before it is no bare address. An
+    --- IPv4 address mapped into IPv6 (`::ffff:10.0.0.2`) is matched as
+    --- IPv4, so an IPv6 prefix, `::/0` among them, never holds it.
     trusted_proxy?: {string}
     --- Answers a status in place of the default error page, by status.
     error_pages?: {integer: Handler}
