@@ -779,7 +779,9 @@ failure is an `E`, and where it is not, the failure is nil. A test of truth (`if
 the value is never `false`; where it may be `false` (a `boolean`), test it against `nil`. An assignment to any of the locals ends this.
 A `match` takes the lists apart with a `nil` pattern, before the arm that names the value. A call that may answer
 a failure is no statement (`failure_ignored`): bind its values, match it, or discard them on purpose with
-`local _, _ = f()`.
+`local _, _ = f()`. `assert(f())` answers the values of the one list whose first value is never nil or false, where the first
+value of each other list is `nil` or `false`, and raises the failure of the others. Where a value may be either
+(`(boolean) | (nil, E)`), `assert` does not tell the lists apart: test it against `nil`.
 
 ```teal
 local function parse(s: string): (integer) | (nil, string)

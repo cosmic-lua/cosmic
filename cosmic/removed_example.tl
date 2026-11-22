@@ -255,7 +255,7 @@ function Example.coroutines()
   ok, state = coroutine.resume(co)
   assert(ok and state == "done" and coroutine.status(co) == "dead")
   local abandoned = coroutine.create(function() coroutine.yield() end) -- checked: field_unknown
-  assert(coroutine.close(abandoned)) -- checked: alternatives_as_value, overload_none
+  assert(coroutine.close(abandoned))
 end
 
 -- An interface method names its receiver, `function(self: Greeter, ...)`:

@@ -5849,7 +5849,8 @@ end
 
 --- The steps of a generic call.
 local record Calls
-  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prepared
+  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
+  asserted: function(alts: {Alt}): Alt?
   --- Notes that the call `node` runs no code of the program through the standard library: it was given a `string` receiver
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
   note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
@@ -5906,7 +5907,10 @@ end
 
 --- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
 --- where the callee is known to expect one.
-function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prepared
+---
+--- Given `assert` (`asserting`), a last argument that answers several lists gives the values of the one list whose first
+--- value is never nil or false: `assert` raises at any other, so `assert(Fs.read(path))` is the text.
+function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
   local n = #args
   local last = args[n]
   local open = last ~= nil and ((last.kind == "Call") or (last.kind == "MethodCall") or (last.kind == "Vararg"))
@@ -5930,19 +5934,63 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prep
       alone[1] = lone
     end
     local vals = values_of(ctx, { last }, if wants ~= nil then alone else nil end, nil)
+    local several = vals.lists
+    if several ~= nil and asserting == true then
+      local passed = Calls.asserted(several)
+      if passed ~= nil then
+        for _, item in ipairs(passed.items) do
+          vals.types[#vals.types + 1] = item
+        end
+        vals.tail = passed.tail
+        vals.lists = nil
+        several = nil
+      end
+    end
     for j, t in ipairs(vals.types) do
       prep.known[written + j] = t
     end
     prep.count = written + #vals.types
     prep.tail = vals.tail
     prep.last = vals.last
-    local several = vals.lists
-    if several ~= nil then
+    if several ~= nil and asserting == true then
+      -- `assert` raises at a nil or a false first value, so it passes a list only where that value is neither.
+      prep.lists = several
+      local call = Naming.call(ctx, last)
+      report(ctx, "alternatives_as_value", last, subject(ctx, last) .. " answers one of " .. tostring(#several) ..
+          " lists of values, and `assert` tells none of them apart from the others: it passes one list whose first value " ..
+          "is never nil or false where the first value of each other list is `nil` or `false`, and these lists are not so",
+        "bind its values and test the one that tells the lists apart (`local " .. Naming.bound(several) .. " = " .. call ..
+          "`), or match the call: `match " .. call .. " do | ... end`")
+      -- The argument is reported: it stands as no type, so no overload is refused for lacking it.
+      prep.known[written + 1] = ctx.invalid
+      prep.count = written + 1
+    elseif several ~= nil then
       prep.lists = several
       local _ = first_value(ctx, last, several)
     end
   end
   return prep
+end
+
+--- The one list of `alts` that `assert` lets pass: the list whose first value is never nil or false, where the first
+--- value of every other list is `nil` or `false` and nothing else, so `assert` raises at each of them. Nil where there
+--- is no such list, more than one, or a list whose first value may be either (a `boolean`, an optional, `any`).
+function Calls.asserted(alts: {Alt}): Alt?
+  local passed: Alt? = nil
+  for _, alt in ipairs(alts) do
+    local first = alt.items[1]
+    if first == nil then
+      return nil
+    elseif Types.present(first) and not Types.may_be_false(first) then
+      if passed ~= nil then
+        return nil
+      end
+      passed = alt
+    elseif first.tag ~= "nil" and first.tag ~= "false" then
+      return nil
+    end
+  end
+  return passed
 end
 
 --- The field of the interface `bound` that `held` lacks, as the interface declares it (`mut name?: T`), or nil.
@@ -6578,7 +6626,9 @@ end
 local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type?,
                                expected: Type?, key?: string): {Alt}
   local off = if recv ~= nil then 1 else 0 end
-  local prep = Calls.prepare(ctx, args, nil)
+  -- `assert(f())` alone: in `assert(x, f())` it is `x` that `assert` tests, and the call is no value as anywhere else.
+  local prep = Calls.prepare(ctx, args, nil, callee == "assert" and #args == 1 and (node.kind == "Call") and
+      Tests.quiet_callee(node.callee))
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   local unmet: Unmet? = nil
