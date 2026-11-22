@@ -38,14 +38,6 @@ local GRACE_NS <const> = Clock.seconds(10)
 --- default of 256 connections.
 local DEFAULT_STREAM_LIMIT <const> = 128
 
---- Whether `address` is on the loopback: a unix socket, `::1` or a dotted
---- 127/8 address (not a name that merely starts with "127.").
-local function loopback(address: Net.Address): boolean
-  local host = address.host
-  return address.kind == "unix" or host == "::1" or
-    assert(host):find("^127%.%d+%.%d+%.%d+$") ~= nil
-end
-
 --- What `fn` raised, or nil when it returned.
 local function raised_by(fn: function()): string?
   local ok, err = pcall(function(): any
@@ -239,14 +231,14 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
     for _, address in ipairs(everywhere) do
-      if not loopback(address) then
+      if not Net.is_loopback(address) then
         return declined("web: an app in development mode (Dev.app) serves only on the loopback")
       end
     end
   end
   if app.spec.debug == true then
     for _, address in ipairs(everywhere) do
-      if not loopback(address) then
+      if not Net.is_loopback(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..
             "a fault shows its stack to whoever asks")
         break
