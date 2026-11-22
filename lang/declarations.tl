@@ -3126,7 +3126,7 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
       declare_values(ctx, node)
     end
     return nil, false
-  elseif (node.kind == "IsTest") or (node.kind == "Cast") then
+  elseif (node.kind == "IsTest") or (node.kind == "Cast") or (node.kind == "PatType") then
     local _ = lower_type(ctx, node.type)
     return nil, false
   elseif (node.kind == "LocalFunction") or (node.kind == "Function") then

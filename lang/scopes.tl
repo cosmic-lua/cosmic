@@ -1376,6 +1376,12 @@ local function stat_match(s: Ast.Match)
     for _, p in ipairs(arm.pats) do
       if (p.kind == "PatBind") then
         declare(p.name, "pattern", p.name.first, true, nil, false)
+      elseif (p.kind == "PatType") then
+        ty(p.type)
+        local name = p.name
+        if name ~= nil then
+          declare(name, "pattern", name.first, true, nil, false)
+        end
       end
     end
     stats(arm.body.stats)

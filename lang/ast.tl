@@ -30,7 +30,7 @@ local record Ast
     "Chunk" "Block"
     -- statements
     "Local" "LocalFunction" "Function" "Assign" "CallStat" "Return" "Do" "Break" "Continue"
-    "While" "Repeat" "If" "Arm" "Match" "MatchArm" "PatBool" "PatBind" "ForNum" "ForIn"
+    "While" "Repeat" "If" "Arm" "Match" "MatchArm" "PatBool" "PatBind" "PatType" "ForNum" "ForIn"
     -- expressions
     "Name" "Nil" "Boolean" "Integer" "Float" "String" "Vararg" "Paren" "FunctionLit" "Table"
     "Positional" "Spread" "Named" "Keyed" "Field" "Index" "Call" "MethodCall" "Unary" "Binary"
@@ -283,7 +283,10 @@ local record Ast
     first: integer
     mut last: integer
     mut id: integer
-    scrutinee: CallExp
+    --- A call whose return lists the arms take apart, or, where `typed`, a value whose type they do.
+    scrutinee: Exp
+    --- Whether each arm tests a type of the value (`| Circle c then`) rather than the positions of a list.
+    typed: boolean
     arms: {MatchArm}
   end
   enum MatchArm_kind
@@ -316,6 +319,18 @@ local record Ast
     mut last: integer
     mut id: integer
     name: Binding
+  end
+  enum PatType_kind
+    "PatType"
+  end
+  --- The pattern of an arm of a typed `match`: the type the value is tested for, and the name it is bound to there.
+  record PatType is Base
+    kind: PatType_kind
+    first: integer
+    mut last: integer
+    mut id: integer
+    type: Type
+    name?: Binding
   end
   enum ForNum_kind
     "ForNum"
@@ -965,7 +980,7 @@ local record Ast
   --- What a statement or a `match` takes as a call: a [`Call`] or a [`MethodCall`], or an [`Error`].
   type CallExp = Call | MethodCall | Error
   type Item = Positional | Spread | Named | Keyed
-  type PatItem = PatBool | PatBind
+  type PatItem = PatBool | PatBind | PatType
   type Type = TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
     TypeOptional | TypeMut | TypeFunction
   --- An item of a return list.
@@ -974,7 +989,7 @@ local record Ast
   --- Every kind of node. A flat union: a test `is Ast.Node` against nested aliases would test only that
   --- the value is a table.
   type Node = Chunk | Block | Local | LocalFunction | Function | Assign | CallStat | Return | Do | Break |
-    Continue | While | Repeat | If | Arm | Match | MatchArm | PatBool | PatBind | ForNum | ForIn | Name |
+    Continue | While | Repeat | If | Arm | Match | MatchArm | PatBool | PatBind | PatType | ForNum | ForIn | Name |
     Nil | Boolean | Integer | Float | String | Vararg | Paren | FunctionLit | Table | Positional | Spread | Named |
     Keyed | Field | Index | Call | MethodCall | Unary | Binary | IsTest | Cast | IfExp | ExpArm | Fn |
     Rets | Param | Binding | TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
@@ -1009,7 +1024,8 @@ local SPEC <const>: {string: string} = {
   Function = "path* typeparams* fn", Assign = "targets* values*", CallStat = "call",
   Return = "values*", Do = "body", Break = "", Continue = "", While = "cond body",
   Repeat = "body cond", If = "arms* else_body", Arm = "cond body",
-  Match = "scrutinee arms*", MatchArm = "pats* body", PatBool = "value", PatBind = "name",
+  Match = "scrutinee arms* typed", MatchArm = "pats* body", PatBool = "value", PatBind = "name",
+  PatType = "type name",
   ForNum = "var from to step body", ForIn = "vars* iterators* body",
   Name = "text", Nil = "", Boolean = "value", Integer = "value", Float = "value",
   String = "value long", Vararg = "", Paren = "inner", FunctionLit = "fn", Table = "items*",
@@ -1176,6 +1192,15 @@ local WALK <const>: {string: function(Ast.Node, Visit)} = {
   PatBind = function(n: Ast.Node, visit: Visit)
     if n.kind == "PatBind" then
       visit(n.name)
+    end
+  end,
+  PatType = function(n: Ast.Node, visit: Visit)
+    if n.kind == "PatType" then
+      visit(n.type)
+      local name = n.name
+      if name ~= nil then
+        visit(name)
+      end
     end
   end,
   ForNum = function(n: Ast.Node, visit: Visit)

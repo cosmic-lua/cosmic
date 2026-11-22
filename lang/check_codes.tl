@@ -451,14 +451,15 @@ Codes.catalog = {
   },
   {
     code = "match_missing", rule = "multiple returns are a matched call",
-    why = "the arms of a `match` cover the lists the call may answer exactly, so exhaustiveness is checked in one place " ..
-      "and a list left out is found where the `match` is written and not when the call answers it",
+    why = "the arms of a `match` cover the lists the call may answer, or the types the value may have, exactly, so " ..
+      "exhaustiveness is checked in one place and a case left out is found where the `match` is written and not when " ..
+      "the program meets it",
     fix = "add the arm that takes the list: `| (false, v2) then ...`",
   },
   {
     code = "match_redundant", rule = "multiple returns are a matched call",
-    why = "an arm runs only for a list no arm before it takes, so an arm that selects no list, or only lists an earlier " ..
-      "arm takes, can never run",
+    why = "an arm runs only for a list or a type no arm before it takes, so an arm that selects nothing, or only what an " ..
+      "earlier arm takes, can never run",
     fix = "delete the arm, or change its `true` and `false` to select a list no arm before it takes",
   },
   {

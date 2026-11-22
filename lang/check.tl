@@ -4065,6 +4065,11 @@ function Tests.drop_is(ctx: Ctx, cur: Type, tested: Type): Type
         end
       end
       out[#out + 1] = if #kept == #body.values then m else store:union(kept) end
+    elseif m == store.boolean and not below(ctx, m, tested) and below(ctx, store:atom("true"), tested) then
+      -- `boolean` is `true | false`: a test of one leaves the other.
+      out[#out + 1] = store:atom("false")
+    elseif m == store.boolean and not below(ctx, m, tested) and below(ctx, store:atom("false"), tested) then
+      out[#out + 1] = store:atom("true")
     elseif m.tag == "invalid" or not below(ctx, m, tested) then
       out[#out + 1] = m
     end
@@ -5043,20 +5048,30 @@ end
 
 --- `e is T`: a test of a run-time tag.
 function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
-  local store = ctx.store
   local tested = ctx.lowered.types[node.type.id] or ctx.invalid
   if tested.tag == "invalid" or value.tag == "invalid" then
-    return store.boolean
+    return ctx.store.boolean
   end
   Tests.parenthesized(ctx, node)
+  Operators.tested(ctx, node, node.type, node.value, value, tested, false)
+  return ctx.store.boolean
+end
+
+--- Reports a test at `node` of whether the value of `value_node`, of type `value`, is a `tested`, written as `type_node`,
+--- where the run-time Lua cannot tell it, and notes how the code generator tells a record ([`Check.Checked`]'s `tags`).
+--- `arm` says the test is the arm of a typed `match`, which the messages name.
+function Operators.tested(ctx: Ctx, node: Ast.Node, type_node: Ast.Type, value_node: Ast.Node, value: Type, tested: Type,
+                          arm: boolean)
+  local store = ctx.store
+  local written = if arm then "the arm `| " .. show(ctx, tested) .. "`" else "`is " .. show(ctx, tested) .. "`" end
   local function refuse(why: string, fix?: string)
-    report(ctx, "is_on_record", node, "`is " .. show(ctx, tested) .. "` cannot be told by a run-time tag: " .. why,
+    report(ctx, "is_on_record", node, written .. " cannot be told by a run-time tag: " .. why,
       fix or "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
       { show(ctx, tested) })
   end
   local library = ctx.program.globals["table"]
   if (tested.tag == "named") and library ~= nil and tested.decl == library.decl then
-    return store.boolean
+    return
   end
   local before = #ctx.errors
   local tag = if (tested.tag == "named") and tested.decl.kind == "record" then Tests.record_tag(ctx, value, tested) else nil end
@@ -5072,10 +5087,11 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   end
   if tag ~= nil then
     -- The record is the one table the value may be, or the one its tag says.
-    ctx.tags[node.type.id] = tag
+    ctx.tags[type_node.id] = tag
   elseif untold ~= nil then
     refuse("an alias of a union is tested for each member, and the record " .. tq(ctx, untold) .. " among them is not",
-      "test each record apart (`v is A or v is B`), which reads its tag")
+      if arm then "write an arm for each record (`| A a then ... | B b then ...`), which reads its tag" else
+        "test each record apart (`v is A or v is B`), which reads its tag" end)
   elseif (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
     local word = KIND_WORDS[tested.decl.kind] or "type"
     local tables = Tests.table_members(ctx, value)
@@ -5085,14 +5101,14 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
     end
     if tested.decl.kind == "record" and #tested.args == 0 and tables ~= nil and #tables > 1 and records then
       -- A record is told by its tag where the other tables the value may be have one too.
-      refuse(subject(ctx, node.value) .. " is " .. tq(ctx, value) .. ", whose tables no tag field tells apart",
+      refuse(subject(ctx, value_node) .. " is " .. tq(ctx, value) .. ", whose tables no tag field tells apart",
         "give each record of the union a fixed field of its own string literal type (`kind: \"" ..
           tested.decl.name:lower() .. "\"`), so that `is` tests it, or validate the data with a [`cosmic.shape`] validator")
     else
       refuse((if word:sub(1, 1) == "i" then "an " else "a " end) .. word .. " leaves nothing to test")
     end
   elseif (tested.tag == "named") and tested.decl.kind == "class" and TableLiterals.out_of_reach(ctx, tested.decl) ~= "" then
-    report(ctx, "class_scope", node, "`is " .. show(ctx, tested) .. "` tests the metatable of " ..
+    report(ctx, "class_scope", node, written .. " tests the metatable of " ..
         TableLiterals.out_of_reach(ctx, tested.decl),
       TableLiterals.reach_fix(ctx, tested.decl, "test in " .. quoted(tested.decl.module) .. " with a function of the class (`function " ..
           tested.decl.name .. ".owns(v: any): boolean`), and call it here"), { show(ctx, tested) })
@@ -5107,12 +5123,11 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   end
   -- A test the rules refuse is reported once, for that.
   if #ctx.errors == before and not Operators.testable(ctx, value, tested) then
-    report(ctx, "is_disjoint", node, subject(ctx, node) .. " is always false: " .. subject(ctx, node.value) .. " is " ..
+    report(ctx, "is_disjoint", node, subject(ctx, node) .. " is always false: " .. subject(ctx, value_node) .. " is " ..
         tq(ctx, value) .. ", and no value of it is " .. tq(ctx, tested),
-      "this test is always false: remove it and the branch it guards, or test a type that " .. subject(ctx, node.value) ..
+      "this test is always false: remove it and the branch it guards, or test a type that " .. subject(ctx, value_node) ..
         " can have (" .. tq(ctx, value) .. ")", { show(ctx, value), show(ctx, tested) })
   end
-  return store.boolean
 end
 
 --- An `if` expression: conditions, and arms with a common type. Each arm is evaluated under the state where its
@@ -9525,6 +9540,81 @@ local function arm_for(alt: Alt): string
   return "| (" .. table.concat(pats, ", ") .. ") then ..."
 end
 
+--- The arm text that takes a value of type `t`: `| T name then ...`.
+function Narrowing.type_arm(ctx: Ctx, t: Type): string
+  return quoted("| " .. show(ctx, t) .. " v then ...")
+end
+
+--- A typed `match`: each arm tests the value for a type, as `is` does, and takes what the arms before it leave of the
+--- value of that type. An arm that takes nothing is `match_redundant`; the types no arm takes are `match_missing`,
+--- unless an arm `| _` takes them. In an arm the name, and the value where it is a place, have the type the arm takes.
+function Narrowing.typed_match(ctx: Ctx, s: Ast.Match)
+  local value = expr(ctx, s.scrutinee, nil)
+  local p = place_of(ctx, ctx.flow, s.scrutinee)
+  local start = ctx.flow
+  local rest = value
+  local ends: mut {Flow.State} = {}
+  local caught = false
+  for _, arm in ipairs(s.arms) do
+    local pat = arm.pats[1]
+    local kept = rest
+    local leaves = ctx.store.never
+    if (pat ~= nil) and (pat.kind == "PatType") then
+      local tested = ctx.lowered.types[pat.type.id] or ctx.invalid
+      if tested.tag == "invalid" or value.tag == "invalid" then
+        kept, leaves = ctx.invalid, rest
+      elseif rest.tag == "never" or not Operators.testable(ctx, rest, tested) then
+        local had = Operators.testable(ctx, value, tested)
+        kept, leaves = ctx.store.never, rest
+        report(ctx, "match_redundant", pat, if had then "this arm never runs: the arms before it take every " ..
+            tq(ctx, tested) .. " " .. subject(ctx, s.scrutinee) .. " may be" else "this arm never runs: " ..
+            subject(ctx, s.scrutinee) .. " is " .. tq(ctx, value) .. ", and no value of it is " .. tq(ctx, tested) end,
+          "delete the arm, or test a type the arms before it leave" .. (if rest.tag == "never" then "" else " (" ..
+              tq(ctx, rest) .. ")" end), { show(ctx, tested) })
+      else
+        Operators.tested(ctx, pat, pat.type, s.scrutinee, rest, tested, true)
+        kept, leaves = Tests.keep_is(ctx, rest, tested), Tests.drop_is(ctx, rest, tested)
+        if tested.tag == "any" then
+          -- `| any v` takes every value the arms before it leave, as `| _` does.
+          kept, leaves = rest, ctx.store.never
+        end
+      end
+      local name = pat.name
+      if name ~= nil then
+        ctx.vars[name.id] = kept
+        declare_local(ctx, name.id, false)
+      end
+    else
+      -- `| _`: every value the arms before it leave.
+      caught = true
+      if rest.tag == "never" then
+        report(ctx, "match_redundant", arm, "this arm never runs: the arms before it take every value " ..
+            subject(ctx, s.scrutinee) .. " may be", "delete the arm", {})
+      end
+    end
+    ctx.flow = start
+    if p ~= nil and kept.tag ~= "invalid" then
+      ctx.flow = Narrowing.narrowed_flow(start, p, kept)
+    end
+    block(ctx, arm.body)
+    ends[#ends + 1] = ctx.flow
+    rest = leaves
+  end
+  if not caught and rest.tag ~= "never" and rest.tag ~= "invalid" and value.tag ~= "invalid" then
+    local arms: mut {string} = {}
+    for _, m in ipairs(members_of(ctx.store, rest)) do
+      arms[#arms + 1] = Narrowing.type_arm(ctx, m)
+    end
+    report(ctx, "match_missing", s, "this `match` takes no arm for " .. tq(ctx, rest) .. ", which " ..
+        subject(ctx, s.scrutinee) .. " may be", "add " .. (if #arms == 1 then "the arm " else "the arms " end) ..
+        table.concat(arms, ", ") .. ", or `| _ then ...` for every value the arms leave", { show(ctx, rest) })
+    ends[#ends + 1] = if p ~= nil then Narrowing.narrowed_flow(start, p, rest) else start end
+  end
+  if #ends > 0 then
+    ctx.flow = merge_all(ctx, ends)
+  end
+end
+
 --- `match`: the arms cover the lists the call may answer exactly. An arm
 --- takes the lists whose value at each position it tests with `true` or
 --- `false` is that one, and a list some earlier arm takes is not its: the
@@ -9534,6 +9624,10 @@ end
 --- list no arm takes is `match_missing`. Each arm is walked from the state
 --- after the call, and what follows is where their ends meet.
 local function match_statement(ctx: Ctx, s: Ast.Match)
+  if s.typed then
+    Narrowing.typed_match(ctx, s)
+    return
+  end
   local c = s.scrutinee
   local alts = unknown_lists(ctx)
   if (c.kind == "Call") or (c.kind == "MethodCall") then
