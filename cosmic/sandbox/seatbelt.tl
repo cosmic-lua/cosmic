@@ -266,7 +266,13 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   --     directory as it starts, and an abort follows a refusal. It lists
   --     the root's entries, and nothing below it.
   --   sysctl-read: the kernel's facts (hw.*, kern.osversion, ...) libSystem
-  --     reads as it starts, which hold nothing of the user's.
+  --     reads as it starts. Whatever the rule, a held program can still
+  --     read kern.procargs2: the arguments and environment of every process
+  --     of the same user, tokens and keys among them.
+  -- TODO: refuse kern.procargs2 to a held program. A held copy of ps read
+  -- another process's arguments under a deny of kern.procargs, a
+  -- require-not of it and an allowlist of names alike, so it waits on a
+  -- Seatbelt operation that reaches the read (perhaps a process-info one).
   local text: mut {string} = { "(version 1)", "(deny default)",
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
     "(allow sysctl-read)",
