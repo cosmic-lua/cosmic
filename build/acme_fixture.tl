@@ -39,6 +39,10 @@ local record acme_fixture
     mut next_nonce: integer
     --- Requests to refuse with badNonce before taking one.
     mut refuse_nonces: integer
+    --- Requests to refuse with 429 rateLimited before taking one.
+    mut rate_limited: integer
+    --- The Retry-After a rateLimited answer sends; none when "".
+    mut rate_retry_after: string
     --- Polls of a processing resource before it settles.
     mut polls_left: integer
     --- What a challenge settles as once it is checked.
@@ -231,6 +235,8 @@ local function new_server(): Server
     nonces = {},
     next_nonce = 0,
     refuse_nonces = 0,
+    rate_limited = 0,
+    rate_retry_after = "",
     polls_left = 1,
     settle = "valid",
     authorizations = {},
@@ -318,6 +324,14 @@ local function new_server(): Server
       return { payload = {}, payload_text = "", refused = problem(400, "badNonce", "unknown nonce") }
     end
     server.nonces[n] = nil
+    if server.rate_limited > 0 then
+      server.rate_limited = server.rate_limited - 1
+      local limited = problem(429, "rateLimited", "too many new orders")
+      local headers: mut {string: string} = {}
+      for k, v in pairs(limited.headers) do headers[k] = v end
+      if server.rate_retry_after ~= "" then headers["retry-after"] = server.rate_retry_after end
+      return { payload = {}, payload_text = "", refused = { status = 429, body = limited.body, headers = headers } }
+    end
     local jwk: {string: Json.Value}? = nil
     -- RFC 8555 section 6.2: newAccount carries the key, every other
     -- request the account's URL.
