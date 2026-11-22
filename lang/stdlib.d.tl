@@ -466,10 +466,10 @@ do
     loadfile: function<V>(arg1?: string, arg2?: LoadMode, arg3?: {string:V}): ((function(...: any): any...)?, string?)
     loadfile: function<V>(arg1?: string, arg2?: string, arg3?: {string:V}): ((function(...: any): any...)?, string?)
 
-    next: function<K, V>({K:V}, arg2?: K): (K?, V?)
+    next: function<K is Key, V>({K:V}, arg2?: K): (K?, V?)
     next: function<A>({A}, arg2?: integer): (integer?, A?)
 
-    pairs: function<K, V>({K:V}): (function({K:V}, arg2?: K):(K, V), {K:V}, K)
+    pairs: function<K is Key, V>({K:V}): (function({K:V}, arg2?: K):(K, V), {K:V}, K)
     -- One overload for each number of values passed on (0 to 6 for `pcall`, 0 to 3 for `xpcall`) and answered (0 to 3): the
     -- result is `(true, R...) | (false, any)`, and for `xpcall` `(false, H | string)`, what the message handler answers or
     -- the string Lua answers when the handler itself raises.
@@ -508,13 +508,13 @@ do
     print: function(...: any)
     rawequal: function(any, any): boolean
 
-    rawget: function<K, V>({K:V}, K): V?
+    rawget: function<K is Key, V>({K:V}, K): V?
     rawget: function(any, any): any
 
     rawlen: function<A>({A}): integer
 
     -- TODO: a record whose fields all share a type reads as that map, so `rawset(r, "undeclared", v)` still writes a key it does not declare; refuse it once a record no longer reads as a map (closed records).
-    rawset: function<K, V>(mut {K:V}, K, V): mut {K:V}
+    rawset: function<K is Key, V>(mut {K:V}, K, V): mut {K:V}
 
     require: function(string): any
 

@@ -10,9 +10,9 @@
 local Array = require("cosmic.array")
 local Test = require("cosmic.test")
 local Child = require("cosmic.child")
+local TypeWatch = require("build.type_watch")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
-local TypeWatch = require("build.type_watch")
 
 --- A bare name is not looked for on PATH, and the failure says so and
 --- names what finds it; a path that is not there gets no such hint.
@@ -123,23 +123,32 @@ local function test_a_raise_names_the_module()
     function() local _, _ = Child.run({ "/bin/sh" }, { timeout_ns = Child.FOREVER, cwd = "" }) end,
     function() local _, _ = Child.start({ "/bin/sh" }, { cwd = "/" } as Child.Options) end, -- checked: cast_refused
     function() local _, _ = Child.run({ "/bin/sh" }, { cwd = "/" } as Child.Options) end, -- checked: cast_refused
-    function() local _, _ = Child.start({ "/bin/sh" }, nil as Child.Options) end, -- checked: cast_refused
   }
   local says = { "argv is empty", "argv is empty", "no handles to wait for", "capture_limit is out of range",
     "environment name is empty", "fds keys are child descriptors",
     "cwd is empty; leave it nil to start in this process's directory",
-    "opts.timeout_ns is required", "opts.timeout_ns is required", "opts is required" }
-  -- A checked run (`cosmic test --check-types`) refuses the last call's
-  -- nil `opts` at the typed parameter, before the module's own check can
-  -- name it, so it runs every call but that one.
-  local last = if TypeWatch.checked() then #raising - 1 else #raising end
-  for i = 1, last do
-    local ok, why: boolean, any = pcall(Array.at(raising, i))
+    "opts.timeout_ns is required", "opts.timeout_ns is required" }
+  for i, call in ipairs(raising) do
+    local ok, why: boolean, any = pcall(call)
     -- `says` holds one line for each call of `raising`.
     local expected = Array.at(says, i)
     assert(not ok and tostring(why):find(": child: " .. expected, 1, true) ~= nil,
       expected .. ": " .. tostring(why))
   end
+end
+
+--- A Lua caller that gives no options at all is refused with a raise
+--- that names the module. A checked run (`cosmic test --check-types`)
+--- refuses the call at the declared parameter first, and fails the test
+--- that makes it, so the test skips there.
+local function test_a_start_with_no_options_raises()
+  if TypeWatch.checked() then
+    Test.skip("a checked run refuses a nil `opts` at Child.start's declared parameter first")
+  end
+  local ok, why: boolean, any = pcall(function()
+    local _, _ = Child.start({ "/bin/sh" }, nil as Child.Options) -- checked: cast_refused
+  end)
+  assert(not ok and tostring(why):find(": child: opts is required", 1, true) ~= nil, tostring(why))
 end
 
 local function test_run_refuses_a_stream()

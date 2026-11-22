@@ -80,6 +80,9 @@ local sets_what_it_reads: {string:{string:boolean}} = {
   -- worker; its test gives them to the check as a table.
   ["build/ceilings_base.tl"] = { COSMIC_CEILINGS_BASE = true, COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
     GITHUB_REF = true, GITHUB_ACTIONS = true },
+  -- A narrowed `fix --check` skips the markers in CI when CI names no base, as the tree's check would fail without one;
+  -- a suite's worker, where it is unset, runs the check as a local run does.
+  ["build/fix/init.tl"] = { GITHUB_ACTIONS = true, COSMIC_CEILINGS_BASE = true },
   ["build/ceilings_base_test.tl"] = { COSMIC_CEILINGS_BASE = true, COSMIC_CI_BASE_SHA = true, COSMIC_CI_EVENT = true, GITHUB_EVENT_NAME = true,
     GITHUB_REF = true, GITHUB_ACTIONS = true },
 }

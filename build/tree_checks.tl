@@ -85,7 +85,7 @@ local function nth<T>(list: {T}, position: integer): T
 end
 
 --- The value kept under `key` in `map`, a key taken from `map` or set before it is read.
-local function lookup_in<K, V>(map: {K: V}, key: K): V
+local function lookup_in<K is Key, V>(map: {K: V}, key: K): V
   return (assert(map[key], "the key is one of the map's"))
 end
 
@@ -118,6 +118,8 @@ allowed["cosmic.tls.static"] = "the source of certificates a program holds alrea
   "tree's own servers take theirs from tailscaled, so only its tests serve static pairs"
 allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..
   "internet from one of the tailnet; no app of the tree serves through Funnel"
+allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
+  "the tree's own clients speak through cosmic.http, so only its tests make one"
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
 
 allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..
@@ -195,10 +197,14 @@ allowed["cosmic.net.nameservers"] = "the public way to list the system's DNS ser
 
 allowed["cosmic.internal.relay_config.parse_addresses"] = "tested directly: the reading of Linux's " ..
   "interface tables over fixture text, which host_addresses makes of the host's own"
-for _, name in ipairs({ "plan", "name_servers", "upstream_addresses", "resolved_upstream", "table", "public",
+for _, name in ipairs({ "name_servers", "upstream_addresses", "resolved_upstream", "table", "public",
     "loopback_listeners" }) do
   allowed["cosmic.internal.relay_start." .. name] = "tested directly: a step of `handover` and " ..
     "`direct_handover`, which are composed from it, each tested over fixtures of its own"
+end
+for _, name in ipairs({ "named", "resolved" }) do
+  allowed["cosmic.sandbox.tailnet." .. name] = "tested directly: a step of `tailnet.policy`, " ..
+    "checked over fixture statuses with no stand-in daemon"
 end
 for _, name in ipairs({ "dropped_violations", "most_kept", "fact", "cross" }) do
   allowed["build.test_worker." .. name] = "the seam that lets a test run the hook a checked run's Lua calls " ..
@@ -207,6 +213,8 @@ for _, name in ipairs({ "dropped_violations", "most_kept", "fact", "cross" }) do
 end
 allowed["cosmic.sandbox.policy.system_profile"] = "the seam that lets a test draw the " ..
   "other host's \"system\" profile; rules.profile calls it with this host's"
+allowed["build.c.own_warnings"] = "the warnings the C check's analyzer runs under, written out as build.zig " ..
+  "has no form to read them from; build/c/variants_test.tl holds them to it"
 allowed["build.c.variants"] = "the ways the C check dumps a file, written out as build.zig " ..
   "has no form to read them from; build/c/variants_test.tl holds them to it"
 allowed["cosmic.net.connector"] = "tested directly: the library's face of the native connector, " ..

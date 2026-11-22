@@ -29,7 +29,22 @@
 --- the tailnet, and the path the reply took; `--kind` picks the ping
 --- (`disco`, `ICMP`, `TSMP` or `peerapi`).
 ---
---- `--json` prints the answer of `status`, `whois` or `ping` as a JSON
+--- `cosmic tailscale file` sends and takes files with Taildrop. `file
+--- targets` lists the nodes a file can go to; `file send <file|->
+--- <target>` sends one, streamed, to a target named by its MagicDNS name,
+--- the name's first label, its host name, an address or its stable id,
+--- under the file's own name or `--name` (which standard input needs,
+--- and which is read whole first: a send names its size before its bytes).
+--- `file list` lists the files sent to this node that wait, with their
+--- sizes; `file get <dir>` writes each into the directory, through a
+--- temporary file renamed into place, prints the path it wrote, and has
+--- the daemon drop it (`--keep` leaves it waiting). A file whose name is
+--- taken is skipped and waits on, exiting 1, unless `--conflict
+--- overwrite` writes over it or `--conflict rename` writes `name (1).ext`.
+--- `--wait` waits for a file when none waits yet.
+---
+--- `--json` prints the answer of `status`, `whois`, `ping`, `file
+--- targets` or `file list` as JSON
 --- object, the fields of [`cosmic.tailscale`]'s record. `--socket
 --- <path>` names the daemon's socket, where it is not where
 --- [`Tailscale.connect`] looks.
@@ -41,18 +56,26 @@
 --- `cosmic: tailscale: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
 local Cli = require("cosmic.cli")
+local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
+local Stream = require("cosmic.stream")
 local Tailscale = require("cosmic.tailscale")
 local Time = require("cosmic.time")
 local bare = require("build.bare")
+local plural = require("build.plural")
 local verb_spec = require("build.verb_spec")
 
 --- The `cosmic tailscale` verb: `run` is what [`build/dispatch.tl`] calls.
 local record verb
   --- The verb's registration: see build/verb_spec.tl.
   mut spec: verb_spec.Spec
+  --- A file `open` answers: its bytes as they are read, and how many.
+  record Opened
+    reader: Stream.Reader
+    size: integer
+  end
   --- Where `run` writes and which daemon it asks: what a test stands in
   --- for.
   record Io
@@ -65,6 +88,18 @@ local record verb
     write: function(path: string, data: string, mode: integer): boolean, string
     --- Renames a file over another: [`Fs.rename`].
     rename: function(from: string, to: string): boolean, string
+    --- A file to read as it is sent, and its size: [`Stream.open`] and
+    --- [`Fs.stat`]; a directory is refused.
+    open: function(path: string): verb.Opened?, string
+    --- The whole of standard input, or nil and why.
+    stdin: function(): string?, string
+    --- A file written through a temporary neighbour, renamed into place
+    --- on `close`: [`Stream.create`].
+    create: function(path: string): Stream.Writer?, string
+    --- Whether a path is there: [`Fs.exists`].
+    exists: function(path: string): boolean?, string
+    --- Whether a path is a directory there.
+    is_dir: function(path: string): boolean
     --- The client of the daemon: [`Tailscale.connect`].
     connect: function(opts: Tailscale.Daemon): Tailscale.Client?, string
   end
@@ -74,7 +109,9 @@ local spec = assert(assert(Cli.verbs["tailscale"]).spec)
 
 local usage = "cosmic tailscale [--socket <path>] status [--json] | whois [--json] <address|name> | " ..
   "cert [--cert-file <file|->] [--key-file <file|->] [--min-validity <duration>] [domain] | " ..
-  "ping [--kind disco|ICMP|TSMP|peerapi] [--json] <address|name>"
+  "ping [--kind disco|ICMP|TSMP|peerapi] [--json] <address|name> | " ..
+  "file targets [--json] | file send [--name <name>] <file|-> <target> | file list [--json] | " ..
+  "file get [--wait] [--conflict skip|overwrite|rename] [--keep] <dir>"
 
 --- The options each subcommand takes, beside `--socket`, which all do.
 local TAKES <const>: {string: {string: boolean}} = {
@@ -82,6 +119,15 @@ local TAKES <const>: {string: {string: boolean}} = {
   whois = { ["--json"] = true },
   cert = { ["--cert-file"] = true, ["--key-file"] = true, ["--min-validity"] = true },
   ping = { ["--kind"] = true, ["--json"] = true },
+  file = { ["--json"] = true, ["--name"] = true, ["--wait"] = true, ["--conflict"] = true, ["--keep"] = true },
+}
+
+--- The options each `file` action takes.
+local FILE_TAKES <const>: {string: {string: boolean}} = {
+  targets = { ["--json"] = true },
+  send = { ["--name"] = true },
+  list = { ["--json"] = true },
+  get = { ["--wait"] = true, ["--conflict"] = true, ["--keep"] = true },
 }
 
 local KINDS <const>: {string: Tailscale.PingKind} = {
@@ -103,6 +149,23 @@ local standard: verb.Io = {
     return Fs.write(path, data, mode)
   end,
   rename = function(from: string, to: string): boolean, string return Fs.rename(from, to) end,
+  open = function(path: string): verb.Opened?, string
+    local st, why = Fs.stat(path)
+    if st == nil then return nil, why end
+    if st.kind ~= "file" then return nil, path .. ": not a file" end
+    local reader, trouble = Stream.open(path)
+    if reader == nil then return nil, trouble end
+    return { reader = reader, size = st.size }, ""
+  end,
+  stdin = function(): string?, string
+    return bare.stdin_text("send reads standard input, which is a terminal: name a file")
+  end,
+  create = function(path: string): Stream.Writer?, string return Stream.create(path) end,
+  exists = function(path: string): boolean?, string return Fs.exists(path) end,
+  is_dir = function(path: string): boolean
+    local st, _ = Fs.stat(path)
+    return st ~= nil and st.kind == "dir"
+  end,
   connect = function(opts: Tailscale.Daemon): Tailscale.Client?, string
     return Tailscale.connect(opts)
   end,
@@ -509,8 +572,277 @@ local function show_ping(to: verb.Io, complain: function(line: string), ts: Tail
   return bare.written(complain, to.out("pong from " .. address .. " via " .. via .. " in " .. ms .. "\n"))
 end
 
+--- The file target `word` names: its node's stable id, MagicDNS name,
+--- the name's first label, its host name or one of its addresses. Nil and
+--- why for none, or for a name two targets share.
+local function target_of(targets: {Tailscale.FileTarget}, word: string): Tailscale.FileTarget?, string
+  local wanted = word:lower():gsub("%.$", "")
+  local found: mut {Tailscale.FileTarget} = {}
+  for _, target in ipairs(targets) do
+    local node = target.node
+    local name = node.name:lower()
+    local hit = node.stable_id == word or name == wanted or name:match("^[^.]*") == wanted or
+      node.host_name:lower() == wanted
+    for _, address in ipairs(node.addresses) do
+      if address == word then hit = true end
+    end
+    if hit then found[#found + 1] = target end
+  end
+  if #found == 1 then return assert(found[1]), "" end
+  if #found > 1 then
+    return nil, word .. " names more than one target; name one by its stable id"
+  end
+  return nil, "no node takes files as " .. word .. " (`cosmic tailscale file targets` lists those that do)"
+end
+
+--- `file targets`.
+local function file_targets(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
+                            parsed: Flags.Parsed): integer
+  if #parsed.words > 0 then
+    complain("file targets takes no words; " .. usage)
+    return bare.refused
+  end
+  local targets, why = ts:file_targets()
+  if targets == nil then
+    complain((why:gsub("^tailscale: ", "")))
+    return bare.failed
+  end
+  if parsed.set["--json"] == true then
+    local list: mut {Json.Value} = {}
+    for _, target in ipairs(targets) do
+      local node = target.node
+      local value: {string: Json.Value} = {
+        stable_id = node.stable_id, name = node.name, host_name = node.host_name, os = node.os,
+        addresses = strings(node.addresses), peerapi_url = target.peerapi_url,
+      }
+      list[#list + 1] = value
+    end
+    return bare.written(complain, to.out(json_line(Json.array(list))))
+  end
+  local lines: mut {{string}} = {}
+  for _, target in ipairs(targets) do
+    local node = target.node
+    lines[#lines + 1] = { shown(node.name), node.stable_id, node.addresses[1] or "-", shown(node.os) }
+  end
+  return bare.written(complain, to.out(aligned(lines)))
+end
+
+--- `file send <file|-> <target>`.
+local function file_send(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
+                         parsed: Flags.Parsed): integer
+  if #parsed.words ~= 2 then
+    complain("file send takes a file and a target, not " .. plural.count(#parsed.words, "word") .. "; " .. usage)
+    return bare.refused
+  end
+  local path, word = assert(parsed.words[1]), assert(parsed.words[2])
+  if path == "" then
+    complain(bare.empty_file .. "; " .. usage)
+    return bare.refused
+  end
+  local name = parsed.values["--name"] or (if path == "-" then nil else path:match("([^/]+)/*$") end)
+  if name == nil then
+    complain("a file sent from standard input needs --name; " .. usage)
+    return bare.refused
+  end
+  if not Tailscale.file_name_ok(name) then
+    complain("no file may go as " .. string.format("%q", name) ..
+        ": a name is one path element, with no control byte or backslash, not ending in .partial or .deleted")
+    return bare.refused
+  end
+  local body: Stream.Reader
+  local size: integer
+  if path == "-" then
+    local text, why = to.stdin()
+    if text == nil then
+      complain(why)
+      return bare.refused
+    end
+    body, size = Stream.from_string(text), #text
+  else
+    local opened, why = to.open(path)
+    if opened == nil then
+      complain(why)
+      return bare.refused
+    end
+    body, size = opened.reader, opened.size
+  end
+  local targets, why = ts:file_targets()
+  if targets == nil then
+    local _, _ = body:close()
+    complain((why:gsub("^tailscale: ", "")))
+    return bare.failed
+  end
+  local target, unknown = target_of(targets, word)
+  if target == nil then
+    local _, _ = body:close()
+    complain(unknown)
+    return bare.failed
+  end
+  local sent, trouble = ts:send_file(target.node.stable_id, name, body, size)
+  local _, _ = body:close()
+  if not sent then
+    complain((trouble:gsub("^tailscale: ", "")))
+    return bare.failed
+  end
+  return bare.ok
+end
+
+--- `file list`.
+local function file_list(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
+                         parsed: Flags.Parsed): integer
+  if #parsed.words > 0 then
+    complain("file list takes no words; " .. usage)
+    return bare.refused
+  end
+  local files, why = ts:waiting_files()
+  if files == nil then
+    complain((why:gsub("^tailscale: ", "")))
+    return bare.failed
+  end
+  if parsed.set["--json"] == true then
+    local list: mut {Json.Value} = {}
+    for _, file in ipairs(files) do
+      local value: {string: Json.Value} = { name = file.name, size = file.size }
+      list[#list + 1] = value
+    end
+    return bare.written(complain, to.out(json_line(Json.array(list))))
+  end
+  local lines: mut {{string}} = {}
+  for _, file in ipairs(files) do lines[#lines + 1] = { tostring(file.size), file.name } end
+  return bare.written(complain, to.out(aligned(lines)))
+end
+
+--- How long `file get --wait` asks the daemon to hold each call.
+local WAIT_NS <const> = 3600 * 1000000000
+
+--- `name` with ` (n)` before its extension, for the nth file of that
+--- name: `report (1).pdf`, as `tailscale file get --conflict=rename` names it.
+local function numbered(name: string, n: integer): string
+  local stem, extension = name:match("^(.+)(%.[^.]+)$")
+  if stem == nil or extension == nil then return name .. " (" .. tostring(n) .. ")" end
+  return stem .. " (" .. tostring(n) .. ")" .. extension
+end
+
+--- `file get <dir>`.
+local function file_get(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
+                        parsed: Flags.Parsed): integer
+  if #parsed.words ~= 1 then
+    complain(("file get takes one directory, not %d; %s"):format(#parsed.words, usage))
+    return bare.refused
+  end
+  local dir = assert(parsed.words[1]):gsub("/+$", "")
+  if dir == "" then dir = "/" end
+  if not to.is_dir(dir) then
+    complain(dir .. ": not a directory")
+    return bare.refused
+  end
+  local conflict = parsed.values["--conflict"] or "skip"
+  if conflict ~= "skip" and conflict ~= "overwrite" and conflict ~= "rename" then
+    complain("--conflict is skip, overwrite or rename, not " .. conflict)
+    return bare.refused
+  end
+  local files: {Tailscale.WaitingFile}
+  while true do
+    local asked = Clock.monotonic_ns()
+    local got, why = ts:waiting_files({ wait_ns = if parsed.set["--wait"] == true then WAIT_NS else nil end })
+    if got == nil then
+      complain((why:gsub("^tailscale: ", "")))
+      return bare.failed
+    end
+    files = got
+    if #files > 0 or parsed.set["--wait"] ~= true then break end
+    -- A daemon that answers at once, as one that holds no call does, is
+    -- asked again a second later, not at once.
+    if Clock.monotonic_ns() - asked < 1000000000 then
+      local _, _ = Clock.sleep_ns(1000000000)
+    end
+  end
+  local code = bare.ok
+  local prefix = if dir == "/" then "" else dir end
+  for _, file in ipairs(files) do
+    local path = prefix .. "/" .. file.name
+    local there, unknown = to.exists(path)
+    local skip = false
+    if there == nil then
+      complain(unknown)
+      code = bare.failed
+      skip = true
+    elseif there and conflict == "skip" then
+      complain(path .. ": there already, so " .. file.name .. " waits on (--conflict overwrite or rename takes it)")
+      code = bare.failed
+      skip = true
+    elseif there and conflict == "rename" then
+      local n = 1
+      while true do
+        path = prefix .. "/" .. numbered(file.name, n)
+        local taken, _ = to.exists(path)
+        if taken ~= true then break end
+        n = n + 1
+      end
+    end
+    if not skip then
+      local reader, why = ts:open_file(file.name)
+      local writer: Stream.Writer? = nil
+      local trouble = why
+      if reader ~= nil then writer, trouble = to.create(path) end
+      local copied: integer? = nil
+      if reader ~= nil and reader.size ~= file.size then
+        trouble = "the daemon sends " .. plural.count(reader.size, "byte") .. ", not the " .. tostring(file.size) ..
+          " it listed"
+      elseif reader ~= nil and writer ~= nil then
+        copied, trouble = Stream.copy(reader, writer)
+        if copied ~= nil then
+          local closed, lost = writer:close()
+          if not closed then copied, trouble = nil, lost end
+        else
+          local _, _ = writer:abort()
+        end
+      end
+      if reader ~= nil then local _, _ = reader:close() end
+      if writer ~= nil and copied == nil then local _, _ = writer:abort() end
+      if copied == nil then
+        complain(file.name .. ": " .. (trouble:gsub("^tailscale: ", "")))
+        code = bare.failed
+      else
+        if parsed.set["--keep"] ~= true then
+          local deleted, lost = ts:delete_file(file.name)
+          if not deleted then
+            complain(file.name .. ": written to " .. path .. ", but " .. (lost:gsub("^tailscale: ", "")))
+            code = bare.failed
+          end
+        end
+        if not bare.delivered(complain, to.out(path .. "\n")) then return bare.refused end
+      end
+    end
+  end
+  return code
+end
+
+local FILE_ACTIONS <const>: {string: function(verb.Io, function(string), Tailscale.Client, Flags.Parsed): integer} = {
+  targets = file_targets, send = file_send, list = file_list, get = file_get,
+}
+
+--- `cosmic tailscale file <targets|send|list|get> ...`: Taildrop.
+local function file_action(to: verb.Io, complain: function(line: string), ts: Tailscale.Client,
+                           parsed: Flags.Parsed): integer
+  local action = table.remove(parsed.words, 1)
+  local takes = if action == nil then nil else FILE_TAKES[action] end
+  if action == nil or takes == nil then
+    complain((if action == nil then "name file targets, send, list or get" else "no file action " .. action end) ..
+        "; " .. usage)
+    return bare.refused
+  end
+  for _, name in ipairs(parsed.given) do
+    if name ~= "--socket" and takes[name] ~= true then
+      complain(name .. " is not an option of file " .. action .. "; " .. usage)
+      return bare.refused
+    end
+  end
+  return assert(FILE_ACTIONS[action])(to, complain, ts, parsed)
+end
+
 local SUBCOMMANDS <const>: {string: function(verb.Io, function(string), Tailscale.Client, Flags.Parsed): integer} = {
-  status = show_status, whois = show_whois, cert = write_cert, ping = show_ping,
+  status = show_status, whois = show_whois, cert = write_cert, ping = show_ping, file = file_action,
 }
 
 --- `cosmic tailscale <status|whois|cert|ping> ...`: asks the daemon and
@@ -530,7 +862,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local sub = table.remove(parsed.words, 1)
   local takes = if sub == nil then nil else TAKES[sub] end
   if sub == nil or takes == nil then
-    complain((if sub == nil then "name status, whois, cert or ping" else "no subcommand " .. sub end) .. "; " .. usage)
+    complain((if sub == nil then "name status, whois, cert, ping or file" else "no subcommand " .. sub end) .. "; " .. usage)
     return bare.refused
   end
   for _, name in ipairs(parsed.given) do
@@ -560,7 +892,7 @@ verb.spec = {
   tests = { "build.tailscale_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
-  takes = "status, whois, cert or ping, and its options",
+  takes = "status, whois, cert, ping or file, and its options",
   exits = "`tailscale` prints what the daemon answered, and nothing after; it exits 1 when the daemon could not be asked or refused, the node is not running, or no node has the address or name, 2 when it refuses its command line or a write.",
   passthrough = "its output is the daemon's answer, so its exit status is the verdict (build/tailscale_test.tl)",
 }

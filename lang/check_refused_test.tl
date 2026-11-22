@@ -154,7 +154,7 @@ end
 -- with the parameter as the function declares it.
 local function test_a_generic_call_that_takes_a_record_for_a_map_is_refused()
   local r = Programs.run("local record R\n  name: string\nend\nlocal r: R = { name = \"a\" }\n" ..
-      "local function rawset<K, V>(m: {K: V}, k: K, v: V)\nend\nrawset(r, \"name\", 1)\n")
+      "local function rawset<K is Key, V>(m: {K: V}, k: K, v: V)\nend\nrawset(r, \"name\", 1)\n")
   assert(#r.before == 0 and Programs.codes(r) == "record_as_map", Programs.codes(r))
   local refusal = assert(r.errors[1], "the refusal of the call")
   assert(refusal.msg:find("where `{string: integer}` is wanted as argument 1 of `rawset`: a record is not a map", 1, true) ~= nil, refusal.msg)

@@ -8,6 +8,7 @@
 local Array = require("cosmic.array")
 local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
+local Stream = require("cosmic.stream")
 local Tailscale = require("cosmic.tailscale")
 local Test = require("cosmic.test")
 local tailscale = require("build.tailscale")
@@ -71,6 +72,72 @@ local record Ran
   seen: mut {string}
   --- Each file renamed into place, in order.
   renamed: mut {string}
+  --- The files the stand-in holds for Taildrop, by name.
+  waiting: mut {string: string}
+  --- The files put to it, by `target/name`.
+  put: mut {string: string}
+  --- What standard input holds, where it is not a terminal.
+  mut stdin?: string
+end
+
+local TARGETS <const> = [=[[
+  {"Node": {"ID": 2, "StableID": "nALPHA", "Name": "alpha.tail1234.ts.net.", "User": 42,
+    "Addresses": ["100.64.0.2/32"], "Hostinfo": {"Hostname": "alpha", "OS": "macOS"}},
+   "PeerAPIURL": "http://100.64.0.2:41000"},
+  {"Node": {"ID": 9, "StableID": "nZED", "Name": "zed.tail1234.ts.net.", "User": 42,
+    "Addresses": ["100.64.0.9/32"]}, "PeerAPIURL": "http://100.64.0.9:41000"}
+]]=]
+
+--- A file a run writes, kept in `ran.files` once it is closed.
+local class Sink is Stream.Writer
+  ran: Ran
+  path: string
+  parts: mut {string}
+
+  function write(self, chunk: string): boolean, string
+    self.parts[#self.parts + 1] = chunk
+    return true, ""
+  end
+
+  function close(self): boolean, string
+    self.ran.files[self.path] = table.concat(self.parts)
+    return true, ""
+  end
+
+  function abort(self): boolean, string
+    return true, ""
+  end
+end
+
+--- The stand-in's answer to a Taildrop path, or nil for another.
+local function file_answer(ran: Ran, req: Server.Request): Server.Reply?
+  local target = req.target
+  if target == "/localapi/v0/file-targets" then return { status = 200, body = TARGETS } end
+  local to, name = target:match("^/localapi/v0/file%-put/([^/]+)/(.+)$")
+  if to ~= nil then
+    ran.put[to .. "/" .. assert(name)] = assert(Stream.read_all(req.body))
+    return { status = 200, body = "{}\n" }
+  end
+  if target == "/localapi/v0/files/" or target:match("^/localapi/v0/files/%?") ~= nil then
+    local names: mut {string} = {}
+    for file in pairs(ran.waiting) do names[#names + 1] = file end
+    table.sort(names)
+    local items: mut {string} = {}
+    for _, file in ipairs(names) do
+      items[#items + 1] = ('{"Name": "%s", "Size": %d}'):format(file, #assert(ran.waiting[file]))
+    end
+    return { status = 200, body = "[" .. table.concat(items, ",") .. "]" }
+  end
+  local file = target:match("^/localapi/v0/files/(.+)$")
+  if file == nil then return nil end
+  local plain = file:gsub("%%20", " ")
+  local data = ran.waiting[plain]
+  if data == nil then return { status = 404, body = "file not found\n" } end
+  if req.method == "DELETE" then
+    ran.waiting[plain] = nil
+    return { status = 204 }
+  end
+  return { status = 200, body = data }
 end
 
 --- The stand-in's answer to `target`; `status` is the status reply.
@@ -105,8 +172,10 @@ local runs = 0
 --- `tmp`, which answers `status` for the status (STATUS by default).
 --- With `no_socket` the command line names none, and the run's connect
 --- is handed the stand-in's anyway.
-local function run(tmp: string, words: {string}, status?: string, no_socket?: boolean): Ran
-  local ran: Ran = { code = -1, out = "", err = "", files = {}, modes = {}, seen = {}, renamed = {} }
+local function run(tmp: string, words: {string}, status?: string, no_socket?: boolean, setup?: function(Ran)): Ran
+  local ran: Ran = { code = -1, out = "", err = "", files = {}, modes = {}, seen = {}, renamed = {},
+    waiting = {}, put = {} }
+  if setup ~= nil then setup(ran) end
   runs = runs + 1
   local socket = tmp .. "/ts" .. tostring(runs) .. ".sock"
   assert(Server.serve{
@@ -114,6 +183,8 @@ local function run(tmp: string, words: {string}, status?: string, no_socket?: bo
     on_stop = function(_: Net.Server) end,
     handle = function(req: Server.Request): Server.Reply
       ran.seen[#ran.seen + 1] = req.method .. " " .. req.target
+      local filed = file_answer(ran, req)
+      if filed ~= nil then return filed end
       return answer(req.target, status or STATUS)
     end,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
@@ -143,6 +214,25 @@ local function run(tmp: string, words: {string}, status?: string, no_socket?: bo
           ran.files[from], ran.modes[from] = nil, nil
           ran.renamed[#ran.renamed + 1] = into
           return true, ""
+        end,
+        open = function(file: string): tailscale.Opened?, string
+          local data = ran.files[file]
+          if data == nil then return nil, file .. ": No such file or directory" end
+          return { reader = Stream.from_string(data), size = #data }, ""
+        end,
+        stdin = function(): string?, string
+          local text = ran.stdin
+          if text == nil then return nil, "standard input is a terminal" end
+          return text, ""
+        end,
+        create = function(file: string): Stream.Writer?, string
+          if file:match("^/ro/") ~= nil then return nil, file .. ": read-only file system" end
+          local sink: Sink = { ran = ran, path = file, parts = {} }
+          return sink, ""
+        end,
+        exists = function(file: string): boolean?, string return ran.files[file] ~= nil, "" end,
+        is_dir = function(file: string): boolean
+          return file == "/in" or file == "/" or file:match("^/ro") ~= nil
         end,
         connect = function(opts: Tailscale.Daemon): Tailscale.Client?, string
           return Tailscale.connect({ socket = opts.socket or path })
@@ -323,4 +413,74 @@ local function test_a_daemon_that_is_not_there_exits_1(tmp: string)
   local ran = run(tmp, { "--socket", tmp .. "/none.sock", "status" }, nil, true)
   assert(ran.code == 1, tostring(ran.code))
   assert(ran.err:find("^cosmic: tailscale: ") ~= nil, ran.err)
+end
+
+--- The targets list by name, and a file goes to one named by its first
+--- label, under its own name or --name, from a file or standard input.
+local function test_file_send_names_a_target_and_streams_the_file(tmp: string)
+  local listed = run(tmp, { "file", "targets" })
+  assert(listed.code == 0, listed.err)
+  assert(listed.out == "alpha.tail1234.ts.net  nALPHA  100.64.0.2  macOS\n" ..
+      "zed.tail1234.ts.net    nZED    100.64.0.9  -\n", listed.out)
+  local sent = run(tmp, { "file", "send", "/data/a report.txt", "zed" }, nil, false, function(ran: Ran)
+    ran.files["/data/a report.txt"] = "hello zed"
+  end)
+  assert(sent.code == 0, sent.err)
+  assert(sent.put["nZED/a%20report.txt"] == "hello zed", tostring(sent.put["nZED/a%20report.txt"]))
+  local piped = run(tmp, { "file", "send", "--name", "notes.md", "-", "100.64.0.2" }, nil, false, function(ran: Ran)
+    ran.stdin = "# notes"
+  end)
+  assert(piped.code == 0 and piped.put["nALPHA/notes.md"] == "# notes", piped.err)
+  local nameless = run(tmp, { "file", "send", "-", "zed" })
+  assert(nameless.code == 2 and nameless.err:find("needs --name", 1, true) ~= nil, nameless.err)
+  local nobody = run(tmp, { "file", "send", "/data/x", "box" }, nil, false, function(ran: Ran)
+    ran.files["/data/x"] = "x"
+  end)
+  assert(nobody.code == 1 and nobody.err:find("no node takes files as box", 1, true) ~= nil, nobody.err)
+  local odd = run(tmp, { "file", "send", "--name", "a/b", "/data/x", "zed" })
+  assert(odd.code == 2 and odd.err:find('no file may go as "a/b"', 1, true) ~= nil and #odd.seen == 0, odd.err)
+  local missing = run(tmp, { "file", "send", "/data/none", "zed" })
+  assert(missing.code == 2 and #missing.seen == 0, missing.err)
+end
+
+--- Get writes each waiting file into the directory, prints its path and
+--- drops it from the daemon; a name taken already is skipped and waits
+--- on, or renamed, and --keep leaves the file waiting.
+local function test_file_get_writes_each_waiting_file_and_drops_it(tmp: string)
+  local function two(ran: Ran)
+    ran.waiting["a.txt"] = "alpha"
+    ran.waiting["b c.pdf"] = "%PDF"
+  end
+  local got = run(tmp, { "file", "get", "/in/" }, nil, false, two)
+  assert(got.code == 0, got.err)
+  assert(got.out == "/in/a.txt\n/in/b c.pdf\n", got.out)
+  assert(got.files["/in/a.txt"] == "alpha" and got.files["/in/b c.pdf"] == "%PDF")
+  assert(next(got.waiting) == nil)
+  local listed = run(tmp, { "file", "list" }, nil, false, two)
+  assert(listed.out == "5  a.txt\n4  b c.pdf\n", listed.out)
+  local taken = run(tmp, { "file", "get", "/in" }, nil, false, function(ran: Ran)
+    two(ran)
+    ran.files["/in/a.txt"] = "old"
+  end)
+  assert(taken.code == 1 and taken.err:find("/in/a.txt: there already", 1, true) ~= nil, taken.err)
+  assert(taken.files["/in/a.txt"] == "old" and taken.waiting["a.txt"] == "alpha")
+  assert(taken.out == "/in/b c.pdf\n", taken.out)
+  local renamed = run(tmp, { "file", "get", "--conflict", "rename", "--keep", "/in" }, nil, false, function(ran: Ran)
+    two(ran)
+    ran.files["/in/a.txt"] = "old"
+    ran.files["/in/a (1).txt"] = "older"
+  end)
+  assert(renamed.code == 0, renamed.err)
+  assert(renamed.files["/in/a (2).txt"] == "alpha", renamed.out)
+  assert(renamed.waiting["a.txt"] == "alpha", "--keep leaves it")
+  local over = run(tmp, { "file", "get", "--conflict", "overwrite", "/in" }, nil, false, function(ran: Ran)
+    two(ran)
+    ran.files["/in/a.txt"] = "old"
+  end)
+  assert(over.code == 0 and over.files["/in/a.txt"] == "alpha", over.err)
+  local ro = run(tmp, { "file", "get", "/ro" }, nil, false, two)
+  assert(ro.code == 1 and ro.err:find("a.txt: /ro/a.txt: read-only file system", 1, true) ~= nil, ro.err)
+  assert(ro.waiting["a.txt"] == "alpha")
+  local nodir = run(tmp, { "file", "get", "/nowhere" })
+  assert(nodir.code == 2 and nodir.err:find("not a directory", 1, true) ~= nil, nodir.err)
 end

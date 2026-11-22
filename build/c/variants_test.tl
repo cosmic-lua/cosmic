@@ -40,3 +40,23 @@ local function test_the_checked_variant_has_the_checked_cores_defines()
   assert(source:find('.id = 2, .name = "sanitized"', 1, true))
   assert(defines:find("COSMIC_CONFIGURATION_ID=2", 1, true))
 end
+
+local function test_the_analyzer_runs_under_build_zigs_own_warnings()
+  local source = assert(Fs.read("build.zig"))
+  local block = assert(source:match("const own_warnings = %[_%]%[%]const u8{(.-)\n};"))
+  local listed: mut {string} = {}
+  for flag in block:gmatch('"([^"]+)"') do listed[#listed + 1] = flag end
+  assert(table.concat(listed, " ") == table.concat(c.own_warnings, " "),
+    "build.zig's own_warnings are " .. table.concat(listed, " "))
+end
+
+local function test_the_analyzed_files_are_build_zigs()
+  local source = assert(Fs.read("build.zig"))
+  local listed: mut {string} = {}
+  for flag in assert(source:match("const core_sources = %[_%]%[%]const u8{(.-)\n};")):gmatch('"([^"]+)"') do
+    listed[#listed + 1] = flag
+  end
+  local extra = assert(source:match("fn analyze%(.-const extra = %[_%]%[%]const u8{(.-)};"))
+  for flag in extra:gmatch('"([^"]+)"') do listed[#listed + 1] = flag end
+  assert(table.concat(listed, " ") == table.concat(c.analyzed, " "), "build.zig analyzes " .. table.concat(listed, " "))
+end

@@ -21,6 +21,22 @@ int cosmic_open_http (lua_State *L);
  * dates add to `crt`'s. Defined in core/http.c. */
 uint32_t cosmic_tls_distrust (CURL *easy, const mbedtls_x509_crt *crt, int depth);
 
+/* What [`cosmic_roots_distrust`] refused, for a failure's words: each
+ * "" until it refuses so. */
+struct cosmic_distrust_note {
+  /* The subject of the first certificate OneCRL revokes. */
+  char revoked[160];
+  /* Which distrusted root refused the server's certificate, and why. */
+  char distrusted[256];
+};
+
+/* The same flags as [`cosmic_tls_distrust`], for a handshake of
+ * core/tls.c's, which no curl transfer holds: what it refused goes to
+ * `note`. Meaningful once the trust store is loaded (`roots` of
+ * cosmic.internal.http); before, it adds none. Defined in core/http.c. */
+uint32_t cosmic_roots_distrust (const mbedtls_x509_crt *crt, int depth,
+                                struct cosmic_distrust_note *note);
+
 #ifdef COSMIC_CHECKED
 /* The checked core's count of transfers holding curl state: made by
  * `open`, and not yet released by a close, a failure or the collector.

@@ -62,8 +62,10 @@
     # the complete product, its regressions and its portable suite, the
     # bytes it ran uploaded for the join. The merge queue runs
     # linux-x86_64's native suite and the tree's format check, and no more:
-    # a light, fast gate. A pull request runs lighter still, linux-x86_64's
-    # boot and the format check of what it changed. A push to main runs
+    # a light, fast gate, as two jobs at once, each booting the tree: one
+    # after the other, the two took some 15 minutes. A pull request runs
+    # lighter still, linux-x86_64's boot and the format check of what it
+    # changed. A push to main runs
     # three legs whole, all but macOS; the daily scheduled run and a
     # manual run run all four, macOS among them.
     platform: {
@@ -77,9 +79,12 @@
         # `image` is the container its Linux leg runs in (ci/images/,
         # ci-images.yml), pinned by digest, its `run` steps run as an
         # unprivileged `runner` through `leg-shell`
-        # (.github/scripts/leg-container.sh); macOS has none.
+        # (.github/scripts/leg-container.sh); macOS has none. `leg` is the
+        # host a job is (its caches, its verdicts, COSMIC_WORKER), `name`
+        # the job's own; `part` is what of the leg it runs: `all`, or in the
+        # queue the native `suite` alone or the `format` check alone.
         matrix: {
-          include: "${{ fromJSON((github.event_name == 'merge_group' || github.event_name == 'pull_request') && '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
+          include: "${{ fromJSON(github.event_name == 'pull_request' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'merge_group' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"suite\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-x86_64-format\", \"leg\": \"linux-x86_64\", \"part\": \"format\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}]' || github.event_name == 'push' && '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]' || '[{\"name\": \"linux-x86_64\", \"leg\": \"linux-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"linux-aarch64\", \"leg\": \"linux-aarch64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04-arm\", \"target\": \"aarch64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a\"}, {\"name\": \"macos-aarch64\", \"leg\": \"macos-aarch64\", \"part\": \"all\", \"runner\": \"macos-15\", \"target\": \"aarch64-macos\", \"image\": \"\"}, {\"name\": \"alpine-x86_64\", \"leg\": \"alpine-x86_64\", \"part\": \"all\", \"runner\": \"ubuntu-24.04\", \"target\": \"x86_64-linux-musl\", \"image\": \"ghcr.io/cosmic-lua/cosmic-ci-alpine@sha256:bfb230da47e113566e34d8b6a2fa1a7f60ac8b40be4e6a3212f08fcb743e9f72\"}]') }}",
         },
       },
       "runs-on": "${{ matrix.runner }}",
@@ -87,7 +92,7 @@
       permissions: {contents: "read", packages: "read"},
       "timeout-minutes": 60,
       env: {
-        COSMIC_WORKER: "${{ matrix.name }}",
+        COSMIC_WORKER: "${{ matrix.leg }}",
         TARGET: "${{ matrix.target }}",
         # The checked suite and the format check run in jobs and steps
         # of their own (`checked`, "check the tree's format" below).
@@ -101,7 +106,7 @@
         # worker budget of the leg's processors (phase_fixtures,
         # `fixture_lanes`): the two Linux legs whose fixture step the
         # one-test self-driven case idles.
-        COSMIC_CI_FIXTURE_BUDGET: "${{ (matrix.name == 'linux-aarch64' || matrix.name == 'alpine-x86_64') && 'run' || 'skip' }}",
+        COSMIC_CI_FIXTURE_BUDGET: "${{ (matrix.leg == 'linux-aarch64' || matrix.leg == 'alpine-x86_64') && 'run' || 'skip' }}",
         # A Linux leg fails where a confined test's sandbox does not hold
         # (phase_sandbox) and runs its suites sandboxed; macOS cannot.
         COSMIC_CI_REQUIRE_SANDBOX: "${{ matrix.image && '1' || '0' }}",
@@ -161,7 +166,7 @@
           name: "name the zig build cache, and the run's start",
           id: "names",
           uses: "./.github/actions/cache-names",
-          with: {leg: "${{ matrix.name }}"},
+          with: {leg: "${{ matrix.leg }}"},
         },
         # TODO: find what a run adds to the cache when its inputs match
         # the entry it restored, and compiles again on every such run:
@@ -204,7 +209,7 @@
           with: {
             path: "${{ runner.temp }}/zig-build",
             key: "${{ steps.zig-cache-restore.outputs.cache-primary-key }}",
-            "restore-keys": "zig-build-${{ matrix.name }}-\n",
+            "restore-keys": "zig-build-${{ matrix.leg }}-\n",
           },
         },
         {
@@ -220,7 +225,7 @@
           id: "host-id",
           shell: "sh",
           env: {STARTED: "${{ hashFiles('.github/seccomp/**', '.github/scripts/leg-container.sh', '.github/scripts/seccomp-profile.sh') }}"},
-          run: "cosmic-driver cosmic_ci/driver.tl leg-host-id \"${{ matrix.name }}\" \"${{ matrix.image }}\" \"${{ matrix.runner }}\" \"$STARTED\"",
+          run: "cosmic-driver cosmic_ci/driver.tl leg-host-id \"${{ matrix.leg }}\" \"${{ matrix.image }}\" \"${{ matrix.runner }}\" \"$STARTED\"",
         },
         # Main's newest verdicts and compiles for this host; only main
         # saves. A restore decides how many tests stand, never whether a
@@ -241,26 +246,9 @@
           uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.name }}-",
-            "restore-keys": "compiles-${{ matrix.name }}-\n",
+            key: "compiles-${{ matrix.leg }}-",
+            "restore-keys": "compiles-${{ matrix.leg }}-\n",
           },
-        },
-        # To a path of this commit's and leg's own, so a test that turns
-        # on the tree's path fails some run (driver.tl place-tree). After
-        # every hashFiles, which reads the checkout.
-        # TODO: move it on the macOS leg alone once "check the pinned CI
-        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
-        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
-        # and the pinned release sandboxes its workers by default, knows
-        # `system` and takes `/parent/` grants (orchestration_test
-        # declares its own), but a sandboxed `cosmic test
-        # cosmic_ci` from ci/ still fails tests, for the host programs they
-        # start and the files they read without declaring them (`system`
-        # profiles, grants), which that run lists; the macOS leg has no
-        # sandbox at all.
-        {
-          name: "move the tree to a path of its own",
-          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
         # The tree's format check (`fix --check .`), the same on every
         # host: linux-x86_64's, on a pull request, in the merge queue, on
@@ -276,11 +264,14 @@
         # from its checkout, and the other runs fetch the commit's
         # history down to main. Where it finds none it fails the job
         # there, as the check would minutes later, rather than let a
-        # raise through; run it again.
+        # raise through; run it again. Both fetches run before the tree
+        # moves: actions/checkout keeps its credentials in an
+        # `includeIf.gitdir` of the checkout's own path, which a git run
+        # in the moved tree does not match, so it would fetch with none.
         {
           name: "find the base the markers are held to",
           id: "ceilings-base",
-          if: "matrix.name == 'linux-x86_64' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           shell: "sh",
           env: {SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}", PR_BASE_REF: "${{ github.base_ref }}"},
           run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
@@ -302,18 +293,35 @@
         {
           name: "name the paths the commit changed",
           id: "changed",
-          if: "matrix.name == 'linux-x86_64' && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && steps.ceilings-base.outputs.sha != ''",
+          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && steps.ceilings-base.outputs.sha != ''",
           shell: "sh",
           "continue-on-error": true,
           env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
           run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
+        },
+        # To a path of this commit's and leg's own, so a test that turns
+        # on the tree's path fails some run (driver.tl place-tree). After
+        # every hashFiles, which reads the checkout.
+        # TODO: move it on the macOS leg alone once "check the pinned CI
+        # driver" runs cosmic_ci's tests sandboxed: the tree's own suites
+        # here already see it at /tree wherever it is (COSMIC_TEST_SANDBOX=1),
+        # and the pinned release sandboxes its workers by default, knows
+        # `system` and takes `/parent/` grants (orchestration_test
+        # declares its own), but a sandboxed `cosmic test
+        # cosmic_ci` from ci/ still fails tests, for the host programs they
+        # start and the files they read without declaring them (`system`
+        # profiles, grants), which that run lists; the macOS leg has no
+        # sandbox at all.
+        {
+          name: "move the tree to a path of its own",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
         # cosmic_ci's tests read ci/ and, of the tree around it,
         # .github/workflows/ci.yml alone (their Test.policy grants).
         {
           name: "ask whether the change reaches the CI driver's tests",
           id: "reach",
-          if: "matrix.name == 'linux-x86_64' && github.event_name == 'merge_group'",
+          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name == 'merge_group'",
           shell: "sh",
           env: {PATHS: "${{ steps.changed.outputs.paths }}"},
           run: "if [ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"; then echo driver=run >> \"$GITHUB_OUTPUT\"; fi",
@@ -333,7 +341,7 @@
         # driver too, each file ci/bootstrap-files.txt lists.
         {
           name: "type-check the bootstrap's scripts on the pinned driver",
-          if: "matrix.name == 'linux-x86_64' && github.event_name != 'push'",
+          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push'",
           run: "cosmic-driver cosmic_ci/driver.tl check-islands",
         },
         {
@@ -344,17 +352,17 @@
         {
           name: "run release Cosmic's native suite",
           id: "release-suite",
-          if: "github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && matrix.part != 'format'",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-suite",
         },
         {
           name: "verify the delayed native database boundary",
-          if: "github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && matrix.part != 'format'",
           run: "cosmic-driver cosmic_ci/driver.tl platform local-boundary",
         },
         {
           name: "check the tree's format",
-          if: "matrix.name == 'linux-x86_64' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           env: {COSMIC_CI_FORMAT: "run", COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
           run: "cosmic-driver cosmic_ci/driver.tl platform format",
         },
@@ -384,14 +392,14 @@
         # (ci/darwin-tests.txt).
         {
           name: "run the darwin suite",
-          if: "github.event_name != 'pull_request'",
+          if: "github.event_name != 'pull_request' && matrix.part != 'format'",
           run: "cosmic-driver cosmic_ci/driver.tl platform darwin-suite",
         },
         # Fails where a part of spawn's sandbox a confined test needs did
         # not hold (COSMIC_CI_REQUIRE_SANDBOX, phase_sandbox).
         {
           name: "probe the sandbox a confined test runs in",
-          if: "runner.os == 'Linux' && github.event_name != 'pull_request'",
+          if: "runner.os == 'Linux' && github.event_name != 'pull_request' && matrix.part != 'format'",
           run: "cosmic-driver cosmic_ci/driver.tl platform sandbox",
         },
         {
@@ -525,11 +533,11 @@
         # stopped short would leave the next only what it reached.
         {
           name: "save compiles and parses",
-          if: "always() && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.name, steps.compiles-trim.outputs.digest)",
+          if: "always() && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.name }}-${{ steps.compiles-trim.outputs.digest }}",
+            key: "compiles-${{ matrix.leg }}-${{ steps.compiles-trim.outputs.digest }}",
           },
         },
         # Once per vendor part and leg, not per core change, which the

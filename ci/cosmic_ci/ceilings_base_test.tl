@@ -179,14 +179,14 @@ local function test_a_commit_on_main_is_its_own_base()
   assert(behind.code == 0 and behind.output == "sha=" .. SHA .. "\n", behind.output .. behind.said)
 end
 
---- A fetch that fails is made again after 2 and 4 seconds, three in all: one that then succeeds names the base, and a
---- run no fetch answers fails the step, naming none.
+--- A fetch that fails is made again after waits that double from 5 seconds to at most 60, six in all: one that then
+--- succeeds names the base, and a run no fetch answers fails the step, naming none.
 local function test_a_fetch_that_fails_is_made_again_and_fails_the_step_when_none_succeeds()
   local answers = grown_from_one()
-  answers[fetch("refs/heads/main", SHA)] = { false, false, "" }
+  answers[fetch("refs/heads/main", SHA)] = { false, false, false, false, false, "" }
   local ran = step(QUEUE, answers)
   assert(ran.code == 0 and ran.output == "sha=" .. BASE .. "\n", tostring(ran.code) .. ran.output .. ran.said)
-  assert(#ran.sleeps == 2 and ran.sleeps[1] == 2 and ran.sleeps[2] == 4, ran.said)
+  assert(table.concat(ran.sleeps, " ") == "5 10 20 40 60", ran.said)
   local down: {string: {string | boolean}} = {
     [fetch("refs/heads/main", SHA)] = { false },
     ["ls-remote origin refs/heads/main " .. QUEUE_REF] = { false },
@@ -194,7 +194,7 @@ local function test_a_fetch_that_fails_is_made_again_and_fails_the_step_when_non
   }
   local never = step(QUEUE, down)
   assert(never.code == 1 and never.output == "" and #never.calls == 0, tostring(never.code) .. never.output)
-  assert(#never.sleeps == 4 and never.said:find("the job fails here", 1, true) ~= nil, never.said)
+  assert(#never.sleeps == 10 and never.said:find("the job fails here", 1, true) ~= nil, never.said)
   local once = step({ EVENT = "merge_group", REF = QUEUE_REF, SHA = SHA, BASE_REF = "refs/heads/main", TRIES = "1" }, down)
   assert(once.code == 1 and #once.sleeps == 0 and #once.git == 3, once.said)
 end

@@ -63,6 +63,9 @@ local Types = require("cosmic.web.types")
 -- Only the type: the tailnet middleware, and the client of tailscaled it
 -- carries, load where an app asks for it.
 local type Tailnet = require("cosmic.web.tailnet")
+-- Only the type: the login, and the client of the provider it carries,
+-- load where an app asks for it.
+local type Oidc = require("cosmic.web.oidc")
 
 local record Web
   --- What a handler answers: the server's own [`Server.Reply`].
@@ -241,6 +244,23 @@ local record Web
   --- see [`Tailnet.require_cap`].
   require_cap: function(name: string): Types.Middleware
 
+  --- Who logged in with an OpenID Connect provider: see [`Oidc.Identity`].
+  type OidcIdentity = Oidc.Identity
+  --- What [`Web.oidc`] takes: see [`Oidc.Options`].
+  type OidcOptions = Oidc.Options
+  --- What [`Web.oidc`] finds of its provider: see [`Oidc.Provider`].
+  type OidcProvider = Oidc.Provider
+  --- How [`Web.oidc`] reaches its provider: see [`Oidc.Fetch`].
+  type OidcFetch = Oidc.Fetch
+  --- Middleware of a login with an OpenID Connect provider: see
+  --- [`Oidc.middleware`].
+  oidc: function(opts: Oidc.Options): Types.Middleware
+  --- Who [`Web.oidc`] found logged in: see [`Oidc.identity`].
+  oidc_identity: function(req: Types.Request): Oidc.Identity?
+  --- Middleware that requires a login of [`Web.oidc`]: see
+  --- [`Oidc.require_login`].
+  require_login: function(): Types.Middleware
+
   --- Compiles routes and middleware into an app: see [`App.new`].
   app: function(spec: Types.AppSpec): Types.App
   --- Serves an app until the server stops: see [`App.serve`].
@@ -302,6 +322,15 @@ Web.tailnet_funnel = function(req: Types.Request): boolean
 end
 Web.require_cap = function(name: string): Types.Middleware
   return require("cosmic.web.tailnet").require_cap(name)
+end
+Web.oidc = function(opts: Oidc.Options): Types.Middleware
+  return require("cosmic.web.oidc").middleware(opts)
+end
+Web.oidc_identity = function(req: Types.Request): Oidc.Identity?
+  return require("cosmic.web.oidc").identity(req)
+end
+Web.require_login = function(): Types.Middleware
+  return require("cosmic.web.oidc").require_login()
 end
 Web.serve = App.serve
 Web.test_client = Testing.test_client

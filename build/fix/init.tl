@@ -1282,7 +1282,15 @@ local function lay_out_c(ctx: Fix)
     local opened, _ = Sqlite.open(build_paths.resolve(root).translate_check, { writable = true })
     memo = opened
   end
-  local outcomes = c_check.check(root, compiled, nil, nil, memo)
+  -- The core's own C that build.zig's `analyze` reads is also run through clang's static analyzer, as `bin/zig build
+  -- analyze` runs it, so that a finding fails here and not in CI's checked leg alone.
+  local analyzed: mut {string: boolean} = {}
+  for _, name in ipairs(c_check.analyzed) do analyzed["core/" .. name] = true end
+  local analyze: mut {string: boolean} = {}
+  for _, file in ipairs(compiled) do
+    if analyzed[under(root, file) or file] == true then analyze[file] = true end
+  end
+  local outcomes = c_check.check(root, compiled, nil, nil, memo, analyze)
   if memo ~= nil then
     local _, _ = memo:close()
   end
@@ -1617,6 +1625,33 @@ local function mend_markers(ctx: Fix, sink: Ceilings.Sink)
   ctx.failures = failures
 end
 
+--- A run of some paths in cosmic's own tree holds the markers of the Teal files it names to the merge base with main, as a
+--- run over the whole tree holds every file's ([`build.ceilings_base`]): a marker only falls. The check reads only the text
+--- of those files and of the same files at the base, so it costs a narrowed run little, and a marker that rose fails here
+--- and not minutes later in CI's check of the tree. The other tree checks still need the whole tree.
+local function hold_named_markers(root: string, files: {string}, findings: mut {string})
+  local env = Env.all()
+  -- CI holds the markers in its check of the tree, which names the base; a narrowed run there has none to name.
+  if env["GITHUB_ACTIONS"] == "true" and (env["COSMIC_CEILINGS_BASE"] or "") == "" then return end
+  local counts: mut {string: {string: integer}} = {}
+  for _, file in ipairs(files) do
+    -- The base's files are named from the root, as the whole tree's are.
+    local named = under(root, file)
+    local path = if named ~= nil then (named:gsub("/+", "/")) else nil end
+    local source, _ = Fs.read(file)
+    if path ~= nil and path ~= "" and source ~= nil and Markers.mentions(source) then
+      local held = Markers.counts(source, path)
+      if next(held) ~= nil then counts[path] = held end
+    end
+  end
+  if next(counts) == nil then return end
+  local held = CeilingsBase.check(root, env, CeilingsBase.live_git(), counts)
+  for _, line in ipairs(held.lines) do
+    findings[#findings + 1] = "ceilings: " .. line
+  end
+  if held.note ~= "" then log:say("fix: ceilings: " .. held.note) end
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1738,6 +1773,8 @@ local function run_tree_checks(ctx: Fix)
       local closed, close_trouble = db:close()
       if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
     end
+  elseif assert(ctx.standing).own then
+    hold_named_markers(root, picked.files, findings)
   end
 end
 

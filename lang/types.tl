@@ -98,7 +98,7 @@ local record Types
   --- by it. No value is in the enums of two forms (`untagged_union` otherwise), and a tag is never `mut`. A form repeats
   --- these fields, since a record lists the fields of an interface alike.
   interface Base
-    --- Whether it is an atom, for the code that treats the twelve atoms alike without listing their tags.
+    --- Whether it is an atom, for the code that treats the thirteen atoms alike without listing their tags.
     atom: boolean
     --- Its position among the types of its store, from 1, in the order they were made.
     --- Store-local: nothing outside the store keeps one.
@@ -119,7 +119,7 @@ local record Types
     mut height: integer
   end
 
-  --- The tag of an [`Atom`]: its name. Twelve values in one member, which no other member shares.
+  --- The tag of an [`Atom`]: its name. Thirteen values in one member, which no other member shares.
   enum Atom_tag
     "integer"
     "number"
@@ -133,13 +133,14 @@ local record Types
     "invalid"
     "Ordered"
     "Numeric"
+    "Key"
   end
 
   --- `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`, `never`, `any`,
-  --- `invalid` (what a type that failed to lower becomes), or one of the two built-in bounds of a type parameter:
-  --- `Ordered`, which the types `<` takes two values of are below (a number type, a string type), and `Numeric`, which
-  --- the types arithmetic answers its own type for are below (`integer`, `number`). The tag is the name. A bound is
-  --- the type of no value.
+  --- `invalid` (what a type that failed to lower becomes), or one of the three built-in bounds of a type parameter:
+  --- `Ordered`, which the types `<` takes two values of are below (a number type, a string type), `Numeric`, which
+  --- the types arithmetic answers its own type for are below (`integer`, `number`), and `Key`, which the types a map
+  --- is keyed by are below ([`Types.keys_a_map`]). The tag is the name. A bound is the type of no value.
   record Atom is Base
     tag: Atom_tag
     atom: boolean
@@ -519,8 +520,16 @@ local record Types
   --- a letter, and `P` and the index from the 27th.
   letter: function(index: integer): string
 
-  --- Whether `t` is `Ordered` or `Numeric`, the bounds the language declares.
+  --- Whether `t` is `Ordered`, `Numeric` or `Key`, the bounds the language declares.
   builtin_bound: function(t: Type): boolean
+
+  --- Whether a map may be keyed by `t`: `integer`, `string`, `boolean`, an enum, or a record, class, interface or
+  --- userdata, each equal to a key only by one rule (the value, or the identity of the table or userdata). A type
+  --- parameter is read by its bound, and so is not one here.
+  keys_a_map: function(t: Type): boolean
+
+  --- What meets the built-in bound `tag`, for a message: "a number type or a string type" for `Ordered`.
+  bound_meets: function(tag: string): string
 
   --- The names to keep for a generic function type, which `held` already has from another declaration, when a
   --- declaration gives it `names`: `held` where the two agree, none (`{}`, so display writes letters) where two
@@ -563,7 +572,7 @@ local type FnSpec = Types.FnSpec
 local type Loader = Types.Loader
 
 local ATOMS <const>: {Atom_tag} = {
-  "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any", "invalid", "Ordered", "Numeric",
+  "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any", "invalid", "Ordered", "Numeric", "Key",
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
@@ -856,7 +865,27 @@ function Types.kept_names(held: {string}?, names: {string}): {string}
 end
 
 function Types.builtin_bound(t: Type): boolean
-  return t.tag == "Ordered" or t.tag == "Numeric"
+  return t.tag == "Ordered" or t.tag == "Numeric" or t.tag == "Key"
+end
+
+function Types.keys_a_map(t: Type): boolean
+  if t.tag == "integer" or t.tag == "string" or t.tag == "boolean" then
+    return true
+  elseif (t.tag == "named") then
+    local kind = t.decl.kind
+    return kind == "record" or kind == "class" or kind == "interface" or kind == "userdata" or kind == "enum" or
+      kind == "integer_enum"
+  end
+  return false
+end
+
+function Types.bound_meets(tag: string): string
+  if tag == "Numeric" then
+    return "`integer` or `number`"
+  elseif tag == "Key" then
+    return "`integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata"
+  end
+  return "a number type or a string type"
 end
 
 function Types.letter(index: integer): string
@@ -871,7 +900,7 @@ end
 --- types, collections, variables and functions.
 local ATOM_RANK <const>: {string: integer} = {
   integer = 1, number = 2, string = 3, boolean = 4, ["true"] = 5, ["false"] = 6, ["nil"] = 7,
-  never = 8, any = 9, invalid = 10, Ordered = 11, Numeric = 12,
+  never = 8, any = 9, invalid = 10, Ordered = 11, Numeric = 12, Key = 13,
 }
 
 local function rank(t: Type): integer
@@ -1337,7 +1366,7 @@ local function bound_ok(store: Store, bound: Type)
     return
   end
   if not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or #bound.args > 0 then
-    error("types: a type parameter is bounded by an interface and no arguments, or by `Ordered` or `Numeric`, not " ..
+    error("types: a type parameter is bounded by an interface and no arguments, or by `Ordered`, `Numeric` or `Key`, not " ..
         Types.display(bound), 3)
   end
 end

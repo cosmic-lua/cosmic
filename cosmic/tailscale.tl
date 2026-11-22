@@ -1,8 +1,9 @@
 --- The machine's own Tailscale node, through tailscaled's LocalAPI: who
 --- a tailnet address belongs to, the node's status and preferences, a
 --- TLS certificate for its `ts.net` name, a ping across the tailnet,
---- the daemon's stream of events, and sites and ports put up through
---- Serve and Funnel for as long as the program runs ([`Client.serve`]).
+--- files sent and received with Taildrop, the daemon's stream of
+--- events, and sites and ports put up through Serve and Funnel for as
+--- long as the program runs ([`Client.serve`]).
 ---
 ---     local Tailscale = require("cosmic.tailscale")
 ---     local ts = assert(Tailscale.connect())
@@ -43,6 +44,7 @@ local Message = require("cosmic.http.message")
 local Net = require("cosmic.net")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 local Tls = require("cosmic.tls")
 local Url = require("cosmic.url")
 local sys = require("cosmic.sys")
@@ -172,7 +174,19 @@ local record WireNotify
   SessionID?: string
 end
 
+local record WireFileTarget
+  Node: WireNode
+  PeerAPIURL?: string
+end
+
+local record WireWaitingFile
+  Name: string
+  Size: integer
+end
+
 local WHOIS <const> = Shape.record_of("WireWhoIs")
+local FILE_TARGET <const> = Shape.record_of("WireFileTarget")
+local WAITING_FILE <const> = Shape.record_of("WireWaitingFile")
 local STATUS <const> = Shape.record_of("WireStatus")
 local ME <const> = Shape.record_of("WireMe")
 local PREFS <const> = Shape.record_of("WirePrefs")
@@ -409,6 +423,42 @@ local record CertOptions
   min_validity_ns?: integer
 end
 
+--- A peer [`Client.send_file`] can send a file to, as
+--- [`Client.file_targets`] lists it: one of the user's own nodes, or a
+--- node shared to them, that is online and runs Taildrop.
+local record FileTarget
+  --- The node; [`send_file`] names it by its `stable_id`.
+  node: Node
+  --- Where the node's PeerAPI listens, as the daemon reaches it.
+  peerapi_url: string
+end
+
+--- A file sent to this node with Taildrop, received whole, that waits
+--- for [`Client.open_file`] and [`Client.delete_file`].
+local record WaitingFile
+  --- The file's name, as its sender gave it: one path element.
+  name: string
+  --- Its size in bytes.
+  size: integer
+end
+
+--- What [`Client.waiting_files`] takes.
+local record WaitingOptions
+  --- How long to wait for a file when none waits yet, in nanoseconds,
+  --- rounded up to whole seconds: an empty list once it has passed. Nil
+  --- or 0 asks once.
+  wait_ns?: integer
+end
+
+--- What [`Client.send_file`] and [`Client.open_file`] take.
+local record FileOptions
+  --- How long each wait for the daemon may take, in nanoseconds: to
+  --- take the next bytes, or to send its reply; the client's
+  --- `timeout_ns` by default. A transfer takes as long as it takes, so
+  --- long as bytes move.
+  timeout_ns?: integer
+end
+
 --- The daemon's state, as [`Notify.state`] names it.
 local enum State
   "NoState"
@@ -559,6 +609,18 @@ local function node_of(wire: WireNode): Node
     addresses = bare(wire.Addresses),
     tags = listed(wire.Tags),
   }
+end
+
+--- Whether `name` is a file name a daemon may hand out or be handed:
+--- one path element, not `.` or `..`, with no control byte or backslash,
+--- and not ending in `.partial` or `.deleted`, which the daemon keeps for
+--- its own. The daemon's own check is stricter still; this one is made
+--- here too, so that a caller that writes a name under a directory never
+--- leaves it.
+local function file_name_ok(name: string): boolean
+  if name == "" or name == "." or name == ".." then return false end
+  if name:match("%.partial$") ~= nil or name:match("%.deleted$") ~= nil then return false end
+  return name:find("[%c/\\\127]") == nil
 end
 
 local function whois_of(wire: WireWhoIs, own: boolean): WhoIs
@@ -935,6 +997,177 @@ local function forwarding(config: {string: Json.Value}): integer
   return count
 end
 
+--- The body of a file the daemon sends, read as it arrives over the
+--- connection [`Client.open_file`] holds. A class, so a `<close>` local
+--- holds one.
+local class FileReader is Stream.Reader
+  --- The file's size, in bytes, as the daemon names it.
+  size: integer
+  --- Internal: the connection.
+  conn: Net.Conn
+  --- Internal: bytes read with the reply's head, not yet handed out.
+  mut rest: string
+  --- Internal: bytes left to hand out.
+  mut left: integer
+  --- Internal: set by `close`.
+  mut closed: boolean
+  --- Not offered: a file is read in order.
+  skip?: function(FileReader, integer): boolean, string
+
+  --- The next bytes of the file, at most `max_bytes` (64 KiB by
+  --- default); nil and "" at its end, or nil and why. A connection that
+  --- ends before `size` bytes fails it.
+  function read(self, max_bytes?: integer): string?, string
+    if self.closed then return nil, "tailscale: the file is closed" end
+    if self.left == 0 then return nil, "" end
+    local most = math.min(max_bytes or 65536, self.left)
+    if most < 1 then error("tailscale: read's max_bytes must be positive", 2) end
+    local chunk: string
+    if self.rest ~= "" then
+      chunk = self.rest:sub(1, most)
+      self.rest = self.rest:sub(most + 1)
+    else
+      local got, why = self.conn:read(most)
+      if got == nil then
+        if why == "" then
+          return nil, "tailscale: the daemon ended the file " .. String.counted(self.left, "byte") .. " short"
+        end
+        return nil, "tailscale: " .. why
+      end
+      chunk = got
+    end
+    self.left = self.left - #chunk
+    return chunk, ""
+  end
+
+  --- Ends the transfer, and the connection. Safe to call more than once.
+  function close(self): boolean, string
+    if self.closed then return true, "" end
+    self.closed = true
+    return self.conn:close()
+  end
+
+  function __close(self)
+    local _, _ = self:close()
+  end
+end
+
+--- The headers of every request to the daemon, with `token`'s proof.
+local function base_headers(endpoint: Endpoint): mut {string: string}
+  local headers: mut {string: string} = {
+    ["Host"] = HOST,
+    ["Tailscale-Cap"] = CAPABILITY,
+    ["Connection"] = "close",
+    ["User-Agent"] = "cosmic",
+  }
+  local token = endpoint.token
+  if token ~= nil then headers["Authorization"] = "Basic " .. Codec.base64(":" .. token) end
+  return headers
+end
+
+--- What [`exchanged`] answers: the reply's head, and the connection with
+--- the bytes after the head that came with it.
+local record Exchange
+  response: Message.Response
+  conn: Net.Conn
+  rest: string
+end
+
+--- `method` sent to `path` at `endpoint`, with `size` bytes of `body`
+--- after the head where given, and the reply's head, read as it comes:
+--- every wait, to connect, write or read, is held to `wait_ns`. A reply
+--- that is no 2xx is read whole (4 KiB of it) and answered as a reason,
+--- as `ok` answers one, with the connection closed.
+local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, path: string,
+                         body?: Stream.Reader, size?: integer): Exchange?, string
+  local headers = base_headers(endpoint)
+  if body ~= nil then
+    headers["Content-Type"] = "application/octet-stream"
+    headers["Content-Length"] = tostring(size or 0)
+  end
+  local head, bad = Message.format_request({ method = method, target = path, headers = headers,
+    body = if body == nil and method ~= "GET" then "" else nil end })
+  if head == nil then return nil, "tailscale: " .. bad end
+  -- 0 is no limit, as everywhere in this module.
+  local limit = if wait_ns == 0 then nil else wait_ns end
+  local conn, why = Net.connect(endpoint.via, { timeout_ns = limit })
+  if conn == nil then return nil, "tailscale: " .. why end
+  local function failed(reason: string): Exchange?, string
+    local _, _ = conn:close()
+    return nil, "tailscale: " .. reason
+  end
+  conn:set_timeout(limit)
+  -- Set once a reply's head is read: a write the daemon cut short by
+  -- refusing the request is answered by that refusal, not by the write's.
+  local replied = false
+  local answered: function(): Exchange?, string
+  answered = function(): Exchange?, string
+    local reader = Message.response_reader({ head_only = true })
+    while true do
+      local chunk, trouble = conn:read()
+      local read = if chunk ~= nil then reader:feed(chunk) elseif trouble == "" then reader:finish() else nil end
+      if read == nil then return failed(trouble) end
+      if read.status == "done" then
+        replied = true
+        local response = assert(read.response)
+        local rest = if chunk ~= nil then chunk:sub(read.next) else "" end
+        if response.status >= 200 and response.status < 300 then
+          return { response = response, conn = conn, rest = rest }, ""
+        end
+        -- The reply's body says why; the daemon closes the connection after it.
+        local said: mut {string} = { rest }
+        local total = #rest
+        while total < 4096 do
+          local more, _ = conn:read(4096 - total)
+          if more == nil then break end
+          said[#said + 1] = more
+          total = total + #more
+        end
+        local _, _ = conn:close()
+        local text = table.concat(said):sub(1, 4096):gsub("%s+$", "")
+        local refusal, _ = Json.decode_object(text)
+        local message = if refusal ~= nil then refusal["error"] else nil end
+        if message is string then text = message end
+        if text == "" then text = "status " .. tostring(response.status) end
+        return nil, "tailscale: " .. (path:match("^[^?]*") or path) .. ": " .. text
+      end
+      if read.status ~= "more" then
+        return failed("the daemon's reply: " .. (if read.reason ~= "" then read.reason else read.status end))
+      end
+    end
+  end
+  local wrote, refused = conn:write(head)
+  if not wrote then return failed(refused) end
+  if body ~= nil then
+    local sent_bytes = 0
+    while true do
+      local chunk, trouble = body:read(65536)
+      if chunk == nil then
+        if trouble ~= "" then return failed(trouble) end
+        break
+      end
+      sent_bytes = sent_bytes + #chunk
+      if sent_bytes > (size or 0) then
+        return failed("the file is longer than its size, " .. tostring(size))
+      end
+      local put, lost = conn:write(chunk)
+      if not put then
+        local early, said = answered()
+        if early ~= nil then
+          local _, _ = early.conn:close()
+          return failed(lost)
+        end
+        if replied then return nil, said end
+        return failed(lost)
+      end
+    end
+    if sent_bytes ~= (size or 0) then
+      return failed("the file is " .. String.counted(sent_bytes, "byte") .. ", not its size, " .. tostring(size))
+    end
+  end
+  return answered()
+end
+
 --- The events of [`Client.watch`], one a read: a line of JSON an
 --- event. A class, so a `<close>` local holds one.
 local class Events
@@ -1195,6 +1428,125 @@ local class Client
     }, ""
   end
 
+  --- The peers Taildrop can send a file to ([`Client.send_file`]), by
+  --- node name. A node the daemon may not send files from lists none.
+  function file_targets(self): {FileTarget}?, string
+    local answer = ok(self.endpoint, self.timeout_ns, "GET", "/localapi/v0/file-targets")
+    local text = answer.body
+    if text == nil then return nil, answer.reason end
+    -- Go writes a list of none as null.
+    if text:match("^%s*null%s*$") ~= nil then return {}, "" end
+    local wire, bad = Shape.decode_into(text, Shape.list(FILE_TARGET.spec))
+    if wire == nil then return nil, "tailscale: file-targets: " .. bad end
+    local targets: mut {FileTarget} = {}
+    for _, target in ipairs(wire) do
+      targets[#targets + 1] = { node = node_of(target.Node), peerapi_url = target.PeerAPIURL or "" }
+    end
+    table.sort(targets, function(a: FileTarget, b: FileTarget): boolean
+      if a.node.name ~= b.node.name then return a.node.name < b.node.name end
+      return a.node.stable_id < b.node.stable_id
+    end)
+    return targets, ""
+  end
+
+  --- Sends `size` bytes of `body` to the node whose stable id is `to`
+  --- ([`FileTarget.node`]), as the file `name`, with Taildrop: the peer
+  --- keeps it until its user takes it. The bytes stream as `body` reads
+  --- them, so a file need not fit in memory, and `body` must hold `size`
+  --- bytes exactly. True once the peer has it all.
+  ---
+  ---     local file <close> = assert(Stream.open("report.pdf"))
+  ---     local size = assert(Fs.stat("report.pdf")).size
+  ---     assert(ts:send_file(target.node.stable_id, "report.pdf", file, size))
+  function send_file(self, to: string, name: string, body: Stream.Reader, size: integer,
+                     opts?: FileOptions): boolean, string
+    if to == "" or to:find("[^%w]") ~= nil then
+      return false, "tailscale: no such target " .. string.format("%q", to)
+    end
+    if not file_name_ok(name) then
+      return false, "tailscale: no file may be named " .. string.format("%q", name)
+    end
+    if math.type(size) ~= "integer" or size < 0 then
+      error("tailscale: size must be an integer of at least 0", 2)
+    end
+    local o: FileOptions = opts or {}
+    local got, why = exchanged(self.endpoint, o.timeout_ns or self.timeout_ns, "PUT",
+      "/localapi/v0/file-put/" .. to .. "/" .. Url.escape(name), body, size)
+    if got == nil then return false, why end
+    local _, _ = got.conn:close()
+    return true, ""
+  end
+
+  --- The files sent to this node that wait to be taken, received whole,
+  --- by name. With `opts.wait_ns`, a call that finds none waits that
+  --- long for one to arrive.
+  function waiting_files(self, opts?: WaitingOptions): {WaitingFile}?, string
+    local o: WaitingOptions = opts or {}
+    local wait = o.wait_ns or 0
+    if math.type(wait) ~= "integer" or wait < 0 then
+      error("tailscale: wait_ns must be an integer of at least 0", 2)
+    end
+    local seconds = (wait + 999999999) // 1000000000
+    local path = "/localapi/v0/files/" .. (if seconds > 0 then "?waitsec=" .. tostring(seconds) else "" end)
+    local answer = ok(self.endpoint, self.timeout_ns, "GET", path, nil, self.timeout_ns + seconds * 1000000000)
+    local text = answer.body
+    if text == nil then return nil, answer.reason end
+    if text:match("^%s*null%s*$") ~= nil then return {}, "" end
+    local wire, bad = Shape.decode_into(text, Shape.list(WAITING_FILE.spec))
+    if wire == nil then return nil, "tailscale: files: " .. bad end
+    local files: mut {WaitingFile} = {}
+    for _, file in ipairs(wire) do
+      if not file_name_ok(file.Name) then
+        return nil, "tailscale: files: the daemon names a file " .. string.format("%q", file.Name)
+      end
+      files[#files + 1] = { name = file.Name, size = file.Size }
+    end
+    table.sort(files, function(a: WaitingFile, b: WaitingFile): boolean return a.name < b.name end)
+    return files, ""
+  end
+
+  --- The bytes of the waiting file `name`, read as they arrive: the
+  --- reader holds a connection to the daemon until it is closed. The
+  --- file waits on until [`Client.delete_file`].
+  ---
+  ---     local file <close> = assert(ts:open_file("report.pdf"))
+  ---     local out = assert(Stream.create("report.pdf"))
+  ---     assert(Stream.copy(file, out))
+  ---     assert(out:close())
+  function open_file(self, name: string, opts?: FileOptions): FileReader?, string
+    if not file_name_ok(name) then
+      return nil, "tailscale: no file may be named " .. string.format("%q", name)
+    end
+    local o: FileOptions = opts or {}
+    local got, why = exchanged(self.endpoint, o.timeout_ns or self.timeout_ns, "GET",
+      "/localapi/v0/files/" .. Url.escape(name))
+    if got == nil then return nil, why end
+    local headers = got.response.headers
+    local length = headers["content-length"]
+    if headers["transfer-encoding"] ~= nil or length == nil then
+      local _, _ = got.conn:close()
+      return nil, "tailscale: files: the daemon names no length for " .. name
+    end
+    local size = if length:match("^%d+$") ~= nil then math.tointeger(tonumber(length)) else nil end
+    if size == nil then
+      local _, _ = got.conn:close()
+      return nil, "tailscale: files: the daemon names a length that is no size for " .. name .. ": " .. length
+    end
+    local reader: FileReader = { size = size, conn = got.conn, rest = got.rest, left = size, closed = false, skip = nil }
+    return reader, ""
+  end
+
+  --- Removes the waiting file `name`, once it is taken.
+  function delete_file(self, name: string): boolean, string
+    if not file_name_ok(name) then
+      return false, "tailscale: no file may be named " .. string.format("%q", name)
+    end
+    local got, why = exchanged(self.endpoint, self.timeout_ns, "DELETE", "/localapi/v0/files/" .. Url.escape(name))
+    if got == nil then return false, why end
+    local _, _ = got.conn:close()
+    return true, ""
+  end
+
   --- The daemon's events as they happen (the IPN bus), first those
   --- `opts` asks for. A stream that is open holds a connection to the
   --- daemon; a daemon that restarts ends it.
@@ -1354,6 +1706,11 @@ local record Tailscale
   type ServeForward = ServeForward
   type ServeSpec = ServeSpec
   type Serving = Serving
+  type FileTarget = FileTarget
+  type WaitingFile = WaitingFile
+  type WaitingOptions = WaitingOptions
+  type FileOptions = FileOptions
+  type FileReader = FileReader
 
   --- How [`Tailscale.connect`] reaches the daemon. With none of these,
   --- it looks where the platform's daemon listens.
@@ -1372,6 +1729,14 @@ end
 
 --- `port` of 127.0.0.1 as an endpoint, where something listens there:
 --- a proof file outlives the app that wrote it, until the app starts again.
+--- Whether `name` may be the name of a file sent with Taildrop: one
+--- path element, not `.` or `..`, with no control byte or backslash, and
+--- not ending in `.partial` or `.deleted`. [`Client.send_file`] refuses
+--- any other, as [`Client.waiting_files`] does one the daemon lists.
+function Tailscale.file_name_ok(name: string): boolean
+  return file_name_ok(name)
+end
+
 local function listening(port: integer, token: string): Endpoint?
   if port < 1 or port > 65535 then return nil end
   local address = Net.tcp("127.0.0.1", port)

@@ -26,7 +26,8 @@
 --- most the object's timeout (no limit by default; [`set_timeout`]
 --- changes it), failing with [`Poll.TIMEOUT`], and ends with
 --- "interrupted", within a tenth of a second, when the innermost open
---- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do.
+--- [`Signal.guard`] catches SIGINT or SIGTERM, as [`cosmic.http`]'s do
+--- outside a task.
 ---
 --- In a task of [`Poll.run`] ([`cosmic.poll`]), a wait to connect, to
 --- accept, to read or to write waits through the run, so its other
@@ -988,16 +989,35 @@ end
 --- A unix path too long to connect to whole is connected to from its
 --- directory, and raises where the process cannot return to its working
 --- directory after. An `address` that is no [`Net.Address`] raises.
+--- With `opts.tls` the connection is answered once its TLS handshake is
+--- done and the server verified; one that fails is closed, and its why
+--- answered.
+---
+---     local client = assert(Tls.client())
+---     local conn = assert(Net.connect(Net.tcp("93.184.215.14", 443),
+---       { tls = client, server_name = "example.com", timeout_ns = Clock.seconds(10) }))
 function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?, string
   local unusable = address_trouble(address)
   if unusable ~= "" then error("net: address must be " .. unusable, 2) end
   local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
+  if opts ~= nil and opts.server_name ~= nil and opts.tls == nil then
+    error("net: opts.server_name is what opts.tls asks for, and there is no opts.tls", 2)
+  end
   local attempt = connection(address, timeout_ns)
   local socket = attempt.socket
   if socket == nil then
     return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
   end
-  return Connection.new(socket, timeout_ns), ""
+  local conn = Connection.new(socket, timeout_ns)
+  local client = if opts ~= nil then opts.tls else nil end
+  if client == nil then return conn, "" end
+  local name = opts and opts.server_name or address.host
+  local secured, why = conn:start_tls(client, name)
+  if not secured then
+    local _, _ = conn:close()
+    return nil, named(address) .. ": " .. why
+  end
+  return conn, ""
 end
 
 resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolved}?, string
@@ -1474,8 +1494,8 @@ end
 --- [`Child.run`] in a protocol holds a guard inside the server's, so a
 --- signal ends its child as it would anywhere, and a run begun after
 --- the signal runs to its end. A wait that holds the thread rather than
---- waiting through the run ([`Http.get`]'s, `h:wait` on a child a
---- protocol started) reads the server's guard, and ends at a signal.
+--- waiting through the run (`h:wait` on a child a protocol started)
+--- reads the server's guard, and ends at a signal.
 function Net.serve(spec: Net.ServeSpec): boolean, string
   checked_spec(spec)
   if Poll.in_task() then
@@ -1551,8 +1571,8 @@ end
 --- a run is in progress, and in a run of its own otherwise, which ends
 --- once every task `body` spawned has. The connections are served only
 --- while `body` waits through the run -- a [`cosmic.net`] wait, a
---- [`Poll.delay`], a join -- so a call in it that holds the thread
---- ([`Http.get`]) is never answered.
+--- [`Poll.delay`], a join, [`Http.get`] -- so a call in it that holds
+--- the thread is never answered.
 ---
 --- Unlike [`Net.serve`] it holds no failure apart: what `serve` raises
 --- ends the run, as any task's error does, and so does a failure to

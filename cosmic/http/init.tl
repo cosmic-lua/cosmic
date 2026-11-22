@@ -26,6 +26,15 @@
 --- To call a rate-limited API in a loop, with [`Http.Options.retry`] and
 --- [`Http.Options.pace`], see [the rate-limit guide](../../doc/guides/http-pacing.md).
 ---
+--- In a task of [`Poll.run`] -- a server's handler, say -- a request waits
+--- through the run, as [`cosmic.net`] waits: the other tasks go on
+--- while it waits for the server, so a handler that calls another
+--- service stalls no other connection, and a request to this program's
+--- own server is answered. A cancelled task's request ends with
+--- [`Poll.CANCELLED`], and, as in [`cosmic.net`], a signal does not end
+--- one. Anywhere else a request holds the thread until it is answered,
+--- or a signal the innermost [`Signal.guard`] caught ends it.
+---
 --- The server is [`cosmic.http.server`], apart from this client so that a
 --- program that only fetches does not carry the networking stack a
 --- server needs.
@@ -33,10 +42,9 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
-local Env = require("cosmic.env")
 local Hash = require("cosmic.hash")
 local Innermost = require("cosmic.internal.innermost_guard")
-local Store = require("cosmic.store")
+local Poll = require("cosmic.poll")
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace, which only cosmic's own tree may require
@@ -44,12 +52,38 @@ local Store = require("cosmic.store")
 local type raw_http = require("cosmic.internal.http")
 
 local http = require("cosmic.internal.http")
+local Trust = require("cosmic.internal.trust")
 
 local Stream = require("cosmic.stream")
 -- Only the type here: the networking stack loads where a failure over a
 -- socket needs it, so a program that only fetches over the network does
 -- not load it.
 local type Net = require("cosmic.net")
+
+--- The longest one wait through a run for the shared transfers lasts
+--- before they are pumped again, as the core's own wait does.
+local PUMP_MOST_NS <const> = 1000000000
+
+--- In a task of [`Poll.run`]: waits through the run, the other tasks
+--- going on, until a shared transfer has something to do or curl's
+--- timers come due, and then does it. False and [`Poll.CANCELLED`]
+--- once the task is cancelled, or false and the failure of curl's
+--- multi handle.
+local function pump(): boolean, string
+  local fds, events, ms = http.pump_fds()
+  local wait = if ms < 0 then PUMP_MOST_NS else math.min(ms * 1000000, PUMP_MOST_NS) end
+  if #fds > 0 then
+    local _, why = Poll.ready(fds, events, wait)
+    if why == Poll.CANCELLED then return false, why end
+  else
+    -- A wait of 0 too, so a loop of pumps lets the other tasks run.
+    local waited, why = Poll.delay(wait)
+    if not waited then return false, why end
+  end
+  local pumped, why = http.pump()
+  if pumped == nil then return false, why end
+  return true, ""
+end
 
 --- The body of a curl handle, which it owns.
 local class HandleReader is Stream.Reader
@@ -58,6 +92,14 @@ local class HandleReader is Stream.Reader
 
   function read(self, max_bytes?: integer): string?, string
     if self.closed then return nil, "http: the response is closed" end
+    if Poll.in_task() then
+      while self.handle:waiting() do
+        local pumped, why = pump()
+        if not pumped then return nil, why end
+        -- Another task may close the response while this one waits.
+        if self.closed then return nil, "http: the response is closed" end
+      end
+    end
     return self.handle:read(max_bytes)
   end
 
@@ -416,37 +458,6 @@ end
 
 Http.FOREVER = -1
 
---- The roots of `opts.roots = "minimal"`, by the SHA-256 of each root's
---- DER as lower-case hex.
-local MINIMAL_ROOTS <const>: {string} = {
-  "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6", -- ISRG Root X1
-  "69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470", -- ISRG Root X2
-  "cb3ccbb76031e5e0138f8dd39a23f9de47ffc35e43c1144cea27d46a5ab1cb5f", -- DigiCert Global Root G2
-  "31ad6648f8104138c738f39ea4320133393e3a18cc02296ef97c2ac9ef6731d0", -- DigiCert Global Root G3
-  "018e13f0772532cf809bd1b17281867283fc48c6e13be9c69812854a490c1b05", -- DigiCert TLS ECC P384 Root G5
-  "371a00dc0533b3721a7eeb40e8419e70799d2b0a0f2c1d80693165f7cec4ad75", -- DigiCert TLS RSA4096 Root G5
-  "e793c9b02fd8aa13e21c31228accb08119643b749c898964b1746d46c3d4cbd2", -- USERTrust RSA Certification Authority
-  "4ff460d54b9c86dabfbcfc5712e0400d2bed3fbc4d4fbdaa86e06adcd2a9ad7a", -- USERTrust ECC Certification Authority
-  "7bb647a62aeeac88bf257aa522d01ffea395e0ab45c73f93f65654ec38f25a06", -- Sectigo Public Server Authentication Root R46
-  "c90f26f0fb1b4018b22227519b5ca2b53e2ca5b3be5cf18efe1bef47380c5383", -- Sectigo Public Server Authentication Root E46
-  "cbb522d7b7f127ad6a0113865bdf1cd4102e7d0759af635a7cf4720dc963c53b", -- GlobalSign Root CA - R3
-  "2cabeafe37d06ca22aba7391c0033d25982952c453647349763a3ab5ad6ccf69", -- GlobalSign Root CA - R6
-  "4fa3126d8d3a11d1c4855a4f807cbad6cf919d3a5a88b03bea2c6372d93c40c9", -- GlobalSign Root R46
-  "cbb9c44d84b8043e1050ea31a69f514955d7bfd2e2c6b49301019ad61d9f5058", -- GlobalSign Root E46
-  "b085d70b964f191a73e4af0d54ae7a0e07aafdaf9b71dd0862138ab7325a24a2", -- GlobalSign ECC Root CA - R4
-  "179fbc148a3dd00fd24ea13458cc43bfa7f59c8182d783a513f6ebec100c8924", -- GlobalSign ECC Root CA - R5
-  "d947432abde7b7fa90fc2e6b59101b1280e0e1c7e4e40fa3c6887fff57a7f4cf", -- GTS Root R1
-  "34d8a73ee208d9bcdb0d956520934b4e40e69482596e8b6f73c8426b010a6f48", -- GTS Root R3
-  "349dfa4058c5e263123b398ae795573c4e1313c83fe68f93556cd5e8031b3c7d", -- GTS Root R4
-  "8ecde6884f3d87b1125ba31ac3fcb13d7016de7f57cc904fe1cb97c6ae98196e", -- Amazon Root CA 1
-  "1ba5b2aa8c65401a82960118f80bec4f62304d83cec4713a19c39c011ea46db4", -- Amazon Root CA 2
-  "18ce6cfe7bf14e60b2e347b8dfe868cb31d02ebb3ada271569f50343b46db3a4", -- Amazon Root CA 3
-  "e35d28419ed02025cfa69038cd623962458da5c695fbdea3c22b0bfb25897092", -- Amazon Root CA 4
-  "568d6905a2c88708a4b3025190edcfedb1974a606a13c6e5290fcb2ae63edab5", -- Starfield Services Root Certificate Authority - G2
-  "c741f70f4b2a8d88bf2e71c14122ef53ef10eba0cfa5e64cfa20f418853073e0", -- Microsoft RSA Root Certificate Authority 2017
-  "358df39d764af9e1b766e9c972df352ee15cfac227af6ad1d70e8e4a6edcba02", -- Microsoft ECC Root Certificate Authority 2017
-}
-
 --- The roots `opts.roots = "minimal"` trusts: those of the CAs that
 --- issue for most of the web (Let's Encrypt, DigiCert, Sectigo,
 --- GlobalSign, Google, Amazon, Microsoft), by the SHA-256 of each
@@ -454,7 +465,7 @@ local MINIMAL_ROOTS <const>: {string} = {
 --- those this binary carries are trusted, so a root Mozilla withdraws,
 --- and a refreshed binary drops, is not trusted for being listed here.
 function Http.minimal_roots(): {string}
-  return { table.unpack(MINIMAL_ROOTS) }
+  return Trust.minimal_roots()
 end
 
 local MS <const> = Clock.ms(1)
@@ -655,90 +666,12 @@ local function counted(ns: integer?, unit: integer, most_ns: integer,
   return Clock.ceil(ns, unit)
 end
 
---- What `opts.roots` and `opts.ca` choose to trust, for [`trusted`] to
---- give curl.
-local record Trust
-  --- What names the blob these roots make for every request that chooses
-  --- them, when one does ("minimal", "none"): nil when `ca` or a list of
-  --- digests makes it the request's own.
-  key: string?
-  --- Every carried root, rather than only those `wanted` names.
-  all: boolean
-  --- Carried roots by the SHA-256 of their DER.
-  wanted: {string:boolean}
-  --- Whether the certificates $SSL_CERT_FILE names are trusted too.
-  extra: boolean
-  ca: string?
-end
-
 --- The roots a request that names none trusts, "minimal" or "mozilla",
 --- and "": `COSMIC_CA_ROOTS` when it is set, else what `cosmic build
 --- --roots` recorded in this executable, else "minimal". Nil and why
 --- when either names anything else.
 function Http.default_roots(): string?, string
-  local chosen = Env.read("COSMIC_CA_ROOTS")
-  local from = "COSMIC_CA_ROOTS"
-  if chosen == nil or chosen == "" then
-    chosen = Store.meta("ca_roots_default")
-    from = "this executable's `cosmic build --roots`"
-  end
-  if chosen == nil or chosen == "" then
-    return "minimal", ""
-  end
-  if chosen ~= "minimal" and chosen ~= "mozilla" then
-    return nil, ("http: %s names %q, not minimal or mozilla"):format(from, chosen:sub(1, 40))
-  end
-  return chosen, ""
-end
-
---- `opts.roots` and `opts.ca` as a [`Trust`], or nil when they leave
---- the trust store core/http.c holds (every carried root) as it is; and
---- "", or why the roots a request naming none trusts cannot be told
---- ([`Http.default_roots`]). Raises at `CALLER` for either of the wrong
---- shape, naming it.
-local function trust_of(opts: Http.Options): Trust?, string
-  local roots = opts.roots
-  local ca = opts.ca
-  if ca ~= nil and type(ca) ~= "string" then
-    error("http: opts.ca must be a string", CALLER)
-  end
-  if roots == nil then
-    local default, why = Http.default_roots()
-    if default == nil then
-      return nil, why
-    end
-    roots = default
-  end
-  local wanted: mut {string:boolean} = {}
-  if roots == "mozilla" then
-    if ca == nil then return nil, "" end
-    return { key = nil, all = true, wanted = wanted, extra = true, ca = ca }, ""
-  elseif roots == "minimal" then
-    for _, hex in ipairs(MINIMAL_ROOTS) do
-      wanted[assert(Codec.unhex(hex))] = true
-    end
-    local key: string? = nil
-    if ca == nil then key = "minimal" end
-    return { key = key, all = false, wanted = wanted, extra = true, ca = ca }, ""
-  elseif roots == "none" then
-    local key: string? = nil
-    if ca == nil then key = "none" end
-    return { key = key, all = false, wanted = wanted, extra = false, ca = ca }, ""
-  elseif type(roots) == "table" then
-    for i, hex in ipairs(roots) do
-      local digest = ""
-      if type(hex) == "string" then
-        digest = (hex:gsub(":", ""))
-      end
-      local bytes, _ = Codec.unhex(digest)
-      if #digest ~= 64 or bytes == nil then
-        error(("http: opts.roots[%d] must be a root's SHA-256, as 64 hex digits"):format(i), CALLER)
-      end
-      wanted[bytes] = true
-    end
-    return { key = nil, all = false, wanted = wanted, extra = true, ca = ca }, ""
-  end
-  error('http: opts.roots must be "minimal", "mozilla", "none" or a list of SHA-256 digests', CALLER)
+  return Trust.default_roots("http")
 end
 
 --- `opts.pin` as curl takes it, `;` between pins, or nil for none.
@@ -767,134 +700,6 @@ local function pin_of(opts: Http.Options): string?
     end
   end
   return table.concat(pins, ";")
-end
-
---- `der` as PEM.
-local function pem(der: string): string
-  local encoded = Codec.base64(der)
-  local lines: mut {string} = { "-----BEGIN CERTIFICATE-----" }
-  for at = 1, #encoded, 64 do
-    lines[#lines + 1] = encoded:sub(at, at + 63)
-  end
-  lines[#lines + 1] = "-----END CERTIFICATE-----\n"
-  return table.concat(lines, "\n")
-end
-
-local BEGIN <const> = "%-%-%-%-%-BEGIN CERTIFICATE%-%-%-%-%-"
-local END <const> = "%-%-%-%-%-END CERTIFICATE%-%-%-%-%-"
-
---- The certificates `text` holds, as DER: each PEM block, or `text`
---- itself when it holds none and is one DER certificate. Nil and why
---- when one is not closed, not base64, or not a certificate the TLS
---- stack reads.
-local function certificates(text: string): {string}?, string
-  if not text:find("-----BEGIN", 1, true) then
-    local ok, why = http.check_certificate(text)
-    if not ok then return nil, why end
-    return { text }, ""
-  end
-  local _, begun = text:gsub(BEGIN, "")
-  local ders: mut {string} = {}
-  for body in text:gmatch(BEGIN .. "(.-)" .. END) do
-    local der, why = Codec.unbase64((body:gsub("%s", "")))
-    if der == nil then
-      return nil, ("certificate %d is not base64: %s"):format(#ders + 1, why)
-    end
-    local ok, unread = http.check_certificate(der)
-    if not ok then
-      return nil, ("certificate %d: %s"):format(#ders + 1, unread)
-    end
-    ders[#ders + 1] = der
-  end
-  if #ders == 0 then
-    return nil, "holds no certificate"
-  end
-  if #ders ~= begun then
-    return nil, ("certificate %d is not closed"):format(#ders + 1)
-  end
-  return ders, ""
-end
-
---- One carried root, under the SHA-256 of its DER.
-local record Carried
-  der: string
-  digest: string
-end
-
---- The trust store's certificates, read once: the carried roots with
---- their digests, and those $SSL_CERT_FILE named.
-local record Held
-  mut carried: {Carried}?
-  mut extra: {string}
-  --- The blob of each [`Trust`] with a `key`, by it, made once.
-  blobs: mut {string:string}
-end
-local store: Held = { carried = nil, extra = {}, blobs = {} }
-
---- The carried roots with their digests, read from the trust store
---- the first time, or nil and why when it cannot be made.
-local function carried_roots(): {Carried}?, string
-  local held = store.carried
-  if held ~= nil then
-    return held, ""
-  end
-  local roots, trouble = http.roots()
-  if roots == nil then
-    return nil, trouble
-  end
-  local read: mut {Carried} = {}
-  for _, der in ipairs(roots.carried) do
-    read[#read + 1] = { der = der, digest = Hash.sha256(der) }
-  end
-  store.carried = read
-  store.extra = roots.extra
-  return read, ""
-end
-
---- The PEM of every certificate `trust` names, or nil and why: when the
---- trust store cannot be made, `trust.ca` holds what the TLS stack
---- cannot read, or nothing is left to trust.
-local function trusted(trust: Trust): string?, string
-  local key = trust.key
-  if key ~= nil then
-    local made = store.blobs[key]
-    if made ~= nil then
-      return made, ""
-    end
-  end
-  local carried, trouble = carried_roots()
-  if carried == nil then
-    return nil, trouble
-  end
-  local pems: mut {string} = {}
-  for _, root in ipairs(carried) do
-    if trust.all or trust.wanted[root.digest] == true then
-      pems[#pems + 1] = pem(root.der)
-    end
-  end
-  if trust.extra then
-    for _, der in ipairs(store.extra) do
-      pems[#pems + 1] = pem(der)
-    end
-  end
-  local ca = trust.ca
-  if ca ~= nil then
-    local ders, why = certificates(ca)
-    if ders == nil then
-      return nil, "http: opts.ca: " .. why
-    end
-    for _, der in ipairs(ders) do
-      pems[#pems + 1] = pem(der)
-    end
-  end
-  if #pems == 0 then
-    return nil, "http: no CA roots to trust: opts.roots names none this binary carries, and opts.ca none"
-  end
-  local blob = table.concat(pems)
-  if key ~= nil then
-    store.blobs[key] = blob
-  end
-  return blob, ""
 end
 
 --- A retry policy with its defaults filled in.
@@ -1002,7 +807,7 @@ end
 --- `opts` as the raw module reads them: its spans in the milliseconds
 --- (and, for `low_speed_ns`, the seconds) it counts them in, its `pin`
 --- as curl takes it, and, with `trusting`, the `ca_blob` of the roots it
---- chooses ([`trust_of`], [`trusted`]); or nil and why when those cannot
+--- chooses ([`Trust.chosen`], [`Trust.pem`]); or nil and why when those cannot
 --- be made. `method`, when given, stands in for `opts.method`. `first`,
 --- when given, is the entry of `opts.script` the request starts at.
 local function raw_options(given: Http.Options, method?: string,
@@ -1027,13 +832,13 @@ local function raw_options(given: Http.Options, method?: string,
   -- the policy it uses.
   local _ = retry_of(opts, CALLER)
   local _ = pace_of(opts, CALLER)
-  local trust, untold = trust_of(opts)
+  local trust, untold = Trust.chosen(opts.roots, opts.ca, "http", CALLER - 1)
   if untold ~= "" then
     return nil, untold
   end
   local blob: string? = nil
   if trusting == true and trust ~= nil then
-    local made, why = trusted(trust)
+    local made, why = Trust.pem(trust, "http")
     if made == nil then
       return nil, why
     end
@@ -1076,6 +881,8 @@ local function raw_options(given: Http.Options, method?: string,
     script = script,
     pin = pin_of(opts),
     ca_blob = blob,
+    -- In a task the run waits for the headers ([`opened`]), not curl.
+    wait = not Poll.in_task(),
   }, ""
 end
 
@@ -1187,12 +994,15 @@ end
 -- The longest stretch a wait sleeps before asking the guard again.
 local PAUSE_SLICE <const> = 100 * MS
 
---- Sleeps `ns`, in slices, and answers false as soon as the innermost open
---- [`Signal.guard`] catches a signal or closes during it, or `cancelled`
---- answers true, asked before the wait and after each slice. A signal
---- caught before the wait began is not one: the stamp is taken when it starts.
-local function pause(ns: integer, cancelled: (function(): boolean)?): boolean
-  if cancelled ~= nil and cancelled() then return false end
+--- Waits `ns`, in slices: true and "" once it has, or false and
+--- "interrupted" as soon as the innermost open [`Signal.guard`] catches a
+--- signal or closes during it, or `cancelled` answers true, asked before
+--- the wait and after each slice. A signal caught before the wait began
+--- is not one: the stamp is taken when it starts. In a task the other
+--- tasks go on meanwhile, and a cancelled task's pause answers false and
+--- [`Poll.CANCELLED`].
+local function pause(ns: integer, cancelled: (function(): boolean)?): boolean, string
+  if cancelled ~= nil and cancelled() then return false, "interrupted" end
   local guard = Innermost.active()
   local stamp = 0
   if guard ~= nil then
@@ -1200,29 +1010,42 @@ local function pause(ns: integer, cancelled: (function(): boolean)?): boolean
     stamp = guard.state.read
   end
   local began = Clock.monotonic_ns()
+  local in_task = Poll.in_task()
   while true do
     local left = ns - (Clock.monotonic_ns() - began)
-    if left <= 0 then return true end
-    local slept, _ = Clock.sleep_ns(math.min(left, PAUSE_SLICE))
+    if left <= 0 then return true, "" end
+    local slice = math.min(left, PAUSE_SLICE)
+    if in_task then
+      local waited, why = Poll.delay(slice)
+      if not waited then return false, why end
+    end
+    local slept = true
+    if not in_task then
+      local done, _ = Clock.sleep_ns(slice)
+      slept = done
+    end
     if guard ~= nil then
       local _ = guard:cancelled()
-      if guard.state.closed or guard.state.read ~= stamp then return false end
+      if guard.state.closed or guard.state.read ~= stamp then return false, "interrupted" end
     end
-    if cancelled ~= nil and cancelled() then return false end
-    if not slept then return true end
+    if cancelled ~= nil and cancelled() then return false, "interrupted" end
+    if not slept then return true, "" end
   end
 end
 
 --- Waits out what is left of `pacer`'s interval since its last start, ending
---- as [`pause`] does, then marks now as its start. False, and no start
---- marked, when the wait was cut short.
-local function take_turn(pacer: PacerObject, cancelled: (function(): boolean)?): boolean
+--- as [`pause`] does, then marks now as its start. False and why, and no
+--- start marked, when the wait was cut short.
+local function take_turn(pacer: PacerObject, cancelled: (function(): boolean)?): boolean, string
   if pacer.started then
     local left = pacer.interval_ns - (Clock.monotonic_ns() - pacer.last_ns)
-    if left > 0 and not pause(left, cancelled) then return false end
+    if left > 0 then
+      local waited, why = pause(left, cancelled)
+      if not waited then return false, why end
+    end
   end
   pacer.started, pacer.last_ns = true, Clock.monotonic_ns()
-  return true
+  return true, ""
 end
 
 --- Raises, blaming the caller of a public entry point, where `opts` is
@@ -1256,10 +1079,26 @@ local function opened(url: string, opts: Http.Options, method: string?): Respons
   -- connection of the one before.
   local first = 1
   while true do
-    if pacer ~= nil and not take_turn(pacer, cancelled) then
-      return nil, "interrupted"
+    if pacer ~= nil then
+      local turned, why = take_turn(pacer, cancelled)
+      if not turned then return nil, why end
     end
     local handle, trouble, code = http.open(url, raw)
+    if handle ~= nil and raw.wait == false then
+      -- Opened with `wait = false`: the run waits for the final headers.
+      local waited, why = true, ""
+      while waited and not handle:ready() do waited, why = pump() end
+      if not waited then
+        handle:close()
+        handle, trouble, code = nil, why, nil
+      else
+        local settled, failure, failed = handle:settled()
+        if settled == nil then
+          handle:close()
+          handle, trouble, code = nil, failure, failed
+        end
+      end
+    end
     if handle == nil then
       if opts.via ~= nil then
         return nil, socket_trouble(opts.via, trouble, code)
@@ -1272,8 +1111,9 @@ local function opened(url: string, opts: Http.Options, method: string?): Respons
       if wait <= policy.max_wait_ns then
         first = first + handle:connections()
         handle:close()
-        if (wait > 0 or cancelled ~= nil) and not pause(wait, cancelled) then
-          return nil, "interrupted"
+        if wait > 0 or cancelled ~= nil then
+          local waited, why = pause(wait, cancelled)
+          if not waited then return nil, why end
         end
         again = true
       end

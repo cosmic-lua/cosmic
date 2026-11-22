@@ -212,7 +212,7 @@ do
     tonumber: function(any): number?
     tonumber: function(any, integer): integer?
     ipairs: function<A>({A}): (function({A}, integer): (integer, A), {A}, integer)
-    pairs: function<K, V>({K: V}): (function({K: V}, p2?: K): (K, V), {K: V}, K)
+    pairs: function<K is Key, V>({K: V}): (function({K: V}, p2?: K): (K, V), {K: V}, K)
     assert: function<A>(A?): A
     assert: function<A, B>(A?, B, ...: any): (A, B, any...)
     error: function(p1?: any): never

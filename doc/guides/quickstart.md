@@ -132,8 +132,11 @@ peers, asking tailscaled itself, so no `tailscale` binary is needed.
 address of the tailnet is, and what the policy's grants let it do here.
 `cosmic tailscale cert` writes the node's `ts.net` certificate and key
 (HTTPS must be on for the tailnet), and `cosmic tailscale ping <address>`
-times a round trip. `--json` prints any answer as JSON. A program asks
-the daemon with [`Tailscale.connect`].
+times a round trip. `cosmic tailscale file send report.pdf laptop`
+sends a file to another of your nodes with Taildrop, and `cosmic
+tailscale file get ~/Downloads` takes the files sent to this one.
+`--json` prints any answer as JSON. A program asks the daemon with
+[`Tailscale.connect`].
 
 ## questions about a data file
 

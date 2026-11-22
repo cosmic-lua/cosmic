@@ -24,8 +24,9 @@
 --- the thread in [`sys.poll`] until it answers, so a module waits with
 --- one call wherever it runs; the others raise there. In a `<close>`
 --- handler of a task the run ends, `wait` raises too. Nothing else
---- here waits: a call that blocks the thread (a blocking read,
---- [`Http.get`], a SQLite query) holds every task until it returns.
+--- here waits: a call that blocks the thread (a blocking read, a
+--- SQLite query) holds every task until it returns. [`cosmic.http`]'s
+--- requests wait through the run, as [`cosmic.net`]'s waits do.
 ---
 --- An error a task raises ends [`Poll.run`] at once: every other task is
 --- closed where it waits, its `<close>` variables closed, and `run`
