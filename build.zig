@@ -1697,7 +1697,10 @@ fn vendorLibraries(
     // attached databases is SQLite's highest, 125, not its default of 10,
     // so a connection can raise its limit past 10 (`handle:limit`);
     // core/sqlite.c still opens each at 10. Past 30 SQLite keeps the set
-    // of databases a statement touches as a byte array, not a word.
+    // of databases a statement touches as a byte array, not a word. The
+    // expression depth keeps SQLite's ceiling of 1000: its parser and code
+    // generator recurse once per level, so a deeper expression, from a query
+    // or from a view a database file holds, would overflow the C stack.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1712,7 +1715,6 @@ fn vendorLibraries(
         "-DSQLITE_DEFAULT_MEMSTATUS=0",
         "-DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1",
         "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS=1",
-        "-DSQLITE_MAX_EXPR_DEPTH=0",
         "-DSQLITE_MAX_ATTACHED=125",
         "-DSQLITE_USE_ALLOCA=1",
         "-DSQLITE_ENABLE_COLUMN_METADATA=1",

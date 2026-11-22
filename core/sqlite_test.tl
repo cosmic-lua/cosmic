@@ -684,6 +684,19 @@ local function test_exec_result_reports_readonly_and_malformed_databases(tmp: st
   assert(bad:close())
 end
 
+--- An expression deeper than the depth limit is refused, not compiled
+--- by a recursion that overflows the C stack.
+local function test_a_deep_expression_is_refused()
+  local handle = memory()
+  local ok, why = handle:exec("SELECT " .. string.rep("1+", 30000) .. "1")
+  failed(ok, why)
+  assert(why:find("too large", 1, true) ~= nil, why)
+  local depth = handle:limit("expr_depth", -1)
+  assert(depth > 0 and depth < 30000, tostring(depth))
+  assert(handle:exec("SELECT " .. string.rep("1+", depth // 2) .. "1"))
+  assert(handle:close())
+end
+
 local function test_busy_timeout_checks_its_duration_and_handle()
   local handle = memory()
   raises_saying("must be nonnegative", handle.busy_timeout, handle, -1)
