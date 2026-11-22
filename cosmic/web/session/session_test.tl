@@ -7,7 +7,7 @@ local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
 
-local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
+local KEY <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
 
 --- The session cookie's name, which is Secure.
 local NAME <const> = "__Host-session"
@@ -275,9 +275,9 @@ local function test_rolling_extends_the_lifetime_once_half_is_gone()
 end
 
 local function test_a_cookie_signed_under_a_retired_key_is_reissued_under_the_new_one()
-  local old = browser(make_app(options(SessionCookie.store{ keys = { "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4Nb" } })))
+  local old = browser(make_app(options(SessionCookie.store{ keys = { "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4NbXz3Lk8Mv5Rs" } })))
   old:post("/set/user/ada")
-  local rotated = make_app(options(SessionCookie.store{ keys = { KEY, "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4Nb" } }))
+  local rotated = make_app(options(SessionCookie.store{ keys = { KEY, "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4NbXz3Lk8Mv5Rs" } }))
   local client = browser(rotated)
   client.jar[NAME] = assert(old.jar[NAME])
   local res = client:get("/get/user")

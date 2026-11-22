@@ -10,9 +10,8 @@
 --- revoked either: logout clears it in the browser, but a copy stays valid
 --- until it expires. For sessions that gate authority, use
 --- [`cosmic.web.session.sqlite`], or keep a per-user version in the session
---- and compare it with the database. cosmic has no authenticated cipher; an
---- encrypted store is the extension once it has one, and the token's `v`
---- field is its version hook.
+--- and compare it with the database. The token's `v` field is the version
+--- hook for an encrypted store, which doc/roadmap.md lists.
 ---
 --- The token is `base64url(payload) "." base64url(mac)`, the payload JSON
 --- `{v, c = created, e = expires, d = values}`, the MAC over the store's

@@ -218,23 +218,29 @@ local function test_a_key_or_an_r_that_is_no_point_is_refused()
   assert(not Sign.ed25519_verify(no_point, message, neutral .. zero), "the key, under a signature the neutral key takes")
 end
 
--- [`Sign.ed25519_verify`]'s documented reach past a strict reading of
--- RFC 8032: a key of small order, and encodings the RFC refuses to
--- decode.
-local function test_a_key_of_small_order_and_a_point_not_in_canonical_form_are_accepted()
+-- A key of small order, in any of its encodings (the sign bit set or not,
+-- y reduced or not), is refused: under one, the signature whose R is the
+-- neutral point and whose S is 0 would verify for every message.
+local function test_a_key_of_small_order_is_refused_in_every_encoding()
   local trivial = neutral .. zero
-  for _, message in ipairs({ "", "any message", "another" }) do
-    assert(Sign.ed25519_verify(neutral, message, trivial), "the neutral key")
+  for _, hex in ipairs({
+      "0000000000000000000000000000000000000000000000000000000000000000",
+      "0100000000000000000000000000000000000000000000000000000000000000",
+      "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+      "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+      "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f" }) do
+    local key = bytes(hex)
+    local signed = key:sub(1, 31) .. string.char(assert(key:byte(32)) | 0x80)
+    for _, message in ipairs({ "", "any message" }) do
+      assert(not Sign.ed25519_verify(key, message, trivial), hex)
+      assert(not Sign.ed25519_verify(signed, message, trivial), hex .. " with the sign bit")
+    end
   end
-  -- y = 2^255 - 18, which is 1 modulo the field's prime.
-  local unreduced = bytes("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")
-  assert(Sign.ed25519_verify(unreduced, "any message", trivial), "a key whose y is not reduced")
-  assert(Sign.ed25519_verify(neutral, "any message", unreduced .. zero), "an R whose y is not reduced")
-  -- y = 1 and so x = 0, with the sign bit set.
-  local negative_zero = "\1" .. string.rep("\0", 30) .. "\x80"
-  assert(Sign.ed25519_verify(negative_zero, "any message", trivial), "a key whose x is 0 and sign bit is set")
-  -- Still held to the equation: an S of 1 moves the sum off the neutral point.
-  assert(not Sign.ed25519_verify(neutral, "any message", neutral .. "\1" .. string.rep("\0", 31)))
+  -- A key of large order beside them still verifies its own signatures.
+  local public, message, signature = test_2()
+  assert(Sign.ed25519_verify(public, message, signature))
 end
 
 local function test_a_seed_of_the_wrong_length_raises()
