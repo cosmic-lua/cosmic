@@ -274,7 +274,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
   --     it has them from its start (_NSGetArgv), not from these.
   local text: mut {string} = { "(version 1)", "(deny default)",
     "(allow file-read-metadata)", '(allow file-read-data (literal (param "ROOT")))',
-    "(allow sysctl-read)", '(deny sysctl-read (sysctl-name-prefix "kern.procargs"))',
+    '(allow sysctl-read (require-not (sysctl-name-prefix "kern.procargs")))',
     "(allow signal (target self))", "(allow process-info-pidinfo (target self))" }
   for _, promise in ipairs(merged.promises or {}) do
     if promise == "fork" then text[#text + 1] = "(allow process-fork)" end
