@@ -1,0 +1,10 @@
+file: src/llex.h
+note: Whether the load reads the class forms (patch/lua/13-class-forms-mode-load.txt).
+--- find
+  TString *glbn;  /* "global" name (when not a reserved word) */
+} LexState;
+--- replace
+  TString *glbn;  /* "global" name (when not a reserved word) */
+  lu_byte classforms;  /* reads '@', the compiler's class forms? */
+} LexState;
+--- end

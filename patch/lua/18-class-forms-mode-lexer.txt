@@ -1,0 +1,17 @@
+file: src/llex.c
+note: '@' is a token only where the load reads the class forms (patch/lua/13-class-forms-mode-load.txt); anywhere else it is a syntax error before the parser sees it, so neither form, nor any later one spelled with it, can be written in other text (a binary chunk is no text: patch/lua/13-class-forms-mode-load.txt).
+--- find
+      case EOZ: {
+        return TK_EOS;
+      }
+--- replace
+      case EOZ: {
+        return TK_EOS;
+      }
+      case '@': {  /* the class forms of the compiler's Lua */
+        if (!ls->classforms)
+          lexerror(ls, "'@' is read only in the Lua the compiler writes", 0);
+        next(ls);
+        return '@';
+      }
+--- end

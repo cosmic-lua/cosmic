@@ -2,6 +2,8 @@
 --- that hands its tests to the runner, and the bytecode of the chunk, which every target must read alike. Used by
 --- [`build.pipeline`], which the code generator feeds.
 
+local Compiled = require("cosmic.internal.compiled")
+
 local record LuaTail
   --- `code`, the Lua of a test module, with a generated `return` of the functions `tests` names appended, so a `local
   --- function test_*` -- otherwise unreachable from outside the file it is declared in -- comes back on the table `require`
@@ -101,7 +103,7 @@ local function at_source_line(trouble: string, file: string): string
 end
 
 function LuaTail.bytecode_of(code: string, name: string, file: string): string?, string
-  local chunk, load_trouble = load(code, "@" .. name, "t")
+  local chunk, load_trouble = Compiled.load(code, "@" .. name, {})
   if chunk == nil then
     -- TODO: tl's checker passes what Lua 5.5 refuses only here:
     -- `global`, which Lua reserves, as a local, parameter, field or
@@ -544,7 +546,7 @@ function LuaTail.fits_with(code: string, spare: integer): boolean, string
     names[index] = "__l" .. tostring(index)
   end
   local front = if spare > 0 then "local " .. table.concat(names, ",") .. " " else "" end
-  local chunk, trouble = load(front .. code, "=fits_with", "t")
+  local chunk, trouble = Compiled.load(front .. code, "=fits_with", {})
   if chunk == nil then
     return false, tostring(trouble)
   end

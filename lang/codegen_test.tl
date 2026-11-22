@@ -6,6 +6,7 @@
 local Ast = require("lang.ast")
 local BoundaryChecks = require("lang.boundary_checks")
 local Codegen = require("lang.codegen")
+local Compiled = require("cosmic.internal.compiled")
 local Programs = require("lang.check_programs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
@@ -1079,9 +1080,10 @@ local function run_classes(source: string): any, any, any, any, any
   local result = classed(source)
   local first = result.errors[1]
   assert(#result.errors == 0, if first ~= nil then first.msg else "" end)
-  -- No `setmetatable` and no `getmetatable`: a class reaches the metatable through the reserved form alone.
+  -- No `setmetatable` and no `getmetatable`: a class reaches the metatable through the reserved form alone, which only
+  -- the compiler's loader reads.
   local env: {string: any} = { tostring = tostring, pcall = pcall, error = error, select = select, ipairs = ipairs } -- checked: any_use*3, overload_value*2
-  local chunk = assert(load(result.text, "=t", "t", env))
+  local chunk = assert(Compiled.load(result.text, "=t", env))
   return chunk()
 end
 

@@ -466,15 +466,29 @@ static int surface_getmetatable (lua_State *L) {
   return 1;
 }
 
+/* TODO: refuse a binary chunk to the `load` a program calls, once the
+ * tree's own loads of bytecode (build.lua_tail's checks of what it
+ * dumped, the coverage and class form tests) go through a loader of their
+ * own as its loads of text do through cosmic.internal.compiled: Lua
+ * checks no bytecode, so a hand-made chunk reaches OP_CLASSOF, and
+ * anything else an instruction can do, through an environment named. */
+
 /* Lua's `load` (upvalue 1), except that a chunk given no environment
  * gets a fresh copy of the template above rather than the globals, and
  * is loaded as text: a binary chunk is code no checker has seen, and
  * only a caller that names its environment may load one. With
  * `always_text` the mode is text whatever the environment, as for the
  * `load` a chunk itself reaches. An environment passed as the fourth
- * argument, nil included, is Lua's own rule. */
+ * argument, nil included, is Lua's own rule. A mode that holds 'c', which
+ * reads the class forms, is refused whatever else is passed: only
+ * compiled_load below reads them as text. */
 static int load_with (lua_State *L, bool always_text) {
   int count = lua_gettop(L);
+  if (lua_type(L, 3) == LUA_TSTRING &&
+      strchr(lua_tostring(L, 3), 'c') != NULL) {
+    return luaL_argerror(L, 3,
+                         "mode 'c' is the compiler's (cosmic.internal.compiled)");
+  }
   if (count < 4 || always_text) {
     if (count < 3) {
       lua_settop(L, 3);
@@ -501,6 +515,38 @@ static int surface_load (lua_State *L) {
 
 static int surface_load_text (lua_State *L) {
   return load_with(L, true);
+}
+
+/* `load` for the Lua the compiler writes: the text at argument 1, as the
+ * chunk named by argument 2, with the table at argument 3 as its
+ * environment, read in the mode that takes the class forms of
+ * patch/lua/ (`{ ... } @ C` and `@v`). The `load` above refuses that mode
+ * and every other loader of text leaves it out, so no text but what is
+ * loaded here spells `@v`, which reads a metatable whatever `__metatable`
+ * says. A binary chunk is no text: a caller of `load` that names an
+ * environment may still load hand-made bytecode, OP_CLASSOF among it.
+ * The chunk, or nil and Lua's message, as `load` answers. */
+static int compiled_load (lua_State *L) {
+  size_t length;
+  const char *text = luaL_checklstring(L, 1, &length);
+  const char *name = luaL_checkstring(L, 2);
+  luaL_checktype(L, 3, LUA_TTABLE);
+  lua_settop(L, 3);
+  if (luaL_loadbufferx(L, text, length, name, "tc") != LUA_OK) {
+    lua_pushnil(L);
+    lua_insert(L, -2);
+    return 2;
+  }
+  lua_pushvalue(L, 3);
+  lua_setupvalue(L, -2, 1); /* a main chunk's one upvalue, _ENV */
+  return 1;
+}
+
+static int open_compiled (lua_State *L) {
+  lua_createtable(L, 0, 1);
+  lua_pushcfunction(L, compiled_load);
+  lua_setfield(L, -2, "load");
+  return 1;
 }
 
 /* Replaces the global `load` with surface_load, and makes the template
@@ -598,6 +644,8 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_setfield(L, -2, "cosmic.internal.errors");
   lua_pushcfunction(L, open_globals);
   lua_setfield(L, -2, "cosmic.internal.globals");
+  lua_pushcfunction(L, open_compiled);
+  lua_setfield(L, -2, "cosmic.internal.compiled");
   lua_pushcfunction(L, cosmic_open_testing);
   lua_setfield(L, -2, "cosmic.internal.testing");
   lua_pop(L, 1);
