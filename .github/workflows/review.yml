@@ -61,6 +61,11 @@
         },
 
         {
+          name: "make ready what the action's env scrub needs",
+          run: "sh .github/scripts/review-isolation.sh",
+        },
+
+        {
           name: "run the weekly review",
           uses: "anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe", # v1.0.269
           env: {CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"},
