@@ -284,7 +284,7 @@ local record Declarations
   type Provider = function(Program, module: string): boolean
 
   --- The store and what every module lowered into it.
-  record Program
+  interface Program
     store: Store
     judge: Relation.Judge
     modules: mut {string: Module}
@@ -302,7 +302,7 @@ local record Declarations
     --- the program can stand for: a `require` of one the program lacks is a global to use directly.
     library: {string: boolean}
     --- Asked for a module that a type name imports and the program lacks.
-    provider: Provider?
+    provider?: Provider
     requires: mut {Decl: Requires}
     --- The types of the values a declaration file declares as globals (`global print <const> = Lib.print`,
     --- `global arg: {string}`), by name: one type, or the overloads of a function in the order they are declared.
@@ -991,8 +991,7 @@ local function known_module(ctx: Ctx, module: string): Module?
   local program = ctx.program
   local info = program.modules[module]
   if info == nil then
-    local provider = program.provider
-    if provider ~= nil and provider(program, module) then
+    if program.provider ~= nil and program:provider(module) then
       info = program.modules[module]
     end
   end
@@ -2491,7 +2490,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
             local mine = quoted(decl.name .. "." .. f.name)
             local s = found[1]
             if s == nil then
-              if not Relation.brought_in(decl, f) then
+              if not Relation.brought_in(decl, f, instance, self_type) then
                 local shown_type: Type = expected
                 if f.omittable == true then
                   shown_type = store:non_nil(expected)
@@ -2600,7 +2599,7 @@ end
 --- it leaves out (interface agreement): each from the first interface of its closure that declares
 --- it, with that interface's arguments put in and the receiver of a function field replaced by `decl`. Where those
 --- interfaces declare a field differently `interface_disagrees` says so at the declaration, and the first is the one
---- given. A class has no function field that is neither `mut` nor omittable: it meets each with a method
+--- given. A class has no fixed function field that takes the interface first: it meets each with a method
 --- ([`Relation.brought_in`]).
 function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
   local out: mut {Types.Field} = {}
@@ -2629,7 +2628,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
       for _, f in ipairs(xbody.fields) do
         if held[f.name] ~= true then
           local made = Relation.as_listed(store, x, f.type, self_type)
-          if made ~= nil and Relation.brought_in(decl, f) then
+          if made ~= nil and Relation.brought_in(decl, f, made, self_type) then
             held[f.name] = true
             out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable }
           end
@@ -3168,16 +3167,6 @@ end
 
 -- The program ---------------------------------------------------------------------------------
 
-local program_mt: metatable<Program> = { __index = Declarations.Program } -- checked: field_unknown, literal_missing
-
-function Declarations.new(store?: Store, library?: {string: boolean}): Program
-  local s = store or Types.new()
-  local program: Program = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {}, params = {},
-  }, program_mt)
-  return program
-end
-
 local function new_ctx(program: Program, input: Declarations.Input, lowering: boolean): Ctx
   local info = program.modules[input.module]
   if info == nil then
@@ -3230,62 +3219,6 @@ local function retry_waiting(program: Program)
       end
     end
     program.waiting = kept
-  end
-end
-
-Declarations.Program.declare = function(self: Program, input: Declarations.Input) -- checked: field_unknown
-  local ctx = new_ctx(self, input, false)
-  declare_all(ctx)
-  local info = ctx.info
-  info.export = find_export(ctx) -- checked: field_fixed
-  ctx.kids = {}
-end
-
-Declarations.Program.lower = function(self: Program, input: Declarations.Input): Declarations.Lowered -- checked: field_unknown
-  local existing = self.modules[input.module]
-  if existing ~= nil and existing.lowered then
-    error("declarations: the module " .. input.module .. " was lowered already", 2)
-  end
-  local ctx = new_ctx(self, input, true)
-  declare_all(ctx)
-  ctx.info.export = find_export(ctx) -- checked: field_fixed
-  collect_statics(ctx)
-  walk(ctx)
-  if not ctx.decl_file then
-    note_absent(ctx)
-  end
-  local export = ctx.info.export
-  if export == nil or export.instance == true then
-    ctx.info.value = find_value(ctx) -- checked: field_fixed
-  end
-  for _, site in ipairs(ctx.unions) do
-    ctx.checks[#ctx.checks + 1] = function(): boolean
-      return check_union(ctx, site)
-    end
-  end
-  for _, use in ipairs(ctx.uses) do
-    ctx.checks[#ctx.checks + 1] = function(): boolean
-      return check_use(ctx, use)
-    end
-  end
-  ctx.info.lowered = true -- checked: field_fixed
-  for _, check in ipairs(ctx.checks) do
-    if not check() then
-      self.waiting[#self.waiting + 1] = { module = ctx.module, run = check }
-    end
-  end
-  ctx.checks = {} -- checked: field_fixed
-  retry_waiting(self)
-  return {
-    module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
-    export = ctx.info.export, entries = ctx.by_binding,
-  }
-end
-
-Declarations.Program.alias = function(self: Program, name: string, module: string) -- checked: field_unknown
-  local info = self.modules[module]
-  if info ~= nil and self.modules[name] == nil then
-    self.modules[name] = info
   end
 end
 
@@ -3357,26 +3290,93 @@ function Declarations.forget(self: Program, modules: {string}): boolean
   return true
 end
 
-Declarations.Program.errors = function(self: Program, module: string): {Error} -- checked: field_unknown
-  local info = self.modules[module]
-  if info == nil then
-    return {}
+--- The program [`Declarations.new`] makes.
+local class Made is Declarations.Program
+  function declare(self, input: Declarations.Input)
+    local ctx = new_ctx(self, input, false)
+    declare_all(ctx)
+    local info = ctx.info
+    info.export = find_export(ctx) -- checked: field_fixed
+    ctx.kids = {}
   end
-  return in_order(info.errors)
+
+  function lower(self, input: Declarations.Input): Declarations.Lowered
+    local existing = self.modules[input.module]
+    if existing ~= nil and existing.lowered then
+      error("declarations: the module " .. input.module .. " was lowered already", 2)
+    end
+    local ctx = new_ctx(self, input, true)
+    declare_all(ctx)
+    ctx.info.export = find_export(ctx) -- checked: field_fixed
+    collect_statics(ctx)
+    walk(ctx)
+    if not ctx.decl_file then
+      note_absent(ctx)
+    end
+    local export = ctx.info.export
+    if export == nil or export.instance == true then
+      ctx.info.value = find_value(ctx) -- checked: field_fixed
+    end
+    for _, site in ipairs(ctx.unions) do
+      ctx.checks[#ctx.checks + 1] = function(): boolean
+        return check_union(ctx, site)
+      end
+    end
+    for _, use in ipairs(ctx.uses) do
+      ctx.checks[#ctx.checks + 1] = function(): boolean
+        return check_use(ctx, use)
+      end
+    end
+    ctx.info.lowered = true -- checked: field_fixed
+    for _, check in ipairs(ctx.checks) do
+      if not check() then
+        self.waiting[#self.waiting + 1] = { module = ctx.module, run = check }
+      end
+    end
+    ctx.checks = {} -- checked: field_fixed
+    retry_waiting(self)
+    return {
+      module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
+      export = ctx.info.export, entries = ctx.by_binding,
+    }
+  end
+
+  function alias(self, name: string, module: string)
+    local info = self.modules[module]
+    if info ~= nil and self.modules[name] == nil then
+      self.modules[name] = info
+    end
+  end
+
+  function errors(self, module: string): {Error}
+    local info = self.modules[module]
+    if info == nil then
+      return {}
+    end
+    return in_order(info.errors)
+  end
+
+  function unsettled(self): integer
+    return #self.waiting
+  end
+
+  function scope_globals(self): {string: Scopes.Global}
+    local out: mut {string: Scopes.Global} = {}
+    for name, entry in pairs(self.globals) do
+      local decl = entry.decl
+      local both = decl ~= nil and (decl.kind == "record" or decl.kind == "class" or decl.kind == "userdata")
+      out[name] = { space = if both then "both" else "type" end, const = false }
+    end
+    return out
+  end
 end
 
-Declarations.Program.unsettled = function(self: Program): integer -- checked: field_unknown
-  return #self.waiting
-end
-
-Declarations.Program.scope_globals = function(self: Program): {string: Scopes.Global} -- checked: field_unknown
-  local out: mut {string: Scopes.Global} = {}
-  for name, entry in pairs(self.globals) do
-    local decl = entry.decl
-    local both = decl ~= nil and (decl.kind == "record" or decl.kind == "class" or decl.kind == "userdata")
-    out[name] = { space = if both then "both" else "type" end, const = false }
-  end
-  return out
+function Declarations.new(store?: Store, library?: {string: boolean}): Program
+  local s = store or Types.new()
+  local program: Made = {
+    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {}, params = {}, provider = nil,
+  }
+  return program
 end
 
 return Declarations

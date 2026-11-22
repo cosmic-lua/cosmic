@@ -67,7 +67,8 @@ Every word Lua reserves names a field: after `.`, as a key of a table literal, a
 function of a record (`function M.end()`). Data from JSON or a protocol often has a field named `end`, `function` or `not`.
 The Lua that the compiler makes writes such a field as a string index (`t["end"]`). A method call of a Lua keyword
 (`t:end()`) cannot be written that way, so the parser refuses it (`reserved_method`), and a method of a class
-cannot have a keyword as its name. A keyword after `.` or `:` is a field only on the line of the dot: on the next line it
+cannot have one as its name. A word that only cosmic reserves (`match`, `continue`, `mut`, `is`, `as`, `asserts`,
+`userdata`) is a name to Lua, so it may name a method: `function match(self, p: string)` is called as `r:match(p)`. A keyword after `.` or `:` is a field only on the line of the dot: on the next line it
 begins a statement.
 
 ```teal
@@ -546,8 +547,8 @@ hello, rex
 
 Writing `is Named` after the name is optional. It brings the interface's fields in: a record has each field it leaves
 out, as the interface declares it, and a literal of the record gives the field a value. A class has each data field it
-leaves out, and each function field that is `mut` or omittable, but writes a method for each other function field
-itself. A field the type does declare must be the interface's
+leaves out, and each function field that is `mut` or omittable or whose first parameter is not the interface itself,
+but writes a method for each other function field. A field the type does declare must be the interface's
 exactly, and a method a class lacks is reported where the class is declared (`interface_disagrees`), not where a value
 is passed.
 

@@ -381,24 +381,25 @@ local function test_a_head_of_spaces_or_repeats_is_read_in_linear_time()
   assert(#joined == 9000 * 4 - 2)
 end
 
+--- A body that gives its pieces in order, whatever it is asked for.
+local class Giving is Stream.Reader
+  pieces: mut {string}
+
+  function read(self, _max_bytes?: integer): string?, string
+    local piece = table.remove(self.pieces, 1)
+    if piece == nil then return nil, "" end
+    return piece, ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+end
+
 --- A Reader body breaking its contract -- an empty chunk, which would
 --- end a chunked reply early, or more than asked, which would run past
 --- the Content-Length -- cuts the reply short instead.
 local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
-  local record Giving is Stream.Reader
-    pieces: mut {string}
-    read: function(Giving, max_bytes?: integer): string?, string
-    close: function(Giving): boolean, string
-  end
-  local giving_methods = {
-    read = function(self: Giving, _max_bytes?: integer): string?, string
-      local piece = table.remove(self.pieces, 1)
-      if piece == nil then return nil, "" end
-      return piece, ""
-    end,
-    close = function(_self: Giving): boolean, string return true, "" end,
-  }
-  local giving_mt: metatable<Giving> = { __index = giving_methods } -- checked: literal_missing
   local record Case
     length?: integer
     pieces: {string}
@@ -406,7 +407,9 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
   local cases: {Case} = { { pieces = { "ab", "", "HTTP/1.1 200 OK\r\n\r\n" } },
     { length = 2, pieces = { "abHTTP/1.1 200 OK\r\n\r\n" } } }
   for _, case in ipairs(cases) do
-    local body: Giving = setmetatable({ pieces = case.pieces }, giving_mt) -- checked: setmetatable_call
+    local pieces: mut {string} = {}
+    for i, piece in ipairs(case.pieces) do pieces[i] = piece end
+    local body: Giving = { pieces = pieces, skip = nil }
     local sink = Stream.collect()
     local sent = wire.send(sink, { status = 200, body = body, length = case.length, method = "GET",
       version = "HTTP/1.1", date = DATE })

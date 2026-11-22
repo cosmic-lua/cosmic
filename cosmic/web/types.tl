@@ -479,7 +479,7 @@ local record Types
   end
 
   --- Routes compiled for matching: see [`Web.router`].
-  record Router
+  interface Router
     --- What an app would do with a request of `method` for `path`, as the
     --- client sent it, without running a handler. "match" has the route and
     --- params; "not_allowed" and "options" have `allow`; "redirect" the
@@ -578,7 +578,7 @@ local record Types
   end
 
   --- A built app: [`Web.app`] derives the router and the handler.
-  record App
+  interface App
     --- The app's configuration, as given.
     spec: AppSpec
     --- Resource of the lifespan, by [`Web.key`]: `app.state[KEY] = db`.
@@ -769,7 +769,7 @@ local record Types
   end
 
   --- A reply as a test client saw it.
-  record TestResponse
+  interface TestResponse
     --- The status.
     status: integer
     --- By lowercased name; repeated headers joined with ", ".
@@ -791,7 +791,7 @@ local record Types
     --- The body as text.
     text: function(self: TestResponse): string
     --- The body decoded as JSON; nil and why when it is none.
-    json: function(self: TestResponse): any?, string
+    json: function(self: TestResponse): Json.Value?, string
   end
 end
 

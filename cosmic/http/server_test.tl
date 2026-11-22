@@ -220,26 +220,27 @@ local function test_a_connection_closes_where_either_side_asks()
   end)
 end
 
+--- A body that notes whether it was read and closed.
+local class Watched is Stream.Reader
+  mut read_from: boolean
+  mut closed: boolean
+
+  function read(self, _max_bytes?: integer): string?, string
+    self.read_from = true
+    return nil, ""
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    return true, ""
+  end
+end
+
 --- A HEAD is answered with the head a GET would have, its
 --- Content-Length included, and no body: the next reply on the
 --- connection follows at once. A Reader body is closed unread.
 local function test_head_is_answered_with_no_body()
-  local read_from: boolean = false
-  local closed: boolean = false
-  local record Watched is Stream.Reader
-    read: function(Watched, max_bytes?: integer): string?, string
-    close: function(Watched): boolean, string
-  end
-  local watched: Watched = setmetatable({}, { __index = { -- checked: setmetatable_call
-    read = function(_self: Watched, _max_bytes?: integer): string?, string
-      read_from = true
-      return nil, ""
-    end,
-    close = function(_self: Watched): boolean, string
-      closed = true
-      return true, ""
-    end,
-  } })
+  local watched: Watched = { read_from = false, closed = false, skip = nil }
   serving(function(req: Server.Request): Server.Reply
     if req.path == "/reader" then return { status = 200, body = watched, length = 42 } end
     return { status = 200, body = "hello" }
@@ -254,7 +255,7 @@ local function test_head_is_answered_with_no_body()
     local after = reply(p)
     assert(after.body == "hello", after.body)
   end)
-  assert(closed and not read_from)
+  assert(watched.closed and not watched.read_from)
 end
 
 --- A chunked request body is decoded, its extensions and trailers
@@ -629,24 +630,25 @@ local function test_a_reply_reading_the_request_body_sends_100_first()
   end)
 end
 
+--- A body whose read raises, which notes whether it was closed.
+local class Raising is Stream.Reader
+  mut closed: boolean
+
+  function read(self, _max_bytes?: integer): string?, string
+    error("the body broke")
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    return true, ""
+  end
+end
+
 --- A Reader body that raises cuts the reply short: the connection
 --- closes, the Reader is closed, and what it raised, with its stack,
 --- goes to on_error.
 local function test_a_reply_body_that_raises_closes_the_connection()
-  local closed: boolean = false
-  local record Raising is Stream.Reader
-    read: function(Raising, max_bytes?: integer): string?, string
-    close: function(Raising): boolean, string
-  end
-  local raising: Raising = setmetatable({}, { __index = { -- checked: setmetatable_call
-    read = function(_self: Raising, _max_bytes?: integer): string?, string
-      error("the body broke")
-    end,
-    close = function(_self: Raising): boolean, string
-      closed = true
-      return true, ""
-    end,
-  } })
+  local raising: Raising = { closed = false, skip = nil }
   local troubles = serving(function(_req: Server.Request): Server.Reply
     return { status = 200, body = raising, length = 5 }
   end, function(address: Net.Address)
@@ -655,9 +657,25 @@ local function test_a_reply_body_that_raises_closes_the_connection()
     assert(line(p) == "HTTP/1.1 200 OK")
     while more(p) do end
   end)
-  assert(closed)
+  assert(raising.closed)
   assert(#troubles == 1 and trouble_at(troubles, 1):find("the body broke", 1, true) ~= nil, troubles[1])
   assert(trouble_at(troubles, 1):find("stack traceback", 1, true) ~= nil, troubles[1])
+end
+
+--- A body that reads every failure of its source as the end.
+local class Lenient is Stream.Reader
+  source: Stream.Reader
+
+  --- Reads every failure as the end.
+  function read(self, max_bytes?: integer): string?, string
+    local piece, _ = self.source:read(max_bytes)
+    if piece == nil then return nil, "" end
+    return piece, ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
 end
 
 --- A request body that fails while a reply's Reader reads it closes the
@@ -665,24 +683,9 @@ end
 --- bytes after it are no request to serve.
 local function test_a_body_failing_under_the_reply_closes_the_connection()
   local paths: mut {string} = {}
-  local record Lenient is Stream.Reader
-    source: Stream.Reader
-    read: function(Lenient, max_bytes?: integer): string?, string
-    close: function(Lenient): boolean, string
-  end
-  local lenient_methods = {
-    -- Reads every failure as the end.
-    read = function(self: Lenient, max_bytes?: integer): string?, string
-      local piece, _ = self.source:read(max_bytes)
-      if piece == nil then return nil, "" end
-      return piece, ""
-    end,
-    close = function(_self: Lenient): boolean, string return true, "" end,
-  }
-  local lenient_mt: metatable<Lenient> = { __index = lenient_methods } -- checked: literal_missing
   serving(function(req: Server.Request): Server.Reply
     paths[#paths + 1] = req.path
-    local lenient: Lenient = setmetatable({ source = req.body }, lenient_mt) -- checked: setmetatable_call
+    local lenient: Lenient = { source = req.body, skip = nil }
     return { status = 200, body = lenient }
   end, function(address: Net.Address)
     local p <close> = peer(address)

@@ -1561,8 +1561,7 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     return ctx.invalid
   end
   local info = program.modules[name]
-  local provider = program.provider
-  if info == nil and provider ~= nil and provider(program, name) then
+  if info == nil and program.provider ~= nil and program:provider(name) then
     info = program.modules[name]
   end
   if info == nil then
