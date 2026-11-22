@@ -67,7 +67,7 @@ local database_mt: metatable<Database> = { -- checked: literal_missing
 }
 
 local function owned(db?: Sqlite.Handle): Database
-  return setmetatable({ db = db, transaction = false }, database_mt) -- checked: arms_differ, setmetatable_call -- untyped: call
+  return setmetatable({ db = db, transaction = false }, database_mt) -- checked: setmetatable_call -- untyped: call
 end
 
 local function close(database: Database): boolean, string

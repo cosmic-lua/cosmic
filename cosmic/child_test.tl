@@ -192,7 +192,7 @@ local function test_credentials_reject_invalid_ids_and_namespace_options()
       Child.start({ "/never-started" }, { timeout_ns = Child.FOREVER, credentials = credentials })
     end, "credentials need integer user and group")
   end
-  for _, sandbox in ipairs({ -- checked: arms_differ, cast_refused
+  for _, sandbox in ipairs({ -- checked: cast_refused
       { unveil = { reads = {} } }, { offline = true }, { user = 1 }, { group = 1 }, -- checked: literal_needs_type
   } as {Child.Sandbox}) do
     local ok, why = pcall(Child.start, { "/never-started" },

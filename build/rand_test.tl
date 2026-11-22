@@ -100,8 +100,8 @@ local function test_uuid_v7_sorts_as_drawn_within_one_millisecond()
   local ticks = { 5000000000, 5000000000, 5000000000, 4999000000, 5000000001 }
   local at = { value = 0 }
   local ran = run({ "uuid", "--v7", "-n", "300" }, { now_ns = function(): integer
-    at.value = at.value + 1 -- checked: map_field*2
-    return ticks[at.value] or 5000000001 -- checked: map_field
+    at.value = at.value + 1
+    return ticks[at.value] or 5000000001
   end })
   local ids = lines(ran.out)
   assert(#ids == 300)
@@ -218,14 +218,14 @@ local function test_int_from_entropy_rejects_rather_than_wraps()
   local draws = { 3, 3, 1, 2, 0 }
   local calls = { value = 0 }
   local ran = run({ "int", "0", "2", "-n", "3" }, { entropy = function(count: integer): string?, string
-    calls.value = calls.value + 1 -- checked: map_field*2
+    calls.value = calls.value + 1
     local parts: mut {string} = {}
     for index = 1, count // 8 do
       parts[index] = string.pack("<i8", support.nth(draws, (index - 1) % 5 + 1))
     end
     return table.concat(parts), ""
   end })
-  assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. tostring(calls.value)) -- checked: map_field*2
+  assert(ran.out == "1\n2\n0\n" and calls.value == 1, ran.out .. tostring(calls.value))
 end
 
 local function test_int_from_entropy_reaches_every_value_and_no_seed_is_used()

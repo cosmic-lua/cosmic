@@ -1556,7 +1556,7 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   if Poll.in_task() then
     error("net: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
-  local served = { ok = true, why = "" } -- checked: arms_differ
+  local served = { ok = true, why = "" }
   Poll.run(function() served.ok, served.why = serving(spec) end)
   if not served.ok then return false, served.why end
   return true, ""

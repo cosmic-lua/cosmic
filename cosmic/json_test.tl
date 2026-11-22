@@ -156,22 +156,22 @@ local function test_json5_is_read_when_asked()
 b",
 }
 ]]
-  local v = assert(Json.decode_object(text, five)) -- checked: not_assignable
+  local v = assert(Json.decode_object(text, five))
   assert(v["unquoted"] == "single", "an unquoted key and a single-quoted string")
   assert(#assert(Json.to_array(v["trailing"])) == 2 and Json.is_array(v["trailing"]), "a trailing comma")
   assert(v["hex"] == 31 and math.type(v["hex"]) == "integer", "a hexadecimal integer")
   assert(v["plus"] == 1 and v["lead"] == 0.5 and v["trail"] == 5.0, "the other number forms")
   assert(v["nl"] == "ab", "a line continuation")
-  local nan = decoded("NaN", five) -- checked: not_assignable
+  local nan = decoded("NaN", five)
   assert(nan ~= nan, "NaN is the float")
-  assert(decoded("-Infinity", five) == -math.huge, "and so is -Infinity") -- checked: not_assignable
-  assert(decoded("[inf]", five) ~= nil, "yyjson takes inf in any case") -- checked: not_assignable
-  assert(decoded("'\\a'", five) == "\a", "and escapes JSON5 does not have") -- checked: not_assignable
-  assert(Json.decode_object("{a: 1,}", five) ~= nil, "decode_object takes json5") -- checked: not_assignable
-  assert(Json.decode_array("[1,]", five) ~= nil, "and decode_array") -- checked: not_assignable
+  assert(decoded("-Infinity", five) == -math.huge, "and so is -Infinity")
+  assert(decoded("[inf]", five) ~= nil, "yyjson takes inf in any case")
+  assert(decoded("'\\a'", five) == "\a", "and escapes JSON5 does not have")
+  assert(Json.decode_object("{a: 1,}", five) ~= nil, "decode_object takes json5")
+  assert(Json.decode_array("[1,]", five) ~= nil, "and decode_array")
   assert(decode_failure("{a: 1,}"):match("^json: invalid JSON"), "the default stays strict")
-  assert(decode_failure("{a: 1", five):match("^json: invalid JSON at line 1"), "JSON5 fails with a place too") -- checked: not_assignable
-  assert(encoded(decoded("{a: [1,],}", five)) == '{"a":[1]}', "output is RFC 8259") -- checked: not_assignable
+  assert(decode_failure("{a: 1", five):match("^json: invalid JSON at line 1"), "JSON5 fails with a place too")
+  assert(encoded(decoded("{a: [1,],}", five)) == '{"a":[1]}', "output is RFC 8259")
 end
 
 local function test_strings_are_utf8()
@@ -492,8 +492,8 @@ end
 local function generator(seed: integer): function(integer, integer): integer
   local state = { value = seed }
   return function(lo: integer, hi: integer): integer
-    state.value = (state.value * 6364136223846793005 + 1442695040888963407) -- checked: map_field*2
-    return lo + ((state.value >> 33) % (hi - lo + 1)) -- checked: map_field
+    state.value = (state.value * 6364136223846793005 + 1442695040888963407)
+    return lo + ((state.value >> 33) % (hi - lo + 1))
   end
 end
 
@@ -641,11 +641,11 @@ end
 --- stays a character.
 local function test_hash_comments_are_read_when_asked()
   local hash = { hash_comments = true }
-  local list = assert(Json.decode_array('# lead\n[1, # one\n2] # end', hash)) -- checked: not_assignable
+  local list = assert(Json.decode_array('# lead\n[1, # one\n2] # end', hash))
   assert(#list == 2 and list[1] == 1 and list[2] == 2, "comments before, inside and after")
-  local strings = assert(Json.decode_array('["#x", "# y"]', hash)) -- checked: not_assignable
+  local strings = assert(Json.decode_array('["#x", "# y"]', hash))
   assert(strings[1] == "#x" and strings[2] == "# y", "a # in a string")
-  assert(decoded("1 # no newline", hash) == 1, "a comment the text ends in") -- checked: not_assignable
+  assert(decoded("1 # no newline", hash) == 1, "a comment the text ends in")
   local five = { json5 = true, hash_comments = true }
   local text = [[
 # the name GitHub shows
@@ -655,21 +655,21 @@ local function test_hash_comments_are_read_when_asked()
   "runs-on": ["ubuntu-24.04",],
 }
 ]]
-  local v = assert(Json.decode_object(text, five)) -- checked: not_assignable
+  local v = assert(Json.decode_object(text, five))
   assert(v["name"] == "ci" and assert(Json.to_array(v["runs-on"]))[1] == "ubuntu-24.04", "JSON5 with # comments")
-  assert(Json.decode_object(text, five) ~= nil, "decode_object takes hash_comments") -- checked: not_assignable
+  assert(Json.decode_object(text, five) ~= nil, "decode_object takes hash_comments")
   assert(decode_failure("# c\n1"):match("^json: invalid JSON at line 1, column 1"), "RFC 8259 has no # comment")
   assert(decode_failure("# c\n1", { json5 = true }):match("^json: invalid JSON at line 1, column 1"),
     "nor does JSON5")
-  assert(decode_failure("# only", hash) == "json: invalid JSON: the text is empty", "a comment is no value") -- checked: not_assignable
+  assert(decode_failure("# only", hash) == "json: invalid JSON: the text is empty", "a comment is no value")
   -- A # comment ends where a // one does: at U+2028 in JSON5, and
   -- only at \n or \r outside it.
-  assert(decoded("# c\u{2028}1", five) == 1, "JSON5 ends it at U+2028") -- checked: not_assignable
-  assert(decode_failure("# c\u{2028}1", hash) == "json: invalid JSON: the text is empty", -- checked: not_assignable
+  assert(decoded("# c\u{2028}1", five) == 1, "JSON5 ends it at U+2028")
+  assert(decode_failure("# c\u{2028}1", hash) == "json: invalid JSON: the text is empty",
     "outside JSON5, U+2028 is inside it")
-  local values = assert(Json.decode_lines("1 # one\n3", hash)) -- checked: not_assignable
+  local values = assert(Json.decode_lines("1 # one\n3", hash))
   assert(#values == 2 and values[2] == 3, "decode_lines takes hash_comments")
-  local _, only = Json.decode_lines("1\n# two", hash) -- checked: not_assignable
+  local _, only = Json.decode_lines("1\n# two", hash)
   assert(only == "json: invalid JSON at line 2: the line holds no value", only)
 end
 

@@ -1156,9 +1156,9 @@ local function test_request_refuses_what_it_would_not_send_as_asked()
   local script = { reply("200 OK", "") }
   for method, opts in pairs({ -- checked: cast_refused, literal_shape
       [""] = { script = script },
-      PUT = { method = "POST", script = script }, -- checked: arms_differ
-      GET = { body = "x", script = script }, -- checked: arms_differ
-      HEAD = { body = "x", script = script }, -- checked: arms_differ
+      PUT = { method = "POST", script = script },
+      GET = { body = "x", script = script },
+      HEAD = { body = "x", script = script },
   } as {string:Http.Options}) do
     local ok, why = pcall(Http.request, method, url, opts)
     assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, method .. ": " .. tostring(why))
@@ -1179,9 +1179,9 @@ end
 local function test_get_refuses_another_method_and_a_body()
   local script = { reply("200 OK", "") }
   for _, opts in ipairs({ -- checked: cast_refused
-      { method = "PUT", script = script }, -- checked: arms_differ
-      { method = "HEAD", script = script }, -- checked: arms_differ
-      { body = "x", script = script }, -- checked: arms_differ
+      { method = "PUT", script = script },
+      { method = "HEAD", script = script },
+      { body = "x", script = script },
   } as {Http.Options}) do
     Test.raises(function() Http.get(url, opts) end, "Http.request")
   end
@@ -1367,7 +1367,7 @@ end
 --- absent one: both raise as any other method does.
 local function test_a_method_that_is_false_is_refused_not_taken_for_none()
   local script = { reply("200 OK", "") }
-  local opts = { method = false, script = script } as any as Http.Options -- checked: arms_differ, cast_refused*2
+  local opts = { method = false, script = script } as any as Http.Options -- checked: cast_refused*2
   local ok, why = pcall(Http.get, url, opts)
   assert(not ok and tostring(why):find("Http.request", 1, true) ~= nil, tostring(why))
   ok, why = pcall(Http.request, "PUT", url, opts)

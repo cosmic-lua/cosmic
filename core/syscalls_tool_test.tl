@@ -395,7 +395,7 @@ local function test_an_idmapped_bind_is_the_users_where_it_is_mapped(tmp: string
   -- `proc` takes a user as `unveil` does: a caller that may not map it
   -- has the start refused, never the arguments.
   local started, proc_pid = pcall(process.spawn, probe, { probe, "print hi" }, nil, nil, nil, nil, -- checked: overload_none
-    nil, false, nil, { proc = true, user = user, group = user }) -- checked: arms_differ
+    nil, false, nil, { proc = true, user = user, group = user })
   assert(started, "a user is refused with proc: " .. tostring(proc_pid))
   if proc_pid is integer then assert(process.waitpid(proc_pid, false)) end
   local sandbox: raw_process.Sandbox = { strict = true, user = user, group = user,

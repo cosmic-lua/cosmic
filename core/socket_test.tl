@@ -146,7 +146,7 @@ local function test_an_address_is_read_once(tmp: string)
   local path = tmp .. "/s.sock"
   local reads = 0
   local fickle: metatable<raw_socket.Address> = { -- checked: literal_missing
-    __index = function(_: raw_socket.Address, key: string): any -- checked: any_use
+    __index = function(_: raw_socket.Address, key: string): any
       if key == "kind" then return "unix" end -- checked: any_use
       if key ~= "path" then return nil end -- checked: any_use
       reads = reads + 1

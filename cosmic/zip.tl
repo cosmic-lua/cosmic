@@ -604,7 +604,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
         "the start of the central directory at " .. tostring(cd_offset))
   end
   if bare == true and kind ~= "symlink" then return CHECKED, "" end
-  local entry: Zip.Entry = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
+  local entry: Zip.Entry = setmetatable({ -- checked: setmetatable_call -- untyped: call
     path = buf:sub(name_start, name_end),
     kind = kind,
     size = usize,
@@ -761,7 +761,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
       return open_entry(pread, e)
     end,
   }
-  local entry_mt: metatable<Zip.Entry> = { __index = entry_methods } -- checked: any_use, literal_missing
+  local entry_mt: metatable<Zip.Entry> = { __index = entry_methods } -- checked: literal_missing
 
   -- One pass over the whole directory up front, keeping no entry, so
   -- a malformed one, or a count that disagrees with the end record,

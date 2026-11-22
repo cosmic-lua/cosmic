@@ -783,11 +783,13 @@ local function accepts(ctx: Ctx, a: Type, b: Type): boolean
   return b.tag == "any" or below(ctx, a, b)
 end
 
---- The type every type of `list` is below, or nil where there is none. A `nil` in the list makes the answer
---- optional; `never` is ignored; an empty list is `never`.
+--- The checks of a table literal against the type it is written for, and the type it has where none is written.
+local record TableLiterals
+end
+
 --- The record inferred for a literal of named items with the fields `fields`: one record for each set of names, types
 --- and `mut`, named `__literal` and a number and shown by its fields ([`Types.inferred_record`]).
-local function inferred_of(ctx: Ctx, list: {Types.Field}): Type
+function TableLiterals.inferred_of(ctx: Ctx, list: {Types.Field}): Type
   local store = ctx.store
   local fields: mut {Types.Field} = {}
   for _, f in ipairs(list) do
@@ -829,7 +831,7 @@ end
 --- The record two or more inferred records `list` join to: each field of any of them, of the join of its types, and
 --- nilable where one of them lacks it; `mut` where each has it `mut` of one type. Nil where two types of a field have
 --- no join.
-local function inferred_join(ctx: Ctx, list: {Type}, join_of: function({Type}): Type?): Type?
+function TableLiterals.inferred_join(ctx: Ctx, list: {Type}, join_of: function({Type}): Type?): Type?
   local names: mut {string} = {}
   local types: mut {string: mut {Type}} = {}
   local muts: mut {string: integer} = {}
@@ -866,9 +868,11 @@ local function inferred_join(ctx: Ctx, list: {Type}, join_of: function({Type}): 
     end
     fields[#fields + 1] = { name = name, type = joined, mut = every and same and muts[name] == #list, omittable = false }
   end
-  return inferred_of(ctx, fields)
+  return TableLiterals.inferred_of(ctx, fields)
 end
 
+--- The type every type of `list` is below, or nil where there is none. A `nil` in the list makes the answer
+--- optional; `never` is ignored; an empty list is `never`.
 local function join(ctx: Ctx, list: {Type}): Type?
   local store = ctx.store
   local best: Type? = nil
@@ -899,7 +903,7 @@ local function join(ctx: Ctx, list: {Type}): Type?
           records[#records + 1] = r
         end
       end
-      local merged = inferred_join(ctx, records, function(types: {Type}): Type?
+      local merged = TableLiterals.inferred_join(ctx, records, function(types: {Type}): Type?
         return join(ctx, types)
       end)
       if merged == nil then
@@ -1793,10 +1797,6 @@ end
 
 -- Table literals ----------------------------------------------------------------------------
 
---- The checks of a table literal against the type it is written for, and the type it has where none is written.
-local record TableLiterals
-end
-
 --- Checks the values of the items of a literal that has no shape to be checked against, so that what is in them
 --- is checked.
 function TableLiterals.items_unshaped(ctx: Ctx, items: {Ast.Item})
@@ -2091,7 +2091,7 @@ function TableLiterals.inferred(ctx: Ctx, e: Ast.Table, values: {Type}): Type
   if failed then
     return ctx.invalid
   end
-  return inferred_of(ctx, fields)
+  return TableLiterals.inferred_of(ctx, fields)
 end
 
 --- An item of the wrong shape for what the literal is checked against.

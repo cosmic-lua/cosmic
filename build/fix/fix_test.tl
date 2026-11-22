@@ -380,20 +380,20 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
     local opened = { value = 0 }
     local source = fix.link_context(root, whole, true,
       function(_: string): boolean, string
-        rebuilt.value = rebuilt.value + 1 -- checked: map_field*2
+        rebuilt.value = rebuilt.value + 1
         return true, ""
       end,
       function(): docs.Sources
-        opened.value = opened.value + 1 -- checked: map_field*2
+        opened.value = opened.value + 1
         return { handles = {}, public = {}, opened = {} }
       end)
     fix.links(source.context, { root .. "/b.md" })
-    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases") -- checked: map_field*2
+    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases")
     local found = fix.links(source.context, { root .. "/a.md" })
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
-    assert(opened.value == 1, "opened " .. tostring(opened.value) .. " times") -- checked: map_field*2
-    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. tostring(rebuilt.value)) -- checked: map_field*2
+    assert(opened.value == 1, "opened " .. tostring(opened.value) .. " times")
+    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. tostring(rebuilt.value))
   end
 end
 
@@ -402,7 +402,7 @@ end
 local function test_links_keep_why_their_build_failed(tmp: string)
   local root = assert(Fs.absolute(tmp))
   assert(Fs.write(root .. "/a.md", "[`m.one`]\n"))
-  for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do -- checked: arms_differ
+  for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do
     local source = fix.link_context(root, false, true,
       function(_: string): boolean, string
         return case.ok, if case.ok then "" else "a.tl: the compiler refused it" end

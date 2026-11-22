@@ -32,7 +32,7 @@ local function test_a_degenerate_grant_raises(tmp: string)
   assert(raises({ { path = "", access = "r" } }), "an empty path")
   assert(raises({ { access = "r" } }), "no path")
   assert(raises({ { path = probe } }), "no access")
-  assert(raises({ { path = 1, access = "r" } }), "a path that is no string") -- checked: arms_differ
+  assert(raises({ { path = 1, access = "r" } }), "a path that is no string")
   assert(raises({ probe }), "a grant that is no table")
   assert(raises("r"), "grants that are no list")
   assert(raises({ { path = "a\0b", access = "r" } }), "a path with a NUL")

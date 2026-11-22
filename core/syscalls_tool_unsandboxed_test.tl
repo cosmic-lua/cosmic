@@ -55,7 +55,7 @@ local function test_an_idmapped_bind_is_refused_without_a_user(tmp: string)
   local probe = probe_in(tmp)
   assert(sys.mkdir(tmp .. "/closed", 0x1c0))
   local ok, trouble = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
-    { unveil = { reads = { probe }, writes = {}, binds = { { path = tmp .. "/closed", idmap = true } } } }) -- checked: arms_differ
+    { unveil = { reads = { probe }, writes = {}, binds = { { path = tmp .. "/closed", idmap = true } } } })
   assert(not ok and tostring(trouble):find("idmap requires a user", 1, true) ~= nil, tostring(trouble))
 end
 

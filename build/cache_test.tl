@@ -273,14 +273,14 @@ local function test_cli_usage_and_json_empty_arrays(tmp: string)
   local trouble = { value = "" }
   local io: cache.Io = {
     out = function(text: string): boolean, string
-      output.value = output.value .. text -- checked: map_field*2
+      output.value = output.value .. text
       return true, ""
     end,
-    err = function(text: string) trouble.value = trouble.value .. text end, -- checked: map_field*2
+    err = function(text: string) trouble.value = trouble.value .. text end,
   }
   local argv: mut {string} = { "cache", "trim", "compiles", tmp .. "/missing", "--since-ns", "0", "--json" }
-  assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value) -- checked: map_field*2
-  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true) ~= nil, output.value) -- checked: map_field*3
+  assert(cache.run(argv, io) == 0 and trouble.value == "", trouble.value)
+  assert(Json.decode(output.value) ~= nil and output.value:find('"warnings":[]', 1, true) ~= nil, output.value)
   table.remove(argv, 6)
   table.insert(argv, 6, "-1")
   assert(cache.run(argv, io) == 2)

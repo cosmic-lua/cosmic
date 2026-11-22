@@ -348,7 +348,7 @@ end
 --- a unix one keeps its path and nothing else.
 local function test_a_unix_listeners_address_is_built_again_from_its_path(tmp: string)
   unix_socket.skip_if_refused(tmp)
-  local given = { kind = "unix", path = tmp .. "/s.sock", host = "unused", port = 9 } -- checked: arms_differ
+  local given = { kind = "unix", path = tmp .. "/s.sock", host = "unused", port = 9 }
   local server <close> = assert(Net.listen(given))
   local address = server.address
   assert(address.kind == "unix" and address.path == tmp .. "/s.sock", address.path)

@@ -157,7 +157,7 @@ local function base_url(self: Req): string?, string
   return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. tostring(port) else "" end), ""
 end
 
-local methods = { -- checked: arms_differ
+local methods = {
   header = header, bytes = bytes, text = text, query = query, accepts = accepts,
   url_for = url_for, get = get, set = set, base_url = base_url,
 }

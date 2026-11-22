@@ -215,7 +215,7 @@ local function json(self: Response): Json.Value?, string
   return value, ""
 end
 
-local response_methods = { header_list = header_list, text = text, json = json } -- checked: arms_differ
+local response_methods = { header_list = header_list, text = text, json = json }
 local response_mt: metatable<Response> = { __index = response_methods } -- checked: literal_missing
 
 --- A response from `lines`, header lines as `{name, value}` in order.
@@ -457,7 +457,7 @@ local function verb(method: string): function(self: Testing.Client, path: string
   end
 end
 
-local client_methods = { -- checked: arms_differ
+local client_methods = {
   request = request, get = verb("GET"), head = verb("HEAD"), post = verb("POST"),
   put = verb("PUT"), patch = verb("PATCH"), delete = verb("DELETE"), options = verb("OPTIONS"),
 }

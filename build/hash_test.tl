@@ -373,15 +373,15 @@ local function pattern(total: integer, chunk: string): Stream.Reader, function()
   local peak = { value = 0 }
   local reader: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, max_bytes?: integer): string?, string
-      peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number)) -- checked: cast_refused, map_field*2
-      if left.value == 0 then return nil, "" end -- checked: map_field
-      local size = math.min(left.value, max_bytes or #chunk, #chunk) -- checked: map_field
-      left.value = left.value - size -- checked: map_field*2
+      peak.value = math.max(peak.value, math.floor(collectgarbage("count") as number)) -- checked: cast_refused
+      if left.value == 0 then return nil, "" end
+      local size = math.min(left.value, max_bytes or #chunk, #chunk)
+      left.value = left.value - size
       return chunk:sub(1, size), ""
     end,
     close = function(): boolean, string return true, "" end,
   }
-  return reader, function(): integer return peak.value end -- checked: map_field
+  return reader, function(): integer return peak.value end
 end
 
 local function test_a_large_input_streams_in_bounded_memory()

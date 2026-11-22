@@ -206,8 +206,8 @@ local function counted(value: any, counter: Counter): any
     counter.walked = counter.walked + 1
     local at = { value = nil as any } -- checked: cast_refused
     return function(): any, any
-      local key, member = next(copy, at.value) -- checked: map_field
-      at.value = key -- checked: map_field
+      local key, member = next(copy, at.value)
+      at.value = key
       return key, member
     end
   end

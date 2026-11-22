@@ -2554,13 +2554,13 @@ end
 local store_mt: metatable<Store> = { __index = Types.Store } -- checked: field_unknown, literal_missing
 
 function Types.new(loader?: Loader): Store
-  counter.stores = counter.stores + 1 -- checked: map_field*2
+  counter.stores = counter.stores + 1
   local atoms: mut {string: Type} = {}
   local interned: mut {string: Type} = {}
   local types: mut {Type} = {}
   for i, name in ipairs(ATOMS) do
     local made: Atom = {
-      tag = name, atom = true, id = i, owner = counter.stores, digest = "", open = 0, has_mut = false, -- checked: map_field
+      tag = name, atom = true, id = i, owner = counter.stores, digest = "", open = 0, has_mut = false,
       weight = 1, height = 1,
     }
     atoms[name] = made
@@ -2568,7 +2568,7 @@ function Types.new(loader?: Loader): Store
     types[i] = made
   end
   local store: Store = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {}, -- checked: map_field
+    owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {},
     atoms = atoms, loader = loader, pending = {}, journal = {}, building = {}, building_order = {}, depth = 0,
     transactions = 0, dead = 0,
     integer = atoms["integer"], number = atoms["number"], string = atoms["string"], boolean = atoms["boolean"],

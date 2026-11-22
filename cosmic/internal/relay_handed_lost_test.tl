@@ -28,16 +28,16 @@ local function fake(name: string, log: mut {string}, hold_ns?: integer, dies?: b
         if not waited then return nil, why end -- checked: any_use
       end
       if dies == true then
-        ended.value = true -- checked: map_field
+        ended.value = true
         return nil, "net: the connector has ended" -- checked: any_use
       end
       return nil, "refused by " .. name -- checked: any_use
     end,
     ended = function(_: any): boolean
-      return ended.value -- checked: map_field
+      return ended.value
     end,
     close = function(_: any): boolean, string
-      ended.value = true -- checked: map_field
+      ended.value = true
       return true, ""
     end,
   })

@@ -810,7 +810,7 @@ end
 local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused_not_overflowed()
   local asked = { count = 0 }
   local s = Types.new(function(module: string, name: string): string?
-    asked.count = asked.count + 1 -- checked: map_field*2
+    asked.count = asked.count + 1
     local n = math.tointeger(tonumber(name:sub(2)))
     if n == nil then
       return nil
@@ -820,7 +820,7 @@ local function test_a_chain_of_declarations_far_longer_than_the_limit_is_refused
   end)
   local t, why = s:decode('(ref "m" "R1")')
   assert(t == nil and why:find("types:", 1, true) == 1 and why:find("deeper", 1, true) ~= nil, why)
-  assert(asked.count <= 1002, "the chain is not followed past the limit: " .. tostring(asked.count)) -- checked: map_field*2
+  assert(asked.count <= 1002, "the chain is not followed past the limit: " .. tostring(asked.count))
   assert(#s:declarations() == 0 and s:size() == 13)
 end
 

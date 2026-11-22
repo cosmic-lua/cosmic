@@ -1319,7 +1319,7 @@ local function consume(pipes: {Pipe}): Consumption
   for _, pipe in ipairs(pipes) do
     if pipe.consuming then error("child: output is already being consumed", 3) end
   end
-  local owner: Consumption = setmetatable({ pipes = pipes, discard = false, -- checked: arms_differ, setmetatable_call -- untyped: call
+  local owner: Consumption = setmetatable({ pipes = pipes, discard = false, -- checked: setmetatable_call -- untyped: call
     reason = "child: output sink did not complete" }, consumption_mt)
   for _, pipe in ipairs(pipes) do pipe.consuming = true end
   return owner
@@ -4199,7 +4199,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   if made == nil then return refuse("pty: " .. why) end
   -- Closes both ends where the start raises, or fails; the slave on any
   -- return, the master unless the caller is to have it.
-  local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave, -- checked: arms_differ, close_not_closable, setmetatable_call -- untyped: call
+  local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave, -- checked: close_not_closable, setmetatable_call -- untyped: call
     keep = false, keep_slave = false }, pty_holder_mt)
   if rows ~= nil and columns ~= nil then
     local sized, size_why = sys.setwinsize(made.master, rows, columns)

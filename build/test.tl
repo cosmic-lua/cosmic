@@ -927,12 +927,12 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
         for _, line in ipairs(lines) do
           if per_line[line] == true then
             flags[#flags + 1] = "1"
-            totals.hit = totals.hit + 1 -- checked: map_field*2
+            totals.hit = totals.hit + 1
           else
             flags[#flags + 1] = "0"
           end
         end
-        totals.lines = totals.lines + #lines -- checked: map_field*2
+        totals.lines = totals.lines + #lines
         local ok, write_trouble = coverage:bind_integer(1, run_at_ns)
         if ok then ok, write_trouble = coverage:bind_text(2, path) end
         if ok then
@@ -989,7 +989,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   if not made then
     return 0, 0, trouble
   end
-  return totals.hit, totals.lines, "" -- checked: map_field*2
+  return totals.hit, totals.lines, ""
 end
 
 --- What names this checkout among the shared rows: an id made the

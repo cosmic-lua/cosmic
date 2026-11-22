@@ -91,7 +91,7 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
       if seen ~= nil then
         seen[#seen + 1] = opts
       end
-      clock.value = clock.value + (per_call_ns or 0) -- checked: map_field*2
+      clock.value = clock.value + (per_call_ns or 0)
       served[url] = (served[url] or 0) + 1
       local script = assert(replies[url], "no replies are scripted for " .. url)
       local attempt = assert(served[url], "the attempt was counted")
@@ -103,10 +103,10 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
     end,
     sleep = function(ns: integer)
       sleeps[#sleeps + 1] = ns
-      clock.value = clock.value + ns -- checked: map_field*2
+      clock.value = clock.value + ns
     end,
     now = function(): integer
-      return clock.value -- checked: map_field
+      return clock.value
     end,
   }
 end

@@ -3278,21 +3278,21 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
     out[#out + 1] = "image_hash readers: " .. line
   end
   for _, check in ipairs({
-      { name = "exports", lines = tree_checks.exports(db) }, -- checked: arms_differ
-      { name = "unnamed types", lines = tree_checks.unnamed_types(db) }, -- checked: arms_differ
-      { name = "doc anchors", lines = tree_checks.anchors(db) }, -- checked: arms_differ
-      { name = "compiler readers", lines = tree_checks.meta_readers(db, "compiler") }, -- checked: arms_differ
-      { name = "build directory", lines = tree_checks.build_directory(db) }, -- checked: arms_differ
-      { name = "stand-ins", lines = tree_checks.stand_ins(db) }, -- checked: arms_differ
-      { name = "docs queries", lines = tree_checks.queries(db) }, -- checked: arms_differ
-      { name = "quieted", lines = tree_checks.quieted(db) }, -- checked: arms_differ
-      { name = "restricted", lines = tree_checks.restricted(db) }, -- checked: arms_differ
-      { name = "declarations", lines = tree_checks.declarations(db) }, -- checked: arms_differ
-      { name = "verbs", lines = tree_checks.verbs(db, quickstart) }, -- checked: arms_differ
-      { name = "rendered docs", lines = docs_checks.rendered(carried or db) }, -- checked: arms_differ
-      { name = "doc references", lines = docs_checks.references(carried or db, help) }, -- checked: arms_differ
-      { name = "public docs", lines = tree_checks.public_docs(db) }, -- checked: arms_differ
-      { name = "plurals", lines = plurals }, -- checked: arms_differ
+      { name = "exports", lines = tree_checks.exports(db) },
+      { name = "unnamed types", lines = tree_checks.unnamed_types(db) },
+      { name = "doc anchors", lines = tree_checks.anchors(db) },
+      { name = "compiler readers", lines = tree_checks.meta_readers(db, "compiler") },
+      { name = "build directory", lines = tree_checks.build_directory(db) },
+      { name = "stand-ins", lines = tree_checks.stand_ins(db) },
+      { name = "docs queries", lines = tree_checks.queries(db) },
+      { name = "quieted", lines = tree_checks.quieted(db) },
+      { name = "restricted", lines = tree_checks.restricted(db) },
+      { name = "declarations", lines = tree_checks.declarations(db) },
+      { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
+      { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
+      { name = "doc references", lines = docs_checks.references(carried or db, help) },
+      { name = "public docs", lines = tree_checks.public_docs(db) },
+      { name = "plurals", lines = plurals },
   }) do
     for _, line in ipairs(check.lines) do
       out[#out + 1] = check.name .. ": " .. line

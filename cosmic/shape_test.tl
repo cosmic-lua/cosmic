@@ -181,11 +181,11 @@ end
 -- field that key was probably meant to be, and whatever its value.
 local function test_a_strict_record_refuses_a_key_it_does_not_name()
   local strict = SERVER:strict()
-  local s = must(Shape.into({ host = "h", port = 1, tls = Json.null }, strict.spec)) -- checked: arms_differ
+  local s = must(Shape.into({ host = "h", port = 1, tls = Json.null }, strict.spec))
   assert(s.host == "h" and s.port == 1 and s.tls == nil)
-  fails({ host = "h", prot = 1 }, strict.spec, "$.prot: unknown key") -- checked: arms_differ
+  fails({ host = "h", prot = 1 }, strict.spec, "$.prot: unknown key")
   fails({ host = "h", port = 1, zz = 1, ["a key"] = 1 }, strict.spec, '$[\"a key\"]: unknown key') -- checked: literal_shape
-  fails({ host = "h", port = 1, tlss = Json.null }, strict.spec, "$.tlss: unknown key") -- checked: arms_differ
+  fails({ host = "h", port = 1, tlss = Json.null }, strict.spec, "$.tlss: unknown key")
   fails({ host = "h", port = 1, [1] = "x" }, strict.spec, "$: want record, got the integer key 1") -- checked: literal_shape
   fails(must(Json.decode("[]")), strict.spec, "$: want record, got array")
   -- A record the strict form is made of is made strict whatever it is nested in.
@@ -193,7 +193,7 @@ local function test_a_strict_record_refuses_a_key_it_does_not_name()
     server: Server?
   end
   local OUTER <const> = Shape.record_of("Outer"):strict()
-  fails({ server = { host = "h", port = 1, extra = true } }, OUTER.spec, "$.server.extra: unknown key") -- checked: arms_differ
+  fails({ server = { host = "h", port = 1, extra = true } }, OUTER.spec, "$.server.extra: unknown key")
 end
 
 local function test_a_map_refuses_a_key_that_is_not_a_string()
@@ -210,7 +210,7 @@ local function test_json_null_is_a_missing_value()
   local s = must(Shape.into(must(Json.decode(text, keep)), SERVER.spec))
   assert(s.tls == nil)
   fails(must(Json.decode('{"host": null, "port": 1}', keep)), SERVER.spec, "$.host: missing")
-  fails({ host = "h", port = Json.null }, SERVER.spec, "$.port: missing") -- checked: arms_differ
+  fails({ host = "h", port = Json.null }, SERVER.spec, "$.port: missing")
   -- An array holds no hole, so a list whose elements may be missing is a map from the indexes that are there.
   local sparse = Shape.sparse_list(Shape.optional(Shape.integer))
   local l = must(Shape.into(must(Json.decode("[1, null, 3]", keep)), sparse))

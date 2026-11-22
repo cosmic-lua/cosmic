@@ -186,7 +186,7 @@ end
 
 local function test_a_tree_is_built_from_teal_values()
   local Json = require("cosmic.json")
-  local text = flow.write({ -- checked: arms_differ
+  local text = flow.write({
     jobs = { a = { steps = { { run = "make" } }, ["runs-on"] = "ubuntu-24.04" } }, -- checked: literal_shape
     on = { push = { branches = { "main" } }, workflow_dispatch = {} }, -- checked: literal_needs_type
     name = "ci",
@@ -249,7 +249,7 @@ local function test_update_keeps_the_comments_of_what_stays()
     "}",
     "",
   }, "\n")))
-  doc.root = flow.update(doc.root, { -- checked: arms_differ
+  doc.root = flow.update(doc.root, {
     name = "cd", list = Json.array({ 1, 5 }), kind = { "x" }, added = { b = 2 },
   })
   local want = table.concat({

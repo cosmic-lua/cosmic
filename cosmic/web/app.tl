@@ -66,7 +66,7 @@ local function on_stop(self: Types.App, fn: function())
   self.stoppers[#self.stoppers + 1] = fn
 end
 
-local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop } -- checked: arms_differ
+local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop }
 local app_mt: metatable<Types.App> = { __index = app_methods } -- checked: literal_missing
 
 --- Compiles `spec` into an app. Raises, naming it, for a route that cannot
@@ -245,7 +245,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if cleanup == nil and why ~= nil and why ~= "" then return false, why end -- checked: compare_disjoint
     shutdown = cleanup
   end
-  local served = { ok = false, err = "" } -- checked: arms_differ
+  local served = { ok = false, err = "" }
   -- TODO: once Server.ServeSpec has an `on_start` run in a task before the
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()

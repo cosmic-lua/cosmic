@@ -417,12 +417,12 @@ local function with_change_time(paths: {string}, check: function(function()))
   Fs.stat = function(path: string): sys.Stat?, string -- checked: field_fixed
     local st, trouble = stat(path)
     if st ~= nil and tracked[path] == true then
-      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble -- checked: map_field
+      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble
     end
     return st, trouble
   end
   local ok, trouble = pcall(function(): boolean
-    check(function() tick.value = tick.value + 1 end) -- checked: map_field*2
+    check(function() tick.value = tick.value + 1 end)
     return true
   end)
   Fs.stat = stat -- checked: field_fixed

@@ -63,16 +63,16 @@ local function tunnels(userinfo?: string)
     local variables: {string:string} = { ALL_PROXY = "socks5h://" ..
         (if userinfo ~= nil then (userinfo .. "@") else "" end) .. "127.0.0.1:" .. tostring(assert(listener.address.port)) }
     local client = Poll.spawn(function()
-      code.value = connect.run({ "host.example", "80" }, { -- checked: map_field
+      code.value = connect.run({ "host.example", "80" }, {
         getenv = function(name: string): string? return variables[name] end,
         err = function(_line: string) end,
         read = function(): string?, string
-          while waiting.value == "" and ended.value ~= true do -- checked: map_field*2
+          while waiting.value == "" and ended.value ~= true do
             local ok, why = Poll.delay(Clock.ms(1))
             if not ok then return nil, why end
           end
-          local data = waiting.value -- checked: map_field
-          waiting.value = "" -- checked: map_field
+          local data = waiting.value
+          waiting.value = ""
           return data, ""
         end,
         write = function(_data: string): boolean, string return true, "" end,
@@ -97,13 +97,13 @@ local function tunnels(userinfo?: string)
     local length = bytes(relay, 1)
     bytes(relay, String.byte_at(length, 1) + 2)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
-    ended.value = true -- checked: map_field
+    ended.value = true
     assert(relay:shutdown("write"))
     assert(client:join(Clock.seconds(4)), "the client did not end")
     local _, _ = relay:close()
     local _, _ = listener:close()
   end)
-  assert(code.value == 0, tostring(code.value)) -- checked: map_field*2
+  assert(code.value == 0, tostring(code.value))
 end
 
 local function test_the_relay_clients_readers_are_as_declared()

@@ -816,7 +816,7 @@ function shared_compiles.for_build(environment?: {string:string}): importer.Shar
                      made: importer.Shared.Parse)
       if open.cache == nil then return end
       table.insert(assert(owed.parses), { -- checked: overload_none -- untyped: call
-        key = { analyzer = analyzer, source_hash = source_hash, mapped = mapped }, -- checked: arms_differ
+        key = { analyzer = analyzer, source_hash = source_hash, mapped = mapped },
         made = made,
       })
     end,

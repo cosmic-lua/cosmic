@@ -146,7 +146,7 @@ local record Stored is {any}
   value: function(Stored, integer): raw_sqlite.Value
 end
 
-local stored_mt: metatable<Stored> = { __index = Stored } -- checked: any_use, literal_missing
+local stored_mt: metatable<Stored> = { __index = Stored } -- checked: literal_missing
 
 --- What a cell of kind `kind` is called in a failure.
 local function described(kind: Kind): string
@@ -270,7 +270,7 @@ local record TextStored is {any}
   value: function(TextStored, integer): raw_sqlite.Value
 end
 
-local text_stored_mt: metatable<TextStored> = { __index = TextStored } -- checked: any_use, literal_missing
+local text_stored_mt: metatable<TextStored> = { __index = TextStored } -- checked: literal_missing
 
 --- The bytes of column `index` of `row`, which `name` reads. Raises,
 --- blaming the caller of the accessor that called this, unless `index`

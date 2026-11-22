@@ -257,7 +257,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     local result, trouble = importer.compile_tree(handle,
       function(recorded: identity.Identities): string?,
       string
-        selected.value = true -- checked: map_field
+        selected.value = true
         assert(trace.finished == 0 and trace.offered == 2,
           "identity selected before derivation completed")
         local rows = assert(Sqlite.text_rows(handle.db,
@@ -267,7 +267,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
         return "chosen-compiler", ""
       end, false, shared)
     assert(trace.finished == 1, "self-build did not finish its cache exactly once")
-    assert(selected.value == (phase ~= "record")) -- checked: map_field
+    assert(selected.value == (phase ~= "record"))
     if phase == "success" then
       assert(result ~= nil, trouble)
       -- The tool the selection answered, as the compile in the new mode keys it ([`Pipeline.coded_of`]).

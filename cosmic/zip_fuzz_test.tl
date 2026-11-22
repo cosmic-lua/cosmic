@@ -205,11 +205,11 @@ local function gen_laid_out(src: Fuzz.Source): string
   local pos = { value = 0 }
   local function put(r: Rec)
     recs[#recs + 1] = r
-    marks[#marks + 1] = pos.value -- checked: map_field
-    pos.value = pos.value + #packed(r) -- checked: map_field*2
+    marks[#marks + 1] = pos.value
+    pos.value = pos.value + #packed(r)
   end
   local prefix = if src:int(0, 3) == 0 then Fuzz.bytes(src, 16) else "" end
-  pos.value = #prefix -- checked: map_field
+  pos.value = #prefix
 
   local centrals: mut {Rec} = {}
   local wides: mut {integer: Rec} = {}
@@ -235,7 +235,7 @@ local function gen_laid_out(src: Fuzz.Source): string
       values = { "PK\3\4", 20, 0, method, 0, 0x21, crc, #body, #data, #name, 0 },
       tail = name .. body,
     }
-    local offset = pos.value -- checked: map_field
+    local offset = pos.value
     put(lfh)
     -- A central header's zip64 field holds the values its sentinels
     -- stand for, in order; an unknown field may come before it.
@@ -279,17 +279,17 @@ local function gen_laid_out(src: Fuzz.Source): string
     comments[#comments + 1] = comment
   end
 
-  local cd_offset = pos.value -- checked: map_field
+  local cd_offset = pos.value
   for i, central in ipairs(centrals) do
     put(central)
     local wide = wides[i]
     if wide ~= nil then put(wide) end
     put({ fields = {}, values = {}, tail = comments[i] })
   end
-  local cd_size = pos.value - cd_offset -- checked: map_field
+  local cd_size = pos.value - cd_offset
   local total, eocd_size, eocd_offset = n, cd_size, cd_offset
   if src:int(0, 3) == 0 then
-    local z64_off = pos.value -- checked: map_field
+    local z64_off = pos.value
     put({
       fields = Z64_EOCD_FIELDS,
       values = { "PK\6\6", 44, UNIX_MADE_BY, 45, 0, 0, n, n, cd_size, cd_offset },
@@ -304,7 +304,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     values = { "PK\5\6", 0, 0, total, total, eocd_size, eocd_offset, #comment },
     tail = comment,
   })
-  marks[#marks + 1] = pos.value -- checked: map_field
+  marks[#marks + 1] = pos.value
 
   local edits = 0
   while Fuzz.more(src, edits, 3) do

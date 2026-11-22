@@ -49,11 +49,11 @@ end
 --- its fields. Collection also exercises the guard's last-resort owner.
 local function test_user_releases_buffers_under_every_allocation_refusal()
   local cases = {
-    { name = "root", point = "", found = true }, -- checked: arms_differ
-    { name = "root", point = "getpwnam_r(ERANGE)", found = true }, -- checked: arms_differ
-    { name = "root", point = "getpwnam_r", found = false }, -- checked: arms_differ
-    { name = "root", point = "getpwnam_r(missing)", found = false }, -- checked: arms_differ
-    { name = "root", point = "getpwnam_r(oversize)", found = false }, -- checked: arms_differ
+    { name = "root", point = "", found = true },
+    { name = "root", point = "getpwnam_r(ERANGE)", found = true },
+    { name = "root", point = "getpwnam_r", found = false },
+    { name = "root", point = "getpwnam_r(missing)", found = false },
+    { name = "root", point = "getpwnam_r(oversize)", found = false },
   }
   for _, case in ipairs(cases) do
     collectgarbage("collect")

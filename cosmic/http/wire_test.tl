@@ -368,7 +368,7 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
     read: function(Giving, max_bytes?: integer): string?, string
     close: function(Giving): boolean, string
   end
-  local giving_methods = { -- checked: arms_differ
+  local giving_methods = {
     read = function(self: Giving, _max_bytes?: integer): string?, string
       local piece = table.remove(self.pieces, 1)
       if piece == nil then return nil, "" end
