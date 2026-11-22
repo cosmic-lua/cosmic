@@ -7,6 +7,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
+local Net = require("cosmic.net")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
@@ -46,6 +47,9 @@ local record Provider
   mut token_scheme: string
   --- Whether it says it names itself in an answer (RFC 9207).
   mut iss_supported: boolean
+  --- Whether its discovery document, and its keys, cannot be reached.
+  mut discovery_down: boolean
+  mut keys_down: boolean
   --- The time, in seconds since the epoch.
   mut now: integer
   --- The lines the app's sink took.
@@ -64,7 +68,8 @@ local function provider_new(): Provider
   local signer = Jose.signer("ES256", Sign.p256_secret(), "k1")
   return {
     signer = signer, published = { signer }, claims = {}, nonce = "", challenge = "", form = {},
-    fetched = {}, token_status = 200, discovered_issuer = ISSUER, token_scheme = "https", iss_supported = false, now = 1700000000, lines = {},
+    fetched = {}, token_status = 200, discovered_issuer = ISSUER, token_scheme = "https", iss_supported = false,
+    discovery_down = false, keys_down = false, now = 1700000000, lines = {},
   }
 end
 
@@ -79,6 +84,7 @@ local function fetch_of(p: Provider): Web.OidcFetch
     -- A redirect would take the fetch to a URL no check has seen.
     if opts.follow ~= false then error("a fetch of " .. url .. " follows redirects") end
     if url == ISSUER .. "/.well-known/openid-configuration" then
+      if p.discovery_down then return nil, "timed out" end
       return json_body({
         issuer = p.discovered_issuer,
         authorization_endpoint = ISSUER .. "/authorize",
@@ -89,6 +95,7 @@ local function fetch_of(p: Provider): Web.OidcFetch
       }), ""
     end
     if url == ISSUER .. "/jwks" then
+      if p.keys_down then return nil, "timed out" end
       local jwks: mut {Json.Value} = {}
       for i, s in ipairs(p.published) do jwks[i] = s.jwk end
       return json_body({ keys = Json.array(jwks) }), ""
@@ -500,4 +507,133 @@ local function test_algs_limits_the_id_token()
   local client = browser(app_of(p, { algs = { "RS256" } }))
   local res = callback(client, start(client, p))
   assert(res.status == 401 and res.body:find("not allowed", 1, true) ~= nil, res.body)
+end
+
+local DISCOVERY <const> = ISSUER .. "/.well-known/openid-configuration"
+local TOKEN <const> = ISSUER .. "/token"
+
+--- While the provider cannot be reached, logins do not each ask it
+--- again: every one would wait on it.
+local function test_a_failed_discovery_is_not_tried_again_at_once()
+  local p = provider_new()
+  p.discovery_down = true
+  local client = browser(app_of(p))
+  assert(client:get("/auth/login").status == 503)
+  assert(client:get("/auth/login").status == 503)
+  assert(p.fetched[DISCOVERY] == 1, p.fetched[DISCOVERY])
+  p.discovery_down = false
+  p.now = p.now + 10
+  start(client, p)
+  assert(p.fetched[DISCOVERY] == 2, p.fetched[DISCOVERY])
+end
+
+local function test_a_failed_fetch_of_the_keys_is_not_tried_again_at_once()
+  local p = provider_new()
+  p.keys_down = true
+  local client = browser(app_of(p))
+  assert(callback(client, start(client, p)).status == 503)
+  assert(callback(client, start(client, p)).status == 503)
+  assert(p.fetched[ISSUER .. "/jwks"] == 1, p.fetched[ISSUER .. "/jwks"])
+  p.keys_down = false
+  p.now = p.now + 10
+  assert(callback(client, start(client, p)).status == 303)
+  assert(p.fetched[ISSUER .. "/jwks"] == 2)
+end
+
+--- A stranger mints a state with a login and trades it with a made-up
+--- code: each pair of requests would be a request to the provider.
+local function test_trades_of_a_code_are_limited()
+  local p = provider_new()
+  p.token_status = 400
+  local app = app_of(p)
+  local client = browser(app)
+  assert(callback(client, "forged").status == 400)
+  assert(p.fetched[TOKEN] == nil)
+  for _ = 1, 10 do assert(callback(client, start(client, p), "x").status == 401) end
+  local res = callback(client, start(client, p), "x")
+  assert(res.status == 429 and res.headers["retry-after"] ~= nil, res.status)
+  assert(p.fetched[TOKEN] == 10, p.fetched[TOKEN])
+  -- Another address is not held back by this one.
+  local other = browser(app)
+  local away = Net.tcp("192.0.2.1", 50000)
+  local location = assert(other:get("/auth/login", { peer = away }).redirect_location)
+  local state = assert(Url.query_first(query_of(location), "state"))
+  assert(other:get("/auth/callback", { query = { state = state, code = "x" }, peer = away }).status == 401)
+  assert(p.fetched[TOKEN] == 11)
+  p.now = p.now + 60
+  assert(callback(client, start(client, p), "x").status == 401)
+end
+
+local function test_trades_of_a_code_are_limited_in_all()
+  local p = provider_new()
+  p.token_status = 400
+  local app = app_of(p)
+  local client = browser(app)
+  local function trade(host: string): integer
+    local peer = Net.tcp(host, 50000)
+    local location = assert(client:get("/auth/login", { peer = peer }).redirect_location)
+    local state = assert(Url.query_first(query_of(location), "state"))
+    return client:get("/auth/callback", { query = { state = state, code = "x" }, peer = peer }).status
+  end
+  for i = 1, 600 do
+    assert(trade(("198.51.%d.%d"):format(i // 200, i % 200)) == 401)
+  end
+  assert(trade("203.0.113.1") == 429)
+  assert(p.fetched[TOKEN] == 600, p.fetched[TOKEN])
+end
+
+--- Four images on another site's page would push a login under way out
+--- of the session; a link followed from there still starts one.
+local function test_a_login_is_not_started_by_another_site_s_subresource()
+  local p = provider_new()
+  local client = browser(app_of(p))
+  local state = start(client, p)
+  local nonce = p.nonce
+  local function from(site: string, mode: string, dest: string): integer
+    return client:get("/auth/login", { headers = {
+      ["Sec-Fetch-Site"] = site, ["Sec-Fetch-Mode"] = mode, ["Sec-Fetch-Dest"] = dest,
+    } }).status
+  end
+  for _ = 1, 4 do assert(from("cross-site", "no-cors", "image") == 403) end
+  assert(from("cross-site", "navigate", "iframe") == 403)
+  assert(from("same-site", "cors", "empty") == 403)
+  assert(from("same-origin", "cors", "empty") == 302)
+  p.nonce = nonce
+  assert(callback(client, state).status == 303)
+  assert(from("cross-site", "navigate", "document") == 302)
+  assert(from("none", "navigate", "document") == 302)
+end
+
+local function test_logout_from_another_site_is_refused()
+  local p = provider_new()
+  local client = browser(app_of(p, { provider_logout = "https://app.example.com/" }))
+  callback(client, start(client, p))
+  local function logout(headers: {string: string}): Web.TestResponse
+    return client:request("POST", "/auth/logout", { headers = headers })
+  end
+  assert(logout({ Origin = "https://evil.example.com" }).status == 403)
+  assert(logout({ ["Sec-Fetch-Site"] = "cross-site" }).status == 403)
+  assert(logout({ ["Sec-Fetch-Site"] = "same-site" }).status == 403)
+  assert(logout({ Origin = "null" }).status == 403)
+  assert(client:get("/"):text() ~= "nobody")
+  assert(assert(p.lines[1]):find("csrf: refused POST /auth/logout", 1, true) ~= nil, p.lines[1])
+  local res = logout({ ["Sec-Fetch-Site"] = "same-origin" })
+  assert(res.status == 303 and assert(res.redirect_location):find(ISSUER .. "/logout", 1, true) == 1)
+  assert(client:get("/"):text() == "nobody")
+end
+
+--- The provider's words come through the browser, which may send any
+--- text: the answer passes on the printable ASCII RFC 6749 allows, and
+--- not much of it.
+local function test_a_refusal_is_passed_on_as_printable_ascii()
+  local p = provider_new()
+  local client = browser(app_of(p))
+  local state = start(client, p)
+  local res = client:get("/auth/callback", { query = {
+    state = state, error = "access_denied\n", error_description = "\u{e9}" .. ("x"):rep(300),
+  } })
+  assert(res.status == 401, res.body)
+  local detail = assert(Json.decode_object(res.body))["detail"]
+  assert(detail is string and detail:find("access_denied? (??xxx", 1, true) ~= nil, detail)
+  assert(#detail < 260, #detail)
 end

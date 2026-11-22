@@ -32,13 +32,19 @@
 --- The middleware answers three paths itself, before the routes:
 ---
 --- - `GET /auth/login?next=/admin` sends the browser to the provider,
----   with a new `state`, `nonce` and PKCE challenge kept in the session;
+---   with a new `state`, `nonce` and PKCE challenge kept in the session.
+---   A request for it from another site that is not a navigation of the
+---   browser's window (an image, a frame, a script, a fetch) is refused
+---   403, so a page cannot push the logins under way out of the session;
 --- - the path of `redirect_uri` takes the provider's answer, trades the
 ---   code for tokens at the token endpoint, checks the ID token, and
 ---   keeps who logged in in a regenerated session, then sends the browser
 ---   on to `next`;
 --- - `POST /auth/logout` ends the session, and the login at the provider
----   too where `provider_logout` is given.
+---   too where `provider_logout` is given. A POST from another site is
+---   refused 403, as [`cosmic.web.csrf`]'s Origin layer refuses one, with
+---   `Sec-Fetch-Site: same-site` refused too. Behind a proxy that ends
+---   TLS, set `trusted_proxy`, or every logout from a browser is refused.
 ---
 --- Every other request goes on to the app with the identity the session
 --- holds, which [`Web.oidc_identity`] reads and [`Web.require_login`]
@@ -50,8 +56,16 @@
 --- discovery finds is kept while the process runs; the keys are kept an
 --- hour, and fetched again, at most once a minute, when a token does
 --- not check against them, as one signed by a key the provider has just
---- rolled to does not. A fetch follows no redirect. A failure to reach
---- the provider answers 503 and writes why to the app's sink.
+--- rolled to does not. A fetch follows no redirect and waits at most 5
+--- seconds, through the server's run, so other requests are served
+--- meanwhile. A failure to reach the provider answers 503 and writes why
+--- to the app's sink. A discovery or fetch of the keys that fails is not
+--- tried again for 10 seconds: the requests in between answer 503 at
+--- once. A code is traded for tokens at most 10
+--- times a minute for one client address and 600 times a minute in all,
+--- since a stranger can start a trade with two requests; past that the
+--- callback answers 429. Behind a proxy, every client has the proxy's
+--- address unless the app sets `trusted_proxy`.
 ---
 --- A login under way is kept in the session too: its `state`, `nonce`
 --- and PKCE verifier. The signed cookie store
@@ -68,8 +82,10 @@
 --- endpoints are https, except on the loopback, where a test serves.
 --- @public
 
+local Attempts = require("cosmic.web.attempts")
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Csrf = require("cosmic.web.csrf")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Jose = require("cosmic.jose")
@@ -208,7 +224,16 @@ local MAX_NEXT <const> = 512
 --- How long a login under way may take, in seconds.
 local PENDING_SECONDS <const> = 600
 --- How long a request to the provider may take.
-local REQUEST_TIMEOUT <const> = 10 * 1000000000
+local REQUEST_TIMEOUT <const> = 5 * 1000000000
+--- How long a failed discovery or fetch of the keys is answered again
+--- without asking the provider, in seconds: while the provider is down or
+--- slow, a stream of requests costs one fetch a period.
+local RETRY_SECONDS <const> = 10
+--- The codes one client address may trade for tokens in
+--- `EXCHANGE_WINDOW`, and all clients together.
+local EXCHANGES_PER_ADDRESS <const> = 10
+local EXCHANGES <const> = 600
+local EXCHANGE_WINDOW <const> = Clock.minutes(1)
 --- How long the provider's keys are kept before they are fetched again.
 local KEYS_SECONDS <const> = 3600
 --- How soon after a fetch of the keys a token with a key not yet seen
@@ -241,6 +266,29 @@ local function text(object: {string: Json.Value}, name: string): string?
   local value = object[name]
   if value is string then return value end
   return nil
+end
+
+--- `said`, the provider's words passed on by the browser, fit for a
+--- problem's detail: RFC 6749 allows printable ASCII alone in `error`
+--- and `error_description`, so any other byte becomes "?". At most 200
+--- bytes are kept.
+local function plain(said: string): string
+  return (said:sub(1, 200):gsub("[^ -~]", "?"))
+end
+
+--- Whether `req` is a request from another site that is not a navigation
+--- of the browser's window: one a page makes without the user (an
+--- image, a frame, a script, a fetch). A link followed from another site
+--- is a navigation of a document. A browser that sends no
+--- `Sec-Fetch-Site` is not told apart.
+local function cross_site_subresource(req: Types.Request): boolean
+  local site = req.headers["sec-fetch-site"]
+  if site == nil then return false end
+  site = site:lower()
+  if site == "same-origin" or site == "none" then return false end
+  local mode = (req.headers["sec-fetch-mode"] or ""):lower()
+  local dest = (req.headers["sec-fetch-dest"] or ""):lower()
+  return mode ~= "navigate" or dest ~= "document"
 end
 
 --- 32 random bytes, base64url: a state, a nonce or a PKCE verifier.
@@ -358,9 +406,11 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   for _, name in ipairs(opts.keep_claims or {}) do keep[#keep + 1] = name end
   local fetch: Oidc.Fetch = opts.fetch or Http.request
   local now = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
-  -- TODO: wait for the provider in a task of the server's run, as
-  -- cosmic.tailscale does, once cosmic.net connects over TLS: today a
-  -- request to the provider blocks the server's thread while it waits.
+  -- A test's clock moves the limits too.
+  local now_ns: (function(): integer)? = nil
+  if opts.now ~= nil then now_ns = function(): integer return now() * 1000000000 end end
+  local per_address = Attempts.limiter{ limit = EXCHANGES_PER_ADDRESS, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
+  local everyone = Attempts.limiter{ limit = EXCHANGES, window_ns = EXCHANGE_WINDOW, now_ns = now_ns }
 
   local given = opts.provider
   if given ~= nil and given.issuer ~= opts.issuer then
@@ -369,11 +419,19 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   local provider: Oidc.Provider? = given
   local keys: {Jose.Key}? = nil
   local keys_at = 0
+  local discovery_failure: string? = nil
+  local discovery_failed_at = 0
+  local keys_failure: string? = nil
+  local keys_failed_at = 0
 
-  --- The provider, discovered on the first call and kept.
-  local function discovered(): Oidc.Provider?, string
-    local have = provider
-    if have ~= nil then return have, "" end
+  --- `failure` when it is from less than `RETRY_SECONDS` before `t`.
+  local function recent(failure: string?, at: integer, t: integer): string?
+    if failure ~= nil and t >= at and t - at < RETRY_SECONDS then return failure end
+    return nil
+  end
+
+  --- The provider, asked of its discovery document.
+  local function discover(): Oidc.Provider?, string
     local url = opts.issuer:gsub("/$", "") .. "/.well-known/openid-configuration"
     local body, why = fetch("GET", url, { timeout_ns = REQUEST_TIMEOUT, headers = { Accept = "application/json" }, follow = false })
     if body == nil then return nil, "discovery: " .. why end
@@ -384,8 +442,42 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     if doc == nil then return nil, "discovery: " .. bad end
     local found, trouble = read_provider(doc, opts.issuer)
     if found == nil then return nil, "discovery: " .. trouble end
+    return found, ""
+  end
+
+  -- TODO: let a request that finds a discovery or a fetch of the keys
+  -- under way wait for it (a Poll.notifier) rather than start its own:
+  -- while the provider hangs, each request until the first fetch fails
+  -- asks it again.
+
+  --- The provider, discovered on the first call that succeeds and kept.
+  local function discovered(): Oidc.Provider?, string
+    local have = provider
+    if have ~= nil then return have, "" end
+    local t = now()
+    local failed = recent(discovery_failure, discovery_failed_at, t)
+    if failed ~= nil then return nil, failed end
+    local found, why = discover()
+    if found == nil then
+      discovery_failure, discovery_failed_at = why, t
+      return nil, why
+    end
     provider = found
     return found, ""
+  end
+
+  --- The provider's keys, fetched.
+  local function fetch_keys(p: Oidc.Provider): {Jose.Key}?, string
+    local body, why = fetch("GET", p.jwks_uri, { timeout_ns = REQUEST_TIMEOUT, headers = { Accept = "application/json" }, follow = false })
+    if body == nil then return nil, "keys: " .. why end
+    if body.status ~= 200 then
+      return nil, ("keys: %s answered %d"):format(p.jwks_uri, body.status)
+    end
+    local set, bad = Json.decode_object(body.body)
+    if set == nil then return nil, "keys: " .. bad end
+    local got, trouble = Jose.keys(set)
+    if got == nil then return nil, "keys: " .. trouble end
+    return got, ""
   end
 
   --- The provider's keys, fetched where none are kept, they are old, or
@@ -396,15 +488,13 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     if have ~= nil and t - keys_at < KEYS_SECONDS and not (fresh and t - keys_at >= REFETCH_SECONDS) then
       return have, ""
     end
-    local body, why = fetch("GET", p.jwks_uri, { timeout_ns = REQUEST_TIMEOUT, headers = { Accept = "application/json" }, follow = false })
-    if body == nil then return nil, "keys: " .. why end
-    if body.status ~= 200 then
-      return nil, ("keys: %s answered %d"):format(p.jwks_uri, body.status)
+    local failed = recent(keys_failure, keys_failed_at, t)
+    if failed ~= nil then return nil, failed end
+    local got, why = fetch_keys(p)
+    if got == nil then
+      keys_failure, keys_failed_at = why, t
+      return nil, why
     end
-    local set, bad = Json.decode_object(body.body)
-    if set == nil then return nil, "keys: " .. bad end
-    local got, trouble = Jose.keys(set)
-    if got == nil then return nil, "keys: " .. trouble end
     keys, keys_at = got, t
     return got, ""
   end
@@ -460,6 +550,9 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
   end
 
   local function login(req: Types.Request): Types.Response
+    if cross_site_subresource(req) then
+      return Response.problem(403, "a login starts from a link, not from a request another site makes")
+    end
     local query, _ = req:query()
     local asked = if query ~= nil then Url.query_first(query, "next") else nil end
     local next_path = if asked ~= nil and #asked > MAX_NEXT then "/" else Response.safe_next(asked, "/") end
@@ -514,8 +607,8 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     local failed = Url.query_first(query, "error")
     if failed ~= nil then
       local said = Url.query_first(query, "error_description")
-      return Response.problem(401, "the provider refused the login: " .. failed ..
-          (if said ~= nil and said ~= "" then " (" .. said .. ")" else "" end))
+      return Response.problem(401, "the provider refused the login: " .. plain(failed) ..
+          (if said ~= nil and said ~= "" then " (" .. plain(said) .. ")" else "" end))
     end
     local code = Url.query_first(query, "code")
     if code == nil or code == "" then
@@ -546,6 +639,13 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     else
       form[#form + 1] = { name = "client_id", value = opts.client_id }
     end
+    -- Counted before the request, with no wait between asking and
+    -- counting, so that trades waiting on the provider count too.
+    local address = if req.client ~= nil then req.client.host else "-" end
+    local wait_ns = math.max(per_address:wait_ns(address), everyone:wait_ns(""))
+    if wait_ns > 0 then return Attempts.too_many(wait_ns, "too many logins; try again later") end
+    per_address:failed(address)
+    everyone:failed("")
     local body, trouble = fetch("POST", p.token_endpoint, {
       headers = headers, body = Url.encode_query(form), timeout_ns = REQUEST_TIMEOUT, follow = false,
     })
@@ -606,6 +706,8 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
     end
     return Response.redirect(after_logout)
   end
+  -- The middleware answers logout before any CSRF middleware inside it.
+  local guarded_logout = Csrf.middleware{ token = false, strict_same_site = true }(logout)
 
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
@@ -618,7 +720,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
         -- A GET alone: a HEAD would use up a state, or a code, as a GET does.
         if path == callback_path and req.method == "GET" then return callback(req) end
         if path == login_path and req.method == "GET" then return login(req) end
-        if path == logout_path then return logout(req) end
+        if path == logout_path then return guarded_logout(req) end
       end
       local session = req:get(Session.KEY)
       if session ~= nil then
