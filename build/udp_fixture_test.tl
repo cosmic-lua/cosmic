@@ -48,14 +48,14 @@ local function test_close_ends_a_wait_and_is_idempotent()
     Poll.spawn(function()
       local packet, why = Udp.receive(server)
       assert(packet == nil)
-      answer.value = why -- checked: map_field
+      answer.value = why
     end)
     Poll.spawn(function()
       server:close()
       server:close()
     end)
   end)
-  assert(answer.value == "closed", answer.value) -- checked: map_field*2
+  assert(answer.value == "closed", answer.value)
 end
 
 local function test_only_numeric_hosts_bind_and_a_port_is_not_shared()

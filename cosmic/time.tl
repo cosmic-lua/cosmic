@@ -373,30 +373,29 @@ end
 --- Where a reader of `text` is, and why it stopped, if it has. The
 --- first failure is kept and every read after it answers nil and moves
 --- nothing, so a run of reads is checked once, by `why`.
-local record Cursor
+local class Cursor
   mut text: string
   --- The byte the next read starts at.
   mut at: integer
   --- Why a read failed, with the byte it failed at; nil while none has.
   mut why?: string
-  __close: function(Cursor)
+
+  --- Ends a borrowing ([`borrow`]): the text is let go, so a large one is
+  --- not held until the next read.
+  function __close(self)
+    self.text = ""
+  end
 end
 
 --- A cursor over `text`, of its own.
 local function cursor(text: string): Cursor
-  return { text = text, at = 1 } -- checked: literal_missing
+  return { text = text, at = 1, why = nil }
 end
 
 local byte: function(string, integer): integer? = string.byte -- checked: overload_value
 local sub <const> = string.sub
 
---- What ends a borrowing: the text is let go, so a large one is not held
---- until the next read.
-local lent_mt: metatable<Cursor> = { -- checked: literal_missing
-  __close = function(cur: Cursor) cur.text = "" end,
-}
-
-local lent: Cursor = setmetatable(cursor(""), lent_mt) -- checked: setmetatable_call -- untyped: call
+local lent: Cursor = cursor("")
 
 --- A cursor over `text` that every caller shares, so the readers that
 --- run on every request allocate none; hold it in a `<close>` variable.
@@ -583,11 +582,11 @@ local function make_zone(name: string, rules: Rules): Time.Zone
   rules.name = name
   local zone: Time.Zone = {}
   local hidden: metatable<Time.Zone> = { -- checked: literal_missing
-    __index = function(_: Time.Zone, key: string): any -- checked: any_use
+    __index = function(_: Time.Zone, key: string): any
       if key == "name" then return name end -- checked: any_use
       return nil -- checked: any_use
     end,
-    __newindex = function(_: Time.Zone, key: string) -- checked: any_use
+    __newindex = function(_: Time.Zone, key: string)
       error("time: a zone is read-only; it has no field " .. tostring(key) .. " to set", 2)
     end,
   }
@@ -1678,7 +1677,7 @@ end
 --- RFC 3339 text and its RFC 9557 suffix: [`parse_rfc3339`]'s and
 --- [`parse_rfc3339_zoned`]'s work.
 local function parse(text: string): Time.Zoned?, string
-  local cur <close> = borrow(text) -- checked: close_not_closable
+  local cur <close> = borrow(text)
   local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
   date_into(cur, c)
   expect(cur, "T", "between the date and the time")
@@ -1802,7 +1801,7 @@ end
 --- UTC. Raises for a `zone` no function here made.
 function Time.parse_date(text: string, zone?: Time.Zone): integer?, string
   local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
-  local cur <close> = borrow(text) -- checked: close_not_closable
+  local cur <close> = borrow(text)
   date_into(cur, c)
   finish(cur)
   local why = cur.why
@@ -1862,7 +1861,7 @@ end
 --- anything else, a leap second, or a moment outside the range.
 function Time.parse_http(text: string): integer?, string
   local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
-  local cur <close> = borrow(text) -- checked: close_not_closable
+  local cur <close> = borrow(text)
   local separator = text:sub(4, 4)
   if separator == "," then
     name_of(cur, SHORT_DAYS, "a day name")

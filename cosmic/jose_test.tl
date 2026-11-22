@@ -215,6 +215,9 @@ local function test_verify_jwt_refuses()
   refused(token({}, "exp"), "no exp")
   refused(token({ exp = "soon" }), "no number")
   refused(token({ nbf = NOW + 61 }), "not valid yet")
+  refused(token({ iat = NOW + 61 }), "issued in the future")
+  refused(token({ iat = NOW + 1 }), "issued in the future",
+    { issuer = OPTS.issuer, audience = "client", now = NOW, leeway = 0 })
   refused(token({ sub = 7 }), "no sub")
   refused(token({}, "sub"), "no sub")
   refused(token({ sub = "" }), "no sub")
@@ -228,6 +231,7 @@ end
 local function test_verify_jwt_takes_the_leeway()
   assert(Jose.verify_jwt(token({ exp = NOW - 30 }), { signer.key }, OPTS) ~= nil)
   assert(Jose.verify_jwt(token({ nbf = NOW + 30 }), { signer.key }, OPTS) ~= nil)
+  assert(Jose.verify_jwt(token({ iat = NOW + 30 }), { signer.key }, OPTS) ~= nil)
   assert(Jose.verify_jwt(token({ exp = NOW + 1 }), { signer.key },
     { issuer = OPTS.issuer, audience = "client", now = NOW, leeway = 0 }) ~= nil)
 end

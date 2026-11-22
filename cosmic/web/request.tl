@@ -2,6 +2,7 @@
 --- canonical path, the client and the scheme resolved, and the typed
 --- per-request state of [`Web.key`].
 
+local Grant = require("cosmic.relay.grant")
 local Stream = require("cosmic.stream")
 local Types = require("cosmic.web.types")
 local Negotiate = require("cosmic.web.negotiate")
@@ -157,7 +158,7 @@ local function base_url(self: Req): string?, string
   return self.scheme .. "://" .. parsed.host .. (if port ~= nil then ":" .. tostring(port) else "" end), ""
 end
 
-local methods = { -- checked: arms_differ
+local methods = {
   header = header, bytes = bytes, text = text, query = query, accepts = accepts,
   url_for = url_for, get = get, set = set, base_url = base_url,
 }
@@ -181,6 +182,148 @@ local function last_entry(value: string?): string?
   return entry
 end
 
+--- The bytes of the numeric address `host` ([`Grant.address`]), an IPv4
+--- address mapped into IPv6 (`::ffff:192.0.2.1`, as a listener on `::`
+--- names an IPv4 peer) as its 4, so that it meets the IPv4 prefixes. Nil
+--- for no address.
+local function address_bytes(host: string): {integer}?
+  local octets = Grant.address(host)
+  if octets == nil or #octets == 4 then return octets end
+  for i = 1, 10 do
+    if octets[i] ~= 0 then return octets end
+  end
+  if octets[11] ~= 0xff or octets[12] ~= 0xff then return octets end
+  return { table.unpack(octets, 13, 16) }
+end
+
+--- Whether `octets` lie in `prefix`.
+local function within(octets: {integer}, prefix: Types.ProxyPrefix): boolean
+  if #octets ~= #prefix.octets then return false end
+  local whole = prefix.bits // 8
+  for i = 1, whole do
+    if octets[i] ~= prefix.octets[i] then return false end
+  end
+  local rest = prefix.bits % 8
+  if rest == 0 then return true end
+  local mask = (0xff << (8 - rest)) & 0xff
+  return (octets[whole + 1] or 0) & mask == (prefix.octets[whole + 1] or 0) & mask
+end
+
+--- Whether `host`, a numeric address, lies in a prefix of `proxies`.
+local function proxy_address(proxies: Types.Proxies, host: string): boolean
+  local octets = address_bytes(host)
+  if octets == nil then return false end
+  for _, prefix in ipairs(proxies.prefixes) do
+    if within(octets, prefix) then return true end
+  end
+  return false
+end
+
+--- What "loopback" stands for in a `trusted_proxy`.
+local LOOPBACK <const>: {string} = { "127.0.0.0/8", "::1/128" }
+
+--- The prefix `entry` names, an address or "address/bits", or nil and
+--- why not.
+local function proxy_prefix(entry: string): Types.ProxyPrefix?, string
+  if entry:find("%", 1, true) then return nil, "names a zone, which a proxy's address cannot" end
+  local address, bits_text = entry:match("^([^/]*)/(%d+)$")
+  local spelled = Grant.address(address or entry)
+  if spelled == nil then return nil, "is no address, prefix, \"loopback\" or \"unix\"" end
+  local octets = assert(address_bytes(address or entry))
+  -- An IPv4 address mapped into IPv6 is matched as IPv4 ([`address_bytes`]),
+  -- so a prefix of the mapped range is the IPv4 prefix it spells.
+  local shift = #spelled * 8 - #octets * 8
+  local bits = #octets * 8
+  if bits_text ~= nil then
+    local given = math.tointeger(tonumber(bits_text))
+    if given == nil or given > #spelled * 8 then
+      return nil, "has a prefix longer than its address"
+    end
+    if given < shift then
+      return nil, "is an IPv4-mapped prefix shorter than /96, which spans more than IPv4: name the IPv4 prefix"
+    end
+    bits = given - shift
+    for i, byte in ipairs(octets) do
+      local kept = math.max(0, math.min(8, bits - (i - 1) * 8))
+      if byte & (0xff >> kept) ~= 0 then return nil, "has bits set past its prefix" end
+    end
+  end
+  return { octets = octets, bits = bits }, ""
+end
+
+--- The peers `list` names, an app's [`Types.AppSpec.trusted_proxy`]: nil
+--- for none (nil, `false` or an empty list), or nil and why for a `list`
+--- that is no list (`true`) or holds an entry of none of the forms it
+--- describes.
+--- @param list {string} | boolean | nil The entries. A Lua caller may pass
+--- a boolean.
+--- @return Types.Proxies | nil The peers
+--- @return string Why not, "" for none
+function Request.proxies(list: ({string} | boolean)?): Types.Proxies?, string
+  if list == nil or list == false then return nil, "" end
+  if type(list) ~= "table" then
+    return nil, ("web: trusted_proxy lists the proxy's peers, such as { \"loopback\" }, " ..
+      "{ \"10.0.0.2\" }, { \"10.0.0.0/8\" } or { \"unix\" }, not %s"):format(tostring(list))
+  end
+  local unix = false
+  local prefixes: mut {Types.ProxyPrefix} = {}
+  for _, entry in ipairs(list) do
+    if type(entry) ~= "string" then
+      return nil, ("web: trusted_proxy: %s is no address, prefix, \"loopback\" or \"unix\""):format(tostring(entry))
+    elseif entry == "unix" then
+      unix = true
+    else
+      local texts: {string} = if entry == "loopback" then LOOPBACK else { entry } end
+      for _, spelled in ipairs(texts) do
+        local prefix, why = proxy_prefix(spelled)
+        if prefix == nil then return nil, ("web: trusted_proxy: %q %s"):format(entry, why) end
+        prefixes[#prefixes + 1] = prefix
+      end
+    end
+  end
+  if not unix and #prefixes == 0 then return nil, "" end
+  return { unix = unix, prefixes = prefixes }, ""
+end
+
+--- Whether `raw` came from one of `proxies`: a TCP peer at one of their
+--- addresses, or a connection to a unix-socket listener where they hold
+--- "unix".
+local function from_proxy(proxies: Types.Proxies, raw: Server.Request): boolean
+  local peer = raw.peer
+  if peer ~= nil and peer.kind == "tcp" then
+    local host = peer.host
+    return host ~= nil and proxy_address(proxies, host)
+  end
+  local listener = raw.listener
+  return proxies.unix and listener ~= nil and listener.kind == "unix"
+end
+
+--- The client `X-Forwarded-For`'s `value` names, behind `proxies`: the
+--- right-most entry that is none of their addresses, since each proxy
+--- appends the address it was reached from and everything left of the
+--- first stranger is the stranger's to write. An IPv6 entry is lower-cased,
+--- so one client has one spelling. Nil, so the client is the peer, where an
+--- entry met before that one is no bare address (a port, brackets, a zone
+--- or junk), or every entry is a proxy's: the left-most is then still
+--- one the client could have written.
+local function forwarded_client(proxies: Types.Proxies, value: string?): string?
+  if value == nil then return nil end
+  local entries: mut {string} = {}
+  local from = 1
+  while true do
+    local comma = value:find(",", from, true)
+    entries[#entries + 1] = String.trim(value:sub(from, (comma or #value + 1) - 1))
+    if comma == nil then break end
+    from = comma + 1
+  end
+  for i = #entries, 1, -1 do
+    local entry = assert(entries[i])
+    if address_bytes(entry) == nil then return nil end
+    if not proxy_address(proxies, entry) then return entry:lower() end
+  end
+  return nil
+end
+
 --- Wraps `raw`, the server's request, for `app`, with the path `parts`
 --- the app made canonical.
 --- @param app Types.App The app serving the request
@@ -197,12 +340,13 @@ function Request.new(app: Types.App, raw: Server.Request, parts: Request.Parts):
   if peer ~= nil and peer.kind == "tcp" and peer_host ~= nil then
     client = { host = peer_host, port = peer.port }
   end
-  if app.spec.trusted_proxy == true then
+  local proxies = app.proxies
+  if proxies ~= nil and from_proxy(proxies, raw) then
     local proto = last_entry(headers["x-forwarded-proto"])
     if proto ~= nil and proto:lower() == "https" then scheme = "https" end
     host = last_entry(headers["x-forwarded-host"]) or host
-    local from = last_entry(headers["x-forwarded-for"])
-    if from ~= nil and ip_literal(from) then client = { host = from } end
+    local from = forwarded_client(proxies, headers["x-forwarded-for"])
+    if from ~= nil then client = { host = from } end
   end
   local request: Types.Request = { -- checked: literal_missing
     raw = raw, method = raw.method, path = parts.path, segments = parts.segments,

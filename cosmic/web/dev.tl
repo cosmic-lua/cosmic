@@ -22,7 +22,8 @@
 --- reached is not the one it first met, and swaps the stylesheets when the
 --- event stream says only `.css` moved. Since such an app shows source
 --- paths and values to whoever asks, [`Web.serve`] refuses it a listener
---- beyond the loopback or a `trusted_proxy`, and unless the app names
+--- beyond the loopback, a socket file (how a proxy reaches an app) or a
+--- `trusted_proxy`, and unless the app names
 --- `trusted_hosts` it answers only `localhost`, `127.0.0.1` and `[::1]`
 --- (any port), so a page of another site cannot reach it by a name that
 --- resolves to the loopback (DNS rebinding); the script and the stream

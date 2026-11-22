@@ -329,6 +329,13 @@ local function test_channel_raises_on_a_key_length_or_option_it_cannot_use()
   Test.raises(function() Cipher.channel(a_to_b, b_to_a, { received = -1 }) end, "received")
 end
 
+local function test_channel_raises_on_one_key_for_both_directions()
+  -- Both directions count nonces from 0, so one key would seal each
+  -- end's first message under the same key and nonce.
+  local key = channel_keys()
+  Test.raises(function() Cipher.channel(key, key) end, "must differ")
+end
+
 --- The base point: the u-coordinate 9.
 local base <const> = "\9" .. string.rep("\0", 31)
 

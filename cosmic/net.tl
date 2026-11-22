@@ -488,7 +488,9 @@ local record Net
     --- meanwhile. A connection's handshake happens at its first read or
     --- write, or at [`Net.Conn`]'s `handshake`, under its timeout like
     --- any read; one that fails fails that read, and every one after.
-    --- Nil to serve in the clear.
+    --- With no `timeout_ns` it is done before `serve` is given the
+    --- connection, within `handshake_ns`; one that fails for another
+    --- reason is still given to `serve`. Nil to serve in the clear.
     tls?: Tls.Certs
     --- Where to listen in the clear beside `listeners`, which `tls`
     --- serves: port 80 for HTTP's redirect to HTTPS and ACME's http-01
@@ -499,6 +501,11 @@ local record Net
     --- Each connection's `timeout_ns`: how long any one read or write of
     --- it waits, from 0; nil for no limit.
     timeout_ns?: integer
+    --- How long a connection's TLS handshake may take in all where
+    --- `timeout_ns` is nil, from 0: 30 seconds by default. A connection
+    --- whose handshake runs out is closed and never served. Where
+    --- `timeout_ns` is set, it bounds each read of the handshake instead.
+    handshake_ns?: integer
     --- On stopping, how long open connections have to finish, from 0,
     --- before they are closed and their tasks killed
     --- ([`Poll.Task.kill`]); nil to wait for every one.
@@ -566,6 +573,32 @@ function Net.udp(host: string, port: integer): Net.Address
   return { kind = "udp", host = host, port = port }
 end
 
+--- Whether `address` reaches only this machine: a socket file, or a
+--- host on the loopback, 127.0.0.0/8 or ::1, the IPv4 ones also as an
+--- IPv6 listener names them (`::ffff:127.0.0.1`). A host is read as a
+--- number in the spelling the system writes a peer's in, never as a name,
+--- so `localhost` and `127.0.0.1.example` are not the loopback; a bare
+--- host string is read as [`Net.tcp`]'s is.
+function Net.is_loopback(address: Net.Address | string): boolean
+  local host: string
+  if address is string then
+    host = address
+  else
+    if address.kind == "unix" then return true end
+    host = address.host or ""
+  end
+  host = host:match("^::[Ff][Ff][Ff][Ff]:(%d+%.%d+%.%d+%.%d+)$") or host
+  if host == "::1" then return true end
+  local a, b, c = host:match("^127%.(%d+)%.(%d+)%.(%d+)$")
+  if a == nil or b == nil or c == nil then return false end
+  for _, octet in ipairs({ a, b, c }) do
+    if #octet > 3 or (#octet > 1 and octet:sub(1, 1) == "0") or assert(math.tointeger(octet)) > 255 then
+      return false
+    end
+  end
+  return true
+end
+
 --- What a failed call says: its own words for a deadline or a signal,
 --- the bound a name too long ran past, what a host must be, and why a
 --- unix listener answered EAGAIN, which errno's words leave unsaid.
@@ -614,18 +647,15 @@ end
 --- A socket being connected in a task, closed when the task leaves it
 --- unclaimed -- a run torn down while it waits included -- rather than
 --- left to the collector.
-local record Connecting
+local class Connecting
   --- Nil once the task has handed the socket on.
-  socket?: raw_socket.Socket
-  __close: function(Connecting)
-end
+  mut socket?: raw_socket.Socket
 
-local connecting_mt: metatable<Connecting> = { -- checked: literal_missing
-  __close = function(self: Connecting)
+  function __close(self)
     local socket = self.socket
     if socket ~= nil then local _, _ = socket:close() end
-  end,
-}
+  end
+end
 
 --- Why `address` is no [`Net.Address`] a listener can take, or "".
 local function address_trouble(address: Net.Address): string
@@ -744,8 +774,7 @@ local function connection(address: Net.Address, timeout_ns: integer?): Attempt
   end
   local socket, trouble, errno = raw.start(address)
   if socket == nil then return { trouble = trouble, errno = errno } end
-  local holder: Connecting = { socket = socket } -- checked: literal_missing
-  local held <close> = setmetatable(holder, connecting_mt) -- checked: setmetatable_call -- untyped: call
+  local held <close>: Connecting = { socket = socket }
   local ready, why = Poll.writable(socket:fd(), timeout_ns)
   if not ready then return { trouble = why, errno = 0 } end
   local made, refused, number = raw.connected(socket:fd())
@@ -1005,6 +1034,7 @@ local function checked_spec(spec: Net.ServeSpec)
   end
   Poll.checked_ns(spec.timeout_ns, "net", "spec.timeout_ns", 3)
   Poll.checked_ns(spec.grace_ns, "net", "spec.grace_ns", 3)
+  Poll.checked_ns(spec.handshake_ns, "net", "spec.handshake_ns", 3)
 end
 
 --- A listener a server accepts at, and the task accepting there while
@@ -1024,28 +1054,28 @@ end
 --- listener and connection, so a run that raises -- [`on_ready`] or
 --- [`on_error`] did -- leaves no socket file behind, and no connection
 --- to a task that never started open.
-local record Serving
+local class Serving
   spec: Net.ServeSpec
   --- The most connections open at once.
   most: integer
   mut open: integer
   mut stopping: boolean
-  accepts: {Accepting}
+  accepts: mut {Accepting}
   --- Each connection open, by the task serving it.
   conns: mut {Poll.Task: Net.Conn}
   --- Waits for `stop` to cancel it.
-  waiter?: Poll.Task
+  mut waiter?: Poll.Task
   --- Holds SIGINT and SIGTERM for the run.
-  guard?: Signal.Guard
+  mut guard?: Signal.Guard
   --- Waits on `guard`: its first signal stops the server, and the next
   --- ends the grace.
-  watcher?: Poll.Task
+  mut watcher?: Poll.Task
   --- Waits for `waiter` to end, then runs [`on_stop`].
-  stopper?: Poll.Task
+  mut stopper?: Poll.Task
   --- Waits out the grace while the server drains.
   mut grace?: Poll.Task
   --- Renews the certificates of `spec.tls`, while there are any.
-  renewer?: Poll.Task
+  mut renewer?: Poll.Task
   --- Set once a signal has ended the grace.
   mut hurried: boolean
   --- Set while `spec.tls` is loaded for the first time: only `clear`'s
@@ -1056,11 +1086,8 @@ local record Serving
   --- Set once a signal `guard` caught has stopped the server: only
   --- then has the server acted on what the guard holds.
   mut signalled: boolean
-  __close: function(Serving)
-end
 
-local serving_mt: metatable<Serving> = { -- checked: literal_missing
-  __close = function(self: Serving)
+  function __close(self)
     for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
     for _, conn in pairs(self.conns) do local _, _ = conn:close() end
     local guard = self.guard
@@ -1069,13 +1096,16 @@ local serving_mt: metatable<Serving> = { -- checked: literal_missing
     -- `serving` has closed or released the guard itself, when closing
     -- again does nothing.
     if guard ~= nil then local _, _ = guard:close() end
-  end,
-}
+  end
+end
 
 --- How long a listener waits after an accept failed -- out of
 --- descriptors, say -- before it tries again, so a failure that lasts is
 --- not retried, and reported, without pause.
 local ACCEPT_PAUSE_NS <const> = Clock.ms(100)
+--- How long a TLS handshake may take by default ([`Net.ServeSpec`]'s
+--- `handshake_ns`).
+local HANDSHAKE_NS <const> = Clock.seconds(30)
 
 --- Gives `trouble` to the spec's [`Net.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
@@ -1102,7 +1132,19 @@ local function serve_conn(s: Serving, conn: Net.Conn) -- checked: not_assigned
   local task: Poll.Task?
   task = Poll.spawn(function()
     local held <close> = conn
-    local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held) -- checked: any_use
+    local ok, trouble: boolean, string? = true, nil
+    -- With no timeout, a peer that never finishes its hello would hold
+    -- the connection for ever, so the handshake comes first under a
+    -- deadline of its own. One that fails is served, and its first read
+    -- fails; one that runs out is closed.
+    local stalled = false
+    if s.spec.timeout_ns == nil and held.session ~= nil then
+      held:set_timeout(s.spec.handshake_ns or HANDSHAKE_NS)
+      local _, why = held:handshake()
+      held:set_timeout(nil)
+      stalled = why == Poll.TIMEOUT
+    end
+    if not stalled then ok, trouble = xpcall(s.spec.serve, traced, held) end
     local _, _ = held:close()
     s.open = s.open - 1
     -- [`Poll.spawn`] runs this once serve_conn waits, after it set `task`.
@@ -1124,11 +1166,21 @@ local function accept_loop(s: Serving, a: Accepting)
       a.failing = 0
       local certs = s.spec.tls
       local config = if certs ~= nil and not a.clear then certs:config() else nil end
-      if config == nil then
-        serve_conn(s, Connection.new(socket, s.spec.timeout_ns))
+      if config == nil and certs ~= nil and not a.clear then
+        -- A listener for TLS never serves in the clear: `loading` keeps
+        -- it from accepting before a load, so this is a Certs that lost
+        -- its configuration.
+        local _, _ = socket:close()
+        report(s, "accepting at " .. named(a.listener.address) ..
+            ": no certificates are loaded; closed the connection")
+      elseif config == nil then
+        local conn = Connection.new(socket, s.spec.timeout_ns)
+        conn.listener = a.listener.address
+        serve_conn(s, conn)
       else
         local conn, refused = Connection.secured(socket, s.spec.timeout_ns, config)
         if conn ~= nil then
+          conn.listener = a.listener.address
           serve_conn(s, conn)
         else
           report(s, "accepting at " .. named(a.listener.address) .. ": " .. refused)
@@ -1240,12 +1292,12 @@ end
 --- The body of [`Net.serve`]'s run, over listeners of its own.
 local function serving(spec: Net.ServeSpec): boolean, string
   local limits = spec.limits
-  local state: Serving = { -- checked: literal_missing
+  local s <close>: Serving = {
     spec = spec, most = limits and limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
-    signalled = false, loading = false,
+    signalled = false, loading = false, waiter = nil, guard = nil, watcher = nil, stopper = nil,
+    grace = nil, renewer = nil, unloaded = nil,
   }
-  local s <close> = setmetatable(state, serving_mt) -- checked: setmetatable_call -- untyped: call
   local guard, guard_trouble = Signal.guard()
   if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard
@@ -1261,7 +1313,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     local address = if in_clear then clear[i - #spec.listeners] else spec.listeners[i] end
     local opened, trouble = listening(assert(address), {}, 1)
     if opened == nil then return false, trouble end
-    s.accepts[#s.accepts + 1] = { listener = opened.listener, fd = opened.fd, clear = in_clear, failing = 0 } -- checked: arms_differ
+    s.accepts[#s.accepts + 1] = { listener = opened.listener, fd = opened.fd, clear = in_clear, failing = 0 }
     addresses[#addresses + 1] = opened.listener.address
   end
   local server: Net.Server = {
@@ -1385,7 +1437,7 @@ function Net.serve(spec: Net.ServeSpec): boolean, string
   if Poll.in_task() then
     error("net: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
-  local served = { ok = true, why = "" } -- checked: arms_differ
+  local served = { ok = true, why = "" }
   Poll.run(function() served.ok, served.why = serving(spec) end)
   if not served.ok then return false, served.why end
   return true, ""

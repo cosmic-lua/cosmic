@@ -1093,8 +1093,14 @@ and a collection parameter is a view unless declared `mut {T}`. there are no cas
 no `setmetatable` (a class's methods are written as methods and the compiler writes its metatable), no `global`, no `#!`
 first line, no `a and b or c` for a choice (`if ... then ... else ... end` is an expression), and no call with a string
 argument without parentheses. `pcall` and `coroutine.wrap` are typed, and the alternatives of a `pcall` are read with
-`match`. a type changes only by a guard, `is` of a class or a tagged union, a narrowing declaration or a validator
-([`cosmic.shape`]); `any` is legal only where untrusted data enters.
+`match`. a call that answers several lists (`(true, R) | (false, E)`, `(T) | (nil, E)`) has lists told apart by a
+position that is `true` in one and `false` in the other, or `nil` in one and never nil in the other (an optional, `any`,
+a type variable, or a union with one, may be nil); `match` tells them by `true`, `false` and `nil` patterns, and a test of
+the first local of `local v, why = f()` narrows the others. such a call is no statement (`failure_ignored`): its values
+are bound, it is matched, or they are discarded on purpose with `local _, _ = f()`; `assert(f())` gives the values of the one list whose first value is never nil or false where every other list's is `nil` or `false`. the failure a library answers is a [`cosmic.failure`]: its message, the path it concerns and its errno, apart, with `tostring` for its text. a type changes only by a guard, `is` of a class or a tagged
+union, a narrowing declaration or a validator ([`cosmic.shape`]); `any` is legal only where untrusted data enters.
+
+two uses of a generic declaration are related by how its body uses each type parameter, which [`lang/relation.tl`] reads from the fields, methods and listed interfaces: covariant where it is only read out, contravariant where it is only taken in, invariant where it is read and written (a `mut` field, a `mut` collection, a map's key) or not used at all (an opaque declaration such as `Coroutine<Y, R, S>` means it by its name). nothing declares it.
 
 the rules the checker holds, each with its own codes, are these. nil is its own type, in no other: an index read of a
 map or an array may be nil, and arrays are dense. a condition is a boolean or an optional. `or` and `and` return what
@@ -1106,13 +1112,21 @@ bottom type, the type of a call that does not return, and code after it is unrea
 when its parameters accept what the other's do and its returns are subtypes of the other's. a record, class or interface
 is below an interface it lists, or one whose fields it has, each of exactly the type the interface declares (a function
 field's receiver its own), `mut` and omittable alike, and one that lists an interface has each field of it that it leaves out
-(a class each but a method); two records, or two classes, are two types whatever their fields. a
-type parameter is bounded by an interface, by `Ordered` (a number type or a string type, whose values `<` compares), by
+(a class each but a method); two records, or two classes, are two types whatever their fields. a table literal of
+named items with no type given is a record of its own, of the types of its values and `mut` where the program writes it
+through its local; it is below a declared record that is not a class and has no methods and no array part, when each
+field it gives is below the declared one (exactly, and `mut`, for a `mut` one) and each it lacks is fixed and optional
+or nilable, and below a map
+`{string: V}` that is not `mut`. a
+type parameter is bounded by an interface, by `Ordered` (a number type, a string type, or a class that declares
+`__lt` and `__le`, whose values `<` compares), by
 `Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), or by
 several of these (`T is A & B`), each of which its argument meets; it keys a map only where `Key` or an interface
 bounds it. a record is not a map; an
-enum is a union of strings, and a union of enums is told apart by `is`. a record that is not a class is not tested by `is`:
-a tagged union is told by its tag. there is no implicit conversion: `integer` is not concatenated without `tostring`, and
+enum is a set of strings, below an enum or a union of string literal types (`"circle"`, the type of that one string)
+that holds each of them, and a union of enums is told apart by `is`. a test of a place against a string narrows it to
+that literal where it holds and to its other strings where it fails, so a chain over every string ends a function. a record that is not a class is tested by `is` only where
+the run-time Lua can tell it: as the one table a value may be, or by the tag of a tagged union, which `is` then reads. there is no implicit conversion: `integer` is not concatenated without `tostring`, and
 a number does not compare with a string. the error-slot discipline of the third principle ([`build/syntax_contracts.tl`])
 holds the tree's functions that answer `T?, string` to the checks on their callers.
 
@@ -1535,6 +1549,7 @@ in [roadmap.md](roadmap.md).
 [`build/markers.tl`]: ../build/markers.tl
 [`build/positions.tl`]: ../build/positions.tl
 [`cosmic.doc`]: ../cosmic/doc.tl
+[`cosmic.failure`]: ../cosmic/failure.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
 [`cosmic.internal.compiled`]: ../cosmic/internal/compiled.d.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl

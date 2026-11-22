@@ -1290,15 +1290,12 @@ local function interrupted(self: Handle): string
 end
 
 --- One read or drain owns its queues even while a sink or pipe wait yields.
-local record Consumption
+local class Consumption
   pipes: {Pipe}
   mut discard: boolean
   mut reason?: string
-  __close: function(Consumption)
-end
 
-local consumption_mt: metatable<Consumption> = { -- checked: literal_missing
-  __close = function(self: Consumption)
+  function __close(self)
     for _, pipe in ipairs(self.pipes) do
       if self.discard then
         if pipe.failure == nil then pipe.failure = self.reason end
@@ -1307,15 +1304,14 @@ local consumption_mt: metatable<Consumption> = { -- checked: literal_missing
       end
       pipe.consuming = false
     end
-  end,
-}
+  end
+end
 
 local function consume(pipes: {Pipe}): Consumption
   for _, pipe in ipairs(pipes) do
     if pipe.consuming then error("child: output is already being consumed", 3) end
   end
-  local owner: Consumption = setmetatable({ pipes = pipes, discard = false, -- checked: arms_differ, setmetatable_call -- untyped: call
-    reason = "child: output sink did not complete" }, consumption_mt)
+  local owner: Consumption = { pipes = pipes, discard = false, reason = "child: output sink did not complete" }
   for _, pipe in ipairs(pipes) do pipe.consuming = true end
   return owner
 end
@@ -1343,7 +1339,7 @@ end
 
 local function waiting_read(self: PipeReader, max_bytes?: integer): string?, string
   local child, pipe = self.child, self.pipe
-  local _ownership <close> = self.owner -- checked: close_not_closable
+  local _ownership <close> = self.owner
   pipe.consuming = true
   while pipe.size == 0 do
     local failure = pipe.failure
@@ -1424,10 +1420,9 @@ end
 
 --- The Reader of `self`'s streamed output at `index`.
 local function pipe_reader(self: Handle, index: integer): Stream.Reader
-  local pipe = assert(self._streams)[index]
-  local owner: Consumption = setmetatable({ pipes = { pipe }, discard = false }, consumption_mt) -- checked: array_of_optional, setmetatable_call -- untyped: call
-  local r: PipeReader =
-    { child = self, pipe = pipe, closed = false, failed = "", owner = owner, skip = nil } -- checked: nil_not_allowed
+  local pipe = assert(assert(self._streams)[index], "child: no stream at that index")
+  local owner: Consumption = { pipes = { pipe }, discard = false, reason = nil }
+  local r: PipeReader = { child = self, pipe = pipe, closed = false, failed = "", owner = owner, skip = nil }
   return r
 end
 
@@ -1544,7 +1539,7 @@ local function drain(self: Handle, opts: DrainOptions): DrainResult
   if #pipes == 0 or (opts.stdout ~= nil and not stdout) or (opts.stderr ~= nil and not stderr) then
     error("child: drain sinks must name streamed outputs", 3)
   end
-  local owner <close> = consume(pipes) -- checked: close_not_closable
+  local owner <close> = consume(pipes)
   local bytes = 0
   local guard = Innermost.active()
   local stamp: mut {integer} = {}
@@ -4128,26 +4123,23 @@ end
 --- it returns or raises: the child holds its own slave once it is
 --- started, and ours would keep the master from ever reading the end of
 --- the child's output.
-local record PtyHolder
-  __close: function(PtyHolder)
+local class PtyHolder
   master: integer
   slave: integer
   --- Whether the master is the caller's.
   mut keep: boolean
   --- Whether the slave is the caller's too.
   mut keep_slave: boolean
-end
 
-local pty_holder_mt: metatable<PtyHolder> = { -- checked: literal_missing
-  __close = function(self: PtyHolder)
+  function __close(self)
     if not self.keep_slave then
       local _, _ = sys.close(self.slave)
     end
     if not self.keep then
       local _, _ = sys.close(self.master)
     end
-  end,
-}
+  end
+end
 
 --- Starts a program as [`Child.start`] does, with a pty of its own as the
 --- standard streams `pty.streams` names, and answers the child with the
@@ -4197,8 +4189,7 @@ function Child.start_on_pty(argv: {string}, opts: Options, pty: PtyOptions): Pty
   if made == nil then return refuse("pty: " .. why) end
   -- Closes both ends where the start raises, or fails; the slave on any
   -- return, the master unless the caller is to have it.
-  local holding <close>: PtyHolder = setmetatable({ master = made.master, slave = made.slave, -- checked: arms_differ, close_not_closable, setmetatable_call -- untyped: call
-    keep = false, keep_slave = false }, pty_holder_mt)
+  local holding <close>: PtyHolder = { master = made.master, slave = made.slave, keep = false, keep_slave = false }
   if rows ~= nil and columns ~= nil then
     local sized, size_why = sys.setwinsize(made.master, rows, columns)
     -- TODO: test this branch once the checked core has a fault point that

@@ -279,6 +279,41 @@ local function test_a_lone_file_is_checked_with_no_ceiling_and_written_as_lua_th
   assert(entry:find("return function", 1, true) ~= nil, entry)
 end
 
+--- Lone files checked in one build ([`Pipeline.checked_alone_each`]) are each answered as that file alone is: what one
+--- refuses, declares or returns says nothing of another, though they share what they read of the library.
+local function test_lone_files_checked_in_one_build_are_each_answered_as_alone()
+  local items: {{string}} = {
+    { "a.tl", "local function twice(n: integer): integer\n  return n * 2\nend\nreturn twice(21)\n" },
+    { "b.tl", "local n: string = 1\nreturn n\n" },
+    { "c.tl", "local unused = 1\nreturn 2\n" },
+    { "d.tl", "local function twice(n: string): string\n  return n .. n\nend\nreturn twice(\"a\")\n" },
+    { "e.tl", "return twice(1)\n" },
+    -- Alone it finds no module `lone2`; in the build `lone2` is another item's.
+    { "f.tl", "local two = require(\"lone2\")\nreturn two\n" },
+    { "g.tl", "local n: string = 1\nreturn n\n" },
+  }
+  -- The stages by place, in one line.
+  local function staged(made: Pipeline.Alone): string
+    local keys: mut {string} = {}
+    for key, stage in pairs(made.stages) do keys[#keys + 1] = key .. "=" .. stage end
+    table.sort(keys)
+    return table.concat(keys, " ")
+  end
+  local each = Pipeline.checked_alone_each(items, options())
+  assert(#each == #items)
+  for i, item in ipairs(items) do
+    local single = Pipeline.checked_alone(assert(item[1]), assert(item[2]), options())
+    local together = assert(each[i])
+    assert((single.code == nil) == (together.code == nil) and table.concat(single.lines, "\n") ==
+        table.concat(together.lines, "\n") and staged(single) == staged(together),
+      assert(item[1]) .. ": " .. table.concat(together.lines, "\n"))
+  end
+  assert(assert(each[6]).code == nil and table.concat(assert(each[6]).lines, "\n"):find("lone2", 1, true) ~= nil)
+  assert(#Pipeline.checked_alone_each({}, options()) == 0)
+  assert(assert(each[1]).code ~= nil and assert(each[4]).code ~= nil, "a file is refused for another's mistake")
+  assert(assert(each[2]).code == nil and assert(each[3]).code == nil and assert(each[5]).code == nil)
+end
+
 local function test_a_lone_file_may_return_at_more_than_one_place()
   local made = assert(Pipeline.lone("exits.tl",
     "local n = 0\nif n == 0 then\n  return 3\nend\nreturn 4\n", options()))
@@ -597,7 +632,7 @@ end
 
 local function test_a_guide_example_is_forgiven_the_shadowing_of_print_and_no_other_name()
   local function shadow(name: string): Driver.Problem
-    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem -- checked: arms_differ, cast_refused
+    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem -- checked: cast_refused
   end
   local result = { scope_errors = { shadow("print"), shadow("printer"), shadow("println") } } as Driver.Outcome -- checked: cast_refused
   Pipeline.discounted(result)
@@ -794,16 +829,21 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
 end
 
 local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_marker()
-  local source = "local record R\n  n: integer\nend\nlocal function f(v: R | string): boolean\n  if v is R then\n    return v.n > 0\n  end\n" ..
-    "  return false\nend\nreturn f\n"
+  -- an array beside the record is a table no tag tells from it
+  local source = "local record R\n  n: integer\nend\nlocal function f(v: R | {string}): boolean\n  if v is R then\n" ..
+    "    return v.n > 0\n  end\n  return false\nend\nreturn f\n"
   local held = source:gsub("if v is R then", "if v is R then -- checked: is_on_record", 1)
   local made = assert(generated(marked(held, EXPORT)))
   assert(made.lua:find('if type(v) == "table" then', 1, true) ~= nil, made.lua)
   local f = value_of(made.lua) as function(any): boolean -- checked: cast_refused
-  assert(f({ n = 1 }) == true and f("s") == false)
+  assert(f({ n = 1 }) == true)
   -- the marker is held: a test no marker holds is refused
   local over, why = generated(marked(source, EXPORT))
   assert(over == nil and why:find("(is_on_record)", 1, true) ~= nil, tostring(why))
+  -- the one table a value may be is told by its kind, with no marker
+  local lone = source:gsub("R | {string}", "R | string", 1)
+  local told = assert(generated(marked(lone, EXPORT)))
+  assert(told.lua:find('if (type(v) == "table") then', 1, true) ~= nil, told.lua)
 end
 
 local function test_into_answers_the_records_type_and_no_annotation_can_say_another()

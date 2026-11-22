@@ -45,14 +45,23 @@ local function test_a_request_to_a_server_of_the_same_run_is_answered()
   end)
 end
 
+--- The server answers only once another task has run three times after both
+--- requests were sent, so the requests end only if the run went on while they
+--- waited: no count of ticks in a span of time, which a loaded host shortens.
 local function test_other_tasks_run_while_a_request_waits()
   Poll.run(function()
-    Net.with_loopback(answering("late", Clock.ms(300)), function(port: integer)
-      local ticks = 0
+    local heads = 0
+    local ticks = 0
+    Net.with_loopback(function(conn: Net.Conn)
+      if head_of(conn) == nil then return end
+      heads = heads + 1
+      while heads < 2 or ticks < 3 do assert(Poll.delay(Clock.ms(5))) end
+      assert(conn:write("HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nlate"))
+    end, function(port: integer)
       local done = false
       local ticker = Poll.spawn(function()
         while not done do
-          ticks = ticks + 1
+          if heads == 2 then ticks = ticks + 1 end
           local _, _ = Poll.delay(Clock.ms(10))
         end
       end)
@@ -69,7 +78,7 @@ local function test_other_tasks_run_while_a_request_waits()
       done = true
       assert(ticker:join())
       assert(bodies[1] == "late" and bodies[2] == "late", tostring(bodies[1]) .. " " .. tostring(bodies[2]))
-      assert(ticks >= 5, "the other task ran " .. tostring(ticks) .. " times while the requests waited")
+      assert(ticks >= 3, "the other task ran " .. tostring(ticks) .. " times while the requests waited")
     end)
   end)
 end

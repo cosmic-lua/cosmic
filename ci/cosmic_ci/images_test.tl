@@ -252,9 +252,10 @@ local function test_driver_runs_both_commands(tmp: string)
   local refused = driver(tmp .. "/refused", "image-publish",
     Maps.with(env, { FAKE_FAIL = "login", FAKE_STATUS = "4" }))
   local stderr = refused.stderr
+  -- Before the test of the whole text, which narrows `stderr` to that one string.
+  assert(not ((refused.stdout or "") .. (stderr or "")):find("s3cret", 1, true))
   assert(refused.code == 4 and stderr ==
       "image-publish: docker login ghcr.io: exit 4\n", stderr)
-  assert(not ((refused.stdout or "") .. (stderr or "")):find("s3cret", 1, true))
 end
 
 local function test_publish_appends_to_the_summary_link_in_place(tmp: string)

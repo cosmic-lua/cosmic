@@ -135,8 +135,11 @@ address of the tailnet is, and what the policy's grants let it do here.
 times a round trip. `cosmic tailscale file send report.pdf laptop`
 sends a file to another of your nodes with Taildrop, and `cosmic
 tailscale file get ~/Downloads` takes the files sent to this one.
-`--json` prints any answer as JSON. A program asks the daemon with
-[`Tailscale.connect`].
+`--json` prints any answer as JSON. What a peer named itself is printed
+with its control bytes escaped. A program asks the daemon with
+[`Tailscale.connect`]. On macOS that reads the app's same-user token,
+which grants all the user may do through the daemon, so a program that
+can connect holds that power.
 
 ## questions about a data file
 
@@ -421,7 +424,10 @@ integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
 A type of your own is closable too: declare it a class whose body has
 `function __close(self)`, and make each value as a table literal.
 [`Fs.Scratch`] is one. Without the method the compiler refuses `<close>`
-with `to-be-closed variable h has a non-closable type Handle`.
+with `to-be-closed variable h has a non-closable type Handle`. Code that
+only needs to run at the end of a block, and reads locals of the
+function around it, is a [`cosmic.defer`]:
+`local _ <close> = Defer.new(function() ... end)`.
 
 ## ending early
 
@@ -456,6 +462,7 @@ A function declared `: number` may still
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.defer`]: ../../cosmic/defer.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
 [`cosmic.net`]: ../../cosmic/net.tl

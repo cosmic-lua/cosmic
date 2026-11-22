@@ -4,14 +4,14 @@ global FILE userdata
   method flush: function(FILE): boolean?, string?, integer?
   method lines: function(FILE): (function(): string)
   method lines: function(FILE, ...: FileNumberMode): (function(): number...)
-  method lines: function(FILE, ...: number | FileStringMode): (function(): string...)
-  method lines: function(FILE, ...: number | FileMode): (function(): number | string...)
-  method lines: function(FILE, ...: number | string): (function(): string...)
+  method lines: function(FILE, ...: integer | FileStringMode): (function(): string...)
+  method lines: function(FILE, ...: integer | FileMode): (function(): number | string...)
+  method lines: function(FILE, ...: integer | string): (function(): string...)
   method read: function(FILE): string?
   method read: function(FILE, ...: FileNumberMode): number...
-  method read: function(FILE, ...: number | FileStringMode): string...
-  method read: function(FILE, ...: number | FileMode): number | string...
-  method read: function(FILE, ...: number | string): string...
+  method read: function(FILE, ...: integer | FileStringMode): string...
+  method read: function(FILE, ...: integer | FileMode): number | string...
+  method read: function(FILE, ...: integer | string): string...
   method seek: function(FILE, p2?: FILE.SeekWhence, p3?: integer): integer?, string?, integer?
   method setvbuf: function(FILE, FILE.SetVBufMode, p3?: integer): boolean?, string?, integer?
   method write: function(FILE, ...: number | string): FILE?, string?, integer?
@@ -69,17 +69,17 @@ global io record
   field flush: function()
   field lines: function(p1?: string): (function(): string)
   field lines: function(p1?: string, ...: FileNumberMode): (function(): number...)
-  field lines: function(p1?: string, ...: number | FileStringMode): (function(): string...)
-  field lines: function(p1?: string, ...: number | FileMode): (function(): number | string...)
-  field lines: function(p1?: string, ...: number | string): (function(): string...)
+  field lines: function(p1?: string, ...: integer | FileStringMode): (function(): string...)
+  field lines: function(p1?: string, ...: integer | FileMode): (function(): number | string...)
+  field lines: function(p1?: string, ...: integer | string): (function(): string...)
   field open: function(string, p2?: io.OpenMode): FILE?, string?, integer?
   field output: function(p1?: string | FILE): FILE
   field popen: function(string, p2?: io.OpenMode): FILE?, string?, integer?
   field read: function(): string?
   field read: function(...: FileNumberMode): number...
-  field read: function(...: number | FileStringMode): string...
-  field read: function(...: number | FileMode): number | string...
-  field read: function(...: number | string): string...
+  field read: function(...: integer | FileStringMode): string...
+  field read: function(...: integer | FileMode): number | string...
+  field read: function(...: integer | string): string...
   field stderr: FILE
   field stdin: FILE
   field stdout: FILE
@@ -110,7 +110,8 @@ global math record
   field maxinteger: integer
   field min: function<T is Numeric>(T, ...: T): T
   field mininteger: integer
-  field modf: function(number): integer, number
+  field modf: function(integer): integer, number
+  field modf: function(number): number, number
   field pi: number
   field pow: function(number, number): number
   field rad: function(number): number
@@ -123,8 +124,8 @@ global math record
   field tan: function(number): number
   field tanh: function(number): number
   field tointeger: function(any): integer?
-  field type: function(any): string?
-  field ult: function(number, number): boolean
+  field type: function(any): math.NumberType?
+  field ult: function(integer, integer): boolean
 global metatable record
   field __call: function(?0.0, ...: any): any...
   field __mode: metatable.Mode
@@ -156,8 +157,8 @@ global metatable record
   field __le: function<T, U>(T, U): boolean
 global os record
   field clock: function(): number
-  field date: function(os.DateMode, p2?: number): os.DateTable
-  field date: function(p1?: string, p2?: number): string
+  field date: function(os.DateMode, p2?: integer): os.DateTable
+  field date: function(p1?: string, p2?: integer): string
   field difftime: function(integer, integer): number
   field execute: function(string): boolean?, string, integer
   field exit: function(p1?: integer | boolean, p2?: boolean)
@@ -211,18 +212,16 @@ global table record
   field pack: function<T>(...: T): table.PackTable<T>
   field pack: function(...: any): table.PackTable<any>
   field remove: function<T>(mut {T}, p2?: integer): T?
-  field sort: function(mut {integer}, p2?: function(integer, integer): boolean)
-  field sort: function(mut {number}, p2?: function(number, number): boolean)
-  field sort: function(mut {string}, p2?: function(string, string): boolean)
+  field sort: function<T is Ordered>(mut {T}, p2?: function(T, T): boolean)
   field sort: function<T>(mut {T}, function(T, T): boolean)
-  field unpack: function<T>({T}, p2?: number, p3?: number): T...
+  field unpack: function<T>({T}, p2?: integer, p3?: integer): T...
 global utf8 record
-  field char: function(...: number): string
+  field char: function(...: integer): string
   field charpattern: string
-  field codepoint: function(string, p2?: number, p3?: number, p4?: boolean): integer...
+  field codepoint: function(string, p2?: integer, p3?: integer, p4?: boolean): integer...
   field codes: function(string, p2?: boolean): ((function(string, p2?: integer): integer, integer), string, integer)
-  field len: function(string, p2?: number, p3?: number, p4?: boolean): integer?, integer?
-  field offset: function(string, number, p3?: number): integer?
+  field len: function(string, p2?: integer, p3?: integer, p4?: boolean): integer?, integer?
+  field offset: function(string, integer, p3?: integer): integer?
 value _VERSION: string
 value arg: {string}
 value assert: function<T>(T?): T
@@ -290,7 +289,7 @@ value setmetatable: function<T>(T, metatable<T>): T
 value tonumber: function(any): number?
 value tonumber: function(any, integer): integer?
 value tostring: function(any): string
-value type: function(any): string
+value type: function(any): StandardLibrary.Type
 value xpcall: function<T>((function()), function(any): T): (true) | (false, string | T)
 value xpcall: function<T, U>((function(): T), function(any): U): (true, T) | (false, string | U)
 value xpcall: function<T, U, V>((function(): T, U), function(any): V): (true, T, U) | (false, string | V)

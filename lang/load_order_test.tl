@@ -177,7 +177,7 @@ end
 
 local function test_a_mention_follows_the_functions_a_function_mentions_however_far_and_stops_in_a_cycle()
   local said: {string} = {}
-  local open = { size = true }
+  local open: mut {string: boolean} = { size = true }
   local state, decl, node = state_of(1, open, said) -- checked: view_as_mut
   -- function 1 mentions 2, which mentions 3 and 1 again; 3 reads `size`
   LoadOrder.use(state, 1, LoadOrder.of_function(2, "`b`"))

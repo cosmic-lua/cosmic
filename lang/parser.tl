@@ -74,11 +74,11 @@ local record Parser
     -- a function body, or a statement of no declaration, in a declaration file
     "body_in_declaration" "statement_in_declaration"
     -- the cut forms: `mut` of what is no collection, `f"s"`, `T...`, `? T`,
-    -- a tuple type, a string as a type, a bare `function` type,
+    -- a tuple type, a bare `function` type,
     -- `metamethod`, several supertypes, a type parameter on a function
     -- literal, an attribute that is not `const` or `close`
     "mut_needs_collection" "string_call" "variadic_type" "optional_type" "tuple_type"
-    "string_literal_type" "bare_function_type" "metamethod" "several_supers"
+    "bare_function_type" "metamethod" "several_supers"
     "generic_function_literal" "bad_attribute"
     -- `f<T>(x)`, a call with a type argument; `{ a: A, b: B }`, a record written as a type in braces
     "type_argument" "inline_record"
@@ -219,6 +219,8 @@ local record State
   --- How many table constructors of the function being parsed it is inside.
   mut tables: integer
   mut arm_from: integer
+  --- Whether the innermost `match` tests types, so that any `|` that begins a line begins its next arm.
+  mut typed_arm: boolean
   --- The token of a second arm on a line, which ends the expression before it.
   mut arm_same: integer
   mut scan_at: integer
@@ -241,7 +243,7 @@ local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 local S: State = {
   tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
   yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
-  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, lent_if = 0, lent_end = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
+  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, lent_if = 0, lent_end = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, typed_arm = false, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
   require_nodes = {}, require_names = {},
 }
 
@@ -255,16 +257,28 @@ for _, word in ipairs(Lexer.declaration_words) do
   DECL_WORD[word] = true
 end
 
---- The reserved words that may stand where a field name does: the ones the
---- grammar adds, and `goto` and `global`. The tree writes no other.
-local FIELD_WORD <const>: mut {string: boolean} = { ["goto"] = true, ["global"] = true }
+--- The reserved words that no name is, which a use as one is refused with a
+--- rename: the ones the grammar adds, and `goto` and `global`.
+local RESERVED_NAME <const>: mut {string: boolean} = { ["goto"] = true, ["global"] = true }
 for word in pairs(ADDED) do
-  FIELD_WORD[word] = true
+  RESERVED_NAME[word] = true
 end
 
---- The reserved words that no name is, which a use as one is refused with a
---- rename.
-local RESERVED_NAME <const>: {string: boolean} = FIELD_WORD
+--- The words Lua reserves, which Lua reads as no name: a field named by one is written `t["end"]` in the Lua made.
+local LUA_WORD <const>: mut {string: boolean} = {}
+for _, word in ipairs(Lexer.lua_words) do
+  LUA_WORD[word] = true
+end
+
+--- The reserved words that may stand where a field name does: every one, since a field name follows a `.`, a `:`, or
+--- begins a field of a declaration or a table literal, where no keyword means anything else.
+local FIELD_WORD <const>: mut {string: boolean} = {}
+for word in pairs(RESERVED_NAME) do
+  FIELD_WORD[word] = true
+end
+for word in pairs(LUA_WORD) do
+  FIELD_WORD[word] = true
+end
 
 --- The tokens that end a block. `$EOF$` has the text "".
 local TERMINATOR <const>: {string: boolean} = { ["end"] = true, ["else"] = true, ["elseif"] = true, ["until"] = true, [""] = true }
@@ -379,7 +393,7 @@ end
 --- all the same where an expression goes on; in a type it is a union of value lists,
 --- which looks the same. Any other `|` is a bitwise or or a union.
 local function arm_bar(in_expression: boolean): boolean
-  if S.text ~= "|" or S.arms == 0 or peek_text(1) ~= "(" then
+  if S.text ~= "|" or S.arms == 0 or (peek_text(1) ~= "(" and not S.typed_arm) then
     return false
   end
   local pos = S.pos
@@ -672,7 +686,8 @@ local function is_field_word(): boolean
 end
 
 local function field_name(): string
-  if is_field_word() then
+  -- A keyword on the next line begins a statement, as in `local x = y.` then `local z = 1`, which is reported.
+  if is_field_word() and (S.kind == "identifier" or same_line(S.pos)) then
     local name = S.text
     advance()
     return name
@@ -1027,9 +1042,9 @@ parse_base_inner = function(first: integer, t: string, k: Lexer.Kind): Ast.Type
     close(")", first, "parenthesized type")
     return inner
   elseif k == "string" then
-    report("string_literal_type", first, "a string is not a type: string-literal types are not in the grammar",
-      "declare an `enum` of the strings and use its name as the type")
+    local at = S.pos
     advance()
+    return { kind = "TypeString", id = 0, first = first, last = first, value = assert(S.tokens.value[at]) }
   elseif k == "$ERR$" then
     advance()
   else
@@ -1477,7 +1492,7 @@ parse_prefix = function(): Ast.Exp
       advance()
       local name_at = S.pos
       local name = field_name()
-      if name == "goto" or name == "global" then
+      if LUA_WORD[name] == true then
         report("reserved_method", name_at, "`" .. name .. "` is a reserved word in Lua 5.5 and cannot be called as a method",
           "call it as a field of the object: `obj[\"" .. name .. "\"](obj, ...)`, or rename the method")
       end
@@ -1712,14 +1727,8 @@ local function parse_field(first: integer, seen: {string: boolean}): Ast.Member
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst, name = S.text }
     advance()
   else
-    local fix = "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body"
-    local msg = "expected a field name, found " .. shown(S.pos)
-    if S.kind == "keyword" and (peek_text(1) == ":" or peek_text(1) == "?") then
-      msg = msg .. ": a keyword cannot name a field here"
-      fix = "a field named by a keyword is declared and indexed as `[\"" .. S.text .. "\"]`: write `[\"" .. S.text ..
-        "\"]: T` in the declaration and `t[\"" .. S.text .. "\"]` to read it"
-    end
-    report("expected_name", S.pos, msg, fix)
+    report("expected_name", S.pos, "expected a field name, found " .. shown(S.pos),
+      "write `name: Type` for a field, `function name(self) ... end` for a method of a class, or `end` to close the body")
     name = { kind = "Binding", id = 0, first = nfirst, last = nfirst - 1, name = "" }
   end
   local omittable = false
@@ -1755,7 +1764,14 @@ local function parse_method(first: integer, seen: mut {string: boolean}): Ast.Me
     advance()
     advance()
   end
-  local name = binding("a method")
+  local name: Ast.Binding
+  if S.kind == "keyword" and ADDED[S.text] == true then
+    -- A word only this grammar reserves is a name to Lua, so a method may have it, as a field may: `r:match(x)` calls it.
+    name = { kind = "Binding", id = 0, first = S.pos, last = S.pos, name = S.text }
+    advance()
+  else
+    name = binding("a method")
+  end
   if name.name ~= "" then
     local declares_type = seen[name.name] == true and seen["\0method " .. name.name] ~= true
     if seen[name.name] ~= nil then
@@ -1868,9 +1884,10 @@ local function parse_member(owner: string, seen: {string: boolean}): Ast.Member 
   return parse_field(first, seen)
 end
 
---- Whether the current token is a keyword written as a field, `end: T` or `if?: T`, in a declaration body.
+--- Whether the current token is a keyword written as a field, `end: T` or `if?: T`, in a declaration body: a word that
+--- would close the body or begin a statement is a field where a `:` or `?` follows it on its line.
 local function keyword_field(): boolean
-  return S.kind == "keyword" and not is_field_word() and (peek_text(1) == ":" or peek_text(1) == "?")
+  return S.kind == "keyword" and (peek_text(1) == ":" or peek_text(1) == "?") and same_line(S.pos + 1)
 end
 
 --- The members up to the `end` that closes the declaration opened at `open`,
@@ -2091,7 +2108,7 @@ local function parse_local_binding(what: string): Ast.Binding
   if S.text == "<" and peek_kind(1) == "identifier" and peek_text(2) == ">" then
     local attr = peek_text(1)
     if attr == "const" or attr == "close" then
-      b.attr = attr -- checked: not_assignable
+      b.attr = attr
     else
       report("bad_attribute", S.pos + 1, "`<" .. attr .. ">` is not an attribute of a local",
         "write `<const>` for a local that is not reassigned or `<close>` for one that is closed at the end of its block")
@@ -2197,8 +2214,12 @@ local function parse_function_statement(): Ast.Stat
   local joined = path[1] and path[1].text or ""
   if colon then
     local method = path[#path] and path[#path].text or "m"
+    local fix = "declare it inside its class as `function " .. method .. "(self, ...)`"
+    if LUA_WORD[method] == true then
+      fix = "declare it inside its class under a name that is not a keyword, as `function name(self, ...)`"
+    end
     report("method_in_record", first, "`" .. quoted_text(first, S.pos - 1) .. "` is not in the grammar: a method is declared in its class",
-      "declare it inside its class as `function " .. method .. "(self, ...)`")
+      fix)
   elseif #path == 1 then
     report("bare_function", first, "`function " .. joined .. "(...)` declares a global",
       "write `local function " .. joined .. "(...)`; a program's globals are the ones a declaration file declares")
@@ -2394,23 +2415,42 @@ local function parse_for(): Ast.Stat
   return { kind = "ForIn", id = 0, first = first, last = S.pos - 1, vars = vars, iterators = iterators, body = body }
 end
 
+--- Whether the `|` here opens an arm of a list: `(`, then `true`, `false`, names and commas, then `)` and `then`. A
+--- type in parentheses, `| (A | B) x then`, is not one.
+local function list_arm(): boolean
+  if peek_text(1) ~= "(" then
+    return false
+  end
+  local n = 2
+  while peek_text(n) ~= ")" do
+    local t, k = peek_text(n), peek_kind(n)
+    if not (t == "," or t == "true" or t == "false" or t == "nil" or k == "identifier") then
+      return false
+    end
+    n = n + 1
+  end
+  return peek_text(n + 1) == "then"
+end
+
 local function parse_match(): Ast.Stat
   local first = S.pos
   advance()
-  local scrutinee = parse_prefix()
-  local call: Ast.CallExp
-  if (scrutinee.kind == "Call") then
-    call = scrutinee
-  elseif (scrutinee.kind == "MethodCall") then
-    call = scrutinee
-  else
+  local scrutinee = parse_expression()
+  local scrutinee_last = S.pos - 1
+  expect("do", "after the value of a `match`", "write `match v do | Circle c then ... end`, or `match f() do | (true, v) then ... end`")
+  -- An arm that tests positions is a list of `true`, `false`, `nil` and names, then `then`; one that tests a type names
+  -- it (`| nil then`, with no parentheses, for the type `nil`).
+  local typed = not (S.text == "|" and list_arm())
+  local call: Ast.Exp = scrutinee
+  if not typed and not ((scrutinee.kind == "Call")) and not ((scrutinee.kind == "MethodCall")) then
     if not ((scrutinee.kind == "Error")) then
-      report("match_needs_call", first + 1, "`match` takes a call, found `" .. quoted_text(first + 1, S.pos - 1) .. "`",
-        "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on a value write an `if`")
+      report("match_needs_call", first + 1, "a `match` of value lists takes a call, found `" .. quoted_text(first + 1,
+        scrutinee_last) .. "`",
+        "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on the " ..
+          "type of a value write its arms as types: `match v do | string s then ... | integer n then ... end`")
     end
-    call = { kind = "Error", id = 0, first = first + 1, last = S.pos - 1 }
+    call = { kind = "Error", id = 0, first = first + 1, last = scrutinee_last }
   end
-  expect("do", "after the call of a `match`", "write `match f() do | (true, v) then ... end`")
   local arms: mut {Ast.MatchArm} = {}
   -- Whether an arm so far matches every value: no arm after it can run.
   local caught = false
@@ -2424,15 +2464,31 @@ local function parse_match(): Ast.Stat
     local open = S.pos
     if caught then
       report("unreachable_arm", afirst, "this `match` arm can never run: the arm before it matches every value",
-        "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true` or `false`) to the end")
+        "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true`, `false` or `nil`) to the end")
       caught = false
     end
     local pats: mut {Ast.PatItem} = {}
-    if expect("(", "after `|` in a `match` arm", "write the arm as `| (true, name) then`") then
+    if typed then
+      -- `| T name then`, `| T then`, or `| _ then` for every value the arms before it leave.
+      if S.text == "_" and peek_text(1) == "then" then
+        advance()
+      else
+        local pfirst = S.pos
+        local tested = parse_type()
+        local name: Ast.Binding? = nil
+        if S.kind == "identifier" then
+          name = binding("the value of the type")
+        end
+        pats[1] = { kind = "PatType", id = 0, first = pfirst, last = S.pos - 1, type = tested, name = name }
+      end
+    elseif expect("(", "after `|` in a `match` arm", "write the arm as `| (true, name) then`") then
       while S.text ~= ")" and S.kind ~= "$EOF$" do
         local pfirst = S.pos
         if S.text == "true" or S.text == "false" then
           pats[#pats + 1] = { kind = "PatBool", id = 0, first = pfirst, last = pfirst, value = S.text == "true" }
+          advance()
+        elseif S.text == "nil" then
+          pats[#pats + 1] = { kind = "PatNil", id = 0, first = pfirst, last = pfirst }
           advance()
         else
           local b = binding("a bound value")
@@ -2450,7 +2506,7 @@ local function parse_match(): Ast.Stat
     local bools = 0
     local bound: mut {string: boolean} = {}
     for _, pat in ipairs(pats) do
-      if (pat.kind == "PatBool") then
+      if (pat.kind == "PatBool") or (pat.kind == "PatNil") then
         bools = bools + 1
       elseif (pat.kind == "PatBind") then
         local bound_name = pat.name.name
@@ -2461,15 +2517,16 @@ local function parse_match(): Ast.Stat
         bound[bound_name] = true
       end
     end
-    caught = bools == 0
+    caught = bools == 0 and (not typed or #pats == 0)
     expect("then", "after the pattern of a `match` arm",
       "write `| (true, v) then ...`; an expression that goes on to the next line keeps its operator at the end of " ..
         "the line before, since a `|` that begins a line starts an arm")
     local saved = { S.arm_from, S.scan_at, S.scan_depth }
+    local outer_typed = S.typed_arm
     S.arms = S.arms + 1
-    S.arm_from, S.scan_at, S.scan_depth = S.pos, S.pos, 0
+    S.arm_from, S.scan_at, S.scan_depth, S.typed_arm = S.pos, S.pos, 0, typed
     local body = parse_block(0)
-    S.arms = S.arms - 1
+    S.arms, S.typed_arm = S.arms - 1, outer_typed
     S.arm_from, S.scan_at, S.scan_depth = saved[1], saved[2], saved[3] -- checked: index_may_be_nil*3
     arms[#arms + 1] = { kind = "MatchArm", id = 0, first = afirst, last = body.last, pats = pats, body = body }
   end
@@ -2480,7 +2537,7 @@ local function parse_match(): Ast.Stat
   else
     close("end", first, "`match`")
   end
-  return { kind = "Match", id = 0, first = first, last = S.pos - 1, scrutinee = call, arms = arms }
+  return { kind = "Match", id = 0, first = first, last = S.pos - 1, scrutinee = call, typed = typed, arms = arms }
 end
 
 local function parse_return(): Ast.Stat
@@ -2765,6 +2822,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.arms = 0
   S.tables = 0
   S.arm_from = 1
+  S.typed_arm = false
   S.arm_same = 0
   S.scan_at = 1
   S.scan_depth = 0
@@ -2835,7 +2893,7 @@ Parser.codes = {
   "statement_after_return", "chained_optional", "chained_is", "is_union", "bare_function",
   "bare_declaration", "function_path", "global_in_program", "userdata_in_program", "duplicate_field",
   "body_in_declaration", "statement_in_declaration", "mut_needs_collection", "string_call", "variadic_type",
-  "optional_type", "tuple_type", "string_literal_type", "bare_function_type", "metamethod", "several_supers",
+  "optional_type", "tuple_type", "bare_function_type", "metamethod", "several_supers",
   "generic_function_literal", "bad_attribute", "type_argument", "inline_record", "if_needs_else", "match_needs_call", "method_needs_self",
   "method_path", "close_repeated", "trailing_comma", "arm_on_same_line", "unreachable_arm", "duplicate_binding", "reserved_method",
   "suffix_needs_parens", "nested_in_interface",

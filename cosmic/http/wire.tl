@@ -119,7 +119,7 @@ local record wire
     mut failure: string
     --- Called once, before the first byte is read from the connection:
     --- where the server sends `100 Continue`.
-    on_first_read: function()
+    on_first_read?: function()
     --- Whether anything was asked of it yet.
     mut touched: boolean
     --- Reads to the end, discarding: true once the body is done, false
@@ -280,12 +280,15 @@ local function line(input: wire.Input, budget: integer): string?, string
   end
 end
 
---- `text` without a CR at its end, or nil where it holds a CR anywhere
---- else: a bare CR, which no line of HTTP holds.
-local function without_cr(text: string): string?
-  if text:sub(-1) == "\r" then text = text:sub(1, -2) end
-  if text:find("\r", 1, true) then return nil end
-  return text
+--- `text`, a line [`line`] took, without the CR that ends it: nil and
+--- why where it ends in a bare LF or holds a bare CR. A proxy before
+--- this server may read either otherwise, ending a line where this
+--- server reads on or the other way round.
+local function without_crlf(text: string): string?, string
+  if text:sub(-1) ~= "\r" then return nil, "a line ends in a bare LF" end
+  local bare = text:sub(1, -2)
+  if bare:find("\r", 1, true) then return nil, "a line holds a bare CR" end
+  return bare, ""
 end
 
 --- `text` without the spaces and tabs at either end. A pattern's
@@ -384,6 +387,20 @@ local record Target
   authority?: string
 end
 
+--- Whether `value` is a Host value (RFC 9110 7.2): empty, or a name or
+--- an IPv4 address, or an IPv6 address in brackets, then a port from 0
+--- to 65535 or not, as [`Url.parse`] reads an authority. A name holds
+--- letters, digits and `-._~!$&'()*+;=`: the reg-name of RFC 3986 less
+--- its comma, which is how two values join into one, and its percent
+--- escapes, which no name a server answers for needs, so that a proxy in
+--- front and the app cannot read one Host two ways.
+local function valid_host(value: string): boolean
+  if value == "" then return true end
+  if value:find("[^%w%-._~!$&'()*+;=:%[%]]") then return false end
+  local parts, _ = Url.parse("http://" .. value .. "/")
+  return parts ~= nil
+end
+
 --- The request line's target as a [`Target`], or nil and why.
 local function target_parts(method: string, target: string): Target?, string
   if target == "*" then
@@ -426,8 +443,8 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local function halted(): wire.Read
     return stopped[1] or refused(0, "")
   end
-  --- The next line of the head, without its CR; nil, `stopped` set, where
-  --- there is none.
+  --- The next line of the head, without its CRLF; nil, `stopped` set, where
+  --- there is none or it does not end in CRLF.
   local function next_line(): string?
     local text, why = line(input, limits.head_bytes - (input.taken - start))
     if text == nil then
@@ -442,8 +459,8 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
       end
       return nil
     end
-    local bare = without_cr(text)
-    if bare == nil then stopped[1] = refused(400, "a line holds a bare CR") end
+    local bare, bare_why = without_crlf(text)
+    if bare == nil then stopped[1] = refused(400, bare_why) end
     return bare
   end
   -- A blank line or more before the request line is passed over (RFC
@@ -496,6 +513,9 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   if hosts > 1 or (version == "HTTP/1.1" and hosts == 0) then
     return refused(400, "an HTTP/1.1 request names exactly one Host")
   end
+  if host_values ~= nil and not valid_host(assert(host_values[1])) then
+    return refused(400, "the Host is no host and port")
+  end
   local length: integer? = 0
   local chunked = false
   local te = headers["transfer-encoding"]
@@ -506,6 +526,14 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
     end
     if version == "HTTP/1.0" then
       return refused(400, "an HTTP/1.0 request holds Transfer-Encoding")
+    end
+    -- An empty member, or an empty line, is no coding, and is refused
+    -- rather than passed over: a front end may read "chunked, " and
+    -- "chunked" apart.
+    for member in (te .. ","):gmatch("([^,]*),") do
+      if not member:find("[^ \t]") then
+        return refused(400, "a Transfer-Encoding names an empty coding")
+      end
     end
     local codings = wire.members(te:lower())
     if codings[#codings] ~= "chunked" then
@@ -543,7 +571,12 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local authority = parts.authority
   -- An absolute-form target names the host, and Host is replaced by it
   -- (RFC 9112 3.2.2).
-  if authority ~= nil then headers["host"] = authority end
+  if authority ~= nil then
+    if not valid_host(authority) then
+      return refused(400, "the target's host is no host and port")
+    end
+    headers["host"] = authority
+  end
   return { status = 0, why = "", head = {
     method = method, target = target, path = parts.path, query = parts.query, version = version,
     headers = headers, length = length, chunked = chunked, close = close,
@@ -568,12 +601,11 @@ local function stopped(self: BodyReader, state: wire.BodyState, why: string): bo
   return false, why
 end
 
---- A chunked body's next line, ended by CRLF: a bare LF, which a
---- proxy before this server may read otherwise, is refused here though
---- a head may hold one. No line passes `head_bytes`, and `spent` counts
---- a trailer against it, and a size line's extension and the zeros
---- before its size ([`next_chunk`]), but not the framing every chunk
---- has, so many small chunks pass as one large one does.
+--- A chunked body's next line, ended by CRLF as a head's is. No line
+--- passes `head_bytes`, and `spent` counts a trailer against it, and a
+--- size line's extension and the zeros before its size
+--- ([`next_chunk`]), but not the framing every chunk has, so many small
+--- chunks pass as one large one does.
 local function meta_line(self: BodyReader): string?, string
   local text, why = line(self.input, self.limits.head_bytes)
   if text == nil then
@@ -582,11 +614,8 @@ local function meta_line(self: BodyReader): string?, string
     end
     return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
   end
-  if text:sub(-1) ~= "\r" then
-    return fail(self, "bad", "http: a chunked body's line ends in a bare LF")
-  end
-  local bare = without_cr(text)
-  if bare == nil then return fail(self, "bad", "http: a chunked body holds a bare CR") end
+  local bare, bare_why = without_crlf(text)
+  if bare == nil then return fail(self, "bad", "http: in a chunked body, " .. bare_why) end
   return bare, ""
 end
 
@@ -654,7 +683,7 @@ local function trailers(self: BodyReader): boolean, string
   end
 end
 
-local class BodyReader is wire.Body -- declared: interface_disagrees
+local class BodyReader is wire.Body
   input: wire.Input
   limits: wire.Limits
   head: wire.Head
@@ -675,7 +704,7 @@ local class BodyReader is wire.Body -- declared: interface_disagrees
     if most < 1 then error("http: read's max_bytes must be positive", 2) end
     if not self.touched then
       self.touched = true
-      if self.on_first_read ~= nil then self.on_first_read() end -- checked: field_unknown*2 -- untyped: call
+      if self.on_first_read ~= nil then self.on_first_read() end
     end
     if not self.head.chunked then
       if self.left == 0 then
@@ -745,7 +774,7 @@ function wire.body(input: wire.Input, head: wire.Head, limits: wire.Limits,
   local r: BodyReader = {
     input = input, limits = limits, head = head, left = head.length or 0,
     phase = "size", total = 0, failure = "", closed = false, touched = false,
-    on_first_read = on_first_read, -- checked: literal_unknown
+    on_first_read = on_first_read,
     state = if (not head.chunked and (head.length or 0) == 0) then "done" else "open" end, skip = nil,
   }
   return r

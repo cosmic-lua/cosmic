@@ -295,6 +295,96 @@ local function add_leaf(route: Types.Route, ctx: Router.Context, root: Types.Nod
   end
 end
 
+--- The escaped form of one piece of a URL: [`Html.url_part`]'s.
+local function raw_part(text: string): string
+  return Html.raw_url_part(Html.url_part(text))
+end
+
+--- What [`Router.build`] makes.
+local class Built is Types.Router
+  function match(self, method: string, path: string): Types.Outcome
+    if path == "*" then return Router.star(self, method) end
+    local canon, why = Router.canonical(path)
+    if canon == nil then
+      return { kind = "bad_path", detail = why, handler = self.miss, mount_path = "" }
+    end
+    if canon.changed then
+      return { kind = "redirect", location = canon.path, handler = self.miss, mount_path = "" }
+    end
+    return Router.lookup(self, method, canon.segments, canon.trailing)
+  end
+
+  function reverse(self, name: string, params?: {string: string | integer},
+                   query?: {string:string}): string?, string
+    local entry = self.names[name]
+    if entry == nil then return nil, ('url_for: no route named "%s"'):format(name) end
+    local strings: mut {string:string} = {}
+    for key, value in pairs(params or {}) do
+      strings[key] = if value is string then value else ("%d"):format(value) end
+    end
+    local path: string
+    if entry.mount == true then
+      if entry.resolve == nil then
+        return nil, ('url_for: mount "%s" has no reverse'):format(name)
+      end
+      local url, why = entry.resolve(assert(entry.prefix), strings)
+      if url == nil then return nil, why end
+      path = url
+    else
+      local used: mut {string:boolean} = {}
+      local parts: mut {string} = {}
+      local open_rest = false
+      for _, segment in ipairs(assert(entry.segments)) do
+        if segment.kind == "literal" then
+          parts[#parts + 1] = raw_part(segment.text)
+        else
+          local value = strings[segment.text]
+          if value == nil then
+            return nil, ('url_for "%s": missing %s'):format(name, segment.text)
+          end
+          used[segment.text] = true
+          if segment.kind == "param" then
+            if value == "" then
+              return nil, ('url_for "%s": %s is empty'):format(name, segment.text)
+            end
+            parts[#parts + 1] = raw_part(value)
+          elseif value == "" then
+            open_rest = true
+          else
+            for piece in (value .. "/"):gmatch("([^/]*)/") do
+              if piece == "" then
+                return nil, ('url_for "%s": %s holds an empty segment'):format(name, segment.text)
+              end
+              parts[#parts + 1] = raw_part(piece)
+            end
+          end
+        end
+      end
+      for key in pairs(strings) do
+        if used[key] ~= true then
+          return nil, ('url_for "%s": unknown param %s'):format(name, key)
+        end
+      end
+      path = "/" .. table.concat(parts, "/")
+      if (entry.slash == true or open_rest) and #parts > 0 then path = path .. "/" end
+    end
+    if query ~= nil and next(query) ~= nil then
+      local names: mut {string} = {}
+      for key in pairs(query) do names[#names + 1] = key end
+      table.sort(names)
+      local entries: mut {{string}} = {}
+      for _, key in ipairs(names) do
+        local value = query[key]
+        if value ~= nil then entries[#entries + 1] = { key, value } end
+      end
+      local part, why = Html.url_query(entries)
+      if part == nil then return nil, "url_for: " .. why end
+      path = path .. (if path:find("?", 1, true) then "&" else "?" end) .. Html.raw_url_part(part)
+    end
+    return path, ""
+  end
+end
+
 --- Adds a mount to the trie, compiling its routes into a router of their
 --- own or taking its handler.
 local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.Node) -- checked: not_assigned
@@ -336,7 +426,7 @@ local function add_mount(route: Types.Route, ctx: Router.Context, root: Types.No
       name_prefix = if route.name ~= "" then ctx.name_prefix .. route.name .. ":" else ctx.name_prefix end,
       names = ctx.names, verbs = ctx.verbs,
     }
-    local sub: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names, -- checked: literal_missing
+    local sub: Built = { root = new_node(), policy = ctx.policy, names = ctx.names,
       verbs = ctx.verbs, miss = inner.miss, mount_path = full_prefix }
     compile(assert(route.routes), inner, sub.root)
     mount.router = sub
@@ -520,90 +610,6 @@ function Router.star(router: Types.Router, method: string): Types.Outcome
     mount_path = "" }
 end
 
---- The escaped form of one piece of a URL: [`Html.url_part`]'s.
-local function raw_part(text: string): string
-  return Html.raw_url_part(Html.url_part(text))
-end
-
-local function matched(self: Types.Router, method: string, path: string): Types.Outcome
-  if path == "*" then return Router.star(self, method) end
-  local canon, why = Router.canonical(path)
-  if canon == nil then
-    return { kind = "bad_path", detail = why, handler = self.miss, mount_path = "" }
-  end
-  if canon.changed then
-    return { kind = "redirect", location = canon.path, handler = self.miss, mount_path = "" }
-  end
-  return Router.lookup(self, method, canon.segments, canon.trailing)
-end
-
-local function reverse(self: Types.Router, name: string, params?: {string: string | integer},
-                       query?: {string:string}): string?, string
-  local entry = self.names[name]
-  if entry == nil then return nil, ('url_for: no route named "%s"'):format(name) end
-  local strings: mut {string:string} = {}
-  for key, value in pairs(params or {}) do
-    strings[key] = if value is string then value else ("%d"):format(value) end
-  end
-  local path: string
-  if entry.mount == true then
-    if entry.resolve == nil then return nil, ('url_for: mount "%s" has no reverse'):format(name) end
-    local url, why = entry.resolve(assert(entry.prefix), strings)
-    if url == nil then return nil, why end
-    path = url
-  else
-    local used: mut {string:boolean} = {}
-    local parts: mut {string} = {}
-    local open_rest = false
-    for _, segment in ipairs(assert(entry.segments)) do
-      if segment.kind == "literal" then
-        parts[#parts + 1] = raw_part(segment.text)
-      else
-        local value = strings[segment.text]
-        if value == nil then return nil, ('url_for "%s": missing %s'):format(name, segment.text) end
-        used[segment.text] = true
-        if segment.kind == "param" then
-          if value == "" then
-            return nil, ('url_for "%s": %s is empty'):format(name, segment.text)
-          end
-          parts[#parts + 1] = raw_part(value)
-        elseif value == "" then
-          open_rest = true
-        else
-          for piece in (value .. "/"):gmatch("([^/]*)/") do
-            if piece == "" then
-              return nil, ('url_for "%s": %s holds an empty segment'):format(name, segment.text)
-            end
-            parts[#parts + 1] = raw_part(piece)
-          end
-        end
-      end
-    end
-    for key in pairs(strings) do
-      if used[key] ~= true then return nil, ('url_for "%s": unknown param %s'):format(name, key) end
-    end
-    path = "/" .. table.concat(parts, "/")
-    if (entry.slash == true or open_rest) and #parts > 0 then path = path .. "/" end
-  end
-  if query ~= nil and next(query) ~= nil then
-    local names: mut {string} = {}
-    for key in pairs(query) do names[#names + 1] = key end
-    table.sort(names)
-    local entries: mut {{string}} = {}
-    for _, key in ipairs(names) do
-      local value = query[key]
-      if value ~= nil then entries[#entries + 1] = { key, value } end
-    end
-    local part, why = Html.url_query(entries)
-    if part == nil then return nil, "url_for: " .. why end
-    path = path .. (if path:find("?", 1, true) then "&" else "?" end) .. Html.raw_url_part(part)
-  end
-  return path, ""
-end
-
-local router_methods = { match = matched, reverse = reverse } -- checked: arms_differ
-local router_mt: metatable<Types.Router> = { __index = router_methods } -- checked: literal_missing
-
 --- Compiles `routes` into a router. Raises, naming the pattern, for a route
 --- or mount that cannot be registered: a pattern that is not valid, two
 --- routes answering the same paths for one method, a name used twice, a
@@ -622,10 +628,10 @@ function Router.build(routes: {Types.Route}, terminal: Types.Handler, policy?: T
     keep_prefix = served ~= false,
     mount_path = "", name_prefix = "", names = {}, verbs = {},
   }
-  local router: Types.Router = { root = new_node(), policy = ctx.policy, names = ctx.names, -- checked: literal_missing
+  local router: Built = { root = new_node(), policy = ctx.policy, names = ctx.names,
     verbs = ctx.verbs, miss = terminal, mount_path = "" }
   compile(routes, ctx, router.root)
-  return setmetatable(router, router_mt) -- checked: setmetatable_call -- untyped: call
+  return router
 end
 
 return Router

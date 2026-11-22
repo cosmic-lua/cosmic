@@ -160,14 +160,16 @@ local record Types
     --- The untyped escape hatch for ad-hoc scratch values; a module
     --- shipping middleware uses a typed [`Web.key`] instead.
     state: {string:any}
-    --- The peer, or nil where the connection has none (a unix socket). With
-    --- `trusted_proxy`, the address `X-Forwarded-For` ends in.
+    --- The peer, or nil where the connection has none (a unix socket). From
+    --- a peer [`AppSpec.trusted_proxy`] names, the address `X-Forwarded-For`
+    --- gives.
     client?: Client
-    --- "http", or "https" when `trusted_proxy` is set and the proxy said so.
+    --- "http", or "https" when the request came over TLS or from a peer
+    --- [`AppSpec.trusted_proxy`] names that said so.
     scheme: string
     --- The host asked for, as the Host header gives it (with its port),
-    --- or, with `trusted_proxy`, `X-Forwarded-Host`; nil where none was
-    --- sent.
+    --- or, from a peer [`AppSpec.trusted_proxy`] names, `X-Forwarded-Host`;
+    --- nil where none was sent.
     host?: string
     --- What the router decided; set before the middleware stack runs.
     mut outcome?: Outcome
@@ -477,7 +479,7 @@ local record Types
   end
 
   --- Routes compiled for matching: see [`Web.router`].
-  record Router
+  interface Router
     --- What an app would do with a request of `method` for `path`, as the
     --- client sent it, without running a handler. "match" has the route and
     --- params; "not_allowed" and "options" have `allow`; "redirect" the
@@ -528,11 +530,22 @@ local record Types
     --- raises when the app is made. A request for another host, at any
     --- port, or whose Host header is not `host[:port]` whole, is a 400.
     mut trusted_hosts?: {string}
-    --- Take the scheme, host and client from `X-Forwarded-Proto`,
-    --- `X-Forwarded-Host` and `X-Forwarded-For` (false by default). Only
-    --- the last entry of each is read: the one the proxy next to the app
-    --- added, since the earlier ones are the client's.
-    trusted_proxy?: boolean
+    --- The peers that are the app's proxy, whose `X-Forwarded-Proto`,
+    --- `X-Forwarded-Host` and `X-Forwarded-For` give the request's
+    --- scheme, host and client (none by default). Each entry is an
+    --- address (`"10.0.0.2"`, `"::1"`), a prefix (`"10.0.0.0/8"`,
+    --- `"fd00::/8"`), `"loopback"` (127/8 and ::1), or `"unix"`, a
+    --- connection to a unix-socket listener; [`Web.app`] raises for any
+    --- other, `true` among them. A request from another peer keeps its
+    --- own scheme, host and address, whatever it sends. Only the last
+    --- entry of `X-Forwarded-Proto` and `X-Forwarded-Host` is read, the
+    --- one the proxy next to the app added. The client is the right-most
+    --- entry of `X-Forwarded-For` that is none of these peers, since the
+    --- entries before it are the client's to write; it is the peer where
+    --- every entry is a proxy's or one before it is no bare address. An
+    --- IPv4 address mapped into IPv6 (`::ffff:10.0.0.2`) is matched as
+    --- IPv4, so an IPv6 prefix, `::/0` among them, never holds it.
+    trusted_proxy?: {string}
     --- Answers a status in place of the default error page, by status.
     error_pages?: {integer: Handler}
     --- Makes the page of an error that has no entry in `error_pages`: the
@@ -555,8 +568,8 @@ local record Types
     --- ordinary requests keep the other half.
     max_streams?: integer
     --- Set by [`Dev.app`] for an app in development mode: [`Web.serve`]
-    --- refuses (false and why) a listener beyond the loopback and a
-    --- `trusted_proxy`, since such an app shows a fault's stack and reloads
+    --- refuses (false and why) a listener beyond the loopback, a socket
+    --- file (so Tailscale Serve too) and a `trusted_proxy`, since such an app shows a fault's stack and reloads
     --- pages, and logs one line saying so. The guard is in [`Web.serve`]:
     --- an app served through [`Server.serve`] directly skips it. Only
     --- [`Dev.app`] reads `COSMIC_WEB_DEV`; a [`Web.app`] ignores it. False
@@ -565,7 +578,7 @@ local record Types
   end
 
   --- A built app: [`Web.app`] derives the router and the handler.
-  record App
+  interface App
     --- The app's configuration, as given.
     spec: AppSpec
     --- Resource of the lifespan, by [`Web.key`]: `app.state[KEY] = db`.
@@ -600,17 +613,65 @@ local record Types
     --- The most [`stream_count`] may reach: the app's `max_streams`, else
     --- half the connections [`Web.serve`] is given.
     mut stream_limit: integer
+    --- The unix socket [`Web.serve`] listens at for the daemon's Serve,
+    --- while it serves `tailnet = { via = "serve" }`: [`Web.tailnet`]
+    --- trusts the identity headers of a request that came to it, and of
+    --- no other socket but the one its `socket` names.
+    mut serve_socket?: string
+    --- The capabilities the daemon's Serve passes on to `serve_socket`,
+    --- which [`Web.tailnet`] reads from its header there, and no others.
+    mut serve_caps?: {string}
+    --- The peers of [`AppSpec.trusted_proxy`], as [`Web.app`] read them;
+    --- nil where it names none.
+    proxies?: Proxies
+  end
+
+  --- An address prefix of [`Proxies`].
+  record ProxyPrefix
+    --- The prefix's address: 4 bytes for IPv4, 16 for IPv6.
+    octets: {integer}
+    --- How many leading bits of `octets` an address must share.
+    bits: integer
+  end
+
+  --- The peers [`AppSpec.trusted_proxy`] names.
+  record Proxies
+    --- Whether a connection to a unix-socket listener is the proxy's.
+    unix: boolean
+    --- The address prefixes; an address is a prefix of all its bits.
+    prefixes: {ProxyPrefix}
   end
 
   --- What [`Web.serve`] takes.
   --- How [`ServeOptions.tailnet`] serves the app to the tailnet; every
   --- field is optional.
+  --- How [`TailnetServe`] reaches the tailnet.
+  enum TailnetVia
+    --- The server listens at each of the node's tailnet addresses and
+    --- presents the node's certificate itself (the default).
+    "listen"
+    --- The machine's tailscaled serves HTTPS on the node's name and
+    --- passes each request to the server at a unix socket of a private
+    --- directory, saying who sent it ([`cosmic.tailscale.Client.serve`]):
+    --- pair it with [`Web.tailnet`], which reads who at that socket.
+    "serve"
+    --- As "serve", and open to the internet as well (Funnel). A request
+    --- from the internet has no identity: see [`Web.tailnet_funnel`].
+    "funnel"
+  end
+
   record TailnetServe
     --- The daemon to ask: [`Tailscale.connect`]'s by default.
     client?: Tailscale.Client
-    --- The port to listen at on each tailnet address (443); 0 for one
-    --- the kernel chooses for each.
+    --- How the app reaches the tailnet: "listen" by default.
+    via?: TailnetVia
+    --- The port (443). With "listen", the port at each tailnet address,
+    --- 0 for one the kernel chooses for each; otherwise the port of the
+    --- node's name, which Funnel takes at 443, 8443 or 10000 only.
     port?: integer
+    --- With "serve" or "funnel", the capabilities the daemon passes on
+    --- for [`Web.require_cap`], by name.
+    caps?: {string}
     --- The name to serve, one of [`cosmic.tailscale.Status.cert_domains`]:
     --- the node's first by default.
     domain?: string
@@ -702,10 +763,13 @@ local record Types
     --- Where the request comes from: a numeric TCP address, as the server
     --- names a connection's far end (127.0.0.1, port 50000, by default).
     peer?: Net.Address
+    --- The listener the request came to, as [`Server.Request.listener`]
+    --- names it; none by default.
+    listener?: Net.Address
   end
 
   --- A reply as a test client saw it.
-  record TestResponse
+  interface TestResponse
     --- The status.
     status: integer
     --- By lowercased name; repeated headers joined with ", ".
@@ -727,7 +791,7 @@ local record Types
     --- The body as text.
     text: function(self: TestResponse): string
     --- The body decoded as JSON; nil and why when it is none.
-    json: function(self: TestResponse): any?, string
+    json: function(self: TestResponse): Json.Value?, string
   end
 end
 

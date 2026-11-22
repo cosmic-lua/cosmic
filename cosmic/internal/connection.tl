@@ -92,6 +92,9 @@ local class SocketConn is Duplex
   --- connection a TLS listener accepted or [`start_tls`] secured; nil
   --- for one in the clear. No caller reads or writes it.
   mut session?: raw_tls.Session
+  --- The address of the listener that accepted it, as the listener
+  --- was given it; nil for a connection [`Net.connect`] made.
+  mut listener?: raw_socket.Address
 
   --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
   --- nil for no limit. On a connection a TLS listener accepted it bounds
@@ -136,6 +139,10 @@ local class SocketConn is Duplex
       while true do
         local data, why, stop = session:read(math.min(max_bytes or RECORD_BYTES, RECORD_BYTES))
         if data ~= nil then return data, "" end
+        -- TODO: an end with no close_notify (a TCP end alone) is ENDED as
+        -- close_notify is, so an HTTP/1.x body read to the connection's end
+        -- cannot tell truncation from the end: answer the two apart here,
+        -- from core/tls.c, and refuse a body so cut, once #3853 merges.
         if stop == tls.ENDED then return nil, "" end
         if stop == tls.FAILED then
           self.read_failure = why
@@ -359,8 +366,10 @@ local class SocketConn is Duplex
   --- it is written; a caller the checker does not read raises.
   function shutdown(self, how: Shutdown): boolean, string
     -- The type refuses a wrong `how` in checked code; this is for a caller
-    -- the checker does not read.
-    if how ~= "read" and how ~= "write" and how ~= "both" then
+    -- the checker does not read. The test reads `how` as text, which a
+    -- wrong value is, so that no narrowing of it is taken as proved.
+    local text = tostring(how)
+    if text ~= "read" and text ~= "write" and text ~= "both" then
       error("net: how must be \"read\", \"write\" or \"both\"", 2)
     end
     if not self.open then return false, "net: the connection is closed" end
@@ -456,7 +465,7 @@ end
 function Connection.new(socket: raw_socket.Socket, timeout_ns: integer?): SocketConn
   local conn: SocketConn = {
     socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
-    read_failure = "", write_failure = "", skip = nil, session = nil }
+    read_failure = "", write_failure = "", skip = nil, session = nil, listener = nil }
   return conn
 end
 

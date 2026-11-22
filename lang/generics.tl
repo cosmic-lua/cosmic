@@ -10,8 +10,9 @@
 ---   and the bounds of one variable grow to a type all are below, or conflict.
 --- * `from`: the pattern is passed to the type found (a result to the type expected, or a parameter of a function
 ---   argument). The variable gets an *upper* bound; two upper bounds narrow to the one that is below the other.
---- * `both`: the position is invariant (a `mut` collection, the arguments of a generic, a map's key). The variable is
----   exactly that type, and two exact types are one type or conflict.
+--- * `both`: the position is invariant (a `mut` collection, a map's key), or the argument of a generic, which the
+---   solver takes as exact even where the relation reads it as covariant or contravariant. The variable is exactly that
+---   type, and two exact types are one type or conflict.
 ---
 --- A variable is its exact type, else its lower bound, else its upper bound. A solution is never trusted: the caller
 --- puts it in the parameters and checks every argument against them, so a wrong guess here is an error there and never
@@ -412,7 +413,14 @@ visit = function(s: Generics.Solver, pattern: Type, actual: Type, dir: Generics.
       visit(s, pattern.element, element, dir, at)
     end
   elseif (pattern.tag == "map") then
-    if not ((actual.tag == "map")) then
+    local body = if (actual.tag == "named") and not actual.value and Types.inferred_record(actual.decl) then actual.decl.body else nil end
+    if body ~= nil and not pattern.mut then
+      -- A record inferred for a literal of named items is a map of strings to its fields, read only.
+      visit(s, pattern.key, s.store.string, "both", at)
+      for _, f in ipairs(body.fields) do
+        visit(s, pattern.value, s.store:non_nil(f.type), dir, at)
+      end
+    elseif not ((actual.tag == "map")) then
       taint(s, pattern)
     elseif pattern.mut then
       if actual.mut then

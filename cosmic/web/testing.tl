@@ -30,7 +30,7 @@ local record Testing
   end
 
   --- An app driven in-process: see [`Testing.test_client`].
-  record Client
+  interface Client
     --- The app.
     app: Types.App
     --- The cookies the replies set, by name: sent back on the requests
@@ -42,8 +42,9 @@ local record Testing
     attrs: mut {string:JarEntry}
     --- "http" (the default) or "https": whether the client acts as a browser
     --- on an https page. A `Secure` cookie is sent only when it is "https",
-    --- which also adds `X-Forwarded-Proto: https` for an app with
-    --- `trusted_proxy`.
+    --- which also adds `X-Forwarded-Proto: https`, believed by an app whose
+    --- `trusted_proxy` names the request's peer (`127.0.0.1` unless the
+    --- request gives another, so `"loopback"`).
     mut scheme: string
     --- Whether the app's lifespan has run.
     mut started: boolean
@@ -199,24 +200,24 @@ local REDIRECT <const>: {integer:boolean} = {
   [301] = true, [302] = true, [303] = true, [307] = true, [308] = true,
 }
 
-local function header_list(self: Response, name: string): {string}
-  local out: mut {string} = {}
-  for i, line in ipairs(self.lines[name:lower()] or {}) do out[i] = line end
-  return out
-end
+--- What [`response_of`] makes.
+local class Answered is Types.TestResponse
+  function header_list(self, name: string): {string}
+    local out: mut {string} = {}
+    for i, line in ipairs(self.lines[name:lower()] or {}) do out[i] = line end
+    return out
+  end
 
-local function text(self: Response): string
-  return self.body
-end
+  function text(self): string
+    return self.body
+  end
 
-local function json(self: Response): Json.Value?, string
-  local value, why = Json.decode(self.body)
-  if why ~= "" then return nil, why end
-  return value, ""
+  function json(self): Json.Value?, string
+    local value, why = Json.decode(self.body)
+    if why ~= "" then return nil, why end
+    return value, ""
+  end
 end
-
-local response_methods = { header_list = header_list, text = text, json = json } -- checked: arms_differ
-local response_mt: metatable<Response> = { __index = response_methods } -- checked: literal_missing
 
 --- A response from `lines`, header lines as `{name, value}` in order.
 local function response_of(status: integer, lines: {HeaderLine}, body: string): Response
@@ -233,10 +234,10 @@ local function response_of(status: integer, lines: {HeaderLine}, body: string): 
     by_name[name] = by_name[name] or {}
     table.insert(by_name[name], line.value) -- checked: overload_none -- untyped: call
   end
-  local response: Response = { status = status, headers = headers, lines = by_name, body = body, -- checked: literal_missing
-    ok = status >= 200 and status < 300 }
+  local response: Answered = { status = status, headers = headers, lines = by_name, body = body,
+    ok = status >= 200 and status < 300, stream = nil, redirect_location = nil }
   if REDIRECT[status] == true then response.redirect_location = headers["location"] end
-  return setmetatable(response, response_mt) -- checked: setmetatable_call -- untyped: call
+  return response
 end
 
 --- Whether a reply of `status` has no body.
@@ -275,11 +276,15 @@ local function path_matches(cookie_path: string, path: string): boolean
 end
 
 --- Updates the jar with a `Set-Cookie` line the reply to a request for
---- `path` carried, as a browser does for what it can tell: a cookie with a
---- `Max-Age` of 0 or less, or an `Expires` in the past, deletes the one at
---- its path; `Path`, `Secure` and the expiry are kept for the requests that
---- follow. `Domain` and `SameSite` are not read, as the client has one
---- host and sends every request itself.
+--- `path` carried: a cookie with a `Max-Age` of 0 or less, or an
+--- `Expires` in the past, deletes the one at its path; `Path`, `Secure`
+--- and the expiry are kept for the requests that follow. It takes more
+--- than a browser does. `Domain`, `SameSite` and `HttpOnly` are not read,
+--- as the client has one host and sends every request itself. A `Secure`
+--- cookie is stored whatever the client's scheme, and sent only while it
+--- is "https"; one named `__Secure-` or `__Host-` is kept whatever its
+--- attributes. A browser refuses either from an http page, and the
+--- second without the attributes its prefix needs.
 local function remember(client: Testing.Client, line: string, path: string)
   local parsed, _ = Cookies.parse_set_cookie(line)
   if parsed == nil then return end
@@ -359,7 +364,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   local raw: Server.Request = {
     method = method, target = prepared.target, path = prepared.path, query = prepared.query,
     version = "HTTP/1.1", headers = prepared.headers, body = Stream.from_string(prepared.body),
-    length = #prepared.body, peer = opts.peer or Net.tcp("127.0.0.1", 50000),
+    length = #prepared.body, peer = opts.peer or Net.tcp("127.0.0.1", 50000), listener = opts.listener,
   }
   local answered: mut {Response} = {}
   Poll.within(function()
@@ -449,27 +454,47 @@ local function request(self: Testing.Client, method: string, path: string, opts?
   return res
 end
 
-local client_mt: metatable<Testing.Client>
-
-local function verb(method: string): function(self: Testing.Client, path: string, opts?: Options): Response
-  return function(self: Testing.Client, path: string, opts?: Options): Response
-    return self:request(method, path, opts)
+--- What [`Testing.test_client`] makes.
+local class InProcess is Testing.Client
+  function request(self, method: string, path: string, opts?: Options): Response
+    return request(self, method, path, opts)
   end
-end
 
-local client_methods = { -- checked: arms_differ
-  request = request, get = verb("GET"), head = verb("HEAD"), post = verb("POST"),
-  put = verb("PUT"), patch = verb("PATCH"), delete = verb("DELETE"), options = verb("OPTIONS"),
-}
+  function get(self, path: string, opts?: Options): Response
+    return self:request("GET", path, opts)
+  end
 
-client_mt = { -- checked: literal_missing
-  __index = client_methods,
-  __close = function(self: Testing.Client)
+  function head(self, path: string, opts?: Options): Response
+    return self:request("HEAD", path, opts)
+  end
+
+  function post(self, path: string, opts?: Options): Response
+    return self:request("POST", path, opts)
+  end
+
+  function put(self, path: string, opts?: Options): Response
+    return self:request("PUT", path, opts)
+  end
+
+  function patch(self, path: string, opts?: Options): Response
+    return self:request("PATCH", path, opts)
+  end
+
+  function delete(self, path: string, opts?: Options): Response
+    return self:request("DELETE", path, opts)
+  end
+
+  function options(self, path: string, opts?: Options): Response
+    return self:request("OPTIONS", path, opts)
+  end
+
+  --- Runs the app's cleanup, once: a second close does nothing.
+  function __close(self)
     local shutdown = self.shutdown
     self.shutdown = nil
     if shutdown ~= nil then shutdown() end
-  end,
-}
+  end
+end
 
 --- A client that calls `app` in-process: it builds a [`Server.Request`] and
 --- calls `app.handle`, so the middleware and the router are the served
@@ -480,8 +505,8 @@ client_mt = { -- checked: literal_missing
 --- @param app Types.App The app
 --- @return Testing.Client The client
 function Testing.test_client(app: Types.App): Testing.Client
-  return setmetatable({ app = app, jar = {}, attrs = {}, scheme = "http", started = false }, -- checked: setmetatable_call -- untyped: call
-    client_mt)
+  local client: InProcess = { app = app, jar = {}, attrs = {}, scheme = "http", started = false, shutdown = nil }
+  return client
 end
 
 --- Runs `fn` with a client of `app` in one [`Poll.run`], the lifespan

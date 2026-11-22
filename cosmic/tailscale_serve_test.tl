@@ -49,6 +49,9 @@ local record Quirks
   null?: boolean
   --- The first event names no session, as an old daemon's does.
   sessionless?: boolean
+  --- What is filed loses `AcceptAppCaps`, as a daemon that predates it
+  --- keeps only the fields it knows.
+  dated?: boolean
 end
 
 --- The stand-in's state.
@@ -142,7 +145,11 @@ local function answer(d: Daemon, req: Server.Request): Server.Reply
     if wanted ~= '"' .. tostring(d.etag) .. '"' then
       return { status = 412, body = "etag mismatch\n" }
     end
-    local config = assert(Json.decode_object((assert(Stream.read_all(req.body)))))
+    local text = assert(Stream.read_all(req.body))
+    if quirks.dated == true then
+      text = text:gsub('"AcceptAppCaps":%[[^%]]*%],?', ""):gsub(",}", "}")
+    end
+    local config = assert(Json.decode_object(text))
     local stored: mut {string: Json.Value} = {}
     for name, value in pairs(config) do stored[name] = value end
     d.config = stored
@@ -307,6 +314,19 @@ local function test_a_daemon_that_names_no_session_fails_the_serve(tmp: string)
 ]], { sessionless = true })
   assert(said == "nil tailscale: serve: the daemon names no session: it predates foreground serving\n", said)
   assert(table.concat(d.lines, "; ") == "ended s1", table.concat(d.lines, "; "))
+end
+
+--- A daemon that does not keep `AcceptAppCaps` fails a serve that
+--- forwards capabilities, and the stream's end takes the entry down.
+local function test_a_daemon_that_drops_accept_app_caps_fails_the_serve(tmp: string)
+  local said, d = across(tmp, [[
+  local served, why = ts:serve({ domain = "box.tail1234.ts.net", sites = { { port = 443,
+    handlers = { ["/"] = { proxy = "unix:/tmp/app.sock", accept_caps = { "example.com/cap/admin" } } } } } })
+  say(tostring(served) .. " " .. why)
+]], { dated = true })
+  assert(said == "nil tailscale: serve: the daemon did not keep AcceptAppCaps: it predates forwarding " ..
+      "capabilities, and would pass a client's own header on\n", said)
+  assert(table.concat(d.lines, "; ") == 'POST if-match="1"; ended s1', table.concat(d.lines, "; "))
 end
 
 --- A spec it cannot file raises before the daemon is asked: here

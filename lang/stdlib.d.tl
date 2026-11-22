@@ -13,7 +13,7 @@ do
   global record Yielder<Y, S>
     userdata
 
-    yield: function(Yielder<Y, S>, Y): S
+    yield: function(yielder: Yielder<Y, S>, value: Y): S
   end
 
   -- A coroutine: `Y` is what it yields, `R` what it answers when its body returns and `S` what it is sent.
@@ -37,21 +37,21 @@ do
   -- declares: these declarations describe a body that is given a handle
   -- and a `Coroutine` that is not a thread, and the runtime has Lua's own `coroutine`, which [`cosmic.poll`] calls.
   global record coroutine
-    close: function<Y, R, S>(Coroutine<Y, R, S>): (true) | (false, any)
+    close: function<Y, R, S>(co: Coroutine<Y, R, S>): (true) | (false, any)
 
     -- One overload for each form a body takes (a handle and a value, a handle, neither) and for each number of values it
     -- answers (none, one).
-    create: function<Y, S>(function(Yielder<Y, S>, S)): Coroutine<Y, nil, S>
-    create: function<Y, R, S>(function(Yielder<Y, S>, S): R): Coroutine<Y, R, S>
-    create: function<Y>(function(Yielder<Y, nil>)): Coroutine<Y, nil, nil>
-    create: function<Y, R>(function(Yielder<Y, nil>): R): Coroutine<Y, R, nil>
-    create: function(function()): Coroutine<never, nil, nil>
-    create: function<R>(function(): R): Coroutine<never, R, nil>
+    create: function<Y, S>(f: function(Yielder<Y, S>, S)): Coroutine<Y, nil, S>
+    create: function<Y, R, S>(f: function(Yielder<Y, S>, S): R): Coroutine<Y, R, S>
+    create: function<Y>(f: function(Yielder<Y, nil>)): Coroutine<Y, nil, nil>
+    create: function<Y, R>(f: function(Yielder<Y, nil>): R): Coroutine<Y, R, nil>
+    create: function(f: function()): Coroutine<never, nil, nil>
+    create: function<R>(f: function(): R): Coroutine<never, R, nil>
 
     isyieldable: function(): boolean
 
-    resume: function<Y, R>(Coroutine<Y, R, nil>): (true, Y | R) | (false, any)
-    resume: function<Y, R, S>(Coroutine<Y, R, S>, S): (true, Y | R) | (false, any)
+    resume: function<Y, R>(co: Coroutine<Y, R, nil>): (true, Y | R) | (false, any)
+    resume: function<Y, R, S>(co: Coroutine<Y, R, S>, value: S): (true, Y | R) | (false, any)
 
     enum Status
       "suspended"
@@ -60,14 +60,14 @@ do
       "dead"
     end
 
-    status: function<Y, R, S>(Coroutine<Y, R, S>): Status
+    status: function<Y, R, S>(co: Coroutine<Y, R, S>): Status
 
-    wrap: function<Y, S>(function(Yielder<Y, S>, S)): function(S): Y?
-    wrap: function<Y, R, S>(function(Yielder<Y, S>, S): R): function(S): Y | R
-    wrap: function<Y>(function(Yielder<Y, nil>)): function(): Y?
-    wrap: function<Y, R>(function(Yielder<Y, nil>): R): function(): Y | R
-    wrap: function(function()): function()
-    wrap: function<R>(function(): R): function(): R
+    wrap: function<Y, S>(f: function(Yielder<Y, S>, S)): function(S): Y?
+    wrap: function<Y, R, S>(f: function(Yielder<Y, S>, S): R): function(S): Y | R
+    wrap: function<Y>(f: function(Yielder<Y, nil>)): function(): Y?
+    wrap: function<Y, R>(f: function(Yielder<Y, nil>): R): function(): Y | R
+    wrap: function(f: function()): function()
+    wrap: function<R>(f: function(): R): function(): R
   end
 
   global record debug
@@ -105,39 +105,39 @@ do
     type AnyFunction = function(...: any):any...
 
     debug: function()
-    gethook: function<Y, R, S>(arg1?: Coroutine<Y, R, S>): HookFunction?, integer
+    gethook: function<Y, R, S>(thread?: Coroutine<Y, R, S>): HookFunction?, integer
 
-    getinfo: function<Y, R, S>(Coroutine<Y, R, S>, AnyFunction, arg3?: string): GetInfoTable
-    getinfo: function<Y, R, S>(Coroutine<Y, R, S>, integer, arg3?: string): GetInfoTable?
-    getinfo: function(AnyFunction, arg2?: string): GetInfoTable
-    getinfo: function(integer, arg2?: string): GetInfoTable?
+    getinfo: function<Y, R, S>(thread: Coroutine<Y, R, S>, f: AnyFunction, what?: string): GetInfoTable
+    getinfo: function<Y, R, S>(thread: Coroutine<Y, R, S>, level: integer, what?: string): GetInfoTable?
+    getinfo: function(f: AnyFunction, what?: string): GetInfoTable
+    getinfo: function(level: integer, what?: string): GetInfoTable?
 
-    getlocal: function<Y, R, S>(Coroutine<Y, R, S>, AnyFunction, integer): string?
-    getlocal: function<Y, R, S>(Coroutine<Y, R, S>, integer, integer): string?, any
-    getlocal: function(AnyFunction, integer): string?
-    getlocal: function(integer, integer): string?, any
+    getlocal: function<Y, R, S>(thread: Coroutine<Y, R, S>, f: AnyFunction, index: integer): string?
+    getlocal: function<Y, R, S>(thread: Coroutine<Y, R, S>, level: integer, index: integer): string?, any
+    getlocal: function(f: AnyFunction, index: integer): string?
+    getlocal: function(level: integer, index: integer): string?, any
 
-    getmetatable: function<T>(T): metatable<T>?
+    getmetatable: function<T>(value: T): metatable<T>?
     getregistry: function(): any
-    getupvalue: function(AnyFunction, integer): string?, any
-    getuservalue: function(Userdata, arg2?: integer): any, boolean
+    getupvalue: function(f: AnyFunction, up: integer): string?, any
+    getuservalue: function(u: Userdata, n?: integer): any, boolean
 
-    sethook: function<Y, R, S>(Coroutine<Y, R, S>, HookFunction, string, arg4?: integer)
-    sethook: function(HookFunction, string, arg3?: integer)
+    sethook: function<Y, R, S>(thread: Coroutine<Y, R, S>, hook: HookFunction, mask: string, count?: integer)
+    sethook: function(hook: HookFunction, mask: string, count?: integer)
 
-    setlocal: function<Y, R, S>(Coroutine<Y, R, S>, integer, integer, any): string?
-    setlocal: function(integer, integer, any): string?
+    setlocal: function<Y, R, S>(thread: Coroutine<Y, R, S>, level: integer, index: integer, value: any): string?
+    setlocal: function(level: integer, index: integer, value: any): string?
 
-    setmetatable: function<T>(T, metatable<T>): T
-    setupvalue: function(AnyFunction, integer, any): string?
-    setuservalue: function(Userdata, any, integer): Userdata
+    setmetatable: function<T>(value: T, mt: metatable<T>): T
+    setupvalue: function(f: AnyFunction, up: integer, value: any): string?
+    setuservalue: function(udata: Userdata, value: any, n: integer): Userdata
 
-    traceback: function<Y, R, S>(Coroutine<Y, R, S>, arg2?: string, arg3?: integer): string
-    traceback: function(arg1?: string, arg2?: integer): string
-    traceback: function(any): any
+    traceback: function<Y, R, S>(thread: Coroutine<Y, R, S>, message?: string, level?: integer): string
+    traceback: function(message?: string, level?: integer): string
+    traceback: function(message: any): any
 
-    upvalueid: function(AnyFunction, integer): Userdata?
-    upvaluejoin: function(AnyFunction, integer, AnyFunction, integer)
+    upvalueid: function(f: AnyFunction, n: integer): Userdata?
+    upvaluejoin: function(f1: AnyFunction, n1: integer, f2: AnyFunction, n2: integer)
   end
 
   global record io
@@ -153,31 +153,31 @@ do
       "closed file"
     end
 
-    close: function(arg1?: FILE)
-    input: function(arg1?: FILE | string): FILE
+    close: function(file?: FILE)
+    input: function(file?: FILE | string): FILE
     flush: function()
 
-    lines: function(arg1?: string): (function(): (string))
-    lines: function(arg1?: string, ...: FileNumberMode): (function(): (number...))
-    lines: function(arg1?: string, ...: (number | FileStringMode)): (function(): (string...))
-    lines: function(arg1?: string, ...: (number | FileMode)): (function(): ((string | number)...))
-    lines: function(arg1?: string, ...: (number | string)): (function(): (string...))
+    lines: function(filename?: string): (function(): (string))
+    lines: function(filename?: string, ...: FileNumberMode): (function(): (number...))
+    lines: function(filename?: string, ...: (integer | FileStringMode)): (function(): (string...))
+    lines: function(filename?: string, ...: (integer | FileMode)): (function(): ((string | number)...))
+    lines: function(filename?: string, ...: (integer | string)): (function(): (string...))
 
-    open: function(string, arg2?: OpenMode): FILE?, string?, integer?
-    output: function(arg1?: FILE | string): FILE
-    popen: function(string, arg2?: OpenMode): FILE?, string?, integer?
+    open: function(filename: string, mode?: OpenMode): FILE?, string?, integer?
+    output: function(file?: FILE | string): FILE
+    popen: function(prog: string, mode?: OpenMode): FILE?, string?, integer?
 
     read: function(): string?
     read: function(...: FileNumberMode): number...
-    read: function(...: (number | FileStringMode)): string...
-    read: function(...: (number | FileMode)): ((string | number)...)
-    read: function(...: (number | string)): (string...)
+    read: function(...: (integer | FileStringMode)): string...
+    read: function(...: (integer | FileMode)): ((string | number)...)
+    read: function(...: (integer | string)): (string...)
 
     stderr: FILE
     stdin: FILE
     stdout: FILE
     tmpfile: function(): FILE?, string?, integer?
-    type: function(any): FileType?
+    type: function(obj: any): FileType?
     write: function(...: (string | number)): FILE?, string?, integer?
   end
 
@@ -192,77 +192,84 @@ do
       "no" "full" "line"
     end
 
-    close: function(FILE): boolean?, string?, integer?
-    flush: function(FILE): boolean?, string?, integer?
+    close: function(file: FILE): boolean?, string?, integer?
+    flush: function(file: FILE): boolean?, string?, integer?
 
-    lines: function(FILE): (function(): (string))
-    lines: function(FILE, ...: FileNumberMode): (function(): (number...))
-    lines: function(FILE, ...: (number | FileStringMode)): (function(): (string...))
-    lines: function(FILE, ...: (number | FileMode)): (function(): ((string | number)...))
-    lines: function(FILE, ...: (number | string)): (function(): (string...))
+    lines: function(file: FILE): (function(): (string))
+    lines: function(file: FILE, ...: FileNumberMode): (function(): (number...))
+    lines: function(file: FILE, ...: (integer | FileStringMode)): (function(): (string...))
+    lines: function(file: FILE, ...: (integer | FileMode)): (function(): ((string | number)...))
+    lines: function(file: FILE, ...: (integer | string)): (function(): (string...))
 
-    read: function(FILE): string?
-    read: function(FILE, ...: FileNumberMode): number...
-    read: function(FILE, ...: (number | FileStringMode)): string...
-    read: function(FILE, ...: (number | FileMode)): ((string | number)...)
-    read: function(FILE, ...: (number | string)): (string...)
+    read: function(file: FILE): string?
+    read: function(file: FILE, ...: FileNumberMode): number...
+    read: function(file: FILE, ...: (integer | FileStringMode)): string...
+    read: function(file: FILE, ...: (integer | FileMode)): ((string | number)...)
+    read: function(file: FILE, ...: (integer | string)): (string...)
 
-    seek: function(FILE, arg2?: SeekWhence, arg3?: integer): integer?, string?, integer?
-    setvbuf: function(FILE, SetVBufMode, arg3?: integer): boolean?, string?, integer?
+    seek: function(file: FILE, whence?: SeekWhence, offset?: integer): integer?, string?, integer?
+    setvbuf: function(file: FILE, mode: SetVBufMode, size?: integer): boolean?, string?, integer?
 
-    write: function(FILE, ...: (string | number)): FILE?, string?, integer?
+    write: function(file: FILE, ...: (string | number)): FILE?, string?, integer?
 
-    __close: function(FILE)
+    __close: function(file: FILE)
   end
 
   global record math
-    abs: function(integer): integer
-    abs: function(number): number
-    acos: function(number): number
-    asin: function(number): number
-    atan: function(number, arg2?: number): number
-    atan2: function(number, number): number
-    ceil: function(number): integer
-    cos: function(number): number
-    cosh: function(number): number
-    deg: function(number): number
-    exp: function(number): number
-    floor: function(number): integer
+    abs: function(x: integer): integer
+    abs: function(x: number): number
+    acos: function(x: number): number
+    asin: function(x: number): number
+    atan: function(y: number, x?: number): number
+    atan2: function(y: number, x: number): number
+    ceil: function(x: number): integer
+    cos: function(x: number): number
+    cosh: function(x: number): number
+    deg: function(x: number): number
+    exp: function(x: number): number
+    floor: function(x: number): integer
 
-    fmod: function(integer, integer): integer
-    fmod: function(number, number): number
+    fmod: function(x: integer, y: integer): integer
+    fmod: function(x: number, y: number): number
 
-    frexp: function(number): number, integer
+    frexp: function(x: number): number, integer
     huge: number
-    ldexp: function(number, integer): number
-    log: function(number, arg2?: number): number
-    log10: function(number): number
+    ldexp: function(m: number, e: integer): number
+    log: function(x: number, base?: number): number
+    log10: function(x: number): number
 
-    max: function<N is Numeric>(N, ...: N): N
+    max: function<N is Numeric>(x: N, ...: N): N
 
     maxinteger: integer
 
-    min: function<N is Numeric>(N, ...: N): N
+    min: function<N is Numeric>(x: N, ...: N): N
 
     mininteger: integer
 
-    modf: function(number): integer, number
+    -- An integer is its own integral part; a float's is a float (`math.modf(3.7)` is `3.0, 0.7`).
+    modf: function(x: integer): integer, number
+    modf: function(x: number): number, number
     pi: number
-    pow: function(number, number): number
-    rad: function(number): number
+    pow: function(x: number, y: number): number
+    rad: function(x: number): number
 
-    random: function(integer, arg2?: integer): integer
+    random: function(m: integer, n?: integer): integer
     random: function(): number
 
-    randomseed: function(arg1?: integer, arg2?: integer): integer, integer
-    sin: function(number): number
-    sinh: function(number): number
-    sqrt: function(number): number
-    tan: function(number): number
-    tanh: function(number): number
-    tointeger: function(any): integer?
-    type: function(any): string?
-    ult: function(number, number): boolean
+    randomseed: function(x?: integer, y?: integer): integer, integer
+    sin: function(x: number): number
+    sinh: function(x: number): number
+    sqrt: function(x: number): number
+    tan: function(x: number): number
+    tanh: function(x: number): number
+    tointeger: function(x: any): integer?
+    -- What kind of number `x` is, nil where it is no number.
+    enum NumberType
+      "integer" "float"
+    end
+
+    type: function(x: any): NumberType?
+    ult: function(m: integer, n: integer): boolean
   end
 
   global record os
@@ -284,18 +291,18 @@ do
 
     clock: function(): number
 
-    date: function(DateMode, arg2?: number): DateTable
-    date: function(arg1?: string, arg2?: number): string
+    date: function(format: DateMode, time?: integer): DateTable
+    date: function(format?: string, time?: integer): string
 
-    difftime: function(integer, integer): number
+    difftime: function(t2: integer, t1: integer): number
     -- All three values every time: the status is `true` or nil, then "exit" or "signal", then the code.
-    execute: function(string): boolean?, string, integer
-    exit: function(arg1?: (integer | boolean), arg2?: boolean)
-    getenv: function(string): string?
-    remove: function(string): boolean?, string?, integer?
-    rename: function(string, string): boolean?, string?, integer?
-    setlocale: function(string, arg2?: string): string?
-    time: function(arg1?: DateTable): integer
+    execute: function(command: string): boolean?, string, integer
+    exit: function(code?: (integer | boolean), close?: boolean)
+    getenv: function(varname: string): string?
+    remove: function(filename: string): boolean?, string?, integer?
+    rename: function(oldname: string, newname: string): boolean?, string?, integer?
+    setlocale: function(locale: string, category?: string): string?
+    time: function(t?: DateTable): integer
     tmpname: function(): string
   end
 
@@ -303,12 +310,12 @@ do
     config: string
     cpath: string
     loaded: {string:any}
-    loadlib: function(string, string): ((function(...: any): any...)?, string?, string?)
-    loaders: { (function(string): (function(arg1?: string, arg2?: any): (any), any)) }
+    loadlib: function(libname: string, funcname: string): ((function(...: any): any...)?, string?, string?)
+    loaders: { (function(string): (function(modname?: string, extra?: any): (any), any)) }
     path: string
-    preload: {string : function(arg1?: string, arg2?: any): (any) }
-    mut searchers: { (function(string): (function(arg1?: string, arg2?: any): (any), any)) }
-    searchpath: function(string, string, arg3?: string, arg4?: string): string?, string?
+    preload: {string : function(modname?: string, extra?: any): (any) }
+    mut searchers: { (function(string): (function(modname?: string, extra?: any): (any), any)) }
+    searchpath: function(name: string, path: string, sep?: string, rep?: string): string?, string?
 
     -- A program outside the tree may not read `package` ([`build.project_refusals`]): it would be handed the raw table of a
     -- C binding by `package.searchers[n]("cosmic.net")`, which unchecked calls then reach. The tree check `package_readers`
@@ -316,36 +323,36 @@ do
   end
 
   global record string
-    byte: function(string, arg2?: integer): integer?
-    byte: function(string, integer, arg3?: integer): integer...
+    byte: function(s: string, i?: integer): integer?
+    byte: function(s: string, i: integer, j?: integer): integer...
 
     char: function(...: integer): string
-    dump: function(function(...: any): (any), arg2?: boolean): string
+    dump: function(f: function(...: any): (any), strip?: boolean): string
     -- The new checker types the captures of `find`, `match` and `gmatch` and the arguments of a `gsub` callback from a literal
     -- pattern (lang/check.tl, [`Calls.refine`]): a position capture `()` is an integer, and these declarations are the
     -- answer for a pattern that is no literal, where every capture is a string.
-    find: function(string, string, arg3?: integer, arg4?: boolean): integer?, integer?, string...
-    format: function(string, ...: any): string
-    gmatch: function(string, string, arg3?: integer): (function(): string...)
+    find: function(s: string, pattern: string, init?: integer, plain?: boolean): integer?, integer?, string...
+    format: function(formatstring: string, ...: any): string
+    gmatch: function(s: string, pattern: string, init?: integer): (function(): string...)
 
-    gsub: function(string, string, string, arg4?: integer): string, integer
-    gsub: function(string, string, {string:string|integer|number}, arg4?: integer): string, integer
-    gsub: function(string, string, {integer:string|integer|number}, arg4?: integer): string, integer
-    gsub: function(string, string, function(): ((string | number)?), arg4?: integer): string, integer
-    gsub: function(string, string, function(string): ((string | number)?), arg4?: integer): string, integer
-    gsub: function(string, string, function(string, string): ((string | number)?), arg4?: integer): string, integer
-    gsub: function(string, string, function(string, string, string): ((string | number)?), arg4?: integer): string, integer
+    gsub: function(s: string, pattern: string, repl: string, n?: integer): string, integer
+    gsub: function(s: string, pattern: string, repl: {string:string|integer|number}, n?: integer): string, integer
+    gsub: function(s: string, pattern: string, repl: {integer:string|integer|number}, n?: integer): string, integer
+    gsub: function(s: string, pattern: string, repl: function(): ((string | number)?), n?: integer): string, integer
+    gsub: function(s: string, pattern: string, repl: function(string): ((string | number)?), n?: integer): string, integer
+    gsub: function(s: string, pattern: string, repl: function(string, string): ((string | number)?), n?: integer): string, integer
+    gsub: function(s: string, pattern: string, repl: function(string, string, string): ((string | number)?), n?: integer): string, integer
 
-    len: function(string): integer
-    lower: function(string): string
-    match: function(string, string, arg3?: integer): string...
-    pack: function(string, ...: any): string
-    packsize: function(string): integer
-    rep: function(string, integer, arg3?: string): string
-    reverse: function(string): string
-    sub: function(string, integer, arg3?: integer): string
-    unpack: function(string, string, arg3?: integer): any...
-    upper: function(string): string
+    len: function(s: string): integer
+    lower: function(s: string): string
+    match: function(s: string, pattern: string, init?: integer): string...
+    pack: function(fmt: string, ...: any): string
+    packsize: function(fmt: string): integer
+    rep: function(s: string, n: integer, sep?: string): string
+    reverse: function(s: string): string
+    sub: function(s: string, i: integer, j?: integer): string
+    unpack: function(fmt: string, s: string, pos?: integer): any...
+    upper: function(s: string): string
   end
 
   global record table
@@ -357,33 +364,31 @@ do
       n: integer
     end
 
-    concat: function({(string | number)}, arg2?: string, arg3?: integer, arg4?: integer): string
+    concat: function(list: {(string | number)}, sep?: string, i?: integer, j?: integer): string
 
-    insert: function<A>(mut {A}, integer, A)
-    insert: function<A>(mut {A}, A)
+    insert: function<A>(list: mut {A}, pos: integer, value: A)
+    insert: function<A>(list: mut {A}, value: A)
 
-    move: function<A>(mut {A}, integer, integer, integer): mut {A}
-    move: function<A>({A}, integer, integer, integer, mut {A}): mut {A}
+    move: function<A>(a1: mut {A}, f: integer, e: integer, t: integer): mut {A}
+    move: function<A>(a1: {A}, f: integer, e: integer, t: integer, a2: mut {A}): mut {A}
 
     pack: function<T>(...: T): PackTable<T>
     pack: function(...: any): PackTable<any>
 
-    remove: function<A>(mut {A}, arg2?: integer): A?
-    sort: function(mut {integer}, arg2?: function(integer, integer): boolean)
-    sort: function(mut {number}, arg2?: function(number, number): boolean)
-    sort: function(mut {string}, arg2?: function(string, string): boolean)
-    sort: function<A>(mut {A}, function(A, A): boolean)
+    remove: function<A>(list: mut {A}, pos?: integer): A?
+    sort: function<A is Ordered>(list: mut {A}, comp?: function(A, A): boolean)
+    sort: function<A>(list: mut {A}, comp: function(A, A): boolean)
 
-    unpack: function<A>({A}, arg2?: number, arg3?: number): A...
+    unpack: function<A>(list: {A}, i?: integer, j?: integer): A...
   end
 
   global record utf8
-    char: function(...: number): string
+    char: function(...: integer): string
     charpattern: string
-    codepoint: function(string, arg2?: number, arg3?: number, arg4?: boolean): integer...
-    codes: function(string, arg2?: boolean): (function(string, arg2?: integer): (integer, integer), string, integer)
-    len: function(string, arg2?: number, arg3?: number, arg4?: boolean): integer?, integer?
-    offset: function(string, number, arg3?: number): integer?
+    codepoint: function(s: string, i?: integer, j?: integer, lax?: boolean): integer...
+    codes: function(s: string, lax?: boolean): (function(s: string, i?: integer): (integer, integer), string, integer)
+    len: function(s: string, i?: integer, j?: integer, lax?: boolean): integer?, integer?
+    offset: function(s: string, n: integer, i?: integer): integer?
   end
 
   local record StandardLibrary
@@ -420,25 +425,31 @@ do
 
     type XpcallMsghFunction = function(any): any...
 
+    -- What `type` answers: the name of a value's basic type, so a comparison with another name (`type(x) == "int"`) is
+    -- refused (`enum_member`). An integer and a float are both "number": `math.type` tells them apart.
+    enum Type
+      "nil" "boolean" "number" "string" "table" "function" "thread" "userdata"
+    end
+
     arg: {string}
     -- assert's declared argument strips the nil, so
     -- `local db = assert(open(p))` yields A rather than handing
     -- `A | nil` straight back.
-    assert: function<A>(A?): A
-    assert: function<A, B>(A?, B, ...: any): (A, B, any...)
+    assert: function<A>(v: A?): A
+    assert: function<A, B>(v: A?, message: B, ...: any): (A, B, any...)
 
-    collectgarbage: function(arg1?: CollectGarbageCommand): number
-    collectgarbage: function(CollectGarbageStep, arg2?: integer): boolean
-    collectgarbage: function(CollectGarbageMode, arg2?: integer, arg3?: integer, arg4?: integer): string
-    collectgarbage: function(CollectGarbageSetValue, integer): number
-    collectgarbage: function(CollectGarbageIsRunning): boolean
-    collectgarbage: function(string, arg2?: number): (boolean | number | string)
+    collectgarbage: function(opt?: CollectGarbageCommand): number
+    collectgarbage: function(opt: CollectGarbageStep, arg?: integer): boolean
+    collectgarbage: function(opt: CollectGarbageMode, pause?: integer, stepmul?: integer, stepsize?: integer): string
+    collectgarbage: function(opt: CollectGarbageSetValue, value: integer): number
+    collectgarbage: function(opt: CollectGarbageIsRunning): boolean
+    collectgarbage: function(opt: string, arg?: number): (boolean | number | string)
 
-    dofile: function(arg1?: string): any...
+    dofile: function(filename?: string): any...
 
-    error: function(arg1?: any, arg2?: integer): never
-    getmetatable: function<T>(T): metatable<T>?
-    ipairs: function<A>({A}): (function({A}, integer): (integer, A), {A}, integer)
+    error: function(message?: any, level?: integer): never
+    getmetatable: function<T>(object: T): metatable<T>?
+    ipairs: function<A>(t: {A}): (function({A}, integer): (integer, A), {A}, integer)
 
     -- A chunk given no environment is loaded as text and reads a table of its own: the base functions that reach nothing
     -- else and share no state with the host (not `collectgarbage` or `warn`), and copies of `coroutine`, `math`, `string`,
@@ -450,26 +461,34 @@ do
     -- holds neither `require` nor `package`, `_G` or `_ENV`, so it cannot load a module the build does not see, and the
     -- `load` it reaches takes text alone. A program that needs more passes the environment, the globals for all of them.
     --
+    -- A chunk given an environment may be bytecode (mode "b" or "bt", as `string.dump` writes it), and bytecode is
+    -- trusted code. Lua checks no bytecode, so a crafted chunk breaks the VM's memory safety: it reads and writes
+    -- memory it was given no reference to and reaches anything the process can, whatever environment it is given. Load
+    -- bytecode only from this program's own `string.dump` or a build of yours, never from a file, a peer or a store
+    -- another program writes; load anything else with mode "t". `loadfile` and `dofile` are removed, so a file's bytes
+    -- reach a chunk only through this `load`, under the same modes. A TODO in core/surface.c, at `load_with`, is to refuse
+    -- bytecode here too.
+    --
     -- The environment of the chunk is a table: an empty literal takes the type `{string: any}`, and the overloads over `V` are
     -- for a table of one value type (`{string: integer}`).
     --
     -- TODO: take an environment that is `mut {string: any}` alone, and drop the overloads over `V`, once every caller that
     -- passes one declares it so: the chunk assigns the globals it defines into it, so a table of one value type is unsound
     -- there.
-    load: function((string | LoadFunction), arg2?: string, arg3?: LoadMode, arg4?: {string:any}): ((function(...: any): any...)?, string?)
-    load: function((string | LoadFunction), arg2?: string, arg3?: string, arg4?: {string:any}): ((function(...: any): any...)?, string?)
-    load: function<V>((string | LoadFunction), arg2?: string, arg3?: LoadMode, arg4?: {string:V}): ((function(...: any): any...)?, string?)
-    load: function<V>((string | LoadFunction), arg2?: string, arg3?: string, arg4?: {string:V}): ((function(...: any): any...)?, string?)
+    load: function(chunk: (string | LoadFunction), chunkname?: string, mode?: LoadMode, env?: {string:any}): ((function(...: any): any...)?, string?)
+    load: function(chunk: (string | LoadFunction), chunkname?: string, mode?: string, env?: {string:any}): ((function(...: any): any...)?, string?)
+    load: function<V>(chunk: (string | LoadFunction), chunkname?: string, mode?: LoadMode, env?: {string:V}): ((function(...: any): any...)?, string?)
+    load: function<V>(chunk: (string | LoadFunction), chunkname?: string, mode?: string, env?: {string:V}): ((function(...: any): any...)?, string?)
 
-    loadfile: function(arg1?: string, arg2?: LoadMode, arg3?: {string:any}): ((function(...: any): any...)?, string?)
-    loadfile: function(arg1?: string, arg2?: string, arg3?: {string:any}): ((function(...: any): any...)?, string?)
-    loadfile: function<V>(arg1?: string, arg2?: LoadMode, arg3?: {string:V}): ((function(...: any): any...)?, string?)
-    loadfile: function<V>(arg1?: string, arg2?: string, arg3?: {string:V}): ((function(...: any): any...)?, string?)
+    loadfile: function(filename?: string, mode?: LoadMode, env?: {string:any}): ((function(...: any): any...)?, string?)
+    loadfile: function(filename?: string, mode?: string, env?: {string:any}): ((function(...: any): any...)?, string?)
+    loadfile: function<V>(filename?: string, mode?: LoadMode, env?: {string:V}): ((function(...: any): any...)?, string?)
+    loadfile: function<V>(filename?: string, mode?: string, env?: {string:V}): ((function(...: any): any...)?, string?)
 
-    next: function<K is Key, V>({K:V}, arg2?: K): (K?, V?)
-    next: function<A>({A}, arg2?: integer): (integer?, A?)
+    next: function<K is Key, V>(t: {K:V}, index?: K): (K?, V?)
+    next: function<A>(t: {A}, index?: integer): (integer?, A?)
 
-    pairs: function<K is Key, V>({K:V}): (function({K:V}, arg2?: K):(K, V), {K:V}, K)
+    pairs: function<K is Key, V>(t: {K:V}): (function(t: {K:V}, index?: K):(K, V), {K:V}, K)
     -- One overload for each number of values passed on (0 to 6 for `pcall`, 0 to 3 for `xpcall`) and answered (0 to 3): the
     -- result is `(true, R...) | (false, any)`, and for `xpcall` `(false, H | string)`, what the message handler answers or
     -- the string Lua answers when the handler itself raises.
@@ -477,75 +496,75 @@ do
     -- TODO: accept a function that answers `T...` as an argument of `pcall` and `xpcall`, once the grammar spells a list
     -- with a tail among alternatives (`plist`): `(true, R...) | (false, any)`
     -- cannot be written until then, and a call that passes one is `overload_none`.
-    pcall: function((function())): (true) | (false, any)
-    pcall: function<R1>((function(): R1)): (true, R1) | (false, any)
-    pcall: function<R1, R2>((function(): (R1, R2))): (true, R1, R2) | (false, any)
-    pcall: function<R1, R2, R3>((function(): (R1, R2, R3))): (true, R1, R2, R3) | (false, any)
-    pcall: function<A1>((function(A1)), A1): (true) | (false, any)
-    pcall: function<A1, R1>((function(A1): R1), A1): (true, R1) | (false, any)
-    pcall: function<A1, R1, R2>((function(A1): (R1, R2)), A1): (true, R1, R2) | (false, any)
-    pcall: function<A1, R1, R2, R3>((function(A1): (R1, R2, R3)), A1): (true, R1, R2, R3) | (false, any)
-    pcall: function<A1, A2>((function(A1, A2)), A1, A2): (true) | (false, any)
-    pcall: function<A1, A2, R1>((function(A1, A2): R1), A1, A2): (true, R1) | (false, any)
-    pcall: function<A1, A2, R1, R2>((function(A1, A2): (R1, R2)), A1, A2): (true, R1, R2) | (false, any)
-    pcall: function<A1, A2, R1, R2, R3>((function(A1, A2): (R1, R2, R3)), A1, A2): (true, R1, R2, R3) | (false, any)
-    pcall: function<A1, A2, A3>((function(A1, A2, A3)), A1, A2, A3): (true) | (false, any)
-    pcall: function<A1, A2, A3, R1>((function(A1, A2, A3): R1), A1, A2, A3): (true, R1) | (false, any)
-    pcall: function<A1, A2, A3, R1, R2>((function(A1, A2, A3): (R1, R2)), A1, A2, A3): (true, R1, R2) | (false, any)
-    pcall: function<A1, A2, A3, R1, R2, R3>((function(A1, A2, A3): (R1, R2, R3)), A1, A2, A3): (true, R1, R2, R3) | (false, any)
-    pcall: function<A1, A2, A3, A4>((function(A1, A2, A3, A4)), A1, A2, A3, A4): (true) | (false, any)
-    pcall: function<A1, A2, A3, A4, R1>((function(A1, A2, A3, A4): R1), A1, A2, A3, A4): (true, R1) | (false, any)
-    pcall: function<A1, A2, A3, A4, R1, R2>((function(A1, A2, A3, A4): (R1, R2)), A1, A2, A3, A4): (true, R1, R2) | (false, any)
-    pcall: function<A1, A2, A3, A4, R1, R2, R3>((function(A1, A2, A3, A4): (R1, R2, R3)), A1, A2, A3, A4): (true, R1, R2, R3) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5>((function(A1, A2, A3, A4, A5)), A1, A2, A3, A4, A5): (true) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5, R1>((function(A1, A2, A3, A4, A5): R1), A1, A2, A3, A4, A5): (true, R1) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5, R1, R2>((function(A1, A2, A3, A4, A5): (R1, R2)), A1, A2, A3, A4, A5): (true, R1, R2) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5, R1, R2, R3>((function(A1, A2, A3, A4, A5): (R1, R2, R3)), A1, A2, A3, A4, A5): (true, R1, R2, R3) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5, A6>((function(A1, A2, A3, A4, A5, A6)), A1, A2, A3, A4, A5, A6): (true) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5, A6, R1>((function(A1, A2, A3, A4, A5, A6): R1), A1, A2, A3, A4, A5, A6): (true, R1) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5, A6, R1, R2>((function(A1, A2, A3, A4, A5, A6): (R1, R2)), A1, A2, A3, A4, A5, A6): (true, R1, R2) | (false, any)
-    pcall: function<A1, A2, A3, A4, A5, A6, R1, R2, R3>((function(A1, A2, A3, A4, A5, A6): (R1, R2, R3)), A1, A2, A3, A4, A5, A6): (true, R1, R2, R3) | (false, any)
+    pcall: function(f: (function())): (true) | (false, any)
+    pcall: function<R1>(f: (function(): R1)): (true, R1) | (false, any)
+    pcall: function<R1, R2>(f: (function(): (R1, R2))): (true, R1, R2) | (false, any)
+    pcall: function<R1, R2, R3>(f: (function(): (R1, R2, R3))): (true, R1, R2, R3) | (false, any)
+    pcall: function<A1>(f: (function(A1)), arg1: A1): (true) | (false, any)
+    pcall: function<A1, R1>(f: (function(A1): R1), arg1: A1): (true, R1) | (false, any)
+    pcall: function<A1, R1, R2>(f: (function(A1): (R1, R2)), arg1: A1): (true, R1, R2) | (false, any)
+    pcall: function<A1, R1, R2, R3>(f: (function(A1): (R1, R2, R3)), arg1: A1): (true, R1, R2, R3) | (false, any)
+    pcall: function<A1, A2>(f: (function(A1, A2)), arg1: A1, arg2: A2): (true) | (false, any)
+    pcall: function<A1, A2, R1>(f: (function(A1, A2): R1), arg1: A1, arg2: A2): (true, R1) | (false, any)
+    pcall: function<A1, A2, R1, R2>(f: (function(A1, A2): (R1, R2)), arg1: A1, arg2: A2): (true, R1, R2) | (false, any)
+    pcall: function<A1, A2, R1, R2, R3>(f: (function(A1, A2): (R1, R2, R3)), arg1: A1, arg2: A2): (true, R1, R2, R3) | (false, any)
+    pcall: function<A1, A2, A3>(f: (function(A1, A2, A3)), arg1: A1, arg2: A2, arg3: A3): (true) | (false, any)
+    pcall: function<A1, A2, A3, R1>(f: (function(A1, A2, A3): R1), arg1: A1, arg2: A2, arg3: A3): (true, R1) | (false, any)
+    pcall: function<A1, A2, A3, R1, R2>(f: (function(A1, A2, A3): (R1, R2)), arg1: A1, arg2: A2, arg3: A3): (true, R1, R2) | (false, any)
+    pcall: function<A1, A2, A3, R1, R2, R3>(f: (function(A1, A2, A3): (R1, R2, R3)), arg1: A1, arg2: A2, arg3: A3): (true, R1, R2, R3) | (false, any)
+    pcall: function<A1, A2, A3, A4>(f: (function(A1, A2, A3, A4)), arg1: A1, arg2: A2, arg3: A3, arg4: A4): (true) | (false, any)
+    pcall: function<A1, A2, A3, A4, R1>(f: (function(A1, A2, A3, A4): R1), arg1: A1, arg2: A2, arg3: A3, arg4: A4): (true, R1) | (false, any)
+    pcall: function<A1, A2, A3, A4, R1, R2>(f: (function(A1, A2, A3, A4): (R1, R2)), arg1: A1, arg2: A2, arg3: A3, arg4: A4): (true, R1, R2) | (false, any)
+    pcall: function<A1, A2, A3, A4, R1, R2, R3>(f: (function(A1, A2, A3, A4): (R1, R2, R3)), arg1: A1, arg2: A2, arg3: A3, arg4: A4): (true, R1, R2, R3) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5>(f: (function(A1, A2, A3, A4, A5)), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5): (true) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5, R1>(f: (function(A1, A2, A3, A4, A5): R1), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5): (true, R1) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5, R1, R2>(f: (function(A1, A2, A3, A4, A5): (R1, R2)), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5): (true, R1, R2) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5, R1, R2, R3>(f: (function(A1, A2, A3, A4, A5): (R1, R2, R3)), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5): (true, R1, R2, R3) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5, A6>(f: (function(A1, A2, A3, A4, A5, A6)), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5, arg6: A6): (true) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5, A6, R1>(f: (function(A1, A2, A3, A4, A5, A6): R1), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5, arg6: A6): (true, R1) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5, A6, R1, R2>(f: (function(A1, A2, A3, A4, A5, A6): (R1, R2)), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5, arg6: A6): (true, R1, R2) | (false, any)
+    pcall: function<A1, A2, A3, A4, A5, A6, R1, R2, R3>(f: (function(A1, A2, A3, A4, A5, A6): (R1, R2, R3)), arg1: A1, arg2: A2, arg3: A3, arg4: A4, arg5: A5, arg6: A6): (true, R1, R2, R3) | (false, any)
     print: function(...: any)
-    rawequal: function(any, any): boolean
+    rawequal: function(v1: any, v2: any): boolean
 
-    rawget: function<K is Key, V>({K:V}, K): V?
-    rawget: function(any, any): any
+    rawget: function<K is Key, V>(t: {K:V}, index: K): V?
+    rawget: function(t: any, index: any): any
 
-    rawlen: function<A>({A}): integer
+    rawlen: function<A>(v: {A}): integer
 
     -- TODO: a record whose fields all share a type reads as that map, so `rawset(r, "undeclared", v)` still writes a key it does not declare; refuse it once a record no longer reads as a map (closed records).
-    rawset: function<K is Key, V>(mut {K:V}, K, V): mut {K:V}
+    rawset: function<K is Key, V>(t: mut {K:V}, index: K, value: V): mut {K:V}
 
-    require: function(string): any
+    require: function(modname: string): any
 
-    select: function<T>(integer, ...: T): T...
-    select: function(integer, ...: any): any...
-    select: function(string, ...: any): integer
+    select: function<T>(n: integer, ...: T): T...
+    select: function(n: integer, ...: any): any...
+    select: function(n: string, ...: any): integer
 
-    setmetatable: function<T>(T, metatable<T>): T
+    setmetatable: function<T>(t: T, mt: metatable<T>): T
 
-    tonumber: function(any): number?
-    tonumber: function(any, integer): integer?
+    tonumber: function(e: any): number?
+    tonumber: function(e: any, base: integer): integer?
 
-    tostring: function(any): string
-    type: function(any): string
-    warn: function(string, ...: string)
-    xpcall: function<H>((function()), (function(any): H)): (true) | (false, H | string)
-    xpcall: function<R1, H>((function(): R1), (function(any): H)): (true, R1) | (false, H | string)
-    xpcall: function<R1, R2, H>((function(): (R1, R2)), (function(any): H)): (true, R1, R2) | (false, H | string)
-    xpcall: function<R1, R2, R3, H>((function(): (R1, R2, R3)), (function(any): H)): (true, R1, R2, R3) | (false, H | string)
-    xpcall: function<A1, H>((function(A1)), (function(any): H), A1): (true) | (false, H | string)
-    xpcall: function<A1, R1, H>((function(A1): R1), (function(any): H), A1): (true, R1) | (false, H | string)
-    xpcall: function<A1, R1, R2, H>((function(A1): (R1, R2)), (function(any): H), A1): (true, R1, R2) | (false, H | string)
-    xpcall: function<A1, R1, R2, R3, H>((function(A1): (R1, R2, R3)), (function(any): H), A1): (true, R1, R2, R3) | (false, H | string)
-    xpcall: function<A1, A2, H>((function(A1, A2)), (function(any): H), A1, A2): (true) | (false, H | string)
-    xpcall: function<A1, A2, R1, H>((function(A1, A2): R1), (function(any): H), A1, A2): (true, R1) | (false, H | string)
-    xpcall: function<A1, A2, R1, R2, H>((function(A1, A2): (R1, R2)), (function(any): H), A1, A2): (true, R1, R2) | (false, H | string)
-    xpcall: function<A1, A2, R1, R2, R3, H>((function(A1, A2): (R1, R2, R3)), (function(any): H), A1, A2): (true, R1, R2, R3) | (false, H | string)
-    xpcall: function<A1, A2, A3, H>((function(A1, A2, A3)), (function(any): H), A1, A2, A3): (true) | (false, H | string)
-    xpcall: function<A1, A2, A3, R1, H>((function(A1, A2, A3): R1), (function(any): H), A1, A2, A3): (true, R1) | (false, H | string)
-    xpcall: function<A1, A2, A3, R1, R2, H>((function(A1, A2, A3): (R1, R2)), (function(any): H), A1, A2, A3): (true, R1, R2) | (false, H | string)
-    xpcall: function<A1, A2, A3, R1, R2, R3, H>((function(A1, A2, A3): (R1, R2, R3)), (function(any): H), A1, A2, A3): (true, R1, R2, R3) | (false, H | string)
+    tostring: function(v: any): string
+    type: function(v: any): Type
+    warn: function(msg: string, ...: string)
+    xpcall: function<H>(f: (function()), msgh: (function(any): H)): (true) | (false, H | string)
+    xpcall: function<R1, H>(f: (function(): R1), msgh: (function(any): H)): (true, R1) | (false, H | string)
+    xpcall: function<R1, R2, H>(f: (function(): (R1, R2)), msgh: (function(any): H)): (true, R1, R2) | (false, H | string)
+    xpcall: function<R1, R2, R3, H>(f: (function(): (R1, R2, R3)), msgh: (function(any): H)): (true, R1, R2, R3) | (false, H | string)
+    xpcall: function<A1, H>(f: (function(A1)), msgh: (function(any): H), arg1: A1): (true) | (false, H | string)
+    xpcall: function<A1, R1, H>(f: (function(A1): R1), msgh: (function(any): H), arg1: A1): (true, R1) | (false, H | string)
+    xpcall: function<A1, R1, R2, H>(f: (function(A1): (R1, R2)), msgh: (function(any): H), arg1: A1): (true, R1, R2) | (false, H | string)
+    xpcall: function<A1, R1, R2, R3, H>(f: (function(A1): (R1, R2, R3)), msgh: (function(any): H), arg1: A1): (true, R1, R2, R3) | (false, H | string)
+    xpcall: function<A1, A2, H>(f: (function(A1, A2)), msgh: (function(any): H), arg1: A1, arg2: A2): (true) | (false, H | string)
+    xpcall: function<A1, A2, R1, H>(f: (function(A1, A2): R1), msgh: (function(any): H), arg1: A1, arg2: A2): (true, R1) | (false, H | string)
+    xpcall: function<A1, A2, R1, R2, H>(f: (function(A1, A2): (R1, R2)), msgh: (function(any): H), arg1: A1, arg2: A2): (true, R1, R2) | (false, H | string)
+    xpcall: function<A1, A2, R1, R2, R3, H>(f: (function(A1, A2): (R1, R2, R3)), msgh: (function(any): H), arg1: A1, arg2: A2): (true, R1, R2, R3) | (false, H | string)
+    xpcall: function<A1, A2, A3, H>(f: (function(A1, A2, A3)), msgh: (function(any): H), arg1: A1, arg2: A2, arg3: A3): (true) | (false, H | string)
+    xpcall: function<A1, A2, A3, R1, H>(f: (function(A1, A2, A3): R1), msgh: (function(any): H), arg1: A1, arg2: A2, arg3: A3): (true, R1) | (false, H | string)
+    xpcall: function<A1, A2, A3, R1, R2, H>(f: (function(A1, A2, A3): (R1, R2)), msgh: (function(any): H), arg1: A1, arg2: A2, arg3: A3): (true, R1, R2) | (false, H | string)
+    xpcall: function<A1, A2, A3, R1, R2, R3, H>(f: (function(A1, A2, A3): (R1, R2, R3)), msgh: (function(any): H), arg1: A1, arg2: A2, arg3: A3): (true, R1, R2, R3) | (false, H | string)
     _VERSION: string
   end
 

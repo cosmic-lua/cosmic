@@ -294,7 +294,7 @@ function Continuation.of(chunk: Ast.Chunk): Continuation.Plan
     elseif kind == "MatchArm" then
       local pats: mut {Ast.Node} = {}
       for _, kid in ipairs(kids) do
-        if kid.kind == "PatBool" or kid.kind == "PatBind" then
+        if kid.kind == "PatBool" or kid.kind == "PatNil" or kid.kind == "PatBind" then
           pats[#pats + 1] = kid
         end
       end

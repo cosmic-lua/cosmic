@@ -32,11 +32,11 @@
 ---   declaration file, and an enum value written twice: `repeated_field`, `repeated_value`. A class
 ---   holds its fields, its methods and its functions (`function C.m(...)`) in one namespace, since the
 ---   table of its methods is the metatable of its values.
---- - optional fields: a field that may be nil is a plain value of one type, never a metamethod (`optional_metamethod`)
----   and never a generic function (`optional_generic`).
+--- - optional fields: a field that may be nil is never a metamethod (`optional_metamethod`).
 --- - classes: a method named for a metamethod, other than `__close` (which takes the value, and the error object as `any` if it likes, and answers
----   nothing) and `__tostring` (which also answers a `string`), and a function of a class with such a name:
----   `class_metamethod`, `metamethod_signature`.
+---   nothing), `__tostring` (which also answers a `string`) and `__lt` and `__le` (which take the value and another
+---   of the class and answer a `boolean`), and a function of a class with such a name: `class_metamethod`,
+---   `metamethod_signature`.
 --- - the form of a type: the count of type arguments (`type_arguments`), a type that nests deeper
 ---   than a store allows (`type_too_deep`), an alias that reaches itself (`alias_cycle`), except in the element of an
 ---   array or the value of a map, where the alias is given a name (a declaration of kind `alias`) and the type may be
@@ -123,14 +123,13 @@ local record Declarations
     "member_missing"
     -- a parameter of a method with no type
     "param_untyped"
-    -- a `__close` that takes more than the value and the error object or answers one, or a `__tostring` that does not answer a string
+    -- a `__close` that takes more than the value and the error object or answers one, a `__tostring` that does not answer a
+    -- string, or a `__lt` or `__le` that takes other than two values of the class or does not answer a boolean
     "metamethod_signature"
-    -- a method or function of a class named for a metamethod other than `__close` and `__tostring`
+    -- a method or function of a class named for a metamethod other than `__close`, `__tostring`, `__lt` and `__le`
     "class_metamethod"
     -- a field named for a metamethod that may be nil
     "optional_metamethod"
-    -- a field that may be nil and holds a generic function
-    "optional_generic"
     -- `thread`
     "thread_type"
     -- a type parameter that no parameter and no result of its function names
@@ -213,12 +212,10 @@ local record Declarations
     decl: Decl?
   end
 
-  --- Which type parameters of a declaration or alias have to be dense (not optional) or keys, which are
-  --- made optional (`X?`, or the type of a `name?:` field), and which pass themselves on to the parameter of
-  --- another declaration.
+  --- Which type parameters of a declaration or alias have to be dense (not optional) or keys, and which pass
+  --- themselves on to the parameter of another declaration.
   record Requires
     dense: mut {integer: boolean}
-    optional: mut {integer: boolean}
     flows: mut {Flow}
   end
 
@@ -287,7 +284,7 @@ local record Declarations
   type Provider = function(Program, module: string): boolean
 
   --- The store and what every module lowered into it.
-  record Program
+  interface Program
     store: Store
     judge: Relation.Judge
     modules: mut {string: Module}
@@ -305,7 +302,7 @@ local record Declarations
     --- the program can stand for: a `require` of one the program lacks is a global to use directly.
     library: {string: boolean}
     --- Asked for a module that a type name imports and the program lacks.
-    provider: Provider?
+    provider?: Provider
     requires: mut {Decl: Requires}
     --- The types of the values a declaration file declares as globals (`global print <const> = Lib.print`,
     --- `global arg: {string}`), by name: one type, or the overloads of a function in the order they are declared.
@@ -320,6 +317,11 @@ local record Declarations
     --- no statement of the module gives the table of its functions (`function R.m(...)` or `R.m = ...` at the top level): a
     --- field every value holds, such as `m: function(self: R, ...)` that the constructor fills, and absent from the module.
     absent: mut {Decl: {string: boolean}}
+    --- The names of the parameters a function field of a declaration writes, by field name and in order, from the first
+    --- declaration of it (`find: function(s: string, pattern: string)` gives `{ "s", "pattern" }`): "" where only a type
+    --- is written, and no name for `...`. A function type holds no names ([`Types`]), so a tool that names the arguments
+    --- of a call (completion) reads them here.
+    params: mut {Decl: {string: {string}}}
 
     --- Makes `name` another name of the module `module`, which the program knows.
     alias: function(Program, name: string, module: string)
@@ -371,7 +373,7 @@ Declarations.codes = {
   "interface_disagrees", "super_not_interface", "super_cycle", "listing_too_large", "untagged_union",
   "array_of_optional", "float_key", "key_type", "repeated_field", "repeated_value", "type_arguments",
   "type_too_deep", "alias_cycle", "bound_not_interface", "bound_as_type", "lists_overlap", "bound_not_met", "outer_type_parameter", "member_missing",
-  "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "optional_generic", "thread_type",
+  "param_untyped", "metamethod_signature", "class_metamethod", "optional_metamethod", "thread_type",
   "unused_type_parameter", "metamethod_unknown", "array_part_map", "store_refused",
 }
 
@@ -475,10 +477,11 @@ Declarations.catalog = {
   },
   {
     code = "lists_overlap", rule = "multiple returns are a matched call",
-    why = "a call that answers one of several lists of values is taken apart by `match`, which tells the lists apart by " ..
-      "a position that is `true` in one and `false` in the other; lists that no position tells apart would be " ..
-      "told apart by nothing",
-    fix = "make a position `true` in one list and `false` in the other, as `(true, R) | (false, E)` does",
+    why = "a call that answers one of several lists of values is taken apart by `match` or by a test of its first value, " ..
+      "which tell the lists apart by a position that is `true` in one and `false` in the other, or `nil` in one and " ..
+      "never nil in the other; lists that no position tells apart would be told apart by nothing",
+    fix = "make a position `true` in one list and `false` in the other, as `(true, R) | (false, E)` does, or `nil` in " ..
+      "one and never nil in the other, as `(R) | (nil, E)` does",
   },
   {
     code = "bound_not_met", rule = "a constraint is interfaces and built-in bounds",
@@ -506,17 +509,18 @@ Declarations.catalog = {
   },
   {
     code = "metamethod_signature", rule = "compiler-written classes",
-    why = "Lua runs `__close` with the value at the end of its block and `tostring` calls `__tostring` with the " ..
-      "value and takes a string, so a class that writes either with other parameters, or a `__tostring` that " ..
-      "answers another type, breaks at the call",
-    fix = "write `function __close(self)` (or `function __close(self, err: any)`) and `function __tostring(self): string`",
+    why = "Lua runs `__close` with the value at the end of its block, `tostring` calls `__tostring` with the " ..
+      "value and takes a string, and `<` and `<=` call `__lt` and `__le` with two values and take a boolean, so a class " ..
+      "that writes one with other parameters, or answering another type, breaks at the call",
+    fix = "write `function __close(self)` (or `function __close(self, err: any)`), `function __tostring(self): string`, " ..
+      "or `function __lt(self, other: C): boolean` and `__le` alike",
   },
   {
     code = "class_metamethod", rule = "dispatch only through declared types",
     why = "the table of a class's methods is the metatable of its values, so a method or function of a name that " ..
-      "begins with two underscores is read by Lua as a metamethod: a class has `__close` and `__tostring` and no other, " ..
-      "since no other runs code the program can see; a field of such a name is refused too, since a value that lacks it " ..
-      "reads the table for it",
+      "begins with two underscores is read by Lua as a metamethod: a class has `__close`, `__tostring`, `__lt` and `__le` " ..
+      "and no other, since no other runs code the program can see; a field of such a name is refused too, since a value " ..
+      "that lacks it reads the table for it",
     fix = "rename <name>, and call it as a method (`v:name(...)`)",
   },
   {
@@ -525,14 +529,6 @@ Declarations.catalog = {
       "that may be missing where Lua calls it, and the fork refused it (\"a metamethod cannot be optional\")",
     fix = "make <field> a field the literal always gives, or rename it: a name that begins with two underscores is " ..
       "a metamethod's",
-  },
-  {
-    code = "optional_generic", rule = "an optional field is a plain value",
-    why = "the fork refused a field that may be nil and holds a generic function, and the owner's decision keeps it " ..
-      "refused: the checker narrows and calls a " ..
-      "local or a parameter of such a type, so this is a choice and no hole, and it holds for a type parameter that an " ..
-      "instance fills with a generic function as well",
-    fix = "make <field> a field the literal always gives, or write the function type with its type arguments fixed",
   },
   {
     code = "thread_type", rule = "coroutines are typed",
@@ -995,8 +991,7 @@ local function known_module(ctx: Ctx, module: string): Module?
   local program = ctx.program
   local info = program.modules[module]
   if info == nil then
-    local provider = program.provider
-    if provider ~= nil and provider(program, module) then
+    if program.provider ~= nil and program:provider(module) then
       info = program.modules[module]
     end
   end
@@ -1337,7 +1332,8 @@ local function names_positions(names: {string}): {string: integer}
   return out
 end
 
---- Whether the lists `a` and `b` have `true` in one and `false` in the other at a position, which tells them apart.
+--- Whether the lists `a` and `b` are told apart at a position: it is `true` in one and `false` in the other, or `nil` in
+--- one and a value that is never nil in the other.
 local function told_apart(a: Types.Alt, b: Types.Alt): boolean
   for i, left in ipairs(a.items) do
     local right = b.items[i]
@@ -1346,6 +1342,8 @@ local function told_apart(a: Types.Alt, b: Types.Alt): boolean
     end
     local x, y = left.tag, right.tag
     if (x == "true" and y == "false") or (x == "false" and y == "true") then
+      return true
+    elseif (x == "nil" and Types.present(right)) or (y == "nil" and Types.present(left)) then
       return true
     end
   end
@@ -1393,9 +1391,11 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
       if j > i and not told_apart(first, second) then
         local one, other = spell_alt(ctx, first), spell_alt(ctx, second)
         report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(one) .. " and " .. quoted(other) ..
-            " are told apart by no position that is `true` in one and `false` in the other",
-          "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), so that a `match` can " ..
-            "tell which list a call answered", { one, other })
+            " are told apart by no position that is `true` in one and `false` in the other, or `nil` in one and " ..
+            "never nil in the other",
+          "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), or `nil` in one and " ..
+            "a value that is never nil in the other (`(R) | (nil, E)`), so that a `match` or a test can tell which list a " ..
+            "call answered", { one, other })
         break
       end
     end
@@ -1556,6 +1556,8 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
     out = store:atom(if t.value then "true" else "false" end)
   elseif t.kind == "TypeNil" then
     out = store:atom("nil")
+  elseif t.kind == "TypeString" then
+    out = Types.literal(store, t.value)
   elseif t.kind == "TypeArray" or t.kind == "TypeMap" then
     out = lower_collection(ctx, t, false)
   elseif (t.kind == "TypeMut") then
@@ -1610,7 +1612,7 @@ local TRANSPARENT <const>: {string: boolean} = { Chunk = true, Block = true }
 
 --- Kinds the walks do not enter: the types (lowered where they are written) and the parts of them.
 local SKIP <const>: {string: boolean} = {
-  TypeName = true, TypeBool = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
+  TypeName = true, TypeBool = true, TypeString = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
   TypeUnion = true, TypeOptional = true, TypeMut = true, TypeFunction = true, PType = true, Narrows = true,
   TypeParam = true, Rets = true, Binding = true, EnumValue = true, Param = true,
 }
@@ -1956,20 +1958,37 @@ function Declarations.close_is_callable(made: Type): boolean
 end
 
 --- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
---- takes the value and may take the error object, and answers nothing) or `__tostring` (it takes the value alone and
---- answers a `string`), and refuses a name of any other metamethod.
+--- takes the value and may take the error object, and answers nothing), `__tostring` (it takes the value alone and
+--- answers a `string`) or `__lt` or `__le` (it takes the value and another of the class and answers a `boolean`, for
+--- `<`, `>`, `<=` and `>=`), and refuses a name of any other metamethod.
 local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Type)
   local name = m.name.name
   local class = quoted(build.decl.name)
-  if name ~= "__close" and name ~= "__tostring" then
+  local compares = name == "__lt" or name == "__le"
+  if name ~= "__close" and name ~= "__tostring" and not compares then
     if metamethod_name(name) then
       report_at(ctx, "class_metamethod", m.name, "the method " .. quoted(name) .. " of " .. class .. " would be read " ..
-          "by Lua as a metamethod of its values, and a class has `__close` and `__tostring` and no other",
+          "by Lua as a metamethod of its values, and a class has `__close`, `__tostring`, `__lt` and `__le` and no other",
         "rename " .. quoted(name) .. " and call it as a method (`v:" .. name:gsub("^_+", "") .. "(...)`)")
     end
     return
   end
   if not ((made.tag == "fn")) then
+    return
+  end
+  if compares then
+    local other = made.params[2]
+    local alt = made.rets[1]
+    local answers = alt ~= nil and #made.rets == 1 and alt.tail == nil and #alt.items == 1 and
+      alt.items[1] == ctx.store.boolean
+    if #made.params ~= 2 or made.rest ~= nil or other == nil or other.omittable == true or other.type ~= build.self_type or
+        not answers then
+      local shown = Types.display(build.self_type, { Declarations.parameter_names(typeparams_of(build.node)) })
+      report_at(ctx, "metamethod_signature", m.name, "the method " .. quoted(name) .. " of " .. class .. " is not " ..
+          "what `" .. (if name == "__lt" then "<" else "<=" end) .. "` calls: Lua passes the two values compared, both of " ..
+          class .. ", and takes a `boolean`",
+        "write `function " .. name .. "(self, other: " .. shown .. "): boolean`")
+    end
     return
   end
   if name == "__close" then
@@ -2044,30 +2063,10 @@ local function lower_method(ctx: Ctx, build: Build, m: Ast.Method)
   end
 end
 
---- Whether `t` is a generic function type, or a union that has one.
-local function generic_function(t: Type): boolean
-  if (t.tag == "fn") then
-    return #t.tparams > 0
-  end
-  if t.tag == "union" then
-    for _, member in ipairs(Types.parts(t)) do
-      if generic_function(member) then
-        return true
-      end
-    end
-  end
-  return false
-end
-
 --- The field `m` of a record, interface or class.
 local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
   local ft = lower_type(ctx, m.type)
-  -- A field that may be nil is a plain value of one type: `name?: T`, or a type that has `nil` in it.
-  --
-  -- TODO: take an optional generic function field, once the owner lifts the
-  -- rule that an optional field is a plain value: the checker narrows and
-  -- calls a generic function held in a local or a parameter, so the
-  -- refusal is a choice.
+  -- A field that may be nil (`name?: T`, or a type that has `nil` in it) is never a metamethod.
   if m.omittable or nilable(ft) then
     -- A class refuses every such name already (`class_metamethod`), and one mistake is one error.
     if build.decl.kind ~= "class" and metamethod_name(m.name.name) then
@@ -2075,13 +2074,6 @@ local function lower_field(ctx: Ctx, build: Build, m: Ast.FieldDecl)
           quoted(build.decl.name) .. " is named for a metamethod and may be nil, so Lua may find it missing where it " ..
           "calls it",
         "make " .. quoted(m.name.name) .. " a field the literal always gives, or rename it")
-    end
-    if generic_function(ft) then
-      report_at(ctx, "optional_generic", m.name, "the field " .. quoted(m.name.name) .. " of " ..
-          quoted(build.decl.name) .. " may be nil and holds a generic function, which the checker has no rule to " ..
-          "narrow and call",
-        "make " .. quoted(m.name.name) .. " a field the literal always gives, or write the function type with its " ..
-          "type arguments fixed")
     end
   end
   if build.decl.kind ~= "class" and metamethod_name(m.name.name) and METAMETHODS[m.name.name] ~= true then
@@ -2289,9 +2281,18 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     end
   end
   local kids: mut {Ast.Node} = {}
+  local written_params: mut {string: {string}} = {}
   for _, m in ipairs(members_of(node)) do
     if (m.kind == "FieldDecl") then
       lower_field(ctx, build, m)
+      local written = m.type
+      if (written.kind == "TypeFunction") and written_params[m.name.name] == nil then
+        local names: mut {string} = {}
+        for _, p in ipairs(written.params) do
+          if not p.variadic then names[#names + 1] = p.name or "" end
+        end
+        written_params[m.name.name] = names
+      end
     elseif (m.kind == "Method") then
       lower_method(ctx, build, m)
       kids[#kids + 1] = m.body
@@ -2305,7 +2306,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     local name = assert(f.path[2], "`collect_statics` keeps the functions whose path has two names").text
     if decl.kind == "class" and metamethod_name(name) then
       report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
-          "metamethod of the values of " .. quoted(decl.name) .. ", and `__close` and `__tostring` are written as methods",
+          "metamethod of the values of " .. quoted(decl.name) .. ", and `__close`, `__tostring`, `__lt` and `__le` are written as methods",
         "rename " .. quoted(name) .. ", or write it as a method inside the class")
     elseif decl.kind == "class" and build.overloads[name] ~= nil then
       local first = build.first_of[name]
@@ -2322,6 +2323,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
       ctx.program.statics[decl] = named
     end
   end
+  ctx.program.params[decl] = written_params
   if node.kind == "Interface" or node.kind == "Record" or node.kind == "Class" then
     finish_build(ctx, build, binder_names(ctx.frames))
   end
@@ -2488,7 +2490,7 @@ local function check_listing(ctx: Ctx, build: Build, names: {{string}}): boolean
             local mine = quoted(decl.name .. "." .. f.name)
             local s = found[1]
             if s == nil then
-              if not Relation.brought_in(decl, f) then
+              if not Relation.brought_in(decl, f, instance, self_type) then
                 local shown_type: Type = expected
                 if f.omittable == true then
                   shown_type = store:non_nil(expected)
@@ -2597,7 +2599,7 @@ end
 --- it leaves out (interface agreement): each from the first interface of its closure that declares
 --- it, with that interface's arguments put in and the receiver of a function field replaced by `decl`. Where those
 --- interfaces declare a field differently `interface_disagrees` says so at the declaration, and the first is the one
---- given. A class has no function field that is neither `mut` nor omittable: it meets each with a method
+--- given. A class has no fixed function field that takes the interface first: it meets each with a method
 --- ([`Relation.brought_in`]).
 function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types.Decl): {Types.Field}
   local out: mut {Types.Field} = {}
@@ -2626,7 +2628,7 @@ function Declarations.inherited(store: Store, judge: Relation.Judge, decl: Types
       for _, f in ipairs(xbody.fields) do
         if held[f.name] ~= true then
           local made = Relation.as_listed(store, x, f.type, self_type)
-          if made ~= nil and Relation.brought_in(decl, f) then
+          if made ~= nil and Relation.brought_in(decl, f, made, self_type) then
             held[f.name] = true
             out[#out + 1] = { name = f.name, type = made, mut = f.mut, omittable = f.omittable }
           end
@@ -2780,7 +2782,7 @@ end
 --- What the parameters of a declaration or alias must be: every place a type parameter is the element of
 --- an array or the value of a map, or an argument another declaration needs of its own.
 local function scan_requires(roots: {Type}): Requires
-  local req: Requires = { dense = {}, optional = {}, flows = {} }
+  local req: Requires = { dense = {}, flows = {} }
   local seen: {string: boolean} = {}
   local walk: function(t: Type, level: integer)
   walk = function(t: Type, level: integer) -- checked: not_assigned
@@ -2814,9 +2816,6 @@ local function scan_requires(roots: {Type}): Requires
       end
     elseif (t.tag == "union") then
       for _, m in ipairs(t.members) do
-        if t.nilable and (m.tag == "var") and m.depth == level then
-          req.optional[m.index + 1] = true
-        end
         walk(m, level)
       end
     elseif (t.tag == "fn") then
@@ -2868,12 +2867,11 @@ local function requires_of(program: Program, decl: Decl): Requires?
   return made
 end
 
---- Whether parameter `index` (from 0) of what `req` describes must be dense (`kind` "dense") or is made optional
---- ("optional"), or nil where a declaration it passes the parameter to has no body yet. A key is a bound, `Key`.
-local function must(program: Program, req: Requires, index: integer, kind: string,
-                    seen: mut {Decl: {string: boolean}}): boolean?
-  local direct = if kind == "dense" then req.dense else req.optional end
-  if direct[index + 1] == true then
+--- Whether parameter `index` (from 0) of what `req` describes must be dense, or nil where a declaration it passes the
+--- parameter to has no body yet. A key is a bound, `Key`.
+local function must_be_dense(program: Program, req: Requires, index: integer,
+                             seen: mut {Decl: {string: boolean}}): boolean?
+  if req.dense[index + 1] == true then
     return true
   end
   for _, flow in ipairs(req.flows) do
@@ -2883,14 +2881,14 @@ local function must(program: Program, req: Requires, index: integer, kind: strin
         marks = {}
         seen[flow.to] = marks
       end
-      local mark = tostring(flow.into) .. kind
+      local mark = tostring(flow.into)
       if marks[mark] ~= true then
         marks[mark] = true -- checked: view_written
         local theirs = requires_of(program, flow.to)
         if theirs == nil then
           return nil
         end
-        local r = must(program, theirs, flow.into, kind, seen)
+        local r = must_be_dense(program, theirs, flow.into, seen)
         if r == nil or r then
           return r
         end
@@ -3010,7 +3008,8 @@ local function check_use(ctx: Ctx, use: Use): boolean
             elseif Types.builtin_bound(bound) then
               report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
                   quoted(bound.tag) .. ", and " .. quoted(shown) .. (if bound.tag == "Numeric" then " is not `integer` or " ..
-                      "`number`" else " is not a type whose values are all numbers or all strings" end),
+                      "`number`" else " is not a type whose values are all numbers or all strings, nor a class that declares `__lt` " ..
+                      "and `__le`" end),
                 "pass " .. Types.bound_meets(bound.tag), { shown })
             else
               local r = ctx.program.judge:refuse(argument, bound)
@@ -3029,7 +3028,7 @@ local function check_use(ctx: Ctx, use: Use): boolean
           end
         end
       end
-      local dense = must(program, req, i - 1, "dense", {})
+      local dense = must_be_dense(program, req, i - 1, {})
       if dense == nil then
         return false
       end
@@ -3039,17 +3038,6 @@ local function check_use(ctx: Ctx, use: Use): boolean
             " in an array or as the value of a map, so " .. quoted(shown) .. " would make elements that may be nil",
           "pass " .. quoted(Types.display(ctx.store:non_nil(argument), use.names)) .. ", which is not optional; an array is dense, " ..
             "and a map's missing key already answers nil", { shown })
-      end
-      local optional = must(program, req, i - 1, "optional", {})
-      if optional == nil then
-        return false
-      end
-      if optional == true and generic_function(argument) then
-        local shown = Types.display(argument, use.names)
-        report_at(ctx, "optional_generic", use.node, quoted(name) .. " makes its type parameter " .. tostring(i) ..
-            " optional, so " .. quoted(shown) .. " would be a generic function that may be nil",
-          "pass a function type with its type arguments fixed, or make the field the declaration holds it in required",
-          { shown })
       end
     end
   end
@@ -3103,7 +3091,7 @@ local function enter(ctx: Ctx, node: Ast.Node): {Ast.Node}?, boolean
       declare_values(ctx, node)
     end
     return nil, false
-  elseif (node.kind == "IsTest") or (node.kind == "Cast") then
+  elseif (node.kind == "IsTest") or (node.kind == "Cast") or (node.kind == "PatType") then
     local _ = lower_type(ctx, node.type)
     return nil, false
   elseif (node.kind == "LocalFunction") or (node.kind == "Function") then
@@ -3179,16 +3167,6 @@ end
 
 -- The program ---------------------------------------------------------------------------------
 
-local program_mt: metatable<Program> = { __index = Declarations.Program } -- checked: field_unknown, literal_missing
-
-function Declarations.new(store?: Store, library?: {string: boolean}): Program
-  local s = store or Types.new()
-  local program: Program = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {},
-  }, program_mt)
-  return program
-end
-
 local function new_ctx(program: Program, input: Declarations.Input, lowering: boolean): Ctx
   local info = program.modules[input.module]
   if info == nil then
@@ -3241,62 +3219,6 @@ local function retry_waiting(program: Program)
       end
     end
     program.waiting = kept
-  end
-end
-
-Declarations.Program.declare = function(self: Program, input: Declarations.Input) -- checked: field_unknown
-  local ctx = new_ctx(self, input, false)
-  declare_all(ctx)
-  local info = ctx.info
-  info.export = find_export(ctx) -- checked: field_fixed
-  ctx.kids = {}
-end
-
-Declarations.Program.lower = function(self: Program, input: Declarations.Input): Declarations.Lowered -- checked: field_unknown
-  local existing = self.modules[input.module]
-  if existing ~= nil and existing.lowered then
-    error("declarations: the module " .. input.module .. " was lowered already", 2)
-  end
-  local ctx = new_ctx(self, input, true)
-  declare_all(ctx)
-  ctx.info.export = find_export(ctx) -- checked: field_fixed
-  collect_statics(ctx)
-  walk(ctx)
-  if not ctx.decl_file then
-    note_absent(ctx)
-  end
-  local export = ctx.info.export
-  if export == nil or export.instance == true then
-    ctx.info.value = find_value(ctx) -- checked: field_fixed
-  end
-  for _, site in ipairs(ctx.unions) do
-    ctx.checks[#ctx.checks + 1] = function(): boolean
-      return check_union(ctx, site)
-    end
-  end
-  for _, use in ipairs(ctx.uses) do
-    ctx.checks[#ctx.checks + 1] = function(): boolean
-      return check_use(ctx, use)
-    end
-  end
-  ctx.info.lowered = true -- checked: field_fixed
-  for _, check in ipairs(ctx.checks) do
-    if not check() then
-      self.waiting[#self.waiting + 1] = { module = ctx.module, run = check }
-    end
-  end
-  ctx.checks = {} -- checked: field_fixed
-  retry_waiting(self)
-  return {
-    module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
-    export = ctx.info.export, entries = ctx.by_binding,
-  }
-end
-
-Declarations.Program.alias = function(self: Program, name: string, module: string) -- checked: field_unknown
-  local info = self.modules[module]
-  if info ~= nil and self.modules[name] == nil then
-    self.modules[name] = info
   end
 end
 
@@ -3355,6 +3277,7 @@ function Declarations.forget(self: Program, modules: {string}): boolean
     self.requires[decl] = nil
     self.statics[decl] = nil
     self.absent[decl] = nil
+    self.params[decl] = nil
   end
   local kept: mut {Declarations.Waiting} = {}
   for _, w in ipairs(self.waiting) do
@@ -3367,26 +3290,93 @@ function Declarations.forget(self: Program, modules: {string}): boolean
   return true
 end
 
-Declarations.Program.errors = function(self: Program, module: string): {Error} -- checked: field_unknown
-  local info = self.modules[module]
-  if info == nil then
-    return {}
+--- The program [`Declarations.new`] makes.
+local class Made is Declarations.Program
+  function declare(self, input: Declarations.Input)
+    local ctx = new_ctx(self, input, false)
+    declare_all(ctx)
+    local info = ctx.info
+    info.export = find_export(ctx) -- checked: field_fixed
+    ctx.kids = {}
   end
-  return in_order(info.errors)
+
+  function lower(self, input: Declarations.Input): Declarations.Lowered
+    local existing = self.modules[input.module]
+    if existing ~= nil and existing.lowered then
+      error("declarations: the module " .. input.module .. " was lowered already", 2)
+    end
+    local ctx = new_ctx(self, input, true)
+    declare_all(ctx)
+    ctx.info.export = find_export(ctx) -- checked: field_fixed
+    collect_statics(ctx)
+    walk(ctx)
+    if not ctx.decl_file then
+      note_absent(ctx)
+    end
+    local export = ctx.info.export
+    if export == nil or export.instance == true then
+      ctx.info.value = find_value(ctx) -- checked: field_fixed
+    end
+    for _, site in ipairs(ctx.unions) do
+      ctx.checks[#ctx.checks + 1] = function(): boolean
+        return check_union(ctx, site)
+      end
+    end
+    for _, use in ipairs(ctx.uses) do
+      ctx.checks[#ctx.checks + 1] = function(): boolean
+        return check_use(ctx, use)
+      end
+    end
+    ctx.info.lowered = true -- checked: field_fixed
+    for _, check in ipairs(ctx.checks) do
+      if not check() then
+        self.waiting[#self.waiting + 1] = { module = ctx.module, run = check }
+      end
+    end
+    ctx.checks = {} -- checked: field_fixed
+    retry_waiting(self)
+    return {
+      module = ctx.module, errors = in_order(ctx.errors), decls = ctx.decls, types = ctx.types, aliases = ctx.aliases,
+      export = ctx.info.export, entries = ctx.by_binding,
+    }
+  end
+
+  function alias(self, name: string, module: string)
+    local info = self.modules[module]
+    if info ~= nil and self.modules[name] == nil then
+      self.modules[name] = info
+    end
+  end
+
+  function errors(self, module: string): {Error}
+    local info = self.modules[module]
+    if info == nil then
+      return {}
+    end
+    return in_order(info.errors)
+  end
+
+  function unsettled(self): integer
+    return #self.waiting
+  end
+
+  function scope_globals(self): {string: Scopes.Global}
+    local out: mut {string: Scopes.Global} = {}
+    for name, entry in pairs(self.globals) do
+      local decl = entry.decl
+      local both = decl ~= nil and (decl.kind == "record" or decl.kind == "class" or decl.kind == "userdata")
+      out[name] = { space = if both then "both" else "type" end, const = false }
+    end
+    return out
+  end
 end
 
-Declarations.Program.unsettled = function(self: Program): integer -- checked: field_unknown
-  return #self.waiting
-end
-
-Declarations.Program.scope_globals = function(self: Program): {string: Scopes.Global} -- checked: field_unknown
-  local out: mut {string: Scopes.Global} = {}
-  for name, entry in pairs(self.globals) do
-    local decl = entry.decl
-    local both = decl ~= nil and (decl.kind == "record" or decl.kind == "class" or decl.kind == "userdata")
-    out[name] = { space = if both then "both" else "type" end, const = false }
-  end
-  return out
+function Declarations.new(store?: Store, library?: {string: boolean}): Program
+  local s = store or Types.new()
+  local program: Made = {
+    store = s, judge = Relation.new(s), modules = {}, entries = {}, globals = {}, waiting = {}, requires = {}, external = {}, library = library or {}, values = {}, statics = {}, absent = {}, params = {}, provider = nil,
+  }
+  return program
 end
 
 return Declarations

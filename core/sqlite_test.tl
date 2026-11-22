@@ -363,7 +363,7 @@ end
 --- Creation defaults stay compatible and never make a read-only open writable.
 local function test_create_is_only_an_option_of_writable_open(tmp: string)
   for i, options in ipairs({ { writable = true }, { writable = true, create = true } }) do
-    local db = assert(Sqlite.open(tmp .. "/created-" .. tostring(i), options)) -- checked: not_assignable
+    local db = assert(Sqlite.open(tmp .. "/created-" .. tostring(i), options))
     assert(db:exec("CREATE TABLE t (a)"))
     assert(db:close())
   end
@@ -682,6 +682,19 @@ local function test_exec_result_reports_readonly_and_malformed_databases(tmp: st
   local malformed = bad:exec_result("SELECT * FROM sqlite_schema")
   assert(malformed.code == 26 and malformed.reason ~= "", "SQLITE_NOTADB was not retained")
   assert(bad:close())
+end
+
+--- An expression deeper than the depth limit is refused, not compiled
+--- by a recursion that overflows the C stack.
+local function test_a_deep_expression_is_refused()
+  local handle = memory()
+  local ok, why = handle:exec("SELECT " .. string.rep("1+", 30000) .. "1")
+  failed(ok, why)
+  assert(why:find("too large", 1, true) ~= nil, why)
+  local depth = handle:limit("expr_depth", -1)
+  assert(depth > 0 and depth < 30000, tostring(depth))
+  assert(handle:exec("SELECT " .. string.rep("1+", depth // 2) .. "1"))
+  assert(handle:close())
 end
 
 local function test_busy_timeout_checks_its_duration_and_handle()

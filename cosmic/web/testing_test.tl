@@ -1,4 +1,5 @@
 local Clock = require("cosmic.clock")
+local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
 local Web = require("cosmic.web")
@@ -29,7 +30,9 @@ local ECHO <const> = Shape.record_of("Echo")
 
 --- What the echo app answered, checked against what it sends.
 local function echoed(res: Web.TestResponse): Echo
-  local seen, why = ECHO:into((assert(res:json())))
+  local value, reason = res:json()
+  assert(value ~= nil, reason)
+  local seen, why = ECHO:into(value)
   assert(seen ~= nil, why)
   return seen
 end
@@ -63,8 +66,9 @@ local function test_a_response_reads_as_text_json_and_header_lines()
   local lines = res:header_list("Set-Cookie")
   assert(#lines == 2 and lines[1] == "a=1" and lines[2] == "b=2" and res.headers["set-cookie"] == "a=1, b=2")
   assert(#res:header_list("x-none") == 0 and res.redirect_location == nil)
-  local value = assert(res:json())
-  assert(value is {string:any} and value["ok"] == true) -- checked: is_on_record
+  local value, reason = res:json()
+  assert(value ~= nil, reason)
+  assert(assert(Json.to_object(value))["ok"] == true)
   local none, why = client:get("/plain"):json()
   assert(none == nil and why:find("json:", 1, true) ~= nil, why)
 end
@@ -302,7 +306,7 @@ local function test_the_jar_expires_a_cookie_by_max_age_and_by_expires_date()
 end
 
 local function test_the_jar_sends_a_secure_cookie_only_for_an_https_client()
-  local app = Web.app{ trusted_proxy = true, routes = {
+  local app = Web.app{ trusted_proxy = { "loopback" }, routes = {
     Web.get("/set", function(_req: Web.Request): Web.Response
       local res = Web.text("set")
       Web.add_header(res, "Set-Cookie", "s=1; Secure")

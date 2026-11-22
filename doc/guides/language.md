@@ -61,10 +61,35 @@ The rules of the spread (`literal_spread`, `cosmic docs literal_spread`):
 
 `readonly f: T` is a form of the old grammar. The parser refuses it (`expected_token`): write `f: T`.
 
+## a keyword names a field
+
+Every word Lua reserves names a field: after `.`, as a key of a table literal, as a field of a declaration, and as a
+function of a record (`function M.end()`). Data from JSON or a protocol often has a field named `end`, `function` or `not`.
+The Lua that the compiler makes writes such a field as a string index (`t["end"]`). A method call of a Lua keyword
+(`t:end()`) cannot be written that way, so the parser refuses it (`reserved_method`), and a method of a class
+cannot have one as its name. A word that only cosmic reserves (`match`, `continue`, `mut`, `is`, `as`, `asserts`,
+`userdata`) is a name to Lua, so it may name a method: `function match(self, p: string)` is called as `r:match(p)`. A keyword after `.` or `:` is a field only on the line of the dot: on the next line it
+begins a statement.
+
+```teal
+local record Span
+  start: integer
+  end: integer
+end
+
+local span: Span = { start = 2, end = 5 }
+print(span.end - span.start)
+```
+
+```output
+3
+```
+
 ## narrowing
 
 A test tells the checker what a value is, inside the branch it guards. After `if job.note ~= nil`, `job.note` is a `string`
-there. A fixed field narrows, and so does a local, whether the test is `~= nil` or `is`. A comparison with a literal (`n == "abc"`) narrows nothing.
+there. A fixed field narrows, and so does a local, whether the test is `~= nil` or `is`. A comparison with a string
+(`k == "abc"`) narrows a place that may hold strings, as the next section shows. A comparison with a number narrows nothing.
 
 ```teal
 local record Job
@@ -129,6 +154,121 @@ end
 ```output
 3
 ```
+
+## a string is a type of its own
+
+A string literal written as a type, `"circle"`, is the type of that one string. A union of them, `"on" | "off"`, is the
+strings a value may be, as an enum is. A value of a literal type is a `string`. An enum is the set of its strings: it is
+below another enum, or a union of literals, that holds each of them, so `"a"` is below `enum Kind "a" "b" end`, and
+`Kind` is below `"a" | "b"`. A string that the type does not hold is `enum_member` (`cosmic docs enum_member`).
+
+A field of a literal type tags a union of records, with no enum for each tag.
+
+```teal
+local record Circle
+  kind: "circle"
+  r: number
+end
+
+local record Square
+  kind: "square"
+  side: number
+end
+
+local type Shape = Circle | Square
+
+local function area(s: Shape): number
+  if s.kind == "circle" then
+    return 3 * s.r * s.r
+  end
+  return s.side * s.side
+end
+
+print(area({ kind = "square", side = 2 }))
+```
+
+```output
+4
+```
+
+`s is Circle` tests the tag too: where `s` is the union, it runs as a test of `s.kind` against the strings of
+`Circle`'s tag, and narrows alike. `is` takes one type (`is_union`): test each record apart. A record that is
+the one table a value may be (`R | string`) is told by `type(v) == "table"`. Where no tag tells a record from the other
+tables a value may be, `is` is refused (`is_on_record`), and the fix is a tag field of a literal type in each record.
+
+A test of a place against a string narrows it. Where `k == "a"` holds, `k` is `"a"`. Where it fails, an enum or a union
+of literals keeps its other strings, so a chain of tests over every string of an enum ends the function, and the
+checker needs no `return` after it. `k is "a"` narrows alike. A local the program assigns, and an element or field of
+a table literal, takes back the enum the value was read as, or `string`, since the program may write another string there.
+
+```teal
+local enum Level
+  "low"
+  "high"
+end
+
+local function weight(level: Level): integer
+  if level == "low" then
+    return 1
+  elseif level == "high" then
+    return 10
+  end
+end
+
+print(weight("high"))
+```
+
+```output
+10
+```
+
+`match v do ... end` takes a value apart by its type. Each arm `| T name then` tests the value as `v is T` does and binds
+`name` to it, of the type the arm takes: what the arms before it leave of `T`. The arms must take every type the value
+may have (`match_missing`), and an arm that takes nothing the arms before it left never runs (`match_redundant`).
+`| _ then` takes all the rest. So a `match` over a tagged union, an enum or a union of plain types ends the function
+when each arm returns, and a member added to the union later is refused at each `match` that does not take it.
+
+```teal
+local record Circle
+  kind: "circle"
+  r: number
+end
+
+local record Square
+  kind: "square"
+  side: number
+end
+
+local function area(s: Circle | Square): number
+  match s do
+  | Circle c then
+    return 3 * c.r * c.r
+  | Square q then
+    return q.side * q.side
+  end
+end
+
+local function describe(v: string | integer | boolean): string
+  match v do
+  | string text then
+    return "text " .. text
+  | integer n then
+    return "number " .. tostring(n + 1)
+  | _ then
+    return "other"
+  end
+end
+
+print(area({ kind = "circle", r = 1 }), describe(41), describe(true))
+```
+
+```output
+3	number 42	other
+```
+
+In an arm, a `|` that begins a line begins the next arm, so an expression that goes on to the next line keeps its
+operator at the end of the line before. A `match` whose arms are lists, `| (true, v)`, takes a call apart by the lists it
+may answer instead.
 
 ## an array with named fields
 
@@ -407,8 +547,8 @@ hello, rex
 
 Writing `is Named` after the name is optional. It brings the interface's fields in: a record has each field it leaves
 out, as the interface declares it, and a literal of the record gives the field a value. A class has each data field it
-leaves out, and each function field that is `mut` or omittable, but writes a method for each other function field
-itself. A field the type does declare must be the interface's
+leaves out, and each function field that is `mut` or omittable or whose first parameter is not the interface itself,
+but writes a method for each other function field. A field the type does declare must be the interface's
 exactly, and a method a class lacks is reported where the class is declared (`interface_disagrees`), not where a value
 is passed.
 
@@ -429,12 +569,79 @@ print(p.title)
 intro
 ```
 
+## a literal with no type is a record of its fields
+
+A table literal of named items, with no type given where it is made, is a record of its own. It has a field for each
+item, of the type of the item's value. A field is `mut` when the program assigns it through the local that holds the
+literal, and fixed otherwise. The checker shows the record by its fields, `{ mut hits: integer, name: string }`. A field
+the literal does not give is `field_unknown`, and the fix names the field to add or the type to declare.
+
+```teal
+local counter = { name = "visits", hits = 0 }
+counter.hits = counter.hits + 1
+print(counter.name, counter.hits)
+```
+
+```output
+visits	1
+```
+
+The record is below a declared record that has the same fields: a fixed field of the declared record takes a field of a
+type below its own, and a field it may leave out may be missing. A `mut` field of the declared record needs a `mut` field
+of exactly its type, given in the literal and assigned through its local, since a write through the declared record
+changes the literal's record too. So a `mut` field the declared record may leave out (`mut note?: string`), which a
+write may set to nil, is not met by a literal's field, and neither is one the literal lacks.
+A class, a record with methods, or a record with an array part is not met by fields: write the literal against it where
+it is made (`local v: Config = { ... }`).
+
+```teal
+local record Point
+  x: number
+  y: number
+end
+
+local function norm(p: Point): number
+  return math.sqrt(p.x * p.x + p.y * p.y)
+end
+
+local corner = { x = 3, y = 4 }
+print(norm(corner))
+```
+
+```output
+5.0
+```
+
+Two such records join to one with the fields of each: a field one of them lacks is optional (`{ x: integer, y: string? }`).
+The record is also below a map that is not `mut`, `{string: V}`, when the value of each field is below `V`. Read that
+way, a key the record lacks reads `nil`.
+
+```teal
+local colors = { red = 1, green = 2 }
+local function total(m: {string: integer}): integer
+  local sum = 0
+  for _, v in pairs(m) do
+    sum = sum + v
+  end
+  return sum
+end
+print(total(colors))
+```
+
+```output
+3
+```
+
+A literal whose value is `nil` or of a type parameter has no record to make, and is `literal_needs_type`: declare the
+type where the literal is made.
+
 ## comparing and adding values of a type parameter
 
 A type parameter ranges over every type, so a generic body may not apply `<` or `+` to its values (`generic_op`). A
-bound says which operators it takes. `T is Ordered` takes a number type or a string type: two values of `T` compare
-with `<`, `<=`, `>` and `>=`. `N is Numeric` takes `integer` or `number`: two values of `N` take `+`, `-`, `*`, `%`,
-`//` and unary `-`, which answer `N`, and compare with any number. `/` and `^` answer `number`, as they do for integers.
+bound says which operators it takes. `T is Ordered` takes a number type, a string type, or a class that declares
+`__lt` and `__le`: two values of `T` compare with `<`, `<=`, `>` and `>=`. `N is Numeric` takes `integer` or `number`:
+two values of `N` take `+`, `-`, `*`, `%`, `//` and unary `-`, which answer `N`, and compare with any number. `/`
+and `^` answer `number`, as they do for integers.
 
 A type whose values may be a number or a string, such as `integer | string`, is no `Ordered`, because `1 < "a"` raises.
 An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered`, `Numeric` and `Key`
@@ -466,6 +673,27 @@ print(total({ 1, 2, 3 }, 0), total({ 0.5, 0.25 }, 0.0))
 ```output
 9	pear
 6	0.75
+```
+
+A class orders its values with the methods `__lt`, which `<` and `>` call, and `__le`, which `<=` and `>=` call. Each
+takes the value and another of the class and answers a `boolean` (`metamethod_signature`). Two values of a class compare
+with the operators whose methods it declares, and a class that declares both is `Ordered`, so `table.sort` of an array
+of its values needs no comparator.
+
+```text
+local class Version
+  major: integer
+  minor: integer
+  function __lt(self, other: Version): boolean
+    return self.major < other.major or (self.major == other.major and self.minor < other.minor)
+  end
+  function __le(self, other: Version): boolean
+    return not (other < self)
+  end
+end
+
+local all: mut {Version} = { { major = 2, minor = 0 }, { major = 1, minor = 4 } }
+table.sort(all) -- 1.4, then 2.0
 ```
 
 ## keying a map by a type parameter
@@ -510,7 +738,7 @@ local function unique_sorted<T is Ordered & Key>(xs: {T}): {T}
       out[#out + 1] = x
     end
   end
-  table.sort(out, function(a: T, b: T): boolean return a < b end)
+  table.sort(out)
   return out
 end
 
@@ -521,4 +749,117 @@ print(table.concat(unique_sorted({ "pear", "fig", "pear" }), " "))
 fig pear
 ```
 
+## a generic type is related by how it uses each parameter
+
+Two uses of one generic declaration, `Box<integer>` and `Box<number>`, are related by how the body uses each type
+parameter. The checker reads it from the fields, methods and listed interfaces, so nothing is written for it.
+
+- A parameter that is only read out (a field that is not `mut`, a return, an element of `{T}`) is covariant:
+  `Box<integer>` stands for `Box<number>`.
+- A parameter that is only taken in (a parameter of a function field or method) is contravariant: a `Sink<number>`
+  stands for a `Sink<integer>`, since it takes every integer.
+- A parameter that is read and written (a `mut` field, a `mut {T}`, a map's key) is invariant: the arguments must be
+  the same type, and the error says so.
+- A parameter that is not used is invariant, since an opaque declaration (`Coroutine<Y, R, S>`) or a tag type
+  (`Tagged<Meters>`) means it by its name alone.
+
+The receiver of a class's method says nothing of the parameters, since a method is called on its own value. A function
+field counts each parameter, its first too, since `b.f(other)` may pass it another value.
+
+```teal
+local record Box<T>
+  value: T
+end
+
+local record Sink<T>
+  put: function(T)
+end
+
+local ints: Box<integer> = { value = 2 }
+local numbers: Box<number> = ints
+
+local function feed(s: Sink<integer>)
+  s.put(3)
+end
+
+feed({ put = function(n: number) print(n * 2) end })
+print(numbers.value)
+```
+
+```output
+6
+2
+```
+
+## a value or a failure
+
+A function that answers a value or a failure declares both lists: `(T) | (nil, E)`. The lists must be told apart by a
+position, which is `true` in one and `false` in the other, or `nil` in one and never nil in the other. An optional,
+`any`, a type parameter, or a union that holds one of them, may be nil, so `(integer?) | (nil, string)` is refused
+(`lists_overlap`): a `nil` first value would not say which list the call answered.
+
+The caller binds the values to locals and tests the first. The test narrows the others: where the value is nil, the
+failure is an `E`, and where it is not, the failure is nil. A test of truth (`if n then`) tells the lists apart only where
+the value is never `false`; where it may be `false` (a `boolean`), test it against `nil`. An assignment to any of the locals ends this.
+A `match` takes the lists apart with a `nil` pattern, before the arm that names the value. A call that may answer
+a failure is no statement (`failure_ignored`): bind its values, match it, or discard them on purpose with
+`local _, _ = f()`. `assert(f())` answers the values of the one list whose first value is never nil or false, where the first
+value of each other list is `nil` or `false`, and raises the failure of the others. Where a value may be either
+(`(boolean) | (nil, E)`), `assert` does not tell the lists apart: test it against `nil`.
+
+```teal
+local function parse(s: string): (integer) | (nil, string)
+  local n = math.tointeger(tonumber(s))
+  if n == nil then
+    return nil, "not a number: " .. s
+  end
+  return n
+end
+
+local n, why = parse("12")
+if n == nil then
+  print(why:upper())
+else
+  print(n + 1)
+end
+
+match parse("x") do
+  | (nil, reason) then print(reason)
+  | (value) then print(value * 2)
+end
+```
+
+```output
+13
+not a number: x
+```
+
+Where `E` is a `string`, the failure carries words alone. A [`cosmic.failure`] keeps apart what went wrong (`message`), the
+path it concerns (`path`) and the errno that says why (`errno`, 0 where no system call failed), so a caller tests the
+cause and does not match the words. It is no string: `tostring` gives its text, `path: message`, and so do `print`, and
+an `error` or `assert` that nothing catches. Where a string is wanted, the checker's fix names `tostring(why)`.
+
+```teal
+local Failure = require("cosmic.failure")
+local sys = require("cosmic.sys")
+
+local function open(path: string): (integer) | (nil, Failure)
+  local fd, _, errno = sys.open(path, sys.O_RDONLY)
+  if fd == nil then
+    return nil, Failure.system(errno, path)
+  end
+  return fd
+end
+
+local fd, why = open("/no/such/file")
+if fd == nil then
+  print(why.errno == sys.ENOENT, tostring(why))
+end
+```
+
+```output
+true	/no/such/file: No such file or directory
+```
+
 [`cosmic.array`]: ../../cosmic/array.tl
+[`cosmic.failure`]: ../../cosmic/failure.tl

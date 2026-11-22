@@ -1,3 +1,4 @@
+local ChecksSeal = require("cosmic_ci.checks_seal")
 local Compiles = require("cosmic_ci.compiles")
 local CeilingsBase = require("cosmic_ci.ceilings_base")
 local ChangedPaths = require("cosmic_ci.changed_paths")
@@ -109,6 +110,8 @@ local commands: {string:Command} = {
     usage = "SINCE [RESTORED]", handler = Compiles.trim_command },
   ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE, and digest them",
     usage = "SINCE|whole", handler = Verdicts.trim_command },
+  ["checks-seal"] = { about = "seal the tree checks' memo at PATH for a save: keep the rows used since SINCE, in one file",
+    usage = "PATH [SINCE]", handler = ChecksSeal.command },
   ["queue-run"] = { about = "name the merge-queue run that tested SHA and uploaded ARTIFACT, the verdicts main's push takes",
     usage = "", handler = QueueVerdicts.find_command },
   ["verdicts-merge"] = { about = "merge the verdicts in FROM, the merge queue's, into those restored",

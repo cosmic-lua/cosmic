@@ -202,8 +202,9 @@ local function test_tailnet_serving_listens_at_the_nodes_addresses_with_its_cert
       local listener = Array.at(reached.listeners, 1)
       local where = tostring(#reached.listeners) .. " " .. tostring(listener.host) .. ":" .. tostring(listener.port)
       said[#said + 1] = where
-      assert(reached.certs:load())
-      local name = Array.at(reached.certs:leaves(), 1).names[1] or ""
+      local certs = assert(reached.certs)
+      assert(certs:load())
+      local name = Array.at(certs:leaves(), 1).names[1] or ""
       said[#said + 1] = name
       -- The client's own source, with no name: it asks the status first.
       local own = ts:certs()
@@ -249,6 +250,34 @@ local function test_a_handshake_sent_a_byte_at_a_time_is_cut_off()
     end,
   })
   assert(lasted < Clock.seconds(2), "the dripping client was held " .. tostring(lasted // 1000000) .. " ms")
+end
+
+--- A peer that never finishes its hello is closed at `handshake_ns`
+--- unserved, though the server sets no `timeout_ns`: a read's limit
+--- would hold it for ever.
+local function test_a_stalled_handshake_is_closed_unserved()
+  local served = false
+  local lasted = 0
+  local ended = ""
+  assert(Net.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    tls = Tls.certs(Tls.static({ A })),
+    handshake_ns = Clock.ms(300),
+    serve = function(_: Net.Conn) served = true end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local port = assert(Array.at(addresses, 1).port)
+      local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(10) }))
+      local started = Clock.monotonic_ns()
+      -- A handshake record's header, saying 512 bytes follow, and no more.
+      assert(conn:write("\x16\x03\x01\x02\x00"))
+      local got, why = conn:read()
+      lasted = Clock.monotonic_ns() - started
+      ended = tostring(got) .. " " .. why
+      server:stop()
+    end,
+  })
+  assert(not served, "a connection with no handshake was served")
+  assert(lasted < Clock.seconds(5), "the stalled client was held " .. tostring(lasted // 1000000) .. " ms: " .. ended)
 end
 
 --- A protocol of [`Net.serve`] that handshakes before it reads knows what

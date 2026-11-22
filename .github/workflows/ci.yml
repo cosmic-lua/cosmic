@@ -288,6 +288,63 @@
             "restore-keys": "compiles-${{ matrix.leg }}-\n",
           },
         },
+        # Main's push of the commit the merge queue just passed takes the
+        # compiles and parses that run's boot and suite made of this very
+        # tree, and saves them at once: main's own save comes only as its
+        # run ends, 4 to 20 minutes later, and a pull request or queue
+        # entry that starts sooner boots on an older commit's, which takes
+        # nothing where a commit between moved the compiler or the
+        # analyzer. A row stands only under its key, so these decide how
+        # much is compiled again, never what a compile says; neither step
+        # fails the leg.
+        {
+          name: "download the merge queue's compiles and parses",
+          id: "queue-compiles",
+          if: "steps.queue-run.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "queue-compiles-${{ matrix.leg }}",
+            path: "${{ runner.temp }}/queue-compiles",
+            "run-id": "${{ steps.queue-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        # In place of the entry restored, whose write-ahead files the
+        # downloaded file would not match.
+        {
+          name: "take in the merge queue's compiles and parses",
+          id: "queue-compiles-taken",
+          if: "steps.queue-compiles.outcome == 'success'",
+          "continue-on-error": true,
+          shell: "sh",
+          run: "test -s \"$RUNNER_TEMP/queue-compiles/cache.db\" && rm -rf \"$RUNNER_TEMP/build-cache\" && mv \"$RUNNER_TEMP/queue-compiles\" \"$RUNNER_TEMP/build-cache\"",
+        },
+        {
+          name: "save the merge queue's compiles and parses",
+          id: "queue-compiles-save",
+          if: "env.COSMIC_CI_SAVES == 'true' && steps.queue-compiles-taken.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/build-cache",
+            key: "compiles-${{ matrix.leg }}-queue-${{ github.sha }}",
+          },
+        },
+        # What the tree checks found in each file (build/check_memo.tl's
+        # shared rows, in the cache directory and apart from the compiles),
+        # for the format check: main's newest, which its push took from the
+        # queue's check of the commit (cosmic_ci/checks_seal.tl).
+        {
+          name: "restore the tree checks' memo",
+          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
+          uses: "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/build/checks.db",
+            key: "checks-${{ matrix.leg }}-",
+            "restore-keys": "checks-${{ matrix.leg }}-\n",
+          },
+        },
         # The tree's format check (`fix --check .`), the same on every
         # host: linux-x86_64's, on a pull request, in the merge queue, on
         # the weekly and on a manual run. Never on main's push or the
@@ -400,6 +457,7 @@
         },
         {
           name: "check the tree's format",
+          id: "format",
           if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
           env: {COSMIC_CI_FORMAT: "run", COSMIC_CI_FORMAT_CHANGED: "${{ steps.changed.outputs.paths }}"},
           run: "cosmic-driver cosmic_ci/driver.tl platform format",
@@ -489,7 +547,7 @@
         {
           name: "keep only this run's compiles and parses",
           id: "compiles-trim",
-          if: "always() && steps.driver.outcome == 'success' && env.COSMIC_CI_SAVES == 'true'",
+          if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
           run: "cosmic-driver cosmic_ci/driver.tl compiles-trim \"${{ steps.names.outputs.since }}\" \"${{ runner.temp }}/compiles-restored.db\"",
         },
         # A run that failed keeps what it restored too (`whole`). Cut to
@@ -514,6 +572,67 @@
             "if-no-files-found": "ignore",
             "retention-days": 1,
           },
+        },
+        # Read by main's push of this commit, as the verdicts are: the
+        # compiles and parses this run used (compiles-trim), as main's
+        # save would keep them.
+        {
+          name: "upload the merge queue's compiles and parses",
+          if: "github.event_name == 'merge_group' && job.status == 'success' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-compiles-${{ matrix.leg }}",
+            path: "${{ runner.temp }}/build-cache",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
+        },
+        # Read by main's push of this commit, as the verdicts are: the rows
+        # this run used, in one file of no write-ahead log.
+        {
+          name: "seal the merge queue's tree checks memo",
+          id: "checks-seal",
+          if: "github.event_name == 'merge_group' && steps.format.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl checks-seal \"${{ runner.temp }}/cache/cosmic/build/checks.db\" \"${{ steps.names.outputs.since }}\"",
+        },
+        {
+          name: "upload the merge queue's tree checks memo",
+          if: "steps.checks-seal.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
+          with: {
+            name: "queue-checks-${{ matrix.leg }}",
+            path: "${{ runner.temp }}/cache/cosmic/build/checks.db",
+            "if-no-files-found": "ignore",
+            "retention-days": 1,
+          },
+        },
+        # Main's push runs no format check: it keeps the memo of the
+        # queue's check of this very commit, for the next PRs and queue
+        # entries.
+        {
+          name: "download the merge queue's tree checks memo",
+          id: "queue-checks",
+          if: "steps.queue-run.outputs.run != ''",
+          "continue-on-error": true,
+          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
+          with: {
+            name: "queue-checks-${{ matrix.leg }}",
+            path: "${{ runner.temp }}/cache/cosmic/build",
+            "run-id": "${{ steps.queue-run.outputs.run }}",
+            "github-token": "${{ github.token }}",
+          },
+        },
+        # A file that is no memo, or holds no row, is not saved: it would be
+        # the newest, and the next runs would check from cold.
+        {
+          name: "hold the merge queue's tree checks memo to a memo",
+          id: "queue-checks-held",
+          if: "steps.queue-checks.outcome == 'success'",
+          "continue-on-error": true,
+          run: "cosmic-driver cosmic_ci/driver.tl checks-seal \"${{ runner.temp }}/cache/cosmic/build/checks.db\"",
         },
         {
           name: "summarize worker operations",
@@ -586,11 +705,22 @@
         # stopped short would leave the next only what it reached.
         {
           name: "save compiles and parses",
-          if: "always() && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.queue-compiles-save.outcome != 'success' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
             key: "compiles-${{ matrix.leg }}-${{ steps.compiles-trim.outputs.digest }}",
+          },
+        },
+        # Apart from the compiles, whose save takes their whole directory.
+        {
+          name: "save the tree checks' memo",
+          if: "env.COSMIC_CI_SAVES == 'true' && steps.queue-checks-held.outcome == 'success'",
+          "continue-on-error": true,
+          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
+          with: {
+            path: "${{ runner.temp }}/cache/cosmic/build/checks.db",
+            key: "checks-${{ matrix.leg }}-${{ github.sha }}",
           },
         },
         # Once per vendor part and leg, not per core change, which the

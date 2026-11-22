@@ -42,6 +42,7 @@ local Csp = require("cosmic.web.csp")
 local Rand = require("cosmic.rand")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
+local String = require("cosmic.string")
 local Types = require("cosmic.web.types")
 
 local record Headers
@@ -130,8 +131,7 @@ local function privately(cache: string?): string
   local kept: mut {string} = {}
   local safe, dropped = false, false
   for directive in cache:gmatch("[^,]+") do
-    -- Both patterns match every string.
-    local trimmed = assert(directive:match("^%s*(.-)%s*$"))
+    local trimmed = String.trim(directive)
     local name = trimmed:lower():match("^[^=]*")
     if name == "private" or name == "no-store" then safe = true end
     if name == "public" or name == "s-maxage" then

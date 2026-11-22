@@ -116,6 +116,10 @@ local record Programs
   --- Checks that `source` is refused with exactly `codes`.
   refused: function(source: string, codes: string)
 
+  --- Checks that `source` has no error of the parser, the scopes or the lowering and exactly the errors `codes` (space
+  --- separated), and that the first says `msg` and, where given, has the fix `fix`.
+  says: function(source: string, codes: string, msg?: string, fix?: string)
+
   --- The type of the last variable called `name` after checking `source`, which is taken.
   type_of: function(source: string, name: string): string
 end
@@ -195,9 +199,7 @@ do
     concat: function({string}, p2?: string): string
     unpack: function<A>({A}): A...
     remove: function<A>(mut {A}, p2?: integer): A?
-    sort: function(mut {integer}, ? function(integer, integer): boolean)
-    sort: function(mut {number}, ? function(number, number): boolean)
-    sort: function(mut {string}, ? function(string, string): boolean)
+    sort: function<A is Ordered>(mut {A}, ? function(A, A): boolean)
     sort: function<A>(mut {A}, function(A, A): boolean)
   end
   global record math
@@ -239,7 +241,10 @@ do
     xpcall: function<A1, A2, H>((function(A1, A2)), (function(any): H), A1, A2): (true) | (false, H | string)
     xpcall: function<A1, A2, R1, H>((function(A1, A2): R1), (function(any): H), A1, A2): (true, R1) | (false, H | string)
     xpcall: function<A1, A2, R1, R2, H>((function(A1, A2): (R1, R2)), (function(any): H), A1, A2): (true, R1, R2) | (false, H | string)
-    type: function(any): string
+    enum Type
+      "nil" "boolean" "number" "string" "table" "function" "thread" "userdata"
+    end
+    type: function(any): Type
     setmetatable: function<A>(A, any): A
   end
   global print <const> = Lib.print
@@ -280,7 +285,7 @@ local function lower(program: Declarations.Program, module: string, source: stri
   for _, e in ipairs(lowered.errors) do
     before[#before + 1] = e.code
   end
-  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, spreads = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, warnings = {} }
+  local result: Check.Checked = { errors = {}, vars = {}, literals = {}, spreads = {}, tags = {}, narrowed = {}, boundaries = {}, types = {}, callees = {}, warnings = {} }
   if dialect == "tl" then
     result = Check.check(program, input, lowered)
   end
@@ -599,7 +604,7 @@ local function generated(run: Programs.Run, wraps: {integer: string}, kind_only:
     classes[id] = decl.name
   end
   return Codegen.generate(run.chunk, run.scoped, nil, classes, if kind_only == true then {} else Check.enums(run.lowered) end, wraps, nil, nil,
-    nil, run.result.spreads).text
+    nil, run.result.spreads, run.result.tags).text
 end
 
 function Programs.lua(run: Programs.Run): string
@@ -706,6 +711,22 @@ end
 function Programs.refused(source: string, codes: string)
   local got = Programs.codes_of(source)
   assert(got == codes, "wanted " .. codes .. ", got " .. got .. " in\n" .. source)
+end
+
+function Programs.says(source: string, codes: string, msg?: string, fix?: string)
+  local r = Programs.run(source)
+  assert(#r.before == 0, table.concat(r.before, " ") .. " in\n" .. source)
+  assert(Programs.codes(r) == codes, "wanted " .. codes .. ", got " .. Programs.codes(r) .. " in\n" .. source)
+  local first = r.errors[1]
+  if first == nil then
+    return
+  end
+  if msg ~= nil then
+    assert(first.msg:find(msg, 1, true) ~= nil, first.msg .. "\nwanted " .. msg)
+  end
+  if fix ~= nil then
+    assert(first.fix:find(fix, 1, true) ~= nil, first.fix .. "\nwanted " .. fix)
+  end
 end
 
 function Programs.type_of(source: string, name: string): string

@@ -184,8 +184,8 @@ local record Guestbook
     hsts?: boolean
     --- The hosts the app answers to; nil for any.
     trusted_hosts?: {string}
-    --- Whether a proxy that ends TLS is in front of the app.
-    trusted_proxy?: boolean
+    --- Where the proxy that ends TLS connects from; nil for no proxy.
+    trusted_proxy?: {string}
   end
 end
 
@@ -238,14 +238,41 @@ process of an app keeps its own.
 ## behind a proxy
 
 A proxy that ends TLS makes every request arrive as plain http from the
-proxy's address. `trusted_proxy = true` tells the app to believe the proxy:
-the scheme, host and client then come from `X-Forwarded-Proto`,
-`X-Forwarded-Host` and `X-Forwarded-For`, of which only the last entry is
-read, the one the proxy added. Then `Secure` follows the scheme for the
-session cookie, the CSRF origin check compares https origins and HSTS is
-sent. Without it every https `Origin` looks foreign to CSRF. Set it only
-where a proxy really is in front and clients cannot reach the app any other
-way, since otherwise a client could say anything it likes in those headers.
+proxy's address. `trusted_proxy` names where the proxy connects from, and
+the app believes what a request from there says: the scheme, host and
+client then come from `X-Forwarded-Proto`, `X-Forwarded-Host` and
+`X-Forwarded-For`. Each entry is an address (`"10.0.0.2"`), a prefix
+(`"10.0.0.0/8"`), `"loopback"` for a proxy on the same machine, or `"unix"`
+for one that connects to a unix-socket listener. Then the CSRF origin check
+compares https origins and HSTS is sent. The session cookie is `Secure` and
+named `__Host-session` either way, whatever scheme the app sees ([the
+sessions guide](web-sessions.md)). Without it every https `Origin` looks
+foreign to CSRF.
+
+A request from any other peer keeps its own scheme, host and address,
+whatever headers it sends, so a client that reaches the app past the proxy
+cannot pass for https, another host or another address. Only the last
+entry of `X-Forwarded-Proto` and `X-Forwarded-Host` is read, the one the
+proxy added. The client is the right-most entry of `X-Forwarded-For` that
+is none of the proxy's addresses, since every entry left of it is the
+client's own to write; where there is none, the client is the proxy itself.
+Name the proxy alone: a prefix wider than the proxy
+lets every address in it say what it likes.
+
+"The one the proxy added" holds only where the proxy sets each of the three
+headers on every request. One that passes a header on as the client sent it
+leaves its last entry to the client. nginx sets none of them unless told, so
+its configuration names all three: the first two replace what the client
+sent, and the third appends the client's address to it, whose last entry the
+app reads (`$http_host` keeps a port the client named):
+
+```text
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $http_host;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+Caddy's `reverse_proxy` and Tailscale Serve set all three already.
 
 `trusted_hosts` lists the hosts the app answers to; a request for another
 host, at any port, is a 400. The `Host` header is the client's, so an app
@@ -262,16 +289,24 @@ change.
 
 ```teal file=guestbook_test.tl
 local Guestbook = require("guestbook")
+local Net = require("cosmic.net")
 local Secret = require("cosmic.web.secret")
 local Web = require("cosmic.web")
 
 --- The options of an app with a fresh key, with the settings of a deployment as given.
-local function options(trusted_proxy?: boolean, hsts?: boolean, trusted_hosts?: {string}): Guestbook.Options
+local function options(trusted_proxy?: {string}, hsts?: boolean, trusted_hosts?: {string}): Guestbook.Options
   return { keys = { Secret.generate() }, trusted_proxy = trusted_proxy, hsts = hsts, trusted_hosts = trusted_hosts }
 end
 
 local function app(): Web.App
   return Guestbook.app(options())
+end
+
+--- A browser on an https page of the app, which sends the Secure session cookie back.
+local function browser(): Web.TestClient
+  local client = Web.test_client(app())
+  client.scheme = "https"
+  return client
 end
 
 --- The CSRF token a page carries in its `hx-headers`.
@@ -280,7 +315,7 @@ local function token_of(client: Web.TestClient): string
 end
 
 local function test_a_post_needs_the_token_from_the_page()
-  local client = Web.test_client(app())
+  local client = browser()
   local token = token_of(client)
   assert(client:post("/notes", { form = { text = "hi" } }).status == 403, "no token")
   assert(client:post("/notes", { form = { text = "hi", csrf_token = token } }).status == 201, "the form field")
@@ -290,7 +325,7 @@ local function test_a_post_needs_the_token_from_the_page()
 end
 
 local function test_a_cross_site_post_is_refused_even_with_the_token()
-  local client = Web.test_client(app())
+  local client = browser()
   local token = token_of(client)
   local forged = { ["X-CSRF-Token"] = token, ["Origin"] = "https://evil.example" }
   assert(client:post("/clap", { headers = forged }).status == 403, "another origin")
@@ -299,7 +334,7 @@ local function test_a_cross_site_post_is_refused_even_with_the_token()
 end
 
 local function test_the_nonce_in_the_policy_is_the_one_in_the_tags()
-  local page = Web.test_client(app()):get("/")
+  local page = browser():get("/")
   assert(page.headers["x-content-type-options"] == "nosniff" and page.headers["x-frame-options"] == "DENY")
   local policy = page.headers["content-security-policy"] or ""
   local nonce = assert(policy:match("'nonce%-([%w_-]+)'"))
@@ -308,19 +343,21 @@ end
 
 local function test_hsts_is_for_https_and_only_when_asked()
   local secure = { ["X-Forwarded-Proto"] = "https" }
-  local plain = Web.test_client(Guestbook.app(options(true)))
+  local plain = Web.test_client(Guestbook.app(options({ "loopback" })))
   assert(plain:get("/", { headers = secure }).headers["strict-transport-security"] == nil)
-  local client = Web.test_client(Guestbook.app(options(true, true)))
+  local client = Web.test_client(Guestbook.app(options({ "loopback" }, true)))
   assert(client:get("/", { headers = secure }).headers["strict-transport-security"] == "max-age=31536000")
   assert(client:get("/").headers["strict-transport-security"] == nil, "not on http")
+  local direct = client:get("/", { headers = secure, peer = Net.tcp("192.0.2.7", 1) })
+  assert(direct.headers["strict-transport-security"] == nil, "a peer that is not the proxy is ignored")
 end
 
-local function test_the_proxy_decides_the_scheme_and_the_cookie()
+local function test_the_session_cookie_is_secure_with_or_without_the_proxy()
   local secure = { ["X-Forwarded-Proto"] = "https" }
-  local behind = Web.test_client(Guestbook.app(options(true))):get("/", { headers = secure })
-  assert((behind.headers["set-cookie"] or ""):find("Secure", 1, true) ~= nil)
+  local behind = Web.test_client(Guestbook.app(options({ "loopback" }))):get("/", { headers = secure })
+  assert((behind.headers["set-cookie"] or ""):find("^__Host%-session=.*; Secure") ~= nil)
   local alone = Web.test_client(app()):get("/", { headers = secure })
-  assert((alone.headers["set-cookie"] or ""):find("Secure", 1, true) == nil, "a header nobody vouched for is ignored")
+  assert((alone.headers["set-cookie"] or ""):find("^__Host%-session=.*; Secure") ~= nil, "Secure over http too")
 end
 
 local function test_a_host_the_app_does_not_name_is_400()

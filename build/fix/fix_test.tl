@@ -126,11 +126,16 @@ local function program_modules(): Sqlite.Handle
   for _, module in ipairs({ "build.syntax_node", "build.syntax_links", "build.syntax_analyzer",
       "build.flow", "build.c", "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
-      "cosmic.string" }) do
+      "cosmic.string", "cosmic.child", "cosmic.net", "cosmic.internal.connection", "cosmic.sandbox", "cosmic.fs" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
-  assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.syntax_node', 'cosmic.string')"))
+  -- The C rules run clang through cosmic.child, whose own requires check no file; cosmic.fs is also the reader's.
+  for _, edge in ipairs({ "('build.syntax_node', 'cosmic.string')", "('build.c', 'cosmic.child')",
+      "('cosmic.child', 'cosmic.net')", "('cosmic.net', 'cosmic.internal.connection')",
+      "('cosmic.child', 'cosmic.sandbox')", "('cosmic.child', 'cosmic.fs')", "('build.syntax_node', 'cosmic.fs')" }) do
+    assert(Sqlite.run(db, "INSERT INTO imports VALUES " .. edge))
+  end
   return db
 end
 
@@ -192,6 +197,14 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
         #widened.files == #every.files and widened.noted == nil,
       support.nth(case, 1) .. ": " .. tostring(widened_widened))
   end
+  -- What only runs clang and zig for a check (cosmic.child), and what only it requires, checks no file; what a
+  -- check also requires does.
+  for _, path in ipairs({ "cosmic/child.tl", "cosmic/net.tl", "cosmic/internal/connection.tl", "cosmic/sandbox.tl" }) do
+    local runner = fix.narrowed(own, every, { "ci/a.tl", path }, { db })
+    assert(runner.widened == nil, path .. ": " .. tostring(runner.widened))
+  end
+  local shared = fix.narrowed(own, every, { "ci/a.tl", "cosmic/fs.tl" }, { db })
+  assert((shared.widened or ""):find("it checks each file alone", 1, true) ~= nil, tostring(shared.widened))
   -- A test of the core is not what the program runs on; its links are
   -- checked with every other file's, and it is not laid out.
   local tested = fix.narrowed(own, every, { "core/a_test.tl" }, { db })
@@ -380,20 +393,20 @@ local function test_links_read_symbols_from_a_build_made_when_needed(tmp: string
     local opened = { value = 0 }
     local source = fix.link_context(root, whole, true,
       function(_: string): boolean, string
-        rebuilt.value = rebuilt.value + 1 -- checked: map_field*2
+        rebuilt.value = rebuilt.value + 1
         return true, ""
       end,
       function(): docs.Sources
-        opened.value = opened.value + 1 -- checked: map_field*2
+        opened.value = opened.value + 1
         return { handles = {}, public = {}, opened = {} }
       end)
     fix.links(source.context, { root .. "/b.md" })
-    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases") -- checked: map_field*2
+    assert(opened.value == 0 and rebuilt.value == 0, "a file with no symbol link opened the databases")
     local found = fix.links(source.context, { root .. "/a.md" })
     source.close()
     assert(#found.broken == 2, table.concat(found.broken, "\n"))
-    assert(opened.value == 1, "opened " .. opened.value .. " times") -- checked: map_field*2
-    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. rebuilt.value) -- checked: map_field*2
+    assert(opened.value == 1, "opened " .. tostring(opened.value) .. " times")
+    assert(rebuilt.value == (if whole then 0 else 1 end), (if whole then "whole" else "part" end) .. ": rebuilt " .. tostring(rebuilt.value))
   end
 end
 
@@ -402,7 +415,7 @@ end
 local function test_links_keep_why_their_build_failed(tmp: string)
   local root = assert(Fs.absolute(tmp))
   assert(Fs.write(root .. "/a.md", "[`m.one`]\n"))
-  for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do -- checked: arms_differ
+  for _, case in ipairs({ { ok = false, want = "a.tl: the compiler refused it" }, { ok = true } }) do
     local source = fix.link_context(root, false, true,
       function(_: string): boolean, string
         return case.ok, if case.ok then "" else "a.tl: the compiler refused it" end

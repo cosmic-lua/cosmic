@@ -50,9 +50,9 @@
 --- with no session and no CSRF middleware at all.
 ---
 --- Behind a proxy that ends TLS, the request's scheme is http unless the
---- app sets `trusted_proxy`: an https `Origin` then differs from the
---- origin the request was made to and every unsafe request is refused. Set
---- `trusted_proxy`.
+--- app's `trusted_proxy` names the proxy: an https `Origin` then differs
+--- from the origin the request was made to and every unsafe request is
+--- refused. Name the proxy in `trusted_proxy`.
 ---
 --- The `HX-Request` header exempts nothing: it is sent by script, and
 --- script that sets a header cross-site needs a CORS preflight, but the

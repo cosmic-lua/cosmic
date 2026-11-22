@@ -186,7 +186,7 @@ function tree_root.move(argv: {string},
       literal = true
     elseif not literal and word:sub(1, 1) == "-" and word ~= "-" then
       local option = options[word]
-      if option is Flags.Option and option.value ~= nil and word:find("=", 1, true) == nil then -- checked: is_on_record
+      if option is Flags.Option and option.value ~= nil and word:find("=", 1, true) == nil then
         slot = slot + 1
       end
     else

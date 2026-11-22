@@ -47,6 +47,39 @@ local function refused(expected: string, action: function())
   assert(tostring(why):find(expected, 1, true), "refused otherwise: " .. tostring(why))
 end
 
+--- The smoke run's tool reads and runs itself and writes its cache, and
+--- nothing else: not the files whose lines set a later step's environment,
+--- nor the driver that step runs; of the job's variables it gets PATH and
+--- HOME alone.
+local function test_the_smoke_policy_grants_the_tool_and_its_cache_alone()
+  local policy = Prerelease.smoke_policy("/runner/release/cosmic", "/tmp/smoke-cache")
+  local grants: mut {string} = {}
+  for _, grant in ipairs(policy.grants or {}) do
+    grants[#grants + 1] = grant.path .. " " .. grant.letters
+  end
+  assert(table.concat(grants, ",") == "/runner/release/cosmic rx,/tmp/smoke-cache rwxc", table.concat(grants, ","))
+  assert(table.concat(policy.env or {}, ",") == "PATH,HOME")
+  assert(table.concat(policy.profiles or {}, ",") == "system")
+  assert((policy.set_env or {})["COSMIC_PORTABLE_CACHE"] == "/tmp/smoke-cache")
+  assert(policy.isolate == nil and policy.connect == nil)
+  assert(table.concat(policy.promises or {}, ",") == "fork,fattr")
+end
+
+--- Under the smoke policy a program cannot write a file outside its cache,
+--- as GITHUB_ENV is, though its user can.
+local function test_the_smoke_policy_keeps_a_program_from_writing_elsewhere(tmp: string)
+  local outside = tmp .. "/set_env"
+  assert(Fs.write(outside, "kept\n"))
+  local cache = tmp .. "/cache"
+  assert(Fs.mkdirs(cache))
+  local shell = assert(Proc.find("sh"))
+  local result, why = Child.run({ shell, "-c", "echo BASH_ENV=/x >> \"$1\"", "sh", outside },
+    { timeout_ns = CEILING_NS, policy = Prerelease.smoke_policy(shell, cache), stderr = "capture" })
+  assert(result ~= nil, why)
+  assert(not result.ok, "the write was allowed")
+  assert(Fs.read(outside) == "kept\n")
+end
+
 local function test_manifest_digest()
   local digest = string.rep("0123456789abcdef", 4)
   assert(Prerelease.manifest_digest(digest .. "  cosmic\n") == digest)

@@ -47,6 +47,12 @@
 --- section 6.7) is named in the why by its type and detail. A request
 --- the server refuses for a stale nonce (`badNonce`) is sent again once
 --- with the fresh nonce it handed back, as section 6.5 asks.
+---
+--- Every URL the client sends to, the directory's and each one the
+--- server names, is https, and no redirect is followed.
+--- [`Acme.Client.issue`] refuses an authorization of a name it did not
+--- ask for, and a chain whose leaf does not certify the certificate's
+--- key for exactly the names asked for.
 
 -- TODO: tls-alpn-01 for Acme.auto, which needs a TLS configuration chosen
 -- by ALPN in cosmic.tls; several certificates (sets of names, or an RSA
@@ -69,9 +75,11 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sign = require("cosmic.sign")
+local String = require("cosmic.string")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Tls = require("cosmic.tls")
+local sys = require("cosmic.sys")
 -- Only the types: a handler is a function and a reply a table, so a
 -- program that issues alone does not load the server.
 local type Server = require("cosmic.http.server")
@@ -119,7 +127,10 @@ local record Acme
     url: string
     --- "pending", "processing", "valid" or "invalid".
     status: string
-    --- The server's token for the challenge.
+    --- The server's token for the challenge: base64url, as RFC 8555
+    --- section 8.1 holds it to. A challenge with any other token is
+    --- refused where it is read, so `path` and `dns_name` hold no other
+    --- byte.
     token: string
     --- The name the challenge proves control of, with no `*.`.
     domain: string
@@ -145,7 +156,9 @@ local record Acme
     url: string
     --- "pending", "valid", "invalid", "deactivated", "expired" or "revoked".
     status: string
-    --- The identifier's value, a DNS name, with no `*.`.
+    --- The identifier's value, a DNS name, with no `*.`. An
+    --- authorization for an identifier of another type, or a value that
+    --- is no DNS name, is refused where it is read.
     domain: string
     --- Whether the order asked for `*.<domain>`.
     wildcard: boolean
@@ -332,7 +345,8 @@ local record Acme
     --- The certificate chain at `url`, as PEM.
     certificate: function(self: Client, url: string): string?, string
     --- A certificate for the DNS names `names` under `opts.key`: the
-    --- whole flow, as the module's doc says. Answers the chain as PEM.
+    --- whole flow, as the module's doc says. Answers the chain as PEM,
+    --- once its leaf is found to certify `opts.key` for exactly `names`.
     issue: function(self: Client, names: {string}, opts: IssueOptions): string?, string
   end
 end
@@ -761,7 +775,7 @@ end
 local function rate_limit_wait(body: Http.Body): integer?
   local text = body.headers["retry-after"]
   if text == nil then return nil end
-  local value = text:match("^[ \t]*(.-)[ \t]*$") or ""
+  local value = String.trim(text)
   if value:find("^%d+$") ~= nil then
     local digits = value:gsub("^0+(%d)", "%1")
     if #digits > 9 then return math.maxinteger end
@@ -794,11 +808,19 @@ local function read_order(url: string, object: {string: Json.Value}): Acme.Order
   }
 end
 
-local function read_challenge(thumbprint: string, domain: string, object: {string: Json.Value}): Acme.Challenge
+--- The challenge `object` of an authorization of `domain`, or nil and
+--- why its token is not base64url.
+local function read_challenge(thumbprint: string, domain: string,
+                              object: {string: Json.Value}): Acme.Challenge?, string
   local token = field(object, "token")
+  -- RFC 8555 section 8.1 holds a token to base64url; any other byte
+  -- would reach a caller's path or record name.
+  if token:find("^[%w_%-]+$") == nil then
+    return nil, ("acme: the server's token for %s is not base64url"):format(domain)
+  end
   local problem_object = object_at(object, "error")
   local key_authorization = token .. "." .. thumbprint
-  return {
+  local challenge: Acme.Challenge = {
     type = field(object, "type"),
     url = field(object, "url"),
     status = field(object, "status"),
@@ -810,22 +832,139 @@ local function read_challenge(thumbprint: string, domain: string, object: {strin
     dns_value = Codec.base64url(Hash.sha256(key_authorization)),
     error = if problem_object ~= nil then field(problem_object, "detail") else "" end,
   }
+  return challenge, ""
 end
 
-local function read_authorization(thumbprint: string, url: string, object: {string: Json.Value}): Acme.Authorization
+--- The authorization `object` read from `url`, or nil and why its
+--- identifier is not a DNS name (RFC 8555 section 7.1.4: of type "dns",
+--- a wildcard's with no `*.`) or a challenge's token is not base64url.
+local function read_authorization(thumbprint: string, url: string,
+                                  object: {string: Json.Value}): Acme.Authorization?, string
   local identifier = object_at(object, "identifier")
+  local kind = if identifier ~= nil then field(identifier, "type") else "" end
   local domain = if identifier ~= nil then field(identifier, "value") else "" end
+  if kind ~= "dns" or domain:sub(1, 2) == "*." or not valid_name(domain) then
+    return nil, ("acme: the authorization at %s is not for a DNS name"):format(url)
+  end
   local challenges: mut {Acme.Challenge} = {}
   for _, challenge in ipairs(objects_at(object, "challenges")) do
-    challenges[#challenges + 1] = read_challenge(thumbprint, domain, challenge)
+    local read, why = read_challenge(thumbprint, domain, challenge)
+    if read == nil then return nil, why end
+    challenges[#challenges + 1] = read
   end
-  return {
+  local authorization: Acme.Authorization = {
     url = url,
     status = field(object, "status"),
     domain = domain,
     wildcard = object["wildcard"] == true,
     challenges = challenges,
   }
+  return authorization, ""
+end
+
+--- Whether `url` is an https URL with a host. Every URL the client
+--- sends to is one, so a request and its JWS never go in the clear.
+local function is_https(url: string): boolean
+  return url:sub(1, 8):lower() == "https://" and url:find("^[^/?#]", 9) ~= nil
+end
+
+--- `text`, which the server sent, quoted for a why of one line.
+local function quoted(text: string): string
+  -- Bounded too: a server's string can be of any length.
+  local cut = if #text > 200 then text:sub(1, 200) .. "..." else text end
+  return (("%q"):format(cut):gsub("\\\n", "\\n"))
+end
+
+--- The why of a request to `url` refused for not being https.
+local function not_https(doing: string, url: string): string
+  return ("acme: %s: %s is not an https URL"):format(doing, quoted(url))
+end
+
+--- What [`leaf_of`] reads of a certificate.
+local record Leaf
+  --- Its subject alternative names, each a DNS name.
+  names: {string}
+  --- The DER SubjectPublicKeyInfo it certifies.
+  spki: string
+end
+
+--- What the first certificate of the PEM `chain` certifies (RFC 5280
+--- section 4.1); nil and why where it cannot be read, or where a
+--- subject alternative name is of another kind than a DNS name.
+local function leaf_of(chain: string): Leaf?, string
+  local body = chain:match("%-%-%-%-%-BEGIN CERTIFICATE%-%-%-%-%-(.-)%-%-%-%-%-END CERTIFICATE%-%-%-%-%-")
+  if body == nil then return nil, "acme: the issued certificate cannot be read" end
+  local der_bytes, _ = Codec.unbase64((body:gsub("%s", "")))
+  local parts = if der_bytes == nil then nil else der_sequence_of(der_bytes) end
+  local tbs = if parts == nil then nil else parts[1] end
+  local fields = if tbs == nil or tbs.tag ~= 0x30 then nil else der_elements(tbs.content) end
+  local first = if fields == nil then nil else fields[1] end
+  if fields == nil or first == nil then
+    return nil, "acme: the issued certificate cannot be read"
+  end
+  -- The version, [0], is there in a v3 certificate alone; the public key
+  -- follows the serial, signature, issuer, validity and subject.
+  local at = if first.tag == 0xa0 then 7 else 6 end
+  local spki = fields[at]
+  if spki == nil or spki.tag ~= 0x30 then
+    return nil, "acme: the issued certificate names no public key"
+  end
+  local names: mut {string} = {}
+  for i = at + 1, #fields do
+    local extensions = assert(fields[i])
+    local listed = if extensions.tag == 0xa3 then der_elements(extensions.content) else nil end
+    local sequence = if listed == nil then nil else listed[1] end
+    local none: {Element} = {}
+    local each = if sequence == nil then none else der_elements(sequence.content) or none end
+    for _, extension in ipairs(each) do
+      local members = der_elements(extension.content) or {}
+      local oid, value = members[1], members[#members]
+      if oid ~= nil and value ~= nil and value.tag == 0x04 and
+          der(oid.tag, oid.content) == der_oid(OID_SUBJECT_ALT_NAME) then
+        local general = der_sequence_of(value.content)
+        if general == nil then
+          return nil, "acme: the issued certificate's names cannot be read"
+        end
+        for _, name in ipairs(general) do
+          if name.tag ~= 0x82 then
+            return nil, "acme: the issued certificate names more than DNS names"
+          end
+          names[#names + 1] = name.content
+        end
+      end
+    end
+  end
+  local leaf: Leaf = { names = names, spki = der(spki.tag, spki.content) }
+  return leaf, ""
+end
+
+--- Whether the leaf of the PEM `chain` certifies `key` for exactly the
+--- DNS names `names`: true, or false and why.
+local function leaf_matches(chain: string, key: Acme.Key, names: {string}): boolean, string
+  local leaf, why = leaf_of(chain)
+  if leaf == nil then return false, why end
+  if leaf.spki ~= key.spki then
+    return false, "acme: the issued certificate is not for the certificate's key"
+  end
+  local function set_of(list: {string}): {string}
+    local seen: mut {string: boolean} = {}
+    local out: mut {string} = {}
+    for _, name in ipairs(list) do
+      local lower = name:lower()
+      if seen[lower] ~= true then
+        seen[lower] = true
+        out[#out + 1] = lower
+      end
+    end
+    table.sort(out)
+    return out
+  end
+  local got, asked = table.concat(set_of(leaf.names), " "), table.concat(set_of(names), " ")
+  if got ~= asked then
+    return false, ("acme: the issued certificate names %s, not the names asked for, %s"):format(quoted(got),
+      quoted(asked))
+  end
+  return true, ""
 end
 
 --- How long one request to the server may take.
@@ -873,7 +1012,9 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   local function read_directory(): {string: string}?, string
     local have = directory
     if have ~= nil then return have, "" end
-    local body, why = request("GET", opts.directory, { timeout_ns = REQUEST_TIMEOUT })
+    if not is_https(opts.directory) then return nil, not_https("directory", opts.directory) end
+    -- No redirect is followed, here or anywhere: it could lead off https.
+    local body, why = request("GET", opts.directory, { timeout_ns = REQUEST_TIMEOUT, follow = false })
     if body == nil then return nil, "acme: directory: " .. why end
     if body.status // 100 ~= 2 then return nil, problem(body, "directory") end
     local object, trouble = Json.decode_object(body.body)
@@ -895,6 +1036,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     if found == nil then return nil, why end
     local url = found[name]
     if url == nil then return nil, ("acme: the directory names no %s"):format(name) end
+    if not is_https(url) then return nil, not_https(name, url) end
     return url, ""
   end
 
@@ -906,7 +1048,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     end
     local url, why = resource("newNonce")
     if url == nil then return nil, why end
-    local body, trouble = request("HEAD", url, { timeout_ns = REQUEST_TIMEOUT })
+    local body, trouble = request("HEAD", url, { timeout_ns = REQUEST_TIMEOUT, follow = false })
     if body == nil then return nil, "acme: newNonce: " .. trouble end
     local got = body.headers["replay-nonce"]
     if got == nil or got == "" then return nil, "acme: newNonce answered no Replay-Nonce" end
@@ -920,6 +1062,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   --- `rate_limit_wait_ns` (each counted as 100 ms at the least).
   local function post(url: string, payload: {string: Json.Value}?, doing: string,
                       with_jwk?: boolean): Http.Body?, string
+    if not is_https(url) then return nil, not_https(doing, url) end
     local encoded = ""
     if payload ~= nil then
       local text, why = Json.encode(payload)
@@ -948,6 +1091,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       local body_text = assert(Json.encode({ protected = protected, payload = encoded, signature = signature }))
       local body, trouble = request("POST", url, {
         timeout_ns = REQUEST_TIMEOUT,
+        follow = false,
         headers = { ["Content-Type"] = "application/jose+json" },
         body = body_text,
       })
@@ -1011,6 +1155,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       if location == nil or location == "" then
         return nil, "acme: newAccount answered no Location"
       end
+      if not is_https(location) then return nil, not_https("newAccount", location) end
       account_url = location
       return location, ""
     end,
@@ -1030,6 +1175,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       if location == nil or location == "" then
         return nil, "acme: newOrder answered no Location"
       end
+      if not is_https(location) then return nil, not_https("newOrder", location) end
       return read_order(location, object), ""
     end,
 
@@ -1042,7 +1188,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     authorization = function(_self: Acme.Client, url: string): Acme.Authorization?, string
       local object, _, why = post_object(url, nil, "authorization")
       if object == nil then return nil, why end
-      return read_authorization(thumbprint, url, object), ""
+      return read_authorization(thumbprint, url, object)
     end,
 
     respond = function(_self: Acme.Client, challenge: Acme.Challenge): boolean, string
@@ -1099,9 +1245,20 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       if why ~= "" then return nil, why end
       local order, trouble = self:order(names)
       if order == nil then return nil, trouble end
+      local asked: mut {string: boolean} = {}
+      for _, name in ipairs(names) do asked[name:lower()] = true end
       for _, url in ipairs(order.authorizations) do
         local authorization, failed = self:authorization(url)
         if authorization == nil then return nil, failed end
+        -- A wildcard's authorization is of its base domain, marked
+        -- `wildcard` (RFC 8555 section 7.1.3). One for a name not asked
+        -- for would have the caller publish a challenge of the server's
+        -- choosing.
+        local prefix = if authorization.wildcard then "*." else "" end
+        local named = prefix .. authorization.domain
+        if asked[named:lower()] ~= true then
+          return nil, ("acme: the server asks to authorize %s, which was not asked for"):format(named)
+        end
         if authorization.status ~= "valid" and authorization.status ~= "pending" then
           return nil, ("acme: the authorization of %s is %s"):format(authorization.domain, authorization.status)
         end
@@ -1112,11 +1269,6 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
           end
           if chosen == nil then
             return nil, ("acme: the server offers no %s challenge for %s"):format(kind, authorization.domain)
-          end
-          -- RFC 8555 section 8.1 holds a token to base64url; any other
-          -- byte would reach the caller's path or record name.
-          if chosen.token:find("^[%w_%-]+$") == nil then
-            return nil, ("acme: the server's token for %s is not base64url"):format(authorization.domain)
           end
           local presented, refused = issue_opts.present(chosen)
           if not presented then return nil, "acme: present: " .. refused end
@@ -1168,7 +1320,13 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
       end
       local certificate = settled.certificate
       if certificate == nil then return nil, "acme: the valid order names no certificate" end
-      return self:certificate(certificate)
+      local chain, lost = self:certificate(certificate)
+      if chain == nil then return nil, lost end
+      -- Checked before it is handed back, as a caller puts it in place of
+      -- the certificate it serves.
+      local matches, mismatch = leaf_matches(chain, issue_opts.key, names)
+      if not matches then return nil, mismatch end
+      return chain, ""
     end,
   }
   return client
@@ -1203,18 +1361,27 @@ end
 --- The account key kept at `path`, made and written there (mode 0600)
 --- where there is none.
 local function account_key(path: string): Acme.Key?, string
-  local there, why = Fs.exists(path)
-  if there == nil then return nil, "acme: " .. why end
-  if there then
+  local key = Acme.p256_key(Sign.p256_secret())
+  -- Created exclusively, with no look first: a key there, made by another
+  -- process however lately, is an account, read and never written over.
+  local fd, refused, number = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, OWNER_FILE)
+  if fd == nil and number == sys.EEXIST then
     local text, unread = Fs.read(path)
     if text == nil then return nil, "acme: " .. unread end
-    local key, bad = Acme.read_key(text)
-    if key == nil then return nil, "acme: " .. path .. ": " .. bad end
-    return key, ""
+    local kept, bad = Acme.read_key(text)
+    if kept == nil then return nil, "acme: " .. path .. ": " .. bad end
+    return kept, ""
   end
-  local key = Acme.p256_key(Sign.p256_secret())
-  local wrote, unwritten = Fs.write(path, assert(key.pem), OWNER_FILE)
-  if not wrote then return nil, "acme: " .. unwritten end
+  -- TODO: write the key to a temporary file and link(2) it to `path`, so
+  -- a crash mid-write leaves no cut key there, once cosmic.sys carries
+  -- link (build/acme.tl's create waits on the same).
+  if fd == nil then return nil, "acme: " .. path .. ": " .. refused end
+  local wrote, unwritten = Fs.put(fd, assert(key.pem))
+  local closed, unclosed = Fs.close(fd)
+  if not wrote or not closed then
+    local _, _ = Fs.remove(path)
+    return nil, "acme: " .. path .. ": " .. (if wrote then unclosed else unwritten end)
+  end
   return key, ""
 end
 

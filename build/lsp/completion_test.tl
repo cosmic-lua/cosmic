@@ -288,6 +288,17 @@ local function test_the_members_of_a_member_are_read_through_the_chain()
   assert(has(items(ran, 2), { "depth", "inner" }) == "depth", ran.err)
 end
 
+local function test_the_members_of_a_field_named_by_a_keyword_are_read_through_the_chain()
+  local root = session_fixture.project()
+  local text = 'local record Inner\n  depth: integer\nend\nlocal record Outer\n  end: Inner\nend\n' ..
+    'local o: Outer = { end = { depth = 1 } }\nlocal _ = o\n'
+  local ran = served(root, { initialize(root), open(root, "main.tl", text),
+    change(root, "main.tl", (text:gsub("local _ = o\n$", "local _ = o.end.\n"))),
+    ask(2, root, "main.tl", 7, 16),
+  })
+  assert(has(items(ran, 2), { "depth", "end" }) == "depth", ran.err)
+end
+
 local function test_the_modules_a_require_can_name_come_from_the_working_database_and_the_docs()
   local root = session_fixture.project()
   assert(Fs.mkdirs(root .. "/lib"))
@@ -1187,6 +1198,19 @@ local function test_a_function_is_inserted_as_a_call_where_the_editor_takes_snip
   local plain = served(root, { initialize(root), open(root, "main.tl", text),
     change(root, "main.tl", (text:gsub("local _ = point\n$", "local _ = ar\n"))), ask(2, root, "main.tl", 4, 12) })
   assert(assert(items(plain, 2)["area"]).textEdit.newText == "area")
+end
+
+local function test_a_function_of_the_standard_library_is_inserted_with_the_names_its_declaration_gives()
+  local root = session_fixture.project()
+  local text = 'local _ = 1\n'
+  local ran = served(root, { initialize(root, SNIPPETS), open(root, "main.tl", text),
+    change(root, "main.tl", "local _ = string.\n"), ask(2, root, "main.tl", 0, 17),
+    change(root, "main.tl", "local _ = table.\n"), ask(3, root, "main.tl", 0, 16),
+  })
+  local find = assert(items(ran, 2)["find"], ran.err)
+  assert(find.textEdit.newText == "find(${1:s}, ${2:pattern}, ${3:init}, ${4:plain})", find.textEdit.newText)
+  local concat = assert(items(ran, 3)["concat"], ran.err)
+  assert(concat.textEdit.newText == "concat(${1:list}, ${2:sep}, ${3:i}, ${4:j})", concat.textEdit.newText)
 end
 
 local function test_a_local_function_is_inserted_with_the_names_it_writes_not_those_of_a_function_of_its_type()

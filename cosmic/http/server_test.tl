@@ -220,26 +220,27 @@ local function test_a_connection_closes_where_either_side_asks()
   end)
 end
 
+--- A body that notes whether it was read and closed.
+local class Watched is Stream.Reader
+  mut read_from: boolean
+  mut closed: boolean
+
+  function read(self, _max_bytes?: integer): string?, string
+    self.read_from = true
+    return nil, ""
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    return true, ""
+  end
+end
+
 --- A HEAD is answered with the head a GET would have, its
 --- Content-Length included, and no body: the next reply on the
 --- connection follows at once. A Reader body is closed unread.
 local function test_head_is_answered_with_no_body()
-  local read_from: boolean = false
-  local closed: boolean = false
-  local record Watched is Stream.Reader
-    read: function(Watched, max_bytes?: integer): string?, string
-    close: function(Watched): boolean, string
-  end
-  local watched: Watched = setmetatable({}, { __index = { -- checked: arms_differ, setmetatable_call
-    read = function(_self: Watched, _max_bytes?: integer): string?, string
-      read_from = true
-      return nil, ""
-    end,
-    close = function(_self: Watched): boolean, string
-      closed = true
-      return true, ""
-    end,
-  } })
+  local watched: Watched = { read_from = false, closed = false, skip = nil }
   serving(function(req: Server.Request): Server.Reply
     if req.path == "/reader" then return { status = 200, body = watched, length = 42 } end
     return { status = 200, body = "hello" }
@@ -254,7 +255,7 @@ local function test_head_is_answered_with_no_body()
     local after = reply(p)
     assert(after.body == "hello", after.body)
   end)
-  assert(closed and not read_from)
+  assert(watched.closed and not watched.read_from)
 end
 
 --- A chunked request body is decoded, its extensions and trailers
@@ -355,23 +356,28 @@ local function test_each_limit_is_answered()
   assert(#troubles == 0, troubles[1])
 end
 
+--- `v` as untrusted data: a value reaches `any` as an argument to a parameter declared `any`.
+local function untyped(v: any): any
+  return v
+end
+
 --- A handler that raises, or answers what is no reply the server can
 --- send, is answered 500, the connection closed, and the trouble goes
 --- to on_error: a raise with its stack.
 local function test_a_failing_handler_is_answered_500()
   local bad: {string: any} = {
     ["/nil"] = nil, -- checked: any_use
-    ["/owned"] = { status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } }, -- checked: arms_differ
-    ["/unsent"] = { status = 200, headers = { ["Content-Length"] = "3" } }, -- checked: arms_differ
-    ["/mismatch"] = { status = 200, headers = { ["content-length"] = "4" }, body = "hello" }, -- checked: arms_differ
-    ["/cr"] = { status = 200, headers = { ["X-Bad"] = "a\r\nb" } }, -- checked: arms_differ
-    ["/nocontent"] = { status = 204, body = "not empty" }, -- checked: arms_differ
-    ["/interim"] = { status = 101 }, -- checked: any_use
-    ["/typo"] = { status = 200, header = {} }, -- checked: any_use, literal_needs_type
-    ["/crlist"] = { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } }, -- checked: arms_differ
-    ["/lenlist"] = { status = 200, headers = { ["Content-Length"] = { "0" } } }, -- checked: arms_differ
-    ["/datelist"] = { status = 200, headers = { Date = { "x" } } }, -- checked: arms_differ
-    ["/numlist"] = { status = 200, headers = { ["Set-Cookie"] = { 1 } } }, -- checked: arms_differ
+    ["/owned"] = untyped({ status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } }),
+    ["/unsent"] = untyped({ status = 200, headers = { ["Content-Length"] = "3" } }),
+    ["/mismatch"] = untyped({ status = 200, headers = { ["content-length"] = "4" }, body = "hello" }),
+    ["/cr"] = untyped({ status = 200, headers = { ["X-Bad"] = "a\r\nb" } }),
+    ["/nocontent"] = untyped({ status = 204, body = "not empty" }),
+    ["/interim"] = untyped({ status = 101 }),
+    ["/typo"] = { status = 200, header = {} }, -- checked: literal_needs_type
+    ["/crlist"] = untyped({ status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } }),
+    ["/lenlist"] = untyped({ status = 200, headers = { ["Content-Length"] = { "0" } } }),
+    ["/datelist"] = untyped({ status = 200, headers = { Date = { "x" } } }),
+    ["/numlist"] = untyped({ status = 200, headers = { ["Set-Cookie"] = { 1 } } }),
   }
   local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo", "/unsent",
     "/mismatch", "/crlist", "/lenlist", "/datelist", "/numlist" }
@@ -624,24 +630,25 @@ local function test_a_reply_reading_the_request_body_sends_100_first()
   end)
 end
 
+--- A body whose read raises, which notes whether it was closed.
+local class Raising is Stream.Reader
+  mut closed: boolean
+
+  function read(self, _max_bytes?: integer): string?, string
+    error("the body broke")
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    return true, ""
+  end
+end
+
 --- A Reader body that raises cuts the reply short: the connection
 --- closes, the Reader is closed, and what it raised, with its stack,
 --- goes to on_error.
 local function test_a_reply_body_that_raises_closes_the_connection()
-  local closed: boolean = false
-  local record Raising is Stream.Reader
-    read: function(Raising, max_bytes?: integer): string?, string
-    close: function(Raising): boolean, string
-  end
-  local raising: Raising = setmetatable({}, { __index = { -- checked: arms_differ, setmetatable_call
-    read = function(_self: Raising, _max_bytes?: integer): string?, string
-      error("the body broke")
-    end,
-    close = function(_self: Raising): boolean, string
-      closed = true
-      return true, ""
-    end,
-  } })
+  local raising: Raising = { closed = false, skip = nil }
   local troubles = serving(function(_req: Server.Request): Server.Reply
     return { status = 200, body = raising, length = 5 }
   end, function(address: Net.Address)
@@ -650,9 +657,25 @@ local function test_a_reply_body_that_raises_closes_the_connection()
     assert(line(p) == "HTTP/1.1 200 OK")
     while more(p) do end
   end)
-  assert(closed)
+  assert(raising.closed)
   assert(#troubles == 1 and trouble_at(troubles, 1):find("the body broke", 1, true) ~= nil, troubles[1])
   assert(trouble_at(troubles, 1):find("stack traceback", 1, true) ~= nil, troubles[1])
+end
+
+--- A body that reads every failure of its source as the end.
+local class Lenient is Stream.Reader
+  source: Stream.Reader
+
+  --- Reads every failure as the end.
+  function read(self, max_bytes?: integer): string?, string
+    local piece, _ = self.source:read(max_bytes)
+    if piece == nil then return nil, "" end
+    return piece, ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
 end
 
 --- A request body that fails while a reply's Reader reads it closes the
@@ -660,24 +683,9 @@ end
 --- bytes after it are no request to serve.
 local function test_a_body_failing_under_the_reply_closes_the_connection()
   local paths: mut {string} = {}
-  local record Lenient is Stream.Reader
-    source: Stream.Reader
-    read: function(Lenient, max_bytes?: integer): string?, string
-    close: function(Lenient): boolean, string
-  end
-  local lenient_methods = { -- checked: arms_differ
-    -- Reads every failure as the end.
-    read = function(self: Lenient, max_bytes?: integer): string?, string
-      local piece, _ = self.source:read(max_bytes)
-      if piece == nil then return nil, "" end
-      return piece, ""
-    end,
-    close = function(_self: Lenient): boolean, string return true, "" end,
-  }
-  local lenient_mt: metatable<Lenient> = { __index = lenient_methods } -- checked: literal_missing
   serving(function(req: Server.Request): Server.Reply
     paths[#paths + 1] = req.path
-    local lenient: Lenient = setmetatable({ source = req.body }, lenient_mt) -- checked: setmetatable_call
+    local lenient: Lenient = { source = req.body, skip = nil }
     return { status = 200, body = lenient }
   end, function(address: Net.Address)
     local p <close> = peer(address)
@@ -869,7 +877,7 @@ end
 
 --- A body_ns that is no duration raises, naming the field.
 local function test_a_degenerate_body_ns_is_refused()
-  local ok, err = pcall(Server.serve, { -- checked: arms_differ, cast_refused
+  local ok, err = pcall(Server.serve, { -- checked: cast_refused
     listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, body_ns = -1,
   } as Server.ServeSpec)
   assert(not ok and tostring(err):find("body_ns", 1, true) ~= nil, tostring(err))

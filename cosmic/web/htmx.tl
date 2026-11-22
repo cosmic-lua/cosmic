@@ -341,7 +341,7 @@ function Htmx.apply(res: Types.Response, reply: Htmx.Reply): Types.Response?, st
   local reply_location = reply.location
   if reply_location ~= nil then
     local location = reply_location
-    if location is Htmx.Location then -- checked: is_on_record
+    if location is Htmx.Location then
       local path, why = url_of("location path", location.path)
       if path == nil then return nil, why end
       local object: mut {string: any} = { path = path, values = location.values, headers = location.headers } -- checked: any_use

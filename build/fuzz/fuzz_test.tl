@@ -23,11 +23,11 @@ local function test_a_property_that_holds_runs_every_iteration()
     iters = 20,
     gen = any_bytes,
     check = function(_input: string): boolean, string
-      seen.value = seen.value + 1 -- checked: map_field*2
+      seen.value = seen.value + 1
       return true, ""
     end,
   })
-  assert(n == 20 and seen.value == 20, ("ran %d, checked %d"):format(n, seen.value)) -- checked: map_field*2
+  assert(n == 20 and seen.value == 20, ("ran %d, checked %d"):format(n, seen.value))
 end
 
 -- Any byte of 200 or more fails: the simplest failing input is that one
@@ -168,11 +168,11 @@ local function test_mutate_stays_deterministic_and_changes_its_sample()
       return Fuzz.mutate(src, "ustar\0" .. string.rep("0", 20), 4)
     end,
     check = function(input: string): boolean, string
-      if input ~= "ustar\0" .. string.rep("0", 20) then changed.value = changed.value + 1 end -- checked: map_field*2
+      if input ~= "ustar\0" .. string.rep("0", 20) then changed.value = changed.value + 1 end
       return #input < 40, "grew"
     end,
   })
-  assert(changed.value > 0) -- checked: map_field
+  assert(changed.value > 0)
   assert(err:find("grew", 1, true), err)
 end
 
@@ -455,8 +455,8 @@ local function test_a_check_that_fails_once_is_reported_flaky()
   local failed = { value = false }
   local err = report({ name = "once", iters = 5, gen = any_bytes,
     check = function(_input: string): boolean, string
-      if failed.value == true then return true, "" end -- checked: map_field
-      failed.value = true -- checked: map_field
+      if failed.value == true then return true, "" end
+      failed.value = true
       return false, "the first time"
     end })
   assert(err:find("fuzz once: seed=1 iteration=1: flaky: failed (the first time), then held " ..
@@ -472,8 +472,8 @@ local function test_a_shrunk_input_that_then_holds_is_named_flaky()
   local err = report({ name = "shrunk once", iters = 200, gen = any_bytes,
     check = function(input: string): boolean, string
       if input == "\200" then
-        if seen_alone.value == true then return true, "" end -- checked: map_field
-        seen_alone.value = true -- checked: map_field
+        if seen_alone.value == true then return true, "" end
+        seen_alone.value = true
         return false, "a high byte"
       end
       return input:find("[\200-\255]") == nil, "a high byte"

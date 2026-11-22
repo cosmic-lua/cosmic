@@ -59,6 +59,7 @@
 --- @public
 
 local Codec = require("cosmic.codec")
+local Defer = require("cosmic.defer")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Multipart = require("cosmic.http.multipart")
@@ -409,11 +410,6 @@ local record Spooled
   mut made?: string
 end
 
---- The value of a `<close>` variable: only its `__close` matters.
-local record Unwinding
-  __close: function(Unwinding)
-end
-
 --- The multipart body of `req`, at most `limit` bytes, read once and kept.
 --- The text parts are held in memory, each file part is spooled to disk
 --- as it arrives, and a part over its cap ends the read at once: memory
@@ -482,15 +478,14 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
   -- is spooled so far.
   local settled = false
   local spooling: Spool = {}
-  local unwinding_mt: metatable<Unwinding> = { __close = function() -- checked: literal_missing
+  local _unwinding <close> = Defer.new(function()
     if settled then return end
     local writer = spooling.writer
     if writer ~= nil then
       local _, _ = writer:abort()
     end
     m:discard()
-  end }
-  local _unwinding <close>: Unwinding = setmetatable({}, unwinding_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+  end)
   -- The body is spent from here, whatever the outcome: a later reader of
   -- the bytes is told so, not given an empty body.
   local source, total = counted(req.raw.body, limit)
@@ -964,10 +959,12 @@ local SCALARS <const>: {string:boolean} = {
 
 --- Why `spec` cannot be carried by `source`, or "" when it can.
 local function check_node(spec: Shape.Node, field: string, source: string, depth: integer): string
-  local kind = spec.kind
+  -- A spec built by a caller the checker does not read may hold any kind, so the kind is read as text: no narrowing
+  -- of it by the tests below is taken as proved.
+  local kind = tostring(spec.kind)
   local at = if field == "" then "the spec" else ("field " .. field) end
   if not (SCALARS[kind] == true or kind == "map" or kind == "record" or kind == "list") then
-    return ("input: %s of a %s is of kind %s, which text cannot carry"):format(at, source, tostring(kind))
+    return ("input: %s of a %s is of kind %s, which text cannot carry"):format(at, source, kind)
   end
   if kind == "map" then
     return ("input: %s of a %s is a map, which text cannot carry"):format(at, source)
@@ -985,7 +982,7 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
       if trouble ~= "" then return trouble end
     end
   elseif kind == "list" then
-    local of = assert(spec.of).kind
+    local of = tostring(assert(spec.of).kind)
     if source == "path" then
       return ("input: %s of a path is a list: a path holds one value per name"):format(at)
     end
@@ -993,7 +990,7 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
       return ("input: %s of a %s is a list of %ss, which text cannot carry"):format(at, source, of)
     end
     if SCALARS[of] ~= true then
-      return ("input: %s of a %s is a list of kind %s, which text cannot carry"):format(at, source, tostring(of))
+      return ("input: %s of a %s is a list of kind %s, which text cannot carry"):format(at, source, of)
     end
   elseif source == "path" and (kind == "number" or kind == "any" or spec.optional) then
     return ("input: %s of a path must be a string, integer, boolean or one_of, and present"):format(at)

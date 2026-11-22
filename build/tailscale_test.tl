@@ -56,6 +56,25 @@ local STATUS <const> = [[{
     "9": {"ID": 9, "LoginName": "tagged-devices", "DisplayName": "Tagged Devices"}}
 }]]
 
+--- A peer whose names, OS and tags carry escape sequences and control
+--- bytes, each its own choice: a title change (OSC 0), a clear screen, a
+--- C1 CSI, a right-to-left override, a carriage return and a newline.
+local HOSTILE <const> = [[{
+  "Version": "1.90.0", "BackendState": "Running", "TailscaleIPs": ["100.64.0.1"], "MagicDNSSuffix": "ts.net",
+  "Peer": {
+    "nodekey:ee": {"ID": "nE", "HostName": "evil", "DNSName": "evil\u001b]0;owned\u0007.ts.net.",
+      "OS": "linux\u001b[2J\u202e", "UserID": 66, "TailscaleIPs": ["100.64.0.66"], "Tags": ["tag:x\u009b31m"],
+      "Online": true, "Active": false, "ExitNode": false, "ExitNodeOption": false, "Relay": "", "CurAddr": ""}
+  },
+  "User": {}
+}]]
+
+local HOSTILE_WHOIS <const> = [[{
+  "Node": {"ID": 66, "StableID": "nEVIL", "Name": "evil\u001b[31m.ts.net.", "User": 66,
+    "Addresses": ["100.64.0.66/32"], "Hostinfo": {"Hostname": "evil", "OS": "linux\r\nos  forged"}},
+  "UserProfile": {"ID": 66, "LoginName": "mallory\u001b[8m@example.com", "DisplayName": "Mal\u009d0;x\u009c"}
+}]]
+
 local NO_HTTPS <const> = [[{"Version": "1.90.0", "BackendState": "NeedsLogin",
   "AuthURL": "https://login.tailscale.com/a/x", "MagicDNSSuffix": ""}]]
 
@@ -130,7 +149,9 @@ local function file_answer(ran: Ran, req: Server.Request): Server.Reply?
   end
   local file = target:match("^/localapi/v0/files/(.+)$")
   if file == nil then return nil end
-  local plain = file:gsub("%%20", " ")
+  local plain = file:gsub("%%(%x%x)", function(hex: string): string
+    return string.char(assert(math.tointeger(tonumber(hex, 16))))
+  end)
   local data = ran.waiting[plain]
   if data == nil then return { status = 404, body = "file not found\n" } end
   if req.method == "DELETE" then
@@ -142,9 +163,14 @@ end
 
 --- The stand-in's answer to `target`; `status` is the status reply.
 local function answer(target: string, status: string): Server.Reply
-  if target == "/localapi/v0/status" then return { status = 200, body = status } end
+  if target == "/localapi/v0/status" or target == "/localapi/v0/status?peers=false" then
+    return { status = 200, body = status }
+  end
   if target == "/localapi/v0/whois?addr=100.64.0.2" then return { status = 200, body = WHOIS } end
   if target == "/localapi/v0/whois?addr=100.64.0.3" then return { status = 200, body = TAGGED } end
+  if target == "/localapi/v0/whois?addr=100.64.0.66" then
+    return { status = 200, body = HOSTILE_WHOIS }
+  end
   if target:match("^/localapi/v0/whois%?") ~= nil then
     return { status = 404, body = "no match for IP:port\n" }
   end
@@ -266,6 +292,60 @@ local function test_status_of_a_node_that_needs_login_says_where_to_log_in(tmp: 
   assert(ran.out == "NeedsLogin: log in at https://login.tailscale.com/a/x\n", ran.out)
 end
 
+--- What a peer names itself reaches the terminal escaped, so it can
+--- neither move the cursor, clear the screen, retitle the window nor
+--- start a line that looks like the daemon's; `--json` escapes it as
+--- JSON does.
+local function test_status_escapes_what_a_peer_named_itself(tmp: string)
+  local ran = run(tmp, { "status" }, HOSTILE)
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "Running\n100.64.0.66  evil\\x1B]0;owned\\x07.ts.net  tag:x\\xC2\\x9B31m  linux\\x1B[2J\\xE2\\x80\\xAE  -\n",
+    ran.out)
+  local json = run(tmp, { "status", "--json" }, HOSTILE)
+  assert(json.code == 0, json.err)
+  assert(json.out:find("[\0-\9\11-\31\127]") == nil, json.out)
+  assert(json.out:find('"os":"linux\\u001b[2J\\u202e"', 1, true) ~= nil, json.out)
+  assert(json.out:find('"tag:x\\u009b31m"', 1, true) ~= nil, json.out)
+  assert(json.out:find("[\128-\255]") == nil, json.out)
+end
+
+local function test_whois_escapes_what_a_peer_named_itself(tmp: string)
+  local ran = run(tmp, { "whois", "100.64.0.66" })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == table.concat({
+    "node       evil\\x1B[31m.ts.net (nEVIL)",
+    "addresses  100.64.0.66",
+    "user       mallory\\x1B[8m@example.com (Mal\\xC2\\x9D0;x\\xC2\\x9C)",
+    "os         linux\\x0D\\x0Aos  forged",
+    "",
+  }, "\n"), ran.out)
+end
+
+--- A file a peer sent is listed, taken and complained of with the C1
+--- control or bidi override in its name escaped, the directory given
+--- as it was typed.
+local function test_file_names_a_peer_chose_are_escaped(tmp: string)
+  local function two(ran: Ran)
+    ran.waiting["a\xC2\x9B.txt"] = "x"
+    ran.waiting["b\xE2\x80\xAEfdp.exe"] = "MZ"
+  end
+  local listed = run(tmp, { "file", "list" }, nil, false, two)
+  assert(listed.code == 0, listed.err)
+  assert(listed.out == "1  a\\xC2\\x9B.txt\n2  b\\xE2\\x80\\xAEfdp.exe\n", listed.out)
+  local json = run(tmp, { "file", "list", "--json" }, nil, false, two)
+  assert(json.out:find('"a\\u009b.txt"', 1, true) ~= nil and json.out:find('"b\\u202efdp.exe"', 1, true) ~= nil,
+    json.out)
+  local got = run(tmp, { "file", "get", "/in" }, nil, false, function(ran: Ran)
+    two(ran)
+    ran.files["/in/a\xC2\x9B.txt"] = "old"
+  end)
+  assert(got.code == 1, got.err)
+  assert(got.err == "cosmic: tailscale: /in/a\\xC2\\x9B.txt: there already, so a\\xC2\\x9B.txt waits on " ..
+      "(--conflict overwrite or rename takes it)\n", got.err)
+  assert(got.out == "/in/b\\xE2\\x80\\xAEfdp.exe\n", got.out)
+  assert(got.files["/in/b\xE2\x80\xAEfdp.exe"] == "MZ")
+end
+
 --- `--json` prints the module's record, the users keyed by id as text.
 local function test_status_json_is_the_records_fields(tmp: string)
   local ran = run(tmp, { "status", "--json" })
@@ -311,6 +391,7 @@ local function test_whois_prints_the_node_its_user_and_its_capabilities(tmp: str
   assert(json.out:find('"tags":["tag:db","tag:prod"]', 1, true) ~= nil, json.out)
   local caps = run(tmp, { "whois", "--json", "100.64.0.2" })
   assert(caps.out:find('"example.com/cap/read":[]', 1, true) ~= nil, caps.out)
+  assert(caps.out:find('"own":false', 1, true) ~= nil, caps.out)
   assert(caps.out:find('"example.com/cap/admin":[{"level":"all"}]', 1, true) ~= nil, caps.out)
 end
 

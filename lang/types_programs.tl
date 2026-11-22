@@ -89,7 +89,7 @@ function Programs.fixture(store: Types.Store): Programs.Fixture
   store:define(declared(d, "List"), {
     tparams = { { name = "T" } }, supers = {}, methods = {}, values = {},
     fields = {
-      { name = "items", type = store:array(store:var(0, 0)) },
+      { name = "items", type = store:array(store:var(0, 0), true) },
       { name = "size", type = store.integer, mut = true },
     },
   })

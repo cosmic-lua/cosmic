@@ -57,7 +57,7 @@ do
   local function reason(markup: string, plain?: boolean): string
     local source, why = Template.compile((if plain == true then "{{type Page from site.page}}\n" else header end) .. markup, "page.tmpl")
     assert(source == nil, markup)
-    tally["refused"] = (tally["refused"] or 0) + 1
+    tally.refused = tally.refused + 1
     return why
   end
   -- A link can load anything, so its href takes no slot: the layout is
@@ -75,7 +75,7 @@ do
   assert(reason("<b hx-vals='{{.vals}}'>x</b>", true):find("{{use htmx}}", 1, true))
   local ok = Template.compile(header .. '<a hx-get="/tasks/{{.id}}" hx-target="#task-{{.id}}">x</a>\n', "page.tmpl")
   assert(ok ~= nil)
-  print(tally["refused"])
+  print(tally.refused)
 end
 ```
 
@@ -279,6 +279,7 @@ name the shape of their input and have it checked before the handler runs.
 local Html = require("cosmic.html")
 local Input = require("cosmic.web.input")
 local Store = require("store")
+local String = require("cosmic.string")
 local Url = require("cosmic.url")
 local View = require("view")
 local Web = require("cosmic.web")
@@ -304,7 +305,7 @@ function Site.routes(store: Store): {Web.Route}
     local read = Input.form(req)
     local invalid = read.invalid
     if invalid ~= nil then return Web.abort(invalid.status, invalid.message) end
-    local title = assert((Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$"))
+    local title = String.trim(Url.query_last(assert(read.value), "title") or "")
     if title == "" then
       return Web.html(shown("", "give the task a name"), { status = 422 })
     end
@@ -642,7 +643,7 @@ page that reloads the browser when the process is replaced and swaps the
 stylesheets when only a `.css` file changed, and carries the page's CSP
 nonce on that script's tag. An app that shows source paths to whoever asks
 serves the loopback only: [`Web.serve`] refuses a development app a listener
-elsewhere and a `trusted_proxy`, and the app answers only `localhost`,
+elsewhere, a socket file (how a proxy reaches an app) and a `trusted_proxy`, and the app answers only `localhost`,
 `127.0.0.1` and `[::1]` unless `trusted_hosts` names others, so a page on
 another site cannot reach it by a name that resolves to the loopback.
 
@@ -664,7 +665,9 @@ it [`Assets.memory`]. [`Assets.directory`] reads a directory and
 [`Assets.embedded`] the executable's own.
 
 The tests of the finished app go through a page for its tokens as a
-browser does, and check the 422 and the refusal of a post without a token:
+browser does, and check the 422 and the refusal of a post without a token.
+The session cookie is `Secure`, which a client sends back only as a
+browser on an https page: `scheme = "https"`.
 
 ```teal file=tasks_test.tl
 local Assets = require("cosmic.web.assets")
@@ -679,6 +682,13 @@ local function app(): Web.App
   }
 end
 
+--- A browser on an https page of the app.
+local function browser(): Web.TestClient
+  local client = Web.test_client(app())
+  client.scheme = "https"
+  return client
+end
+
 --- The CSRF token a page carries in its `hx-headers`.
 local function csrf_of(client: Web.TestClient): string
   local page = client:get("/")
@@ -690,7 +700,7 @@ local function htmx(token: string): {string:string}
 end
 
 local function test_page_and_fragment()
-  local client = Web.test_client(app())
+  local client = browser()
   local page = client:get("/")
   assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true) ~= nil)
   assert(page.body:find("/_web/htmx-", 1, true), "the page loads htmx")
@@ -700,7 +710,7 @@ local function test_page_and_fragment()
 end
 
 local function test_adding_a_task()
-  local client = Web.test_client(app())
+  local client = browser()
   local token = csrf_of(client)
   local added = client:post("/tasks", { form = { title = "write the guide" }, headers = htmx(token) })
   assert(added.status == 201 and added.body:find("write the guide", 1, true) ~= nil)
@@ -713,16 +723,16 @@ local function test_adding_a_task()
 end
 
 local function test_a_blank_title_is_refused_with_its_message()
-  local client = Web.test_client(app())
+  local client = browser()
   local refused = client:post("/tasks", { form = { title = "  " }, headers = htmx(csrf_of(client)) })
   assert(refused.status == 422 and refused.body:find("give the task a name", 1, true) ~= nil)
 end
 
 local function test_a_post_without_the_token_is_refused()
-  local client = Web.test_client(app())
+  local client = browser()
   csrf_of(client)
   assert(client:post("/tasks", { form = { title = "x" } }).status == 403)
-  local stranger = Web.test_client(app()):post("/tasks", { form = { title = "x" },
+  local stranger = browser():post("/tasks", { form = { title = "x" },
     headers = { ["X-CSRF-Token"] = "forged" } })
   assert(stranger.status == 403)
 end

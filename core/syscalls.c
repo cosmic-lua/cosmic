@@ -791,9 +791,9 @@ static void close_child_descriptors (int from, long limit) {
  * device ioctls below 5, abstract unix sockets and signals
  * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
  * child to a ruleset under build.confine's `must_confine`: today it
- * handles what the kernel knows and says nothing of the rest, so a
- * child on an older kernel may truncate a file it was given only to
- * read. */
+ * handles what the kernel knows and says nothing of the rest. Truncation,
+ * which it handles from ABI 3, is held by `spawn`'s filter instead
+ * ([`run_program`]). */
 COSMIC_SYSCALL(landlock_ruleset, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -1325,7 +1325,8 @@ struct cosmic_mount_attr {
 /* Where in building a policy's sandbox (`spawn`'s `strict`) a child
  * failed, which its errno alone does not say: the status pipe carries
  * the stage above the errno's bits, and `spawn` reads both back to
- * name the remedy. A child that is not strict reports its errno only. */
+ * name the remedy. A child that is not strict reports its errno only,
+ * but for STAGE_RELAY and STAGE_TRUNCATION, which any start may meet. */
 enum {
   STAGE_NAMESPACE = 1, /* a user, pid, mount or network namespace, or mapping its ids */
   STAGE_PROC,          /* a procfs of its own */
@@ -1333,6 +1334,7 @@ enum {
   STAGE_IDMAP,         /* an idmapped mount of a path, which the plan's `idmap_failed` names */
   STAGE_KIND,          /* a path bound that is a directory or socket the start did not see */
   STAGE_RELAY,         /* the relay's listeners: made, bound, or handed over the channel */
+  STAGE_TRUNCATION,    /* the filter that holds truncation where no promises filter does */
   STAGE_SHIFT = 16,
 };
 
@@ -1368,6 +1370,12 @@ static void staged_message (int stage, int number, const char *path, char *messa
              "the relay's listeners could not be made in this sandbox's network namespace (%s): "
              "a socket, a bind of 127.0.0.1 at one of the ports given (the two must differ), a "
              "listen, or the send of both descriptors over the channel failed", what);
+  } else if (stage == STAGE_TRUNCATION) {
+    snprintf(message, room,
+             "seccomp filter: %s: a child a Landlock ruleset holds without promises, where the "
+             "ruleset does not handle truncation (below Landlock ABI 3, or a `ruleset` "
+             "descriptor), is held to a filter that refuses it, which this kernel did not "
+             "install", what);
   } else if (stage == STAGE_PROC) {
     snprintf(message, room,
              "this sandbox's own /proc was refused (%s): a container's runtime masks parts of "
@@ -1410,7 +1418,7 @@ static int loopback_up (void) {
    * as a pair, which the promises filter allows where it refuses socket():
    * a program that builds sandboxes (`nest`) starts this one's own. */
   int pair[2];
-  if (socketpair(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0, pair) != 0) return errno;
+  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) != 0) return errno;
   int fd = pair[0];
   struct ifreq request;
   memset(&request, 0, sizeof request);
@@ -2121,6 +2129,10 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
    * clone(CLONE_VM). The filter then drops the PROT_EXEC | PROT_BTI
    * mprotect it allows on aarch64 for glibc's loader. */
   if (!failure && plan->promising) failure = cosmic_promises_apply(plan->promises, plan->sockets, plan->held);
+  /* Without a promises filter, one that holds truncation alone, where the
+   * ruleset does not (core/promises.h's `cosmic_truncation_apply`). */
+  else if (!failure && confined >= 0 && (plan->held & COSMIC_HELD_TRUNCATE) == 0)
+    failure = staged(1, STAGE_TRUNCATION, cosmic_truncation_apply());
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -3568,11 +3580,12 @@ static bool root_shows_no_socket (char *const *resolved, const char *const *at, 
  * or -1 with the errno in `error` and what to tell the caller in
  * `message`, which names the path or the remedy. `held` is what the
  * ruleset holds that the promises filter relies on (core/promises.h's
- * COSMIC_HELD_ bits): the signal scope (ABI 6), and, where `unix_bound` (a
- * root of the child's own that shows only its grants) and `offline` (a
- * network namespace of its own) too, that a unix socket file is
- * reached only by a `u` grant (ABI 9), or, below it, that the root shows
- * no socket file at all (`unix_tmp`, [`root_shows_no_socket`]).
+ * COSMIC_HELD_ bits): truncation (ABI 3), the signal scope (ABI 6),
+ * and, where `unix_bound` (a root of the child's own that shows only its
+ * grants) and `offline` (a network namespace of its own) too, that a unix
+ * socket file is reached only by a `u` grant (ABI 9), or, below it, that
+ * the root shows no socket file at all (`unix_tmp`,
+ * [`root_shows_no_socket`]).
  *
  * The ruleset handles every filesystem right the kernel's ABI knows, up
  * to ABI 9 ([`grants_handled`]), so what no grant gives is refused: EACCES, and EXDEV for a rename or link
@@ -3586,6 +3599,8 @@ static bool root_shows_no_socket (char *const *resolved, const char *const *at, 
  * start does not fail for the rest, except a `u` grant, whose right
  * (ABI 9) nothing else stands in for -- unless `unix_bound`, where the
  * socket is bound into a root of the child's own, which holds no other.
+ * Below ABI 3 the promises filter holds truncation instead, refusing
+ * what an open's write right does not hold (COSMIC_HELD_TRUNCATE).
  * TODO: refuse where the kernel's ABI leaves out a right a grant's
  * letters or the scoping rely on, once a policy can ask for a start that
  * must be held whole (`isolate file` and a network namespace stand in
@@ -3647,6 +3662,7 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
     size = offsetof(struct grants_attr, scoped) + sizeof attr.scoped;
   }
   if ((attr.scoped & LANDLOCK_SCOPE_SIGNAL) != 0) *held |= COSMIC_HELD_SIGNALS;
+  if ((attr.handled_access_fs & LANDLOCK_ACCESS_FS_TRUNCATE) != 0) *held |= COSMIC_HELD_TRUNCATE;
   /* socket(AF_UNIX) is let through (COSMIC_HELD_UNIX) where nothing the process
    * can reach by a path is a socket it was not given. Two holds do it:
    *
@@ -4993,7 +5009,12 @@ COSMIC_SYSCALL(spawn, 12) {
    * TODO: let a child held to a `ruleset` descriptor signal its own
    * processes under the promises filter, once the descriptor can say
    * whether its ruleset scopes signals (COSMIC_HELD_SIGNALS); until
-   * then its filter holds the signal calls to the child's starting pid. */
+   * then its filter holds the signal calls to the child's starting pid.
+   * TODO: let a child held to a `ruleset` descriptor truncate by path, and
+   * open with O_TRUNC without writing, where the ruleset handles truncation
+   * (ABI 3), once the descriptor can say whether it does
+   * (COSMIC_HELD_TRUNCATE); until then its filter, the promises one or
+   * core/promises.h's `cosmic_truncation_apply`'s, refuses them on every kernel. */
   unsigned held = 0;
   char grant_message[PATH_MAX + 512];
   int unix_guard = 0;
@@ -5216,7 +5237,8 @@ COSMIC_SYSCALL(spawn, 12) {
 #endif
     int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
 #if defined(__linux__)
-    if ((strict || number >> STAGE_SHIFT == STAGE_RELAY) && number >> STAGE_SHIFT != 0) {
+    int stage = number >> STAGE_SHIFT;
+    if ((strict || stage == STAGE_RELAY || stage == STAGE_TRUNCATION) && stage != 0) {
       char message[PATH_MAX + 512];
       staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1),
                      idmap_path[0] != '\0' ? idmap_path : NULL, message, sizeof message);

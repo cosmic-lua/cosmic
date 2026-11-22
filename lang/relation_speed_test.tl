@@ -197,14 +197,14 @@ local FORMS <const>: {string: function(n: integer)} = {
     local function walk(r: Relation.Refusal)
       if seen[r] ~= true then
         seen[r] = true -- checked: view_written
-        counted.count = counted.count + 1 -- checked: map_field*2
+        counted.count = counted.count + 1
         for _, alternative in ipairs(r.alternatives or {}) do
           walk(alternative)
         end
       end
     end
     walk(assert(reason))
-    assert(counted.count <= 8 * n * 3, counted.count) -- checked: map_field*2
+    assert(counted.count <= 8 * n * 3, counted.count)
   end,
   ["a declaration that lists many interfaces"] = function(n: integer)
     local store = Types.new()

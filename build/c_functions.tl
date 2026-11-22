@@ -123,6 +123,9 @@ local exempt_on: {string: {string: string}} = {
     ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
       "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
       "(core/promises_child_test.tl)",
+    ["core/promises.c:cosmic_truncation_apply"] = "Darwin has no Landlock: no child is held by a " ..
+      "ruleset, so none installs the truncation filter; a Linux run enters it " ..
+      "(core/grants_child_test.tl)",
   },
 }
 

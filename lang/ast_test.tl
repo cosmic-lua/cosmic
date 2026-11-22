@@ -47,6 +47,11 @@ if x then elseif y then else end
 match f() do
   | (true, v) then print(v)
   | (false, _) then print(x)
+  | (nil, w) then print(w)
+end
+match x do
+  | T t then print(t)
+  | _ then print(x)
 end
 local record Seq<T> is {T} end
 local record Pair<K, V is Ordered> is Base<K>
@@ -63,6 +68,7 @@ local record Pair<K, V is Ordered> is Base<K>
   bad: {{K}}
   boo: boolean
   nothing: nil
+  circle: "circle"
 end
 local interface Conn<T> is Stream.Reader
   name: string

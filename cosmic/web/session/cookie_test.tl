@@ -5,8 +5,8 @@ local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 
-local NEW <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
-local OLD <const> = "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4Nb"
+local NEW <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
+local OLD <const> = "Qp8Ws2Ed5Rf7Tg1Yh3Uj6Ik9Ol0Pm4NbXz3Lk8Mv5Rs"
 
 local function data(values: mut {string: Json.Value}): Session.Data
   return { values = values, created = 1000, expires = 2000 }
@@ -110,12 +110,12 @@ end
 
 local function test_a_correctly_signed_payload_of_the_wrong_shape_is_anonymous()
   local store = SessionCookie.store{ keys = { NEW } }
-  local good = { v = 1, c = 1000, e = 2000, d = { user = "ada" } } -- checked: arms_differ
+  local good = { v = 1, c = 1000, e = 2000, d = { user = "ada" } }
   assert(store:load(forge(NEW, good), 1500, "session") ~= nil, "the forgery helper signs as the store does")
   assert(store:load(forge(NEW, { v = 2, c = 1000, e = 2000, d = {} }), 1500, "session") == nil) -- checked: literal_needs_type
   assert(store:load(forge(NEW, { v = 1, c = "x", e = 2000, d = {} }), 1500, "session") == nil) -- checked: literal_needs_type
   assert(store:load(forge(NEW, { v = 1, c = 1000, e = 2000.5, d = {} }), 1500, "session") == nil) -- checked: literal_needs_type
-  assert(store:load(forge(NEW, { v = 1, c = 1000, e = 2000, d = "text" }), 1500, "session") == nil) -- checked: arms_differ
+  assert(store:load(forge(NEW, { v = 1, c = 1000, e = 2000, d = "text" }), 1500, "session") == nil)
   assert(store:load(forge(NEW, { 1, 2, 3 }), 1500, "session") == nil)
 end
 

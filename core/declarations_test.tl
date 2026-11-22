@@ -301,7 +301,7 @@ local makers: {string: function(raw: {string: any}): Made} = {
   socket = function(raw: {string: any}): Made
     -- A TCP listener on the worker's own loopback: a unix one needs a `u`
     -- grant the policy path cannot give below Landlock ABI 9.
-    local socket = assert(call(raw["listen"], { kind = "tcp", host = "127.0.0.1", port = 0 }, 1)) -- checked: arms_differ
+    local socket = assert(call(raw["listen"], { kind = "tcp", host = "127.0.0.1", port = 0 }, 1))
     -- A numeric address answers itself, so the lookup opens nothing.
     local lookup = assert(call(raw["lookup"], "127.0.0.1", -1))
     return { instances = { Socket = socket, Lookup = lookup },
@@ -676,12 +676,12 @@ local function test_a_metatable_that_is_its_own_index_is_split_by_name()
   local mt: {string: any} = { __name = "thing", __close = nothing, poke = nothing } -- checked: any_use*3
   mt.__index = mt -- checked: map_field
   local stand_in: any = {} -- checked: literal_needs_type
-  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, -- checked: arms_differ
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" },
     { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata -- checked: cast_refused, setmetatable_call
   assert(#problems == 0, table.concat(problems, "\n"))
   mt.poke = nil -- checked: map_field
   mt.prod = nothing -- checked: map_field
-  problems = disagreements("m", declaration, { open = nothing, version = "1" }, -- checked: arms_differ
+  problems = disagreements("m", declaration, { open = nothing, version = "1" },
     { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata -- checked: cast_refused, setmetatable_call
   assert(#problems == 2, table.concat(problems, "\n"))
   assert(problems[1] == "m.Thing:poke is declared but not registered", problems[1])
@@ -691,7 +691,7 @@ end
 local function test_a_function_index_is_named_rather_than_listed()
   local mt: {string: any} = { __index = function(): any return nil end, __close = nothing } -- checked: any_use*3
   local stand_in: any = {} -- checked: literal_needs_type
-  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, -- checked: arms_differ
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" },
     { Thing = setmetatable(stand_in, mt as metatable<any>) }) -- cast: a stand-in userdata -- checked: cast_refused, setmetatable_call
   assert(#problems == 1 and problems[1] ==
       "m.Thing's __index is a function, whose methods this test cannot list",
@@ -699,7 +699,7 @@ local function test_a_function_index_is_named_rather_than_listed()
 end
 
 local function test_userdata_the_test_makes_none_of_is_named()
-  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, {}) -- checked: arms_differ
+  local problems = disagreements("m", declaration, { open = nothing, version = "1" }, {})
   assert(#problems == 1 and problems[1] == "m.Thing is userdata this test makes none of",
     table.concat(problems, "\n"))
 end

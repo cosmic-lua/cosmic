@@ -133,7 +133,7 @@ local function test_client_info_ignores_forwarded_headers_unless_the_proxy_is_tr
   Web.test_client(app):get("/items/1", { headers = headers })
   local seen_1 = assert(seen[1], "expected seen[1]")
   assert(assert(seen_1.client).host == "127.0.0.1" and seen_1.scheme == "http" and seen_1.host == "testserver")
-  local trusting, trusted_seen = recording({ trusted_proxy = true })
+  local trusting, trusted_seen = recording({ trusted_proxy = { "loopback" } })
   Web.test_client(trusting):get("/items/1", { headers = headers })
   local req = assert(trusted_seen[1], "expected trusted_seen[1]")
   assert(assert(req.client).host == "203.0.113.9" and assert(req.client).port == nil, "the last entry is the proxy's")
@@ -197,7 +197,7 @@ local function test_a_host_header_is_valid_whole_or_it_is_a_400()
 end
 
 local function test_base_url_is_made_from_the_validated_host_and_port_alone()
-  local app, seen = recording({ trusted_hosts = { "[::1]", "10.0.0.1" }, trusted_proxy = true })
+  local app, seen = recording({ trusted_hosts = { "[::1]", "10.0.0.1" }, trusted_proxy = { "loopback" } })
   local client = Web.test_client(app)
   assert(client:get("/items/1", { headers = { host = "[::1]:8080" } }).status == 200)
   local seen_1 = assert(seen[1], "expected seen[1]")
@@ -257,8 +257,124 @@ local function test_a_failed_body_read_is_remembered()
   assert(reads == reads_after_first, "the spent reader is not read again")
 end
 
+--- A client that reaches the app past its proxy would otherwise choose
+--- its own scheme, host (past `trusted_hosts`) and address.
+local function test_forwarded_headers_from_a_peer_the_app_does_not_name_are_ignored()
+  local app, seen = recording({ trusted_hosts = { "app.example" }, trusted_proxy = { "10.0.0.2" } })
+  local client = Web.test_client(app)
+  local forged = { ["host"] = "evil.example", ["x-forwarded-host"] = "app.example", ["x-forwarded-proto"] = "https",
+    ["x-forwarded-for"] = "203.0.113.9" }
+  assert(client:get("/items/1", { headers = forged, peer = Net.tcp("192.0.2.9", 1) }).status == 400)
+  assert(#seen == 0, "the client's own Host is the one checked")
+  local direct = { ["host"] = "app.example", ["x-forwarded-host"] = "app.example:8443", ["x-forwarded-proto"] = "https",
+    ["x-forwarded-for"] = "203.0.113.9" }
+  for _, peer in ipairs({ Net.tcp("192.0.2.9", 1), Net.tcp("127.0.0.1", 1), Net.tcp("10.0.0.3", 1) }) do
+    assert(client:get("/items/1", { headers = direct, peer = peer }).status == 200)
+    local req = assert(seen[#seen])
+    assert(assert(req.client).host == peer.host and req.scheme == "http", tostring(peer.host))
+    assert(req:base_url() == "http://app.example", tostring(peer.host))
+  end
+  for _, peer in ipairs({ Net.tcp("10.0.0.2", 1), Net.tcp("::ffff:10.0.0.2", 1) }) do
+    assert(client:get("/items/1", { headers = direct, peer = peer }).status == 200)
+    local req = assert(seen[#seen])
+    assert(assert(req.client).host == "203.0.113.9" and req:base_url() == "https://app.example:8443",
+      tostring(peer.host))
+  end
+end
+
+local function test_a_proxy_on_a_unix_socket_is_believed_only_where_named()
+  local headers = { ["x-forwarded-proto"] = "https", ["x-forwarded-for"] = "203.0.113.9" }
+  local at: Web.TestOptions = { peer = Net.unix(""), listener = Net.unix("/run/app/s"), headers = headers }
+  local named, named_seen = recording({ trusted_proxy = { "unix" } })
+  Web.test_client(named):get("/items/1", at)
+  local req = assert(named_seen[1])
+  assert(req.scheme == "https" and assert(req.client).host == "203.0.113.9")
+  Web.test_client(named):get("/items/1", { headers = headers })
+  assert(assert(named_seen[2]).scheme == "http", "a TCP peer is no unix socket's")
+  local unnamed, unnamed_seen = recording({ trusted_proxy = { "loopback" } })
+  Web.test_client(unnamed):get("/items/1", at)
+  assert(assert(unnamed_seen[1]).scheme == "http" and assert(unnamed_seen[1]).client == nil)
+end
+
+--- Each proxy appends the address it was reached from, so the entries
+--- left of the first address that is no proxy's are the client's own; a
+--- chain of proxies alone, or one broken by an entry that is no bare
+--- address, names nobody past the peer.
+local function test_the_client_is_the_right_most_forwarded_address_that_is_no_proxy()
+  local app, seen = recording({ trusted_proxy = { "10.0.0.0/8", "loopback" } })
+  local client = Web.test_client(app)
+  local record Chain
+    header: string
+    host: string
+  end
+  local cases: {Chain} = {
+    { header = "6.6.6.6, 203.0.113.9, 10.0.0.7", host = "203.0.113.9" },
+    { header = "6.6.6.6, 203.0.113.9", host = "203.0.113.9" },
+    { header = "10.0.0.5, 10.0.0.7", host = "127.0.0.1" },
+    { header = "10.0.0.5", host = "127.0.0.1" },
+    { header = "junk, 10.1.2.3", host = "127.0.0.1" },
+    { header = "203.0.113.9, junk, 10.1.2.3", host = "127.0.0.1" },
+    { header = "203.0.113.9,,10.1.2.3", host = "127.0.0.1" },
+    { header = "11.0.0.1, ::1", host = "11.0.0.1" },
+    { header = "2001:DB8::A, 10.0.0.7", host = "2001:db8::a" },
+    { header = "6.6.6.6,\t203.0.113.9 ,\t 10.0.0.7\t", host = "203.0.113.9" },
+    { header = "[2001:db8::1]:443", host = "127.0.0.1" },
+    { header = "203.0.113.9:80, 10.0.0.7", host = "127.0.0.1" },
+    { header = "fe80::1%eth0", host = "127.0.0.1" },
+  }
+  for i, case in ipairs(cases) do
+    client:get("/items/1", { headers = { ["x-forwarded-for"] = case.header } })
+    local host = assert(assert(seen[i]).client).host
+    assert(host == case.host, ("%q gave %s"):format(case.header, host))
+  end
+end
+
+local function test_a_trusted_proxy_that_names_no_peer_raises_when_the_app_is_made()
+  -- In Lua, since the checker refuses `true` for a list.
+  local flagged = assert(load("local ok, err = pcall(..., { routes = {}, trusted_proxy = true }) " ..
+      "return tostring(ok) .. ' ' .. tostring(err)"))
+  local said = tostring(flagged(Web.app))
+  assert(said:find("^false .*trusted_proxy lists the proxy's peers") ~= nil, said)
+  local unset = assert(load("return tostring((pcall(..., { routes = {}, trusted_proxy = false })))"))
+  assert(tostring(unset(Web.app)) == "true", "false is none, as nil is")
+  for _, entry in ipairs({ "", "proxy.example", "10.0.0.1/8", "10.0.0.0/33", "::1/129", "10.0.0.0/", "1.2.3.4:80",
+      "[::1]", "Loopback", "fe80::1%eth0", "::ffff:0:0/95", "::ffff:10.0.0.1/104" }) do
+    local raised, why = pcall(Web.app, { routes = {}, trusted_proxy = { entry } })
+    assert(not raised and tostring(why):find(("%q"):format(entry), 1, true) ~= nil, entry .. ": " .. tostring(why))
+  end
+  for _, entry in ipairs({ "10.0.0.0/8", "fd00::/8", "::ffff:10.0.0.2", "0.0.0.0/0", "::/0", "unix", "loopback",
+      "::ffff:0:0/96", "::ffff:10.0.0.0/104" }) do
+    Web.app({ routes = {}, trusted_proxy = { entry } })
+  end
+  local zoned, why = pcall(Web.app, { routes = {}, trusted_proxy = { "fe80::1%eth0" } })
+  assert(not zoned and tostring(why):find("zone", 1, true) ~= nil, tostring(why))
+end
+
+--- Whether each peer is believed, naming `forwarded` as the client, by an
+--- app trusting `proxies`, as `want` says.
+local function believed(proxies: {string}, forwarded: string, want: {string: boolean})
+  local app, seen = recording({ trusted_proxy = proxies })
+  local client = Web.test_client(app)
+  for peer, wanted in pairs(want) do
+    client:get("/items/1", { headers = { ["x-forwarded-for"] = forwarded }, peer = Net.tcp(peer, 1) })
+    local host = assert(assert(seen[#seen]).client).host
+    assert((host == forwarded) == wanted, ("%s behind %s gave %s"):format(peer, table.concat(proxies, ","), host))
+  end
+end
+
+local function test_a_prefix_holds_the_peers_it_spells_and_no_others()
+  believed({ "172.16.0.0/12", "2001:db8:1::/48", "192.0.2.7/32", "::ffff:198.51.100.0/120" }, "203.0.113.9", {
+    ["172.16.0.1"] = true, ["172.31.255.255"] = true, ["172.32.0.1"] = false, ["172.15.255.255"] = false,
+    ["2001:db8:1::5"] = true, ["2001:DB8:1:ffff::1"] = true, ["2001:db8:2::5"] = false,
+    ["192.0.2.7"] = true, ["192.0.2.8"] = false, ["::ffff:192.0.2.7"] = true,
+    ["198.51.100.9"] = true, ["::ffff:198.51.100.9"] = true, ["198.51.101.1"] = false,
+  })
+  believed({ "0.0.0.0/0" }, "2001:db8::99", { ["192.0.2.200"] = true, ["::ffff:192.0.2.200"] = true, ["2001:db8::1"] = false })
+  believed({ "::/0" }, "203.0.113.9", { ["2001:db8::1"] = true, ["::1"] = true, ["::ffff:192.0.2.1"] = false, ["192.0.2.1"] = false })
+end
+
 local function test_a_forwarded_client_is_an_address_or_the_peer()
-  local app, seen = recording({ trusted_proxy = true })
+  local app, seen = recording({ trusted_proxy = { "loopback" } })
   local client = Web.test_client(app)
   local record Forwarded
     header: string
@@ -267,7 +383,7 @@ local function test_a_forwarded_client_is_an_address_or_the_peer()
   local cases: {Forwarded} = {
     { header = "203.0.113.9", host = "203.0.113.9" },
     { header = "2001:db8::1", host = "2001:db8::1" },
-    { header = "::1", host = "::1" },
+    { header = "::1", host = "127.0.0.1" },
     { header = "999.1.1.1", host = "127.0.0.1" },
     { header = "1.2.3.4.5", host = "127.0.0.1" },
     { header = "1.2.3", host = "127.0.0.1" },
@@ -286,7 +402,7 @@ local function test_a_forwarded_client_is_an_address_or_the_peer()
 end
 
 local function test_blanks_in_a_forwarding_header_cost_time_linear_in_their_run()
-  local trusting, seen = recording({ trusted_proxy = true })
+  local trusting, seen = recording({ trusted_proxy = { "loopback" } })
   local client = Web.test_client(trusting)
   local start = Clock.monotonic_ns()
   client:get("/items/1", { headers = { ["x-forwarded-for"] = "6.6.6.6, 203.0.113.9" .. (" "):rep(60000) .. "y" } })

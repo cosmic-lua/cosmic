@@ -74,6 +74,10 @@ local record Server
     --- where one sits between (no header is read). Nil where the
     --- connection has none ([`Net.Conn`]'s `peer` says when).
     peer?: Net.Address
+    --- The listener that accepted the connection, as
+    --- [`cosmic.http.server.ServeSpec.listeners`] names it: how a handler tells a request
+    --- that came to one socket from another.
+    listener?: Net.Address
     --- What the connection's TLS handshake settled -- its version, the
     --- protocol ALPN chose, the host the client asked for (SNI) --
     --- where [`Server.ServeSpec.tls`] serves it; nil in the clear.
@@ -772,8 +776,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- interim reply after it would be read as the final reply's body.
   local interim = { continued = false, replied = false }
   local function go_on()
-    if head.continue and interim.continued ~= true and interim.replied ~= true then -- checked: map_field*2
-      interim.continued = true -- checked: map_field
+    if head.continue and interim.continued ~= true and interim.replied ~= true then
+      interim.continued = true
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
@@ -787,7 +791,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   local request: Server.Request = {
     method = head.method, target = head.target, path = head.path, query = head.query,
     version = head.version, headers = head.headers, body = body, length = head.length, peer = peer,
-    tls = conn:tls(),
+    listener = conn.listener, tls = conn:tls(),
   }
   local ok, reply = xpcall(s.spec.handle, traced, request)
   -- A body that failed is answered for, whatever the handler made of
@@ -843,7 +847,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
-  if head.continue and interim.continued ~= true and body.state == "open" then -- checked: map_field
+  if head.continue and interim.continued ~= true and body.state == "open" then
     local given_body = given.body
     local sends_body = head.method ~= "HEAD" and given.status ~= 204 and given.status ~= 304
     if given_body ~= nil and not given_body is string and sends_body and not close then
@@ -852,7 +856,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       close = true
     end
   end
-  interim.replied = true -- checked: map_field
+  interim.replied = true
   conn:set_timeout(s.timeout_ns)
   -- The reply is built inside the protected call, as its date is read there.
   local function send_reply(to: Net.Conn): wire.Sent
@@ -964,8 +968,9 @@ end
 ---
 --- The server refuses for the handler what HTTP/1.1 (RFC 9112) says to:
 --- a malformed request line or header, no Host or more than one in
---- HTTP/1.1, a request holding both Content-Length and
---- Transfer-Encoding, or a transfer coding other than a last chunked
+--- HTTP/1.1, a Host or an absolute-form target that is no host and
+--- port, a request holding both Content-Length and Transfer-Encoding, an
+--- empty transfer coding, or a transfer coding other than a last chunked
 --- (400, or 501 for a coding it does not decode); a version but 1.0 or
 --- 1.1 (505); a head past `limits.head_bytes` (431); a head slower than
 --- `head_ns` (408), or a body slower than `body_ns` or one of its reads

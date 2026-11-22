@@ -564,8 +564,8 @@ function fix.chosen(root: string, paths: {string}, standing: tree.Standing): fix
     templates = templates_out, refused = refused, whole = own and covers(root, out), alone = alone_out }, ""
 end
 
---- The modules whose code checks each file alone, with every module each requires: the reading of Teal
---- ([`build.syntax_node`], [`build.syntax_links`], [`build.syntax_analyzer`]), the notes on the standard library
+--- The modules whose code checks each file alone, with every module each requires short of `file_check_runners`: the
+--- reading of Teal ([`build.syntax_node`], [`build.syntax_links`], [`build.syntax_analyzer`]), the notes on the standard library
 --- ([`build.fix.near`]), the layout of YAML ([`build.flow`]), of C and its rules ([`build.c`]), and what reads the command
 --- line, says the summary and tells cosmic's own tree ([`build.tree`]), whose files a run over the whole of it covers. A
 --- change to one can change what a run says of a file that did not change, so a run of `--changed` naming one covers the
@@ -573,6 +573,14 @@ end
 --- them: such a run makes those checks over the whole tree anyway.
 local file_checks: {string} = { "build.syntax_node", "build.syntax_links", "build.syntax_analyzer", "build.flow", "build.c",
   "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags", "cosmic.cli", "cosmic.template" }
+
+--- What the closure of `file_checks` stops at: a module that only runs a program for a check. [`cosmic.child`] runs
+--- clang, zig and the bootstrap for [`build.c`] and [`build/zig.tl`], whose binaries bin/ and ci/cosmic-driver.pin pin;
+--- through it the closure took the sandbox, the network and the tailnet, so a change to any of them laid out the
+--- whole tree. Only the C rules read what it runs, and a run of `--changed` holds every C file to them only where one
+--- changed; a change to it that moves what clang answers is caught by build/c's tests, by the next run holding the C
+--- files, or by the weekly run over the whole tree. What a check also requires another way stays in the closure.
+local file_check_runners: {string} = { "cosmic.child" }
 
 --- What else a run of `--changed` covers the whole tree for, by a path's first directory, and why: what the program and
 --- the clang that reads each C file are built from or run on. A test there (`core/*_test.tl`) is none of these.
@@ -622,14 +630,17 @@ local function inside(file: string, named: string): boolean
 end
 
 --- The files, under the root, of the modules `file_checks` names and
---- every module they require, as the running program's `databases`
+--- every module they require, short of `file_check_runners`, as the running program's `databases`
 --- ([`Store.databases()`]) hold them: nil, and why, where they hold
 --- none of one.
 local function file_check_sources(databases: {Sqlite.Handle}): {string: boolean}?, string
   local roots: mut {string} = {}
   for _, module in ipairs(file_checks) do roots[#roots + 1] = "('" .. module .. "')" end
+  local runners: mut {string} = {}
+  for _, module in ipairs(file_check_runners) do runners[#runners + 1] = "'" .. module .. "'" end
   local query = "WITH RECURSIVE closure(module) AS (VALUES " .. table.concat(roots, ", ") ..
-    " UNION SELECT imports.requires FROM imports JOIN closure ON imports.path = closure.module) " ..
+    " UNION SELECT imports.requires FROM imports JOIN closure ON imports.path = closure.module" ..
+    " WHERE imports.requires NOT IN (" .. table.concat(runners, ", ") .. ")) " ..
     "SELECT modules.path, modules.file FROM closure JOIN modules ON modules.path = closure.module"
   local out: mut {string: boolean} = {}
   local found: mut {string: boolean} = {}

@@ -351,7 +351,7 @@ local function remembered(whole: string, token: string): closure_store.Basis?
   end
   -- The reading raises on a truncated file; `pcall`'s own results are all
   -- that is taken of it, and the basis leaves by `reading`.
-  pcall(function()
+  local _, _ = pcall(function()
     if next_string() ~= token then return end
     local out: closure_store.Basis = {
       modules = {}, shared = next_string(), image = next_string(), kinds = {}, pairable = {}, decls = {}, decl_requires = {},

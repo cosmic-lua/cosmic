@@ -38,6 +38,23 @@ local function test_the_three_target_forms_are_read()
   assert(refusal("GET /a#b HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
 end
 
+--- A Host is a host and a port or none, so that a proxy in front and
+--- the app read it alike; an absolute-form target's host is held to the
+--- same.
+local function test_a_host_that_is_no_host_and_port_is_refused()
+  for _, host in ipairs({ "h", "h.test:8080", "H.Test", "[::1]", "[::1]:8443", "10.0.0.1:80", "a-b_c~d", "h:",
+      "h:65535", "[2001:db8::1]:443" }) do
+    local got = read("GET / HTTP/1.1\r\nHost: " .. host .. "\r\n\r\n").head
+    assert(got ~= nil and got.headers["host"] == host, host)
+  end
+  assert(assert(read("GET / HTTP/1.0\r\nHost:\r\n\r\n").head).headers["host"] == "")
+  for _, host in ipairs({ "a, b", "a,b", "evil.test/x?y", "u@h", "h:80:80", "h:123456", "%31.2.3.4", "h h",
+      "[::1", "[::1]x", ":80", "h:99999", "h:65536", "[:::]", "[.]", "[a]", "[1:2]", "caf\xc3\xa9.test" }) do
+    assert(refusal("GET / HTTP/1.1\r\nHost: " .. host .. "\r\n\r\n") == 400, host)
+  end
+  assert(refusal("GET http://%31.2.3.4/ HTTP/1.1\r\nHost: h\r\n\r\n") == 400)
+end
+
 --- Repeated Cookie headers are joined as RFC 6265 5.4 has pairs,
 --- every other repeated header with a comma.
 local function test_repeated_cookie_headers_are_joined_with_semicolons()
@@ -46,13 +63,34 @@ local function test_repeated_cookie_headers_are_joined_with_semicolons()
   assert(got.headers["accept"] == "x, y", got.headers["accept"])
 end
 
---- Bare LF ends a line as CRLF does, blank lines before the request
---- line are passed over, and repeated headers are joined.
-local function test_a_lenient_head_is_read_as_its_strict_form()
-  local got = assert(read("\r\n\nGET / HTTP/1.1\nHost: h\nAccept: a\r\naccept:  b \n\n").head)
+--- Blank lines before the request line are passed over, and repeated
+--- headers are joined.
+local function test_blank_lines_are_passed_over_and_repeats_joined()
+  local got = assert(read("\r\n\r\nGET / HTTP/1.1\r\nHost: h\r\nAccept: a\r\naccept:  b \r\n\r\n").head)
   assert(got.headers["accept"] == "a, b", got.headers["accept"])
   assert(got.headers["host"] == "h")
   assert(got.length == 0 and not got.chunked and not got.close)
+end
+
+--- A head's lines end in CRLF alone. A proxy before the server that
+--- ends a line only at CRLF would read `X: y\nTransfer-Encoding:
+--- chunked` as one header, where a server taking the bare LF reads a
+--- second, and the two would frame the body differently.
+local function test_a_bare_lf_or_cr_in_a_head_is_400()
+  for _, bare in ipairs({
+      "GET / HTTP/1.1\nHost: h\r\n\r\n",
+      "GET / HTTP/1.1\r\nHost: h\n\r\n",
+      "GET / HTTP/1.1\r\nHost: h\r\n\n",
+      "\nGET / HTTP/1.1\r\nHost: h\r\n\r\n",
+      "POST / HTTP/1.1\r\nHost: h\r\nX: y\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+      "GET / HTTP/1.1\r\nHost: h\r\nA: b\rc\r\n\r\n",
+      "GET / HTTP/1.1\r\r\nHost: h\r\n\r\n",
+  }) do
+    local got = read(bare)
+    assert(got.head == nil and got.status == 400, bare)
+  end
+  assert(read("GET / HTTP/1.1\nHost: h\r\n\r\n").why == "a line ends in a bare LF")
+  assert(read("GET / HTTP/1.1\r\nA: b\rc\r\n\r\n").why == "a line holds a bare CR")
 end
 
 local function test_a_version_but_1_0_and_1_1_is_505_and_a_malformed_one_400()
@@ -110,6 +148,11 @@ local function test_ambiguous_framing_is_refused()
   assert(refusal(head .. "Transfer-Encoding: chunked, chunked\r\n\r\n") == 400)
   assert(refusal(head .. "Transfer-Encoding: gzip, chunked\r\n\r\n") == 501)
   assert(refusal("POST / HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n") == 400)
+  assert(refusal(head .. "Transfer-Encoding: chunked\r\nTransfer-Encoding:\r\n\r\n") == 400)
+  assert(refusal(head .. "Transfer-Encoding:  \r\nTransfer-Encoding: chunked\r\n\r\n") == 400)
+  for _, listed in ipairs({ "chunked, ", "chunked,,", ", chunked", "gzip, , chunked" }) do
+    assert(refusal(head .. "Transfer-Encoding: " .. listed .. "\r\n\r\n") == 400, listed)
+  end
   local agreed = assert(read(head .. "Content-Length: 3\r\nContent-Length: 003\r\n\r\n").head)
   assert(agreed.length == 3)
   local chunked = assert(read(head .. "Transfer-Encoding: Chunked\r\n\r\n").head)
@@ -338,24 +381,25 @@ local function test_a_head_of_spaces_or_repeats_is_read_in_linear_time()
   assert(#joined == 9000 * 4 - 2)
 end
 
+--- A body that gives its pieces in order, whatever it is asked for.
+local class Giving is Stream.Reader
+  pieces: mut {string}
+
+  function read(self, _max_bytes?: integer): string?, string
+    local piece = table.remove(self.pieces, 1)
+    if piece == nil then return nil, "" end
+    return piece, ""
+  end
+
+  function close(self): boolean, string
+    return true, ""
+  end
+end
+
 --- A Reader body breaking its contract -- an empty chunk, which would
 --- end a chunked reply early, or more than asked, which would run past
 --- the Content-Length -- cuts the reply short instead.
 local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
-  local record Giving is Stream.Reader
-    pieces: mut {string}
-    read: function(Giving, max_bytes?: integer): string?, string
-    close: function(Giving): boolean, string
-  end
-  local giving_methods = { -- checked: arms_differ
-    read = function(self: Giving, _max_bytes?: integer): string?, string
-      local piece = table.remove(self.pieces, 1)
-      if piece == nil then return nil, "" end
-      return piece, ""
-    end,
-    close = function(_self: Giving): boolean, string return true, "" end,
-  }
-  local giving_mt: metatable<Giving> = { __index = giving_methods } -- checked: literal_missing
   local record Case
     length?: integer
     pieces: {string}
@@ -363,7 +407,9 @@ local function test_a_reader_breaking_its_contract_cuts_the_reply_short()
   local cases: {Case} = { { pieces = { "ab", "", "HTTP/1.1 200 OK\r\n\r\n" } },
     { length = 2, pieces = { "abHTTP/1.1 200 OK\r\n\r\n" } } }
   for _, case in ipairs(cases) do
-    local body: Giving = setmetatable({ pieces = case.pieces }, giving_mt) -- checked: setmetatable_call
+    local pieces: mut {string} = {}
+    for i, piece in ipairs(case.pieces) do pieces[i] = piece end
+    local body: Giving = { pieces = pieces, skip = nil }
     local sink = Stream.collect()
     local sent = wire.send(sink, { status = 200, body = body, length = case.length, method = "GET",
       version = "HTTP/1.1", date = DATE })

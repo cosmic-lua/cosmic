@@ -24,8 +24,8 @@ local function unchecked(value: any): Server.Reply
 end
 
 local function test_check_reads_what_a_handler_returned_not_only_what_it_declared()
-  assert(Server.check(unchecked({ status = 200, bodyy = "typo" })):find("no field bodyy", 1, true)) -- checked: arms_differ
-  local list = unchecked({ status = 200, headers = { ["Set-Cookie"] = { "a=1", 7 } } }) -- checked: arms_differ*2
+  assert(Server.check(unchecked({ status = 200, bodyy = "typo" })):find("no field bodyy", 1, true))
+  local list = unchecked({ status = 200, headers = { ["Set-Cookie"] = { "a=1", 7 } } }) -- checked: arms_differ
   assert(Server.check(list):find("strings or lists of them", 1, true))
 end
 

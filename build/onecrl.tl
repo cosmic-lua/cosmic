@@ -49,6 +49,12 @@ function onecrl.source(root: string): string
   return root .. "/" .. snapshot
 end
 
+--- What kind of value `value` is, as a message names it: `integer` or `float` for a number, else its type.
+local function kind_of(value: any): string
+  if value is number then return math.type(value) or "number" end
+  return type(value)
+end
+
 --- The string `change` holds under `name`, or nil where it holds none; the second answer is why it holds another kind of
 --- value, where it does (a field the feed may omit, not mistype).
 local function text_field(change: {string: Json.Value}, name: string, at: integer): string?, string
@@ -59,7 +65,7 @@ local function text_field(change: {string: Json.Value}, name: string, at: intege
     return value, ""
   end
   return nil, ("not a OneCRL changeset: $.changes[%d].%s: want string, got %s"):format(at, name,
-    if value is number then math.type(value) else type(value) end)
+    kind_of(value))
 end
 
 --- `text`'s base64 as bytes, or nil when it is none, or empty.
@@ -116,7 +122,7 @@ function onecrl.parse(text: string): {onecrl.Entry}?, string
     local enabled = change["enabled"]
     if enabled ~= nil and not rawequal(enabled, Json.null) and not (enabled is boolean) then
       return nil, ("not a OneCRL changeset: $.changes[%d].enabled: want boolean, got %s"):format(i - 1,
-        if enabled is number then math.type(enabled) else type(enabled) end)
+        kind_of(enabled))
     end
     local names: mut {string: string} = {}
     for _, name in ipairs({ "issuerName", "serialNumber", "subject", "pubKeyHash" }) do

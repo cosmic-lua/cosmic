@@ -50,8 +50,8 @@ worktree's build directory when you delete the worktree.
    directory's `build.db`, the working database every later build reads. Where the tree's C is
    that of the pinned release or of the repository's newest one, it takes
    that release's core and fetches no zig ([`build/seeded_boot.tl`], which
-   says so; `COSMIC_BOOT_SEED=0` builds the core, `pin` asks the network
-   nothing). Copying an existing cosmic
+   says so; `COSMIC_BOOT_SEED=0` builds the core, `pin` takes the pinned
+   release alone and asks the network nothing). Copying an existing cosmic
    executable is not a substitute. The tool it writes carries the host's
    core alone, a placeholder script standing where each other core goes,
    which is all `cosmic test`, `fix`, `docs` and the other verbs need; it

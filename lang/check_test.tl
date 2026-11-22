@@ -216,6 +216,12 @@ local CASES <const>: {Case} = {
     msg = "`f()` answers one of 2 lists of values, which is no value", fix = "match the call: `match f() do",
   },
   {
+    code = "failure_ignored", at = { line = 2, column = 1 },
+    source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nf()\n",
+    msg = "`f()` answers one of 2 lists of values, one of which may be a failure, and as a statement it drops which one it answered",
+    fix = "bind its values and test the first (`local ok, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
+  },
+  {
     code = "value_count", source = "local a, b = 1\n", at = { line = 1, column = 1 },
     msg = "this gives 1 value to 2 names, so the last name is nil", fix = "give 2 values",
   },
@@ -287,7 +293,7 @@ local CASES <const>: {Case} = {
     msg = "`as` is not in the language: `x as number` changes a type by no check", fix = "validate the value with a [`cosmic.shape`] validator",
   },
   {
-    code = "is_on_record", source = RECORD .. "local function f(v: R | string)\n  if v is R then\n  end\nend\n",
+    code = "is_on_record", source = RECORD .. "local function f(v: R | {string})\n  if v is R then\n  end\nend\n",
     msg = "`is R` cannot be told by a run-time tag: a record leaves nothing to test",
     fix = "test a tag (`x.kind == \"...\"`), declare a class",
   },
@@ -491,9 +497,9 @@ local CASES <const>: {Case} = {
     fix = "write `x is integer` without the parentheses, so that the test narrows it",
   },
   {
-    code = "type_name", at = { line = 2, column = 15 }, source = "local x = 1\nif type(x) == \"int\" then\n  print(x)\nend\n",
-    msg = "`type` never answers \"int\": it answers nil, boolean, number, string, table, function, thread or userdata, so the test is always false",
-    fix = "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\"",
+    code = "enum_member", at = { line = 2, column = 15 }, source = "local x = 1\nif type(x) == \"int\" then\n  print(x)\nend\n",
+    msg = "`\"int\"` is not a member of `Lib.Type`, so the test is always false",
+    fix = "write `\"nil\"`, `\"boolean\"`, `\"number\"`",
   },
   {
     code = "assign_repeated", source = "local x = 1\nx, x = 2, 3\n", at = { line = 2, column = 4 },
@@ -509,13 +515,13 @@ local CASES <const>: {Case} = {
     code = "match_redundant",
     source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nmatch f() do\n  | (true, v) then print(v)\n  | (true, w) then print(w)\n  | (false, why) then print(why)\nend\n",
     msg = "this arm takes only lists the arms before it take, so it never runs",
-    fix = "delete the arm, or change its `true` and `false` to take a list no arm before it takes",
+    fix = "delete the arm, or change its `true`, `false` and `nil` to take a list no arm before it takes",
   },
   {
     code = "match_pattern", at = { line = 3, column = 6 },
     source = "local f: function(): (boolean, integer) = function() return true, 1 end\nmatch f() do\n  | (true, v) then print(v)\nend\n",
     msg = "this pattern tests position 1 with `true`, and the list `(boolean, integer)` has `boolean` there",
-    fix = "test only the positions that are `true` or `false` in the lists the call answers",
+    fix = "test only the positions that are `true`, `false` or `nil` in the lists the call answers",
   },
   {
     code = "unchecked_binding", source = "local sys = require(\"cosmic.sys\")\n", at = { line = 1, column = 13 },
@@ -978,13 +984,14 @@ local function test_a_nil_test_in_a_fix_returns_nil_or_raises_as_the_results_tak
   assert(has(plain.fix, "`if v == nil then error(\"v is missing\") end`"), plain.fix)
 end
 
---- Two uses of a declaration with related arguments (`integer` is below `number`) are told the arguments must be the same,
---- not that `integer` is not below `number`.
+--- Two uses of a declaration that both reads and writes its argument, with related arguments (`integer` is below
+--- `number`), are told the arguments must be the same, not that `integer` is not below `number`.
 local function test_a_generic_use_with_a_related_argument_is_told_the_arguments_must_be_the_same()
-  local source = "local record Box<T>\n  v: T\nend\nlocal a: Box<integer> = { v = 1 }\nlocal b: Box<number> = a\n"
+  local source = "local record Box<T>\n  mut v: T\nend\nlocal a: Box<integer> = { v = 1 }\nlocal b: Box<number> = a\n"
   local e = error_of(source, "not_assignable")
   assert(not has(e.msg, "is not below"), e.msg)
-  assert(has(e.msg, "`integer` and `number` are two types, and a declaration's type arguments must be the same"), e.msg)
+  assert(has(e.msg, "`integer` and `number` are two types, and a type argument the declaration both reads and writes"),
+    e.msg)
 end
 
 local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
@@ -1082,7 +1089,7 @@ local fn = two
   assert(#r.before == 0 and #r.errors == 0, Programs.codes(r))
   local got = shown(r, { "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r1", "r2", "fn" })
   local want: {string: string} = {
-    a = "integer", b = "number", c = "string", d = "boolean", e = "nil", f = "mut {integer}", g = "mut {string: integer}",
+    a = "integer", b = "number", c = "string", d = "boolean", e = "nil", f = "mut {integer}", g = "{ x: integer }",
     h = "{string}?", i = "number", j = "integer", k = "integer", l = "boolean", m = "boolean", n = "number", o = "string",
     p = "integer", q = "number", r1 = "integer", r2 = "string?", fn = "function(): integer, string?",
   }
@@ -1845,7 +1852,7 @@ local function test_code_that_may_shorten_an_array_ends_what_a_length_test_showe
   -- a call, a method call, a call of the library, or of a function that never runs code of the array
   reads_after("  touch()\n", "index_may_be_nil")
   reads_after("  table.remove(zs)\n", "index_may_be_nil")
-  reads_after("  pcall(touch)\n", "index_may_be_nil")
+  reads_after("  local _, _ = pcall(touch)\n", "index_may_be_nil")
   -- a nil written to any index, one array being another's name, whichever target
   reads_after("  zs[#zs] = nil\n", "index_may_be_nil")
   reads_after("  zs[1] = nil\n", "array_hole nil_not_allowed index_may_be_nil")
@@ -1977,7 +1984,7 @@ local function test_a_call_that_may_run_code_of_the_program_ends_the_length_fact
     "index_may_be_nil")
   reads_after("  table.sort(zs)\n", "index_may_be_nil")
   reads_after("  table.insert(zs, 1)\n", "index_may_be_nil")
-  reads_after("  pcall(touch)\n", "index_may_be_nil")
+  reads_after("  local _, _ = pcall(touch)\n", "index_may_be_nil")
   -- a name that is not the library's, or is it under another name, or is a method of a value that is no string
   -- a method of a value that is no string, though the call looks the library's
   reads(EATER .. "if #zs > 0 then\n  local t = e:shrink()\n  n = zs[1]\nend\n", "index_may_be_nil")
@@ -2503,10 +2510,10 @@ local function test_type_is_compared_with_the_eight_names_it_answers_and_is_test
     return codes_of(source)
   end
   -- the name on either side, either test, a name that is a type of the program, and a name held in a variable
-  assert(refused("local x = 1\nprint(\"int\" == type(x))\n") == "type_name")
-  assert(refused("local x = 1\nprint(type(x) ~= \"integer\")\n") == "type_name")
-  assert(refused("local x = 1\nprint((type(x)) == \"float\")\n") == "type_name")
-  assert(refused("local x = 1\nprint(type(x) == \"Number\")\n") == "type_name")
+  assert(refused("local x = 1\nprint(\"int\" == type(x))\n") == "enum_member")
+  assert(refused("local x = 1\nprint(type(x) ~= \"integer\")\n") == "enum_member")
+  assert(refused("local x = 1\nprint((type(x)) == \"float\")\n") == "enum_member")
+  assert(refused("local x = 1\nprint(type(x) == \"Number\")\n") == "enum_member")
   assert(refused("local x = 1\nlocal k = \"int\"\nprint(type(x) == k)\n") == "")
   assert(refused("local x = 1\nlocal y = tostring(x)\nprint(y == \"int\")\n") == "")
   -- `(x) is T` for a name or a field is refused; any other parenthesized value is a test of that value
@@ -2541,7 +2548,7 @@ local function test_the_arguments_of_a_library_call_are_read_where_they_are_writ
     codes_of("print(string.packsize(\"z\"), string.packsize(\"i4\"))\n"),
     codes_of("local x = 1\nprint(type(x, 1) == \"int\")\n"),
   }
-  assert(table.concat(said, " | ") == " | pattern_malformed | pattern_malformed | nil_not_allowed |  | arity |  | pack_malformed | arity",
+  assert(table.concat(said, " | ") == " | pattern_malformed | pattern_malformed | nil_not_allowed |  | arity |  | pack_malformed | arity enum_member",
     table.concat(said, " | "))
   -- the error stands on the literal: the receiver of a method call is the first argument
   local r = Programs.run("local x = (\"%y\"):format(1)\nprint(x)\n")

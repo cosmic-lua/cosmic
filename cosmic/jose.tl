@@ -335,7 +335,10 @@ end
 --- keys of that id are tried; where it names none, every key of its
 --- algorithm is. Nil and why otherwise: a token that does not decode,
 --- whose algorithm is not allowed (`none` and the HMAC ones never are),
---- whose header has `crit` members, or that no key checks.
+--- whose header has `crit` members, or that no key checks. An ES256
+--- token has two spellings that verify, its signature's S and n - S
+--- ([`Sign.p256_verify`]), so a list of tokens used or revoked is kept
+--- by a claim (`jti`, or `sub` and `iat`), never by the token's text.
 ---
 ---     local jws = assert(Jose.verify(token, keys, { algs = { "ES256" } }))
 function Jose.verify(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions): Jose.Jws?, string
@@ -396,10 +399,10 @@ end
 
 --- The claims of the JWT `token`, when one of `keys` signed it as
 --- [`Jose.verify`] checks, `iss` is `opts.issuer`, `aud` holds
---- `opts.audience`, and the time is within its `nbf` and `exp`, give or
---- take `opts.leeway`. Nil and why otherwise, including for a payload
---- that is no JSON object, a `sub` that is absent or no string, and a date claim
---- that is no number.
+--- `opts.audience`, and the time is within its `nbf` and `exp` and not
+--- before its `iat`, give or take `opts.leeway`. Nil and why otherwise,
+--- including for a payload that is no JSON object, a `sub` that is
+--- absent or no string, and a date claim that is no number.
 ---
 ---     local claims = assert(Jose.verify_jwt(token, keys, {
 ---       issuer = "https://accounts.example.com", audience = "my-client-id",
@@ -450,6 +453,9 @@ function Jose.verify_jwt(token: string, keys: {Jose.Key}, opts: Jose.JwtOptions)
     return nil, "jose: the token has no exp"
   end
   if nbf is integer and now < nbf - leeway then return nil, "jose: the token is not valid yet" end
+  if iat is integer and now < iat - leeway then
+    return nil, "jose: the token is issued in the future"
+  end
   return {
     iss = assert(iss),
     sub = sub,

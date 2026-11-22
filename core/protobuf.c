@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "crypto.h"
 #include "lauxlib.h"
 #include "pb_decode.h"
 
@@ -38,7 +39,8 @@ struct message {
   size_t count;
   /* The slots of the table, a power of two, or 0 for no field. */
   size_t buckets;
-  /* 32 less the bits of `buckets`. */
+  /* 32 less the bits of `buckets`: a hash is the top 64 - (shift +
+   * 32) bits of a 64-bit product. */
   unsigned shift;
   lua_Integer depth;
   lua_Integer max_depth;
@@ -53,11 +55,19 @@ static int32_t *slots_of (struct message *m) {
   return (int32_t *)(entries_of(m) + m->count);
 }
 
-/* The slot a number's probe starts at: the high bits of the product,
- * which every bit of the number reaches, so numbers that agree in
- * their low bits do not share a slot. */
+/* The odd multiplier of every table's hash, drawn at random once per
+ * process (cosmic_open_protobuf). With a multiplier the bytes cannot
+ * know, the bytes cannot choose field numbers that pile into one run
+ * of slots, which would make each probe walk the run: a message of n
+ * such fields cost n squared probes with a fixed one. */
+static uint64_t multiplier = 0x9e3779b97f4a7c15u;
+
+/* The slot a number's probe starts at: the high bits of its product
+ * with the multiplier (multiply-shift hashing), which every bit of the
+ * number reaches, so numbers that agree in their low bits do not share
+ * a slot. */
 static size_t slot_of (const struct message *m, uint32_t number) {
-  return (size_t)((uint32_t)(number * 2654435761u) >> m->shift);
+  return (size_t)(((uint64_t)number * multiplier) >> (m->shift + 32));
 }
 
 /* The last field of `number`, or no_entry. */
@@ -1362,6 +1372,12 @@ static const luaL_Reg module[] = {
 };
 
 int cosmic_open_protobuf (lua_State *L) {
+  uint64_t drawn;
+  /* Where no randomness can be had the fixed multiplier stays: fields
+   * are still found, only a chosen set of them is slow. */
+  if (cosmic_entropy(&drawn, sizeof drawn) == 0) {
+    multiplier = drawn | 1;
+  }
   luaL_newmetatable(L, MESSAGE_TYPE);
   luaL_newlib(L, methods);
   lua_setfield(L, -2, "__index");

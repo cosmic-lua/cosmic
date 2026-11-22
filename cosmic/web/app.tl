@@ -11,12 +11,11 @@ local Net = require("cosmic.net")
 local Request = require("cosmic.web.request")
 local Router = require("cosmic.web.router")
 local Server = require("cosmic.http.server")
+-- Only the type: an app that serves no tailnet loads no client of
+-- tailscaled.
+local type Tailscale = require("cosmic.tailscale")
+local Defer = require("cosmic.defer")
 local Types = require("cosmic.web.types")
-
---- The value of a `<close>` variable: only its `__close` matters.
-local record Closing
-  __close: function(Closing)
-end
 
 --- What a request's handler answered, where the closer of its bodies can
 --- read it: the closer is a function, and a function may write a field of
@@ -35,14 +34,6 @@ local GRACE_NS <const> = Clock.seconds(10)
 --- default of 256 connections.
 local DEFAULT_STREAM_LIMIT <const> = 128
 
---- Whether `address` is on the loopback: a unix socket, `::1` or a dotted
---- 127/8 address (not a name that merely starts with "127.").
-local function loopback(address: Net.Address): boolean
-  local host = address.host
-  return address.kind == "unix" or host == "::1" or
-    assert(host):find("^127%.%d+%.%d+%.%d+$") ~= nil
-end
-
 --- What `fn` raised, or nil when it returned.
 local function raised_by(fn: function()): string?
   local ok, err = pcall(function(): any
@@ -53,21 +44,26 @@ local function raised_by(fn: function()): string?
   return tostring(err)
 end
 
-local function url_for(self: Types.App, name: string, params?: {string: string | integer},
-                       query?: {string:string}): string?, string
-  return self.router:reverse(name, params, query)
+--- What [`App.new`] makes.
+local class Built is Types.App
+  function url_for(self, name: string, params?: {string: string | integer},
+                   query?: {string:string}): string?, string
+    return self.router:reverse(name, params, query)
+  end
+
+  function stopping(self): boolean
+    return self.stopped
+  end
+
+  function on_stop(self, fn: function())
+    self.stoppers[#self.stoppers + 1] = fn
+  end
 end
 
-local function stopping(self: Types.App): boolean
-  return self.stopped
+--- The handler of an app [`App.new`] has not finished making.
+local function unbuilt(_: Server.Request): Types.Response
+  error("web: the app is not built yet", 2)
 end
-
-local function on_stop(self: Types.App, fn: function())
-  self.stoppers[#self.stoppers + 1] = fn
-end
-
-local app_methods = { url_for = url_for, stopping = stopping, on_stop = on_stop } -- checked: arms_differ
-local app_mt: metatable<Types.App> = { __index = app_methods } -- checked: literal_missing
 
 --- Compiles `spec` into an app. Raises, naming it, for a route that cannot
 --- be registered ([`Web.router`]).
@@ -78,10 +74,18 @@ function App.new(spec: Types.AppSpec): Types.App
   local hubs: {Types.Closable} = spec.hubs or {}
   local routes: {Types.Route} = spec.routes or {}
   local middleware: {Types.Middleware} = spec.middleware or {}
+  local proxies, refused = Request.proxies(spec.trusted_proxy)
+  if refused ~= "" then error(refused, 2) end
+  local proxy_entries: {string}? = nil
+  if proxies ~= nil then
+    local entries: mut {string} = {}
+    for i, entry in ipairs(assert(spec.trusted_proxy)) do entries[i] = entry end
+    proxy_entries = entries
+  end
   local kept: Types.AppSpec = {
     routes = routes, middleware = middleware, lifespan = spec.lifespan,
     debug = spec.debug == true, trailing_slash = spec.trailing_slash,
-    trusted_proxy = spec.trusted_proxy == true, error_pages = spec.error_pages,
+    trusted_proxy = proxy_entries, error_pages = spec.error_pages,
     error_view = spec.error_view, sink = sink,
     builtin = spec.builtin ~= false,
     hubs = hubs, max_streams = spec.max_streams, dev = spec.dev == true,
@@ -112,8 +116,9 @@ function App.new(spec: Types.AppSpec): Types.App
     end
   end
   local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
-  local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {}, -- checked: literal_missing
-    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
+  local app: Built = { spec = kept, state = {}, router = router, handle = unbuilt, stopped = false, stoppers = {},
+    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT, serve_socket = nil,
+    serve_caps = nil, proxies = proxies }
   local function dispatch(req: Types.Request): Types.Response
     local given = req.outcome
     if given == nil and kept.builtin == true then
@@ -162,21 +167,20 @@ function App.new(spec: Types.AppSpec): Types.App
     -- its handler waits (a client that went away mid-upload) runs the
     -- pending closes of its coroutine and nothing after them. The bodies
     -- a reply streams are the server's to close.
-    local closing_mt: metatable<Closing> = { __close = function() -- checked: literal_missing
+    local _closing <close> = Defer.new(function()
       for _, body in ipairs(req.bodies) do
         local reply = answered.reply
         if reply == nil or reply.body ~= body then
           local _, _ = body:close()
         end
       end
-    end }
-    local _closing <close>: Closing = setmetatable({}, closing_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+    end)
     local ok, reply = pcall(stack, req)
     if not ok then error(reply, 0) end
     answered.reply = reply
     return reply
   end
-  return setmetatable(app, app_mt) -- checked: setmetatable_call -- untyped: call
+  return app
 end
 
 --- Runs `app` over [`Server.serve`]: its lifespan first, then the server
@@ -203,6 +207,18 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if clear == nil then clear = { Net.tcp("0.0.0.0", 80) } end
   end
   local tailnet = opts.tailnet
+  -- Through the daemon's Serve: what files its configuration once the
+  -- listener is open, and what removes the socket after (`unplace`).
+  local put_up: (function(): Tailscale.Serving?, string)? = nil
+  local unplace: function()? = nil
+  local socket: string? = nil
+  local forwarded: {string}? = nil
+  -- Refuses to serve, removing what Serve's socket left first.
+  local function declined(why: string): boolean, string
+    local undo = unplace
+    if undo ~= nil then undo() end
+    return false, why
+  end
   if tailnet ~= nil and tailnet ~= false then
     if tls ~= nil then error("web: serve takes tls or tailnet, not both", 2) end
     -- Required here, so an app that serves no tailnet loads no client of
@@ -212,24 +228,32 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if reached == nil then return false, why end
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
+    put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps
   end
   -- Every address served, `clear`'s too, for the loopback checks below.
+  -- A socket file counts as beyond the loopback here: it is how a proxy
+  -- (nginx, or the daemon's Serve and Funnel) reaches an app, so its
+  -- clients may be anywhere.
   local everywhere: mut {Net.Address} = { table.unpack(listeners) }
+  local function machine_only(address: Net.Address): boolean
+    return address.kind ~= "unix" and Net.is_loopback(address)
+  end
   for _, address in ipairs(clear or {}) do everywhere[#everywhere + 1] = address end
   if app.spec.dev == true then
-    if app.spec.trusted_proxy == true then
-      return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
+    if app.proxies ~= nil then
+      return declined("web: an app in development mode (Dev.app) cannot also have a trusted_proxy")
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
     for _, address in ipairs(everywhere) do
-      if not loopback(address) then
-        return false, "web: an app in development mode (Dev.app) serves only on the loopback"
+      if not machine_only(address) then
+        return declined("web: an app in development mode (Dev.app) serves only on the loopback, " ..
+            "never a socket file")
       end
     end
   end
   if app.spec.debug == true then
     for _, address in ipairs(everywhere) do
-      if not loopback(address) then
+      if not machine_only(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..
             "a fault shows its stack to whoever asks")
         break
@@ -242,19 +266,42 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local lifespan = app.spec.lifespan
   if lifespan ~= nil then
     local cleanup, why = lifespan(app)
-    if cleanup == nil and why ~= nil and why ~= "" then return false, why end -- checked: compare_disjoint
+    if cleanup == nil and why ~= nil and why ~= "" then return declined(why) end -- checked: compare_disjoint
     shutdown = cleanup
   end
-  local served = { ok = false, err = "" } -- checked: arms_differ
+  local served = { ok = false, err = "" }
+  local filed: Tailscale.Serving? = nil
+  local refusal = ""
+  local on_ready = opts.on_ready
+  local function ready(addresses: {Net.Address}, server: Net.Server)
+    if put_up ~= nil then
+      local made, refused = put_up()
+      if made == nil then
+        refusal = refused
+        server:stop()
+        return
+      end
+      filed = made
+      app.serve_socket = socket
+      app.serve_caps = forwarded
+    end
+    if on_ready ~= nil then on_ready(addresses, server) end
+  end
   -- TODO: once Server.ServeSpec has an `on_start` run in a task before the
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()
     served.ok, served.err = Server.serve({
       listeners = listeners, clear = clear, limits = opts.limits, tls = tls, timeout_ns = opts.timeout_ns,
       idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns,
-      grace_ns = opts.grace_ns or GRACE_NS, on_ready = opts.on_ready, handle = handle,
+      grace_ns = opts.grace_ns or GRACE_NS, on_ready = ready, handle = handle,
       on_stop = function(server: Net.Server)
         app.stopped = true
+        -- The daemon stops sending requests before those in flight drain.
+        local made = filed
+        if made ~= nil then
+          local closed, why = made:close()
+          if not closed then sink:line("tailnet: taking down the Serve configuration: " .. why) end
+        end
         for _, fn in ipairs(app.stoppers) do
           local trouble = raised_by(fn)
           if trouble ~= nil then sink:line("on_stop: " .. trouble) end
@@ -274,12 +321,21 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
       on_error = function(trouble: string) sink:line(trouble) end,
     })
   end)
+  local made = filed
+  if made ~= nil then local _, _ = made:close() end
+  app.serve_socket = nil
+  app.serve_caps = nil
+  local undo = unplace
+  if undo ~= nil then undo() end
   if shutdown ~= nil then
     local trouble = raised_by(shutdown)
     if trouble ~= nil then sink:line("lifespan cleanup: " .. trouble) end
   end
   if not ran then error(raised, 0) end
   if not served.ok then return false, served.err end
+  -- A configuration the daemon refused stops the server, which then
+  -- answers as stopped.
+  if refusal ~= "" then return false, refusal end
   return true, ""
 end
 

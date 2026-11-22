@@ -912,8 +912,8 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
       end,
       hits, run_at_ns)
     if wrote == nil then return false, module_trouble end
-    totals["hit"] = (totals["hit"] or 0) + wrote.hit
-    totals["lines"] = (totals["lines"] or 0) + wrote.lines
+    totals.hit = totals.hit + wrote.hit
+    totals.lines = totals.lines + wrote.lines
     for _, native in ipairs(sorted_native) do
       local path = native.key
       local hit_here = hits[path] or {}
@@ -927,12 +927,12 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
         for _, line in ipairs(lines) do
           if per_line[line] == true then
             flags[#flags + 1] = "1"
-            totals.hit = totals.hit + 1 -- checked: map_field*2
+            totals.hit = totals.hit + 1
           else
             flags[#flags + 1] = "0"
           end
         end
-        totals.lines = totals.lines + #lines -- checked: map_field*2
+        totals.lines = totals.lines + #lines
         local ok, write_trouble = coverage:bind_integer(1, run_at_ns)
         if ok then ok, write_trouble = coverage:bind_text(2, path) end
         if ok then
@@ -989,7 +989,7 @@ local function write_coverage(handle: Sqlite.Handle, modules: {Module},
   if not made then
     return 0, 0, trouble
   end
-  return totals.hit, totals.lines, "" -- checked: map_field*2
+  return totals.hit, totals.lines, ""
 end
 
 --- What names this checkout among the shared rows: an id made the
@@ -3170,14 +3170,13 @@ end
 
 --- What takes out the directory of a run's sealed databases when the scope
 --- it is closed in ends, an error escaping it included ([`execute`]).
-local record Removal
+local class Removal
   rec: Recording
-  __close: function(Removal)
-end
 
-local removal_mt: metatable<Removal> = { -- checked: literal_missing
-  __close = function(removal: Removal) test_key.drop_sealing(removal.rec) end,
-}
+  function __close(self)
+    test_key.drop_sealing(self.rec)
+  end
+end
 
 --- An incomplete run contributes no passes or coverage, but its completed
 --- failures disprove old passes. Keep only those tombstones after rolling
@@ -3222,7 +3221,7 @@ local function execute(ctx: Run): integer?
     -- would.
     -- Whatever ends the run, an error escaping it included, takes out
     -- the directory of its sealed databases.
-    local _removing <close>: Removal = setmetatable({ rec = rec }, removal_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+    local _removing <close>: Removal = { rec = rec }
     local opened, _ = Signal.guard()
     if opened == nil then
       run_jobs(rec, jobs, assert(ctx.limits), nil, ctx.bail, ctx.spent)

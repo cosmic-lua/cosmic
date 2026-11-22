@@ -28,6 +28,8 @@
 --- A [`Flags.Documented`] adds what a program's help holds beyond its
 --- commands -- topics, the order of its groups, the text around its
 --- index -- for [`Flags.dispatch`] and [`Flags.program_help`] alike.
+--- [`Flags.main`] runs a program's whole line with them, writing its help
+--- and refusals and answering its exit status.
 
 local Distance = require("cosmic.internal.distance")
 local Fs = require("cosmic.fs")
@@ -334,7 +336,7 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       error("flags: " .. name .. " is not an option a spec can name", 3)
     end
     local entry = spec[name]
-    if entry is Flags.Option and entry.value == "" then -- checked: is_on_record
+    if entry is Flags.Option and entry.value == "" then
       error("flags: " .. name .. "'s value name is empty", 3)
     end
   end
@@ -633,13 +635,13 @@ local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
   for _, name in ipairs(names) do
     local entry = spec[name]
     local head = name
-    local value = if entry is Flags.Option then entry.value else nil end -- checked: is_on_record
+    local value = if entry is Flags.Option then entry.value else nil end
     if value ~= nil then
       head = name .. " <" .. value .. ">"
     elseif entry == true then
       head = name .. " <value>"
     end
-    local about = if entry is Flags.Option then entry.about else nil end -- checked: is_on_record
+    local about = if entry is Flags.Option then entry.about else nil end
     if entry ~= nil and is_required(entry) then
       about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
     end
@@ -1357,6 +1359,49 @@ function Flags.dispatch(argv: {string}, from: integer,
   end
   if keeps ~= nil then parsed.rest = kept end
   return { code = run(parsed), help = "" }, ""
+end
+
+--- Runs the command line `argv`, the words after the program's name, as a
+--- program's main does, and answers its exit status. An empty line
+--- writes the program's help ([`Flags.program_help`]) to `to.out` and
+--- answers [`Flags.REFUSED`], as [`Flags.dispatch`] runs no command
+--- for one. Any other line is
+--- [`Flags.dispatch`]'s from slot 1: help it answers goes to `to.out`
+--- with the status 0, a command answers its own status, and a line it
+--- refuses is said on `to.err` with where the commands are listed, and
+--- answers [`Flags.REFUSED`]. `to` is [`Flags.std_io`]'s when nil. It
+--- raises where [`Flags.dispatch`] does.
+---
+---     return function(argv: {string}): integer
+---       return Flags.main(argv, commands, "prog", documented, Flags.std_io(function(line: string): string
+---         return "prog: " .. line
+---       end))
+---     end
+---     -- prog biuld => prog: no such command: biuld; did you mean build?
+---     --               prog: `prog help` lists the commands.
+--- @param argv {string} The command line
+--- @param commands {string:Command} Each command, by the word that names it
+--- @param program string What help calls the program
+--- @param documented Documented | nil As [`Flags.dispatch`] takes it
+--- @param to Io | nil Where it writes
+--- @return integer The exit status
+function Flags.main(argv: {string}, commands: {string:Flags.Command}, program: string,
+                    documented?: Flags.Documented, to?: Flags.Io): integer
+  local streams = to or Flags.std_io()
+  if argv[1] == nil then
+    streams.out(Flags.program_help(program, commands, documented))
+    return Flags.REFUSED
+  end
+  local ran, why = Flags.dispatch(argv, 1, commands, program, documented)
+  if ran == nil then
+    streams.err(why)
+    local listed = if documented ~= nil and documented.topics ~= nil and next(documented.topics) ~= nil
+      then "commands and topics" else "commands" end
+    streams.err("`" .. program .. " help` lists the " .. listed .. ".")
+    return Flags.REFUSED
+  end
+  if ran.help ~= "" then streams.out(ran.help) end
+  return ran.code
 end
 
 --- The standard streams: `out` writes a line to standard output as it

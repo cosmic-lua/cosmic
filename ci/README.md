@@ -13,9 +13,11 @@ names it.
 
 `bin/cosmic-bootstrap` downloads and verifies the pinned host, caching it by
 digest under `$XDG_CACHE_HOME/cosmic/bootstrap`, and tries a failed download
-again up to `COSMIC_BOOTSTRAP_ATTEMPTS` times (1 to 20, default 5); CI sets
-`COSMIC_BOOTSTRAP_VERIFY` so a cache actions/cache restored is checked against
-the pin again, and links the result to a runner path
+again up to `COSMIC_BOOTSTRAP_ATTEMPTS` times (1 to 20, default 5). Each run
+hashes the cached binary against the pin again, a cache actions/cache restored
+among them, and an entry point holds the cached release it runs to the digest it
+is named by. CI sets `COSMIC_BOOTSTRAP_VERIFY`, which refuses a stand-in, and
+links the result to a runner path
 (`$RUNNER_TEMP/bin/cosmic-driver`, which CI then puts on `PATH` via
 `GITHUB_PATH`). Each job does so through one step, the local
 `.github/actions/cosmic-driver` action, which restores that cache and
@@ -99,8 +101,10 @@ residual below:
 - `build/seeded_boot.tl`, which starts the release again to compile the
   seed (`Proc.relaunch`), and starts the repository's newest release, a
   binary it fetched, with `--standalone` on itself to ask where that
-  release's core is. That binary is not the pinned one, and nothing but the
-  release's own SHA256SUMS vouches for it.
+  release's core is (`COSMIC_BOOT_SEED=pin` keeps it to the pinned one).
+  That binary is not the pinned one, and nothing but the release's own
+  SHA256SUMS vouches for it; it is hashed again each time it is taken from
+  the cache, against a stale or poisoned cache, not a racing writer.
 - `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be
@@ -432,7 +436,7 @@ are where CI answers for everything. A branch's push runs nothing.
   day and saves none.
 
 Each job is a plain sequence of steps on one runner: none is split into
-shares, and none waits on another but the gate. One thing is relayed
+shares, and none waits on another but the gate. Three things are relayed
 between runs. The merge queue's linux-x86_64 leg, where its native suite
 passed, trims its verdicts to what it used and uploads them
 (`queue-verdicts-linux-x86_64`, kept a day); main's push of the same
@@ -444,7 +448,22 @@ main's last cache is a commit or more behind, so without them main's push
 ran its whole native suite again for the commit the queue had just
 passed. A row stands only for a test whose key is the same, so the relay
 decides how many tests stand, never whether one is right, and no step of
-it fails the leg. No other markers, products or verdicts pass between
+it fails the leg. The queue's format job, where its check passed, seals
+the memo of the tree checks (the shared rows of `build/check_memo.tl`, in
+the cache directory: `driver.tl checks-seal` keeps the rows the run used,
+in one file with no write-ahead log) and uploads it
+(`queue-checks-linux-x86_64`); main's push, which runs no format check,
+downloads it, holds it to a memo with rows, and saves it
+(`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
+check of a pull request or a queue entry restores the newest, so the tree
+checks check again only the files its rows do not answer: from cold they
+take some 3.5 minutes. The queue's suite job also uploads the compiles
+and parses it trimmed (`queue-compiles-linux-x86_64`); main's push puts
+them in place of the entry it restored and saves them at once
+(`compiles-linux-x86_64-queue-<sha>`), not as its run ends 4 to 20 minutes
+later, so a pull request or a queue entry that boots soon after a merge
+takes them rather than compiling the tree from cold (about a minute).
+No other markers, products or verdicts pass between
 runs. That costs main's run its wall clock, which no one waits on, rather
 than runner minutes. The queue, which every change waits on, is the one
 exception: its leg is two jobs (above), each the time of a boot and its
@@ -594,6 +613,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`BuildPaths.directory`]: cosmic_ci/build_paths.tl
 [`BuildPaths.driver`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
+[`cosmic_ci/checks_seal.tl`]: cosmic_ci/checks_seal.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
 [`cosmic_ci/queue_verdicts.tl`]: cosmic_ci/queue_verdicts.tl

@@ -19,10 +19,10 @@
 --- `table.insert` and the typed `Coroutine<Y, R, S>` are declarations of this ([`lang/stdlib.d.tl`]); a generic
 --- function is a value of the function types its parameters can be taken from ([`lang.relation`]).
 ---
---- **`match`.** The arms cover the lists the call answers exactly: `true` and `false` select the lists that have the
---- value at their position, a name takes the union of what the lists it selects have there, a list no arm takes is
---- `match_missing`, an arm that takes no list `match_redundant`, and a pattern that tests a position the lists do not give
---- as `true` or `false`, or names another number of values, `match_pattern`.
+--- **`match`.** The arms cover the lists the call answers exactly: `true`, `false` and `nil` select the lists that have
+--- the value at their position (`nil` the lists whose value there is never nil apart), a name takes the union of what
+--- the lists it selects have there, a list no arm takes is `match_missing`, an arm that takes no list `match_redundant`,
+--- and a pattern that tests a position the lists do not tell apart, or names another number of values, `match_pattern`.
 ---
 --- **Calls.** A method called through a union of declarations is typed when every member declares it alike once the
 --- receiver is the union, and reported (`not_callable`) otherwise. The last argument of a call may add values (a call
@@ -156,6 +156,10 @@ local record Check
     --- The names of the fields a table literal with a spread copies from its source, in the order the record declares
     --- them, by the id of the literal's node: what the code generator writes before the fields given after the spread.
     spreads: {integer: {string}}
+    --- How the code generator tests `v is R` for a record `R` that a run-time tag tells apart, by the id of the tested
+    --- type's node: the tag field and then the strings it holds in `R` (`{ "kind", "circle" }`), or `{ "" }` where `R`
+    --- is the one table the value may be, which `type(v) == "table"` tells.
+    tags: {integer: {string}}
     --- The reads of a place whose type a test narrowed, in source order: what the checker concluded, for a run
     --- that checks it ([`Check.Narrowed`]).
     narrowed: {Narrowed}
@@ -318,10 +322,17 @@ local record TieSlot
 end
 
 --- The locals a `local` statement bound to the values of one call whose lists are told apart by a first value of `true` or
---- `false` (`local ok, r = pcall(f)`): the test of the first narrows the others to the lists that first value selects.
+--- `false` (`local ok, r = pcall(f)`), or by a first value that is `nil` or is not (`local v, why = f()` of a call that
+--- answers `(T) | (nil, E)`): the test of the first narrows the others to the lists that first value selects.
 local record Tie
   --- The id of the first local, which holds the tag.
   first: integer
+  --- Whether the lists are told apart by a first value of `nil`, where the selected lists have one that is never nil,
+  --- rather than by `true` and `false`.
+  by_nil: boolean
+  --- Whether a test of the truth of the first value tells the lists apart: they are told by `true` and `false`, or by
+  --- `nil` and a value that is never `false` either. `v == nil` tells lists told by `nil` where `if v` does not.
+  truth: boolean
   --- The others, in order.
   rest: {TieSlot}
 end
@@ -365,6 +376,9 @@ local record Ctx
   fn_names: mut {integer: {string}}
   --- How many generic-call arguments are being checked: a literal there has no type to be checked against.
   mut lenient: integer
+  --- The `==` or `~=` an operand of which is being checked against the other's type: a string literal there that is no
+  --- member of an enum makes a test that is always false (or true).
+  mut comparing?: Ast.Binary
   --- Set while the arguments of a generic call are checked: a function there is held to the parameters of the type it is
   --- instantiated to, which no declaration spells, so it never drops a trailing parameter.
   mut no_drop: boolean
@@ -392,6 +406,8 @@ local record Ctx
   literals: mut {integer: Decl}
   --- The fields each table literal with a spread copies, by the id of its node.
   spreads: mut {integer: {string}}
+  --- The tests of a record by its tag, by the id of the tested type's node ([`Check.Checked`]'s `tags`).
+  tags: mut {integer: {string}}
   --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
   --- is not yet its table.
   declared: mut {Decl: boolean}
@@ -460,11 +476,19 @@ local record Ctx
   --- What the program does with the locals that hold a table literal ([`Writes.privacy`]), worked out the first time a write
   --- asks.
   mut privacy: Privacy?
+  --- The names of the fields the program writes of each table literal it gives a local, by the id of the literal's node
+  --- ([`TableLiterals.writes`]), worked out the first time a literal asks.
+  mut literal_writes: {integer: {string: boolean}}?
+  --- The records inferred for literals with named items, by the text of their fields ([`TableLiterals.inferred`]).
+  inferred: mut {string: Decl}
   --- The reads of narrowed places, by the id of the node of the read.
   narrowed: mut {integer: Check.Narrowed}
   --- The calls, by the id of the node, that run no code of the program ([`Tests.inert_callee`]): the facts about the length of
   --- an array stand through them.
   inert: mut {integer: boolean}
+  --- The comparisons, by the id of the node, that run code of the program, as a call does: of two values of a class,
+  --- which call its `__lt` or `__le`, and of two of a type parameter bounded by `Ordered`, which a class may meet.
+  runs: mut {integer: boolean}
   --- The parameters of the functions checked, by the id of the binding of the parameter.
   boundaries: mut {integer: Check.Boundary}
   --- The type of each expression typed, by the id of its node, and the warnings found.
@@ -775,6 +799,95 @@ local function accepts(ctx: Ctx, a: Type, b: Type): boolean
   return b.tag == "any" or below(ctx, a, b)
 end
 
+--- The checks of a table literal against the type it is written for, and the type it has where none is written.
+local record TableLiterals
+end
+
+--- The record inferred for a literal of named items with the fields `fields`: one record for each set of names, types
+--- and `mut`, named `__literal` and a number and shown by its fields ([`Types.inferred_record`]).
+function TableLiterals.inferred_of(ctx: Ctx, list: {Types.Field}): Type
+  local store = ctx.store
+  local fields: mut {Types.Field} = {}
+  for _, f in ipairs(list) do
+    fields[#fields + 1] = f
+  end
+  table.sort(fields, function(a: Types.Field, b: Types.Field): boolean return a.name < b.name end)
+  local function key_of(given: {Types.Field}): string
+    local out: mut {string} = {}
+    for _, f in ipairs(given) do
+      out[#out + 1] = (if f.mut == true then "mut " else "" end) .. f.name .. ":" .. tostring(f.type.id)
+    end
+    return table.concat(out, ",")
+  end
+  local key = key_of(fields)
+  local decl = ctx.inferred[key]
+  if decl == nil then
+    -- A record of the name an earlier check of the module made is this one where its fields are.
+    local count = 1
+    local found = store:find(ctx.input.module, "__literal1")
+    while found ~= nil do
+      local body = found.body
+      if body ~= nil and found.inferred == true and key_of(body.fields) == key then
+        break
+      end
+      count = count + 1
+      found = store:find(ctx.input.module, "__literal" .. tostring(count))
+    end
+    if found ~= nil then
+      decl = found
+    else
+      decl = store:declare("record", ctx.input.module, { "__literal" .. tostring(count) }, 0)
+      decl.inferred = true
+      store:define(decl, { tparams = {}, supers = {}, fields = fields, methods = {}, values = {} })
+    end
+    ctx.inferred[key] = decl
+  end
+  return store:named(decl, {}, false)
+end
+
+--- The record two or more inferred records `list` join to: each field of any of them, of the join of its types, and
+--- nilable where one of them lacks it; `mut` where each has it `mut` of one type. Nil where two types of a field have
+--- no join.
+function TableLiterals.inferred_join(ctx: Ctx, list: {Type}, join_of: function({Type}): Type?): Type?
+  local names: mut {string} = {}
+  local types: mut {string: mut {Type}} = {}
+  local muts: mut {string: integer} = {}
+  for _, t in ipairs(list) do
+    if not ((t.tag == "named") and not t.value and Types.inferred_record(t.decl)) then
+      return nil
+    end
+    for _, f in ipairs(assert(t.decl.body, "an inferred record is defined where it is made").fields) do
+      local held: mut {Type} = types[f.name] or {}
+      if types[f.name] == nil then
+        types[f.name] = held
+        names[#names + 1] = f.name
+      end
+      held[#held + 1] = f.type
+      if f.mut == true then
+        muts[f.name] = (muts[f.name] or 0) + 1
+      end
+    end
+  end
+  local fields: mut {Types.Field} = {}
+  for _, name in ipairs(names) do
+    local held = assert(types[name])
+    local joined = join_of(held)
+    if joined == nil then
+      return nil
+    end
+    local every = #held == #list
+    if not every then
+      joined = ctx.store:optional(joined)
+    end
+    local same = true
+    for _, t in ipairs(held) do
+      same = same and t == joined
+    end
+    fields[#fields + 1] = { name = name, type = joined, mut = every and same and muts[name] == #list, omittable = false }
+  end
+  return TableLiterals.inferred_of(ctx, fields)
+end
+
 --- The type every type of `list` is below, or nil where there is none. A `nil` in the list makes the answer
 --- optional; `never` is ignored; an empty list is `never`.
 local function join(ctx: Ctx, list: {Type}): Type?
@@ -800,7 +913,20 @@ local function join(ctx: Ctx, list: {Type}): Type?
   end
   for _, t in ipairs(list) do
     if t.tag ~= "nil" and t.tag ~= "never" and not below(ctx, t, best) then
-      return nil
+      -- Records inferred for literals of named items join to one with the fields of each.
+      local records: mut {Type} = {}
+      for _, r in ipairs(list) do
+        if r.tag ~= "nil" and r.tag ~= "never" then
+          records[#records + 1] = r
+        end
+      end
+      local merged = TableLiterals.inferred_join(ctx, records, function(types: {Type}): Type?
+        return join(ctx, types)
+      end)
+      if merged == nil then
+        return nil
+      end
+      return if saw_nil then store:optional(merged) else merged end
     end
   end
   return saw_nil and store:optional(best) or best -- checked: and_ternary
@@ -1085,6 +1211,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   local s = subject(ctx, node)
   local g, w = show(ctx, got), named or show(ctx, want)
   local shown = { g, w }
+  local alternatives = r.alternatives
+  local only = if alternatives ~= nil and #alternatives == 1 then alternatives[1] else nil end
+  if r.code == "union_none" and only ~= nil and (r.sub.tag == "named") and Types.inferred_record(r.sub.decl) then
+    -- A record inferred for a literal, where one record or nil is wanted: why that record refuses it is the reason.
+    r = only
+  end
   local code = r.code
   local from, into = r.sub, r.super
   if code ~= "declaration_value" then
@@ -1211,16 +1343,55 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   else
     local leaf = ""
     if code == "invariant_generic" then
-      -- The arguments may well be related (`integer` is below `number`): the uses differ because a declaration's
-      -- arguments must be the same types.
+      -- The arguments may well be related (`integer` is below `number`): the uses differ because the declaration both
+      -- reads and writes that argument.
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " and " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
-        " are two types, and a declaration's type arguments must be the same: " .. quoted(g) .. " is no " .. quoted(w) .. ")"
-    elseif r.sub ~= got or r.super ~= want then
+        " are two types, and a type argument the declaration both reads and writes (by a `mut` field, a `mut` " ..
+        "collection or a map's key) must be the same: " .. quoted(g) .. " is no " .. quoted(w) .. ")"
+    elseif (r.sub ~= got or r.super ~= want) and not (code == "not_listed" and (r.sub.tag == "named") and
+        Types.inferred_record(r.sub.decl)) then
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " is not below " ..
         quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) .. ")"
     end
     local fix = "pass a value of type " .. quoted(w) .. ", or change the declaration to " .. quoted(g)
+    local inferred = if (r.sub.tag == "named") and not r.sub.value then Types.inferred_record(r.sub.decl) else false end
+    if inferred and code == "nominal" then
+      -- A record inferred for a literal is below a record of the same fields, and no class: a class's values are made
+      -- by a literal written against it.
+      local sup = r.super
+      local extra: string? = nil
+      local mine = if (r.sub.tag == "named") then r.sub.decl.body else nil end
+      local theirs = if (sup.tag == "named") and sup.decl.kind == "record" then sup.decl.body else nil end
+      if mine ~= nil and theirs ~= nil then
+        local declared: mut {string: boolean} = {}
+        for _, f in ipairs(theirs.fields) do
+          declared[f.name] = true
+        end
+        for _, f in ipairs(mine.fields) do
+          if extra == nil and declared[f.name] ~= true then
+            extra = f.name
+          end
+        end
+      end
+      fix = (if extra ~= nil then "remove `" .. extra .. "`, which " .. quoted(Types.display(sup, ctx.binders, ctx.fn_names)) ..
+          " has no field of, or " else "" end) .. "write the literal against " .. quoted(w) .. " where it is made (`local v: " ..
+        w .. " = { ... }`)"
+    end
     local held = where:match("^ in the assignment to `([%a_][%w_]*)`$")
+    local text_wanted = want == ctx.store.string
+    if not text_wanted and (want.tag == "union") then
+      -- `string?` wants a text as well.
+      text_wanted = true
+      for _, m in ipairs(members_of(ctx.store, want)) do
+        if m ~= ctx.store.string and m.tag ~= "nil" then
+          text_wanted = false
+        end
+      end
+    end
+    if text_wanted and Types.declares_method(got, "__tostring") then
+      -- A class value with a text of its own (a [`cosmic.failure`]) is no string, and `tostring` gives its text.
+      fix = "pass its text, `tostring(" .. text_of(ctx, node) .. ")`, or change the declaration to " .. quoted(g)
+    end
     if want.tag == "nil" and held ~= nil then
       -- A local given `nil` and no type holds nil alone (`local x = nil`).
       fix = "declare `" .. held .. "` optional where it is made: `local " .. held .. ": " .. g ..
@@ -1270,6 +1441,25 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
           " has no field " end) .. quoted(written) .. ", which " .. quoted(Types.display(r.super, ctx.binders,
             ctx.fn_names)) .. " declares)"
         fix = "declare `" .. written .. "` in " .. sub .. ", as the interface does, or pass a value that has it"
+        if (r.sub.tag == "named") and Types.inferred_record(r.sub.decl) then
+          local record = Types.display(r.super, ctx.binders, ctx.fn_names)
+          local name = text_of(ctx, e)
+          local against = "write the literal against " .. quoted(record) .. " where it is made (`local " ..
+            (if name:match("^[%a_][%w_]*$") then name else "v" end) .. ": " .. record .. " = { ... }`)"
+          fix = "give `" .. field.name .. "` in the literal as " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
+            " declares it, or " .. against
+          if field.mut == true then
+            -- A write through the record wanted would change, or add, a field that the literal's own record holds fixed.
+            fix = against .. ": a write of `" .. field.name .. "` through " .. quoted(record) ..
+              " would change a record whose type does not let it"
+            if r.has_name == true and field.omittable ~= true and name:match("^[%a_][%w_]*$") ~= nil then
+              -- Its own writes make the literal's field `mut`, of the type of its value.
+              fix = fix .. "; or give `" .. field.name .. "` a value of exactly " .. quoted(Types.display(
+                ctx.store:non_nil(field.type), ctx.binders, ctx.fn_names)) .. " and assign it through `" .. name ..
+                "`, which makes it `mut`"
+            end
+          end
+        end
       else
         fix = "pass a record, class or interface that has the interface's fields, or one that lists it with `is`"
       end
@@ -1371,8 +1561,7 @@ local function module_value(ctx: Ctx, node: Ast.Node, name: string): Type
     return ctx.invalid
   end
   local info = program.modules[name]
-  local provider = program.provider
-  if info == nil and provider ~= nil and provider(program, name) then
+  if info == nil and program.provider ~= nil and program:provider(name) then
     info = program.modules[name]
   end
   if info == nil then
@@ -1527,8 +1716,13 @@ local function string_value(ctx: Ctx, node: Ast.Node, value: string, expected: T
     end
     shown[#shown + 1] = quoted(string.format("%q", v))
   end
+  local test = ctx.comparing
+  local always = ""
+  if test ~= nil and (peel(test.left) == node or peel(test.right) == node) then
+    always = ", so the test is always " .. (if test.op == "==" then "false" else "true" end)
+  end
   report(ctx, "enum_member", node, quoted(string.format("%q", value)) .. " is not a member of " .. tq(ctx, expected) ..
-      (if close ~= "" then ", nearest " .. quoted(string.format("%q", close)) else "" end),
+      (if close ~= "" then ", nearest " .. quoted(string.format("%q", close)) else "" end) .. always,
     "write " .. listed(shown), { show(ctx, expected) })
   return ctx.invalid
 end
@@ -1576,19 +1770,55 @@ local function vararg_rest(ctx: Ctx, e: Ast.Node): Type
   return rest
 end
 
+--- Names that bind the values of a call answering `alts`, as a fix spells them: two at least, as many as the longest
+--- list has; `ok` for a first value of `true` or `false`, `v` otherwise, then `why` for a second and `v3`, `v4`, ... for
+--- the rest; `_` in place of each when `discard` is true.
+function Naming.bound(alts: {Alt}, discard?: boolean): string
+  local width, tagged = 2, false
+  for _, alt in ipairs(alts) do
+    width = math.max(width, #alt.items)
+    local first = alt.items[1]
+    tagged = tagged or (first ~= nil and (first.tag == "true" or first.tag == "false"))
+  end
+  local out: mut {string} = {}
+  for i = 1, width do
+    local name = "v" .. tostring(i)
+    if i == 1 then
+      name = if tagged then "ok" else "v" end
+    elseif i == 2 then
+      name = "why"
+    end
+    out[i] = if discard == true then "_" else name end
+  end
+  return table.concat(out, ", ")
+end
+
+--- The call `node` as a fix spells it: its text, or its callee and `(...)` where the text is too long to show whole.
+function Naming.call(ctx: Ctx, node: Ast.Node): string
+  local text = text_of(ctx, node)
+  if text:sub(-3) == "..." then
+    local open = text:find("(", 1, true)
+    if open ~= nil then
+      return text:sub(1, open) .. "...)"
+    end
+  end
+  return text
+end
+
 --- The one value a call answering `alts` gives where a value is wanted.
 local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
     return ctx.store.never
   elseif #alts > 1 then
-    local call = text_of(ctx, node)
+    local call = Naming.call(ctx, node)
     local raises = ""
     if ctx.filename:sub(-8) == "_test.tl" and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
       raises = "; to check that a call raises, `Test.raises(function() f(x) end, says?)` runs it and answers the message it raised"
     end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
-      "match the call: `match " .. call .. " do | (true, v) then ... end`" .. raises)
+      "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`), or match the call: `match " ..
+        call .. " do | ... end`" .. raises)
     return ctx.invalid
   end
   local alt = alts[1]
@@ -1660,10 +1890,6 @@ local function type_names(ctx: Ctx, types: {Type}): {string}
 end
 
 -- Table literals ----------------------------------------------------------------------------
-
---- The checks of a table literal against the type it is written for, and the type it has where none is written.
-local record TableLiterals
-end
 
 --- Checks the values of the items of a literal that has no shape to be checked against, so that what is in them
 --- is checked.
@@ -1741,6 +1967,44 @@ function TableLiterals.differ_fix(ctx: Ctx, all: {Type}): string
 end
 
 --- A literal with no type expected: an array or a map of the join of its items.
+--- `t` with each string literal type among its members made the enum of `from` that holds its string, or `string`:
+--- what a place that a program may write another string to holds, where a test had narrowed the value it starts with
+--- (`local cur = s` after `s == "x"`). `from` is the declared type of the place the value was read from.
+function TableLiterals.widened(ctx: Ctx, t: Type, from?: Type): Type
+  local members = members_of(ctx.store, t)
+  local changed = false
+  local out: mut {Type} = {}
+  local enums: mut {Types.Named} = {}
+  if from ~= nil then
+    for _, m in ipairs(members_of(ctx.store, from)) do
+      if (m.tag == "named") and not m.value and m.decl.kind == "enum" and Types.literal_value(m) == nil then
+        enums[#enums + 1] = m
+      end
+    end
+  end
+  for _, m in ipairs(members) do
+    local value = Types.literal_value(m)
+    if value ~= nil then
+      local wide = ctx.store.string
+      for _, e in ipairs(enums) do
+        local body = e.decl.body
+        if body ~= nil then
+          for _, v in ipairs(body.values) do
+            if v == value then
+              wide = e
+            end
+          end
+        end
+      end
+      out[#out + 1] = wide
+      changed = true
+    else
+      out[#out + 1] = m
+    end
+  end
+  return if changed then ctx.store:union(out) else t end
+end
+
 function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
   local store = ctx.store
   local items = e.items
@@ -1781,18 +2045,22 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
         "use a map `{integer: T}` for sparse data, or keep the missing element out", { show(ctx, element) })
       return ctx.invalid
     end
-    return store:array(element, true)
+    return store:array(TableLiterals.widened(ctx, element), true)
   end
   local keys: mut {Type} = {}
   local values: mut {Type} = {}
   for _, item in ipairs(items) do
     if (item.kind == "Named") then
       keys[#keys + 1] = store.string
-      values[#values + 1] = expr(ctx, item.value, nil)
+      values[#values + 1] = TableLiterals.widened(ctx, expr(ctx, item.value, nil))
     elseif (item.kind == "Keyed") then
-      keys[#keys + 1] = expr(ctx, item.key, nil)
-      values[#values + 1] = expr(ctx, item.value, nil)
+      keys[#keys + 1] = TableLiterals.widened(ctx, expr(ctx, item.key, nil))
+      values[#values + 1] = TableLiterals.widened(ctx, expr(ctx, item.value, nil))
     end
+  end
+  if shape == "named" then
+    -- Named items are the fields of a record the literal makes, inferred from their values.
+    return TableLiterals.inferred(ctx, e, values)
   end
   local key = join(ctx, keys)
   local value = join(ctx, values)
@@ -1817,6 +2085,145 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
     return ctx.invalid
   end
   return store:map(key, value, true)
+end
+
+--- The fix for a field `name` that the record `t` inferred for a literal lacks: give it in the literal, or declare a type.
+function TableLiterals.declare_fix(ctx: Ctx, t: Type, name: string): string
+  return "give " .. quoted(name) .. " in the literal (`" .. name .. " = ...`), or declare a record or a map " ..
+    "(`{string: T}`) for the value and write the literal against it, as " .. tq(ctx, t) .. " has only the fields the " ..
+    "literal names"
+end
+
+--- Reports the write of the field `name` of `base`, a record inferred for a literal, that the program does not write
+--- through the local the literal is given to, which alone makes a field `mut`.
+function TableLiterals.fixed(ctx: Ctx, target: Ast.Node, base: Type, name: string)
+  report(ctx, "field_fixed", target, "the field " .. quoted(name) .. " of " .. tq(ctx, base) .. ", a record inferred for a " ..
+      "literal, is fixed: a field is `mut` where the program writes it through the local the literal is given to",
+    "write it through that local (`local p = { ... }` then `p." .. name .. " = v`), or declare a record with `mut " ..
+      name .. "` and write the literal against it", { show(ctx, base) })
+end
+
+--- The names of the fields the program writes of each table literal it gives a local, by the id of the literal's
+--- node: `p.x = v` (or `p["x"] = v`) writes `x` of the literal of `local p = { ... }`, and `p.at.x = v` writes `x` of
+--- the literal given as `at` in it. A field of a record inferred from a literal is `mut` where it is written so.
+function TableLiterals.writes(ctx: Ctx): {integer: {string: boolean}}
+  local held = ctx.literal_writes
+  if held ~= nil then
+    return held
+  end
+  -- The paths written through each local, `at.x` for `p.at.x = v`, by the id of the local's binding.
+  local paths: mut {integer: mut {string: boolean}} = {}
+  local bound: mut {integer: Ast.Table} = {}
+  local function path_of(target: Ast.Exp): integer, string
+    local names: mut {string} = {}
+    local at = peel(target)
+    while true do
+      if (at.kind == "Field") then
+        table.insert(names, 1, at.name)
+        at = peel(at.object)
+      elseif (at.kind == "Index") and (peel(at.key).kind == "String") then
+        local key = peel(at.key)
+        table.insert(names, 1, if (key.kind == "String") then key.value else "" end)
+        at = peel(at.object)
+      else
+        break
+      end
+    end
+    local id = if (at.kind == "Name") then at.binding else nil end
+    if id ~= nil and #names > 0 then
+      return id, table.concat(names, ".")
+    end
+    return 0, ""
+  end
+  local waiting: mut {Ast.Node} = { ctx.input.chunk }
+  while #waiting > 0 do
+    local node = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if (node.kind == "Local") then
+      for i, binding in ipairs(node.bindings) do
+        local value = node.values[i]
+        if value ~= nil and (peel(value).kind == "Table") then
+          local literal = peel(value)
+          if (literal.kind == "Table") then
+            bound[binding.id] = literal
+          end
+        end
+      end
+    elseif (node.kind == "Assign") then
+      for _, target in ipairs(node.targets) do
+        local id, path = path_of(target)
+        if id ~= 0 then
+          local set: mut {string: boolean} = paths[id] or {}
+          paths[id] = set
+          set[path] = true
+        end
+      end
+    end
+    Ast.children(node, function(child: Ast.Node)
+      waiting[#waiting + 1] = child
+    end)
+  end
+  local made: mut {integer: {string: boolean}} = {}
+  local function mark(literal: Ast.Table, written: {string: boolean}, prefix: string)
+    local names: mut {string: boolean} = {}
+    for _, item in ipairs(literal.items) do
+      if (item.kind == "Named") then
+        local path = prefix .. item.name
+        if written[path] == true then
+          names[item.name] = true
+        end
+        local inner = peel(item.value)
+        if (inner.kind == "Table") then
+          mark(inner, written, path .. ".")
+        end
+      end
+    end
+    made[literal.id] = names
+  end
+  for id, literal in pairs(bound) do
+    mark(literal, paths[id] or {}, "")
+  end
+  ctx.literal_writes = made
+  return made
+end
+
+--- The record a literal of named items `e` makes, its values of the types `values`: a field for each item, of the
+--- type of its value, `mut` where the program writes it ([`TableLiterals.writes`]). Two literals with fields of the
+--- same names, types and `mut` make one record, named `__literal` and a number and shown by its fields (`{ x: integer, y: integer }`), so that values
+--- made at two places join.
+function TableLiterals.inferred(ctx: Ctx, e: Ast.Table, values: {Type}): Type
+  local written = TableLiterals.writes(ctx)[e.id] or {}
+  local fields: mut {Types.Field} = {}
+  local seen: mut {string: boolean} = {}
+  local failed = false
+  for i, item in ipairs(e.items) do
+    local t = values[i]
+    if (item.kind == "Named") and t ~= nil then
+      if seen[item.name] == true then
+        -- `literal_repeated` reports the second; the record has the first.
+        failed = failed
+      elseif t.tag == "invalid" then
+        failed = true
+      elseif t.tag == "nil" or t.tag == "never" then
+        report(ctx, "literal_needs_type", item, "the field " .. quoted(item.name) .. " of this literal is " .. tq(ctx, t) ..
+            ", which says no type for it",
+          "declare a record with the field (`" .. item.name .. "?: T`) and write the literal against it")
+        failed = true
+      elseif t.open > 0 then
+        report(ctx, "literal_needs_type", item, "the field " .. quoted(item.name) .. " of this literal is " .. tq(ctx, t) ..
+            ", a type parameter, which a record inferred from a literal cannot hold",
+          "declare a generic record (`record R<T> ... end`) or a map type, and write the literal against it")
+        failed = true
+      else
+        seen[item.name] = true
+        fields[#fields + 1] = { name = item.name, type = t, mut = written[item.name] == true, omittable = false }
+      end
+    end
+  end
+  if failed then
+    return ctx.invalid
+  end
+  return TableLiterals.inferred_of(ctx, fields)
 end
 
 --- An item of the wrong shape for what the literal is checked against.
@@ -1971,9 +2378,9 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     if why == "" then
       ctx.literals[e.id] = n.decl
       if ctx.load.waiting > 0 then
-        -- Lua runs the two metamethods a class admits by itself, at a `tostring` or the end of a `<close>` local, on any value
-        -- the literals make: the value is mentioned with them.
-        for _, meta in ipairs({ "__tostring", "__close" }) do
+        -- Lua runs the metamethods a class admits by itself, at a `tostring`, the end of a `<close>` local or a comparison, on
+        -- any value the literals make: the value is mentioned with them.
+        for _, meta in ipairs({ "__tostring", "__close", "__lt", "__le" }) do
           LoadOrder.mention(ctx.load, ctx.within, e, LoadOrder.of_static(n.decl, meta, quoted(n.decl.name .. "." .. meta)))
         end
       end
@@ -1984,7 +2391,7 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     end
   end
   local given: mut {string: boolean} = {}
-  local owner = quoted(n.decl.name)
+  local owner = if Types.inferred_record(n.decl) then tq(ctx, n) else quoted(n.decl.name) end
   local array_part = index.array
   local shaped = true
   -- A spread, which `spread_literal` (in [`table_literal`]) has checked, gives every field the items after it do not.
@@ -2005,7 +2412,12 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
         given[name] = true
         local want = put_in(ctx, n, field.type)
         local v = expr(ctx, value, want)
-        local _ = expect(ctx, value, v, want, " as the field " .. quoted(name) .. " of " .. owner)
+        -- A field of the language's `metatable` declared `any` (`__index`, `__newindex`) is read by Lua alone, which
+        -- takes any value there, as a parameter declared `any` does.
+        local lua_reads = n.decl.name == "metatable" and #n.decl.names == 1 and #n.args == 1 and
+          (n.decl.module == "lang.prelude" or n.decl.module == "checker.prelude")
+        local _ = (if lua_reads then expect_argument else expect end)(ctx, value, v, want,
+          " as the field " .. quoted(name) .. " of " .. owner)
       end
       if field == nil and value ~= nil then
         ctx.lenient = ctx.lenient + 1
@@ -2511,6 +2923,14 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     return
   end
   local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t) -- checked: and_ternary
+  if (t.tag == "named") and not t.value and Types.inferred_record(t.decl) then
+    local close = nearest(name, names_of(ctx, t))
+    report(ctx, "field_unknown", node, tq(ctx, t) .. ", the record inferred for a literal, has no field " .. quoted(name) ..
+        (if close ~= "" then ", nearest " .. quoted(close) else "" end),
+      (if close ~= "" then "write " .. quoted(close) .. ", or " else "" end) .. TableLiterals.declare_fix(ctx, t, name),
+      { show(ctx, t) })
+    return
+  end
   if (t.tag == "named") and t.decl.kind == "integer_enum" and not t.value then
     report(ctx, "field_unknown", node, owner .. " is an integer enum, whose values are integers and have no fields: " ..
         quoted(name) .. " is not one",
@@ -2917,6 +3337,20 @@ local BITWISE <const>: {string: boolean} = { ["&"] = true, ["|"] = true, ["~"] =
 local ORDERED <const>: {string: boolean} = { ["<"] = true, [">"] = true, ["<="] = true, [">="] = true }
 
 --- Reports that the operand `node`, of type `t`, is not what `op` takes.
+--- The fix for the class `class` held against `Ordered`: the comparison methods it does not declare.
+function Operands.compare_fix(ctx: Ctx, class: Type): string
+  local shown = show(ctx, class)
+  local lt = Types.declares_method(class, "__lt")
+  local le = Types.declares_method(class, "__le")
+  local missing = if lt then "__le" elseif le then "__lt" else nil end
+  if missing ~= nil then
+    return "declare `function " .. missing .. "(self, other: " .. shown .. "): boolean` in " .. tq(ctx, class) .. ": it declares `" ..
+      (if lt then "__lt" else "__le" end) .. "`, and `Ordered` takes a class that declares both"
+  end
+  return "declare `function __lt(self, other: " .. shown .. "): boolean` and `function __le(self, other: " .. shown ..
+    "): boolean` in " .. tq(ctx, class) .. ", or pass numbers or strings"
+end
+
 function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, takes: string, fix: string)
   local s = subject(ctx, node)
   if t.tag == "any" then
@@ -2933,7 +3367,7 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
       bound = "Numeric"
     end
     local bound_fix = if bound ~= nil then "bound " .. quoted(name) .. " by `" .. bound .. "` where it is declared (`<" .. name ..
-        " is " .. bound .. ">`): " .. (if bound == "Ordered" then "a number type or a string type meets it, and `<` " ..
+        " is " .. bound .. ">`): " .. (if bound == "Ordered" then "a number type, a string type, or a class that declares `__lt` and `__le` meets it, and `<` " ..
             "compares two values of " .. quoted(name) else "`integer` and `number` meet it, and arithmetic of two values of " ..
             quoted(name) .. " answers " .. quoted(name) end) else
       "convert the value first, or declare the parameter with the type " .. quoted(op) .. " takes: no bound declares it" end
@@ -3303,10 +3737,10 @@ local record Tests
   by_kind: function(ctx: Ctx, cur: Type, kind: string, keep: boolean): Type
   keep_is: function(ctx: Ctx, cur: Type, tested: Type): Type
   drop_is: function(ctx: Ctx, cur: Type, tested: Type): Type
+  by_literal: function(ctx: Ctx, cur: Type, lit: string, keep: boolean): Type
+  record_tag: function(ctx: Ctx, value: Type, r: Type): {string}?
   --- Adds the warning `code` on the tokens of `node`; none in a pass that reports nothing.
   warn: function(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, fix: string)
-  --- Reports `type(x) == "name"` where `type` never answers the name.
-  type_name: function(ctx: Ctx, node: Ast.Binary)
   --- Reports `(x) is T` where `x` is a place, which the parentheses make a value.
   parenthesized: function(ctx: Ctx, node: Ast.IsTest)
   --- The place `e` counts, if `e` is `#place` and the place holds an array.
@@ -3352,34 +3786,6 @@ function Tests.warn(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, 
   end
   local b = base_of(node)
   Warnings.add(ctx.warnings, ctx.filename, ctx.tokens, code, b.first, b.last, msg, fix)
-end
-
-function Tests.type_name(ctx: Ctx, node: Ast.Binary)
-  local left, right = peel(node.left), peel(node.right)
-  local call: Ast.Call? = nil
-  local name: Ast.String? = nil
-  if (left.kind == "Call") and (right.kind == "String") then
-    call, name = left, right
-  elseif (right.kind == "Call") and (left.kind == "String") then
-    call, name = right, left
-  end
-  if call == nil or name == nil then
-    return
-  end
-  local callee = call.callee
-  if not ((callee.kind == "Name")) or callee.text ~= "type" or #call.args ~= 1 then
-    return
-  end
-  local answers = { "nil", "boolean", "number", "string", "table", "function", "thread", "userdata" }
-  for _, each in ipairs(answers) do
-    if each == name.value then
-      return
-    end
-  end
-  report(ctx, "type_name", name, "`type` never answers \"" .. name.value .. "\": it answers " ..
-      table.concat(answers, ", ", 1, #answers - 1) .. " or " .. answers[#answers] .. ", so the test is always " .. -- checked: nil_not_allowed
-      (if node.op == "==" then "false" else "true" end),
-    "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\", and `x is T` tests a type declared in the program")
 end
 
 function Tests.parenthesized(ctx: Ctx, node: Ast.IsTest)
@@ -3489,6 +3895,38 @@ function Tests.table_members(ctx: Ctx, t: Type): {Type}?
     elseif kind == "table" then
       out[#out + 1] = m
     end
+  end
+  return out
+end
+
+--- How a run-time test tells that a value of type `value` is the record `r`: `{ "" }` where `r` is the one table `value`
+--- may be, the tag field and its strings in `r` where a tag tells the tables apart, or nil where no test can tell (a
+--- table of another kind, `any`, a type variable, a record with type arguments, which no tag tells).
+function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
+  if not ((r.tag == "named")) or r.value or #r.args > 0 then
+    return nil
+  end
+  local tables = Tests.table_members(ctx, value)
+  if tables == nil then
+    return nil
+  end
+  local found = false
+  for _, m in ipairs(tables) do
+    found = found or m == r
+  end
+  if not found then
+    return nil
+  elseif #tables == 1 then
+    return { "" }
+  end
+  local field = Tests.tag_field(ctx, tables)
+  local values = if field ~= nil then Tests.tag_values(ctx, r, field) else nil end
+  if field == nil or values == nil then
+    return nil
+  end
+  local out: mut {string} = { field }
+  for _, v in ipairs(values) do
+    out[#out + 1] = v
   end
   return out
 end
@@ -3646,8 +4084,28 @@ function Tests.drop_is(ctx: Ctx, cur: Type, tested: Type): Type
   end
   local store = ctx.store
   local out: mut {Type} = {}
+  local strings = Tests.enum_strings(ctx, tested)
   for _, m in ipairs(members_of(store, cur)) do
-    if m.tag == "invalid" or not below(ctx, m, tested) then
+    local body = if (m.tag == "named") and not m.value and m.decl.kind == "enum" then m.decl.body else nil end
+    if body ~= nil and strings ~= nil and not below(ctx, m, tested) then
+      -- An enum keeps the strings the tested type does not hold, each as its literal type.
+      local dropped: mut {string: boolean} = {}
+      for _, v in ipairs(strings) do
+        dropped[v] = true
+      end
+      local kept: mut {Type} = {}
+      for _, v in ipairs(body.values) do
+        if dropped[v] ~= true then
+          kept[#kept + 1] = Types.literal(store, v)
+        end
+      end
+      out[#out + 1] = if #kept == #body.values then m else store:union(kept) end
+    elseif m == store.boolean and not below(ctx, m, tested) and below(ctx, store:atom("true"), tested) then
+      -- `boolean` is `true | false`: a test of one leaves the other.
+      out[#out + 1] = store:atom("false")
+    elseif m == store.boolean and not below(ctx, m, tested) and below(ctx, store:atom("false"), tested) then
+      out[#out + 1] = store:atom("true")
+    elseif m.tag == "invalid" or not below(ctx, m, tested) then
       out[#out + 1] = m
     end
   end
@@ -3904,6 +4362,8 @@ function Tests.has_call(ctx: Ctx, node: Ast.Node): boolean
     waiting[#waiting] = nil
     if (at.kind == "Call" or at.kind == "MethodCall") and ctx.inert[at.id] ~= true then
       found = true
+    elseif (at.kind == "Binary") and ctx.runs[at.id] == true then
+      found = true
     elseif at.kind ~= "FunctionLit" then
       -- A function made here runs when it is called, and that call is a call.
       Ast.children(at, wait)
@@ -3972,6 +4432,23 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
       local array_part = index ~= nil and index.array or nil -- checked: and_ternary
       if array_part ~= nil and below(ctx, k, store.integer) then
         return store:optional(put_in(ctx, t, array_part))
+      end
+      local body = t.decl.body
+      if not t.value and Types.inferred_record(t.decl) and body ~= nil and below(ctx, k, store.string) then
+        -- A record inferred for a literal reads as a map of strings to its fields: a key it lacks reads nil.
+        local values: mut {Type} = {}
+        for _, f in ipairs(body.fields) do
+          values[#values + 1] = store:non_nil(f.type)
+        end
+        local value = join(ctx, values)
+        if value ~= nil then
+          return store:optional(value)
+        end
+        report(ctx, "record_index", node, subject(ctx, node.key) .. " is " .. tq(ctx, k) .. ", and the fields of " ..
+            tq(ctx, t) .. " have no common type for a read by a key",
+          "write the field (`" .. text_of(ctx, node.object) .. ".field`), or declare the literal a map `{string: T}` " ..
+            "where it is made", { show(ctx, k) })
+        return ctx.invalid
       end
       report(ctx, "record_index", node, subject(ctx, node.key) .. " is " .. tq(ctx, k) .. ", which names no field of " ..
           tq(ctx, t) .. ": a record is not a map",
@@ -4063,6 +4540,66 @@ function Narrowing.tag_edges(ctx: Ctx, f: Flow.State, field: Ast.Field, lit: str
   return Narrowing.when_true(f, p, store:union(yes)), after
 end
 
+--- What a value of type `cur` is where a test says it is the string `lit` (`keep`) or is not: an enum that holds `lit`
+--- splits into the literal type of `lit` and the literal types of its other values, and `string` holds `lit` and the
+--- rest. A member that cannot be a string stays where the test fails, and a member the test says nothing of stays in both.
+function Tests.by_literal(ctx: Ctx, cur: Type, lit: string, keep: boolean): Type
+  if cur.tag == "invalid" then
+    return cur
+  end
+  local store = ctx.store
+  local out: mut {Type} = {}
+  for _, m in ipairs(members_of(store, cur)) do
+    local body = if (m.tag == "named") and not m.value and m.decl.kind == "enum" then m.decl.body else nil end
+    if body ~= nil then
+      local holds = false
+      for _, v in ipairs(body.values) do
+        holds = holds or v == lit
+      end
+      if keep and holds then
+        out[#out + 1] = Types.literal(store, lit)
+      elseif not keep and not holds then
+        out[#out + 1] = m
+      elseif not keep then
+        for _, v in ipairs(body.values) do
+          if v ~= lit then
+            out[#out + 1] = Types.literal(store, v)
+          end
+        end
+      end
+    elseif m.tag == "string" then
+      out[#out + 1] = if keep then Types.literal(store, lit) else m end
+    elseif m.atom == true and m.tag ~= "any" and m.tag ~= "invalid" then
+      -- A number, a boolean or nil is no string.
+      if not keep then
+        out[#out + 1] = m
+      end
+    elseif (m.tag == "array") or (m.tag == "map") or (m.tag == "fn") or ((m.tag == "named") and m.decl.kind ~= "userdata") then
+      if not keep then
+        out[#out + 1] = m
+      end
+    else
+      out[#out + 1] = m
+    end
+  end
+  return store:union(out)
+end
+
+--- The edges of `x == "lit"` for a place `x` whose type holds strings: each edge has it as [`Tests.by_literal`] leaves it.
+function Narrowing.literal_edges(ctx: Ctx, yes: Flow.State, no: Flow.State, operand: Ast.Node, lit: string): Flow.State, Flow.State
+  local p = place_of(ctx, yes, operand)
+  local q = place_of(ctx, no, operand)
+  if p == nil or q == nil then
+    return yes, no
+  end
+  local before = current(yes, p)
+  if Tests.enum_strings(ctx, before) == nil and not below(ctx, ctx.store.string, before) then
+    return yes, no
+  end
+  return Narrowing.when_true(yes, p, Tests.by_literal(ctx, before, lit, true)),
+    Narrowing.narrowed_flow(no, q, Tests.by_literal(ctx, current(no, q), lit, false))
+end
+
 --- The edges of `type(x) == "kind"`.
 function Narrowing.type_edges(ctx: Ctx, f: Flow.State, call: Ast.Call, kind: string): Flow.State, Flow.State
   local callee = call.callee
@@ -4087,6 +4624,11 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     if p ~= nil then
       local cur = current(f, p)
       yes, no = Narrowing.when_true(f, p, Tests.nil_of(ctx, cur)), Narrowing.narrowed_flow(f, p, Tests.not_nil_of(ctx, cur))
+      -- `v == nil` of the first local of a tie told by `nil` selects the lists of the others.
+      local tied_present, tied_nil = Narrowing.tie_edges(ctx, f, if r.kind == "Nil" then l else r end, no, yes, true)
+      if tied_present ~= nil and tied_nil ~= nil then
+        yes, no = tied_nil, tied_present
+      end
     else
       no = Tests.has_element(ctx, f, if r.kind == "Nil" then l else r end)
     end
@@ -4095,7 +4637,7 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     -- nil. It is the test `condition_type` sends an optional boolean to, in a condition and in an `assert`. The first
     -- local of a tie (`ok == true`) holds only `true` or `false`, so there the test selects the tie's lists.
     local operand = if r.kind == "Boolean" then l else r end
-    local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, operand)
+    local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, operand, nil, nil, false)
     if tied_yes ~= nil and tied_no ~= nil then
       local value = true
       if r.kind == "Boolean" then
@@ -4122,8 +4664,14 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     yes, no = Narrowing.type_edges(ctx, f, r, l.value)
   elseif (r.kind == "String") and (l.kind == "Field") then
     yes, no = Narrowing.tag_edges(ctx, f, l, r.value)
+    yes, no = Narrowing.literal_edges(ctx, yes, no, l, r.value)
   elseif (l.kind == "String") and (r.kind == "Field") then
     yes, no = Narrowing.tag_edges(ctx, f, r, l.value)
+    yes, no = Narrowing.literal_edges(ctx, yes, no, r, l.value)
+  elseif (r.kind == "String") then
+    yes, no = Narrowing.literal_edges(ctx, f, f, l, r.value)
+  elseif (l.kind == "String") then
+    yes, no = Narrowing.literal_edges(ctx, f, f, r, l.value)
   elseif (l.kind == "Unary") or (r.kind == "Unary") then
     yes, no = Tests.length_edges(ctx, f, "==", l, r)
   end
@@ -4143,14 +4691,18 @@ end
 --- The edges of a test of the first local of a tie (`if ok`, `ok == true`): where it is `true`, the others are the types
 --- of the lists that begin with `true` (and where `false`, of those that begin with `false`), as far as that narrows what
 --- they hold. Nil where `e` is no such local, or where one of the locals has been assigned since the statement.
-function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State?, Flow.State?
+--- `yes` and `no` are the states to narrow the others in, which the test of the first gave; `by_nil` says which kind of
+--- tie the test can tell, nil for either.
+function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node, yes_base?: Flow.State, no_base?: Flow.State,
+                             by_nil?: boolean): Flow.State?, Flow.State?
   local at = peel(e)
   if at.kind ~= "Name" then
     return nil, nil
   end
   local id = at.binding
   local tie = if id ~= nil then ctx.ties[id] else nil end
-  if tie == nil or place_of(ctx, f, at) == nil or f.facts[tie_key(ctx, tie.first)] == nil then
+  if tie == nil or place_of(ctx, f, at) == nil or f.facts[tie_key(ctx, tie.first)] == nil or
+      (by_nil == nil and not tie.truth) or (by_nil ~= nil and tie.by_nil ~= by_nil) then
     return nil, nil
   end
   for _, slot in ipairs(tie.rest) do
@@ -4158,7 +4710,7 @@ function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State?,
       return nil, nil
     end
   end
-  local yes, no = f, f
+  local yes, no = yes_base or f, no_base or f
   for _, slot in ipairs(tie.rest) do
     local declared = ctx.vars[slot.id]
     if declared ~= nil then
@@ -4182,27 +4734,29 @@ end
 --- The edges of a name or a field used as a condition: an optional is not nil when true, and nil when false unless
 --- what it holds may be false. An index read of an array when true shows the array has the key ([`Tests.has_element`]).
 function Narrowing.truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
-  local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, e)
-  if tied_yes ~= nil and tied_no ~= nil then
-    return tied_yes, tied_no
-  end
   local p = place_of(ctx, f, e)
   if p == nil then
     return Tests.has_element(ctx, f, e), f
   end
+  local yes, no = f, f
   local cur = current(f, p)
-  if not nilable(cur) then
-    return f, f
-  end
-  local store = ctx.store
-  local kept = store:non_nil(cur)
-  local falsy = ctx.nil_type
-  for _, m in ipairs(members_of(store, kept)) do
-    if is_bool(m) then
-      falsy = cur
+  if nilable(cur) then
+    local store = ctx.store
+    local kept = store:non_nil(cur)
+    local falsy = ctx.nil_type
+    for _, m in ipairs(members_of(store, kept)) do
+      if is_bool(m) then
+        falsy = cur
+      end
     end
+    yes, no = Narrowing.narrowed_flow(f, p, kept), Narrowing.narrowed_flow(f, p, falsy)
   end
-  return Narrowing.narrowed_flow(f, p, kept), Narrowing.narrowed_flow(f, p, falsy)
+  -- The first local of a tie selects the lists of the others too.
+  local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, e, yes, no)
+  if tied_yes ~= nil and tied_no ~= nil then
+    return tied_yes, tied_no
+  end
+  return yes, no
 end
 
 --- The edges of a test that the place `p` is a `tested`. `is table` tests that it is a table of any shape, the standard
@@ -4276,7 +4830,6 @@ end
 
 --- `a == b` and `a ~= b`: both sides overlap, else the test is dead.
 function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
-  Tests.type_name(ctx, node)
   if not Operands.overlaps(ctx, left, right) then
     report(ctx, "compare_disjoint", node, subject(ctx, node.left) .. " is " .. tq(ctx, left) .. " and " ..
         subject(ctx, node.right) .. " is " .. tq(ctx, right) .. ", which share no value: the test is never " ..
@@ -4286,6 +4839,12 @@ function Operators.equality(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
 end
 
 --- `a < b` and the rest: two numbers or two strings.
+--- Notes that the comparison `node` runs code of the program, which may shorten any array, as a call may.
+function Operators.runs(ctx: Ctx, node: Ast.Binary)
+  ctx.runs[node.id] = true
+  ctx.flow = Flow.forget_lengths(ctx.flow)
+end
+
 function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   local l, r = left, right
   local function number(t: Type): boolean
@@ -4299,9 +4858,35 @@ function Operators.ordered(ctx: Ctx, node: Ast.Binary, left: Type, right: Type)
   end
   -- Two values of one parameter bounded by `Ordered` are both numbers or both strings; one bounded by `Numeric` is a number.
   if l == r and Operands.bounded_by(ctx, l, "Ordered") then
+    Operators.runs(ctx, node)
+    return
+  end
+  -- Two values of a class compare through the metamethod it declares: `<` and `>` call `__lt`, `<=` and `>=` `__le`.
+  if l == r and (l.tag == "named") and l.decl.kind == "class" and not l.value then
+    local meta = if node.op == "<" or node.op == ">" then "__lt" else "__le" end
+    if Types.declares_method(l, meta) then
+      Operators.runs(ctx, node)
+      return
+    end
+    Operands.bad_operand(ctx, node.left, l, node.op, "numbers, strings, or values of a class that declares `" .. meta .. "`",
+      "declare `function " .. meta .. "(self, other: " .. show(ctx, l) .. "): boolean` in " .. tq(ctx, l))
     return
   end
   if (Operands.bounded_by(ctx, l, "Numeric") or number(l)) and (Operands.bounded_by(ctx, r, "Numeric") or number(r)) then
+    return
+  end
+  -- A value of a class compares only with another of the same class, which is given to its metamethod.
+  local function class_of(t: Type): boolean
+    return (t.tag == "named") and t.decl.kind == "class" and not t.value
+  end
+  if class_of(l) or class_of(r) then
+    local fix = "compare two values of one class, which " .. quoted(node.op) .. " gives to its `" ..
+      (if node.op == "<" or node.op == ">" then "__lt" else "__le" end) .. "`: it converts nothing"
+    if class_of(l) then
+      Operands.bad_operand(ctx, node.right, r, node.op, "a value of " .. tq(ctx, l) .. ", as its left operand is", fix)
+    else
+      Operands.bad_operand(ctx, node.left, l, node.op, "a value of " .. tq(ctx, r) .. ", as its right operand is", fix)
+    end
     return
   end
   local fix = "compare two numbers or two strings: " .. quoted(node.op) .. " converts nothing"
@@ -4435,7 +5020,10 @@ function Operators.binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type
   if op == "or" or op == "and" then
     return Operators.logical(ctx, node, left, expected)
   end
+  local outer = ctx.comparing
+  if op == "==" or op == "~=" then ctx.comparing = node end
   local right = expr(ctx, node.right, (op == "==" or op == "~=") and left or nil) -- checked: and_ternary
+  ctx.comparing = outer
   if op == ".." then
     local l, r = Operands.string_operand(ctx, node.left, left), Operands.string_operand(ctx, node.right, right)
     return (l and r) and store.string or ctx.invalid -- checked: and_ternary
@@ -4463,7 +5051,9 @@ function Operators.binary(ctx: Ctx, node: Ast.Binary, left: Type, expected: Type
   end
   local left_node = node.left
   if (left_node.kind == "String") and has_enum(ctx, right) then
+    ctx.comparing = node
     local _ = string_literal(ctx, left_node, right)
+    ctx.comparing = outer
   end
   Operators.equality(ctx, node, left, right)
   return store.boolean
@@ -4508,27 +5098,67 @@ end
 
 --- `e is T`: a test of a run-time tag.
 function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
-  local store = ctx.store
   local tested = ctx.lowered.types[node.type.id] or ctx.invalid
   if tested.tag == "invalid" or value.tag == "invalid" then
-    return store.boolean
+    return ctx.store.boolean
   end
   Tests.parenthesized(ctx, node)
-  local function refuse(why: string)
-    report(ctx, "is_on_record", node, "`is " .. show(ctx, tested) .. "` cannot be told by a run-time tag: " .. why,
-      "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
+  Operators.tested(ctx, node, node.type, node.value, value, tested, false)
+  return ctx.store.boolean
+end
+
+--- Reports a test at `node` of whether the value of `value_node`, of type `value`, is a `tested`, written as `type_node`,
+--- where the run-time Lua cannot tell it, and notes how the code generator tells a record ([`Check.Checked`]'s `tags`).
+--- `arm` says the test is the arm of a typed `match`, which the messages name.
+function Operators.tested(ctx: Ctx, node: Ast.Node, type_node: Ast.Type, value_node: Ast.Node, value: Type, tested: Type,
+                          arm: boolean)
+  local store = ctx.store
+  local written = if arm then "the arm `| " .. show(ctx, tested) .. "`" else "`is " .. show(ctx, tested) .. "`" end
+  local function refuse(why: string, fix?: string)
+    report(ctx, "is_on_record", node, written .. " cannot be told by a run-time tag: " .. why,
+      fix or "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
       { show(ctx, tested) })
   end
   local library = ctx.program.globals["table"]
   if (tested.tag == "named") and library ~= nil and tested.decl == library.decl then
-    return store.boolean
+    return
   end
   local before = #ctx.errors
-  if (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
+  local tag = if (tested.tag == "named") and tested.decl.kind == "record" then Tests.record_tag(ctx, value, tested) else nil end
+  local untold: Type? = nil
+  if (tested.tag == "union") then
+    -- An alias of a union is tested for each member, and a record among them by a test the code generator writes for
+    -- the alias wherever it is used: none is written, and the test is refused.
+    for _, m in ipairs(members_of(store, tested)) do
+      if untold == nil and (m.tag == "named") and m.decl.kind == "record" and not m.value then
+        untold = m
+      end
+    end
+  end
+  if tag ~= nil then
+    -- The record is the one table the value may be, or the one its tag says.
+    ctx.tags[type_node.id] = tag
+  elseif untold ~= nil then
+    refuse("an alias of a union is tested for each member, and the record " .. tq(ctx, untold) .. " among them is not",
+      if arm then "write an arm for each record (`| A a then ... | B b then ...`), which reads its tag" else
+        "test each record apart (`v is A or v is B`), which reads its tag" end)
+  elseif (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
     local word = KIND_WORDS[tested.decl.kind] or "type"
-    refuse((if word:sub(1, 1) == "i" then "an " else "a " end) .. word .. " leaves nothing to test")
+    local tables = Tests.table_members(ctx, value)
+    local records = tables ~= nil
+    for _, m in ipairs(tables or {}) do
+      records = records and (m.tag == "named") and (m.decl.kind == "record" or m.decl.kind == "class")
+    end
+    if tested.decl.kind == "record" and #tested.args == 0 and tables ~= nil and #tables > 1 and records then
+      -- A record is told by its tag where the other tables the value may be have one too.
+      refuse(subject(ctx, value_node) .. " is " .. tq(ctx, value) .. ", whose tables no tag field tells apart",
+        "give each record of the union a fixed field of its own string literal type (`kind: \"" ..
+          tested.decl.name:lower() .. "\"`), so that `is` tests it, or validate the data with a [`cosmic.shape`] validator")
+    else
+      refuse((if word:sub(1, 1) == "i" then "an " else "a " end) .. word .. " leaves nothing to test")
+    end
   elseif (tested.tag == "named") and tested.decl.kind == "class" and TableLiterals.out_of_reach(ctx, tested.decl) ~= "" then
-    report(ctx, "class_scope", node, "`is " .. show(ctx, tested) .. "` tests the metatable of " ..
+    report(ctx, "class_scope", node, written .. " tests the metatable of " ..
         TableLiterals.out_of_reach(ctx, tested.decl),
       TableLiterals.reach_fix(ctx, tested.decl, "test in " .. quoted(tested.decl.module) .. " with a function of the class (`function " ..
           tested.decl.name .. ".owns(v: any): boolean`), and call it here"), { show(ctx, tested) })
@@ -4543,12 +5173,11 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
   end
   -- A test the rules refuse is reported once, for that.
   if #ctx.errors == before and not Operators.testable(ctx, value, tested) then
-    report(ctx, "is_disjoint", node, subject(ctx, node) .. " is always false: " .. subject(ctx, node.value) .. " is " ..
+    report(ctx, "is_disjoint", node, subject(ctx, node) .. " is always false: " .. subject(ctx, value_node) .. " is " ..
         tq(ctx, value) .. ", and no value of it is " .. tq(ctx, tested),
-      "this test is always false: remove it and the branch it guards, or test a type that " .. subject(ctx, node.value) ..
+      "this test is always false: remove it and the branch it guards, or test a type that " .. subject(ctx, value_node) ..
         " can have (" .. tq(ctx, value) .. ")", { show(ctx, value), show(ctx, tested) })
   end
-  return store.boolean
 end
 
 --- An `if` expression: conditions, and arms with a common type. Each arm is evaluated under the state where its
@@ -5201,7 +5830,8 @@ end
 
 --- The steps of a generic call.
 local record Calls
-  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prepared
+  prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
+  asserted: function(alts: {Alt}): Alt?
   --- Notes that the call `node` runs no code of the program through the standard library: it was given a `string` receiver
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
   note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
@@ -5258,7 +5888,10 @@ end
 
 --- Types the arguments of a call that are not literals, and notes the literals. `wants` are the types a position expects
 --- where the callee is known to expect one.
-function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prepared
+---
+--- Given `assert` (`asserting`), a last argument that answers several lists gives the values of the one list whose first
+--- value is never nil or false: `assert` raises at any other, so `assert(Fs.read(path))` is the text.
+function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
   local n = #args
   local last = args[n]
   local open = last ~= nil and ((last.kind == "Call") or (last.kind == "MethodCall") or (last.kind == "Vararg"))
@@ -5282,19 +5915,63 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?): Prep
       alone[1] = lone
     end
     local vals = values_of(ctx, { last }, if wants ~= nil then alone else nil end, nil)
+    local several = vals.lists
+    if several ~= nil and asserting == true then
+      local passed = Calls.asserted(several)
+      if passed ~= nil then
+        for _, item in ipairs(passed.items) do
+          vals.types[#vals.types + 1] = item
+        end
+        vals.tail = passed.tail
+        vals.lists = nil
+        several = nil
+      end
+    end
     for j, t in ipairs(vals.types) do
       prep.known[written + j] = t
     end
     prep.count = written + #vals.types
     prep.tail = vals.tail
     prep.last = vals.last
-    local several = vals.lists
-    if several ~= nil then
+    if several ~= nil and asserting == true then
+      -- `assert` raises at a nil or a false first value, so it passes a list only where that value is neither.
+      prep.lists = several
+      local call = Naming.call(ctx, last)
+      report(ctx, "alternatives_as_value", last, subject(ctx, last) .. " answers one of " .. tostring(#several) ..
+          " lists of values, and `assert` tells none of them apart from the others: it passes one list whose first value " ..
+          "is never nil or false where the first value of each other list is `nil` or `false`, and these lists are not so",
+        "bind its values and test the one that tells the lists apart (`local " .. Naming.bound(several) .. " = " .. call ..
+          "`), or match the call: `match " .. call .. " do | ... end`")
+      -- The argument is reported: it stands as no type, so no overload is refused for lacking it.
+      prep.known[written + 1] = ctx.invalid
+      prep.count = written + 1
+    elseif several ~= nil then
       prep.lists = several
       local _ = first_value(ctx, last, several)
     end
   end
   return prep
+end
+
+--- The one list of `alts` that `assert` lets pass: the list whose first value is never nil or false, where the first
+--- value of every other list is `nil` or `false` and nothing else, so `assert` raises at each of them. Nil where there
+--- is no such list, more than one, or a list whose first value may be either (a `boolean`, an optional, `any`).
+function Calls.asserted(alts: {Alt}): Alt?
+  local passed: Alt? = nil
+  for _, alt in ipairs(alts) do
+    local first = alt.items[1]
+    if first == nil then
+      return nil
+    elseif Types.present(first) and not Types.may_be_false(first) then
+      if passed ~= nil then
+        return nil
+      end
+      passed = alt
+    elseif first.tag ~= "nil" and first.tag ~= "false" then
+      return nil
+    end
+  end
+  return passed
 end
 
 --- The field of the interface `bound` that `held` lacks, as the interface declares it (`mut name?: T`), or nil.
@@ -5409,7 +6086,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       if not reported and why == "too many" then
         reported = true
         ctx.spill = Calls.spill_note(ctx, args, n, n, true)
-        arity_error(ctx, node, quoted(callee), f, off, n, why) -- checked: nil_not_allowed
+        arity_error(ctx, node, quoted(callee), f, off, n, why)
         ctx.spill = nil
       end
     else
@@ -5424,7 +6101,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
-    arity_error(ctx, node, quoted(callee), f, off, n, why) -- checked: nil_not_allowed
+    arity_error(ctx, node, quoted(callee), f, off, n, why)
   end
   Calls.note_plain(ctx, node, recv, vals.types, vals.tail, vals.lists)
   local tail = vals.tail
@@ -5490,7 +6167,7 @@ Calls.fixes = { -- checked: field_fixed
   xpcall = "`xpcall` passes on at most 3 values, takes a function that answers at most 3 values and none that answers " ..
     "`T...`, and takes no function that may be nil: pass arguments one overload accepts, in its order",
   ["table.sort"] = "pass a comparator (`table.sort(xs, function(a, b) return a.key < b.key end)`), because `<` orders only " ..
-    "numbers and strings of one type; or pass arguments one overload accepts, in its order",
+    "numbers and strings of one type, and classes that declare `__lt` and `__le`; or pass arguments one overload accepts, in its order",
 }
 
 --- Where a type came from, in the words of a message: the receiver, or an argument.
@@ -5685,7 +6362,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     local same = k.first_at == k.second_at
     local msg = letter .. " of " .. name .. " is " .. tq(ctx, k.first) .. " from " .. Calls.source(k.first_at) .. " and " ..
       tq(ctx, k.second) .. " from " .. (if same then "another type in it" else Calls.source(k.second_at) end) .. ", which " ..
-      (if k.exact then "must be one type here: a `mut` collection and the arguments of a generic are invariant" else
+      (if k.exact then "must be one type here: a type parameter is solved as one type from a `mut` collection or the arguments " ..
+          "of a generic" else
         "have no common type" end)
     problems[#problems + 1] = msg
     -- The parameter is none: the arguments are not held to a type they disagree on, so the mistake is the one error.
@@ -5718,7 +6396,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         local msg = tq(ctx, held) .. " is the type parameter " .. quoted(Calls.parameter_name(ctx, c, i)) .. " of " .. name ..
           ", which is bounded by " .. tq(ctx, bound) .. ", and " .. tq(ctx, held) ..
           (if held.tag == "var" then " is not bounded by it" elseif builtin then
-            (if bound.tag == "Ordered" then " is not a type whose values are all numbers or all strings" else
+            (if bound.tag == "Ordered" then " is not a type whose values are all numbers or all strings, nor a class that declares `__lt` " ..
+                "and `__le`" else
               " is not " .. Types.bound_meets(bound.tag) end) elseif lacking ~= nil then
             " has no field " .. quoted(lacking) .. " as it declares" else " neither lists it nor has its fields" end)
         problems[#problems + 1] = msg
@@ -5738,7 +6417,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
         elseif loud and builtin then
           report(ctx, "bound_unmet", node, msg,
             if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
-              bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" else
+              bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" elseif
+              held.tag == "named" and held.decl.kind == "class" then Operands.compare_fix(ctx, held) else
               "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
                 "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
         elseif loud then
@@ -5927,7 +6607,9 @@ end
 local function apply_overloads(ctx: Ctx, node: Ast.Node, callee: string, cands: {Type}, args: {Ast.Exp}, recv: Type?,
                                expected: Type?, key?: string): {Alt}
   local off = if recv ~= nil then 1 else 0 end
-  local prep = Calls.prepare(ctx, args, nil)
+  -- `assert(f())` alone: in `assert(x, f())` it is `x` that `assert` tests, and the call is no value as anywhere else.
+  local prep = Calls.prepare(ctx, args, nil, callee == "assert" and #args == 1 and (node.kind == "Call") and
+      Tests.quiet_callee(node.callee))
   local known, pending, tail, count = prep.known, prep.pending, prep.tail, prep.count
   local reasons: mut {string} = {}
   local unmet: Unmet? = nil
@@ -7137,12 +7819,24 @@ local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
   end
   local selected: mut {Alt} = {}
   local rejected: mut {Alt} = {}
+  local by_bool, by_nil, truth = true, true, true
   for _, alt in ipairs(alts) do
     local first = alt.items[1]
-    if first == nil or (first.tag ~= "true" and first.tag ~= "false") then
-      return
-    end
-    local into = if first.tag == "true" then selected else rejected end
+    by_bool = by_bool and first ~= nil and (first.tag == "true" or first.tag == "false")
+    -- A list told by `nil` begins with `nil` or with a value that is never nil; a test of its truth tells it only where
+    -- that value is never `false` either.
+    local present = first ~= nil and Types.present(first)
+    by_nil = by_nil and first ~= nil and (first.tag == "nil" or present)
+    truth = truth and (first == nil or first.tag == "nil" or not Types.may_be_false(first))
+  end
+  if not by_bool and not by_nil then
+    return
+  end
+  for _, alt in ipairs(alts) do
+    local first = assert(alt.items[1], "each list of a tie has a first value")
+    -- Lists of `true` and `false` are never nil too, so they are told by `true` before they are told by `nil`.
+    local yes = if by_bool then first.tag == "true" else first.tag ~= "nil" end
+    local into = if yes then selected else rejected end
     into[#into + 1] = alt
   end
   if #selected == 0 or #rejected == 0 then
@@ -7154,7 +7848,7 @@ local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
       rest[#rest + 1] = { id = b.id, yes = column(ctx, selected, i), no = column(ctx, rejected, i) }
     end
   end
-  ctx.ties[head.id] = { first = head.id, rest = rest }
+  ctx.ties[head.id] = { first = head.id, by_nil = not by_bool, truth = by_bool or truth, rest = rest }
   for _, b in ipairs(s.bindings) do
     ctx.flow = Flow.narrow(ctx.flow, tie_key(ctx, b.id), ctx.store.boolean, ctx.store.integer)
   end
@@ -7220,7 +7914,10 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       end
       ctx.vars[b.id] = want
     elseif t ~= nil and counted then
-      ctx.vars[b.id] = t
+      -- A local the program assigns may take another string than the literal a test narrowed its value to.
+      local from = if written ~= nil and held ~= nil and held.assigned then place_of(ctx, ctx.flow, written) else nil end
+      ctx.vars[b.id] = if held ~= nil and held.assigned then TableLiterals.widened(ctx, t, if from ~= nil then from.declared
+        else nil end) else t end
     else
       ctx.vars[b.id] = ctx.invalid
     end
@@ -7273,10 +7970,11 @@ end
 --- Whether the statements `body` of a loop leave the number of elements of the array held by the local `array` from falling
 --- below what it was before them, and never assign the local `var`, the index of the loop. The code that may shorten the
 --- array is a call, an iterator of a generic `for` (a call of its own) and the `__close` of a `<close>` local, and a
---- write of a nil or of the array's name. No other code runs in the body, because no metamethod can: `class_metamethod` lets
---- a class declare only `__close` and `__tostring` (both reached by the forms above), `setmetatable_call` refuses
---- `setmetatable`, and `operand_type` refuses an operator on a record. The loop rule must be revisited if any of the three is
---- relaxed; lang/check_test.tl pins them beside the loop tests.
+--- write of a nil or of the array's name, and a comparison that may call a class's `__lt` or `__le`
+--- ([`Writes.plain_compare`]). No other code runs in the body, because no other metamethod can: `class_metamethod` lets
+--- a class declare only `__close`, `__tostring` (both reached by the forms above), `__lt` and `__le`, `setmetatable_call`
+--- refuses `setmetatable`, and `operand_type` refuses any other operator on a record or a class. The loop rule must be
+--- revisited if any of the three is relaxed; lang/check_test.tl pins them beside the loop tests.
 function Writes.scalar_math(call: Ast.Call, var: integer): boolean
   local callee = call.callee
   if not ((callee.kind == "Field") and (callee.object.kind == "Name") and callee.object.binding == nil and callee.object.text == "math") then
@@ -7290,12 +7988,33 @@ function Writes.scalar_math(call: Ast.Call, var: integer): boolean
   return true
 end
 
+--- The comparison that holds when the operands of another are swapped: `k <= i` is `i >= k`.
+local TURNED <const>: {string: string} = { ["<="] = ">=", ["<"] = ">", [">="] = "<=", [">"] = "<" }
+
+--- Whether the binary `e` runs no code of the program: it is no `<`, `<=`, `>` or `>=`, or an operand is seen to be a
+--- number or a string (a literal, an arithmetic or a concatenation, a unary operator, or the local `var`, the index of a
+--- loop), and so the other is too and no class's `__lt` or `__le` is called.
+function Writes.plain_compare(e: Ast.Binary, var: integer): boolean
+  if TURNED[e.op] == nil then
+    return true
+  end
+  for _, side in ipairs({ e.left, e.right }) do
+    local at = peel(side)
+    if at.kind == "Integer" or at.kind == "Float" or at.kind == "String" or (at.kind == "Unary") or
+        ((at.kind == "Name") and at.binding == var) or ((at.kind == "Binary") and TURNED[at.op] == nil and at.op ~= "and" and
+            at.op ~= "or" and at.op ~= "==" and at.op ~= "~=") then
+      return true
+    end
+  end
+  return false
+end
+
 function Writes.scalar(e: Ast.Exp, var: integer): boolean
   local at = peel(e)
   if (at.kind == "Name") then
     return at.binding == var
   elseif (at.kind == "Binary") then
-    return at.op ~= "and" and at.op ~= "or"
+    return at.op ~= "and" and at.op ~= "or" and Writes.plain_compare(at, var)
   elseif (at.kind == "Unary") then
     return true
   end
@@ -7313,7 +8032,8 @@ function Writes.keeps_length(body: Ast.Node, array: integer, var: integer): bool
   while #waiting > 0 and #marks == 0 do
     local node = assert(waiting[#waiting])
     waiting[#waiting] = nil
-    if (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") then
+    if (node.kind == "Call" and not Writes.scalar_math(node, var)) or (node.kind == "MethodCall") or (node.kind == "ForIn") or
+        ((node.kind == "Binary") and not Writes.plain_compare(node, var)) then
       marks[#marks + 1] = true
     elseif (node.kind == "Local") then
       for _, binding in ipairs(node.bindings) do
@@ -7387,9 +8107,6 @@ function Writes.fill_of(s: Ast.ForNum): Fill?
   end
   return { var = s.var.id, object = object, unit = unit }
 end
-
---- The comparison that holds when the operands of another are swapped: `k <= i` is `i >= k`.
-local TURNED <const>: {string: string} = { ["<="] = ">=", ["<"] = ">", [">="] = "<=", [">"] = "<" }
 
 --- A bound that a comparison sets on a local integer ([`Writes.bound`]).
 local record Bound
@@ -7914,7 +8631,10 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
         return nil, false
       end
       local field = list[1]
-      if not field.mut and not inits_module(ctx, s, target) then -- checked: nil_not_allowed
+      local fixed = not field.mut and not inits_module(ctx, s, target) -- checked: nil_not_allowed
+      if fixed and Types.inferred_record(base.decl) then
+        TableLiterals.fixed(ctx, target, base, target.name)
+      elseif fixed then
         report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. target.name) .. " is fixed: it is not declared `mut`",
           "declare `mut " .. target.name .. ": " .. show(ctx, field.type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed
             ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
@@ -7988,7 +8708,10 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
       if names ~= nil and #names == 1 then
         local list = member_types(ctx, base, names[1])
         if list ~= nil and not list[1].method then -- checked: nil_not_allowed
-          if not list[1].mut then -- checked: nil_not_allowed
+          local fixed = not list[1].mut -- checked: nil_not_allowed
+          if fixed and Types.inferred_record(base.decl) then
+            TableLiterals.fixed(ctx, target, base, table.concat(names))
+          elseif fixed then
             report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. names[1]) .. " is fixed: it is not declared `mut`", -- checked: nil_not_allowed
               "declare `mut " .. names[1] .. ": " .. show(ctx, list[1].type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed*2
                 ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
@@ -8887,23 +9610,34 @@ local function jump_statement(ctx: Ctx, leaves: boolean)
   ctx.flow = Flow.dead(ctx.flow)
 end
 
---- How the tests of `arm` stand against the list `alt` the call may answer: "yes" when each `true` and `false` is the
---- value the list has at its position, "no" when one is the other, and "unclear" when the list has no `true` or `false`
---- at a position the arm tests (the position it is, or 0, for the message).
+--- How the tests of `arm` stand against the list `alt` the call may answer: "yes" when each `true`, `false` and `nil`
+--- is the value the list has at its position, "no" when the list has another value there that the test tells from it
+--- (`false` at a `true`, `nil` at a `true` or `false`, a value that is never nil at a `nil`), and "unclear" when the
+--- test does not tell what the list has there (the position it is, or 0, for the message).
 local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
   local unclear = 0
   for i, p in ipairs(arm.pats) do
-    if (p.kind == "PatBool") then
+    if (p.kind == "PatBool") or (p.kind == "PatNil") then
       local item = alt.items[i]
       local tag = ""
       if item ~= nil then
         tag = item.tag
       end
-      if tag == "true" or tag == "false" then
-        if (tag == "true") ~= p.value then
-          return "no", i
+      local verdict = "unclear"
+      if (p.kind == "PatBool") then
+        if tag == "true" or tag == "false" then
+          verdict = if (tag == "true") == p.value then "yes" else "no" end
+        elseif tag == "nil" then
+          verdict = "no"
         end
-      elseif unclear == 0 then
+      elseif tag == "nil" then
+        verdict = "yes"
+      elseif item ~= nil and Types.present(item) then
+        verdict = "no"
+      end
+      if verdict == "no" then
+        return "no", i
+      elseif verdict == "unclear" and unclear == 0 then
         unclear = i
       end
     end
@@ -8914,12 +9648,12 @@ local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
   return "yes", 0
 end
 
---- The arm that takes the list `alt`: `true` and `false` where the list has them, and a name for each other value.
+--- The arm that takes the list `alt`: `true`, `false` and `nil` where the list has them, and a name for each other value.
 local function arm_for(alt: Alt): string
   local pats: mut {string} = {}
   for i, item in ipairs(alt.items) do
     local pat = "v" .. tostring(i)
-    if item.tag == "true" or item.tag == "false" then
+    if item.tag == "true" or item.tag == "false" or item.tag == "nil" then
       pat = item.tag
     end
     pats[i] = pat
@@ -8928,6 +9662,81 @@ local function arm_for(alt: Alt): string
     pats[1] = "v1"
   end
   return "| (" .. table.concat(pats, ", ") .. ") then ..."
+end
+
+--- The arm text that takes a value of type `t`: `| T name then ...`.
+function Narrowing.type_arm(ctx: Ctx, t: Type): string
+  return quoted("| " .. show(ctx, t) .. " v then ...")
+end
+
+--- A typed `match`: each arm tests the value for a type, as `is` does, and takes what the arms before it leave of the
+--- value of that type. An arm that takes nothing is `match_redundant`; the types no arm takes are `match_missing`,
+--- unless an arm `| _` takes them. In an arm the name, and the value where it is a place, have the type the arm takes.
+function Narrowing.typed_match(ctx: Ctx, s: Ast.Match)
+  local value = expr(ctx, s.scrutinee, nil)
+  local p = place_of(ctx, ctx.flow, s.scrutinee)
+  local start = ctx.flow
+  local rest = value
+  local ends: mut {Flow.State} = {}
+  local caught = false
+  for _, arm in ipairs(s.arms) do
+    local pat = arm.pats[1]
+    local kept = rest
+    local leaves = ctx.store.never
+    if (pat ~= nil) and (pat.kind == "PatType") then
+      local tested = ctx.lowered.types[pat.type.id] or ctx.invalid
+      if tested.tag == "invalid" or value.tag == "invalid" then
+        kept, leaves = ctx.invalid, rest
+      elseif rest.tag == "never" or not Operators.testable(ctx, rest, tested) then
+        local had = Operators.testable(ctx, value, tested)
+        kept, leaves = ctx.store.never, rest
+        report(ctx, "match_redundant", pat, if had then "this arm never runs: the arms before it take every " ..
+            tq(ctx, tested) .. " " .. subject(ctx, s.scrutinee) .. " may be" else "this arm never runs: " ..
+            subject(ctx, s.scrutinee) .. " is " .. tq(ctx, value) .. ", and no value of it is " .. tq(ctx, tested) end,
+          "delete the arm, or test a type the arms before it leave" .. (if rest.tag == "never" then "" else " (" ..
+              tq(ctx, rest) .. ")" end), { show(ctx, tested) })
+      else
+        Operators.tested(ctx, pat, pat.type, s.scrutinee, rest, tested, true)
+        kept, leaves = Tests.keep_is(ctx, rest, tested), Tests.drop_is(ctx, rest, tested)
+        if tested.tag == "any" then
+          -- `| any v` takes every value the arms before it leave, as `| _` does.
+          kept, leaves = rest, ctx.store.never
+        end
+      end
+      local name = pat.name
+      if name ~= nil then
+        ctx.vars[name.id] = kept
+        declare_local(ctx, name.id, false)
+      end
+    else
+      -- `| _`: every value the arms before it leave.
+      caught = true
+      if rest.tag == "never" then
+        report(ctx, "match_redundant", arm, "this arm never runs: the arms before it take every value " ..
+            subject(ctx, s.scrutinee) .. " may be", "delete the arm", {})
+      end
+    end
+    ctx.flow = start
+    if p ~= nil and kept.tag ~= "invalid" then
+      ctx.flow = Narrowing.narrowed_flow(start, p, kept)
+    end
+    block(ctx, arm.body)
+    ends[#ends + 1] = ctx.flow
+    rest = leaves
+  end
+  if not caught and rest.tag ~= "never" and rest.tag ~= "invalid" and value.tag ~= "invalid" then
+    local arms: mut {string} = {}
+    for _, m in ipairs(members_of(ctx.store, rest)) do
+      arms[#arms + 1] = Narrowing.type_arm(ctx, m)
+    end
+    report(ctx, "match_missing", s, "this `match` takes no arm for " .. tq(ctx, rest) .. ", which " ..
+        subject(ctx, s.scrutinee) .. " may be", "add " .. (if #arms == 1 then "the arm " else "the arms " end) ..
+        table.concat(arms, ", ") .. ", or `| _ then ...` for every value the arms leave", { show(ctx, rest) })
+    ends[#ends + 1] = if p ~= nil then Narrowing.narrowed_flow(start, p, rest) else start end
+  end
+  if #ends > 0 then
+    ctx.flow = merge_all(ctx, ends)
+  end
 end
 
 --- `match`: the arms cover the lists the call may answer exactly. An arm
@@ -8939,6 +9748,10 @@ end
 --- list no arm takes is `match_missing`. Each arm is walked from the state
 --- after the call, and what follows is where their ends meet.
 local function match_statement(ctx: Ctx, s: Ast.Match)
+  if s.typed then
+    Narrowing.typed_match(ctx, s)
+    return
+  end
   local c = s.scrutinee
   local alts = unknown_lists(ctx)
   if (c.kind == "Call") or (c.kind == "MethodCall") then
@@ -8965,15 +9778,20 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
           taken[k] = true
           local pat = assert(arm.pats[at])
           local item = alt.items[at]
-          report(ctx, "match_pattern", pat, "this pattern tests position " .. tostring(at) .. " with `" ..
-              (if (pat.kind == "PatBool") and pat.value then "true" else "" end) .. "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
-              (item ~= nil and tq(ctx, item) or "no value") .. " there, which `true` and `false` do not tell", -- checked: and_ternary
-            "test only the positions that are `true` or `false` in the lists the call answers, and name the others",
+          local tested = "nil"
+          if (pat.kind == "PatBool") then
+            tested = if pat.value then "true" else "false" end
+          end
+          report(ctx, "match_pattern", pat, "this pattern tests position " .. tostring(at) .. " with `" .. tested ..
+              "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
+              (item ~= nil and tq(ctx, item) or "no value") .. " there, which `" .. tested .. "` does not tell", -- checked: and_ternary
+            "test only the positions that are `true`, `false` or `nil` in the lists the call answers, and name the others",
             { lists_text(ctx, { alt }) })
         elseif verdict == "yes" then
           selected = selected + 1
           local have, n = #alt.items, #arm.pats
-          if n < have or (alt.tail == nil and n > have) then
+          -- A list an arm before took is not this arm's, so its count of values does not bind this arm.
+          if taken[k] ~= true and (n < have or (alt.tail == nil and n > have)) then
             explained = true
             report(ctx, "match_pattern", arm, "this arm names " .. plural(n, "value") .. ", and the list " ..
                 quoted(lists_text(ctx, { alt })) .. " it takes has " .. (if alt.tail ~= nil then "at least " else "" end) ..
@@ -8989,8 +9807,8 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
       end
       if #mine == 0 and not explained then
         report(ctx, "match_redundant", arm, if selected == 0 then "this arm takes no list the call answers: no list has the " ..
-            "values its `true` and `false` test" else "this arm takes only lists the arms before it take, so it never runs" end,
-          "delete the arm, or change its `true` and `false` to take a list no arm before it takes")
+            "values its `true`, `false` and `nil` test" else "this arm takes only lists the arms before it take, so it never runs" end,
+          "delete the arm, or change its `true`, `false` and `nil` to take a list no arm before it takes")
       end
     end
     for i, p in ipairs(arm.pats) do
@@ -9034,7 +9852,14 @@ local function stat(ctx: Ctx, s: Ast.Stat)
   elseif (s.kind == "CallStat") then
     local c = s.call
     if (c.kind == "Call") or (c.kind == "MethodCall") then
-      local _ = lists_of(ctx, c, nil)
+      local alts = lists_of(ctx, c, nil)
+      if #alts > 1 then
+        local call = Naming.call(ctx, c)
+        report(ctx, "failure_ignored", c, subject(ctx, c) .. " answers one of " .. tostring(#alts) .. " lists of values, " ..
+            "one of which may be a failure, and as a statement it drops which one it answered, so a failure would pass unseen",
+          "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`), match the call, " ..
+            "or discard them on purpose: `local " .. Naming.bound(alts, true) .. " = " .. call .. "`")
+      end
     end
   elseif (s.kind == "Assign") then
     assign_statement(ctx, s)
@@ -9155,9 +9980,9 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
-    literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
+    literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,
@@ -9316,7 +10141,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     return a.param < b.param
   end)
   return {
-    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, spreads = ctx.spreads, narrowed = narrowed, boundaries = boundaries,
+    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, spreads = ctx.spreads, tags = ctx.tags, narrowed = narrowed, boundaries = boundaries,
     types = ctx.types, callees = ctx.callees, warnings = warnings,
   }
 end

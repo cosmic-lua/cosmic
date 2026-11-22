@@ -8,7 +8,9 @@ local Test = require("cosmic.test")
 
 Test.policy{ cpu_features = true }
 
-local parameters: Srp.Parameters = { group = Srp.group_1024, hash = "sha256", rules = "rfc5054" }
+local parameters: Srp.Parameters = {
+  group = Srp.group_1024, small_group = true, hash = "sha256", rules = "rfc5054",
+}
 local prime = Srp.group_1024.prime
 local secret = string.rep("b", 32)
 

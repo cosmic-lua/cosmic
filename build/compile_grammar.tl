@@ -180,7 +180,10 @@ local function type_facts(program: Declarations.Program, result: Driver.Outcome,
     elseif (node.kind == "IsTest") then
       local t = lowered.types[node.type.id]
       local why: string?
-      if t ~= nil and (t.tag == "named") and t.decl.kind ~= "enum" and not (library ~= nil and library.decl == t.decl) then
+      local checked = result.checked
+      local tagged = checked ~= nil and checked.tags[node.type.id] ~= nil
+      if t ~= nil and (t.tag == "named") and t.decl.kind ~= "enum" and not tagged and
+          not (library ~= nil and library.decl == t.decl) then
         local tested = node.type
         if counted == true and (t.decl.kind == "record" or t.decl.kind == "interface" or t.decl.kind == "userdata") and
             (tested.kind == "TypeName") then
@@ -234,7 +237,7 @@ function compile_grammar.emit(build: Driver.Build, result: Driver.Outcome, facts
     for _ in pairs(boundary_checks) do check_count = check_count + 1 end
   end
   local generated = Codegen.generate(result.chunk, result.scoped, result.never_false, classes, Check.enums(lowered), wraps, kinds,
-    served == true, boundary_checks, checked.spreads)
+    served == true, boundary_checks, checked.spreads, checked.tags)
   local lines: mut {string} = {}
   for _, e in ipairs(generated.errors) do
     lines[#lines + 1] = tostring(e.y) .. ":" .. tostring(e.x) .. ": " .. e.msg .. " (" .. e.code .. "): " .. e.fix

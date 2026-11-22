@@ -29,7 +29,7 @@ local record Zip
   --- target, also given as `linkpath`); its `mode` comes from the
   --- external attributes of an entry made by a Unix zip tool; and its
   --- `mtime` is read from the DOS date and time as UTC, to two seconds.
-  record Entry is Stream.ArchiveEntry
+  interface Entry is Stream.ArchiveEntry
     --- As [`Stream.ArchiveEntry.path`].
     path: string
     --- As [`Stream.ArchiveEntry.kind`].
@@ -491,6 +491,17 @@ local S_IFLNK <const> = 0xA000
 --- How much of the central directory is read at a time.
 local CD_WINDOW <const> = 1 << 16
 
+--- An entry of the central directory, which opens through the reader's
+--- `pread`.
+local class ReadEntry is Zip.Entry
+  --- How the reader that listed it reads the file.
+  pread: Pread
+
+  function open(self): Stream.Reader?, string
+    return open_entry(self.pread, self)
+  end
+end
+
 --- A position in the central directory, which is read `CD_WINDOW`
 --- bytes at a time rather than all at once.
 local record Cursor
@@ -534,20 +545,24 @@ end
 --- A central directory file header's fixed part, after its signature.
 local CDFH_FIELDS <const> = "<I2I2I2I2I2I2I4I4I4I2I2I2I2I2I4I4"
 
+--- An entry that was only checked, and has no body to open.
+local class CheckedEntry is Zip.Entry
+  function open(self): Stream.Reader?, string
+    return refuse("the entry was only checked, and has no body to open")
+  end
+end
+
 --- What [`next_record`] returns for an entry it was asked only to check.
-local CHECKED: Zip.Entry = {
+local CHECKED: CheckedEntry = {
   path = "", kind = "file", linkpath = "", mode = 0, size = 0, mtime = 0, compressed_size = 0,
   method = 0, crc32 = 0, offset = 0,
-  open = function(_entry: Zip.Entry): Stream.Reader?, string
-    return refuse("the entry was only checked, and has no body to open")
-  end,
 }
 
 --- The central directory's next entry, or nil and `""` at its end.
 --- A symlink's `linkpath` is left "": its target is its body, which
 --- the caller reads. With `bare`, an entry other than a symlink is
 --- only checked, and `CHECKED` returned in its place.
-local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
+local function next_record(c: Cursor, bare?: boolean):
     Zip.Entry?, string
   if c.at > #c.buf and c.fill >= c.limit then return nil, "" end
   local ok, trouble = need(c, 46)
@@ -604,7 +619,7 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
         "the start of the central directory at " .. tostring(cd_offset))
   end
   if bare == true and kind ~= "symlink" then return CHECKED, "" end
-  local entry: Zip.Entry = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
+  local entry: ReadEntry = {
     path = buf:sub(name_start, name_end),
     kind = kind,
     size = usize,
@@ -615,7 +630,8 @@ local function next_record(c: Cursor, mt: metatable<Zip.Entry>, bare?: boolean):
     mtime = dos_to_unix(mdate_dos, mtime_dos),
     linkpath = "",
     offset = local_offset,
-  }, mt)
+    pread = c.pread,
+  }
   return entry, ""
 end
 
@@ -643,8 +659,6 @@ local class EntryReader is Zip.Reader
   cd_size: integer
   --- The targets of the symlinks, by their place in the directory.
   links: {integer:string}
-  --- What every entry of this reader gets as its metatable.
-  entry_mt: metatable<Zip.Entry>
   --- Where `next` is in the directory, and how many entries it has
   --- returned.
   walk: Cursor
@@ -660,7 +674,7 @@ local class EntryReader is Zip.Reader
 
   function next(self): Zip.Entry?, string -- declared: interface_disagrees
     if self.closed then return refuse("the reader is closed") end
-    local entry, etrouble = next_record(self.walk, self.entry_mt)
+    local entry, etrouble = next_record(self.walk)
     if entry == nil then return nil, etrouble end
     self.walked = self.walked + 1
     local target = self.links[self.walked]
@@ -674,7 +688,7 @@ local class EntryReader is Zip.Reader
     local all: mut {Zip.Entry} = {}
     local c = cursor(self.pread, self.cd_offset, self.cd_size)
     while true do
-      local entry, etrouble = next_record(c, self.entry_mt)
+      local entry, etrouble = next_record(c)
       if entry == nil then
         -- Only a complete list is kept: one cut short by a closed
         -- reader is refused, here and on every later call.
@@ -754,15 +768,6 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
         "-byte central directory")
   end
 
-  -- One `open` serves every entry this reader makes, through their
-  -- shared metatable.
-  local entry_methods = {
-    open = function(e: Zip.Entry): Stream.Reader?, string
-      return open_entry(pread, e)
-    end,
-  }
-  local entry_mt: metatable<Zip.Entry> = { __index = entry_methods } -- checked: any_use, literal_missing
-
   -- One pass over the whole directory up front, keeping no entry, so
   -- a malformed one, or a count that disagrees with the end record,
   -- fails here rather than partway through a walk. Symlink targets
@@ -772,7 +777,7 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
   local count = 0
   local check = cursor(pread, cd_offset, cd_size)
   while true do
-    local entry, etrouble = next_record(check, entry_mt, true)
+    local entry, etrouble = next_record(check, true)
     if entry == nil then
       if etrouble ~= "" then return nil, etrouble end
       break
@@ -793,7 +798,6 @@ local function open_reader(size: integer, pread: Pread, closer: function(): bool
     pread = pread, closer = closer, cd_offset = cd_offset, cd_size = cd_size, links = links,
     walk = cursor(pread, cd_offset, cd_size), walked = 0, listed = nil, by_path = nil, by_folded = nil,
     closed = false,
-    entry_mt = entry_mt,
   }
   return zr, ""
 end

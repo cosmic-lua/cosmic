@@ -8,9 +8,24 @@ local function test_parse_reads_pairs_and_the_first_of_a_name_wins()
   assert(next(Cookies.parse(nil)) == nil and next(Cookies.parse("")) == nil)
 end
 
-local function test_parse_tolerates_a_comma_joined_header()
-  local got = Cookies.parse("a=1, b=2; c=3")
-  assert(got["a"] == "1" and got["b"] == "2" and got["c"] == "3")
+--- A comma is part of a value: a cookie set by another site on the host,
+--- whose value holds `, __Host-id=forged`, comes first and must not stand
+--- in for the real `__Host-id`.
+local function test_parse_keeps_a_comma_in_a_value()
+  local got = Cookies.parse("theme=x, __Host-id=forged; __Host-id=real; c=3")
+  assert(got["theme"] == "x, __Host-id=forged", got["theme"])
+  assert(got["__Host-id"] == "real", got["__Host-id"])
+  assert(got["c"] == "3")
+end
+
+--- A run of spaces inside a value is read in time that grows with its
+--- size alone; a pattern trimming its ends (`^[ \t]*(.-)[ \t]*$`) takes
+--- time growing with the square of it, past the test's timeout here.
+local function test_a_run_of_spaces_in_a_cookie_is_read_in_linear_time()
+  local inside = "x" .. (" "):rep(1000000) .. "y"
+  local parsed = assert(Cookies.parse_set_cookie("n= " .. inside .. " ;" .. inside .. "=1"))
+  assert(parsed.name == "n" and parsed.value == inside)
+  assert(Cookies.parse("a=" .. (" "):rep(8000) .. "b ")["a"] == "b")
 end
 
 local function test_parse_strips_quotes_and_skips_malformed_pieces()

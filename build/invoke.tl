@@ -168,7 +168,11 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         -- uncaught error -- its source position and the catalog's
         -- guidance (core/main.c's `failed`) -- once a binding hands them
         -- to Lua.
-        local message = if answer is string or answer is number then tostring(answer) else "failed" end
+        -- An error object of any other kind is a value whose `__tostring`, where it has one (a [`cosmic.failure`]), gives
+        -- its text, as core/main.c's `failed` reads it; one with none prints as its address, which says nothing.
+        local text = tostring(answer)
+        local message = if answer is string or answer is number then text
+          elseif text:find("^%a+: 0x%x+$") == nil then text else "failed" end
         logger.log:complain(message)
         return
       end

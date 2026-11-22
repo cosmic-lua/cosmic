@@ -453,6 +453,12 @@ local verbs: {string:function(string, string): integer?} = {
     local _, _ = sys.close(fd)
     return nil
   end,
+  ["truncate-unwritten"] = function(path: string): integer?
+    local fd, trouble = sys.open(path, sys.O_RDONLY | sys.O_TRUNC)
+    if fd == nil then return failed(path, trouble) end
+    local _, _ = sys.close(fd)
+    return nil
+  end,
   rm = function(path: string): integer?
     local ok, trouble = sys.unlink(path)
     if not ok then return failed(path, trouble) end

@@ -54,8 +54,9 @@ it is opened.
 
 A signed cookie needs a key, and a key is never in source.
 [`Secret.keys_from_env`] reads a comma-separated list, newest first
-(`new,old` while a key is rotated out), and refuses a key that is short or
-has too few distinct bytes. [`Secret.generate`] makes one:
+(`new,old` while a key is rotated out), and refuses a key that is not the
+hex, base64 or base64url of at least 32 bytes, or has too few distinct
+bytes. [`Secret.generate`] makes one:
 `cosmic -e 'print(require("cosmic.web.secret").generate())'`. There is no
 default key: a published default is how an app's sessions get forged.
 
@@ -189,11 +190,16 @@ end
 The tests build the app over each store. They show a weak key refused, a
 greeting flashed once, a name that is too long refused, the
 cookie a signed session sets, a stored session revoked for every device of
-a user, and a login that changes the session's id. With `secure = true` the
-cookie is named `__Host-session` (or `__Secure-session` with a `domain`),
-the name a browser holds to `Secure`, path `/` and no domain; without it,
-`Secure` follows the request's scheme, which a proxy that ends TLS supplies with `X-Forwarded-Proto` once
-`trusted_proxy` is set ([the security guide](web-security.md)).
+a user, and a login that changes the session's id. The cookie is `Secure`
+and named `__Host-session` (`__Secure-session` with a `domain`), the name a
+browser holds to `Secure`, path `/` and no domain, so neither a page over
+http nor a sibling subdomain can plant one in its place. That holds whatever
+scheme the request came over, since behind a proxy that ends TLS the app
+sees http. A browser sends it back only over https, so the tests' client is
+one on an https page (`scheme = "https"`). An app in development mode
+([`Dev.app`]) follows the request's scheme, so it works over plain http on
+the loopback; one served over plain http anywhere else passes
+`secure = false`, and its cookie is a plain `session`.
 
 ```teal file=greet_test.tl
 local Greet = require("greet")
@@ -204,8 +210,15 @@ local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
 
+--- A browser on an https page of the app.
+local function browser(app: Web.App): Web.TestClient
+  local client = Web.test_client(app)
+  client.scheme = "https"
+  return client
+end
+
 local function signed(): Web.TestClient
-  return Web.test_client(Greet.app{ store = SessionCookie.store{ keys = { Secret.generate() } } })
+  return browser(Greet.app{ store = SessionCookie.store{ keys = { Secret.generate() } } })
 end
 
 local function test_a_weak_key_is_refused()
@@ -234,16 +247,18 @@ local function test_a_signed_cookie_is_not_readable_to_script()
   assert(cookie:find("HttpOnly", 1, true) ~= nil and cookie:find("SameSite=Lax", 1, true) ~= nil)
 end
 
-local function test_secure_renames_the_cookie()
-  local store = SessionCookie.store{ keys = { Secret.generate() } }
-  local cookie = Web.test_client(Greet.app{ store = store, secure = true }):post("/login").headers["set-cookie"] or ""
+local function test_the_cookie_is_secure_and_host_prefixed()
+  local cookie = signed():post("/login").headers["set-cookie"] or ""
   assert(cookie:find("^__Host%-session=") ~= nil, cookie)
   assert(cookie:find("Secure", 1, true) ~= nil and cookie:find("Path=/", 1, true) ~= nil)
+  local store = SessionCookie.store{ keys = { Secret.generate() } }
+  local plain = Web.test_client(Greet.app{ store = store, secure = false }):post("/login").headers["set-cookie"] or ""
+  assert(plain:find("^session=") ~= nil and plain:find("Secure", 1, true) == nil, plain)
 end
 
 local function test_a_stored_session_can_be_revoked()
   local store = assert(SessionSqlite.store((assert(Sqlite.memory()))))
-  local laptop = Web.test_client(Greet.app{ store = store })
+  local laptop = browser(Greet.app{ store = store })
   laptop:post("/login")
   assert(laptop:get("/me"):text() == "ada")
   assert(SessionSqlite.destroy_subject(store, "ada") == 1)
@@ -252,7 +267,7 @@ end
 
 local function test_login_gives_the_session_a_new_id_and_logout_ends_it()
   local store = assert(SessionSqlite.store((assert(Sqlite.memory()))))
-  local client = Web.test_client(Greet.app{ store = store })
+  local client = browser(Greet.app{ store = store })
   local before = client:post("/hello", { form = { name = "Ada" } }).headers["set-cookie"]
   local after = client:post("/login").headers["set-cookie"]
   assert(before ~= nil and after ~= nil and before:match("^[^;]+") ~= after:match("^[^;]+"))
@@ -262,8 +277,8 @@ end
 
 local function test_a_user_lists_their_sessions_and_ends_one_by_its_id()
   local store = assert(SessionSqlite.store((assert(Sqlite.memory())), { seen_interval = 60 }))
-  local laptop = Web.test_client(Greet.app{ store = store })
-  local phone = Web.test_client(Greet.app{ store = store })
+  local laptop = browser(Greet.app{ store = store })
+  local phone = browser(Greet.app{ store = store })
   laptop:post("/login")
   phone:post("/login")
   local now = Clock.now_ns() // 1000000000
@@ -305,6 +320,7 @@ test: 8 tests passed
 
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
+[`Dev.app`]: ../../cosmic/web/dev.tl
 [`Secret.generate`]: ../../cosmic/web/secret.tl
 [`Secret.keys_from_env`]: ../../cosmic/web/secret.tl
 [`Session.middleware`]: ../../cosmic/web/session/init.tl

@@ -1201,28 +1201,26 @@ end
 --- too low to raise it to fails the test.
 --- Closes `fds` and puts RLIMIT_NOFILE's `limits` back when it leaves
 --- scope, so a failed assertion leaves neither behind for the next test.
-local record Restored
-  fds: {integer}
+local class Restored
+  fds: mut {integer}
   limits: sys.Limits
-  __close: function(Restored)
-end
 
-local restored_mt: metatable<Restored> = { -- checked: literal_missing
-  __close = function(r: Restored)
-    for _, fd in ipairs(r.fds) do sys.close(fd) end
-    assert(sys.setrlimit(sys.RLIMIT_NOFILE, r.limits.soft, r.limits.hard))
-  end,
-}
+  function __close(self)
+    for _, fd in ipairs(self.fds) do sys.close(fd) end
+    assert(sys.setrlimit(sys.RLIMIT_NOFILE, self.limits.soft, self.limits.hard))
+  end
+end
 
 local function test_poll_watches_past_a_thousand_descriptors()
   local wanted <const> = 1100
   local limits = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
-  local held <close> = setmetatable({ fds = {}, limits = limits } as Restored, restored_mt) -- checked: cast_refused, setmetatable_call
+  local held <close>: Restored = { fds = {}, limits = limits }
   -- Room for the copies beside whatever the worker holds open already.
   local room = math.min(wanted + 256, limits.hard)
   if limits.soft < room then assert(sys.setrlimit(sys.RLIMIT_NOFILE, room, limits.hard)) end
   local ends = assert(process.pipe())
-  held.fds[1], held.fds[2] = ends.reader, ends.writer
+  held.fds[#held.fds + 1] = ends.reader
+  held.fds[#held.fds + 1] = ends.writer
   assert(sys.write(ends.writer, "x") == 1)
   local fds: mut {integer} = {}
   local events: mut {integer} = {}
@@ -1771,16 +1769,16 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   says(refused_sandbox(below), "relay's fd is out of range")
   local standard: raw_process.Sandbox = { relay = { fd = 2 }, offline = true }
   says(refused_sandbox(standard), "relay's fd is out of range")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }),
     "a relay's two ports differ")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }),
     "relay's ports are two ports")
   local named: {integer | string} = { 1, "x" }
-  says(refused_sandbox({ relay = { fd = 3, ports = named }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = named }, offline = true }),
     "a relay port is an integer")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }),
     "a relay port is 1 to 65535")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }),
     "a relay port is 1 to 65535")
   says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
   says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list") -- checked: literal_needs_type

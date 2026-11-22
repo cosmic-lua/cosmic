@@ -33,7 +33,7 @@
 ---
 --- * A `class` is its method table, which is also the metatable of its values: `local C = {}; C.__index = C`
 ---   on the line of the `class`, then each method as `function C.name(self, ...)` on its line. A method named
----   `__close` or `__tostring` is the metamethod of that name. The values are made by the reserved form of the
+---   `__close`, `__tostring`, `__lt` or `__le` is the metamethod of that name. The values are made by the reserved form of the
 ---   patched parser ([`patch/lua/`]), which reads it only in a load of [`cosmic.internal.compiled`]: `{ ... } @ C`
 ---   is the table the constructor makes with `C` as its metatable, and `@v == C` is the test `v is C`, `@v` being
 ---   the metatable of `v`. Which table literals make a value of a class is the checker's to say ([`lang.check`]'s
@@ -127,7 +127,7 @@ local record Codegen
   generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                      classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
                      kinds?: {integer: string}, served?: boolean, checks?: {integer: string},
-                     spreads?: {integer: {string}}): Generated
+                     spreads?: {integer: {string}}, tags?: {integer: {string}}): Generated
 
   --- `lua`, the Lua of this generator, once the layout of a `continue` is set aside: the `::continue::` that ends a
   --- loop is deleted, and a line's trailing blanks are ignored. Two texts that are equal then are the same Lua, line for
@@ -186,6 +186,8 @@ local record State
   mut served: boolean
   --- The statement that checks the parameters of a function, by the id of its node.
   mut checks: {integer: string}
+  --- How `v is R` tests a record by its tag, by the id of the tested type's node ([`Check.Checked`]'s `tags`).
+  mut tags: {integer: {string}}
   --- The names of the fields the spread of a table literal copies, by the id of the literal.
   mut spreads: {integer: {string}}
 end
@@ -195,7 +197,7 @@ local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 local G: State = {
   tokens = NO_TOKENS, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
-  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, served = false,
+  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, tags = {}, served = false,
   checks = {}, spreads = {},
 }
 
@@ -326,8 +328,12 @@ local function refuse(code: Codegen.Code, token: integer, msg: string, fix: stri
   table.insert(G.errors, { code = code, msg = msg, fix = fix, y = Lexer.y(G.tokens, token), x = Lexer.x(G.tokens, token) })
 end
 
---- The words Lua 5.5 reserves that the grammar lets name a field, a key or a function of a record.
-local RESERVED_FIELDS <const>: {string: boolean} = { ["goto"] = true, ["global"] = true }
+--- The words Lua 5.5 reserves, every one of which the grammar lets name a field, a key or a function of a record: the
+--- Lua made indexes it with a string (`t["end"]`).
+local RESERVED_FIELDS <const>: mut {string: boolean} = {}
+for _, word in ipairs(Lexer.lua_words) do
+  RESERVED_FIELDS[word] = true
+end
 
 --- Whether the syntax of `e` shows it is neither false nor nil: a literal that is no `false` or `nil`, a table, a
 --- function, an arithmetic or a concatenation (the language has no metamethod to make one answer false), or
@@ -454,6 +460,8 @@ lua_type = function(t: Ast.Type, hops: integer): string
     return "function"
   elseif t.kind == "TypeNil" then
     return "nil"
+  elseif t.kind == "TypeString" then
+    return "string"
   elseif (t.kind == "TypeMut") then
     return lua_type(t.inner, hops)
   end
@@ -831,9 +839,41 @@ end
 --- The test of `value` for the type `t`, on the line `y`: one of three shapes, for what `t`
 --- stands for through its aliases, or for a class the test of its metatable: `@v == C`. `operand` is the
 --- expression `value` writes, which a prefix operator takes in parentheses where it binds looser.
-local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp): Output
+local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp, held?: string): Output
   local t = through_aliases(declared, 32)
   local out = new(y)
+  local tag = G.tags[declared.id]
+  if tag ~= nil then
+    -- A record the value may be is a table, and the one its tag names where the value may be another.
+    local field = tag[1] or ""
+    put(out, "(type(")
+    add_child(out, value, "", G.indent)
+    put(out, ") == \"table\"")
+    if field ~= "" then
+      local members: mut {string} = {}
+      for i = 2, #tag do
+        members[#members + 1] = string.format("%q", tag[i]):gsub("\\\n", "\\n")
+      end
+      local read = if RESERVED_FIELDS[field] == true then "[\"" .. field .. "\"]" else "." .. field end
+      -- The value is read again, as a name or as the parameter that holds it.
+      local again = if operand ~= nil then exp(operand) else text(y, held or "__v") end
+      if #members == 1 then
+        put(out, " and ")
+        add_child(out, again, "", G.indent)
+        put(out, read .. " == " .. (members[1] or ""))
+      else
+        local keyed: mut {string} = {}
+        for i, m in ipairs(members) do
+          keyed[i] = "[" .. m .. "] = true"
+        end
+        put(out, " and ({" .. table.concat(keyed, ", ") .. "})[")
+        add_child(out, again, "", G.indent)
+        put(out, read .. "] == true")
+      end
+    end
+    put(out, ")")
+    return out
+  end
   local class = class_named(t)
   local resolved = G.kinds[base_of(t).id]
   local enum_values = G.enums[base_of(t).id]
@@ -874,6 +914,9 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
   elseif (t.kind == "TypeBool") then
     add_child(out, value, "", G.indent)
     put(out, if t.value then " == true" else " == false" end)
+  elseif (t.kind == "TypeString") then
+    add_child(out, value, "", G.indent)
+    put(out, " == " .. string.format("%q", t.value):gsub("\\\n", "\\n"))
   else
     put(out, "type(")
     add_child(out, value, "", G.indent)
@@ -893,7 +936,16 @@ end
 local function is_test(node: Ast.IsTest, value: Output): Output
   local value_node = node.value
   local members = union_members(node.type, 32)
-  if members == nil then
+  if members == nil and G.tags[node.type.id] ~= nil and not ((value_node.kind == "Name")) then
+    -- The tag test reads the value twice: it is held in the parameter of a function called on the spot.
+    local held_out = new(line_of(node.value.last + 1))
+    put(held_out, "(function(__v) return ")
+    add_child(held_out, type_test(node.type, text(value.y, "__v"), value.y), "", G.indent)
+    put(held_out, " end)(")
+    add_child(held_out, value, "", G.indent)
+    put(held_out, ")")
+    return held_out
+  elseif members == nil then
     return type_test(node.type, value, line_of(node.value.last + 1), node.value)
   end
   local y = value.y
@@ -1629,9 +1681,72 @@ end
 
 --- A `match` as a `do` block that holds the values of its call and an `if` on them: an arm tests the `true` and
 --- `false` of its patterns and binds the names of the others.
+--- The test of the local `name` for the type `t`, on the line `y`: a test for each member of a union, joined by `or`.
+local function held_test(t: Ast.Type, name: string, y: integer): Output
+  local members = union_members(t, 32) or { t }
+  local out = new(y)
+  for i, member in ipairs(members) do
+    if i > 1 then
+      put(out, " or ")
+    end
+    add_child(out, type_test(member, text(y, name), y, nil, name), "", G.indent)
+  end
+  return out
+end
+
+--- A typed `match`: the value is held in a local, and each arm is a test of it for the arm's type, in order, which
+--- binds the arm's name to it. `| _` is the `else`.
+local function typed_match(s: Ast.Match, prefix: string): Output
+  local y = line_of(s.first)
+  local out = new(y)
+  local held = prefix .. "1"
+  put(out, "do local " .. held .. " =")
+  add_child(out, exp(s.scrutinee), " ")
+  local pieces: mut {Output} = {}
+  for k, arm in ipairs(s.arms) do
+    local ay = line_of(arm.first)
+    local body_y = line_of(arm.body.first)
+    indent_in(ay, body_y)
+    local piece = new(ay)
+    local pat = arm.pats[1]
+    local every = pat == nil
+    if (pat ~= nil) and (pat.kind == "PatType") then
+      -- `| any v` takes every value left, as `| _` does.
+      local t = through_aliases(pat.type, 32)
+      every = (t.kind == "TypeName") and #t.path == 1 and t.path[1] == "any"
+    end
+    if (pat ~= nil) and (pat.kind == "PatType") and not every then
+      put(piece, if k == 1 then "if" else "elseif" end)
+      add_child(piece, held_test(pat.type, held, ay), " ")
+      put(piece, " then")
+      local name = pat.name
+      if name ~= nil then
+        put(piece, " local " .. name.name .. " = " .. held)
+      end
+    else
+      put(piece, if k == 1 then "if true then" else "else" end)
+      local name = if (pat ~= nil) and (pat.kind == "PatType") then pat.name else nil end
+      if name ~= nil then
+        put(piece, " local " .. name.name .. " = " .. held)
+      end
+    end
+    add_child(piece, block(arm.body), " ")
+    indent_out(ay, body_y)
+    pieces[k] = piece
+  end
+  for _, piece in ipairs(pieces) do
+    add_child(out, piece, " ", if piece.y ~= y then G.indent else nil end)
+  end
+  add_child(out, text(line_of(s.last), if #pieces > 0 then "end end" else "end" end), " ", G.indent)
+  return out
+end
+
 local function match_statement(s: Ast.Match): Output
   G.matches = G.matches + 1
   local prefix = "__m" .. tostring(G.matches) .. "_"
+  if s.typed then
+    return typed_match(s, prefix)
+  end
   local width = 0
   for _, arm in ipairs(s.arms) do
     width = math.max(width, #arm.pats)
@@ -1656,6 +1771,8 @@ local function match_statement(s: Ast.Match): Output
     for i, p in ipairs(arm.pats) do
       if (p.kind == "PatBool") then
         tests[#tests + 1] = prefix .. tostring(i) .. " == " .. (if p.value then "true" else "false" end)
+      elseif (p.kind == "PatNil") then
+        tests[#tests + 1] = prefix .. tostring(i) .. " == nil"
       elseif (p.kind == "PatBind") then
         bound[#bound + 1] = p.name.name
         values[#values + 1] = prefix .. tostring(i)
@@ -1707,7 +1824,7 @@ local function method_statement(class: Ast.Class, m: Ast.Method): Output
 end
 
 --- A `class` as its table, which is its methods' and the metatable of its values (`__index` is the table; a method
---- named `__close` or `__tostring` is that metamethod), and then each method.
+--- named `__close`, `__tostring`, `__lt` or `__le` is that metamethod), and then each method.
 local function class_statement(s: Ast.Class): Output
   local name = s.name.name
   local y = line_of(s.first)
@@ -1836,8 +1953,9 @@ end
 function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                           classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
                           kinds?: {integer: string}, served?: boolean, checks?: {integer: string},
-                          spreads?: {integer: {string}}): Codegen.Generated
+                          spreads?: {integer: {string}}, tags?: {integer: {string}}): Codegen.Generated
   G.tokens, G.scoped = chunk.tokens, scoped
+  G.tags = tags or {}
   G.checks = checks or {}
   G.spreads = spreads or {}
   G.served = served == true
@@ -1859,7 +1977,7 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   local errors = G.errors
   G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes =
     NO_TOKENS, {}, {}, {}, nil, nil, {}
-  G.enums, G.wraps, G.kinds, G.served, G.checks, G.spreads = {}, {}, {}, false, {}, {}
+  G.enums, G.wraps, G.kinds, G.served, G.checks, G.spreads, G.tags = {}, {}, {}, false, {}, {}, {}
   return { text = written, errors = errors }
 end
 

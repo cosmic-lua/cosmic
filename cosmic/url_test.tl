@@ -178,6 +178,34 @@ local function test_parse_keeps_bytes_past_ascii_as_written()
   assert(p.path == "/caf\xc3\xa9")
 end
 
+--- A browser ends an http(s) authority at `\`, and decodes an escape in
+--- a host and maps one not in ASCII to another one, so a URL whose authority holds either names a
+--- host here other than the one a browser reaches; it is refused.
+local function test_parse_refuses_an_authority_a_browser_reads_otherwise()
+  local cases: {string: string} = {
+    ["https://evil.example\\@good.example/"] = "holds a '\\'",
+    ["https://good.example\\.evil.example/"] = "holds a '\\'",
+    ["https://u\\x@good.example/"] = "holds a '\\'",
+    ["https://good.example\xef\xbc\x8eevil.example/"] = "a byte other than",
+    ["https://xn--caf-dma.example/\xc3\xa9"] = "",
+    ["https://a_b-c.example:8443/"] = "",
+    ["https://%65vil.example/"] = "a byte other than",
+    ["https://exa%mple.example/"] = "a byte other than",
+    ["https://evil.example/\\@good.example/"] = "",
+    ["https://good.example\"evil/"] = "a byte other than",
+    ["https://good.example`evil/"] = "a byte other than",
+  }
+  for url, says in pairs(cases) do
+    local p, why = Url.parse(url)
+    if says == "" then
+      assert(p ~= nil, url .. ": " .. why)
+    else
+      assert(p == nil, url)
+      assert(why:find(says, 1, true), url .. ": " .. why)
+    end
+  end
+end
+
 local function names_values(q: Url.Query): string
   local out: mut {string} = {}
   for _, p in ipairs(q.pairs) do

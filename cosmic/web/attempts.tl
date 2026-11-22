@@ -25,9 +25,9 @@
 --- - **The client's address** (`req.client.host`) locks out the guesser
 ---   alone, but one with many addresses gets `limit` tries from each
 ---   (an IPv6 host often holds a whole /64). Behind a proxy every request
----   comes from the proxy's address, one key for everyone, unless the app
----   sets `trusted_proxy`; set it only where clients cannot reach the app
----   past the proxy, or they choose their own key.
+---   comes from the proxy's address, one key for everyone, unless the app's
+---   `trusted_proxy` names the proxy, whose `X-Forwarded-For` then gives
+---   the client.
 --- - **The account name** limits guesses at one account from anywhere,
 ---   and lets anyone lock that account out.
 ---

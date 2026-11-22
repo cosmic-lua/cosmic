@@ -427,8 +427,9 @@ local function test_a_spec_gives_the_type_of_its_answer_and_a_list_of_optional_e
     "operand_type")
   refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil then local n: integer = slots[1] print(n) end\n",
     "index_may_be_nil")
-  -- an element that is not optional is no sparse list
-  refused(SPEC .. "local xs = sparse_list(STR)\nprint(xs)\n", "not_assignable")
+  -- a spec only answers its type, so it is covariant: a spec of a string is a spec of a string that may be nil, and
+  -- its sparse list is a map of strings
+  refused(SPEC .. "local xs = sparse_list(STR)\nlocal m: {integer: string}? = into(xs)\nprint(m)\n", "")
 end
 
 -- The check `record_of` takes is a function the checker types too: a call that passes one of its own, by whatever route it
@@ -685,7 +686,8 @@ local MAX <const> = "local function max<T is Ordered>(a: T, b: T): T\n  if a < b
 local SUM <const> = "local function sum<N is Numeric>(xs: {N}, zero: N): N\n  local t = zero\n  for _, x in ipairs(xs) do\n" ..
   "    t = t + x * 2 - 1\n  end\n  return -(-t)\nend\n"
 
---- A parameter bounded by `Ordered` compares two of its values; a number type or a string type meets it, and the call
+--- A parameter bounded by `Ordered` compares two of its values; a number type, a string type, or a class that declares
+--- `__lt` and `__le` meets it, and the call
 --- answers the argument's type.
 local function test_a_parameter_bounded_by_ordered_compares_its_values()
   stands(MAX .. "print(max(1, 2), max(2.5, 1.5), max(\"a\", \"b\"))\n", "2\t2.5\tb")
@@ -930,4 +932,19 @@ local function test_a_parameter_with_two_interface_bounds_meets_an_interface_of_
   local one = Programs.run(PERSON .. "local function pass<T is Titled>(t: T): string\n  return label(t)\nend\n")
   local e = Array.at(one.errors, 1)
   assert(e.code == "bound_unmet" and e.fix == "bound `T` by `Aged` where it is declared (`<T is Aged & Titled>`)", e.fix)
+end
+
+local function test_a_generic_function_in_a_field_that_may_be_nil_is_narrowed_and_called()
+  local head = "local record R\n  pick?: function<T>(T): T\nend\nlocal function same<T>(x: T): T\n  return x\nend\n"
+  Programs.stands(head .. "local r: R = { pick = same }\nlocal p = r.pick\nif p ~= nil then\n" ..
+      "  print(p(3) + 1, p(\"a\") .. \"b\")\nend\n", "4\tab")
+  Programs.stands(head .. "local r: R = { pick = same }\nif r.pick ~= nil then\n  print(r.pick(2) * 2)\nend\n", "4")
+  Programs.stands(head .. "local r: R = { pick = same }\nassert(r.pick)\nprint(r.pick(1), r.pick(\"x\"))\n", "1\tx")
+  -- A method-style field, and a type parameter an optional field holds, filled with a generic function.
+  Programs.stands("local record M\n  pick?: function<T>(self: M, T): T\nend\nlocal function own<T>(_: M, x: T): T\n" ..
+      "  return x\nend\nlocal m: M = { pick = own }\nif m.pick ~= nil then\n  print(m:pick(5), m:pick(\"s\"))\nend\n", "5\ts")
+  Programs.stands("local record Box<X>\n  v?: X\nend\nlocal function same<T>(x: T): T\n  return x\nend\n" ..
+      "local b: Box<function<T>(T): T> = { v = same }\nlocal v = b.v\nif v ~= nil then\n  print(v(7))\nend\n", "7")
+  -- Until it is narrowed, it may be nil.
+  Programs.refused(head .. "local r: R = { pick = nil }\nprint(r.pick(1))\n", "nil_not_allowed")
 end

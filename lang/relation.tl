@@ -26,8 +26,12 @@
 ---   record with an array part `T` is below `{T}`.
 --- - A recursive alias (a [`Named`] of kind `alias`) is below what its body is below and above what is below its
 ---   body, one level read at a time; two aliases are related only where they are one, and a record, a class or an interface is below none.
---- - A named type is nominal. Two uses of one declaration are related when their
----   arguments are the same types. A use is below an interface when its
+--- - A named type is nominal. Two uses of one declaration are related by how the declaration uses each type
+---   parameter, read from its body ([`Variance.of`]): an argument it only reads out (a field that is not `mut`, a
+---   return, an element of a view) is below the other's, one it only takes in (a parameter of a function field or
+---   method, a method's receiver aside) is above it, one it does both with (a `mut` field, a `mut` collection, a map's key)
+---   is the same type, and so is one it does not use, which an opaque declaration means by its name. A declaration that names itself is read until the uses
+---   hold. A use is below an interface when its
 ---   declaration lists the interface, or one that extends it, with `is`, the
 ---   arguments of each listing read through the declaration. A record, class or
 ---   interface that lists none of them is below the interface when it has each
@@ -59,7 +63,7 @@
 --- **Refusals.** A [`Relation.Refusal`] has the `code` of the rule that failed, the
 --- `path` from the pair compared to the parts that failed, and those parts as
 --- `sub` and `super`. A `parameter` or `rest` step swaps the roles: the `sub` of the
---- leaf is then a part of the type that was the target of the comparison. The
+--- leaf is then a part of the type that was the target of the comparison, and so does an `argument_in` step. The
 --- reason is built only on request, so a relation that holds or fails
 --- unexplained builds none.
 ---
@@ -143,7 +147,8 @@ local record Relation
     "invariant_narrows"
   end
 
-  --- A part of a type a refusal went into. `nil` is the nil of a source union, `bound` the
+  --- A part of a type a refusal went into. `argument_in` is a type argument a declaration passes in (a parameter of
+  --- its functions), which swaps the roles as a `parameter` step does. `nil` is the nil of a source union, `bound` the
   --- bound of a type variable, `array_part` the array part of a record, `rest` the rest
   --- parameter of the function wanted, which stands at every position from `index` on,
   --- `narrows` the type of a narrowing declaration and `tail` the `T...` of a list.
@@ -155,6 +160,7 @@ local record Relation
     "nil"
     "target_alternative"
     "argument"
+    "argument_in"
     "array_part"
     "parameter"
     "rest"
@@ -225,13 +231,15 @@ local record Relation
   end
 
   --- The relation of one store.
-  record Judge
+  interface Judge
     store: Store
     --- Pairs of closed types, and pairs of types that mention a variable under no binder.
     closed: {integer: boolean}
     free: {integer: boolean}
     scopes: mut {Scope}
     closures: {integer: Closure}
+    --- How each declaration uses its type parameters, as bits: 1 read out, 2 passed in.
+    variances: mut {Types.Decl: {integer: integer}}
     sets: {integer: {integer: boolean}}
     --- The reasons built by the request in progress, by pair.
     explained: {integer: Refusal}
@@ -277,8 +285,10 @@ local record Relation
   --- function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
   as_listed: function(store: Store, x: Named, field_type: Type, self_type: Type): Type?
 
-  --- Whether a declaration that leaves `f` out of an interface it lists has it from the interface.
-  brought_in: function(decl: Types.Decl, f: Types.Field): boolean
+  --- Whether a declaration that leaves `f` out of an interface it lists has it from the interface, where `listed` is
+  --- the field's type as `self_type` has it ([`as_listed`]): a class writes a method for each fixed function field
+  --- whose first parameter is then `self_type`, the interface as listed, and has every other field.
+  brought_in: function(decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
 
   --- For each field of the interface `pattern`, and of those it lists: the field's type as `pattern` declares it, with
   --- its arguments put in and a function field's receiver `actual`, then as `actual` has it, in pairs. Nil where
@@ -304,8 +314,6 @@ local MAX_ALTERNATIVES <const> = 16
 --- stops here, and [`Relation.Judge.listed`] says it did, so that [`lang.declarations`] refuses
 --- the declaration whose closure it is.
 local MAX_LISTED <const> = 4096
-
-local judge_mt: metatable<Relation.Judge> = { __index = Relation.Judge } -- checked: field_unknown, literal_missing
 
 -- Results ------------------------------------------------------------------------------------
 
@@ -610,6 +618,10 @@ end
 
 local rel: function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
 
+--- How declarations use their type parameters ([`Variance.args_below`]), defined below the relation.
+local record Variance
+end
+
 --- The memo that a pair may be kept in.
 local function memo_of(j: Relation.Judge, a: Type, b: Type): {integer: boolean}
   if a.open == 0 and b.open == 0 then
@@ -665,6 +677,30 @@ local function from_union(j: Relation.Judge, a: Union, b: Type, why: boolean): R
   return nil
 end
 
+--- Whether each string of the enum `a` is a value of one of the enums `among`: a string literal type is an enum of its
+--- value alone, so `"circle" | "square"` holds `Kind` where `Kind` is those two.
+local function enum_within(a: Named, among: {Type}): boolean
+  local body = a.decl.body
+  if body == nil then
+    return false
+  end
+  local held: mut {string: boolean} = {}
+  for _, m in ipairs(among) do
+    local other = if (m.tag == "named") and not m.value and m.decl.kind == "enum" then m.decl.body else nil end
+    if other ~= nil then
+      for _, v in ipairs(other.values) do
+        held[v] = true
+      end
+    end
+  end
+  for _, v in ipairs(body.values) do
+    if held[v] ~= true then
+      return false
+    end
+  end
+  return true
+end
+
 -- TODO: index the members of a target union by form, once the type report shows a union of many
 -- arrays, maps or functions in the tree: a type below none of n members, or below only the last
 -- of them, is compared with each, and n such types make n^2 comparisons. A member that is one of
@@ -683,6 +719,10 @@ local function into_union(j: Relation.Judge, a: Type, b: Union, why: boolean): R
     if rel(j, a, m, false) == nil then
       return nil
     end
+  end
+  if (a.tag == "named") and not a.value and a.decl.kind == "enum" and enum_within(a, b.members) then
+    -- No member holds each string of the enum, and the members together do.
+    return nil
   end
   if not why then
     return j.none
@@ -807,10 +847,15 @@ function Relation.as_listed(store: Store, x: Named, field_type: Type, self_type:
 end
 
 --- Whether a declaration `decl` that lists an interface declaring `f`, and leaves `f` out, has it from the interface:
---- an interface or a record has each such field, and a class each but a function field that is neither `mut` nor
---- omittable, which it meets with a method of its own.
-function Relation.brought_in(decl: Types.Decl, f: Types.Field): boolean
-  return decl.kind ~= "class" or f.mut == true or f.type.tag ~= "fn"
+--- an interface or a record has each such field, and a class each but a fixed function field that takes the interface
+--- as listed first (`listed` takes `self_type` first), which it meets with a method of its own. A field that takes
+--- another type first, or the interface with other arguments, is data the class holds.
+function Relation.brought_in(decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
+  if decl.kind ~= "class" or f.mut == true or f.type.tag ~= "fn" or listed == nil or listed.tag ~= "fn" then
+    return true
+  end
+  local first = listed.params[1]
+  return first == nil or first.type ~= self_type
 end
 
 --- A field or method that `n` has, with the arguments of `n` put in.
@@ -859,8 +904,11 @@ local function supplied(j: Relation.Judge, n: Named, name: string): {Supplied}
       end
       if (x.tag == "named") and xbody ~= nil then
         for _, f in ipairs(xbody.fields) do
-          if f.name == name and (kind == "interface" or Relation.brought_in(n.decl, f)) then
-            add(Relation.as_listed(j.store, x, f.type, n), f.mut == true, f.omittable == true)
+          if f.name == name then
+            local listed = Relation.as_listed(j.store, x, f.type, n)
+            if kind == "interface" or Relation.brought_in(n.decl, f, listed, n) then
+              add(listed, f.mut == true, f.omittable == true)
+            end
           end
         end
       end
@@ -1024,6 +1072,57 @@ local function field_pairs(j: Relation.Judge, b: Named, a: Named): {Type}?
   return out
 end
 
+--- Whether `a`, a record inferred for a literal of named items ([`Types.inferred_record`]), is below the record `b`,
+--- declared or inferred, as the literal would be: it has each field of `b` that is not omittable or nilable, and no
+--- field `b` lacks; a field `b` declares `mut` is of exactly its type, since a write through `b` would store one, and
+--- another is below its type. Nil where it is, else the refusal naming the first field that differs.
+local function shaped(j: Relation.Judge, a: Named, b: Named, why: boolean): Relation.Refusal?
+  defined(b)
+  local abody = assert(a.decl.body, "an inferred record is defined where it is made")
+  local bbody = assert(b.decl.body, "`defined` holds a body")
+  if b.decl.kind ~= "record" or bbody.array ~= nil or #bbody.methods > 0 then
+    return leaf(j, why, "nominal", a, b)
+  end
+  local have: mut {string: Types.Field} = {}
+  for _, f in ipairs(abody.fields) do
+    have[f.name] = f
+  end
+  local wanted: mut {string: boolean} = {}
+  local function refused(f: Types.Field, found: boolean): Relation.Refusal
+    if not why then
+      return j.none
+    end
+    return { code = "not_listed", path = {}, sub = a, super = b, lists = {}, field = f, has_name = found }
+  end
+  for _, f in ipairs(bbody.fields) do
+    wanted[f.name] = true
+    local s = supplied(j, b, f.name)[1]
+    local mine = have[f.name]
+    if s ~= nil then
+      local field: Types.Field = { name = f.name, type = s.type, mut = s.mut, omittable = s.omittable }
+      if mine == nil then
+        -- A field written through `b` would be one the record does not know of, and a read of it as a map would miss.
+        if s.mut or (not s.omittable and not (s.type.tag == "nil" or ((s.type.tag == "union") and s.type.nilable))) then
+          return refused(field, false)
+        end
+      elseif s.mut then
+        -- A write through `b` changes the field behind what the program knows of it through its own fixed one.
+        if mine.type.tag ~= "invalid" and s.type.tag ~= "invalid" and (mine.mut ~= true or mine.type ~= s.type) then
+          return refused(field, true)
+        end
+      elseif rel(j, mine.type, if s.omittable then j.store:optional(s.type) else s.type end, false) ~= nil then
+        return refused(field, true)
+      end
+    end
+  end
+  for _, f in ipairs(abody.fields) do
+    if wanted[f.name] ~= true then
+      return leaf(j, why, "nominal", a, b)
+    end
+  end
+  return nil
+end
+
 local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): Relation.Refusal?
   if (b.tag == "named") and a.value ~= b.value then
     return leaf(j, why, "declaration_value", a, b)
@@ -1039,18 +1138,38 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
         -- The count is not known until the declaration is defined.
         error("relation: " .. a.decl.name .. " is not defined", 0)
       end
-      for i, held in ipairs(a.args) do
-        local other = b.args[i]
-        if held ~= other and held.tag ~= "invalid" and other ~= nil and other.tag ~= "invalid" then
-          return through(why, "argument", i, leaf(j, why, "invariant_generic", held, other))
+      if a.value then
+        -- The table of a declaration's functions is below itself alone.
+        for i, held in ipairs(a.args) do
+          local other = b.args[i]
+          if held ~= other and held.tag ~= "invalid" and other ~= nil and other.tag ~= "invalid" then
+            return through(why, "argument", i, leaf(j, why, "invariant_generic", held, other))
+          end
         end
+        return nil
       end
-      return nil
+      return Variance.args_below(j, a.decl, a.args, b.args, why)
+    end
+    if not a.value and not b.value and Types.inferred_record(a.decl) and b.decl.kind ~= "interface" then
+      return shaped(j, a, b, why)
+    end
+    if not a.value and a.decl.kind == "enum" and b.decl.kind == "enum" then
+      -- An enum is the set of its strings, and is below an enum that holds each of them: `"circle"` is below `Kind`.
+      if enum_within(a, { b }) then
+        return nil
+      end
+      return leaf(j, why, "nominal", a, b)
     end
     if b.decl.kind == "interface" then
       local closure = closure_of(j, a)
       if lists(closure, b) then
         return nil
+      end
+      -- A listing of the interface with other arguments is below it as the interface uses them.
+      for _, listed in ipairs(closure.by_decl[b.decl] or {}) do
+        if Variance.args_below(j, b.decl, listed.args, b.args, false) == nil then
+          return nil
+        end
       end
       -- A type that lists no interface of `b`'s declaration conforms to it by having its fields.
       return conforms(j, a, b, why, closure)
@@ -1071,6 +1190,30 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
     local r = rel(j, part, b.element, why)
     if r ~= nil then
       return through(why, "array_part", nil, r)
+    end
+    return nil
+  elseif (b.tag == "map") and not a.value and Types.inferred_record(a.decl) then
+    -- A record inferred for a literal of named items is a map of strings to what each of its fields is below, read
+    -- only: a write through the map would add a key or change the type of a field.
+    if b.mut then
+      return leaf(j, why, "view_as_mut", a, b)
+    end
+    if b.key ~= j.store.string then
+      local r = if (b.key.tag == "var") then rel(j, j.store.string, b.key, why) else leaf(j, why, "record_as_map", a, b) end
+      if r ~= nil then
+        return through(why, "key", nil, r)
+      end
+    end
+    for _, f in ipairs(assert(a.decl.body, "an inferred record is defined where it is made").fields) do
+      -- A field that may be nil is a key that may be missing, which a read of the map answers alike.
+      local held = f.type
+      if (held.tag == "union") and held.nilable then
+        held = j.store:non_nil(held)
+      end
+      local r = rel(j, held, b.value, why)
+      if r ~= nil then
+        return through(why, "value", nil, r)
+      end
     end
     return nil
   elseif (b.tag == "map") then
@@ -1411,7 +1554,8 @@ end
 --- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
 --- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
 --- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
---- raises: a union of a number and a string is none. `Numeric` is below `Ordered`. `Key` holds the types a map is
+--- raises: a union of a number and a string is none, and a class that declares `__lt` and `__le` is one. `Numeric` is
+--- below `Ordered`. `Key` holds the types a map is
 --- keyed by ([`Types.keys_a_map`]), an interface among them. A type variable is below a bound where one of its own bounds is.
 local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if (a.tag == "var") then
@@ -1426,6 +1570,9 @@ local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): 
     if Types.keys_a_map(a) then
       return nil
     end
+  elseif Types.declares_method(a, "__lt") and Types.declares_method(a, "__le") then
+    -- A class that declares `__lt` and `__le` compares two of its values with each of `<`, `<=`, `>` and `>=`.
+    return nil
   elseif a.tag ~= "Ordered" and a.tag ~= "Key" and a.tag ~= "Numeric" and
       (rel(j, a, j.store.number, false) == nil or rel(j, a, j.store.string, false) == nil) then
     return nil
@@ -1496,6 +1643,188 @@ rel = function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refu
   return r
 end
 
+-- Variance -----------------------------------------------------------------------------------
+
+--- How a type parameter of a declaration is used, as bits: `COVARIANT` where a value of it is read out (a field that is
+--- not `mut`, a return, an element of a view), `CONTRAVARIANT` where one is passed in (a parameter), both where it is
+--- written and read (a `mut` field, the element of a `mut` collection, a map's key), and neither where it is unused.
+local COVARIANT <const> = 1
+local CONTRAVARIANT <const> = 2
+local INVARIANT <const> = 3
+
+--- The use `inner`, of a parameter as it stands in a type that is itself used as `outer`.
+local function compose(outer: integer, inner: integer): integer
+  if inner == 0 or outer == 0 then
+    return 0
+  elseif inner == INVARIANT or outer == INVARIANT then
+    return INVARIANT
+  elseif inner == COVARIANT then
+    return outer
+  end
+  return if outer == COVARIANT then CONTRAVARIANT else COVARIANT end
+end
+
+--- Adds to `uses` how each type parameter of the declaration being read is used in `t`, which stands there as `at`;
+--- `level` is how many generic function binders `t` is inside. `self_decl` is that declaration, read as `current` has
+--- it so far. `receiver` says `t` is the type of a method, whose first parameter, where it is the declaring type with its
+--- own parameters, is the value the method is called on and says nothing of them.
+function Variance.uses_in(j: Relation.Judge, t: Type, at: integer, level: integer, uses: mut {integer: integer}, self_decl: Types.Decl,
+                          current: {integer: integer}, receiver?: boolean)
+  if at == 0 or t.open <= level then
+    return
+  end
+  if (t.tag == "var") then
+    if t.depth == level then
+      uses[t.index + 1] = (uses[t.index + 1] or 0) | at
+    end
+  elseif (t.tag == "named") then
+    local given = if t.decl == self_decl then current else Variance.of(j, t.decl) end
+    for i, each in ipairs(t.args) do
+      Variance.uses_in(j, each, compose(at, if t.value then INVARIANT else (given[i] or INVARIANT) end), level, uses, self_decl,
+        current)
+    end
+  elseif (t.tag == "array") then
+    Variance.uses_in(j, t.element, if t.mut then INVARIANT else at end, level, uses, self_decl, current)
+  elseif (t.tag == "map") then
+    Variance.uses_in(j, t.key, INVARIANT, level, uses, self_decl, current)
+    Variance.uses_in(j, t.value, if t.mut then INVARIANT else at end, level, uses, self_decl, current)
+  elseif (t.tag == "union") then
+    for _, m in ipairs(t.members) do
+      Variance.uses_in(j, m, at, level, uses, self_decl, current)
+    end
+  elseif (t.tag == "fn") then
+    local inside = level + (if #t.tparams > 0 then 1 else 0 end)
+    local passed = compose(at, CONTRAVARIANT)
+    for _, tp in ipairs(t.tparams) do
+      for _, bound in ipairs(tp.bounds or {}) do
+        Variance.uses_in(j, bound, INVARIANT, inside, uses, self_decl, current)
+      end
+    end
+    for k, p in ipairs(t.params) do
+      local own = false
+      local pt = p.type
+      if k == 1 and receiver == true and (pt.tag == "named") and pt.decl == self_decl and not pt.value then
+        own = true
+        for i, each in ipairs(pt.args) do
+          own = own and (each.tag == "var") and each.depth == inside and each.index == i - 1
+        end
+      end
+      if not own then
+        Variance.uses_in(j, pt, passed, inside, uses, self_decl, current)
+      end
+    end
+    local rest = t.rest
+    if rest ~= nil then
+      Variance.uses_in(j, rest, passed, inside, uses, self_decl, current)
+    end
+    for _, alt in ipairs(t.rets) do
+      for _, item in ipairs(alt.items) do
+        Variance.uses_in(j, item, at, inside, uses, self_decl, current)
+      end
+      local tail = alt.tail
+      if tail ~= nil then
+        Variance.uses_in(j, tail, at, inside, uses, self_decl, current)
+      end
+      local narrows = alt.narrows
+      if narrows ~= nil then
+        Variance.uses_in(j, narrows.to, INVARIANT, inside, uses, self_decl, current)
+      end
+    end
+  end
+end
+
+--- How each type parameter of `decl` is used in its body, by its fields, array part, methods (their receiver aside), the
+--- interfaces it lists and an alias's type: read until it holds, from unused, for a declaration that names itself. A
+--- declaration that names one whose reading is open takes that one's parameters as invariant.
+function Variance.of(j: Relation.Judge, decl: Types.Decl): {integer: integer}
+  local known = j.variances[decl]
+  if known ~= nil then
+    return known
+  end
+  local body = decl.body
+  if body == nil then
+    -- A declaration not yet defined is read as invariant, as uses of it compared with the same arguments need no body.
+    return {}
+  end
+  local open: mut {integer: integer} = {}
+  for i = 1, #body.tparams do
+    open[i] = INVARIANT
+  end
+  -- While it is read, a declaration that names this one takes its parameters as invariant.
+  j.variances[decl] = open
+  local current: mut {integer: integer} = {}
+  for i = 1, #body.tparams do
+    current[i] = 0
+  end
+  while true do
+    local uses: mut {integer: integer} = {}
+    for i = 1, #body.tparams do
+      uses[i] = 0
+    end
+    for _, f in ipairs(body.fields) do
+      -- A function field may be called with any value as its first argument (`b.f(other)`), so its first parameter
+      -- counts, the declaring type there too.
+      Variance.uses_in(j, f.type, if f.mut == true then INVARIANT else COVARIANT end, 0, uses, decl, current)
+    end
+    local array = body.array
+    if array ~= nil then
+      Variance.uses_in(j, array, COVARIANT, 0, uses, decl, current)
+    end
+    for _, s in ipairs(body.supers) do
+      Variance.uses_in(j, s, COVARIANT, 0, uses, decl, current)
+    end
+    local alias = body.alias
+    if alias ~= nil then
+      Variance.uses_in(j, alias, COVARIANT, 0, uses, decl, current)
+    end
+    for _, m in ipairs(body.methods) do
+      Variance.uses_in(j, m.type, COVARIANT, 0, uses, decl, current, true)
+    end
+    local same = true
+    for i = 1, #body.tparams do
+      same = same and uses[i] == current[i]
+    end
+    current = uses
+    if same then
+      break
+    end
+  end
+  -- A parameter the body does not use is invariant: an opaque declaration (`Coroutine<Y, R, S>`) or a tag
+  -- (`Tagged<Meters>`) means it by its name alone.
+  for i = 1, #body.tparams do
+    if current[i] == 0 then
+      current[i] = INVARIANT
+    end
+  end
+  j.variances[decl] = current
+  return current
+end
+
+--- Nil where the arguments `held` of a use of `decl` are below the arguments `other` of another, each as the declaration
+--- uses its parameter: unused, either way, read out, below, passed in, above, both, the same type.
+function Variance.args_below(j: Relation.Judge, decl: Types.Decl, held: {Type}, other: {Type}, why: boolean): Relation.Refusal?
+  local uses = Variance.of(j, decl)
+  for i, x in ipairs(held) do
+    local y = other[i]
+    if y ~= nil and x ~= y and x.tag ~= "invalid" and y.tag ~= "invalid" then
+      local use = uses[i] or INVARIANT
+      local r: Relation.Refusal? = nil
+      local step: Relation.StepKind = "argument"
+      if use == COVARIANT then
+        r = rel(j, x, y, why)
+      elseif use == CONTRAVARIANT then
+        r, step = rel(j, y, x, why), "argument_in"
+      elseif use == INVARIANT then
+        r = leaf(j, why, "invariant_generic", x, y)
+      end
+      if r ~= nil then
+        return through(why, step, i, r)
+      end
+    end
+  end
+  return nil
+end
+
 -- The judge ---------------------------------------------------------------------------------------
 
 local function owned(j: Relation.Judge, t: Type)
@@ -1505,21 +1834,6 @@ local function owned(j: Relation.Judge, t: Type)
   if t.owner ~= j.store.owner then
     error("relation: a type of another store", 3)
   end
-end
-
-Relation.Judge.subtype = function(self: Relation.Judge, a: Type, b: Type): boolean -- checked: field_unknown
-  owned(self, a)
-  owned(self, b)
-  return rel(self, a, b, false) == nil
-end
-
-Relation.Judge.refuse = function(self: Relation.Judge, a: Type, b: Type): Relation.Refusal? -- checked: field_unknown
-  owned(self, a)
-  owned(self, b)
-  self.explained = {} -- checked: field_fixed
-  local r = rel(self, a, b, true)
-  self.explained = {} -- checked: field_fixed
-  return r
 end
 
 --- Whether the function `a` is below the function `b` with trailing parameters dropped.
@@ -1562,59 +1876,10 @@ function Relation.refuse_known(self: Relation.Judge, a: Type, b: Type): Relation
   return r
 end
 
-Relation.Judge.accepts = function(self: Relation.Judge, argument: Type, param: Type): boolean -- checked: field_unknown
-  owned(self, argument)
-  owned(self, param)
-  return param.tag == "any" or rel(self, argument, param, false) == nil
-end
-
-Relation.Judge.refuse_argument = function(self: Relation.Judge, argument: Type, param: Type): Relation.Refusal? -- checked: field_unknown
-  if param.tag == "any" then
-    owned(self, argument)
-    owned(self, param)
-    return nil
-  end
-  return self:refuse(argument, param)
-end
-
 function Relation.field_pairs(self: Relation.Judge, pattern: Named, actual: Named): {Type}?
   owned(self, pattern)
   owned(self, actual)
   return field_pairs(self, pattern, actual)
-end
-
-Relation.Judge.listed = function(self: Relation.Judge, n: Named): Relation.Listing -- checked: field_unknown
-  owned(self, n)
-  local closure = closure_of(self, n)
-  local copied: mut {Type} = {}
-  for i, listed in ipairs(closure.list) do
-    copied[i] = listed
-  end
-  return { types = copied, complete = closure.complete }
-end
-
-Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -- checked: field_unknown
-  local copied: mut {Types.TParam} = {}
-  for i, tp in ipairs(tparams) do
-    for _, bound in ipairs(tp.bounds or {}) do
-      owned(self, bound)
-      -- The bound is read as it is, with no variable of a binder outside it to shift.
-      if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
-          #bound.args > 0) then
-        error("relation: a bound is an interface used with no arguments, `Ordered`, `Numeric` or `Key`, not " ..
-            Types.display(bound), 2)
-      end
-    end
-    copied[i] = tp
-  end
-  self.scopes[#self.scopes + 1] = { tparams = copied, memo = {} }
-end
-
-Relation.Judge.leave = function(self: Relation.Judge) -- checked: field_unknown
-  if #self.scopes == 0 then
-    error("relation: leave without enter", 2)
-  end
-  self.scopes[#self.scopes] = nil
 end
 
 function Relation.instantiate(store: Store, t: Type, args: {Type}): Type?
@@ -1636,15 +1901,6 @@ function Relation.specialize(store: Store, f: Fn, args: {Type}): Fn?
     end
   end
   return specialize_within(store, f, args)
-end
-
-function Relation.new(store: Store): Relation.Judge
-  local judge: Relation.Judge = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    store = store, closed = {}, free = {}, scopes = {}, closures = {}, sets = {}, explained = {},
-    none = { code = "mismatch", path = {}, sub = store.invalid, super = store.invalid },
-    nil_type = store:atom("nil"),
-  }, judge_mt)
-  return judge
 end
 
 function Relation.binder(decl: Types.Decl): {Types.TParam}
@@ -1672,6 +1928,82 @@ function Relation.trace(r: Relation.Refusal): string
   end
   local where = #parts > 0 and table.concat(parts, " > ") or "here" -- checked: and_ternary
   return r.code .. " at " .. where .. ": " .. Types.display(r.sub) .. " is not below " .. Types.display(r.super)
+end
+
+--- The Judge that [`Relation.new`] makes.
+local class Made is Relation.Judge
+  function subtype(self, a: Type, b: Type): boolean
+    owned(self, a)
+    owned(self, b)
+    return rel(self, a, b, false) == nil
+  end
+
+  function refuse(self, a: Type, b: Type): Relation.Refusal?
+    owned(self, a)
+    owned(self, b)
+    self.explained = {} -- checked: field_fixed
+    local r = rel(self, a, b, true)
+    self.explained = {} -- checked: field_fixed
+    return r
+  end
+
+  function accepts(self, argument: Type, param: Type): boolean
+    owned(self, argument)
+    owned(self, param)
+    return param.tag == "any" or rel(self, argument, param, false) == nil
+  end
+
+  function refuse_argument(self, argument: Type, param: Type): Relation.Refusal?
+    if param.tag == "any" then
+      owned(self, argument)
+      owned(self, param)
+      return nil
+    end
+    return self:refuse(argument, param)
+  end
+
+  function listed(self, n: Named): Relation.Listing
+    owned(self, n)
+    local closure = closure_of(self, n)
+    local copied: mut {Type} = {}
+    for i, listed in ipairs(closure.list) do
+      copied[i] = listed
+    end
+    return { types = copied, complete = closure.complete }
+  end
+
+  function enter(self, tparams: {Types.TParam})
+    local copied: mut {Types.TParam} = {}
+    for i, tp in ipairs(tparams) do
+      for _, bound in ipairs(tp.bounds or {}) do
+        owned(self, bound)
+        -- The bound is read as it is, with no variable of a binder outside it to shift.
+        if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
+            #bound.args > 0) then
+          error("relation: a bound is an interface used with no arguments, `Ordered`, `Numeric` or `Key`, not " ..
+              Types.display(bound), 2)
+        end
+      end
+      copied[i] = tp
+    end
+    self.scopes[#self.scopes + 1] = { tparams = copied, memo = {} }
+  end
+
+  function leave(self)
+    if #self.scopes == 0 then
+      error("relation: leave without enter", 2)
+    end
+    self.scopes[#self.scopes] = nil
+  end
+end
+
+function Relation.new(store: Store): Relation.Judge
+  local judge: Made = {
+    store = store, closed = {}, free = {}, scopes = {}, closures = {}, variances = {}, sets = {}, explained = {},
+    none = { code = "mismatch", path = {}, sub = store.invalid, super = store.invalid },
+    nil_type = store:atom("nil"),
+  }
+  return judge
 end
 
 return Relation

@@ -738,11 +738,11 @@ local function test_type_never_answers_a_typo()
    return ""
 end
 print(check(1))
-]==], "type_name")
+]==], "enum_member")
 end
 
 local function test_a_local_holding_type_does_not_narrow()
-  checks("type-localized", [==[local type = type
+  checks("type-localized", [==[local type: function(any): string = type
 type = function(_: any): string return "string" end
 local function upper(v: any): string
    if type(v) == "string" then return v:upper() end
@@ -871,7 +871,7 @@ print(guard)
 ]==], "condition_type nil_not_allowed")
   checks("never-open-pcall", [==[local function fail(m: string): never error(m) end
 local function guard(x: string?): integer
-   if x == nil then pcall(fail, "no") end
+   if x == nil then local _, _ = pcall(fail, "no") end
    return x:len()
 end
 print(guard)

@@ -315,7 +315,9 @@ local function clean_filename(raw: string): string?, string
   local cut = #raw
   while cut > 0 and not raw:find("^[/\\]", cut) do cut = cut - 1 end
   local base = raw:sub(cut + 1)
-  if base == "" and raw ~= "" then return nil, "multipart: a filename names a directory" end
+  if (base == "" and raw ~= "") or base == "." or base == ".." then
+    return nil, "multipart: a filename names a directory"
+  end
   if #base > MAX_FILENAME then return nil, "multipart: a filename is longer than 255 bytes" end
   if not utf8.len(base) then return nil, "multipart: a filename is not UTF-8" end
   return base, ""
@@ -534,9 +536,9 @@ end
 --- @return Multipart.Reader The parser, or nil
 --- @return string Why not: the boundary is unusable
 function Multipart.reader(source: Stream.Reader, opts: Multipart.Options): Multipart.Reader?, string
-  for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes, -- checked: array_of_optional
+  for field, v in pairs({ max_parts = opts.max_parts, max_header_bytes = opts.max_header_bytes,
       max_header_lines = opts.max_header_lines }) do
-    if v ~= nil and v < 1 then
+    if v < 1 then
       error(("multipart: %s is a positive integer, not %d"):format(field, v), 2)
     end
   end

@@ -24,6 +24,13 @@ local record bare
     --- newlines, keeps its tabs). `fetch` uses it, so a carriage return
     --- is what it escapes.
     keep_tab_newline?: boolean
+    --- Escape too each byte that is not part of valid UTF-8, and the
+    --- bytes of each C1 control (U+0080 to U+009F, which a UTF-8
+    --- terminal obeys) and of each invisible format character that
+    --- reorders or hides text ([`bare.spoofing`]): text another party
+    --- chose, as a tailnet peer's name, then passes only as characters
+    --- a terminal prints in the order they are written.
+    strict_utf8?: boolean
   end
 
   --- The exit code of a run that did what was asked.
@@ -110,13 +117,52 @@ function bare.stdin_text(message: string): string?, string
   return Stream.read_all(reader)
 end
 
+--- Whether code point `c` is a C1 control or a format character that
+--- reorders or hides the text around it: a zero-width space, joiner or
+--- mark (U+200B to U+200F), a line or paragraph separator or a bidi
+--- embedding or override (U+2028 to U+202E), a bidi isolate (U+2066 to
+--- U+2069) or the byte order mark, U+FEFF. A peer could otherwise show
+--- a name that reads as another's.
+function bare.spoofing(c: integer): boolean
+  return (c >= 0x80 and c <= 0x9F) or (c >= 0x200B and c <= 0x200F) or (c >= 0x2028 and c <= 0x202E) or
+    (c >= 0x2066 and c <= 0x2069) or c == 0xFEFF
+end
+
+--- `text` with each byte from 0x80 on as `\xHH`, unless it starts a
+--- valid UTF-8 character that is not [`bare.spoofing`], which passes
+--- whole. An escaped character comes out as one escape per byte.
+local function strict_utf8(text: string): string
+  local out: mut {string} = {}
+  local i = 1
+  while true do
+    local at = text:find("[\128-\255]", i)
+    if at == nil then
+      out[#out + 1] = text:sub(i)
+      return table.concat(out)
+    end
+    out[#out + 1] = text:sub(i, at - 1)
+    local lead = assert(text:byte(at), "find answers a byte's index")
+    -- The lead byte gives the length, never utf8.offset, which steps past
+    -- any continuation bytes that follow the character as well.
+    local width = if utf8.len(text, at, at) ~= 1 then 1 elseif lead < 0xE0 then 2 elseif lead < 0xF0 then 3 else 4 end
+    if width > 1 and not bare.spoofing((assert(utf8.codepoint(text, at), "a valid character has one"))) then
+      out[#out + 1] = text:sub(at, at + width - 1)
+    else
+      for k = at, at + width - 1 do
+        out[#out + 1] = string.format("\\x%02X", (assert(text:byte(k), "the character's bytes are there")))
+      end
+    end
+    i = at + width
+  end
+end
+
 --- `text` with each byte a terminal would act on -- 0x00 through 0x1f
 --- and 0x7f -- as `\xHH`, so a name, a cell or a header never moves the
 --- terminal or starts a line of its own. Bytes from 0x80 on, valid UTF-8
---- or not, pass through as they are. `options` chooses the spellings of
---- backslash, tab, newline and return.
+--- or not, pass through as they are unless `options.strict_utf8`.
+--- `options` chooses the spellings of backslash, tab, newline and return.
 --- @param text the text to make safe to print
---- @param options `named` and `keep_tab_newline`; both off when nil
+--- @param options `named`, `keep_tab_newline` and `strict_utf8`; all off when nil
 function bare.escape(text: string, options?: bare.EscapeOptions): string
   local named = options ~= nil and options.named == true
   local keep_tab_newline = options ~= nil and options.keep_tab_newline == true
@@ -135,7 +181,8 @@ function bare.escape(text: string, options?: bare.EscapeOptions): string
     end
     return string.format("\\x%02X", (assert(byte:byte(), "gsub hands over one byte")))
   end)
-  return safe
+  if options == nil or options.strict_utf8 ~= true then return safe end
+  return strict_utf8(safe)
 end
 
 --- `url` with any userinfo replaced by `***`, for every place a verb

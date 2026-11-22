@@ -61,8 +61,9 @@
 --- a private network is the usual one), and a program that asks for that
 --- address by IP is refused as any other literal. A `*` host grant would let
 --- a name such as `internal.corp` reach what the upstream's own network
---- resolves it to, which this relay cannot see: `localhost` and `*.localhost`
---- are refused in this mode, and the rest is the upstream's to refuse.
+--- resolves it to, which this relay cannot see: `localhost`, `*.localhost`
+--- and the loopback aliases /etc/hosts files ship ([`loopback_name`]) are
+--- refused in this mode, and the rest is the upstream's to refuse.
 ---
 --- Caps, each refused with its own reason in the program's reply: the
 --- connections open at once (`connections`), the bytes of a request
@@ -1002,6 +1003,24 @@ local function admit(run: Running, slot: Slot): string
   return over_cap(run)
 end
 
+--- Names a host's resolver gives its own loopback (RFC 6761's
+--- `localhost` and its subdomains, and the aliases /etc/hosts files
+--- ship), which an upstream proxy would read as its own host. A name
+--- that only a public resolver maps to the loopback (`127.0.0.1.nip.io`)
+--- is the grant's to keep out.
+local LOOPBACK_NAMES <const>: {string: boolean} = {
+  ["localhost"] = true, ["localhost.localdomain"] = true, ["localhost6"] = true,
+  ["localhost6.localdomain6"] = true, ["ip6-localhost"] = true, ["ip6-loopback"] = true,
+  ["localhost4"] = true, ["localhost4.localdomain4"] = true,
+}
+
+--- Whether `host`, a name in any case, with a final dot or none, is one of
+--- [`LOOPBACK_NAMES`] or under `localhost`.
+local function loopback_name(host: string): boolean
+  local name = host:lower():gsub("%.$", "")
+  return LOOPBACK_NAMES[name] == true or name:sub(-10) == ".localhost"
+end
+
 --- Serves one accepted connection. `over` is why it is refused outright, or
 --- "" when it is counted already; nil where it is counted once it has
 --- authenticated.
@@ -1098,7 +1117,7 @@ local function serve_connection(run: Running, protocol: string, client: Net.Conn
         format(shown), 403, "not_allowed"), true)
     return
   end
-  if through ~= nil and req.kind == "name" and (req.host == "localhost" or req.host:sub(-10) == ".localhost") then
+  if through ~= nil and req.kind == "name" and loopback_name(req.host) then
     reject(refusal(("%s is not relayed through the upstream proxy: it would name the proxy's own host, not the " ..
       "sandbox's"):format(shown), 403, "not_allowed"), true)
     return

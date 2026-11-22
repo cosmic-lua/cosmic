@@ -283,6 +283,9 @@ promises lean on come first:
   the web layer wants one: `Web.timing`, `Web.request_id` (paired with the
   CSP nonce and sessions) and `Web.limit_body` (paired with
   `Server.ServeSpec.body_limit`).
+- [`cosmic.web.session.cookie`] past signing, once a caller needs it: an
+  encrypted store over [`cosmic.cipher`]'s ChaCha20-Poly1305, for values
+  the user must not read, under the token's `v` field.
 - `cosmic.web.input` past what the first form binds, each once a route wants
   it: `Input.empty_as_nil(spec)` (an optional string whose `""` is nil),
   `require_nonempty`, `min_length` and `matches` over an [`Input.Invalid`],
@@ -565,6 +568,7 @@ four-producer provenance join.
 [`Clock.span`]: ../cosmic/clock.tl
 [`core/coverage.c`]: ../core/coverage.c
 [`core/json.c`]: ../core/json.c
+[`cosmic.cipher`]: ../cosmic/cipher.tl
 [`cosmic.coverage`]: ../cosmic/coverage.tl
 [`cosmic.dns`]: ../cosmic/dns.tl
 [`cosmic.fs`]: ../cosmic/fs.tl
@@ -590,6 +594,7 @@ four-producer provenance join.
 [`cosmic.url`]: ../cosmic/url.tl
 [`cosmic.web.dev`]: ../cosmic/web/dev.tl
 [`cosmic.web.middleware`]: ../cosmic/web/middleware.tl
+[`cosmic.web.session.cookie`]: ../cosmic/web/session/cookie.tl
 [`cosmic.web`]: ../cosmic/web/init.tl
 [`cosmic/errors.tl`]: ../cosmic/errors.tl
 [`cosmic/json_fuzz_test.tl`]: ../cosmic/json_fuzz_test.tl

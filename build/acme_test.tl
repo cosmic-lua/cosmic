@@ -5,6 +5,7 @@
 
 local Acme = require("cosmic.acme")
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Sign = require("cosmic.sign")
 local rsa_fixture = require("build.rsa_fixture")
 local acme = require("build.acme")
@@ -60,7 +61,13 @@ local function run(world: World, words: {string}): Ran
       table.insert(world.written, path)
       return true, ""
     end,
-    exists = function(path: string): boolean?, string return world.files[path] ~= nil, "" end,
+    create = function(path: string, data: string, mode: integer): boolean, string
+      if world.files[path] ~= nil then return false, path .. ": there already; name a new file" end
+      world.files[path] = data
+      world.modes[path] = mode
+      table.insert(world.written, path)
+      return true, ""
+    end,
     mkdirs = function(_path: string): boolean, string return true, "" end,
     remove = function(path: string): boolean, string
       world.files[path] = nil
@@ -243,4 +250,49 @@ local function test_a_chain_that_cannot_be_written_is_printed_instead()
   assert(ran.err:find("chain.pem: read-only file system; the chain follows on standard output instead", 1, true) ~=
       nil, ran.err)
   assert(ran.out:find("BEGIN CERTIFICATE", 1, true) ~= nil, "the chain is not lost")
+end
+
+--- The process's own files: the exclusive create, its mode, and its
+--- refusal of a file there (here one made first, as another process
+--- could at any moment).
+local function test_key_creates_its_file_exclusively(tmp: string)
+  local path = tmp .. "/account.pem"
+  assert(acme.run({ "acme", "key", path }) == 0)
+  local made = assert(Fs.read(path))
+  assert(Acme.read_key(made) ~= nil and (assert(Fs.stat(path)).mode & 0x1ff) == 0x180)
+  assert(acme.run({ "acme", "key", path }) == 2)
+  assert(Fs.read(path) == made, "a key there was written over")
+  local link = tmp .. "/link.pem"
+  assert(Fs.symlink(tmp .. "/elsewhere.pem", link))
+  assert(acme.run({ "acme", "key", link }) == 2)
+  assert(Fs.exists(tmp .. "/elsewhere.pem") == false, "a link was written through")
+end
+
+local function test_issue_refuses_a_directory_that_is_not_https()
+  local world = keyed()
+  local ran = run(world, { "issue", "--account", "account.pem", "--key", "site.pem", "--directory",
+    "http://acme.test/directory", "--webroot", "/w", "example.com" })
+  assert(ran.code == 2 and ran.err:find("--directory is an https URL", 1, true) ~= nil, ran.err)
+  assert(#world.server.log == 0, "nothing is sent")
+end
+
+local function test_a_hook_is_never_run_for_a_name_not_asked_for()
+  local world = keyed()
+  world.server.shown = function(_domain: string, wildcard: boolean): acme_fixture.Identifier
+    return { type = "dns", value = "evil.example", wildcard = wildcard }
+  end
+  local ran = run(world, { "issue", "--account", "account.pem", "--key", "site.pem", "--directory", DIRECTORY,
+    "--dns-hook", "/usr/local/bin/dns", "example.com" })
+  assert(ran.code == 1 and ran.err:find("evil.example, which was not asked for", 1, true) ~= nil, ran.err)
+  assert(#world.hooks == 0, table.concat(world.hooks, "\n"))
+end
+
+local function test_a_chain_for_another_key_is_never_written_over_out()
+  local world = keyed()
+  world.files["chain.pem"] = "the chain served now"
+  world.server.leaf_spki = Acme.p256_key(Sign.p256_secret()).spki
+  local ran = run(world, { "issue", "--account", "account.pem", "--key", "site.pem", "--directory", DIRECTORY,
+    "--webroot", "/w", "--out", "chain.pem", "example.com" })
+  assert(ran.code == 1 and ran.err:find("not for the certificate's key", 1, true) ~= nil, ran.err)
+  assert(world.files["chain.pem"] == "the chain served now" and ran.out == "", ran.out)
 end

@@ -77,9 +77,9 @@ local function test_a_finalizer_finds_no_module_outside_the_closure()
     local ok, why = pcall(function()
       for _, name in ipairs(outside) do absent(name) end
     end)
-    failure.value = if ok then "" else tostring(why) end -- checked: map_field
+    failure.value = if ok then "" else tostring(why) end
   end })
   collectgarbage()
   collectgarbage()
-  assert(failure.value == "", failure.value) -- checked: map_field*2
+  assert(failure.value == "", failure.value)
 end

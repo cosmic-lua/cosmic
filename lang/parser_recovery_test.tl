@@ -75,14 +75,27 @@ local function test_a_dangling_dot_does_not_take_the_next_line_for_a_field()
   assert(#parsed.chunk.body.stats == 2)
 end
 
-local function test_a_lua_keyword_is_no_field_name_and_the_words_the_grammar_reserves_are()
-  for _, source in ipairs({ "x = t.end", "x = t:then()", "x = t.local", "x = { end = 1 }", "t.function = 1", "x = t.nil" }) do
-    local parsed = parse(source)
-    assert(parsed.errors[1] ~= nil, source)
-  end
+local function test_every_reserved_word_names_a_field_and_a_lua_keyword_is_called_as_no_method()
+  clean("x = t.end\nx = t.local\nx = { end = 1 }\nt.function = 1\nx = t.nil")
+  -- A method call of a Lua keyword cannot be written in the Lua made (`t:then()`).
+  assert(codes(parse("x = t:then()")) == "reserved_method", codes(parse("x = t:then()")))
   clean("x = t.match + t.continue + t.mut + t.is + t.as + t.asserts + t.userdata + t.goto + t.global")
   clean("t:match(p)\nt.goto()\nx = { match = 1, goto = 2, global = 3, as = 4 }")
   clean("local record R\n  match: integer\n  goto?: string\n  mut global: T\nend")
+  -- A word only this grammar reserves is a name to Lua, so it names a method, which `t:match(p)` calls.
+  clean("local class C\n  function match(self, p: string): boolean\n    return p == \"\"\n  end\nend")
+  assert(codes(parse("local class C\n  function goto(self)\n  end\nend")) == "reserved_word")
+end
+
+local function test_an_end_that_closes_a_body_is_no_field_where_a_colon_begins_the_next_line()
+  for _, source in ipairs({ "local record R\n  a: integer\nend\n?\n", "local record R\n  a: integer\nend\n: x\n" }) do
+    local parsed = parse(source)
+    for _, e in ipairs(parsed.errors) do
+      assert(not e.msg:find("field name `end`", 1, true), e.msg)
+      assert(e.code ~= "unclosed", source .. ": " .. codes(parsed))
+    end
+    assert(#parsed.errors > 0, source)
+  end
 end
 
 -- lists

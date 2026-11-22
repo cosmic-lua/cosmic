@@ -528,7 +528,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   -- files in the way. Read as the entries pass; the entries are not kept.
   local found: mut {integer: boolean} = {}
   local clashes: Clashes = { count = 0, first = {} }
-  local reading = { halted = false, finished = false, finish_why = "" } -- checked: arms_differ
+  local reading = { halted = false, finished = false, finish_why = "" }
   local function record(entry: Archive.Entry)
     local name = normal(entry.path)
     for slot, member in ipairs(wanted) do

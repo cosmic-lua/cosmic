@@ -20,7 +20,7 @@ local sums = require("cosmic.internal.hash")
 local record Tar
   --- A tar's entry: a [`Stream.ArchiveEntry`] that also says who owns it
   --- and which typeflag its header carries.
-  record Entry is Stream.ArchiveEntry
+  interface Entry is Stream.ArchiveEntry
     --- As [`Stream.ArchiveEntry.path`].
     path: string
     --- As [`Stream.ArchiveEntry.kind`].
@@ -410,6 +410,64 @@ local function buffered(raw: Stream.Reader): BufferedReader
   return b
 end
 
+--- An entry's body: a Reader bounded to the entry's size.
+local class BodyReader is Stream.Reader
+  state: EntryReader
+  generation: integer
+  mut left: integer
+  mut failed?: string
+  mut closed: boolean
+
+  function read(self, max_bytes?: integer): string?, string
+    local failed = self.failed
+    if failed then return nil, failed end
+    if self.closed then return refuse("the entry body is closed") end
+    local state = self.state
+    if self.generation ~= state.generation then
+      return refuse("entry is no longer current")
+    end
+    local left = self.left
+    if left <= 0 then return nil, "" end
+    local want = max_bytes or chunk_size
+    if want > left then want = left end
+    local chunk, rtrouble = state.src:read(want)
+    if chunk == nil then
+      local why = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
+      self.failed = why
+      return nil, why
+    end
+    self.left = left - #chunk
+    state.pending_skip = state.pending_skip - #chunk
+    return chunk, ""
+  end
+
+  function close(self): boolean, string
+    self.closed = true
+    return true, ""
+  end
+end
+
+--- An entry an [`EntryReader`] read: only the reader's current entry can
+--- be opened, and only once.
+local class ReadEntry is Tar.Entry
+  --- The reader that read it.
+  reader: EntryReader
+
+  function open(self): Stream.Reader?, string
+    local r = self.reader
+    if self ~= r.current then return refuse("entry is no longer current") end
+    -- A second `open` on the same entry would share `left` and
+    -- `pending_skip` with the first and read wherever that one
+    -- left off, silently -- refuse it.
+    if r.opened then return refuse("entry already opened once") end
+    r.opened = true
+    local body: BodyReader = {
+      state = r, generation = r.generation, left = r.size, failed = nil, closed = false, skip = nil,
+    }
+    return body, ""
+  end
+end
+
 --- Keeps `trouble` as the reader's failure, or "tar: read failed" when
 --- it is "", and answers it.
 local function fail(self: EntryReader, trouble: string): nil, string
@@ -437,8 +495,6 @@ local class EntryReader is Tar.Reader
   mut opened: boolean
   --- The current entry's body size, as its header gave it.
   mut size: integer
-  --- What every entry of this reader gets as its metatable.
-  mut entry_mt?: metatable<Tar.Entry>
 
   function next(self): Tar.Entry?, string -- declared: interface_disagrees
     local failed = self.failed
@@ -494,9 +550,9 @@ local class EntryReader is Tar.Reader
         local f, ftrouble = parse_header(block, long_name, long_link, pax_local, self.pax_global)
         if f == nil then return fail(self, ftrouble) end
         self.pending_skip = f.size + padding_of(f.size)
-        local entry: Tar.Entry = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
+        local entry: ReadEntry = {
           path = f.name,
-          kind = f.kind,
+          kind = assert(f.kind, "tar: a parsed header has a kind"),
           mode = f.mode,
           size = f.size,
           mtime = f.mtime,
@@ -504,7 +560,8 @@ local class EntryReader is Tar.Reader
           uid = f.uid,
           gid = f.gid,
           typeflag = typeflag,
-        }, assert(self.entry_mt))
+          reader = self,
+        }
         self.current = entry
         self.opened = false
         self.size = f.size
@@ -522,69 +579,11 @@ local class EntryReader is Tar.Reader
   end
 end
 
---- An entry's body: a Reader bounded to the entry's size.
-local class BodyReader is Stream.Reader
-  state: EntryReader
-  generation: integer
-  mut left: integer
-  mut failed?: string
-  mut closed: boolean
-
-  function read(self, max_bytes?: integer): string?, string
-    local failed = self.failed
-    if failed then return nil, failed end
-    if self.closed then return refuse("the entry body is closed") end
-    local state = self.state
-    if self.generation ~= state.generation then
-      return refuse("entry is no longer current")
-    end
-    local left = self.left
-    if left <= 0 then return nil, "" end
-    local want = max_bytes or chunk_size
-    if want > left then want = left end
-    local chunk, rtrouble = state.src:read(want)
-    if chunk == nil then
-      local why = if rtrouble ~= "" then rtrouble else "tar: truncated archive" end
-      self.failed = why
-      return nil, why
-    end
-    self.left = left - #chunk
-    state.pending_skip = state.pending_skip - #chunk
-    return chunk, ""
-  end
-
-  function close(self): boolean, string
-    self.closed = true
-    return true, ""
-  end
-end
-
 --- A streaming reader over `raw`'s tar bytes. Closing it closes `raw`.
 function Tar.reader(raw: Stream.Reader): Tar.Reader
   local r: EntryReader = {
     raw = raw, src = buffered(raw), pax_global = {}, ended = false, closed = false,
     failed = nil, pending_skip = 0, generation = 0, current = nil, opened = false, size = 0,
-    entry_mt = nil,
-  }
-  -- Every entry this reader makes shares one `open`, through its
-  -- metatable: only the current entry can be opened, and only once. It
-  -- is one closure for the whole reader, not one for each entry, and
-  -- the entry's fields stay those [`Tar.Entry`] declares.
-  r.entry_mt = { -- checked: literal_missing
-    __index = { -- checked: any_use
-      open = function(e: Tar.Entry): Stream.Reader?, string
-        if e ~= r.current then return refuse("entry is no longer current") end
-        -- A second `open` on the same entry would share `left` and
-        -- `pending_skip` with the first and read wherever that one
-        -- left off, silently -- refuse it.
-        if r.opened then return refuse("entry already opened once") end
-        r.opened = true
-        local body: BodyReader = {
-          state = r, generation = r.generation, left = r.size, failed = nil, closed = false, skip = nil,
-        }
-        return body, ""
-      end,
-    },
   }
   return r
 end

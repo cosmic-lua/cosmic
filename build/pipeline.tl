@@ -145,6 +145,11 @@ local record Pipeline
 
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
   checked_alone: function(file: string, text: string, options: Options, tests?: boolean): Alone
+  --- [`Pipeline.checked_alone`] of each of `items`, `{ file, text }`, in one build: what each lowers of the standard
+  --- library is lowered once for all, as it is for the files of a tree. Each answer is the one its text alone has: a
+  --- text that names `lone`, as the items' modules are named, is checked in a build of its own. The build holds every
+  --- item until the last is answered.
+  checked_alone_each: function(items: {{string}}, options: Options, tests?: boolean): {Alone}
 
   --- The `cosmic.*` modules of the running binary, each its stub or its source ([`build.standard_text`]), a declaration
   --- ([`cosmic.sys`]) as one.
@@ -928,18 +933,8 @@ local function note_stages(stages: mut {string: string}, stage: string, list: {D
   end
 end
 
-function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean): Pipeline.Alone
-  -- A module of its own, named for nothing a `require` can say.
-  local module = "lone"
-  local kind = if tests == true then "test" else "main" end
-  local built = Pipeline.over({ { file, text, module } }, { [file] = kind }, options)
-  local build = built.build
-  -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, as the tree's compile does.
-  local spliced, spec_trouble = TreeProgram.splice(build, module, file)
-  if spliced == nil then
-    return { code = nil, lines = { spec_trouble }, stages = {} }
-  end
-  build:lower({ module })
+--- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).
+local function alone_of(build: Driver.Build, module: string, file: string, options: Pipeline.Options): Pipeline.Alone
   local result = build:result(module, true)
   if result == nil then
     return { code = nil, lines = { file .. ": the new checker's build has no module " .. module }, stages = {} }
@@ -978,6 +973,60 @@ function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Op
     return { code = nil, lines = { file .. ": the generator wrote no Lua: " .. emitted.trouble }, stages = stages }
   end
   return { code = emitted.code, lines = {}, stages = stages }
+end
+
+function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Options, tests?: boolean): {Pipeline.Alone}
+  -- Each a module of its own. A text that names `lone` could require another item's module, which alone it could not,
+  -- so it is checked in a build of its own.
+  local entries: mut {{string}} = {}
+  local kinds: mut {string: string} = {}
+  local kind = if tests == true then "test" else "main" end
+  local apart: mut {integer: Pipeline.Alone} = {}
+  for i, item in ipairs(items) do
+    local file, text = assert(item[1]), assert(item[2])
+    if #items > 1 and text:find("lone", 1, true) ~= nil then
+      apart[i] = assert(Pipeline.checked_alone_each({ { file, text } }, options, tests)[1])
+    else
+      local name = if #entries == 0 then "lone" else "lone" .. tostring(#entries + 1) end
+      entries[#entries + 1] = { file, text, name }
+      kinds[file] = kind
+    end
+  end
+  if #entries == 0 then
+    local all: mut {Pipeline.Alone} = {}
+    for i = 1, #items do all[#all + 1] = assert(apart[i]) end
+    return all
+  end
+  local built = Pipeline.over(entries, kinds, options)
+  local build = built.build
+  local refused: mut {integer: Pipeline.Alone} = {}
+  local lowered: mut {string} = {}
+  for i, entry in ipairs(entries) do
+    -- The calls of [`Shape.record_of`] are resolved in the text the checker reads, as the tree's compile does.
+    local spliced, spec_trouble = TreeProgram.splice(build, assert(entry[3]), assert(entry[1]))
+    if spliced == nil then
+      refused[i] = { code = nil, lines = { spec_trouble }, stages = {} }
+    else
+      lowered[#lowered + 1] = assert(entry[3])
+    end
+  end
+  build:lower(lowered)
+  local out: mut {Pipeline.Alone} = {}
+  local at = 1
+  for i = 1, #items do
+    local made = apart[i]
+    if made == nil then
+      local entry = assert(entries[at])
+      made = refused[at] or alone_of(build, assert(entry[3]), assert(entry[1]), options)
+      at = at + 1
+    end
+    out[#out + 1] = made
+  end
+  return out
+end
+
+function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean): Pipeline.Alone
+  return assert(Pipeline.checked_alone_each({ { file, text } }, options, tests)[1])
 end
 
 function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string?, string

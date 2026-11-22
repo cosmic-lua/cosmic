@@ -51,7 +51,7 @@ local function test_steps_capture_extended_codes_across_reset_and_reuse()
   local statement = assert(db:prepare("INSERT INTO t VALUES (?1)"))
   assert(statement:bind_values_result({ { integer = 1 } }).code == Sqlite.OK)
   local failed = statement:step_result()
-  assert(failed is Sqlite.ExecResult) -- checked: is_on_record
+  assert(failed is Sqlite.ExecResult)
   assert(failed.code == 19 and failed.extended_code == 2067 and failed.reason ~= "")
   local reason = failed.reason
   local _, _ = statement:reset()
@@ -60,7 +60,7 @@ local function test_steps_capture_extended_codes_across_reset_and_reuse()
   assert(statement:reset())
   assert(statement:bind_values_result({ { integer = 2 } }).code == Sqlite.OK)
   local again = statement:step_result()
-  assert(again is Sqlite.ExecResult and again.code == 19 and again.extended_code == 2067) -- checked: is_on_record
+  assert(again is Sqlite.ExecResult and again.code == 19 and again.extended_code == 2067)
   statement:finalize()
   assert(db:close())
   assert(failed.code == 19 and failed.extended_code == 2067 and failed.reason == reason)
