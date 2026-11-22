@@ -250,6 +250,14 @@ local function test_a_development_app_serves_the_loopback_only()
   assert(ok == false and why:find("loopback", 1, true) ~= nil, "one address beyond the loopback is enough")
 end
 
+--- A socket file is how a proxy reaches an app, so a development app
+--- refuses one as it does an address beyond the loopback.
+local function test_a_development_app_refuses_a_socket_file(tmp: string)
+  local app = Dev.app({ routes = routes(), sink = quiet() }, { enabled = true })
+  local ok, why = Web.serve(app, { listeners = { Net.unix(tmp .. "/app.sock") } })
+  assert(ok == false and why:find("socket file", 1, true) ~= nil, tostring(why))
+end
+
 local function test_the_plain_app_and_a_debug_app_are_left_to_the_caller()
   local app = Web.app{ routes = routes(), debug = true, sink = quiet() }
   assert(app.spec.dev ~= true)

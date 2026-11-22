@@ -231,7 +231,13 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps
   end
   -- Every address served, `clear`'s too, for the loopback checks below.
+  -- A socket file counts as beyond the loopback here: it is how a proxy
+  -- (nginx, or the daemon's Serve and Funnel) reaches an app, so its
+  -- clients may be anywhere.
   local everywhere: mut {Net.Address} = { table.unpack(listeners) }
+  local function machine_only(address: Net.Address): boolean
+    return address.kind ~= "unix" and Net.is_loopback(address)
+  end
   for _, address in ipairs(clear or {}) do everywhere[#everywhere + 1] = address end
   if app.spec.dev == true then
     if app.proxies ~= nil then
@@ -239,14 +245,15 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
     for _, address in ipairs(everywhere) do
-      if not Net.is_loopback(address) then
-        return declined("web: an app in development mode (Dev.app) serves only on the loopback")
+      if not machine_only(address) then
+        return declined("web: an app in development mode (Dev.app) serves only on the loopback, " ..
+            "never a socket file")
       end
     end
   end
   if app.spec.debug == true then
     for _, address in ipairs(everywhere) do
-      if not Net.is_loopback(address) then
+      if not machine_only(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..
             "a fault shows its stack to whoever asks")
         break
