@@ -614,7 +614,9 @@ local record Types
     --- half the connections [`Web.serve`] is given.
     mut stream_limit: integer
     --- The unix socket [`Web.serve`] listens at for the daemon's Serve,
-    --- while it serves `tailnet = { via = "serve" }`: [`Web.tailnet`]
+    --- from when it files the configuration (the daemon may pass a
+    --- request on before it answers) while it serves
+    --- `tailnet = { via = "serve" }`: [`Web.tailnet`]
     --- trusts the identity headers of a request that came to it, and of
     --- no other socket but the one its `socket` names.
     mut serve_socket?: string

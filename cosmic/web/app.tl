@@ -275,15 +275,20 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local on_ready = opts.on_ready
   local function ready(addresses: {Net.Address}, server: Net.Server)
     if put_up ~= nil then
+      -- The daemon may pass a request on as soon as it has the
+      -- configuration, before its answer to put_up arrives here: the
+      -- socket is the daemon's from the moment it is filed.
+      app.serve_socket = socket
+      app.serve_caps = forwarded
       local made, refused = put_up()
       if made == nil then
+        app.serve_socket = nil
+        app.serve_caps = nil
         refusal = refused
         server:stop()
         return
       end
       filed = made
-      app.serve_socket = socket
-      app.serve_caps = forwarded
     end
     if on_ready ~= nil then on_ready(addresses, server) end
   end
