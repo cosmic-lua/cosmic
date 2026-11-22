@@ -1373,3 +1373,128 @@ local function test_a_method_that_is_false_is_refused_not_taken_for_none()
   ok, why = pcall(Http.request, "PUT", url, opts)
   assert(not ok and tostring(why):find("leave opts.method out", 1, true) ~= nil, tostring(why))
 end
+
+--- Request headers for the redirect tests: six that may be credentials,
+--- each value holding "secret-", and two that describe the request.
+local CREDENTIALS <const>: {string:string} = {
+  Authorization = "Bearer secret-a", Cookie = "id=secret-c", ["Proxy-Authorization"] = "Basic secret-p",
+  ["X-Api-Key"] = "secret-k", Signature = "secret-s", DPoP = "secret-d",
+  Accept = "application/json", ["If-None-Match"] = "\"v1\"",
+}
+
+--- What curl sent to the hop whose request line starts with `line`:
+--- from that line to the blank line that ends its head.
+local function hop(sent: string, line: string): string
+  local at = assert(sent:find(line, 1, true), sent)
+  local after = sent:find("\r\n\r\n", at, true) or #sent
+  return sent:sub(at, after + 1)
+end
+
+--- Whether `head` holds every header of [`CREDENTIALS`] that describes
+--- the request and none that may be a credential.
+local function stripped(head: string): boolean
+  return head:find("secret-", 1, true) == nil and
+    head:find("\r\nAccept: application/json\r\n", 1, true) ~= nil and
+    head:find("\r\nIf-None-Match: \"v1\"\r\n", 1, true) ~= nil
+end
+
+--- A redirect to another origin -- another host or port, scheme-relative,
+--- IPv6, or naming the first host as user info -- drops every header but
+--- those that describe the request from that hop on, a hop back to the
+--- first origin included; curl alone drops only Authorization and
+--- Cookie, and sends them again there.
+local function test_a_redirect_to_another_origin_drops_credentials()
+  for _, target in ipairs({ "http://other.test/next", "http://cosmic.test:8080/next", "//other.test/next",
+      "http://[::1]/next", "http://cosmic.test@other.test/next" }) do
+    local response, _, sent = fetch({
+      reply("302 Found", "Location: " .. target .. "\r\n"),
+      reply("302 Found", "Location: http://cosmic.test/back\r\n"),
+      reply("200 OK", "", "done"),
+    }, { timeout_ns = Clock.seconds(60), headers = CREDENTIALS })
+    assert(response.status == 200, tostring(response.status))
+    local first = hop(sent, "GET / HTTP/1.1")
+    assert(count(first, "secret-") == 6, first)
+    for _, line in ipairs({ "GET /next HTTP/1.1", "GET /back HTTP/1.1" }) do
+      local later = hop(sent, line)
+      assert(stripped(later), target .. ": " .. later)
+    end
+  end
+end
+
+--- Two hops: one within the origin keeps every header, the next, to
+--- another, drops them.
+local function test_a_second_redirect_that_leaves_the_origin_drops_credentials()
+  local _, _, sent = fetch({
+    reply("302 Found", "Location: /middle\r\n"),
+    reply("302 Found", "Location: http://other.test/last\r\n"),
+    reply("200 OK", "", "done"),
+  }, { timeout_ns = Clock.seconds(60), headers = CREDENTIALS })
+  local middle = hop(sent, "GET /middle HTTP/1.1")
+  assert(count(middle, "secret-") == 6, middle)
+  local last = hop(sent, "GET /last HTTP/1.1")
+  assert(stripped(last), last)
+end
+
+--- A redirect within the origin, relative or naming it in another case
+--- and with its default port, keeps every header.
+local function test_a_redirect_within_the_origin_keeps_credentials()
+  for _, target in ipairs({ "/next", "http://COSMIC.test:80/next" }) do
+    local _, _, sent = fetch({
+      reply("302 Found", "Location: " .. target .. "\r\n"),
+      reply("200 OK", "", "done"),
+    }, { timeout_ns = Clock.seconds(60), headers = CREDENTIALS })
+    local later = hop(sent, "GET /next HTTP/1.1")
+    assert(count(later, "secret-") == 6, target .. ": " .. later)
+  end
+end
+
+--- A body longer than `max_bytes` fails the request: at once when its
+--- Content-Length says so, else once the byte past the limit arrives.
+local function test_a_body_over_max_bytes_fails_the_request()
+  local script = { reply("200 OK", "", "hello") }
+  local got, why = Http.request("GET", url, { timeout_ns = Clock.seconds(60), max_bytes = 4, script = script })
+  assert(got == nil and why == "http: the body is longer than opts.max_bytes, 4 bytes", why)
+  local chunked = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" ..
+    "3\r\nabc\r\n3\r\ndef\r\n0\r\n\r\n"
+  got, why = Http.get(url, { timeout_ns = Clock.seconds(60), max_bytes = 5, script = { chunked } })
+  assert(got == nil and why == "http: the body is longer than opts.max_bytes, 5 bytes", why)
+  got, why = Http.get(url, { timeout_ns = Clock.seconds(60), max_bytes = 6, script = { chunked } })
+  assert(got ~= nil and got.body == "abcdef", why)
+  got, why = Http.get(url, { timeout_ns = Clock.seconds(60), max_bytes = 5, script = script })
+  assert(got ~= nil and got.body == "hello", why)
+end
+
+--- With no `max_bytes`, a body over 16 MiB is refused: this one only says
+--- it is, and is refused before a byte of it is awaited.
+local function test_a_body_over_the_default_limit_is_refused_unread()
+  local head = "HTTP/1.1 200 OK\r\nContent-Length: " .. tostring((16 << 20) + 1) .. "\r\nConnection: close\r\n\r\n"
+  local got, why = Http.get(url, { timeout_ns = Clock.seconds(60), script = { head } })
+  assert(got == nil and why == "http: the body is longer than opts.max_bytes, 16777216 bytes", why)
+end
+
+--- The decoded bytes count against `max_bytes`, not the compressed ones.
+local function test_max_bytes_counts_the_decoded_body()
+  local plain = string.rep("a", 1000)
+  local script = { reply("200 OK", "Content-Encoding: gzip\r\n", encoded("gzip", plain)) }
+  local got, why = Http.get(url, { timeout_ns = Clock.seconds(60), decompress = true, max_bytes = 999, script = script })
+  assert(got == nil and why:find("max_bytes", 1, true) ~= nil, why)
+  got, why = Http.get(url, { timeout_ns = Clock.seconds(60), decompress = true, max_bytes = 1000, script = script })
+  assert(got ~= nil and got.body == plain, why)
+end
+
+local function test_max_bytes_takes_an_integer_of_at_least_0()
+  local ok, why = pcall(Http.get, url, { timeout_ns = Clock.seconds(60), max_bytes = -1, script = { reply("200 OK", "") } })
+  assert(not ok and tostring(why):find("opts.max_bytes must be an integer", 1, true) ~= nil, tostring(why))
+end
+
+--- A Content-Length that names no body sent -- a HEAD's, a 204's, a
+--- 304's -- refuses nothing, however large.
+local function test_a_bodiless_response_is_not_refused_for_its_content_length()
+  local large = "Content-Length: 20000000\r\nConnection: close\r\n\r\n"
+  local got, why = Http.request("HEAD", url, { timeout_ns = Clock.seconds(60), script = { "HTTP/1.1 200 OK\r\n" .. large } })
+  assert(got ~= nil and got.status == 200 and got.body == "", why)
+  for _, status in ipairs({ "204 No Content", "304 Not Modified" }) do
+    got, why = Http.get(url, { timeout_ns = Clock.seconds(60), script = { "HTTP/1.1 " .. status .. "\r\n" .. large } })
+    assert(got ~= nil and got.body == "", status .. ": " .. why)
+  end
+end

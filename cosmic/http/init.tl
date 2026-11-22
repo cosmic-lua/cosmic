@@ -55,6 +55,7 @@ local http = require("cosmic.internal.http")
 local Trust = require("cosmic.internal.trust")
 
 local Stream = require("cosmic.stream")
+local String = require("cosmic.string")
 -- Only the type here: the networking stack loads where a failure over a
 -- socket needs it, so a program that only fetches over the network does
 -- not load it.
@@ -199,11 +200,34 @@ local record Http
   --- and [`Http.get`] sends GET and no body.
   ---
   --- `redirect_protocols`, a list of "http" and "https", names the
-  --- schemes a redirect may lead to (default both; the start URL's own
-  --- is not limited by it): `{"https"}` refuses a redirect to http, so
-  --- a request that started over https never falls back to plaintext,
-  --- and the redirect refused fails the request. An empty list or any
-  --- other entry raises (`follow = false` is how to take no redirect).
+  --- schemes a redirect may lead to (the start URL's own is not limited
+  --- by it): `{"https"}` refuses a redirect to http, and the redirect
+  --- refused fails the request. By default it is `{"https"}` for a URL
+  --- that starts with https, so such a request never falls back to
+  --- plaintext, and both for one that starts with http;
+  --- `{"http", "https"}` lets an https request follow a redirect to
+  --- http. An empty list or any other entry raises (`follow = false`
+  --- is how to take no redirect).
+  ---
+  --- A redirect to another origin (another scheme, host or port than
+  --- the URL it answers) drops every header of `headers` from that hop
+  --- and every later one, a hop back to the first origin included, but
+  --- Accept, Accept-Encoding, Accept-Language, Cache-Control,
+  --- Content-Length, Content-Type, Range, User-Agent and each If-*, in
+  --- any case: any other might be a credential (Authorization, Cookie,
+  --- X-Api-Key, Signature and whatever an API names). A caller who must
+  --- send one to the new origin passes `follow = false` and follows
+  --- `Location` itself.
+  ---
+  --- [`Http.request`] and [`Http.get`] read at most `max_bytes` of the
+  --- body (16 MiB by default; `math.maxinteger` lifts it): a longer one
+  --- fails the request, unread past the limit, and one whose
+  --- Content-Length says it is longer fails before any of it is read.
+  --- With `decompress` the limit counts the decoded bytes.
+  --- [`Http.open`] and the downloads take no `max_bytes`: their caller
+  --- reads the body a chunk at a time. A response's headers are bounded
+  --- by curl: 300 KiB in one response, and twenty times that across the
+  --- redirects of one request, past which it fails.
   ---
   --- While the innermost open [`Signal.guard`] has caught SIGINT or SIGTERM, an
   --- open still waiting for its response fails with "interrupted", and
@@ -325,8 +349,12 @@ local record Http
     follow?: boolean
     --- The most redirects followed, 10 by default.
     max_redirects?: integer
-    --- The schemes a redirect may lead to, "http" and "https" by default.
+    --- The schemes a redirect may lead to: "https" alone by default
+    --- for an https URL, "http" and "https" for an http one.
     redirect_protocols?: {string}
+    --- [`Http.request`] and [`Http.get`] only: the most bytes of the body
+    --- they read, 16 MiB by default.
+    max_bytes?: integer
     --- A unix address to send the request over in place of the network.
     via?: Net.Address
     --- How long connecting may take, in nanoseconds; 30 seconds by default.
@@ -1130,14 +1158,61 @@ local function opened(url: string, opts: Http.Options, method: string?): Respons
   end
 end
 
---- `response`'s whole body, read and closed, as [`Http.Body`].
-local function whole(response: Response): Http.Body?, string
-  local body, read_trouble = Stream.read_all(response)
-  local _, _ = response:close()
-  if body == nil then
-    return nil, read_trouble
+--- The most bytes of a body [`Http.request`] and [`Http.get`] read
+--- when `opts.max_bytes` is not given.
+local DEFAULT_MAX_BYTES <const> = 16 << 20
+
+--- `opts.max_bytes`, or the default; raises at the caller of the public
+--- entry point for one that is no integer of at least 0.
+local function body_limit(opts: Http.Options): integer
+  local given = opts.max_bytes
+  if given == nil then return DEFAULT_MAX_BYTES end
+  if math.type(given) ~= "integer" or given < 0 then
+    error("http: opts.max_bytes must be an integer of at least 0", 3)
   end
-  return { status = response.status, body = body, headers = response.headers }, ""
+  return given
+end
+
+--- Why a body longer than `limit` is refused.
+local function over(limit: integer): string
+  return "http: the body is longer than opts.max_bytes, " .. String.counted(limit, "byte")
+end
+
+--- `response`'s whole body, read and closed, as [`Http.Body`]; nil and
+--- why for one longer than `limit` bytes, read no further than the byte
+--- past it. `encoded` says the body is decoded from a Content-Encoding,
+--- whose Content-Length counts the bytes before decoding. The
+--- Content-Length of a response to `method` HEAD, or of a 1xx, 204 or
+--- 304, names a body that is never sent (RFC 9110 8.6), so it refuses
+--- nothing.
+local function whole(response: Response, limit: integer, encoded: boolean, method: string): Http.Body?, string
+  local status = response.status
+  local bodiless = method == "HEAD" or status // 100 == 1 or status == 204 or status == 304
+  local length = math.tointeger(tonumber(response.headers["content-length"] or ""))
+  if not encoded and not bodiless and length ~= nil and length > limit then
+    local _, _ = response:close()
+    return nil, over(limit)
+  end
+  local parts: mut {string} = {}
+  local got = 0
+  while true do
+    local left = limit - got
+    local want = 65536
+    if left < want then want = left + 1 end
+    local chunk, trouble = response:read(want)
+    if chunk == nil then
+      local _, _ = response:close()
+      if trouble ~= "" then return nil, trouble end
+      break
+    end
+    got = got + #chunk
+    if got > limit then
+      local _, _ = response:close()
+      return nil, over(limit)
+    end
+    parts[#parts + 1] = chunk
+  end
+  return { status = response.status, body = table.concat(parts), headers = response.headers }, ""
 end
 
 --- Opens `url`, blocking until the final response's headers arrive.
@@ -1184,11 +1259,12 @@ function Http.get(url: string, opts: Http.Options): Http.Body?, string
   if opts.body ~= nil then
     error("http: Http.get sends no body; send one with Http.request(method, url, { timeout_ns = ..., body = ... })", 2)
   end
+  local limit = body_limit(opts)
   local response, trouble = opened(url, opts, nil)
   if response == nil then
     return nil, trouble
   end
-  return whole(response)
+  return whole(response, limit, opts.decompress == true, "GET")
 end
 
 --- Sends `method` to `url`, with `opts.body` when given, and reads the
@@ -1224,11 +1300,12 @@ function Http.request(method: string, url: string, opts: Http.Options): Http.Bod
   if opts.body ~= nil and (method == "GET" or method == "HEAD") then
     error(("http: Http.request sends no body with %s"):format(method), 2)
   end
+  local limit = body_limit(opts)
   local response, trouble = opened(url, opts, method)
   if response == nil then
     return nil, trouble
   end
-  return whole(response)
+  return whole(response, limit, opts.decompress == true, method)
 end
 
 --- A Reader over a Response that fails with "interrupted" once

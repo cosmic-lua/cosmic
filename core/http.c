@@ -39,6 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -105,6 +106,11 @@ struct script {
 struct transfer {
   CURL *easy;
   struct curl_slist *request_headers;
+  /* `request_headers` but those [`crosses_origin`] refuses, for every
+   * hop once a redirect leaves the origin. */
+  struct curl_slist *redirect_headers;
+  int dropping; /* a request header is one [`crosses_origin`] refuses */
+  int stripped;    /* the hops from here on go with `redirect_headers` */
   struct curl_slist *connect_to;
   struct script *script;
   char errbuf[CURL_ERROR_SIZE];
@@ -512,17 +518,19 @@ static long opt_integer (lua_State *L, const char *key, long fallback,
   return (long)v;
 }
 
-/* opts.redirect_protocols, a list of "http" and "https" (nil: both), as
- * the static string curl's CURLOPT_REDIR_PROTOCOLS_STR takes. Any other
- * entry, or a list of the wrong shape or an empty one (curl takes no
- * empty set; `follow = false` is how to take no redirect), raises. */
-static const char *opt_redirect_protocols (lua_State *L) {
+/* opts.redirect_protocols, a list of "http" and "https", as the static
+ * string curl's CURLOPT_REDIR_PROTOCOLS_STR takes; nil is https alone
+ * for a `url` that starts with https, so no redirect downgrades it to
+ * plaintext, and both for any other. Any other entry, or a list of the
+ * wrong shape or an empty one (curl takes no empty set; `follow = false`
+ * is how to take no redirect), raises. */
+static const char *opt_redirect_protocols (lua_State *L, const char *url) {
   static const char *const names[] = { NULL, "http", "https", "http,https" };
   const char *want = "a list of one or more of \"http\" and \"https\"";
   lua_getfield(L, 2, "redirect_protocols");
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);
-    return names[3];
+    return strncasecmp(url, "https:", 6) == 0 ? names[2] : names[3];
   }
   if (lua_type(L, -1) != LUA_TTABLE) bad_option(L, "redirect_protocols", want);
   int allowed = 0;
@@ -728,6 +736,40 @@ static size_t write_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
   return len;
 }
 
+/* Whether `a` and `b`, two parsed URLs, hold the same `part`. One that
+ * cannot be read, a failed allocation included, is no match. */
+static bool same_part (CURLU *a, CURLU *b, CURLUPart part) {
+  char *x = NULL;
+  char *y = NULL;
+  bool same = curl_url_get(a, part, &x, CURLU_DEFAULT_PORT) == CURLUE_OK &&
+              curl_url_get(b, part, &y, CURLU_DEFAULT_PORT) == CURLUE_OK &&
+              strcasecmp(x, y) == 0;
+  curl_free(x);
+  curl_free(y);
+  return same;
+}
+
+/* Whether a redirect from `from` to `location` (absolute, or relative to
+ * `from`) changes the scheme, host or port. One that cannot be parsed,
+ * or whose parse runs out of memory, counts as a change. */
+static bool leaves_origin (const char *from, const char *location) {
+  CURLU *here = curl_url();
+  CURLU *there = curl_url();
+  bool leaves = true;
+  if (here != NULL && there != NULL &&
+      curl_url_set(here, CURLUPART_URL, from, 0) == CURLUE_OK &&
+      curl_url_set(there, CURLUPART_URL, from, 0) == CURLUE_OK &&
+      curl_url_set(there, CURLUPART_URL, location, CURLU_URLENCODE | CURLU_ALLOW_SPACE) ==
+          CURLUE_OK) {
+    leaves = !same_part(here, there, CURLUPART_SCHEME) ||
+             !same_part(here, there, CURLUPART_HOST) ||
+             !same_part(here, there, CURLUPART_PORT);
+  }
+  curl_url_cleanup(here);
+  curl_url_cleanup(there);
+  return leaves;
+}
+
 /* Marks the transfer ready at the blank line ending the final
  * response's header block: not an interim 1xx one, and not a redirect
  * curl is about to follow (a 3xx carrying a Location, with follow on).
@@ -749,6 +791,18 @@ static size_t header_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
     if (curl_easy_header(t->easy, "Location", 0, CURLH_HEADER, -1,
                          &location) == CURLHE_OK &&
         location->value[0] != '\0') {
+      if (t->dropping && !t->stripped) {
+        const char *from = NULL;
+        curl_easy_getinfo(t->easy, CURLINFO_EFFECTIVE_URL, &from);
+        if (from == NULL || leaves_origin(from, location->value)) {
+          /* curl reads the list as it builds each request, so the next
+           * hop goes with the shorter one; curl's own check drops only
+           * Authorization and Cookie, and sends them again on a hop
+           * back to the first origin. */
+          t->stripped = 1;
+          (void)curl_easy_setopt(t->easy, CURLOPT_HTTPHEADER, t->redirect_headers);
+        }
+      }
       return len;
     }
   }
@@ -1021,6 +1075,8 @@ static void transfer_release (struct transfer *t) {
   }
   curl_slist_free_all(t->request_headers);
   t->request_headers = NULL;
+  curl_slist_free_all(t->redirect_headers);
+  t->redirect_headers = NULL;
   curl_slist_free_all(t->connect_to);
   t->connect_to = NULL;
   if (t->script != NULL) {
@@ -1352,9 +1408,27 @@ static int headers_problem (lua_State *L) {
   return 0;
 }
 
+/* Whether the header `name`, of `len` bytes, goes on past a redirect to
+ * another origin: one of the few that describe the request and carry no
+ * credential, in any case, or a conditional If-*. Every other name might
+ * be a credential (Authorization, Cookie, X-Api-Key, Signature, DPoP and
+ * whatever an API invents), so it is dropped. */
+static bool crosses_origin (const char *name, size_t len) {
+  static const char *const kept[] = {
+    "Accept", "Accept-Encoding", "Accept-Language", "Cache-Control",
+    "Content-Length", "Content-Type", "Range", "User-Agent",
+  };
+  if (len > 3 && strncasecmp(name, "If-", 3) == 0) return true;
+  for (size_t k = 0; k < sizeof kept / sizeof kept[0]; k++) {
+    if (strlen(kept[k]) == len && strncasecmp(name, kept[k], len) == 0) return true;
+  }
+  return false;
+}
+
 /* Appends each header in the table on the stack top to the request's
- * list as a "Name: value" line. Returns NULL, or why not when memory
- * runs out. */
+ * list as a "Name: value" line, and each [`crosses_origin`] takes to the
+ * list for a redirect that leaves the origin. Returns NULL, or why not when
+ * memory runs out. */
 static const char *headers_build (lua_State *L, struct transfer *t) {
   lua_pushnil(L);
   while (lua_next(L, -2) != 0) {
@@ -1363,6 +1437,8 @@ static const char *headers_build (lua_State *L, struct transfer *t) {
     const char *value = lua_tolstring(L, -1, &value_len);
     char *line = cosmic_malloc(name_len + 2 + value_len + 1);
     struct curl_slist *more = NULL;
+    struct curl_slist *kept = NULL;
+    bool crosses = crosses_origin(name, name_len);
     const char *why = "no memory for the request headers";
     if (line != NULL) {
       memcpy(line, name, name_len);
@@ -1372,15 +1448,22 @@ static const char *headers_build (lua_State *L, struct transfer *t) {
       more = COSMIC_FAULT("curl_slist_append")
                  ? NULL
                  : curl_slist_append(t->request_headers, line);
+      if (more != NULL) t->request_headers = more;
+      if (more != NULL && crosses) {
+        kept = COSMIC_FAULT("curl_slist_append")
+                   ? NULL
+                   : curl_slist_append(t->redirect_headers, line);
+        if (kept != NULL) t->redirect_headers = kept;
+      }
       why = "curl_slist_append failed for the request headers";
       cosmic_free(line);
     }
     lua_pop(L, 1);
-    if (more == NULL) {
+    if (more == NULL || (crosses && kept == NULL)) {
       lua_pop(L, 1);
       return why;
     }
-    t->request_headers = more;
+    if (!crosses) t->dropping = 1;
   }
   return NULL;
 }
@@ -1413,7 +1496,7 @@ static int http_open (lua_State *L) {
   r.follow = opt_boolean(L, "follow", 1);
   int wait = opt_boolean(L, "wait", 1);
   r.verbose = opt_boolean(L, "verbose", 0);
-  r.redirect_protocols = opt_redirect_protocols(L);
+  r.redirect_protocols = opt_redirect_protocols(L, r.url);
   r.max_redirects = opt_integer(L, "max_redirects", 10, MAX_REDIRECTS);
   r.connect_timeout_ms = opt_integer(L, "connect_timeout_ms",
                                      DEFAULT_CONNECT_TIMEOUT_MS, LONG_MAX);
