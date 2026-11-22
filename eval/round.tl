@@ -170,10 +170,16 @@ function Round.parse(argv: {string}): Round.Options?, string
     max_turns = max_turns, timeout = timeout }, ""
 end
 
---- The default `--out`: /tmp/cosmic-evals/<model>-<commit>, the model's
---- name with anything but letters, digits, `.`, `_` and `-` as `-`.
-function Round.default_out(model: string, commit: string): string
-  return "/tmp/cosmic-evals/" .. (model:gsub("[^%w%._-]", "-")) .. "-" .. commit
+--- The default `--out`: <model>-<commit> in this user's
+--- [`Fs.cache_dir`] `evals`, the model's name with anything but letters,
+--- digits, `.`, `_` and `-` as `-`; nil and why when there is no such
+--- directory, or another user owns it or may write to it. A shared
+--- directory such as /tmp would let another user make it first and swap
+--- an arena's bin/cosmic or its verdicts. `opts` are [`Fs.cache_dir`]'s.
+function Round.default_out(model: string, commit: string, opts?: Fs.CacheOptions): string?, string
+  local base, why = Fs.cache_dir("evals", opts)
+  if base == nil then return nil, why end
+  return base .. "/" .. (model:gsub("[^%w%._-]", "-")) .. "-" .. commit, ""
 end
 
 --- The round as data, for `options` with `root` the checkout, `tool` the
@@ -436,7 +442,15 @@ local function run(argv: {string}, program: string): integer
     complain(atrouble)
     return 2
   end
-  local out = options.out or Round.default_out(options.model, short)
+  local out = options.out
+  if out == nil then
+    local default, dtrouble = Round.default_out(options.model, short)
+    if default == nil then
+      complain(dtrouble)
+      return 2
+    end
+    out = default
+  end
   -- Fs.absolute resolves a path that is there.
   local made, mtrouble = Fs.mkdirs(out)
   if not made then
