@@ -536,7 +536,9 @@ local record Net
     --- meanwhile. A connection's handshake happens at its first read or
     --- write, or at [`Net.Conn`]'s `handshake`, under its timeout like
     --- any read; one that fails fails that read, and every one after.
-    --- Nil to serve in the clear.
+    --- With no `timeout_ns` it is done before `serve` is given the
+    --- connection, within `handshake_ns`; one that fails for another
+    --- reason is still given to `serve`. Nil to serve in the clear.
     tls?: Tls.Certs
     --- Where to listen in the clear beside `listeners`, which `tls`
     --- serves: port 80 for HTTP's redirect to HTTPS and ACME's http-01
@@ -547,6 +549,11 @@ local record Net
     --- Each connection's `timeout_ns`: how long any one read or write of
     --- it waits, from 0; nil for no limit.
     timeout_ns?: integer
+    --- How long a connection's TLS handshake may take in all where
+    --- `timeout_ns` is nil, from 0: 30 seconds by default. A connection
+    --- whose handshake runs out is closed and never served. Where
+    --- `timeout_ns` is set, it bounds each read of the handshake instead.
+    handshake_ns?: integer
     --- On stopping, how long open connections have to finish, from 0,
     --- before they are closed and their tasks killed
     --- ([`Poll.Task.kill`]); nil to wait for every one.
@@ -1202,6 +1209,7 @@ local function checked_spec(spec: Net.ServeSpec)
   end
   Poll.checked_ns(spec.timeout_ns, "net", "spec.timeout_ns", 3)
   Poll.checked_ns(spec.grace_ns, "net", "spec.grace_ns", 3)
+  Poll.checked_ns(spec.handshake_ns, "net", "spec.handshake_ns", 3)
 end
 
 --- A listener a server accepts at, and the task accepting there while
@@ -1273,6 +1281,9 @@ local serving_mt: metatable<Serving> = { -- checked: literal_missing
 --- descriptors, say -- before it tries again, so a failure that lasts is
 --- not retried, and reported, without pause.
 local ACCEPT_PAUSE_NS <const> = Clock.ms(100)
+--- How long a TLS handshake may take by default ([`Net.ServeSpec`]'s
+--- `handshake_ns`).
+local HANDSHAKE_NS <const> = Clock.seconds(30)
 
 --- Gives `trouble` to the spec's [`Net.ServeSpec.on_error`], or stderr.
 local function report(s: Serving, trouble: string)
@@ -1299,7 +1310,19 @@ local function serve_conn(s: Serving, conn: Net.Conn) -- checked: not_assigned
   local task: Poll.Task?
   task = Poll.spawn(function()
     local held <close> = conn
-    local ok, trouble: boolean, any = xpcall(s.spec.serve, traced, held) -- checked: any_use
+    local ok, trouble: boolean, string? = true, nil
+    -- With no timeout, a peer that never finishes its hello would hold
+    -- the connection for ever, so the handshake comes first under a
+    -- deadline of its own. One that fails is served, and its first read
+    -- fails; one that runs out is closed.
+    local stalled = false
+    if s.spec.timeout_ns == nil and held.session ~= nil then
+      held:set_timeout(s.spec.handshake_ns or HANDSHAKE_NS)
+      local _, why = held:handshake()
+      held:set_timeout(nil)
+      stalled = why == Poll.TIMEOUT
+    end
+    if not stalled then ok, trouble = xpcall(s.spec.serve, traced, held) end
     local _, _ = held:close()
     s.open = s.open - 1
     -- [`Poll.spawn`] runs this once serve_conn waits, after it set `task`.
