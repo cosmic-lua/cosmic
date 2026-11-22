@@ -1096,6 +1096,8 @@ argument without parentheses. `pcall` and `coroutine.wrap` are typed, and the al
 `match`. a type changes only by a guard, `is` of a class or a tagged union, a narrowing declaration or a validator
 ([`cosmic.shape`]); `any` is legal only where untrusted data enters.
 
+two uses of a generic declaration are related by how its body uses each type parameter, which [`lang/relation.tl`] reads from the fields, methods and listed interfaces: covariant where it is only read out, contravariant where it is only taken in, invariant where it is read and written (a `mut` field, a `mut` collection, a map's key) or not used at all (an opaque declaration such as `Coroutine<Y, R, S>` means it by its name). nothing declares it.
+
 the rules the checker holds, each with its own codes, are these. nil is its own type, in no other: an index read of a
 map or an array may be nil, and arrays are dense. a condition is a boolean or an optional. `or` and `and` return what
 they say. a local is assigned before it is read, including by a function that names it and may run first. a place (a

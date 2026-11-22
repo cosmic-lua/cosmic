@@ -391,14 +391,18 @@ local function test_a_class_is_as_nominal_as_a_record_and_a_declaration_used_as_
   assert(below(w, node, s:array(node)))
 end
 
-local function test_a_use_of_a_generic_is_invariant_in_its_arguments()
+local function test_a_use_of_a_generic_is_related_by_how_its_declaration_uses_each_argument()
   local w = world()
   local s = w.store
   refused(w, named(w, "List", { s.integer }), named(w, "List", { s.number }), "invariant_generic", "argument 1")
   refused(w, named(w, "List", { s.number }), named(w, "List", { s.integer }), "invariant_generic", "argument 1")
   refused(w, named(w, "List", { s.never }), named(w, "List", { s.integer }), "invariant_generic", "argument 1")
-  refused(w, named(w, "Pair", { s.integer, s.string }), named(w, "Pair", { s.integer, s.number }),
-    "invariant_generic", "argument 2")
+  -- Pair reads its arguments out only, so it is covariant in each: its arguments are compared as types.
+  refused(w, named(w, "Pair", { s.integer, s.string }), named(w, "Pair", { s.integer, s.number }), "mismatch",
+    "argument 2")
+  assert(below(w, named(w, "Pair", { s.integer, s.never }), named(w, "Pair", { s.number, s.string })))
+  refused(w, named(w, "Pair", { s.number, s.string }), named(w, "Pair", { s.integer, s.string }), "number_for_integer",
+    "argument 1")
   local r = refusal(w, named(w, "List", { s:array(s.integer) }), named(w, "List", { s:array(s.number) }))
   assert(r.sub == s:array(s.integer) and r.super == s:array(s.number), Relation.trace(r))
   assert(below(w, named(w, "List", { s.integer }), named(w, "List", { s.integer })))
@@ -482,15 +486,17 @@ local function test_the_arguments_of_a_listing_are_read_through_the_declaration(
     return named(w, "Source", { item })
   end
   assert(below(w, named(w, "IntSource"), source(s.integer)))
-  refused(w, named(w, "IntSource"), source(s.number), "not_listed")
+  -- Source reads its argument out only, so a listing of Source<integer> is below Source<number>.
+  assert(below(w, named(w, "IntSource"), source(s.number)))
   refused(w, named(w, "IntSource"), source(s.string), "not_listed")
   assert(below(w, named(w, "Box", { s.string }), source(s.string)))
   refused(w, named(w, "Box", { s.string }), source(s.integer), "not_listed")
   assert(below(w, named(w, "Wrapped", { s.integer }), source(s:array(s.integer))))
   refused(w, named(w, "Wrapped", { s.integer }), source(s:array(s.string)), "not_listed")
   refused(w, named(w, "Wrapped", { s.integer }), source(s.integer), "not_listed")
-  -- an interface is invariant in its arguments, as any generic
-  refused(w, source(s.integer), source(s.number), "invariant_generic", "argument 1")
+  -- an interface is related by how it uses its arguments, as any generic
+  assert(below(w, source(s.integer), source(s.number)))
+  refused(w, source(s.number), source(s.integer), "number_for_integer", "argument 1")
 end
 
 local function test_a_listing_argument_that_holds_a_variable_inside_a_binder_is_read_with_the_variable()
@@ -1386,7 +1392,9 @@ local function test_a_closure_that_lists_one_generic_interface_twice_holds_both(
   assert(below(w, use, named(w, "Source", { s.integer })))
   assert(below(w, use, named(w, "Source", { s.string })))
   assert(below(w, use, named(w, "Source", { s.invalid })))
-  local r = refused(w, use, named(w, "Source", { s.number }), "not_listed")
+  -- Source is covariant, so Source<integer> stands for Source<number>.
+  assert(below(w, use, named(w, "Source", { s.number })))
+  local r = refused(w, use, named(w, "Source", { s.boolean }), "not_listed")
   local lists = r.lists
   assert(lists ~= nil and #lists == 2)
 end

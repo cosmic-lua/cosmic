@@ -10,8 +10,9 @@
 ---   and the bounds of one variable grow to a type all are below, or conflict.
 --- * `from`: the pattern is passed to the type found (a result to the type expected, or a parameter of a function
 ---   argument). The variable gets an *upper* bound; two upper bounds narrow to the one that is below the other.
---- * `both`: the position is invariant (a `mut` collection, the arguments of a generic, a map's key). The variable is
----   exactly that type, and two exact types are one type or conflict.
+--- * `both`: the position is invariant (a `mut` collection, a map's key), or the argument of a generic, which the
+---   solver takes as exact even where the relation reads it as covariant or contravariant. The variable is exactly that
+---   type, and two exact types are one type or conflict.
 ---
 --- A variable is its exact type, else its lower bound, else its upper bound. A solution is never trusted: the caller
 --- puts it in the parameters and checks every argument against them, so a wrong guess here is an error there and never

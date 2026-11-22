@@ -978,13 +978,14 @@ local function test_a_nil_test_in_a_fix_returns_nil_or_raises_as_the_results_tak
   assert(has(plain.fix, "`if v == nil then error(\"v is missing\") end`"), plain.fix)
 end
 
---- Two uses of a declaration with related arguments (`integer` is below `number`) are told the arguments must be the same,
---- not that `integer` is not below `number`.
+--- Two uses of a declaration that both reads and writes its argument, with related arguments (`integer` is below
+--- `number`), are told the arguments must be the same, not that `integer` is not below `number`.
 local function test_a_generic_use_with_a_related_argument_is_told_the_arguments_must_be_the_same()
-  local source = "local record Box<T>\n  v: T\nend\nlocal a: Box<integer> = { v = 1 }\nlocal b: Box<number> = a\n"
+  local source = "local record Box<T>\n  mut v: T\nend\nlocal a: Box<integer> = { v = 1 }\nlocal b: Box<number> = a\n"
   local e = error_of(source, "not_assignable")
   assert(not has(e.msg, "is not below"), e.msg)
-  assert(has(e.msg, "`integer` and `number` are two types, and a declaration's type arguments must be the same"), e.msg)
+  assert(has(e.msg, "`integer` and `number` are two types, and a type argument the declaration both reads and writes"),
+    e.msg)
 end
 
 local function test_a_pcall_taken_as_a_value_in_a_test_file_names_test_raises()
