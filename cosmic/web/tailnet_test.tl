@@ -230,7 +230,10 @@ end
 local function test_serve_headers_name_who_asked_at_the_socket_named()
   local seen = new_seen()
   local named, side = Net.unix("/run/user/999/app.sock"), Net.unix("")
-  local client = Web.test_client(app_of(seen, { whois = stand_in(seen), socket = named.path }))
+  local app = app_of(seen, { whois = stand_in(seen), socket = named.path })
+  -- Capabilities the app's own socket forwards count only there.
+  app.serve_socket, app.serve_caps = "/run/app/s", { "example.com/cap/admin" }
+  local client = Web.test_client(app)
   local who = { ["Tailscale-User-Login"] = "rene@example.com", ["Tailscale-User-Name"] = "Rene",
     ["Tailscale-App-Capabilities"] = '{"example.com/cap/admin":[{}]}' }
   local home = client:get("/", { peer = side, listener = named, headers = who })

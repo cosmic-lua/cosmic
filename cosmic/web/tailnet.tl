@@ -149,7 +149,8 @@ local record Tailnet
     --- The path of a unix socket a Serve configuration filed outside the
     --- app passes requests to: `tailscale serve`'s identity headers are
     --- read from a request that comes in at it, as from a loopback peer
-    --- with `serve`. See the module's description.
+    --- with `serve`. It is the path exactly as the listener names it. See
+    --- the module's description.
     socket?: string
     --- How long an answer of the daemon is kept for its address, in
     --- nanoseconds (60 seconds); 0 keeps none. A failure is never kept.
@@ -406,8 +407,8 @@ function Tailnet.identity(req: Types.Request): Tailnet.Identity?
 end
 
 --- Whether [`Web.tailnet`] found that Funnel brought `req` from the
---- internet, as `serve = true` reads the daemon's
---- `Tailscale-Funnel-Request` header. Such a request has no identity.
+--- internet, as the daemon's `Tailscale-Funnel-Request` header says
+--- wherever its other headers are read. Such a request has no identity.
 function Tailnet.funnel(req: Types.Request): boolean
   return req:get(FUNNEL) == true
 end
