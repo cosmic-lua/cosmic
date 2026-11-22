@@ -739,7 +739,8 @@ local function malformed(w: World, r: Relation.Refusal): string
   end
   for _, step in ipairs(r.path) do
     local kind = step.kind
-    local counted = kind == "member" or kind == "target_alternative" or kind == "argument" or kind == "parameter" or
+    local counted = kind == "member" or kind == "target_alternative" or kind == "argument" or kind == "argument_in" or
+      kind == "parameter" or
       kind == "alternative" or kind == "item"
     if counted and step.index == nil then
       return "a " .. step.kind .. " step without a position"
@@ -959,13 +960,14 @@ local function replay(
       else
         return nil, nil, "the " .. kind .. " of types that are no maps"
       end
-    elseif kind == "argument" then
+    elseif kind == "argument" or kind == "argument_in" then
       if (a.tag == "named") and (b.tag == "named") and index ~= nil then
         local from, to = a.args[index], b.args[index]
         if from == nil or to == nil then
           return nil, nil, "an argument that is not there"
         end
-        a, b = from, to
+        -- An argument the declaration takes in swaps the roles, as a parameter does.
+        a, b = if kind == "argument" then from else to end, if kind == "argument" then to else from end
       else
         return nil, nil, "the argument of types that are no uses"
       end

@@ -26,8 +26,12 @@
 ---   record with an array part `T` is below `{T}`.
 --- - A recursive alias (a [`Named`] of kind `alias`) is below what its body is below and above what is below its
 ---   body, one level read at a time; two aliases are related only where they are one, and a record, a class or an interface is below none.
---- - A named type is nominal. Two uses of one declaration are related when their
----   arguments are the same types. A use is below an interface when its
+--- - A named type is nominal. Two uses of one declaration are related by how the declaration uses each type
+---   parameter, read from its body ([`Variance.of`]): an argument it only reads out (a field that is not `mut`, a
+---   return, an element of a view) is below the other's, one it only takes in (a parameter of a function field or
+---   method, a method's receiver aside) is above it, one it does both with (a `mut` field, a `mut` collection, a map's key)
+---   is the same type, and so is one it does not use, which an opaque declaration means by its name. A declaration that names itself is read until the uses
+---   hold. A use is below an interface when its
 ---   declaration lists the interface, or one that extends it, with `is`, the
 ---   arguments of each listing read through the declaration. A record, class or
 ---   interface that lists none of them is below the interface when it has each
@@ -59,7 +63,7 @@
 --- **Refusals.** A [`Relation.Refusal`] has the `code` of the rule that failed, the
 --- `path` from the pair compared to the parts that failed, and those parts as
 --- `sub` and `super`. A `parameter` or `rest` step swaps the roles: the `sub` of the
---- leaf is then a part of the type that was the target of the comparison. The
+--- leaf is then a part of the type that was the target of the comparison, and so does an `argument_in` step. The
 --- reason is built only on request, so a relation that holds or fails
 --- unexplained builds none.
 ---
@@ -143,7 +147,8 @@ local record Relation
     "invariant_narrows"
   end
 
-  --- A part of a type a refusal went into. `nil` is the nil of a source union, `bound` the
+  --- A part of a type a refusal went into. `argument_in` is a type argument a declaration passes in (a parameter of
+  --- its functions), which swaps the roles as a `parameter` step does. `nil` is the nil of a source union, `bound` the
   --- bound of a type variable, `array_part` the array part of a record, `rest` the rest
   --- parameter of the function wanted, which stands at every position from `index` on,
   --- `narrows` the type of a narrowing declaration and `tail` the `T...` of a list.
@@ -155,6 +160,7 @@ local record Relation
     "nil"
     "target_alternative"
     "argument"
+    "argument_in"
     "array_part"
     "parameter"
     "rest"
@@ -232,6 +238,8 @@ local record Relation
     free: {integer: boolean}
     scopes: mut {Scope}
     closures: {integer: Closure}
+    --- How each declaration uses its type parameters, as bits: 1 read out, 2 passed in.
+    variances: mut {Types.Decl: {integer: integer}}
     sets: {integer: {integer: boolean}}
     --- The reasons built by the request in progress, by pair.
     explained: {integer: Refusal}
@@ -609,6 +617,10 @@ end
 -- The relation ---------------------------------------------------------------------------------
 
 local rel: function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
+
+--- How declarations use their type parameters ([`Variance.args_below`]), defined below the relation.
+local record Variance
+end
 
 --- The memo that a pair may be kept in.
 local function memo_of(j: Relation.Judge, a: Type, b: Type): {integer: boolean}
@@ -1118,13 +1130,17 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
         -- The count is not known until the declaration is defined.
         error("relation: " .. a.decl.name .. " is not defined", 0)
       end
-      for i, held in ipairs(a.args) do
-        local other = b.args[i]
-        if held ~= other and held.tag ~= "invalid" and other ~= nil and other.tag ~= "invalid" then
-          return through(why, "argument", i, leaf(j, why, "invariant_generic", held, other))
+      if a.value then
+        -- The table of a declaration's functions is below itself alone.
+        for i, held in ipairs(a.args) do
+          local other = b.args[i]
+          if held ~= other and held.tag ~= "invalid" and other ~= nil and other.tag ~= "invalid" then
+            return through(why, "argument", i, leaf(j, why, "invariant_generic", held, other))
+          end
         end
+        return nil
       end
-      return nil
+      return Variance.args_below(j, a.decl, a.args, b.args, why)
     end
     if not a.value and not b.value and Types.inferred_record(a.decl) and b.decl.kind ~= "interface" then
       return shaped(j, a, b, why)
@@ -1140,6 +1156,12 @@ local function from_named(j: Relation.Judge, a: Named, b: Type, why: boolean): R
       local closure = closure_of(j, a)
       if lists(closure, b) then
         return nil
+      end
+      -- A listing of the interface with other arguments is below it as the interface uses them.
+      for _, listed in ipairs(closure.by_decl[b.decl] or {}) do
+        if Variance.args_below(j, b.decl, listed.args, b.args, false) == nil then
+          return nil
+        end
       end
       -- A type that lists no interface of `b`'s declaration conforms to it by having its fields.
       return conforms(j, a, b, why, closure)
@@ -1613,6 +1635,188 @@ rel = function(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refu
   return r
 end
 
+-- Variance -----------------------------------------------------------------------------------
+
+--- How a type parameter of a declaration is used, as bits: `COVARIANT` where a value of it is read out (a field that is
+--- not `mut`, a return, an element of a view), `CONTRAVARIANT` where one is passed in (a parameter), both where it is
+--- written and read (a `mut` field, the element of a `mut` collection, a map's key), and neither where it is unused.
+local COVARIANT <const> = 1
+local CONTRAVARIANT <const> = 2
+local INVARIANT <const> = 3
+
+--- The use `inner`, of a parameter as it stands in a type that is itself used as `outer`.
+local function compose(outer: integer, inner: integer): integer
+  if inner == 0 or outer == 0 then
+    return 0
+  elseif inner == INVARIANT or outer == INVARIANT then
+    return INVARIANT
+  elseif inner == COVARIANT then
+    return outer
+  end
+  return if outer == COVARIANT then CONTRAVARIANT else COVARIANT end
+end
+
+--- Adds to `uses` how each type parameter of the declaration being read is used in `t`, which stands there as `at`;
+--- `level` is how many generic function binders `t` is inside. `self_decl` is that declaration, read as `current` has
+--- it so far. `receiver` says `t` is the type of a method, whose first parameter, where it is the declaring type with its
+--- own parameters, is the value the method is called on and says nothing of them.
+function Variance.uses_in(j: Relation.Judge, t: Type, at: integer, level: integer, uses: mut {integer: integer}, self_decl: Types.Decl,
+                          current: {integer: integer}, receiver?: boolean)
+  if at == 0 or t.open <= level then
+    return
+  end
+  if (t.tag == "var") then
+    if t.depth == level then
+      uses[t.index + 1] = (uses[t.index + 1] or 0) | at
+    end
+  elseif (t.tag == "named") then
+    local given = if t.decl == self_decl then current else Variance.of(j, t.decl) end
+    for i, each in ipairs(t.args) do
+      Variance.uses_in(j, each, compose(at, if t.value then INVARIANT else (given[i] or INVARIANT) end), level, uses, self_decl,
+        current)
+    end
+  elseif (t.tag == "array") then
+    Variance.uses_in(j, t.element, if t.mut then INVARIANT else at end, level, uses, self_decl, current)
+  elseif (t.tag == "map") then
+    Variance.uses_in(j, t.key, INVARIANT, level, uses, self_decl, current)
+    Variance.uses_in(j, t.value, if t.mut then INVARIANT else at end, level, uses, self_decl, current)
+  elseif (t.tag == "union") then
+    for _, m in ipairs(t.members) do
+      Variance.uses_in(j, m, at, level, uses, self_decl, current)
+    end
+  elseif (t.tag == "fn") then
+    local inside = level + (if #t.tparams > 0 then 1 else 0 end)
+    local passed = compose(at, CONTRAVARIANT)
+    for _, tp in ipairs(t.tparams) do
+      for _, bound in ipairs(tp.bounds or {}) do
+        Variance.uses_in(j, bound, INVARIANT, inside, uses, self_decl, current)
+      end
+    end
+    for k, p in ipairs(t.params) do
+      local own = false
+      local pt = p.type
+      if k == 1 and receiver == true and (pt.tag == "named") and pt.decl == self_decl and not pt.value then
+        own = true
+        for i, each in ipairs(pt.args) do
+          own = own and (each.tag == "var") and each.depth == inside and each.index == i - 1
+        end
+      end
+      if not own then
+        Variance.uses_in(j, pt, passed, inside, uses, self_decl, current)
+      end
+    end
+    local rest = t.rest
+    if rest ~= nil then
+      Variance.uses_in(j, rest, passed, inside, uses, self_decl, current)
+    end
+    for _, alt in ipairs(t.rets) do
+      for _, item in ipairs(alt.items) do
+        Variance.uses_in(j, item, at, inside, uses, self_decl, current)
+      end
+      local tail = alt.tail
+      if tail ~= nil then
+        Variance.uses_in(j, tail, at, inside, uses, self_decl, current)
+      end
+      local narrows = alt.narrows
+      if narrows ~= nil then
+        Variance.uses_in(j, narrows.to, INVARIANT, inside, uses, self_decl, current)
+      end
+    end
+  end
+end
+
+--- How each type parameter of `decl` is used in its body, by its fields, array part, methods (their receiver aside), the
+--- interfaces it lists and an alias's type: read until it holds, from unused, for a declaration that names itself. A
+--- declaration that names one whose reading is open takes that one's parameters as invariant.
+function Variance.of(j: Relation.Judge, decl: Types.Decl): {integer: integer}
+  local known = j.variances[decl]
+  if known ~= nil then
+    return known
+  end
+  local body = decl.body
+  if body == nil then
+    -- A declaration not yet defined is read as invariant, as uses of it compared with the same arguments need no body.
+    return {}
+  end
+  local open: mut {integer: integer} = {}
+  for i = 1, #body.tparams do
+    open[i] = INVARIANT
+  end
+  -- While it is read, a declaration that names this one takes its parameters as invariant.
+  j.variances[decl] = open
+  local current: mut {integer: integer} = {}
+  for i = 1, #body.tparams do
+    current[i] = 0
+  end
+  while true do
+    local uses: mut {integer: integer} = {}
+    for i = 1, #body.tparams do
+      uses[i] = 0
+    end
+    for _, f in ipairs(body.fields) do
+      -- A function field may be called with any value as its first argument (`b.f(other)`), so its first parameter
+      -- counts, the declaring type there too.
+      Variance.uses_in(j, f.type, if f.mut == true then INVARIANT else COVARIANT end, 0, uses, decl, current)
+    end
+    local array = body.array
+    if array ~= nil then
+      Variance.uses_in(j, array, COVARIANT, 0, uses, decl, current)
+    end
+    for _, s in ipairs(body.supers) do
+      Variance.uses_in(j, s, COVARIANT, 0, uses, decl, current)
+    end
+    local alias = body.alias
+    if alias ~= nil then
+      Variance.uses_in(j, alias, COVARIANT, 0, uses, decl, current)
+    end
+    for _, m in ipairs(body.methods) do
+      Variance.uses_in(j, m.type, COVARIANT, 0, uses, decl, current, true)
+    end
+    local same = true
+    for i = 1, #body.tparams do
+      same = same and uses[i] == current[i]
+    end
+    current = uses
+    if same then
+      break
+    end
+  end
+  -- A parameter the body does not use is invariant: an opaque declaration (`Coroutine<Y, R, S>`) or a tag
+  -- (`Tagged<Meters>`) means it by its name alone.
+  for i = 1, #body.tparams do
+    if current[i] == 0 then
+      current[i] = INVARIANT
+    end
+  end
+  j.variances[decl] = current
+  return current
+end
+
+--- Nil where the arguments `held` of a use of `decl` are below the arguments `other` of another, each as the declaration
+--- uses its parameter: unused, either way, read out, below, passed in, above, both, the same type.
+function Variance.args_below(j: Relation.Judge, decl: Types.Decl, held: {Type}, other: {Type}, why: boolean): Relation.Refusal?
+  local uses = Variance.of(j, decl)
+  for i, x in ipairs(held) do
+    local y = other[i]
+    if y ~= nil and x ~= y and x.tag ~= "invalid" and y.tag ~= "invalid" then
+      local use = uses[i] or INVARIANT
+      local r: Relation.Refusal? = nil
+      local step: Relation.StepKind = "argument"
+      if use == COVARIANT then
+        r = rel(j, x, y, why)
+      elseif use == CONTRAVARIANT then
+        r, step = rel(j, y, x, why), "argument_in"
+      elseif use == INVARIANT then
+        r = leaf(j, why, "invariant_generic", x, y)
+      end
+      if r ~= nil then
+        return through(why, step, i, r)
+      end
+    end
+  end
+  return nil
+end
+
 -- The judge ---------------------------------------------------------------------------------------
 
 local function owned(j: Relation.Judge, t: Type)
@@ -1757,7 +1961,7 @@ end
 
 function Relation.new(store: Store): Relation.Judge
   local judge: Relation.Judge = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    store = store, closed = {}, free = {}, scopes = {}, closures = {}, sets = {}, explained = {},
+    store = store, closed = {}, free = {}, scopes = {}, closures = {}, variances = {}, sets = {}, explained = {},
     none = { code = "mismatch", path = {}, sub = store.invalid, super = store.invalid },
     nil_type = store:atom("nil"),
   }, judge_mt)

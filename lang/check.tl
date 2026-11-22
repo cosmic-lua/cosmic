@@ -1333,10 +1333,11 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   else
     local leaf = ""
     if code == "invariant_generic" then
-      -- The arguments may well be related (`integer` is below `number`): the uses differ because a declaration's
-      -- arguments must be the same types.
+      -- The arguments may well be related (`integer` is below `number`): the uses differ because the declaration both
+      -- reads and writes that argument.
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " and " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
-        " are two types, and a declaration's type arguments must be the same: " .. quoted(g) .. " is no " .. quoted(w) .. ")"
+        " are two types, and a type argument the declaration both reads and writes (by a `mut` field, a `mut` " ..
+        "collection or a map's key) must be the same: " .. quoted(g) .. " is no " .. quoted(w) .. ")"
     elseif (r.sub ~= got or r.super ~= want) and not (code == "not_listed" and (r.sub.tag == "named") and
         Types.inferred_record(r.sub.decl)) then
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " is not below " ..
@@ -6264,7 +6265,8 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
     local same = k.first_at == k.second_at
     local msg = letter .. " of " .. name .. " is " .. tq(ctx, k.first) .. " from " .. Calls.source(k.first_at) .. " and " ..
       tq(ctx, k.second) .. " from " .. (if same then "another type in it" else Calls.source(k.second_at) end) .. ", which " ..
-      (if k.exact then "must be one type here: a `mut` collection and the arguments of a generic are invariant" else
+      (if k.exact then "must be one type here: a type parameter is solved as one type from a `mut` collection or the arguments " ..
+          "of a generic" else
         "have no common type" end)
     problems[#problems + 1] = msg
     -- The parameter is none: the arguments are not held to a type they disagree on, so the mistake is the one error.

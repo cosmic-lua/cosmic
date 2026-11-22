@@ -11,7 +11,7 @@ local record RelationPrograms
 
   --- [`Programs.fixture`] and, in module `m`: `Event` (an interface), `KeyEvent` and `MouseEvent`
   --- (records that list it); `Source<T>` (an interface), `IntSource` (a class that lists
-  --- `Source<integer>`), `Box<T>` (lists `Source<T>`), `Wrapped<T>` (lists `Source<{T}>`) and
+  --- `Source<integer>`), `Box<T>` (lists `Source<T>`, with a `mut` field), `Wrapped<T>` (lists `Source<{T}>`) and
   --- `Gen<T>` (lists `Source<function<U>(U, T): U>`, whose argument holds `T` inside a binder);
   --- `ReadWriter` (an interface that extends [`Stream.Reader`]) and `Duplex` (a class that lists it);
   --- `Ordered` (an interface) and `Ranked` (a class that lists it); `Ring<T>` (a record
@@ -117,7 +117,8 @@ function RelationPrograms.fixture(store: Types.Store): Programs.Fixture
   b = body()
   b.tparams = { { name = "T" } } -- checked: field_fixed
   b.supers = { use("Source", { store:var(0, 0) }) }
-  b.fields = { { name = "last", type = store:var(0, 0) } } -- checked: field_fixed
+  -- A `mut` field makes Box invariant in `T`, where Source is covariant.
+  b.fields = { { name = "last", type = store:var(0, 0), mut = true } } -- checked: field_fixed
   store:define(box, b)
   b = body()
   b.tparams = { { name = "T" } } -- checked: field_fixed

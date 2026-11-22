@@ -427,8 +427,9 @@ local function test_a_spec_gives_the_type_of_its_answer_and_a_list_of_optional_e
     "operand_type")
   refused(SPEC .. "local slots = into(sparse_list(optional(INT)))\nif slots ~= nil then local n: integer = slots[1] print(n) end\n",
     "index_may_be_nil")
-  -- an element that is not optional is no sparse list
-  refused(SPEC .. "local xs = sparse_list(STR)\nprint(xs)\n", "not_assignable")
+  -- a spec only answers its type, so it is covariant: a spec of a string is a spec of a string that may be nil, and
+  -- its sparse list is a map of strings
+  refused(SPEC .. "local xs = sparse_list(STR)\nlocal m: {integer: string}? = into(xs)\nprint(m)\n", "")
 end
 
 -- The check `record_of` takes is a function the checker types too: a call that passes one of its own, by whatever route it

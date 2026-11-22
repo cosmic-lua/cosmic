@@ -725,4 +725,46 @@ print(table.concat(unique_sorted({ "pear", "fig", "pear" }), " "))
 fig pear
 ```
 
+## a generic type is related by how it uses each parameter
+
+Two uses of one generic declaration, `Box<integer>` and `Box<number>`, are related by how the body uses each type
+parameter. The checker reads it from the fields, methods and listed interfaces, so nothing is written for it.
+
+- A parameter that is only read out (a field that is not `mut`, a return, an element of `{T}`) is covariant:
+  `Box<integer>` stands for `Box<number>`.
+- A parameter that is only taken in (a parameter of a function field or method) is contravariant: a `Sink<number>`
+  stands for a `Sink<integer>`, since it takes every integer.
+- A parameter that is read and written (a `mut` field, a `mut {T}`, a map's key) is invariant: the arguments must be
+  the same type, and the error says so.
+- A parameter that is not used is invariant, since an opaque declaration (`Coroutine<Y, R, S>`) or a tag type
+  (`Tagged<Meters>`) means it by its name alone.
+
+The receiver of a class's method says nothing of the parameters, since a method is called on its own value. A function
+field counts each parameter, its first too, since `b.f(other)` may pass it another value.
+
+```teal
+local record Box<T>
+  value: T
+end
+
+local record Sink<T>
+  put: function(T)
+end
+
+local ints: Box<integer> = { value = 2 }
+local numbers: Box<number> = ints
+
+local function feed(s: Sink<integer>)
+  s.put(3)
+end
+
+feed({ put = function(n: number) print(n * 2) end })
+print(numbers.value)
+```
+
+```output
+6
+2
+```
+
 [`cosmic.array`]: ../../cosmic/array.tl
