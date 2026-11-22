@@ -1749,19 +1749,55 @@ local function vararg_rest(ctx: Ctx, e: Ast.Node): Type
   return rest
 end
 
+--- Names that bind the values of a call answering `alts`, as a fix spells them: two at least, as many as the longest
+--- list has; `ok` for a first value of `true` or `false`, `v` otherwise, then `why` for a second and `v3`, `v4`, ... for
+--- the rest; `_` in place of each when `discard` is true.
+function Naming.bound(alts: {Alt}, discard?: boolean): string
+  local width, tagged = 2, false
+  for _, alt in ipairs(alts) do
+    width = math.max(width, #alt.items)
+    local first = alt.items[1]
+    tagged = tagged or (first ~= nil and (first.tag == "true" or first.tag == "false"))
+  end
+  local out: mut {string} = {}
+  for i = 1, width do
+    local name = "v" .. tostring(i)
+    if i == 1 then
+      name = if tagged then "ok" else "v" end
+    elseif i == 2 then
+      name = "why"
+    end
+    out[i] = if discard == true then "_" else name end
+  end
+  return table.concat(out, ", ")
+end
+
+--- The call `node` as a fix spells it: its text, or its callee and `(...)` where the text is too long to show whole.
+function Naming.call(ctx: Ctx, node: Ast.Node): string
+  local text = text_of(ctx, node)
+  if text:sub(-3) == "..." then
+    local open = text:find("(", 1, true)
+    if open ~= nil then
+      return text:sub(1, open) .. "...)"
+    end
+  end
+  return text
+end
+
 --- The one value a call answering `alts` gives where a value is wanted.
 local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
     return ctx.store.never
   elseif #alts > 1 then
-    local call = text_of(ctx, node)
+    local call = Naming.call(ctx, node)
     local raises = ""
     if ctx.filename:sub(-8) == "_test.tl" and (call:find("^pcall%(") ~= nil or call:find("^xpcall%(") ~= nil) then
       raises = "; to check that a call raises, `Test.raises(function() f(x) end, says?)` runs it and answers the message it raised"
     end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
-      "match the call: `match " .. call .. " do | (true, v) then ... end`" .. raises)
+      "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`), or match the call: `match " ..
+        call .. " do | ... end`" .. raises)
     return ctx.invalid
   end
   local alt = alts[1]
@@ -9771,7 +9807,14 @@ local function stat(ctx: Ctx, s: Ast.Stat)
   elseif (s.kind == "CallStat") then
     local c = s.call
     if (c.kind == "Call") or (c.kind == "MethodCall") then
-      local _ = lists_of(ctx, c, nil)
+      local alts = lists_of(ctx, c, nil)
+      if #alts > 1 then
+        local call = Naming.call(ctx, c)
+        report(ctx, "failure_ignored", c, subject(ctx, c) .. " answers one of " .. tostring(#alts) .. " lists of values, " ..
+            "one of which may be a failure, and as a statement it drops which one it answered, so a failure would pass unseen",
+          "bind its values and test the first (`local " .. Naming.bound(alts) .. " = " .. call .. "`), match the call, " ..
+            "or discard them on purpose: `local " .. Naming.bound(alts, true) .. " = " .. call .. "`")
+      end
     end
   elseif (s.kind == "Assign") then
     assign_statement(ctx, s)

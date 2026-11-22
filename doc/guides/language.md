@@ -777,7 +777,9 @@ position, which is `true` in one and `false` in the other, or `nil` in one and n
 The caller binds the values to locals and tests the first. The test narrows the others: where the value is nil, the
 failure is an `E`, and where it is not, the failure is nil. A test of truth (`if n then`) tells the lists apart only where
 the value is never `false`; where it may be `false` (a `boolean`), test it against `nil`. An assignment to any of the locals ends this.
-A `match` takes the lists apart with a `nil` pattern, before the arm that names the value.
+A `match` takes the lists apart with a `nil` pattern, before the arm that names the value. A call that may answer
+a failure is no statement (`failure_ignored`): bind its values, match it, or discard them on purpose with
+`local _, _ = f()`.
 
 ```teal
 local function parse(s: string): (integer) | (nil, string)
