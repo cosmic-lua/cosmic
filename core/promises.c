@@ -188,8 +188,12 @@ enum rule {
   RULE_SOCKET_UNIX_INET,
   RULE_SOCKET_INET_ROUTE,
   RULE_SOCKET_UNIX_INET_ROUTE,
+  /* open and openat: never a special mode bit, and O_TRUNC only where
+   * the access mode writes; the `_TRUNCATE` ones take O_TRUNC in any. */
   RULE_OPEN,
   RULE_OPENAT,
+  RULE_OPEN_TRUNCATE,
+  RULE_OPENAT_TRUNCATE,
   RULE_MODE1,
   RULE_MODE2,
   RULE_MKNOD1,
@@ -284,7 +288,7 @@ static const struct grant basics[] = {
   A(epoll_pwait2), A(eventfd), A(eventfd2), A(sendfile), A(splice), A(tee),
   A(copy_file_range), A(readahead), A(fadvise64), A(fallocate), A(fsync),
   A(fdatasync), A(sync_file_range), A(sync), A(syncfs), A(flock),
-  A(ftruncate), A(truncate), A(inotify_init), A(inotify_init1),
+  A(ftruncate), A(inotify_init), A(inotify_init1),
   A(inotify_add_watch), A(inotify_rm_watch),
   /* Sockets: a socketpair of unix sockets, and the calls on a socket it
    * already has. `socket` itself is granted only where a unix socket may
@@ -295,7 +299,8 @@ static const struct grant basics[] = {
   A(sendmsg), A(recvmsg), A(sendmmsg), A(recvmmsg), A(shutdown),
   A(setsockopt), A(getsockopt),
   /* Files: Landlock holds the paths, and the filter holds a mode to none
-   * with a setuid, setgid or sticky bit. */
+   * with a setuid, setgid or sticky bit. truncate, and O_TRUNC in an
+   * access mode that does not write, wait on COSMIC_HELD_TRUNCATE. */
   R(open, OPEN), R(openat, OPENAT), R(creat, MODE1), R(openat2, ENOSYS),
   A(stat), A(fstat), A(lstat), A(newfstatat), A(statx), A(statfs), A(fstatfs),
   A(access), A(faccessat), A(faccessat2), A(readlink), A(readlinkat),
@@ -430,7 +435,9 @@ static const struct grant fattr_calls[] = {
 #define PROT_BTI_BIT 0x10u
 #define MAP_ANONYMOUS_BIT 0x20u
 #define MFD_NOEXEC_SEAL_BIT 0x8u
+#define O_ACCMODE_BITS 0x3u
 #define O_CREAT_BIT 0x40u
+#define O_TRUNC_BIT 0x200u
 #define O_TMPFILE_BIT 0x400000u
 #define SPECIAL_MODE_BITS 0xe00u
 #define FILE_TYPE_BITS 0xf000u
@@ -765,9 +772,20 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     test(&k, OP_EQ, NETLINK_ROUTE_PROTOCOL, JUMP_ALLOW, JUMP_DENY);
     break;
     case RULE_OPEN:
-    case RULE_OPENAT: {
+    case RULE_OPENAT:
+    case RULE_OPEN_TRUNCATE:
+    case RULE_OPENAT_TRUNCATE: {
+      uint32_t flags = rule == RULE_OPEN || rule == RULE_OPEN_TRUNCATE ? 1 : 2;
+      if (rule == RULE_OPEN || rule == RULE_OPENAT) {
+        /* O_TRUNC beside O_RDONLY, or beside the access mode 3, which
+         * reads and writes neither: Landlock below ABI 3 asks such an
+         * open for no write right, yet the kernel truncates the file. */
+        load(&k, DATA_ARGUMENT(flags) + DATA_LOW);
+        mask(&k, O_TRUNC_BIT | O_ACCMODE_BITS);
+        test(&k, OP_EQ, O_TRUNC_BIT, JUMP_DENY, JUMP_NEXT);
+        test(&k, OP_EQ, O_TRUNC_BIT | O_ACCMODE_BITS, JUMP_DENY, JUMP_NEXT);
+      }
       /* A mode is read only where the call creates a file. */
-      uint32_t flags = rule == RULE_OPEN ? 1 : 2;
       load(&k, DATA_ARGUMENT(flags) + DATA_LOW);
       test(&k, OP_ANY_SET, O_CREAT_BIT | O_TMPFILE_BIT, JUMP_NEXT, JUMP_ALLOW);
       load(&k, DATA_ARGUMENT(flags + 1) + DATA_LOW);
@@ -887,7 +905,10 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * names a pid, which no rule can read) take any pid: in a pid
  * namespace of its own a pid names a process of the sandbox or none (the
  * kernel answers ESRCH), and setpgid reaches only the caller and its
- * children whichever pid it is given. Nothing in it depends on the host. */
+ * children whichever pid it is given.
+ * COSMIC_HELD_TRUNCATE lets truncate through, and O_TRUNC in an open of
+ * any access mode, which Landlock refuses from ABI 3 where no grant gives
+ * the right. Nothing in it depends on the host. */
 static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
                                       unsigned promises, unsigned sockets, uint32_t pid,
                                       unsigned held) {
@@ -932,6 +953,11 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
     /* The capabilities of a process, which `restrict` reads to know it
      * cannot raise a hard limit, and which name a pid in the header. */
     rules[CALL_capget] = RULE_ALLOW;
+  }
+  if (held & COSMIC_HELD_TRUNCATE) {
+    rules[CALL_truncate] = RULE_ALLOW;
+    rules[CALL_open] = RULE_OPEN_TRUNCATE;
+    rules[CALL_openat] = RULE_OPENAT_TRUNCATE;
   }
 
   /* The calls this architecture has a number for, in number order. */
@@ -1091,7 +1117,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
     static const struct { const char *name; unsigned bit; } holds[] = {
       { "scoped", COSMIC_HELD_SIGNALS }, { "unix_held", COSMIC_HELD_UNIX },
       { "limits_held", COSMIC_HELD_LIMITS }, { "pids_held", COSMIC_HELD_PIDS },
-      { "network_held", COSMIC_HELD_NETWORK },
+      { "network_held", COSMIC_HELD_NETWORK }, { "truncate_held", COSMIC_HELD_TRUNCATE },
     };
     for (size_t i = 0; i < sizeof holds / sizeof holds[0]; i++) {
       lua_getfield(L, 3, holds[i].name);

@@ -78,6 +78,8 @@ local numbers: {string: {integer}} = {
   ["chown"] = { 92 },
   ["fchown"] = { 93, 55 },
   ["lchown"] = { 94 },
+  ["truncate"] = { 76, 45 },
+  ["ftruncate"] = { 77, 46 },
   ["getrlimit"] = { 97, 163 },
   ["ptrace"] = { 101, 117 },
   ["setuid"] = { 105, 146 },
@@ -302,6 +304,7 @@ local PROT_EXEC <const> = 4
 local MAP_PRIVATE <const> = 2
 local MAP_ANONYMOUS <const> = 0x20
 local O_CREAT <const> = 0x40
+local O_TRUNC <const> = 0x200
 local MFD_NOEXEC_SEAL <const> = 8
 local SIGCHLD <const> = 17
 
@@ -864,6 +867,44 @@ local function test_a_process_that_cannot_raise_a_hard_limit_sets_its_own_limits
     call("setpgid", "EPERM", pid + 1, 0), call("socket", "EPERM", 1, 1, 0),
     call("sched_setaffinity", "EPERM", pid + 1), call("unshare", "EPERM", 0x10000000),
   }, { pid = pid, limits_held = true })
+end
+
+--- Below Landlock ABI 3 nothing holds a truncation but the write right an
+--- open's access mode asks of Landlock, so a process not held by a domain
+--- that handles truncation (`truncate_held`) is refused truncate, and
+--- O_TRUNC beside O_RDONLY or the access mode 3, which ask none, and could
+--- otherwise empty any file its user may write. What truncates only a file
+--- open to write stays.
+local function test_a_truncation_by_path_is_allowed_only_where_landlock_holds_it()
+  local by_path = {
+    call("truncate", "EPERM", 0, 0),
+    call("open", "EPERM", 0, O_TRUNC), call("open", "EPERM", 0, O_TRUNC | 3),
+    call("openat", "EPERM", -100, 0, O_TRUNC), call("openat", "EPERM", -100, 0, O_TRUNC | 3),
+    call("openat", "EPERM", -100, 0, O_CREAT | O_TRUNC, 0x1a4),
+  }
+  local held: mut {Case} = {}
+  for _, case in ipairs(by_path) do
+    held[#held + 1] = call(case.name, "allow", table.unpack(case.args))
+  end
+  local written = {
+    call("ftruncate", "allow", 3, 0), call("creat", "allow", 0, 0x1a4),
+    call("open", "allow", 0, O_TRUNC | 1), call("open", "allow", 0, O_TRUNC | 2),
+    call("openat", "allow", -100, 0, O_TRUNC | 1), call("openat", "allow", -100, 0, O_TRUNC | 2),
+    call("openat", "allow", -100, 0, O_CREAT | O_TRUNC | 1, 0x1a4), call("openat", "allow", -100, 0, 3),
+    -- The mode is held to no special bit either way.
+    call("openat", "EPERM", -100, 0, O_CREAT | O_TRUNC | 1, 0x9ed),
+    call("open", "EPERM", 0, O_CREAT | O_TRUNC, 0x4ed),
+  }
+  local promise_sets: {{string}} = { {}, { "fork", "jit", "fattr" }, { "nest" } }
+  for _, promises in ipairs(promise_sets) do
+    holds_on_both(promises, by_path)
+    holds_on_both(promises, written)
+    holds_on_both(promises, held, { truncate_held = true })
+    holds_on_both(promises, written, { truncate_held = true })
+  end
+  -- No other hold stands in for it.
+  holds_on_both({}, by_path, { scoped = true, unix_held = true, limits_held = true,
+    pids_held = true, network_held = true, unix = true, inet = true })
 end
 
 --- In a pid namespace of its own, a pid names a process of the sandbox or

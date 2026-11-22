@@ -93,12 +93,21 @@ unsigned cosmic_promise_named (const char *name);
  *   network namespace made in it. In one it made (every child given inet
  *   sockets is in one, and a `nest` child may make more) it may send the
  *   kernel's route requests that change it, links, addresses, routes and
- *   queueing among them, which reach nothing of the host's. */
+ *   queueing among them, which reach nothing of the host's.
+ * - `COSMIC_HELD_TRUNCATE`: the process is in a Landlock domain that
+ *   handles LANDLOCK_ACCESS_FS_TRUNCATE (ABI 3). truncate is then allowed,
+ *   and open and openat with O_TRUNC in any access mode. Without it
+ *   nothing holds a truncation by path but the right to write that an
+ *   open's access mode asks: truncate is refused, and so is O_TRUNC
+ *   beside O_RDONLY or the access mode 3, which ask no write right of
+ *   Landlock. ftruncate, creat and O_TRUNC beside O_WRONLY or O_RDWR stay,
+ *   since each truncates only a file opened to write. */
 #define COSMIC_HELD_SIGNALS 0x1u
 #define COSMIC_HELD_UNIX 0x2u
 #define COSMIC_HELD_LIMITS 0x4u
 #define COSMIC_HELD_PIDS 0x8u
 #define COSMIC_HELD_NETWORK 0x10u
+#define COSMIC_HELD_TRUNCATE 0x20u
 
 /* Holds the calling process, for good, to `promises` and to making
  * sockets of the families `sockets` names: no_new_privs, and

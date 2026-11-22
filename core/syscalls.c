@@ -774,8 +774,11 @@ static void close_child_descriptors (int from, long limit) {
  * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
  * child to a ruleset under build.confine's `must_confine`: today it
  * handles what the kernel knows and says nothing of the rest, so a
- * child on an older kernel may truncate a file it was given only to
- * read. */
+ * child on an older kernel held by it and no promises filter may
+ * truncate a file it was given only to read. A child held to promises
+ * beside it is refused truncate, and O_TRUNC in an open that does not
+ * write, on every kernel, since `spawn` cannot tell what a `ruleset`
+ * descriptor handles (COSMIC_HELD_TRUNCATE). */
 COSMIC_SYSCALL(landlock_ruleset, 2) {
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
@@ -3550,11 +3553,12 @@ static bool root_shows_no_socket (char *const *resolved, const char *const *at, 
  * or -1 with the errno in `error` and what to tell the caller in
  * `message`, which names the path or the remedy. `held` is what the
  * ruleset holds that the promises filter relies on (core/promises.h's
- * COSMIC_HELD_ bits): the signal scope (ABI 6), and, where `unix_bound` (a
- * root of the child's own that shows only its grants) and `offline` (a
- * network namespace of its own) too, that a unix socket file is
- * reached only by a `u` grant (ABI 9), or, below it, that the root shows
- * no socket file at all (`unix_tmp`, [`root_shows_no_socket`]).
+ * COSMIC_HELD_ bits): truncation (ABI 3), the signal scope (ABI 6),
+ * and, where `unix_bound` (a root of the child's own that shows only its
+ * grants) and `offline` (a network namespace of its own) too, that a unix
+ * socket file is reached only by a `u` grant (ABI 9), or, below it, that
+ * the root shows no socket file at all (`unix_tmp`,
+ * [`root_shows_no_socket`]).
  *
  * The ruleset handles every filesystem right the kernel's ABI knows, up
  * to ABI 9 ([`grants_handled`]), so what no grant gives is refused: EACCES, and EXDEV for a rename or link
@@ -3568,6 +3572,8 @@ static bool root_shows_no_socket (char *const *resolved, const char *const *at, 
  * start does not fail for the rest, except a `u` grant, whose right
  * (ABI 9) nothing else stands in for -- unless `unix_bound`, where the
  * socket is bound into a root of the child's own, which holds no other.
+ * Below ABI 3 the promises filter holds truncation instead, refusing
+ * what an open's write right does not hold (COSMIC_HELD_TRUNCATE).
  * TODO: refuse where the kernel's ABI leaves out a right a grant's
  * letters or the scoping rely on, once a policy can ask for a start that
  * must be held whole (`isolate file` and a network namespace stand in
@@ -3629,6 +3635,7 @@ static int grants_ruleset (const char *const *paths, const unsigned *letters, in
     size = offsetof(struct grants_attr, scoped) + sizeof attr.scoped;
   }
   if ((attr.scoped & LANDLOCK_SCOPE_SIGNAL) != 0) *held |= COSMIC_HELD_SIGNALS;
+  if ((attr.handled_access_fs & LANDLOCK_ACCESS_FS_TRUNCATE) != 0) *held |= COSMIC_HELD_TRUNCATE;
   /* socket(AF_UNIX) is let through (COSMIC_HELD_UNIX) where nothing the process
    * can reach by a path is a socket it was not given. Two holds do it:
    *

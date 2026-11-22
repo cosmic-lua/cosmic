@@ -583,6 +583,7 @@ COSMIC_SYSCALL(child_signal_fd, 0);
  * ---@field limits_held boolean|nil whether the process cannot raise a hard limit, so setrlimit and prlimit64 may set its own limits (default false)
  * ---@field pids_held boolean|nil whether the process is in a pid namespace of its own, so getpgid, getsid, setpgid and capget take any pid (default false)
  * ---@field network_held boolean|nil whether the process can change no network namespace but one it made, so with `inet` it may make a NETLINK_ROUTE socket, which lists the interfaces (default false)
+ * ---@field truncate_held boolean|nil whether the process is in a Landlock domain that handles truncation (ABI 3), so truncate, and O_TRUNC in an open that does not write, are allowed (default false)
  * ---@field unix boolean|nil whether a unix socket may be made with socket(), which a socketpair always may (default false)
  * ---@field inet boolean|nil whether an AF_INET or AF_INET6 socket may be made with socket() (default false)
  */
