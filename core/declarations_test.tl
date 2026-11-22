@@ -236,7 +236,7 @@ end
 
 local function nothing() end
 
-local preloaded <const>: {string: boolean} = { errors = true, globals = true, testing = true }
+local preloaded <const>: {string: boolean} = { compiled = true, errors = true, globals = true, testing = true }
 
 local function reply(): string
   return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"

@@ -1,0 +1,8 @@
+file: src/lparser.h
+note: The parser is told whether the load reads the class forms (patch/lua/13-class-forms-mode-load.txt).
+--- find
+                                 const char *name, int firstchar);
+--- replace
+                                 const char *name, int firstchar,
+                                 int classforms);
+--- end

@@ -17,6 +17,7 @@
 local type Child = require("cosmic.child")
 local type Sandbox = require("cosmic.sandbox")
 local Coverage = require("cosmic.coverage")
+local Compiled = require("cosmic.internal.compiled")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local env_get = Env.get
@@ -418,8 +419,8 @@ local lua_gsub: function(string, string, any): string, integer = string.gsub -- 
 local lua_tonumber: function(string, integer): number? = tonumber -- checked: overload_value
 local lua_pcall: function(any, ...: any): boolean, any... = pcall -- checked: overload_value
 local lua_select = select -- checked: overload_value
-local lua_concat, lua_format, lua_sub, lua_getmetatable, lua_tostring, lua_find =
-  table.concat, string.format, string.sub, getmetatable, tostring, string.find
+local lua_concat, lua_format, lua_sub, lua_tostring, lua_find =
+  table.concat, string.format, string.sub, tostring, string.find
 
 --- A fact of a narrowed read, parsed.
 local record Fact
@@ -508,15 +509,10 @@ local function parse_check(text: string): Check
   return check
 end
 
--- The metatable of a value is read as the code of a class does: `@v`, which answers
--- the metatable whatever its `__metatable` says, where the runtime's parser takes
--- the form from text. Where it does not, `getmetatable`, which a class that hides
--- its metatable would fail.
---
--- TODO: read the class with whatever form the runtime keeps for the code the compiler writes, once the runtime no longer
--- exposes text `load` to programs (the runtime then has no reserved form that text can spell): the `@` of text is
--- then gone, and a class that hides its metatable is a false "fact violated" again.
-local raw_reader = load("local v = ... return @v")
+-- The metatable of a value as the code of a class reads it: `@v`, which answers the metatable whatever its
+-- `__metatable` says, so a class that hides its metatable is no false "fact violated". Only the compiler's loader
+-- reads the form.
+local raw_reader = assert(Compiled.load("local v = ... return @v", "=raw_reader", {}))
 
 -- Counts up a violation met again.
 local function again(known: worker.Violation)
@@ -721,7 +717,6 @@ end
 
 -- Whether the metatable of `v` is one of `classes`, as the code of a class reads it.
 local function of_class(v: any, classes: {any}): boolean
-  if raw_reader == nil then return among(classes, lua_getmetatable(v)) end
   return among(classes, (raw_reader(v)))
 end
 

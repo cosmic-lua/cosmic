@@ -1093,6 +1093,12 @@ local requirers: {string: Restriction} = {
       "time, which is no edge of the build: any other module requires what it needs by a " ..
       "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
   },
+  ["cosmic.internal.compiled"] = {
+    files = { "build.lua_tail", "build.sandbox", "build.standalone", "build.test_worker", "build.fact_hook_test",
+      "core.class_form_test", "lang.check_programs", "lang.codegen_test" },
+    why = "only the modules that load the Lua the compiler wrote read the class forms of patch/lua/, whose `@v` " ..
+      "answers a metatable whatever `__metatable` says: any other module loads text with `load`, which refuses them",
+  },
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",
       "build.sandbox", "build.sealed_worker_test", "build.standalone",
