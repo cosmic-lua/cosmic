@@ -169,7 +169,7 @@ local CASES <const>: {Case} = {
     says = "a function literal takes no type parameters", fix = "`local function f<T>(...)`" },
   { code = "bad_attribute", source = "local d <foo> = 1", y = 1, x = 10, says = "`<foo>` is not an attribute", fix = "`<const>`" },
   { code = "if_needs_else", source = "local x = if a then b end", y = 1, x = 23, says = "an `if` expression has no `else`", fix = "write `else <value>`" },
-  { code = "match_needs_call", source = "match x do\n  | (true, v) then\nend", y = 1, x = 7, says = "`match` takes a call, found `x`", fix = "`match f(x) do" },
+  { code = "match_needs_call", source = "match x do\n  | (true, v) then\nend", y = 1, x = 7, says = "a `match` of value lists takes a call, found `x`", fix = "`match f(x) do" },
   { code = "close_repeated", source = "local a <close>, b <close> = nil, nil", y = 1, x = 18, says = "`b` is a second `<close>` local", fix = "statement of its own" },
   { code = "close_repeated", source = "local a, b <close>, c <close> = nil, nil, nil", y = 1, x = 21, says = "`c` is a second `<close>` local", fix = "statement of its own" },
   { code = "method_needs_self", source = "local class C\n  function m(a) end\nend", y = 2, x = 13, says = "first parameter of a method is `self`", fix = "`function m(self, ...)`" },

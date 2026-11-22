@@ -835,7 +835,7 @@ end
 --- The test of `value` for the type `t`, on the line `y`: one of three shapes, for what `t`
 --- stands for through its aliases, or for a class the test of its metatable: `@v == C`. `operand` is the
 --- expression `value` writes, which a prefix operator takes in parentheses where it binds looser.
-local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp): Output
+local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp, held?: string): Output
   local t = through_aliases(declared, 32)
   local out = new(y)
   local tag = G.tags[declared.id]
@@ -852,7 +852,7 @@ local function type_test(declared: Ast.Type, value: Output, y: integer, operand?
       end
       local read = if RESERVED_FIELDS[field] == true then "[\"" .. field .. "\"]" else "." .. field end
       -- The value is read again, as a name or as the parameter that holds it.
-      local again = if operand ~= nil then exp(operand) else text(y, "__v") end
+      local again = if operand ~= nil then exp(operand) else text(y, held or "__v") end
       if #members == 1 then
         put(out, " and ")
         add_child(out, again, "", G.indent)
@@ -1677,9 +1677,72 @@ end
 
 --- A `match` as a `do` block that holds the values of its call and an `if` on them: an arm tests the `true` and
 --- `false` of its patterns and binds the names of the others.
+--- The test of the local `name` for the type `t`, on the line `y`: a test for each member of a union, joined by `or`.
+local function held_test(t: Ast.Type, name: string, y: integer): Output
+  local members = union_members(t, 32) or { t }
+  local out = new(y)
+  for i, member in ipairs(members) do
+    if i > 1 then
+      put(out, " or ")
+    end
+    add_child(out, type_test(member, text(y, name), y, nil, name), "", G.indent)
+  end
+  return out
+end
+
+--- A typed `match`: the value is held in a local, and each arm is a test of it for the arm's type, in order, which
+--- binds the arm's name to it. `| _` is the `else`.
+local function typed_match(s: Ast.Match, prefix: string): Output
+  local y = line_of(s.first)
+  local out = new(y)
+  local held = prefix .. "1"
+  put(out, "do local " .. held .. " =")
+  add_child(out, exp(s.scrutinee), " ")
+  local pieces: mut {Output} = {}
+  for k, arm in ipairs(s.arms) do
+    local ay = line_of(arm.first)
+    local body_y = line_of(arm.body.first)
+    indent_in(ay, body_y)
+    local piece = new(ay)
+    local pat = arm.pats[1]
+    local every = pat == nil
+    if (pat ~= nil) and (pat.kind == "PatType") then
+      -- `| any v` takes every value left, as `| _` does.
+      local t = through_aliases(pat.type, 32)
+      every = (t.kind == "TypeName") and #t.path == 1 and t.path[1] == "any"
+    end
+    if (pat ~= nil) and (pat.kind == "PatType") and not every then
+      put(piece, if k == 1 then "if" else "elseif" end)
+      add_child(piece, held_test(pat.type, held, ay), " ")
+      put(piece, " then")
+      local name = pat.name
+      if name ~= nil then
+        put(piece, " local " .. name.name .. " = " .. held)
+      end
+    else
+      put(piece, if k == 1 then "if true then" else "else" end)
+      local name = if (pat ~= nil) and (pat.kind == "PatType") then pat.name else nil end
+      if name ~= nil then
+        put(piece, " local " .. name.name .. " = " .. held)
+      end
+    end
+    add_child(piece, block(arm.body), " ")
+    indent_out(ay, body_y)
+    pieces[k] = piece
+  end
+  for _, piece in ipairs(pieces) do
+    add_child(out, piece, " ", if piece.y ~= y then G.indent else nil end)
+  end
+  add_child(out, text(line_of(s.last), if #pieces > 0 then "end end" else "end" end), " ", G.indent)
+  return out
+end
+
 local function match_statement(s: Ast.Match): Output
   G.matches = G.matches + 1
   local prefix = "__m" .. tostring(G.matches) .. "_"
+  if s.typed then
+    return typed_match(s, prefix)
+  end
   local width = 0
   for _, arm in ipairs(s.arms) do
     width = math.max(width, #arm.pats)

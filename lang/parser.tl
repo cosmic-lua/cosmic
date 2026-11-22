@@ -219,6 +219,8 @@ local record State
   --- How many table constructors of the function being parsed it is inside.
   mut tables: integer
   mut arm_from: integer
+  --- Whether the innermost `match` tests types, so that any `|` that begins a line begins its next arm.
+  mut typed_arm: boolean
   --- The token of a second arm on a line, which ends the expression before it.
   mut arm_same: integer
   mut scan_at: integer
@@ -241,7 +243,7 @@ local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 local S: State = {
   tokens = NO_TOKENS, kinds = NO_TOKENS.kind, texts = NO_TOKENS.text, ys = NO_TOKENS.y,
   yends = NO_TOKENS.yend, last = 1, pos = 1, text = "", kind = "$EOF$", errors = {}, name = "",
-  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, lent_if = 0, lent_end = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
+  decl = false, half = 0, reported = {}, beside = nil, beside_work = 0, lent_if = 0, lent_end = 0, muted = false, nesting = 0, arms = 0, tables = 0, arm_from = 1, typed_arm = false, arm_same = 0, scan_at = 1, scan_depth = 0, depth = 0, loops = {}, loop_base = 0, requires = {}, -- checked: nil_not_allowed
   require_nodes = {}, require_names = {},
 }
 
@@ -379,7 +381,7 @@ end
 --- all the same where an expression goes on; in a type it is a union of value lists,
 --- which looks the same. Any other `|` is a bitwise or or a union.
 local function arm_bar(in_expression: boolean): boolean
-  if S.text ~= "|" or S.arms == 0 or peek_text(1) ~= "(" then
+  if S.text ~= "|" or S.arms == 0 or (peek_text(1) ~= "(" and not S.typed_arm) then
     return false
   end
   local pos = S.pos
@@ -2394,23 +2396,41 @@ local function parse_for(): Ast.Stat
   return { kind = "ForIn", id = 0, first = first, last = S.pos - 1, vars = vars, iterators = iterators, body = body }
 end
 
+--- Whether the `|` here opens an arm of a list: `(`, then `true`, `false`, names and commas, then `)` and `then`. A
+--- type in parentheses, `| (A | B) x then`, is not one.
+local function list_arm(): boolean
+  if peek_text(1) ~= "(" then
+    return false
+  end
+  local n = 2
+  while peek_text(n) ~= ")" do
+    local t, k = peek_text(n), peek_kind(n)
+    if not (t == "," or t == "true" or t == "false" or k == "identifier") then
+      return false
+    end
+    n = n + 1
+  end
+  return peek_text(n + 1) == "then"
+end
+
 local function parse_match(): Ast.Stat
   local first = S.pos
   advance()
-  local scrutinee = parse_prefix()
-  local call: Ast.CallExp
-  if (scrutinee.kind == "Call") then
-    call = scrutinee
-  elseif (scrutinee.kind == "MethodCall") then
-    call = scrutinee
-  else
+  local scrutinee = parse_expression()
+  local scrutinee_last = S.pos - 1
+  expect("do", "after the value of a `match`", "write `match v do | Circle c then ... end`, or `match f() do | (true, v) then ... end`")
+  -- An arm that tests positions is a list of `true`, `false` and names, then `then`; one that tests a type names it.
+  local typed = not (S.text == "|" and list_arm())
+  local call: Ast.Exp = scrutinee
+  if not typed and not ((scrutinee.kind == "Call")) and not ((scrutinee.kind == "MethodCall")) then
     if not ((scrutinee.kind == "Error")) then
-      report("match_needs_call", first + 1, "`match` takes a call, found `" .. quoted_text(first + 1, S.pos - 1) .. "`",
-        "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on a value write an `if`")
+      report("match_needs_call", first + 1, "a `match` of value lists takes a call, found `" .. quoted_text(first + 1,
+        scrutinee_last) .. "`",
+        "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on the " ..
+          "type of a value write its arms as types: `match v do | string s then ... | integer n then ... end`")
     end
-    call = { kind = "Error", id = 0, first = first + 1, last = S.pos - 1 }
+    call = { kind = "Error", id = 0, first = first + 1, last = scrutinee_last }
   end
-  expect("do", "after the call of a `match`", "write `match f() do | (true, v) then ... end`")
   local arms: mut {Ast.MatchArm} = {}
   -- Whether an arm so far matches every value: no arm after it can run.
   local caught = false
@@ -2428,7 +2448,20 @@ local function parse_match(): Ast.Stat
       caught = false
     end
     local pats: mut {Ast.PatItem} = {}
-    if expect("(", "after `|` in a `match` arm", "write the arm as `| (true, name) then`") then
+    if typed then
+      -- `| T name then`, `| T then`, or `| _ then` for every value the arms before it leave.
+      if S.text == "_" and peek_text(1) == "then" then
+        advance()
+      else
+        local pfirst = S.pos
+        local tested = parse_type()
+        local name: Ast.Binding? = nil
+        if S.kind == "identifier" then
+          name = binding("the value of the type")
+        end
+        pats[1] = { kind = "PatType", id = 0, first = pfirst, last = S.pos - 1, type = tested, name = name }
+      end
+    elseif expect("(", "after `|` in a `match` arm", "write the arm as `| (true, name) then`") then
       while S.text ~= ")" and S.kind ~= "$EOF$" do
         local pfirst = S.pos
         if S.text == "true" or S.text == "false" then
@@ -2461,15 +2494,16 @@ local function parse_match(): Ast.Stat
         bound[bound_name] = true
       end
     end
-    caught = bools == 0
+    caught = bools == 0 and (not typed or #pats == 0)
     expect("then", "after the pattern of a `match` arm",
       "write `| (true, v) then ...`; an expression that goes on to the next line keeps its operator at the end of " ..
         "the line before, since a `|` that begins a line starts an arm")
     local saved = { S.arm_from, S.scan_at, S.scan_depth }
+    local outer_typed = S.typed_arm
     S.arms = S.arms + 1
-    S.arm_from, S.scan_at, S.scan_depth = S.pos, S.pos, 0
+    S.arm_from, S.scan_at, S.scan_depth, S.typed_arm = S.pos, S.pos, 0, typed
     local body = parse_block(0)
-    S.arms = S.arms - 1
+    S.arms, S.typed_arm = S.arms - 1, outer_typed
     S.arm_from, S.scan_at, S.scan_depth = saved[1], saved[2], saved[3] -- checked: index_may_be_nil*3
     arms[#arms + 1] = { kind = "MatchArm", id = 0, first = afirst, last = body.last, pats = pats, body = body }
   end
@@ -2480,7 +2514,7 @@ local function parse_match(): Ast.Stat
   else
     close("end", first, "`match`")
   end
-  return { kind = "Match", id = 0, first = first, last = S.pos - 1, scrutinee = call, arms = arms }
+  return { kind = "Match", id = 0, first = first, last = S.pos - 1, scrutinee = call, typed = typed, arms = arms }
 end
 
 local function parse_return(): Ast.Stat
@@ -2765,6 +2799,7 @@ function Parser.parse(lexed: Lexer.Lexed, name: string, dialect: Ast.Dialect): P
   S.arms = 0
   S.tables = 0
   S.arm_from = 1
+  S.typed_arm = false
   S.arm_same = 0
   S.scan_at = 1
   S.scan_depth = 0

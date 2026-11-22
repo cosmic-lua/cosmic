@@ -310,9 +310,10 @@ SyntaxCodes.catalog = {
   },
   {
     code = "match_needs_call", stage = "parser", rule = GRAMMAR,
-    why = "a `match` selects among the lists of values a call may answer, so what it takes is a call",
-    fix = "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on a " ..
-      "value write an `if`",
+    why = "a `match` whose arms are lists, `| (true, v)`, selects among the lists of values a call may answer, so what it " ..
+      "takes is a call; a `match` whose arms are types takes any value",
+    fix = "call a function that returns a union of value lists: `match f(x) do | (true, v) then ... end`; to branch on the " ..
+      "type of a value write its arms as types: `match v do | string s then ... | integer n then ... end`",
   },
   {
     code = "method_needs_self", stage = "parser", rule = GRAMMAR,

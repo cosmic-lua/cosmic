@@ -48,6 +48,10 @@ match f() do
   | (true, v) then print(v)
   | (false, _) then print(x)
 end
+match x do
+  | T t then print(t)
+  | _ then print(x)
+end
 local record Seq<T> is {T} end
 local record Pair<K, V is Ordered> is Base<K>
   key: K

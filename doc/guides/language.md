@@ -198,6 +198,54 @@ print(weight("high"))
 10
 ```
 
+`match v do ... end` takes a value apart by its type. Each arm `| T name then` tests the value as `v is T` does and binds
+`name` to it, of the type the arm takes: what the arms before it leave of `T`. The arms must take every type the value
+may have (`match_missing`), and an arm that takes nothing the arms before it left never runs (`match_redundant`).
+`| _ then` takes all the rest. So a `match` over a tagged union, an enum or a union of plain types ends the function
+when each arm returns, and a member added to the union later is refused at each `match` that does not take it.
+
+```teal
+local record Circle
+  kind: "circle"
+  r: number
+end
+
+local record Square
+  kind: "square"
+  side: number
+end
+
+local function area(s: Circle | Square): number
+  match s do
+  | Circle c then
+    return 3 * c.r * c.r
+  | Square q then
+    return q.side * q.side
+  end
+end
+
+local function describe(v: string | integer | boolean): string
+  match v do
+  | string text then
+    return "text " .. text
+  | integer n then
+    return "number " .. tostring(n + 1)
+  | _ then
+    return "other"
+  end
+end
+
+print(area({ kind = "circle", r = 1 }), describe(41), describe(true))
+```
+
+```output
+3	number 42	other
+```
+
+In an arm, a `|` that begins a line begins the next arm, so an expression that goes on to the next line keeps its
+operator at the end of the line before. A `match` whose arms are lists, `| (true, v)`, takes a call apart by the lists it
+may answer instead.
+
 ## an array with named fields
 
 A table that holds an array part and named fields is a record that declares both: `is {string}` makes the array part, and
