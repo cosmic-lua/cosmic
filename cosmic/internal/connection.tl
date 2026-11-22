@@ -142,6 +142,15 @@ local class SocketConn is Duplex
       while true do
         local data, why, stop = session:read(math.min(max_bytes or RECORD_BYTES, RECORD_BYTES))
         if data ~= nil then return data, "" end
+        -- TODO: an end with no close_notify (MBEDTLS_ERR_SSL_CONN_EOF, a
+        -- TCP end alone) is ENDED as close_notify is, so a body read to the
+        -- connection's end (an HTTP/1.x response with no length) cannot
+        -- tell an attacker's truncation from the end. The fix: core/tls.c's
+        -- `unfinished` answers the two apart, this read answers the bare
+        -- end as a failure ("tls: the peer ended without close_notify")
+        -- where the caller asks, and cosmic.http's read of a body to the
+        -- end refuses one so cut, once the change in progress to
+        -- cosmic/http/init.tl and core/http.c has landed.
         if stop == tls.ENDED then return nil, "" end
         if stop == tls.FAILED then
           self.read_failure = why
