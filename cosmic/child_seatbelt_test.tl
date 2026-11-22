@@ -163,27 +163,28 @@ end
 --- A held child cannot read the arguments of another process of the same
 --- user (kern.procargs2, which `ps` reads), which may hold its tokens; ps
 --- unheld reads them, so the refusal is the profile's.
-local function test_another_process_arguments_are_not_read()
+local function test_another_process_arguments_are_not_read(tmp: string)
   SeatbeltFixture.macos_only()
   local marker = "procargs-marker-" .. tostring(sys.getpid())
   -- A second command keeps the shell, and its $0, from becoming sleep.
   local sleeper = assert(Child.start({ SH, "-c", "sleep 30; :", marker }, { timeout_ns = Child.FOREVER }))
   local pid = tostring(sleeper.pid)
-  -- ps is setuid, which no held child executes; pgrep reads arguments the same way.
-  local by_marker = { "/usr/bin/pgrep", "-f", marker }
-  local plain = assert(Child.run(by_marker, { stdout = "capture", stderr = "capture", stdin = "null",
+  -- /bin/ps is setuid, which no held child executes, and pgrep asks sysmond,
+  -- which no held child reaches; a copy of ps runs as the user and reads
+  -- arguments by sysctl.
+  local ps = tmp .. "/ps"
+  assert(Fs.write(ps, assert(Fs.read("/bin/ps")), tonumber("755", 8)))
+  local argv = { ps, "-ww", "-o", "pid=,args=", "-p", pid }
+  local plain = assert(Child.run(argv, { stdout = "capture", stderr = "capture", stdin = "null",
     timeout_ns = Clock.seconds(30) }))
-  local children = run({ "/usr/bin/pgrep", "-P", tostring(sys.getpid()) }, { profiles = { "system" } })
-  local held = run(by_marker, { profiles = { "system" } })
+  local held = run(argv, { profiles = { "system" }, grants = { { path = ps, letters = "rx" } } })
   sleeper:stop(sys.SIGKILL)
   sleeper:wait()
-  local function lists(result: Child.Result): boolean
-    return ("\n" .. (result.stdout or "")):find("\n" .. pid .. "\n", 1, true) ~= nil
-  end
-  assert(lists(plain), describe(plain))
-  -- A held pgrep sees the process, and cannot match it by an argument.
-  assert(children.ok and lists(children), describe(children))
-  assert(not lists(held), describe(held))
+  assert((plain.stdout or ""):find(marker, 1, true) ~= nil, describe(plain))
+  -- ps ran and found the process, and showed no argument of it.
+  local said = held.stdout or ""
+  assert(held.ok and said:find("^%s*" .. pid .. "%s") ~= nil, describe(held))
+  assert(said:find(marker, 1, true) == nil, describe(held))
 end
 
 --- What `policy` is refused for, in [`Child.start`]'s words.
