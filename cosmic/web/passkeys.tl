@@ -55,7 +55,10 @@
 --- it, and an answer to it is refused after. A login is a passkey with no user named first: the
 --- browser offers the passkeys it holds for `rp_id`, and the user handle
 --- of the one chosen says who logs in. [`Web.passkey_identity`] answers
---- it, for every request of the session after. The session is bound
+--- it, for every request of the session after while the store keeps the
+--- passkey: removing one ([`Store.remove`]) logs out every session it
+--- logged in, at its next request, though the session and what else it
+--- holds stay. The session is bound
 --- ([`Handle:bind_subject`]) to the user handle in base64url.
 ---
 --- [`cosmic.web.session`]'s middleware must run outside this one. Under
@@ -81,7 +84,12 @@ local record Passkeys
   record User
     --- The user handle: opaque bytes the app chooses for the account, 1
     --- to 64, never an email address or a name. A passkey keeps it, and
-    --- a login with the passkey answers it.
+    --- a login with the passkey answers it. Make it at random when the
+    --- account is made (16 bytes of [`Rand.entropy`]), keep it with the
+    --- account, and look it up from there: a handle made from what a user
+    --- types is one anybody can type, and the passkey they then register
+    --- logs in to the account that has it. A handle that is `name` or
+    --- `display_name` raises.
     handle: string
     --- The name the user knows the account by, which the browser shows.
     name: string
@@ -116,6 +124,7 @@ local record Passkeys
     --- `backed_up`. False and "" where it is no longer kept.
     update: function(Store, credential: Webauthn.Credential): boolean, string
     --- Removes the passkey of credential id `id`: true where one was kept.
+    --- The sessions it logged in are logged in no more.
     remove: function(Store, id: string): boolean, string
     --- Notes that `challenge` is used, until the time `lapses` (seconds since the
     --- epoch), and forgets the ones noted until `now` or before: true
@@ -147,7 +156,9 @@ local record Passkeys
     --- the account logged in, or one this browser is making (a sign-up
     --- the session holds). A registration logs in as the user answered,
     --- so a user named by the request alone, a header or a form field,
-    --- gives the account to whoever names it.
+    --- gives the account to whoever names it. A sign-up reserves its name
+    --- first, refusing one an account has, or a second browser signing up
+    --- under the name adds its passkey to the first's account.
     user: function(req: Types.Request): User?
     --- The paths' prefix ("/auth/passkey").
     prefix?: string
@@ -174,6 +185,10 @@ local record Taken
   entry: {string: Json.Value}
   --- When it lapses, in seconds since the epoch.
   lapses: integer
+  --- The time it was taken at, before `lapses`: what [`Store.spend`]
+  --- is given as now, so that a spend never forgets the challenge it
+  --- notes, however long the checks between took.
+  taken_at: integer
 end
 
 --- The key a request's identity is kept under.
@@ -325,19 +340,21 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     return Response.problem(500, "the passkeys cannot be read")
   end
 
-  --- What the session holds under way at `key`, by challenge, with
-  --- those that lapsed left out.
-  local function pending(session: Session.Handle, key: string): mut {string: {string: Json.Value}}
+  --- What the session holds under way at `key`, by challenge, at the
+  --- time `t`, with those that lapsed left out. One lapses at
+  --- `at + PENDING_SECONDS`, the time its spent row in the store lapses
+  --- too: taken only before then, it is never taken once the store may
+  --- have forgotten it.
+  local function pending(session: Session.Handle, key: string, t: integer): mut {string: {string: Json.Value}}
     local out: mut {string: {string: Json.Value}} = {}
     local value = session:get(key)
     if value == nil then return out end
     local object, _ = Json.to_object(value)
-    local t = now()
     for challenge, entry in pairs(object or {}) do
       local each, _ = Json.to_object(entry)
       if each ~= nil then
         local at = each["at"]
-        if at is integer and t - at <= PENDING_SECONDS and at <= t then out[challenge] = each end
+        if at is integer and t - at < PENDING_SECONDS and at <= t then out[challenge] = each end
       end
     end
     return out
@@ -347,7 +364,8 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
   --- going past `MAX_PENDING`; answers the challenge.
   local function begin(session: Session.Handle, key: string, entry: mut {string: Json.Value}): string
     local challenge = Webauthn.challenge()
-    local held = pending(session, key)
+    local t = now()
+    local held = pending(session, key, t)
     local count = 0
     for _ in pairs(held) do count = count + 1 end
     while count >= MAX_PENDING do
@@ -362,7 +380,7 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
       held[assert(oldest)] = nil
       count = count - 1
     end
-    entry["at"] = now()
+    entry["at"] = t
     held[Codec.base64url(challenge)] = entry
     session:set(key, held)
     return challenge
@@ -373,7 +391,8 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
   local function taken(session: Session.Handle, key: string, answer: {string: Json.Value}): Taken?
     local named = answer_challenge(answer)
     if named == nil then return nil end
-    local held = pending(session, key)
+    local t = now()
+    local held = pending(session, key, t)
     local entry = held[named]
     if entry == nil then return nil end
     held[named] = nil
@@ -381,16 +400,21 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     local challenge, _ = Codec.unbase64url(named)
     local at = entry["at"]
     if challenge == nil or not at is integer then return nil end
-    return { challenge = challenge, entry = entry, lapses = at + PENDING_SECONDS }
+    return { challenge = challenge, entry = entry, lapses = at + PENDING_SECONDS, taken_at = t }
   end
 
   --- Notes `took`'s challenge as used, in the store: nil where it is,
   --- else the response that refuses the answer.
   local function spent(req: Types.Request, took: Taken): Types.Response?
-    local fresh, why = store:spend(took.challenge, took.lapses, now())
-    if fresh then return nil end
-    if why ~= "" then return failed(req, why) end
-    return Response.problem(400, "this challenge is answered already")
+    local fresh, why = store:spend(took.challenge, took.lapses, took.taken_at)
+    if not fresh then
+      if why ~= "" then return failed(req, why) end
+      return Response.problem(400, "this challenge is answered already")
+    end
+    -- Lapsed while the store was asked, the challenge may have been
+    -- forgotten by another request's spend, which this one's then took.
+    if now() >= took.lapses then return Response.problem(400, "this challenge has lapsed") end
+    return nil
   end
 
   local function expected(challenge: string): Webauthn.Expected
@@ -417,6 +441,9 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     if kept == nil then return failed(req, why) end
     if #user.handle == 0 or #user.handle > 64 then
       error("passkeys: the user function answered a handle that is not 1 to 64 bytes")
+    end
+    if user.handle == user.name or user.handle == user.display_name then
+      error("passkeys: the user function answered the account's name as its handle")
     end
     local challenge = begin(Session.of(req), REGISTERING, { user = Codec.base64url(user.handle) })
     return Response.json(Webauthn.creation_options({
@@ -522,28 +549,43 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     ["/login/finish"] = true, ["/logout"] = true,
   }
 
+  --- Sets the request's identity from its session: nil, or the 500 of a
+  --- store that fails.
+  local function identify(req: Types.Request): Types.Response?
+    local session = req:get(Session.KEY)
+    if session == nil then return nil end
+    local identity = kept_identity(session:get(KEPT))
+    if identity == nil or (max_age ~= nil and now() - identity.logged_in_at >= max_age) then
+      return nil
+    end
+    -- A passkey removed from the store logs its sessions out, the
+    -- copies of a signed cookie among them.
+    local credential, why = store:find(identity.credential_id)
+    if credential == nil and why ~= "" then return failed(req, why) end
+    if credential ~= nil and credential.user_handle == identity.user_handle then
+      req:set(IDENTITY, identity)
+    end
+    return nil
+  end
+
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
-      local session = req:get(Session.KEY)
-      if session ~= nil then
-        local identity = kept_identity(session:get(KEPT))
-        if identity ~= nil and (max_age == nil or now() - identity.logged_in_at < max_age) then
-          req:set(IDENTITY, identity)
-        end
-      end
       local outcome = req.outcome
       local routed = outcome == nil or (outcome.kind ~= "bad_host" and outcome.kind ~= "bad_path" and
         outcome.kind ~= "redirect")
       local path = req.path
-      if routed and path:sub(1, #prefix + 1) == prefix .. "/" then
-        local step = path:sub(#prefix + 1)
-        if steps[step] == true then return answer(req, step) end
-        if step == "/script.js" and (req.method == "GET" or req.method == "HEAD") then
-          return Response.text(script, { headers = {
-            ["Content-Type"] = "text/javascript; charset=utf-8", ["Cache-Control"] = "no-cache",
-          } })
-        end
+      local step: string? = nil
+      if routed and path:sub(1, #prefix + 1) == prefix .. "/" then step = path:sub(#prefix + 1) end
+      -- Neither asks the store, so a logout works while it fails.
+      if step == "/logout" then return answer(req, "/logout") end
+      if step == "/script.js" and (req.method == "GET" or req.method == "HEAD") then
+        return Response.text(script, { headers = {
+          ["Content-Type"] = "text/javascript; charset=utf-8", ["Cache-Control"] = "no-cache",
+        } })
       end
+      local refused = identify(req)
+      if refused ~= nil then return refused end
+      if step ~= nil and steps[step] == true then return answer(req, step) end
       return inner(req)
     end
   end

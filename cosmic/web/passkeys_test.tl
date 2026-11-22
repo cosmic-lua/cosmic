@@ -83,6 +83,11 @@ local function assertion(key: Key, handle: string, challenge: string, flags?: in
   }
 end
 
+--- The time a test's app reads, which the test moves.
+local record Time
+  mut now: integer
+end
+
 --- What a test changes of the app.
 local record Extra
   store?: Web.PasskeyStore
@@ -93,11 +98,8 @@ local record Extra
   trusted_hosts?: {string}
   --- The handle the user `name` gets ("handle-" .. name).
   handle?: function(name: string): string
-end
-
---- The time a test's app reads, which the test moves.
-local record Time
-  mut now: integer
+  --- The time the app reads, in place of one of its own.
+  time?: Time
 end
 
 --- A test's app and what it keeps.
@@ -113,7 +115,7 @@ end
 local function rig_of(extra?: Extra): Rig
   local e: Extra = extra or {}
   local store = e.store or assert(Web.passkey_store((assert(Sqlite.memory()))))
-  local time: Time = { now = 1700000000 }
+  local time: Time = e.time or { now = 1700000000 }
   local app = Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
@@ -403,6 +405,103 @@ local function test_a_challenge_lapses()
   rig.time.now = rig.time.now + 331
   local res = post(client, "/login/finish", assertion(key, "handle-ada", challenge))
   assert(res.status == 400, res.body)
+end
+
+--- Which of a store's calls takes a second: "find", "spend" or none.
+local record Ticking
+  mut slow: string
+end
+
+--- An answer replayed, with a copy of the cookie from before the login,
+--- at the last second its challenge could be answered: the store still
+--- holds the challenge as spent, even where the checks take a second,
+--- and one that lapses while the store is asked is refused, as another
+--- request's spend may have forgotten it.
+local function test_a_spent_challenge_outlives_its_answer()
+  for _, slow in ipairs({ "none", "find", "spend" }) do
+    local inner = assert(Web.passkey_store((assert(Sqlite.memory()))))
+    local time: Time = { now = 1700000000 }
+    local ticking: Ticking = { slow = "none" }
+    local store: Web.PasskeyStore = {
+      find = function(_: Web.PasskeyStore, id: string): Webauthn.Credential?, string
+        if ticking.slow == "find" then time.now = time.now + 1 end
+        return inner:find(id)
+      end,
+      list = function(_: Web.PasskeyStore, h: string): {Webauthn.Credential}?, string
+        return inner:list(h)
+      end,
+      add = function(_: Web.PasskeyStore, c: Webauthn.Credential): boolean, string
+        return inner:add(c)
+      end,
+      update = function(_: Web.PasskeyStore, c: Webauthn.Credential): boolean, string
+        return inner:update(c)
+      end,
+      remove = function(_: Web.PasskeyStore, id: string): boolean, string
+        return inner:remove(id)
+      end,
+      spend = function(_: Web.PasskeyStore, c: string, lapses: integer, now: integer): boolean, string
+        -- Waited on, and found the row already forgotten.
+        if ticking.slow == "spend" then
+          time.now = time.now + 1
+          return true, ""
+        end
+        return inner:spend(c, lapses, now)
+      end,
+    }
+    local rig = rig_of({ store = store, time = time })
+    local key = key_new()
+    assert(register(browser(rig.app), key, "ada").status == 201)
+    local client = browser(rig.app)
+    local challenge = challenge_of(post(client, "/login/begin"))
+    local begun = rig.time.now
+    local saved = assert(client.jar["__Host-session"])
+    local answer = assertion(key, "handle-ada", challenge)
+    assert(post(client, "/login/finish", answer).status == 200)
+    rig.time.now = begun + 330 - (if slow == "none" then 0 else 1 end)
+    ticking.slow = slow
+    local thief = browser(rig.app)
+    local res = thief:post("/auth/passkey/login/finish", { json = answer, cookies = { ["__Host-session"] = saved } })
+    assert(res.status == 400, slow .. ": " .. res.body)
+    ticking.slow = "none"
+    assert(thief:get("/"):text() == "nobody")
+  end
+end
+
+--- A handle that is the account's name is anybody's to name.
+local function test_a_name_as_the_handle_raises()
+  local rig = rig_of({ handle = function(name: string): string return name end })
+  local client = browser(rig.app)
+  Test.raises(function() post(client, "/register/begin", nil, { ["X-User"] = "ada" }) end, "name")
+end
+
+--- Removed, a passkey logs out the sessions it logged in, and so does
+--- one of its id kept again for another user. A store that fails to say
+--- is a 500, but for the script and a logout, which still ends the
+--- session.
+local function test_a_removed_passkey_logs_its_sessions_out()
+  local rig = rig_of()
+  local key = key_new()
+  local client = browser(rig.app)
+  assert(register(client, key, "ada").status == 201)
+  assert(client:get("/"):text() == "handle-ada verified")
+  local kept = assert(rig.store:find(key.id))
+  assert(rig.store:remove(key.id) == true)
+  assert(client:get("/"):text() == "nobody")
+  assert(rig.store:add({
+    id = kept.id, user_handle = "handle-eve", public_key = kept.public_key, alg = kept.alg,
+    sign_count = kept.sign_count, backup_eligible = kept.backup_eligible, backed_up = kept.backed_up,
+    transports = kept.transports, user_verified = kept.user_verified, aaguid = kept.aaguid,
+  }) == true)
+  assert(client:get("/"):text() == "nobody")
+  local broken = rig_of({ store = failing(rig.store, "find", "the disk is full") })
+  local other = browser(broken.app)
+  assert(register(other, key_new(), "mel").status == 201)
+  local res = other:get("/")
+  assert(res.status == 500 and res.body:find("disk", 1, true) == nil, res.body)
+  assert(other:get("/auth/passkey/script.js").status == 200)
+  local out = post(other, "/logout")
+  assert(out.status == 303, out.body)
+  assert(other:get("/"):text() == "nobody")
 end
 
 local function test_a_passkey_not_kept_does_not_log_in()
