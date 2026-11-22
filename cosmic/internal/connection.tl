@@ -95,6 +95,9 @@ local class SocketConn is Duplex
   --- connection a TLS listener accepted or [`start_tls`] secured; nil
   --- for one in the clear. No caller reads or writes it.
   mut session?: raw_tls.Session
+  --- The address of the listener that accepted it, as the listener
+  --- was given it; nil for a connection [`Net.connect`] made.
+  mut listener?: raw_socket.Address
 
   --- Sets how long a `read` or a `write` waits, in nanoseconds, from 0;
   --- nil for no limit. On a connection a TLS listener accepted it bounds
@@ -462,7 +465,7 @@ end
 function Connection.new(socket: raw_socket.Socket, timeout_ns: integer?): SocketConn
   local conn: SocketConn = {
     socket = socket, fd = socket:fd(), open = true, limit = timeout_ns,
-    read_failure = "", write_failure = "", skip = nil, session = nil }
+    read_failure = "", write_failure = "", skip = nil, session = nil, listener = nil }
   return conn
 end
 

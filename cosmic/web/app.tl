@@ -11,6 +11,9 @@ local Net = require("cosmic.net")
 local Request = require("cosmic.web.request")
 local Router = require("cosmic.web.router")
 local Server = require("cosmic.http.server")
+-- Only the type: an app that serves no tailnet loads no client of
+-- tailscaled.
+local type Tailscale = require("cosmic.tailscale")
 local Types = require("cosmic.web.types")
 
 --- The value of a `<close>` variable: only its `__close` matters.
@@ -113,7 +116,8 @@ function App.new(spec: Types.AppSpec): Types.App
   end
   local router = Router.build(routes, Errors.terminal, kept.trailing_slash, kept.builtin)
   local app: Types.App = { spec = kept, state = {}, router = router, stopped = false, stoppers = {}, -- checked: literal_missing
-    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT }
+    streams = {}, stream_count = 0, stream_limit = kept.max_streams or DEFAULT_STREAM_LIMIT, serve_socket = nil,
+    serve_caps = nil }
   local function dispatch(req: Types.Request): Types.Response
     local given = req.outcome
     if given == nil and kept.builtin == true then
@@ -203,6 +207,18 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if clear == nil then clear = { Net.tcp("0.0.0.0", 80) } end
   end
   local tailnet = opts.tailnet
+  -- Through the daemon's Serve: what files its configuration once the
+  -- listener is open, and what removes the socket after (`unplace`).
+  local put_up: (function(): Tailscale.Serving?, string)? = nil
+  local unplace: function()? = nil
+  local socket: string? = nil
+  local forwarded: {string}? = nil
+  -- Refuses to serve, removing what Serve's socket left first.
+  local function declined(why: string): boolean, string
+    local undo = unplace
+    if undo ~= nil then undo() end
+    return false, why
+  end
   if tailnet ~= nil and tailnet ~= false then
     if tls ~= nil then error("web: serve takes tls or tailnet, not both", 2) end
     -- Required here, so an app that serves no tailnet loads no client of
@@ -212,18 +228,19 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     if reached == nil then return false, why end
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
+    put_up, unplace, socket, forwarded = reached.put_up, reached.cleanup, reached.socket, reached.caps
   end
   -- Every address served, `clear`'s too, for the loopback checks below.
   local everywhere: mut {Net.Address} = { table.unpack(listeners) }
   for _, address in ipairs(clear or {}) do everywhere[#everywhere + 1] = address end
   if app.spec.dev == true then
     if app.spec.trusted_proxy == true then
-      return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
+      return declined("web: an app in development mode (Dev.app) cannot also have a trusted_proxy")
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
     for _, address in ipairs(everywhere) do
       if not loopback(address) then
-        return false, "web: an app in development mode (Dev.app) serves only on the loopback"
+        return declined("web: an app in development mode (Dev.app) serves only on the loopback")
       end
     end
   end
@@ -242,19 +259,42 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local lifespan = app.spec.lifespan
   if lifespan ~= nil then
     local cleanup, why = lifespan(app)
-    if cleanup == nil and why ~= nil and why ~= "" then return false, why end -- checked: compare_disjoint
+    if cleanup == nil and why ~= nil and why ~= "" then return declined(why) end -- checked: compare_disjoint
     shutdown = cleanup
   end
   local served = { ok = false, err = "" }
+  local filed: Tailscale.Serving? = nil
+  local refusal = ""
+  local on_ready = opts.on_ready
+  local function ready(addresses: {Net.Address}, server: Net.Server)
+    if put_up ~= nil then
+      local made, refused = put_up()
+      if made == nil then
+        refusal = refused
+        server:stop()
+        return
+      end
+      filed = made
+      app.serve_socket = socket
+      app.serve_caps = forwarded
+    end
+    if on_ready ~= nil then on_ready(addresses, server) end
+  end
   -- TODO: once Server.ServeSpec has an `on_start` run in a task before the
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()
     served.ok, served.err = Server.serve({
       listeners = listeners, clear = clear, limits = opts.limits, tls = tls, timeout_ns = opts.timeout_ns,
       idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns,
-      grace_ns = opts.grace_ns or GRACE_NS, on_ready = opts.on_ready, handle = handle,
+      grace_ns = opts.grace_ns or GRACE_NS, on_ready = ready, handle = handle,
       on_stop = function(server: Net.Server)
         app.stopped = true
+        -- The daemon stops sending requests before those in flight drain.
+        local made = filed
+        if made ~= nil then
+          local closed, why = made:close()
+          if not closed then sink:line("tailnet: taking down the Serve configuration: " .. why) end
+        end
         for _, fn in ipairs(app.stoppers) do
           local trouble = raised_by(fn)
           if trouble ~= nil then sink:line("on_stop: " .. trouble) end
@@ -274,12 +314,21 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
       on_error = function(trouble: string) sink:line(trouble) end,
     })
   end)
+  local made = filed
+  if made ~= nil then local _, _ = made:close() end
+  app.serve_socket = nil
+  app.serve_caps = nil
+  local undo = unplace
+  if undo ~= nil then undo() end
   if shutdown ~= nil then
     local trouble = raised_by(shutdown)
     if trouble ~= nil then sink:line("lifespan cleanup: " .. trouble) end
   end
   if not ran then error(raised, 0) end
   if not served.ok then return false, served.err end
+  -- A configuration the daemon refused stops the server, which then
+  -- answers as stopped.
+  if refusal ~= "" then return false, refusal end
   return true, ""
 end
 

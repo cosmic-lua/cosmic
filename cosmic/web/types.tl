@@ -600,17 +600,46 @@ local record Types
     --- The most [`stream_count`] may reach: the app's `max_streams`, else
     --- half the connections [`Web.serve`] is given.
     mut stream_limit: integer
+    --- The unix socket [`Web.serve`] listens at for the daemon's Serve,
+    --- while it serves `tailnet = { via = "serve" }`: [`Web.tailnet`]
+    --- trusts the identity headers of a request that came to it, and of
+    --- no other socket.
+    mut serve_socket?: string
+    --- The capabilities the daemon's Serve passes on to `serve_socket`,
+    --- which [`Web.tailnet`] reads from its header there, and no others.
+    mut serve_caps?: {string}
   end
 
   --- What [`Web.serve`] takes.
   --- How [`ServeOptions.tailnet`] serves the app to the tailnet; every
   --- field is optional.
+  --- How [`TailnetServe`] reaches the tailnet.
+  enum TailnetVia
+    --- The server listens at each of the node's tailnet addresses and
+    --- presents the node's certificate itself (the default).
+    "listen"
+    --- The machine's tailscaled serves HTTPS on the node's name and
+    --- passes each request to the server at a unix socket of a private
+    --- directory, saying who sent it ([`cosmic.tailscale.Client.serve`]):
+    --- pair it with `Web.tailnet{ serve = true }`.
+    "serve"
+    --- As "serve", and open to the internet as well (Funnel). A request
+    --- from the internet has no identity: see [`Web.tailnet_funnel`].
+    "funnel"
+  end
+
   record TailnetServe
     --- The daemon to ask: [`Tailscale.connect`]'s by default.
     client?: Tailscale.Client
-    --- The port to listen at on each tailnet address (443); 0 for one
-    --- the kernel chooses for each.
+    --- How the app reaches the tailnet: "listen" by default.
+    via?: TailnetVia
+    --- The port (443). With "listen", the port at each tailnet address,
+    --- 0 for one the kernel chooses for each; otherwise the port of the
+    --- node's name, which Funnel takes at 443, 8443 or 10000 only.
     port?: integer
+    --- With "serve" or "funnel", the capabilities the daemon passes on
+    --- for [`Web.require_cap`], by name.
+    caps?: {string}
     --- The name to serve, one of [`cosmic.tailscale.Status.cert_domains`]:
     --- the node's first by default.
     domain?: string
@@ -702,6 +731,9 @@ local record Types
     --- Where the request comes from: a numeric TCP address, as the server
     --- names a connection's far end (127.0.0.1, port 50000, by default).
     peer?: Net.Address
+    --- The listener the request came to, as [`Server.Request.listener`]
+    --- names it; none by default.
+    listener?: Net.Address
   end
 
   --- A reply as a test client saw it.

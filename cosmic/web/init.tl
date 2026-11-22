@@ -243,6 +243,9 @@ local record Web
   tailnet: function(opts?: Tailnet.Options): Types.Middleware
   --- The identity [`Web.tailnet`] found: see [`Tailnet.identity`].
   tailnet_identity: function(req: Types.Request): Tailnet.Identity?
+  --- Whether Funnel brought a request from the internet: see
+  --- [`Tailnet.funnel`].
+  tailnet_funnel: function(req: Types.Request): boolean
   --- Middleware that refuses a request without a tailnet capability:
   --- see [`Tailnet.require_cap`].
   require_cap: function(name: string): Types.Middleware
@@ -343,6 +346,9 @@ Web.tailnet = function(opts?: Tailnet.Options): Types.Middleware
 end
 Web.tailnet_identity = function(req: Types.Request): Tailnet.Identity?
   return require("cosmic.web.tailnet").identity(req)
+end
+Web.tailnet_funnel = function(req: Types.Request): boolean
+  return require("cosmic.web.tailnet").funnel(req)
 end
 Web.require_cap = function(name: string): Types.Middleware
   return require("cosmic.web.tailnet").require_cap(name)
