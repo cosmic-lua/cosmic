@@ -58,7 +58,7 @@ local function test_it_reads_a_granted_file_and_no_other(tmp: string)
   local granted, other = tmp .. "/granted", tmp .. "/other"
   assert(Fs.write(granted, "granted-bytes"))
   assert(Fs.write(other, "other-bytes"))
-  local result = ran(FS .. 'local a, b = ... local g = Fs.read(assert(a)) local o = Fs.read(assert(b)) ' ..
+  local result = ran(FS .. 'local a, b = ... local g, _ = Fs.read(assert(a)) local o, _ = Fs.read(assert(b)) ' ..
       'print(g, o == nil)', { profiles = { "cosmic", "system" },
         grants = { { path = granted, letters = "r" } } }, { granted, other })
   expect(result.ok and result.stdout == "granted-bytes\ttrue\n", result)
@@ -69,7 +69,8 @@ local function test_nothing_outside_its_grants_is_readable()
   SeatbeltFixture.macos_only()
   local home = assert(sys.getenv("HOME"), "HOME is not set")
   local result = ran(FS .. 'local home, hosts = ... ' ..
-      'print(Fs.list(assert(home)) == nil, Fs.read(assert(hosts)) == nil)',
+      'local listed, _ = Fs.list(assert(home)) local read, _ = Fs.read(assert(hosts)) ' ..
+      'print(listed == nil, read == nil)',
     { profiles = { "cosmic", "system" } }, { home, "/etc/hosts" })
   expect(result.ok and result.stdout == "true\ttrue\n", result)
 end
@@ -77,7 +78,7 @@ end
 local function test_tmp_is_a_directory_it_may_write()
   SeatbeltFixture.macos_only()
   local result = ran(FS .. 'local dir = assert(require("cosmic.sys").getenv("TMPDIR")) local path = dir .. "/made" ' ..
-      'print(dir, (Fs.write(path, "x")), (Fs.read(path)))', { profiles = { "cosmic", "system" }, tmp = true })
+      'local wrote, _ = Fs.write(path, "x") local read, _ = Fs.read(path) print(dir, wrote, read)', { profiles = { "cosmic", "system" }, tmp = true })
   expect(result.ok, result)
   local dir = (result.stdout or ""):match("^([^\t]+)\ttrue\tx\n$")
   assert(dir ~= nil, "the child's tmp was not writable: " .. string.format("%q", result.stdout or ""))
@@ -93,8 +94,8 @@ local function test_tmp_leaves_its_parent_and_a_read_granted_file_unwritable(tmp
   assert(Fs.write(granted, "granted-bytes"))
   local result = ran(FS .. 'local sys = require("cosmic.sys") local granted = assert((...)) ' ..
       'local dir = assert(sys.getenv("TMPDIR")) local parent = Fs.dirname(dir) ' ..
-      'print((Fs.write(dir .. "/in", "x")), (Fs.write(parent .. "/beside", "x")), ' ..
-      '(Fs.write(granted, "changed")))', { profiles = { "cosmic", "system" }, tmp = true,
+      'local inside, _ = Fs.write(dir .. "/in", "x") local beside, _ = Fs.write(parent .. "/beside", "x") ' ..
+      'local changed, _ = Fs.write(granted, "changed") print(inside, beside, changed)', { profiles = { "cosmic", "system" }, tmp = true,
         grants = { { path = granted, letters = "r" } } }, { granted })
   expect(result.ok and result.stdout == "true\tfalse\tfalse\n", result)
   assert(assert(Fs.read(granted)) == "granted-bytes", "the read-granted file was written")
