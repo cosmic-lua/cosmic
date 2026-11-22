@@ -70,6 +70,20 @@ local function test_plain_text_and_high_bytes_pass_through()
   assert(bare.escape("a\0b") == "a\\x00b")
 end
 
+local function test_strict_utf8_escapes_c1_and_bytes_that_are_not_utf8()
+  local strict: bare.EscapeOptions = { strict_utf8 = true }
+  assert(bare.escape("caf\xC3\xA9 \xE2\x82\xAC \xF0\x9F\x98\x80", strict) == "caf\xC3\xA9 \xE2\x82\xAC \xF0\x9F\x98\x80")
+  -- U+00A0, the first character past the C1 range, passes; U+009F does not.
+  assert(bare.escape("\xC2\xA0", strict) == "\xC2\xA0")
+  assert(bare.escape("\xC2\x9F", strict) == "\\xC2\\x9F")
+  assert(bare.escape("a\xC2\x9B2Jb", strict) == "a\\xC2\\x9B2Jb")
+  -- A lone 8-bit CSI, a stray continuation, an overlong NUL, a surrogate
+  -- and a sequence cut short at the end.
+  assert(bare.escape("\x9B\x80\xC0\x80\xED\xA0\x80\xE2\x82", strict) ==
+      "\\x9B\\x80\\xC0\\x80\\xED\\xA0\\x80\\xE2\\x82")
+  assert(bare.escape("\27[31m\xFF", strict) == "\\x1B[31m\\xFF")
+end
+
 local function test_backslash_is_left_alone_unless_named()
   assert(bare.escape("a\\b") == "a\\b")
   assert(bare.escape("a\\b", { keep_tab_newline = true }) == "a\\b")

@@ -56,6 +56,25 @@ local STATUS <const> = [[{
     "9": {"ID": 9, "LoginName": "tagged-devices", "DisplayName": "Tagged Devices"}}
 }]]
 
+--- A peer whose names, OS and tags carry escape sequences and control
+--- bytes, each its own choice: a title change (OSC 0), a clear screen, a
+--- C1 CSI, a carriage return and a newline.
+local HOSTILE <const> = [[{
+  "Version": "1.90.0", "BackendState": "Running", "TailscaleIPs": ["100.64.0.1"], "MagicDNSSuffix": "ts.net",
+  "Peer": {
+    "nodekey:ee": {"ID": "nE", "HostName": "evil", "DNSName": "evil\u001b]0;owned\u0007.ts.net.",
+      "OS": "linux\u001b[2J", "UserID": 66, "TailscaleIPs": ["100.64.0.66"], "Tags": ["tag:x\u009b31m"],
+      "Online": true, "Active": false, "ExitNode": false, "ExitNodeOption": false, "Relay": "", "CurAddr": ""}
+  },
+  "User": {}
+}]]
+
+local HOSTILE_WHOIS <const> = [[{
+  "Node": {"ID": 66, "StableID": "nEVIL", "Name": "evil\u001b[31m.ts.net.", "User": 66,
+    "Addresses": ["100.64.0.66/32"], "Hostinfo": {"Hostname": "evil", "OS": "linux\r\nos  forged"}},
+  "UserProfile": {"ID": 66, "LoginName": "mallory\u001b[8m@example.com", "DisplayName": "Mal\u009d0;x\u009c"}
+}]]
+
 local NO_HTTPS <const> = [[{"Version": "1.90.0", "BackendState": "NeedsLogin",
   "AuthURL": "https://login.tailscale.com/a/x", "MagicDNSSuffix": ""}]]
 
@@ -147,6 +166,9 @@ local function answer(target: string, status: string): Server.Reply
   end
   if target == "/localapi/v0/whois?addr=100.64.0.2" then return { status = 200, body = WHOIS } end
   if target == "/localapi/v0/whois?addr=100.64.0.3" then return { status = 200, body = TAGGED } end
+  if target == "/localapi/v0/whois?addr=100.64.0.66" then
+    return { status = 200, body = HOSTILE_WHOIS }
+  end
   if target:match("^/localapi/v0/whois%?") ~= nil then
     return { status = 404, body = "no match for IP:port\n" }
   end
@@ -266,6 +288,32 @@ local function test_status_of_a_node_that_needs_login_says_where_to_log_in(tmp: 
   local ran = run(tmp, { "status" }, NO_HTTPS)
   assert(ran.code == 1, ran.err)
   assert(ran.out == "NeedsLogin: log in at https://login.tailscale.com/a/x\n", ran.out)
+end
+
+--- What a peer names itself reaches the terminal escaped, so it can
+--- neither move the cursor, clear the screen, retitle the window nor
+--- start a line that looks like the daemon's; `--json` escapes it as
+--- JSON does.
+local function test_status_escapes_what_a_peer_named_itself(tmp: string)
+  local ran = run(tmp, { "status" }, HOSTILE)
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == "Running\n100.64.0.66  evil\\x1B]0;owned\\x07.ts.net  tag:x\\xC2\\x9B31m  linux\\x1B[2J  -\n", ran.out)
+  local json = run(tmp, { "status", "--json" }, HOSTILE)
+  assert(json.code == 0, json.err)
+  assert(json.out:find("[\0-\9\11-\31\127]") == nil, json.out)
+  assert(json.out:find('"os":"linux\\u001b[2J"', 1, true) ~= nil, json.out)
+end
+
+local function test_whois_escapes_what_a_peer_named_itself(tmp: string)
+  local ran = run(tmp, { "whois", "100.64.0.66" })
+  assert(ran.code == 0, ran.err)
+  assert(ran.out == table.concat({
+    "node       evil\\x1B[31m.ts.net (nEVIL)",
+    "addresses  100.64.0.66",
+    "user       mallory\\x1B[8m@example.com (Mal\\xC2\\x9D0;x\\xC2\\x9C)",
+    "os         linux\\x0D\\x0Aos  forged",
+    "",
+  }, "\n"), ran.out)
 end
 
 --- `--json` prints the module's record, the users keyed by id as text.

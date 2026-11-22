@@ -135,8 +135,11 @@ address of the tailnet is, and what the policy's grants let it do here.
 times a round trip. `cosmic tailscale file send report.pdf laptop`
 sends a file to another of your nodes with Taildrop, and `cosmic
 tailscale file get ~/Downloads` takes the files sent to this one.
-`--json` prints any answer as JSON. A program asks the daemon with
-[`Tailscale.connect`].
+`--json` prints any answer as JSON. What a peer named itself is printed
+with its control bytes escaped. A program asks the daemon with
+[`Tailscale.connect`]. On macOS that reads the app's same-user token,
+which grants all the user may do through the daemon, so a program that
+can connect holds that power.
 
 ## questions about a data file
 
