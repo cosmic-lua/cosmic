@@ -122,11 +122,12 @@ name its hosts, since the `Host` header is the client's.
 
 `HELLO_HTTPS` is for the day the site is https for good. It turns on HSTS,
 which a browser keeps for the whole `max_age`, so it stays off until then.
-It also sets the session cookie to `secure = true`, which renames it
-`__Host-session` (`__Secure-session` with a `domain`): a name the browser
-accepts only from a secure origin, for path `/` and with no `domain`.
-Without it, `Secure` follows the request's scheme, which a proxy's
-`X-Forwarded-Proto` supplies once `trusted_proxy` is set.
+The session cookie needs no setting: it is `Secure` and named
+`__Host-session` (`__Secure-session` with a `domain`), a name the browser
+accepts only from a secure origin, for path `/` and with no `domain`,
+whatever scheme the app sees behind the proxy. A site served over plain http
+passes `secure = false` to [`Session.middleware`], or no browser sends the
+cookie back.
 
 ```teal file=hello.tl
 --- The hello app: a page that links its stylesheet, and the settings of a deployment.
@@ -172,7 +173,7 @@ function Hello.app(opts: Hello.Options): Web.App
     },
     middleware = {
       Headers.middleware(headers),
-      Session.middleware{ store = SessionCookie.store{ keys = opts.keys }, secure = if opts.https == true then true else nil end },
+      Session.middleware{ store = SessionCookie.store{ keys = opts.keys } },
     },
     trusted_proxy = opts.behind_proxy,
     trusted_hosts = opts.hosts,
@@ -298,9 +299,10 @@ local function test_only_the_named_hosts_are_answered()
   assert(client:get("/", { headers = { Host = "evil.example" } }).status == 400)
 end
 
-local function test_https_for_good_turns_on_hsts_and_the_host_cookie()
+local function test_https_for_good_turns_on_hsts_and_the_cookie_is_always_secure()
   local plain = Web.test_client(Hello.app(options())):get("/")
-  assert((plain.headers["set-cookie"] or ""):find("^session=") ~= nil)
+  assert(plain.headers["strict-transport-security"] == nil)
+  assert((plain.headers["set-cookie"] or ""):find("^__Host%-session=.*; Secure") ~= nil)
   local client = Web.test_client(Hello.app(options(true, nil, true)))
   local reply = client:get("/", { headers = { ["X-Forwarded-Proto"] = "https" } })
   assert(reply.headers["strict-transport-security"] == "max-age=31536000")
@@ -339,5 +341,6 @@ test: 5 tests passed
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Dev.app`]: ../../cosmic/web/dev.tl
+[`Session.middleware`]: ../../cosmic/web/session/init.tl
 [`StaticFiles.mount`]: ../../cosmic/web/static.tl
 [`Web.serve`]: ../../cosmic/web/init.tl

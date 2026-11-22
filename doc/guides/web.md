@@ -664,7 +664,9 @@ it [`Assets.memory`]. [`Assets.directory`] reads a directory and
 [`Assets.embedded`] the executable's own.
 
 The tests of the finished app go through a page for its tokens as a
-browser does, and check the 422 and the refusal of a post without a token:
+browser does, and check the 422 and the refusal of a post without a token.
+The session cookie is `Secure`, which a client sends back only as a
+browser on an https page: `scheme = "https"`.
 
 ```teal file=tasks_test.tl
 local Assets = require("cosmic.web.assets")
@@ -679,6 +681,13 @@ local function app(): Web.App
   }
 end
 
+--- A browser on an https page of the app.
+local function browser(): Web.TestClient
+  local client = Web.test_client(app())
+  client.scheme = "https"
+  return client
+end
+
 --- The CSRF token a page carries in its `hx-headers`.
 local function csrf_of(client: Web.TestClient): string
   local page = client:get("/")
@@ -690,7 +699,7 @@ local function htmx(token: string): {string:string}
 end
 
 local function test_page_and_fragment()
-  local client = Web.test_client(app())
+  local client = browser()
   local page = client:get("/")
   assert(page.status == 200 and page.body:find("<h1>tasks</h1>", 1, true) ~= nil)
   assert(page.body:find("/_web/htmx-", 1, true), "the page loads htmx")
@@ -700,7 +709,7 @@ local function test_page_and_fragment()
 end
 
 local function test_adding_a_task()
-  local client = Web.test_client(app())
+  local client = browser()
   local token = csrf_of(client)
   local added = client:post("/tasks", { form = { title = "write the guide" }, headers = htmx(token) })
   assert(added.status == 201 and added.body:find("write the guide", 1, true) ~= nil)
@@ -713,16 +722,16 @@ local function test_adding_a_task()
 end
 
 local function test_a_blank_title_is_refused_with_its_message()
-  local client = Web.test_client(app())
+  local client = browser()
   local refused = client:post("/tasks", { form = { title = "  " }, headers = htmx(csrf_of(client)) })
   assert(refused.status == 422 and refused.body:find("give the task a name", 1, true) ~= nil)
 end
 
 local function test_a_post_without_the_token_is_refused()
-  local client = Web.test_client(app())
+  local client = browser()
   csrf_of(client)
   assert(client:post("/tasks", { form = { title = "x" } }).status == 403)
-  local stranger = Web.test_client(app()):post("/tasks", { form = { title = "x" },
+  local stranger = browser():post("/tasks", { form = { title = "x" },
     headers = { ["X-CSRF-Token"] = "forged" } })
   assert(stranger.status == 403)
 end

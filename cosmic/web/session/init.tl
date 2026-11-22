@@ -44,10 +44,16 @@
 --- write raises: a streamed response's head is already sent, so make every
 --- change before returning.
 ---
---- `Secure` follows the request's scheme unless `secure` is given, which
---- [`Web.app`]'s `trusted_proxy` sets from `X-Forwarded-Proto`; behind a
---- TLS proxy without it, pass `secure = true`, and the cookie is then named
---- `__Host-session`.
+--- The cookie is `Secure` and named `__Host-session` (`__Secure-session`
+--- with a `domain`) unless `secure = false` is given, whatever scheme the
+--- request came over, since behind a proxy that ends TLS the app may see
+--- http. The prefix makes a browser refuse a cookie of that name from a page
+--- over http or from a sibling subdomain, so none can be planted in its place.
+--- An app in development mode ([`Dev.app`], which serves on the loopback
+--- alone) follows the request's scheme instead, so its session works over
+--- plain http. A browser sends a `Secure` cookie only over https: an app
+--- served over plain http beyond development passes `secure = false`, and its
+--- cookie is named `session`.
 --- @public
 
 local Clock = require("cosmic.clock")
@@ -135,8 +141,9 @@ local record Session
     --- Where sessions are kept. Required: the choice, and its key, are
     --- visible at the top of the app.
     store: Store
-    --- The cookie's name: "session", or "__Host-session" when `secure` is
-    --- true (and "__Secure-session" with a `domain`).
+    --- The cookie's name ("session"), which a `Secure` cookie carries after
+    --- "__Host-" ("__Secure-" with a `domain`). A name given with either
+    --- prefix raises: the middleware adds it.
     cookie_name?: string
     --- The lifetime in seconds from the session's start (14 days).
     max_age?: integer
@@ -144,13 +151,15 @@ local record Session
     --- `max_age` is left, a request that reads the session renews it, so
     --- it writes at most about twice a period.
     rolling?: boolean
-    --- The cookie's path ("/").
+    --- The cookie's path ("/"); a `Secure` cookie without a `domain`,
+    --- being `__Host-`, takes "/" alone.
     path?: string
     --- The cookie's domain (none: host-only).
     domain?: string
     --- "Lax" by default.
     same_site?: Cookies.SameSite
-    --- The cookie's `Secure`; nil follows the request's scheme.
+    --- The cookie's `Secure`: true unless false is given, and nil follows
+    --- the request's scheme in an app in development mode ([`Dev.app`]).
     secure?: boolean
     --- The time in seconds since the epoch, for a test.
     now?: function(): integer
@@ -533,24 +542,38 @@ function Session.middleware(opts: Session.Options): Types.Middleware
   if max_age < 1 then
     error("session: max_age is a number of seconds, at least 1", 0)
   end
-  local cookie: string
-  local cookie_name = opts.cookie_name
-  if cookie_name ~= nil then
-    cookie = cookie_name
-  elseif opts.secure == true then
-    cookie = if opts.domain == nil then "__Host-session" else "__Secure-session" end
-  else
-    cookie = "session"
+  local base = opts.cookie_name or "session"
+  local lower = base:lower()
+  if lower:sub(1, 7) == "__host-" or lower:sub(1, 9) == "__secure-" then
+    error("session: cookie_name " .. base .. " carries a prefix: name it without __Host- or __Secure-, " ..
+        "which the middleware adds to a Secure cookie", 0)
   end
+  local prefixed = (if opts.domain == nil then "__Host-" else "__Secure-" end) .. base
   local opts_secure = opts.secure
-  -- SameSite=None needs Secure, which an unset `secure` decides per request.
-  local probe = opts_secure == true or (opts_secure == nil and opts.same_site == "None")
-  local _, why = Cookies.format(cookie, "x", attributes(opts, probe))
-  if why ~= "" then error("session: " .. why, 0) end
+  -- Each cookie the middleware may write is checked now: the prefixed one
+  -- unless `secure` is false, the plain one unless it is true (development
+  -- mode over http, where SameSite=None is refused at the request).
+  if opts_secure ~= false then
+    local _, why = Cookies.format(prefixed, "x", attributes(opts, true))
+    if why ~= "" then error("session: " .. why, 0) end
+  end
+  if opts_secure ~= true then
+    local _, why = Cookies.format(base, "x", attributes(opts, opts_secure == nil and opts.same_site == "None"))
+    if why ~= "" then error("session: " .. why, 0) end
+  end
   local clock = opts.now or function(): integer return Clock.now_ns() // 1000000000 end
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
       local now = clock()
+      local secure: boolean
+      if opts_secure ~= nil then
+        secure = opts_secure
+      else
+        -- Development mode serves on the loopback alone, with no proxy: its
+        -- scheme is the browser's. Anywhere else the scheme may be a proxy's.
+        secure = req.app.spec.dev ~= true or req.scheme == "https"
+      end
+      local cookie = if secure then prefixed else base end
       local st: State = { req = req, opts = opts, cookie = cookie, max_age = max_age, now = now,
         data = blank(now, max_age), loaded = false, accessed = false, frozen = false, valid = false, token = "",
         bad_cookie = false, changes = nothing(), dirty = false, invalidated = false, doomed = {} }
@@ -562,18 +585,6 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       Response.add_header(res, "Vary", "Cookie")
       if Response.header(res, "Cache-Control") == nil then
         Response.set_header(res, "Cache-Control", "private")
-      end
-      local secure: boolean
-      local opts_secure2 = opts.secure
-      if opts_secure2 ~= nil then
-        secure = opts_secure2
-      else
-        -- TODO: once the app can tell its middleware where it listens
-        -- (Web.app's listeners), warn once at startup when `secure` is unset
-        -- and a listener is not on the loopback:
-        -- behind a TLS proxy without trusted_proxy the cookie goes out
-        -- without Secure.
-        secure = req.scheme == "https"
       end
       -- Revoking is not undone by a 500: a logout that errors still logs out.
       for _, token in ipairs(st.doomed) do
@@ -591,8 +602,8 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       local kept = if st.valid then st.token else "" end
       if st.dirty then
         if opts.same_site == "None" and not secure then
-          error("session: same_site = \"None\" needs a Secure cookie, and this request came over http; " ..
-              "serve over https, set Web.app's trusted_proxy for X-Forwarded-Proto, or pass secure = true", 0)
+          error("session: same_site = \"None\" needs a Secure cookie, and this request to an app in " ..
+              "development mode came over http; serve it over https or pass secure = true", 0)
         end
         local token, save_why = opts.store:save(st.token, st.data, st.changes, st.now, cookie)
         if token == nil then error("session: " .. save_why, 0) end

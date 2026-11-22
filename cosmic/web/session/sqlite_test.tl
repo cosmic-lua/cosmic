@@ -6,6 +6,14 @@ local SessionSqlite = require("cosmic.web.session.sqlite")
 local Sqlite = require("cosmic.sqlite")
 local Web = require("cosmic.web")
 
+--- A client acting as a browser on an https page, which sends the Secure
+--- session cookie back.
+local function browser(app: Web.App): Web.TestClient
+  local client = Web.test_client(app)
+  client.scheme = "https"
+  return client
+end
+
 local function open(opts?: SessionSqlite.Options): Session.Store, Sqlite.Handle
   local db = assert(Sqlite.memory())
   return assert(SessionSqlite.store(db, opts)), db
@@ -385,7 +393,7 @@ end
 local function test_a_poll_every_second_notes_the_session_seen_once_a_minute()
   local store, db = open({ seen_interval = 60 })
   local now = 1000
-  local client = Web.test_client(seen_app(store, function(): integer return now end))
+  local client = browser(seen_app(store, function(): integer return now end))
   assert(client:post("/in", { headers = { ["x-forwarded-for"] = "192.0.2.7" } }):text() == "in")
   local function seen(): SessionSqlite.Info
     return assert(assert(SessionSqlite.list(store, now))[1])
@@ -411,7 +419,7 @@ local function test_without_seen_interval_nothing_is_noted()
   local store, db = open()
   assert(store.seen == nil)
   local now = 1000
-  local client = Web.test_client(seen_app(store, function(): integer return now end))
+  local client = browser(seen_app(store, function(): integer return now end))
   client:post("/in")
   local writes = writes_of(db)
   now = now + 600
