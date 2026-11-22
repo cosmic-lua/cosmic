@@ -46,13 +46,15 @@ local record rules
     --- runs in. It must exist when the program starts.
     path: string
     --- What the program may do there, letters of "rwxcu" in that order: `r`
-    --- reads files and lists directories, `w` writes and truncates files,
-    --- `x` runs files, `c` creates and removes, `u` connects to the unix
-    --- socket at the path (Landlock ABI 9; below it only under `isolate`
-    --- file, and only where no grant is a directory or a socket not granted
-    --- `u`, since nothing else tells the granted socket from the root's
-    --- others). A
-    --- grant on a directory reaches what is beneath it.
+    --- reads files and lists directories, `w` writes and truncates files
+    --- (a truncation that opens no descriptor to write, as truncate(2)
+    --- does, needs Landlock ABI 3, and is refused below it and under
+    --- `nest`), `x` runs files, `c` creates and removes, `u` connects to
+    --- the unix socket at the path (Landlock ABI 9; below it only under
+    --- `isolate` file, and only where no grant is a directory or a socket
+    --- not granted `u`, since nothing else tells the granted socket from
+    --- the root's others). A grant on a directory reaches what is beneath
+    --- it.
     letters: string
     --- The host's path, when it differs from `path`: the program sees this
     --- file or directory under another name. Needs `isolate` file.

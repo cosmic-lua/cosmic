@@ -188,8 +188,12 @@ enum rule {
   RULE_SOCKET_UNIX_INET,
   RULE_SOCKET_INET_ROUTE,
   RULE_SOCKET_UNIX_INET_ROUTE,
+  /* open and openat: never a special mode bit, and O_TRUNC only where
+   * the access mode writes; the `_TRUNCATE` ones take O_TRUNC in any. */
   RULE_OPEN,
   RULE_OPENAT,
+  RULE_OPEN_TRUNCATE,
+  RULE_OPENAT_TRUNCATE,
   RULE_MODE1,
   RULE_MODE2,
   RULE_MKNOD1,
@@ -226,6 +230,9 @@ struct grant {
  *   ruleset -- that make a unix socket harmless (COSMIC_HELD_UNIX)
  *   or the caller names the families (`sockets`).
  * - vmsplice.
+ * - truncate, and open and openat with O_TRUNC beside O_RDONLY or the
+ *   access mode 3, unless a Landlock ruleset that handles truncation holds
+ *   the process (COSMIC_HELD_TRUNCATE).
  * - The never-allowed set (ptrace, bpf, io_uring, ...), which no table names.
  *
  * `clone3` and `openat2` answer ENOSYS: the filter cannot read the
@@ -284,7 +291,7 @@ static const struct grant basics[] = {
   A(epoll_pwait2), A(eventfd), A(eventfd2), A(sendfile), A(splice), A(tee),
   A(copy_file_range), A(readahead), A(fadvise64), A(fallocate), A(fsync),
   A(fdatasync), A(sync_file_range), A(sync), A(syncfs), A(flock),
-  A(ftruncate), A(truncate), A(inotify_init), A(inotify_init1),
+  A(ftruncate), A(inotify_init), A(inotify_init1),
   A(inotify_add_watch), A(inotify_rm_watch),
   /* Sockets: a socketpair of unix sockets, and the calls on a socket it
    * already has. `socket` itself is granted only where a unix socket may
@@ -295,7 +302,8 @@ static const struct grant basics[] = {
   A(sendmsg), A(recvmsg), A(sendmmsg), A(recvmmsg), A(shutdown),
   A(setsockopt), A(getsockopt),
   /* Files: Landlock holds the paths, and the filter holds a mode to none
-   * with a setuid, setgid or sticky bit. */
+   * with a setuid, setgid or sticky bit. truncate, and O_TRUNC in an
+   * access mode that does not write, wait on COSMIC_HELD_TRUNCATE. */
   R(open, OPEN), R(openat, OPENAT), R(creat, MODE1), R(openat2, ENOSYS),
   A(stat), A(fstat), A(lstat), A(newfstatat), A(statx), A(statfs), A(fstatfs),
   A(access), A(faccessat), A(faccessat2), A(readlink), A(readlinkat),
@@ -430,8 +438,12 @@ static const struct grant fattr_calls[] = {
 #define PROT_BTI_BIT 0x10u
 #define MAP_ANONYMOUS_BIT 0x20u
 #define MFD_NOEXEC_SEAL_BIT 0x8u
+#define O_ACCMODE_BITS 0x3u
 #define O_CREAT_BIT 0x40u
+#define O_TRUNC_BIT 0x200u
 #define O_TMPFILE_BIT 0x400000u
+/* What sets a call of x86_64's x32 numbers apart. */
+#define X32_CALL_BIT 0x40000000u
 #define SPECIAL_MODE_BITS 0xe00u
 #define FILE_TYPE_BITS 0xf000u
 #define TYPE_REGULAR 0x8000u
@@ -765,9 +777,20 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     test(&k, OP_EQ, NETLINK_ROUTE_PROTOCOL, JUMP_ALLOW, JUMP_DENY);
     break;
     case RULE_OPEN:
-    case RULE_OPENAT: {
+    case RULE_OPENAT:
+    case RULE_OPEN_TRUNCATE:
+    case RULE_OPENAT_TRUNCATE: {
+      uint32_t flags = rule == RULE_OPEN || rule == RULE_OPEN_TRUNCATE ? 1 : 2;
+      if (rule == RULE_OPEN || rule == RULE_OPENAT) {
+        /* O_TRUNC beside O_RDONLY, or beside the access mode 3, which
+         * reads and writes neither: Landlock below ABI 3 asks such an
+         * open for no write right, yet the kernel truncates the file. */
+        load(&k, DATA_ARGUMENT(flags) + DATA_LOW);
+        mask(&k, O_TRUNC_BIT | O_ACCMODE_BITS);
+        test(&k, OP_EQ, O_TRUNC_BIT, JUMP_DENY, JUMP_NEXT);
+        test(&k, OP_EQ, O_TRUNC_BIT | O_ACCMODE_BITS, JUMP_DENY, JUMP_NEXT);
+      }
       /* A mode is read only where the call creates a file. */
-      uint32_t flags = rule == RULE_OPEN ? 1 : 2;
       load(&k, DATA_ARGUMENT(flags) + DATA_LOW);
       test(&k, OP_ANY_SET, O_CREAT_BIT | O_TMPFILE_BIT, JUMP_NEXT, JUMP_ALLOW);
       load(&k, DATA_ARGUMENT(flags + 1) + DATA_LOW);
@@ -887,7 +910,10 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * names a pid, which no rule can read) take any pid: in a pid
  * namespace of its own a pid names a process of the sandbox or none (the
  * kernel answers ESRCH), and setpgid reaches only the caller and its
- * children whichever pid it is given. Nothing in it depends on the host. */
+ * children whichever pid it is given.
+ * COSMIC_HELD_TRUNCATE lets truncate through, and O_TRUNC in an open of
+ * any access mode, which Landlock refuses from ABI 3 where no grant gives
+ * the right. Nothing in it depends on the host. */
 static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
                                       unsigned promises, unsigned sockets, uint32_t pid,
                                       unsigned held) {
@@ -933,6 +959,11 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
      * cannot raise a hard limit, and which name a pid in the header. */
     rules[CALL_capget] = RULE_ALLOW;
   }
+  if (held & COSMIC_HELD_TRUNCATE) {
+    rules[CALL_truncate] = RULE_ALLOW;
+    rules[CALL_open] = RULE_OPEN_TRUNCATE;
+    rules[CALL_openat] = RULE_OPENAT_TRUNCATE;
+  }
 
   /* The calls this architecture has a number for, in number order. */
   struct entry entries[CALL_COUNT];
@@ -977,6 +1008,52 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
 }
 
 #undef ADD
+
+/* Writes to `out`, room for COSMIC_PROMISE_INSNS, the program that holds
+ * a process of `arch` that a Landlock ruleset holds, with no promises
+ * filter, where the ruleset does not handle truncation: it refuses what
+ * truncates a file the ruleset gave only to read, or not at all, and
+ * allows every other call. Refused with EPERM: truncate, open and openat
+ * with O_TRUNC beside O_RDONLY or the access mode 3, io_uring_setup,
+ * whose opens no rule can read, and open_by_handle_at. openat2, whose
+ * flags are in a structure, answers ENOSYS, so a libc falls back to
+ * openat, and so does a call of x86_64's x32 numbers, which name truncate
+ * again. A call of another architecture ends the process. Answers how
+ * many instructions it is. */
+static size_t truncation_program_for (struct cosmic_insn *out, enum cosmic_arch arch) {
+  const short *numbers = arch == COSMIC_ARCH_X86_64 ? x86_64_numbers : aarch64_numbers;
+  uint32_t audit = arch == COSMIC_ARCH_X86_64 ? AUDIT_X86_64 : AUDIT_AARCH64;
+  struct builder b = { out, 0, false };
+  emit(&b, OP_LOAD, 0, 0, DATA_ARCH);
+  emit(&b, OP_EQ, 1, 0, audit);
+  emit(&b, OP_RETURN, 0, 0, RETURN_KILL_PROCESS);
+  emit(&b, OP_LOAD, 0, 0, DATA_NUMBER);
+  emit(&b, OP_AT_LEAST, 0, 1, X32_CALL_BIT);
+  emit(&b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_ENOSYS));
+  emit(&b, OP_EQ, 0, 1, (uint32_t)(numbers[CALL_openat2] - 1));
+  emit(&b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_ENOSYS));
+  static const int refused[] = { CALL_truncate, CALL_io_uring_setup, CALL_open_by_handle_at };
+  for (size_t i = 0; i < sizeof refused / sizeof refused[0]; i++) {
+    emit(&b, OP_EQ, 0, 1, (uint32_t)(numbers[refused[i]] - 1));
+    emit(&b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_EPERM));
+  }
+  static const struct { int call; uint32_t flags; } opens[] = {
+    { CALL_open, 1 }, { CALL_openat, 2 },
+  };
+  for (size_t i = 0; i < sizeof opens / sizeof opens[0]; i++) {
+    if (numbers[opens[i].call] == 0) continue;
+    /* Past the six instructions after it, the number is still loaded. */
+    emit(&b, OP_EQ, 0, 6, (uint32_t)(numbers[opens[i].call] - 1));
+    emit(&b, OP_LOAD, 0, 0, DATA_ARGUMENT(opens[i].flags) + DATA_LOW);
+    emit(&b, OP_AND, 0, 0, O_TRUNC_BIT | O_ACCMODE_BITS);
+    emit(&b, OP_EQ, 2, 0, O_TRUNC_BIT);
+    emit(&b, OP_EQ, 1, 0, O_TRUNC_BIT | O_ACCMODE_BITS);
+    emit(&b, OP_RETURN, 0, 0, RETURN_ALLOW);
+    emit(&b, OP_RETURN, 0, 0, RETURN_ERRNO(LINUX_EPERM));
+  }
+  emit(&b, OP_RETURN, 0, 0, RETURN_ALLOW);
+  return b.full ? 0 : b.length;
+}
 
 unsigned cosmic_promise_named (const char *name) {
   if (strcmp(name, "fork") == 0) return COSMIC_PROMISE_FORK;
@@ -1058,6 +1135,25 @@ int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held) {
 #endif
 }
 
+int cosmic_truncation_apply (void) {
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+#if defined(__x86_64__)
+  enum cosmic_arch arch = COSMIC_ARCH_X86_64;
+#else
+  enum cosmic_arch arch = COSMIC_ARCH_AARCH64;
+#endif
+  if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return errno;
+  struct cosmic_insn code[COSMIC_PROMISE_INSNS];
+  size_t length = truncation_program_for(code, arch);
+  if (length == 0) return ENOSPC;
+  struct sock_fprog program = { (unsigned short)length, (struct sock_filter *)code };
+  if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) != 0) return errno;
+  return 0;
+#else
+  return ENOSYS;
+#endif
+}
+
 COSMIC_SYSCALL(promise_filter, 3) {
   luaL_checktype(L, 1, LUA_TTABLE);
   unsigned promises = 0;
@@ -1091,7 +1187,7 @@ COSMIC_SYSCALL(promise_filter, 3) {
     static const struct { const char *name; unsigned bit; } holds[] = {
       { "scoped", COSMIC_HELD_SIGNALS }, { "unix_held", COSMIC_HELD_UNIX },
       { "limits_held", COSMIC_HELD_LIMITS }, { "pids_held", COSMIC_HELD_PIDS },
-      { "network_held", COSMIC_HELD_NETWORK },
+      { "network_held", COSMIC_HELD_NETWORK }, { "truncate_held", COSMIC_HELD_TRUNCATE },
     };
     for (size_t i = 0; i < sizeof holds / sizeof holds[0]; i++) {
       lua_getfield(L, 3, holds[i].name);
@@ -1100,8 +1196,17 @@ COSMIC_SYSCALL(promise_filter, 3) {
     }
     lua_pop(L, 3);
   }
+  bool truncation = false;
+  if (!lua_isnoneornil(L, 3)) {
+    lua_getfield(L, 3, "truncation_only");
+    truncation = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    if (truncation && (promises != 0 || sockets != 0 || held != 0))
+      return luaL_argerror(L, 3, "truncation_only takes no promise, socket or hold");
+  }
   struct cosmic_insn code[COSMIC_PROMISE_INSNS];
-  size_t length = program_for(code, arch, promises, sockets, (uint32_t)pid, held);
+  size_t length = truncation ? truncation_program_for(code, arch)
+                             : program_for(code, arch, promises, sockets, (uint32_t)pid, held);
   if (length == 0) return luaL_error(L, "the filter does not fit");
   lua_pushlstring(L, (const char *)code, length * sizeof code[0]);
   return 1;

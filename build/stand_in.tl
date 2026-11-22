@@ -122,6 +122,10 @@
 ---                      there already, or F cannot be made, it fails
 ---     truncate F       empties file F in place, as `: > F` does, but
 ---                      never makes it
+---     truncate-unwritten F
+---                      empties file F by an open that writes nothing
+---                      (O_RDONLY with O_TRUNC), which a ruleset below
+---                      Landlock ABI 3 asks no write right of
 ---     rm F             removes file F
 ---     rmdir D          removes the empty directory D
 ---     rename A B       moves A to B, as `mv A B` does
