@@ -50,9 +50,10 @@
 --- [`Tailscale.connect`] looks.
 ---
 --- Each node chooses its own names, OS and tags, so the text a command
---- prints, and each complaint, has its control bytes, C1 controls and
---- bytes that are not UTF-8 written as `\xHH`; `--json` escapes them as
---- JSON does.
+--- prints, and each complaint, has its control bytes, C1 controls, bidi
+--- and other invisible format characters ([`bare.spoofing`]) and bytes
+--- that are not UTF-8 written as `\xHH`; `--json` writes each of those
+--- characters as a `\uXXXX` escape.
 ---
 --- Like `cosmic json` it prints no summary. Exit 0 is ok, 1 a daemon that
 --- could not be asked or refused, a node that is not running, or an
@@ -176,8 +177,9 @@ local standard: verb.Io = {
   end,
 }
 
---- `text` safe to print: its control bytes, C1 controls and bytes that
---- are not UTF-8 as `\xHH` ([`bare.escape`]). Every name, OS and tag the
+--- `text` safe to print: its control bytes, C1 controls, bidi and other
+--- invisible format characters and bytes that are not UTF-8 as `\xHH`
+--- ([`bare.escape`]). Every name, OS and tag the
 --- daemon reports is what the node that owns it chose, so a peer could
 --- otherwise write escape sequences to the terminal.
 local function safe(text: string): string
@@ -218,9 +220,16 @@ local function address_of(ts: Tailscale.Client, word: string): string?, string
   return nil, "no node of the tailnet is named " .. word
 end
 
---- `value` as one line of JSON and a newline.
+--- `value` as one line of JSON and a newline, each [`bare.spoofing`]
+--- character as `\uXXXX`: JSON escapes the C0 controls but writes these
+--- as they are, and a terminal shown the JSON obeys them. The encoder
+--- writes valid UTF-8, so each lead byte starts a whole character.
 local function json_line(value: Json.Value): string
-  return assert(Json.encode(value)) .. "\n"
+  local text = assert(Json.encode(value)):gsub("[\194-\244][\128-\191]*", function(char: string): string
+    local c = assert(utf8.codepoint(char), "the encoder writes valid UTF-8")
+    return if bare.spoofing(c) then ("\\u%04x"):format(c) else char end
+  end)
+  return text .. "\n"
 end
 
 --- `list` as a JSON array, an empty one too.
@@ -830,7 +839,9 @@ local function file_get(to: verb.Io, complain: function(line: string), ts: Tails
             code = bare.failed
           end
         end
-        if not bare.delivered(complain, to.out(safe(path) .. "\n")) then return bare.refused end
+        if not bare.delivered(complain, to.out(prefix .. "/" .. safe(path:sub(#prefix + 2)) .. "\n")) then
+          return bare.refused
+        end
       end
     end
   end

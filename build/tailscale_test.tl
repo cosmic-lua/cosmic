@@ -58,12 +58,12 @@ local STATUS <const> = [[{
 
 --- A peer whose names, OS and tags carry escape sequences and control
 --- bytes, each its own choice: a title change (OSC 0), a clear screen, a
---- C1 CSI, a carriage return and a newline.
+--- C1 CSI, a right-to-left override, a carriage return and a newline.
 local HOSTILE <const> = [[{
   "Version": "1.90.0", "BackendState": "Running", "TailscaleIPs": ["100.64.0.1"], "MagicDNSSuffix": "ts.net",
   "Peer": {
     "nodekey:ee": {"ID": "nE", "HostName": "evil", "DNSName": "evil\u001b]0;owned\u0007.ts.net.",
-      "OS": "linux\u001b[2J", "UserID": 66, "TailscaleIPs": ["100.64.0.66"], "Tags": ["tag:x\u009b31m"],
+      "OS": "linux\u001b[2J\u202e", "UserID": 66, "TailscaleIPs": ["100.64.0.66"], "Tags": ["tag:x\u009b31m"],
       "Online": true, "Active": false, "ExitNode": false, "ExitNodeOption": false, "Relay": "", "CurAddr": ""}
   },
   "User": {}
@@ -149,7 +149,9 @@ local function file_answer(ran: Ran, req: Server.Request): Server.Reply?
   end
   local file = target:match("^/localapi/v0/files/(.+)$")
   if file == nil then return nil end
-  local plain = file:gsub("%%20", " ")
+  local plain = file:gsub("%%(%x%x)", function(hex: string): string
+    return string.char(assert(math.tointeger(tonumber(hex, 16))))
+  end)
   local data = ran.waiting[plain]
   if data == nil then return { status = 404, body = "file not found\n" } end
   if req.method == "DELETE" then
@@ -297,11 +299,14 @@ end
 local function test_status_escapes_what_a_peer_named_itself(tmp: string)
   local ran = run(tmp, { "status" }, HOSTILE)
   assert(ran.code == 0, ran.err)
-  assert(ran.out == "Running\n100.64.0.66  evil\\x1B]0;owned\\x07.ts.net  tag:x\\xC2\\x9B31m  linux\\x1B[2J  -\n", ran.out)
+  assert(ran.out == "Running\n100.64.0.66  evil\\x1B]0;owned\\x07.ts.net  tag:x\\xC2\\x9B31m  linux\\x1B[2J\\xE2\\x80\\xAE  -\n",
+    ran.out)
   local json = run(tmp, { "status", "--json" }, HOSTILE)
   assert(json.code == 0, json.err)
   assert(json.out:find("[\0-\9\11-\31\127]") == nil, json.out)
-  assert(json.out:find('"os":"linux\\u001b[2J"', 1, true) ~= nil, json.out)
+  assert(json.out:find('"os":"linux\\u001b[2J\\u202e"', 1, true) ~= nil, json.out)
+  assert(json.out:find('"tag:x\\u009b31m"', 1, true) ~= nil, json.out)
+  assert(json.out:find("[\128-\255]") == nil, json.out)
 end
 
 local function test_whois_escapes_what_a_peer_named_itself(tmp: string)
@@ -314,6 +319,31 @@ local function test_whois_escapes_what_a_peer_named_itself(tmp: string)
     "os         linux\\x0D\\x0Aos  forged",
     "",
   }, "\n"), ran.out)
+end
+
+--- A file a peer sent is listed, taken and complained of with the C1
+--- control or bidi override in its name escaped, the directory given
+--- as it was typed.
+local function test_file_names_a_peer_chose_are_escaped(tmp: string)
+  local function two(ran: Ran)
+    ran.waiting["a\xC2\x9B.txt"] = "x"
+    ran.waiting["b\xE2\x80\xAEfdp.exe"] = "MZ"
+  end
+  local listed = run(tmp, { "file", "list" }, nil, false, two)
+  assert(listed.code == 0, listed.err)
+  assert(listed.out == "1  a\\xC2\\x9B.txt\n2  b\\xE2\\x80\\xAEfdp.exe\n", listed.out)
+  local json = run(tmp, { "file", "list", "--json" }, nil, false, two)
+  assert(json.out:find('"a\\u009b.txt"', 1, true) ~= nil and json.out:find('"b\\u202efdp.exe"', 1, true) ~= nil,
+    json.out)
+  local got = run(tmp, { "file", "get", "/in" }, nil, false, function(ran: Ran)
+    two(ran)
+    ran.files["/in/a\xC2\x9B.txt"] = "old"
+  end)
+  assert(got.code == 1, got.err)
+  assert(got.err == "cosmic: tailscale: /in/a\\xC2\\x9B.txt: there already, so a\\xC2\\x9B.txt waits on " ..
+      "(--conflict overwrite or rename takes it)\n", got.err)
+  assert(got.out == "/in/b\\xE2\\x80\\xAEfdp.exe\n", got.out)
+  assert(got.files["/in/b\xE2\x80\xAEfdp.exe"] == "MZ")
 end
 
 --- `--json` prints the module's record, the users keyed by id as text.

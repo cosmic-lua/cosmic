@@ -24,10 +24,12 @@ local record bare
     --- newlines, keeps its tabs). `fetch` uses it, so a carriage return
     --- is what it escapes.
     keep_tab_newline?: boolean
-    --- Escape too each byte that is not part of valid UTF-8 and the
-    --- bytes of each C1 control, U+0080 to U+009F, which a UTF-8
-    --- terminal obeys: text another party chose, as a tailnet peer's
-    --- name, then passes only as characters a terminal prints.
+    --- Escape too each byte that is not part of valid UTF-8, and the
+    --- bytes of each C1 control (U+0080 to U+009F, which a UTF-8
+    --- terminal obeys) and of each invisible format character that
+    --- reorders or hides text ([`bare.spoofing`]): text another party
+    --- chose, as a tailnet peer's name, then passes only as characters
+    --- a terminal prints in the order they are written.
     strict_utf8?: boolean
   end
 
@@ -115,9 +117,20 @@ function bare.stdin_text(message: string): string?, string
   return Stream.read_all(reader)
 end
 
---- `text` with each byte from 0x80 on that does not start a valid UTF-8
---- character above U+009F as `\xHH`. A C1 control's second byte, read
---- alone, is no character either, so the control comes out as two escapes.
+--- Whether code point `c` is a C1 control or a format character that
+--- reorders or hides the text around it: a zero-width space, joiner or
+--- mark (U+200B to U+200F), a line or paragraph separator or a bidi
+--- embedding or override (U+2028 to U+202E), a bidi isolate (U+2066 to
+--- U+2069) or the byte order mark, U+FEFF. A peer could otherwise show
+--- a name that reads as another's.
+function bare.spoofing(c: integer): boolean
+  return (c >= 0x80 and c <= 0x9F) or (c >= 0x200B and c <= 0x200F) or (c >= 0x2028 and c <= 0x202E) or
+    (c >= 0x2066 and c <= 0x2069) or c == 0xFEFF
+end
+
+--- `text` with each byte from 0x80 on as `\xHH`, unless it starts a
+--- valid UTF-8 character that is not [`bare.spoofing`], which passes
+--- whole. An escaped character comes out as one escape per byte.
 local function strict_utf8(text: string): string
   local out: mut {string} = {}
   local i = 1
@@ -128,17 +141,18 @@ local function strict_utf8(text: string): string
       return table.concat(out)
     end
     out[#out + 1] = text:sub(i, at - 1)
-    local after: integer? = nil
-    if utf8.len(text, at, at) == 1 and assert(utf8.codepoint(text, at), "a valid character has a code point") > 0x9F then
-      after = utf8.offset(text, 2, at)
-    end
-    if after ~= nil then
-      out[#out + 1] = text:sub(at, after - 1)
-      i = after
+    local lead = assert(text:byte(at), "find answers a byte's index")
+    -- The lead byte gives the length, never utf8.offset, which steps past
+    -- any continuation bytes that follow the character as well.
+    local width = if utf8.len(text, at, at) ~= 1 then 1 elseif lead < 0xE0 then 2 elseif lead < 0xF0 then 3 else 4 end
+    if width > 1 and not bare.spoofing((assert(utf8.codepoint(text, at), "a valid character has one"))) then
+      out[#out + 1] = text:sub(at, at + width - 1)
     else
-      out[#out + 1] = string.format("\\x%02X", (assert(text:byte(at), "find answers a byte's index")))
-      i = at + 1
+      for k = at, at + width - 1 do
+        out[#out + 1] = string.format("\\x%02X", (assert(text:byte(k), "the character's bytes are there")))
+      end
     end
+    i = at + width
   end
 end
 
