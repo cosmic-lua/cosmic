@@ -323,7 +323,7 @@ local function reads_unassigned(code: string): boolean
   while #pending > 0 and not o.bad do
     o.choices = assert(table.remove(pending))
     o.made, o.steps = 0, 0
-    pcall(run)
+    local _, _ = pcall(run)
     runs = runs + 1
     assert(runs < 20000, "the oracle ran too long")
     -- Every call past the choices given took the first way: take the other at each of them in turn.

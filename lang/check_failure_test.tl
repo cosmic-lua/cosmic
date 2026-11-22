@@ -116,3 +116,13 @@ local function test_match_takes_the_lists_apart_with_a_nil_pattern()
   Programs.stands("local function f(on: boolean): (true, integer) | (nil, string)\n  if on then\n    return true, 1\n  end\n" ..
       "  return nil, \"no\"\nend\nmatch f(false) do\n  | (true, n) then print(n)\n  | (nil, why) then print(why)\nend\n", "no")
 end
+
+local function test_a_call_that_may_fail_is_no_statement()
+  refused("parse(\"x\")\n", "failure_ignored")
+  refused("local function f(): (true, integer) | (false, string)\n  return true, 1\nend\nf()\n", "failure_ignored")
+  -- Discarding both values says so on purpose, and binding them is how the failure is read.
+  stands("local _, _ = parse(\"x\")\nprint(\"on\")\n", "on")
+  stands("local _, _ = pcall(error, \"x\")\nprint(\"on\")\n", "on")
+  -- A call of one list is a statement as before.
+  stands("local function g(): integer\n  print(\"g\")\n  return 1\nend\ng()\n", "g")
+end

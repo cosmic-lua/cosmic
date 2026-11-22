@@ -1749,6 +1749,28 @@ local function vararg_rest(ctx: Ctx, e: Ast.Node): Type
   return rest
 end
 
+--- The lists of values a call may answer, as a fix spells them.
+local record Alternatives
+  --- Names for the values of the longest list: `v, why` for two, `v1, v2, v3` for more; `_` in place of each when
+  --- `discard` is given.
+  names: function(alts: {Alt}, discard?: boolean): string
+end
+
+function Alternatives.names(alts: {Alt}, discard?: boolean): string
+  local width = 0
+  for _, alt in ipairs(alts) do
+    width = math.max(width, #alt.items)
+  end
+  local out: mut {string} = {}
+  for i = 1, width do
+    out[i] = if discard == true then "_" elseif width == 2 then (if i == 1 then "v" else "why" end) else "v" .. tostring(i) end
+  end
+  if #out == 0 then
+    out[1] = if discard == true then "_" else "v" end
+  end
+  return table.concat(out, ", ")
+end
+
 --- The one value a call answering `alts` gives where a value is wanted.
 local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
   if #alts == 0 then
@@ -1761,7 +1783,8 @@ local function first_value(ctx: Ctx, node: Ast.Node, alts: {Alt}): Type
     end
     report(ctx, "alternatives_as_value", node, subject(ctx, node) .. " answers one of " .. tostring(#alts) ..
         " lists of values, which is no value",
-      "match the call: `match " .. call .. " do | (true, v) then ... end`" .. raises)
+      "bind its values and test the first (`local " .. Alternatives.names(alts) .. " = " .. call .. "`), or match the call: `match " ..
+        call .. " do | ... end`" .. raises)
     return ctx.invalid
   end
   local alt = alts[1]
@@ -9771,7 +9794,14 @@ local function stat(ctx: Ctx, s: Ast.Stat)
   elseif (s.kind == "CallStat") then
     local c = s.call
     if (c.kind == "Call") or (c.kind == "MethodCall") then
-      local _ = lists_of(ctx, c, nil)
+      local alts = lists_of(ctx, c, nil)
+      if #alts > 1 then
+        local call = text_of(ctx, c)
+        report(ctx, "failure_ignored", c, subject(ctx, c) .. " answers one of " .. tostring(#alts) .. " lists of values, " ..
+            "and as a statement it drops which one it answered",
+          "bind its values and test the first (`local " .. Alternatives.names(alts) .. " = " .. call .. "`), match the call, " ..
+            "or discard them on purpose: `local " .. Alternatives.names(alts, true) .. " = " .. call .. "`")
+      end
     end
   elseif (s.kind == "Assign") then
     assign_statement(ctx, s)
