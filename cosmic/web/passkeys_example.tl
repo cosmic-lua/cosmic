@@ -5,6 +5,7 @@
 local Cbor = require("cosmic.cbor")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
+local Input = require("cosmic.web.input")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
 local Secret = require("cosmic.web.secret")
@@ -12,27 +13,47 @@ local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
 local Sign = require("cosmic.sign")
 local Sqlite = require("cosmic.sqlite")
+local Url = require("cosmic.url")
 local Web = require("cosmic.web")
 
 local record Example
 end
 
---- Ada signs up, which the session keeps, and registers a passkey for
---- the new account; later, another browser logs in with it and no name
---- at all. The authenticator here is a
---- stand-in that answers what `navigator.credentials` would.
+--- Ada signs up, which makes her account with a user handle drawn at
+--- random and keeps it in the session, and registers a passkey for the
+--- new account; a second sign-up under her name is refused, since it
+--- would add a stranger's passkey to her account. Later, another browser
+--- logs in with the passkey and no name at all. The authenticator here
+--- is a stand-in that answers what `navigator.credentials` would.
 function Example.passkeys()
   local origin = "https://example.com"
   local db = assert(Sqlite.memory())
+  assert(db:exec("CREATE TABLE accounts (name TEXT PRIMARY KEY, handle BLOB NOT NULL UNIQUE)"))
+  local function handle_of(name: string): string?
+    return assert(Sqlite.map(db, "SELECT handle FROM accounts WHERE name = ?1", { { text = name } },
+      function(r: Sqlite.Row): string return r:blob(1) end))[1]
+  end
+  local function name_of(handle: string): string?
+    return assert(Sqlite.map(db, "SELECT name FROM accounts WHERE handle = ?1", { { blob = handle } },
+      function(r: Sqlite.Row): string return r:text(1) end))[1]
+  end
   local app = Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
         local who = Web.passkey_identity(req)
-        return Web.text(if who ~= nil then "hello " .. who.user_handle else "nobody" end)
+        if who == nil then return Web.text("nobody") end
+        return Web.text("hello " .. assert(name_of(who.user_handle)))
       end),
-      -- A sign-up page's form would take the name and make the account.
+      -- The name is the account's from here on: one taken is refused.
       Web.post("/signup", function(req: Web.Request): Web.Response
-        Session.of(req):set("signup", "ada")
+        local form = assert(Input.form(req).value)
+        local name = Url.query_last(form, "name")
+        if name == nil or name == "" then return Web.empty(400) end
+        local handle = assert(Rand.entropy(16))
+        assert(Sqlite.run(db, "INSERT INTO accounts (name, handle) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+          { { text = name }, { blob = handle } }))
+        if db:changes() ~= 1 then return Web.empty(409) end
+        Session.of(req):set("signup", name)
         return Web.empty(204)
       end),
     },
@@ -41,11 +62,14 @@ function Example.passkeys()
       Web.passkeys{
         rp_id = "example.com", rp_name = "Example", origin = origin,
         store = assert(Web.passkey_store(db)),
-        -- The account this browser is making, or none.
+        -- The account this browser is making, or none, by the handle
+        -- kept with it.
         user = function(req: Web.Request): Web.PasskeyUser?
           local name = Session.of(req):get_string("signup")
           if name == nil then return nil end
-          return { handle = name, name = name .. "@example.com" }
+          local handle = handle_of(name)
+          if handle == nil then return nil end
+          return { handle = handle, name = name }
         end,
       },
     },
@@ -66,8 +90,13 @@ function Example.passkeys()
   -- A browser on an https page: the session cookie is Secure.
   first.scheme = "https"
   print(first:post("/auth/passkey/register/begin", { json = none }).status)
-  local _ = first:post("/signup")
-  local challenge = challenge_of(first:post("/auth/passkey/register/begin", { json = none }))
+  print(first:post("/signup", { form = { name = "ada" } }).status)
+  local begun = first:post("/auth/passkey/register/begin", { json = none })
+  local challenge = challenge_of(begun)
+  -- The authenticator keeps the user handle with the passkey.
+  local user_id = assert(Json.to_object(assert(Json.to_object((begun:json())))["user"]))["id"]
+  assert(user_id is string)
+  local handle = assert(Codec.unbase64url(user_id))
   local cose = Cbor.encode(Cbor.map({
     { Cbor.integer(1), Cbor.integer(1) }, { Cbor.integer(3), Cbor.integer(-8) },
     { Cbor.integer(-1), Cbor.integer(6) }, { Cbor.integer(-2), Cbor.bytes(Sign.ed25519_public(secret)) },
@@ -85,6 +114,11 @@ function Example.passkeys()
     },
   } })
   print(registered.status)
+  local stranger = Web.test_client(app)
+  stranger.scheme = "https"
+  local taken = stranger:post("/signup", { form = { name = "ada" } })
+  print(taken.status)
+  assert(taken.status == 409)
 
   local second = Web.test_client(app)
   second.scheme = "https"
@@ -97,7 +131,7 @@ function Example.passkeys()
     response = {
       clientDataJSON = Codec.base64url(cd), authenticatorData = Codec.base64url(data),
       signature = Codec.base64url(Sign.ed25519(secret, data .. Hash.sha256(cd))),
-      userHandle = Codec.base64url("ada"),
+      userHandle = Codec.base64url(handle),
     },
   } })
   print(logged_in.status, logged_in.body)
