@@ -115,7 +115,7 @@ end
     handle = function(req: Server.Request): Server.Reply
       targets[#targets + 1] = req.target
       local names = assert(Url.segments(req.path))
-      local body = Fs.read(root .. "/" .. table.concat(names, "/"))
+      local body, _ = Fs.read(root .. "/" .. table.concat(names, "/"))
       if body == nil then return { status = 404 } end
       return { status = 200, body = body }
     end,
@@ -175,7 +175,8 @@ end
     if Fs.stat(marker) ~= nil then break end
     assert(sys.nanosleep(Clock.ms(10)))
   end
-  local port = math.tointeger(tonumber(Fs.read(marker) or ""))
+  local got, _ = Fs.read(marker)
+  local port = math.tointeger(tonumber(got or ""))
   assert(port ~= nil, "the server never listened")
   local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(20) }))
   assert(conn:write("GET / HTTP/1.1\r\nHost: test\r\n\r\n"))

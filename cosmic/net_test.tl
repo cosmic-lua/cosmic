@@ -397,7 +397,7 @@ local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
     assert(sys.rename(path, moved))
     assert(Fs.write(path, "someone else's"))
   end
-  assert(Fs.read(path) == "someone else's")
+  assert(assert(Fs.read(path)) == "someone else's")
   assert(Fs.stat(moved) ~= nil, "the moved socket file was removed")
   local conn, why = Net.connect(Net.unix(moved))
   assert(conn == nil and why == moved .. ": Connection refused", why)
@@ -405,7 +405,7 @@ local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
   assert(again == nil and taken == moved .. ": Address in use", taken)
   local over, file = Net.listen(Net.unix(path))
   assert(over == nil and file == path .. ": Address in use", file)
-  assert(Fs.read(path) == "someone else's")
+  assert(assert(Fs.read(path)) == "someone else's")
 end
 
 local function test_connecting_where_there_is_no_socket_file_fails(tmp: string)

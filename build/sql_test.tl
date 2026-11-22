@@ -119,7 +119,7 @@ local function test_sqlite_refuses_every_write()
   }) do
     assert(run(root, { statement }) == 0, statement)
   end
-  assert(Fs.read(path) == before, "the database changed")
+  assert(assert(Fs.read(path)) == before, "the database changed")
   -- The attached-database limit stops both before SQLite makes a file.
   assert(Fs.exists(root .. "/copy.db") == false, "VACUUM INTO made a file")
   assert(Fs.exists(root .. "/new.db") == false, "ATTACH made a file")

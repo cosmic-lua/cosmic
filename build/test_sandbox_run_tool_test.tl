@@ -157,7 +157,7 @@ end
   assert(not ok, text)
   skip_if_unsandboxed(text)
   assert(text:find("wrote|true|false|end", 1, true), text)
-  assert(Fs.read(xdg .. "/cosmic/zig-global/entry") == "cached")
+  assert(assert(Fs.read(xdg .. "/cosmic/zig-global/entry")) == "cached")
   assert(Fs.exists(xdg .. "/cosmic/bootstrap") ~= true)
 end
 

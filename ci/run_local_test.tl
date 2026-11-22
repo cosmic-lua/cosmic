@@ -141,10 +141,10 @@ local function test_snapshot_keeps_working_changes_and_the_real_index(tmp: strin
   local stash = git(root, { "stash", "list" })
   assert(invoke(root, env, { "build" }) == 0)
   local candidate = assert(Fs.absolute(assert(env["COSMIC_CI_LOCAL"]) .. "/candidate"))
-  assert(Fs.read(candidate .. "/tracked") == "working\n")
-  assert(Fs.read(candidate .. "/untracked") == "new\n")
+  assert(assert(Fs.read(candidate .. "/tracked")) == "working\n")
+  assert(assert(Fs.read(candidate .. "/untracked")) == "new\n")
   assert(Predicate.exists(candidate .. "/ignored") == false)
-  assert(Fs.read(root .. "/.git/index") == index and git(root, { "stash", "list" }) == stash)
+  assert(assert(Fs.read(root .. "/.git/index")) == index and git(root, { "stash", "list" }) == stash)
   assert(Predicate.exists(root .. "/ci/o") == false, "source CI database was created")
   local environment = assert(Fs.read(assert(env["TRACE"]) .. ".env"))
   assert(environment:find(candidate, 1, true) and environment:find(assert(env["COSMIC_ZIG_CACHE"]), 1, true) and
@@ -160,9 +160,9 @@ local function test_snapshot_keeps_tracked_and_force_added_ignored_files(tmp: st
   local index = assert(Fs.read(root .. "/.git/index"))
   assert(invoke(root, env, { "build" }) == 0)
   local candidate = assert(Fs.absolute(assert(env["COSMIC_CI_LOCAL"]) .. "/candidate"))
-  assert(Fs.read(candidate .. "/tracked") == "updated tracked\n")
-  assert(Fs.read(candidate .. "/forced") == "forced staged\n")
-  assert(Fs.read(root .. "/.git/index") == index, "private snapshot changed the actual index")
+  assert(assert(Fs.read(candidate .. "/tracked")) == "updated tracked\n")
+  assert(assert(Fs.read(candidate .. "/forced")) == "forced staged\n")
+  assert(assert(Fs.read(root .. "/.git/index")) == index, "private snapshot changed the actual index")
 end
 
 --- A named rerun copies ci/ afresh, the candidate kept; the driver's
@@ -178,11 +178,11 @@ local function test_named_rerun_refreshes_ci_but_keeps_candidate(tmp: string)
   assert(Fs.write(root .. "/ci/cosmic_ci/driver.tl", "edited fixture\n"))
   assert(Fs.write(root .. "/tracked", "later\n"))
   assert(invoke(root, env, { "fixtures" }) == 0)
-  assert(Fs.read(assert(state) .. "/candidate/tracked") == "old\n")
-  assert(Fs.read(assert(state) .. "/ci/cosmic_ci/driver.tl") == "edited fixture\n")
+  assert(assert(Fs.read(assert(state) .. "/candidate/tracked")) == "old\n")
+  assert(assert(Fs.read(assert(state) .. "/ci/cosmic_ci/driver.tl")) == "edited fixture\n")
   assert(Predicate.exists(assert(state) .. "/ci/o") == false)
   assert(Predicate.exists(assert(state) .. "/ci/obsolete") == false)
-  assert(Fs.read(assert(env["TRACE"])) == "build\nfixtures\n")
+  assert(assert(Fs.read(assert(env["TRACE"]))) == "build\nfixtures\n")
 end
 
 --- A fresh candidate builds in a fresh build directory: what the last one built, outside its worktree, goes when
@@ -197,10 +197,10 @@ local function test_a_fresh_candidate_clears_the_build_directory_of_the_last(tmp
     assert(Fs.write(trees .. "/" .. project .. "/build.db", "built\n"))
   end
   assert(invoke(root, env, { "fixtures" }) == 0)
-  assert(Fs.read(trees .. "/candidate/build.db") == "built\n", "a named phase cleared what its candidate built")
+  assert(assert(Fs.read(trees .. "/candidate/build.db")) == "built\n", "a named phase cleared what its candidate built")
   assert(invoke(root, env, { "build" }) == 0)
   assert(Predicate.exists(trees .. "/candidate") == false, "a fresh candidate kept the last one's build directory")
-  assert(Fs.read(trees .. "/ci/build.db") == "built\n", "a fresh candidate cleared another project's build directory")
+  assert(assert(Fs.read(trees .. "/ci/build.db")) == "built\n", "a fresh candidate cleared another project's build directory")
 end
 
 --- A candidate whose last build directory cannot be named is not left for a named phase to run on that build.
@@ -227,7 +227,7 @@ end
 local function test_default_phases_keep_the_workflow_order(tmp: string)
   local root, env = checkout(tmp)
   assert(invoke(root, env, {}) == 0)
-  assert(Fs.read(assert(env["TRACE"])) ==
+  assert(assert(Fs.read(assert(env["TRACE"]))) ==
       "build\nlocal-boundary\ndarwin-suite\nsandbox\nassemble\nfixtures\nportable\nportable-boundary\n")
 end
 
@@ -235,7 +235,7 @@ local function test_phase_failure_stops_and_preserves_its_status(tmp: string)
   local root, env = checkout(tmp)
   local code, diagnostic = invoke(root, env, { "build", "fail", "fixtures" })
   assert(code == 23 and diagnostic:find("error: selected phase failed", 1, true) ~= nil)
-  assert(Fs.read(assert(env["TRACE"])) == "build\nfail\n")
+  assert(assert(Fs.read(assert(env["TRACE"]))) == "build\nfail\n")
 end
 
 local function test_failed_log_is_bounded_and_never_read_whole(tmp: string)
@@ -268,7 +268,7 @@ local function test_state_paths_refuse_containment_and_symlink_roots(tmp: string
   local link = tmp .. "/state-link"
   assert(Fs.symlink(outside, link))
   assert(invoke(root, Maps.with(env, { COSMIC_CI_LOCAL = link }), { "build" }) == 2)
-  assert(Fs.read(outside .. "/sentinel") == "unchanged" and assert(Fs.stat(outside)).mode & 0x1ff == 0x1c0)
+  assert(assert(Fs.read(outside .. "/sentinel")) == "unchanged" and assert(Fs.stat(outside)).mode & 0x1ff == 0x1c0)
 end
 
 local function test_default_base_symlink_is_refused_before_mutation(tmp: string)
@@ -278,7 +278,7 @@ local function test_default_base_symlink_is_refused_before_mutation(tmp: string)
   assert(Fs.chmod(outside, 0x1c0))
   assert(Fs.symlink(outside, tmp .. "/cosmic-ci-local-0"))
   assert(invoke(root, Maps.without(env, { "COSMIC_CI_LOCAL" }), { "build" }, 0) == 2)
-  assert(Fs.read(outside .. "/sentinel") == "unchanged" and assert(Fs.stat(outside)).mode & 0x1ff == 0x1c0)
+  assert(assert(Fs.read(outside .. "/sentinel")) == "unchanged" and assert(Fs.stat(outside)).mode & 0x1ff == 0x1c0)
   assert(#assert(Fs.list(outside)) == 1, "refusal created state beneath symlink target")
 end
 
@@ -363,7 +363,7 @@ local function test_phase_log_symlink_target_is_unchanged(tmp: string)
   assert(Fs.write(outside, "retain bytes"))
   assert(Fs.symlink(outside, assert(env["COSMIC_CI_LOCAL"]) .. "/logs/fixtures.log"))
   assert(invoke(root, env, { "fixtures" }) == 2)
-  assert(Fs.read(outside) == "retain bytes" and Fs.read(assert(env["TRACE"])) == "build\n")
+  assert(assert(Fs.read(outside)) == "retain bytes" and assert(Fs.read(assert(env["TRACE"]))) == "build\n")
 end
 
 local function test_failure_diagnostics_stop_after_twenty_matching_lines(tmp: string)

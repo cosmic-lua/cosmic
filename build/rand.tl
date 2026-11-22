@@ -450,7 +450,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if file == nil or file == "-" then
         text, why = to.stdin()
       else
-        text, why = Fs.read(file)
+        local read, failure = Fs.read(file)
+        text, why = read, if failure ~= nil then tostring(failure) else "" end
       end
       if text == nil then
         complain(why)

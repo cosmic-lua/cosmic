@@ -323,7 +323,7 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
         end
         local text, why = Fs.read(root .. "/" .. file)
         if text == nil then
-          return nil, why
+          return nil, tostring(why)
         end
         local made, made_why = doctest.extract(text, file)
         if made == nil then
@@ -343,7 +343,7 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
     if file:match("%.tmpl$") ~= nil and analysis_schema.is_module_file(file) then
       local text, why = Fs.read(root .. "/" .. file)
       if text == nil then
-        return nil, why
+        return nil, tostring(why)
       end
       local made, made_why = Template.compile(text, file, { dialects = nil })
       if made == nil then

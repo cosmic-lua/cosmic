@@ -161,7 +161,7 @@ local function test_to_fd_writes_without_closing(tmp: string)
   assert(w:write("world"))
   assert(w:close())
   assert(Fs.close(fd))
-  assert(Fs.read(path) == "hello world")
+  assert(assert(Fs.read(path)) == "hello world")
 end
 
 --- A write after a close says the writer is closed, whichever writer it is,
@@ -197,7 +197,7 @@ local function test_create_renames_into_place_only_on_close(tmp: string)
   -- nothing at the destination until close
   assert(Fs.exists(path) == false)
   assert(w:close())
-  assert(Fs.read(path) == "first second")
+  assert(assert(Fs.read(path)) == "first second")
 end
 
 local function test_create_leaves_no_temp_file_when_write_fails(tmp: string)
@@ -433,7 +433,7 @@ local function test_create_syncs_before_it_closes(tmp: string)
   assert(w:sync())
   assert(Fs.exists(path) == false)
   assert(w:close())
-  assert(Fs.read(path) == "kept")
+  assert(assert(Fs.read(path)) == "kept")
   local missing = tmp .. "/missing/target"
   local made, trouble = Stream.create(missing)
   assert(made == nil and trouble:find(missing .. ": ", 1, true) == 1, trouble)

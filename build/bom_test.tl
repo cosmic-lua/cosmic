@@ -290,7 +290,7 @@ local function test_every_license_a_vendored_file_is_tagged_with_is_named()
   local root = assert(Fs.absolute("."))
   for _, name in ipairs((assert(Fs.list(root .. "/vendor")))) do
     local directory = root .. "/vendor/" .. name
-    local pin = Fs.read(directory .. "/PIN")
+    local pin, _ = Fs.read(directory .. "/PIN")
     if pin ~= nil then
       local named = ids_of(assert(bom.parse(name, pin)).license)
       local files = assert(Fs.walk(directory))

@@ -51,7 +51,8 @@ local function under(tmp: string, promises: {string}, script: string, probe?: st
   end
   local status = assert(process.waitpid(assert(pid), false))
   sys.close(output)
-  return { code = status.code, signal = status.signal, said = (Fs.read(path)) or "" }
+  local got, _ = Fs.read(path)
+  return { code = status.code, signal = status.signal, said = (got) or "" }
 end
 
 local PROMISE_SETS: {{string}} = {

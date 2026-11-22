@@ -428,7 +428,7 @@ local function test_download_writes_verifies_and_renames(tmp: string)
   local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), sha256 = Hash.hex_sha256(data),
     script = { reply("200 OK", "", data) } })
   assert(ok, trouble)
-  assert(Fs.read(path) == data)
+  assert(assert(Fs.read(path)) == data)
   local names = (assert(Fs.list(tmp)))
   assert(#names == 1 and names[1] == "got", "a temporary file was left behind")
 end
@@ -441,8 +441,8 @@ local function test_download_never_writes_through_a_planted_part_file(tmp: strin
   assert(Fs.symlink(tmp .. "/victim", path .. ".part"))
   local ok, trouble = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "fresh") } })
   assert(ok, trouble)
-  assert(Fs.read(path) == "fresh")
-  assert(Fs.read(tmp .. "/victim") == "keep me")
+  assert(assert(Fs.read(path)) == "fresh")
+  assert(assert(Fs.read(tmp .. "/victim")) == "keep me")
 end
 
 local function test_download_removes_its_temporary_file_on_a_mismatch(tmp: string)
@@ -478,7 +478,7 @@ local function test_download_keeps_the_old_file_when_the_body_stops_short(tmp: s
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nonly ten b",
   } })
   assert(not ok)
-  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
 local function test_download_fails_on_a_non_2xx_status(tmp: string)
@@ -841,7 +841,7 @@ local function test_a_download_never_cancelled_completes(tmp: string)
     cancelled = function(): boolean return false end,
   })
   assert(ok, why)
-  assert(Fs.read(path) == "hello")
+  assert(assert(Fs.read(path)) == "hello")
 end
 
 local function test_a_download_cancelled_only_at_the_end_makes_no_target(tmp: string)
@@ -894,7 +894,7 @@ local function test_a_download_checks_every_digest_it_is_given(tmp: string)
   local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     sha256 = s256, sha512 = s512:upper() })
   assert(ok, why)
-  assert(Fs.read(path) == "hello")
+  assert(assert(Fs.read(path)) == "hello")
   local other = tmp .. "/other.bin"
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     sha256 = s256, sha512 = string.rep("0", 128) })
@@ -910,7 +910,7 @@ local function test_a_download_with_only_a_sha512_checks_that_alone(tmp: string)
   local s512 = Codec.hex(Hash.digest("sha512", "hello"))
   local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, sha512 = s512 })
   assert(ok, why)
-  assert(Fs.read(path) == "hello")
+  assert(assert(Fs.read(path)) == "hello")
   local other = tmp .. "/wrong512.bin"
   local zeros = string.rep("0", 128)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") }, sha512 = zeros })
@@ -927,7 +927,7 @@ local function test_a_download_with_a_sha3_256_checks_it(tmp: string)
   local ok, why = Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
     sha3_256 = sha3:upper() })
   assert(ok, why)
-  assert(Fs.read(path) == "hello")
+  assert(assert(Fs.read(path)) == "hello")
   local other = tmp .. "/wrong-sha3.bin"
   local zeros = string.rep("0", 64)
   local bad, bad_why = Http.download(url, other, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "hello") },
@@ -944,7 +944,7 @@ local function test_download_result_success_has_no_failure_fields(tmp: string)
     sha256 = Hash.hex_sha256(data):upper(), sha512 = Codec.hex(Hash.digest("sha512", data)):upper() })
   assert(result.kind == "downloaded" and result.reason == "")
   assert(result.status == nil and result.algorithm == nil and result.expected == nil and result.actual == nil)
-  assert(Fs.read(path) == data and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path)) == data and #assert(Fs.list(tmp)) == 1)
   assert(select("#", Http.download(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", data) } })) == 2)
 end
 
@@ -960,7 +960,7 @@ local function test_download_result_status_is_typed_and_url_neutral(tmp: string)
     assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
     local ok, why = Http.download(url, path, options)
     assert(not ok and why == url .. ": HTTP " .. tostring(status), why)
-    assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+    assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
   end
 end
 
@@ -980,12 +980,12 @@ local function test_download_result_checksums_keep_typed_digests_and_legacy_text
       assert(result.reason == reason, result.reason)
       local ok, why = Http.download(url, path, options)
       assert(not ok and why == reason, why)
-      assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+      assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
     end
   end
   local empty = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), sha256 = "", sha512 = "",
     script = { reply("200 OK", "", "unchecked") } })
-  assert(empty.kind == "downloaded" and Fs.read(path) == "unchecked")
+  assert(empty.kind == "downloaded" and assert(Fs.read(path)) == "unchecked")
 end
 
 local function test_download_result_bad_checksum_shape_raises_before_publication(tmp: string)
@@ -1017,7 +1017,7 @@ local function test_download_result_write_and_sync_failures_abort_without_classi
   sys.write = real_write -- checked: field_fixed
   assert(written.kind == "failed" and written.reason == path .. ": " .. reason)
   assert(written.status == nil and written.algorithm == nil)
-  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
   sys.fsync = function(_fd: integer): boolean, string, integer -- checked: field_fixed
     return false, reason, 0
   end
@@ -1025,7 +1025,7 @@ local function test_download_result_write_and_sync_failures_abort_without_classi
   sys.fsync = real_sync -- checked: field_fixed
   assert(synced.kind == "failed" and synced.reason == path .. ": " .. reason)
   assert(synced.status == nil and synced.algorithm == nil)
-  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
 local function test_download_result_rename_failure_keeps_target_and_removes_stage(tmp: string)
@@ -1034,7 +1034,7 @@ local function test_download_result_rename_failure_keeps_target_and_removes_stag
   assert(Fs.write(path .. "/kept", "old"))
   local result = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") } })
   assert(result.kind == "failed" and result.reason ~= "")
-  assert(Fs.read(path .. "/kept") == "old" and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path .. "/kept")) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
 local function test_download_result_cancel_and_callback_exception_keep_target(tmp: string)
@@ -1051,12 +1051,12 @@ local function test_download_result_cancel_and_callback_exception_keep_target(tm
     })
     assert(result.kind == "failed" and result.reason == "interrupted")
     assert(result.status == nil and result.algorithm == nil)
-    assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+    assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
   end
   local options: Http.Options = { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "body") },
     cancelled = function(): boolean error("callback failed") end }
   Test.raises(function() Http.download_result(url, path, options) end, "callback failed")
-  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
 local function test_download_result_truncated_body_preserves_existing_target(tmp: string)
@@ -1066,7 +1066,7 @@ local function test_download_result_truncated_body_preserves_existing_target(tmp
     "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort",
   } })
   assert(result.kind == "failed" and result.reason ~= "")
-  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
 local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string)
@@ -1087,7 +1087,7 @@ local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string
   Stream.hashing = hashing -- checked: field_fixed
   assert(result.kind == "failed" and result.reason == reason)
   assert(result.algorithm == nil and result.expected == nil and result.actual == nil)
-  assert(Fs.read(path) == "old" and #assert(Fs.list(tmp)) == 1)
+  assert(assert(Fs.read(path)) == "old" and #assert(Fs.list(tmp)) == 1)
 end
 
 local function test_download_result_preserves_underlying_url_text_without_classifying_it(tmp: string)
@@ -1125,14 +1125,14 @@ local function test_download_result_interleaved_publishers_own_their_staged_file
           published = true
           local other = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "inner") } })
           assert(other.kind == "downloaded", other.reason)
-          assert(Fs.read(path) == "inner")
+          assert(assert(Fs.read(path)) == "inner")
         end
         return false
       end,
     })
     local expected: Http.DownloadKind = if mismatch then "digest_mismatch" else "downloaded" end
     assert(result.kind == expected, result.reason)
-    assert(Fs.read(path) == (if mismatch then "inner" else "outer" end))
+    assert(assert(Fs.read(path)) == (if mismatch then "inner" else "outer" end))
     assert(#assert(Fs.list(tmp)) == 1, "one publisher left its staged file behind")
   end
 end
@@ -1365,7 +1365,7 @@ local function test_request_and_download_decompress_too(tmp: string)
   assert(got.body == plain)
   local path = tmp .. "/decoded"
   assert(Http.download(url, path, { timeout_ns = Clock.seconds(60), decompress = true, sha256 = Hash.hex_sha256(plain), script = script }))
-  assert(Fs.read(path) == plain)
+  assert(assert(Fs.read(path)) == plain)
 end
 
 --- A `false` where a method is wanted is a method that is not GET, not an

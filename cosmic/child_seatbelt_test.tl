@@ -149,7 +149,7 @@ local function test_no_file_is_written_without_a_grant_to_write(tmp: string)
   -- Over the granted file, which is read-only, and as a new one.
   local over = run({ SH, "-c", "echo changed > \"$1\"", "sh", granted }, policy)
   expect(not over.ok, over)
-  assert(Fs.read(granted) == "granted-bytes", "the granted file was written")
+  assert(assert(Fs.read(granted)) == "granted-bytes", "the granted file was written")
   local made = run({ SH, "-c", "echo made > \"$1\"", "sh", created }, policy)
   expect(not made.ok, made)
   assert(sys.stat(created) == nil, "a file was created without a grant to")
@@ -157,7 +157,7 @@ local function test_no_file_is_written_without_a_grant_to_write(tmp: string)
   local allowed = run({ SH, "-c", "echo changed > \"$1\"", "sh", granted }, { profiles = { "system" },
     grants = { { path = granted, letters = "rwc" } } })
   expect(allowed.ok, allowed)
-  assert(Fs.read(granted) == "changed\n", "the granted file was not written")
+  assert(assert(Fs.read(granted)) == "changed\n", "the granted file was not written")
 end
 
 --- What `policy` is refused for, in [`Child.start`]'s words.

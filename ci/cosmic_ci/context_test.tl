@@ -32,9 +32,9 @@ local function test_summary_appends_through_a_link_without_replacing_or_reading(
   assert(ok, why)
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
-  assert(Fs.readlink(link) == target and Fs.read(target) == "earlier\nnext\n")
+  assert(Fs.readlink(link) == target and assert(Fs.read(target)) == "earlier\nnext\n")
   assert(summarize(tmp .. "/new", "created\n"))
-  assert(Fs.read(tmp .. "/new") == "created\n")
+  assert(assert(Fs.read(tmp .. "/new")) == "created\n")
 end
 
 local function test_summary_reports_one_failure_and_keeps_a_partial_append(tmp: string)
@@ -53,7 +53,7 @@ local function test_summary_reports_one_failure_and_keeps_a_partial_append(tmp: 
   local first, last = reason:find(path .. ": injected append failure", 1, true)
   assert(not ok and calls.value == 1 and first ~= nil, reason)
   assert(not reason:find(path, (last or 0) + 1, true), reason)
-  assert(Fs.read(path) == "earlier\nne")
+  assert(assert(Fs.read(path)) == "earlier\nne")
 end
 
 local function test_summary_without_a_file_writes_stdout()

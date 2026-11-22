@@ -66,7 +66,8 @@ end
 --- What the program said, once it ended, and how.
 local function finished(tmp: string, pid: integer): string, integer
   local status = assert(process.waitpid(pid, false))
-  return (Fs.read(tmp .. "/said")) or "", status.code
+  local got, _ = Fs.read(tmp .. "/said")
+  return (got) or "", status.code
 end
 
 --- A stream socketpair, which the relay's channel is one end of: the

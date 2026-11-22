@@ -129,7 +129,7 @@ end
 --- refused, each with why.
 function ReviewAgent.read_output(dir: string): ReviewAgent.Output?, string
   local text, why = Fs.read(dir .. "/report.md")
-  if text == nil then return nil, why end
+  if text == nil then return nil, tostring(why) end
   local report, trouble = ReviewAgent.split(text)
   if report == nil then return nil, "report.md: " .. trouble end
   local drafts: mut {ReviewAgent.Draft} = {}
@@ -150,7 +150,7 @@ function ReviewAgent.read_output(dir: string): ReviewAgent.Output?, string
     else
       local file, read_trouble = Fs.read(dir .. "/pulls/" .. name)
       local split: ReviewAgent.Text? = nil
-      local split_trouble = read_trouble
+      local split_trouble = tostring(read_trouble)
       if file ~= nil then split, split_trouble = ReviewAgent.split(file) end
       if split == nil then
         refused[#refused + 1] = "pulls/" .. name .. ": " .. split_trouble

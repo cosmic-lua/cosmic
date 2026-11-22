@@ -41,7 +41,7 @@ function Arena.task_text(eval: string, task: string): string?, string
   end
   local journal, jtrouble = Fs.read(eval .. "/journal.md")
   if journal == nil then
-    return nil, jtrouble
+    return nil, tostring(jtrouble)
   end
   return task_text .. journal, ""
 end
@@ -142,7 +142,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   end
   local binary_bytes, btrouble = Fs.read(binary)
   if binary_bytes == nil then
-    return nil, btrouble
+    return nil, tostring(btrouble)
   end
   local files: {Laid} = {
     { path = "bin/cosmic", bytes = binary_bytes },

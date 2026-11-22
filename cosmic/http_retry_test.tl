@@ -177,13 +177,13 @@ local function test_a_download_retries_a_429_then_writes_the_body(tmp: string)
     reply(2, "200 OK", "", "the file"),
   } })
   assert(ok, why)
-  assert(Fs.read(path) == "the file")
+  assert(assert(Fs.read(path)) == "the file")
   local result = Http.download_result(url, tmp .. "/again", { timeout_ns = Clock.seconds(60), retry = { attempts = 2 }, script = {
     reply(1, "503 Service Unavailable", "Retry-After: 0\r\n", "no"),
     reply(2, "200 OK", "", "again"),
   } })
   assert(result.kind == "downloaded", result.reason)
-  assert(Fs.read(tmp .. "/again") == "again")
+  assert(assert(Fs.read(tmp .. "/again")) == "again")
 end
 
 local function test_a_request_retries_with_its_method()

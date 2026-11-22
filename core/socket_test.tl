@@ -90,7 +90,7 @@ local function test_a_file_that_took_the_name_is_left_alone(tmp: string)
     end
     collectgarbage("collect")
     collectgarbage("collect")
-    assert(Fs.read(path) == "someone else's", "the file that took the name was removed")
+    assert(assert(Fs.read(path)) == "someone else's", "the file that took the name was removed")
     assert(Fs.stat(moved) ~= nil, "the moved socket file was removed")
     assert(sys.unlink(path))
   end

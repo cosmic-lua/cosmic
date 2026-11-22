@@ -93,7 +93,7 @@ local function test_a_run_from_another_directory_with_root_gives_the_same(tmp: s
     "../main.tl" })
   assert(here.code == 0 and there.code == 0, here.err .. there.err)
   assert(here.err:find("1 type error", 1, true) and there.err:find("1 type error", 1, true), there.err)
-  assert(Fs.read(tmp .. "/out/main.lua") == Fs.read(tmp .. "/out2/main.lua"))
+  assert(assert(Fs.read(tmp .. "/out/main.lua")) == assert(Fs.read(tmp .. "/out2/main.lua")))
   local without = tool_fixture.cosmic(tmp .. "/elsewhere", { "compile", "-o", "o3", "../lib.tl" })
   assert(without.code == 2 and without.err:find("pass --root", 1, true) ~= nil, without.err)
 end

@@ -255,7 +255,7 @@ function SeededBoot.cached(cache: string, digest: string): string?, string
   -- ci/cosmic-driver.pin names a release whose Hash has it: this file
   -- runs standalone on that release.
   local data, trouble = Fs.read(path)
-  if data == nil then return nil, trouble end
+  if data == nil then return nil, tostring(trouble) end
   if Hash.hex_sha256(data) == digest then return path, "" end
   local _, _ = Fs.remove(path)
   return nil, "its bytes are not its digest's"
@@ -269,7 +269,7 @@ local function newest_release(work: string): string?, string
     listing, { roots = "mozilla", timeout_ns = 30 * 1000000000 })
   if got.kind ~= "downloaded" then return nil, "the releases cannot be listed: " .. got.reason end
   local text, trouble = Fs.read(listing)
-  if text == nil then return nil, trouble end
+  if text == nil then return nil, tostring(trouble) end
   local newest: string? = nil
   for tag in text:gmatch('"tag_name"%s*:%s*"(%d%d%d%d%d%d%d%d%-%x+)"') do
     -- The listing is newest first, which settles two of one day.
@@ -358,7 +358,7 @@ end
 --- Copies the file at `from` to `to`, runnable.
 local function place(from: string, to: string): boolean, string
   local data, trouble = Fs.read(from)
-  if data == nil then return false, trouble end
+  if data == nil then return false, tostring(trouble) end
   local aside = to .. ".part." .. tostring(Proc.pid())
   local written, write_trouble = Fs.write(aside, data)
   if not written then return false, write_trouble end
@@ -371,7 +371,7 @@ end
 --- as build.zig's `vendored` step does.
 local function install_vendor(manifest: string, output: string): boolean, string
   local text, trouble = Fs.read(manifest)
-  if text == nil then return false, trouble end
+  if text == nil then return false, tostring(trouble) end
   local places: mut {string:string} = {}
   for name, directory in text:gmatch("([^\t\n]+)\t([^\n]+)\n") do places[name] = directory end
   for _, name in ipairs(SeededBoot.vendored) do
@@ -391,7 +391,7 @@ end
 --- `seedCompiler` does, into `into`.
 local function compile_seed(root: string, into: string): boolean, string
   local listing, trouble = Fs.read(root .. "/build/seed.txt")
-  if listing == nil then return false, trouble end
+  if listing == nil then return false, tostring(trouble) end
   local relaunch, _ = Proc.relaunch()
   if relaunch == nil then return false, "this cosmic has no artifact to start again" end
   local argv: mut {string} = {}

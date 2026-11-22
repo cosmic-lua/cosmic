@@ -27,7 +27,8 @@ local function test_runtime_identity_change_runs_again()
   assert(runtime ~= basis)
   assert(Proc.executable() == artifact)
   assert(sys.executable() == artifact)
-  local before = Fs.read(counter) or ""
+  local counted, _ = Fs.read(counter)
+  local before = counted or ""
   assert(Fs.write(counter, before .. target .. " " .. core .. " " ..
       basis .. " " .. runtime .. "\n"))
 end

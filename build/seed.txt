@@ -9,6 +9,7 @@ build/source_parse.tl
 cosmic/clock.tl
 cosmic/codec.tl
 cosmic/env.tl
+cosmic/failure.tl
 cosmic/fs.tl
 cosmic/hash.tl
 cosmic/string.tl

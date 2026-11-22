@@ -2564,7 +2564,8 @@ local function test_modules_compiled_in_copies_are_those_one_process_compiles()
     local result, trouble = importer.compile(handle, "fanned-test", false, watched, nil, nil,
       { refused = false, patience_ns = 0, tell = function(said: string) told[#told + 1] = said end })
     work.close(handle)
-    return assert(result, trouble), fanned and parses_fanned, Fs.read(made_path) or ""
+    local got, _ = Fs.read(made_path)
+    return assert(result, trouble), fanned and parses_fanned, got or ""
   end
   -- The fourth module with an error in a function's body: its declarations stand, so a module that requires it
   -- compiles wherever it is compiled, and only a copy that knows the fourth was refused leaves it.
@@ -2665,7 +2666,8 @@ local function test_a_file_run_tells_its_copies_to_stop_at_the_refusal_it_stops_
   end
   assert(forks(), "no copy of the process could be forked")
   assert(result == nil and trouble:find("a_needed.tl", 1, true) ~= nil, trouble)
-  local _, made_count = (Fs.read(made_path) or ""):gsub("\n", "")
+  local got, _ = Fs.read(made_path)
+  local _, made_count = (got or ""):gsub("\n", "")
   assert(made_count <= 20, "the copies compiled " .. tostring(made_count) .. " modules of a run that had stopped")
 end
 

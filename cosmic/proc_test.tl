@@ -30,7 +30,8 @@ end
 --- says of its effective capabilities: root does, but not root in a
 --- sandbox (a sandboxed `cosmic test` worker), which gives them up.
 local function overrides_permissions(): boolean
-  local status = Fs.read("/proc/self/status") or ""
+  local read, _ = Fs.read("/proc/self/status")
+  local status = read or ""
   local effective = status:match("\nCapEff:%s*(%x+)")
   if effective == nil then return sys.getuid() == 0 end -- no /proc: root's are root's
   local bits = math.tointeger(tonumber(effective:sub(-8), 16)) or 0

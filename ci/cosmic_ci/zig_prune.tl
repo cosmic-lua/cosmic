@@ -239,7 +239,7 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan?, string
       elseif name ~= "timestamp" then
         local path = cache.path .. "/h/" .. name
         local text, text_trouble = Fs.read(path)
-        if text == nil then return nil, path .. ": " .. text_trouble end
+        if text == nil then return nil, path .. ": " .. tostring(text_trouble) end
         -- zig makes a manifest's file before the step it checks, and
         -- writes it once the step is done: one left empty, by a step
         -- that failed or was cut short, vouches for nothing, and zig

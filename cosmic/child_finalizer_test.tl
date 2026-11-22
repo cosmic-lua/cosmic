@@ -20,7 +20,7 @@ Test.policy{
 --- The state letter of `pid` in /proc, or nil where the process is gone
 --- (reaped). "Z" is a zombie: ended but not reaped.
 local function process_state(pid: integer): string?
-  local stat = Fs.read("/proc/" .. tostring(pid) .. "/stat")
+  local stat, _ = Fs.read("/proc/" .. tostring(pid) .. "/stat")
   if stat == nil then return nil end
   return stat:match("^%d+ %b() (%a)")
 end

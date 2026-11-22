@@ -249,7 +249,7 @@ local function assemble(manifest_records: string, images: {string:string},
                         expected?: string): integer?
   local database, read_trouble = Fs.read(output.carried)
   if database == nil then
-    log:complain("boot: " .. read_trouble)
+    log:complain("boot: " .. tostring(read_trouble))
     return nil
   end
   if expected ~= nil and Hash.hex_sha256(database) ~= expected then
@@ -355,7 +355,7 @@ local function boot(root: string, argv: {string}): integer
   end
   local records, records_trouble = Fs.read(records_path)
   if records == nil then
-    log:complain("boot: " .. records_trouble)
+    log:complain("boot: " .. tostring(records_trouble))
     return 1
   end
   if mode ~= "boot" and (slot(7) ~= nil or slot(8) ~= nil or slot(9) ~= nil) then
@@ -385,7 +385,8 @@ local function boot(root: string, argv: {string}): integer
       if host_only and target ~= host then
         image = artifact.placeholder(target)
       else
-        image, failure = Fs.read(build_paths.core(working, target))
+        local read, why = Fs.read(build_paths.core(working, target))
+        image, failure = read, if why ~= nil then tostring(why) else "" end
       end
       if image == nil then
         log:complain("boot: " .. failure)
@@ -395,7 +396,7 @@ local function boot(root: string, argv: {string}): integer
       if not host_only then
         local stub, stub_failure = Fs.read(build_paths.stub(working, target))
         if stub == nil then
-          log:complain("boot: " .. stub_failure)
+          log:complain("boot: " .. tostring(stub_failure))
           return 1
         end
         stubs[target] = stub
@@ -428,12 +429,12 @@ local function boot(root: string, argv: {string}): integer
     end
     local checked, checked_trouble = Fs.read(checked_path)
     if checked == nil then
-      log:complain("boot: " .. checked_trouble)
+      log:complain("boot: " .. tostring(checked_trouble))
       return 1
     end
     local checked_records, checked_records_trouble = Fs.read(checked_records_path)
     if checked_records == nil then
-      log:complain("boot: " .. checked_records_trouble)
+      log:complain("boot: " .. tostring(checked_records_trouble))
       return 1
     end
     if not String.starts_with(checked_records, records) then
@@ -466,7 +467,7 @@ local function boot(root: string, argv: {string}): integer
     if made == nil then return 1 end
     local database, read_trouble = Fs.read(output.carried)
     if database == nil then
-      log:complain("boot: " .. read_trouble)
+      log:complain("boot: " .. tostring(read_trouble))
       return 1
     end
     local stamped, stamp_trouble =
@@ -487,7 +488,7 @@ local function boot(root: string, argv: {string}): integer
   else
     local text, text_trouble = Fs.read(stamp_path(output))
     if text == nil then
-      log:complain("boot: " .. text_trouble)
+      log:complain("boot: " .. tostring(text_trouble))
       return 1
     end
     local read, read_trouble = read_stamp(text, records)

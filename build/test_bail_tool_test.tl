@@ -60,7 +60,8 @@ local function invoke(root: string, output: string, words: {string},
 end
 
 local function marked(tmp: string, name: string): boolean
-  return Fs.read(tmp .. "/marks/" .. name) ~= nil
+  local got, _ = Fs.read(tmp .. "/marks/" .. name)
+  return got ~= nil
 end
 
 --- Without the flag every test runs. With it, the failure is recorded,

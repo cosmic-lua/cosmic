@@ -112,7 +112,8 @@ local function test_a_second_run_waits_for_the_first_then_passes(tmp: string)
   local output = tmp .. "/second.out"
   local h = start_test(root, output)
   local ok, failure = pcall(await, "the second run to wait", function(): boolean
-    local text = Fs.read(output) or ""
+    local got, _ = Fs.read(output)
+    local text = got or ""
     return text:find("waiting for it", 1, true) ~= nil
   end)
   local running, _ = h:try_wait()
@@ -136,7 +137,8 @@ local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
   project(root, Clock.seconds(60))
   local h = start_test(root, tmp .. "/interrupted.out")
   local _ = await("the run to take the lock", function(): boolean
-    return Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") ~= nil and
+    local got, _ = Fs.read(support.build_dir(root) .. "/rebuild.lock.pid")
+    return got ~= nil and
       rebuild_lock.take(root, 0, "write") == "busy"
   end)
   assert(h:stop(sys.SIGINT))
@@ -147,13 +149,13 @@ local function test_a_run_lets_the_lock_go_on_failure_and_interrupt(tmp: string)
   -- it, and keep the flock, which outlives the run in any process
   -- holding the same open file.
   assert(rebuild_lock.take(root, 0, "write") == "held",
-    "an interrupted run left the lock held:\n" .. tostring((Fs.read(tmp .. "/interrupted.out"))))
+    "an interrupted run left the lock held:\n" .. tostring((assert(Fs.read(tmp .. "/interrupted.out")))))
   rebuild_lock.release()
 
   assert(Fs.write(root .. "/suite/slow_test.tl",
     "local function test_fails()\n  error(\"no\")\nend\n"))
   local failed = assert(start_test(root, tmp .. "/failed.out"):wait(Clock.seconds(20)))
-  assert(not failed.ok, tostring((Fs.read(tmp .. "/failed.out"))))
+  assert(not failed.ok, tostring((assert(Fs.read(tmp .. "/failed.out")))))
   assert(rebuild_lock.take(root, 0, "write") == "held", "a failed run left the lock held")
   rebuild_lock.release()
 end
@@ -177,7 +179,8 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   local h = assert(Child.start(started.argv, started.options))
   assert(Fs.close(fd))
   local ok, failure = pcall(await, "the write to wait", function(): boolean
-    local text = Fs.read(output) or ""
+    local got, _ = Fs.read(output)
+    local text = got or ""
     return text:find("waiting for it", 1, true) ~= nil
   end)
   local running, _ = h:try_wait()
@@ -234,7 +237,8 @@ local function test_a_build_commits_its_row_before_it_waits_to_publish(tmp: stri
   local h = assert(Child.start(started.argv, started.options))
   assert(Fs.close(fd))
   local ok, failure = pcall(await, "the write to wait", function(): boolean
-    local text = Fs.read(output) or ""
+    local got, _ = Fs.read(output)
+    local text = got or ""
     return text:find("waiting for it", 1, true) ~= nil
   end)
   local during = build_verdicts(working)
@@ -274,7 +278,8 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
     assert(Fs.close(fd))
     local ok, failure = pcall(function()
       assert(await("the compiled result to wait for publication", function(): boolean
-        return (Fs.read(output) or ""):find("waiting for it", 1, true) ~= nil
+        local got, _ = Fs.read(output)
+        return (got or ""):find("waiting for it", 1, true) ~= nil
       end))
       local staged = assert(work.open(root))
       -- A project: the signature is of the rows the run left, and no stage of this handle's adds to them.
@@ -345,7 +350,7 @@ end
 local function thing(word: string): string
   return "local Fs = require(\"cosmic.fs\")\n\n--- " .. word .. " words.\nlocal record thing\nend\n\n" ..
     "-- TODO: say more, once there is more to say.\n" ..
-    "--- Reads.\nfunction thing.read(): string\n  local text, why = Fs.read(\"x\") if text == nil then return why end return text\nend\n\nreturn thing\n"
+    "--- Reads.\nfunction thing.read(): string\n  local text, why = Fs.read(\"x\") if text == nil then return tostring(why) end return text\nend\n\nreturn thing\n"
 end
 
 --- A verb that only reads ([`verb_spec.Spec`]'s `reads`) answers while

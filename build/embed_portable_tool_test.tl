@@ -116,5 +116,5 @@ local function test_a_portable_program_is_refreshed_as_it_was(tmp: string)
     { cacert = "vendor/cacert/certdata.txt" }))
   local first = assert(lines[1])
   assert(first:find("(as it was)", 1, true) ~= nil, first)
-  assert(Fs.read(out) == Fs.read(path), "a refresh to the carried release changed the program")
+  assert(assert(Fs.read(out)) == assert(Fs.read(path)), "a refresh to the carried release changed the program")
 end

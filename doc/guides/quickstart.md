@@ -442,7 +442,7 @@ local Proc = require("cosmic.proc")
 
 local config, trouble = Fs.read("app.conf")
 if config == nil then
-  local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+  local _, _ = Fs.put(Fs.stderr, tostring(trouble) .. "\n")
   Proc.exit(2)
 end
 ```

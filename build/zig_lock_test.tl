@@ -81,7 +81,7 @@ local function test_a_boot_excludes_a_sqlite_only_tool_and_releases_on_return(tm
     assert(probe(root) == "busy", "a SQL-only tool entered the boot's lock")
     assert(handed.KEPT == "value") -- checked: map_field
     assert(handed.COSMIC_REBUILD_LOCK_HANDED == support.build_dir(root) .. "/rebuild.lock") -- checked: map_field
-    assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
+    assert(assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid")) == tostring(sys.getpid()) .. "\nrebuild\n")
     return 7
   end)
   assert(status == 7)

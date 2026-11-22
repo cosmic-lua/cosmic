@@ -123,7 +123,7 @@ local function test_fetch_falls_through_a_failing_source_to_the_next(tmp: string
   assert(ok, trouble)
   assert(#calls == 2 and calls[1] == "http://one" and calls[2] == "http://two")
   assert(#sleeps == 0)
-  assert(Fs.read(path) == "tarball")
+  assert(assert(Fs.read(path)) == "tarball")
 end
 
 local function test_fetch_moves_past_a_sha_mismatch_and_never_asks_that_source_again(tmp: string)

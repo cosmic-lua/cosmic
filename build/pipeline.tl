@@ -285,11 +285,11 @@ function Pipeline.options(root: string, own: boolean): Pipeline.Options?, string
   end
   local prelude, prelude_why = Fs.read(root .. "/" .. CheckerDeclarations.prelude_file())
   if prelude == nil then
-    return nil, prelude_why
+    return nil, tostring(prelude_why)
   end
   local stdlib, stdlib_why = Fs.read(root .. "/" .. CheckerDeclarations.stdlib_file())
   if stdlib == nil then
-    return nil, stdlib_why
+    return nil, tostring(stdlib_why)
   end
   return {
     globals = TreeProgram.globals(prelude, stdlib),

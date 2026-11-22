@@ -107,8 +107,8 @@ local function test_several_files_give_one_output_each_raw(tmp: string)
   local ran = run({ "-o", tmp .. "/deep/out", a, b })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
-  assert(Fs.read(tmp .. "/deep/out/a.lua") == generated("return \"a\"\n"))
-  assert(Fs.read(tmp .. "/deep/out/b.lua") == generated("local n: integer = 1\nreturn n\n"))
+  assert(assert(Fs.read(tmp .. "/deep/out/a.lua")) == generated("return \"a\"\n"))
+  assert(assert(Fs.read(tmp .. "/deep/out/b.lua")) == generated("local n: integer = 1\nreturn n\n"))
   local names = assert(Fs.list(tmp .. "/deep/out"))
   assert(#names == 2, table.concat(names, ","))
 end
@@ -179,7 +179,7 @@ local function test_a_path_is_taken_below_the_root_however_it_is_spelt(tmp: stri
   assert(plain.code == 0 and spelt.code == 0, plain.err .. spelt.err)
   assert(plain.err:find("main.tl:2:", 1, true) ~= nil and not plain.err:find("not found", 1, true), plain.err)
   assert(spelt.err:find("1 type error", 1, true) ~= nil and not spelt.err:find("not found", 1, true), spelt.err)
-  assert(Fs.read(tmp .. "/one/main.lua") == Fs.read(tmp .. "/two/main.lua"))
+  assert(assert(Fs.read(tmp .. "/one/main.lua")) == assert(Fs.read(tmp .. "/two/main.lua")))
 end
 
 local function test_a_path_outside_the_root_is_refused_saying_to_pass_root(tmp: string)

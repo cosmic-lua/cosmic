@@ -205,14 +205,15 @@ local function test_a_handed_lock_lets_a_write_on_but_not_a_test_run(tmp: string
   local written, write_trouble = write:wait(Clock.seconds(20))
   local test_run = start_handed(root, "test", tmp .. "/test.out")
   local ok, failure = pcall(await, "the test run to wait", function(): boolean
-    local text = Fs.read(tmp .. "/test.out") or ""
+    local got, _ = Fs.read(tmp .. "/test.out")
+    local text = got or ""
     return text:find("waiting for it", 1, true) ~= nil
   end)
   local running, _ = test_run:try_wait()
   rebuild_lock.release()
   local ran = assert(test_run:wait(Clock.seconds(20)))
-  local write_text = tostring((Fs.read(tmp .. "/write.out")))
-  local test_text = tostring((Fs.read(tmp .. "/test.out")))
+  local write_text = tostring((assert(Fs.read(tmp .. "/write.out"))))
+  local test_text = tostring((assert(Fs.read(tmp .. "/test.out"))))
   assert(written ~= nil and written.ok, tostring(write_trouble) .. "\n" .. write_text)
   assert(write_text == "false \n", write_text)
   assert(ok, tostring(failure) .. "\n" .. test_text)

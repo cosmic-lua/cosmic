@@ -116,7 +116,7 @@ local function test_concurrent_patch_installs_publish_only_whole_payloads(tmp: s
   local script = [[
 local Fs = require("cosmic.fs")
 local path = assert(require("build.patch").prepare(%q, "lib", %q))
-assert(Fs.read(path .. "/file") == "whole")
+assert(assert(Fs.read(path .. "/file")) == "whole")
 assert(Fs.exists(path .. "/owner") == false)
 print(path)
 ]]

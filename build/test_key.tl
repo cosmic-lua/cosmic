@@ -1835,7 +1835,7 @@ local function mismatched(rec: Recording, address: string, path: string, digest:
   else
     local data, read_trouble = Fs.read(path)
     if data == nil then
-      trouble = read_trouble
+      trouble = tostring(read_trouble)
     else
       saved, trouble = Fs.write(aside, data)
     end
@@ -1961,7 +1961,7 @@ local function verify_sample(rec: Recording)
       ", written again to check it: " .. trouble
   else
     local data, read_trouble = Fs.read(path)
-    local digest = if data ~= nil then hex_sha256(data) else "unreadable: " .. read_trouble end
+    local digest = if data ~= nil then hex_sha256(data) else "unreadable: " .. tostring(read_trouble) end
     local kept = rec.store_digests[address] -- checked: nil_not_allowed
     if digest ~= kept and rec.store_mismatched[address] ~= true then -- checked: nil_not_allowed
       rec.store_mismatched[address] = true -- checked: nil_not_allowed

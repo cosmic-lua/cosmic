@@ -86,8 +86,9 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "]] .. path .. [[", letters = "r" } } }
 
 local function test_read()
-  error("read|" .. tostring((Fs.read("]] .. product .. [[/given.txt"))) .. "|" ..
-    tostring((Fs.read("]] .. product .. [[/sibling.txt"))) .. "|end")
+  local given, _ = Fs.read("]] .. product .. [[/given.txt")
+  local sibling, _ = Fs.read("]] .. product .. [[/sibling.txt")
+  error("read|" .. tostring(given) .. "|" .. tostring(sibling) .. "|end")
 end
 ]]))
 end
@@ -137,9 +138,9 @@ local function test_view(tmp: string)
   local child = assert(Child.run({ "bin/probe",
     "cat-quiet suite/data.txt; cat-quiet suite/secret.txt; print /$DECLARED_VAR/$UNDECLARED_VAR" },
     { timeout_ns = Child.FOREVER, stdout = "capture" }))
-  error(table.concat({ "seen", here, tmp,
-    tostring((Fs.read(here .. "/suite/data.txt"))),
-    tostring((Fs.read(here .. "/suite/secret.txt"))),
+  local data, _ = Fs.read(here .. "/suite/data.txt")
+  local secret, _ = Fs.read(here .. "/suite/secret.txt")
+  error(table.concat({ "seen", here, tmp, tostring(data), tostring(secret),
     tostring(sys.stat(%q) ~= nil), tostring(sys.getenv("DECLARED_VAR")),
     tostring(sys.getenv("UNDECLARED_VAR")), (tostring(child.stdout):gsub("\n", "")), "end" }, "|"))
 end

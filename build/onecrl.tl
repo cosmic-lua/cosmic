@@ -196,7 +196,7 @@ function onecrl.fill(db: Sqlite.Handle, root: string, qualifier: string): boolea
   end
   local text, read_trouble = Fs.read(path)
   if text == nil then
-    return false, read_trouble
+    return false, tostring(read_trouble)
   end
   local found, parse_trouble = onecrl.parse(text)
   if found == nil then

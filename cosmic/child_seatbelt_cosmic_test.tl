@@ -97,7 +97,7 @@ local function test_tmp_leaves_its_parent_and_a_read_granted_file_unwritable(tmp
       '(Fs.write(granted, "changed")))', { profiles = { "cosmic", "system" }, tmp = true,
         grants = { { path = granted, letters = "r" } } }, { granted })
   expect(result.ok and result.stdout == "true\tfalse\tfalse\n", result)
-  assert(Fs.read(granted) == "granted-bytes", "the read-granted file was written")
+  assert(assert(Fs.read(granted)) == "granted-bytes", "the read-granted file was written")
 end
 
 --- Started from a portable artifact (its core on `--artifact`, and the

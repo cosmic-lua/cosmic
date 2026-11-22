@@ -72,7 +72,7 @@ local function test_a_change_replaces_the_program_with_a_counted_boot(tmp: strin
   assert(not alive(pids[1]), "the first program was ended before the second began")
   local pids_2 = assert(pids[2], "expected pids[2]")
   assert(not alive(pids_2), "the program is ended with the supervisor")
-  assert(Fs.read(tmp .. "/marks/2") == "1", "COSMIC_WEB_DEV is set")
+  assert(assert(Fs.read(tmp .. "/marks/2")) == "1", "COSMIC_WEB_DEV is set")
   local told = table.concat(lines, "\n")
   assert(told:find("starting (boot 1)", 1, true) and told:find("a.tl changed", 1, true))
   assert(told:find("starting (boot 2)", 1, true))

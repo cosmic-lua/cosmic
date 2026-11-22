@@ -297,7 +297,7 @@ function Solve.main(argv: {string}): integer
   end
   local prompt, ptrouble = Fs.read(arena .. "/PROMPT.md")
   if prompt == nil then
-    complain(ptrouble)
+    complain(tostring(ptrouble))
     return 2
   end
   local claude, ctrouble = Proc.find("claude")

@@ -149,7 +149,7 @@ return function(argv: {string}): integer
 end
 ]]))
   local r = run_script(tmp, script)
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == "slow", tostring(got) .. " " .. tostring(r.stderr))
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
 end

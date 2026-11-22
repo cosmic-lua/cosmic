@@ -260,7 +260,7 @@ function Assets.directory(root: string): Assets.Source
         return before.asset, ""
       end
       local data, read_why = Fs.read(real)
-      if data == nil then return miss(path, read_why) end
+      if data == nil then return miss(path, tostring(read_why)) end
       local asset = make(path, data, { mtime = st.mtime })
       seen[path] = { mtime = st.mtime, mtime_ns = st.mtime_ns, size = st.size, asset = asset }
       return asset, ""

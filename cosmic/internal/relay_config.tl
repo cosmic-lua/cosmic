@@ -266,12 +266,12 @@ function relay_config.host_addresses(): {string}?, string
     return nil, "getifaddrs: " .. listed_why
   end
   local trie, trie_why = Fs.read("/proc/self/net/fib_trie")
-  if trie == nil then return nil, "/proc/self/net/fib_trie: " .. trie_why end
+  if trie == nil then return nil, "/proc/self/net/fib_trie: " .. tostring(trie_why) end
   local inet6 = ""
   local present, _ = sys.stat("/proc/self/net/if_inet6")
   if present ~= nil then
     local text, text_why = Fs.read("/proc/self/net/if_inet6")
-    if text == nil then return nil, "/proc/self/net/if_inet6: " .. text_why end
+    if text == nil then return nil, "/proc/self/net/if_inet6: " .. tostring(text_why) end
     inet6 = text
   end
   return relay_config.parse_addresses(trie, inet6), ""

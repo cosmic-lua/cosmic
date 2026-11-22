@@ -63,7 +63,8 @@ local function host(tmp: string, machine: string, cpuinfo: string):
   local identities: mut {string:boolean} = {}
   local cpus: mut {string:boolean} = {}
   local function seen(what: string, kernel: boolean, cpu: boolean)
-    sources.cpu_features = listed((Fs.read(tmp .. "/cpuinfo")) or "")
+    local got, _ = Fs.read(tmp .. "/cpuinfo")
+    sources.cpu_features = listed((got) or "")
     local named = declared_key.host_kernel(sources)
     assert(#named == 16, named)
     local id = declared_key.host_identity(declared_key.digests(tmp), sources)
@@ -244,14 +245,15 @@ local function test_the_key_names_this_host_as_its_kernel_files_do(tmp: string)
   -- under /proc (kernel/osrelease, kernel/version): a sandbox's /proc is
   -- mounted subset=pid, and a grant of /proc/sys/kernel/osrelease reaches
   -- none of it, so every sandboxed leg skips here.
-  local released = Fs.read("/proc/sys/kernel/osrelease")
+  local released, _ = Fs.read("/proc/sys/kernel/osrelease")
   if released == nil then
     Test.skip("this worker's /proc has no kernel files to read")
     return
   end
   local release, version = tmp .. "/osrelease", tmp .. "/version"
   assert(Fs.write(release, released))
-  assert(Fs.write(version, Fs.read("/proc/sys/kernel/version") or ""))
+  local got, _ = Fs.read("/proc/sys/kernel/version")
+  assert(Fs.write(version, got or ""))
   local read = declared_key.host_kernel({ system = { "", release, version } })
   assert(read == declared_key.host_kernel(), "this host")
 end

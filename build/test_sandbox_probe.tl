@@ -214,7 +214,7 @@ local sys = require("cosmic.sys")
 local path = "/noexec/probe"
 local bytes = assert(Fs.read("/proc/self/exe"))
 assert(Fs.write(path, bytes, 0x1c0))
-assert(Fs.read(path) == bytes)
+assert(assert(Fs.read(path)) == bytes)
 local ok, trouble, errno = sys.execve(path, { path, "-e", "os.exit(97)" }, {})
 assert(not ok and errno == sys.EACCES, trouble)
 ]]

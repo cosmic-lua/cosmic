@@ -77,6 +77,8 @@ harness_epoch.library = {
     "counted by, whose session a test that imports it shares",
   ["cosmic.env"] = "the worker's environment, which its key holds, is read and built " ..
     "through it",
+  ["cosmic.failure"] = "cosmic.fs answers its failures as one (`Fs.read` and the rest), " ..
+    "which the harness reads where a read or a write of the worker fails",
   ["cosmic.fs"] = "places each read, bind and unveil (`within`, `relative`), writes " ..
     "the worker's report, and probes the paths a module requires of the host " ..
     "(`build.host_requires`: `exists`, `is_dir`, `absolute`)",

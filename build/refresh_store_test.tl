@@ -125,7 +125,7 @@ local function test_the_carried_bundle_makes_the_same_binary(tmp: string)
   local out = tmp .. "/refreshed"
   local lines = assert(refresh.binary(path, out, { datasets.cacert }, { cacert = bundle })) -- checked: map_field
   assert(support.nth(lines, 1):find("(as it was)", 1, true), lines[1])
-  assert(Fs.read(out) == Fs.read(path), "a refresh to the carried release changed the binary")
+  assert(assert(Fs.read(out)) == assert(Fs.read(path)), "a refresh to the carried release changed the binary")
 end
 
 --- A different bundle replaces the roots, records the release it came
@@ -255,7 +255,7 @@ local function test_the_command_line_is_refused_by_name(tmp: string)
   local result = invoke.run({ "refresh", "-o", tmp .. "/out", "--binary", path, "--cacert", pem },
     { cwd = tmp })
   assert(result.code == 0, result.stderr)
-  assert(Fs.read(tmp .. "/out") == Fs.read(path))
+  assert(assert(Fs.read(tmp .. "/out")) == assert(Fs.read(path)))
 end
 
 --- What someone whose data went stale would ask `cosmic docs` finds

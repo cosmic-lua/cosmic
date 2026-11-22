@@ -101,8 +101,8 @@ local function test_a_query_failure_leaves_other_connections_and_files_alone(tmp
   build.finish()
   build.finish()
   for index, file in ipairs(files) do assert(assert(Fs.stat(file)).ino == inodes[index], file) end
-  assert(Fs.read(path) == bytes and Fs.read(path .. "-wal") == wal)
-  assert(Fs.read(sibling) == "earlier evidence")
+  assert(assert(Fs.read(path)) == bytes and assert(Fs.read(path .. "-wal")) == wal)
+  assert(assert(Fs.read(sibling)) == "earlier evidence")
   assert(#assert(Fs.list(Fs.dirname(path))) == 4, "a cache was renamed or replaced")
   assert(holder:exec("CREATE TABLE healthy (value TEXT)"))
   assert(holder:exec("INSERT INTO healthy VALUES ('still usable')"))

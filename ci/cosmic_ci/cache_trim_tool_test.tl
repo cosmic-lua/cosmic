@@ -42,10 +42,12 @@ error("the original signal was swallowed")
   local handle <close> = assert(Child.start({ assert(Proc.executable()), project .. "/cancel.tl" },
     { timeout_ns = CEILING_NS, cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
-  while Fs.read(ready) == nil and Clock.monotonic_ns() < deadline do
+  local said, _ = Fs.read(ready)
+  while said == nil and Clock.monotonic_ns() < deadline do
     Clock.sleep_ns(Clock.ms(10))
+    said, _ = Fs.read(ready)
   end
-  assert(Fs.read(ready) ~= nil, "maintenance child did not enter its guarded wait")
+  assert(said ~= nil, "maintenance child did not enter its guarded wait")
   assert(handle:stop(sys.SIGTERM))
   local result = assert(handle:wait(Clock.seconds(10)))
   assert(result.signal == sys.SIGTERM, (result.stderr or "") .. tostring(result.code))

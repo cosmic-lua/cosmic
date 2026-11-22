@@ -1326,7 +1326,7 @@ local CAPABILITIES <const>: Shape.Typed<Capabilities> = Shape.record_of("Capabil
 function tree_checks.legs(root: string): {string:{string}}?, string
   local path = root .. "/ci/cosmic_ci/capabilities.json"
   local text, read_trouble = Fs.read(path)
-  if text == nil then return nil, read_trouble end
+  if text == nil then return nil, tostring(read_trouble) end
   local capabilities, shape_trouble = Shape.decode_into(text, CAPABILITIES.spec)
   if capabilities == nil then return nil, path .. ": " .. shape_trouble end
   return capabilities.legs, ""
@@ -2045,7 +2045,7 @@ function tree_checks.ci_testdata(root: string): {string}
     local file = "ci/testdata/" .. name
     local source, read_trouble = Fs.read(root .. "/" .. file)
     if source == nil then
-      out[#out + 1] = read_trouble
+      out[#out + 1] = tostring(read_trouble)
     else
       -- Checked under its path below `ci/testdata`, which the build leaves out of a tree as no module of it (any
       -- `testdata/` directory), and told under its own.
@@ -2103,7 +2103,7 @@ local function sources_of(root: string): {{string}}?, string
     if file:match("%.tl$") ~= nil and file ~= "lang/prelude.d.tl" and file ~= "lang/stdlib.d.tl" then
       local text, read_trouble = Fs.read(root .. "/" .. file)
       if text == nil then
-        return nil, read_trouble
+        return nil, tostring(read_trouble)
       end
       out[#out + 1] = { file, text }
     end

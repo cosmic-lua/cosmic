@@ -142,7 +142,7 @@ local function test_a_failing_input_is_kept_in_the_property_dir(tmp: string)
   })
   local kept = tmp .. "/keeps-it.input"
   assert(err:find("kept at " .. kept, 1, true), err)
-  assert(Fs.read(kept) == "\0")
+  assert(assert(Fs.read(kept)) == "\0")
   local held, why = Fuzz.replay({ name = "keeps it", gen = any_bytes,
     check = function(input: string): boolean, string
       return input:find("\0", 1, true) == nil, "a NUL"
@@ -292,7 +292,7 @@ local function test_a_corpus_input_is_checked_before_any_draw(tmp: string)
   assert(Fs.write(corpus .. "/b.input", "bang!"))
   local err = report({ name = "corpus fails", corpus = corpus, dir = tmp, iters = 3,
     gen = function(_src: Fuzz.Source): string return "drawn" end, check = no_bang })
-  assert(Fs.read(tmp .. "/corpus-fails.input") == "bang!")
+  assert(assert(Fs.read(tmp .. "/corpus-fails.input")) == "bang!")
   assert(err:find("fuzz corpus fails: corpus input " .. corpus .. "/b.input: a bang", 1, true), err)
   assert(err:find("input (hex, 5 bytes): 62616e6721", 1, true), err)
 end

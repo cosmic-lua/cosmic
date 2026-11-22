@@ -186,7 +186,7 @@ local function test_the_carried_database_leaves_the_tree_s_tests_out(tmp: string
   assert(whole_db:close())
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/carried.db"))
   assert(writer.carried(tmp .. "/whole.db", tmp .. "/again.db"))
-  assert(Fs.read(tmp .. "/carried.db") == Fs.read(tmp .. "/again.db"),
+  assert(assert(Fs.read(tmp .. "/carried.db")) == assert(Fs.read(tmp .. "/again.db")),
     "the carried database is a function of the projection")
 
   local function rows(path: string, sql: string): Sqlite.Rows
@@ -269,7 +269,7 @@ local function test_an_edit_to_a_test_moves_nothing_the_tool_carries(tmp: string
   assert(writer.carried(tmp .. "/after.db", tmp .. "/carried_after.db"))
   assert(projected(tmp .. "/carried_before.db") == "",
     "the tool carries the projection's signature")
-  assert(Fs.read(tmp .. "/carried_before.db") == Fs.read(tmp .. "/carried_after.db"),
+  assert(assert(Fs.read(tmp .. "/carried_before.db")) == assert(Fs.read(tmp .. "/carried_after.db")),
     "an edit to a test moved the database the tool carries")
 end
 
@@ -548,7 +548,7 @@ end
 local function test_a_project_is_reproducible(tmp: string)
   assert(work.close((build_and_write(tmp .. "/one", "world", tmp .. "/one.db"))))
   assert(work.close((build_and_write(tmp .. "/two", "world", tmp .. "/two.db"))))
-  assert(Fs.read(tmp .. "/one.db") == Fs.read(tmp .. "/two.db"),
+  assert(assert(Fs.read(tmp .. "/one.db")) == assert(Fs.read(tmp .. "/two.db")),
     "equivalent projects produced different projections")
 end
 
@@ -572,7 +572,7 @@ local function test_an_edited_source_is_not_served_from_the_deflate_cache(tmp: s
   assert(work.close(handle))
 
   assert(work.close((build_and_write(tmp .. "/b", "moon", tmp .. "/fresh.db"))))
-  assert(Fs.read(tmp .. "/second.db") == Fs.read(tmp .. "/fresh.db"),
+  assert(assert(Fs.read(tmp .. "/second.db")) == assert(Fs.read(tmp .. "/fresh.db")),
     "a projection served from the cache differs from a fresh one")
   local out = assert(Sqlite.open(tmp .. "/second.db"))
   local rows = assert(Sqlite.text_rows(out,
@@ -783,7 +783,7 @@ local function test_an_edit_to_an_asset_moves_the_projection(tmp: string)
     write_static(tmp .. "/" .. name, "body {}")
     write_projection(tmp .. "/" .. name, tmp .. "/" .. name .. ".db")
   end
-  assert(Fs.read(tmp .. "/one.db") == Fs.read(tmp .. "/two.db"), "equal trees, unequal projections")
+  assert(assert(Fs.read(tmp .. "/one.db")) == assert(Fs.read(tmp .. "/two.db")), "equal trees, unequal projections")
   local before = projected(tmp .. "/one.db")
   assert(Fs.write(tmp .. "/one/static/css/app.css", "body { margin: 0 }"))
   write_projection(tmp .. "/one", tmp .. "/one.db")
@@ -888,7 +888,7 @@ local function test_static_files_are_compressed_once_per_content(tmp: string)
   local fresh = assert(work.open(tmp .. "/p"))
   write_again(fresh, tmp .. "/fresh.db")
   assert(work.close(fresh))
-  assert(Fs.read(tmp .. "/gone.db") == Fs.read(tmp .. "/fresh.db"), "a cached write differs from an uncached one")
+  assert(assert(Fs.read(tmp .. "/gone.db")) == assert(Fs.read(tmp .. "/fresh.db")), "a cached write differs from an uncached one")
 end
 
 --- A warm write ships a file not worth compressing as a cold one does,
@@ -912,7 +912,7 @@ local function test_a_warm_write_keeps_null_variants_null(tmp: string)
     "a warm write shipped empty variants")
   assert(scalar(db, "SELECT count(*) FROM payload WHERE gzip = '' OR zstd = ''") == "0", "a warm write shipped empty variants")
   assert(db:close())
-  assert(Fs.read(tmp .. "/warm.db") == Fs.read(tmp .. "/cold.db"), "a warm write differs from a cold one")
+  assert(assert(Fs.read(tmp .. "/warm.db")) == assert(Fs.read(tmp .. "/cold.db")), "a warm write differs from a cold one")
 end
 
 --- A tree with no `static/` has an empty payload.

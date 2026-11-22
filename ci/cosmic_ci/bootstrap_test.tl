@@ -192,7 +192,7 @@ local function test_bootstrap_accepts_either_tag_form_and_no_other(tmp: string)
     pin(root .. "/ci/cosmic-driver.pin", commit, digest, accepted)
     local out = tmp .. "/accepted-" .. tostring(n) .. ".out"
     local result = bootstrap(tmp, root, out)
-    assert(result.ok, accepted .. ": " .. tostring((Fs.read(out))))
+    assert(result.ok, accepted .. ": " .. tostring((assert(Fs.read(out)))))
   end
   for _, refused_prefix in ipairs({ "latest-", "2026101-", "202610181-", "2026101a-", "-", "", "next-next-",
       "20261018-next-", "v20261018-" }) do
@@ -719,8 +719,8 @@ local function test_summarize_reports_unavailable_database(tmp: string)
     tmp .. "/summarize.out",
     { RUNNER_TEMP = tmp .. "/runner-temp", GITHUB_STEP_SUMMARY = summary },
     driver_timeout)
-  assert(result.ok, "summarize failed for a missing operation database: " ..
-      (Fs.read(tmp .. "/summarize.out") or "<no output>"))
+  local said, _ = Fs.read(tmp .. "/summarize.out")
+  assert(result.ok, "summarize failed for a missing operation database: " .. (said or "<no output>"))
   local text = assert(Fs.read(summary))
   assert(text:find("## Cosmic CI operations", 1, true) and
       text:find("unavailable", 1, true), "summary omitted the unavailable-database line")

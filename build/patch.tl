@@ -239,7 +239,7 @@ local function read_dir(dir: string, relative: string, inputs: Inputs): boolean,
     elseif st.kind == "file" then
       local data, read_trouble = Fs.read(path)
       if data == nil then
-        return false, read_trouble
+        return false, tostring(read_trouble)
       end
       inputs.files[#inputs.files + 1] = { path = under, mode = st.mode & 0x1ff, data = data }
     end
@@ -272,7 +272,7 @@ local function read_inputs(root: string, name: string): Inputs?, string
     if #entry > 4 and entry:sub(-4) == ".txt" then
       local data, data_trouble = Fs.read(dir .. "/" .. entry)
       if data == nil then
-        return nil, data_trouble
+        return nil, tostring(data_trouble)
       end
       inputs.records[#inputs.records + 1] = {
         path = "patch/" .. name .. "/" .. entry, mode = 0, data = data }
@@ -528,7 +528,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
       local name = "patch/zig-lib/" .. entry
       local text, text_trouble = Fs.read(dir .. "/" .. entry)
       if text == nil then
-        return false, text_trouble
+        return false, tostring(text_trouble)
       end
       local parsed, parse_trouble = Patch.parse(text, name)
       if parsed == nil then
@@ -541,7 +541,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
       end
       local source, read_trouble = Fs.read(path)
       if source == nil then
-        return false, read_trouble
+        return false, tostring(read_trouble)
       end
       local applied, apply_trouble = Patch.apply(source, parsed, name)
       if applied == nil then

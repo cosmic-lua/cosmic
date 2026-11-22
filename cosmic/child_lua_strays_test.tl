@@ -60,11 +60,12 @@ local function test_end_strays_ends_a_stray_named_as_an_init(tmp: string)
         'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil,
       { timeout_ns = Child.FOREVER, stdout = "capture", process_group = false })))
     local pid = assert(math.tointeger(tonumber(r.stdout)))
-    local name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
+    local name, _ = Fs.read("/proc/" .. tostring(pid) .. "/comm")
     local by = Clock.monotonic_ns() + Clock.seconds(5)
     while name ~= "cosmic-init\n" and Clock.monotonic_ns() < by do
       Clock.sleep_ns(Clock.ms(10))
-      name = Fs.read("/proc/" .. tostring(pid) .. "/comm")
+      local got, _ = Fs.read("/proc/" .. tostring(pid) .. "/comm")
+      name = got
     end
     assert(name == "cosmic-init\n", tostring(name))
     assert(Child.end_strays() >= 1)

@@ -59,7 +59,7 @@ local function test_a_spilling_assert_is_refused_by_the_new_checker_and_left_as_
     assert(out:find("spill.tl:4:11: no overload of `tonumber` takes the arguments (string, string) (overload_none)",
       1, true) ~= nil, out)
     assert(out:find("fixed  spill.tl", 1, true) == nil and out:find("would fix  spill.tl", 1, true) == nil, out)
-    assert(Fs.read(root .. "/spill.tl") == source, "the file was written")
+    assert(assert(Fs.read(root .. "/spill.tl")) == source, "the file was written")
   end
 end
 
@@ -99,13 +99,13 @@ local function test_a_check_fails_on_a_file_that_is_not_laid_out_and_a_fix_write
   assert(said:find("fix: FAIL  not laid out  new.tl", 1, true) ~= nil, said)
   assert(said:find("not laid out  other.tl", 1, true) == nil, said)
   assert(said:find("would fix", 1, true) == nil, said)
-  assert(Fs.read(root .. "/laid.tl") == BADLY_LAID_OUT and Fs.read(root .. "/new.tl") == linked, "a check wrote a file")
+  assert(assert(Fs.read(root .. "/laid.tl")) == BADLY_LAID_OUT and assert(Fs.read(root .. "/new.tl")) == linked, "a check wrote a file")
   local written, wrote = fix_new(root, false)
   assert(written.ok, wrote)
   assert(wrote:find("fixed  laid.tl", 1, true) ~= nil and wrote:find("fixed  new.tl", 1, true) ~= nil, wrote)
   assert(wrote:find("fix: 3 Teal files, 2 fixed", 1, true) ~= nil and wrote:find("not laid out", 1, true) == nil, wrote)
-  assert(Fs.read(root .. "/laid.tl") == ONE_LAID, "the file was not laid out")
-  assert(Fs.read(root .. "/new.tl") == NEW_LAID, "the file was not laid out")
+  assert(assert(Fs.read(root .. "/laid.tl")) == ONE_LAID, "the file was not laid out")
+  assert(assert(Fs.read(root .. "/new.tl")) == NEW_LAID, "the file was not laid out")
   for _, check in ipairs({ true, false }) do
     local again, repeated = fix_new(root, check)
     assert(again.ok and repeated:find("not laid out", 1, true) == nil and repeated:find("fixed  ", 1, true) == nil, repeated)
@@ -126,8 +126,8 @@ local function test_a_declaration_file_is_laid_out_by_a_fix_and_linking_leaves_a
   assert(not checked.ok and said:find("not laid out  api.d.tl", 1, true) ~= nil, said)
   local written, wrote = fix_new(root, false)
   assert(written.ok, wrote)
-  assert(Fs.read(root .. "/api.d.tl") == "--- @kind binding\nlocal record Api\n  name:    string\nend\n\nreturn Api\n", wrote)
-  assert(Fs.read(root .. "/new.tl") == NEW_LAID, "linking did not leave the file laid out")
+  assert(assert(Fs.read(root .. "/api.d.tl")) == "--- @kind binding\nlocal record Api\n  name:    string\nend\n\nreturn Api\n", wrote)
+  assert(assert(Fs.read(root .. "/new.tl")) == NEW_LAID, "linking did not leave the file laid out")
   local again, repeated = fix_new(root, true)
   assert(again.ok and repeated:find("not laid out", 1, true) == nil and repeated:find("would fix", 1, true) == nil, repeated)
 end
@@ -143,7 +143,7 @@ local function test_the_forks_grammar_is_refused_pointing_to_the_guide(tmp: stri
   assert(not failed.ok, said)
   assert(said:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says",
     1, true) ~= nil, said)
-  assert(Fs.read(root .. "/new.tl") == NEW_GRAMMAR, "the file was written")
+  assert(assert(Fs.read(root .. "/new.tl")) == NEW_GRAMMAR, "the file was written")
 end
 
 --- A link of a file in the new grammar is checked against the project and a plain span is linked in place, byte for byte
@@ -157,12 +157,12 @@ local function test_the_links_of_a_file_in_the_new_grammar_are_checked_and_writt
   assert(not checked.ok, said)
   assert(said:find("FAIL  new.tl:3: link: `Other.thing` would link to other.thing", 1, true) ~= nil, said)
   assert(said:find("1 plain reference to link", 1, true) ~= nil, said)
-  assert(Fs.read(root .. "/new.tl") == PLAIN_LAID, "a check wrote the file")
+  assert(assert(Fs.read(root .. "/new.tl")) == PLAIN_LAID, "a check wrote the file")
   local written, wrote = fix_new(root, false)
   assert(written.ok, wrote)
   assert(wrote:find("fixed  new.tl (links)", 1, true) ~= nil, wrote)
   local expected = NEW_LAID
-  assert(Fs.read(root .. "/new.tl") == expected, "the file was not the text with the one span linked")
+  assert(assert(Fs.read(root .. "/new.tl")) == expected, "the file was not the text with the one span linked")
   -- a link that names nothing fails, at the line it is on
   assert(Fs.write(root .. "/new.tl", (expected:gsub("%[`Other.thing`%]", "[`Other.nope`]"))))
   local broken, why = fix_new(root, true)

@@ -31,7 +31,7 @@ local function test_a_held_flock_keeps_another_run_out(tmp: string)
   assert(sys.close(other))
   taken, trouble = rebuild_lock.take(root, 0)
   assert(taken == "held", tostring(taken) .. " " .. trouble)
-  assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") == tostring(sys.getpid()) .. "\nrebuild\n")
+  assert(assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid")) == tostring(sys.getpid()) .. "\nrebuild\n")
   rebuild_lock.release()
   assert(assert(sys.stat(path)).size == 0, "the lock's file was written")
 end
@@ -109,7 +109,7 @@ local function test_a_holder_takes_its_own_lock_again(tmp: string)
   assert(rebuild_lock.take(root, 0, "rebuild") == "held")
   assert(rebuild_lock.hold(root, "write", "o/cosmic.db") == false,
     "a holder took its own lock as though it were new")
-  assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid") ==
+  assert(assert(Fs.read(support.build_dir(root) .. "/rebuild.lock.pid")) ==
       tostring(sys.getpid()) .. "\ntest\n")
   rebuild_lock.release()
   assert(not rebuild_lock.holds(root))

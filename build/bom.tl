@@ -180,7 +180,7 @@ local function notice_text(directory: string, notice: bom.Notice): string?, stri
   local path = directory .. "/" .. notice.file
   local data, trouble = Fs.read(path)
   if data == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   data = data:gsub("\r\n", "\n")
   local first, last = notice.first, notice.last
@@ -241,7 +241,7 @@ local function patches_of(root: string, name: string): string?, string
     if String.ends_with(file, ".txt") and #file > 4 then
       local data, read_trouble = Fs.read(directory .. "/" .. file)
       if data == nil then
-        return nil, read_trouble
+        return nil, tostring(read_trouble)
       end
       lines[#lines + 1] = "patch/" .. name .. "/" .. file .. " " .. Hash.hex_sha256(data)
     end
@@ -325,7 +325,7 @@ function bom.fill(db: Sqlite.Handle, root: string, qualifier: string): boolean, 
     local name, path, directory = entry.name, entry.path, entry.directory
     local source, read_trouble = Fs.read(path)
     if source == nil then
-      return false, read_trouble
+      return false, tostring(read_trouble)
     end
     local component, parse_trouble = bom.parse(name, source)
     if component == nil then

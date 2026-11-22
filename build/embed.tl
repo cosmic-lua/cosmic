@@ -793,7 +793,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
   local _, _ = Fs.remove(building)
   local _, _ = Fs.remove(building .. ".vacuumed")
   if bytes == nil then
-    return nil, read_trouble
+    return nil, tostring(read_trouble)
   end
   return bytes, ""
 end
@@ -1184,7 +1184,7 @@ function embed.tree_tool(root: string, out?: string): string?, string
   end
   if out ~= nil then
     local program, read_trouble = Fs.read(tool)
-    if program == nil then return nil, read_trouble end
+    if program == nil then return nil, tostring(read_trouble) end
     local made, made_trouble = Fs.mkdirs(out)
     if not made then return nil, "--out " .. out .. " cannot be created: " .. made_trouble end
     local copied, copy_trouble = Fs.write(out .. "/cosmic", program, 0x1ed)

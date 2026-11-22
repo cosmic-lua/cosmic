@@ -21,7 +21,7 @@ local function test_create_list_and_extract_print_data_and_no_summary(tmp: strin
   assert(not listed.out:find("archive: PASS", 1, true), listed.out)
   local out = tool_fixture.cosmic(tmp, { "archive", "extract", "out.tar.gz", "-C", "dest" })
   assert(out.code == 0 and out.out == "tree\ntree/a.txt\n", out.out .. out.err)
-  assert(Fs.read(tmp .. "/dest/tree/a.txt") == "aye")
+  assert(assert(Fs.read(tmp .. "/dest/tree/a.txt")) == "aye")
   local again = tool_fixture.cosmic(tmp, { "archive", "extract", "out.tar.gz", "-C", "dest" })
   assert(again.code == 1 and again.out == "", again.out)
   assert(again.err:find("cosmic: archive: would overwrite", 1, true) == 1, again.err)

@@ -73,8 +73,8 @@ local function test_a_zstd_zip_lists_and_extracts_through_archive(tmp: string)
   assert(assert(by["adir/z.txt"]).size == #text and assert(by["adir/s.txt"]).size == #text)
   local dest = tmp .. "/out"
   assert(Archive.extract(path, dest))
-  assert(Fs.read(dest .. "/adir/z.txt") == text)
-  assert(Fs.read(dest .. "/adir/s.txt") == text)
+  assert(assert(Fs.read(dest .. "/adir/z.txt")) == text)
+  assert(assert(Fs.read(dest .. "/adir/s.txt")) == text)
   local written, why = Archive.extract(path, tmp .. "/small", { max_entry_bytes = 4096 })
   assert(written == nil and why:find("max_entry_bytes (4096 bytes)", 1, true) ~= nil, why)
 end
@@ -195,7 +195,7 @@ local function test_extract_writes_files_and_directories_and_keeps_the_mode(tmp:
   local written = assert(Archive.extract(archive, dest))
   table.sort(written) -- checked: overload_none
   assert(#written == 3, table.concat(written, ","))
-  assert(Fs.read(dest .. "/adir/short.txt") == "hello there")
+  assert(assert(Fs.read(dest .. "/adir/short.txt")) == "hello there")
   assert(Fs.is_dir(dest .. "/adir") == true)
   local st = assert(Fs.stat(dest .. "/bin/tool"))
   assert(st.mode & 0x49 ~= 0, string.format("%o", st.mode)) -- some execute bit set
@@ -210,7 +210,7 @@ local function test_extract_strips_a_string_prefix(tmp: string)
   local written = assert(Archive.extract(archive, dest, { strip_prefix = "adir/" }))
   table.sort(written) -- checked: overload_none
   assert(#written == 1, table.concat(written, ","))
-  assert(Fs.read(dest .. "/short.txt") == "hello there")
+  assert(assert(Fs.read(dest .. "/short.txt")) == "hello there")
 end
 
 local function test_extract_strips_leading_path_components(tmp: string)
@@ -222,8 +222,8 @@ local function test_extract_strips_leading_path_components(tmp: string)
   -- "adir/" itself strips to nothing and is not written as a directory
   -- of its own; its contents still land at the extraction root.
   assert(#written == 2, table.concat(written, ","))
-  assert(Fs.read(dest .. "/short.txt") == "hello there")
-  assert(Fs.read(dest .. "/tool") == "#!/bin/sh\necho hi\n")
+  assert(assert(Fs.read(dest .. "/short.txt")) == "hello there")
+  assert(assert(Fs.read(dest .. "/tool")) == "#!/bin/sh\necho hi\n")
 end
 
 --- A whole number held as a float strips as the integer does; any other
@@ -234,7 +234,7 @@ local function test_extract_strips_by_a_whole_float(tmp: string)
   local float = assert(load("return ...")) as function(number): integer -- checked: cast_refused
   local written = assert(Archive.extract(archive, tmp .. "/out", { strip_components = float(1.0) }))
   assert(#written == 2, table.concat(written, ","))
-  assert(Fs.read(tmp .. "/out/tool") == "#!/bin/sh\necho hi\n")
+  assert(assert(Fs.read(tmp .. "/out/tool")) == "#!/bin/sh\necho hi\n")
   local record Refusal
     count: integer
     says: string
@@ -356,7 +356,7 @@ local function test_extract_a_gzip_compressed_tar_made_by_system_tar(tmp: string
   local written = assert(Archive.extract(path, dest))
   table.sort(written) -- checked: overload_none
   assert(#written == 3, table.concat(written, ","))
-  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+  assert(assert(Fs.read(dest .. "/src/short.txt")) == "hello there")
 end
 
 local function test_extract_an_xz_compressed_tar_made_by_system_tar(tmp: string)
@@ -366,7 +366,7 @@ local function test_extract_an_xz_compressed_tar_made_by_system_tar(tmp: string)
   local written = assert(Archive.extract(path, dest))
   table.sort(written) -- checked: overload_none
   assert(#written == 3, table.concat(written, ","))
-  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+  assert(assert(Fs.read(dest .. "/src/short.txt")) == "hello there")
 end
 
 local function test_extract_a_bzip2_compressed_tar_made_by_system_tar(tmp: string)
@@ -376,7 +376,7 @@ local function test_extract_a_bzip2_compressed_tar_made_by_system_tar(tmp: strin
   local written = assert(Archive.extract(path, dest))
   table.sort(written) -- checked: overload_none
   assert(#written == 3, table.concat(written, ","))
-  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+  assert(assert(Fs.read(dest .. "/src/short.txt")) == "hello there")
 end
 
 local function test_extract_a_zstd_compressed_tar_made_by_system_tar(tmp: string)
@@ -388,7 +388,7 @@ local function test_extract_a_zstd_compressed_tar_made_by_system_tar(tmp: string
   for _, name in ipairs(extracted) do written[#written + 1] = name end
   table.sort(written)
   assert(#written == 3, table.concat(written, ","))
-  assert(Fs.read(dest .. "/src/short.txt") == "hello there")
+  assert(assert(Fs.read(dest .. "/src/short.txt")) == "hello there")
 end
 
 --- A tar at `path` built by `build`, for the extraction cases below.
@@ -450,7 +450,7 @@ local function test_extract_lets_a_later_entry_replace_a_pending_symlink(tmp: st
   end)
   local dest = tmp .. "/out"
   assert(Archive.extract(archive, dest, { links = "create" }))
-  assert(Fs.read(dest .. "/x") == "a regular file after all")
+  assert(assert(Fs.read(dest .. "/x")) == "a regular file after all")
   assert(Fs.readlink(dest .. "/x") == nil)
 end
 
@@ -492,9 +492,9 @@ local function test_extract_creates_links_through_real_directories(tmp: string)
   end)
   local dest = tmp .. "/out"
   assert(Archive.extract(archive, dest, { links = "create" }))
-  assert(Fs.read(dest .. "/lib/libfoo.so") == "elf")
-  assert(Fs.read(dest .. "/bin/x") == "tool")
-  assert(Fs.read(dest .. "/bin/y") == "tool")
+  assert(assert(Fs.read(dest .. "/lib/libfoo.so")) == "elf")
+  assert(assert(Fs.read(dest .. "/bin/x")) == "tool")
+  assert(assert(Fs.read(dest .. "/bin/y")) == "tool")
 end
 
 local function test_extract_refuses_to_write_through_a_symlink_already_in_dest(tmp: string)
@@ -567,7 +567,7 @@ local function test_extract_never_commits_a_file_that_fails_its_crc(tmp: string)
   assert(Fs.write(dest .. "/f.txt", "ORIGINAL"))
   local written, trouble = Archive.extract(archive, dest)
   assert(written == nil and trouble:find("crc32", 1, true) ~= nil, trouble)
-  assert(Fs.read(dest .. "/f.txt") == "ORIGINAL")
+  assert(assert(Fs.read(dest .. "/f.txt")) == "ORIGINAL")
   local left = assert(Fs.list(dest))
   assert(#left == 1, table.concat(left, ","))
 end
@@ -656,7 +656,7 @@ local function test_extract_stops_at_max_entries(tmp: string)
   assert(written == nil and trouble:find("more than 1 entry", 1, true) ~= nil, trouble)
   assert(Fs.exists(tmp .. "/o1/b") == false)
   assert(Archive.extract(archive, tmp .. "/o2", { max_entries = 2 }))
-  assert(Fs.read(tmp .. "/o2/b") == string.rep("b", 600))
+  assert(assert(Fs.read(tmp .. "/o2/b")) == string.rep("b", 600))
   -- A negative limit is a mistake, not a failure to report.
   Test.raises(function() Archive.extract(archive, tmp .. "/o3", { max_entries = -1 }) end)
 end
@@ -707,7 +707,7 @@ local function test_max_entry_bytes_bounds_the_decoded_output_of_a_zstd_zip_entr
   holds_only(dest, {})
   -- An entry whose decoded size is within the limit is extracted.
   assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = #big }))
-  assert(Fs.read(tmp .. "/at/big") == big)
+  assert(assert(Fs.read(tmp .. "/at/big")) == big)
   written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = #big - 1 })
   assert(written == nil and why:find("max_entry_bytes (4194303 bytes)", 1, true) ~= nil, tostring(why))
   holds_only(tmp .. "/over", {})
@@ -816,11 +816,11 @@ local function test_extract_refusing_a_file_keeps_the_one_already_at_its_path(tm
   assert(Fs.write(dest .. "/a", "old"))
   local written, why = Archive.extract(archive, dest, { max_entry_bytes = 100 })
   assert(written == nil and why:find("max_entry_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
-  assert(Fs.read(dest .. "/a") == "old")
+  assert(assert(Fs.read(dest .. "/a")) == "old")
   holds_only(dest, { "a" })
   written, why = Archive.extract(archive, dest, { max_bytes = 100 })
   assert(written == nil and why:find("max_bytes (100 bytes)", 1, true) ~= nil, tostring(why))
-  assert(Fs.read(dest .. "/a") == "old")
+  assert(assert(Fs.read(dest .. "/a")) == "old")
   holds_only(dest, { "a" })
 end
 
@@ -844,7 +844,7 @@ local function test_extract_caps_a_file_at_exactly_max_entry_bytes(tmp: string)
     assert(tw:add_file("a", string.rep("a", 600)))
   end)
   assert(Archive.extract(archive, tmp .. "/at", { max_entry_bytes = 600 }))
-  assert(Fs.read(tmp .. "/at/a") == string.rep("a", 600))
+  assert(assert(Fs.read(tmp .. "/at/a")) == string.rep("a", 600))
   local written, why = Archive.extract(archive, tmp .. "/over", { max_entry_bytes = 599 })
   assert(written == nil and why:find("archive: a is larger than max_entry_bytes (599 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/over", {})
@@ -858,12 +858,12 @@ local function test_extract_caps_all_the_files_at_exactly_max_bytes(tmp: string)
     assert(tw:add_file("c", string.rep("c", 600)))
   end)
   assert(Archive.extract(archive, tmp .. "/at", { max_bytes = 1800 }))
-  assert(Fs.read(tmp .. "/at/c") == string.rep("c", 600))
+  assert(assert(Fs.read(tmp .. "/at/c")) == string.rep("c", 600))
   local written, why = Archive.extract(archive, tmp .. "/over", { max_bytes = 1799 })
   assert(written == nil and why:find("archive: extracting c would write more than max_bytes (1799 bytes)", 1, true) ~= nil, why)
   -- Refused before the file that passes it, after those within it.
   holds_only(tmp .. "/over", { "a", "d" })
-  assert(Fs.read(tmp .. "/over/d/b") == string.rep("b", 600))
+  assert(assert(Fs.read(tmp .. "/over/d/b")) == string.rep("b", 600))
   -- A cap of its own for each file does not add up to more than the total.
   written, why = Archive.extract(archive, tmp .. "/each", { max_entry_bytes = 600, max_bytes = 1200 })
   assert(written == nil and why:find("max_bytes (1200 bytes)", 1, true) ~= nil, why)
@@ -886,7 +886,7 @@ local function test_extract_counts_only_the_files_it_writes(tmp: string)
     assert(tw:add_file("zero", ""))
   end)
   assert(Archive.extract(empty, tmp .. "/zero", { max_bytes = 0, max_entry_bytes = 0 }))
-  assert(Fs.read(tmp .. "/zero/zero") == "")
+  assert(assert(Fs.read(tmp .. "/zero/zero")) == "")
   local none, why = Archive.extract(archive, tmp .. "/none", { max_bytes = 0 })
   assert(none == nil and why:find("max_bytes (0 bytes)", 1, true) ~= nil, why)
 end
@@ -909,7 +909,7 @@ local function test_extract_limits_reach_extract_reader_and_can_be_lifted(tmp: s
   assert(Archive.extract_reader(open(), tmp .. "/o3", { max_bytes = float(2000.0) }))
   assert(Archive.extract_reader(open(), tmp .. "/o4", { max_bytes = math.maxinteger,
     max_entry_bytes = math.maxinteger }))
-  assert(Fs.read(tmp .. "/o4/a") == string.rep("a", 2000))
+  assert(assert(Fs.read(tmp .. "/o4/a")) == string.rep("a", 2000))
 end
 
 local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_raise(tmp: string)
@@ -954,7 +954,7 @@ local function test_extract_strip_matches_whole_components_only(tmp: string)
     local dest = tmp .. "/out-" .. tostring(#prefix)
     local written = assert(Archive.extract(archive, dest, { strip_prefix = prefix }))
     assert(#written == 1 and written[1] == "x", prefix .. ": " .. table.concat(written, ","))
-    assert(Fs.read(dest .. "/x") == "in a")
+    assert(assert(Fs.read(dest .. "/x")) == "in a")
   end
 end
 
@@ -971,7 +971,7 @@ local function test_extract_strips_a_prefix_then_components(tmp: string)
   local written = assert(Archive.extract(archive, dest,
     { strip_prefix = "pkg", strip_components = 1 }))
   assert(#written == 1 and written[1] == "src/x", table.concat(written, ","))
-  assert(Fs.read(dest .. "/src/x") == "in src")
+  assert(assert(Fs.read(dest .. "/src/x")) == "in src")
 end
 
 local function test_extract_creates_a_zip_symlink_as_a_symlink(tmp: string)
@@ -1036,8 +1036,8 @@ local function test_extract_walks_a_zip_and_a_tar_to_the_same_tree(tmp: string)
   for i = 1, 300 do
     local want = "d" .. tostring(i % 7) .. "/f" .. tostring(i)
     assert(from_tar[i] == want and from_zip[i] == want, from_tar[i])
-    assert(Fs.read(tmp .. "/t/" .. want) == "body " .. tostring(i))
-    assert(Fs.read(tmp .. "/z/" .. want) == "body " .. tostring(i))
+    assert(assert(Fs.read(tmp .. "/t/" .. want)) == "body " .. tostring(i))
+    assert(assert(Fs.read(tmp .. "/z/" .. want)) == "body " .. tostring(i))
   end
 end
 
@@ -1048,9 +1048,9 @@ local function test_extract_reader_unpacks_a_stream_as_extract_unpacks_the_file(
   local reader = assert(Archive.open_stream(Stream.from_string((assert(Fs.read(path))))))
   local got = assert(Archive.extract_reader(reader, tmp .. "/stream", { links = "create" }))
   assert(table.concat(got, ",") == table.concat(want, ","), table.concat(got, ","))
-  assert(Fs.read(tmp .. "/stream/adir/short.txt") == "hello there")
+  assert(assert(Fs.read(tmp .. "/stream/adir/short.txt")) == "hello there")
   assert(Fs.readlink(tmp .. "/stream/adir/link") == "short.txt")
-  assert(Fs.read(tmp .. "/stream/bin/tool") == "#!/bin/sh\necho hi\n")
+  assert(assert(Fs.read(tmp .. "/stream/bin/tool")) == "#!/bin/sh\necho hi\n")
 end
 
 local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string)
@@ -1165,7 +1165,7 @@ local function test_a_tar_reader_and_a_zip_reader_are_archive_readers(tmp: strin
     dest .. "-zip", { links = "create" }))
   assert(#written == 4, table.concat(written, ","))
   for _, kind in ipairs({ "tar", "zip" }) do
-    assert(Fs.read(dest .. "-" .. kind .. "/d/b.txt") == "bravo", kind)
+    assert(assert(Fs.read(dest .. "-" .. kind .. "/d/b.txt")) == "bravo", kind)
     assert(assert(Fs.readlink(dest .. "-" .. kind .. "/d/l")) == "a.txt", kind)
   end
 end
@@ -1274,8 +1274,8 @@ local function test_create_a_bzip2_tar_with_an_empty_file(tmp: string)
     assert(table.concat(names, ",") == "empty,full", table.concat(names, ","))
     local dest = tmp .. "/out-" .. name
     assert(Archive.extract(path, dest))
-    assert(Fs.read(dest .. "/empty") == "")
-    assert(Fs.read(dest .. "/full") == "contents")
+    assert(assert(Fs.read(dest .. "/empty")) == "")
+    assert(assert(Fs.read(dest .. "/full")) == "contents")
   end
 end
 
@@ -1298,7 +1298,7 @@ local function test_create_deterministic_writes_the_same_bytes_whatever_the_time
       assert(w:add_file("x", "y", { mtime = mtime }))
       assert(w:close())
     end
-    assert(Fs.read(tmp .. "/1" .. name) == Fs.read(tmp .. "/2" .. name), name)
+    assert(assert(Fs.read(tmp .. "/1" .. name)) == assert(Fs.read(tmp .. "/2" .. name)), name)
   end
 end
 

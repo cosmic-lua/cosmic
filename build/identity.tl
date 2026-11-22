@@ -329,7 +329,7 @@ local function seed_paths(root: string): {string}?, string
   if present == nil then return nil, "seed list: " .. missing end
   if not present then return {}, "" end
   local listed, trouble = Fs.read(path)
-  if listed == nil then return nil, "seed list: " .. trouble end
+  if listed == nil then return nil, "seed list: " .. tostring(trouble) end
   local paths: mut {string} = {}
   for line in listed:gmatch("[^\n]+") do paths[#paths + 1] = line end
   return paths, ""

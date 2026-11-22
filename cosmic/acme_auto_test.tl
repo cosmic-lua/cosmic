@@ -151,7 +151,7 @@ local function test_a_kept_certificate_that_misses_a_name_is_issued_again(tmp: s
   -- The fake CA hands back `d.pem` all the same, which is refused and
   -- not kept in place of the one there.
   assert(not loaded and refused:find("not the names asked for", 1, true) ~= nil, refused)
-  assert(Fs.read(dir .. "/certificate.pem") == kept, "the kept certificate was written over")
+  assert(assert(Fs.read(dir .. "/certificate.pem")) == kept, "the kept certificate was written over")
 end
 
 local function test_a_check_that_fails_fails_the_serve_before_it_is_ready(tmp: string)
@@ -293,7 +293,7 @@ local function test_an_account_key_there_is_the_account_and_kept(tmp: string)
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local loaded, why = auto_of(dir, ca).certs:load()
   assert(loaded, why)
-  assert(Fs.read(dir .. "/account.pem") == account.pem, "the account key was written over")
+  assert(assert(Fs.read(dir .. "/account.pem")) == account.pem, "the account key was written over")
   local seen = assert(ca.account)
   assert(seen["x"] == account.jwk["x"] and seen["y"] == account.jwk["y"], "another account was made")
 end

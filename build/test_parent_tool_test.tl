@@ -34,7 +34,8 @@ Test.policy { grants = { { path = "/parent/dir/up.txt", letters = "r" } } }
 local function test_read()
   local path = Test.parent("dir/up.txt")
   local ok, _ = pcall(Test.parent, "other.txt")
-  error("read|" .. path .. "|" .. tostring((Fs.read(path))) .. "|" .. tostring(ok) .. "|end")
+  local text, _ = Fs.read(path)
+  error("read|" .. path .. "|" .. tostring(text) .. "|" .. tostring(ok) .. "|end")
 end
 ]]))
 end

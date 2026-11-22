@@ -183,7 +183,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   for _, path in ipairs(request.files) do
     local text, why = Fs.read(path)
     if text == nil then
-      complain(said(path, why) .. ": check the path, which is read from this directory")
+      complain(said(path, tostring(why)) .. ": check the path, which is read from this directory")
       return bare.refused
     end
     local absolute, absolute_why = Fs.absolute(path)

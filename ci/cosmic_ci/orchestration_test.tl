@@ -265,7 +265,7 @@ local function test_attest_records_the_digest_it_ran(tmp: string)
   local outcome = Fixture.call("attest", append(base, { "platform", "attest" }),
     project, tmp .. "/logs", context(fake, runner_temp, { TARGET = "x86_64-linux-musl" }))
   assert(outcome.result.ok, "attest answered " .. tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
-  local manifest = assert(Fs.read(product .. "/executed-cosmic.sha256"), "no digest attested")
+  local manifest = assert(assert(Fs.read(product .. "/executed-cosmic.sha256")), "no digest attested")
   assert(manifest:match("^%x+  cosmic\n$") ~= nil, manifest)
   assert(Fs.exists(product .. "/expected-platforms") ~= true and Fs.exists(product .. "/portable-share") ~= true,
     "attest wrote more than the digest")
@@ -341,7 +341,7 @@ chmod 755 o/bin/cosmic
   -- Neither of zig's caches is copied into o/: bin/zig uses both where
   -- they were restored, the project cache under the seed
   -- (COSMIC_ZIG_CACHE) and the global one (COSMIC_ZIG_GLOBAL_CACHE).
-  assert(Fs.read(fake .. "/o/zig-cache-named") == seed .. "/zig-cache",
+  assert(assert(Fs.read(fake .. "/o/zig-cache-named")) == seed .. "/zig-cache",
     "the project cache was not used where it was restored")
   assert(not Predicate.is_dir(fake .. "/o/zig-cache"), "project cache was copied into o/")
   assert(not Predicate.is_dir(fake .. "/o/zig-global"), "global cache was copied into o/")
@@ -374,8 +374,8 @@ exit 9
     }))
   assert(not outcome.result.ok, "the build passed a failed bin/zig")
   local copy = assert(Fs.absolute(fake)) .. "/o/zig-cache"
-  assert(Fs.read(copy .. "/o/entry") == "compiled", "the project cache was not copied into o/")
-  assert(Fs.read(copy .. "/named") == copy, "the build did not use the copy")
+  assert(assert(Fs.read(copy .. "/o/entry")) == "compiled", "the project cache was not copied into o/")
+  assert(assert(Fs.read(copy .. "/named")) == copy, "the build did not use the copy")
   assert(Fs.exists(from .. "/named") == false, "the build wrote the cache it copied")
 end
 
@@ -849,10 +849,11 @@ local function test_the_format_check_runs_unless_the_leg_skips_it(tmp: string)
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the format phase answered " ..
         tostring(outcome.result.ok))
-    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    local ran, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
     if case.ran then assert(ran == "fix --check .", ran) end
-    assert(Fs.read(fake .. "/o/bin/cosmic.ci") == nil, case.name .. ": ci/ was checked after a tree that failed")
+    local got, _ = Fs.read(fake .. "/o/bin/cosmic.ci")
+    assert(got == nil, case.name .. ": ci/ was checked after a tree that failed")
   end
 end
 
@@ -868,8 +869,8 @@ local function test_the_format_check_checks_ci_from_its_own_directory(tmp: strin
   local outcome = Fixture.call("format-ci", append(base, { "platform", "format" }), project, tmp .. "/logs",
     context(fake, runner_temp, { TARGET = "x86_64-linux-musl", COSMIC_CI_FORMAT = "run" }))
   assert(not outcome.result.ok, "the format phase passed though ci/ failed its own check")
-  assert(Fs.read(fake .. "/o/bin/cosmic.ran") == "fix --check .")
-  assert(Fs.read(fake .. "/o/bin/cosmic.ci") == "fix --check")
+  assert(assert(Fs.read(fake .. "/o/bin/cosmic.ran")) == "fix --check .")
+  assert(assert(Fs.read(fake .. "/o/bin/cosmic.ci")) == "fix --check")
 end
 
 --- The format check keeps a native suite's boundary: where the suite
@@ -903,7 +904,7 @@ local function test_the_format_check_waits_on_a_suites_boundary_alone(tmp: strin
       }))
     assert(outcome.result.ok == case.ran, case.name .. ": the format phase answered " ..
         tostring(outcome.result.ok))
-    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    local ran, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert((ran ~= nil) == case.ran, case.name .. ": the check ran: " .. tostring(ran))
   end
 end
@@ -1014,16 +1015,17 @@ local function test_only_a_leg_that_runs_the_checked_suite_runs_the_checked_cosm
       }))
     assert(outcome.result.ok == case.ok, case.name .. ": the checked phase answered " ..
         tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
-    assert(Fs.read(verdicts .. "/verdicts.db") == "native\n", case.name .. ": the native verdicts moved")
-    assert((Fs.read(verdicts .. "/checked.db") == nil) == case.removed,
+    assert(assert(Fs.read(verdicts .. "/verdicts.db")) == "native\n", case.name .. ": the native verdicts moved")
+    local got, _ = Fs.read(verdicts .. "/checked.db")
+    assert((got == nil) == case.removed,
       case.name .. ": the checked verdicts were " .. (if case.removed then "kept" else "removed" end))
-    local ran = Fs.read(fake .. "/o/sanitized/bin/cosmic.ran")
+    local ran, _ = Fs.read(fake .. "/o/sanitized/bin/cosmic.ran")
     if ran then ran = ran:gsub("[^\n]*/test/portable/tool%.tl", "/tool.tl") end
     assert(ran == case.ran, case.name .. ": the checked cosmic ran: " .. tostring(ran))
-    local released = Fs.read(fake .. "/o/bin/cosmic.ran")
+    local released, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(released == nil, case.name .. ": the release cosmic ran: " .. tostring(released))
     if case.argv ~= nil then
-      local argv = Fs.read(fake .. "/o/sanitized/bin/cosmic.argv")
+      local argv, _ = Fs.read(fake .. "/o/sanitized/bin/cosmic.argv")
       assert(argv == case.argv, case.name .. ": the suite ran as: " .. tostring(argv))
     end
     -- The suite that ran wrote its row, with what its output said.
@@ -1071,11 +1073,12 @@ local function test_the_checked_job_boots_and_builds_what_the_checked_phase_read
       project, tmp .. "/logs", env)
     assert(outcome.result.ok, phase .. " failed: " .. Fixture.read(outcome.err))
   end
-  assert(Fs.read(fake .. "/o/zig.ran") == "build cores boot -Dboot-cores=all\nbuild sanitized\n" ..
-      "build portable-format-" .. target .. "\n", tostring((Fs.read(fake .. "/o/zig.ran"))))
-  assert(Fs.read(fake .. "/o/bin/cosmic.ran") == nil, "boot ran the native suite")
+  assert(assert(Fs.read(fake .. "/o/zig.ran")) == "build cores boot -Dboot-cores=all\nbuild sanitized\n" ..
+      "build portable-format-" .. target .. "\n", tostring((assert(Fs.read(fake .. "/o/zig.ran")))))
+  local got, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
+  assert(got == nil, "boot ran the native suite")
   local decoder = runner_temp .. "/cosmic-ci/platform/contract/format/format-test-" .. target
-  assert(Fs.read(decoder) == "decoder", "the decoder is not where the checked phase reads it")
+  assert(assert(Fs.read(decoder)) == "decoder", "the decoder is not where the checked phase reads it")
   local st = assert(Fs.stat(decoder))
   assert(st.mode & 0x49 == 0x49, "the decoder is not executable: " .. tostring(st.mode))
   local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
@@ -1278,12 +1281,13 @@ local function test_a_leg_that_skips_the_portable_suite_still_attests(tmp: strin
     assert(err:find(": skipped on this leg (COSMIC_CI_PORTABLE_SUITE=skip)", 1, true) ~= nil,
       phase .. ": " .. err)
   end
-  assert(Fs.read(seen) == nil, "a skipped portable suite ran the artifact: " ..
-      tostring((Fs.read(seen))))
-  assert(Fs.read(diagnostics .. "/portable-artifact.after.sha256") == digest,
+  local ran, _ = Fs.read(seen)
+  assert(ran == nil, "a skipped portable suite ran the artifact: " .. tostring(ran))
+  assert(assert(Fs.read(diagnostics .. "/portable-artifact.after.sha256")) == digest,
     "a skipped portable suite recorded no digest for attest")
-  assert(Fs.read(diagnostics .. "/portable-immediate/hashes.sha256") == nil and
-      Fs.read(diagnostics .. "/portable-boundary/hashes.sha256") == nil,
+  local immediate, _ = Fs.read(diagnostics .. "/portable-immediate/hashes.sha256")
+  local boundary, _ = Fs.read(diagnostics .. "/portable-boundary/hashes.sha256")
+  assert(immediate == nil and boundary == nil,
     "a skipped portable suite snapshotted a database")
 end
 
@@ -1355,7 +1359,7 @@ chmod 755 o/bin/cosmic
   assert(cores:sub(-#"/runner-temp/cosmic-ci/platform/suite-cores") == "/runner-temp/cosmic-ci/platform/suite-cores",
     "the native suite's cores cache: " .. tostring(env["COSMIC_PORTABLE_CACHE"]))
   assert(env["COSMIC_TEST_NO_SHARED"] == nil, "a Linux push's suite stands on shared verdicts")
-  assert(Fs.read(seen .. ".words") == "test --census\n", "a Linux push's suite ran --all")
+  assert(assert(Fs.read(seen .. ".words")) == "test --census\n", "a Linux push's suite ran --all")
 end
 
 --- The portable suite stands on verdicts where the other suites do --
@@ -1401,8 +1405,8 @@ exit 0
       }))
     assert(outcome.result.ok, case.event .. ": the portable phase failed: " ..
         Fixture.read(outcome.err))
-    assert(Fs.read(seen .. ".words") == case.words, case.event .. ": " ..
-        tostring((Fs.read(seen .. ".words"))))
+    assert(assert(Fs.read(seen .. ".words")) == case.words, case.event .. ": " ..
+        tostring((assert(Fs.read(seen .. ".words")))))
     local env: mut {string:string} = {}
     for line in (assert(Fs.read(seen .. ".env"))):gmatch("[^\n]+") do
       local name, value = line:match("^([^=]+)=(.*)$")
@@ -1584,7 +1588,7 @@ local function test_the_darwin_suite_runs_on_the_macos_legs_gating_runs_alone(tm
       local ok = case.ok or phase ~= "darwin-suite"
       assert(outcome.result.ok == ok, case.name .. ": " .. phase .. ": " .. err)
     end
-    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    local ran, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case.ran, case.name .. ": " .. tostring(ran))
     local db = assert(Sqlite.open(runner_temp .. "/cosmic-ci/operations.db"))
     local names: mut {string} = {}
@@ -1640,7 +1644,7 @@ local function run_narrowing_cases(tmp: string, cases: {ChecksCase})
       local ok = phase == "boot" or case.ok
       assert(outcome.result.ok == ok, case.name .. ": " .. phase .. ": " .. Fixture.read(outcome.err))
     end
-    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    local ran, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case.ran, case.name .. ": " .. tostring(ran))
   end
 end
@@ -1847,7 +1851,7 @@ local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   local placed = BuildPaths.driven(project) .. "/fixtures/launcher"
   assert(Fs.mkdirs(placed) and Fs.write(placed .. "/file", "earlier"))
   assert(Orchestration.fixture_project(driver, tmp .. "/work") == project)
-  assert(Fs.read(project .. "/fixtures/a_test.tl") == "\n")
+  assert(assert(Fs.read(project .. "/fixtures/a_test.tl")) == "\n")
   assert(Fs.exists(placed) ~= true, "the earlier fixture's placement was kept")
 end
 
@@ -1862,8 +1866,8 @@ local function test_a_fixture_project_takes_the_drivers_json_data(tmp: string)
   assert(Fs.write(tmp .. "/ci/cosmic_ci/capabilities.json", "{}\n"))
   assert(Fs.write(tmp .. "/ci/cosmic_ci/run_names.json", "{}\n"))
   local project = Orchestration.fixture_project(driver, tmp .. "/work")
-  assert(Fs.read(project .. "/cosmic_ci/capabilities.json") == "{}\n")
-  assert(Fs.read(project .. "/cosmic_ci/run_names.json") == "{}\n")
+  assert(assert(Fs.read(project .. "/cosmic_ci/capabilities.json")) == "{}\n")
+  assert(assert(Fs.read(project .. "/cosmic_ci/run_names.json")) == "{}\n")
   assert(Fs.write(tmp .. "/ci/fixtures/data.json", "{}\n"))
   local called, _ = pcall(Orchestration.fixture_project, driver, tmp .. "/work")
   assert(not called, "a JSON file among the fixtures was copied")
@@ -2072,8 +2076,8 @@ local function test_the_format_check_lays_out_only_the_paths_changed(tmp: string
         COSMIC_CI_FORMAT_CHANGED = assert(case["changed"]),
       }))
     assert(outcome.result.ok, assert(case["name"]) .. ": the format phase failed")
-    local ran = Fs.read(fake .. "/o/bin/cosmic.ran")
+    local ran, _ = Fs.read(fake .. "/o/bin/cosmic.ran")
     assert(ran == case["ran"], assert(case["name"]) .. ": the check ran " .. tostring(ran))
-    assert(Fs.read(fake .. "/o/bin/cosmic.ci") == "fix --check", assert(case["name"]) .. ": ci/ was not checked as its own project")
+    assert(assert(Fs.read(fake .. "/o/bin/cosmic.ci")) == "fix --check", assert(case["name"]) .. ": ci/ was not checked as its own project")
   end
 end

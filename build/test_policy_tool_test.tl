@@ -76,7 +76,7 @@ local function environment(): mut {string:string}
   local env = this_program.environment()
   -- The seccomp filters this worker has, which each worker of a run it
   -- starts inherits.
-  local status = assert((Fs.read("/proc/self/status")))
+  local status = assert(Fs.read("/proc/self/status"))
   env["BASELINE_FILTERS"] = status:match("Seccomp_filters:\t(%d+)") or "0"
   env["COSMIC_VERDICT_CACHE"] = "0"
   env["COSMIC_TEST_ALL"] = nil
@@ -105,7 +105,7 @@ Test.policy {
 }
 
 local function test_a_declared_read_is_held_as_a_policy_holds_it()
-  assert(Fs.read("suite/data.txt") == "declared")
+  assert(assert(Fs.read("suite/data.txt")) == "declared")
   local status = assert(Fs.read("/proc/self/status"))
   -- One filter beyond the ones inherited, which a container's runtime may
   -- have installed on every process.

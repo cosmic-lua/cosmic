@@ -1523,7 +1523,10 @@ local function compile_derived(handle: work.Handle, tool: string,
           local function heard(): {{string}}
             local out: mut {{string}} = {}
             local data: string? = nil
-            if said_path ~= nil then data, _ = Fs.read(said_path) end
+            if said_path ~= nil then
+              local read, _ = Fs.read(said_path)
+              data = read
+            end
             if data == nil then return out end
             local whole = data:sub(read_to + 1):match("^(.*\n)") or ""
             read_to = read_to + #whole
