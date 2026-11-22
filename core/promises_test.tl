@@ -936,7 +936,8 @@ local function test_the_truncation_filter_refuses_truncation_alone()
       assert(got == "allow" or got == "EPERM" or got == "ENOSYS", arch .. " " .. tostring(number) .. " is " .. got)
     end
   end
-  -- x32's truncate, 76 with its bit, finds no number to pass by.
+  -- x32's calls are x86_64's numbers with bit 30 set, so its truncate is
+  -- 76 again: the filter answers every x32 call ENOSYS.
   local x86 = decode(process.promise_filter({}, "x86_64", options))
   assert(verdict(run(x86, audit_of("x86_64"), 0x40000000 + 76, {})) == "ENOSYS")
   Test.raises(function() process.promise_filter({ "fork" }, "x86_64", options) end)

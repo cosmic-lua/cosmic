@@ -1307,7 +1307,8 @@ struct cosmic_mount_attr {
 /* Where in building a policy's sandbox (`spawn`'s `strict`) a child
  * failed, which its errno alone does not say: the status pipe carries
  * the stage above the errno's bits, and `spawn` reads both back to
- * name the remedy. A child that is not strict reports its errno only. */
+ * name the remedy. A child that is not strict reports its errno only,
+ * but for STAGE_RELAY and STAGE_TRUNCATION, which any start may meet. */
 enum {
   STAGE_NAMESPACE = 1, /* a user, pid, mount or network namespace, or mapping its ids */
   STAGE_PROC,          /* a procfs of its own */
@@ -1315,6 +1316,7 @@ enum {
   STAGE_IDMAP,         /* an idmapped mount of a path, which the plan's `idmap_failed` names */
   STAGE_KIND,          /* a path bound that is a directory or socket the start did not see */
   STAGE_RELAY,         /* the relay's listeners: made, bound, or handed over the channel */
+  STAGE_TRUNCATION,    /* the filter that holds truncation where no promises filter does */
   STAGE_SHIFT = 16,
 };
 
@@ -1350,6 +1352,12 @@ static void staged_message (int stage, int number, const char *path, char *messa
              "the relay's listeners could not be made in this sandbox's network namespace (%s): "
              "a socket, a bind of 127.0.0.1 at one of the ports given (the two must differ), a "
              "listen, or the send of both descriptors over the channel failed", what);
+  } else if (stage == STAGE_TRUNCATION) {
+    snprintf(message, room,
+             "seccomp filter: %s: a child a Landlock ruleset holds without promises, where the "
+             "ruleset does not handle truncation (below Landlock ABI 3, or a `ruleset` "
+             "descriptor), is held to a filter that refuses it, which this kernel did not "
+             "install", what);
   } else if (stage == STAGE_PROC) {
     snprintf(message, room,
              "this sandbox's own /proc was refused (%s): a container's runtime masks parts of "
@@ -2106,7 +2114,7 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   /* Without a promises filter, one that holds truncation alone, where the
    * ruleset does not (core/promises.h's `cosmic_truncation_apply`). */
   else if (!failure && confined >= 0 && (plan->held & COSMIC_HELD_TRUNCATE) == 0)
-    failure = cosmic_truncation_apply();
+    failure = staged(1, STAGE_TRUNCATION, cosmic_truncation_apply());
   if (!failure) execve(plan->path, plan->argv, plan->envp);
   if (!failure) failure = errno;
   report_child_error(status_fd, failure);
@@ -5201,7 +5209,8 @@ COSMIC_SYSCALL(spawn, 12) {
 #endif
     int number = received == sizeof child_error ? child_error : (read_error != 0 ? read_error : EIO);
 #if defined(__linux__)
-    if ((strict || number >> STAGE_SHIFT == STAGE_RELAY) && number >> STAGE_SHIFT != 0) {
+    int stage = number >> STAGE_SHIFT;
+    if ((strict || stage == STAGE_RELAY || stage == STAGE_TRUNCATION) && stage != 0) {
       char message[PATH_MAX + 512];
       staged_message(number >> STAGE_SHIFT, number & ((1 << STAGE_SHIFT) - 1),
                      idmap_path[0] != '\0' ? idmap_path : NULL, message, sizeof message);

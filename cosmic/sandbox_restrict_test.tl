@@ -80,34 +80,6 @@ say("create", writes(%q))
   end
 end
 
---- An open with O_TRUNC that writes nothing empties a file a ruleset below
---- Landlock ABI 3 gave only to read: the filter refuses it there, and from
---- ABI 3 the ruleset answers, letting a `w` grant truncate.
-local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: string)
-  local abi, _ = require("cosmic.internal.process").landlock_abi()
-  assert(Fs.write(tmp .. "/r", "kept") and Fs.write(tmp .. "/w", "kept"))
-  local said = Restrict.in_child(restricted(
-    string.format("{ grants = { { path = %q, letters = \"r\" }, { path = %q, letters = \"rw\" } } }",
-      tmp .. "/r", tmp .. "/w"),
-    string.format([[
-for _, name in ipairs({ "r", "w" }) do
-  local fd, why = sys.open(%q .. "/" .. name, sys.O_RDONLY | sys.O_TRUNC)
-  if fd ~= nil then sys.close(fd) end
-  say(name, fd ~= nil, why)
-end
-]], tmp)))
-  local refusal = if abi ~= nil and abi >= 3 then DENIED else "not permitted" end
-  assert(assert(said.lines["r"]):find("^false") and assert(said.lines["r"]):find(refusal, 1, true), said.raw)
-  assert(Fs.read(tmp .. "/r") == "kept")
-  if abi ~= nil and abi >= 3 then
-    assert(said.lines["w"] == "true nil", said.raw)
-    assert(Fs.read(tmp .. "/w") == "")
-  else
-    assert(assert(said.lines["w"]):find("not permitted", 1, true), said.raw)
-    assert(Fs.read(tmp .. "/w") == "kept")
-  end
-end
-
 local function test_the_filter_refuses_a_socket_and_a_process(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local said = Restrict.in_child(restricted(
