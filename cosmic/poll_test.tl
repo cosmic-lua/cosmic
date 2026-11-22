@@ -459,7 +459,7 @@ local function test_wake_answers_the_waits_on_a_descriptor_as_ready(tmp: string)
       again = why
     end)
     local several = Poll.spawn(function()
-      answers.value = Poll.ready({ reader }, { sys.POLLIN }, Clock.seconds(5)) -- checked: map_field
+      answers.value = Poll.ready({ reader }, { sys.POLLIN }, Clock.seconds(5))
     end)
     assert(Poll.delay(0))
     Poll.wake(reader)
@@ -468,7 +468,7 @@ local function test_wake_answers_the_waits_on_a_descriptor_as_ready(tmp: string)
   end)
   assert(answered, "the wait was not answered")
   assert(again == Poll.TIMEOUT, "a wait after the wake waits anew: " .. tostring(again))
-  assert(answers.value ~= nil and answers.value[1] == sys.POLLIN, "a wait on several is answered what it asked") -- checked: map_field*2
+  assert(answers.value ~= nil and answers.value[1] == sys.POLLIN, "a wait on several is answered what it asked")
   Poll.wake(reader)
   sys.close(reader)
   sys.close(writer)

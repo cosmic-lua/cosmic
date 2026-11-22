@@ -777,7 +777,7 @@ end
 --- the pid, and pidfd_send_signal is refused.
 local function test_an_unscoped_filter_keeps_a_signal_to_the_starting_pid()
   local pid = 4242
-  for _, options in ipairs({ { pid = pid }, { pid = pid, scoped = false } }) do -- checked: arms_differ
+  for _, options in ipairs({ { pid = pid }, { pid = pid, scoped = false } }) do
     holds_on_both({ "fork" }, {
       call("kill", "allow", pid, 15), call("kill", "EPERM", pid + 1, 15),
       call("kill", "EPERM", 0, 15), call("kill", "EPERM", -1, 9),

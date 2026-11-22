@@ -230,7 +230,7 @@ local function test_head_is_answered_with_no_body()
     read: function(Watched, max_bytes?: integer): string?, string
     close: function(Watched): boolean, string
   end
-  local watched: Watched = setmetatable({}, { __index = { -- checked: arms_differ, setmetatable_call
+  local watched: Watched = setmetatable({}, { __index = { -- checked: setmetatable_call
     read = function(_self: Watched, _max_bytes?: integer): string?, string
       read_from = true
       return nil, ""
@@ -355,23 +355,28 @@ local function test_each_limit_is_answered()
   assert(#troubles == 0, troubles[1])
 end
 
+--- `v` as untrusted data: a value reaches `any` as an argument to a parameter declared `any`.
+local function untyped(v: any): any
+  return v
+end
+
 --- A handler that raises, or answers what is no reply the server can
 --- send, is answered 500, the connection closed, and the trouble goes
 --- to on_error: a raise with its stack.
 local function test_a_failing_handler_is_answered_500()
   local bad: {string: any} = {
     ["/nil"] = nil, -- checked: any_use
-    ["/owned"] = { status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } }, -- checked: arms_differ
-    ["/unsent"] = { status = 200, headers = { ["Content-Length"] = "3" } }, -- checked: arms_differ
-    ["/mismatch"] = { status = 200, headers = { ["content-length"] = "4" }, body = "hello" }, -- checked: arms_differ
-    ["/cr"] = { status = 200, headers = { ["X-Bad"] = "a\r\nb" } }, -- checked: arms_differ
-    ["/nocontent"] = { status = 204, body = "not empty" }, -- checked: arms_differ
-    ["/interim"] = { status = 101 }, -- checked: any_use
-    ["/typo"] = { status = 200, header = {} }, -- checked: any_use, literal_needs_type
-    ["/crlist"] = { status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } }, -- checked: arms_differ
-    ["/lenlist"] = { status = 200, headers = { ["Content-Length"] = { "0" } } }, -- checked: arms_differ
-    ["/datelist"] = { status = 200, headers = { Date = { "x" } } }, -- checked: arms_differ
-    ["/numlist"] = { status = 200, headers = { ["Set-Cookie"] = { 1 } } }, -- checked: arms_differ
+    ["/owned"] = untyped({ status = 200, headers = { Date = "Thu, 01 Jan 1970 00:00:00 GMT" } }),
+    ["/unsent"] = untyped({ status = 200, headers = { ["Content-Length"] = "3" } }),
+    ["/mismatch"] = untyped({ status = 200, headers = { ["content-length"] = "4" }, body = "hello" }),
+    ["/cr"] = untyped({ status = 200, headers = { ["X-Bad"] = "a\r\nb" } }),
+    ["/nocontent"] = untyped({ status = 204, body = "not empty" }),
+    ["/interim"] = untyped({ status = 101 }),
+    ["/typo"] = { status = 200, header = {} }, -- checked: literal_needs_type
+    ["/crlist"] = untyped({ status = 200, headers = { ["Set-Cookie"] = { "a=1", "b=2\r\nX: y" } } }),
+    ["/lenlist"] = untyped({ status = 200, headers = { ["Content-Length"] = { "0" } } }),
+    ["/datelist"] = untyped({ status = 200, headers = { Date = { "x" } } }),
+    ["/numlist"] = untyped({ status = 200, headers = { ["Set-Cookie"] = { 1 } } }),
   }
   local paths = { "/raise", "/nil", "/owned", "/cr", "/nocontent", "/interim", "/typo", "/unsent",
     "/mismatch", "/crlist", "/lenlist", "/datelist", "/numlist" }
@@ -633,7 +638,7 @@ local function test_a_reply_body_that_raises_closes_the_connection()
     read: function(Raising, max_bytes?: integer): string?, string
     close: function(Raising): boolean, string
   end
-  local raising: Raising = setmetatable({}, { __index = { -- checked: arms_differ, setmetatable_call
+  local raising: Raising = setmetatable({}, { __index = { -- checked: setmetatable_call
     read = function(_self: Raising, _max_bytes?: integer): string?, string
       error("the body broke")
     end,
@@ -665,7 +670,7 @@ local function test_a_body_failing_under_the_reply_closes_the_connection()
     read: function(Lenient, max_bytes?: integer): string?, string
     close: function(Lenient): boolean, string
   end
-  local lenient_methods = { -- checked: arms_differ
+  local lenient_methods = {
     -- Reads every failure as the end.
     read = function(self: Lenient, max_bytes?: integer): string?, string
       local piece, _ = self.source:read(max_bytes)
@@ -869,7 +874,7 @@ end
 
 --- A body_ns that is no duration raises, naming the field.
 local function test_a_degenerate_body_ns_is_refused()
-  local ok, err = pcall(Server.serve, { -- checked: arms_differ, cast_refused
+  local ok, err = pcall(Server.serve, { -- checked: cast_refused
     listeners = { Net.tcp("127.0.0.1", 0) }, handle = echo, body_ns = -1,
   } as Server.ServeSpec)
   assert(not ok and tostring(err):find("body_ns", 1, true) ~= nil, tostring(err))

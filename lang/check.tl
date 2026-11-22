@@ -460,6 +460,11 @@ local record Ctx
   --- What the program does with the locals that hold a table literal ([`Writes.privacy`]), worked out the first time a write
   --- asks.
   mut privacy: Privacy?
+  --- The names of the fields the program writes of each table literal it gives a local, by the id of the literal's node
+  --- ([`TableLiterals.writes`]), worked out the first time a literal asks.
+  mut literal_writes: {integer: {string: boolean}}?
+  --- The records inferred for literals with named items, by the text of their fields ([`TableLiterals.inferred`]).
+  inferred: mut {string: Decl}
   --- The reads of narrowed places, by the id of the node of the read.
   narrowed: mut {integer: Check.Narrowed}
   --- The calls, by the id of the node, that run no code of the program ([`Tests.inert_callee`]): the facts about the length of
@@ -778,6 +783,95 @@ local function accepts(ctx: Ctx, a: Type, b: Type): boolean
   return b.tag == "any" or below(ctx, a, b)
 end
 
+--- The checks of a table literal against the type it is written for, and the type it has where none is written.
+local record TableLiterals
+end
+
+--- The record inferred for a literal of named items with the fields `fields`: one record for each set of names, types
+--- and `mut`, named `__literal` and a number and shown by its fields ([`Types.inferred_record`]).
+function TableLiterals.inferred_of(ctx: Ctx, list: {Types.Field}): Type
+  local store = ctx.store
+  local fields: mut {Types.Field} = {}
+  for _, f in ipairs(list) do
+    fields[#fields + 1] = f
+  end
+  table.sort(fields, function(a: Types.Field, b: Types.Field): boolean return a.name < b.name end)
+  local function key_of(given: {Types.Field}): string
+    local out: mut {string} = {}
+    for _, f in ipairs(given) do
+      out[#out + 1] = (if f.mut == true then "mut " else "" end) .. f.name .. ":" .. tostring(f.type.id)
+    end
+    return table.concat(out, ",")
+  end
+  local key = key_of(fields)
+  local decl = ctx.inferred[key]
+  if decl == nil then
+    -- A record of the name an earlier check of the module made is this one where its fields are.
+    local count = 1
+    local found = store:find(ctx.input.module, "__literal1")
+    while found ~= nil do
+      local body = found.body
+      if body ~= nil and found.inferred == true and key_of(body.fields) == key then
+        break
+      end
+      count = count + 1
+      found = store:find(ctx.input.module, "__literal" .. tostring(count))
+    end
+    if found ~= nil then
+      decl = found
+    else
+      decl = store:declare("record", ctx.input.module, { "__literal" .. tostring(count) }, 0)
+      decl.inferred = true
+      store:define(decl, { tparams = {}, supers = {}, fields = fields, methods = {}, values = {} })
+    end
+    ctx.inferred[key] = decl
+  end
+  return store:named(decl, {}, false)
+end
+
+--- The record two or more inferred records `list` join to: each field of any of them, of the join of its types, and
+--- nilable where one of them lacks it; `mut` where each has it `mut` of one type. Nil where two types of a field have
+--- no join.
+function TableLiterals.inferred_join(ctx: Ctx, list: {Type}, join_of: function({Type}): Type?): Type?
+  local names: mut {string} = {}
+  local types: mut {string: mut {Type}} = {}
+  local muts: mut {string: integer} = {}
+  for _, t in ipairs(list) do
+    if not ((t.tag == "named") and not t.value and Types.inferred_record(t.decl)) then
+      return nil
+    end
+    for _, f in ipairs(assert(t.decl.body, "an inferred record is defined where it is made").fields) do
+      local held: mut {Type} = types[f.name] or {}
+      if types[f.name] == nil then
+        types[f.name] = held
+        names[#names + 1] = f.name
+      end
+      held[#held + 1] = f.type
+      if f.mut == true then
+        muts[f.name] = (muts[f.name] or 0) + 1
+      end
+    end
+  end
+  local fields: mut {Types.Field} = {}
+  for _, name in ipairs(names) do
+    local held = assert(types[name])
+    local joined = join_of(held)
+    if joined == nil then
+      return nil
+    end
+    local every = #held == #list
+    if not every then
+      joined = ctx.store:optional(joined)
+    end
+    local same = true
+    for _, t in ipairs(held) do
+      same = same and t == joined
+    end
+    fields[#fields + 1] = { name = name, type = joined, mut = every and same and muts[name] == #list, omittable = false }
+  end
+  return TableLiterals.inferred_of(ctx, fields)
+end
+
 --- The type every type of `list` is below, or nil where there is none. A `nil` in the list makes the answer
 --- optional; `never` is ignored; an empty list is `never`.
 local function join(ctx: Ctx, list: {Type}): Type?
@@ -803,7 +897,20 @@ local function join(ctx: Ctx, list: {Type}): Type?
   end
   for _, t in ipairs(list) do
     if t.tag ~= "nil" and t.tag ~= "never" and not below(ctx, t, best) then
-      return nil
+      -- Records inferred for literals of named items join to one with the fields of each.
+      local records: mut {Type} = {}
+      for _, r in ipairs(list) do
+        if r.tag ~= "nil" and r.tag ~= "never" then
+          records[#records + 1] = r
+        end
+      end
+      local merged = TableLiterals.inferred_join(ctx, records, function(types: {Type}): Type?
+        return join(ctx, types)
+      end)
+      if merged == nil then
+        return nil
+      end
+      return if saw_nil then store:optional(merged) else merged end
     end
   end
   return saw_nil and store:optional(best) or best -- checked: and_ternary
@@ -1088,6 +1195,12 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
   local s = subject(ctx, node)
   local g, w = show(ctx, got), named or show(ctx, want)
   local shown = { g, w }
+  local alternatives = r.alternatives
+  local only = if alternatives ~= nil and #alternatives == 1 then alternatives[1] else nil end
+  if r.code == "union_none" and only ~= nil and (r.sub.tag == "named") and Types.inferred_record(r.sub.decl) then
+    -- A record inferred for a literal, where one record or nil is wanted: why that record refuses it is the reason.
+    r = only
+  end
   local code = r.code
   local from, into = r.sub, r.super
   if code ~= "declaration_value" then
@@ -1218,11 +1331,35 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
       -- arguments must be the same types.
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " and " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
         " are two types, and a declaration's type arguments must be the same: " .. quoted(g) .. " is no " .. quoted(w) .. ")"
-    elseif r.sub ~= got or r.super ~= want then
+    elseif (r.sub ~= got or r.super ~= want) and not (code == "not_listed" and (r.sub.tag == "named") and
+        Types.inferred_record(r.sub.decl)) then
       leaf = " (" .. quoted(Types.display(r.sub, ctx.binders, ctx.fn_names)) .. " is not below " ..
         quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) .. ")"
     end
     local fix = "pass a value of type " .. quoted(w) .. ", or change the declaration to " .. quoted(g)
+    local inferred = if (r.sub.tag == "named") and not r.sub.value then Types.inferred_record(r.sub.decl) else false end
+    if inferred and code == "nominal" then
+      -- A record inferred for a literal is below a record of the same fields, and no class: a class's values are made
+      -- by a literal written against it.
+      local sup = r.super
+      local extra: string? = nil
+      local mine = if (r.sub.tag == "named") then r.sub.decl.body else nil end
+      local theirs = if (sup.tag == "named") and sup.decl.kind == "record" then sup.decl.body else nil end
+      if mine ~= nil and theirs ~= nil then
+        local declared: mut {string: boolean} = {}
+        for _, f in ipairs(theirs.fields) do
+          declared[f.name] = true
+        end
+        for _, f in ipairs(mine.fields) do
+          if extra == nil and declared[f.name] ~= true then
+            extra = f.name
+          end
+        end
+      end
+      fix = (if extra ~= nil then "remove `" .. extra .. "`, which " .. quoted(Types.display(sup, ctx.binders, ctx.fn_names)) ..
+          " has no field of, or " else "" end) .. "write the literal against " .. quoted(w) .. " where it is made (`local v: " ..
+        w .. " = { ... }`)"
+    end
     local held = where:match("^ in the assignment to `([%a_][%w_]*)`$")
     if want.tag == "nil" and held ~= nil then
       -- A local given `nil` and no type holds nil alone (`local x = nil`).
@@ -1273,6 +1410,25 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
           " has no field " end) .. quoted(written) .. ", which " .. quoted(Types.display(r.super, ctx.binders,
             ctx.fn_names)) .. " declares)"
         fix = "declare `" .. written .. "` in " .. sub .. ", as the interface does, or pass a value that has it"
+        if (r.sub.tag == "named") and Types.inferred_record(r.sub.decl) then
+          local record = Types.display(r.super, ctx.binders, ctx.fn_names)
+          local name = text_of(ctx, e)
+          local against = "write the literal against " .. quoted(record) .. " where it is made (`local " ..
+            (if name:match("^[%a_][%w_]*$") then name else "v" end) .. ": " .. record .. " = { ... }`)"
+          fix = "give `" .. field.name .. "` in the literal as " .. quoted(Types.display(r.super, ctx.binders, ctx.fn_names)) ..
+            " declares it, or " .. against
+          if field.mut == true then
+            -- A write through the record wanted would change, or add, a field that the literal's own record holds fixed.
+            fix = against .. ": a write of `" .. field.name .. "` through " .. quoted(record) ..
+              " would change a record whose type does not let it"
+            if r.has_name == true and field.omittable ~= true and name:match("^[%a_][%w_]*$") ~= nil then
+              -- Its own writes make the literal's field `mut`, of the type of its value.
+              fix = fix .. "; or give `" .. field.name .. "` a value of exactly " .. quoted(Types.display(
+                ctx.store:non_nil(field.type), ctx.binders, ctx.fn_names)) .. " and assign it through `" .. name ..
+                "`, which makes it `mut`"
+            end
+          end
+        end
       else
         fix = "pass a record, class or interface that has the interface's fields, or one that lists it with `is`"
       end
@@ -1664,10 +1820,6 @@ end
 
 -- Table literals ----------------------------------------------------------------------------
 
---- The checks of a table literal against the type it is written for, and the type it has where none is written.
-local record TableLiterals
-end
-
 --- Checks the values of the items of a literal that has no shape to be checked against, so that what is in them
 --- is checked.
 function TableLiterals.items_unshaped(ctx: Ctx, items: {Ast.Item})
@@ -1797,6 +1949,10 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
       values[#values + 1] = expr(ctx, item.value, nil)
     end
   end
+  if shape == "named" then
+    -- Named items are the fields of a record the literal makes, inferred from their values.
+    return TableLiterals.inferred(ctx, e, values)
+  end
   local key = join(ctx, keys)
   local value = join(ctx, values)
   if key == nil or value == nil then
@@ -1820,6 +1976,145 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
     return ctx.invalid
   end
   return store:map(key, value, true)
+end
+
+--- The fix for a field `name` that the record `t` inferred for a literal lacks: give it in the literal, or declare a type.
+function TableLiterals.declare_fix(ctx: Ctx, t: Type, name: string): string
+  return "give " .. quoted(name) .. " in the literal (`" .. name .. " = ...`), or declare a record or a map " ..
+    "(`{string: T}`) for the value and write the literal against it, as " .. tq(ctx, t) .. " has only the fields the " ..
+    "literal names"
+end
+
+--- Reports the write of the field `name` of `base`, a record inferred for a literal, that the program does not write
+--- through the local the literal is given to, which alone makes a field `mut`.
+function TableLiterals.fixed(ctx: Ctx, target: Ast.Node, base: Type, name: string)
+  report(ctx, "field_fixed", target, "the field " .. quoted(name) .. " of " .. tq(ctx, base) .. ", a record inferred for a " ..
+      "literal, is fixed: a field is `mut` where the program writes it through the local the literal is given to",
+    "write it through that local (`local p = { ... }` then `p." .. name .. " = v`), or declare a record with `mut " ..
+      name .. "` and write the literal against it", { show(ctx, base) })
+end
+
+--- The names of the fields the program writes of each table literal it gives a local, by the id of the literal's
+--- node: `p.x = v` (or `p["x"] = v`) writes `x` of the literal of `local p = { ... }`, and `p.at.x = v` writes `x` of
+--- the literal given as `at` in it. A field of a record inferred from a literal is `mut` where it is written so.
+function TableLiterals.writes(ctx: Ctx): {integer: {string: boolean}}
+  local held = ctx.literal_writes
+  if held ~= nil then
+    return held
+  end
+  -- The paths written through each local, `at.x` for `p.at.x = v`, by the id of the local's binding.
+  local paths: mut {integer: mut {string: boolean}} = {}
+  local bound: mut {integer: Ast.Table} = {}
+  local function path_of(target: Ast.Exp): integer, string
+    local names: mut {string} = {}
+    local at = peel(target)
+    while true do
+      if (at.kind == "Field") then
+        table.insert(names, 1, at.name)
+        at = peel(at.object)
+      elseif (at.kind == "Index") and (peel(at.key).kind == "String") then
+        local key = peel(at.key)
+        table.insert(names, 1, if (key.kind == "String") then key.value else "" end)
+        at = peel(at.object)
+      else
+        break
+      end
+    end
+    local id = if (at.kind == "Name") then at.binding else nil end
+    if id ~= nil and #names > 0 then
+      return id, table.concat(names, ".")
+    end
+    return 0, ""
+  end
+  local waiting: mut {Ast.Node} = { ctx.input.chunk }
+  while #waiting > 0 do
+    local node = assert(waiting[#waiting])
+    waiting[#waiting] = nil
+    if (node.kind == "Local") then
+      for i, binding in ipairs(node.bindings) do
+        local value = node.values[i]
+        if value ~= nil and (peel(value).kind == "Table") then
+          local literal = peel(value)
+          if (literal.kind == "Table") then
+            bound[binding.id] = literal
+          end
+        end
+      end
+    elseif (node.kind == "Assign") then
+      for _, target in ipairs(node.targets) do
+        local id, path = path_of(target)
+        if id ~= 0 then
+          local set: mut {string: boolean} = paths[id] or {}
+          paths[id] = set
+          set[path] = true
+        end
+      end
+    end
+    Ast.children(node, function(child: Ast.Node)
+      waiting[#waiting + 1] = child
+    end)
+  end
+  local made: mut {integer: {string: boolean}} = {}
+  local function mark(literal: Ast.Table, written: {string: boolean}, prefix: string)
+    local names: mut {string: boolean} = {}
+    for _, item in ipairs(literal.items) do
+      if (item.kind == "Named") then
+        local path = prefix .. item.name
+        if written[path] == true then
+          names[item.name] = true
+        end
+        local inner = peel(item.value)
+        if (inner.kind == "Table") then
+          mark(inner, written, path .. ".")
+        end
+      end
+    end
+    made[literal.id] = names
+  end
+  for id, literal in pairs(bound) do
+    mark(literal, paths[id] or {}, "")
+  end
+  ctx.literal_writes = made
+  return made
+end
+
+--- The record a literal of named items `e` makes, its values of the types `values`: a field for each item, of the
+--- type of its value, `mut` where the program writes it ([`TableLiterals.writes`]). Two literals with fields of the
+--- same names, types and `mut` make one record, named `__literal` and a number and shown by its fields (`{ x: integer, y: integer }`), so that values
+--- made at two places join.
+function TableLiterals.inferred(ctx: Ctx, e: Ast.Table, values: {Type}): Type
+  local written = TableLiterals.writes(ctx)[e.id] or {}
+  local fields: mut {Types.Field} = {}
+  local seen: mut {string: boolean} = {}
+  local failed = false
+  for i, item in ipairs(e.items) do
+    local t = values[i]
+    if (item.kind == "Named") and t ~= nil then
+      if seen[item.name] == true then
+        -- `literal_repeated` reports the second; the record has the first.
+        failed = failed
+      elseif t.tag == "invalid" then
+        failed = true
+      elseif t.tag == "nil" or t.tag == "never" then
+        report(ctx, "literal_needs_type", item, "the field " .. quoted(item.name) .. " of this literal is " .. tq(ctx, t) ..
+            ", which says no type for it",
+          "declare a record with the field (`" .. item.name .. "?: T`) and write the literal against it")
+        failed = true
+      elseif t.open > 0 then
+        report(ctx, "literal_needs_type", item, "the field " .. quoted(item.name) .. " of this literal is " .. tq(ctx, t) ..
+            ", a type parameter, which a record inferred from a literal cannot hold",
+          "declare a generic record (`record R<T> ... end`) or a map type, and write the literal against it")
+        failed = true
+      else
+        seen[item.name] = true
+        fields[#fields + 1] = { name = item.name, type = t, mut = written[item.name] == true, omittable = false }
+      end
+    end
+  end
+  if failed then
+    return ctx.invalid
+  end
+  return TableLiterals.inferred_of(ctx, fields)
 end
 
 --- An item of the wrong shape for what the literal is checked against.
@@ -1987,7 +2282,7 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
     end
   end
   local given: mut {string: boolean} = {}
-  local owner = quoted(n.decl.name)
+  local owner = if Types.inferred_record(n.decl) then tq(ctx, n) else quoted(n.decl.name) end
   local array_part = index.array
   local shaped = true
   -- A spread, which `spread_literal` (in [`table_literal`]) has checked, gives every field the items after it do not.
@@ -2008,7 +2303,12 @@ function TableLiterals.literal_record(ctx: Ctx, e: Ast.Table, n: Named): Type
         given[name] = true
         local want = put_in(ctx, n, field.type)
         local v = expr(ctx, value, want)
-        local _ = expect(ctx, value, v, want, " as the field " .. quoted(name) .. " of " .. owner)
+        -- A field of the language's `metatable` declared `any` (`__index`, `__newindex`) is read by Lua alone, which
+        -- takes any value there, as a parameter declared `any` does.
+        local lua_reads = n.decl.name == "metatable" and #n.decl.names == 1 and #n.args == 1 and
+          (n.decl.module == "lang.prelude" or n.decl.module == "checker.prelude")
+        local _ = (if lua_reads then expect_argument else expect end)(ctx, value, v, want,
+          " as the field " .. quoted(name) .. " of " .. owner)
       end
       if field == nil and value ~= nil then
         ctx.lenient = ctx.lenient + 1
@@ -2514,6 +2814,14 @@ local function field_unknown(ctx: Ctx, node: Ast.Node, t: Type, name: string)
     return
   end
   local owner = (t.tag == "named") and quoted(t.decl.name) or tq(ctx, t) -- checked: and_ternary
+  if (t.tag == "named") and not t.value and Types.inferred_record(t.decl) then
+    local close = nearest(name, names_of(ctx, t))
+    report(ctx, "field_unknown", node, tq(ctx, t) .. ", the record inferred for a literal, has no field " .. quoted(name) ..
+        (if close ~= "" then ", nearest " .. quoted(close) else "" end),
+      (if close ~= "" then "write " .. quoted(close) .. ", or " else "" end) .. TableLiterals.declare_fix(ctx, t, name),
+      { show(ctx, t) })
+    return
+  end
   if (t.tag == "named") and t.decl.kind == "integer_enum" and not t.value then
     report(ctx, "field_unknown", node, owner .. " is an integer enum, whose values are integers and have no fields: " ..
         quoted(name) .. " is not one",
@@ -3991,6 +4299,23 @@ local function index_read(ctx: Ctx, node: Ast.Index, object: Type): Type
       local array_part = index ~= nil and index.array or nil -- checked: and_ternary
       if array_part ~= nil and below(ctx, k, store.integer) then
         return store:optional(put_in(ctx, t, array_part))
+      end
+      local body = t.decl.body
+      if not t.value and Types.inferred_record(t.decl) and body ~= nil and below(ctx, k, store.string) then
+        -- A record inferred for a literal reads as a map of strings to its fields: a key it lacks reads nil.
+        local values: mut {Type} = {}
+        for _, f in ipairs(body.fields) do
+          values[#values + 1] = store:non_nil(f.type)
+        end
+        local value = join(ctx, values)
+        if value ~= nil then
+          return store:optional(value)
+        end
+        report(ctx, "record_index", node, subject(ctx, node.key) .. " is " .. tq(ctx, k) .. ", and the fields of " ..
+            tq(ctx, t) .. " have no common type for a read by a key",
+          "write the field (`" .. text_of(ctx, node.object) .. ".field`), or declare the literal a map `{string: T}` " ..
+            "where it is made", { show(ctx, k) })
+        return ctx.invalid
       end
       report(ctx, "record_index", node, subject(ctx, node.key) .. " is " .. tq(ctx, k) .. ", which names no field of " ..
           tq(ctx, t) .. ": a record is not a map",
@@ -7987,7 +8312,10 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
         return nil, false
       end
       local field = list[1]
-      if not field.mut and not inits_module(ctx, s, target) then -- checked: nil_not_allowed
+      local fixed = not field.mut and not inits_module(ctx, s, target) -- checked: nil_not_allowed
+      if fixed and Types.inferred_record(base.decl) then
+        TableLiterals.fixed(ctx, target, base, target.name)
+      elseif fixed then
         report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. target.name) .. " is fixed: it is not declared `mut`",
           "declare `mut " .. target.name .. ": " .. show(ctx, field.type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed
             ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
@@ -8061,7 +8389,10 @@ local function place_of_target(ctx: Ctx, s: Ast.Assign, target: Ast.Exp, at: int
       if names ~= nil and #names == 1 then
         local list = member_types(ctx, base, names[1])
         if list ~= nil and not list[1].method then -- checked: nil_not_allowed
-          if not list[1].mut then -- checked: nil_not_allowed
+          local fixed = not list[1].mut -- checked: nil_not_allowed
+          if fixed and Types.inferred_record(base.decl) then
+            TableLiterals.fixed(ctx, target, base, table.concat(names))
+          elseif fixed then
             report(ctx, "field_fixed", target, quoted(base.decl.name .. "." .. names[1]) .. " is fixed: it is not declared `mut`", -- checked: nil_not_allowed
               "declare `mut " .. names[1] .. ": " .. show(ctx, list[1].type) .. "` in " .. quoted(base.decl.name) .. -- checked: nil_not_allowed*2
                 ", or make a new " .. quoted(base.decl.name), { show(ctx, base) })
@@ -9230,7 +9561,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
     literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
-    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
+    loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
       return store:union({ a, b })
     end,

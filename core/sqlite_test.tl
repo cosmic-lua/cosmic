@@ -363,7 +363,7 @@ end
 --- Creation defaults stay compatible and never make a read-only open writable.
 local function test_create_is_only_an_option_of_writable_open(tmp: string)
   for i, options in ipairs({ { writable = true }, { writable = true, create = true } }) do
-    local db = assert(Sqlite.open(tmp .. "/created-" .. tostring(i), options)) -- checked: not_assignable
+    local db = assert(Sqlite.open(tmp .. "/created-" .. tostring(i), options))
     assert(db:exec("CREATE TABLE t (a)"))
     assert(db:close())
   end

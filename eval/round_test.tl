@@ -139,18 +139,18 @@ local function fake(fails: {string: boolean}, lay_fails: {string: boolean}): Fak
       return { code = 0, text = "" }
     end,
     start = function(argv: {string}, _log: string): integer?
-      issued.value = issued.value + 1 -- checked: map_field*2
+      issued.value = issued.value + 1
       local started = task_of(argv)
-      running[issued.value] = started -- checked: map_field
-      count.value = count.value + 1 -- checked: map_field*2
-      if count.value > f.most then f.most = count.value end -- checked: map_field*2
+      running[issued.value] = started
+      count.value = count.value + 1
+      if count.value > f.most then f.most = count.value end
       f.events[#f.events + 1] = "solve " .. started
-      return issued.value -- checked: map_field
+      return issued.value
     end,
     wait = function(ids: {integer}): Round.Done
       local id = assert(ids[1], "the round waits for a numbered command")
       local solved = assert(running[id], "the command was started")
-      count.value = count.value - 1 -- checked: map_field*2
+      count.value = count.value - 1
       f.events[#f.events + 1] = "solved " .. solved
       return { id = id, code = 0 }
     end,

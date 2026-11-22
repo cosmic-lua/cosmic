@@ -378,6 +378,8 @@ local record Types
     --- How many type arguments a use takes, once the declaration or its maker says.
     mut arity?: integer
     mut body?: Body
+    --- Whether the checker made it, a record for a table literal of named items ([`Types.inferred_record`]).
+    mut inferred?: boolean
   end
 
   --- Gives the text of the declaration at a path ([`Types.encode_declaration`]), or nil where
@@ -533,6 +535,10 @@ local record Types
 
   --- Whether `t` is a class that declares the method `name`, as a class declares a metamethod (`__lt`, `__le`).
   declares_method: function(t: Type, name: string): boolean
+
+  --- Whether `decl` is a record the checker inferred for a table literal of named items, which is shown by its fields
+  --- (`{ x: integer }`) and named `__literal` and a number.
+  inferred_record: function(decl: Decl): boolean
 
   --- What meets the built-in bound `tag`, for a message: "a number type, a string type, or a class that declares `__lt` and `__le`" for `Ordered`.
   bound_meets: function(tag: string): string
@@ -922,6 +928,10 @@ function Types.bounds(list: {Type}?): {Type}?
   return out
 end
 
+function Types.inferred_record(decl: Decl): boolean
+  return decl.inferred == true
+end
+
 function Types.declares_method(t: Type, name: string): boolean
   if not ((t.tag == "named")) or t.decl.kind ~= "class" or t.value then
     return false
@@ -1205,6 +1215,14 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
     -- TODO: write the module before the name where two types in scope share it, once the
     -- checker's errors say what is in scope.
     local text = t.decl.name
+    local body = t.decl.body
+    if body ~= nil and Types.inferred_record(t.decl) then
+      local fields: mut {string} = {}
+      for _, f in ipairs(body.fields) do
+        fields[#fields + 1] = (if f.mut == true then "mut " else "" end) .. f.name .. ": " .. show(f.type, names, false)
+      end
+      text = "{ " .. table.concat(fields, ", ") .. " }"
+    end
     if #t.args > 0 then
       text = text .. "<" .. table.concat(show_list(t.args, names), ", ") .. ">"
     end
@@ -2538,13 +2556,13 @@ end
 local store_mt: metatable<Store> = { __index = Types.Store } -- checked: field_unknown, literal_missing
 
 function Types.new(loader?: Loader): Store
-  counter.stores = counter.stores + 1 -- checked: map_field*2
+  counter.stores = counter.stores + 1
   local atoms: mut {string: Type} = {}
   local interned: mut {string: Type} = {}
   local types: mut {Type} = {}
   for i, name in ipairs(ATOMS) do
     local made: Atom = {
-      tag = name, atom = true, id = i, owner = counter.stores, digest = "", open = 0, has_mut = false, -- checked: map_field
+      tag = name, atom = true, id = i, owner = counter.stores, digest = "", open = 0, has_mut = false,
       weight = 1, height = 1,
     }
     atoms[name] = made
@@ -2552,7 +2570,7 @@ function Types.new(loader?: Loader): Store
     types[i] = made
   end
   local store: Store = setmetatable({ -- checked: setmetatable_call -- untyped: call
-    owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {}, -- checked: map_field
+    owner = counter.stores, count = #ATOMS, types = types, interned = interned, declared = {}, list = {},
     atoms = atoms, loader = loader, pending = {}, journal = {}, building = {}, building_order = {}, depth = 0,
     transactions = 0, dead = 0,
     integer = atoms["integer"], number = atoms["number"], string = atoms["string"], boolean = atoms["boolean"],

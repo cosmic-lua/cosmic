@@ -601,7 +601,7 @@ local function reverse(self: Types.Router, name: string, params?: {string: strin
   return path, ""
 end
 
-local router_methods = { match = matched, reverse = reverse } -- checked: arms_differ
+local router_methods = { match = matched, reverse = reverse }
 local router_mt: metatable<Types.Router> = { __index = router_methods } -- checked: literal_missing
 
 --- Compiles `routes` into a router. Raises, naming the pattern, for a route

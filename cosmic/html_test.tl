@@ -594,7 +594,7 @@ local function test_escape_css_attr_refuses_a_value_that_is_not_text()
 end
 
 local function test_json_holds_the_encoded_value()
-  local json = (assert(Html.json({ id = 7, kind = "note" }))) -- checked: arms_differ
+  local json = (assert(Html.json({ id = 7, kind = "note" })))
   local text = Html.raw_json(json)
   assert(text == '{"id":7,"kind":"note"}' or text == '{"kind":"note","id":7}', text)
   assert(Html.raw_json((assert(Html.json("a\"b<c>&'")))) == '"a\\"b<c>&\'"')

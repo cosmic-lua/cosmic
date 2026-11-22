@@ -66,9 +66,9 @@ local function test_a_chain_of_any_length_is_walked()
   local chunk = parsed("local a = 1\nreturn " .. table.concat(operands, " + ") .. "\n")
   local seen = { count = 0 }
   Node.walk(chunk, function(_node: Ast.Node)
-    seen.count = seen.count + 1 -- checked: map_field*2
+    seen.count = seen.count + 1
   end)
-  assert(seen.count > 60000, tostring(seen.count)) -- checked: map_field*2
+  assert(seen.count > 60000, tostring(seen.count))
 end
 
 local function test_the_parent_of_each_node_is_the_node_that_holds_it()

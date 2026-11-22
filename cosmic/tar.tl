@@ -494,7 +494,7 @@ local class EntryReader is Tar.Reader
         local f, ftrouble = parse_header(block, long_name, long_link, pax_local, self.pax_global)
         if f == nil then return fail(self, ftrouble) end
         self.pending_skip = f.size + padding_of(f.size)
-        local entry: Tar.Entry = setmetatable({ -- checked: arms_differ, setmetatable_call -- untyped: call
+        local entry: Tar.Entry = setmetatable({ -- checked: setmetatable_call -- untyped: call
           path = f.name,
           kind = f.kind,
           mode = f.mode,
@@ -571,7 +571,7 @@ function Tar.reader(raw: Stream.Reader): Tar.Reader
   -- is one closure for the whole reader, not one for each entry, and
   -- the entry's fields stay those [`Tar.Entry`] declares.
   r.entry_mt = { -- checked: literal_missing
-    __index = { -- checked: any_use
+    __index = {
       open = function(e: Tar.Entry): Stream.Reader?, string
         if e ~= r.current then return refuse("entry is no longer current") end
         -- A second `open` on the same entry would share `left` and

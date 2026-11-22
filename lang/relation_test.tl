@@ -367,7 +367,7 @@ end
 local function test_a_class_is_as_nominal_as_a_record_and_a_declaration_used_as_a_value_is_below_itself_alone()
   local w = world()
   local s = w.store
-  local fields = { { name = "n", type = s.integer } } -- checked: arms_differ
+  local fields: mut {Types.Field} = { { name = "n", type = s.integer } }
   local one = s:declare("class", "m", { "ClassOne" }, 0)
   local two = s:declare("class", "m", { "ClassTwo" }, 0)
   local plain = s:declare("record", "m", { "PlainOne" }, 0)

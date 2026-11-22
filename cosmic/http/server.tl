@@ -776,8 +776,8 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- interim reply after it would be read as the final reply's body.
   local interim = { continued = false, replied = false }
   local function go_on()
-    if head.continue and interim.continued ~= true and interim.replied ~= true then -- checked: map_field*2
-      interim.continued = true -- checked: map_field
+    if head.continue and interim.continued ~= true and interim.replied ~= true then
+      interim.continued = true
       conn:set_timeout(s.timeout_ns)
       local _, _ = conn:write("HTTP/1.1 100 Continue\r\n\r\n")
     end
@@ -847,7 +847,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
   -- told to, or not at all. A Reader reply may read the request's body
   -- as it goes, so the client is told now; after another, what follows
   -- on the connection is unknown, and it closes.
-  if head.continue and interim.continued ~= true and body.state == "open" then -- checked: map_field
+  if head.continue and interim.continued ~= true and body.state == "open" then
     local given_body = given.body
     local sends_body = head.method ~= "HEAD" and given.status ~= 204 and given.status ~= 304
     if given_body ~= nil and not given_body is string and sends_body and not close then
@@ -856,7 +856,7 @@ local function exchange(s: Serving, conn: Net.Conn, input: wire.Input, head: wir
       close = true
     end
   end
-  interim.replied = true -- checked: map_field
+  interim.replied = true
   conn:set_timeout(s.timeout_ns)
   -- The reply is built inside the protected call, as its date is read there.
   local function send_reply(to: Net.Conn): wire.Sent

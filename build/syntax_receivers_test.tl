@@ -194,13 +194,13 @@ local function test_a_use_on_each_line_is_found_once_and_a_line_with_two_is_foun
   assert(count == 1, found)
 end
 
---- The checker refuses a table constructor with no declared type (it has no type to make a record from), types the value
---- `invalid`, and finds no use through it (only `Z.open`'s). The refusal is the checker's error, which the ceilings count.
-local function test_a_value_reached_through_a_table_constructor_with_no_type_is_no_use()
+--- A table constructor with no declared type is a record the checker infers from its fields, which the program declares
+--- nowhere: a use through its field is the use of what the field holds (`Writer.close`), and none of the record itself.
+local function test_a_value_reached_through_a_table_constructor_with_no_type_is_a_use_of_what_it_holds()
   local text = Fixture.PRELUDE .. "local Z = require('zipx')\nlocal w = Z.open()\nlocal box = { w = w }\n" ..
     "local ok, _ = box.w:close()\nuse(ok)\n"
   local found = uses_of(Fixture.port(text, MODULES))
-  assert(found == "zipx open " .. tostring(line(2)), found)
+  assert(found == "zipx open " .. tostring(line(2)) .. "\nzipx Writer.close " .. tostring(line(4)), found)
 end
 
 --- The lines a use is not seen on are those where the value a field is read through is typed `invalid` (here a type that does

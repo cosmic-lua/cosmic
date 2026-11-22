@@ -1750,16 +1750,16 @@ local function test_a_policys_sandbox_fields_are_checked_before_a_start()
   says(refused_sandbox(below), "relay's fd is out of range")
   local standard: raw_process.Sandbox = { relay = { fd = 2 }, offline = true }
   says(refused_sandbox(standard), "relay's fd is out of range")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 4000, 4000 } }, offline = true }),
     "a relay's two ports differ")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1 } }, offline = true }),
     "relay's ports are two ports")
   local named: {integer | string} = { 1, "x" }
-  says(refused_sandbox({ relay = { fd = 3, ports = named }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = named }, offline = true }),
     "a relay port is an integer")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 0, 1 } }, offline = true }),
     "a relay port is 1 to 65535")
-  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }), -- checked: arms_differ
+  says(refused_sandbox({ relay = { fd = 3, ports = { 1, 65536 } }, offline = true }),
     "a relay port is 1 to 65535")
   says(refused_sandbox({ unveil = { tmp = 4096 } }), "unveil's tmp requires strict")
   says(refused_sandbox({ promises = {}, sockets = "inet" }), "sockets must be a list") -- checked: literal_needs_type

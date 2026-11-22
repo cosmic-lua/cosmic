@@ -765,7 +765,7 @@ local function test_a_public_connector_refuses_what_its_lists_hold()
   Poll.run(function()
     local listener, task = echo_server()
     local port = assert(listener.address.port)
-    for _, public in ipairs({ { deny = { "127.0.0.0/8" } }, { deny = {}, own = { "127.0.0.1" } }, -- checked: arms_differ, cast_refused, literal_needs_type
+    for _, public in ipairs({ { deny = { "127.0.0.0/8" } }, { deny = {}, own = { "127.0.0.1" } }, -- checked: cast_refused, literal_needs_type
         { deny = Address.deny_cidrs() } } as {Net.PublicOptions}) do
       local connector = assert(Net.connector({}, { public = public }))
       local conn, why = dial(connector, "127.0.0.1", port, Clock.seconds(5))

@@ -583,11 +583,11 @@ local function make_zone(name: string, rules: Rules): Time.Zone
   rules.name = name
   local zone: Time.Zone = {}
   local hidden: metatable<Time.Zone> = { -- checked: literal_missing
-    __index = function(_: Time.Zone, key: string): any -- checked: any_use
+    __index = function(_: Time.Zone, key: string): any
       if key == "name" then return name end -- checked: any_use
       return nil -- checked: any_use
     end,
-    __newindex = function(_: Time.Zone, key: string) -- checked: any_use
+    __newindex = function(_: Time.Zone, key: string)
       error("time: a zone is read-only; it has no field " .. tostring(key) .. " to set", 2)
     end,
   }

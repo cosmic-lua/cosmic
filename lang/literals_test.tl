@@ -36,8 +36,8 @@ end
 local function drawer(seed: integer): function(n: integer): integer
   local held = { state = seed }
   return function(n: integer): integer
-    held.state = (held.state * 1103515245 + 12345) % 2147483648 -- checked: map_field*2
-    return held.state % n + 1 -- checked: map_field
+    held.state = (held.state * 1103515245 + 12345) % 2147483648
+    return held.state % n + 1
   end
 end
 

@@ -110,12 +110,12 @@ end
 
 local function test_a_correctly_signed_payload_of_the_wrong_shape_is_anonymous()
   local store = SessionCookie.store{ keys = { NEW } }
-  local good = { v = 1, c = 1000, e = 2000, d = { user = "ada" } } -- checked: arms_differ
+  local good = { v = 1, c = 1000, e = 2000, d = { user = "ada" } }
   assert(store:load(forge(NEW, good), 1500, "session") ~= nil, "the forgery helper signs as the store does")
   assert(store:load(forge(NEW, { v = 2, c = 1000, e = 2000, d = {} }), 1500, "session") == nil) -- checked: literal_needs_type
   assert(store:load(forge(NEW, { v = 1, c = "x", e = 2000, d = {} }), 1500, "session") == nil) -- checked: literal_needs_type
   assert(store:load(forge(NEW, { v = 1, c = 1000, e = 2000.5, d = {} }), 1500, "session") == nil) -- checked: literal_needs_type
-  assert(store:load(forge(NEW, { v = 1, c = 1000, e = 2000, d = "text" }), 1500, "session") == nil) -- checked: arms_differ
+  assert(store:load(forge(NEW, { v = 1, c = 1000, e = 2000, d = "text" }), 1500, "session") == nil)
   assert(store:load(forge(NEW, { 1, 2, 3 }), 1500, "session") == nil)
 end
 

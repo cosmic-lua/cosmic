@@ -2293,7 +2293,7 @@ function worker.run(argv: {string}): integer
   setmetatable(ended_by_skip, { -- checked: setmetatable_call -- untyped: call
     __tostring = function(): string return "the test was skipped" end,
   })
-  local runner = { -- checked: arms_differ
+  local runner = {
     loaded = false,
     deliberate = function(reason: string) handed_over.deliberate = reason end,
     handed = function(needs: Test.Needs) handed_over.handed = needs end,

@@ -242,7 +242,7 @@ local function test_lookup_leaves_no_descriptor_whenever_an_allocation_fails(tmp
   local hosts = tmp .. "/hosts"
   assert(Fs.write(hosts, "192.0.2.1 a.example.test\n"))
   local server <close> = assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) }))
-  local through = { { host = "127.0.0.1", port = server.address.port, index = 1 } } -- checked: arms_differ
+  local through = { { host = "127.0.0.1", port = assert(server.address.port), index = 1 } }
   local before = AllocationFixture.next_descriptor(tmp)
   local ended = AllocationFixture.under_every_failure(function()
     local answered <close> = assert(socket.lookup("a.example.test", 5000, nil, hosts, nil))

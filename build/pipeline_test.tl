@@ -597,7 +597,7 @@ end
 
 local function test_a_guide_example_is_forgiven_the_shadowing_of_print_and_no_other_name()
   local function shadow(name: string): Driver.Problem
-    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem -- checked: arms_differ, cast_refused
+    return { code = "shadows", msg = "local `" .. name .. "` shadows the global `" .. name .. "`", fix = "", y = 1, x = 1, offset = 0 } as Driver.Problem -- checked: cast_refused
   end
   local result = { scope_errors = { shadow("print"), shadow("printer"), shadow("println") } } as Driver.Outcome -- checked: cast_refused
   Pipeline.discounted(result)

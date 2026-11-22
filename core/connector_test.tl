@@ -172,9 +172,9 @@ local function test_mixed_tables_keep_each_range_at_its_own_stride()
 end
 local function test_invalid_numeric_endpoints_cannot_start_a_connector()
   local pair = ConnectorEnds.connector_pair()
-  for _, endpoint in ipairs({ { host = "localhost", port = 80 }, { host = "127.1", port = 80 }, -- checked: arms_differ*2
-      { host = "0177.0.0.1", port = 80 }, { host = "127.0.0.1\0evil", port = 80 }, -- checked: arms_differ*2
-      { host = "fe80::1%lo", port = 80 }, { host = "*", port = 80 }, { host = "127.0.0.1", port = -1 } }) do -- checked: arms_differ*3
+  for _, endpoint in ipairs({ { host = "localhost", port = 80 }, { host = "127.1", port = 80 },
+      { host = "0177.0.0.1", port = 80 }, { host = "127.0.0.1\0evil", port = 80 },
+      { host = "fe80::1%lo", port = 80 }, { host = "*", port = 80 }, { host = "127.0.0.1", port = -1 } }) do
     Test.raises(function() process.connector_start({ endpoint }, pair.connector, 500, nil) end)
   end
   assert(sys.close(pair.controller))

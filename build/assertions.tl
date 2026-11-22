@@ -40,8 +40,8 @@ end
 local state <const> = { installed = false }
 
 function assertions.install()
-  if state.installed == true then return end -- checked: map_field
-  state.installed = true -- checked: map_field
+  if state.installed == true then return end
+  state.installed = true
   rawset(_G as {string:any}, "assert", raw.assert) -- checked: cast_refused, unchecked_binding
 end
 

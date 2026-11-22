@@ -20,6 +20,7 @@ local Ast = require("lang.ast")
 local type Declarations = require("lang.declarations")
 local Node = require("build.syntax_node")
 local Report = require("build.syntax_report")
+local Types = require("lang.types")
 
 local record Receivers
   --- One use of a record's field: `member` is the field's canonical path within `module` (`"Writer.add_file"`), the same
@@ -71,7 +72,8 @@ function Receivers.references(subject: Report.Subject): {Receivers.Reference}
     -- An enum or an alias to one is a string, and `kind:sub()` is a method of strings: only a record, class, interface or
     -- userdata record has fields, and only one that declares (or lists, or as a value holds) the name is read.
     local kind = decl.kind
-    if kind == "enum" then
+    -- A record inferred for a table literal is declared nowhere in the program, and has no member to use.
+    if kind == "enum" or Types.inferred_record(decl) then
       return
     end
     local statics = program.statics[decl]

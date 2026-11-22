@@ -284,7 +284,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   local _slave <close>: Slave = setmetatable({ fd = started.slave }, slave_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
   local filter = TermFilter.new()
   local restoring <close>: Restoring = setmetatable({ -- checked: close_not_closable, setmetatable_call -- untyped: call
-    input = input, output = shown, master = master, saved = nil, filter = filter,
+    input = input, output = shown, master = master, filter = filter,
     made_nonblocking = {},
   }, restoring_mt)
   local running <close> = started.child

@@ -30,7 +30,7 @@ end
 --- A TCP listener's `address` is built again by [`Net.tcp`]: the host as
 --- given and the port the kernel chose, with no field of a unix one.
 local function test_a_tcp_listeners_address_is_built_again_from_its_host_and_port()
-  local given = { kind = "tcp", host = "127.0.0.1", port = 0, path = "unused" } -- checked: arms_differ
+  local given = { kind = "tcp", host = "127.0.0.1", port = 0, path = "unused" }
   local server <close> = assert(Net.listen(given))
   local address = server.address
   assert(address.kind == "tcp" and address.host == "127.0.0.1" and assert(address.port) > 0)

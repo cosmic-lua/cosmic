@@ -57,7 +57,7 @@ end
 
 -- TODO: write the metatable of this example as a class, once the library's handles are classes (a change of its own,
 -- library by library): the new checker refuses a call of `setmetatable`, a literal of `metatable` that leaves its
--- fields out, a cast and a function given to `__index`, which the markers on the lines hold until then.
+-- fields out and a cast, which the markers on the lines hold until then.
 
 --- getmetatable and setmetatable query/install metatables; __metatable can
 --- protect one. rawget, rawset, rawlen and rawequal bypass metamethods. Teal
@@ -65,7 +65,7 @@ end
 --- comparison, concatenation, length, or conversion metamethod behavior.
 function Example.metatables_raw()
   local values: mut {string:integer} = { present = 2 }
-  local mt: metatable<mut {string:integer}> = { __index = function(): integer return 9 end } -- checked: any_use, literal_missing
+  local mt: metatable<mut {string:integer}> = { __index = function(): integer return 9 end } -- checked: literal_missing
   setmetatable(values, mt) -- checked: setmetatable_call
   assert(values["missing"] == 9 and rawget(values, "missing") == nil)
   rawset(values, "missing", 4)
