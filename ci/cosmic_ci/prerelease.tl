@@ -252,8 +252,9 @@ end
 --- Runs the tool at `path` with `help`, under [`Prerelease.smoke_policy`], and raises unless it answers.
 function Prerelease.smoke(path: string)
   local cache = assert(Fs.mkdtemp("cosmic-release-smoke-"))
+  -- Seatbelt refuses a read of an ungranted start directory; the cache is granted.
   local result, trouble = Child.run({ path, "help" },
-    { timeout_ns = CEILING_NS, policy = Prerelease.smoke_policy(path, cache) })
+    { timeout_ns = CEILING_NS, cwd = cache, policy = Prerelease.smoke_policy(path, cache) })
   local _, _ = Fs.remove_tree(cache)
   assert(result ~= nil, path .. ": " .. tostring(trouble))
   assert(result.ok, path .. ": help failed")
