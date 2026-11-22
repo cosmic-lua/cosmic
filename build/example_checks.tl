@@ -38,15 +38,22 @@ local _ = require("build.reads.all")
 local record example_checks
 end
 
---- What the new checker says of `source` as the chunk `name`, one line each: its place is a line of the text as shown, and the
---- stage of each finding ([`Pipeline.Alone`]'s `stages`, from the checker's own lists).
-local function problems(options: Pipeline.Options, name: string, source: string): {string}, {string: string}
-  local made = require("build.pipeline").checked_alone(name, source, options)
-  -- Each line is the checker's, `name:line:column: what is wrong (code): the fix`, the line a line of the text as shown.
-  if made.code ~= nil then
-    return {}, {}
+--- A finding of the new checker: its lines, one each, whose place is a line of the text as shown, and the stage of each
+--- finding ([`Pipeline.Alone`]'s `stages`, from the checker's own lists).
+local record Said
+  lines: {string}
+  stages: {string: string}
+end
+
+--- What the new checker says of each of `items`, `{ name, source }`, as that chunk alone: all in one build, so what they
+--- read of the standard library is checked once.
+local function problems(options: Pipeline.Options, items: {{string}}): {Said}
+  local out: mut {Said} = {}
+  for i, made in ipairs(require("build.pipeline").checked_alone_each(items, options)) do
+    -- Each line is the checker's, `name:line:column: what is wrong (code): the fix`, the line a line of the text as shown.
+    out[i] = if made.code ~= nil then { lines = {}, stages = {} } else { lines = made.lines, stages = made.stages } end
   end
-  return made.lines, made.stages
+  return out
 end
 
 --- A stored example source ([`build.syntax_analyzer`]'s `ExampleEntry`.source: the
@@ -269,22 +276,26 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
     return { "reading the examples: " .. trouble }
   end
   local out: mut {string} = {}
+  local items: mut {{string}} = {}
   for _, row in ipairs(rows) do
-    local where = row:text(1) .. ":" .. row:text(2) .. ": example " .. row:text(3)
+    items[#items + 1] = { row:text(1) .. ":" .. row:text(2) .. ": example " .. row:text(3), chunk(row:text(3), row:text(4)) }
+  end
+  local said = problems(options, items)
+  for i, row in ipairs(rows) do
+    local where, text = assert(assert(items[i])[1]), assert(assert(items[i])[2])
     local file, _ = Fs.read(root .. "/" .. row:text(1))
     file = file or ""
     local told: mut {string: boolean} = {}
-    local text = chunk(row:text(3), row:text(4))
     local said_lines: mut {string} = {}
-    local lines, stages = problems(options, where, text)
+    local lines, stages = assert(said[i]).lines, assert(said[i]).stages
     for _, line in ipairs(lines) do
       local name = unknown_name(line)
-      local said = if name ~= nil then helper_trouble(file, name) else nil end
-      if said == nil then
+      local helper = if name ~= nil then helper_trouble(file, name) else nil end
+      if helper == nil then
         said_lines[#said_lines + 1] = line
-      elseif told[said] ~= true then
-        told[said] = true
-        said_lines[#said_lines + 1] = where .. ": " .. said
+      elseif told[helper] ~= true then
+        told[helper] = true
+        said_lines[#said_lines + 1] = where .. ": " .. helper
       end
     end
     for _, line in ipairs(held(where, text, said_lines, stages, true)) do
@@ -305,14 +316,17 @@ local function guide(text: string, file: string, options: Pipeline.Options): {st
     return { file .. ": " .. trouble }
   end
   local out: mut {string} = {}
+  local items: mut {{string}} = {}
   for _, entry in ipairs(entries) do
     local source = entry.source
     if entry.companions then
       source = 'local tmp: string = ""\nlocal _ = tmp\n' .. source
     end
-    local where = file .. ":" .. tostring(entry.line) .. ": example"
-    local lines, stages = problems(options, where, source .. "\n")
-    for _, line in ipairs(held(where, source .. "\n", lines, stages, false)) do
+    items[#items + 1] = { file .. ":" .. tostring(entry.line) .. ": example", source .. "\n" }
+  end
+  for i, said in ipairs(problems(options, items)) do
+    local item = assert(items[i])
+    for _, line in ipairs(held(assert(item[1]), assert(item[2]), said.lines, said.stages, false)) do
       out[#out + 1] = line
     end
   end
