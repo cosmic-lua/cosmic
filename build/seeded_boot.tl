@@ -23,7 +23,8 @@
 --- - the newest release of the repository, by its tag
 ---   (`<date>-<commit>`): its `cosmic` is fetched once, held to the digest
 ---   its SHA256SUMS names, kept beside the bootstrap cosmic, and hashed
----   again each time it is taken from there.
+---   again each time it is taken from there, against a stale or poisoned
+---   cache (not a writer racing the hash and the run).
 ---
 --- Whether the tree's C is a release's is git's answer: the files the
 --- release's commit holds under `c_inputs` are the files the index holds
@@ -96,10 +97,12 @@ local record SeededBoot
   --- alone, with no network. nil and "" for `0`, which builds the core with
   --- zig, and nil and a complaint for any other value.
   plan: function(mode: string): Plan?, string
-  --- Whether the file at `path` is there and has the sha256 `digest`, as
-  --- a release kept in the cache must before it runs: one with other bytes
-  --- is removed, so that it is fetched again.
-  kept: function(path: string, digest: string): boolean
+  --- The path of the release kept in the bootstrap cache `cache` under
+  --- `digest`, `<cache>/cosmic-<digest>`, where it is a file and not a link
+  --- and has that sha256, as it must before it runs; else nil and why. A
+  --- link there, or a file with other bytes, is removed, so that it is
+  --- fetched again; one that cannot be read is left as it is.
+  cached: function(cache: string, digest: string): string?, string
   mut vendored: {string}
   mut records: string
 end
@@ -239,16 +242,23 @@ function SeededBoot.plan(mode: string): SeededBoot.Plan?, string
   return nil, "COSMIC_BOOT_SEED is " .. mode .. ": set it to 0 or pin, or leave it unset; building the core with zig"
 end
 
-function SeededBoot.kept(path: string, digest: string): boolean
+function SeededBoot.cached(cache: string, digest: string): string?, string
+  local path = cache .. "/cosmic-" .. digest
+  local link, _ = Fs.readlink(path)
+  if link ~= nil then
+    local _, _ = Fs.remove(path)
+    return nil, "a link stood there"
+  end
   local there, _ = Fs.exists(path)
-  if there ~= true then return false end
+  if there ~= true then return nil, "it is not there" end
   -- TODO: Hash.hex_file in place of reading the whole file, once
   -- ci/cosmic-driver.pin names a release whose Hash has it: this file
   -- runs standalone on that release.
-  local data, _ = Fs.read(path)
-  if data ~= nil and Hash.hex_sha256(data) == digest then return true end
+  local data, trouble = Fs.read(path)
+  if data == nil then return nil, trouble end
+  if Hash.hex_sha256(data) == digest then return path, "" end
   local _, _ = Fs.remove(path)
-  return false
+  return nil, "its bytes are not its digest's"
 end
 
 --- The newest release of the repository whose tag is `<date>-<commit>`:
@@ -282,8 +292,9 @@ local function release_cosmic(tag: string, work: string): string?, string
   if digest == nil or #digest ~= 64 then return nil, "its SHA256SUMS names no cosmic" end
   local cache, cache_trouble = Fs.cache_dir("bootstrap")
   if cache == nil then return nil, cache_trouble end
+  local kept, _ = SeededBoot.cached(cache, digest)
+  if kept ~= nil then return kept, "" end
   local path = cache .. "/cosmic-" .. digest
-  if SeededBoot.kept(path, digest) then return path, "" end
   local part = path .. ".part." .. tostring(Proc.pid())
   local fetched = Http.download_result(base .. "cosmic", part,
     { roots = "mozilla", timeout_ns = 300 * 1000000000, sha256 = digest })

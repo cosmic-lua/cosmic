@@ -104,7 +104,7 @@ residual below:
   release's core is (`COSMIC_BOOT_SEED=pin` keeps it to the pinned one).
   That binary is not the pinned one, and nothing but the release's own
   SHA256SUMS vouches for it; it is hashed again each time it is taken from
-  the cache.
+  the cache, against a stale or poisoned cache, not a racing writer.
 - `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be

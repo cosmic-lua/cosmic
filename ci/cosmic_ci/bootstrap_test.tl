@@ -342,8 +342,9 @@ local function test_bootstrap_hashes_its_cache_again_unasked(tmp: string)
   assert(Hash.hex_sha256((assert(Fs.read(cached)))) == digest, "the changed cache was kept")
 end
 
---- An entry point holds a cached release to the digest it is named by:
---- one changed after the entry point was written is refused, not run.
+--- An entry point holds a cached release to the digest it is named by,
+--- run with arguments or with none: one changed after the entry point was
+--- written is refused, not run.
 local function test_the_entry_point_refuses_a_changed_cached_release(tmp: string)
   local script = "#!/bin/sh\necho ran\n"
   local digest = Hash.hex_sha256(script)
@@ -358,10 +359,13 @@ local function test_the_entry_point_refuses_a_changed_cached_release(tmp: string
   local out = assert(Fs.read(tmp .. "/first.out"))
   assert(first.ok and out == "ran\n", out)
   assert(Fs.write(cached, "#!/bin/sh\necho changed\n", 0x1ed))
-  local second = call({ entry, "x" }, tmp, tmp .. "/second.out", env)
-  out = assert(Fs.read(tmp .. "/second.out"))
-  assert(not second.ok and out:find("not the one it is named by", 1, true) ~= nil, out)
-  assert(out:find("changed", 1, true) == nil, out)
+  for n, words in ipairs({ { entry, "x" }, { entry } }) do
+    local output = tmp .. "/changed-" .. tostring(n) .. ".out"
+    local second = call(words, tmp, output, env)
+    out = assert(Fs.read(output))
+    assert(not second.ok and out:find("not the one it is named by", 1, true) ~= nil, tostring(#words) .. ": " .. out)
+    assert(out:find("changed\n", 1, true) == nil, out)
+  end
 end
 
 --- A link at the cache's name is never followed: even one to the right

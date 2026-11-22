@@ -80,17 +80,26 @@ local function test_pin_keeps_a_boot_to_the_pinned_release()
 end
 
 --- A release kept in the cache under its digest's name is hashed again
---- before it runs: one whose bytes are not that digest's is not taken, and
---- is removed so that it is fetched again.
+--- before it runs, against a stale or poisoned cache: one whose bytes are
+--- not that digest's is not taken, and is removed so that it is fetched
+--- again, and so is a link there, even to the right bytes.
 local function test_a_kept_release_is_hashed_before_it_runs(tmp: string)
   local good = "the release's bytes"
   local digest = Hash.hex_sha256(good)
   local path = tmp .. "/cosmic-" .. digest
-  assert(not SeededBoot.kept(path, digest), "a release that is not there was taken")
+  local kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == nil and why == "it is not there", why)
   assert(Fs.write(path, good, 0x1ed))
-  assert(SeededBoot.kept(path, digest))
-  assert(Fs.exists(path) == true)
+  kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == path and why == "", why)
   assert(Fs.write(path, "other bytes", 0x1ed))
-  assert(not SeededBoot.kept(path, digest), "a release with other bytes was taken")
+  kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == nil and why == "its bytes are not its digest's", why)
   assert(Fs.exists(path) == false, "a release with other bytes was kept")
+  assert(Fs.write(tmp .. "/elsewhere", good, 0x1ed))
+  assert(Fs.symlink(tmp .. "/elsewhere", path))
+  kept, why = SeededBoot.cached(tmp, digest)
+  assert(kept == nil and why == "a link stood there", why)
+  local link, _ = Fs.readlink(path)
+  assert(link == nil and Fs.exists(path) == false, "a link in the cache was kept")
 end
