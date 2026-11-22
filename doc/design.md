@@ -1093,7 +1093,9 @@ and a collection parameter is a view unless declared `mut {T}`. there are no cas
 no `setmetatable` (a class's methods are written as methods and the compiler writes its metatable), no `global`, no `#!`
 first line, no `a and b or c` for a choice (`if ... then ... else ... end` is an expression), and no call with a string
 argument without parentheses. `pcall` and `coroutine.wrap` are typed, and the alternatives of a `pcall` are read with
-`match`. a type changes only by a guard, `is` of a class or a tagged union, a narrowing declaration or a validator
+`match`. a call that answers several lists (`(true, R) | (false, E)`, `(T) | (nil, E)`) has lists told apart by a
+position that is `true` in one and `false` in the other, or `nil` in one and never nil in the other; `match` tells them
+by `true`, `false` and `nil` patterns, and a test of the first local of `local v, why = f()` narrows the others. a type changes only by a guard, `is` of a class or a tagged union, a narrowing declaration or a validator
 ([`cosmic.shape`]); `any` is legal only where untrusted data enters.
 
 two uses of a generic declaration are related by how its body uses each type parameter, which [`lang/relation.tl`] reads from the fields, methods and listed interfaces: covariant where it is only read out, contravariant where it is only taken in, invariant where it is read and written (a `mut` field, a `mut` collection, a map's key) or not used at all (an opaque declaration such as `Coroutine<Y, R, S>` means it by its name). nothing declares it.

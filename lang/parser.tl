@@ -2444,7 +2444,7 @@ local function parse_match(): Ast.Stat
     local open = S.pos
     if caught then
       report("unreachable_arm", afirst, "this `match` arm can never run: the arm before it matches every value",
-        "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true` or `false`) to the end")
+        "delete the arm, or move the arm that matches every value (`| (a, b) then`, with no `true`, `false` or `nil`) to the end")
       caught = false
     end
     local pats: mut {Ast.PatItem} = {}
@@ -2467,6 +2467,9 @@ local function parse_match(): Ast.Stat
         if S.text == "true" or S.text == "false" then
           pats[#pats + 1] = { kind = "PatBool", id = 0, first = pfirst, last = pfirst, value = S.text == "true" }
           advance()
+        elseif S.text == "nil" then
+          pats[#pats + 1] = { kind = "PatNil", id = 0, first = pfirst, last = pfirst }
+          advance()
         else
           local b = binding("a bound value")
           pats[#pats + 1] = { kind = "PatBind", id = 0, first = pfirst, last = S.pos - 1, name = b }
@@ -2483,7 +2486,7 @@ local function parse_match(): Ast.Stat
     local bools = 0
     local bound: mut {string: boolean} = {}
     for _, pat in ipairs(pats) do
-      if (pat.kind == "PatBool") then
+      if (pat.kind == "PatBool") or (pat.kind == "PatNil") then
         bools = bools + 1
       elseif (pat.kind == "PatBind") then
         local bound_name = pat.name.name

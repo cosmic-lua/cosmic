@@ -30,7 +30,7 @@ local record Ast
     "Chunk" "Block"
     -- statements
     "Local" "LocalFunction" "Function" "Assign" "CallStat" "Return" "Do" "Break" "Continue"
-    "While" "Repeat" "If" "Arm" "Match" "MatchArm" "PatBool" "PatBind" "PatType" "ForNum" "ForIn"
+    "While" "Repeat" "If" "Arm" "Match" "MatchArm" "PatBool" "PatNil" "PatBind" "PatType" "ForNum" "ForIn"
     -- expressions
     "Name" "Nil" "Boolean" "Integer" "Float" "String" "Vararg" "Paren" "FunctionLit" "Table"
     "Positional" "Spread" "Named" "Keyed" "Field" "Index" "Call" "MethodCall" "Unary" "Binary"
@@ -309,6 +309,16 @@ local record Ast
     mut last: integer
     mut id: integer
     value: boolean
+  end
+  enum PatNil_kind
+    "PatNil"
+  end
+  --- The pattern `nil`: the list has `nil` at its position.
+  record PatNil is Base
+    kind: PatNil_kind
+    first: integer
+    mut last: integer
+    mut id: integer
   end
   enum PatBind_kind
     "PatBind"
@@ -980,7 +990,7 @@ local record Ast
   --- What a statement or a `match` takes as a call: a [`Call`] or a [`MethodCall`], or an [`Error`].
   type CallExp = Call | MethodCall | Error
   type Item = Positional | Spread | Named | Keyed
-  type PatItem = PatBool | PatBind | PatType
+  type PatItem = PatBool | PatNil | PatBind | PatType
   type Type = TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
     TypeOptional | TypeMut | TypeFunction
   --- An item of a return list.
@@ -989,7 +999,7 @@ local record Ast
   --- Every kind of node. A flat union: a test `is Ast.Node` against nested aliases would test only that
   --- the value is a table.
   type Node = Chunk | Block | Local | LocalFunction | Function | Assign | CallStat | Return | Do | Break |
-    Continue | While | Repeat | If | Arm | Match | MatchArm | PatBool | PatBind | PatType | ForNum | ForIn | Name |
+    Continue | While | Repeat | If | Arm | Match | MatchArm | PatBool | PatNil | PatBind | PatType | ForNum | ForIn | Name |
     Nil | Boolean | Integer | Float | String | Vararg | Paren | FunctionLit | Table | Positional | Spread | Named |
     Keyed | Field | Index | Call | MethodCall | Unary | Binary | IsTest | Cast | IfExp | ExpArm | Fn |
     Rets | Param | Binding | TypeName | TypeBool | TypeString | TypeNil | TypeError | TypeArray | TypeMap | TypeUnion |
@@ -1024,7 +1034,7 @@ local SPEC <const>: {string: string} = {
   Function = "path* typeparams* fn", Assign = "targets* values*", CallStat = "call",
   Return = "values*", Do = "body", Break = "", Continue = "", While = "cond body",
   Repeat = "body cond", If = "arms* else_body", Arm = "cond body",
-  Match = "scrutinee arms* typed", MatchArm = "pats* body", PatBool = "value", PatBind = "name",
+  Match = "scrutinee arms* typed", MatchArm = "pats* body", PatBool = "value", PatNil = "", PatBind = "name",
   PatType = "type name",
   ForNum = "var from to step body", ForIn = "vars* iterators* body",
   Name = "text", Nil = "", Boolean = "value", Integer = "value", Float = "value",
