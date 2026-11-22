@@ -49,9 +49,11 @@
 --- request came over, since behind a proxy that ends TLS the app may see
 --- http. The prefix makes a browser refuse a cookie of that name from a page
 --- over http or from a sibling subdomain, so none can be planted in its place.
---- An app in development mode ([`Dev.app`], which serves on the loopback
---- alone) follows the request's scheme instead, so its session works over
---- plain http. A browser sends a `Secure` cookie only over https: an app
+--- An app in development mode ([`Dev.app`]) follows the request's scheme
+--- instead, so its session works over plain http. [`Web.serve`] serves such
+--- an app on the loopback alone and refuses it a `trusted_proxy`; one served
+--- through [`Server.serve`] directly skips that guard, and its cookie goes
+--- without `Secure` over http wherever it listens. A browser sends a `Secure` cookie only over https: an app
 --- served over plain http beyond development passes `secure = false`, and its
 --- cookie is named `session`.
 --- @public
@@ -569,8 +571,8 @@ function Session.middleware(opts: Session.Options): Types.Middleware
       if opts_secure ~= nil then
         secure = opts_secure
       else
-        -- Development mode serves on the loopback alone, with no proxy: its
-        -- scheme is the browser's. Anywhere else the scheme may be a proxy's.
+        -- Web.serve serves development mode on the loopback alone, with no
+        -- proxy: its scheme is the browser's. Elsewhere it may be a proxy's.
         secure = req.app.spec.dev ~= true or req.scheme == "https"
       end
       local cookie = if secure then prefixed else base end

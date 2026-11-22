@@ -413,6 +413,19 @@ local function test_a_planted_cookie_without_the_prefix_is_never_read()
   local victim = browser(app)
   assert(victim:get("/get/user", { cookies = { session = planted } }):text() == "-")
   assert(victim:get("/get/user", { cookies = { [NAME] = planted } }):text() == "ada")
+  victim:post("/set/user/grace")
+  local own = assert(victim.jar[NAME])
+  local both = victim:get("/get/user", { cookies = { session = planted, [NAME] = own } })
+  assert(both:text() == "grace", "the prefixed cookie is the session read beside a planted one")
+end
+
+local function test_logout_expires_the_prefixed_cookie()
+  local client = browser(make_app(options((sqlite_store()))))
+  client:post("/login")
+  local gone = first_set_cookie(client:post("/logout"))
+  assert(gone.name == NAME and gone.value == "" and gone.max_age == 0)
+  assert(gone.secure and gone.path == "/" and gone.domain == nil, "expired with the attributes it was set with")
+  assert(client.jar[NAME] == nil)
 end
 
 local function test_development_mode_follows_the_scheme_and_secure_false_never_sets_secure()
