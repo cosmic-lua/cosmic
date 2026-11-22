@@ -429,6 +429,70 @@ print(p.title)
 intro
 ```
 
+## a literal with no type is a record of its fields
+
+A table literal of named items, with no type given where it is made, is a record of its own. It has a field for each
+item, of the type of the item's value. A field is `mut` when the program assigns it through the local that holds the
+literal, and fixed otherwise. The checker shows the record by its fields, `{ mut hits: integer, name: string }`. A field
+the literal does not give is `field_unknown`, and the fix names the field to add or the type to declare.
+
+```teal
+local counter = { name = "visits", hits = 0 }
+counter.hits = counter.hits + 1
+print(counter.name, counter.hits)
+```
+
+```output
+visits	1
+```
+
+The record is below a declared record that has the same fields: a fixed field of the declared record takes a field of a
+type below its own, and a field it may leave out may be missing. A `mut` field of the declared record needs a `mut` field
+of exactly its type, given in the literal, since a write through the declared record changes the literal's record too.
+A class, a record with methods, or a record with an array part is not met by fields: write the literal against it where
+it is made (`local v: Config = { ... }`).
+
+```teal
+local record Point
+  x: number
+  y: number
+end
+
+local function norm(p: Point): number
+  return math.sqrt(p.x * p.x + p.y * p.y)
+end
+
+local corner = { x = 3, y = 4 }
+print(norm(corner))
+```
+
+```output
+5.0
+```
+
+Two such records join to one with the fields of each: a field one of them lacks is optional (`{ x: integer, y: string? }`).
+The record is also below a map that is not `mut`, `{string: V}`, when the value of each field is below `V`. Read that
+way, a key the record lacks reads `nil`.
+
+```teal
+local colors = { red = 1, green = 2 }
+local function total(m: {string: integer}): integer
+  local sum = 0
+  for _, v in pairs(m) do
+    sum = sum + v
+  end
+  return sum
+end
+print(total(colors))
+```
+
+```output
+3
+```
+
+A literal whose value is `nil` or of a type parameter has no record to make, and is `literal_needs_type`: declare the
+type where the literal is made.
+
 ## comparing and adding values of a type parameter
 
 A type parameter ranges over every type, so a generic body may not apply `<` or `+` to its values (`generic_op`). A
