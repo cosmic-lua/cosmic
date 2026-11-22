@@ -642,7 +642,7 @@ page that reloads the browser when the process is replaced and swaps the
 stylesheets when only a `.css` file changed, and carries the page's CSP
 nonce on that script's tag. An app that shows source paths to whoever asks
 serves the loopback only: [`Web.serve`] refuses a development app a listener
-elsewhere and a `trusted_proxy`, and the app answers only `localhost`,
+elsewhere, a socket file (how a proxy reaches an app) and a `trusted_proxy`, and the app answers only `localhost`,
 `127.0.0.1` and `[::1]` unless `trusted_hosts` names others, so a page on
 another site cannot reach it by a name that resolves to the loopback.
 

@@ -38,7 +38,8 @@ local record Seen
   mut lines: mut {string}
 end
 
---- A whois that knows WILL and DB, fails for 100.64.0.99, and says any
+--- A whois that knows WILL and DB, this node at 100.64.0.1 (WILL's own
+--- node), fails for 100.64.0.99, and says any
 --- other address is no peer's, noting each address it is asked.
 local function stand_in(seen: Seen): function(string): Tailscale.WhoIsResult
   return function(address: string): Tailscale.WhoIsResult
@@ -48,6 +49,9 @@ local function stand_in(seen: Seen): function(string): Tailscale.WhoIsResult
     end
     if address == "100.64.0.3" then
       return { kind = "found", whois = DB, reason = "", status = 200 }
+    end
+    if address == "100.64.0.1" then
+      return { kind = "found", whois = { ...WILL, own = true }, reason = "", status = 200 }
     end
     if address == "100.64.0.99" then
       return { kind = "failed", reason = "tailscale: connect: refused", status = 0 }
@@ -216,6 +220,32 @@ local function test_serve_headers_name_who_asked_at_the_apps_own_socket()
   assert(public:get("/", { peer = Net.tcp("127.0.0.1", 50000),
     headers = { ["Tailscale-Funnel-Request"] = "?1" } }).body == "true false")
   assert(#seen.asked == 0, table.concat(seen.asked, ","))
+end
+
+--- The daemon names this node's owner in its headers for a request from
+--- this node's own address, which any process here can make: where its
+--- X-Forwarded-For is that address the request has no identity, and
+--- where the daemon cannot be asked about it the answer is 503, at the
+--- app's socket and on the loopback alike.
+local function test_serve_headers_name_nobody_for_a_request_from_this_node()
+  local seen = new_seen()
+  local app = app_of(seen, { whois = stand_in(seen), serve = true })
+  app.serve_socket = "/run/app/s"
+  local client = Web.test_client(app)
+  local function from(forwarded: string, peer: Net.Address, listener?: Net.Address): integer
+    return client:get("/", { peer = peer, listener = listener, headers = {
+      ["Tailscale-User-Login"] = "will@example.com", ["X-Forwarded-For"] = forwarded } }).status
+  end
+  local socket, side, loopback = Net.unix("/run/app/s"), Net.unix(""), Net.tcp("127.0.0.1", 50000)
+  assert(from("100.64.0.2", side, socket) == 200, "a peer's request")
+  assert(from("100.64.0.1", side, socket) == 403, "this node's own request")
+  assert(from("100.64.0.99", side, socket) == 503, "a daemon that cannot be asked")
+  assert(#seen.lines == 1 and assert(seen.lines[1]):find("refused", 1, true) ~= nil, table.concat(seen.lines, "|"))
+  assert(from("100.64.0.2", loopback) == 200)
+  assert(from("100.64.0.1", loopback) == 403)
+  assert(from("192.0.2.7, 100.64.0.1", side, socket) == 403, "the last entry is the daemon's")
+  assert(from("::ffff:100.64.0.1", side, socket) == 403, "a mapped address")
+  assert(table.concat(seen.asked, ",") == "100.64.0.2,100.64.0.1,100.64.0.99", table.concat(seen.asked, ","))
 end
 
 --- Without `serve` the headers are never read: a loopback peer is asked

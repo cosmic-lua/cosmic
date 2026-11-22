@@ -53,6 +53,13 @@
 --- Serve configuration itself, taking it down when the server stops.
 --- There the headers are read with or without `serve`, with the
 --- capabilities its `caps` names, once the daemon is seen to keep them.
+--- A request whose `X-Forwarded-For` (the last entry, which the daemon
+--- sets) is this node's own address has no identity, as a connection
+--- from it has none: the daemon names the node's owner then, though any
+--- process here can ask by the node's name. Where the daemon cannot be
+--- asked about that address the answer is 503, as above. On the
+--- loopback this guards only against Serve's own forwards, since any
+--- local process can write the header there.
 --- `via = "funnel"` opens the site to the internet as well. A request
 --- through Funnel carries none of the headers and has no identity;
 --- [`Web.tailnet_funnel`] tells it apart, so a public app can answer
@@ -304,6 +311,25 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
     end
     return result
   end
+  -- The 503 for a request whose sender the daemon could not be asked
+  -- about, `result` saying why in the app's sink.
+  local function unasked(req: Types.Request, result: Tailscale.WhoIsResult): Types.Response
+    local sink = req.app.spec.sink
+    if sink ~= nil then sink:line("tailnet: " .. result.reason) end
+    return Response.problem(503, "who this request is from cannot be told")
+  end
+  -- The whois of the address the daemon's Serve says the request came
+  -- from, in the X-Forwarded-For it sets over any a client sent (its last
+  -- entry), or nil where there is none. The daemon names this node's
+  -- owner in its headers for a request from this node's own address,
+  -- though any process here can make one (by the node's own name).
+  local function forwarded_from(req: Types.Request): Tailscale.WhoIsResult?
+    local list = req.headers["x-forwarded-for"]
+    if list == nil then return nil end
+    local last = assert(assert(list:match("([^,]*)$")):match("^%s*(.-)%s*$"))
+    if last == "" then return nil end
+    return asked(unmapped(last))
+  end
   return function(inner: Types.Handler): Types.Handler
     return function(req: Types.Request): Types.Response
       local peer = req.raw.peer
@@ -317,6 +343,9 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
         -- daemon's headers say who asked.
         funneled = req.headers["tailscale-funnel-request"] == "?1"
         if not funneled then identity = of_serve(req, req.app.serve_caps or {}) end
+        local from = if identity ~= nil then forwarded_from(req) else nil end
+        if from ~= nil and from.kind == "failed" then return unasked(req, from) end
+        if from ~= nil and (from.kind ~= "found" or assert(from.whois).own) then identity = nil end
       elseif peer == nil or peer.kind == "unix" then
         -- Any other unix socket: nobody this middleware can name.
         identity = nil
@@ -327,13 +356,14 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
           -- unless the serve config forwards them, which is not known here.
           funneled = req.headers["tailscale-funnel-request"] == "?1"
           if not funneled then identity = of_serve(req, {}) end
+          local from = if identity ~= nil then forwarded_from(req) else nil end
+          if from ~= nil and from.kind == "failed" then return unasked(req, from) end
+          if from ~= nil and (from.kind ~= "found" or assert(from.whois).own) then
+            identity = nil
+          end
         else
           local result = asked(host)
-          if result.kind == "failed" then
-            local sink = req.app.spec.sink
-            if sink ~= nil then sink:line("tailnet: " .. result.reason) end
-            return Response.problem(503, "who this request is from cannot be told")
-          end
+          if result.kind == "failed" then return unasked(req, result) end
           -- This node's own address is any process here, not its owner.
           local who = result.whois
           if who ~= nil and not who.own then identity = of_whois(who) end
