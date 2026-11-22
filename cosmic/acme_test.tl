@@ -469,3 +469,148 @@ local function test_a_bad_rate_limit_wait_raises()
   })
   assert(not ok and tostring(why):find("rate_limit_wait_ns", 1, true) ~= nil, tostring(why))
 end
+
+--- A present that only counts its calls.
+local record Counted
+  mut presented: integer
+end
+
+local function issue_counted(server: Server, names: {string}, challenge?: Acme.ChallengeType): string?, string, integer
+  local counted: Counted = { presented = 0 }
+  local chain, why = client_of(server):issue(names, {
+    key = Acme.p256_key(Sign.p256_secret()),
+    challenge = challenge,
+    present = function(_c: Acme.Challenge): boolean, string
+      counted.presented = counted.presented + 1
+      return true, ""
+    end,
+  })
+  return chain, why, counted.presented
+end
+
+local function test_an_authorization_of_a_name_not_asked_for_is_never_presented()
+  local cases: {{string}} = {
+    -- asked for, then the identifier's type, value and wildcard shown, and the why
+    { "example.com", "dns", "evil.example", "", "acme: the server asks to authorize evil.example, which was not asked for" },
+    { "example.com", "dns", "example.com", "wildcard",
+      "acme: the server asks to authorize *.example.com, which was not asked for" },
+    { "*.example.com", "dns", "example.com", "",
+      "acme: the server asks to authorize example.com, which was not asked for" },
+    { "example.com", "ip", "example.com", "", "is not for a DNS name" },
+    { "example.com", "dns", "", "", "is not for a DNS name" },
+    { "*.example.com", "dns", "*.example.com", "wildcard", "is not for a DNS name" },
+    { "example.com", "dns", "example.com evil.example", "", "is not for a DNS name" },
+  }
+  for _, case in ipairs(cases) do
+    local asked, kind, value = assert(case[1]), assert(case[2]), assert(case[3])
+    local wildcard, expected = case[4] == "wildcard", assert(case[5])
+    local server = new_server()
+    server.shown = function(_domain: string, _wildcard: boolean): acme_fixture.Identifier
+      return { type = kind, value = value, wildcard = wildcard }
+    end
+    local challenge: Acme.ChallengeType = if asked:sub(1, 2) == "*." then "dns-01" else "http-01" end
+    local chain, why, presented = issue_counted(server, { asked }, challenge)
+    assert(chain == nil and presented == 0, value)
+    assert(why:find(expected, 1, true) ~= nil, why)
+  end
+  -- A name asked for in another case, and a wildcard's base domain, are taken.
+  local server = new_server()
+  server.shown = function(domain: string, wildcard: boolean): acme_fixture.Identifier
+    return { type = "dns", value = domain:upper(), wildcard = wildcard }
+  end
+  local chain, why = issue_counted(server, { "*.example.com" }, "dns-01")
+  assert(chain ~= nil, why)
+end
+
+local function test_every_url_is_https_and_no_redirect_is_followed()
+  -- The resource whose answer names its URLs as http, and the step refused.
+  local cases: {{string}} = {
+    { "/directory", "acme: newAccount: \"http://acme.test/acct\" is not an https URL" },
+    { "/directory nonce", "acme: newNonce: \"http://acme.test/nonce\" is not an https URL" },
+    { "/acct", "acme: newAccount: \"http://acme.test/acct/1\" is not an https URL" },
+    { "/order", "acme: newOrder: \"http://acme.test/orders/1\" is not an https URL" },
+    { "/authz/1", "acme: challenge: \"http://acme.test/chall/1/1\" is not an https URL" },
+    { "/finalize/1", "acme: certificate: \"http://acme.test/cert/1\" is not an https URL" },
+  }
+  for _, case in ipairs(cases) do
+    local resource, expected = assert(case[1]), assert(case[2])
+    local server = new_server()
+    local followed = false
+    local client = Acme.client({
+      directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()), pause = no_pause,
+      request = function(method: string, url: string, o: Http.Options): Http.Body?, string
+        assert(url:sub(1, 8) == "https://", "sent to " .. url)
+        if o.follow ~= false then followed = true end
+        local body = assert(server.request(method, url, o))
+        -- "/directory nonce" makes newNonce's URL alone http.
+        local at = assert(resource:match("^%S+"))
+        local only = resource:match(" (%S+)$") or ""
+        if url ~= BASE .. at then return body, "" end
+        local plain = if only == "" then "https://" else BASE .. "/" .. only end
+        local function down(text: string): string
+          return (text:gsub(plain:gsub("%p", "%%%0"), (plain:gsub("^https", "http"))))
+        end
+        local headers: mut {string: string} = {}
+        for k, v in pairs(body.headers) do headers[k] = down(v) end
+        return { status = body.status, headers = headers, body = down(body.body) }, ""
+      end,
+    })
+    local chain, why = client:issue({ "example.com" }, {
+      key = Acme.p256_key(Sign.p256_secret()),
+      present = function(_c: Acme.Challenge): boolean, string return true, "" end,
+    })
+    assert(chain == nil and why == expected, why)
+    assert(not followed, "a request followed redirects")
+  end
+  local server = new_server()
+  local plain = Acme.client({
+    directory = "http://acme.test/directory", key = Acme.p256_key(Sign.p256_secret()), request = server.request,
+  })
+  local url, why = plain:account()
+  assert(url == nil and why == "acme: directory: \"http://acme.test/directory\" is not an https URL", why)
+  assert(#server.log == 0, "nothing is sent")
+end
+
+local function test_a_chain_not_for_the_key_and_the_names_asked_for_is_refused()
+  local other = Acme.p256_key(Sign.p256_secret())
+  local cases: {{string}} = {
+    { "key", "acme: the issued certificate is not for the certificate's key" },
+    { "fewer", "acme: the issued certificate names \"example.com\", not the names asked for, " ..
+        "\"example.com www.example.com\"" },
+    { "more", "acme: the issued certificate names \"evil.example example.com www.example.com\", " ..
+        "not the names asked for, \"example.com www.example.com\"" },
+    { "broken", "acme: the issued certificate cannot be read" },
+    { "newline", "acme: the issued certificate names \"a\\nb.example\", not the names asked for, " ..
+        "\"example.com www.example.com\"" },
+  }
+  for _, case in ipairs(cases) do
+    local kind, expected = assert(case[1]), assert(case[2])
+    local server = new_server()
+    if kind == "key" then server.leaf_spki = other.spki end
+    if kind == "fewer" then server.leaf_names = { "example.com" } end
+    if kind == "more" then
+      server.leaf_names = { "www.example.com", "example.com", "evil.example" }
+    end
+    if kind == "newline" then server.leaf_names = { "a\nb.example" } end
+    if kind == "broken" then
+      server.chain = "-----BEGIN CERTIFICATE-----\nMAA=\n-----END CERTIFICATE-----\n"
+    end
+    local chain, why = issue_counted(server, { "example.com", "www.example.com" })
+    assert(chain == nil and why == expected, why)
+  end
+  -- The names are a set, in any order and case.
+  local server = new_server()
+  server.leaf_names = { "WWW.example.com", "example.com", "example.com" }
+  local chain, why = issue_counted(server, { "example.com", "www.example.com" })
+  assert(chain ~= nil, why)
+end
+
+local function test_an_authorization_read_alone_refuses_a_token_that_is_not_base64url()
+  local server = new_server()
+  server.token_prefix = "../"
+  local client = client_of(server)
+  assert(client:account())
+  local order = assert(client:order({ "example.com" }))
+  local authorization, why = client:authorization(assert(order.authorizations[1]))
+  assert(authorization == nil and why == "acme: the server's token for example.com is not base64url", why)
+end

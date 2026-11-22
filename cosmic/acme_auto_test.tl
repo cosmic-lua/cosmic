@@ -2,8 +2,9 @@
 --- whose check of an http-01 challenge fetches the response from the
 --- server under test, at its `clear` listener, while that server waits
 --- for its first certificate. The certificate the fake CA hands back is
---- testdata/tls's `a.pem`, for `localhost`, so the test gives
---- [`Acme.auto`] that leaf's key.
+--- testdata/tls's `d.pem`, for `localhost` alone and signed by its own
+--- key, `a.key`, so the test gives [`Acme.auto`] that key and its client
+--- trusts `d.pem` itself.
 
 local Acme = require("cosmic.acme")
 local Clock = require("cosmic.clock")
@@ -16,6 +17,7 @@ local Stream = require("cosmic.stream")
 local Tls = require("cosmic.tls")
 local sys = require("cosmic.sys")
 local Server = require("cosmic.http.server")
+local Sign = require("cosmic.sign")
 local Test = require("cosmic.test")
 local acme_fixture = require("build.acme_fixture")
 
@@ -40,11 +42,11 @@ local function free_port(): integer
   return port
 end
 
---- A fake CA that issues `a.pem` once its check of each http-01
+--- A fake CA that issues `d.pem` once its check of each http-01
 --- challenge fetches the right response from 127.0.0.1 at `port`.
 local function fake_ca(port: integer): FakeCa
   local ca = acme_fixture.new_server()
-  ca.chain = fixture("a.pem")
+  ca.chain = fixture("d.pem")
   ca.check = function(_domain: string, token: string): string
     local got = Http.get("http://127.0.0.1:" .. tostring(port) .. "/.well-known/acme-challenge/" .. token,
       { timeout_ns = WAIT })
@@ -87,7 +89,7 @@ local function serve(auto: Acme.Auto, clear_port: integer): Served, boolean, str
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       served.ready = true
       local port = assert(addresses[1]).port
-      local got = assert(Http.get("https://localhost:" .. tostring(port) .. "/", { ca = fixture("ca.pem"), timeout_ns = WAIT }))
+      local got = assert(Http.get("https://localhost:" .. tostring(port) .. "/", { ca = fixture("d.pem"), timeout_ns = WAIT }))
       served.https = got.body
       local plain = assert(Http.get("http://127.0.0.1:" .. tostring(clear_port) .. "/a?b=1",
         { follow = false, timeout_ns = WAIT }))
@@ -132,7 +134,8 @@ local function test_a_kept_certificate_that_misses_a_name_is_issued_again(tmp: s
   local port = free_port()
   local _, ok, why = serve(auto_of(dir, fake_ca(port)), port)
   assert(ok, why)
-  -- `a.pem` names localhost and *.a.test, not other.test.
+  local kept = assert(Fs.read(dir .. "/certificate.pem"))
+  -- `d.pem` names localhost alone, not other.test.
   local asked = false
   -- Loaded with no server, so nothing answers a check: the CA passes it.
   local ca = fake_ca(port)
@@ -145,8 +148,10 @@ local function test_a_kept_certificate_that_misses_a_name_is_issued_again(tmp: s
   local auto = auto_of(dir, ca, { "localhost", "other.test" })
   local loaded, refused = auto.certs:load()
   assert(asked, "the CA was not asked")
-  -- The fake CA hands back `a.pem` all the same, which Tls takes.
-  assert(loaded, refused)
+  -- The fake CA hands back `d.pem` all the same, which is refused and
+  -- not kept in place of the one there.
+  assert(not loaded and refused:find("not the names asked for", 1, true) ~= nil, refused)
+  assert(Fs.read(dir .. "/certificate.pem") == kept, "the kept certificate was written over")
 end
 
 local function test_a_check_that_fails_fails_the_serve_before_it_is_ready(tmp: string)
@@ -226,7 +231,7 @@ local function test_web_serve_takes_an_auto_as_its_acme(tmp: string)
     clear = { Net.tcp("127.0.0.1", port) },
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local tls_port = assert(addresses[1]).port
-      local got = assert(Http.get("https://localhost:" .. tostring(tls_port) .. "/", { ca = fixture("ca.pem"), timeout_ns = WAIT }))
+      local got = assert(Http.get("https://localhost:" .. tostring(tls_port) .. "/", { ca = fixture("d.pem"), timeout_ns = WAIT }))
       local plain = assert(Http.get("http://127.0.0.1:" .. tostring(port) .. "/", { follow = false, timeout_ns = WAIT }))
       seen = got.body .. " " .. tostring(plain.status)
       server:stop()
@@ -275,4 +280,20 @@ local function test_a_signal_during_the_first_load_is_a_clean_stop()
   assert(ok, why)
   assert(stopped and not ready, tostring(stopped) .. " " .. tostring(ready))
   assert(outer:release() == sys.SIGTERM)
+end
+
+--- An account key there, made by another process however lately, is
+--- the account: read, and never written over.
+local function test_an_account_key_there_is_the_account_and_kept(tmp: string)
+  local dir = tmp .. "/acme"
+  assert(Fs.mkdirs(dir, 0x1c0))
+  local account = Acme.p256_key(Sign.p256_secret())
+  assert(Fs.write(dir .. "/account.pem", assert(account.pem), 0x180))
+  local ca = fake_ca(free_port())
+  ca.check = function(_domain: string, _token: string): string return "valid" end
+  local loaded, why = auto_of(dir, ca).certs:load()
+  assert(loaded, why)
+  assert(Fs.read(dir .. "/account.pem") == account.pem, "the account key was written over")
+  local seen = assert(ca.account)
+  assert(seen["x"] == account.jwk["x"] and seen["y"] == account.jwk["y"], "another account was made")
 end
