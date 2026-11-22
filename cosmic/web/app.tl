@@ -14,12 +14,8 @@ local Server = require("cosmic.http.server")
 -- Only the type: an app that serves no tailnet loads no client of
 -- tailscaled.
 local type Tailscale = require("cosmic.tailscale")
+local Defer = require("cosmic.defer")
 local Types = require("cosmic.web.types")
-
---- The value of a `<close>` variable: only its `__close` matters.
-local record Closing
-  __close: function(Closing)
-end
 
 --- What a request's handler answered, where the closer of its bodies can
 --- read it: the closer is a function, and a function may write a field of
@@ -166,15 +162,14 @@ function App.new(spec: Types.AppSpec): Types.App
     -- its handler waits (a client that went away mid-upload) runs the
     -- pending closes of its coroutine and nothing after them. The bodies
     -- a reply streams are the server's to close.
-    local closing_mt: metatable<Closing> = { __close = function() -- checked: literal_missing
+    local _closing <close> = Defer.new(function()
       for _, body in ipairs(req.bodies) do
         local reply = answered.reply
         if reply == nil or reply.body ~= body then
           local _, _ = body:close()
         end
       end
-    end }
-    local _closing <close>: Closing = setmetatable({}, closing_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+    end)
     local ok, reply = pcall(stack, req)
     if not ok then error(reply, 0) end
     answered.reply = reply

@@ -50,7 +50,7 @@ local function test_a_claim_is_refused_while_a_run_holds_the_lock(tmp: string)
   do
     local claimed, claim_trouble = rebuild_lock.claim(directory)
     assert(claimed ~= nil, claim_trouble)
-    local _held <close> = claimed -- checked: close_not_closable
+    local _held <close> = claimed
     assert(rebuild_lock.take(root, 0) == "busy", "a claim let a run take the lock")
   end
   assert(rebuild_lock.take(root, 0) == "held")

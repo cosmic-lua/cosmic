@@ -27,6 +27,7 @@
 
 local Channel = require("cosmic.channel")
 local Clock = require("cosmic.clock")
+local Defer = require("cosmic.defer")
 local Html = require("cosmic.html")
 local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
@@ -309,10 +310,6 @@ end
 
 -- The stream.
 
-local record Guard
-  __close: function(Guard)
-end
-
 --- The Reader that is a stream's body.
 local record Body is Stream.Reader
   app: Types.App
@@ -325,7 +322,7 @@ local record Body is Stream.Reader
   mut held: boolean
   mut done: boolean
   mut waiting: boolean
-  mut guard?: Guard
+  mut guard?: Defer
   mut prologue: string
   read: function(Body, max_bytes?: integer): string?, string
   close: function(Body): boolean, string
@@ -395,7 +392,7 @@ function Body.read(self: Body, max_bytes?: integer): string?, string
       -- only once it has sent or abandoned the reply. A wait that returns
       -- clears `waiting` first, so the guard then does nothing.
       self.waiting = true
-      local _guard <close> = assert(self.guard) -- checked: close_not_closable
+      local _guard <close> = assert(self.guard)
       ev, why = self.source:next(timeout)
       self.waiting = false
     end
@@ -502,14 +499,12 @@ local function event_stream(req: Types.Request, source: Sse.EventSource,
   }
   local max_age_ns = given.max_age_ns
   if max_age_ns ~= nil then body.deadline = Clock.monotonic_ns() + max_age_ns end
-  local guard: Guard = {} -- checked: literal_missing
-  local guard_mt: metatable<Guard> = { __close = function() -- checked: literal_missing
+  body.guard = Defer.new(function()
     if body.waiting then
       body.waiting = false
       finish(body, "client")
     end
-  end }
-  body.guard = setmetatable(guard, guard_mt) -- checked: setmetatable_call -- untyped: call
+  end)
   req.bodies[#req.bodies + 1] = body
   local headers: mut {string: string | {string}} = {
     ["Cache-Control"] = "no-cache, no-transform", ["X-Accel-Buffering"] = "no",

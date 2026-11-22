@@ -695,18 +695,15 @@ end
 --- A socket being connected in a task, closed when the task leaves it
 --- unclaimed -- a run torn down while it waits included -- rather than
 --- left to the collector.
-local record Connecting
+local class Connecting
   --- Nil once the task has handed the socket on.
-  socket?: raw_socket.Socket
-  __close: function(Connecting)
-end
+  mut socket?: raw_socket.Socket
 
-local connecting_mt: metatable<Connecting> = { -- checked: literal_missing
-  __close = function(self: Connecting)
+  function __close(self)
     local socket = self.socket
     if socket ~= nil then local _, _ = socket:close() end
-  end,
-}
+  end
+end
 
 --- Why `address` is no [`Net.Address`] a listener can take, or "".
 local function address_trouble(address: Net.Address): string
@@ -838,8 +835,7 @@ local function connection(address: Net.Address, timeout_ns: integer?): Attempt
   end
   local socket, trouble, errno = raw.start(address)
   if socket == nil then return { trouble = trouble, errno = errno } end
-  local holder: Connecting = { socket = socket } -- checked: literal_missing
-  local held <close> = setmetatable(holder, connecting_mt) -- checked: setmetatable_call -- untyped: call
+  local held <close>: Connecting = { socket = socket }
   local ready, why = Poll.writable(socket:fd(), timeout_ns)
   if not ready then return { trouble = why, errno = 0 } end
   local made, refused, number = raw.connected(socket:fd())
@@ -1229,28 +1225,28 @@ end
 --- listener and connection, so a run that raises -- [`on_ready`] or
 --- [`on_error`] did -- leaves no socket file behind, and no connection
 --- to a task that never started open.
-local record Serving
+local class Serving
   spec: Net.ServeSpec
   --- The most connections open at once.
   most: integer
   mut open: integer
   mut stopping: boolean
-  accepts: {Accepting}
+  accepts: mut {Accepting}
   --- Each connection open, by the task serving it.
   conns: mut {Poll.Task: Net.Conn}
   --- Waits for `stop` to cancel it.
-  waiter?: Poll.Task
+  mut waiter?: Poll.Task
   --- Holds SIGINT and SIGTERM for the run.
-  guard?: Signal.Guard
+  mut guard?: Signal.Guard
   --- Waits on `guard`: its first signal stops the server, and the next
   --- ends the grace.
-  watcher?: Poll.Task
+  mut watcher?: Poll.Task
   --- Waits for `waiter` to end, then runs [`on_stop`].
-  stopper?: Poll.Task
+  mut stopper?: Poll.Task
   --- Waits out the grace while the server drains.
   mut grace?: Poll.Task
   --- Renews the certificates of `spec.tls`, while there are any.
-  renewer?: Poll.Task
+  mut renewer?: Poll.Task
   --- Set once a signal has ended the grace.
   mut hurried: boolean
   --- Set while `spec.tls` is loaded for the first time: only `clear`'s
@@ -1261,11 +1257,8 @@ local record Serving
   --- Set once a signal `guard` caught has stopped the server: only
   --- then has the server acted on what the guard holds.
   mut signalled: boolean
-  __close: function(Serving)
-end
 
-local serving_mt: metatable<Serving> = { -- checked: literal_missing
-  __close = function(self: Serving)
+  function __close(self)
     for _, accepting in ipairs(self.accepts) do local _, _ = accepting.listener:close() end
     for _, conn in pairs(self.conns) do local _, _ = conn:close() end
     local guard = self.guard
@@ -1274,8 +1267,8 @@ local serving_mt: metatable<Serving> = { -- checked: literal_missing
     -- `serving` has closed or released the guard itself, when closing
     -- again does nothing.
     if guard ~= nil then local _, _ = guard:close() end
-  end,
-}
+  end
+end
 
 --- How long a listener waits after an accept failed -- out of
 --- descriptors, say -- before it tries again, so a failure that lasts is
@@ -1470,12 +1463,12 @@ end
 --- The body of [`Net.serve`]'s run, over listeners of its own.
 local function serving(spec: Net.ServeSpec): boolean, string
   local limits = spec.limits
-  local state: Serving = { -- checked: literal_missing
+  local s <close>: Serving = {
     spec = spec, most = limits and limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
-    signalled = false, loading = false,
+    signalled = false, loading = false, waiter = nil, guard = nil, watcher = nil, stopper = nil,
+    grace = nil, renewer = nil, unloaded = nil,
   }
-  local s <close> = setmetatable(state, serving_mt) -- checked: setmetatable_call -- untyped: call
   local guard, guard_trouble = Signal.guard()
   if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard

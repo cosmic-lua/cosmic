@@ -275,19 +275,16 @@ function Fs.write(path: string, data: string, mode?: integer): boolean, string
   return file:close()
 end
 
-local record AppendFile
-  __close: function(AppendFile)
+local class AppendFile
   mut fd: integer
-end
 
-local append_mt: metatable<AppendFile> = { -- checked: literal_missing
-  __close = function(self: AppendFile)
+  function __close(self)
     if self.fd < 0 then return end
     local fd = self.fd
     self.fd = -1
     local _, _ = sys.close(fd)
-  end,
-}
+  end
+end
 
 --- Appends `data` in place, creating `path` if missing, with `mode`
 --- (default 0644, less the umask). An existing file keeps its inode and
@@ -299,7 +296,7 @@ local append_mt: metatable<AppendFile> = { -- checked: literal_missing
 --- or false and a reason naming `path`; a write failure wins over a
 --- close failure.
 function Fs.append(path: string, data: string, mode?: integer): boolean, string
-  local file <close>: AppendFile = setmetatable({ fd = -1 }, append_mt) -- checked: close_not_closable, setmetatable_call -- untyped: call
+  local file <close>: AppendFile = { fd = -1 }
   local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
   if fd == nil then return false, path .. ": " .. trouble end
   file.fd = fd
@@ -705,13 +702,13 @@ function Fs.walk_following(root: string,
   return walk(root, true, skip)
 end
 
-local record Descriptor
+local class Descriptor
   fd: integer
-  __close: function(Descriptor)
+
+  function __close(self)
+    local _, _ = sys.close(self.fd)
+  end
 end
-local descriptor_mt: metatable<Descriptor> = { -- checked: literal_missing
-  __close = function(self: Descriptor) local _, _ = sys.close(self.fd) end,
-}
 
 --- A fresh, empty, private directory under `parent`, which must exist,
 --- and a `.scratch-gate` file there. The directory is removed, with its
@@ -734,8 +731,7 @@ local descriptor_mt: metatable<Descriptor> = { -- checked: literal_missing
 function Fs.scratch(parent: string): Fs.Scratch?, string
   local fd, trouble = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
   if fd == nil then return nil, parent .. ": " .. trouble end
-  local opened: Descriptor = { fd = fd } -- checked: literal_missing
-  local gate <close> = setmetatable(opened, descriptor_mt) -- checked: setmetatable_call -- untyped: call
+  local gate <close>: Descriptor = { fd = fd }
   local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
   if not locked then return nil, parent .. ": " .. lock_trouble end
   local names, list_trouble = Fs.list(parent)
@@ -751,8 +747,7 @@ function Fs.scratch(parent: string): Fs.Scratch?, string
       local path = parent .. "/" .. name
       local owner, _ = sys.open(path .. "/owner", sys.O_RDWR | sys.O_NOFOLLOW)
       if owner ~= nil then
-        local descriptor: Descriptor = { fd = owner } -- checked: literal_missing
-        local probe <close> = setmetatable(descriptor, descriptor_mt) -- checked: setmetatable_call -- untyped: call
+        local probe <close>: Descriptor = { fd = owner }
         local dead, _ = sys.flock(probe.fd, "exclusive", 0)
         if dead then local _, _ = Fs.remove_tree(path) end
       end

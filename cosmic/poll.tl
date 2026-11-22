@@ -568,13 +568,6 @@ local class NotifierState is Poll.Notifier
   end
 end
 
---- A [`Poll.shielded`] call's hold on its task, let go as the call
---- returns or raises, or as its task is closed.
-local record Shielding
-  task: State
-  __close: function(Shielding)
-end
-
 --- A run's state while [`Poll.run`] runs; nil otherwise.
 local record Loop
   tasks: mut {thread: State} -- declared: thread_type
@@ -812,11 +805,15 @@ local function start(fn: function()): Poll.Task
   return state
 end
 
-local shielding_mt: metatable<Shielding> = { -- checked: literal_missing
-  __close = function(held: Shielding)
-    held.task.shields = held.task.shields - 1
-  end,
-}
+--- A [`Poll.shielded`] call's hold on its task, let go as the call
+--- returns or raises, or as its task is closed.
+local class Shielding
+  task: State
+
+  function __close(self)
+    self.task.shields = self.task.shields - 1
+  end
+end
 
 --- Calls `fn` in the calling task with its waits shielded from a
 --- cancel: one that comes meanwhile answers none of them, nor the
@@ -830,8 +827,7 @@ local shielding_mt: metatable<Shielding> = { -- checked: literal_missing
 function Poll.shielded(fn: function())
   local task = current("Poll.shielded", 2)
   -- Made before the count moves, so a refused allocation leaves it be.
-  local held: Shielding = { task = task } -- checked: literal_missing
-  local _held <close> = setmetatable(held, shielding_mt) -- checked: setmetatable_call -- untyped: call
+  local _held <close>: Shielding = { task = task }
   task.shields = task.shields + 1
   fn()
 end
