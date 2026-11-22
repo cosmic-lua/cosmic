@@ -14,6 +14,15 @@ local function test_read_answers_a_failure_with_the_path_and_the_errno(tmp: stri
   assert(assert(Fs.read(tmp .. "/present")) == "x")
 end
 
+local function test_stat_answers_a_failure_with_the_path_and_the_errno(tmp: string)
+  local st, why = Fs.stat(tmp .. "/absent")
+  assert(st == nil)
+  assert(why.errno == sys.ENOENT, tostring(why.errno))
+  assert(why.path == tmp .. "/absent", tostring(why.path))
+  assert(Fs.write(tmp .. "/present", "xy"))
+  assert(assert(Fs.stat(tmp .. "/present")).size == 2)
+end
+
 local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
   local file = tmp .. "/file"
   assert(Fs.write(file, "contents"))

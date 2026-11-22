@@ -85,9 +85,9 @@ local function test_corrupt_active_file_suppresses_the_entire_save_set(tmp: stri
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
     assert(code == 0 and err ~= "")
     assert(assert(Fs.read(path)) == bytes)
-    assert(Fs.stat(tmp .. "/output") == nil)
+    assert(Fs.exists(tmp .. "/output") ~= true)
   end
-  assert(Fs.stat(tmp .. "/fixtures.db.corrupt-123") == nil)
+  assert(Fs.exists(tmp .. "/fixtures.db.corrupt-123") ~= true)
 end
 
 local function test_digest_depends_on_rows_not_usage_stamps(tmp: string)

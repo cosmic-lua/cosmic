@@ -192,7 +192,7 @@ local function test_an_app_through_funnel_is_served_from_a_private_socket(tmp: s
       while d.open > 0 and Clock.monotonic_ns() < deadline do
         local _, _ = Poll.delay(Clock.ms(20))
       end
-      note(tostring(Fs.stat(Fs.dirname(d.socket)) == nil))
+      note(tostring(Fs.exists(Fs.dirname(d.socket)) ~= true))
       server:stop()
     end,
   })
@@ -229,7 +229,7 @@ local function test_a_refused_configuration_fails_the_serve_and_leaves_nothing(t
       local result = assert(child:wait(Clock.seconds(30)))
       local out = tostring(result.stdout):gsub("%s+$", "")
       said[#said + 1] = out
-      local gone = d.socket ~= "" and Fs.stat(Fs.dirname(d.socket)) == nil
+      local gone = d.socket ~= "" and Fs.exists(Fs.dirname(d.socket)) ~= true
       local shown = tostring(gone)
       said[#said + 1] = shown
       server:stop()

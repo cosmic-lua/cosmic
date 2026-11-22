@@ -367,18 +367,18 @@ local function test_close_removes_a_relative_socket_file_after_a_chdir(tmp: stri
   local server, trouble = Net.listen(Net.unix("rel.sock"))
   assert(sys.chdir(was))
   assert(server ~= nil, trouble)
-  assert(Fs.stat(tmp .. "/rel.sock") ~= nil, "no socket file")
+  assert(Fs.exists(tmp .. "/rel.sock") == true, "no socket file")
   assert(server:close())
-  assert(Fs.stat(tmp .. "/rel.sock") == nil, "the socket file was left")
+  assert(Fs.exists(tmp .. "/rel.sock") ~= true, "the socket file was left")
 end
 
 local function test_close_removes_the_socket_file_it_made(tmp: string)
   unix_socket.skip_if_refused(tmp)
   local path = tmp .. "/s.sock"
   local server = assert(Net.listen(Net.unix(path)))
-  assert(Fs.stat(path) ~= nil, "no socket file")
+  assert(Fs.exists(path) == true, "no socket file")
   assert(server:close())
-  assert(Fs.stat(path) == nil, "the socket file was left")
+  assert(Fs.exists(path) ~= true, "the socket file was left")
   assert(server:close())
   local conn, why = server:accept()
   assert(conn == nil and why == "net: the listener is closed", why)
@@ -398,7 +398,7 @@ local function test_a_socket_file_left_behind_is_refused_and_kept(tmp: string)
     assert(Fs.write(path, "someone else's"))
   end
   assert(assert(Fs.read(path)) == "someone else's")
-  assert(Fs.stat(moved) ~= nil, "the moved socket file was removed")
+  assert(Fs.exists(moved) == true, "the moved socket file was removed")
   local conn, why = Net.connect(Net.unix(moved))
   assert(conn == nil and why == moved .. ": Connection refused", why)
   local again, taken = Net.listen(Net.unix(moved))
@@ -433,7 +433,7 @@ local function test_a_path_that_names_no_socket_file_is_refused(tmp: string)
   local nul = tmp .. "/a\0b"
   local held, held_why = Net.listen(Net.unix(nul))
   assert(held == nil and held_why == nul .. ": Invalid argument", held_why)
-  assert(Fs.stat(tmp .. "/a") == nil, "a shorter name was bound")
+  assert(Fs.exists(tmp .. "/a") ~= true, "a shorter name was bound")
   local pipe: Net.Address = { kind = "pipe" }
   for _, address in ipairs({ Net.unix(""), Net.tcp("127.0.0.1", 65536), pipe }) do
     local listen_ok, listen_why = pcall(Net.listen, address)
@@ -466,7 +466,7 @@ local function test_a_long_path_is_reached_from_its_directory(tmp: string)
     assert(assert(accepted:read()) == "far")
     assert(sys.getcwd() == was)
   end
-  assert(Fs.stat(path) == nil, "the socket file was left")
+  assert(Fs.exists(path) ~= true, "the socket file was left")
   local missing = tmp .. "/" .. string.rep("m", 120) .. "/s.sock"
   local conn, why = Net.connect(Net.unix(missing))
   assert(conn == nil and why == missing .. ": No such file or directory", why)
@@ -475,9 +475,9 @@ local function test_a_long_path_is_reached_from_its_directory(tmp: string)
   local server, trouble = Net.listen(Net.unix(relative))
   assert(sys.chdir(was))
   assert(server ~= nil, trouble)
-  assert(Fs.stat(deep .. "/r.sock") ~= nil, "no socket file")
+  assert(Fs.exists(deep .. "/r.sock") == true, "no socket file")
   assert(server:close())
-  assert(Fs.stat(deep .. "/r.sock") == nil, "the socket file was left")
+  assert(Fs.exists(deep .. "/r.sock") ~= true, "the socket file was left")
 end
 
 --- Even a host refusing a socket bind must return from the directory
@@ -492,7 +492,7 @@ local function test_a_long_socket_bind_restores_the_working_directory_on_refusal
   if server ~= nil then
     assert(server:close())
   end
-  assert(Fs.stat(path) == nil, "the socket file was left")
+  assert(Fs.exists(path) ~= true, "the socket file was left")
   if server == nil and why ~= path .. ": " .. sys.errno_message(sys.EPERM) then
     local unsupported = false
     for _, errno in ipairs({ sys.EACCES, sys.EAFNOSUPPORT, sys.EPROTONOSUPPORT, sys.ENOSYS }) do

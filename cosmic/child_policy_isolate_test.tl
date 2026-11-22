@@ -181,7 +181,7 @@ local function test_a_grant_with_from_appears_at_its_name_and_the_host_path_does
   local host = ChildPolicy.under(at.probe, policy, at.work, "cat " .. tmp .. "/hostdata/c")
   assert(host.code == 1 and host.said:find("No such file or directory", 1, true) ~= nil, host.said)
   -- The mount point is the sandbox's own: the host has no /data made.
-  local made = Fs.stat("/data")
+  local made, _ = Fs.stat("/data")
   assert(made == nil)
 end
 

@@ -35,12 +35,12 @@ local function test_an_open_cache_is_in_wal_mode_and_prepared(tmp: string)
   waiting:close()
   -- The last connection closed, SQLite removes the log; one left open
   -- by a failed open would keep it.
-  assert(Fs.stat(path .. "-wal") == nil, "the log outlived its connections")
+  assert(Fs.exists(path .. "-wal") ~= true, "the log outlived its connections")
   local refused, trouble = shared_sqlite.open(path, function(_: Sqlite.Handle): boolean, string
     return false, "no shape of mine"
   end)
   assert(refused == nil and trouble == path .. ": no shape of mine", trouble)
-  assert(Fs.stat(path .. "-wal") == nil, "a failed open left its connection open")
+  assert(Fs.exists(path .. "-wal") ~= true, "a failed open left its connection open")
 end
 
 --- Opening a broken file reports its path and leaves its bytes in place.

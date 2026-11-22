@@ -95,7 +95,7 @@ Test.policy { grants = { { path = "suite/", letters = "r" } }, env = { "FLAVOUR"
 
 local function test_reads_data()
   assert(Fs.read("suite/data.txt"))
-  assert(Fs.stat("suite/data.txt") ~= nil)
+  assert(Fs.exists("suite/data.txt") == true)
   assert(Fs.list("suite") ~= nil)
 end
 
@@ -504,7 +504,7 @@ local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((as
 local function test_reads_the_tool()
   local tool = built .. "/bin/tool"
   assert(Fs.read(tool))
-  assert(Fs.stat(tool) ~= nil)
+  assert(Fs.exists(tool) == true)
 end
 ]]))
     assert(Fs.write(root .. "/suite/working_test.tl", [[

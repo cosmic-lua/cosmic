@@ -153,12 +153,12 @@ function CacheTrim.snapshot_safe(live: string, restored: string): CacheTrim.Snap
       local sa, a_trouble = Fs.stat(a)
       if sa == nil then
         local there, _ = seams.fs_exists(a)
-        if there ~= false then return { ownership = "unknown", why = a_trouble } end
+        if there ~= false then return { ownership = "unknown", why = tostring(a_trouble) } end
       end
       local sb, b_trouble = Fs.stat(b)
       if sb == nil then
         local there, _ = seams.fs_exists(b)
-        if there ~= false then return { ownership = "unknown", why = b_trouble } end
+        if there ~= false then return { ownership = "unknown", why = tostring(b_trouble) } end
       end
       if sa ~= nil and sb ~= nil and sa.dev == sb.dev and sa.ino == sb.ino then
         return { ownership = "aliased", why = "RESTORED aliases the live cache or its sidecars" }

@@ -1,10 +1,13 @@
 --- Files and directories.
 ---
 --- Every call goes through the syscall table, so one call behaves the
---- same on Linux and on macOS. A fallible call that produces a value
---- returns `T | nil, string`: a value and `""` on success, or nil and
---- an error. A predicate uses the same contract, with false as a valid
---- answer. A call that only has an effect returns `boolean, string`.
+--- same on Linux and on macOS. [`Fs.read`] and [`Fs.stat`] answer
+--- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
+--- that names the path and the errno. Other fallible calls that produce
+--- a value still return `T | nil, string`: a value and `""` on success,
+--- or nil and an error. A predicate uses the same contract, with false
+--- as a valid answer. A call that only has an effect returns
+--- `boolean, string`.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
@@ -309,13 +312,13 @@ function Fs.append(path: string, data: string, mode?: integer): boolean, string
   return true, ""
 end
 
---- Metadata for a path, or nil and an error if it cannot be inspected.
-function Fs.stat(path: string): sys.Stat?, string
-  local st, trouble = sys.stat(path)
-  if st == nil then
-    return nil, path .. ": " .. trouble
-  end
-  return st, ""
+--- Metadata for a path, or nil and a [`Failure`] that names `path`
+--- and the errno that says why (`why.errno == sys.ENOENT` where nothing
+--- is there).
+function Fs.stat(path: string): (sys.Stat) | (nil, Failure)
+  local st, _, errno = sys.stat(path)
+  if st == nil then return nil, Failure.system(errno, path) end
+  return st
 end
 
 --- Whether anything is at a path. A missing path is false, while an error
@@ -475,7 +478,7 @@ local function own_dir(base: string, names: {string}, opts?: Fs.CacheOptions): s
   end
   local st, strouble = Fs.stat(base)
   if st == nil then
-    return nil, strouble
+    return nil, tostring(strouble)
   end
   if st.uid ~= sys.getuid() and st.uid ~= 0 then
     return nil, base .. ": owned by another user"
@@ -792,7 +795,7 @@ end
 --- `chmod`. `mode` is the bits as an integer (0x1ed for 0755), setuid,
 --- setgid and sticky included; one outside 0 to 0xfff raises, since
 --- the kernel would silently drop the bits it does not hold.
---- `Fs.stat(path).mode & 0xfff` reads them back.
+--- `assert(Fs.stat(path)).mode & 0xfff` reads them back.
 function Fs.chmod(path: string, mode: integer): boolean, string
   if mode < 0 or mode > 0xfff then
     local shown = if mode > 0 and math.tointeger(mode) ~= nil then string.format("0x%x", mode) else tostring(mode) end

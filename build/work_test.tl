@@ -415,12 +415,13 @@ local function with_change_time(paths: {string}, check: function(function()))
   for _, path in ipairs(paths) do tracked[path] = true end
   local stat = Fs.stat
   local tick = { value = 1 }
-  Fs.stat = function(path: string): sys.Stat?, string -- checked: field_fixed
+  Fs.stat = function(path: string): (sys.Stat) | (nil, Failure) -- checked: field_fixed
     local st, trouble = stat(path)
-    if st ~= nil and tracked[path] == true then
-      return { ...st, ctime = 100, ctime_ns = tick.value }, trouble
+    if st == nil then return nil, trouble end
+    if tracked[path] == true then
+      return { ...st, ctime = 100, ctime_ns = tick.value }
     end
-    return st, trouble
+    return st
   end
   local ok, trouble = pcall(function(): boolean
     check(function() tick.value = tick.value + 1 end)
@@ -735,13 +736,12 @@ local function test_an_unknown_change_time_never_trusts_cached_bytes(tmp: string
   assert(Fs.set_mtime(tmp .. "/probe.tl", 0, 0))
   local handle = assert(work.open(tmp))
   local stat = Fs.stat
-  Fs.stat = function(path: string): sys.Stat?, string -- checked: field_fixed
+  Fs.stat = function(path: string): (sys.Stat) | (nil, Failure) -- checked: field_fixed
     local st, trouble = stat(path)
-    if st ~= nil then
-      local fields = st as {string:integer} -- checked: cast_refused
-      fields["ctime_ns"] = nil
-    end
-    return st, trouble
+    if st == nil then return nil, trouble end
+    local fields = st as {string:integer} -- checked: cast_refused
+    fields["ctime_ns"] = nil
+    return st
   end
   local ok, trouble = pcall(function()
     assert(stage_settled(handle).read == 1)

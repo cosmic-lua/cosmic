@@ -1179,7 +1179,7 @@ function embed.tree_tool(root: string, out?: string): string?, string
   local tool = build_paths.resolve(root).tool
   local st, stat_trouble = Fs.stat(tool)
   if st == nil or st.kind ~= "file" then
-    return nil, "no tool at " .. tool .. " (" .. (if st == nil then stat_trouble else "not a file" end) ..
+    return nil, "no tool at " .. tool .. " (" .. (if st == nil then tostring(stat_trouble) else "not a file" end) ..
       "); run bin/zig build boot"
   end
   if out ~= nil then

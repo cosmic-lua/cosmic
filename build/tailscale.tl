@@ -157,7 +157,7 @@ local standard: verb.Io = {
   rename = function(from: string, to: string): boolean, string return Fs.rename(from, to) end,
   open = function(path: string): verb.Opened?, string
     local st, why = Fs.stat(path)
-    if st == nil then return nil, why end
+    if st == nil then return nil, tostring(why) end
     if st.kind ~= "file" then return nil, path .. ": not a file" end
     local reader, trouble = Stream.open(path)
     if reader == nil then return nil, trouble end

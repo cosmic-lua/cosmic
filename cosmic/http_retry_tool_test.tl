@@ -52,10 +52,10 @@ end
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child = assert(Child.start(started.argv, started.options))
   for _ = 1, 2000 do
-    if Fs.stat(marker) ~= nil then break end
+    if Fs.exists(marker) == true then break end
     assert(sys.nanosleep(Clock.ms(10)))
   end
-  assert(Fs.stat(marker) ~= nil, "the client never reached its request")
+  assert(Fs.exists(marker) == true, "the client never reached its request")
   -- Long enough for the client to read the 429 and begin its wait.
   assert(sys.nanosleep(Clock.ms(500)))
   assert(child:stop(sys.SIGINT))

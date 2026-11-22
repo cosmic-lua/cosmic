@@ -172,7 +172,7 @@ end
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })
   local child <close> = assert(Child.start(started.argv, started.options))
   for _ = 1, 3000 do
-    if Fs.stat(marker) ~= nil then break end
+    if Fs.exists(marker) == true then break end
     assert(sys.nanosleep(Clock.ms(10)))
   end
   local got, _ = Fs.read(marker)

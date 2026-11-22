@@ -36,7 +36,7 @@ test_child.register("refusals", function(args: {string}): integer
     confine.confine(nil)
     assert(ran == nil, "an unconfined process ran in its place")
   end, nil, { tmp })))
-  assert(Fs.stat(tmp .. "/ran") == nil, "nothing runs in its place")
+  assert(Fs.exists(tmp .. "/ran") ~= true, "nothing runs in its place")
   print(said("raised_too", confine.call(function(...: any): any...
     confine.must_confine({ reads = many })
     local _, _ = Child.run({ probe, "exit 0" }, { timeout_ns = Child.FOREVER })

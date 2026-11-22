@@ -68,11 +68,11 @@ local function test_a_socket_dropped_unclosed_is_closed_by_the_collector(tmp: st
     local accepted = assert(raw.accept(listener:fd()))
     assert(accepted:fd() ~= client:fd() and client:fd() ~= listener:fd())
   end
-  assert(Fs.stat(path) ~= nil, "no socket file")
+  assert(Fs.exists(path) == true, "no socket file")
   collectgarbage("collect")
   collectgarbage("collect")
   assert(AllocationFixture.next_descriptor(tmp) == before, "a dropped socket left descriptor " .. tostring(before) .. " open")
-  assert(Fs.stat(path) == nil, "a dropped listener left its socket file")
+  assert(Fs.exists(path) ~= true, "a dropped listener left its socket file")
 end
 
 --- A name another file has taken since the listener made its own is
@@ -91,7 +91,7 @@ local function test_a_file_that_took_the_name_is_left_alone(tmp: string)
     collectgarbage("collect")
     collectgarbage("collect")
     assert(assert(Fs.read(path)) == "someone else's", "the file that took the name was removed")
-    assert(Fs.stat(moved) ~= nil, "the moved socket file was removed")
+    assert(Fs.exists(moved) == true, "the moved socket file was removed")
     assert(sys.unlink(path))
   end
 end
@@ -105,9 +105,9 @@ local function test_a_relative_socket_file_is_removed_after_a_chdir(tmp: string)
   local listener, trouble = raw.listen(unix("rel.sock"), 1)
   assert(sys.chdir(was))
   assert(listener ~= nil, trouble)
-  assert(Fs.stat(tmp .. "/rel.sock") ~= nil, "no socket file")
+  assert(Fs.exists(tmp .. "/rel.sock") == true, "no socket file")
   assert(listener:close())
-  assert(Fs.stat(tmp .. "/rel.sock") == nil, "the socket file was left")
+  assert(Fs.exists(tmp .. "/rel.sock") ~= true, "the socket file was left")
 end
 
 --- A closed socket closes again, and has no descriptor to give; one
@@ -130,12 +130,12 @@ local function test_a_unix_socket_held_close_leaves_no_socket_file(tmp: string)
   local path = tmp .. "/s.sock"
   do
     local _held <close> = assert(raw.listen(unix(path), 1))
-    assert(Fs.stat(path) ~= nil, "no socket file")
+    assert(Fs.exists(path) == true, "no socket file")
   end
-  assert(Fs.stat(path) == nil, "a socket held <close> left its socket file")
+  assert(Fs.exists(path) ~= true, "a socket held <close> left its socket file")
   local again = assert(raw.listen(unix(path), 1))
   assert(again:close())
-  assert(Fs.stat(path) == nil, "a closed listener left its socket file")
+  assert(Fs.exists(path) ~= true, "a closed listener left its socket file")
 end
 
 --- An address whose `path` answers once and then nil -- read twice,
@@ -155,9 +155,9 @@ local function test_an_address_is_read_once(tmp: string)
   }
   local listener = assert(raw.listen(setmetatable({} as raw_socket.Address, fickle), 1)) -- checked: cast_refused, setmetatable_call
   assert(reads == 1, "the path was read " .. tostring(reads) .. " times")
-  assert(Fs.stat(path) ~= nil, "no socket file")
+  assert(Fs.exists(path) == true, "no socket file")
   assert(listener:close())
-  assert(Fs.stat(path) == nil, "the socket file was left")
+  assert(Fs.exists(path) ~= true, "the socket file was left")
 end
 
 local DEEP_PART <const> = string.rep("d", 200)

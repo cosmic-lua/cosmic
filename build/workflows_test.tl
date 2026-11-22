@@ -585,7 +585,7 @@ end
 --- `action.yaml`, or nil when it has neither.
 local function action_file(dir: string): string?
   for _, name in ipairs({ "action.yml", "action.yaml" }) do
-    local st = Fs.stat(dir .. "/" .. name)
+    local st, _ = Fs.stat(dir .. "/" .. name)
     if st ~= nil and st.kind == "file" then return dir .. "/" .. name end
   end
   return nil
@@ -697,7 +697,7 @@ local function test_the_workflows_run_the_scripts_there_are()
     local scripts, actions = scripts_run(path, workflow)
     for _, script in ipairs(scripts) do
       named[script] = true
-      local st = Fs.stat(script)
+      local st, _ = Fs.stat(script)
       assert(st ~= nil and st.kind == "file", path .. " runs " .. script .. ", which is no file")
     end
     for dir in pairs(actions) do used[dir] = true end
@@ -714,7 +714,7 @@ local function test_the_workflows_run_the_scripts_there_are()
     local text = assert(Fs.read(assert(script)))
     for reference in text:gmatch("%.github/scripts/[%w_./%-]+") do
       local dependency = normal(reference)
-      local st = Fs.stat(dependency)
+      local st, _ = Fs.stat(dependency)
       assert(st ~= nil and st.kind == "file", assert(script) .. " names " .. dependency .. ", which is no file")
       if named[dependency] ~= true then
         named[dependency] = true

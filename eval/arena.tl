@@ -62,7 +62,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   end
   local st, stat_trouble = Fs.stat(binary)
   if st == nil then
-    return nil, binary .. " is not an executable: " .. stat_trouble
+    return nil, binary .. " is not an executable: " .. tostring(stat_trouble)
   end
   if st.kind ~= "file" or st.mode & 0x49 == 0 then
     return nil, binary .. " is not an executable"

@@ -52,9 +52,9 @@ error("the original signal was swallowed")
   local result = assert(handle:wait(Clock.seconds(10)))
   assert(result.signal == sys.SIGTERM, (result.stderr or "") .. tostring(result.code))
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
-    assert(Fs.stat(restored .. suffix) == nil, "snapshot remained at signal redelivery")
+    assert(Fs.exists(restored .. suffix) ~= true, "snapshot remained at signal redelivery")
   end
-  assert(Fs.stat(output) == nil, "cancelled maintenance published a save key")
+  assert(Fs.exists(output) ~= true, "cancelled maintenance published a save key")
 end
 
 local function test_wrapper_maintenance_does_not_build_a_broken_candidate(tmp: string)
@@ -84,5 +84,5 @@ end
   local result = assert(Child.run({ assert(Proc.executable()), project .. "/check.tl" },
     { timeout_ns = CEILING_NS, cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
-  assert(Fs.stat(candidate .. "/o") == nil and Fs.stat(candidate .. "/missing") == nil)
+  assert(Fs.exists(candidate .. "/o") ~= true and Fs.exists(candidate .. "/missing") ~= true)
 end

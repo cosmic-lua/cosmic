@@ -107,7 +107,7 @@ local function test_a_build_waits_for_the_lock_before_removing_a_file_of_another
       'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')) ' ..
       'local rows = assert(Sqlite.text_rows(handle.db, "SELECT value FROM meta WHERE key = \'schema\'")) ' ..
       'assert(Fs.put(1, assert(rows[1]):text(1))) assert(work.close(handle))')
-  local during = Fs.stat(path)
+  local during, _ = Fs.stat(path)
   assert(held:exec("ROLLBACK"))
   assert(held:close())
   local result = assert(child:wait(Clock.seconds(60)))
@@ -218,7 +218,7 @@ local function test_a_build_waits_for_the_rebuild_lock_before_removing_a_file_of
   -- Held here as a `cosmic test` run holds it.
   assert(rebuild_lock.take(tmp, 0, "test") == "held")
   local child, said = waiting(tmp, opening_script(tmp))
-  local during = Fs.stat(path)
+  local during, _ = Fs.stat(path)
   rebuild_lock.release()
   local result = assert(child:wait(Clock.seconds(60)))
   assert(said:find("waiting for it", 1, true), "the build did not wait for the rebuild lock: " .. said)

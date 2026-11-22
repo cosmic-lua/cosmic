@@ -100,10 +100,10 @@ end
   while not head:find("\r\n\r\n", 1, true) do head = head .. assert(conn:read()) end
   serve(conn, head)
   for _ = 1, 2000 do
-    if Fs.stat(marker) ~= nil then break end
+    if Fs.exists(marker) == true then break end
     assert(sys.nanosleep(Clock.ms(10)))
   end
-  assert(Fs.stat(marker) ~= nil, "the client never reached its wait")
+  assert(Fs.exists(marker) == true, "the client never reached its wait")
   assert(child:stop(sys.SIGINT))
   local result = assert(child:wait(Clock.seconds(20)))
   assert(result.code == 0, tostring(result.code) .. " " .. tostring(result.stderr))
@@ -134,7 +134,7 @@ local function test_a_caught_signal_ends_a_download_that_waits(tmp: string)
   local target = marker .. ".target"
   local ok, why = Http.download(url, target, { timeout_ns = Clock.seconds(60),
     cancelled = function(): boolean
-      if not Fs.stat(marker) then assert(Fs.write(marker, "")) end
+      if Fs.exists(marker) ~= true then assert(Fs.write(marker, "")) end
       return guard:cancelled() ~= 0
     end,
   })

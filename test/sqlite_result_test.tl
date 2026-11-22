@@ -13,7 +13,7 @@ end
 local function test_open_and_prepare_outcomes_outlive_cleanup(tmp: string)
   local missing = Sqlite.open_result(tmp .. "/absent", { writable = true, create = false })
   assert(missing.handle == nil and missing.code == 14 and missing.extended_code == 14) -- checked: compare_disjoint
-  assert(missing.reason ~= "" and not missing.cancelled and Fs.stat(tmp .. "/absent") == nil)
+  assert(missing.reason ~= "" and not missing.cancelled and Fs.exists(tmp .. "/absent") ~= true)
   local opened = Sqlite.open_result(":memory:", { writable = true })
   assert(opened.code == Sqlite.OK and opened.reason == "" and not opened.cancelled)
   local db = assert(opened.handle)

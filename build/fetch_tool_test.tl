@@ -85,7 +85,7 @@ end
   assert(result.signal == sys.SIGINT,
     "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) ..
       " " .. tostring(result.stderr))
-  assert(Fs.stat(tmp .. "/target") == nil, "the target was created")
+  assert(Fs.exists(tmp .. "/target") ~= true, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "interrupted.tl", "left behind: " .. name)
   end
@@ -112,7 +112,7 @@ local function test_a_fetch_interrupted_mid_body_leaves_no_file(tmp: string)
   local written = false
   for _ = 1, 2000 do
     for _, name in ipairs((assert(Fs.list(tmp)))) do
-      local st = Fs.stat(tmp .. "/" .. name)
+      local st, _ = Fs.stat(tmp .. "/" .. name)
       if st ~= nil and st.size >= #part then written = true end
     end
     if written then break end
