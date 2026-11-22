@@ -34,7 +34,8 @@
 --- no membership of the group and no share of port 5353, so it works beside the system's own
 --- responder and where a group cannot be joined, and it is right for a search made once. A
 --- responder that does not repeat the id, or that leaves such a question unanswered, gives it
---- no instance.
+--- no instance; cosmic's own leaves unanswered a question from an address that is not loopback,
+--- link-local or private (a tailnet's 100.64.0.0/10 among them), where "group" still works.
 ---
 --- "group" binds port 5353, shared, and joins the group, as a full member of the protocol does.
 --- It hears the answers every responder sends to the group, those to another program's question
@@ -124,7 +125,9 @@
 --- and no question, as one member answers another. A question from any other port is from a
 --- program that is no member, and is answered to that port alone, with its id and its questions
 --- repeated and no time to live over 10 seconds (RFC 6762 section 6.7): that is what a search
---- listening by "unicast" asks. A member's question that asks for its answer by unicast is
+--- listening by "unicast" asks. Such a question is answered only where it comes from a
+--- loopback, link-local or private IPv4 address, and is ignored from any other, so that a query
+--- naming another's address as its own draws no answer to it. A member's question that asks for its answer by unicast is
 --- answered to the group all the same. Answers go by IPv4 alone, and to the group by every
 --- interface the responder joined it on. The responder holds 64 instances at most, each with
 --- what a search keeps of one, and answers a query with one message for each instance the query
@@ -132,7 +135,7 @@
 --- carries whole. It reads a query as a search reads an answer: one over 9000 bytes, one that
 --- is no DNS message, a response and a query of another kind are ignored, and whether a query
 --- came from the local link is not checked, so any machine that can reach the port draws an
---- answer.
+--- answer to the group, and one with a nearby address an answer to itself.
 ---
 --- Answering is all it does of a publisher's part. It does not probe for its names before it
 --- uses them, announce its records, say goodbye as it stops or settle a conflict with another
@@ -144,6 +147,7 @@
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
+local Nearby = require("cosmic.internal.nearby")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Rand = require("cosmic.rand")
@@ -1223,13 +1227,18 @@ local function respond(socket: Net.Datagram, port: integer, group: Net.Address, 
     if packet == nil then return false, why end
     -- TODO: drop a query that did not arrive with 255 hops, the proof that it came from the local
     -- link (RFC 6762 section 11), once Net.Datagram's receive answers the hops a datagram arrived
-    -- with: until then a machine past the link that reaches the port draws an answer, sent to
-    -- the address it gives as its own.
+    -- with: until then a machine past the link that reaches the port draws an answer to the
+    -- group, or to a private address it gives as its own, which may be another's on the same
+    -- private network.
     local query, _ = Dns.decode(packet.data)
     if query ~= nil and #packet.data <= MAX_MESSAGE and not query.response and query.opcode == 0 then
-      -- A question from another port is from a program that is no member of the group.
-      local legacy = packet.address.port ~= port
-      for _, bytes in ipairs(replies(published, query, legacy)) do
+      -- A question from another port is from a program that is no member of the group. Its answer
+      -- goes by unicast to the address the query gives as its own, so only to a private one: a
+      -- query that named a far one would draw replies many times its size to whoever that is.
+      local to = Nearby.reply(packet.address.host, packet.address.port, port)
+      local legacy = to == "source"
+      local answers: {string} = if to ~= "none" then replies(published, query, legacy) else {} end
+      for _, bytes in ipairs(answers) do
         if legacy then
           local _, _ = socket:send(bytes, packet.address)
         else
