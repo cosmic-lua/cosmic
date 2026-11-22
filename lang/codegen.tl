@@ -328,8 +328,12 @@ local function refuse(code: Codegen.Code, token: integer, msg: string, fix: stri
   table.insert(G.errors, { code = code, msg = msg, fix = fix, y = Lexer.y(G.tokens, token), x = Lexer.x(G.tokens, token) })
 end
 
---- The words Lua 5.5 reserves that the grammar lets name a field, a key or a function of a record.
-local RESERVED_FIELDS <const>: {string: boolean} = { ["goto"] = true, ["global"] = true }
+--- The words Lua 5.5 reserves, every one of which the grammar lets name a field, a key or a function of a record: the
+--- Lua made indexes it with a string (`t["end"]`).
+local RESERVED_FIELDS <const>: mut {string: boolean} = {}
+for _, word in ipairs(Lexer.lua_words) do
+  RESERVED_FIELDS[word] = true
+end
 
 --- Whether the syntax of `e` shows it is neither false nor nil: a literal that is no `false` or `nil`, a table, a
 --- function, an arithmetic or a concatenation (the language has no metamethod to make one answer false), or

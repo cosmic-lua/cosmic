@@ -1660,6 +1660,28 @@ end
 
 -- names Lua 5.5 reserves ---------------------------------------------------------------------------------------------
 
+local function test_every_word_lua_reserves_names_a_field_a_key_and_a_function()
+  -- Each is written as a string index in the Lua made, so Lua reads none of them as a word.
+  local source = program(
+    "local record R",
+    "  mut end: integer",
+    "  if?: string",
+    "  function: function(integer): integer",
+    "end",
+    "local r: R = { end = 1, function = function(n: integer): integer return n + 1 end }",
+    "r.end = r.end + 1",
+    "local t = { and = 1, nil = 2, true = 3, while = 4 }",
+    "local M = {}",
+    "function M.return(): string return \"r\" end",
+    "return r.end, r.function(2), t.and + t.nil + t.true + t.while, M.return() .. (r.if or \"\")")
+  local a, b, c, d = run(source)
+  assert(a == 2 and b == 3 and c == 10 and d == "r",
+    tostring(a) .. " " .. tostring(b) .. " " .. tostring(c) .. " " .. tostring(d))
+  local text = generated(source).text
+  assert(text:find("r[\"end\"] = r[\"end\"] + 1", 1, true) and text:find("[\"while\"] = 4", 1, true) and
+      text:find("M[\"return\"] = function()", 1, true), text)
+end
+
 local function test_goto_and_global_name_fields_keys_and_functions_without_being_words_of_lua()
   local source = program(
     "local t = { goto = 1, global = 2, [\"end\"] = 3 }",

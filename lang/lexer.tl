@@ -255,6 +255,8 @@ local record Lexer
   --- a declaration begins: `type` is a Lua function and `record` binds 49
   --- times in the tree, so the lexer gives each an `identifier`.
   declaration_words: {string}
+  --- The words Lua 5.5 reserves, which Lua reads as no name.
+  lua_words: {string}
 
 end
 
@@ -1047,6 +1049,7 @@ Lexer.codes = {
   "unterminated_long_string", "bad_escape", "stray_byte",
 }
 Lexer.added = added_words
+Lexer.lua_words = lua_words
 Lexer.declaration_words = { "record", "interface", "class", "enum", "type" }
 
 return Lexer
