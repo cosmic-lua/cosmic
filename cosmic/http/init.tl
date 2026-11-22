@@ -210,12 +210,12 @@ local record Http
   --- is how to take no redirect).
   ---
   --- A redirect to another origin (another scheme, host or port than
-  --- the URL it answers) drops the request headers that are
-  --- credentials from that hop and every later one, a hop back to the
-  --- first origin included: each header whose name holds "auth",
-  --- "cookie", "token", "key", "secret", "session", "passw" or
-  --- "credential", in any case (Authorization, Proxy-Authorization,
-  --- Cookie, X-Api-Key, X-Auth-Token and the like). A caller who must
+  --- the URL it answers) drops every header of `headers` from that hop
+  --- and every later one, a hop back to the first origin included, but
+  --- Accept, Accept-Encoding, Accept-Language, Cache-Control,
+  --- Content-Length, Content-Type, Range, User-Agent and each If-*, in
+  --- any case: any other might be a credential (Authorization, Cookie,
+  --- X-Api-Key, Signature and whatever an API names). A caller who must
   --- send one to the new origin passes `follow = false` and follows
   --- `Location` itself.
   ---
@@ -1181,10 +1181,15 @@ end
 --- `response`'s whole body, read and closed, as [`Http.Body`]; nil and
 --- why for one longer than `limit` bytes, read no further than the byte
 --- past it. `encoded` says the body is decoded from a Content-Encoding,
---- whose Content-Length counts the bytes before decoding.
-local function whole(response: Response, limit: integer, encoded: boolean): Http.Body?, string
+--- whose Content-Length counts the bytes before decoding. The
+--- Content-Length of a response to `method` HEAD, or of a 1xx, 204 or
+--- 304, names a body that is never sent (RFC 9110 8.6), so it refuses
+--- nothing.
+local function whole(response: Response, limit: integer, encoded: boolean, method: string): Http.Body?, string
+  local status = response.status
+  local bodiless = method == "HEAD" or status // 100 == 1 or status == 204 or status == 304
   local length = math.tointeger(tonumber(response.headers["content-length"] or ""))
-  if not encoded and length ~= nil and length > limit then
+  if not encoded and not bodiless and length ~= nil and length > limit then
     local _, _ = response:close()
     return nil, over(limit)
   end
@@ -1259,7 +1264,7 @@ function Http.get(url: string, opts: Http.Options): Http.Body?, string
   if response == nil then
     return nil, trouble
   end
-  return whole(response, limit, opts.decompress == true)
+  return whole(response, limit, opts.decompress == true, "GET")
 end
 
 --- Sends `method` to `url`, with `opts.body` when given, and reads the
@@ -1300,7 +1305,7 @@ function Http.request(method: string, url: string, opts: Http.Options): Http.Bod
   if response == nil then
     return nil, trouble
   end
-  return whole(response, limit, opts.decompress == true)
+  return whole(response, limit, opts.decompress == true, method)
 end
 
 --- A Reader over a Response that fails with "interrupted" once

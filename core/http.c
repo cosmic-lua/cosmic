@@ -106,10 +106,10 @@ struct script {
 struct transfer {
   CURL *easy;
   struct curl_slist *request_headers;
-  /* `request_headers` without its credentials ([`is_credential`]), for
-   * every hop once a redirect leaves the origin. */
+  /* `request_headers` but those [`crosses_origin`] refuses, for every
+   * hop once a redirect leaves the origin. */
   struct curl_slist *redirect_headers;
-  int credentials; /* a request header is a credential */
+  int dropping; /* a request header is one [`crosses_origin`] refuses */
   int stripped;    /* the hops from here on go with `redirect_headers` */
   struct curl_slist *connect_to;
   struct script *script;
@@ -791,14 +791,14 @@ static size_t header_cb (char *ptr, size_t size, size_t nmemb, void *userdata) {
     if (curl_easy_header(t->easy, "Location", 0, CURLH_HEADER, -1,
                          &location) == CURLHE_OK &&
         location->value[0] != '\0') {
-      if (t->credentials && !t->stripped) {
+      if (t->dropping && !t->stripped) {
         const char *from = NULL;
         curl_easy_getinfo(t->easy, CURLINFO_EFFECTIVE_URL, &from);
         if (from == NULL || leaves_origin(from, location->value)) {
           /* curl reads the list as it builds each request, so the next
-           * hop goes without the credentials; curl's own check drops
-           * only Authorization and Cookie, and sends them again on a
-           * hop back to the first origin. */
+           * hop goes with the shorter one; curl's own check drops only
+           * Authorization and Cookie, and sends them again on a hop
+           * back to the first origin. */
           t->stripped = 1;
           (void)curl_easy_setopt(t->easy, CURLOPT_HTTPHEADER, t->redirect_headers);
         }
@@ -1408,26 +1408,26 @@ static int headers_problem (lua_State *L) {
   return 0;
 }
 
-/* Whether the header `name`, of `len` bytes, is a credential, which no
- * redirect to another origin carries: a name holding "auth" (Authorization,
- * Proxy-Authorization, X-Auth-Token), "cookie", "token", "key", "secret",
- * "session", "passw" or "credential", in any case. */
-static bool is_credential (const char *name, size_t len) {
-  static const char *const marks[] = {
-    "auth", "cookie", "token", "key", "secret", "session", "passw", "credential",
+/* Whether the header `name`, of `len` bytes, goes on past a redirect to
+ * another origin: one of the few that describe the request and carry no
+ * credential, in any case, or a conditional If-*. Every other name might
+ * be a credential (Authorization, Cookie, X-Api-Key, Signature, DPoP and
+ * whatever an API invents), so it is dropped. */
+static bool crosses_origin (const char *name, size_t len) {
+  static const char *const kept[] = {
+    "Accept", "Accept-Encoding", "Accept-Language", "Cache-Control",
+    "Content-Length", "Content-Type", "Range", "User-Agent",
   };
-  for (size_t m = 0; m < sizeof marks / sizeof marks[0]; m++) {
-    size_t mark_len = strlen(marks[m]);
-    for (size_t at = 0; at + mark_len <= len; at++) {
-      if (strncasecmp(name + at, marks[m], mark_len) == 0) return true;
-    }
+  if (len > 3 && strncasecmp(name, "If-", 3) == 0) return true;
+  for (size_t k = 0; k < sizeof kept / sizeof kept[0]; k++) {
+    if (strlen(kept[k]) == len && strncasecmp(name, kept[k], len) == 0) return true;
   }
   return false;
 }
 
 /* Appends each header in the table on the stack top to the request's
- * list as a "Name: value" line, and each but a credential to the list
- * for a redirect that leaves the origin. Returns NULL, or why not when
+ * list as a "Name: value" line, and each [`crosses_origin`] takes to the
+ * list for a redirect that leaves the origin. Returns NULL, or why not when
  * memory runs out. */
 static const char *headers_build (lua_State *L, struct transfer *t) {
   lua_pushnil(L);
@@ -1438,7 +1438,7 @@ static const char *headers_build (lua_State *L, struct transfer *t) {
     char *line = cosmic_malloc(name_len + 2 + value_len + 1);
     struct curl_slist *more = NULL;
     struct curl_slist *kept = NULL;
-    bool credential = is_credential(name, name_len);
+    bool crosses = crosses_origin(name, name_len);
     const char *why = "no memory for the request headers";
     if (line != NULL) {
       memcpy(line, name, name_len);
@@ -1449,7 +1449,7 @@ static const char *headers_build (lua_State *L, struct transfer *t) {
                  ? NULL
                  : curl_slist_append(t->request_headers, line);
       if (more != NULL) t->request_headers = more;
-      if (more != NULL && !credential) {
+      if (more != NULL && crosses) {
         kept = COSMIC_FAULT("curl_slist_append")
                    ? NULL
                    : curl_slist_append(t->redirect_headers, line);
@@ -1459,11 +1459,11 @@ static const char *headers_build (lua_State *L, struct transfer *t) {
       cosmic_free(line);
     }
     lua_pop(L, 1);
-    if (more == NULL || (!credential && kept == NULL)) {
+    if (more == NULL || (crosses && kept == NULL)) {
       lua_pop(L, 1);
       return why;
     }
-    if (credential) t->credentials = 1;
+    if (!crosses) t->dropping = 1;
   }
   return NULL;
 }

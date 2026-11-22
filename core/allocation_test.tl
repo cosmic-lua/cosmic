@@ -1131,6 +1131,9 @@ local exchanges: {Exchange} = {
     "HTTP/1.1 100 Continue\r\n\r\n" .. reply("200 OK", "", hello) } } },
   { name = "a POST", options = { timeout_ns = Clock.seconds(60), method = "POST", body = "payload",
     headers = { ["X-One"] = "1" }, script = { reply("200 OK", "", hello) } } },
+  { name = "a redirect to another origin", options = { timeout_ns = Clock.seconds(60),
+    headers = { Authorization = "Bearer x", Accept = "*/*" }, script = {
+      reply("302 Found", "Location: http://other.test/next\r\n", "moved"), reply("200 OK", "", hello) } } },
 }
 
 --- Opens `options`' exchange, reads the body to its end, closes, and

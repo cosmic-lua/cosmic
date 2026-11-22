@@ -1374,25 +1374,38 @@ local function test_a_method_that_is_false_is_refused_not_taken_for_none()
   assert(not ok and tostring(why):find("leave opts.method out", 1, true) ~= nil, tostring(why))
 end
 
---- The credential headers of [`test_a_redirect_to_another_origin_drops_credentials`].
+--- Request headers for the redirect tests: six that may be credentials,
+--- each value holding "secret-", and two that describe the request.
 local CREDENTIALS <const>: {string:string} = {
   Authorization = "Bearer secret-a", Cookie = "id=secret-c", ["Proxy-Authorization"] = "Basic secret-p",
-  ["X-Api-Key"] = "secret-k", ["x-auth-token"] = "secret-t", ["X-Plain"] = "kept",
+  ["X-Api-Key"] = "secret-k", Signature = "secret-s", DPoP = "secret-d",
+  Accept = "application/json", ["If-None-Match"] = "\"v1\"",
 }
 
 --- What curl sent to the hop whose request line starts with `line`:
---- from that line to the next request's, or to the end.
+--- from that line to the blank line that ends its head.
 local function hop(sent: string, line: string): string
   local at = assert(sent:find(line, 1, true), sent)
   local after = sent:find("\r\n\r\n", at, true) or #sent
   return sent:sub(at, after + 1)
 end
 
---- A redirect to another host or port drops each credential header from
---- that hop on, a hop back to the first origin included; curl alone
---- drops only Authorization and Cookie, and sends them again there.
+--- Whether `head` holds every header of [`CREDENTIALS`] that describes
+--- the request and none that may be a credential.
+local function stripped(head: string): boolean
+  return head:find("secret-", 1, true) == nil and
+    head:find("\r\nAccept: application/json\r\n", 1, true) ~= nil and
+    head:find("\r\nIf-None-Match: \"v1\"\r\n", 1, true) ~= nil
+end
+
+--- A redirect to another origin -- another host or port, scheme-relative,
+--- IPv6, or naming the first host as user info -- drops every header but
+--- those that describe the request from that hop on, a hop back to the
+--- first origin included; curl alone drops only Authorization and
+--- Cookie, and sends them again there.
 local function test_a_redirect_to_another_origin_drops_credentials()
-  for _, target in ipairs({ "http://other.test/next", "http://cosmic.test:8080/next" }) do
+  for _, target in ipairs({ "http://other.test/next", "http://cosmic.test:8080/next", "//other.test/next",
+      "http://[::1]/next", "http://cosmic.test@other.test/next" }) do
     local response, _, sent = fetch({
       reply("302 Found", "Location: " .. target .. "\r\n"),
       reply("302 Found", "Location: http://cosmic.test/back\r\n"),
@@ -1400,13 +1413,26 @@ local function test_a_redirect_to_another_origin_drops_credentials()
     }, { timeout_ns = Clock.seconds(60), headers = CREDENTIALS })
     assert(response.status == 200, tostring(response.status))
     local first = hop(sent, "GET / HTTP/1.1")
-    assert(count(first, "secret-") == 5, first)
+    assert(count(first, "secret-") == 6, first)
     for _, line in ipairs({ "GET /next HTTP/1.1", "GET /back HTTP/1.1" }) do
       local later = hop(sent, line)
-      assert(later:find("secret-", 1, true) == nil, target .. ": " .. later)
-      assert(later:find("\r\nX-Plain: kept\r\n", 1, true) ~= nil, later)
+      assert(stripped(later), target .. ": " .. later)
     end
   end
+end
+
+--- Two hops: one within the origin keeps every header, the next, to
+--- another, drops them.
+local function test_a_second_redirect_that_leaves_the_origin_drops_credentials()
+  local _, _, sent = fetch({
+    reply("302 Found", "Location: /middle\r\n"),
+    reply("302 Found", "Location: http://other.test/last\r\n"),
+    reply("200 OK", "", "done"),
+  }, { timeout_ns = Clock.seconds(60), headers = CREDENTIALS })
+  local middle = hop(sent, "GET /middle HTTP/1.1")
+  assert(count(middle, "secret-") == 6, middle)
+  local last = hop(sent, "GET /last HTTP/1.1")
+  assert(stripped(last), last)
 end
 
 --- A redirect within the origin, relative or naming it in another case
@@ -1418,7 +1444,7 @@ local function test_a_redirect_within_the_origin_keeps_credentials()
       reply("200 OK", "", "done"),
     }, { timeout_ns = Clock.seconds(60), headers = CREDENTIALS })
     local later = hop(sent, "GET /next HTTP/1.1")
-    assert(count(later, "secret-") == 5, target .. ": " .. later)
+    assert(count(later, "secret-") == 6, target .. ": " .. later)
   end
 end
 
@@ -1459,4 +1485,16 @@ end
 local function test_max_bytes_takes_an_integer_of_at_least_0()
   local ok, why = pcall(Http.get, url, { timeout_ns = Clock.seconds(60), max_bytes = -1, script = { reply("200 OK", "") } })
   assert(not ok and tostring(why):find("opts.max_bytes must be an integer", 1, true) ~= nil, tostring(why))
+end
+
+--- A Content-Length that names no body sent -- a HEAD's, a 204's, a
+--- 304's -- refuses nothing, however large.
+local function test_a_bodiless_response_is_not_refused_for_its_content_length()
+  local large = "Content-Length: 20000000\r\nConnection: close\r\n\r\n"
+  local got, why = Http.request("HEAD", url, { timeout_ns = Clock.seconds(60), script = { "HTTP/1.1 200 OK\r\n" .. large } })
+  assert(got ~= nil and got.status == 200 and got.body == "", why)
+  for _, status in ipairs({ "204 No Content", "304 Not Modified" }) do
+    got, why = Http.get(url, { timeout_ns = Clock.seconds(60), script = { "HTTP/1.1 " .. status .. "\r\n" .. large } })
+    assert(got ~= nil and got.body == "", status .. ": " .. why)
+  end
 end
