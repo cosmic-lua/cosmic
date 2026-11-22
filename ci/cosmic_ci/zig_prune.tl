@@ -208,7 +208,7 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan?, string
   for _, cache in ipairs(caches) do
     where[cache.prefix] = cache.path
     local dirs, dirs_trouble = Fs.list(cache.path .. "/o")
-    if dirs == nil then return nil, cache.path .. "/o: " .. dirs_trouble end
+    if dirs == nil then return nil, tostring(dirs_trouble) end
     for _, dir in ipairs(dirs) do
       outputs[tostring(cache.prefix) .. "/" .. dir] = cache.path .. "/o/" .. dir
       files[tostring(cache.prefix) .. "/" .. dir] = { names = {} }
@@ -231,7 +231,7 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan?, string
   local older: mut {string} = {}
   for _, cache in ipairs(caches) do
     local names, names_trouble = Fs.list(cache.path .. "/h")
-    if names == nil then return nil, cache.path .. "/h: " .. names_trouble end
+    if names == nil then return nil, tostring(names_trouble) end
     for _, name in ipairs(names) do
       if name:sub(-4) == ".txt" then
         older[#older + 1] = cache.path .. "/h/" .. name

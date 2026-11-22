@@ -151,7 +151,7 @@ end
 function Zig.repo_root(script_path: string): string?, string
   local abs, trouble = Fs.absolute(script_path)
   if abs == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local root = abs:match("^(.*)/build/[^/]+%.tl$")
   if root == nil then
@@ -430,7 +430,7 @@ local function patched_lib(root: string, install: string): string?, string
   end
   local names, list_trouble = Fs.list(dir)
   if names == nil then
-    return nil, list_trouble
+    return nil, tostring(list_trouble)
   end
   local records: mut {string:string} = {}
   local any = false
@@ -874,7 +874,7 @@ local function patch(root: string, project: string): string?, string
   local made, make_trouble = Fs.mkdirs(project .. "/cosmic-vendor")
   if not made then return nil, make_trouble end
   local directory, directory_trouble = Fs.absolute(project)
-  if directory == nil then return nil, directory_trouble end
+  if directory == nil then return nil, tostring(directory_trouble) end
   local result, trouble = standalone(root, "build/patch.tl",
     { root, directory .. "/cosmic-vendor" })
   if result == nil then

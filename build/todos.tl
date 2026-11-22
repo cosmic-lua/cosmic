@@ -768,7 +768,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
   local started = Clock.monotonic_ns()
   local found_root, root_trouble = Fs.absolute(at or ".")
   if found_root == nil then
-    log:complain(root_trouble)
+    log:complain(tostring(root_trouble))
     return 1
   end
   local root: string = found_root

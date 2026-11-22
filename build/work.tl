@@ -1723,7 +1723,7 @@ local function static_refusal(root: string, real_root: string, file: string, siz
   end
   held[program] = file
   local real, trouble = Fs.absolute(root .. "/" .. file)
-  if real == nil then return trouble end
+  if real == nil then return tostring(trouble) end
   if real:sub(1, #real_root + 1) ~= real_root .. "/" then
     return ("%s: a link to %s, outside the project; the executable would depend on a file " ..
       "the checkout does not hold"):format(file, real)
@@ -1926,7 +1926,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
         local resolved, resolve_trouble = Fs.absolute(root)
         if resolved == nil then
           finish(put)
-          return nil, resolve_trouble
+          return nil, tostring(resolve_trouble)
         end
         static_root = resolved
         real_root = resolved

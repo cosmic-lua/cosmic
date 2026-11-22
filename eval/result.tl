@@ -334,14 +334,14 @@ local function run(argv: {string}, program: string): integer
   end
   local absolute, trouble = Fs.absolute(arena)
   if absolute == nil then
-    complain(trouble)
+    complain(tostring(trouble))
     return 2
   end
   -- A copy the checker knows is not nil: a closure below reads it.
   local directory: string = absolute
   local script, strouble = Fs.absolute(program)
   if script == nil then
-    complain(strouble)
+    complain(tostring(strouble))
     return 2
   end
   local repo = script:match("^(.*)/eval/[^/]+%.tl$")

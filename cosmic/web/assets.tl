@@ -244,10 +244,10 @@ function Assets.directory(root: string): Assets.Source
       if why ~= nil then return miss(path, why) end
       if ("/" .. path):find("/%.") then return miss(path, "a hidden file") end
       local base, base_why = Fs.absolute(root)
-      if base == nil then return miss(path, base_why) end
+      if base == nil then return miss(path, tostring(base_why)) end
       local full = root .. "/" .. path
       local real, real_why = Fs.absolute(full)
-      if real == nil then return miss(path, real_why) end
+      if real == nil then return miss(path, tostring(real_why)) end
       local prefix = if base:sub(-1) == "/" then base else base .. "/" end
       if real:sub(1, #prefix) ~= prefix then return miss(path, "outside the root") end
       local st, st_why = Fs.stat(real)

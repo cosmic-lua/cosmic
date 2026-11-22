@@ -279,7 +279,7 @@ local function run(argv: {string}): integer
   end
   local absolute, root_trouble = Fs.absolute(".")
   if absolute == nil then
-    log:complain(root_trouble)
+    log:complain(tostring(root_trouble))
     return 1
   end
   local root: string = absolute

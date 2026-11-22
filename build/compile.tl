@@ -163,7 +163,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
 
   local root, root_why = Fs.absolute(request.root or ".")
   if root == nil then
-    complain(root_why .. ": --root must name a directory that exists")
+    complain(tostring(root_why) .. ": --root must name a directory that exists")
     return bare.refused
   end
   local is_directory, _ = Fs.is_dir(root)
@@ -188,7 +188,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     end
     local absolute, absolute_why = Fs.absolute(path)
     if absolute == nil then
-      complain(absolute_why)
+      complain(tostring(absolute_why))
       return bare.refused
     end
     local same = resolved[absolute]

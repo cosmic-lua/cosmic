@@ -1102,7 +1102,7 @@ function reboot.stale_exit(argv: {string}, reads?: boolean, root?: string,
   if at == nil then
     local found, root_trouble = Fs.absolute(".")
     if found == nil then
-      log:complain(root_trouble)
+      log:complain(tostring(root_trouble))
       return 1
     end
     at = found

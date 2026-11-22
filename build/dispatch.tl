@@ -332,7 +332,7 @@ local function root_of(file: string): Root?, string
   local Fs = require("cosmic.fs")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
-    return nil, file .. ": " .. trouble
+    return nil, tostring(trouble)
   end
   local here, _ = Fs.absolute(".")
   if here ~= nil and Fs.within(resolved, here) then
@@ -353,7 +353,7 @@ local function module_of(root: string, file: string): string?, string
   local String = require("cosmic.string")
   local resolved, trouble = Fs.absolute(file)
   if resolved == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   -- TODO: refuse a tree of `/` (a file run from `/`, or of a file there) with a message that says to run the file
   -- from its project's root, before staging it: `root .. "/"` is `//` there, so a file under it is said not to be.
@@ -939,7 +939,7 @@ function Dispatch.main(argv: {string}): integer
     if not chosen.bare and chosen.fresh ~= true and chosen.reads ~= true then
       local here, here_trouble = Fs.absolute(".")
       if here == nil then
-        log:complain(verb .. ": " .. here_trouble)
+        log:complain(verb .. ": " .. tostring(here_trouble))
         return 1
       end
       local stale = require("build.reboot").checkout_exit(argv, here)

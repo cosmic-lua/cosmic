@@ -3465,7 +3465,7 @@ end
 --- where that is not this process's. "" or why not.
 local function make_tmp(held: Held): string
   local dir, trouble = Fs.mkdtemp("cosmic-sandbox-")
-  if dir == nil then return "tmp: " .. trouble end
+  if dir == nil then return "tmp: " .. tostring(trouble) end
   local real, real_trouble = sys.realpath(dir)
   if real == nil then
     local _, _ = Fs.remove_tree(dir)
@@ -3593,7 +3593,7 @@ local function seal_relay(): RelayProgram?, string
       (tostring(names):gsub("^.-:%d+: ", "")) .. "): a policy with connect needs a program that has it"
   end
   local made, dir_trouble = Fs.mkdtemp("cosmic-relay-")
-  if made == nil then return nil, dir_trouble end
+  if made == nil then return nil, tostring(dir_trouble) end
   local dir: string = made
   local function fail(why: string): nil, string
     local _, _ = Fs.remove_tree(dir)

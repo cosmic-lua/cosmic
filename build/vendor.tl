@@ -146,7 +146,7 @@ end
 function Vendor.repo_root(script_path: string): string?, string
   local abs, trouble = Fs.absolute(script_path)
   if abs == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local root = abs:match("^(.*)/build/[^/]+%.tl$")
   if root == nil then
@@ -159,7 +159,7 @@ end
 function Vendor.all_names(root: string): {string}?, string
   local entries, trouble = Fs.list(root .. "/vendor")
   if entries == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local names: mut {string} = {}
   for _, name in ipairs(entries) do

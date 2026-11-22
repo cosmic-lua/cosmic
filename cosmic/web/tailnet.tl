@@ -441,7 +441,7 @@ end
 local function through_serve(client: Tailscale.Client, o: Types.TailnetServe, via: Types.TailnetVia,
                              port: integer, domain?: string): Reached?, string
   local dir, why = Fs.mkdtemp("cosmic-serve-")
-  if dir == nil then return nil, "web: tailnet: " .. why end
+  if dir == nil then return nil, "web: tailnet: " .. tostring(why) end
   local socket = dir .. "/s"
   -- The most a socket's path holds on macOS, less its NUL; Linux holds 107.
   if #socket > 103 then

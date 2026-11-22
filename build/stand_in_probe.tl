@@ -150,7 +150,7 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   ls = function(path: string): integer?
     local names, trouble = Fs.list(path)
-    if names == nil then return failed(path, trouble) end
+    if names == nil then return failed(path, tostring(trouble)) end
     table.sort(names) -- checked: overload_none -- untyped: call
     local lines: mut {string} = {}
     for _, name in ipairs(names) do lines[#lines + 1] = name .. "\n" end

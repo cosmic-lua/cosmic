@@ -135,7 +135,7 @@ local function spool(source: Stream.Reader): string?, string
   local dir, dir_why = Fs.mkdtemp("cosmic-archive-")
   if dir == nil then
     local _, _ = source:close()
-    return nil, dir_why
+    return nil, tostring(dir_why)
   end
   local path = dir .. "/stdin"
   local sink, sink_why = Stream.create(path)
@@ -719,7 +719,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
       end
     elseif st.kind == "link" then
       local target, target_why = Fs.readlink(full)
-      if target == nil then return fail(bare.refused, target_why) end
+      if target == nil then return fail(bare.refused, tostring(target_why)) end
       item.target = target
     elseif st.kind ~= "dir" then
       return fail(bare.refused, full .. ": neither a file, a directory nor a symlink")

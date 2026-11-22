@@ -218,7 +218,7 @@ end
 local function read_dir(dir: string, relative: string, inputs: Inputs): boolean, string
   local names, trouble = Fs.list(dir)
   if names == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   for _, entry in ipairs(names) do
     local path = dir .. "/" .. entry
@@ -266,7 +266,7 @@ local function read_inputs(root: string, name: string): Inputs?, string
   end
   local names, list_trouble = Fs.list(dir)
   if names == nil then
-    return nil, list_trouble
+    return nil, tostring(list_trouble)
   end
   for _, entry in ipairs(names) do
     if #entry > 4 and entry:sub(-4) == ".txt" then
@@ -512,7 +512,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   local dir = root .. "/patch/zig-lib"
   local names, list_trouble = Fs.list(dir)
   if names == nil then
-    return false, list_trouble
+    return false, tostring(list_trouble)
   end
   local cache = Fs.dirname(out)
   local owned, own_trouble = Fs.scratch(cache)
@@ -575,7 +575,7 @@ end
 function Patch.names(root: string): {string}?, string
   local entries, trouble = Fs.list(root .. "/vendor")
   if entries == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local names: mut {string} = {}
   for _, name in ipairs(entries) do

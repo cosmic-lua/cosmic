@@ -212,7 +212,7 @@ local function clean_aside(file: maintenance.File): boolean, string
     return false, why
   end
   local names, list_why = Fs.list(dir)
-  if names == nil then return false, list_why end
+  if names == nil then return false, tostring(list_why) end
   local prefix = base .. ".corrupt-"
   for _, name in ipairs(names) do
     if name:sub(1, #prefix) == prefix then

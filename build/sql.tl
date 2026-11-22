@@ -994,7 +994,7 @@ function sql.run(argv: {string}, root?: string, output?: sql.Output,
   if root == nil then
     local here, trouble = Fs.absolute(".")
     if here == nil then
-      complain(trouble)
+      complain(tostring(trouble))
       return 1
     end
     root = here

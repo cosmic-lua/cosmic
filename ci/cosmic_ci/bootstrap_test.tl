@@ -379,7 +379,8 @@ local function test_bootstrap_replaces_a_linked_cache_entry(tmp: string)
   local result = bootstrap(tmp, root, tmp .. "/linked.out",
     { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program })
   assert(result.ok, assert(Fs.read(tmp .. "/linked.out")))
-  assert(Fs.readlink(cached) == nil, "a linked cache entry was kept")
+  local link, _ = Fs.readlink(cached)
+  assert(link == nil, "a linked cache entry was kept")
   assert(Hash.hex_sha256((assert(Fs.read(cached)))) == digest)
 end
 

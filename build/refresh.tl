@@ -600,7 +600,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
   end
   local made_scratch, scratch_trouble = Fs.mkdtemp("cosmic-refresh-")
   if made_scratch == nil then
-    return nil, scratch_trouble
+    return nil, tostring(scratch_trouble)
   end
   local scratch: string = made_scratch
   local lines: mut {string} = {}
@@ -744,7 +744,7 @@ local function run(argv: {string}): integer
     if given ~= nil then
       local path, trouble = Fs.absolute(given)
       if path == nil then
-        log:complain("refresh: " .. trouble)
+        log:complain("refresh: " .. tostring(trouble))
         return 1
       end
       sources[dataset.name] = path

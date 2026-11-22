@@ -525,7 +525,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         local into: string
         if dir == nil then
           local made_dir, trouble = Fs.mkdtemp("cosmic-upload-")
-          if made_dir == nil then return storage_failed(trouble) end
+          if made_dir == nil then return storage_failed(tostring(trouble)) end
           spooled.made = made_dir
           dir = made_dir
           into = made_dir

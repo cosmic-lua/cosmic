@@ -416,7 +416,7 @@ local function run(argv: {string}, program: string): integer
   if script ~= nil then root = script:match("^(.*)/eval/[^/]+%.tl$") end
   if root == nil then
     if script == nil then
-      complain(strouble)
+      complain(tostring(strouble))
     else
       complain(program .. ": expected to run as .../eval/round.tl")
     end
@@ -439,7 +439,7 @@ local function run(argv: {string}, program: string): integer
   end
   local absolute, atrouble = Fs.absolute(tool)
   if absolute == nil then
-    complain(atrouble)
+    complain(tostring(atrouble))
     return 2
   end
   local out = options.out
@@ -459,7 +459,7 @@ local function run(argv: {string}, program: string): integer
   end
   local absolute_out, otrouble = Fs.absolute(out)
   if absolute_out == nil then
-    complain(otrouble)
+    complain(tostring(otrouble))
     return 2
   end
   local plan = Round.plan(options, root, absolute, short, absolute_out)

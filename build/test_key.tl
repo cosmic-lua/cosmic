@@ -1254,15 +1254,15 @@ function test_key.scratch(): string?, string
   -- a sandbox's is, and as macOS's is ([`test_sandbox.scratch_length`]),
   -- past the temporary directory's resolved path and mkdtemp's six.
   local base, base_trouble = Fs.absolute(Env.read("TMPDIR") or "/tmp")
-  if base == nil then return nil, base_trouble end
+  if base == nil then return nil, tostring(base_trouble) end
   local separator = if base:sub(-1) == "/" then 0 else 1 end
   local made, trouble = Fs.mkdtemp(test_sandbox.padded("cosmic-test-",
     test_sandbox.scratch_length - #base - separator - 6))
-  if made == nil then return nil, trouble end
+  if made == nil then return nil, tostring(trouble) end
   local scratch, absolute_trouble = Fs.absolute(made)
   if scratch == nil then
     local _, _ = Fs.remove_tree(made)
-    return nil, absolute_trouble
+    return nil, tostring(absolute_trouble)
   end
   local ok, why = Fs.mkdirs(scratch .. "/real")
   if ok then ok, why = Fs.symlink("real", scratch .. "/tmp") end
@@ -1595,7 +1595,9 @@ local function sealing_for(rec: Recording): Sealing?, string
     return ""
   end
   local made, made_trouble = Fs.mkdtemp("sealed-")
-  if made == nil then return refuse("a directory for the sealed databases: " .. made_trouble) end
+  if made == nil then
+    return refuse("a directory for the sealed databases: " .. tostring(made_trouble))
+  end
   local real, real_trouble = sys.realpath(made)
   if real == nil then
     local _, _ = Fs.remove_tree(made)

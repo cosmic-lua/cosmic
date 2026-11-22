@@ -234,7 +234,7 @@ local function patches_of(root: string, name: string): string?, string
   end
   local names, list_trouble = Fs.list(directory)
   if names == nil then
-    return nil, list_trouble
+    return nil, tostring(list_trouble)
   end
   for _, file in ipairs(names) do
     -- Only what [`build/patch.tl`] applies: a patch record is a `.txt`.
@@ -259,7 +259,9 @@ local function entries(directory: string): {string}?, string
   if not exists then
     return {}, ""
   end
-  return Fs.list(directory)
+  local names, why = Fs.list(directory)
+  if names == nil then return nil, tostring(why) end
+  return names, ""
 end
 
 --- Where one record sits: the component's `name`, the `path` of its

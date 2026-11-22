@@ -55,8 +55,10 @@ end
 --- the caller.
 function test_sandbox_probe.directory(): string?, string
   local made, trouble = Fs.mkdtemp("cosmic-sandbox-probe-")
-  if made == nil then return nil, trouble end
-  return Fs.absolute(made)
+  if made == nil then return nil, tostring(trouble) end
+  local real, why = Fs.absolute(made)
+  if real == nil then return nil, tostring(why) end
+  return real, ""
 end
 
 --- How long a probe's child may run, in the nanoseconds a wait takes.

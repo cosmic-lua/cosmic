@@ -287,7 +287,7 @@ function Solve.main(argv: {string}): integer
   end
   local arena, atrouble = Fs.absolute(options.arena)
   if arena == nil then
-    complain(atrouble)
+    complain(tostring(atrouble))
     return 2
   end
   local fresh, ftrouble = check_arena(arena)
@@ -307,7 +307,7 @@ function Solve.main(argv: {string}): integer
   end
   local resolved, rtrouble = Fs.absolute(claude)
   if resolved == nil then
-    complain(rtrouble)
+    complain(tostring(rtrouble))
     return 2
   end
   local fd, otrouble = Fs.open_read(resolved)

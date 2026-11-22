@@ -468,7 +468,7 @@ end
 --- where it is.
 local function file_key(path: string): string?, string
   local real, trouble = realpath(path)
-  if real == nil then error("host_requires: " .. trouble, 0) end
+  if real == nil then error("host_requires: " .. tostring(trouble), 0) end
   for _, virtual in ipairs({ "/proc", "/sys" }) do
     if real == virtual or real:sub(1, #virtual + 1) == virtual .. "/" then return "present", "" end
   end
@@ -610,7 +610,7 @@ local table_of: {string:Entry} = {
       -- ([`confine.system_paths`]): a program found elsewhere on PATH is one
       -- it cannot run, so it is absent for the test, whatever the runner finds.
       local real, trouble = realpath(resolved)
-      if real == nil then error("host_requires: " .. trouble, 0) end
+      if real == nil then error("host_requires: " .. tostring(trouble), 0) end
       if not (given(resolved, host) and given(real, host)) then
         return absent(resolved .. " is outside the system's paths a worker is given")
       end

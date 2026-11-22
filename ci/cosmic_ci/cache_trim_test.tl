@@ -288,7 +288,7 @@ local function test_save_outputs_append_without_replacing_or_reading(tmp: string
   assert(tried.out:find("2 compiles", 1, true), tried.out)
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
-  assert(Fs.readlink(link) == target)
+  assert(assert(Fs.readlink(link)) == target)
   assert(assert(Fs.read(target)) == prefix .. "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
 end
 

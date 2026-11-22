@@ -96,7 +96,7 @@ Test.policy { grants = { { path = "suite/", letters = "r" } }, env = { "FLAVOUR"
 local function test_reads_data()
   assert(Fs.read("suite/data.txt"))
   assert(Fs.exists("suite/data.txt") == true)
-  assert(Fs.list("suite") ~= nil)
+  assert(Fs.list("suite"))
 end
 
 local function test_reads_flavour()

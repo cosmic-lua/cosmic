@@ -227,7 +227,7 @@ function cache_lifetime.prune(own: string, now?: integer, budget?: integer): cac
   end
   local names, list_why = Fs.list(base)
   if names == nil then
-    report.troubles[1] = list_why
+    report.troubles[1] = tostring(list_why)
     return report
   end
   report.ran = true

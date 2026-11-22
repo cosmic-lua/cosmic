@@ -97,7 +97,7 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
   local writes: mut {{string}} = {}
   for _, cache in ipairs(caches) do
     local names, names_trouble = Fs.list(cache.path .. "/h")
-    if names == nil then return nil, cache.path .. "/h: " .. names_trouble end
+    if names == nil then return nil, tostring(names_trouble) end
     for _, name in ipairs(names) do
       if #name == 32 and name:match("^%x+$") ~= nil then
         local path = cache.path .. "/h/" .. name

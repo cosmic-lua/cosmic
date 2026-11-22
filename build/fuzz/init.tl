@@ -313,7 +313,11 @@ local function check_corpus(p: Fuzz.Property, budget: integer, kept: string?): i
   local there, trouble = Fs.exists(dir)
   if there == false then return 0 end
   local names: {string}?
-  if there == true then names, trouble = Fs.list(dir) end
+  if there == true then
+    local listed, why = Fs.list(dir)
+    names = listed
+    if listed == nil then trouble = tostring(why) end
+  end
   if names == nil then
     error(("fuzz %s: corpus %s: %s"):format(p.name, dir, trouble), 0)
   end

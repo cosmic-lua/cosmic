@@ -132,7 +132,8 @@ end
 --- The names in the launcher's cache, sorted, a partial file's among them.
 local function cache_names(p: Project): string
   local names: mut {string} = {}
-  for _, name in ipairs(Fs.list(p.tmp .. "/xdg/cosmic/bootstrap") or {}) do
+  local listed_names, _ = Fs.list(p.tmp .. "/xdg/cosmic/bootstrap")
+  for _, name in ipairs(listed_names or {}) do
     names[#names + 1] = name
   end
   table.sort(names)

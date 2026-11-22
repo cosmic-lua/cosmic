@@ -32,7 +32,7 @@ local function test_summary_appends_through_a_link_without_replacing_or_reading(
   assert(ok, why)
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
-  assert(Fs.readlink(link) == target and assert(Fs.read(target)) == "earlier\nnext\n")
+  assert(assert(Fs.readlink(link)) == target and assert(Fs.read(target)) == "earlier\nnext\n")
   assert(summarize(tmp .. "/new", "created\n"))
   assert(assert(Fs.read(tmp .. "/new")) == "created\n")
 end

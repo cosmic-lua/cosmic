@@ -225,7 +225,7 @@ local function test_tmp_under_isolate_file_is_a_tmpfs_of_the_sandboxs_own(tmp: s
   assert(used.code == 0 and used.said:find("^TMPDIR=/tmp\nx\n") ~= nil and used.said:find("\nn\n") ~= nil,
     used.said)
   -- Nothing of it is on the host: a tmpfs of the sandbox's own.
-  local mine = Fs.list(tmp)
+  local mine, _ = Fs.list(tmp)
   assert(mine ~= nil)
   for _, name in ipairs(mine) do assert(not name:find("cosmic-sandbox-", 1, true), name) end
   -- Without tmp, no /tmp.

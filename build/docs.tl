@@ -101,7 +101,7 @@ function docs.databases(store?: {Sqlite.Handle}, at?: string, known?: docs.Known
     directory, own_tree = known.directory, known.own_tree
   else
     local root, root_trouble = Fs.absolute(at or ".")
-    assert(root ~= nil, root_trouble)
+    assert(root ~= nil, tostring(root_trouble))
     project = root
     -- A directory with no build directory to have one in has no build of
     -- its own; one whose build directory cannot be named is answered from
@@ -355,7 +355,7 @@ local function run_uses(argv: {string}): integer
   end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    log:complain("uses: " .. root_trouble)
+    log:complain("uses: " .. tostring(root_trouble))
     return 1
   end
   local paths = narrow.paths(root, words)
