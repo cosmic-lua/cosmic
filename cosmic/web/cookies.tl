@@ -189,7 +189,9 @@ function Cookies.format(name: string, value: string, attrs?: Cookies.Attributes)
     end
   end
   local same_site = a.same_site or "Lax"
-  if same_site ~= "Lax" and same_site ~= "Strict" and same_site ~= "None" then
+  -- Read as text: a caller the checker does not read may pass any value, and no narrowing of it is taken as proved.
+  local same_text = tostring(same_site)
+  if same_text ~= "Lax" and same_text ~= "Strict" and same_text ~= "None" then
     error("cookies: same_site must be Lax, Strict or None", 2)
   end
   local secure = a.secure == true

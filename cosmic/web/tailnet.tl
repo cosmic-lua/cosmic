@@ -468,7 +468,9 @@ end
 --- request on: see [`Types.TailnetVia`].
 function Tailnet.serving(o: Types.TailnetServe): Reached?, string
   local via: Types.TailnetVia = o.via or "listen"
-  if via ~= "listen" and via ~= "serve" and via ~= "funnel" then
+  -- Read as text: a caller the checker does not read may pass any value, and no narrowing of it is taken as proved.
+  local via_text = tostring(via)
+  if via_text ~= "listen" and via_text ~= "serve" and via_text ~= "funnel" then
     error("web: tailnet.via must be listen, serve or funnel", 3)
   end
   local port = o.port or 443

@@ -964,10 +964,12 @@ local SCALARS <const>: {string:boolean} = {
 
 --- Why `spec` cannot be carried by `source`, or "" when it can.
 local function check_node(spec: Shape.Node, field: string, source: string, depth: integer): string
-  local kind = spec.kind
+  -- A spec built by a caller the checker does not read may hold any kind, so the kind is read as text: no narrowing
+  -- of it by the tests below is taken as proved.
+  local kind = tostring(spec.kind)
   local at = if field == "" then "the spec" else ("field " .. field) end
   if not (SCALARS[kind] == true or kind == "map" or kind == "record" or kind == "list") then
-    return ("input: %s of a %s is of kind %s, which text cannot carry"):format(at, source, tostring(kind))
+    return ("input: %s of a %s is of kind %s, which text cannot carry"):format(at, source, kind)
   end
   if kind == "map" then
     return ("input: %s of a %s is a map, which text cannot carry"):format(at, source)
@@ -985,7 +987,7 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
       if trouble ~= "" then return trouble end
     end
   elseif kind == "list" then
-    local of = assert(spec.of).kind
+    local of = tostring(assert(spec.of).kind)
     if source == "path" then
       return ("input: %s of a path is a list: a path holds one value per name"):format(at)
     end
@@ -993,7 +995,7 @@ local function check_node(spec: Shape.Node, field: string, source: string, depth
       return ("input: %s of a %s is a list of %ss, which text cannot carry"):format(at, source, of)
     end
     if SCALARS[of] ~= true then
-      return ("input: %s of a %s is a list of kind %s, which text cannot carry"):format(at, source, tostring(of))
+      return ("input: %s of a %s is a list of kind %s, which text cannot carry"):format(at, source, of)
     end
   elseif source == "path" and (kind == "number" or kind == "any" or spec.optional) then
     return ("input: %s of a path must be a string, integer, boolean or one_of, and present"):format(at)
