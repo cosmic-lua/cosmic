@@ -141,3 +141,14 @@ local function test_the_fix_names_a_binding_the_checker_takes()
   -- What the fix names stands.
   stands("local ok, why, v3 = pcall(function(): (integer, string)\n  return 1, \"x\"\nend)\nprint(ok, v3)\n", "true\tx")
 end
+
+local function test_a_failure_with_a_text_of_its_own_is_read_by_tostring()
+  -- A class with a `__tostring`, as a [`cosmic.failure`] is, is no string: where one is wanted, the fix reads its text.
+  local class = "local class F\n  message: string\n  function __tostring(self): string\n    return self.message\n" ..
+    "  end\nend\nlocal why: F = { message = \"gone\" }\n"
+  Programs.says(class .. "local s: string = why\nprint(s)\n", "not_assignable", nil, "`tostring(why)`")
+  Programs.says(class .. "local function take(s: string?)\n  print(s)\nend\ntake(why)\n", "not_assignable", nil,
+    "`tostring(why)`")
+  Programs.says(class .. "print(\"x: \" .. why)\n", "operand_type", nil, "`tostring(why)`")
+  Programs.stands(class .. "local s: string = tostring(why)\nprint(\"x: \" .. s)\n", "x: gone")
+end

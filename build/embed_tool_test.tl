@@ -835,6 +835,24 @@ end
   assert(#reported == 1 and reported[1] == "cosmic: failed", tostring(r.stderr))
 end
 
+--- A [`cosmic.failure`] that nothing catches is reported by the text its
+--- `__tostring` answers, `path: message`, as a person reads it.
+local function test_an_uncaught_failure_is_reported_by_its_text(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/cmd/boom"))
+  assert(Fs.write(tmp .. "/cmd/boom/main.tl", [[
+local Failure = require("cosmic.failure")
+return function(): integer
+  error(Failure.new("no settings here", "/etc/boom.conf"))
+end
+]]))
+  local names, trouble = embed.tree(tmp, true)
+  assert(names ~= nil and names[1] == "boom", trouble)
+  local r = run_program(support.build_dir(tmp) .. "/bin/boom")
+  assert(r.code == 1, "exit " .. tostring(r.code))
+  local err = assert(r.stderr)
+  assert(err:find("cosmic: /etc/boom.conf: no settings here\n", 1, true) == 1, err)
+end
+
 --- An uncaught error names the Teal line it was raised on, read out of
 --- the module's source, which the executable stores deflated.
 local function test_an_uncaught_error_names_its_line_of_source(tmp: string)
