@@ -297,7 +297,7 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local ran, raised = pcall(function()
     served.ok, served.err = Server.serve({
       listeners = listeners, clear = clear, limits = opts.limits, tls = tls, timeout_ns = opts.timeout_ns,
-      idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns,
+      idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns, compress = opts.compress,
       grace_ns = opts.grace_ns or GRACE_NS, on_ready = ready, handle = handle,
       on_stop = function(server: Net.Server)
         app.stopped = true

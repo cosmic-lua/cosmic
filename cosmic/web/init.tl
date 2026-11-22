@@ -134,6 +134,8 @@ local record Web
   type TestClient = Testing.Client
   --- A client of an app served on the loopback.
   type LoopbackClient = Testing.Loopback
+  --- What [`Web.with_server`] takes besides the app and the test.
+  type ServerOptions = Testing.ServerOptions
 
   --- A typed key into a request's or an app's state, a table that names
   --- itself: `local SESSION: Web.Key<Session> = Web.key("session")`, then
@@ -301,7 +303,7 @@ local record Web
   --- Runs a test with a client in one event loop, the lifespan around it: see [`Testing.with_client`].
   with_client: function(app: Types.App, fn: function(client: Testing.Client))
   --- Runs a test with a client of the app served on the loopback: see [`Testing.with_server`].
-  with_server: function(app: Types.App, fn: function(client: Testing.Loopback))
+  with_server: function(app: Types.App, fn: function(client: Testing.Loopback), opts?: Testing.ServerOptions)
 end
 
 Web.key = Request.key
