@@ -808,4 +808,32 @@ end
 not a number: x
 ```
 
+Where `E` is a `string`, the failure carries words alone. A [`cosmic.failure`] keeps apart what went wrong (`message`), the
+path it concerns (`path`) and the errno that says why (`errno`, 0 where no system call failed), so a caller tests the
+cause and does not match the words. It is no string: `tostring` gives its text, `path: message`, and so do `print`, and
+an `error` or `assert` that nothing catches. Where a string is wanted, the checker's fix names `tostring(why)`.
+
+```teal
+local Failure = require("cosmic.failure")
+local sys = require("cosmic.sys")
+
+local function open(path: string): (integer) | (nil, Failure)
+  local fd, _, errno = sys.open(path, sys.O_RDONLY)
+  if fd == nil then
+    return nil, Failure.system(errno, path)
+  end
+  return fd
+end
+
+local fd, why = open("/no/such/file")
+if fd == nil then
+  print(why.errno == sys.ENOENT, tostring(why))
+end
+```
+
+```output
+true	/no/such/file: No such file or directory
+```
+
 [`cosmic.array`]: ../../cosmic/array.tl
+[`cosmic.failure`]: ../../cosmic/failure.tl

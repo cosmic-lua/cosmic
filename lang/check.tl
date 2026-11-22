@@ -1375,6 +1375,20 @@ local function refused(ctx: Ctx, node: Ast.Node, got: Type, want: Type, r: Relat
         w .. " = { ... }`)"
     end
     local held = where:match("^ in the assignment to `([%a_][%w_]*)`$")
+    local text_wanted = want == ctx.store.string
+    if not text_wanted and (want.tag == "union") then
+      -- `string?` wants a text as well.
+      text_wanted = true
+      for _, m in ipairs(members_of(ctx.store, want)) do
+        if m ~= ctx.store.string and m.tag ~= "nil" then
+          text_wanted = false
+        end
+      end
+    end
+    if text_wanted and Types.declares_method(got, "__tostring") then
+      -- A class value with a text of its own (a [`cosmic.failure`]) is no string, and `tostring` gives its text.
+      fix = "pass its text, `tostring(" .. text_of(ctx, node) .. ")`, or change the declaration to " .. quoted(g)
+    end
     if want.tag == "nil" and held ~= nil then
       -- A local given `nil` and no type holds nil alone (`local x = nil`).
       fix = "declare `" .. held .. "` optional where it is made: `local " .. held .. ": " .. g ..
