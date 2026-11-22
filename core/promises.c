@@ -184,6 +184,7 @@ enum rule {
   RULE_PRCTL_NEST,
   RULE_UNSHARE_NEST,
   RULE_SOCKET_UNIX,
+  RULE_SOCKETPAIR_STREAM,
   RULE_SOCKET_INET,
   RULE_SOCKET_UNIX_INET,
   RULE_SOCKET_INET_ROUTE,
@@ -212,7 +213,7 @@ struct grant {
 #define R(name, rule) { CALL_##name, RULE_##rule }
 
 /* What every program has: memory, time, signals to itself, threads,
- * descriptors, files, a unix socketpair, execve, and what a loader and a
+ * descriptors, files, a unix stream or seqpacket socketpair, execve, and what a loader and a
  * libc ask before main. The calls that open, create or change a file are
  * here rather than under a promise, since Landlock holds the paths.
  *
@@ -293,11 +294,15 @@ static const struct grant basics[] = {
   A(fdatasync), A(sync_file_range), A(sync), A(syncfs), A(flock),
   A(ftruncate), A(inotify_init), A(inotify_init1),
   A(inotify_add_watch), A(inotify_rm_watch),
-  /* Sockets: a socketpair of unix sockets, and the calls on a socket it
-   * already has. `socket` itself is granted only where a unix socket may
-   * be made (`collect`). A descriptor handed in is the grant that lets
-   * it reach where its owner meant. */
-  R(socketpair, SOCKET_UNIX), A(bind), A(connect), A(listen), A(accept),
+  /* Sockets: a socketpair of unix stream or seqpacket sockets, and the
+   * calls on a socket it already has. A datagram pair is refused: connect
+   * and sendto take a new peer for one, which would reach any datagram
+   * socket file (/dev/log, systemd's notify socket), which nothing else
+   * stops below Landlock ABI 9, or abstract name, below ABI 6. `socket`
+   * itself, and a pair of any type, are granted only where a unix socket
+   * may be made (`collect`). A descriptor handed in is the grant that
+   * lets it reach where its owner meant. */
+  R(socketpair, SOCKETPAIR_STREAM), A(bind), A(connect), A(listen), A(accept),
   A(accept4), A(getsockname), A(getpeername), A(sendto), A(recvfrom),
   A(sendmsg), A(recvmsg), A(sendmmsg), A(recvmmsg), A(shutdown),
   A(setsockopt), A(getsockopt),
@@ -450,6 +455,10 @@ static const struct grant fattr_calls[] = {
 #define TYPE_FIFO 0x1000u
 #define TYPE_SOCKET 0xc000u
 #define AF_UNIX_FAMILY 1u
+/* socket's type, below SOCK_NONBLOCK and SOCK_CLOEXEC. */
+#define SOCK_TYPE_BITS 0xfu
+#define SOCK_STREAM_TYPE 1u
+#define SOCK_SEQPACKET_TYPE 5u
 #define AF_INET_FAMILY 2u
 #define AF_INET6_FAMILY 10u
 #define AF_NETLINK_FAMILY 16u
@@ -749,6 +758,14 @@ static void rule_block (struct builder *b, enum rule rule, uint32_t pid, enum co
     load(&k, DATA_ARGUMENT(0) + DATA_LOW);
     test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_ALLOW, JUMP_DENY);
     break;
+    case RULE_SOCKETPAIR_STREAM:
+    load(&k, DATA_ARGUMENT(0) + DATA_LOW);
+    test(&k, OP_EQ, AF_UNIX_FAMILY, JUMP_NEXT, JUMP_DENY);
+    load(&k, DATA_ARGUMENT(1) + DATA_LOW);
+    mask(&k, SOCK_TYPE_BITS);
+    test(&k, OP_EQ, SOCK_STREAM_TYPE, JUMP_ALLOW, JUMP_NEXT);
+    test(&k, OP_EQ, SOCK_SEQPACKET_TYPE, JUMP_ALLOW, JUMP_DENY);
+    break;
     case RULE_SOCKET_INET:
     case RULE_SOCKET_UNIX_INET:
     /* Only the families: netlink and packet sockets (16, 17) stay
@@ -892,8 +909,9 @@ static void add (uint8_t *rules, const struct grant *table, size_t count) {
  * COSMIC_HELD_SIGNALS they keep to the process's own pid.
  *
  * `sockets` (COSMIC_SOCKETS_ bits) lets it make a socket of those
- * families -- socket(AF_UNIX), AF_INET and AF_INET6 -- a socketpair of
- * unix ones it always may; COSMIC_HELD_UNIX adds AF_UNIX, and
+ * families -- socket(AF_UNIX), AF_INET and AF_INET6 -- and a socketpair of
+ * unix ones of any type; a stream or seqpacket pair it always may;
+ * COSMIC_HELD_UNIX adds AF_UNIX, and
  * COSMIC_HELD_NETWORK, beside the inet ones, the NETLINK_ROUTE socket the
  * interfaces are listed over.
  *
@@ -923,6 +941,7 @@ static size_t program_for (struct cosmic_insn *out, enum cosmic_arch arch,
   memset(rules, 0, sizeof rules);
   ADD(basics);
   if (held & COSMIC_HELD_UNIX) sockets |= COSMIC_SOCKETS_UNIX;
+  if (sockets & COSMIC_SOCKETS_UNIX) rules[CALL_socketpair] = RULE_SOCKET_UNIX;
   if (sockets == COSMIC_SOCKETS_UNIX) rules[CALL_socket] = RULE_SOCKET_UNIX;
   else if (sockets == COSMIC_SOCKETS_INET) rules[CALL_socket] = RULE_SOCKET_INET;
   else if (sockets == (COSMIC_SOCKETS_UNIX | COSMIC_SOCKETS_INET))
