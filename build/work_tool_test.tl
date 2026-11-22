@@ -37,7 +37,8 @@ local function test_a_second_build_of_a_tree_waits_for_the_first(tmp: string)
   assert(Clock.sleep_ns(300000000))
   assert(work.abort(held))
   local result = assert(second:wait(Clock.seconds(60)))
-  assert(result.ok, "the second build failed: " .. (Fs.read(output) or ""))
+  local got, _ = Fs.read(output)
+  assert(result.ok, "the second build failed: " .. (got or ""))
 end
 
 --- The working database of `tmp`, made and then stamped with another

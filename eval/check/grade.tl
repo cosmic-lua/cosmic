@@ -319,7 +319,7 @@ function Grader.journal(path: string): boolean, string
   end
   local text, unread = Fs.read(path)
   if text == nil then
-    return false, unread
+    return false, tostring(unread)
   end
   if text:match("^%s*$") then
     return false, path .. " is empty"
@@ -413,7 +413,7 @@ local function copy_project(project: string, copy: string): boolean, string
   if files == nil then return false, trouble end
   for _, rel in ipairs(files) do
     local data, rtrouble = Fs.read(project .. "/" .. rel)
-    if data == nil then return false, rtrouble end
+    if data == nil then return false, tostring(rtrouble) end
     local parent = (copy .. "/" .. rel):match("^(.*)/[^/]*$")
     if parent == nil then return false, copy .. "/" .. rel .. " has no directory" end
     local made, mtrouble = Fs.mkdirs(parent)
@@ -435,7 +435,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
   local log = g.logs .. "/check-" .. tostring(g.steps) .. ".out"
   local source, trouble = Fs.read(test)
   if source == nil then
-    fail(g, "hidden api: " .. trouble)
+    fail(g, "hidden api: " .. tostring(trouble))
     return
   end
   local name = test:match("([^/]+)$")
@@ -2362,8 +2362,9 @@ local function grade_checks(g: Grade, task: Task, testdata: string): boolean
   elseif not Grader.built(read or "", name) or not is_executable(g.exe) then
     fail(g, "cosmic build did not produce " .. g.exe .. "; a binary is cmd/<name>/main.tl")
   else
-    local bytes, trouble = Fs.read(g.exe)
+    local bytes, failure = Fs.read(g.exe)
     local copied = bytes ~= nil
+    local trouble = if failure ~= nil then tostring(failure) else "" end
     if copied then copied, trouble = Fs.remove_tree(g.empty) end
     if copied then copied, trouble = Fs.mkdirs(g.empty) end
     if copied then copied, trouble = Fs.write(g.empty .. "/" .. name, assert(bytes), 0x1ed) end

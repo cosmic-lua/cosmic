@@ -53,7 +53,7 @@ local function test_a_broken_cache_is_left_in_place(tmp: string)
   assert(db == nil and String.starts_with(trouble, path .. ": "), trouble)
   local after = assert(Fs.stat(path))
   assert(after.ino == before.ino and after.dev == before.dev)
-  assert(Fs.read(path) == bytes)
+  assert(assert(Fs.read(path)) == bytes)
 end
 
 --- How long an open of the rollback-mode cache at `path` took, in

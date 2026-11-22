@@ -263,7 +263,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if file == nil then
     text, read_trouble = to.stdin()
   else
-    text, read_trouble = Fs.read(file)
+    local read, why = Fs.read(file)
+    text, read_trouble = read, if why ~= nil then tostring(why) else "" end
   end
   if text == nil then
     local named = request.file

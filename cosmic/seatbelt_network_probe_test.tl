@@ -118,8 +118,9 @@ local function reap(running: Running, seconds: number): Ended
     local _, _ = Clock.sleep_ns(Clock.ms(20))
     status = assert(process.waitpid(running.pid, true))
   end
+  local got, _ = Fs.read(running.output)
   return { started = true, why = "", code = status.code, signal = status.signal, timed_out = timed_out,
-    text = Fs.read(running.output) or "" }
+    text = got or "" }
 end
 
 --- `argv` run to its end under a profile, for at most `seconds`.

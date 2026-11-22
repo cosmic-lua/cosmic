@@ -72,7 +72,8 @@ local function available(): integer?
   if text == nil then
     local bytes, _ = sys.memory_available()
     if bytes ~= nil then return bytes end
-    text, _ = Fs.read("/proc/meminfo")
+    local read, _ = Fs.read("/proc/meminfo")
+    text = read
   end
   local kilobytes = math.tointeger(tonumber(("\n" .. (text or "")):match("\nMemAvailable:%s*(%d+) kB")))
   if kilobytes == nil then return nil end

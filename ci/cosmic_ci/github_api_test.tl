@@ -158,7 +158,7 @@ local function test_a_download_fetches_the_redirect_without_the_token(tmp: strin
   has(assert(sent[1]), "GET /repos/o/r/actions/artifacts/7/zip HTTP/1.1\r\n")
   has(assert(sent[1]), "Authorization: Bearer " .. token)
   assert(#urls == 1 and urls[1] == "https://blob.test/signed?sig=abc", table.concat(urls, " "))
-  assert(Fs.read(tmp .. "/a.zip") == "zip bytes")
+  assert(assert(Fs.read(tmp .. "/a.zip")) == "zip bytes")
   local options = assert(captured.options)
   for name in pairs(options.headers or {}) do
     assert(name:lower() ~= "authorization", "the token went to the redirect's host")
@@ -285,7 +285,7 @@ local function test_a_download_asks_for_the_bytes_where_told_to(tmp: string)
   has(assert(sent[1]), "GET /repos/o/r/releases/assets/5 HTTP/1.1\r\n")
   has(assert(sent[1]), "\r\nAccept: application/octet-stream\r\n")
   assert(not assert(sent[1]):find("vnd.github", 1, true), sent[1])
-  assert(Fs.read(tmp .. "/a") == "asset bytes")
+  assert(assert(Fs.read(tmp .. "/a")) == "asset bytes")
 end
 
 --- A client made by hand without an upload origin refuses an upload
@@ -433,7 +433,7 @@ local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tm
     "application/octet-stream")
   assert(ok, why)
   has(assert(sent[1]), "\r\nAccept: application/octet-stream\r\n")
-  assert(Fs.read(tmp .. "/a") == "\0asset\255")
+  assert(assert(Fs.read(tmp .. "/a")) == "\0asset\255")
   -- Without that ask a 200 is no file.
   client = live({ { reply("200 OK", "", "x") } })
   ok, why = GithubApi.download(client, "repos/o/r/z", tmp .. "/b")

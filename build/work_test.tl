@@ -4,6 +4,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
@@ -833,7 +834,7 @@ local function test_tool_discovery_fast_path_and_unknown_metadata(tmp: string)
   assert(stage_settled(handle, true))
   local walk, read = Fs.walk_following, Fs.read
   Fs.walk_following = function(): {string}?, string error("listed an unchanged tree") end -- checked: field_fixed
-  Fs.read = function(): string?, string error("read unchanged content") end -- checked: field_fixed
+  Fs.read = function(): (string) | (nil, Failure) error("read unchanged content") end -- checked: field_fixed
   local ok, answer = pcall(work.tool_moved, handle)
   Fs.walk_following, Fs.read = walk, read -- checked: field_fixed*2
   assert(ok and answer == false, tostring(answer))

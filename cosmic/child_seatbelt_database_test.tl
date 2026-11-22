@@ -100,5 +100,5 @@ local function test_the_child_cannot_write_the_database_or_a_file_beside_it(tmp:
   assert(out.core_write == refused, "the core opened for writing: " .. tostring(out.core_write)) -- checked: map_field*2
   assert(out.beside_write == refused, "a file beside it opened for writing: " .. tostring(out.beside_write)) -- checked: map_field*2
   assert(out.beside_create == refused, "a file beside it was made: " .. tostring(out.beside_create)) -- checked: map_field*2
-  assert(Fs.read(beside) == "beside" and sys.stat(beside .. ".new") == nil)
+  assert(assert(Fs.read(beside)) == "beside" and sys.stat(beside .. ".new") == nil)
 end

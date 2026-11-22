@@ -363,7 +363,8 @@ function example_checks.run(db: Sqlite.Handle, root: string, guides?: {string}):
     local file = "doc/guides/" .. name .. ".md"
     local text, read_trouble = Fs.read(root .. "/" .. file)
     if text == nil then
-      out[#out + 1] = read_trouble
+      local said = tostring(read_trouble)
+      out[#out + 1] = said
     else
       for _, line in ipairs(guide(text, file, options)) do
         out[#out + 1] = line

@@ -77,16 +77,16 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   local outside = store("world", tmp .. "/outside.db")
   assert(assert(Fs.read(tmp .. "/whole.db")) ~= whole, "the projection did not move")
   assert(outside == first, "an edit outside the closure moved its address")
-  assert(Fs.read(tmp .. "/outside.db") == Fs.read(tmp .. "/first.db"),
+  assert(assert(Fs.read(tmp .. "/outside.db")) == assert(Fs.read(tmp .. "/first.db")),
     "an edit outside the closure moved its store")
   assert(Fs.write(root .. "/added.tl", "return {}\n"))
   local added = store("world", tmp .. "/added.db")
   assert(added == first, "a module added outside the closure moved its address")
-  assert(Fs.read(tmp .. "/added.db") == Fs.read(tmp .. "/first.db"),
+  assert(assert(Fs.read(tmp .. "/added.db")) == assert(Fs.read(tmp .. "/first.db")),
     "a module added outside the closure moved its store")
   assert(store("world", tmp .. "/salted.db", "another writer") ~= first,
     "the code that writes it left its address")
-  assert(Fs.read(tmp .. "/salted.db") == Fs.read(tmp .. "/first.db"),
+  assert(assert(Fs.read(tmp .. "/salted.db")) == assert(Fs.read(tmp .. "/first.db")),
     "the code that writes it, writing the same rows, moved its bytes")
   local function extra(field: string)
     assert(Fs.write(root .. "/extra.d.tl", "--- @kind binding\nlocal type base = require 'base'\n" ..
@@ -100,7 +100,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   extra("a")
   local declared = store("world", tmp .. "/declared.db")
   assert(declared == first, "a declaration outside the closure moved its address")
-  assert(Fs.read(tmp .. "/declared.db") == Fs.read(tmp .. "/first.db"),
+  assert(assert(Fs.read(tmp .. "/declared.db")) == assert(Fs.read(tmp .. "/first.db")),
     "a declaration outside the closure moved its store")
   closure = { "extra", "greet", "greet_test" }
   local holding = store("world", tmp .. "/holding.db")
@@ -124,7 +124,7 @@ local function test_a_closure_store_moves_only_with_its_closure(tmp: string)
   assert(Fs.remove(root .. "/base.d.tl"))
   local inside = store("there", tmp .. "/inside.db")
   assert(inside ~= first, "an edit inside the closure left its address")
-  assert(Fs.read(tmp .. "/inside.db") ~= Fs.read(tmp .. "/first.db"),
+  assert(assert(Fs.read(tmp .. "/inside.db")) ~= assert(Fs.read(tmp .. "/first.db")),
     "an edit inside the closure left its store")
 
   local db = assert(Sqlite.open(tmp .. "/first.db"))
@@ -173,7 +173,7 @@ local function test_a_closure_store_holds_what_the_compiler_made(tmp: string)
   assert(assert(Fs.read(tmp .. "/whole.db")) ~= whole,
     "the projection did not name the other compiler")
   assert(again == first, "a compiler of another identity moved the address")
-  assert(Fs.read(tmp .. "/again.db") == Fs.read(tmp .. "/first.db"),
+  assert(assert(Fs.read(tmp .. "/again.db")) == assert(Fs.read(tmp .. "/first.db")),
     "a compiler of another identity moved the store")
 
   -- Each statement against a projection written afresh -- not taken for

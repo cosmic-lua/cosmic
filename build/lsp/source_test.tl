@@ -1299,12 +1299,12 @@ local function test_a_binary_module_of_a_project_is_placed_in_a_file_the_build_d
   local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
   local path = assert(source.extracted(src, placed))
   assert(path == directory .. "/" .. Hash.hex_sha256(THING) .. "/cosmic/thing.tl", path)
-  assert(Fs.read(path) == THING)
+  assert(assert(Fs.read(path)) == THING)
   assert(assert(Fs.stat(path)).mode & 0x1ff == 0x124, "the file is read-only")
   assert(source.extracted(src, placed) == path, "a second ask names the same file")
   assert(Fs.write(path, "tampered", 0x1a4))
   assert(source.extracted(src, placed) == path)
-  assert(Fs.read(path) == THING and assert(Fs.stat(path)).mode & 0x1ff == 0x124, "a changed file is written again")
+  assert(assert(Fs.read(path)) == THING and assert(Fs.stat(path)).mode & 0x1ff == 0x124, "a changed file is written again")
   -- The places of a module are kept by its hash: the database is read for the hash alone, and read whole when it moves.
   local again = assert(source.places(src, "cosmic.thing", none_open))
   assert(rawequal(again, placed), "the places are kept")
@@ -1359,7 +1359,7 @@ local function test_the_extracted_texts_of_a_tool_built_again_are_removed()
   local placed = assert(source.places(src, "cosmic.thing", none_open))
   local path = assert(source.extracted(src, placed))
   assert(Fs.stat(stale) == nil, "the text no module has goes")
-  assert(Fs.read(path) == THING and Fs.stat(directory .. "/notes") ~= nil, "the current text and another name stay")
+  assert(assert(Fs.read(path)) == THING and Fs.stat(directory .. "/notes") ~= nil, "the current text and another name stay")
   source.close(src)
   assert(db:close())
 end

@@ -67,7 +67,7 @@ local function test_unreadable_active_cache_is_retained_and_never_saved(tmp: str
   local code, _, err = trimmed({ "5", restored },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   assert(code == 0 and err ~= "", err)
-  assert(Fs.read(path) == bytes and Predicate.absent(restored))
+  assert(assert(Fs.read(path)) == bytes and Predicate.absent(restored))
   assert(Predicate.absent(tmp .. "/output"))
 end
 

@@ -338,7 +338,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local cacert = parsed.values["--cacert"]
   if cacert ~= nil then
     local text, why = Fs.read(cacert)
-    if text == nil then return refuse("--cacert: " .. why) end
+    if text == nil then return refuse("--cacert: " .. tostring(why)) end
     ca = text
   end
   local pins = parsed.all["--pin"]

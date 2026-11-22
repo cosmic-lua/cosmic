@@ -102,7 +102,7 @@ function ZigRestat.restat(caches: {ZigPrune.Cache}, roots: {integer:string}): Zi
       if #name == 32 and name:match("^%x+$") ~= nil then
         local path = cache.path .. "/h/" .. name
         local text, text_trouble = Fs.read(path)
-        if text == nil then return nil, path .. ": " .. text_trouble end
+        if text == nil then return nil, path .. ": " .. tostring(text_trouble) end
         -- An empty manifest, a step's that never finished, lists nothing.
         if text ~= "" then
           local records, trouble = ZigPrune.records(text)

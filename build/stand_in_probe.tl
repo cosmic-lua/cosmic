@@ -132,7 +132,7 @@ local verbs: {string:function(string, string): integer?} = {
   cat = function(path: string): integer?
     if path ~= "" then
       local bytes, trouble = Fs.read(path)
-      if bytes == nil then return failed(path, trouble) end
+      if bytes == nil then return failed(path, tostring(trouble)) end
       return put_all(1, bytes)
     end
     while true do
@@ -165,7 +165,7 @@ local verbs: {string:function(string, string): integer?} = {
     local named = target
     if target:sub(1, 1) == "@" then
       local held, trouble = Fs.read(target:sub(2))
-      if held == nil then return failed(target:sub(2), trouble) end
+      if held == nil then return failed(target:sub(2), tostring(trouble)) end
       named = String.trim(held)
     end
     local pid = if target == "" then sys.getpid() else number(named) end
@@ -221,7 +221,7 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   copy = function(from: string, to: string): integer?
     local bytes, trouble = Fs.read(from)
-    if bytes == nil then return failed(from, trouble) end
+    if bytes == nil then return failed(from, tostring(trouble)) end
     local ok, write_trouble = Fs.write(to, bytes)
     if not ok then return failed(to, write_trouble) end
     return nil
@@ -246,7 +246,7 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   ["grep-count"] = function(path: string, text: string): integer?
     local bytes, trouble = Fs.read(path)
-    if bytes == nil then return failed(path, trouble) end
+    if bytes == nil then return failed(path, tostring(trouble)) end
     local count = 0
     for line in bytes:gmatch("[^\n]*") do
       if line ~= "" and line:find(text, 1, true) ~= nil then count = count + 1 end
@@ -255,7 +255,7 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   ["status-field"] = function(name: string): integer?
     local status, trouble = Fs.read("/proc/self/status")
-    if status == nil then return failed("/proc/self/status", trouble) end
+    if status == nil then return failed("/proc/self/status", tostring(trouble)) end
     for line in status:gmatch("[^\n]+") do
       if String.starts_with(line, name .. ":") then return put_all(1, line .. "\n") end
     end

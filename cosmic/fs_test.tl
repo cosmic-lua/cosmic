@@ -3,6 +3,17 @@ local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
 
+--- A read that fails answers nil and a failure that names the path and the errno.
+local function test_read_answers_a_failure_with_the_path_and_the_errno(tmp: string)
+  local text, why = Fs.read(tmp .. "/absent")
+  assert(text == nil)
+  assert(why.errno == sys.ENOENT, tostring(why.errno))
+  assert(why.path == tmp .. "/absent", tostring(why.path))
+  assert(tostring(why) == tmp .. "/absent: " .. why.message, tostring(why))
+  assert(Fs.write(tmp .. "/present", "x"))
+  assert(assert(Fs.read(tmp .. "/present")) == "x")
+end
+
 local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
   local file = tmp .. "/file"
   assert(Fs.write(file, "contents"))
@@ -52,8 +63,8 @@ local function test_write_leaves_the_old_fixed_neighbor_untouched(tmp: string)
   assert(Fs.write(path, "old"))
   assert(Fs.write(neighbor, "belongs to somebody else"))
   assert(Fs.write(path, "new"))
-  assert(Fs.read(path) == "new")
-  assert(Fs.read(neighbor) == "belongs to somebody else")
+  assert(assert(Fs.read(path)) == "new")
+  assert(assert(Fs.read(neighbor)) == "belongs to somebody else")
 end
 
 local function test_interleaved_writers_have_distinct_temporary_files(tmp: string)
@@ -82,7 +93,7 @@ local function test_interleaved_writers_have_distinct_temporary_files(tmp: strin
   sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(ok, trouble)
   assert(#temporaries == 2 and temporaries[1] ~= temporaries[2])
-  assert(Fs.read(path) == "outer")
+  assert(assert(Fs.read(path)) == "outer")
 end
 
 local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -103,7 +114,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.write = real_write -- checked: field_fixed
   sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and trouble == path .. ": injected write failure", trouble)
-  assert(Fs.read(path) == "old")
+  assert(assert(Fs.read(path)) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
 
@@ -134,7 +145,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.close = real_close -- checked: field_fixed
   sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and trouble == path .. ": injected close failure", trouble)
-  assert(Fs.read(path) == "old")
+  assert(assert(Fs.read(path)) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
 
@@ -156,7 +167,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   sys.rename = real_rename -- checked: field_fixed
   sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and trouble == path .. ": injected rename failure", trouble)
-  assert(Fs.read(path) == "old")
+  assert(assert(Fs.read(path)) == "old")
   assert(created ~= "" and Fs.exists(created) == false)
 end
 
@@ -170,16 +181,16 @@ local function test_create_stages_a_file_until_it_is_closed(tmp: string)
   assert(file:write("ne"))
   assert(file:write("w"))
   assert(file:sync())
-  assert(Fs.read(path) == "old")
+  assert(assert(Fs.read(path)) == "old")
   assert(file:close())
   assert(file:close(), "a second close is harmless")
-  assert(Fs.read(path) == "new")
+  assert(assert(Fs.read(path)) == "new")
   local again, trouble = file:write("more")
   assert(not again and trouble == path .. ": the file is closed", trouble)
   local draft = assert(Fs.create(path))
   assert(draft:write("discarded"))
   assert(draft:abort() and draft:abort())
-  assert(Fs.read(path) == "new")
+  assert(assert(Fs.read(path)) == "new")
   assert(#assert(Fs.list(tmp)) == 1, "a temporary file was left behind")
 end
 
@@ -362,7 +373,7 @@ local function test_symlink_and_readlink_round_trip(tmp: string)
   assert(read_back == target and read_trouble == "")
 
   -- The link resolves through to the target's contents.
-  assert(Fs.read(link) == "contents")
+  assert(assert(Fs.read(link)) == "contents")
 
   local missing, missing_trouble = Fs.readlink(tmp .. "/missing")
   assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true) ~= nil)
@@ -558,7 +569,7 @@ local function test_remove_tree_removes_everything_but_follows_no_link(tmp: stri
   assert(Fs.symlink(outside, tree .. "/a/link"))
   assert(Fs.remove_tree(tree))
   assert(Fs.exists(tree) == false)
-  assert(Fs.read(outside .. "/keep") == "kept", "a link was followed")
+  assert(assert(Fs.read(outside .. "/keep")) == "kept", "a link was followed")
   -- Already gone is not a failure, and neither is a plain file.
   assert(Fs.remove_tree(tree))
   assert(Fs.remove_tree(outside .. "/keep"))
@@ -571,7 +582,7 @@ local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree
   assert(Fs.write(outside .. "/inner/keep", "kept"))
   assert(Fs.symlink(outside, tmp .. "/link"))
   assert(Fs.remove_tree(tmp .. "/link"))
-  assert(Fs.exists(tmp .. "/link") == false and Fs.read(outside .. "/inner/keep") == "kept")
+  assert(Fs.exists(tmp .. "/link") == false and assert(Fs.read(outside .. "/inner/keep")) == "kept")
   -- A directory of links to directories, and one of wide and deep names.
   local tree = tmp .. "/deep"
   local path = tree
@@ -582,23 +593,23 @@ local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree
     assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. tostring(i)))
   end
   assert(Fs.remove_tree(tree))
-  assert(Fs.exists(tree) == false and Fs.read(outside .. "/inner/keep") == "kept")
+  assert(Fs.exists(tree) == false and assert(Fs.read(outside .. "/inner/keep")) == "kept")
 end
 
 local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_not_follow_a_link(tmp: string)
   assert(Fs.write(tmp .. "/file", "x"))
   assert(Fs.remove_tree(tmp .. "/file/sub"), "beneath a file is nothing there")
-  assert(Fs.read(tmp .. "/file") == "x")
+  assert(assert(Fs.read(tmp .. "/file")) == "x")
   local outside = tmp .. "/outside"
   assert(Fs.mkdirs(outside .. "/inner"))
   assert(Fs.write(outside .. "/inner/keep", "kept"))
   assert(Fs.symlink(outside, tmp .. "/link"))
   assert(Fs.remove_tree(tmp .. "/link/"))
   assert(Fs.exists(tmp .. "/link") == false, "the link is removed")
-  assert(Fs.read(outside .. "/inner/keep") == "kept", "a trailing slash followed the link")
+  assert(assert(Fs.read(outside .. "/inner/keep")) == "kept", "a trailing slash followed the link")
   assert(Fs.symlink(outside, tmp .. "/link"))
   assert(Fs.remove_tree(tmp .. "/link///"))
-  assert(Fs.read(outside .. "/inner/keep") == "kept")
+  assert(assert(Fs.read(outside .. "/inner/keep")) == "kept")
   local refused, why = Fs.remove_tree("/")
   assert(not refused and why:find("Invalid argument", 1, true) ~= nil, why)
   local also = Fs.remove_tree("///")
@@ -667,7 +678,7 @@ local function test_write_resumes_a_short_write(tmp: string)
   local ok, trouble = Fs.write(path, "abcdefghij")
   sys.write = real_write -- checked: field_fixed
   assert(ok, trouble)
-  assert(Fs.read(path) == "abcdefghij")
+  assert(assert(Fs.read(path)) == "abcdefghij")
 end
 
 local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)

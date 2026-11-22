@@ -225,7 +225,7 @@ end
   -- The test after the failing one is the only one left, so a worker of its own runs it.
   assert(text:find("forks: 3 tests ran in copies of 1 worker", 1, true), text)
   local kept = assert(text:match("its directory is kept: ([^\n]*)"), text)
-  assert(Fs.read(kept .. "/mark") == "the failing one", kept)
+  assert(assert(Fs.read(kept .. "/mark")) == "the failing one", kept)
   -- The directories of the tests that passed are gone, with the workers that ran them.
   local marks = 0
   for _, path in ipairs((assert(Fs.walk(tmp .. "/temp")))) do
@@ -285,7 +285,7 @@ end
   assert(text:find("1 of 3 tests failed", 1, true), text)
   assert(text:find("the runner failed its test", 1, true), text)
   local kept = assert(text:match("its directory is kept: ([^\n]*)"), text)
-  assert(Fs.read(kept .. "/mark") == "unchecked", kept)
+  assert(assert(Fs.read(kept .. "/mark")) == "unchecked", kept)
 end
 
 --- A module's tests share workers in a run of more modules than may run at once, and have a worker each, so that

@@ -290,7 +290,7 @@ local cacert: refresh.Dataset = {
   read = function(path: string, _scratch: string): refresh.Release?, string
     local text, trouble = Fs.read(path)
     if text == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     local found, parse_trouble = roots.parse(text)
     if found == nil then
@@ -377,7 +377,7 @@ local revocations: refresh.Dataset = {
   read = function(path: string, _scratch: string): refresh.Release?, string
     local text, trouble = Fs.read(path)
     if text == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     local found, parse_trouble = onecrl.parse(text)
     if found == nil then
@@ -463,7 +463,7 @@ local tzdata: refresh.Dataset = {
     for entry, under in pairs(files) do
       local data, read_trouble = Fs.read(into .. "/" .. entry)
       if data == nil then
-        return nil, read_trouble
+        return nil, tostring(read_trouble)
       end
       local name = under:gsub("^zoneinfo/", "")
       local _, why = Time.zone_from_tzif(data, name)
@@ -522,7 +522,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
                      scratch: string): string?, string
   local bytes, trouble = Fs.read(source.path)
   if bytes == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local sha256 = Hash.hex_sha256(bytes)
   local unpack_into = scratch .. "/" .. dataset.name
@@ -586,7 +586,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
                         sources: {string:string}, every?: boolean): {string}?, string
   local bytes, trouble = Fs.read(binary)
   if bytes == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local split, split_trouble = artifact.split(bytes)
   if split == nil then
@@ -685,7 +685,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     done("")
     local database, read_trouble = Fs.read(scratch .. "/refreshed.db")
     if database == nil then
-      return read_trouble
+      return tostring(read_trouble)
     end
     local program, join_trouble = artifact.rejoin(parts, database)
     if program == nil then

@@ -1361,7 +1361,7 @@ local function test_out_removes_only_what_the_build_wrote_and_makes_no_empty_dir
   assert(Fs.write(tmp .. "/cmd/two/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
   local built = invoke.run({ "build", "--host", "--out", "dist" }, { cwd = tmp, env = build_env() })
   assert(built.code == 4, tostring(built.code) .. built.stderr)
-  assert(Fs.read(tmp .. "/dist/two") == "the user's own file", "a file cosmic did not write was removed")
+  assert(assert(Fs.read(tmp .. "/dist/two")) == "the user's own file", "a file cosmic did not write was removed")
   assert(built.stderr:find("not a file this build wrote", 1, true) ~= nil, built.stderr)
   assert(Fs.exists(tmp .. "/dist/one") == true)
   -- Nothing built, nothing made.
@@ -1507,7 +1507,7 @@ local function test_the_manifest_forgets_a_copy_that_is_gone(tmp: string)
   assert(Fs.write(tmp .. "/cmd/two/main.tl", 'local n: integer = "x"\nreturn function(): integer return n end\n'))
   local again = invoke.run({ "build", "--host", "--out", "dist" }, { cwd = tmp, env = build_env() })
   assert(again.code == 4, again.stderr)
-  assert(Fs.read(tmp .. "/dist/two") == "the user's own file, put where the copy was")
+  assert(assert(Fs.read(tmp .. "/dist/two")) == "the user's own file, put where the copy was")
 end
 
 local till_commands = [[

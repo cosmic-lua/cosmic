@@ -637,7 +637,10 @@ local function read_suites(o: Report.Options, run: Report.Run, scratch: string)
     local downloaded, why = GithubApi.download(o.client, "repos/" .. o.repo ..
         "/actions/artifacts/" .. artifact.id .. "/zip", file)
     local zip: string? = nil
-    if downloaded then zip, why = Fs.read(file) end
+    if downloaded then
+      local read, failure = Fs.read(file)
+      zip, why = read, if read == nil then tostring(failure) else "" end
+    end
     local rows: {State.SuiteRun}? = nil
     if zip ~= nil then
       local database: string?

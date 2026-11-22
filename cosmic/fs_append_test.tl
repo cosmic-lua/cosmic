@@ -5,10 +5,10 @@ local function test_append_creates_preserves_and_accepts_binary_bytes(tmp: strin
   local path = tmp .. "/log"
   local empty = table.pack(Fs.append(path, ""))
   assert(empty.n == 2 and empty[1] == true and empty[2] == "")
-  assert(Fs.read(path) == "")
+  assert(assert(Fs.read(path)) == "")
   assert(Fs.append(path, "old\0"))
   assert(Fs.append(path, "new\255"))
-  assert(Fs.read(path) == "old\0new\255")
+  assert(assert(Fs.read(path)) == "old\0new\255")
 end
 
 local function test_append_creation_modes_obey_umask_and_preserve_existing_inode(tmp: string)
@@ -32,7 +32,7 @@ local function test_append_follows_symlink_without_replacing_it(tmp: string)
   assert(Fs.write(path, "before"))
   assert(Fs.symlink("target", link))
   assert(Fs.append(link, "after"))
-  assert(Fs.readlink(link) == "target" and Fs.read(path) == "beforeafter")
+  assert(Fs.readlink(link) == "target" and assert(Fs.read(path)) == "beforeafter")
 end
 
 local function test_append_open_failures_name_the_path(tmp: string)
@@ -63,7 +63,7 @@ local function test_append_completes_short_writes(tmp: string)
   local ok, why = Fs.append(path, "abcdefg")
   sys.write = real_write -- checked: field_fixed
   assert(ok and why == "" and writes == 4)
-  assert(Fs.read(path) == "beforeabcdefg")
+  assert(assert(Fs.read(path)) == "beforeabcdefg")
 end
 
 local function test_append_zero_progress_closes_once(tmp: string)
@@ -80,7 +80,7 @@ local function test_append_zero_progress_closes_once(tmp: string)
   local ok, why = Fs.append(path, "data")
   sys.write, sys.close = real_write, real_close -- checked: field_fixed*2
   assert(not ok and why == path .. ": write made no progress", why)
-  assert(closes == 1 and Fs.read(path) == "")
+  assert(closes == 1 and assert(Fs.read(path)) == "")
 end
 
 local function test_append_partial_failure_keeps_prefix_and_first_error(tmp: string)
@@ -102,7 +102,7 @@ local function test_append_partial_failure_keeps_prefix_and_first_error(tmp: str
   local ok, why = Fs.append(path, "abcdef")
   sys.write, sys.close = real_write, real_close -- checked: field_fixed*2
   assert(not ok and why == path .. ": write refused", why)
-  assert(closes == 1 and Fs.read(path) == "beforeab")
+  assert(closes == 1 and assert(Fs.read(path)) == "beforeab")
 end
 
 local function test_append_close_failure_does_not_retry_a_recycled_descriptor(tmp: string)
@@ -121,7 +121,7 @@ local function test_append_close_failure_does_not_retry_a_recycled_descriptor(tm
   local written = sys.write(recycled, "still open")
   assert(sys.close(recycled))
   assert(not ok and why == path .. ": close refused", why)
-  assert(closes == 1 and written == 10 and Fs.read(path) == "data")
+  assert(closes == 1 and written == 10 and assert(Fs.read(path)) == "data")
 end
 
 local function test_append_raising_write_releases_descriptor_and_keeps_exception(tmp: string)

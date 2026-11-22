@@ -49,7 +49,7 @@ end
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
       " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == table.concat({ term, term, term, "true" }, "|"), tostring(got))
 end
 
@@ -85,7 +85,7 @@ end
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
       " " .. tostring(r.stderr))
   local int, term = tostring(sys.SIGINT), tostring(sys.SIGTERM)
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == table.concat({ int, term, term }, "|"), tostring(got))
 end
 
@@ -121,7 +121,7 @@ end
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
       " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == table.concat({ term, term, term, "0", term, term }, "|"), tostring(got))
 end
 
@@ -155,7 +155,7 @@ end
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
   local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == table.concat({ term, "alive", term }, "|"), tostring(got) .. " " .. tostring(r.stderr))
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
 end
@@ -183,7 +183,7 @@ end
   local started = this_program.program({ fixture, report },
     { stderr = "capture", timeout_ns = Clock.seconds(30) })
   local r = assert(Child.run(started.argv, started.options))
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == tostring(sys.SIGTERM) .. "|0", tostring(got) .. " " .. tostring(r.stderr))
   assert(r.signal == sys.SIGTERM, "code=" .. tostring(r.code) .. " " .. tostring(r.stderr))
 end

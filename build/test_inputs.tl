@@ -132,7 +132,7 @@ for _, name in ipairs(this_program.runtime_environment) do pinned_env[#pinned_en
 -- prints none, silently, where another prints the catalog's.
 test_inputs.lua_loads = {
   "build.dispatch", "build.exit_status", "build.help_source", "build.paths", "build.logger",
-  "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.fs", "cosmic.hash", "cosmic.log",
+  "cmd.cosmic.main", "cosmic.codec", "cosmic.env", "cosmic.failure", "cosmic.fs", "cosmic.hash", "cosmic.log",
 }
 
 --- What `cosmic -e` and `cosmic --standalone` load beyond `lua_loads` before the chunk or file they check and

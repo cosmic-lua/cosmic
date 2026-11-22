@@ -1367,7 +1367,7 @@ local function account_key(path: string): Acme.Key?, string
   local fd, refused, number = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, OWNER_FILE)
   if fd == nil and number == sys.EEXIST then
     local text, unread = Fs.read(path)
-    if text == nil then return nil, "acme: " .. unread end
+    if text == nil then return nil, "acme: " .. tostring(unread) end
     local kept, bad = Acme.read_key(text)
     if kept == nil then return nil, "acme: " .. path .. ": " .. bad end
     return kept, ""

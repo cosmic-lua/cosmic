@@ -63,7 +63,8 @@ end
 
 --- The file at `path`, or "" where it cannot be read.
 local function read_file(path: string): string
-  return (Fs.read(path)) or ""
+  local got, _ = Fs.read(path)
+  return (got) or ""
 end
 
 --- Asserts calling `fn` with `...` raises rather than returning.

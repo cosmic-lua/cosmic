@@ -26,7 +26,8 @@ local KNOWN_FEATURES <const>: {string:{string:boolean}} = {
 
 --- The file at `path`, or "" where it cannot be read.
 local function read_file(path: string): string
-  return (Fs.read(path)) or ""
+  local got, _ = Fs.read(path)
+  return got or ""
 end
 
 --- `cpu_features` names each feature this processor has, of those it

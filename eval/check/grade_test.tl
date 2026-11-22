@@ -238,7 +238,7 @@ local function test_a_project_with_an_empty_journal_fails(dir: string)
   assert(status == 1, said)
   assert(said:find("check: FAIL JOURNAL.md kept, as TASK.md's journal contract asks: " ..
       dir .. "/project/JOURNAL.md is empty\n", 1, true), said)
-  assert(Fs.read(dir .. "/project/JOURNAL.md") == "\n  \n")
+  assert(assert(Fs.read(dir .. "/project/JOURNAL.md")) == "\n  \n")
 end
 
 --- A journal passes its check, is set aside for `fix --check`, and is
@@ -248,7 +248,7 @@ local function test_a_project_with_a_journal_passes_that_check(dir: string)
   assert(status == 1, said) -- the stand-in builds no kv
   assert(said:find("check: ok   JOURNAL.md kept, as TASK.md's journal contract asks\n", 1, true), said)
   assert(said:find("check: ok   " .. dir .. "/bin/cosmic fix --check\n", 1, true), said)
-  assert(Fs.read(dir .. "/project/JOURNAL.md") == "**Log**\n\n1. tried it\n")
+  assert(assert(Fs.read(dir .. "/project/JOURNAL.md")) == "**Log**\n\n1. tried it\n")
   assert(Fs.exists(dir .. "/JOURNAL.md.aside") ~= true)
 end
 
@@ -259,7 +259,7 @@ local function test_a_journal_left_aside_is_put_back_and_checked(dir: string)
   local status, said = graded_with_journal(dir, nil)
   assert(status == 1, said)
   assert(said:find("check: ok   JOURNAL.md kept, as TASK.md's journal contract asks\n", 1, true), said)
-  assert(Fs.read(dir .. "/project/JOURNAL.md") == "kept\n")
+  assert(assert(Fs.read(dir .. "/project/JOURNAL.md")) == "kept\n")
 end
 
 --- An earlier grading's aside beside a new journal is kept, and the
@@ -273,8 +273,8 @@ local function test_a_journal_beside_an_earlier_aside_is_the_one_checked(dir: st
   -- The new journal stayed in place through `fix --check`, which the
   -- stand-in fails on finding it.
   assert(said:find("check: FAIL " .. dir .. "/bin/cosmic fix --check\n", 1, true), said)
-  assert(Fs.read(dir .. "/JOURNAL.md.aside") == "kept\n")
-  assert(Fs.read(dir .. "/project/JOURNAL.md") == " \n")
+  assert(assert(Fs.read(dir .. "/JOURNAL.md.aside")) == "kept\n")
+  assert(assert(Fs.read(dir .. "/project/JOURNAL.md")) == " \n")
 end
 
 local function test_api_failures_names_each_failing_test_and_refused_line()
@@ -352,7 +352,7 @@ local function test_a_hidden_test_runs_on_a_copy_and_reports_each_failure(dir: s
   assert(not listed:find("\no\n", 1, true) and not listed:match("^o\n"), listed)
   assert(Fs.exists(dir .. "/project/kv_api_test.tl") ~= true, "the hidden test reached the project")
   assert(Fs.exists(dir .. "/project/leftover.txt") ~= true, "the copy's writes reached the project")
-  assert(Fs.read(dir .. "/project/o/marker") == "built\n")
+  assert(assert(Fs.read(dir .. "/project/o/marker")) == "built\n")
   local copy = String.trim((assert(Fs.read(dir .. "/copy.txt"))))
   assert(copy ~= dir .. "/project" and Fs.exists(copy) ~= true, "the copy is left at " .. copy)
 end
@@ -378,7 +378,7 @@ local function test_both_cosmic_test_steps_get_the_unsandboxed_environment(dir: 
   local expected = "COSMIC_TEST_SANDBOX=0\nCOSMIC_SANDBOX unset\nCOSMIC_CI_REQUIRE_SANDBOX unset\n"
   local seen = 0
   for n = 1, 8 do
-    local out = Fs.read(dir .. "/grades/1/check-" .. tostring(n) .. ".out")
+    local out, _ = Fs.read(dir .. "/grades/1/check-" .. tostring(n) .. ".out")
     if out ~= nil and out:find("COSMIC_TEST_SANDBOX", 1, true) ~= nil then
       seen = seen + 1
       assert(out:sub(1, #expected) == expected, "grades/1/check-" .. tostring(n) .. ".out: " .. out)
@@ -422,7 +422,7 @@ local function test_a_regrade_keeps_the_evidence_of_the_one_before(dir: string)
   assert(Grader.next_logs(dir) == dir .. "/grades/1")
   assert(Fs.write(dir .. "/grades/1/check-1.out", "first\n"))
   assert(Grader.next_logs(dir) == dir .. "/grades/2")
-  assert(Fs.read(dir .. "/grades/1/check-1.out") == "first\n")
+  assert(assert(Fs.read(dir .. "/grades/1/check-1.out")) == "first\n")
   assert(Grader.next_logs(dir) == dir .. "/grades/3", "each call makes its directory")
   assert(Fs.is_dir(dir .. "/grades/2") == true and Fs.is_dir(dir .. "/grades/3") == true)
 end

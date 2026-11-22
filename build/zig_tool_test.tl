@@ -173,7 +173,8 @@ local function test_a_boot_holds_the_lock_and_hands_it_on(tmp: string)
   local deadline = Clock.monotonic_ns() + Clock.seconds(20)
   local handed: string? = nil
   while handed == nil and Clock.monotonic_ns() < deadline do
-    handed = Fs.read(tmp .. "/handed")
+    local got, _ = Fs.read(tmp .. "/handed")
+    handed = got
     if handed == nil then assert(sys.nanosleep(Clock.ms(20))) end
   end
   local taken, trouble = rebuild_lock.take(root, 0, "test")
@@ -220,11 +221,11 @@ local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_n
   local first = assert(Child.run(started.argv, started.options))
   assert(first.ok, first.stderr)
   local manifest = project .. "/cosmic-vendor/manifest-" .. Hash.hex_sha256("") .. ".tsv"
-  assert(Fs.read(manifest) == "")
+  assert(assert(Fs.read(manifest)) == "")
   assert(Fs.write(manifest, "incomplete manifest"))
   local second = assert(Child.run(started.argv, started.options))
   assert(second.ok, second.stderr)
-  assert(Fs.read(manifest) == "")
+  assert(assert(Fs.read(manifest)) == "")
 end
 
 local function test_boot_refuses_an_install_prefix_that_would_name_another_lock(tmp: string)

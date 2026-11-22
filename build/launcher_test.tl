@@ -330,7 +330,7 @@ end
 --- The absolute paths the policy of the module at `file` grants, however each grant is laid out; the module
 --- declares no profile "system", which would give it every program.
 local function granted(file: string): {string:boolean}
-  local text = assert(Fs.read(file), file)
+  local text = assert(Fs.read(file))
   local policy = assert(text:match("\nTest%.policy%s*(%b{})"), file .. " has no policy")
   assert(policy:find('"system"', 1, true) == nil, file .. " declares the system, and so grants every program")
   local out: mut {string:boolean} = {}

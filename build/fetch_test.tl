@@ -68,7 +68,7 @@ local function test_the_body_goes_to_a_file_and_nothing_to_standard_output(tmp: 
   local ran = run({ url, "-o", path }, { reply("200 OK", "", "hello") })
   assert(ran.code == 0, ran.err)
   assert(ran.out == "", ran.out)
-  assert(Fs.read(path) == "hello")
+  assert(assert(Fs.read(path)) == "hello")
 end
 
 local function test_a_matching_digest_delivers_the_body(tmp: string)
@@ -78,7 +78,7 @@ local function test_a_matching_digest_delivers_the_body(tmp: string)
   local path = tmp .. "/ok.txt"
   local filed = run({ url, "-o", path, "--sha256", digest }, { reply("200 OK", "", "hello") })
   assert(filed.code == 0, filed.err)
-  assert(Fs.read(path) == "hello")
+  assert(assert(Fs.read(path)) == "hello")
 end
 
 local function test_a_digest_mismatch_names_both_and_sends_nothing(tmp: string)
@@ -318,7 +318,7 @@ local function test_a_sha256_fragment_verifies_and_refuses(tmp: string)
   assert(bad.err:find("sha256 mismatch: want " .. string.rep("0", 64) .. ", got " .. good, 1, true), bad.err)
   local path = tmp .. "/frag.txt"
   local filed = run({ url .. "#sha256=" .. good:upper(), "-o", path }, { reply("200 OK", "", "hello") })
-  assert(filed.code == 0 and Fs.read(path) == "hello", filed.err)
+  assert(filed.code == 0 and assert(Fs.read(path)) == "hello", filed.err)
 end
 
 local function test_a_sha512_fragment_verifies_and_refuses()
@@ -336,7 +336,7 @@ local function test_a_sha512_alone_checks_a_download_to_a_file(tmp: string)
   local good = sha512_of("hello")
   local path = tmp .. "/only512.txt"
   local filed = run({ "--sha512", good, "-o", path, url }, { reply("200 OK", "", "hello") })
-  assert(filed.code == 0 and Fs.read(path) == "hello", filed.err)
+  assert(filed.code == 0 and assert(Fs.read(path)) == "hello", filed.err)
   local other = tmp .. "/wrong512.txt"
   local bad = run({ "--sha512", string.rep("0", 128), "-o", other, url }, { reply("200 OK", "", "hello") })
   assert(bad.code == 1 and bad.err:find("sha512 mismatch", 1, true) ~= nil, bad.err)

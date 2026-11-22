@@ -45,7 +45,8 @@ end
 
 local function outputs(file: string): {string:string}
   local out: mut {string:string} = {}
-  for name, value in (Fs.read(file) or ""):gmatch("([%w_]+)=([^\n]*)\n") do out[name] = value end
+  local got, _ = Fs.read(file)
+  for name, value in (got or ""):gmatch("([%w_]+)=([^\n]*)\n") do out[name] = value end
   return out
 end
 
@@ -83,7 +84,7 @@ local function test_corrupt_active_file_suppresses_the_entire_save_set(tmp: stri
     local code, _, err = verdicts_command({ since },
       { COSMIC_VERDICT_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
     assert(code == 0 and err ~= "")
-    assert(Fs.read(path) == bytes)
+    assert(assert(Fs.read(path)) == bytes)
     assert(Fs.stat(tmp .. "/output") == nil)
   end
   assert(Fs.stat(tmp .. "/fixtures.db.corrupt-123") == nil)

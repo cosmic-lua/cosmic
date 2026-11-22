@@ -124,7 +124,8 @@ end
 
 --- How many times the stand-in `curl` was called.
 local function downloads(p: Project): integer
-  local _, count = (Fs.read(p.calls) or ""):gsub("call\n", "")
+  local got, _ = Fs.read(p.calls)
+  local _, count = (got or ""):gsub("call\n", "")
   return count
 end
 

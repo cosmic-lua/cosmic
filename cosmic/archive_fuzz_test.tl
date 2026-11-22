@@ -212,7 +212,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
         end
       end
       local out_names = Fs.list(outside) or {}
-      if #out_names ~= 1 or Fs.read(outside .. "/sentinel") ~= "untouched" then
+      if #out_names ~= 1 or assert(Fs.read(outside .. "/sentinel")) ~= "untouched" then
         return false, "wrote into " .. outside .. ": " .. table.concat(out_names, ", ")
       end
       local real_dest = Fs.absolute(dest)
@@ -402,7 +402,7 @@ local function snapshot(dir: string): string
         local target = Fs.readlink(path)
         line = line .. " " .. tostring(target)
       elseif kind == "file" then
-        local body = Fs.read(path)
+        local body, _ = Fs.read(path)
         line = line .. " " .. tostring(body)
       end
       lines[#lines + 1] = line
@@ -624,7 +624,7 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
         end
         local wrote = 0
         for i = 1, kept do
-          local body = Fs.read(dest .. "/f" .. tostring(i))
+          local body, _ = Fs.read(dest .. "/f" .. tostring(i))
           if body == nil or #body ~= sizes[i] then
             return false, "f" .. tostring(i) .. " is not whole"
           end

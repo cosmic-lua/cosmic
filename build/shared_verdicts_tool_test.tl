@@ -94,7 +94,7 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "suite/", letters = "r" } }, env = { "FLAVOUR" } }
 
 local function test_reads_data()
-  assert(Fs.read("suite/data.txt") ~= nil)
+  assert(Fs.read("suite/data.txt"))
   assert(Fs.stat("suite/data.txt") ~= nil)
   assert(Fs.list("suite") ~= nil)
 end
@@ -122,7 +122,7 @@ Test.policy { grants = { { path = "]] .. Fs.dirname(root) ..
 local function test_reads_outside()
   local f = assert(Env.get("OUTSIDE")) .. "/f"
   assert(assert(Fs.stat(f)).mtime ~= ]] .. tostring(unready) .. [[)
-  assert(Fs.read(f) == "out\n")
+  assert(assert(Fs.read(f)) == "out\n")
 end
 ]]))
 end
@@ -503,7 +503,7 @@ local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((as
 
 local function test_reads_the_tool()
   local tool = built .. "/bin/tool"
-  assert(Fs.read(tool) ~= nil)
+  assert(Fs.read(tool))
   assert(Fs.stat(tool) ~= nil)
 end
 ]]))
@@ -521,7 +521,7 @@ Test.policy { grants = { { path = "o/build.db", letters = "r" } } }
 local built = assert(Env.get("COSMIC_BUILD_HOME")) .. "/" .. Hash.hex_sha256((assert(sys.realpath("."))))
 
 local function test_reads_the_working_database()
-  assert(Fs.read(built .. "/build.db") ~= nil)
+  assert(Fs.read(built .. "/build.db"))
 end
 ]]))
     local text = run(root, tmp .. "/" .. name .. ".out", env)
@@ -592,7 +592,7 @@ local function test_a_cache_that_cannot_answer_is_done_without(tmp: string)
     assert(not output:find("moved aside", 1, true), output)
     local after = assert(Fs.stat(corrupt))
     assert(after.ino == before.ino and after.dev == before.dev)
-    assert(Fs.read(corrupt) == damaged and Fs.read(sibling) == "earlier evidence")
+    assert(assert(Fs.read(corrupt)) == damaged and assert(Fs.read(sibling)) == "earlier evidence")
     assert(#assert(Fs.list(Fs.dirname(corrupt))) == 2, "a cache was renamed or replaced")
   end
 end
@@ -750,7 +750,7 @@ Test.policy {
 
 local function test_stops_early()
   assert(assert(Fs.stat(assert(Env.get("OUTSIDE")) .. "/f")).mtime ~= ]] .. tostring(unready) .. [[)
-  assert(Fs.read("suite/c.txt") == "c\n")
+  assert(assert(Fs.read("suite/c.txt")) == "c\n")
 end
 ]]))
   end

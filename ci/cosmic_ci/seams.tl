@@ -95,7 +95,11 @@ local current: Seams.Calls = {
   fs_exists = Fs.exists,
   fs_open_write = Fs.open_write,
   fs_put = Fs.put,
-  fs_read = Fs.read,
+  fs_read = function(path: string): string?, string
+    local text, why = Fs.read(path)
+    if text == nil then return nil, tostring(why) end
+    return text, ""
+  end,
   proc_user = Proc.user,
   signal_guard = Signal.guard,
   stream_tee = Stream.tee,

@@ -411,7 +411,7 @@ local function as_single_file(tree: string, pin: Vendor.Pin, download: string): 
   end
   local data, read_trouble = Fs.read(download)
   if data == nil then
-    return nil, read_trouble
+    return nil, tostring(read_trouble)
   end
   local pruned, prune_trouble = prune(tree, { [pin.file] = true })
   if not pruned then
@@ -428,7 +428,7 @@ end
 local function rewrite(tree: string, path: string): integer?, string
   local text, pin_trouble = Fs.read(tree .. "/PIN")
   if text == nil then
-    return nil, pin_trouble
+    return nil, tostring(pin_trouble)
   end
   local pin = Vendor.read_pin(text)
   if pin.file ~= "" then
@@ -522,7 +522,7 @@ local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
   end
   local body, read_trouble = Fs.read(path)
   if body == nil then
-    return 0, read_trouble
+    return 0, tostring(read_trouble)
   end
   local timestamp, timestamp_trouble = Vendor.feed_timestamp(body)
   if timestamp == nil then
@@ -551,7 +551,7 @@ local function fetch_and_rewrite(root: string, cache_dir: function(): (string, s
   local tree = root .. "/vendor/" .. name
   local text, pin_trouble = Fs.read(tree .. "/PIN")
   if text == nil then
-    return nil, pin_trouble
+    return nil, tostring(pin_trouble)
   end
   local pin = Vendor.read_pin(text)
   if pin.feed ~= "" then

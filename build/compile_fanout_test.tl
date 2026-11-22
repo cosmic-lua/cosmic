@@ -42,7 +42,8 @@ end
 
 --- The host itself is asked where no text stands in: no copy is made of a size no host has.
 local function test_a_copy_larger_than_the_hosts_memory_is_not_made()
-  if assert(sys.uname()).sysname == "Linux" and Fs.read("/proc/meminfo") == nil then
+  local meminfo, _ = Fs.read("/proc/meminfo")
+  if assert(sys.uname()).sysname == "Linux" and meminfo == nil then
     -- TODO: check this in a sandboxed run on Linux too, once a test can be given the host's /proc/meminfo.
     Test.skip("this sandbox's /proc has no meminfo, so no host's memory to bound the copies by")
   end
@@ -60,8 +61,8 @@ local function test_each_copy_runs_and_one_that_raises_is_told(tmp: string)
   end)
   local ended = ran.ended
   assert(ended[1] == true and ended[2] == false and ended[3] == true)
-  assert(Fs.read(tmp .. "/1") == "made by 1" and Fs.read(tmp .. "/3") == "made by 3")
-  assert(Fs.read(tmp .. "/2") == nil)
+  assert(assert(Fs.read(tmp .. "/1")) == "made by 1" and assert(Fs.read(tmp .. "/3")) == "made by 3")
+  assert(Fs.exists(tmp .. "/2") ~= true)
 end
 
 --- A copy is refused a connection the process opened before it forked ([`Sqlite.disown`]), and the process's
@@ -92,7 +93,8 @@ local function test_the_process_looks_while_its_copies_run(tmp: string)
     assert(Fs.write(tmp .. "/" .. tostring(copy), "made"))
   end, function()
     looks = looks + 1
-    seen_last = Fs.read(tmp .. "/2")
+    local got, _ = Fs.read(tmp .. "/2")
+    seen_last = got
   end).ended
   assert(ended[1] == true and ended[2] == true, "a copy did not run")
   assert(looks >= 1, "the process never looked")
@@ -111,7 +113,7 @@ local function test_a_copy_that_does_not_end_is_ended_and_counted(tmp: string)
     end
   end)
   fanout.patience_ns = patience
-  assert(Fs.read(tmp .. "/1") == "started" and Fs.read(tmp .. "/2") == "started", "a copy did not run")
+  assert(assert(Fs.read(tmp .. "/1")) == "started" and assert(Fs.read(tmp .. "/2")) == "started", "a copy did not run")
   assert(ran.ended[1] == true, "a copy that ended in time is told as ended badly")
   assert(ran.ended[2] == false and ran.late == 1, "the copy that hung was not ended: " .. tostring(ran.late))
 end
@@ -131,6 +133,6 @@ local function test_a_copy_that_ended_in_time_is_not_ended_for_a_late_look(tmp: 
     end
   end)
   fanout.patience_ns = patience
-  assert(Fs.read(tmp .. "/1") == "made", "the copy did not run")
+  assert(assert(Fs.read(tmp .. "/1")) == "made", "the copy did not run")
   assert(ran.ended[1] == true and ran.late == 0, "a copy that ended in time was ended: " .. tostring(ran.late))
 end

@@ -348,7 +348,7 @@ end
 function Zig.pinned_install(root: string, cache: string): Zig.Install?, string
   local text, ptrouble = Fs.read(root .. "/bin/zig.pin")
   if text == nil then
-    return nil, ptrouble
+    return nil, tostring(ptrouble)
   end
   local pin, trouble = Zig.read_pin(text)
   if pin == nil then
@@ -438,7 +438,7 @@ local function patched_lib(root: string, install: string): string?, string
     if #name > 4 and name:sub(-4) == ".txt" then
       local data, read_trouble = Fs.read(dir .. "/" .. name)
       if data == nil then
-        return nil, read_trouble
+        return nil, tostring(read_trouble)
       end
       records[name] = data
       any = true

@@ -276,12 +276,12 @@ local function test_yaml_is_laid_out_in_place(tmp: string)
   assert(Fs.write(tmp .. "/b.yml", "a: 1\n"))
   local changed, failures: {string}, {string} = {}, {}
   fix.lay_out({ path }, true, changed, failures) -- checked: view_as_mut*2
-  assert(#changed == 1 and #failures == 0 and Fs.read(path) == "{a:  1,b: [1,2]}\n", "--check writes nothing")
+  assert(#changed == 1 and #failures == 0 and assert(Fs.read(path)) == "{a:  1,b: [1,2]}\n", "--check writes nothing")
   changed = {}
   fix.lay_out({ path, tmp .. "/b.yml" }, false, changed, failures) -- checked: view_as_mut*2
-  assert(#changed == 1 and (Fs.read(path)) == "{a: 1, b: [1, 2]}\n", (Fs.read(path)))
+  assert(#changed == 1 and (assert(Fs.read(path))) == "{a: 1, b: [1, 2]}\n", (assert(Fs.read(path))))
   assert(#failures == 1 and failures[1]:find("not in flow style", 1, true) ~= nil, failures[1])
-  assert(Fs.read(tmp .. "/b.yml") == "a: 1\n")
+  assert(assert(Fs.read(tmp .. "/b.yml")) == "a: 1\n")
   changed = {}
   fix.lay_out({ path }, true, changed, {}) -- checked: view_as_mut
   assert(#changed == 0, "a laid-out file is left alone")
@@ -654,9 +654,9 @@ end
 local function test_a_file_not_laid_out_is_written(tmp: string)
   local done, file = laid_in(tmp, "a.tl", "local   x=1\nprint( x )\n", false)
   assert(done.state == "written" and done.why == "", done.why)
-  assert(Fs.read(file) == "local x = 1\nprint(x)\n", "the layout was not written")
+  assert(assert(Fs.read(file)) == "local x = 1\nprint(x)\n", "the layout was not written")
   assert(done.text == "local x = 1\nprint(x)\n", "the later phases would read the text before")
-  assert(Fs.read(file) == done.text)
+  assert(assert(Fs.read(file)) == done.text)
   local again = fix.lay_out_source(file, done.text, done.chunk, false, nil)
   assert(again.state == "laid", again.state)
 end
@@ -666,7 +666,7 @@ local function test_a_check_leaves_a_file_not_laid_out_as_it_is(tmp: string)
   local source = "local   x=1\n"
   local done, file = laid_in(tmp, "a.tl", source, true)
   assert(done.state == "unlaid" and done.text == source, done.state)
-  assert(Fs.read(file) == source, "a check wrote the file")
+  assert(assert(Fs.read(file)) == source, "a check wrote the file")
   local laid_out = laid_in(tmp, "b.tl", "local x = 1\n", true)
   assert(laid_out.state == "laid")
 end
@@ -691,7 +691,7 @@ local function test_a_refusal_never_writes_and_says_why(tmp: string)
       local done, file = laid_in(tmp, "r.tl", source, checking, nil, giving(case.layout))
       assert(done.state == "refused", done.state)
       assert(done.why:find(case.reason, 1, true) ~= nil and done.why:find("r.tl", 1, true) ~= nil, done.why)
-      assert(Fs.read(file) == source, "a refused file was written")
+      assert(assert(Fs.read(file)) == source, "a refused file was written")
       assert(done.text == source)
     end
   end
@@ -726,7 +726,7 @@ local function test_a_declaration_file_is_laid_out_as_a_declaration_file(tmp: st
   local source = "local  record R\n  x:   integer\n  yy:  string\nend\n\nreturn R\n"
   local done, file = laid_in(tmp, "r.d.tl", source, false)
   assert(done.state == "written", done.why)
-  assert(Fs.read(file) == "local record R\n  x:   integer\n  yy:  string\nend\n\nreturn R\n", Fs.read(file))
+  assert(assert(Fs.read(file)) == "local record R\n  x:   integer\n  yy:  string\nend\n\nreturn R\n", assert(Fs.read(file)))
   local kept = assert(laid.begin(assert(Sqlite.memory()), "s"))
   assert(laid_in(tmp, "r.d.tl", assert(Fs.read(file)), false, kept).state == "laid")
   -- Kept for a declaration file, not for a program of the same text.
@@ -741,7 +741,7 @@ local function test_a_file_written_keeps_its_mode(tmp: string)
   local source = assert(Fs.read(file))
   local chunk = assert(SyntaxNode.parse(source, file))
   assert(fix.lay_out_source(file, source, chunk, false, nil).state == "written")
-  assert(Fs.read(file) == "local x = 1\n")
+  assert(assert(Fs.read(file)) == "local x = 1\n")
   assert(assert(Fs.stat(file)).mode & 0xfff == 0x1ed, "the mode was lost")
 end
 
@@ -756,12 +756,12 @@ local function test_a_link_is_not_written(tmp: string)
   local done = fix.lay_out_source(link, source, chunk, false, nil)
   assert(done.state == "linked" and done.why == "not written: " .. link .. " is a link; fix its target", done.why)
   assert(Fs.readlink(link) == "real.tl", "the link was replaced")
-  assert(Fs.read(target) == "local   x=1\n")
+  assert(assert(Fs.read(target)) == "local   x=1\n")
   -- A check says only that it is not laid out.
   assert(fix.lay_out_source(link, source, chunk, true, nil).state == "unlaid")
   -- The target is laid out by naming it.
   assert(fix.lay_out_source(target, source, chunk, false, nil).state == "written")
-  assert(Fs.read(target) == "local x = 1\n")
+  assert(assert(Fs.read(target)) == "local x = 1\n")
 end
 
 --- A file edited since it was read is not overwritten.
@@ -773,7 +773,7 @@ local function test_a_file_changed_while_being_laid_out_is_not_written(tmp: stri
   assert(Fs.write(file, "local   x=2\n"))
   local done = fix.lay_out_source(file, source, chunk, false, nil)
   assert(done.state == "changed" and done.why == "not written: " .. file .. " changed while being laid out", done.why)
-  assert(Fs.read(file) == "local   x=2\n", "the edit was overwritten")
+  assert(assert(Fs.read(file)) == "local   x=2\n", "the edit was overwritten")
 end
 
 --- A named Teal file that identity rejects as an input is set apart for a check of its own, in a project that is not cosmic's:

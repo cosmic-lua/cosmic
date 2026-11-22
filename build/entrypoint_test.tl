@@ -86,7 +86,8 @@ local function run(tmp: string, root: string, bootstrap: string, cwd: string,
 end
 
 local function zig_calls(tmp: string): string
-  return Fs.read(tmp .. "/zig calls") or ""
+  local got, _ = Fs.read(tmp .. "/zig calls")
+  return got or ""
 end
 
 --- With no tool, it boots from the tree's root, the boot's output on

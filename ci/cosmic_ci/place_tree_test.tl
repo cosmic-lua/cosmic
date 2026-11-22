@@ -264,7 +264,7 @@ local function test_a_restore_after_a_move_gives_the_checkout_back()
   assert(out[1] == "the tree is at " .. root .. "/" .. relative .. " (commit " .. SHA ..
       ", leg linux-x86_64)", out[1])
   assert(Fs.readlink(workspace) == relative, layout(root))
-  assert(Fs.read(workspace .. "/ci/driver.tl") == "driver\n", layout(root))
+  assert(assert(Fs.read(workspace .. "/ci/driver.tl")) == "driver\n", layout(root))
   out = place(workspace, "--restore")
   assert(out[1] == "the tree is back at " .. workspace .. " from " .. root .. "/" .. relative, out[1])
   assert(layout(root) == before, layout(root))
@@ -324,15 +324,15 @@ local function test_a_moved_tree_sits_beside_the_workspace_where_its_relative_pa
     place(workspace, "", leg)
     local relative = name(SHA, leg)
     assert(Fs.readlink(workspace) == relative, layout(root))
-    assert(Fs.read(root .. "/cosmic/" .. relative .. "/ci/driver.tl") == "driver\n", layout(root))
+    assert(assert(Fs.read(root .. "/cosmic/" .. relative .. "/ci/driver.tl")) == "driver\n", layout(root))
     -- As actions/cache names the runner's temp directory for
     -- `tar -C $GITHUB_WORKSPACE`: the kernel climbs from the link's
     -- target, which is as deep as the workspace, so it reaches the same
     -- _temp.
-    assert(Fs.read(workspace .. "/../../_temp/zig-build/entry") == "entry\n",
+    assert(assert(Fs.read(workspace .. "/../../_temp/zig-build/entry")) == "entry\n",
       leg .. ": " .. layout(root))
     place(workspace, "--restore", leg)
-    assert(Fs.readlink(workspace) == nil and Fs.read(workspace .. "/ci/driver.tl") == "driver\n",
+    assert(Fs.readlink(workspace) == nil and assert(Fs.read(workspace .. "/ci/driver.tl")) == "driver\n",
       layout(root))
     assert(Fs.remove_tree(root))
   end

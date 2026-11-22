@@ -218,7 +218,7 @@ local function test_a_broken_cache_never_fails_a_build(tmp: string)
     assert(not output:find("moved aside", 1, true), output)
     local after = assert(Fs.stat(path))
     assert(after.ino == before.ino and after.dev == before.dev)
-    assert(Fs.read(path) == bytes and Fs.read(sibling) == "earlier evidence")
+    assert(assert(Fs.read(path)) == bytes and assert(Fs.read(sibling)) == "earlier evidence")
     assert(#assert(Fs.list(Fs.dirname(path))) == 2, "a cache was renamed or replaced")
   end
 end

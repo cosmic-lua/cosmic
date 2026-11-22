@@ -868,7 +868,7 @@ local function run(argv: {string}, program: string): integer
   end
   local text, trouble = Fs.read(transcript)
   if text == nil then
-    complain(trouble)
+    complain(tostring(trouble))
     return 1
   end
   local _, _ = Fs.put(Fs.stdout, Summarize.report(text, arena, repo))

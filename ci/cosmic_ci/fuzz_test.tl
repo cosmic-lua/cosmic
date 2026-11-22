@@ -391,7 +391,8 @@ end
 local function until_found(path: string, text: string, seconds: integer): boolean
   local deadline = Clock.monotonic_ns() + seconds * 1000000000
   while Clock.monotonic_ns() < deadline do
-    local held = Fs.read(path) or ""
+    local got, _ = Fs.read(path)
+    local held = got or ""
     if held:find(text, 1, true) then return true end
     Clock.sleep_ns(20 * 1000 * 1000)
   end
@@ -593,7 +594,8 @@ local function test_an_escaped_writer_bounds_final_drain_without_replacing_child
   local ok, raised = pcall(function()
     waited.result = assert(handle:wait(Clock.seconds(30)))
   end)
-  local pid = math.tointeger(tonumber(Fs.read(pid_file) or ""))
+  local got, _ = Fs.read(pid_file)
+  local pid = math.tointeger(tonumber(got or ""))
   if pid ~= nil then local _, _ = sys.kill(-pid, sys.SIGKILL) end
   assert(ok, raised)
   local result = assert(waited.result)

@@ -137,7 +137,8 @@ local function listening(tmp: string, words: {string}): Listening
   assert(Fs.close(fd))
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   while true do
-    local said = Fs.read(err) or ""
+    local got, _ = Fs.read(err)
+    local said = got or ""
     local at = said:match("cosmic: lsp: listening at ([^\n]+)\n")
     if at ~= nil then return { handle = handle, at = at, err = err } end
     assert(Clock.monotonic_ns() < deadline, said)
@@ -227,7 +228,7 @@ local function test_a_socket_path_holding_another_file_is_left_alone(tmp: string
   assert(Fs.write(path, "not a socket\n"))
   local ran = tool_fixture.cosmic(tmp, { "lsp", "--socket", path })
   assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
-  assert(Fs.read(path) == "not a socket\n", "the file is not removed")
+  assert(assert(Fs.read(path)) == "not a socket\n", "the file is not removed")
 end
 
 local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
@@ -239,7 +240,8 @@ local function test_a_listener_beyond_the_loopback_is_warned_of(tmp: string)
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   local said = ""
   while said:find("warning: ", 1, true) == nil do
-    said = Fs.read(err) or ""
+    local got, _ = Fs.read(err)
+    said = got or ""
     if Child.wait_any({ handle }, Clock.ms(10)) ~= nil then
       -- A sandboxed worker may be refused an address beyond its loopback.
       Test.skip("this host refuses a listener at 0.0.0.0: " .. said)
@@ -342,5 +344,6 @@ local function test_a_request_over_a_connection_is_answered_while_dependents_are
     protocol.frames(conn))
   assert(started.handle:stop())
   local result = assert(started.handle:wait(Clock.seconds(20)))
-  assert(result.code == 0, tostring(result.code) .. ": " .. (Fs.read(started.err) or ""))
+  local got, _ = Fs.read(started.err)
+  assert(result.code == 0, tostring(result.code) .. ": " .. (got or ""))
 end

@@ -30,8 +30,8 @@ local function run(tmp: string, rlimits: {string:integer}, script: string): stri
   end
   local status = assert(process.waitpid(pid, false))
   sys.close(output)
-  assert(status.code == 0, "the script ended " .. tostring(status.code) .. ": " .. tostring((Fs.read(path))))
-  return (Fs.read(path)), "", 0
+  assert(status.code == 0, "the script ended " .. tostring(status.code) .. ": " .. tostring((assert(Fs.read(path)))))
+  return (assert(Fs.read(path))), "", 0
 end
 
 local function test_every_limit_is_the_childs_soft_and_hard(tmp: string)

@@ -150,7 +150,7 @@ local function test_a_root_caller_s_named_user_owns_its_files_from_start_to_star
     assert(#ids == 4 and ids[1] == named and ids[4] == named, said)
     assert(said:find("secret", 1, true), said)
   end
-  local text = Fs.read(dir .. "/made")
+  local text, _ = Fs.read(dir .. "/made")
   assert(text == "1\n2\n", tostring(text))
   local made = assert(sys.stat(dir .. "/made"))
   assert(made.uid == named and made.gid == named, tostring(made.uid) .. ":" .. tostring(made.gid))

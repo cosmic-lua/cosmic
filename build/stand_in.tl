@@ -301,7 +301,7 @@ local function database(path: string): string?, string
   if not made then return nil, trouble end
   local bytes, read_trouble = Fs.read(path)
   local _, _ = Fs.remove(path)
-  if bytes == nil then return nil, read_trouble end
+  if bytes == nil then return nil, tostring(read_trouble) end
   return bytes, ""
 end
 
@@ -338,7 +338,7 @@ end
 -- link: a checked core's probe is 39.5 MB, about 0.2 s a copy.
 function stand_in.place(probe: string, path: string, script?: string): boolean, string
   local bytes, trouble = Fs.read(probe)
-  if bytes == nil then return false, trouble end
+  if bytes == nil then return false, tostring(trouble) end
   local written, write_trouble = Fs.write(path, bytes, 0x1ed)
   if not written then return false, write_trouble end
   if script ~= nil then

@@ -606,7 +606,7 @@ assert(Fs.write(report, held.answer .. "|" .. tostring(kept) .. "|" ..
   assert(r.ok, "code=" .. tostring(r.code) .. " signal=" .. tostring(r.signal) ..
       " " .. tostring(r.stderr))
   local term = tostring(sys.SIGTERM)
-  local got = Fs.read(report)
+  local got, _ = Fs.read(report)
   assert(got == "nil child: cancelled by signal " .. term .. "|" .. term .. "|true|true", tostring(got))
 end
 

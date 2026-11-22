@@ -638,7 +638,7 @@ local function test_definition_of_a_binary_module_s_field_is_the_file_extracted_
   assert_located_at(defined(ran, 2), file, read_line, 12, 16)
   assert_located_at(defined(ran, 3), file, staged_line, 12, 18)
   assert_located(defined(ran, 4), root, "main.tl", 0, 6, 8)
-  assert(Fs.read(file) == carried and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the text, read-only")
+  assert(assert(Fs.read(file)) == carried and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the text, read-only")
 end
 
 --- A symbol of a binary module generated from a header ([`cosmic.sys`]) is in the header the tool carries, written
@@ -654,14 +654,14 @@ local function test_definition_of_a_generated_binary_module_s_function_is_the_he
   local directory = build_paths.under((assert(build_paths.directory(root)))).cosmic_source
   local file = directory .. "/" .. Hash.hex_sha256(header) .. "/core/syscalls.h"
   assert_located_at(defined(ran, 2), file, 5, 15, 21)
-  assert(Fs.read(file) == header and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the header, read-only")
+  assert(assert(Fs.read(file)) == header and assert(Fs.stat(file)).mode & 0x1ff == 0x124, "the file holds the header, read-only")
   assert(db:close())
 end
 
 --- A tool whose database lists no places (one from before the table) answers none.
 local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool_carries_no_places()
   local root = session_fixture.project()
-  -- The third line is a control: the checker types [`Fs.read`] (a string or nil is no integer), so the null below is
+  -- The third line is a control: the checker types [`Fs.read`] (its two lists of values are no integer), so the null below is
   -- the tool's carrying no places and not a checker that could not read the module at all.
   local text = 'local Fs = require("cosmic.fs")\nlocal _ = Fs.read\nlocal wrong: integer = Fs.read("x")\nreturn wrong\n'
   local bare = assert(Sqlite.memory())
@@ -669,7 +669,7 @@ local function test_definition_of_a_binary_module_s_field_is_null_where_the_tool
     at(2, "textDocument/definition", root, "main.tl", 1, 15),
   }, { bare })
   local diagnostics = nth(ran, 1)
-  assert(#diagnostics == 1 and only(diagnostics).message:find("not_assignable", 1, true) ~= nil,
+  assert(#diagnostics == 1 and only(diagnostics).message:find("alternatives_as_value", 1, true) ~= nil,
     "the checker does not type Fs.read: " .. table.concat(ran.sent, "\n"))
   assert(defined(ran, 2) == nil)
 end

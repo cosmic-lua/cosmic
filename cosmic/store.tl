@@ -746,7 +746,7 @@ function Store.seal(names: {string}, path?: string,
     end
     local bytes, read_trouble = Fs.read(scratch .. "/sealed.db")
     if bytes == nil then
-      return nil, read_trouble
+      return nil, tostring(read_trouble)
     end
     local digest = Hash.hex_sha256(bytes)
     local target = path

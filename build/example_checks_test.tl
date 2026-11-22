@@ -35,7 +35,7 @@ local good = source(
   "",
   "--- Reads a file.",
   "function Example.read()",
-  '  local data = Fs.read("/nonexistent")',
+  '  local data, _ = Fs.read("/nonexistent")',
   "  print(data)",
   "end",
   "return Example")
@@ -192,7 +192,7 @@ local function test_an_example_whose_file_declares_its_table_either_way_passes_a
     "",
     "--- Reads a file.",
     "function Example.read()",
-    '  local data = Fs.read("/nonexistent")',
+    '  local data, _ = Fs.read("/nonexistent")',
     "  print(data)",
     "end",
     "return Example"))
