@@ -359,7 +359,7 @@ local function send(client: Testing.Client, method: string, path: string, opts: 
   local raw: Server.Request = {
     method = method, target = prepared.target, path = prepared.path, query = prepared.query,
     version = "HTTP/1.1", headers = prepared.headers, body = Stream.from_string(prepared.body),
-    length = #prepared.body, peer = opts.peer or Net.tcp("127.0.0.1", 50000),
+    length = #prepared.body, peer = opts.peer or Net.tcp("127.0.0.1", 50000), listener = opts.listener,
   }
   local answered: mut {Response} = {}
   Poll.within(function()

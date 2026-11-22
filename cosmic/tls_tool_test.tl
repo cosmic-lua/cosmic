@@ -202,8 +202,9 @@ local function test_tailnet_serving_listens_at_the_nodes_addresses_with_its_cert
       local listener = Array.at(reached.listeners, 1)
       local where = tostring(#reached.listeners) .. " " .. tostring(listener.host) .. ":" .. tostring(listener.port)
       said[#said + 1] = where
-      assert(reached.certs:load())
-      local name = Array.at(reached.certs:leaves(), 1).names[1] or ""
+      local certs = assert(reached.certs)
+      assert(certs:load())
+      local name = Array.at(certs:leaves(), 1).names[1] or ""
       said[#said + 1] = name
       -- The client's own source, with no name: it asks the status first.
       local own = ts:certs()

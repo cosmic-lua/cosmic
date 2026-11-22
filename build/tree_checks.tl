@@ -114,6 +114,8 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 
 allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept current for a server, " ..
   "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
+allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..
+  "internet from one of the tailnet; no app of the tree serves through Funnel"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
   "the tree's own clients speak through cosmic.http, so only its tests make one"
 allowed["cosmic.web.client_cert"] = "public API: the client certificate an app reads of a request over mutual TLS; " ..
