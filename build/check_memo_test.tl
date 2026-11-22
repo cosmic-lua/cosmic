@@ -166,10 +166,11 @@ local function test_past_the_bytes_kept_the_least_lately_used_go(tmp: string)
   assert(not check_memo.share(nil))
 end
 
---- Rows are shared only at the default place: a run told where its compiles are, or to share none, shares no rows.
-local function test_rows_are_shared_only_where_the_build_cache_is_the_default(tmp: string)
-  assert(check_memo.shared_path({ COSMIC_BUILD_CACHE = "0", HOME = tmp }) == nil)
-  assert(check_memo.shared_path({ COSMIC_BUILD_CACHE = tmp .. "/cache.db", HOME = tmp }) == nil)
+--- Rows are shared at the cache directory's place, wherever the compiles are; a run told to share none shares no rows.
+local function test_rows_are_shared_in_the_cache_directory(tmp: string)
+  assert(check_memo.shared_path({ COSMIC_BUILD_CACHE = "0", XDG_CACHE_HOME = tmp .. "/cache" }) == nil)
+  assert(check_memo.shared_path({ COSMIC_BUILD_CACHE = tmp .. "/ci/cache.db", XDG_CACHE_HOME = tmp .. "/cache" }) ==
+      tmp .. "/cache/cosmic/build/checks.db", "the compiles' file moves the shared rows")
   assert(check_memo.shared_path({ XDG_CACHE_HOME = tmp .. "/cache" }) == tmp .. "/cache/cosmic/build/checks.db")
   assert(check_memo.shared_path({}) == nil, "a run with no cache directory shares none")
 end

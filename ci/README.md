@@ -436,7 +436,7 @@ are where CI answers for everything. A branch's push runs nothing.
   day and saves none.
 
 Each job is a plain sequence of steps on one runner: none is split into
-shares, and none waits on another but the gate. One thing is relayed
+shares, and none waits on another but the gate. Two things are relayed
 between runs. The merge queue's linux-x86_64 leg, where its native suite
 passed, trims its verdicts to what it used and uploads them
 (`queue-verdicts-linux-x86_64`, kept a day); main's push of the same
@@ -448,7 +448,16 @@ main's last cache is a commit or more behind, so without them main's push
 ran its whole native suite again for the commit the queue had just
 passed. A row stands only for a test whose key is the same, so the relay
 decides how many tests stand, never whether one is right, and no step of
-it fails the leg. No other markers, products or verdicts pass between
+it fails the leg. The queue's format job, where its check passed, seals
+the memo of the tree checks (the shared rows of `build/check_memo.tl`, in
+the cache directory: `driver.tl checks-seal` keeps the rows the run used,
+in one file with no write-ahead log) and uploads it
+(`queue-checks-linux-x86_64`); main's push, which runs no format check,
+downloads it, holds it to a memo with rows, and saves it
+(`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
+check of a pull request or a queue entry restores the newest, so the tree
+checks check again only the files its rows do not answer: from cold they
+take some 3.5 minutes. No other markers, products or verdicts pass between
 runs. That costs main's run its wall clock, which no one waits on, rather
 than runner minutes. The queue, which every change waits on, is the one
 exception: its leg is two jobs (above), each the time of a boot and its
@@ -598,6 +607,7 @@ the first tried once, with the clearing and sleeping step between them.
 [`BuildPaths.directory`]: cosmic_ci/build_paths.tl
 [`BuildPaths.driver`]: cosmic_ci/build_paths.tl
 [`cosmic_ci/build_paths.tl`]: cosmic_ci/build_paths.tl
+[`cosmic_ci/checks_seal.tl`]: cosmic_ci/checks_seal.tl
 [`cosmic_ci/host_id.tl`]: cosmic_ci/host_id.tl
 [`cosmic_ci/orchestration.tl`]: cosmic_ci/orchestration.tl
 [`cosmic_ci/queue_verdicts.tl`]: cosmic_ci/queue_verdicts.tl

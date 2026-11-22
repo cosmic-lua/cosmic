@@ -34,9 +34,11 @@
 --- other code may have made. The file is in write-ahead mode and a run reads
 --- it a row at a time, so runs of several checkouts never wait on each
 --- other's checks. A row no run has made or taken for `kept_ns` goes, and
---- past `kept_bytes` the least lately used go first. The default place
---- ([`check_memo.shared_path`]) is none with `COSMIC_BUILD_CACHE` set, to `0`
---- or to a file: such a run shares no rows, as a test's worker does not.
+--- past `kept_bytes` the least lately used go first. The place
+--- ([`check_memo.shared_path`]) is the cache directory's whether or not
+--- `COSMIC_BUILD_CACHE` moves the compiles, so CI, which moves them, keeps
+--- these apart (ci/cosmic_ci/checks_seal.tl); with it `0`, a run shares no
+--- rows, as a test's worker does not.
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -56,8 +58,8 @@ local record check_memo
   --- Drops the rows of `kind` that this run did not use and commits.
   --- `now_ns` is the time the shared rows are stamped with and aged by, the clock's by default.
   finish: function(db: Sqlite.Handle, kind: string, now_ns?: integer)
-  --- Where the rows every checkout shares are kept, read from `environment` (the process's by default): nil where
-  --- the run shares none (`COSMIC_BUILD_CACHE` is set) or has no cache directory.
+  --- Where the rows every checkout shares are kept, read from `environment` (the process's by default): `checks.db` in
+  --- the cache directory's `build`; nil where `COSMIC_BUILD_CACHE` is `0` or there is no cache directory.
   shared_path: function(environment?: {string:string}): string?
   --- The code that checks, as a shared row is held under it: a digest of the bytecode of every module in the import
   --- closure of [`build.fix`], by the `imports` rows of the tool `reads` answers for, and of its core. The bytecode
@@ -131,7 +133,7 @@ function check_memo.shared_path(environment?: {string:string}): string?
   else
     value = Env.read("COSMIC_BUILD_CACHE")
   end
-  if value ~= nil and value ~= "" then return nil end
+  if value == "0" then return nil end
   local dir, _ = Fs.cache_dir("build", { environment = environment })
   if dir == nil then return nil end
   return dir .. "/checks.db"
