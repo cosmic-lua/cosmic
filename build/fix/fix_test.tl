@@ -126,11 +126,16 @@ local function program_modules(): Sqlite.Handle
   for _, module in ipairs({ "build.syntax_node", "build.syntax_links", "build.syntax_analyzer",
       "build.flow", "build.c", "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
-      "cosmic.string" }) do
+      "cosmic.string", "cosmic.child", "cosmic.net", "cosmic.internal.connection", "cosmic.sandbox", "cosmic.fs" }) do
     assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
-  assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.syntax_node', 'cosmic.string')"))
+  -- The C rules run clang through cosmic.child, whose own requires check no file; cosmic.fs is also the reader's.
+  for _, edge in ipairs({ "('build.syntax_node', 'cosmic.string')", "('build.c', 'cosmic.child')",
+      "('cosmic.child', 'cosmic.net')", "('cosmic.net', 'cosmic.internal.connection')",
+      "('cosmic.child', 'cosmic.sandbox')", "('cosmic.child', 'cosmic.fs')", "('build.syntax_node', 'cosmic.fs')" }) do
+    assert(Sqlite.run(db, "INSERT INTO imports VALUES " .. edge))
+  end
   return db
 end
 
@@ -192,6 +197,14 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
         #widened.files == #every.files and widened.noted == nil,
       support.nth(case, 1) .. ": " .. tostring(widened_widened))
   end
+  -- What only runs clang and zig for a check (cosmic.child), and what only it requires, checks no file; what a
+  -- check also requires does.
+  for _, path in ipairs({ "cosmic/child.tl", "cosmic/net.tl", "cosmic/internal/connection.tl", "cosmic/sandbox.tl" }) do
+    local runner = fix.narrowed(own, every, { "ci/a.tl", path }, { db })
+    assert(runner.widened == nil, path .. ": " .. tostring(runner.widened))
+  end
+  local shared = fix.narrowed(own, every, { "ci/a.tl", "cosmic/fs.tl" }, { db })
+  assert((shared.widened or ""):find("it checks each file alone", 1, true) ~= nil, tostring(shared.widened))
   -- A test of the core is not what the program runs on; its links are
   -- checked with every other file's, and it is not laid out.
   local tested = fix.narrowed(own, every, { "core/a_test.tl" }, { db })
