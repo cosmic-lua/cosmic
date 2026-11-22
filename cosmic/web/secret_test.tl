@@ -1,6 +1,6 @@
 local Secret = require("cosmic.web.secret")
 
-local GOOD <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0"
+local GOOD <const> = "k3Jf9Lq0Zx7Rw2Ub8Tn5Vc1Hd6Ym4Ga0Pe7Sx2Wq9Ac"
 
 local function test_check_refuses_short_keys_naming_the_length_not_the_key()
   local ok, why = Secret.check("hunter2-hunter2")
@@ -13,7 +13,24 @@ local function test_check_refuses_low_variety_keys()
   local ok, why = Secret.check(("a"):rep(64))
   assert(not ok and why:find("1 distinct", 1, true) ~= nil, why)
   assert(Secret.check(("changeme"):rep(8)) == false, "7 distinct values")
-  assert(Secret.check("0123456789" .. ("0123456789"):rep(3)) == true, "10 distinct values is the floor")
+  assert(Secret.check(("0123456789"):rep(6) .. "0123") == true, "10 distinct values is the floor")
+end
+
+--- A key is random text: a passphrase, which a signed cookie lets anyone
+--- guess offline, is refused, and the reason holds none of it.
+local function test_check_refuses_a_passphrase()
+  local ok, why = Secret.check("correct horse battery staple and more")
+  assert(not ok and why:find("passphrase", 1, true) ~= nil, why)
+  assert(not why:find("horse", 1, true), "the key is not in the message")
+  assert(Secret.check("Tr0ub4dor&3-Tr0ub4dor&3-Tr0ub4dor&3") == false)
+  for _, words in ipairs({ "correct-horse-battery-staple-and-more", "correct_horse_battery_staple_and_more",
+      "correcthorsebatterystapleandmorewords" }) do
+    ok, why = Secret.check(words)
+    assert(not ok and why:find("32 random bytes", 1, true) ~= nil, words .. ": " .. why)
+  end
+  assert(Secret.check("BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSY=") == true, "base64 of 32 bytes, padded")
+  assert(Secret.check("yMnKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OHi4-Tl5uc") == true, "base64url of 32 bytes")
+  assert(Secret.check("BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJQ==") == false, "base64 of 31 bytes")
 end
 
 local function test_check_accepts_a_generated_key_and_generate_differs()

@@ -54,8 +54,9 @@ it is opened.
 
 A signed cookie needs a key, and a key is never in source.
 [`Secret.keys_from_env`] reads a comma-separated list, newest first
-(`new,old` while a key is rotated out), and refuses a key that is short or
-has too few distinct bytes. [`Secret.generate`] makes one:
+(`new,old` while a key is rotated out), and refuses a key that is not the
+hex, base64 or base64url of at least 32 bytes, or has too few distinct
+bytes. [`Secret.generate`] makes one:
 `cosmic -e 'print(require("cosmic.web.secret").generate())'`. There is no
 default key: a published default is how an app's sessions get forged.
 

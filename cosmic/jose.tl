@@ -335,7 +335,10 @@ end
 --- keys of that id are tried; where it names none, every key of its
 --- algorithm is. Nil and why otherwise: a token that does not decode,
 --- whose algorithm is not allowed (`none` and the HMAC ones never are),
---- whose header has `crit` members, or that no key checks.
+--- whose header has `crit` members, or that no key checks. An ES256
+--- token has two spellings that verify, its signature's S and n - S
+--- ([`Sign.p256_verify`]), so a list of tokens used or revoked is kept
+--- by a claim (`jti`, or `sub` and `iat`), never by the token's text.
 ---
 ---     local jws = assert(Jose.verify(token, keys, { algs = { "ES256" } }))
 function Jose.verify(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions): Jose.Jws?, string
