@@ -738,11 +738,11 @@ local function test_type_never_answers_a_typo()
    return ""
 end
 print(check(1))
-]==], "type_name")
+]==], "enum_member")
 end
 
 local function test_a_local_holding_type_does_not_narrow()
-  checks("type-localized", [==[local type = type
+  checks("type-localized", [==[local type: function(any): string = type
 type = function(_: any): string return "string" end
 local function upper(v: any): string
    if type(v) == "string" then return v:upper() end

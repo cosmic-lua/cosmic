@@ -170,8 +170,6 @@ local record Codes
     "gsub_key"
     -- `is` on a parenthesized place, which narrows nothing
     "paren_is"
-    -- `type(x)` compared with a name it never answers
-    "type_name"
     -- not yet checked: a form a later piece of the checker types
     -- a binding of C, or a global the declarations lack
     "unchecked_binding"
@@ -244,7 +242,7 @@ Codes.codes = {
   "literal_needs_type", "literal_ambiguous", "literal_shape", "literal_spread", "arms_differ", "array_of_optional", "require_unknown",
   "export_not_declared", "missing_return", "not_assigned", "unreachable", "narrowing_dropped", "narrows_unproved",
   "assign_repeated", "iterator_extra", "iterator_variables", "pattern_malformed", "format_malformed", "pack_malformed",
-  "gsub_key", "paren_is", "type_name",
+  "gsub_key", "paren_is",
   "unchecked_binding",
 }
 
@@ -721,12 +719,6 @@ Codes.catalog = {
     why = "`is` narrows the place it is written on, and a parenthesized name is a value, so `(x) is T` tests and narrows " ..
       "nothing: the branch that relies on it sees `x` as wide as before",
     fix = "write the test without the parentheses: `<place> is <type>`",
-  },
-  {
-    code = "type_name", rule = "narrowing only what nothing else can change",
-    why = "`type` answers one of eight names, so a test against another is always false (or true for `~=`) and the branch " ..
-      "it guards never runs: `type(x) == \"int\"` is the usual slip, since `type` answers \"number\" for an integer",
-    fix = "compare with a name `type` answers; `math.type(x)` tells \"integer\" from \"float\", and `x is T` tests a type",
   },
   { code = "unchecked_binding", rule = "declarations are the trust boundary", why = WAITING,
     fix = "call the library function that wraps the binding (`cosmic docs <name>` names it) in place of the raw binding; the bindings of C are typed once the checker reads them from declaration files" },
