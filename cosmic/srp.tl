@@ -35,8 +35,8 @@
 --- What a correct program can meet answers nil and why: a peer's public
 --- value that is not a number from 1 to the prime less 1, a scrambling
 --- value of zero, a proof that is wrong. An argument that is the
---- caller's own mistake raises (a group whose prime is even, a secret of
---- no bytes), and so does the system's entropy source failing.
+--- caller's own mistake raises (a group whose prime is even or, unless
+--- [`Srp.Parameters`] allows it, under 2048 bits, a secret of no bytes), and so does the system's entropy source failing.
 ---
 --- Secrets and time. All the arithmetic on a secret goes through
 --- [`cosmic.bigint`]'s functions for secrets, at widths the parameters
@@ -121,6 +121,12 @@ local record Srp
     hash: Hash.Algorithm | Digest
     --- Which of the two ways of hashing the peer follows.
     rules: Rules
+    --- Whether a prime under 2048 bits is taken (false): for RFC 5054's
+    --- test vectors, or a peer that dictates such a group. Discrete
+    --- logarithms modulo a prime that small are within reach of a
+    --- well-funded attacker, who then tries guesses against what a
+    --- login sent as against a verifier.
+    small_group?: boolean
   end
 
   --- What a side holds once it has computed the shared key.
@@ -173,8 +179,10 @@ local record Srp
   end
 
   --- The 1024-bit group of RFC 5054, appendix A. Its generator is 2.
+  --- Taken only with [`Srp.Parameters`]'s `small_group`.
   group_1024: Group
   --- The 1536-bit group of RFC 5054, appendix A. Its generator is 2.
+  --- Taken only with [`Srp.Parameters`]'s `small_group`.
   group_1536: Group
   --- The 2048-bit group of RFC 5054, appendix A. Its generator is 2.
   group_2048: Group
@@ -195,6 +203,9 @@ local secret_length <const> = 64
 --- The most bytes of a secret a caller passes, so that the client's
 --- exponent `a + u*x` stays an exponent [`Bigint.expmod`] takes.
 local secret_most <const> = 512
+
+--- The fewest bytes of a prime taken without `small_group`: 2048 bits.
+local prime_least <const> = 256
 
 --- `number` with no leading zero byte, and one zero byte for zero.
 local function shortest(number: string): string
@@ -318,6 +329,9 @@ local function suite_of(parameters: Srp.Parameters, level: integer): Suite
     error("srp: the group's prime is longer than " .. String.counted(Bigint.modulus_bytes, "byte"), level + 1)
   end
   if assert(prime:byte(-1)) % 2 == 0 then error("srp: the group's prime is even", level + 1) end
+  if parameters.small_group ~= true and (#prime < prime_least or (#prime == prime_least and assert(prime:byte(1)) < 128)) then
+    error("srp: the group's prime is under 2048 bits, and small_group is not set", level + 1)
+  end
   if Bigint.compare(generator, "\1") <= 0 or #generator > #prime or Bigint.compare(generator, prime) >= 0 then
     error("srp: the group's generator must be from 2 to the prime less 1", level + 1)
   end
