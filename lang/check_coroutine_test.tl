@@ -54,12 +54,12 @@ local function test_the_value_resume_sends_and_the_value_yield_gives_are_held_to
   refused("local bad = coroutine.create(function(y: Yielder<integer, string>, first: string)\n  local n: integer = y:yield(1)\nend)\n",
     "not_assignable")
   stands("local c = coroutine.create(function(y: Yielder<integer, string>, first: string)\n  local got: string = y:yield(1)\n  print(got)\nend)\n" ..
-      "coroutine.resume(c, \"go\")\ncoroutine.resume(c, \"back\")\n", "back")
+      "local _, _ = coroutine.resume(c, \"go\")\nlocal _, _ = coroutine.resume(c, \"back\")\n", "back")
 end
 
 local function test_a_body_takes_the_handle_and_the_first_value_it_is_sent()
   stands("local c = coroutine.create(function(y: Yielder<integer, integer>, first: integer): integer\n  local second = y:yield(first + 1)\n" ..
-      "  return second * 2\nend)\ncoroutine.resume(c, 10)\nmatch coroutine.resume(c, 4) do\n  | (true, v) then print(v)\n" ..
+      "  return second * 2\nend)\nlocal _, _ = coroutine.resume(c, 10)\nmatch coroutine.resume(c, 4) do\n  | (true, v) then print(v)\n" ..
       "  | (false, why) then print(0)\nend\n", "8")
   -- A body of the form no overload has is refused.
   refused("local c = coroutine.create(function(y: Yielder<integer, integer>, first: integer, extra: integer)\nend)\n", "overload_none")
@@ -85,7 +85,7 @@ local function test_wrap_answers_a_function_that_yields_and_returns_what_the_bod
 end
 
 local function test_close_and_status_are_typed_and_a_closed_coroutine_is_dead()
-  stands(COUNTER .. "coroutine.resume(counter, \"abc\")\nprint(coroutine.status(counter))\n" ..
+  stands(COUNTER .. "local _, _ = coroutine.resume(counter, \"abc\")\nprint(coroutine.status(counter))\n" ..
       "match coroutine.close(counter) do\n  | (true) then print(\"closed\")\n  | (false, why) then print(\"failed\")\nend\nprint(coroutine.status(counter))\n",
     "suspended,closed,dead")
   assert(type_of(COUNTER .. "local st = coroutine.status(counter)\n", "st") == "coroutine.Status")
@@ -102,7 +102,7 @@ local function test_a_handle_yields_only_for_the_coroutine_it_was_made_for()
   local x = Programs.execute("local record Hold\n  mut handle: Yielder<integer, nil>?\nend\nlocal hold: Hold = { handle = nil }\n" ..
       "local a = coroutine.create(function(y: Yielder<integer, nil>)\n  hold.handle = y\n  y:yield(1)\nend)\n" ..
       "local b = coroutine.create(function(z: Yielder<integer, nil>)\n  local h = hold.handle\n  if h ~= nil then\n    h:yield(2)\n  end\nend)\n" ..
-      "coroutine.resume(a)\nmatch coroutine.resume(b) do\n  | (true, v) then print(\"yielded\")\n  | (false, why) then print(\"refused\")\nend\n",
+      "local _, _ = coroutine.resume(a)\nmatch coroutine.resume(b) do\n  | (true, v) then print(\"yielded\")\n  | (false, why) then print(\"refused\")\nend\n",
     true)
   assert(x.ran and x.fault == nil, Programs.codes(x.run) .. " " .. tostring(x.fault))
   assert(table.concat(x.printed, ",") == "refused", table.concat(x.printed, ","))

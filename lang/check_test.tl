@@ -218,8 +218,8 @@ local CASES <const>: {Case} = {
   {
     code = "failure_ignored", at = { line = 2, column = 1 },
     source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nf()\n",
-    msg = "`f()` answers one of 2 lists of values, and as a statement it drops which one it answered",
-    fix = "bind its values and test the first (`local v, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
+    msg = "`f()` answers one of 2 lists of values, one of which may be a failure, and as a statement it drops which one it answered",
+    fix = "bind its values and test the first (`local ok, why = f()`), match the call, or discard them on purpose: `local _, _ = f()`",
   },
   {
     code = "value_count", source = "local a, b = 1\n", at = { line = 1, column = 1 },

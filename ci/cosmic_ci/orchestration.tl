@@ -453,7 +453,7 @@ local function say_bound(name: string, started_ns: integer, bound_ns: integer)
   end
   local warning = lines[2]
   if warning ~= nil then
-    pcall(ContextEnv.summarize, warning:gsub("^::warning::", "") .. "\n")
+    local _, _ = pcall(ContextEnv.summarize, warning:gsub("^::warning::", "") .. "\n")
   end
 end
 

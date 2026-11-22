@@ -126,3 +126,18 @@ local function test_a_call_that_may_fail_is_no_statement()
   -- A call of one list is a statement as before.
   stands("local function g(): integer\n  print(\"g\")\n  return 1\nend\ng()\n", "g")
 end
+
+local function test_the_fix_names_a_binding_the_checker_takes()
+  -- A method call, a protected call and a resumed coroutine are held alike.
+  Programs.says("local class Tool\n  function run(self): (integer) | (nil, string)\n    return 1\n  end\nend\n" ..
+      "local t: Tool = {}\nt:run()\n", "failure_ignored", "`t:run()` answers one of 2 lists", "`local v, why = t:run()`")
+  Programs.says("local function f(): integer\n  return 1\nend\npcall(f)\n", "failure_ignored", nil, "`local _, _ = pcall(f)`")
+  Programs.says("local c = coroutine.create(function(): integer\n  return 1\nend)\ncoroutine.resume(c)\n", "failure_ignored")
+  -- Three values are named one by one, and a call too long to show whole is spelled by its callee.
+  Programs.says("local function f(): (true, integer, string) | (false, string)\n  return true, 1, \"x\"\nend\nf()\n",
+    "failure_ignored", nil, "`local ok, why, v3 = f()`")
+  Programs.says("local function f(a: integer, b: integer, c: integer, d: integer): (integer) | (nil, string)\n  return a\n" ..
+      "end\nf(1111111111111, 2222222222222, 3333333333333, 4444444444444)\n", "failure_ignored", nil, "`local _, _ = f(...)`")
+  -- What the fix names stands.
+  stands("local ok, why, v3 = pcall(function(): (integer, string)\n  return 1, \"x\"\nend)\nprint(ok, v3)\n", "true\tx")
+end

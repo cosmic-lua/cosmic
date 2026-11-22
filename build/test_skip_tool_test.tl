@@ -19,7 +19,7 @@ local Test = require("cosmic.test")
 
 local function test_skips()
   -- A skip a test swallowed is recorded, once however often it is given.
-  pcall(Test.skip, "this host cannot")
+  local _, _ = pcall(Test.skip, "this host cannot")
   Test.skip("this host cannot")
 end
 
