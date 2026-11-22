@@ -106,7 +106,10 @@ local record Oidc
     issuer: string
     --- Who they are at the provider: the ID token's `sub`, which the
     --- provider never gives another person. Key an account by this and
-    --- `issuer`, never by `email`, which a person can change.
+    --- `issuer`, never by `email`, which a person can change. The login
+    --- binds the session ([`Handle:bind_subject`]) to this alone, so where
+    --- two providers, or passkeys beside one, can name the same text,
+    --- `destroy_subject` with it ends the sessions of each person it names.
     subject: string
     --- Their email address, when the provider gave one.
     email?: string

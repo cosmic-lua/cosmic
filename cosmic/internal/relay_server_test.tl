@@ -1186,7 +1186,8 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     local up: Relay.Upstream = {
       host = "127.0.0.1", port = through.server.port, authorization = "Basic dTpw", no_proxy = { "direct.test" },
     }
-    local grants = { "api.test:443", "direct.test:9", "a.localhost:443" }
+    local grants = { "api.test:443", "direct.test:9", "a.localhost:443", "ip6-localhost:443",
+      "localhost.localdomain:443" }
     local rig = start(tmp, { grants = grants, upstream = up })
     assert(#lines_with(rig, "upstream proxy 127.0.0.1:" .. tostring(through.server.port) ..
         ": it resolves the names it is asked for, so the relay's address checks do not apply") == 1,
@@ -1216,9 +1217,12 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     assert(status_line(ok):find("^HTTP/1.1 403 .*not granted: %-%-connect 127.0.0.1:" .. tostring(through.server.port)), ok)
     local _, _ = literal:close()
     -- A name for the proxy's own host is not the sandbox's to ask for.
-    local named, local_answer = connect_to(rig, "a.localhost:443")
-    assert(status_line(local_answer):find("^HTTP/1.1 403 .*is not relayed through the upstream proxy"), local_answer)
-    local _, _ = named:close()
+    for _, name in ipairs({ "a.localhost", "ip6-localhost", "localhost.localdomain" }) do
+      local named, local_answer = connect_to(rig, name .. ":443")
+      assert(status_line(local_answer):find("^HTTP/1.1 403 .*is not relayed through the upstream proxy"),
+        name .. ": " .. local_answer)
+      local _, _ = named:close()
+    end
     finish(rig, through.server)
   end)
 end

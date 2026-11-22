@@ -62,9 +62,8 @@
 --- * `-o <file>`: writes the binary there, mode 0755.
 --- * `--cache`: writes it where bin/cosmic-bootstrap caches the pin's,
 ---   `$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`, and prints that
----   path, as an absolute `XDG_CACHE_HOME` or `HOME` names it ([`Fs.cache_dir`];
----   bin/cosmic-bootstrap also takes a relative `XDG_CACHE_HOME`, which
----   this does not). A file already there whose sha256 is the digest is kept, and
+---   path, as an absolute `XDG_CACHE_HOME` or `HOME` names it ([`Fs.cache_dir`]).
+---   A file already there whose sha256 is the digest is kept, and
 ---   made executable, as a run cut off before its chmod would leave it.
 --- * `--pin <file>`: writes the three pin lines there, once the binary's
 ---   bytes are verified: streamed and hashed when neither `-o` nor
