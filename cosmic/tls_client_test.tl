@@ -131,7 +131,11 @@ end
 
 local function test_a_connector_connects_over_tls_as_net_connect_does()
   served(A, function(port: integer)
-    local connector <close> = assert(Net.connector({ { host = "127.0.0.1", port = port } }))
+    local made, unmade = Net.connector({ { host = "127.0.0.1", port = port } })
+    if made == nil and unmade:find("Linux only", 1, true) ~= nil then
+      Test.skip("this host has no native connector: " .. unmade)
+    end
+    local connector <close> = assert(made, unmade)
     local conn <close> = assert(connector:connect(Net.tcp("127.0.0.1", port),
       { tls = trusting(), server_name = "localhost" }))
     assert(round_trip(conn, "x") == "TLSv1.3 - localhost\nx")
