@@ -1767,6 +1767,8 @@ local function match_statement(s: Ast.Match): Output
     for i, p in ipairs(arm.pats) do
       if (p.kind == "PatBool") then
         tests[#tests + 1] = prefix .. tostring(i) .. " == " .. (if p.value then "true" else "false" end)
+      elseif (p.kind == "PatNil") then
+        tests[#tests + 1] = prefix .. tostring(i) .. " == nil"
       elseif (p.kind == "PatBind") then
         bound[#bound + 1] = p.name.name
         values[#values + 1] = prefix .. tostring(i)

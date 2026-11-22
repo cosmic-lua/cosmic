@@ -19,10 +19,10 @@
 --- `table.insert` and the typed `Coroutine<Y, R, S>` are declarations of this ([`lang/stdlib.d.tl`]); a generic
 --- function is a value of the function types its parameters can be taken from ([`lang.relation`]).
 ---
---- **`match`.** The arms cover the lists the call answers exactly: `true` and `false` select the lists that have the
---- value at their position, a name takes the union of what the lists it selects have there, a list no arm takes is
---- `match_missing`, an arm that takes no list `match_redundant`, and a pattern that tests a position the lists do not give
---- as `true` or `false`, or names another number of values, `match_pattern`.
+--- **`match`.** The arms cover the lists the call answers exactly: `true`, `false` and `nil` select the lists that have
+--- the value at their position (`nil` the lists whose value there is never nil apart), a name takes the union of what
+--- the lists it selects have there, a list no arm takes is `match_missing`, an arm that takes no list `match_redundant`,
+--- and a pattern that tests a position the lists do not tell apart, or names another number of values, `match_pattern`.
 ---
 --- **Calls.** A method called through a union of declarations is typed when every member declares it alike once the
 --- receiver is the union, and reported (`not_callable`) otherwise. The last argument of a call may add values (a call
@@ -322,10 +322,17 @@ local record TieSlot
 end
 
 --- The locals a `local` statement bound to the values of one call whose lists are told apart by a first value of `true` or
---- `false` (`local ok, r = pcall(f)`): the test of the first narrows the others to the lists that first value selects.
+--- `false` (`local ok, r = pcall(f)`), or by a first value that is `nil` or is not (`local v, why = f()` of a call that
+--- answers `(T) | (nil, E)`): the test of the first narrows the others to the lists that first value selects.
 local record Tie
   --- The id of the first local, which holds the tag.
   first: integer
+  --- Whether the lists are told apart by a first value of `nil`, where the selected lists have one that is never nil,
+  --- rather than by `true` and `false`.
+  by_nil: boolean
+  --- Whether a test of the truth of the first value tells the lists apart: they are told by `true` and `false`, or by
+  --- `nil` and a value that is never `false` either. `v == nil` tells lists told by `nil` where `if v` does not.
+  truth: boolean
   --- The others, in order.
   rest: {TieSlot}
 end
@@ -4590,6 +4597,11 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     if p ~= nil then
       local cur = current(f, p)
       yes, no = Narrowing.when_true(f, p, Tests.nil_of(ctx, cur)), Narrowing.narrowed_flow(f, p, Tests.not_nil_of(ctx, cur))
+      -- `v == nil` of the first local of a tie told by `nil` selects the lists of the others.
+      local tied_present, tied_nil = Narrowing.tie_edges(ctx, f, if r.kind == "Nil" then l else r end, no, yes, true)
+      if tied_present ~= nil and tied_nil ~= nil then
+        yes, no = tied_nil, tied_present
+      end
     else
       no = Tests.has_element(ctx, f, if r.kind == "Nil" then l else r end)
     end
@@ -4598,7 +4610,7 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     -- nil. It is the test `condition_type` sends an optional boolean to, in a condition and in an `assert`. The first
     -- local of a tie (`ok == true`) holds only `true` or `false`, so there the test selects the tie's lists.
     local operand = if r.kind == "Boolean" then l else r end
-    local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, operand)
+    local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, operand, nil, nil, false)
     if tied_yes ~= nil and tied_no ~= nil then
       local value = true
       if r.kind == "Boolean" then
@@ -4652,14 +4664,18 @@ end
 --- The edges of a test of the first local of a tie (`if ok`, `ok == true`): where it is `true`, the others are the types
 --- of the lists that begin with `true` (and where `false`, of those that begin with `false`), as far as that narrows what
 --- they hold. Nil where `e` is no such local, or where one of the locals has been assigned since the statement.
-function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State?, Flow.State?
+--- `yes` and `no` are the states to narrow the others in, which the test of the first gave; `by_nil` says which kind of
+--- tie the test can tell, nil for either.
+function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node, yes_base?: Flow.State, no_base?: Flow.State,
+                             by_nil?: boolean): Flow.State?, Flow.State?
   local at = peel(e)
   if at.kind ~= "Name" then
     return nil, nil
   end
   local id = at.binding
   local tie = if id ~= nil then ctx.ties[id] else nil end
-  if tie == nil or place_of(ctx, f, at) == nil or f.facts[tie_key(ctx, tie.first)] == nil then
+  if tie == nil or place_of(ctx, f, at) == nil or f.facts[tie_key(ctx, tie.first)] == nil or
+      (by_nil == nil and not tie.truth) or (by_nil ~= nil and tie.by_nil ~= by_nil) then
     return nil, nil
   end
   for _, slot in ipairs(tie.rest) do
@@ -4667,7 +4683,7 @@ function Narrowing.tie_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State?,
       return nil, nil
     end
   end
-  local yes, no = f, f
+  local yes, no = yes_base or f, no_base or f
   for _, slot in ipairs(tie.rest) do
     local declared = ctx.vars[slot.id]
     if declared ~= nil then
@@ -4691,27 +4707,29 @@ end
 --- The edges of a name or a field used as a condition: an optional is not nil when true, and nil when false unless
 --- what it holds may be false. An index read of an array when true shows the array has the key ([`Tests.has_element`]).
 function Narrowing.truthy_edges(ctx: Ctx, f: Flow.State, e: Ast.Node): Flow.State, Flow.State
-  local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, e)
-  if tied_yes ~= nil and tied_no ~= nil then
-    return tied_yes, tied_no
-  end
   local p = place_of(ctx, f, e)
   if p == nil then
     return Tests.has_element(ctx, f, e), f
   end
+  local yes, no = f, f
   local cur = current(f, p)
-  if not nilable(cur) then
-    return f, f
-  end
-  local store = ctx.store
-  local kept = store:non_nil(cur)
-  local falsy = ctx.nil_type
-  for _, m in ipairs(members_of(store, kept)) do
-    if is_bool(m) then
-      falsy = cur
+  if nilable(cur) then
+    local store = ctx.store
+    local kept = store:non_nil(cur)
+    local falsy = ctx.nil_type
+    for _, m in ipairs(members_of(store, kept)) do
+      if is_bool(m) then
+        falsy = cur
+      end
     end
+    yes, no = Narrowing.narrowed_flow(f, p, kept), Narrowing.narrowed_flow(f, p, falsy)
   end
-  return Narrowing.narrowed_flow(f, p, kept), Narrowing.narrowed_flow(f, p, falsy)
+  -- The first local of a tie selects the lists of the others too.
+  local tied_yes, tied_no = Narrowing.tie_edges(ctx, f, e, yes, no)
+  if tied_yes ~= nil and tied_no ~= nil then
+    return tied_yes, tied_no
+  end
+  return yes, no
 end
 
 --- The edges of a test that the place `p` is a `tested`. `is table` tests that it is a table of any shape, the standard
@@ -7720,12 +7738,24 @@ local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
   end
   local selected: mut {Alt} = {}
   local rejected: mut {Alt} = {}
+  local by_bool, by_nil, truth = true, true, true
   for _, alt in ipairs(alts) do
     local first = alt.items[1]
-    if first == nil or (first.tag ~= "true" and first.tag ~= "false") then
-      return
-    end
-    local into = if first.tag == "true" then selected else rejected end
+    by_bool = by_bool and first ~= nil and (first.tag == "true" or first.tag == "false")
+    -- A list told by `nil` begins with `nil` or with a value that is never nil; a test of its truth tells it only where
+    -- that value is never `false` either.
+    local present = first ~= nil and Types.present(first)
+    by_nil = by_nil and first ~= nil and (first.tag == "nil" or present)
+    truth = truth and (first == nil or first.tag == "nil" or not Types.may_be_false(first))
+  end
+  if not by_bool and not by_nil then
+    return
+  end
+  for _, alt in ipairs(alts) do
+    local first = assert(alt.items[1], "each list of a tie has a first value")
+    -- Lists of `true` and `false` are never nil too, so they are told by `true` before they are told by `nil`.
+    local yes = if by_bool then first.tag == "true" else first.tag ~= "nil" end
+    local into = if yes then selected else rejected end
     into[#into + 1] = alt
   end
   if #selected == 0 or #rejected == 0 then
@@ -7737,7 +7767,7 @@ local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
       rest[#rest + 1] = { id = b.id, yes = column(ctx, selected, i), no = column(ctx, rejected, i) }
     end
   end
-  ctx.ties[head.id] = { first = head.id, rest = rest }
+  ctx.ties[head.id] = { first = head.id, by_nil = not by_bool, truth = by_bool or truth, rest = rest }
   for _, b in ipairs(s.bindings) do
     ctx.flow = Flow.narrow(ctx.flow, tie_key(ctx, b.id), ctx.store.boolean, ctx.store.integer)
   end
@@ -9499,23 +9529,34 @@ local function jump_statement(ctx: Ctx, leaves: boolean)
   ctx.flow = Flow.dead(ctx.flow)
 end
 
---- How the tests of `arm` stand against the list `alt` the call may answer: "yes" when each `true` and `false` is the
---- value the list has at its position, "no" when one is the other, and "unclear" when the list has no `true` or `false`
---- at a position the arm tests (the position it is, or 0, for the message).
+--- How the tests of `arm` stand against the list `alt` the call may answer: "yes" when each `true`, `false` and `nil`
+--- is the value the list has at its position, "no" when the list has another value there that the test tells from it
+--- (`false` at a `true`, `nil` at a `true` or `false`, a value that is never nil at a `nil`), and "unclear" when the
+--- test does not tell what the list has there (the position it is, or 0, for the message).
 local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
   local unclear = 0
   for i, p in ipairs(arm.pats) do
-    if (p.kind == "PatBool") then
+    if (p.kind == "PatBool") or (p.kind == "PatNil") then
       local item = alt.items[i]
       local tag = ""
       if item ~= nil then
         tag = item.tag
       end
-      if tag == "true" or tag == "false" then
-        if (tag == "true") ~= p.value then
-          return "no", i
+      local verdict = "unclear"
+      if (p.kind == "PatBool") then
+        if tag == "true" or tag == "false" then
+          verdict = if (tag == "true") == p.value then "yes" else "no" end
+        elseif tag == "nil" then
+          verdict = "no"
         end
-      elseif unclear == 0 then
+      elseif tag == "nil" then
+        verdict = "yes"
+      elseif item ~= nil and Types.present(item) then
+        verdict = "no"
+      end
+      if verdict == "no" then
+        return "no", i
+      elseif verdict == "unclear" and unclear == 0 then
         unclear = i
       end
     end
@@ -9526,12 +9567,12 @@ local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
   return "yes", 0
 end
 
---- The arm that takes the list `alt`: `true` and `false` where the list has them, and a name for each other value.
+--- The arm that takes the list `alt`: `true`, `false` and `nil` where the list has them, and a name for each other value.
 local function arm_for(alt: Alt): string
   local pats: mut {string} = {}
   for i, item in ipairs(alt.items) do
     local pat = "v" .. tostring(i)
-    if item.tag == "true" or item.tag == "false" then
+    if item.tag == "true" or item.tag == "false" or item.tag == "nil" then
       pat = item.tag
     end
     pats[i] = pat
@@ -9656,15 +9697,20 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
           taken[k] = true
           local pat = assert(arm.pats[at])
           local item = alt.items[at]
-          report(ctx, "match_pattern", pat, "this pattern tests position " .. tostring(at) .. " with `" ..
-              (if (pat.kind == "PatBool") and pat.value then "true" else "" end) .. "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
-              (item ~= nil and tq(ctx, item) or "no value") .. " there, which `true` and `false` do not tell", -- checked: and_ternary
-            "test only the positions that are `true` or `false` in the lists the call answers, and name the others",
+          local tested = "nil"
+          if (pat.kind == "PatBool") then
+            tested = if pat.value then "true" else "false" end
+          end
+          report(ctx, "match_pattern", pat, "this pattern tests position " .. tostring(at) .. " with `" .. tested ..
+              "`, and the list " .. quoted(lists_text(ctx, { alt })) .. " has " ..
+              (item ~= nil and tq(ctx, item) or "no value") .. " there, which `" .. tested .. "` does not tell", -- checked: and_ternary
+            "test only the positions that are `true`, `false` or `nil` in the lists the call answers, and name the others",
             { lists_text(ctx, { alt }) })
         elseif verdict == "yes" then
           selected = selected + 1
           local have, n = #alt.items, #arm.pats
-          if n < have or (alt.tail == nil and n > have) then
+          -- A list an arm before took is not this arm's, so its count of values does not bind this arm.
+          if taken[k] ~= true and (n < have or (alt.tail == nil and n > have)) then
             explained = true
             report(ctx, "match_pattern", arm, "this arm names " .. plural(n, "value") .. ", and the list " ..
                 quoted(lists_text(ctx, { alt })) .. " it takes has " .. (if alt.tail ~= nil then "at least " else "" end) ..
@@ -9680,8 +9726,8 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
       end
       if #mine == 0 and not explained then
         report(ctx, "match_redundant", arm, if selected == 0 then "this arm takes no list the call answers: no list has the " ..
-            "values its `true` and `false` test" else "this arm takes only lists the arms before it take, so it never runs" end,
-          "delete the arm, or change its `true` and `false` to take a list no arm before it takes")
+            "values its `true`, `false` and `nil` test" else "this arm takes only lists the arms before it take, so it never runs" end,
+          "delete the arm, or change its `true`, `false` and `nil` to take a list no arm before it takes")
       end
     end
     for i, p in ipairs(arm.pats) do

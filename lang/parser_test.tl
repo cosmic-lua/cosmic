@@ -91,6 +91,8 @@ local STATEMENTS <const>: {Case} = {
     want = "(Match (Call (Name \"fetch\")) [(MatchArm [(PatBool true) (PatBind (Binding \"body\"))] (Block [(CallStat (Call (Name \"print\") [(Name \"body\")]))])) (MatchArm [(PatBool false) (PatBind (Binding \"why\"))] (Block [(CallStat (Call (Name \"print\") [(Binary \"..\" (String \"failed: \") (Name \"why\"))]))]))])" },
   { source = "match s:read() do\n  | (true, _, n) then return n\n  | (false, e) then error(e)\nend",
     want = "(Match (MethodCall (Name \"s\") \"read\") [(MatchArm [(PatBool true) (PatBind (Binding \"_\")) (PatBind (Binding \"n\"))] (Block [(Return [(Name \"n\")])])) (MatchArm [(PatBool false) (PatBind (Binding \"e\"))] (Block [(CallStat (Call (Name \"error\") [(Name \"e\")]))]))])" },
+  { source = "match parse() do\n  | (nil, why) then error(why)\n  | (n) then return n\nend",
+    want = "(Match (Call (Name \"parse\")) [(MatchArm [(PatNil) (PatBind (Binding \"why\"))] (Block [(CallStat (Call (Name \"error\") [(Name \"why\")]))])) (MatchArm [(PatBind (Binding \"n\"))] (Block [(Return [(Name \"n\")])]))])" },
   { source = "local y = if a then 1 else 2 end\n",
     want = "(Local \"local\" [(Binding \"y\")] _ [(IfExp [(ExpArm (Name \"a\") (Integer 1))] (Integer 2))])" },
 }

@@ -509,13 +509,13 @@ local CASES <const>: {Case} = {
     code = "match_redundant",
     source = "local f: function(): (true, integer) | (false, string) = function() return true, 1 end\nmatch f() do\n  | (true, v) then print(v)\n  | (true, w) then print(w)\n  | (false, why) then print(why)\nend\n",
     msg = "this arm takes only lists the arms before it take, so it never runs",
-    fix = "delete the arm, or change its `true` and `false` to take a list no arm before it takes",
+    fix = "delete the arm, or change its `true`, `false` and `nil` to take a list no arm before it takes",
   },
   {
     code = "match_pattern", at = { line = 3, column = 6 },
     source = "local f: function(): (boolean, integer) = function() return true, 1 end\nmatch f() do\n  | (true, v) then print(v)\nend\n",
     msg = "this pattern tests position 1 with `true`, and the list `(boolean, integer)` has `boolean` there",
-    fix = "test only the positions that are `true` or `false` in the lists the call answers",
+    fix = "test only the positions that are `true`, `false` or `nil` in the lists the call answers",
   },
   {
     code = "unchecked_binding", source = "local sys = require(\"cosmic.sys\")\n", at = { line = 1, column = 13 },

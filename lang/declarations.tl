@@ -477,10 +477,11 @@ Declarations.catalog = {
   },
   {
     code = "lists_overlap", rule = "multiple returns are a matched call",
-    why = "a call that answers one of several lists of values is taken apart by `match`, which tells the lists apart by " ..
-      "a position that is `true` in one and `false` in the other; lists that no position tells apart would be " ..
-      "told apart by nothing",
-    fix = "make a position `true` in one list and `false` in the other, as `(true, R) | (false, E)` does",
+    why = "a call that answers one of several lists of values is taken apart by `match` or by a test of its first value, " ..
+      "which tell the lists apart by a position that is `true` in one and `false` in the other, or `nil` in one and " ..
+      "never nil in the other; lists that no position tells apart would be told apart by nothing",
+    fix = "make a position `true` in one list and `false` in the other, as `(true, R) | (false, E)` does, or `nil` in " ..
+      "one and never nil in the other, as `(R) | (nil, E)` does",
   },
   {
     code = "bound_not_met", rule = "a constraint is interfaces and built-in bounds",
@@ -1340,7 +1341,8 @@ local function names_positions(names: {string}): {string: integer}
   return out
 end
 
---- Whether the lists `a` and `b` have `true` in one and `false` in the other at a position, which tells them apart.
+--- Whether the lists `a` and `b` are told apart at a position: it is `true` in one and `false` in the other, or `nil` in
+--- one and a value that is never nil in the other.
 local function told_apart(a: Types.Alt, b: Types.Alt): boolean
   for i, left in ipairs(a.items) do
     local right = b.items[i]
@@ -1349,6 +1351,8 @@ local function told_apart(a: Types.Alt, b: Types.Alt): boolean
     end
     local x, y = left.tag, right.tag
     if (x == "true" and y == "false") or (x == "false" and y == "true") then
+      return true
+    elseif (x == "nil" and Types.present(right)) or (y == "nil" and Types.present(left)) then
       return true
     end
   end
@@ -1396,9 +1400,11 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
       if j > i and not told_apart(first, second) then
         local one, other = spell_alt(ctx, first), spell_alt(ctx, second)
         report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(one) .. " and " .. quoted(other) ..
-            " are told apart by no position that is `true` in one and `false` in the other",
-          "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), so that a `match` can " ..
-            "tell which list a call answered", { one, other })
+            " are told apart by no position that is `true` in one and `false` in the other, or `nil` in one and " ..
+            "never nil in the other",
+          "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), or `nil` in one and " ..
+            "a value that is never nil in the other (`(R) | (nil, E)`), so that a `match` or a test can tell which list a " ..
+            "call answered", { one, other })
         break
       end
     end
