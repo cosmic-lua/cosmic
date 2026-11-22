@@ -9,6 +9,14 @@ local Web = require("cosmic.web")
 
 local SELF <const> = "http://testserver"
 
+--- A client acting as a browser on an https page, which sends the Secure
+--- session cookie back.
+local function browser(app: Web.App): Web.TestClient
+  local client = Web.test_client(app)
+  client.scheme = "https"
+  return client
+end
+
 --- A revocable store that keeps sessions in a table, under ids.
 local function memory_store(): Session.Store
   local rows: mut {string:Session.Data} = {}
@@ -109,7 +117,7 @@ end
 
 --- A client with a session that has drawn its token, and the token.
 local function session_with_token(app: Web.App): Web.TestClient, string
-  local client = Web.test_client(app)
+  local client = browser(app)
   local res = client:get("/token")
   assert(res.status == 200)
   return client, res.body
@@ -143,7 +151,7 @@ local function test_a_missing_or_wrong_token_is_refused()
   assert(client:post("/form", { form = { name = "x" } }).status == 403, "no token")
   assert(client:post("/do").status == 403, "no body at all")
   assert(client:post("/form", { form = { name = "x", csrf_token = "" } }).status == 403)
-  local other = Web.test_client(make_app())
+  local other = browser(make_app())
   local stranger = other:get("/token").body
   assert(client:post("/form", { form = { name = "x", csrf_token = stranger } }).status == 403,
     "a token of another session")
@@ -180,10 +188,10 @@ end
 local function test_a_request_without_a_session_has_nothing_to_match()
   local app = make_app()
   local client, token = session_with_token(app)
-  local fresh = Web.test_client(app)
+  local fresh = browser(app)
   local res = fresh:post("/form", { form = { name = "x", csrf_token = token } })
   assert(res.status == 403, "a well-formed token and no session cookie")
-  local loud = Web.test_client(app):post("/do")
+  local loud = browser(app):post("/do")
   assert(loud.status == 403)
   assert(client:post("/form", { form = { name = "x", csrf_token = token } }).status == 200)
 end
@@ -197,7 +205,7 @@ local function test_the_token_is_not_read_from_the_query_or_a_cookie()
 end
 
 local function test_safe_methods_pass_unless_the_route_registered_them()
-  local client = Web.test_client(make_app())
+  local client = browser(make_app())
   assert(client:get("/mutates").status == 200)
   assert(client:head("/mutates").status == 200)
   assert(client:options("/do").status == 204 or client:options("/do").status == 200, "automatic OPTIONS")
@@ -281,7 +289,7 @@ local function test_trusted_origins_pass_the_origin_layer_and_still_need_the_tok
 end
 
 local function test_a_bearer_request_skips_the_token_but_basic_auth_does_not()
-  local client = Web.test_client(make_app())
+  local client = browser(make_app())
   assert(client:post("/do", { headers = { Authorization = "Bearer abc" } }).status == 200)
   assert(client:post("/do", { headers = { Authorization = "bearer abc" } }).status == 200)
   assert(client:post("/do", { headers = { Authorization = "Basic YTpi" } }).status == 403)
@@ -289,25 +297,25 @@ local function test_a_bearer_request_skips_the_token_but_basic_auth_does_not()
   assert(client:post("/do", { headers = { Authorization = "Bearer " } }).status == 403)
   local cross = client:post("/do", { headers = { Authorization = "Bearer abc", Origin = "https://evil.example" } })
   assert(cross.status == 403, "the Origin layer still applies")
-  local strict = Web.test_client(make_app({ bearer_exempt = false }))
+  local strict = browser(make_app({ bearer_exempt = false }))
   assert(strict:post("/do", { headers = { Authorization = "Bearer abc" } }).status == 403)
 end
 
 local function test_exempt_and_the_two_layers_can_be_turned_off()
-  local skipped = Web.test_client(make_app({ exempt = function(req: Web.Request): boolean
+  local skipped = browser(make_app({ exempt = function(req: Web.Request): boolean
     return req.path == "/do"
   end }))
   assert(skipped:post("/do", { headers = { Origin = "https://evil.example" } }).status == 200)
   assert(skipped:post("/form", { form = { name = "x" } }).status == 403)
 
-  local no_origin = Web.test_client(make_app({ origin_check = false }))
+  local no_origin = browser(make_app({ origin_check = false }))
   local token = no_origin:get("/token").body
   local res = no_origin:post("/do", { headers = { Origin = "https://evil.example", ["X-CSRF-Token"] = token } })
   assert(res.status == 200)
   assert(no_origin:post("/do", { headers = { Origin = "https://evil.example" } }).status == 403,
     "the token layer stays")
 
-  local no_token = Web.test_client(make_app({ token = false }))
+  local no_token = browser(make_app({ token = false }))
   assert(no_token:post("/do", { headers = { Origin = SELF } }).status == 200)
   assert(no_token:post("/do", { headers = { Origin = "https://evil.example" } }).status == 403)
 end
@@ -317,13 +325,13 @@ local function test_the_origin_layer_alone_needs_no_session()
     middleware = { Csrf.middleware{ token = false } },
     routes = { Web.post("/x", function(_req: Web.Request): Web.Response return Web.text("ok") end) },
   }
-  local client = Web.test_client(app)
+  local client = browser(app)
   assert(client:post("/x").status == 200)
   assert(client:post("/x", { headers = { Origin = "null" } }).status == 403)
   local bare = Web.app{ routes = { Web.get("/t", function(req: Web.Request): Web.Response
     return Web.text(Csrf.token(req))
   end) }, sink = { line = function(_self: Web.Sink, _text: string) end } }
-  assert(Web.test_client(bare):get("/t").status == 500, "a token needs the session middleware")
+  assert(browser(bare):get("/t").status == 500, "a token needs the session middleware")
 end
 
 local function test_regenerating_the_session_retires_every_token_seen_before()
@@ -339,8 +347,8 @@ end
 local function test_a_session_cookie_planted_before_login_carries_no_token_across()
   local app = make_app()
   local attacker, token = session_with_token(app)
-  local victim = Web.test_client(app)
-  victim.jar["session"] = assert(attacker.jar["session"])
+  local victim = browser(app)
+  victim.jar["__Host-session"] = assert(attacker.jar["__Host-session"])
   assert(victim:post("/login", { headers = { ["X-CSRF-Token"] = token } }).status == 200)
   assert(attacker:post("/do", { headers = { ["X-CSRF-Token"] = token } }).status == 403,
     "the planted id is revoked, so the attacker's token has nothing to match")
@@ -372,7 +380,7 @@ end
 
 local function test_on_failure_gets_the_reason()
   local reasons: mut {string} = {}
-  local client = Web.test_client(make_app({ on_failure = function(_req: Web.Request, why: string): Web.Response
+  local client = browser(make_app({ on_failure = function(_req: Web.Request, why: string): Web.Response
     reasons[#reasons + 1] = why
     return Web.text("no", { status = 418 })
   end }))
@@ -385,7 +393,7 @@ local function test_on_failure_gets_the_reason()
 end
 
 local function test_the_field_the_meta_tag_and_the_header_object_carry_a_working_token()
-  local client = Web.test_client(make_app())
+  local client = browser(make_app())
   local field = client:get("/field").body
   local token = assert(field:match('^<form><input type="hidden" name="csrf_token" value="([%w_-]+)"></form>$'), field)
   assert(client:post("/form", { form = { name = "x", csrf_token = token } }).status == 200)
@@ -452,9 +460,9 @@ local function test_a_cookieless_post_is_refused_before_its_body_is_read()
   end })
   local _, token = session_with_token(app)
   local body = multipart(part("csrf_token", token), part("file", ("x"):rep(100), "a.bin"))
-  local res = Web.test_client(app):post("/upload", { body = body, content_type = TYPE })
+  local res = browser(app):post("/upload", { body = body, content_type = TYPE })
   assert(res.status == 403)
-  local form = Web.test_client(app):post("/form", { body = "csrf_token=" .. token,
+  local form = browser(app):post("/form", { body = "csrf_token=" .. token,
     content_type = "application/x-www-form-urlencoded" })
   assert(form.status == 403)
   assert(read == 0, "no secret, no read: " .. tostring(read))

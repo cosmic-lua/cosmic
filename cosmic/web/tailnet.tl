@@ -243,11 +243,6 @@ local function of_serve(req: Types.Request, forwarded: {string}): Tailnet.Identi
   }
 end
 
---- Whether `address` is the machine's loopback.
-local function loopback(host: string): boolean
-  return host == "::1" or host:match("^127%.%d+%.%d+%.%d+$") ~= nil
-end
-
 --- `host` with an IPv4 address mapped into IPv6 (`::ffff:100.64.0.2`, as
 --- a listener on `::` names an IPv4 peer) written as the IPv4 address,
 --- so that it is asked about, kept and tested as one.
@@ -327,7 +322,7 @@ function Tailnet.middleware(opts?: Tailnet.Options): Types.Middleware
         identity = nil
       elseif peer.kind == "tcp" and peer.host ~= nil then
         local host = unmapped(assert(peer.host))
-        if serve and loopback(host) then
+        if serve and Net.is_loopback(host) then
           -- No capabilities: a daemon passes a client's own header on
           -- unless the serve config forwards them, which is not known here.
           funneled = req.headers["tailscale-funnel-request"] == "?1"

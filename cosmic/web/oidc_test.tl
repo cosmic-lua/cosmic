@@ -52,6 +52,14 @@ local record Provider
   lines: mut {string}
 end
 
+--- A client acting as a browser on an https page, which sends the Secure
+--- session cookie back.
+local function browser(app: Web.App): Web.TestClient
+  local client = Web.test_client(app)
+  client.scheme = "https"
+  return client
+end
+
 local function provider_new(): Provider
   local signer = Jose.signer("ES256", Sign.p256_secret(), "k1")
   return {
@@ -174,7 +182,7 @@ end
 
 local function test_a_whole_login()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   assert(client:get("/"):text() == "nobody")
   local state = start(client, p, "/admin")
   local res = callback(client, state)
@@ -190,7 +198,7 @@ end
 
 local function test_the_authorization_request()
   local p = provider_new()
-  local client = Web.test_client(app_of(p, {
+  local client = browser(app_of(p, {
     scopes = { "email" },
     params = { prompt = "select_account" },
   }))
@@ -206,7 +214,7 @@ end
 
 local function test_a_confidential_client_authenticates_with_basic()
   local p = provider_new()
-  local client = Web.test_client(app_of(p, {
+  local client = browser(app_of(p, {
     client_id = "id:x", client_secret = "s e+cret",
   }))
   p.claims = { aud = "id:x" }
@@ -218,7 +226,7 @@ end
 
 local function test_kept_claims()
   local p = provider_new()
-  local client = Web.test_client(app_of(p, {
+  local client = browser(app_of(p, {
     keep_claims = { "groups" },
   }))
   callback(client, start(client, p))
@@ -230,10 +238,10 @@ end
 --- is told apart.
 local function test_a_state_of_no_login_is_refused()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local state = start(client, p)
   assert(callback(client, "forged").status == 400)
-  local other = Web.test_client(app_of(p))
+  local other = browser(app_of(p))
   assert(callback(other, state).status == 400)
   assert(callback(client, state).status == 303)
   -- A state is used once.
@@ -242,7 +250,7 @@ end
 
 local function test_a_login_under_way_lapses()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local state = start(client, p)
   p.now = p.now + 601
   assert(callback(client, state).status == 400)
@@ -250,7 +258,7 @@ end
 
 local function test_tabs_each_log_in()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local first = start(client, p)
   local first_nonce = p.nonce
   start(client, p)
@@ -261,7 +269,7 @@ end
 local function test_id_tokens_that_are_refused()
   local function refused(claims: {string: Json.Value}, says: string)
     local p = provider_new()
-    local client = Web.test_client(app_of(p))
+    local client = browser(app_of(p))
     local state = start(client, p)
     p.claims = claims
     local res = callback(client, state)
@@ -278,7 +286,7 @@ end
 
 local function test_a_token_from_a_key_the_provider_does_not_publish_is_refused()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local state = start(client, p)
   p.signer = Jose.signer("ES256", Sign.p256_secret(), "k1")
   local res = callback(client, state)
@@ -289,7 +297,7 @@ end
 --- the keys are fetched again, once, and the login goes on.
 local function test_a_rolled_key_is_fetched()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   callback(client, start(client, p))
   assert(p.fetched[ISSUER .. "/jwks"] == 1)
   local rolled = Jose.signer("ES256", Sign.p256_secret(), "k2")
@@ -305,7 +313,7 @@ end
 --- minute.
 local function test_unknown_keys_fetch_at_most_once_a_minute()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   callback(client, start(client, p))
   p.signer = Jose.signer("ES256", Sign.p256_secret(), "nobody's")
   for _ = 1, 3 do assert(callback(client, start(client, p)).status == 401) end
@@ -314,7 +322,7 @@ end
 
 local function test_the_provider_refusing_the_login()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local state = start(client, p)
   local res = client:get("/auth/callback", { query = { state = state, error = "access_denied" } })
   assert(res.status == 401 and res.body:find("access_denied", 1, true) ~= nil, res.body)
@@ -325,7 +333,7 @@ end
 
 local function test_an_answer_from_another_issuer_is_refused()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local state = start(client, p)
   local res = client:get("/auth/callback", { query = { state = state, code = "c", iss = "https://evil.example.com" } })
   assert(res.status == 400, res.status)
@@ -334,7 +342,7 @@ end
 local function test_discovery_of_another_issuer_is_a_503()
   local p = provider_new()
   p.discovered_issuer = "https://evil.example.com"
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local res = client:get("/auth/login")
   assert(res.status == 503, res.status)
   assert(#p.lines == 1 and p.lines[1]:find("another issuer", 1, true) ~= nil)
@@ -342,14 +350,14 @@ end
 
 local function test_next_is_a_local_path()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local res = callback(client, start(client, p, "//evil.example.com/"))
   assert(res.redirect_location == "/", res.redirect_location)
 end
 
 local function test_require_login()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local page = client:get("/admin?x=1", { headers = { Accept = "text/html" } })
   assert(page.status == 303 and page.redirect_location == "/auth/login?next=%2Fadmin%3Fx%3D1", page.redirect_location)
   assert(client:get("/admin", { headers = { Accept = "application/json" } }).status == 401)
@@ -357,7 +365,7 @@ end
 
 local function test_logout()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   callback(client, start(client, p))
   assert(client:get("/auth/logout").status == 405)
   assert(client:get("/"):text() ~= "nobody")
@@ -368,7 +376,7 @@ end
 
 local function test_logout_through_the_provider()
   local p = provider_new()
-  local client = Web.test_client(app_of(p, {
+  local client = browser(app_of(p, {
     provider_logout = "https://app.example.com/",
   }))
   callback(client, start(client, p))
@@ -380,7 +388,7 @@ end
 
 local function test_max_age()
   local p = provider_new()
-  local client = Web.test_client(app_of(p, { max_age = 100 }))
+  local client = browser(app_of(p, { max_age = 100 }))
   callback(client, start(client, p))
   assert(client:get("/"):text() ~= "nobody")
   p.now = p.now + 100
@@ -408,20 +416,20 @@ local function test_a_login_regenerates_the_session()
   local p = provider_new()
   local store = assert(SessionSqlite.store((assert(Sqlite.memory()))))
   local app = app_of(p, { store = store })
-  local client = Web.test_client(app)
+  local client = browser(app)
   local state = start(client, p)
-  local before = assert(client.jar["session"])
+  local before = assert(client.jar["__Host-session"])
   assert(callback(client, state).status == 303)
-  local after = assert(client.jar["session"])
+  local after = assert(client.jar["__Host-session"])
   assert(after ~= before)
   assert(client:get("/"):text() == "user-1 ada@example.com Ada")
-  local planted = Web.test_client(app)
-  assert(planted:get("/", { cookies = { session = before } }):text() == "nobody")
+  local planted = browser(app)
+  assert(planted:get("/", { cookies = { ["__Host-session"] = before } }):text() == "nobody")
 end
 
 local function test_a_fifth_login_drops_the_oldest()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local first = start(client, p)
   p.now = p.now + 1
   local second = start(client, p)
@@ -437,7 +445,7 @@ end
 
 local function test_a_long_next_goes_home()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local res = callback(client, start(client, p, "/" .. ("a"):rep(600)))
   assert(res.redirect_location == "/", res.redirect_location)
 end
@@ -445,7 +453,7 @@ end
 local function test_an_endpoint_that_is_not_https_is_refused()
   local p = provider_new()
   p.token_scheme = "http"
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   assert(client:get("/auth/login").status == 503)
   assert(#p.lines == 1 and p.lines[1]:find("not https", 1, true) ~= nil, p.lines[1])
 end
@@ -455,7 +463,7 @@ end
 local function test_iss_is_required_where_the_provider_sends_it()
   local p = provider_new()
   p.iss_supported = true
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local state = start(client, p)
   assert(callback(client, state).status == 400)
   local again = start(client, p)
@@ -464,7 +472,7 @@ end
 
 local function test_head_uses_no_state()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local state = start(client, p)
   client:head("/auth/callback?state=" .. Url.escape(state) .. "&code=c")
   assert(p.fetched[ISSUER .. "/token"] == nil)
@@ -473,7 +481,7 @@ end
 
 local function test_logout_answers_405_with_allow()
   local p = provider_new()
-  local client = Web.test_client(app_of(p))
+  local client = browser(app_of(p))
   local res = client:get("/auth/logout")
   assert(res.status == 405 and res.headers["allow"] == "POST")
 end
@@ -481,7 +489,7 @@ end
 --- An app that has served no login yet still ends the provider's.
 local function test_logout_through_the_provider_discovers_it()
   local p = provider_new()
-  local client = Web.test_client(app_of(p, { provider_logout = "https://app.example.com/" }))
+  local client = browser(app_of(p, { provider_logout = "https://app.example.com/" }))
   local res = client:request("POST", "/auth/logout")
   local location = assert(res.redirect_location)
   assert(location:sub(1, #ISSUER + 7) == ISSUER .. "/logout", location)
@@ -489,7 +497,7 @@ end
 
 local function test_algs_limits_the_id_token()
   local p = provider_new()
-  local client = Web.test_client(app_of(p, { algs = { "RS256" } }))
+  local client = browser(app_of(p, { algs = { "RS256" } }))
   local res = callback(client, start(client, p))
   assert(res.status == 401 and res.body:find("not allowed", 1, true) ~= nil, res.body)
 end
