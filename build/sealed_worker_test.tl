@@ -68,17 +68,30 @@ local function test_a_module_outside_the_closure_is_not_in_the_program()
   Test.raises(function() dynamic_require("cosmic." .. "zip") end, "outside the import closure")
 end
 
---- The same from a finalizer, which a collection runs where it likes,
---- once the test is over included.
-local function test_a_finalizer_finds_no_module_outside_the_closure()
-  skip_unless_sealed()
-  local failure = { value = "not run" }
-  setmetatable({}, { __gc = function() -- checked: setmetatable_call
+--- What a [`Seeker`]'s finalizer found: "" when no module outside the closure loaded.
+local record Outcome
+  mut value: string
+end
+
+--- A table whose finalizer looks for the modules outside the closure, and writes what it found.
+local class Seeker
+  failure: Outcome
+  function __gc(self)
     local ok, why = pcall(function()
       for _, name in ipairs(outside) do absent(name) end
     end)
-    failure.value = if ok then "" else tostring(why) end
-  end })
+    self.failure.value = if ok then "" else tostring(why) end
+  end
+end
+
+--- The same from a finalizer, which a collection runs where the program calls,
+--- once the test is over included.
+local function test_a_finalizer_finds_no_module_outside_the_closure()
+  skip_unless_sealed()
+  local failure: Outcome = { value = "not run" }
+  do
+    local _: Seeker = { failure = failure }
+  end
   collectgarbage()
   collectgarbage()
   assert(failure.value == "", failure.value)

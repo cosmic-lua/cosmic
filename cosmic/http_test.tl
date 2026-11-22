@@ -776,16 +776,21 @@ end
 
 local revived: mut {integer: Http.Response} = {}
 
+--- A table whose finalizer hands back the response it holds.
+local class Reviver
+  response: Http.Response
+  function __gc(self)
+    revived[1] = self.response
+  end
+end
+
 local function test_a_response_a_finalizer_revives_is_closed()
   -- The table's finalizer runs in the same collection as the handle's
   -- and brings the response back after the handle released its curl
   -- state: every method has to see a closed handle, not freed memory.
   do
     local response = assert(Http.open(url, { timeout_ns = Clock.seconds(60), script = { reply("200 OK", "", "x") } }))
-    local mt: metatable<{any:any}> = { __gc = function(_: {any:any}) -- declared: key_type*2 -- checked: literal_missing
-      revived[1] = response
-    end }
-    setmetatable({} as {any:any}, mt) -- declared: key_type -- checked: cast_refused, setmetatable_call
+    local _: Reviver = { response = response }
   end
   collectgarbage()
   collectgarbage()

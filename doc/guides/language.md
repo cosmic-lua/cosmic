@@ -696,6 +696,24 @@ local all: mut {Version} = { { major = 2, minor = 0 }, { major = 1, minor = 4 } 
 table.sort(all) -- 1.4, then 2.0
 ```
 
+## a class that releases what it holds
+
+A class's method `__gc(self)` is its finalizer: Lua calls it once, some time after the last reference to a value is
+gone, with the value alone, and drops what it answers. It suits a value that holds what the collector cannot free
+itself, such as a child process or a descriptor. A finalizer runs only where the program calls a Lua function or
+`collectgarbage`, never between two statements with no call, so the checker's facts about a value's fields and an
+array's length hold across it as they hold across any call. A value whose release matters at a known point should
+also be a `<close>` local; `__gc` is the release when no one closed it.
+
+```text
+local class Lease
+  id: integer
+  function __gc(self)
+    release(self.id)
+  end
+end
+```
+
 ## a method with type parameters of its own
 
 A method of a class may take type parameters, written after its name as a function's are. Each call solves them from

@@ -1,0 +1,23 @@
+file: src/ldo.c
+note: The pending finalizers run as a Lua function is called, here for a tail call and in luaD_precall for any other (patch/lua/23-finalizers-at-calls-run.txt) (patch/lua/19-finalizers-at-calls-gc.txt), before its frame is made: the caller's frame is L->ci and its arguments lie below L->top, where GCTM pushes the finalizer. A finalizer may grow the stack, so 'func' is kept as an offset across it. A C function's call runs none: the checker counts the calls of some C functions (`string.len`, `math.floor`) as running no code of the program.
+--- find
+    case LUA_VLCL: {  /* Lua function */
+      Proto *p = clLvalue(s2v(func))->p;
+      int fsize = p->maxstacksize;  /* frame size */
+      int nfixparams = p->numparams;
+      int i;
+--- replace
+    case LUA_VLCL: {  /* Lua function */
+      Proto *p;
+      int fsize;
+      int nfixparams;
+      int i;
+      if (l_unlikely(G(L)->tobefnz != NULL)) {
+        ptrdiff_t f = savestack(L, func);
+        luaC_runfinalizers(L);
+        func = restorestack(L, f);
+      }
+      p = clLvalue(s2v(func))->p;
+      fsize = p->maxstacksize;  /* frame size */
+      nfixparams = p->numparams;
+--- end

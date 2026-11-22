@@ -1,0 +1,8 @@
+file: src/lapi.c
+note: collectgarbage("step") calls the pending finalizers before it returns, as collect does (patch/lua/24-finalizers-at-calls-api.txt).
+--- find
+      luaC_condGC(L, (void)0, work = 1);
+--- replace
+      luaC_condGC(L, (void)0, work = 1);
+      luaC_runfinalizers(L);
+--- end

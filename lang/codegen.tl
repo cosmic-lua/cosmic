@@ -33,7 +33,7 @@
 ---
 --- * A `class` is its method table, which is also the metatable of its values: `local C = {}; C.__index = C`
 ---   on the line of the `class`, then each method as `function C.name(self, ...)` on its line. A method named
----   `__close`, `__tostring`, `__lt` or `__le` is the metamethod of that name. The values are made by the reserved form of the
+---   `__close`, `__gc`, `__tostring`, `__lt` or `__le` is the metamethod of that name. The values are made by the reserved form of the
 ---   patched parser ([`patch/lua/`]), which reads it only in a load of [`cosmic.internal.compiled`]: `{ ... } @ C`
 ---   is the table the constructor makes with `C` as its metatable, and `@v == C` is the test `v is C`, `@v` being
 ---   the metatable of `v`. Which table literals make a value of a class is the checker's to say ([`lang.check`]'s
@@ -1824,7 +1824,7 @@ local function method_statement(class: Ast.Class, m: Ast.Method): Output
 end
 
 --- A `class` as its table, which is its methods' and the metatable of its values (`__index` is the table; a method
---- named `__close`, `__tostring`, `__lt` or `__le` is that metamethod), and then each method.
+--- named `__close`, `__gc`, `__tostring`, `__lt` or `__le` is that metamethod), and then each method.
 local function class_statement(s: Ast.Class): Output
   local name = s.name.name
   local y = line_of(s.first)

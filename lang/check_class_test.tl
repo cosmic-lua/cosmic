@@ -1,5 +1,5 @@
 --- The class piece of the new checker ([`lang.check`], [`lang.declarations`]): classes are nominal to each other, a value of one is
---- made by a table literal typed as it, a class's names are distinct and its `__close`, `__tostring`, `__lt` and `__le` are held to
+--- made by a table literal typed as it, a class's names are distinct and its `__close`, `__gc`, `__tostring`, `__lt` and `__le` are held to
 --- what Lua calls, a `<close>` local holds one with a `__close`, and `is` of one is the test of its metatable. A
 --- declaration used as a value is a type of its own. The code generator's side is [`lang.codegen_test`]'s.
 local Array = require("cosmic.array")
@@ -303,7 +303,7 @@ local function test_a_close_method_takes_the_value_and_a_tostring_method_answers
 end
 
 local function test_no_other_metamethod_has_a_form_in_a_class()
-  for _, name in ipairs({ "__index", "__newindex", "__call", "__gc", "__mode", "__len", "__eq", "__concat", "__add",
+  for _, name in ipairs({ "__index", "__newindex", "__call", "__mode", "__len", "__eq", "__concat", "__add",
       "__pairs", "__metatable", "__name", "__anything" }) do
     declared_wrong("local class C\n  function " .. name .. "(self)\n  end\nend\n", "class_metamethod",
       "the method `" .. name .. "` of `C` would be read by Lua as a metamethod")
@@ -311,7 +311,7 @@ local function test_no_other_metamethod_has_a_form_in_a_class()
   declared_wrong("local class C\n  function m(self)\n  end\nend\nfunction C.__index()\nend\n", "class_metamethod",
     "the function `C.__index` is a name Lua reads as a metamethod")
   declared_wrong("local class C\n  function m(self)\n  end\nend\nfunction C.__close()\nend\n", "class_metamethod",
-    "`__close`, `__tostring`, `__lt` and `__le` are written as methods")
+    "`__close`, `__gc`, `__tostring`, `__lt` and `__le` are written as methods")
 end
 
 local VERSION <const> = "local class Version\n  major: integer\n  minor: integer\n" ..
@@ -437,6 +437,45 @@ local function refused_with_fix(source: string, msg: string, fix: string, module
   local e = assert(r.errors[1])
   assert(e.msg:find(msg, 1, true) ~= nil, e.msg .. "\nwanted " .. msg)
   assert(e.fix:find(fix, 1, true) ~= nil, e.fix .. "\nwanted " .. fix)
+end
+
+local function test_a_class_gc_runs_only_where_the_program_calls()
+  -- The finalizer of a class runs where the program calls a Lua function or `collectgarbage`, never at an allocation: a
+  -- loop that only allocates keeps every fact about lengths it had, so it sees no finalizer run, and the next call runs
+  -- the finalizers the collections in it left.
+  local source = [[
+local count = 0
+local class Held
+  n: integer
+  function __gc(self)
+    count = count + self.n
+  end
+end
+local function drop(n: integer)
+  local h: Held = { n = n }
+  print(h.n > 0)
+end
+for i = 1, 200 do
+  drop(1)
+end
+local before = count
+for i = 1, 200000 do
+  local t = { i }
+  if #t ~= 1 then
+    break
+  end
+end
+local after = count
+drop(1)
+print(before == after, count > after)
+]]
+  local done = Programs.execute(source, false)
+  assert(done.ran and done.fault == nil, tostring(done.fault) .. Programs.codes(done.run))
+  assert(done.printed[#done.printed] == "true\ttrue", done.printed[#done.printed])
+  declared_wrong("local class G\n  function __gc(self, other: G)\n  end\nend\n", "metamethod_signature",
+    "the method `__gc` of `G` takes more than the value")
+  declared_wrong("local class G\n  function __gc(self): integer\n    return 1\n  end\nend\n", "metamethod_signature",
+    "or answers a value")
 end
 
 local function test_close_not_closable_says_an_interface_with_close_is_not_a_class()

@@ -123,10 +123,11 @@ local record Declarations
     "member_missing"
     -- a parameter of a method with no type
     "param_untyped"
-    -- a `__close` that takes more than the value and the error object or answers one, a `__tostring` that does not answer a
+    -- a `__close` that takes more than the value and the error object or answers one, a `__gc` that takes more than the
+    -- value or answers one, a `__tostring` that does not answer a
     -- string, or a `__lt` or `__le` that takes other than two values of the class or does not answer a boolean
     "metamethod_signature"
-    -- a method or function of a class named for a metamethod other than `__close`, `__tostring`, `__lt` and `__le`
+    -- a method or function of a class named for a metamethod other than `__close`, `__gc`, `__tostring`, `__lt` and `__le`
     "class_metamethod"
     -- a field named for a metamethod that may be nil
     "optional_metamethod"
@@ -518,7 +519,7 @@ Declarations.catalog = {
   {
     code = "class_metamethod", rule = "dispatch only through declared types",
     why = "the table of a class's methods is the metatable of its values, so a method or function of a name that " ..
-      "begins with two underscores is read by Lua as a metamethod: a class has `__close`, `__tostring`, `__lt` and `__le` " ..
+      "begins with two underscores is read by Lua as a metamethod: a class has `__close`, `__gc`, `__tostring`, `__lt` and `__le` " ..
       "and no other, since no other runs code the program can see; a field of such a name is refused too, since a value " ..
       "that lacks it reads the table for it",
     fix = "rename <name>, and call it as a method (`v:name(...)`)",
@@ -1960,15 +1961,17 @@ end
 --- Holds the method `m` of a class, of function type `made`, to what its name means when it is `__close` (it
 --- takes the value and may take the error object, and answers nothing), `__tostring` (it takes the value alone and
 --- answers a `string`) or `__lt` or `__le` (it takes the value and another of the class and answers a `boolean`, for
---- `<`, `>`, `<=` and `>=`), and refuses a name of any other metamethod.
+--- `<`, `>`, `<=` and `>=`) or `__gc` (it takes the value alone and answers nothing), and refuses a name of any other
+--- metamethod.
 local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Type)
   local name = m.name.name
   local class = quoted(build.decl.name)
   local compares = name == "__lt" or name == "__le"
-  if name ~= "__close" and name ~= "__tostring" and not compares then
+  if name ~= "__close" and name ~= "__tostring" and name ~= "__gc" and not compares then
     if metamethod_name(name) then
       report_at(ctx, "class_metamethod", m.name, "the method " .. quoted(name) .. " of " .. class .. " would be read " ..
-          "by Lua as a metamethod of its values, and a class has `__close`, `__tostring`, `__lt` and `__le` and no other",
+          "by Lua as a metamethod of its values, and a class has `__close`, `__gc`, `__tostring`, `__lt` and `__le` and " ..
+          "no other",
         "rename " .. quoted(name) .. " and call it as a method (`v:" .. name:gsub("^_+", "") .. "(...)`)")
     end
     return
@@ -1998,7 +2001,16 @@ local function check_metamethod(ctx: Ctx, build: Build, m: Ast.Method, made: Typ
     end
     return
   end
-  if name == "__close" then
+  if name == "__gc" then
+    -- Lua calls a finalizer with the value alone and drops what it answers; it runs only where the program calls a Lua
+    -- function or `collectgarbage` (patch/lua/19-finalizers-at-calls-gc.txt), so no fact about lengths spans one.
+    local alt = made.rets[1]
+    if #made.params ~= 1 or made.rest ~= nil or #made.rets ~= 1 or alt == nil or #alt.items ~= 0 or alt.tail ~= nil then
+      report_at(ctx, "metamethod_signature", m.name, "the method `__gc` of " .. class .. " takes more than the value " ..
+          "or answers a value: Lua calls it with the value alone and drops what it answers",
+        "write `function __gc(self)`, and answer nothing")
+    end
+  elseif name == "__close" then
     if not Declarations.close_is_callable(made) then
       report_at(ctx, "metamethod_signature", m.name, "the method `__close` of " .. class .. " takes more than the value " ..
           "and the error object (`err: any`) Lua passes it, or answers a value, which Lua drops",
@@ -2326,7 +2338,7 @@ local function enter_declaration(ctx: Ctx, node: Ast.Node): {Ast.Node}
     local name = assert(f.path[2], "`collect_statics` keeps the functions whose path has two names").text
     if decl.kind == "class" and metamethod_name(name) then
       report_at(ctx, "class_metamethod", f, "the function " .. quoted(decl.name .. "." .. name) .. " is a name Lua reads as a " ..
-          "metamethod of the values of " .. quoted(decl.name) .. ", and `__close`, `__tostring`, `__lt` and `__le` are written as methods",
+          "metamethod of the values of " .. quoted(decl.name) .. ", and `__close`, `__gc`, `__tostring`, `__lt` and `__le` are written as methods",
         "rename " .. quoted(name) .. ", or write it as a method inside the class")
     elseif decl.kind == "class" and build.overloads[name] ~= nil then
       local first = build.first_of[name]

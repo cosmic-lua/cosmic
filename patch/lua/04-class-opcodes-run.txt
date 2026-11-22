@@ -1,5 +1,5 @@
 file: src/lvm.c
-note: OP_SETCLASS attaches the class table to the table the constructor just made, as lua_setmetatable does for a table. It checks that both are tables: the class is any value the compiler's text names, and a binary chunk can name any register as either operand, where writing the metatable of what is no table would write through a pointer of another type. The class table never holds __gc (the checker refuses a class method of that name), so the table is not marked for finalization. OP_CLASSOF answers the metatable of any value the way lua_getmetatable does.
+note: OP_SETCLASS attaches the class table to the table the constructor just made, as lua_setmetatable does for a table. It checks that both are tables: the class is any value the compiler's text names, and a binary chunk can name any register as either operand, where writing the metatable of what is no table would write through a pointer of another type. A class with a `__gc` method marks the table for finalization, as lua_setmetatable does; the finalizer runs only where the program calls (patch/lua/19-finalizers-at-calls-gc.txt). OP_CLASSOF answers the metatable of any value the way lua_getmetatable does.
 --- find
       vmcase(OP_EXTRAARG) {
         lua_assert(0);
@@ -15,6 +15,7 @@ note: OP_SETCLASS attaches the class table to the table the constructor just mad
           Protect(luaG_typeerror(L, rb, "use as a class"));
         hvalue(s2v(ra))->metatable = hvalue(rb);
         luaC_objbarrier(L, gcvalue(s2v(ra)), hvalue(rb));
+        luaC_checkfinalizer(L, gcvalue(s2v(ra)), hvalue(rb));
         vmbreak;
       }
       vmcase(OP_CLASSOF) {
