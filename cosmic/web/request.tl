@@ -252,14 +252,15 @@ local function proxy_prefix(entry: string): Types.ProxyPrefix?, string
 end
 
 --- The peers `list` names, an app's [`Types.AppSpec.trusted_proxy`]: nil
---- for none (nil or an empty list), or nil and why for a `list` that is
---- no list (`true`) or holds an entry of none of the forms it describes.
---- @param list {string} | nil The entries
+--- for none (nil, `false` or an empty list), or nil and why for a `list`
+--- that is no list (`true`) or holds an entry of none of the forms it
+--- describes.
+--- @param list {string} | boolean | nil The entries. A Lua caller may pass
+--- a boolean.
 --- @return Types.Proxies | nil The peers
 --- @return string Why not, "" for none
-function Request.proxies(list: {string}?): Types.Proxies?, string
-  -- `false` too, which a Lua caller may write for none.
-  if not list then return nil, "" end
+function Request.proxies(list: ({string} | boolean)?): Types.Proxies?, string
+  if list == nil or list == false then return nil, "" end
   if type(list) ~= "table" then
     return nil, ("web: trusted_proxy lists the proxy's peers, such as { \"loopback\" }, " ..
       "{ \"10.0.0.2\" }, { \"10.0.0.0/8\" } or { \"unix\" }, not %s"):format(tostring(list))
