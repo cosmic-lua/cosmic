@@ -118,6 +118,10 @@ allowed["cosmic.tls.static"] = "the source of certificates a program holds alrea
   "tree's own servers take theirs from tailscaled, so only its tests serve static pairs"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
   "the tree's own clients speak through cosmic.http, so only its tests make one"
+allowed["cosmic.web.client_cert"] = "public API: the client certificate an app reads of a request over mutual TLS; " ..
+  "no app in the tree serves mutual TLS, so only its tests read one"
+allowed["cosmic.web.require_client_cert"] = "public API: middleware admitting the clients of mutual TLS; " ..
+  "no app in the tree serves mutual TLS, so only its tests use it"
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
 
 allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..

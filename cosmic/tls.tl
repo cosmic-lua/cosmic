@@ -29,8 +29,16 @@
 --- client that names no host, or one no leaf names, is offered every
 --- pair. It is served the first offered whose key signs by an algorithm
 --- it takes, so an ECDSA and an RSA pair for one name serve old clients
---- and new alike. No client certificate is asked for, and no session is
---- resumed: each connection makes a full handshake.
+--- and new alike. No session is resumed: each connection makes a full
+--- handshake.
+---
+--- With [`CertsOptions.clients`], a server asks each client for a
+--- certificate and verifies it against the roots given (mutual TLS):
+--- the handler reads what the client presented from the connection's
+--- `tls` ([`Info.peer`]), and [`Server.Request.tls`] with it. A client
+--- presents one with [`ClientOptions.identity`].
+---
+---     local certs = Tls.certs(Tls.static({ pair }), { clients = { ca = assert(Fs.read("clients-ca.pem")) } })
 ---
 --- A [`Tls.Client`], made by [`Tls.client`], is what a client connects
 --- with: [`Net.connect`]'s `tls`, or [`Net.Conn`]'s `start_tls` on a
@@ -77,6 +85,18 @@ end
 --- or nil and why.
 local type Source = function(min_validity_ns?: integer): {Pair}?, string
 
+--- Which clients a server asks for a certificate, as
+--- [`CertsOptions.clients`] says.
+local record Clients
+  --- The roots a client's certificate must lead to, PEM: a private CA's,
+  --- most often. No other root is trusted for a client.
+  ca: string
+  --- False to serve a client that presents no certificate, or one that
+  --- does not verify, its [`Info.peer`] then nil or not `verified`; true
+  --- by default, which refuses it in the handshake.
+  required?: boolean
+end
+
 --- What [`Tls.certs`] takes.
 local record CertsOptions
   --- The protocols offered by ALPN, at most 8, each 1 to 255 bytes; nil
@@ -85,6 +105,9 @@ local record CertsOptions
   --- How long to wait after a renewal fails before the next try,
   --- doubled after each failure up to an hour (1 minute).
   retry_ns?: integer
+  --- Asks each client for a certificate, and verifies it (mutual TLS):
+  --- see [`Clients`]. Nil to ask for none.
+  clients?: Clients
 end
 
 --- The longest wait between tries, however many fail.
@@ -110,6 +133,8 @@ local class Certs
   alpn?: {string}
   --- Internal: the first wait after a failed renewal. No caller reads it.
   retry_ns: integer
+  --- Internal: the clients asked for a certificate. No caller reads it.
+  clients?: Clients
   --- Internal: the newest configuration, once one is loaded.
   mut current?: raw_tls.Config
   --- Internal: the leaves of the newest pairs, in their order.
@@ -148,7 +173,9 @@ local class Certs
       due = math.min(due, leaf.not_after_ns - span // 3)
       life = math.min(life, span)
     end
-    local config, refused = raw.config(obtained, self.alpn)
+    local clients = self.clients
+    local config, refused = raw.config(obtained, self.alpn, clients and clients.ca,
+      clients ~= nil and clients.required ~= false)
     if config == nil then return false, refused end
     self.current = config
     self.held = leaves
@@ -386,6 +413,7 @@ local record Tls
   type Leaf = Leaf
   type Source = Source
   type CertsOptions = CertsOptions
+  type Clients = Clients
   type Certs = Certs
   type Info = Info
   type Peer = Peer
@@ -478,8 +506,12 @@ function Tls.certs(source: Source, opts?: CertsOptions): Certs
   end
   local retry = o.retry_ns or Clock.minutes(1)
   if retry < 1 then error("tls: retry_ns must be at least 1", 2) end
+  local clients = o.clients
+  if clients ~= nil and (type(clients.ca) ~= "string" or clients.ca == "") then
+    error("tls: opts.clients.ca must be the PEM roots a client's certificate leads to", 2)
+  end
   local certs: Certs = {
-    source = source, alpn = alpn, retry_ns = retry, current = nil, held = {},
+    source = source, alpn = alpn, retry_ns = retry, clients = o.clients, current = nil, held = {},
     due_ns = 0, life_ns = 0,
   }
   return certs

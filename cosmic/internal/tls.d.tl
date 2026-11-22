@@ -106,8 +106,13 @@ local record tls
   -- signs by an algorithm it lists. It offers the ALPN
   -- protocols of alpn, at most 8, each 1 to 255 bytes. Nil and why
   -- where a pair cannot be read or its key is not its certificate's.
+  -- With clients, PEM roots, it asks each client for a certificate and
+  -- verifies one against them: where required, a client that presents
+  -- none, or one that does not verify, is refused; otherwise the
+  -- session goes on, its peer nil or unverified. Nil and why where
+  -- clients holds no certificate it reads.
   -- Raises on arguments of the wrong shape.
-  config: function(pairs: {Pair}, alpn?: {string}): Config?, string
+  config: function(pairs: {Pair}, alpn?: {string}, clients?: string, required?: boolean): Config?, string
   -- A client configuration that verifies a server's chain against the
   -- PEM certificates of roots, or verifies nothing where roots is
   -- false; offers the ALPN protocols of alpn, as `config` does; and
