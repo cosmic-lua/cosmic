@@ -190,6 +190,18 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   local listeners: mut {Net.Address} = {}
   for _, address in ipairs(opts.listeners or {}) do listeners[#listeners + 1] = address end
   local tls = opts.tls
+  local clear = opts.clear
+  local handle = app.handle
+  local acme = opts.acme
+  if acme ~= nil then
+    if tls ~= nil or (opts.tailnet ~= nil and opts.tailnet ~= false) then
+      error("web: serve takes one of acme, tls and tailnet", 2)
+    end
+    tls = acme.certs
+    handle = acme:handler(app.handle)
+    if #listeners == 0 then listeners[1] = Net.tcp("0.0.0.0", 443) end
+    if clear == nil then clear = { Net.tcp("0.0.0.0", 80) } end
+  end
   local tailnet = opts.tailnet
   if tailnet ~= nil and tailnet ~= false then
     if tls ~= nil then error("web: serve takes tls or tailnet, not both", 2) end
@@ -201,19 +213,22 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
     for _, address in ipairs(reached.listeners) do listeners[#listeners + 1] = address end
     tls = reached.certs
   end
+  -- Every address served, `clear`'s too, for the loopback checks below.
+  local everywhere: mut {Net.Address} = { table.unpack(listeners) }
+  for _, address in ipairs(clear or {}) do everywhere[#everywhere + 1] = address end
   if app.spec.dev == true then
     if app.spec.trusted_proxy == true then
       return false, "web: an app in development mode (Dev.app) cannot also have a trusted_proxy"
     end
     sink:line("development mode: stacks are shown and pages reload; serving on the loopback only")
-    for _, address in ipairs(listeners) do
+    for _, address in ipairs(everywhere) do
       if not loopback(address) then
         return false, "web: an app in development mode (Dev.app) serves only on the loopback"
       end
     end
   end
   if app.spec.debug == true then
-    for _, address in ipairs(listeners) do
+    for _, address in ipairs(everywhere) do
       if not loopback(address) then
         sink:line("debug is on and the app listens beyond the loopback: " ..
             "a fault shows its stack to whoever asks")
@@ -235,9 +250,9 @@ function App.serve(app: Types.App, opts: Types.ServeOptions): boolean, string
   -- listeners open, run the lifespan there, so it may wait on Poll.
   local ran, raised = pcall(function()
     served.ok, served.err = Server.serve({
-      listeners = listeners, limits = opts.limits, tls = tls, timeout_ns = opts.timeout_ns,
+      listeners = listeners, clear = clear, limits = opts.limits, tls = tls, timeout_ns = opts.timeout_ns,
       idle_ns = opts.idle_ns, head_ns = opts.head_ns, body_ns = opts.body_ns,
-      grace_ns = opts.grace_ns or GRACE_NS, on_ready = opts.on_ready, handle = app.handle,
+      grace_ns = opts.grace_ns or GRACE_NS, on_ready = opts.on_ready, handle = handle,
       on_stop = function(server: Net.Server)
         app.stopped = true
         for _, fn in ipairs(app.stoppers) do

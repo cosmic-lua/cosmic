@@ -26,6 +26,13 @@
 --- 80. For "dns-01", `present` puts `dns_value` in a TXT record named
 --- `dns_name`; a wildcard name (`*.example.com`) takes only dns-01.
 ---
+--- [`Acme.auto`] does all of it for a server: it keeps a certificate in a
+--- directory and renews it, serving the http-01 check on the server's
+--- own `clear` listener, so a server gets HTTPS from a public CA with no
+--- other program, and [`cosmic.web`]'s serve takes one as `acme`. In a task of
+--- [`Poll.run`] every request and pause of a client waits through the
+--- run, so the server goes on meanwhile.
+---
 --- An account key and a certificate key are each an [`Acme.Key`]:
 --- [`Acme.p256_key`] makes one from a [`Sign.p256_secret`], and
 --- [`Acme.rsa_key`] from a [`Sign.rsa_secret`], for a server or a
@@ -41,7 +48,13 @@
 --- the server refuses for a stale nonce (`badNonce`) is sent again once
 --- with the fresh nonce it handed back, as section 6.5 asks.
 
--- TODO: tls-alpn-01, the alternate chains a `Link: rel="alternate"`
+-- TODO: tls-alpn-01 for Acme.auto, which needs a TLS configuration chosen
+-- by ALPN in cosmic.tls; several certificates (sets of names, or an RSA
+-- chain beside the ECDSA one) in one Acme.auto; renewal information
+-- (RFC 9773) to time Acme.auto's renewals; a lock on Acme.auto's dir for
+-- processes that share it. Each once a caller needs one.
+
+-- TODO: tls-alpn-01 for a caller of the client, the alternate chains a `Link: rel="alternate"`
 -- names, key rollover, account deactivation, revocation, External
 -- Account Binding and renewal information (RFC 9773), once a caller
 -- needs one.
@@ -55,6 +68,12 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sign = require("cosmic.sign")
+local Fs = require("cosmic.fs")
+local Poll = require("cosmic.poll")
+local Tls = require("cosmic.tls")
+-- Only the types: a handler is a function and a reply a table, so a
+-- program that issues alone does not load the server.
+local type Server = require("cosmic.http.server")
 
 local record Acme
   --- A key that signs ACME requests (as the account's key) or a
@@ -206,6 +225,66 @@ local record Acme
     --- [`Acme.Client.wait`]'s options for every wait [`Acme.Client.issue`]
     --- makes.
     wait?: WaitOptions
+  end
+
+  --- What [`Acme.AutoOptions.dns`] takes: dns-01 in place of http-01.
+  record DnsHooks
+    --- Puts the TXT record `challenge.dns_name` with the value
+    --- `challenge.dns_value` in the zone, and returns only once the
+    --- zone's servers answer it: true, or false and why, which stops
+    --- the issue.
+    present: function(challenge: Challenge): boolean, string
+    --- Removes it, once the authorization is settled either way.
+    cleanup?: function(challenge: Challenge)
+  end
+
+  --- What [`Acme.auto`] takes.
+  record AutoOptions
+    --- The DNS names the certificate is for, the first its subject. A
+    --- wildcard (`*.example.com`) needs `dns`.
+    names: {string}
+    --- The directory the account key and the certificate are kept in,
+    --- made with mode 0700 where missing: `account.pem`, the account's
+    --- key, made on the first issue; and `certificate.pem`, the chain
+    --- and its key. A restart serves the certificate kept there and asks
+    --- the CA for nothing, which matters: Let's Encrypt issues only a
+    --- few certificates a week for one set of names.
+    dir: string
+    --- Agreement to the CA's terms of service, which an account needs.
+    terms_agreed: boolean
+    --- Contact URLs for the account, such as `mailto:ops@example.com`.
+    contact?: {string}
+    --- The directory URL: [`Acme.LETS_ENCRYPT`] when nil.
+    directory?: string
+    --- The certificate's key, the same at every renewal: one that
+    --- [`Acme.read_key`] or [`Acme.p256_key`] made, with its `pem`. A new
+    --- P-256 key for each certificate when nil.
+    key?: Key
+    --- Answers dns-01 through these hooks in place of http-01.
+    dns?: DnsHooks
+    --- As [`Acme.ClientOptions.request`].
+    request?: Request
+    --- As [`Acme.ClientOptions.pause`].
+    pause?: function(ns: integer): boolean, string
+    --- As [`Acme.ClientOptions.wait`].
+    wait?: WaitOptions
+  end
+
+  --- A certificate from an ACME CA kept current for a server, from
+  --- [`Acme.auto`].
+  record Auto
+    --- The certificate, for a server's `tls`: each load serves the one
+    --- kept in `dir` while it is valid as long as the load asks, and
+    --- issues a new one otherwise.
+    certs: Tls.Certs
+    --- The response an http-01 check of this server asks for at
+    --- `path`, while one is pending; nil otherwise.
+    answer: function(self: Auto, path: string): string?
+    --- A handler for a server's `handle` that answers the http-01 checks
+    --- of the requests that came in the clear and redirects their
+    --- others to HTTPS (308), handing every request over TLS to `after`
+    --- (404 when nil).
+    handler: function(self: Auto, after?: function(req: Server.Request): Server.Reply): function(req: Server.Request): Server.Reply
   end
 
   --- Let's Encrypt's production directory.
@@ -740,7 +819,11 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   end
   local key = opts.key
   local request: Acme.Request = opts.request or default_request
-  local pause_for = opts.pause or Clock.sleep_ns
+  -- In a task of Poll.run the other tasks go on meanwhile.
+  local pause_for = opts.pause or function(ns: integer): boolean, string
+    if Poll.in_task() then return Poll.delay(ns) end
+    return Clock.sleep_ns(ns)
+  end
   local thumbprint = Acme.thumbprint(key)
   local directory: {string: string}? = nil
   local account_url: string? = opts.account
@@ -1037,6 +1120,182 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     end,
   }
   return client
+end
+
+--- Mode 0700, for a directory only its owner enters.
+local OWNER_DIR <const> = 0x1c0
+--- Mode 0600, for a file only its owner reads.
+local OWNER_FILE <const> = 0x180
+
+--- The certificate's chain and key out of the one file `text` keeps
+--- them in, the chain first.
+local function pair_in(text: string): Tls.Pair?
+  local key_at = text:find("-----BEGIN [%u ]*PRIVATE KEY-----")
+  if key_at == nil or key_at == 1 then return nil end
+  return { cert = text:sub(1, key_at - 1), key = text:sub(key_at) }
+end
+
+--- Whether the leaf of `pair` names each of `names` and stays valid
+--- `min_validity_ns` more (a minute when nil).
+local function fresh(pair: Tls.Pair, names: {string}, min_validity_ns?: integer): boolean
+  local leaf, _ = Tls.leaf(pair.cert)
+  if leaf == nil then return false end
+  local named: mut {string: boolean} = {}
+  for _, name in ipairs(leaf.names) do named[name:lower()] = true end
+  for _, name in ipairs(names) do
+    if named[name:lower()] ~= true then return false end
+  end
+  return leaf.not_after_ns - Clock.now_ns() >= (min_validity_ns or Clock.minutes(1))
+end
+
+--- The account key kept at `path`, made and written there (mode 0600)
+--- where there is none.
+local function account_key(path: string): Acme.Key?, string
+  local there, why = Fs.exists(path)
+  if there == nil then return nil, "acme: " .. why end
+  if there then
+    local text, unread = Fs.read(path)
+    if text == nil then return nil, "acme: " .. unread end
+    local key, bad = Acme.read_key(text)
+    if key == nil then return nil, "acme: " .. path .. ": " .. bad end
+    return key, ""
+  end
+  local key = Acme.p256_key(Sign.p256_secret())
+  local wrote, unwritten = Fs.write(path, assert(key.pem), OWNER_FILE)
+  if not wrote then return nil, "acme: " .. unwritten end
+  return key, ""
+end
+
+--- The host of a Host header, its port and an IPv6 address's brackets
+--- kept; nil for none, or one with a byte no host has.
+local function host_of(header?: string): string?
+  if header == nil then return nil end
+  local host = header:match("^(%[[%x:.]+%])") or header:match("^([%w.-]+)")
+  if host == nil then return nil end
+  local rest = header:sub(#host + 1)
+  if rest ~= "" and rest:match("^:%d+$") == nil then return nil end
+  return host
+end
+
+--- A certificate for `opts.names` from an ACME CA, kept in `opts.dir`
+--- and renewed, for a server: its `certs` is the server's `tls`, and
+--- its `handler` answers the CA's http-01 check on the server's
+--- `clear` listener, which is port 80 for a public CA.
+---
+---     local auto = Acme.auto({ names = { "example.com" }, dir = "/var/lib/app/acme",
+---       terms_agreed = true, contact = { "mailto:ops@example.com" } })
+---     assert(Server.serve{
+---       listeners = { Net.tcp("0.0.0.0", 443) }, clear = { Net.tcp("0.0.0.0", 80) },
+---       tls = auto.certs, handle = auto:handler(app),
+---     })
+---
+--- The server listens before it first loads the certificate, and its
+--- `clear` listener serves the check while the CA makes it, so a first
+--- start with an empty `dir` issues one in place. A certificate is
+--- renewed a third of its life before it expires, as [`cosmic.tls`]
+--- says. A restart takes the certificate in `dir` where it names
+--- every one of `names`; a change of `names` issues another. One
+--- process at a time uses a `dir`. Raises on options out of shape.
+function Acme.auto(opts: Acme.AutoOptions): Acme.Auto
+  if type(opts.names) ~= "table" or #opts.names == 0 then
+    error("acme: auto's opts.names is a list of one DNS name or more", 2)
+  end
+  if type(opts.dir) ~= "string" or opts.dir == "" then
+    error("acme: auto's opts.dir is the directory to keep the certificate in", 2)
+  end
+  if opts.key ~= nil and opts.key.pem == nil then
+    error("acme: auto's opts.key needs its pem, as Acme.read_key and Acme.p256_key make it", 2)
+  end
+  local names: {string} = { table.unpack(opts.names) }
+  local dir = opts.dir
+  local pending: mut {string: string} = {}
+  local client: Acme.Client? = nil
+  local dns = opts.dns
+
+  local function issued(): Tls.Pair?, string
+    local made, unmade = Fs.mkdirs(dir, OWNER_DIR)
+    if not made then return nil, "acme: " .. unmade end
+    local session = client
+    if session == nil then
+      local key, why = account_key(dir .. "/account.pem")
+      if key == nil then return nil, why end
+      session = Acme.client({
+        directory = opts.directory or Acme.LETS_ENCRYPT, key = key,
+        request = opts.request, pause = opts.pause, wait = opts.wait,
+      })
+      client = session
+    end
+    local account, refused = session:account({ contact = opts.contact, terms_agreed = opts.terms_agreed })
+    if account == nil then return nil, refused end
+    local key = opts.key or Acme.p256_key(Sign.p256_secret())
+    local chain, why = session:issue(names, {
+      key = key,
+      challenge = if dns ~= nil then "dns-01" else "http-01" end,
+      present = function(c: Acme.Challenge): boolean, string
+        if dns ~= nil then return dns.present(c) end
+        pending[c.path] = c.key_authorization
+        return true, ""
+      end,
+      cleanup = function(c: Acme.Challenge)
+        if dns ~= nil then
+          local cleanup = dns.cleanup
+          if cleanup ~= nil then cleanup(c) end
+          return
+        end
+        pending[c.path] = nil
+      end,
+    })
+    if chain == nil then return nil, why end
+    local pair: Tls.Pair = { cert = chain, key = assert(key.pem) }
+    -- One file, written whole, so a reader never sees a chain with
+    -- another's key.
+    local wrote, unwritten = Fs.write(dir .. "/certificate.pem", chain .. pair.key, OWNER_FILE)
+    if not wrote then return nil, "acme: " .. unwritten end
+    return pair, ""
+  end
+
+  local function source(min_validity_ns?: integer): {Tls.Pair}?, string
+    local text, _ = Fs.read(dir .. "/certificate.pem")
+    if text ~= nil then
+      local kept = pair_in(text)
+      -- Loaded on its own first, so a key that is not the chain's, or
+      -- one that cannot be read, is issued again rather than refused.
+      if kept ~= nil and fresh(kept, names, min_validity_ns) then
+        local usable, _ = Tls.certs(Tls.static({ kept })):load()
+        if usable then return { kept }, "" end
+      end
+    end
+    local pair, why = issued()
+    if pair == nil then return nil, why end
+    return { pair }, ""
+  end
+
+  local auto: Acme.Auto = {
+    certs = Tls.certs(source),
+    answer = function(_self: Acme.Auto, path: string): string?
+      return pending[path]
+    end,
+    handler = function(self: Acme.Auto, after?: function(req: Server.Request): Server.Reply): function(req: Server.Request): Server.Reply
+      return function(req: Server.Request): Server.Reply
+        if req.tls == nil then
+          local answer = self:answer(req.path)
+          if answer ~= nil then
+            return { status = 200, headers = { ["Content-Type"] = "text/plain" }, body = answer }
+          end
+          -- The HTTPS port is 443 whatever port this request came to.
+          local host = host_of(req.headers["host"])
+          if host == nil or req.path:sub(1, 1) ~= "/" then
+            return { status = 400, body = "no host and path to redirect to\n" }
+          end
+          local query = if req.query ~= "" then "?" .. req.query else "" end
+          return { status = 308, headers = { Location = "https://" .. host .. req.path .. query } }
+        end
+        if after ~= nil then return after(req) end
+        return { status = 404 }
+      end
+    end,
+  }
+  return auto
 end
 
 return Acme
