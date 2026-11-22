@@ -586,7 +586,8 @@ local function test_no_connect_means_no_relay_and_no_extra_descriptors(tmp: stri
   end
   while_waiting(tmp, function(handle: Child.Handle)
     local relay = assert(handle._relay)
-    local names = assert(Fs.list("/proc/" .. tostring(relay.pid) .. "/fd"), "the relay's descriptors are readable")
+    local names, _ = Fs.list("/proc/" .. tostring(relay.pid) .. "/fd")
+    assert(names ~= nil, "the relay's descriptors are readable")
     for _, name in ipairs(names) do
       local target = sys.readlink("/proc/" .. tostring(relay.pid) .. "/fd/" .. name)
       assert(target == nil or not target:find(kept, 1, true), "the relay holds this process's file")

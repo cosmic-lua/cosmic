@@ -210,7 +210,7 @@ Test.policy { loopback = { HOSTS } }
 local function test_refused()
   local response, trouble = Http.open("http://127.0.0.1:1/", { timeout_ns = Clock.seconds(60), connect_timeout_ns = Clock.seconds(2) })
   assert(response == nil and trouble ~= "")
-  if PROBE then error("NAME in " .. tostring((Fs.readlink("/proc/self/ns/net"))) .. " |") end
+  if PROBE then local ns, _ = Fs.readlink("/proc/self/ns/net") error("NAME in " .. tostring(ns) .. " |") end
 end
 ]]
   local function suite(root: string, name: string, hosts: string, probe: boolean)
@@ -472,7 +472,8 @@ local function run_then(tmp: string, root: string, env: {string:string}, out: st
   while found == "" and not ended and Clock.monotonic_ns() < deadline do
     local now, _ = handle:try_wait()
     ended = now ~= nil and now.finished
-    for _, entry in ipairs(Fs.list(tmp .. "/t") or {}) do
+    local listed_names, _ = Fs.list(tmp .. "/t")
+    for _, entry in ipairs(listed_names or {}) do
       for _, sub in ipairs({ "/real", "/tmp", "" }) do
         local dir = tmp .. "/t/" .. entry .. sub
         if Fs.exists(dir .. "/started") == true and Fs.exists(dir .. "/stop") ~= true then
@@ -1292,7 +1293,8 @@ local function test_a_store_whose_bytes_differ_from_its_kept_digest_fails_the_ru
   assert(second:find("must follow from its address alone", 1, true) and
       second:find("test: %d+ of %d+ tests? failed"), second)
   local kept_aside = false
-  for _, entry in ipairs(Fs.list(support.build_dir(tmp .. "/second") .. "/stores") or {}) do
+  local listed_names, _ = Fs.list(support.build_dir(tmp .. "/second") .. "/stores")
+  for _, entry in ipairs(listed_names or {}) do
     if entry:match("%.mismatch%.db$") then kept_aside = true end
   end
   assert(kept_aside, "the store whose bytes differ was not kept aside")

@@ -726,7 +726,7 @@ function Store.seal(names: {string}, path?: string,
   end
   local made_scratch, scratch_trouble = Fs.mkdtemp("seal-")
   if made_scratch == nil then
-    return nil, scratch_trouble
+    return nil, tostring(scratch_trouble)
   end
   local scratch: string = made_scratch
   local function build(): string?, string

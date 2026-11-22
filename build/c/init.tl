@@ -691,7 +691,7 @@ function c.check(root: string, files: {string}, cwd?: string, limit?: integer, s
   local made_deps, deps_trouble = Fs.mkdtemp("cosmic-c-deps-")
   if made_deps == nil then
     for i, file in ipairs(files) do
-      outcomes[i] = { file = file, trouble = "no directory for its compiler's caches: " .. deps_trouble }
+      outcomes[i] = { file = file, trouble = "no directory for its compiler's caches: " .. tostring(deps_trouble) }
     end
     return outcomes
   end

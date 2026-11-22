@@ -852,7 +852,7 @@ local function run(argv: {string}, program: string): integer
   end
   local script, strouble = Fs.absolute(program)
   if script == nil then
-    complain(strouble)
+    complain(tostring(strouble))
     return 2
   end
   local repo = script:match("^(.*)/eval/[^/]+%.tl$")
@@ -863,7 +863,7 @@ local function run(argv: {string}, program: string): integer
   local parent = transcript:match("^(.*)/[^/]*$") or "."
   local arena, atrouble = Fs.absolute(if parent == "" then "/" else parent end)
   if arena == nil then
-    complain(atrouble)
+    complain(tostring(atrouble))
     return 2
   end
   local text, trouble = Fs.read(transcript)

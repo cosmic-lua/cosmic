@@ -311,7 +311,8 @@ local function test_second(tmp: string) hold(tmp) end
   -- Each worker's directory holding the file its test wrote.
   local function held(): integer
     local count = 0
-    for _, name in ipairs(Fs.list(temp) or {}) do
+    local listed_names, _ = Fs.list(temp)
+    for _, name in ipairs(listed_names or {}) do
       if name:sub(1, 12) == "cosmic-test-" and Fs.exists(temp .. "/" .. name .. "/real/kept") == true then
         count = count + 1
       end

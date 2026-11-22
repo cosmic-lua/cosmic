@@ -468,7 +468,7 @@ function SeededBoot.main(argv: {string}): integer
   end
   local work, work_trouble = Fs.mkdtemp("cosmic-seeded-boot-")
   if work == nil then
-    say(work_trouble)
+    say(tostring(work_trouble))
     return 4
   end
   local found, why = matching_core(root, root .. "/build/seeded_boot.tl", work, plan)

@@ -73,7 +73,7 @@ function State.external_path(path: string, candidate: string): string
   local absolute: string
   if resolved == nil then
     for _, entry in ipairs((assert(Fs.list(directory)))) do
-      assert(entry ~= leaf, "path cannot be resolved: " .. trouble)
+      assert(entry ~= leaf, "path cannot be resolved: " .. tostring(trouble))
     end
     absolute = unresolved
   else

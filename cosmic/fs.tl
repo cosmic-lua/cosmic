@@ -1,7 +1,8 @@
 --- Files and directories.
 ---
 --- Every call goes through the syscall table, so one call behaves the
---- same on Linux and on macOS. [`Fs.read`] and [`Fs.stat`] answer
+--- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
+--- [`Fs.mkdtemp`], [`Fs.absolute`] and [`Fs.readlink`] answer
 --- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
 --- that names the path and the errno. Other fallible calls that produce
 --- a value still return `T | nil, string`: a value and `""` on success,
@@ -403,14 +404,12 @@ end
 --- A fresh, empty temporary directory under the system temp directory,
 --- named with `prefix` and a random suffix: `mktemp -d`. `TMPDIR` picks the
 --- temp directory when it is set, and `/tmp` otherwise.
-function Fs.mkdtemp(prefix: string): string?, string
+function Fs.mkdtemp(prefix: string): (string) | (nil, Failure)
   local base = Env.read("TMPDIR") or "/tmp"
   local template = base .. "/" .. prefix .. "XXXXXX"
-  local path, trouble = sys.mkdtemp(template)
-  if path == nil then
-    return nil, template .. ": " .. trouble
-  end
-  return path, ""
+  local path, _, errno = sys.mkdtemp(template)
+  if path == nil then return nil, Failure.system(errno, template) end
+  return path
 end
 
 --- A directory of this user's own at `path`, made 0700 when missing:
@@ -597,12 +596,10 @@ end
 
 --- The entries of a directory, sorted, without `.` and `..`: `ls -A`, or
 --- `readdir`.
-function Fs.list(path: string): {string}?, string
-  local entries, trouble = sys.readdir(path)
-  if entries == nil then
-    return nil, path .. ": " .. trouble
-  end
-  return sorted_names(entries), ""
+function Fs.list(path: string): ({string}) | (nil, Failure)
+  local entries, _, errno = sys.readdir(path)
+  if entries == nil then return nil, Failure.system(errno, path) end
+  return sorted_names(entries)
 end
 
 --- The directories a following walk is inside, innermost first, each
@@ -738,7 +735,7 @@ function Fs.scratch(parent: string): Fs.Scratch?, string
   local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
   if not locked then return nil, parent .. ": " .. lock_trouble end
   local names, list_trouble = Fs.list(parent)
-  if names == nil then return nil, list_trouble end
+  if names == nil then return nil, tostring(list_trouble) end
   for _, name in ipairs(names) do
     -- A name not of this form is not this function's to sweep, and one
     -- with no owner file has nothing to prove its holder dead.
@@ -773,12 +770,10 @@ function Fs.scratch(parent: string): Fs.Scratch?, string
 end
 
 --- A path with no link and no `..` left in it: `realpath`.
-function Fs.absolute(path: string): string?, string
-  local resolved, trouble = sys.realpath(path)
-  if resolved == nil then
-    return nil, path .. ": " .. trouble
-  end
-  return resolved, ""
+function Fs.absolute(path: string): (string) | (nil, Failure)
+  local resolved, _, errno = sys.realpath(path)
+  if resolved == nil then return nil, Failure.system(errno, path) end
+  return resolved
 end
 
 --- Moves a name, replacing the destination if it is there; this corresponds
@@ -876,12 +871,10 @@ function Fs.symlink(target: string, path: string): boolean, string
 end
 
 --- The target of a symbolic link.
-function Fs.readlink(path: string): string?, string
-  local target, trouble = sys.readlink(path)
-  if target == nil then
-    return nil, path .. ": " .. trouble
-  end
-  return target, ""
+function Fs.readlink(path: string): (string) | (nil, Failure)
+  local target, _, errno = sys.readlink(path)
+  if target == nil then return nil, Failure.system(errno, path) end
+  return target
 end
 
 --- Sets a path's modification time to `seconds` since the epoch and
@@ -982,7 +975,7 @@ function Fs.copy_tree(from: string, to: string): boolean, string
     local permissions = st.mode & 0x3ff
     if st.kind == "link" then
       local target_of, link_trouble = Fs.readlink(source)
-      if target_of == nil then return false, link_trouble end
+      if target_of == nil then return false, tostring(link_trouble) end
       local linked, symlink_trouble = Fs.symlink(target_of, target)
       if not linked then return false, symlink_trouble end
     elseif st.kind == "file" then

@@ -320,7 +320,7 @@ function rebuild.here(verb: string, start?: boolean, root?: string, carried?: st
   local at = root
   if at == nil then
     local found, trouble = Fs.absolute(".")
-    if found == nil then return false, trouble end
+    if found == nil then return false, tostring(trouble) end
     at = found
   end
   return project(at, verb, start == true, carried)

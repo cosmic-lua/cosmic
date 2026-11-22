@@ -1,4 +1,5 @@
 --- Real SQLite caches exercise retention, save identities and conservative failures.
+local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
@@ -186,7 +187,7 @@ local function test_retired_names_do_not_authorize_removing_other_file_kinds(tmp
   assert(result.complete, support.nth(result.report.files, 1).reason)
   assert(#support.nth(result.report.files, 1).removed_set_aside == 0)
   assert(assert(Fs.read(directory .. "/keep")) == "inside")
-  assert(assert(sys.lstat(link)).kind == "link" and Fs.readlink(link) == path)
+  assert(assert(sys.lstat(link)).kind == "link" and assert(Fs.readlink(link)) == path)
   assert(assert(sys.lstat(pipe)).kind == "fifo")
   assert(count(path, "compiled_v2") == 1)
 end
@@ -216,10 +217,11 @@ local function test_retired_file_disappearance_before_inspection_is_harmless(tmp
   local retired = path .. ".corrupt-1"
   assert(Fs.write(retired, "retired"))
   local original = Fs.list
-  Fs.list = function(dir: string): {string}?, string -- checked: field_fixed
+  Fs.list = function(dir: string): ({string}) | (nil, Failure) -- checked: field_fixed
     local names, why = original(dir)
     if dir == tmp then assert(Fs.remove(retired)) end
-    return names, why
+    if names == nil then return nil, why end
+    return names
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Fs.list = original -- checked: field_fixed

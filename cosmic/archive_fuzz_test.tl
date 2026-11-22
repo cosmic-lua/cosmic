@@ -17,6 +17,18 @@ local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local sys = require("cosmic.sys")
 
+--- The names in `dir`, or none where it cannot be listed.
+local function listed(dir: string): {string}
+  local names, _ = Fs.list(dir)
+  return names or {}
+end
+
+--- The target of the link at `path`, or nil where it is no link.
+local function link_of(path: string): string?
+  local target, _ = Fs.readlink(path)
+  return target
+end
+
 --- `@OUT@` stands for the directory beside the destination that nothing
 --- may reach, spelled absolutely: the generator runs before the check
 --- knows where that is.
@@ -153,7 +165,8 @@ local function links_under(dir: string, found: mut {string})
 end
 
 local function test_extraction_stays_inside_its_destination(tmp: string)
-  local base = Fs.absolute(tmp) or tmp
+  local tmp_absolute, _ = Fs.absolute(tmp)
+  local base = tmp_absolute or tmp
   local case = base .. "/case"
   Fuzz.run({
     name = "archive extraction contained",
@@ -184,18 +197,18 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
       if written ~= nil and #written > 0 then Fuzz.label("extracted") end
       -- What a hostile entry among well-formed ones reaches: the
       -- writes before it, left in place when it is refused.
-      if written == nil and (Fs.list(dest) or {})[1] ~= nil then
+      if written == nil and listed(dest)[1] ~= nil then
         Fuzz.label("refused after writing")
       end
       -- The escape `target_crosses_link` exists for: `link -> .` made,
       -- then a link through it (`x -> link/..`, which leads to dest's
       -- parent) refused.
       if written == nil and trouble:find("another symlink", 1, true) ~= nil and
-          Fs.readlink(dest .. "/link") == "." then
+          link_of(dest .. "/link") == "." then
         Fuzz.label("refused a link through a link")
       end
       for _, rel in ipairs(written or {}) do
-        if Fs.readlink(dest .. "/" .. rel) ~= nil then
+        if link_of(dest .. "/" .. rel) ~= nil then
           Fuzz.label("linked")
           break
         end
@@ -205,24 +218,24 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
           return false, "reported writing " .. rel
         end
       end
-      local names = Fs.list(case) or {}
+      local names = listed(case)
       for _, name in ipairs(names) do
         if name ~= "archive" and name ~= "dest" and name ~= "outside" then
           return false, "wrote " .. case .. "/" .. name .. " beside the destination"
         end
       end
-      local out_names = Fs.list(outside) or {}
+      local out_names = listed(outside)
       if #out_names ~= 1 or assert(Fs.read(outside .. "/sentinel")) ~= "untouched" then
         return false, "wrote into " .. outside .. ": " .. table.concat(out_names, ", ")
       end
-      local real_dest = Fs.absolute(dest)
+      local real_dest, _ = Fs.absolute(dest)
       if real_dest == nil then return true, "" end
       local links: mut {string} = {}
       links_under(real_dest, links)
       for _, link in ipairs(links) do
-        local target = Fs.readlink(link)
+        local target, _ = Fs.readlink(link)
         if target == nil then return false, "cannot read the link " .. link end
-        local absolute = Fs.absolute(link)
+        local absolute, _ = Fs.absolute(link)
         local resolved: string
         if absolute ~= nil then
           resolved = absolute
@@ -399,7 +412,7 @@ local function snapshot(dir: string): string
       local path = at .. "/" .. name
       local line = prefix .. name .. " " .. kind
       if kind == "link" then
-        local target = Fs.readlink(path)
+        local target, _ = Fs.readlink(path)
         line = line .. " " .. tostring(target)
       elseif kind == "file" then
         local body, _ = Fs.read(path)
@@ -421,7 +434,8 @@ end
 -- move into a destination that already holds files) against a direct
 -- extract into the same destination; only its unit tests reach it now.
 local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tmp: string)
-  local base = Fs.absolute(tmp) or tmp
+  local tmp_absolute, _ = Fs.absolute(tmp)
+  local base = tmp_absolute or tmp
   local case = base .. "/case"
   Fuzz.run({
     name = "archive extract_reader parity",
@@ -557,7 +571,8 @@ end
 --- first file that passes one, leaves the files before it whole and no
 --- trace of it, and never has written more than a limit allows.
 local function test_extraction_stays_under_its_byte_limits(tmp: string)
-  local base = Fs.absolute(tmp) or tmp
+  local tmp_absolute, _ = Fs.absolute(tmp)
+  local base = tmp_absolute or tmp
   local case = base .. "/case"
   Fuzz.run({
     name = "archive extraction byte limits",
@@ -614,7 +629,7 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
         if written == nil and trouble ~= says[1] and trouble ~= says[2] then
           return false, "refused as '" .. trouble .. "', not '" .. table.concat(says, "' or '") .. "'"
         end
-        local names = Fs.list(dest) or {}
+        local names = listed(dest)
         table.sort(names) -- checked: overload_none
         local want: mut {string} = {}
         for i = 1, kept do want[i] = "f" .. tostring(i) end

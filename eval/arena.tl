@@ -114,7 +114,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   end
   local physical, ptrouble = Fs.absolute(existing)
   if physical == nil then
-    return nil, ptrouble
+    return nil, tostring(ptrouble)
   end
   dir = (if physical == "/" then "" else physical end) .. rest .. "/" .. name
   if Fs.within(dir, real_repo) then
@@ -130,7 +130,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   -- resolved only now.
   physical, ptrouble = Fs.absolute(made_parent)
   if physical == nil then
-    return nil, ptrouble
+    return nil, tostring(ptrouble)
   end
   dir = (if physical == "/" then "" else physical end) .. "/" .. name
   if Fs.within(dir, real_repo) then
@@ -190,7 +190,7 @@ local function run(argv: {string}, program: string): integer
   end
   local script, strouble = Fs.absolute(program)
   if script == nil then
-    complain(strouble)
+    complain(tostring(strouble))
     return 2
   end
   local eval = script:match("^(.*)/[^/]+%.tl$")

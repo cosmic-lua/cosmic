@@ -1246,7 +1246,7 @@ function embed.run(argv: {string}, at?: string, carried?: string): integer
   end
   local root, root_trouble = Fs.absolute(at or ".")
   if root == nil then
-    log:complain(root_trouble)
+    log:complain(tostring(root_trouble))
     return 1
   end
   local out: string? = nil

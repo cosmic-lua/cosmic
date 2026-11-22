@@ -101,7 +101,7 @@ end
 local function write_fixture(case: string, files: {string:string}): string?, string
   local root, trouble = Fs.mkdtemp("cosmic-importer-test-" .. case .. "-")
   if root == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local all: mut {string:string} = {}
   for filename, source in pairs(files) do
@@ -117,10 +117,9 @@ local function write_fixture(case: string, files: {string:string}): string?, str
     if parent ~= nil and not Fs.mkdirs(root .. "/" .. parent) then
       return nil, root .. "/" .. parent .. ": could not create fixture directory"
     end
-    local ok: boolean
-    ok, trouble = Fs.write(root .. "/" .. filename, source)
+    local ok, written_trouble = Fs.write(root .. "/" .. filename, source)
     if not ok then
-      return nil, trouble
+      return nil, written_trouble
     end
   end
   return root, ""

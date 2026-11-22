@@ -15,6 +15,12 @@ local Zip = require("cosmic.zip")
 local Archive = require("cosmic.archive")
 local Test = require("cosmic.test")
 
+--- The target of the link at `path`, or nil where it is no link.
+local function link_of(path: string): string?
+  local target, _ = Fs.readlink(path)
+  return target
+end
+
 --- `tar -cf a.tar src` (a directory holding src/short.txt and the
 --- symlink src/adir/alink -> short.txt), then gzip/xz/bzip2/zstd -c.
 local TAR_GZ_B64 <const> =
@@ -451,7 +457,7 @@ local function test_extract_lets_a_later_entry_replace_a_pending_symlink(tmp: st
   local dest = tmp .. "/out"
   assert(Archive.extract(archive, dest, { links = "create" }))
   assert(assert(Fs.read(dest .. "/x")) == "a regular file after all")
-  assert(Fs.readlink(dest .. "/x") == nil)
+  assert(link_of(dest .. "/x") == nil)
 end
 
 local function test_extract_refuses_a_link_target_that_walks_through_another_link(tmp: string)
@@ -478,7 +484,7 @@ local function test_extract_refuses_a_link_target_through_a_missing_directory(tm
   local written, trouble = Archive.extract(archive, tmp .. "/out", { links = "create" })
   assert(written == nil and trouble:find("runs through another symlink or a missing directory", 1,
     true) ~= nil, trouble)
-  assert(Fs.readlink(tmp .. "/out/x") == nil)
+  assert(link_of(tmp .. "/out/x") == nil)
 end
 
 local function test_extract_creates_links_through_real_directories(tmp: string)
@@ -984,7 +990,7 @@ local function test_extract_creates_a_zip_symlink_as_a_symlink(tmp: string)
   assert(kinds["src/adir/alink"] == "symlink")
   local dest = tmp .. "/out"
   assert(Archive.extract(archive, dest, { links = "create" }))
-  assert(Fs.readlink(dest .. "/src/adir/alink") == "short.txt")
+  assert(link_of(dest .. "/src/adir/alink") == "short.txt")
   -- skipped by default, like a tar symlink, rather than written as a file
   local dest2 = tmp .. "/out2"
   assert(Archive.extract(archive, dest2))
@@ -1049,7 +1055,7 @@ local function test_extract_reader_unpacks_a_stream_as_extract_unpacks_the_file(
   local got = assert(Archive.extract_reader(reader, tmp .. "/stream", { links = "create" }))
   assert(table.concat(got, ",") == table.concat(want, ","), table.concat(got, ","))
   assert(assert(Fs.read(tmp .. "/stream/adir/short.txt")) == "hello there")
-  assert(Fs.readlink(tmp .. "/stream/adir/link") == "short.txt")
+  assert(link_of(tmp .. "/stream/adir/link") == "short.txt")
   assert(assert(Fs.read(tmp .. "/stream/bin/tool")) == "#!/bin/sh\necho hi\n")
 end
 
@@ -1090,7 +1096,7 @@ local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_
   assert(written == nil and why:find("missing directory", 1, true) ~= nil, why)
   assert(Fs.mkdirs(tmp .. "/real/held"))
   assert(unpack(tmp .. "/s2", { links = "create", resolve_in = tmp .. "/real" }))
-  assert(Fs.readlink(tmp .. "/s2/via") == "held/inner")
+  assert(link_of(tmp .. "/s2/via") == "held/inner")
   -- A link the real destination holds in that place is no directory.
   assert(Fs.symlink(".", tmp .. "/real2held"))
   assert(Fs.mkdirs(tmp .. "/real2"))

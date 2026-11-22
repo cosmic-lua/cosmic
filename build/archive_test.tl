@@ -7,6 +7,7 @@
 --- its own shows, are in build/archive_tool_test.tl.
 
 local Compress = require("cosmic.compress")
+local type Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
@@ -226,7 +227,7 @@ local function test_list_spools_no_temporary_file_for_a_tar_stream_but_does_for_
   local made = 0
   local real_mkdtemp = Fs.mkdtemp
   local patched = Fs as {string:any} -- checked: cast_refused
-  patched.mkdtemp = function(prefix: string): string?, string
+  patched.mkdtemp = function(prefix: string): (string) | (nil, Failure)
     made = made + 1
     return real_mkdtemp(prefix)
   end
@@ -863,7 +864,7 @@ end
 local function tree_of(dir: string): {string}
   local out: mut {string} = {}
   local function walk(at: string, prefix: string)
-    local listed = Fs.list(at)
+    local listed, _ = Fs.list(at)
     if listed == nil then return end
     for _, name in ipairs(listed) do
       out[#out + 1] = prefix .. name
@@ -881,7 +882,7 @@ local function counting_mkdtemp(body: function()): integer
   local made = 0
   local real = Fs.mkdtemp
   local patched = Fs as {string:any} -- checked: cast_refused
-  patched.mkdtemp = function(prefix: string): string?, string
+  patched.mkdtemp = function(prefix: string): (string) | (nil, Failure)
     made = made + 1
     return real(prefix)
   end
@@ -1041,7 +1042,7 @@ local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: s
   -- A link may lead through a directory only the destination holds.
   local via = assert(Fs.read(make_tar(tmp .. "/v.tar", { link_member("via", "proj/keep.txt") })))
   assert(run({ "extract", "-", "-C", dest }, via).code == 0)
-  assert(Fs.readlink(dest .. "/via") == "proj/keep.txt")
+  assert(assert(Fs.readlink(dest .. "/via")) == "proj/keep.txt")
   -- A path through a symlink the destination holds is refused, and
   -- nothing else moves.
   local out = tmp .. "/outdir"
@@ -1053,7 +1054,8 @@ local function test_a_stream_is_moved_into_a_destination_that_holds_files(tmp: s
   assert(refused_run.code == 2 and refused_run.err:find("through a symlink", 1, true) ~= nil, refused_run.err)
   assert(Fs.exists(dest .. "/aaa.txt") ~= true and Fs.exists(out .. "/f.txt") ~= true)
   assert(#tree_of(out) == 0)
-  for _, name in ipairs(Fs.list(dest) or {}) do
+  local listed_names, _ = Fs.list(dest)
+  for _, name in ipairs(listed_names or {}) do
     assert(not name:find("cosmic-extract", 1, true), name)
   end
 end

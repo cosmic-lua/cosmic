@@ -426,7 +426,7 @@ local SEARCHABLE_MODE <const> = 7 * 64 + 5 * 8 + 5
 local function scratch(held: mut {string}): string?, string
   if held[1] ~= nil then return held[1], "" end
   local dir, why = Fs.mkdtemp("sandbox-")
-  if dir == nil then return nil, why end
+  if dir == nil then return nil, tostring(why) end
   held[1] = dir
   local opened, open_why = sys.chmod(dir, SEARCHABLE_MODE)
   if not opened then return nil, dir .. ": " .. tostring(open_why) end
@@ -573,7 +573,7 @@ end
 -- directory is no place for a named pipe fails the start today.
 local function notes_pipe(): Notes?, string
   local dir, dir_why = Fs.mkdtemp("sandbox-notes-")
-  if dir == nil then return nil, dir_why end
+  if dir == nil then return nil, tostring(dir_why) end
   local path = dir .. "/lines"
   local made, make_why = sys.mkfifo(path, tonumber("600", 8))
   local reader, writer: integer?, integer?

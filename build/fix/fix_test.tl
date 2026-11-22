@@ -755,7 +755,7 @@ local function test_a_link_is_not_written(tmp: string)
   local chunk = assert(SyntaxNode.parse(source, link))
   local done = fix.lay_out_source(link, source, chunk, false, nil)
   assert(done.state == "linked" and done.why == "not written: " .. link .. " is a link; fix its target", done.why)
-  assert(Fs.readlink(link) == "real.tl", "the link was replaced")
+  assert(assert(Fs.readlink(link)) == "real.tl", "the link was replaced")
   assert(assert(Fs.read(target)) == "local   x=1\n")
   -- A check says only that it is not laid out.
   assert(fix.lay_out_source(link, source, chunk, true, nil).state == "unlaid")

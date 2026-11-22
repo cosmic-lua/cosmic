@@ -271,7 +271,7 @@ local function test_publish_appends_to_the_summary_link_in_place(tmp: string)
   assert(code == 0, trouble)
   local after = assert(Fs.stat(target))
   assert(before.ino == after.ino and before.mode == after.mode)
-  assert(Fs.readlink(assert(env["GITHUB_STEP_SUMMARY"])) == target)
+  assert(assert(Fs.readlink(assert(env["GITHUB_STEP_SUMMARY"]))) == target)
   assert(read(target) == "earlier\nUbuntu: `ghcr.io/owner/repo-ci-ubuntu@sha256:0123abcd`\n")
 end
 

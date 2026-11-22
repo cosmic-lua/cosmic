@@ -853,7 +853,7 @@ function fix.links(context: link_resolve.Context, files: {string}, mode?: string
     if source == nil then
       out[#out + 1] = file .. ": " .. tostring(read_trouble)
     elseif absolute == nil then
-      out[#out + 1] = file .. ": " .. absolute_trouble
+      out[#out + 1] = file .. ": " .. tostring(absolute_trouble)
     elseif kind ~= nil then
       if mode ~= nil then
         local linked = SyntaxLinks.rewrite(resolver, file, absolute, kind, source, known[file])
@@ -1143,7 +1143,7 @@ local function read_command(ctx: Fix): integer?
 
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    log:complain(root_trouble)
+    log:complain(tostring(root_trouble))
     return 1
   end
   ctx.root = root

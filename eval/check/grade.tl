@@ -445,7 +445,7 @@ local function hidden_api(g: Grade, cosmic: string, project: string, test: strin
   end
   local scratch, strouble = Fs.mkdtemp("cosmic-eval-api-")
   if scratch == nil then
-    fail(g, "hidden api: " .. strouble)
+    fail(g, "hidden api: " .. tostring(strouble))
     return
   end
   local copy = scratch .. "/project"
@@ -2451,7 +2451,7 @@ function Grader.run(argv: {string}, program: string): integer
   if script ~= nil then here = script:match("^(.*)/[^/]+%.tl$") end
   if here == nil then
     local said = program .. ": expected to run as .../eval/check/grade.tl"
-    if script == nil then said = trouble end
+    if script == nil then said = tostring(trouble) end
     local _, _ = Fs.put(Fs.stderr, "grade: " .. said .. "\n")
     return 2
   end

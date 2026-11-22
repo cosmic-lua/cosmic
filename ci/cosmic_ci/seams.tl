@@ -90,7 +90,11 @@ local current: Seams.Calls = {
   child_start = start,
   env_all = Env.all,
   env_get = Env.get,
-  fs_absolute = Fs.absolute,
+  fs_absolute = function(path: string): string?, string
+    local real, why = Fs.absolute(path)
+    if real == nil then return nil, tostring(why) end
+    return real, ""
+  end,
   fs_append = Fs.append,
   fs_exists = Fs.exists,
   fs_open_write = Fs.open_write,

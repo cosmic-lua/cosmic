@@ -232,7 +232,7 @@ local function layout(root: string): string
   local function walk(relative: string)
     for _, entry in ipairs((assert(Fs.list(root .. relative)))) do
       local path = relative .. "/" .. entry
-      local target = Fs.readlink(root .. path)
+      local target, _ = Fs.readlink(root .. path)
       if target then
         lines[#lines + 1] = path .. " -> " .. target
       elseif Fs.is_dir(root .. path) == true then
@@ -263,7 +263,7 @@ local function test_a_restore_after_a_move_gives_the_checkout_back()
   local out = place(workspace, "")
   assert(out[1] == "the tree is at " .. root .. "/" .. relative .. " (commit " .. SHA ..
       ", leg linux-x86_64)", out[1])
-  assert(Fs.readlink(workspace) == relative, layout(root))
+  assert(assert(Fs.readlink(workspace)) == relative, layout(root))
   assert(assert(Fs.read(workspace .. "/ci/driver.tl")) == "driver\n", layout(root))
   out = place(workspace, "--restore")
   assert(out[1] == "the tree is back at " .. workspace .. " from " .. root .. "/" .. relative, out[1])
@@ -303,7 +303,7 @@ local function test_a_restore_refuses_a_link_to_another_name()
   assert(PlaceTree.run(given, "--restore") == 1)
   assert(#out == 0 and err[1] == "place-tree: " .. workspace .. " links to other, not " .. relative,
     tostring(err[1]))
-  assert(Fs.readlink(workspace) == "other")
+  assert(assert(Fs.readlink(workspace)) == "other")
   assert(Fs.remove_tree(root))
 end
 
@@ -323,7 +323,7 @@ local function test_a_moved_tree_sits_beside_the_workspace_where_its_relative_pa
     local root, workspace = runner()
     place(workspace, "", leg)
     local relative = name(SHA, leg)
-    assert(Fs.readlink(workspace) == relative, layout(root))
+    assert(assert(Fs.readlink(workspace)) == relative, layout(root))
     assert(assert(Fs.read(root .. "/cosmic/" .. relative .. "/ci/driver.tl")) == "driver\n", layout(root))
     -- As actions/cache names the runner's temp directory for
     -- `tar -C $GITHUB_WORKSPACE`: the kernel climbs from the link's
@@ -332,7 +332,8 @@ local function test_a_moved_tree_sits_beside_the_workspace_where_its_relative_pa
     assert(assert(Fs.read(workspace .. "/../../_temp/zig-build/entry")) == "entry\n",
       leg .. ": " .. layout(root))
     place(workspace, "--restore", leg)
-    assert(Fs.readlink(workspace) == nil and assert(Fs.read(workspace .. "/ci/driver.tl")) == "driver\n",
+    local link, _ = Fs.readlink(workspace)
+    assert(link == nil and assert(Fs.read(workspace .. "/ci/driver.tl")) == "driver\n",
       layout(root))
     assert(Fs.remove_tree(root))
   end
@@ -345,7 +346,7 @@ local function test_a_gating_run_keyed_by_declarations_moves_the_tree_to_the_leg
   local before = layout(root)
   local out = place(workspace, "", "macos-aarch64", "1")
   assert(assert(out[1]):find(", a gating run keyed by the path)", 1, true), out[1])
-  assert(Fs.readlink(workspace) == name("0" .. SHA:sub(2), "macos-aarch64", "push", "1"),
+  assert(assert(Fs.readlink(workspace)) == name("0" .. SHA:sub(2), "macos-aarch64", "push", "1"),
     layout(root))
   place(workspace, "--restore", "macos-aarch64", "1")
   assert(layout(root) == before, layout(root))

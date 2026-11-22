@@ -23,6 +23,14 @@ local function test_stat_answers_a_failure_with_the_path_and_the_errno(tmp: stri
   assert(assert(Fs.stat(tmp .. "/present")).size == 2)
 end
 
+local function test_list_and_absolute_answer_a_failure_with_the_path_and_the_errno(tmp: string)
+  local names, list_why = Fs.list(tmp .. "/absent")
+  assert(names == nil and list_why.errno == sys.ENOENT and list_why.path == tmp .. "/absent", tostring(list_why))
+  local real, real_why = Fs.absolute(tmp .. "/absent")
+  assert(real == nil and real_why.errno == sys.ENOENT and real_why.path == tmp .. "/absent", tostring(real_why))
+  assert(#assert(Fs.list(tmp)) == 0)
+end
+
 local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
   local file = tmp .. "/file"
   assert(Fs.write(file, "contents"))
@@ -378,14 +386,13 @@ local function test_symlink_and_readlink_round_trip(tmp: string)
   local made, trouble = Fs.symlink(target, link)
   assert(made and trouble == "")
 
-  local read_back, read_trouble = Fs.readlink(link)
-  assert(read_back == target and read_trouble == "")
+  assert(assert(Fs.readlink(link)) == target)
 
   -- The link resolves through to the target's contents.
   assert(assert(Fs.read(link)) == "contents")
 
   local missing, missing_trouble = Fs.readlink(tmp .. "/missing")
-  assert(missing == nil and missing_trouble:find(tmp .. "/missing", 1, true) ~= nil)
+  assert(missing == nil and missing_trouble.path == tmp .. "/missing" and missing_trouble.errno == sys.ENOENT)
 end
 
 --- The modification time is set to the nanosecond, and the access

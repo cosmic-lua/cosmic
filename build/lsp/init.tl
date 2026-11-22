@@ -322,7 +322,7 @@ local function run(argv: {string}): integer
   end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    complain(root_trouble)
+    complain(tostring(root_trouble))
     return bare.failed
   end
   if #listeners == 0 then

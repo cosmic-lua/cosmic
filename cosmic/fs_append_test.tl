@@ -32,7 +32,7 @@ local function test_append_follows_symlink_without_replacing_it(tmp: string)
   assert(Fs.write(path, "before"))
   assert(Fs.symlink("target", link))
   assert(Fs.append(link, "after"))
-  assert(Fs.readlink(link) == "target" and assert(Fs.read(path)) == "beforeafter")
+  assert(assert(Fs.readlink(link)) == "target" and assert(Fs.read(path)) == "beforeafter")
 end
 
 local function test_append_open_failures_name_the_path(tmp: string)

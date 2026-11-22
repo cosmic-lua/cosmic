@@ -2360,7 +2360,7 @@ end
 local function read_command(ctx: Run): integer?
   local root, root_trouble = Fs.absolute(".")
   if root == nil then
-    log:complain(root_trouble)
+    log:complain(tostring(root_trouble))
     return 1
   end
   ctx.root = root

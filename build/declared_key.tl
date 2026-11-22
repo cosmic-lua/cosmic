@@ -494,7 +494,7 @@ local function carried_digest(database: string, kept: string): string?, string
   -- one (core/vfs.c opens the running artifact's alone): today it is
   -- copied out to a scratch file, as build.refresh does.
   local scratch, scratch_trouble = Fs.mkdtemp("cosmic-program-")
-  if scratch == nil then return nil, scratch_trouble end
+  if scratch == nil then return nil, tostring(scratch_trouble) end
   local path = scratch .. "/carried.db"
   local answer: string? = nil
   local trouble = ""

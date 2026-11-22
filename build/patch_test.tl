@@ -244,7 +244,7 @@ local function test_zig_lib_that_fails_leaves_nothing(dir: string)
   local written, err = Patch.zig_lib(dir .. "/root", dir .. "/lib", out)
   assert(not written and err:find("patch/zig-lib/01-absent.txt: found 0 matches", 1, true) ~= nil, err)
   assert(Fs.exists(out) ~= true, "a failed library was left at its name")
-  local left = assert((Fs.list(dir .. "/cache")))
+  local left = assert(Fs.list(dir .. "/cache"))
   for _, name in ipairs(left) do
     assert(name:match("^%.scratch%.") == nil, "a failed library left its scratch: " .. name)
   end

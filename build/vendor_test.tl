@@ -90,7 +90,8 @@ local function test_a_link_to_a_directory_is_removed_not_followed(dir: string)
   assert(Fs.symlink("../outside", dir .. "/tree/linked"))
   write_tar(dir .. "/archive.tar", { ["pkg/src/one.c"] = "one" })
   assert(Vendor.run({ dir .. "/tree", dir .. "/archive.tar" }, "build/vendor.tl") == 0)
-  assert(Fs.readlink(dir .. "/tree/linked") == nil, "the link was left")
+  local link, _ = Fs.readlink(dir .. "/tree/linked")
+  assert(link == nil, "the link was left")
   assert(assert(Fs.read(dir .. "/outside/kept.c")) == "not the tree's", "the link was followed")
 end
 
