@@ -379,7 +379,7 @@ local function test_a_failing_store_is_a_500_and_a_cookie_over_the_limit_is_rais
 end
 
 local function test_secure_follows_the_scheme_and_a_secure_cookie_is_sent_only_over_https()
-  local app = make_app(options(cookie_store()), { trusted_proxy = true })
+  local app = make_app(options(cookie_store()), { trusted_proxy = { "loopback" } })
   local client = Web.test_client(app)
   local plain = client:post("/set/user/ada")
   assert(not first_set_cookie(plain).secure)
@@ -394,7 +394,7 @@ local function test_secure_follows_the_scheme_and_a_secure_cookie_is_sent_only_o
 end
 
 local function test_secure_true_names_the_cookie_host_prefixed_and_always_sets_secure()
-  local app = make_app(options(cookie_store(), { secure = true }), { trusted_proxy = true })
+  local app = make_app(options(cookie_store(), { secure = true }), { trusted_proxy = { "loopback" } })
   local client = Web.test_client(app)
   local res = client:post("/set/user/ada")
   local parsed = first_set_cookie(res)
@@ -614,7 +614,7 @@ local function test_setting_nil_removes_the_key_in_both_stores()
 end
 
 local function test_same_site_none_follows_the_scheme_of_the_request()
-  local app = make_app(options(cookie_store(), { same_site = "None" }), { trusted_proxy = true })
+  local app = make_app(options(cookie_store(), { same_site = "None" }), { trusted_proxy = { "loopback" } })
   local client = Web.test_client(app)
   client.scheme = "https"
   local parsed = first_set_cookie(client:post("/set/a/1"))

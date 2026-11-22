@@ -160,14 +160,16 @@ local record Types
     --- The untyped escape hatch for ad-hoc scratch values; a module
     --- shipping middleware uses a typed [`Web.key`] instead.
     state: {string:any}
-    --- The peer, or nil where the connection has none (a unix socket). With
-    --- `trusted_proxy`, the address `X-Forwarded-For` ends in.
+    --- The peer, or nil where the connection has none (a unix socket). From
+    --- a peer [`AppSpec.trusted_proxy`] names, the address `X-Forwarded-For`
+    --- gives.
     client?: Client
-    --- "http", or "https" when `trusted_proxy` is set and the proxy said so.
+    --- "http", or "https" when the request came over TLS or from a peer
+    --- [`AppSpec.trusted_proxy`] names that said so.
     scheme: string
     --- The host asked for, as the Host header gives it (with its port),
-    --- or, with `trusted_proxy`, `X-Forwarded-Host`; nil where none was
-    --- sent.
+    --- or, from a peer [`AppSpec.trusted_proxy`] names, `X-Forwarded-Host`;
+    --- nil where none was sent.
     host?: string
     --- What the router decided; set before the middleware stack runs.
     mut outcome?: Outcome
@@ -528,11 +530,19 @@ local record Types
     --- raises when the app is made. A request for another host, at any
     --- port, or whose Host header is not `host[:port]` whole, is a 400.
     mut trusted_hosts?: {string}
-    --- Take the scheme, host and client from `X-Forwarded-Proto`,
-    --- `X-Forwarded-Host` and `X-Forwarded-For` (false by default). Only
-    --- the last entry of each is read: the one the proxy next to the app
-    --- added, since the earlier ones are the client's.
-    trusted_proxy?: boolean
+    --- The peers that are the app's proxy, whose `X-Forwarded-Proto`,
+    --- `X-Forwarded-Host` and `X-Forwarded-For` give the request's
+    --- scheme, host and client (none by default). Each entry is an
+    --- address (`"10.0.0.2"`, `"::1"`), a prefix (`"10.0.0.0/8"`,
+    --- `"fd00::/8"`), `"loopback"` (127/8 and ::1), or `"unix"`, a
+    --- connection to a unix-socket listener; [`Web.app`] raises for any
+    --- other, `true` among them. A request from another peer keeps its
+    --- own scheme, host and address, whatever it sends. Only the last
+    --- entry of `X-Forwarded-Proto` and `X-Forwarded-Host` is read, the
+    --- one the proxy next to the app added. The client is the right-most
+    --- entry of `X-Forwarded-For` that is none of these peers, since the
+    --- entries before it are the client's to write.
+    trusted_proxy?: {string}
     --- Answers a status in place of the default error page, by status.
     error_pages?: {integer: Handler}
     --- Makes the page of an error that has no entry in `error_pages`: the
@@ -608,6 +618,25 @@ local record Types
     --- The capabilities the daemon's Serve passes on to `serve_socket`,
     --- which [`Web.tailnet`] reads from its header there, and no others.
     mut serve_caps?: {string}
+    --- The peers of [`AppSpec.trusted_proxy`], as [`Web.app`] read them;
+    --- nil where it names none.
+    proxies?: Proxies
+  end
+
+  --- An address prefix of [`Proxies`].
+  record ProxyPrefix
+    --- The prefix's address: 4 bytes for IPv4, 16 for IPv6.
+    octets: {integer}
+    --- How many leading bits of `octets` an address must share.
+    bits: integer
+  end
+
+  --- The peers [`AppSpec.trusted_proxy`] names.
+  record Proxies
+    --- Whether a connection to a unix-socket listener is the proxy's.
+    unix: boolean
+    --- The address prefixes; an address is a prefix of all its bits.
+    prefixes: {ProxyPrefix}
   end
 
   --- What [`Web.serve`] takes.

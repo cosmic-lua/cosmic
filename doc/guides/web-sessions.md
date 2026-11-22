@@ -193,7 +193,7 @@ a user, and a login that changes the session's id. With `secure = true` the
 cookie is named `__Host-session` (or `__Secure-session` with a `domain`),
 the name a browser holds to `Secure`, path `/` and no domain; without it,
 `Secure` follows the request's scheme, which a proxy that ends TLS supplies with `X-Forwarded-Proto` once
-`trusted_proxy` is set ([the security guide](web-security.md)).
+`trusted_proxy` names the proxy ([the security guide](web-security.md)).
 
 ```teal file=greet_test.tl
 local Greet = require("greet")

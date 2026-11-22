@@ -323,7 +323,7 @@ local function test_named_trusted_hosts_replace_the_loopback_default()
 end
 
 local function test_a_development_app_with_a_trusted_proxy_is_refused()
-  local app = Dev.app({ routes = routes(), sink = quiet(), trusted_proxy = true }, { enabled = true })
+  local app = Dev.app({ routes = routes(), sink = quiet(), trusted_proxy = { "loopback" } }, { enabled = true })
   local ok, why = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 0) } })
   assert(ok == false and why:find("trusted_proxy", 1, true) ~= nil, tostring(why))
 end
