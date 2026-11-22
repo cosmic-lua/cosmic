@@ -152,3 +152,26 @@ local function test_a_failure_with_a_text_of_its_own_is_read_by_tostring()
   Programs.says(class .. "print(\"x: \" .. why)\n", "operand_type", nil, "`tostring(why)`")
   Programs.stands(class .. "local s: string = tostring(why)\nprint(\"x: \" .. s)\n", "x: gone")
 end
+
+local function test_assert_passes_the_list_that_is_no_failure()
+  -- `assert` raises at a nil or false first value, so what it answers is the one list whose first value is neither.
+  assert(type_of("local n = assert(parse(\"4\"))\n", "n") == "integer")
+  stands("print(assert(parse(\"4\")) + 1)\n", "5")
+  local pair = "local function pair(on: boolean): (true, integer) | (false, string)\n  if on then\n    return true, 3\n" ..
+    "  end\n  return false, \"off\"\nend\n"
+  Programs.stands(pair .. "local ok, v = assert(pair(true))\nprint(ok, v + 1)\n", "true\t4")
+  -- The failure is what it raises.
+  stands("local ok, raised = pcall(function()\n  local _ = assert(parse(\"x\"))\nend)\nprint(ok, raised)\n",
+    "false\tt:15: not a number: x")
+  -- Where the value of the list that is no failure may be false, `assert` would raise at it too: no list passes.
+  Programs.says(HEAD .. "local f = assert(flag(true))\nprint(f)\n", "alternatives_as_value", "`assert` tells none of them apart",
+    "`local v, why = flag(true)`")
+  -- A list whose first value may be true or false (a `boolean`) may pass `assert` as well: none is chosen.
+  Programs.says("local function f(on: boolean): (integer, true) | (boolean, false)\n  if on then\n    return 1, true\n" ..
+      "  end\n  return true, false\nend\nlocal a = assert(f(false))\nprint(a)\n", "alternatives_as_value",
+    "`assert` tells none of them apart")
+  -- In `assert(x, f())`, `x` is what `assert` tests: the call is no value there.
+  refused("print(assert(true, parse(\"x\")))\n", "alternatives_as_value")
+  -- Elsewhere a call that may fail is still no value.
+  refused("print(parse(\"4\"))\n", "alternatives_as_value")
+end
