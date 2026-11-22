@@ -1560,7 +1560,7 @@ lower_type = function(ctx: Ctx, t: Ast.Type): Type
   elseif t.kind == "TypeNil" then
     out = store:atom("nil")
   elseif t.kind == "TypeString" then
-    out = store:literal(t.value)
+    out = Types.literal(store, t.value)
   elseif t.kind == "TypeArray" or t.kind == "TypeMap" then
     out = lower_collection(ctx, t, false)
   elseif (t.kind == "TypeMut") then
@@ -1615,7 +1615,7 @@ local TRANSPARENT <const>: {string: boolean} = { Chunk = true, Block = true }
 
 --- Kinds the walks do not enter: the types (lowered where they are written) and the parts of them.
 local SKIP <const>: {string: boolean} = {
-  TypeName = true, TypeBool = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
+  TypeName = true, TypeBool = true, TypeString = true, TypeNil = true, TypeError = true, TypeArray = true, TypeMap = true,
   TypeUnion = true, TypeOptional = true, TypeMut = true, TypeFunction = true, PType = true, Narrows = true,
   TypeParam = true, Rets = true, Binding = true, EnumValue = true, Param = true,
 }

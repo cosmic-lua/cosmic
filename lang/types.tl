@@ -459,9 +459,6 @@ local record Types
     named: function(Store, decl: Decl, args?: {Type}, value?: boolean): Type
     --- The function type of `spec`.
     fn: function(Store, spec: FnSpec): Type
-    --- The type of the one string `value`, written `"circle"`: an enum of that value alone, declared in the module of
-    --- literals ([`Types.literal_value`]), and the same declaration in every store.
-    literal: function(Store, value: string): Type
     --- The declaration at a path, made if it is new. A use of it takes `arity` type arguments
     --- once that is known: from here or from `define`. Raises where the path has another kind or
     --- arity, where the module or a name is not UTF-8, or where the name is a primitive type's.
@@ -543,7 +540,11 @@ local record Types
   --- (`{ x: integer }`) and named `__literal` and a number.
   inferred_record: function(decl: Decl): boolean
 
-  --- The string `t` is the type of, where `t` is a string literal type (`"circle"`, [`Store.literal`]), or nil.
+  --- The type of the one string `value`, written `"circle"`: an enum of that value alone, declared in the module of
+  --- literals ([`Types.LITERALS`]), and the same declaration in every store.
+  literal: function(store: Store, value: string): Type
+
+  --- The string `t` is the type of, where `t` is a string literal type (`"circle"`, [`Types.literal`]), or nil.
   literal_value: function(t: Type): string?
 
   --- The module that holds the enums of one value that string literal types are.
@@ -1262,6 +1263,12 @@ show = function(t: Type, names: Names, parenthesized: boolean): string
     local literal = Types.literal_value(t)
     if literal ~= nil then
       text = string.format("%q", literal):gsub("\\\n", "\\n")
+      if utf8.len(literal) == nil then
+        -- Bytes that are no UTF-8 are written as Lua escapes, so a message is text.
+        text = text:gsub("[\128-\255]", function(c: string): string
+          return "\\" .. tostring(c:byte())
+        end)
+      end
     elseif body ~= nil and Types.inferred_record(t.decl) then
       local fields: mut {string} = {}
       for _, f in ipairs(body.fields) do
@@ -1847,13 +1854,13 @@ Types.Store.find = function(self: Store, module: string, name: string): Decl? --
   return self.declared[path_key(module, name)]
 end
 
-Types.Store.literal = function(self: Store, value: string): Type -- checked: field_unknown
+function Types.literal(store: Store, value: string): Type
   local name = literal_name(value)
-  local decl = self:declare("enum", Types.LITERALS, { name }, 0)
+  local decl = store:declare("enum", Types.LITERALS, { name }, 0)
   if decl.body == nil then
-    self:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = { value } })
+    store:define(decl, { tparams = {}, supers = {}, fields = {}, methods = {}, values = { value } })
   end
-  return self:named(decl)
+  return store:named(decl)
 end
 
 Types.Store.declarations = function(self: Store): {Decl} -- checked: field_unknown
@@ -2230,7 +2237,7 @@ local function resolve(r: Reader, module: string, name: string): Decl -- checked
   local literal = if module == Types.LITERALS then literal_of_name(name) else nil end
   if literal ~= nil then
     -- A literal type's declaration is made from its name, in any store.
-    local t = store:literal(literal)
+    local t = Types.literal(store, literal)
     return if (t.tag == "named") then t.decl else fail(r, "a literal type is an enum") end
   end
   local loader = store.loader

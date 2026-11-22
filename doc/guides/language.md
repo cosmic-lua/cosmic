@@ -169,7 +169,8 @@ print(area({ kind = "square", side = 2 }))
 
 A test of a place against a string narrows it. Where `k == "a"` holds, `k` is `"a"`. Where it fails, an enum or a union
 of literals keeps its other strings, so a chain of tests over every string of an enum ends the function, and the
-checker needs no `return` after it. `k is "a"` narrows alike.
+checker needs no `return` after it. `k is "a"` narrows alike. A local the program assigns, and an element or field of
+a table literal, takes back the enum the value was read as, or `string`, since the program may write another string there.
 
 ```teal
 local enum Level

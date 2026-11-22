@@ -1896,6 +1896,44 @@ function TableLiterals.differ_fix(ctx: Ctx, all: {Type}): string
 end
 
 --- A literal with no type expected: an array or a map of the join of its items.
+--- `t` with each string literal type among its members made the enum of `from` that holds its string, or `string`:
+--- what a place that a program may write another string to holds, where a test had narrowed the value it starts with
+--- (`local cur = s` after `s == "x"`). `from` is the declared type of the place the value was read from.
+function TableLiterals.widened(ctx: Ctx, t: Type, from?: Type): Type
+  local members = members_of(ctx.store, t)
+  local changed = false
+  local out: mut {Type} = {}
+  local enums: mut {Types.Named} = {}
+  if from ~= nil then
+    for _, m in ipairs(members_of(ctx.store, from)) do
+      if (m.tag == "named") and not m.value and m.decl.kind == "enum" and Types.literal_value(m) == nil then
+        enums[#enums + 1] = m
+      end
+    end
+  end
+  for _, m in ipairs(members) do
+    local value = Types.literal_value(m)
+    if value ~= nil then
+      local wide = ctx.store.string
+      for _, e in ipairs(enums) do
+        local body = e.decl.body
+        if body ~= nil then
+          for _, v in ipairs(body.values) do
+            if v == value then
+              wide = e
+            end
+          end
+        end
+      end
+      out[#out + 1] = wide
+      changed = true
+    else
+      out[#out + 1] = m
+    end
+  end
+  return if changed then ctx.store:union(out) else t end
+end
+
 function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
   local store = ctx.store
   local items = e.items
@@ -1936,17 +1974,17 @@ function TableLiterals.literal_inferred(ctx: Ctx, e: Ast.Table): Type
         "use a map `{integer: T}` for sparse data, or keep the missing element out", { show(ctx, element) })
       return ctx.invalid
     end
-    return store:array(element, true)
+    return store:array(TableLiterals.widened(ctx, element), true)
   end
   local keys: mut {Type} = {}
   local values: mut {Type} = {}
   for _, item in ipairs(items) do
     if (item.kind == "Named") then
       keys[#keys + 1] = store.string
-      values[#values + 1] = expr(ctx, item.value, nil)
+      values[#values + 1] = TableLiterals.widened(ctx, expr(ctx, item.value, nil))
     elseif (item.kind == "Keyed") then
-      keys[#keys + 1] = expr(ctx, item.key, nil)
-      values[#values + 1] = expr(ctx, item.value, nil)
+      keys[#keys + 1] = TableLiterals.widened(ctx, expr(ctx, item.key, nil))
+      values[#values + 1] = TableLiterals.widened(ctx, expr(ctx, item.value, nil))
     end
   end
   if shape == "named" then
@@ -3984,7 +4022,7 @@ function Tests.drop_is(ctx: Ctx, cur: Type, tested: Type): Type
       local kept: mut {Type} = {}
       for _, v in ipairs(body.values) do
         if dropped[v] ~= true then
-          kept[#kept + 1] = store:literal(v)
+          kept[#kept + 1] = Types.literal(store, v)
         end
       end
       out[#out + 1] = if #kept == #body.values then m else store:union(kept) end
@@ -4440,18 +4478,18 @@ function Tests.by_literal(ctx: Ctx, cur: Type, lit: string, keep: boolean): Type
         holds = holds or v == lit
       end
       if keep and holds then
-        out[#out + 1] = store:literal(lit)
+        out[#out + 1] = Types.literal(store, lit)
       elseif not keep and not holds then
         out[#out + 1] = m
       elseif not keep then
         for _, v in ipairs(body.values) do
           if v ~= lit then
-            out[#out + 1] = store:literal(v)
+            out[#out + 1] = Types.literal(store, v)
           end
         end
       end
     elseif m.tag == "string" then
-      out[#out + 1] = if keep then store:literal(lit) else m end
+      out[#out + 1] = if keep then Types.literal(store, lit) else m end
     elseif m.atom == true and m.tag ~= "any" and m.tag ~= "invalid" then
       -- A number, a boolean or nil is no string.
       if not keep then
@@ -5867,7 +5905,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
       if not reported and why == "too many" then
         reported = true
         ctx.spill = Calls.spill_note(ctx, args, n, n, true)
-        arity_error(ctx, node, quoted(callee), f, off, n, why) -- checked: nil_not_allowed
+        arity_error(ctx, node, quoted(callee), f, off, n, why)
         ctx.spill = nil
       end
     else
@@ -5882,7 +5920,7 @@ local function apply_function(ctx: Ctx, node: Ast.Node, callee: string, f: Fn, a
     end
   end
   if why == "too few" or (why == "too many" and not reported) then
-    arity_error(ctx, node, quoted(callee), f, off, n, why) -- checked: nil_not_allowed
+    arity_error(ctx, node, quoted(callee), f, off, n, why)
   end
   Calls.note_plain(ctx, node, recv, vals.types, vals.tail, vals.lists)
   local tail = vals.tail
@@ -7680,7 +7718,10 @@ local function local_statement(ctx: Ctx, s: Ast.Local)
       end
       ctx.vars[b.id] = want
     elseif t ~= nil and counted then
-      ctx.vars[b.id] = t
+      -- A local the program assigns may take another string than the literal a test narrowed its value to.
+      local from = if written ~= nil and held ~= nil and held.assigned then place_of(ctx, ctx.flow, written) else nil end
+      ctx.vars[b.id] = if held ~= nil and held.assigned then TableLiterals.widened(ctx, t, if from ~= nil then from.declared
+        else nil end) else t end
     else
       ctx.vars[b.id] = ctx.invalid
     end

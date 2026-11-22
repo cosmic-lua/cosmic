@@ -2091,7 +2091,7 @@ local function parse_local_binding(what: string): Ast.Binding
   if S.text == "<" and peek_kind(1) == "identifier" and peek_text(2) == ">" then
     local attr = peek_text(1)
     if attr == "const" or attr == "close" then
-      b.attr = attr -- checked: not_assignable
+      b.attr = attr
     else
       report("bad_attribute", S.pos + 1, "`<" .. attr .. ">` is not an attribute of a local",
         "write `<const>` for a local that is not reassigned or `<close>` for one that is closed at the end of its block")
