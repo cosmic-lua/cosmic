@@ -911,7 +911,7 @@ function Sqlite.run_result(handle: Sqlite.Handle, sql: string,
   if opened.statement == nil then return result end -- checked: compare_disjoint
   local state = opened.statement:step_result()
   opened.statement:finalize()
-  if state is Sqlite.ExecResult then return state end -- checked: is_on_record
+  if state is Sqlite.ExecResult then return state end
   return result
 end
 
@@ -922,7 +922,7 @@ local function collect_result<T>(statement: Sqlite.Statement,
   local rows: mut {T} = {}
   while true do
     local state = statement:step_result()
-    if state is Sqlite.ExecResult then -- checked: is_on_record
+    if state is Sqlite.ExecResult then
       statement:finalize()
       copy_outcome(state, outcome)
       return nil

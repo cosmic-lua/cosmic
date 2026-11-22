@@ -287,7 +287,7 @@ local CASES <const>: {Case} = {
     msg = "`as` is not in the language: `x as number` changes a type by no check", fix = "validate the value with a [`cosmic.shape`] validator",
   },
   {
-    code = "is_on_record", source = RECORD .. "local function f(v: R | string)\n  if v is R then\n  end\nend\n",
+    code = "is_on_record", source = RECORD .. "local function f(v: R | {string})\n  if v is R then\n  end\nend\n",
     msg = "`is R` cannot be told by a run-time tag: a record leaves nothing to test",
     fix = "test a tag (`x.kind == \"...\"`), declare a class",
   },

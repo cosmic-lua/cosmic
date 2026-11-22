@@ -167,6 +167,11 @@ print(area({ kind = "square", side = 2 }))
 4
 ```
 
+`s is Circle` tests the tag too: where `s` is the union, it runs as a test of `s.kind` against the strings of
+`Circle`'s tag, and narrows alike. `is` takes one type (`is_union`): test each record apart. A record that is
+the one table a value may be (`R | string`) is told by `type(v) == "table"`. Where no tag tells a record from the other
+tables a value may be, `is` is refused (`is_on_record`), and the fix is a tag field of a literal type in each record.
+
 A test of a place against a string narrows it. Where `k == "a"` holds, `k` is `"a"`. Where it fails, an enum or a union
 of literals keeps its other strings, so a chain of tests over every string of an enum ends the function, and the
 checker needs no `return` after it. `k is "a"` narrows alike. A local the program assigns, and an element or field of

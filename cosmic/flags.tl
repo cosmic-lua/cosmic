@@ -336,7 +336,7 @@ local function read(argv: {string}, from: integer, spec: {string:boolean | Flags
       error("flags: " .. name .. " is not an option a spec can name", 3)
     end
     local entry = spec[name]
-    if entry is Flags.Option and entry.value == "" then -- checked: is_on_record
+    if entry is Flags.Option and entry.value == "" then
       error("flags: " .. name .. "'s value name is empty", 3)
     end
   end
@@ -635,13 +635,13 @@ local function option_rows(spec: {string:boolean | Flags.Option}): {Row}
   for _, name in ipairs(names) do
     local entry = spec[name]
     local head = name
-    local value = if entry is Flags.Option then entry.value else nil end -- checked: is_on_record
+    local value = if entry is Flags.Option then entry.value else nil end
     if value ~= nil then
       head = name .. " <" .. value .. ">"
     elseif entry == true then
       head = name .. " <value>"
     end
-    local about = if entry is Flags.Option then entry.about else nil end -- checked: is_on_record
+    local about = if entry is Flags.Option then entry.about else nil end
     if entry ~= nil and is_required(entry) then
       about = if about ~= nil and about ~= "" then about .. " (required)" else "(required)" end
     end

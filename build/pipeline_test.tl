@@ -794,16 +794,21 @@ local function test_the_record_field_uses_of_a_module_are_found_through_the_type
 end
 
 local function test_a_record_test_is_written_as_the_fork_writes_it_for_the_tree_and_refused_for_a_program_without_a_marker()
-  local source = "local record R\n  n: integer\nend\nlocal function f(v: R | string): boolean\n  if v is R then\n    return v.n > 0\n  end\n" ..
-    "  return false\nend\nreturn f\n"
+  -- an array beside the record is a table no tag tells from it
+  local source = "local record R\n  n: integer\nend\nlocal function f(v: R | {string}): boolean\n  if v is R then\n" ..
+    "    return v.n > 0\n  end\n  return false\nend\nreturn f\n"
   local held = source:gsub("if v is R then", "if v is R then -- checked: is_on_record", 1)
   local made = assert(generated(marked(held, EXPORT)))
   assert(made.lua:find('if type(v) == "table" then', 1, true) ~= nil, made.lua)
   local f = value_of(made.lua) as function(any): boolean -- checked: cast_refused
-  assert(f({ n = 1 }) == true and f("s") == false)
+  assert(f({ n = 1 }) == true)
   -- the marker is held: a test no marker holds is refused
   local over, why = generated(marked(source, EXPORT))
   assert(over == nil and why:find("(is_on_record)", 1, true) ~= nil, tostring(why))
+  -- the one table a value may be is told by its kind, with no marker
+  local lone = source:gsub("R | {string}", "R | string", 1)
+  local told = assert(generated(marked(lone, EXPORT)))
+  assert(told.lua:find('if (type(v) == "table") then', 1, true) ~= nil, told.lua)
 end
 
 local function test_into_answers_the_records_type_and_no_annotation_can_say_another()
