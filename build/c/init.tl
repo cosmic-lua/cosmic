@@ -182,7 +182,7 @@ c.own_warnings = {
 --- The files under `core/` that build.zig's `analyze` runs clang's static analyzer over (its `core_sources` and the
 --- extras it names), written out here as the variants are; build/c/variants_test.tl holds them to build.zig.
 c.analyzed = {
-  "assertions.c", "bigint.c", "boot.c", "cipher.c", "coverage.c", "compress.c", "connector.c", "crypto.c",
+  "assertions.c", "bigint.c", "boot.c", "cipher.c", "coverage.c", "compress.c", "crypto.c",
   "environment.c", "errnos.c", "executable.c", "hash.c", "html.c", "http.c", "json.c", "xml.c", "namespace_calls.c",
   "sign.c", "protobuf.c", "socket.c", "sqlite.c", "store.c", "strnlen.c", "surface.c", "syscalls.c", "syscalls_fs.c", "tls.c",
   "vector.c", "vfs.c", "main.c", "portable.c", "promises.c", "rand.c", "startup.c",

@@ -190,25 +190,10 @@ local function test_the_config_travels_as_one_line_and_reads_back()
   local bare = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" },
     own_addresses = {}, log = "null" })))
   assert(bare.upstream == nil and #bare.own_addresses == 0 and bare.log == "null")
-  assert(bare.public == false and bare.table == nil and bare.name_servers == nil, "nothing is handed")
-  local handed = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
-    log = "null", public = true, table = { { host = "127.0.0.1", port = 0 } },
-    name_servers = { { host = "127.0.0.1", port = 53 } }, name_server_wait_ns = 2500000000,
-    upstream = { host = "p.test", port = 80, no_proxy = {}, addresses = { "127.0.0.1" } } })))
-  local handed_upstream = assert(handed.upstream)
-  local handed_table = assert(handed.table)
-  local handed_row = assert(handed_table[1], "expected a table row")
-  local handed_servers = assert(handed.name_servers)
-  local handed_server = assert(handed_servers[1], "expected a name server")
-  assert(handed.public == true and handed_row.port == 0 and
-      handed_server.port == 53 and handed.name_server_wait_ns == 2500000000 and
-      assert(handed_upstream.addresses)[1] == "127.0.0.1" and handed_upstream.authorization == nil)
-  assert(handed.direct == false and handed.token == nil, "Linux's relay is handed its listeners")
-  local direct = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
-    log = "null", direct = true, token = "0123456789abcdef0123" })))
-  assert(direct.direct == true and direct.token == "0123456789abcdef0123")
-  assert(RelayConfig.name_server_fd == 4 and RelayConfig.connector_fd == 5,
-    "the name servers' connector, then the one that reaches the rest")
+  assert(bare.listeners == nil and bare.token == nil, "Linux's relay is handed its listeners over a channel")
+  local loopback = assert(RelayConfig.decode(RelayConfig.encode({ grants = { "a.test:1" }, own_addresses = {},
+    log = "null", listeners = 2, token = "0123456789abcdef0123" })))
+  assert(loopback.listeners == 2 and loopback.token == "0123456789abcdef0123")
 end
 
 local function test_a_config_that_is_none_is_refused_naming_why()
@@ -237,8 +222,7 @@ local function test_a_config_that_is_none_is_refused_naming_why()
   says(head .. '{"host":"p.test","port":80,"no_proxy":[]}}', "upstream.addresses is not given")
   says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":[]}}', "holds no address")
   says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":["p.test"]}}', "upstream.addresses[1]")
-  says('{"grants":["a"],"own_addresses":[],"log":"null","public":4}', "public is not a boolean")
-  says('{"grants":["a"],"own_addresses":[],"log":"null","direct":"yes"}', "direct is not a boolean")
+  says('{"grants":["a"],"own_addresses":[],"log":"null","listeners":3}', "listeners is not 1 or 2")
   says('{"grants":["a"],"own_addresses":[],"log":"null","token":7}', "token is not a string")
   assert(Json.decode_object('{"grants":[]}') ~= nil, "the fixtures are JSON")
 end

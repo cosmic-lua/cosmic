@@ -167,19 +167,3 @@ local function test_a_node_that_is_not_running_fails_the_start(tmp: string)
   end)
   assert(why:find("the node is Stopped, so it knows no peers", 1, true) ~= nil, why)
 end
-
---- More addresses than the relay's connector holds are refused before
---- the start goes on.
-local function test_more_addresses_than_the_relay_holds_are_refused()
-  local peers: mut {Tailscale.Peer} = {}
-  for i = 1, 130 do
-    local address = "100.65." .. tostring(i // 256) .. "." .. tostring(i % 256)
-    peers[#peers + 1] = peer("n" .. tostring(i), 9, { address }, { "tag:db" })
-  end
-  local many = status(peers)
-  local got = tailnet.resolved({ "tag:db:1" }, many)
-  assert(#got == 130, tostring(#got))
-  local RelayStart = require("cosmic.internal.relay_start")
-  local _, why = RelayStart.plan(got, {})
-  assert(why:find("more than the 128", 1, true) ~= nil, why)
-end

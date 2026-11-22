@@ -1,11 +1,10 @@
---- The children of the relay tests that run the relay's own modules as a program: cosmic/internal/relay_direct_test.tl
---- and cosmic/internal/relay_handed_test.tl start this program again with the words
+--- The children of the relay tests that run the relay's own modules as a program: cosmic/internal/relay_loopback_test.tl
+--- and cosmic/internal/relay_upstream_test.tl start this program again with the words
 --- [`build.test_child`]'s `words` makes, and it runs the child registered here. They are here rather than in the tests
 --- because a chunk run by `-e` may not require a module of `cosmic.internal`, which a test of one is named for.
 
 local Clock = require("cosmic.clock")
 local Config = require("cosmic.internal.relay_config")
-local Connector = require("cosmic.internal.connector")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -23,7 +22,7 @@ test_child.register("relay", function(args: {string}): integer
 end)
 
 --- The child that prepares the upstream proxy.test, named by the caller's https_proxy, as
---- the starter does (resolving it through the name server at 127.0.0.1
+--- the starter does (resolving it once, through the name server at 127.0.0.1
 --- port argv[1]), and serves a relay that resolves through the same server,
 --- with a proxy of its own at the port https_proxy names: asks it for
 --- api.test three times (through the proxy), for ungranted.test (refused
@@ -51,25 +50,19 @@ test_child.register("serve", function(argv: {string}): integer
         end)
       end
     end)
-    -- As the starter does: the upstream's host resolved once, through a
-    -- connector of the name servers.
-    local plan = assert(SandboxRelay.plan({}, { https_proxy = "http://proxy.test:" .. tostring(assert(proxy.address.port)),
+    -- As the starter does: the upstream's host resolved once.
+    local up = assert(Config.upstream({ https_proxy = "http://proxy.test:" .. tostring(assert(proxy.address.port)),
       no_proxy = "direct.test" }))
-    local up = assert(plan.upstream)
-    local name_servers = assert(SandboxRelay.name_servers({ servers = { { host = "127.0.0.1", port = dns_port } } }))
-    local dns = assert(Connector.start(name_servers.servers, name_servers.wait_ns // 1000000))
-    local resolved = assert(SandboxRelay.upstream_addresses(up, { fd = dns.fd, name_servers = name_servers }, ""))
+    local resolved = assert(SandboxRelay.resolved_upstream(up, "127.0.0.1:" .. tostring(dns_port)))
     local pinned: Config.Upstream = { host = up.host, port = up.port, authorization = up.authorization,
       no_proxy = up.no_proxy, addresses = resolved }
-    assert(dns:close())
     table.insert(lines, "upstream " .. table.concat(resolved, ","))
-    local resolve_connector = assert(Net.connector(servers, { timeout_ns = name_servers.wait_ns }))
-    local resolve: Net.ResolveOptions = { servers = servers, connector = resolve_connector }
+    local resolve: Net.ResolveOptions = { servers = servers }
     local http = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
     local relay = Relay.start({
       http = http, grants = { "api.test:443", "direct.test:443" }, upstream = pinned, resolve = resolve,
       log = function(_: string) end,
-      connector = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
+      connect = function(address: string, port: integer, timeout_ns: integer): Net.Conn?, string
         return Net.connect(Net.tcp(address, port), { timeout_ns = timeout_ns })
       end,
     })
@@ -89,7 +82,6 @@ test_child.register("serve", function(argv: {string}): integer
     end
     relay:stop()
     relay:wait()
-    assert(resolve_connector:close())
     serving:cancel()
     assert(http:close())
     assert(proxy:close())

@@ -12,7 +12,6 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-local ConnectorEnds = require("build.connector_ends")
 local stand_in = require("build.stand_in")
 local type raw_process = require("cosmic.internal.process")
 local type raw_socket = require("cosmic.internal.socket")
@@ -73,8 +72,15 @@ end
 --- A stream socketpair, which the relay's channel is one end of: the
 --- end the relay is given, then the one that receives its listeners.
 local function channel(): integer, integer
-  local pair = ConnectorEnds.connector_pair()
-  return pair.controller, pair.connector
+  local pair = assert(process.stream_pair())
+  return assert(pair[1]), assert(pair[2])
+end
+
+--- The port the kernel gave `bound`, a listening socket.
+local function bound_port(bound: raw_socket.Socket): integer
+  local address = assert(socket.bound(bound:fd()))
+  local port = assert(address.port, "a bound TCP socket has a port")
+  return port
 end
 
 --- A start that gave the relay its listeners: the program connects to both
@@ -142,8 +148,8 @@ local function test_the_relay_ports_default_to_http_connect_and_socks(tmp: strin
     return
   end
   local received = assert(socket.recvfds(receiving, 2))
-  local first = ConnectorEnds.bound_port(passed(received, 1))
-  local second = ConnectorEnds.bound_port(passed(received, 2))
+  local first = bound_port(passed(received, 1))
+  local second = bound_port(passed(received, 2))
   assert(first == 3128 and second == 1080, "the defaults are " .. tostring(first) .. " and " .. tostring(second))
   for index = 1, 2 do assert(passed(received, index):close()) end
   finished(tmp, pid)

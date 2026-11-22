@@ -1,6 +1,5 @@
 local Grant = require("cosmic.relay.grant")
 local Sandbox = require("cosmic.sandbox")
-local RelayStart = require("cosmic.internal.relay_start")
 local Address = require("cosmic.relay.address")
 
 local Wire = require("cosmic.internal.relay_wire")
@@ -88,11 +87,13 @@ local function test_every_accepted_name_is_a_request_host()
 end
 
 local function test_consumers_read_one_canonical_meaning()
-  local plan = assert(RelayStart.plan({ "[0:0:0:0:0:0:0:1]:80", "[::1]:80", "Example.COM.:443" }, {}))
-  assert(#plan.literals == 1 and plan.names, "one literal, however it is spelt")
-  -- Targets the request readers always refuse open no name (the plan once took them for names).
-  local none = assert(RelayStart.plan({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }, {}))
-  assert(not none.names and #none.literals == 0)
+  local long, short = assert(Grant.parse("[0:0:0:0:0:0:0:1]:80")), assert(Grant.parse("[::1]:80"))
+  assert(table.concat(assert(long.bytes), ".") == table.concat(assert(short.bytes), "."), "one literal, however it is spelt")
+  assert(assert(Grant.parse("Example.COM.:443")).bytes == nil, "a name is no literal")
+  -- Targets the request readers always refuse are no grant at all.
+  for _, target in ipairs({ "bad_name:443", "-bad.example:443", ".:443", "*.example.com:443" }) do
+    assert(Grant.parse(target) == nil, target)
+  end
   assert(Address.granted("::1", 80, { "[0:0:0:0:0:0:0:1]:80" }))
   assert(not Address.granted("::1", 81, { "[::1]:80" }))
   assert(not Address.granted("1.2.3.4", 80, { "*:80", "example.com:80" }))

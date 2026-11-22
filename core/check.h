@@ -45,13 +45,6 @@ static inline int cosmic_optint (lua_State *L, int arg, int otherwise) {
 int cosmic_checkfd (lua_State *L, int arg);
 void cosmic_argfd (lua_State *L, int arg, lua_Integer fd);
 
-/* Whether `host` is a numeric IPv4 or IPv6 address as the sandbox
- * accepts it: libc's parsers differ on leading zeroes and scoped IPv6,
- * so IPv4 is four decimal octets without leading zeroes (an IPv6 dotted
- * tail included) and IPv6 otherwise only hex and colons. Defined in
- * core/socket.c; a caller still parses the address with inet_pton. */
-bool cosmic_numeric_host (const char *host, size_t size);
-
 /* The exit status a main function left at `index`: nothing is 0, and a
  * whole number from 0 to 255, or text naming one (lua_tointegerx's
  * reading), is itself. Anything else is -1, for the caller to

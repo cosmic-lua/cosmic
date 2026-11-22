@@ -59,7 +59,6 @@
 ---     assert(socket:join("224.0.0.251", "192.0.2.7"))
 ---     assert(socket:set_multicast({ via = "192.0.2.7", hops = 1 }))
 
-local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
@@ -67,7 +66,6 @@ local errors = require("cosmic.internal.errors")
 local Resolv = require("cosmic.internal.relay_resolv")
 local Connection = require("cosmic.internal.connection")
 local Signal = require("cosmic.signal")
-local Leaf = require("cosmic.internal.connector")
 local Tls = require("cosmic.tls")
 
 --- The raw module behind this one lives under the reserved
@@ -409,14 +407,8 @@ local record Net
   --- The direction a [`Conn`]'s `shutdown` ends: "read", "write" or "both".
   type Shutdown = Connection.Shutdown
 
-  --- What [`Net.connect`] and a [`Connector`]'s `connect` take.
+  --- What [`Net.connect`] takes.
   type ConnectOptions = Connection.ConnectOptions
-
-  --- Connects to numeric TCP addresses through the sandbox's native
-  --- connector process, answered by [`Net.connector`]: a process confined
-  --- to the endpoints it was given and, if so made, to a public list,
-  --- which connects a socket and passes it back over a private stream.
-  type Connector = Leaf.Served
 
   record ListenOptions
     --- How long `accept` waits, in nanoseconds, from 0; nil for no
@@ -433,43 +425,14 @@ local record Net
   --- so a `<close>` local holds one.
   type Listener = SocketListener
 
-  --- One numeric endpoint, a DNS server of [`ResolveOptions.servers`] or
-  --- one a native connector may reach: a canonical
-  --- IPv4 or IPv6 `host` (no name, no scope, no leading zeroes) and a
-  --- `port`, 0 for any nonzero port at that host.
+  --- One numeric endpoint, a DNS server of [`ResolveOptions.servers`]: a
+  --- canonical IPv4 or IPv6 `host` (no name, no scope, no leading zeroes)
+  --- and a `port`, 1 to 65535.
   record Endpoint
     --- The numeric address, no name.
     mut host: string
-    --- The port. A DNS server's is 1 to 65535; only a connector's table
-    --- takes 0, any nonzero port.
+    --- The port.
     port: integer
-  end
-
-  record ConnectorOptions
-    --- The ceiling on how long any one connect waits, in nanoseconds, from
-    --- 1 millisecond to 60 seconds (10 seconds by default), fixed when the
-    --- process starts. A connect waits `min(opts.timeout_ns, ceiling)`
-    --- ([`ConnectOptions.timeout_ns`] of the call), and a call with no
-    --- `timeout_ns` waits the ceiling.
-    timeout_ns?: integer
-    --- Makes the connector public: it also connects to an address its
-    --- endpoints lack, judged by the process itself against the lists given
-    --- here (see [`Net.connector`]). Without it, the endpoints are the
-    --- connector's whole authority.
-    public?: PublicOptions
-  end
-
-  --- What a public connector refuses, as data its process holds: the
-  --- native connector has no list of its own. `deny` is the refused
-  --- prefixes as numeric "address/bits" text, at most 128
-  --- ([`cosmic.relay.address`]'s `deny_cidrs` lists the relay's), and `own`
-  --- the host's own numeric addresses, at most 256, refused as their own.
-  --- An IPv6 address outside 2000::/3 is refused besides, whatever is listed.
-  record PublicOptions
-    --- The refused prefixes, numeric "address/bits" text.
-    deny: {string}
-    --- The host's own numeric addresses, refused as their own.
-    own?: {string}
   end
 
   --- One address a name resolves to, answered by [`Net.resolve`]: its
@@ -486,17 +449,6 @@ local record Net
     mut servers?: {Endpoint}
     --- A hosts file to read in place of the system's.
     mut hosts_file?: string
-    --- Resolves over TCP alone, every socket of the lookup made by this
-    --- connector, one [`Net.connector`] made with
-    --- a table, and no datagram sent: the servers asked are `servers`, or
-    --- the system's ([`Net.nameservers`]), each of which the
-    --- connector's table must hold at its port. A connector built from
-    --- those alone reaches nothing else, so the lookup's
-    --- sockets reach nothing but the name servers. The lookup asks
-    --- one connection at a time, sharing the connector's stream with
-    --- any other request, each in its place by tag. Linux only, as the
-    --- connector is.
-    mut connector?: Connector
   end
 
   --- What [`Net.serve`] serves, and how. A value out of range (no
@@ -729,9 +681,6 @@ local function datagram_trouble(address: Net.Address): string
   return "a udp address, from Net.udp, whose host is a string and port an integer from 0 to 65535"
 end
 
---- [`Net.resolve`] through `opts.connector`, defined with the connector.
-local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.Resolved}?, string
-
 --- Resolves `name` with c-ares and answers every address it has, IPv4
 --- and IPv6, as the system's configuration (resolv.conf and hosts; on
 --- macOS also the system's DNS configuration) makes it: none is dropped
@@ -745,16 +694,7 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- did. A name with fewer dots than resolv.conf's ndots may be tried
 --- under its `search` domains first, so a single-label name may resolve
 --- under one. `servers` and `hosts_file` are for tests and trusted
---- callers, never for values a sandboxed program chose. With
---- `connector`, the lookup goes over TCP alone, each connection made by
---- the connector ([`ResolveOptions.connector`]), and each server is tried
---- once: a server that does not answer its connect costs the connector's
---- `timeout_ns` and the next server is asked, so a connector for lookups
---- waits well under the lookup's time for each. Once `timeout_ns` here
---- has passed the call ends, whatever the connector has yet to answer. A server its
---- table lacks fails the call before anything is asked; a lookup no
---- server answered for want of time fails [`Poll.TIMEOUT`], and one
---- every server was refused a connection for fails "Connection refused".
+--- callers, never for values a sandboxed program chose.
 ---
 ---     local found = assert(Net.resolve("localhost", { timeout_ns = Clock.seconds(5) }))
 ---     for _, resolved in ipairs(found) do print(resolved.address, resolved.family) end
@@ -770,7 +710,7 @@ local resolved_through: function(name: string, opts: Net.ResolveOptions): {Net.R
 --- task cancelled in it ends the lookup and fails "cancelled"; anywhere
 --- else it holds the thread until it answers. A `timeout_ns` out of range,
 --- an empty `servers` list or a server port outside 1 to 65535 raises.
-function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string -- checked: not_assigned
+function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string
   opts = opts or {}
   Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", 2)
   local hosts_file = opts.hosts_file
@@ -796,12 +736,11 @@ function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, 
     end
     servers = table.concat(parts, ",")
   end
-  if opts.connector ~= nil then return resolved_through(name, opts) end
   return Resolv.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
 end
 
 --- The system's DNS servers, each at port 53, as [`ResolveOptions.servers`]
---- takes them and a connector's table holds them: as the system's resolver
+--- takes them: as the system's resolver
 --- configuration gives them (resolv.conf on Linux, the system's DNS
 --- configuration on macOS). Where none is configured the resolver's
 --- default, 127.0.0.1, stands. A server written with an interface
@@ -825,7 +764,7 @@ end
 --- thread.
 local function connection(address: Net.Address, timeout_ns: integer?): Attempt
   -- TODO: connect through raw.start, Poll.wait and raw.connected alone
-  -- outside a task too, as the TODO in cosmic/internal/connector.tl's `waited` says: raw.connect, which
+  -- outside a task too, as the TODO in cosmic/internal/connection.tl's `waited` says: raw.connect, which
   -- waits in the core and ends at a caught signal, is what that
   -- replaces.
   Poll.checked_ns(timeout_ns, "net", "timeout_ns", 3)
@@ -1060,116 +999,6 @@ function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?
   end
   return conn, ""
 end
-
-resolved_through = function(name: string, opts: Net.ResolveOptions): {Net.Resolved}?, string
-  local served = Leaf.served(opts.connector)
-  if served == nil then
-    error("net: connector must be one Net.connector made", 3)
-  end
-  if not served.open then return nil, "net: the connector is closed" end
-  local listed: mut {Net.Endpoint} = {}
-  local opts_servers = opts.servers
-  if opts_servers ~= nil then
-    for i, server in ipairs(opts_servers) do
-      listed[i] = { host = server.host, port = server.port }
-    end
-  else
-    local system, why = Resolv.nameservers()
-    if system == nil then return nil, why end
-    for i, server in ipairs(system) do listed[i] = { host = server.host, port = server.port } end
-  end
-  if #listed > Leaf.MAX_ENDPOINTS then
-    return nil, string.format("net: a lookup through a connector takes name servers, at most %d, not %d",
-      Leaf.MAX_ENDPOINTS, #listed)
-  end
-  local servers: mut {raw_socket.ThroughServer} = {}
-  for _, server in ipairs(listed) do
-    local index = Leaf.find(served, server.host, server.port)
-    if index == nil then
-      return nil, "net: the name server " .. named(Net.tcp(server.host, server.port)) ..
-        " is not in the connector's table"
-    end
-    -- [`Leaf.find`] answered an index of `served.endpoints`.
-    local endpoint = Array.at(served.endpoints, index)
-    servers[#servers + 1] = { host = endpoint.host, port = server.port, index = index }
-  end
-  local found, trouble = Resolv.lookup(name, {
-    timeout_ns = opts.timeout_ns,
-    hosts = opts.hosts_file,
-    through = servers,
-    connect = function(index: integer, port: integer, deadline: integer?):
-      Resolv.Connection?, string
-      local socket, why = Leaf.through(served, index, port, deadline)
-      if socket == nil then return nil, why end
-      return { fd = socket:fd(), release = function() local _, _ = socket:close() end }, ""
-    end,
-  })
-  if found == nil then
-    -- A stream given up fails every connect after it: its words say why.
-    return nil, Leaf.lost(served) or trouble
-  end
-  return found, ""
-end
-
---- A copy of the public lists `public`.
-local function checked_public(public: Net.PublicOptions): Leaf.Public
-  local deny: mut {string} = {}
-  local own: mut {string} = {}
-  for i, cidr in ipairs(public.deny) do deny[i] = cidr end
-  for i, address in ipairs(public.own or {}) do own[i] = address end
-  return { deny = deny, own = own }
-end
-
---- Starts the confined native connector, which connects TCP sockets to
---- numeric addresses and nothing else, and answers a [`Net.Connector`]
---- over it. The process can reach only what its kernel filter and an
---- immutable address table allow, hold no file and run no program, so a
---- host that runs the relay need not trust its own connecting code with
---- the network. Linux on x86_64 and aarch64 only: elsewhere it answers
---- nil and why.
----
---- Authority is explicit. `endpoints`, at most 128 [`Net.Endpoint`], is the
---- fixed set of addresses the process may reach, such as a relay whose
---- grants are numeric; it may be empty only with `opts.public`. With
---- neither endpoints nor `opts.public` the call raises, as it does for an
---- endpoint that is no numeric address or a table that is too long. One
---- process is started now and serves every request of the connector, many
---- at once. An endpoint at port 0 stands for every port,
---- and its slots take 1 MiB of the table if the address is IPv4 and 2 MiB
---- if IPv6: the port tables of all the endpoints are at most 32 MiB, so at
---- most 32 IPv4 or 16 IPv6 addresses at port 0 in a table of those alone.
---- Fixed-port endpoints (16 bytes if IPv4, 32 if IPv6, and each IPv6 range
---- starts at a 32-byte boundary) and a mix of the two change that count; a
---- table past the limit raises.
----
---- With `opts.public` the process also connects to any numeric address
---- the endpoints lack, which a [`Connector`]'s `connect` asks it for by address
---- and port: public-only with no endpoints, mixed with some. The process
---- judges the address itself, with the lists
---- `public` carries -- `deny`, the numeric "address/bits" prefixes it
---- refuses (at most 128; [`cosmic.relay.address`]'s `deny_cidrs` is the
---- relay's list), and `own`, the host's own addresses (at most 256) --
---- and refuses every IPv6 address outside 2000::/3 whatever the lists
---- say, so IPv4-mapped and NAT64 forms are never decoded. It is the
---- check that stands if the caller's own is wrong, and the caller keeps
---- its own as well. A refused address answers "net: ... is refused by the
---- connector's deny list".
-function Net.connector(endpoints: {Net.Endpoint}, opts?: Net.ConnectorOptions): Net.Connector?, string
-  local timeout_ms = Leaf.checked_timeout_ms(if opts ~= nil then opts.timeout_ns else nil end, 2)
-  local public: Leaf.Public?
-  local given_public = opts and opts.public
-  if given_public ~= nil then public = checked_public(given_public) end
-  if public == nil and #endpoints == 0 then
-    error("net: a connector needs endpoints, opts.public, or both", 2)
-  end
-  local listed: mut {Leaf.Endpoint} = {}
-  for i, endpoint in ipairs(endpoints) do
-    listed[i] = { host = endpoint.host, port = endpoint.port }
-  end
-  return Leaf.connector(Leaf.checked_endpoints(listed, public ~= nil, 2), timeout_ms, public)
-end
-
-Leaf.register(address_trouble)
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
 local function spec_error(field: string, must: string): never
