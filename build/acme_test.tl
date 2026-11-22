@@ -30,12 +30,15 @@ local record World
   mut hook_fails: boolean
   --- Paths whose write fails.
   write_fails: mut {string: boolean}
+  --- Paths that are there but that `exists` says are not: made by
+  --- another process between its look and the write.
+  appears: mut {string: boolean}
   mut server: acme_fixture.Server
 end
 
 local function new_world(): World
   return { files = {}, modes = {}, written = {}, removed = {}, hooks = {}, hook_fails = false,
-    write_fails = {}, server = acme_fixture.new_server() }
+    write_fails = {}, appears = {}, server = acme_fixture.new_server() }
 end
 
 local function run(world: World, words: {string}): Ran
@@ -60,7 +63,16 @@ local function run(world: World, words: {string}): Ran
       table.insert(world.written, path)
       return true, ""
     end,
-    exists = function(path: string): boolean?, string return world.files[path] ~= nil, "" end,
+    create = function(path: string, data: string, mode: integer): boolean, string
+      if world.files[path] ~= nil then return false, path .. ": there already; name a new file" end
+      world.files[path] = data
+      world.modes[path] = mode
+      table.insert(world.written, path)
+      return true, ""
+    end,
+    exists = function(path: string): boolean?, string
+      return world.files[path] ~= nil and world.appears[path] ~= true, ""
+    end,
     mkdirs = function(_path: string): boolean, string return true, "" end,
     remove = function(path: string): boolean, string
       world.files[path] = nil
@@ -243,4 +255,42 @@ local function test_a_chain_that_cannot_be_written_is_printed_instead()
   assert(ran.err:find("chain.pem: read-only file system; the chain follows on standard output instead", 1, true) ~=
       nil, ran.err)
   assert(ran.out:find("BEGIN CERTIFICATE", 1, true) ~= nil, "the chain is not lost")
+end
+
+local function test_key_never_writes_over_a_file_made_after_it_looked()
+  local world = new_world()
+  world.files["account.pem"] = "kept"
+  world.appears["account.pem"] = true
+  local ran = run(world, { "key", "account.pem" })
+  assert(ran.code == 2 and ran.err:find("account.pem: there already", 1, true) ~= nil, ran.err)
+  assert(world.files["account.pem"] == "kept", "the key made meanwhile was written over")
+end
+
+local function test_issue_refuses_a_directory_that_is_not_https()
+  local world = keyed()
+  local ran = run(world, { "issue", "--account", "account.pem", "--key", "site.pem", "--directory",
+    "http://acme.test/directory", "--webroot", "/w", "example.com" })
+  assert(ran.code == 2 and ran.err:find("--directory is an https URL", 1, true) ~= nil, ran.err)
+  assert(#world.server.log == 0, "nothing is sent")
+end
+
+local function test_a_hook_is_never_run_for_a_name_not_asked_for()
+  local world = keyed()
+  world.server.shown = function(_domain: string, wildcard: boolean): acme_fixture.Identifier
+    return { type = "dns", value = "evil.example", wildcard = wildcard }
+  end
+  local ran = run(world, { "issue", "--account", "account.pem", "--key", "site.pem", "--directory", DIRECTORY,
+    "--dns-hook", "/usr/local/bin/dns", "example.com" })
+  assert(ran.code == 1 and ran.err:find("evil.example, which was not asked for", 1, true) ~= nil, ran.err)
+  assert(#world.hooks == 0, table.concat(world.hooks, "\n"))
+end
+
+local function test_a_chain_for_another_key_is_never_written_over_out()
+  local world = keyed()
+  world.files["chain.pem"] = "the chain served now"
+  world.server.leaf_spki = Acme.p256_key(Sign.p256_secret()).spki
+  local ran = run(world, { "issue", "--account", "account.pem", "--key", "site.pem", "--directory", DIRECTORY,
+    "--webroot", "/w", "--out", "chain.pem", "example.com" })
+  assert(ran.code == 1 and ran.err:find("not for the certificate's key", 1, true) ~= nil, ran.err)
+  assert(world.files["chain.pem"] == "the chain served now" and ran.out == "", ran.out)
 end

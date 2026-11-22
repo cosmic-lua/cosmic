@@ -16,9 +16,17 @@ local record acme_fixture
   --- under that key.
   record Csr
     public: string
+    --- The DER SubjectPublicKeyInfo, whole.
+    spki: string
     names: {string}
     common_name: string
     verified: boolean
+  end
+  --- An authorization's identifier as the server shows it.
+  record Identifier
+    type: string
+    value: string
+    wildcard: boolean
   end
   record Challenge
     type: string
@@ -57,8 +65,17 @@ local record acme_fixture
     mut finalize_slowly: boolean
     --- The Retry-After a processing authorization sends.
     mut retry_after: string
-    --- The certificate body.
+    --- The certificate body; "" for a leaf made from the CSR, which
+    --- certifies its key for its names (its signature is not one).
     mut chain: string
+    --- The names the made leaf holds in place of the CSR's.
+    mut leaf_names?: {string}
+    --- The DER SubjectPublicKeyInfo the made leaf holds in place of the
+    --- CSR's.
+    mut leaf_spki?: string
+    --- What an authorization of `domain` (a wildcard's when `wildcard`)
+    --- shows as its identifier; nil for "dns", `domain` and `wildcard`.
+    mut shown?: function(domain: string, wildcard: boolean): Identifier
     --- What each http-01 token starts with.
     mut token_prefix: string
     --- Checks a challenge as a CA would, once the client responds to it,
@@ -173,6 +190,7 @@ local function read_csr(csr: string): Request
         "\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07", "id-ecPublicKey, prime256v1")
   end
   local public = assert(spki[2]).content:sub(2)
+  local spki_whole = assert(fields[3]).whole
   local names: mut {string} = {}
   local attribute = elements(assert(elements(assert(fields[4]).content)[1]).content)
   assert(assert(attribute[1]).whole == "\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x09\x0e", "extensionRequest")
@@ -192,6 +210,7 @@ local function read_csr(csr: string): Request
   if rsa then
     return {
       public = public,
+      spki = spki_whole,
       names = names,
       common_name = common_name,
       verified = Sign.rsa_verify(public, info.whole, signature_bits.content:sub(2)),
@@ -202,10 +221,41 @@ local function read_csr(csr: string): Request
   local signature = fixed(assert(integers[1]).content) .. fixed(assert(integers[2]).content)
   return {
     public = public,
+    spki = spki_whole,
     names = names,
     common_name = common_name,
     verified = Sign.p256_verify(public, info.whole, signature),
   }
+end
+
+--- The DER element of `tag` around `content`, spelled out here rather
+--- than built by the encoder under test.
+local function tlv(tag: integer, content: string): string
+  local n = #content
+  local length = if n < 0x80 then string.char(n)
+    elseif n < 0x100 then "\x81" .. string.char(n)
+    else "\x82" .. string.char(n >> 8, n & 0xff)
+    end
+  return string.char(tag) .. length .. content
+end
+
+--- A PEM certificate of the DER SubjectPublicKeyInfo `spki` for the DNS
+--- names `names`: a v3 TBSCertificate with an empty issuer and subject
+--- and a subjectAltName, under a signature that is no signature.
+local function leaf_for(spki: string, names: {string}): string
+  local ecdsa_sha256 = "\x30\x0a\x06\x08\x2a\x86\x48\xce\x3d\x04\x03\x02"
+  local general: mut {string} = {}
+  for i, name in ipairs(names) do general[i] = tlv(0x82, name) end
+  local san = tlv(0x30, "\x06\x03\x55\x1d\x11" .. tlv(0x04, tlv(0x30, table.concat(general))))
+  local tbs = tlv(0x30, "\xa0\x03\x02\x01\x02" .. "\x02\x01\x01" .. ecdsa_sha256 .. "\x30\x00" ..
+      tlv(0x30, tlv(0x17, "260101000000Z") .. tlv(0x18, "21260101000000Z")) .. "\x30\x00" .. spki ..
+      tlv(0xa3, tlv(0x30, san)))
+  local der = tlv(0x30, tbs .. ecdsa_sha256 .. tlv(0x03, "\0" .. string.rep("\1", 64)))
+  local text = Codec.base64(der)
+  local lines: mut {string} = { "-----BEGIN CERTIFICATE-----" }
+  for i = 1, #text, 64 do lines[#lines + 1] = text:sub(i, i + 63) end
+  lines[#lines + 1] = "-----END CERTIFICATE-----"
+  return table.concat(lines, "\n") .. "\n"
 end
 
 -- The fake server.
@@ -247,7 +297,7 @@ local function new_server(): Server
     finalize_slowly = false,
     retry_after = "3",
     token_prefix = "",
-    chain = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n",
+    chain = "",
   }
   local function nonce(): string
     server.next_nonce = server.next_nonce + 1
@@ -269,10 +319,14 @@ local function new_server(): Server
       end
       challenges[#challenges + 1] = shown
     end
+    local shown = server.shown
+    local identifier: acme_fixture.Identifier = if shown ~= nil then shown(a.domain, a.wildcard)
+      else { type = "dns", value = a.domain, wildcard = a.wildcard }
+      end
     return {
-      identifier = { type = "dns", value = a.domain },
+      identifier = { type = identifier.type, value = identifier.value },
       status = a.status,
-      wildcard = a.wildcard,
+      wildcard = identifier.wildcard,
       challenges = Json.array(challenges),
     }
   end
@@ -490,9 +544,14 @@ local function new_server(): Server
       return reply(200, order_json(), fresh)
     end
     if url == BASE .. "/cert/1" then
+      local chain = server.chain
+      if chain == "" then
+        local csr = read_csr(server.csr)
+        chain = leaf_for(server.leaf_spki or csr.spki, server.leaf_names or csr.names)
+      end
       return { status = 200, headers = { ["content-type"] = "application/pem-certificate-chain",
         ["replay-nonce"] = issued },
-        body = server.chain }
+        body = chain }
     end
     error("no such resource: " .. url)
   end

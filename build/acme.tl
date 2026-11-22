@@ -11,7 +11,8 @@
 --- `cosmic acme issue --account <file> --key <file> (--webroot <dir> |
 --- --dns-hook <program>) [options] <name>...` asks for a certificate for
 --- the names and prints the chain as PEM, or writes it to `--out` (`-`:
---- standard output). `--out` is written over, for a renewal, unless it
+--- standard output), once its leaf is found to certify `--key` for
+--- exactly the names. `--out` is written over, for a renewal, unless it
 --- is a key file or holds a private key. When the write fails, the chain,
 --- issued already, is printed instead. Each
 --- key file is PEM as `key` writes it, or as OpenSSL does
@@ -35,7 +36,8 @@
 ---
 --- The directory is Let's Encrypt's production one; `--staging` takes
 --- its staging one (untrusted certificates, higher limits), and
---- `--directory <url>` any other.
+--- `--directory <url>` any other, an https URL. Every URL the server
+--- hands back is held to https too, and no redirect is followed.
 ---
 --- Like `cosmic json` it prints no summary. Exit 0 is ok, 1 an issue the
 --- server or a challenge refused, or a request that failed, 2 a command
@@ -50,6 +52,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local Sign = require("cosmic.sign")
+local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
 
@@ -69,6 +72,9 @@ local record verb
     read: function(path: string): string?, string
     --- Writes a file whole with a mode: [`Fs.write`].
     write: function(path: string, data: string, mode: integer): boolean, string
+    --- Writes a new file whole with a mode, refusing one that is there
+    --- (O_EXCL) with the why `<path>` .. [`THERE_ALREADY`].
+    create: function(path: string, data: string, mode: integer): boolean, string
     --- Whether a path is there: [`Fs.exists`].
     exists: function(path: string): boolean?, string
     --- Makes a directory and those above it: [`Fs.mkdirs`].
@@ -117,6 +123,27 @@ local function default_run(argv: {string}): boolean, string
   return true, ""
 end
 
+--- Why a key file is not written: one is there.
+local THERE_ALREADY <const> = ": there already; a key written over is lost, so name a new file"
+
+--- Writes `data` to the new file `path` with `mode`: created with
+--- O_EXCL, so a file made there since it was looked for, a link
+--- included, is never written through. A write that fails takes the
+--- file away again.
+local function create(path: string, data: string, mode: integer): boolean, string
+  local fd, trouble, number = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, mode)
+  if fd == nil then
+    return false, path .. (if number == sys.EEXIST then THERE_ALREADY else ": " .. trouble end)
+  end
+  local wrote, why = Fs.put(fd, data)
+  local closed, unclosed = Fs.close(fd)
+  if not wrote or not closed then
+    local _, _ = Fs.remove(path)
+    return false, path .. ": " .. (if wrote then unclosed else why end)
+  end
+  return true, ""
+end
+
 local standard: verb.Io = {
   out = bare.out,
   err = bare.err,
@@ -124,6 +151,7 @@ local standard: verb.Io = {
   write = function(path: string, data: string, mode: integer): boolean, string
     return Fs.write(path, data, mode)
   end,
+  create = create,
   exists = function(path: string): boolean?, string return Fs.exists(path) end,
   mkdirs = function(path: string): boolean, string return Fs.mkdirs(path) end,
   remove = function(path: string): boolean, string return Fs.remove(path) end,
@@ -157,20 +185,22 @@ local function make_key(to: verb.Io, complain: function(line: string), parsed: F
     return bare.refused
   end
   if file ~= "-" then
+    -- Looked for first only to say so before a key is made: the create
+    -- below is what refuses one made meanwhile.
     local there, unknown = to.exists(file)
     if there == nil then
       complain(unknown)
       return bare.refused
     end
     if there then
-      complain(file .. ": there already; a key written over is lost, so name a new file")
+      complain(file .. THERE_ALREADY)
       return bare.refused
     end
   end
   local key = if rsa then Acme.rsa_key(Sign.rsa_secret(bits)) else Acme.p256_key(Sign.p256_secret()) end
   local pem = assert(key.pem, "a key this module makes has its PEM")
   if file == "-" then return bare.written(complain, to.out(pem)) end
-  local ok, why = to.write(file, pem, OWNER_ONLY)
+  local ok, why = to.create(file, pem, OWNER_ONLY)
   if not ok then
     complain(why)
     return bare.refused
@@ -218,6 +248,10 @@ local function issue(to: verb.Io, complain: function(line: string), parsed: Flag
   local staging, directory = parsed.set["--staging"] == true, parsed.values["--directory"]
   if staging and directory ~= nil then
     return refuse("--staging names a directory, as --directory does")
+  end
+  -- The client refuses one too, but only once it is asked for something.
+  if directory ~= nil and directory:sub(1, 8):lower() ~= "https://" then
+    return refuse("--directory is an https URL")
   end
   local out = parsed.values["--out"]
   if out == "" then return refuse(bare.empty_file) end
