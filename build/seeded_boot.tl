@@ -17,10 +17,13 @@
 --- The releases tried, in order:
 ---
 --- - the one ci/cosmic-driver.pin names, which runs this script: its core
----   is the one this process runs on, and its commit the pin's first line;
---- - the newest release of the repository, by its tag
----   (`<date>-<commit>`): its `cosmic` is fetched once, held to the digest
----   its SHA256SUMS names, and kept beside the bootstrap cosmic.
+---   is the one this process runs on, its commit the pin's first line, and
+---   its bytes those of the pin's digest, which [`bin/cosmic-bootstrap`]
+---   holds it to;
+--- - with COSMIC_BOOT_SEED=newest, the newest release of the repository,
+---   by its tag (`<date>-<commit>`): its `cosmic` is fetched once, held to
+---   the digest its SHA256SUMS names, kept beside the bootstrap cosmic, and
+---   hashed again each time it is taken from there.
 ---
 --- Whether the tree's C is a release's is git's answer: the files the
 --- release's commit holds under `c_inputs` are the files the index holds
@@ -36,17 +39,24 @@
 --- the first asks for that zig's core, and the second's core is not the
 --- pin's.
 ---
---- A release is trusted as the repository publishes it: nothing but its
---- own SHA256SUMS vouches for the newest one. COSMIC_BOOT_SEED=0 turns
---- this off, and `pin` keeps it to the pinned release, which
---- [`bin/cosmic-bootstrap`] holds to the pin's digest, and to the commits
---- the checkout has: it asks the network nothing. Any other value is
---- refused, and zig builds the core.
+--- The pinned release is the only one taken unasked, since the checkout
+--- itself names its digest. Nothing but its own SHA256SUMS vouches for the
+--- newest release, so it is taken only where COSMIC_BOOT_SEED=newest asks
+--- for it.
+--- COSMIC_BOOT_SEED=0 turns the seeded boot off, and `pin` keeps it to the
+--- pinned release and to the commits the checkout has: it asks the network
+--- nothing. Any other value is refused, and zig builds the core
+--- ([`SeededBoot.plan`]).
 ---
 --- It answers 0 where the tree is booted, 4 where no release's core is
 --- the tree's (the build directory as it was), and 1 where a boot it began
 --- failed.
 
+-- TODO: try the newest release unasked once it carries a provenance this
+-- script can check, such as a signed attestation of the CI run that built
+-- it: prerelease.yml publishes none, and the pinned release has no
+-- verifier for one. Until then a tree whose C is the newest release's and
+-- not the pin's builds its core with zig unless COSMIC_BOOT_SEED=newest.
 -- TODO: run the two checks of the core's C a zig boot runs (build.zig's
 -- strnlen-check and environment-check) and install the host's
 -- cosmic-unzstd, on a boot that takes a release's core: today it skips
@@ -64,6 +74,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -74,7 +85,24 @@ local sys = require("cosmic.sys")
 local CEILING_NS <const> = Clock.minutes(24 * 60)
 
 local record SeededBoot
+  --- What a boot asks of the network and which releases it tries.
+  record Plan
+    --- The pinned release's commit is not fetched where the checkout
+    --- lacks it, and no other release is looked for.
+    offline: boolean
+    --- The newest release is tried after the pinned one.
+    newest: boolean
+  end
   listed: function(text: string): string
+  --- The plan COSMIC_BOOT_SEED's value `mode` asks for: unset or empty,
+  --- the pinned release alone; `pin`, the same with no network; `newest`,
+  --- the pinned release and then the newest one. nil and "" for `0`, which
+  --- builds the core with zig, and nil and a complaint for any other value.
+  plan: function(mode: string): Plan?, string
+  --- Whether the file at `path` is there and has the sha256 `digest`, as
+  --- a release kept in the cache must before it runs: one with other bytes
+  --- is removed, so that it is fetched again.
+  kept: function(path: string, digest: string): boolean
   mut vendored: {string}
   mut records: string
 end
@@ -207,6 +235,27 @@ local function own_core(): string?
   return relaunch.argv[1]
 end
 
+function SeededBoot.plan(mode: string): SeededBoot.Plan?, string
+  if mode == "" then return { offline = false, newest = false }, "" end
+  if mode == "pin" then return { offline = true, newest = false }, "" end
+  if mode == "newest" then return { offline = false, newest = true }, "" end
+  if mode == "0" then return nil, "" end
+  return nil, "COSMIC_BOOT_SEED is " .. mode .. ": set it to 0, pin or newest, or leave it unset; " ..
+    "building the core with zig"
+end
+
+function SeededBoot.kept(path: string, digest: string): boolean
+  local there, _ = Fs.exists(path)
+  if there ~= true then return false end
+  -- TODO: Hash.hex_file in place of reading the whole file, once
+  -- ci/cosmic-driver.pin names a release whose Hash has it: this file
+  -- runs standalone on that release.
+  local data, _ = Fs.read(path)
+  if data ~= nil and Hash.hex_sha256(data) == digest then return true end
+  local _, _ = Fs.remove(path)
+  return false
+end
+
 --- The newest release of the repository whose tag is `<date>-<commit>`:
 --- the tag and the commit, or nil and why none can be named.
 local function newest_release(work: string): string?, string
@@ -239,8 +288,7 @@ local function release_cosmic(tag: string, work: string): string?, string
   local cache, cache_trouble = Fs.cache_dir("bootstrap")
   if cache == nil then return nil, cache_trouble end
   local path = cache .. "/cosmic-" .. digest
-  local there, _ = Fs.exists(path)
-  if there == true then return path, "" end
+  if SeededBoot.kept(path, digest) then return path, "" end
   local part = path .. ".part." .. tostring(Proc.pid())
   local fetched = Http.download_result(base .. "cosmic", part,
     { roots = "mozilla", timeout_ns = 300 * 1000000000, sha256 = digest })
@@ -276,18 +324,18 @@ local record Match
 end
 
 --- A release whose core is the tree's, or nil and why none is.
-local function matching_core(root: string, script: string, work: string, mode: string): Match?, string
+local function matching_core(root: string, script: string, work: string, plan: SeededBoot.Plan): Match?, string
   local pin, _ = Fs.read(root .. "/ci/cosmic-driver.pin")
   local pinned = (pin or ""):match("^(%x+)\n")
   local why = "no release is pinned"
   local core = own_core()
   if pinned ~= nil and core ~= nil then
-    why = same_c(root, pinned, work, mode == "pin")
+    why = same_c(root, pinned, work, plan.offline)
     if why == "" then
       return { core = core, named = "the pinned release " .. pinned:sub(1, 12) }, ""
     end
   end
-  if mode == "pin" then return nil, why end
+  if not plan.newest then return nil, why end
   local tag, tag_trouble = newest_release(work)
   if tag == nil then return nil, tag_trouble end
   local commit = tag:match("^%d+%-(%x+)$") or ""
@@ -399,10 +447,9 @@ function SeededBoot.main(argv: {string}): integer
     say("usage: build/seeded_boot.tl <root> <output> <patched manifest>")
     return 2
   end
-  local mode = Env.get("COSMIC_BOOT_SEED") or ""
-  if mode == "0" then return 4 end
-  if mode ~= "" and mode ~= "pin" then
-    say("COSMIC_BOOT_SEED is " .. mode .. ": set it to 0 or pin, or leave it unset; building the core with zig")
+  local plan, refused = SeededBoot.plan(Env.get("COSMIC_BOOT_SEED") or "")
+  if plan == nil then
+    if refused ~= "" then say(refused) end
     return 4
   end
   for _, name in ipairs({ "COSMIC_BOOTSTRAP", "COSMIC_ZIG", "ZIG_LIB_DIR" }) do
@@ -418,7 +465,7 @@ function SeededBoot.main(argv: {string}): integer
     say(work_trouble)
     return 4
   end
-  local found, why = matching_core(root, root .. "/build/seeded_boot.tl", work, mode)
+  local found, why = matching_core(root, root .. "/build/seeded_boot.tl", work, plan)
   local status = 4
   if found == nil then
     say("no release's core is this tree's (" .. why .. "); building it with zig")

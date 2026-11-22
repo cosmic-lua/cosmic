@@ -325,6 +325,45 @@ local function test_bootstrap_replaces_a_corrupt_cache_from_a_verified_download(
     "downloaded driver changed after verification")
 end
 
+--- A cached cosmic is hashed again on every run, not only where
+--- COSMIC_BOOTSTRAP_VERIFY asks: one whose bytes are not the pin's is
+--- replaced by a verified download before its path is answered.
+local function test_bootstrap_hashes_its_cache_again_unasked(tmp: string)
+  local program = assert(Proc.executable())
+  local digest = Hash.hex_sha256((assert(Fs.read(program))))
+  local root, cache = bootstrap_root(tmp, string.rep("6", 40), digest)
+  local cached = cache .. "/cosmic-" .. digest
+  assert(Fs.write(cached, "#!/bin/sh\necho changed\n", 0x1ed))
+  local result = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap", "--raw-path" }, tmp, tmp .. "/unasked.out",
+    { XDG_CACHE_HOME = tmp .. "/xdg", PATH = fake_curl(tmp), DOWNLOAD_SOURCE = program, CALLS = tmp .. "/calls" })
+  local out = assert(Fs.read(tmp .. "/unasked.out"))
+  assert(result.ok and out == cached .. "\n", out)
+  assert(assert(Fs.read(tmp .. "/calls")) == "call\n", "the changed cache was not fetched again")
+  assert(Hash.hex_sha256((assert(Fs.read(cached)))) == digest, "the changed cache was kept")
+end
+
+--- An entry point holds a cached release to the digest it is named by:
+--- one changed after the entry point was written is refused, not run.
+local function test_the_entry_point_refuses_a_changed_cached_release(tmp: string)
+  local script = "#!/bin/sh\necho ran\n"
+  local digest = Hash.hex_sha256(script)
+  local root, cache = bootstrap_root(tmp, string.rep("5", 40), digest)
+  local cached = cache .. "/cosmic-" .. digest
+  assert(Fs.write(cached, script, 0x1ed))
+  local env = { XDG_CACHE_HOME = tmp .. "/xdg", PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/missing" }
+  local printed = call({ "/bin/sh", root .. "/bin/cosmic-bootstrap" }, tmp, tmp .. "/entry.out", env)
+  local entry = (assert(Fs.read(tmp .. "/entry.out"))):gsub("\n$", "")
+  assert(printed.ok and entry:find(cache .. "/entry-", 1, true) == 1, entry)
+  local first = call({ entry, "x" }, tmp, tmp .. "/first.out", env)
+  local out = assert(Fs.read(tmp .. "/first.out"))
+  assert(first.ok and out == "ran\n", out)
+  assert(Fs.write(cached, "#!/bin/sh\necho changed\n", 0x1ed))
+  local second = call({ entry, "x" }, tmp, tmp .. "/second.out", env)
+  out = assert(Fs.read(tmp .. "/second.out"))
+  assert(not second.ok and out:find("not the one it is named by", 1, true) ~= nil, out)
+  assert(out:find("changed", 1, true) == nil, out)
+end
+
 --- A link at the cache's name is never followed: even one to the right
 --- bytes is replaced by a verified download of its own.
 local function test_bootstrap_replaces_a_linked_cache_entry(tmp: string)

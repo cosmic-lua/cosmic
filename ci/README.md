@@ -13,9 +13,11 @@ names it.
 
 `bin/cosmic-bootstrap` downloads and verifies the pinned host, caching it by
 digest under `$XDG_CACHE_HOME/cosmic/bootstrap`, and tries a failed download
-again up to `COSMIC_BOOTSTRAP_ATTEMPTS` times (1 to 20, default 5); CI sets
-`COSMIC_BOOTSTRAP_VERIFY` so a cache actions/cache restored is checked against
-the pin again, and links the result to a runner path
+again up to `COSMIC_BOOTSTRAP_ATTEMPTS` times (1 to 20, default 5). Each run
+hashes the cached binary against the pin again, a cache actions/cache restored
+among them, and an entry point holds the cached release it runs to the digest it
+is named by. CI sets `COSMIC_BOOTSTRAP_VERIFY`, which refuses a stand-in, and
+links the result to a runner path
 (`$RUNNER_TEMP/bin/cosmic-driver`, which CI then puts on `PATH` via
 `GITHUB_PATH`). Each job does so through one step, the local
 `.github/actions/cosmic-driver` action, which restores that cache and
@@ -97,10 +99,11 @@ residual below:
   `build/seeded_boot.tl` that way: its `standalone(` calls are counted, and
   each file must be in the list.
 - `build/seeded_boot.tl`, which starts the release again to compile the
-  seed (`Proc.relaunch`), and starts the repository's newest release, a
-  binary it fetched, with `--standalone` on itself to ask where that
-  release's core is. That binary is not the pinned one, and nothing but the
-  release's own SHA256SUMS vouches for it.
+  seed (`Proc.relaunch`), and, under `COSMIC_BOOT_SEED=newest` alone,
+  starts the repository's newest release, a binary it fetched, with
+  `--standalone` on itself to ask where that release's core is. That binary
+  is not the pinned one, and nothing but the release's own SHA256SUMS
+  vouches for it.
 - `check-islands` ([`Islands.complaint`]), which checks the listed files.
 - [`BuildPaths.directory`] in [`cosmic_ci/build_paths.tl`], which runs
   `build/paths.tl` that way as the build directory's resolver (checked to be
