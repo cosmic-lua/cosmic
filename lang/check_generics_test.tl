@@ -933,3 +933,18 @@ local function test_a_parameter_with_two_interface_bounds_meets_an_interface_of_
   local e = Array.at(one.errors, 1)
   assert(e.code == "bound_unmet" and e.fix == "bound `T` by `Aged` where it is declared (`<T is Aged & Titled>`)", e.fix)
 end
+
+local function test_a_generic_function_in_a_field_that_may_be_nil_is_narrowed_and_called()
+  local head = "local record R\n  pick?: function<T>(T): T\nend\nlocal function same<T>(x: T): T\n  return x\nend\n"
+  Programs.stands(head .. "local r: R = { pick = same }\nlocal p = r.pick\nif p ~= nil then\n" ..
+      "  print(p(3) + 1, p(\"a\") .. \"b\")\nend\n", "4\tab")
+  Programs.stands(head .. "local r: R = { pick = same }\nif r.pick ~= nil then\n  print(r.pick(2) * 2)\nend\n", "4")
+  Programs.stands(head .. "local r: R = { pick = same }\nassert(r.pick)\nprint(r.pick(1), r.pick(\"x\"))\n", "1\tx")
+  -- A method-style field, and a type parameter an optional field holds, filled with a generic function.
+  Programs.stands("local record M\n  pick?: function<T>(self: M, T): T\nend\nlocal function own<T>(_: M, x: T): T\n" ..
+      "  return x\nend\nlocal m: M = { pick = own }\nif m.pick ~= nil then\n  print(m:pick(5), m:pick(\"s\"))\nend\n", "5\ts")
+  Programs.stands("local record Box<X>\n  v?: X\nend\nlocal function same<T>(x: T): T\n  return x\nend\n" ..
+      "local b: Box<function<T>(T): T> = { v = same }\nlocal v = b.v\nif v ~= nil then\n  print(v(7))\nend\n", "7")
+  -- Until it is narrowed, it may be nil.
+  Programs.refused(head .. "local r: R = { pick = nil }\nprint(r.pick(1))\n", "nil_not_allowed")
+end

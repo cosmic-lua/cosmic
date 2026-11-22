@@ -247,12 +247,6 @@ local CASES <const>: {Case} = {
     fix = "make `__index` a field the literal always gives, or rename it",
   },
   {
-    code = "optional_generic",
-    source = "local record R\n  pick?: function<T>(T): T\nend\n",
-    msg = "the field `pick` of `R` may be nil and holds a generic function, which the checker has no rule to narrow and call",
-    fix = "make `pick` a field the literal always gives, or write the function type with its type arguments fixed",
-  },
-  {
     code = "unused_type_parameter",
     source = "local function pick<T, U>(x: T): T\n  return x\nend\n",
     msg = "the type parameter `U` is named by no parameter and no result, so no call can fix it",
@@ -324,39 +318,37 @@ end
 
 -- optional fields -------------------------------------------------------------------------
 
-local function test_a_field_that_may_be_nil_is_never_a_metamethod_and_never_a_generic_function_in_any_spelling()
+local function test_a_field_that_may_be_nil_is_never_a_metamethod_in_any_spelling()
   local refused: {string: Declarations.Code} = {
     ["metamethod __index?: function(R, string): any"] = "optional_metamethod",
     ["__index?: function(R, string): any"] = "optional_metamethod",
     ["__close: function(R)?"] = "optional_metamethod",
-    ["pick?: function<T>(T): T"] = "optional_generic",
-    ["pick: (function<T>(T): T)?"] = "optional_generic",
-    ["pick: (function<T>(T): T) | nil"] = "optional_generic",
   }
   for field, code in pairs(refused) do
     local e = only("local record R\n  " .. field .. "\nend\n")
     assert(e.code == code, field .. " is " .. e.code)
     assert(e.y == 2 and e.length > 0, field)
   end
-  -- through an alias and in an interface, and the same field when it is required
-  assert(only("local type G = function<T>(T): T\nlocal record R\n  pick?: G\nend\n").code == "optional_generic")
-  assert(only("local interface I\n  pick?: function<T>(T): T\nend\n").code == "optional_generic")
-  assert(#errors_of("local record R\n  __index: function(R, string): any\n  pick: function<T>(T): T\nend\n") == 0)
-  -- a type parameter that the declaration makes optional is not filled with a generic function either, in the
-  -- declaration or through another one that passes it on
+  -- an optional field of any other name and function type is a plain value
+  assert(#errors_of("local record R\n  done?: function(code: integer)\n  index?: function(R, string): any\nend\n") == 0)
+end
+
+local function test_a_field_that_may_be_nil_may_hold_a_generic_function()
+  -- The checker narrows a field that may be nil and calls the generic function it holds
+  -- ([`lang.check_generics_test`]), so such a field is declared in any spelling.
+  for _, field in ipairs({ "pick?: function<T>(T): T", "pick: (function<T>(T): T)?", "pick: (function<T>(T): T) | nil" }) do
+    assert(#errors_of("local record R\n  " .. field .. "\nend\n") == 0, field)
+  end
+  assert(#errors_of("local type G = function<T>(T): T\nlocal record R\n  pick?: G\nend\n") == 0)
+  assert(#errors_of("local interface I\n  pick?: function<T>(T): T\nend\n") == 0)
+  -- A type parameter that a declaration makes optional may be filled with one, as well.
   local generic = "function<T>(T): T"
   for _, optional in ipairs({ "v?: X", "v: X?" }) do
     local box = "local record Box<X>\n  " .. optional .. "\nend\n"
-    assert(only(box .. "local b: Box<" .. generic .. ">\n").code == "optional_generic", optional)
-    assert(only(box .. "local record Outer<Y>\n  inner: Box<Y>\nend\nlocal o: Outer<" .. generic .. ">\n").code ==
-        "optional_generic", optional)
-    assert(only(box .. "local type Alias<Z> = Box<Z>\nlocal a: Alias<" .. generic .. ">\n").code == "optional_generic", optional)
-    -- a function type with its type arguments fixed, and a required field, are plain
-    assert(#errors_of(box .. "local b: Box<function(integer): integer>\n") == 0, optional)
+    assert(#errors_of(box .. "local b: Box<" .. generic .. ">\n") == 0, optional)
+    assert(#errors_of(box .. "local record Outer<Y>\n  inner: Box<Y>\nend\nlocal o: Outer<" .. generic .. ">\n") == 0,
+      optional)
   end
-  assert(#errors_of("local record Plain<X>\n  v: X\nend\nlocal p: Plain<" .. generic .. ">\n") == 0)
-  -- an optional field of any other name and function type is a plain value
-  assert(#errors_of("local record R\n  done?: function(code: integer)\n  index?: function(R, string): any\nend\n") == 0)
 end
 
 local function test_a_type_parameter_that_no_parameter_or_result_names_is_unused_in_every_spelling_of_a_function()
