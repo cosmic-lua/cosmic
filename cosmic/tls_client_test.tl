@@ -251,3 +251,32 @@ local function test_client_refuses_options_out_of_range()
   assert(mismatched == nil and wrong:find("the identity's key, which is not the certificate's", 1, true) ~= nil, wrong)
   assert(Tls.client({ verify = false, identity = A }))
 end
+
+--- A TLS listener whose certificates are gone closes what it accepts
+--- rather than serve it in the clear.
+local function test_a_tls_listener_with_no_configuration_serves_nothing_in_the_clear()
+  local certs = Tls.certs(Tls.static({ A }))
+  local troubles: mut {string} = {}
+  local served_plain = false
+  assert(Net.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    tls = certs,
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end,
+    serve = function(conn: Net.Conn)
+      served_plain = true
+      local _, _ = conn:write("plain\n")
+    end,
+    on_ready = function(addresses: {Net.Address}, server: Net.Server)
+      local ok, trouble: boolean, any = pcall(function()
+        certs.current = nil
+        local conn <close> = assert(Net.connect(Net.tcp("127.0.0.1", assert(Array.at(addresses, 1).port))))
+        local data, _ = conn:read()
+        assert(data == nil, tostring(data))
+      end)
+      server:stop()
+      assert(ok, tostring(trouble))
+    end,
+  })
+  assert(not served_plain)
+  assert(#troubles == 1 and troubles[1]:find("no certificates are loaded", 1, true) ~= nil, table.concat(troubles, "\n"))
+end
