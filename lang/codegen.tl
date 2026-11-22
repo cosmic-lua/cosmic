@@ -127,7 +127,7 @@ local record Codegen
   generate: function(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                      classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
                      kinds?: {integer: string}, served?: boolean, checks?: {integer: string},
-                     spreads?: {integer: {string}}): Generated
+                     spreads?: {integer: {string}}, tags?: {integer: {string}}): Generated
 
   --- `lua`, the Lua of this generator, once the layout of a `continue` is set aside: the `::continue::` that ends a
   --- loop is deleted, and a line's trailing blanks are ignored. Two texts that are equal then are the same Lua, line for
@@ -186,6 +186,8 @@ local record State
   mut served: boolean
   --- The statement that checks the parameters of a function, by the id of its node.
   mut checks: {integer: string}
+  --- How `v is R` tests a record by its tag, by the id of the tested type's node ([`Check.Result`]'s `tags`).
+  mut tags: {integer: {string}}
   --- The names of the fields the spread of a table literal copies, by the id of the literal.
   mut spreads: {integer: {string}}
 end
@@ -195,7 +197,7 @@ local NO_TOKENS <const>: Lexer.Tokens = Lexer.lex("", "").tokens
 local G: State = {
   tokens = NO_TOKENS, scoped = { vars = {}, list = {}, resolved = {}, globals = {}, global_writes = {}, errors = {} },
   indent = 0, saved = {}, errors = {}, loops = {}, declarations = nil, matches = 0, body = nil,
-  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, served = false,
+  truthy = function(_e: Ast.Exp): boolean return false end, guarded = nil, classes = {}, enums = {}, wraps = {}, kinds = {}, tags = {}, served = false,
   checks = {}, spreads = {},
 }
 
@@ -836,6 +838,26 @@ end
 local function type_test(declared: Ast.Type, value: Output, y: integer, operand?: Ast.Exp): Output
   local t = through_aliases(declared, 32)
   local out = new(y)
+  local tag = G.tags[declared.id]
+  if tag ~= nil then
+    -- A record the value may be is a table, and the one its tag names where the value may be another.
+    local field = tag[1] or ""
+    put(out, "(type(")
+    add_child(out, value, "", G.indent)
+    put(out, ") == \"table\"")
+    if field ~= "" then
+      local members: mut {string} = {}
+      for i = 2, #tag do
+        members[#members + 1] = "[" .. string.format("%q", tag[i]):gsub("\\\n", "\\n") .. "] = true"
+      end
+      put(out, " and ({" .. table.concat(members, ", ") .. "})[")
+      -- The value is read again, as a name or as the parameter that holds it.
+      add_child(out, if operand ~= nil then exp(operand) else text(y, "__v") end, "", G.indent)
+      put(out, (if RESERVED_FIELDS[field] == true then "[\"" .. field .. "\"]" else "." .. field end) .. "] == true")
+    end
+    put(out, ")")
+    return out
+  end
   local class = class_named(t)
   local resolved = G.kinds[base_of(t).id]
   local enum_values = G.enums[base_of(t).id]
@@ -898,7 +920,16 @@ end
 local function is_test(node: Ast.IsTest, value: Output): Output
   local value_node = node.value
   local members = union_members(node.type, 32)
-  if members == nil then
+  if members == nil and G.tags[node.type.id] ~= nil and not ((value_node.kind == "Name")) then
+    -- The tag test reads the value twice: it is held in the parameter of a function called on the spot.
+    local held_out = new(line_of(node.value.last + 1))
+    put(held_out, "(function(__v) return ")
+    add_child(held_out, type_test(node.type, text(value.y, "__v"), value.y), "", G.indent)
+    put(held_out, " end)(")
+    add_child(held_out, value, "", G.indent)
+    put(held_out, ")")
+    return held_out
+  elseif members == nil then
     return type_test(node.type, value, line_of(node.value.last + 1), node.value)
   end
   local y = value.y
@@ -1841,8 +1872,9 @@ end
 function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: function(e: Ast.Exp): boolean,
                           classes?: {integer: string}, enums?: {integer: {string}}, wraps?: {integer: string},
                           kinds?: {integer: string}, served?: boolean, checks?: {integer: string},
-                          spreads?: {integer: {string}}): Codegen.Generated
+                          spreads?: {integer: {string}}, tags?: {integer: {string}}): Codegen.Generated
   G.tokens, G.scoped = chunk.tokens, scoped
+  G.tags = tags or {}
   G.checks = checks or {}
   G.spreads = spreads or {}
   G.served = served == true
@@ -1864,7 +1896,7 @@ function Codegen.generate(chunk: Ast.Chunk, scoped: Scopes.Scoped, truthy?: func
   local errors = G.errors
   G.tokens, G.saved, G.errors, G.loops, G.declarations, G.body, G.classes =
     NO_TOKENS, {}, {}, {}, nil, nil, {}
-  G.enums, G.wraps, G.kinds, G.served, G.checks, G.spreads = {}, {}, {}, false, {}, {}
+  G.enums, G.wraps, G.kinds, G.served, G.checks, G.spreads, G.tags = {}, {}, {}, false, {}, {}, {}
   return { text = written, errors = errors }
 end
 

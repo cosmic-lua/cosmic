@@ -287,9 +287,9 @@ local CASES <const>: {Case} = {
     msg = "`as` is not in the language: `x as number` changes a type by no check", fix = "validate the value with a [`cosmic.shape`] validator",
   },
   {
-    code = "is_on_record", source = RECORD .. "local function f(v: R | string)\n  if v is R then\n  end\nend\n",
-    msg = "`is R` cannot be told by a run-time tag: a record leaves nothing to test",
-    fix = "test a tag (`x.kind == \"...\"`), declare a class",
+    code = "is_on_record", source = RECORD .. "local function f(v: R | {string})\n  if v is R then\n  end\nend\n",
+    msg = "`is R` cannot be told by a run-time tag: `v` is `R | {string}`, whose tables no tag field tells apart",
+    fix = "give each record of the union a fixed field of its own string literal type (`kind: \"r\"`)",
   },
   {
     code = "is_disjoint", source = "local function f(n: integer): boolean\n  return n is string\nend\n", at = { line = 2, column = 10 },

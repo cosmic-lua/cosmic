@@ -1119,8 +1119,8 @@ several of these (`T is A & B`), each of which its argument meets; it keys a map
 bounds it. a record is not a map; an
 enum is a set of strings, below an enum or a union of string literal types (`"circle"`, the type of that one string)
 that holds each of them, and a union of enums is told apart by `is`. a test of a place against a string narrows it to
-that literal where it holds and to its other strings where it fails, so a chain over every string ends a function. a record that is not a class is not tested by `is`:
-a tagged union is told by its tag. there is no implicit conversion: `integer` is not concatenated without `tostring`, and
+that literal where it holds and to its other strings where it fails, so a chain over every string ends a function. a record that is not a class is tested by `is` only where
+the run-time Lua can tell it: as the one table a value may be, or by the tag of a tagged union, which `is` then reads. there is no implicit conversion: `integer` is not concatenated without `tostring`, and
 a number does not compare with a string. the error-slot discipline of the third principle ([`build/syntax_contracts.tl`])
 holds the tree's functions that answer `T?, string` to the checks on their callers.
 

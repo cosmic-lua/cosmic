@@ -156,6 +156,10 @@ local record Check
     --- The names of the fields a table literal with a spread copies from its source, in the order the record declares
     --- them, by the id of the literal's node: what the code generator writes before the fields given after the spread.
     spreads: {integer: {string}}
+    --- How the code generator tests `v is R` for a record `R` that a run-time tag tells apart, by the id of the tested
+    --- type's node: the tag field and then the strings it holds in `R` (`{ "kind", "circle" }`), or `{ "" }` where `R`
+    --- is the one table the value may be, which `type(v) == "table"` tells.
+    tags: {integer: {string}}
     --- The reads of a place whose type a test narrowed, in source order: what the checker concluded, for a run
     --- that checks it ([`Check.Narrowed`]).
     narrowed: {Narrowed}
@@ -392,6 +396,8 @@ local record Ctx
   literals: mut {integer: Decl}
   --- The fields each table literal with a spread copies, by the id of its node.
   spreads: mut {integer: {string}}
+  --- The tests of a record by its tag, by the id of the tested type's node ([`Check.Result`]'s `tags`).
+  tags: mut {integer: {string}}
   --- The classes whose declaration the walk has passed: a literal or a test of a class before that reads a name that
   --- is not yet its table.
   declared: mut {Decl: boolean}
@@ -3667,6 +3673,7 @@ local record Tests
   keep_is: function(ctx: Ctx, cur: Type, tested: Type): Type
   drop_is: function(ctx: Ctx, cur: Type, tested: Type): Type
   by_literal: function(ctx: Ctx, cur: Type, lit: string, keep: boolean): Type
+  record_tag: function(ctx: Ctx, value: Type, r: Type): {string}?
   --- Adds the warning `code` on the tokens of `node`; none in a pass that reports nothing.
   warn: function(ctx: Ctx, code: Warnings.Code, node: Ast.Node, msg: string, fix: string)
   --- Reports `type(x) == "name"` where `type` never answers the name.
@@ -3853,6 +3860,38 @@ function Tests.table_members(ctx: Ctx, t: Type): {Type}?
     elseif kind == "table" then
       out[#out + 1] = m
     end
+  end
+  return out
+end
+
+--- How a run-time test tells that a value of type `value` is the record `r`: `{ "" }` where `r` is the one table `value`
+--- may be, the tag field and its strings in `r` where a tag tells the tables apart, or nil where no test can tell (a
+--- table of another kind, `any`, a type variable, a record with type arguments, which no tag tells).
+function Tests.record_tag(ctx: Ctx, value: Type, r: Type): {string}?
+  if not ((r.tag == "named")) or r.value or #r.args > 0 then
+    return nil
+  end
+  local tables = Tests.table_members(ctx, value)
+  if tables == nil then
+    return nil
+  end
+  local found = false
+  for _, m in ipairs(tables) do
+    found = found or m == r
+  end
+  if not found then
+    return nil
+  elseif #tables == 1 then
+    return { "" }
+  end
+  local field = Tests.tag_field(ctx, tables)
+  local values = if field ~= nil then Tests.tag_values(ctx, r, field) else nil end
+  if field == nil or values == nil then
+    return nil
+  end
+  local out: mut {string} = { field }
+  for _, v in ipairs(values) do
+    out[#out + 1] = v
   end
   return out
 end
@@ -5010,9 +5049,9 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
     return store.boolean
   end
   Tests.parenthesized(ctx, node)
-  local function refuse(why: string)
+  local function refuse(why: string, fix?: string)
     report(ctx, "is_on_record", node, "`is " .. show(ctx, tested) .. "` cannot be told by a run-time tag: " .. why,
-      "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
+      fix or "test a tag (`x.kind == \"...\"`), declare a class, or validate the data with a [`cosmic.shape`] validator",
       { show(ctx, tested) })
   end
   local library = ctx.program.globals["table"]
@@ -5020,9 +5059,21 @@ function Operators.is_test(ctx: Ctx, node: Ast.IsTest, value: Type): Type
     return store.boolean
   end
   local before = #ctx.errors
-  if (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
+  local tag = if (tested.tag == "named") and tested.decl.kind == "record" then Tests.record_tag(ctx, value, tested) else nil end
+  if tag ~= nil then
+    -- The record is the one table the value may be, or the one its tag says.
+    ctx.tags[node.type.id] = tag
+  elseif (tested.tag == "named") and tested.decl.kind ~= "enum" and tested.decl.kind ~= "class" then
     local word = KIND_WORDS[tested.decl.kind] or "type"
-    refuse((if word:sub(1, 1) == "i" then "an " else "a " end) .. word .. " leaves nothing to test")
+    local tables = Tests.table_members(ctx, value)
+    if tested.decl.kind == "record" and #tested.args == 0 and tables ~= nil and #tables > 1 then
+      -- A record is told by its tag where the other tables the value may be have one too.
+      refuse(subject(ctx, node.value) .. " is " .. tq(ctx, value) .. ", whose tables no tag field tells apart",
+        "give each record of the union a fixed field of its own string literal type (`kind: \"" ..
+          tested.decl.name:lower() .. "\"`), so that `is` tests it, or validate the data with a [`cosmic.shape`] validator")
+    else
+      refuse((if word:sub(1, 1) == "i" then "an " else "a " end) .. word .. " leaves nothing to test")
+    end
   elseif (tested.tag == "named") and tested.decl.kind == "class" and TableLiterals.out_of_reach(ctx, tested.decl) ~= "" then
     report(ctx, "class_scope", node, "`is " .. show(ctx, tested) .. "` tests the metatable of " ..
         TableLiterals.out_of_reach(ctx, tested.decl),
@@ -9682,7 +9733,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     load = LoadOrder.new(0, function(_decl: Decl, _name: string): boolean
       return false
     end, function(_node: Ast.Node, _spelled: string, _found: LoadOrder.Found) end),
-    literals = {}, spreads = {}, declared = {}, union_fields = {}, spine = {},
+    literals = {}, spreads = {}, tags = {}, declared = {}, union_fields = {}, spine = {},
     ternaries = {}, spare = {}, invalid = store.invalid, nil_type = store:atom("nil"), flow = Flow.start(), unfixed_now = {}, assigning = {}, quiet = 0, closers = 0, callee_module = "", member_module = "", moves = {},
     loops = {}, ranges = {}, map_reads = {}, keys = {}, edges = {}, guards = {}, ties = {}, coroutine_reads = {}, top = tops, module_table = module_table(input, lowered), initialized = {}, given = {}, handed = false, reads = {}, unfixed = {}, narrowed = {}, inert = {}, runs = {}, inferred = {}, boundaries = {}, types = {}, callees = {}, consts = {}, starts = {}, library = {}, typed = typed ~= false, warnings = {},
     unite = function(a: Type, b: Type): Type
@@ -9843,7 +9894,7 @@ function Check.check(program: Declarations.Program, input: Declarations.Input, l
     return a.param < b.param
   end)
   return {
-    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, spreads = ctx.spreads, narrowed = narrowed, boundaries = boundaries,
+    errors = ctx.errors, vars = ctx.vars, literals = ctx.literals, spreads = ctx.spreads, tags = ctx.tags, narrowed = narrowed, boundaries = boundaries,
     types = ctx.types, callees = ctx.callees, warnings = warnings,
   }
 end
