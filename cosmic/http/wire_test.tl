@@ -46,13 +46,34 @@ local function test_repeated_cookie_headers_are_joined_with_semicolons()
   assert(got.headers["accept"] == "x, y", got.headers["accept"])
 end
 
---- Bare LF ends a line as CRLF does, blank lines before the request
---- line are passed over, and repeated headers are joined.
-local function test_a_lenient_head_is_read_as_its_strict_form()
-  local got = assert(read("\r\n\nGET / HTTP/1.1\nHost: h\nAccept: a\r\naccept:  b \n\n").head)
+--- Blank lines before the request line are passed over, and repeated
+--- headers are joined.
+local function test_blank_lines_are_passed_over_and_repeats_joined()
+  local got = assert(read("\r\n\r\nGET / HTTP/1.1\r\nHost: h\r\nAccept: a\r\naccept:  b \r\n\r\n").head)
   assert(got.headers["accept"] == "a, b", got.headers["accept"])
   assert(got.headers["host"] == "h")
   assert(got.length == 0 and not got.chunked and not got.close)
+end
+
+--- A head's lines end in CRLF alone. A proxy before the server that
+--- ends a line only at CRLF would read `X: y\nTransfer-Encoding:
+--- chunked` as one header, where a server taking the bare LF reads a
+--- second, and the two would frame the body differently.
+local function test_a_bare_lf_or_cr_in_a_head_is_400()
+  for _, bare in ipairs({
+      "GET / HTTP/1.1\nHost: h\r\n\r\n",
+      "GET / HTTP/1.1\r\nHost: h\n\r\n",
+      "GET / HTTP/1.1\r\nHost: h\r\n\n",
+      "\nGET / HTTP/1.1\r\nHost: h\r\n\r\n",
+      "POST / HTTP/1.1\r\nHost: h\r\nX: y\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+      "GET / HTTP/1.1\r\nHost: h\r\nA: b\rc\r\n\r\n",
+      "GET / HTTP/1.1\r\r\nHost: h\r\n\r\n",
+  }) do
+    local got = read(bare)
+    assert(got.head == nil and got.status == 400, bare)
+  end
+  assert(read("GET / HTTP/1.1\nHost: h\r\n\r\n").why == "a line ends in a bare LF")
+  assert(read("GET / HTTP/1.1\r\nA: b\rc\r\n\r\n").why == "a line holds a bare CR")
 end
 
 local function test_a_version_but_1_0_and_1_1_is_505_and_a_malformed_one_400()

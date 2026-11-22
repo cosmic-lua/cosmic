@@ -36,7 +36,7 @@ local record Request
   mut method: string
   mut target: integer
   mut version: string
-  --- "\r\n" or "\n".
+  --- "\r\n", or "\n", which the server refuses.
   mut eol: string
   --- Name and value pairs.
   headers: mut {{string}}
@@ -51,7 +51,7 @@ local function draw_request(src: Fuzz.Source, fields: mut {string})
   table.insert(fields, "m" .. Fuzz.pick(src, METHODS))
   table.insert(fields, "t" .. tostring(src:int(1, #TARGETS)))
   table.insert(fields, "v" .. Fuzz.pick(src, { "HTTP/1.1", "HTTP/1.1", "HTTP/1.0" }))
-  table.insert(fields, "e" .. Fuzz.pick(src, { "\r\n", "\n" }))
+  table.insert(fields, "e" .. Fuzz.pick(src, { "\r\n", "\r\n", "\n" }))
   local count = 0
   while Fuzz.more(src, count, 4) do
     count = count + 1
@@ -312,6 +312,11 @@ local function test_a_written_request_reads_back(tmp: string)
       local in_put = wire.input(Stream.from_string(written(r)))
       local read = wire.read_head(in_put, LIMITS)
       local head = read.head
+      if r.eol ~= "\r\n" then
+        if read.status ~= 400 then return false, "a head of bare LFs was not refused 400" end
+        Fuzz.label("refused bare LF")
+        return true, ""
+      end
       local expectations: mut {string} = {}
       for _, pair in ipairs(r.headers) do
         local header, header_value = pair_of(pair)
@@ -364,7 +369,7 @@ local function test_a_written_request_reads_back(tmp: string)
       Fuzz.label(framing .. " framing")
       return true, ""
     end,
-    requires = { "chunked framing", "length framing", "none framing" },
+    requires = { "chunked framing", "length framing", "none framing", "refused bare LF" },
   })
 end
 
