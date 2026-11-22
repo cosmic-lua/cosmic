@@ -222,6 +222,32 @@ local function test_serve_headers_name_who_asked_at_the_apps_own_socket()
   assert(#seen.asked == 0, table.concat(seen.asked, ","))
 end
 
+--- At the socket `socket` names, which a Serve configuration filed
+--- outside the app passes requests to, the daemon's headers name who
+--- asked, without `serve`, but grant no capabilities; one that Funnel
+--- brought has none, and one from this node's own address none either.
+--- Another unix socket names nobody, and an empty path is refused.
+local function test_serve_headers_name_who_asked_at_the_socket_named()
+  local seen = new_seen()
+  local named, side = Net.unix("/run/user/999/app.sock"), Net.unix("")
+  local client = Web.test_client(app_of(seen, { whois = stand_in(seen), socket = named.path }))
+  local who = { ["Tailscale-User-Login"] = "rene@example.com", ["Tailscale-User-Name"] = "Rene",
+    ["Tailscale-App-Capabilities"] = '{"example.com/cap/admin":[{}]}' }
+  local home = client:get("/", { peer = side, listener = named, headers = who })
+  assert(home.body == "rene@example.com Rene serve - tagged=false", home.body)
+  assert(client:get("/admin", { peer = side, listener = named, headers = who }).status == 403)
+  assert(client:get("/", { peer = side, listener = Net.unix("/run/user/999/other.sock"), headers = who }).status == 403)
+  -- The loopback is not the socket: without `serve` its headers are anyone's.
+  assert(client:get("/", { peer = Net.tcp("127.0.0.1", 50000), headers = who }).status == 403)
+  local funneled = client:get("/", { peer = side, listener = named,
+    headers = { ["Tailscale-Funnel-Request"] = "?1", ["Tailscale-User-Login"] = "forged@example.com" } })
+  assert(funneled.status == 403, tostring(funneled.status))
+  local own = { ["Tailscale-User-Login"] = "rene@example.com", ["X-Forwarded-For"] = "100.64.0.1" }
+  assert(client:get("/", { peer = side, listener = named, headers = own }).status == 403)
+  local ok, why = pcall(Web.tailnet, { socket = "" })
+  assert(not ok and tostring(why):find("socket", 1, true) ~= nil, tostring(why))
+end
+
 --- The daemon names this node's owner in its headers for a request from
 --- this node's own address, which any process here can make: where its
 --- X-Forwarded-For is that address the request has no identity, and
