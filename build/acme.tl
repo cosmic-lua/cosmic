@@ -75,8 +75,6 @@ local record verb
     --- Writes a new file whole with a mode, refusing one that is there
     --- (O_EXCL) with the why `<path>` .. [`THERE_ALREADY`].
     create: function(path: string, data: string, mode: integer): boolean, string
-    --- Whether a path is there: [`Fs.exists`].
-    exists: function(path: string): boolean?, string
     --- Makes a directory and those above it: [`Fs.mkdirs`].
     mkdirs: function(path: string): boolean, string
     --- Removes a file: [`Fs.remove`].
@@ -131,6 +129,8 @@ local THERE_ALREADY <const> = ": there already; a key written over is lost, so n
 --- included, is never written through. A write that fails takes the
 --- file away again.
 local function create(path: string, data: string, mode: integer): boolean, string
+  -- TODO: write to a temporary file and link(2) it to `path`, so a crash
+  -- mid-write leaves no cut key there, once cosmic.sys carries link.
   local fd, trouble, number = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, mode)
   if fd == nil then
     return false, path .. (if number == sys.EEXIST then THERE_ALREADY else ": " .. trouble end)
@@ -152,7 +152,6 @@ local standard: verb.Io = {
     return Fs.write(path, data, mode)
   end,
   create = create,
-  exists = function(path: string): boolean?, string return Fs.exists(path) end,
   mkdirs = function(path: string): boolean, string return Fs.mkdirs(path) end,
   remove = function(path: string): boolean, string return Fs.remove(path) end,
   run = default_run,
@@ -184,19 +183,8 @@ local function make_key(to: verb.Io, complain: function(line: string), parsed: F
     complain("--bits is 2048, 3072 or 4096, not " .. tostring(bits_word))
     return bare.refused
   end
-  if file ~= "-" then
-    -- Looked for first only to say so before a key is made: the create
-    -- below is what refuses one made meanwhile.
-    local there, unknown = to.exists(file)
-    if there == nil then
-      complain(unknown)
-      return bare.refused
-    end
-    if there then
-      complain(file .. THERE_ALREADY)
-      return bare.refused
-    end
-  end
+  -- No look for a file there first: the exclusive create alone refuses
+  -- one, made however lately.
   local key = if rsa then Acme.rsa_key(Sign.rsa_secret(bits)) else Acme.p256_key(Sign.p256_secret()) end
   local pem = assert(key.pem, "a key this module makes has its PEM")
   if file == "-" then return bare.written(complain, to.out(pem)) end

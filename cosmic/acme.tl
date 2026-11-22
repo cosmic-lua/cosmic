@@ -869,7 +869,9 @@ end
 
 --- `text`, which the server sent, quoted for a why of one line.
 local function quoted(text: string): string
-  return (("%q"):format(text):gsub("\\\n", "\\n"))
+  -- Bounded too: a server's string can be of any length.
+  local cut = if #text > 200 then text:sub(1, 200) .. "..." else text end
+  return (("%q"):format(cut):gsub("\\\n", "\\n"))
 end
 
 --- The why of a request to `url` refused for not being https.
@@ -1358,19 +1360,20 @@ end
 --- The account key kept at `path`, made and written there (mode 0600)
 --- where there is none.
 local function account_key(path: string): Acme.Key?, string
-  local there, why = Fs.exists(path)
-  if there == nil then return nil, "acme: " .. why end
-  if there then
+  local key = Acme.p256_key(Sign.p256_secret())
+  -- Created exclusively, with no look first: a key there, made by another
+  -- process however lately, is an account, read and never written over.
+  local fd, refused, number = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, OWNER_FILE)
+  if fd == nil and number == sys.EEXIST then
     local text, unread = Fs.read(path)
     if text == nil then return nil, "acme: " .. unread end
-    local key, bad = Acme.read_key(text)
-    if key == nil then return nil, "acme: " .. path .. ": " .. bad end
-    return key, ""
+    local kept, bad = Acme.read_key(text)
+    if kept == nil then return nil, "acme: " .. path .. ": " .. bad end
+    return kept, ""
   end
-  local key = Acme.p256_key(Sign.p256_secret())
-  -- Created exclusively: a key another process made since is an account,
-  -- never written over.
-  local fd, refused = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, OWNER_FILE)
+  -- TODO: write the key to a temporary file and link(2) it to `path`, so
+  -- a crash mid-write leaves no cut key there, once cosmic.sys carries
+  -- link (build/acme.tl's create waits on the same).
   if fd == nil then return nil, "acme: " .. path .. ": " .. refused end
   local wrote, unwritten = Fs.put(fd, assert(key.pem))
   local closed, unclosed = Fs.close(fd)

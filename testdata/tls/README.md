@@ -9,8 +9,8 @@ Certificates for the tests of [`cosmic.tls`] and the TLS listeners of
   127.0.0.1.
 - `c.pem`: `a.key`'s leaf again, valid only in January 2020, so expired.
 - `d.pem`: `a.key`'s leaf for `localhost` alone, signed by `a.key`
-  itself, so a client that trusts `d.pem` takes it: what the fake ACME
-  CA of the tests of [`Acme.auto`] issues.
+  itself, so a client that trusts `d.pem` takes it: what the fake
+  ACME CA of the tests of [`Acme.auto`] issues.
 - `client-ca.pem`: a P-256 CA, "cosmic test client CA", the root a
   server that asks for client certificates trusts.
 - `client.pem`, `client.key`: a P-256 client leaf it signed, "cosmic
@@ -18,9 +18,10 @@ Certificates for the tests of [`cosmic.tls`] and the TLS listeners of
   `client@cosmic.test`, for client authentication alone.
 
 Each leaf is signed by its CA (`d.pem` by itself) and valid from
-2026-01-01 to 2126-01-01 but `c.pem`; each CA is valid from when it was made, for a hundred
-years. They were made with OpenSSL 3.0 (the client's as the
-second block shows, with `ca.cnf` copying no extensions):
+2026-01-01 to 2126-01-01 but `c.pem`; each CA is valid from when it
+was made, for a hundred years. They were made with OpenSSL 3.0 (the
+client's as the second block shows, with `ca.cnf` copying no
+extensions):
 
 ```sh
 openssl ecparam -name prime256v1 -genkey -noout -out ca.key

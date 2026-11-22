@@ -5,6 +5,7 @@
 
 local Acme = require("cosmic.acme")
 local Codec = require("cosmic.codec")
+local Fs = require("cosmic.fs")
 local Sign = require("cosmic.sign")
 local rsa_fixture = require("build.rsa_fixture")
 local acme = require("build.acme")
@@ -30,15 +31,12 @@ local record World
   mut hook_fails: boolean
   --- Paths whose write fails.
   write_fails: mut {string: boolean}
-  --- Paths that are there but that `exists` says are not: made by
-  --- another process between its look and the write.
-  appears: mut {string: boolean}
   mut server: acme_fixture.Server
 end
 
 local function new_world(): World
   return { files = {}, modes = {}, written = {}, removed = {}, hooks = {}, hook_fails = false,
-    write_fails = {}, appears = {}, server = acme_fixture.new_server() }
+    write_fails = {}, server = acme_fixture.new_server() }
 end
 
 local function run(world: World, words: {string}): Ran
@@ -69,9 +67,6 @@ local function run(world: World, words: {string}): Ran
       world.modes[path] = mode
       table.insert(world.written, path)
       return true, ""
-    end,
-    exists = function(path: string): boolean?, string
-      return world.files[path] ~= nil and world.appears[path] ~= true, ""
     end,
     mkdirs = function(_path: string): boolean, string return true, "" end,
     remove = function(path: string): boolean, string
@@ -257,13 +252,20 @@ local function test_a_chain_that_cannot_be_written_is_printed_instead()
   assert(ran.out:find("BEGIN CERTIFICATE", 1, true) ~= nil, "the chain is not lost")
 end
 
-local function test_key_never_writes_over_a_file_made_after_it_looked()
-  local world = new_world()
-  world.files["account.pem"] = "kept"
-  world.appears["account.pem"] = true
-  local ran = run(world, { "key", "account.pem" })
-  assert(ran.code == 2 and ran.err:find("account.pem: there already", 1, true) ~= nil, ran.err)
-  assert(world.files["account.pem"] == "kept", "the key made meanwhile was written over")
+--- The process's own files: the exclusive create, its mode, and its
+--- refusal of a file there (here one made first, as another process
+--- could at any moment).
+local function test_key_creates_its_file_exclusively(tmp: string)
+  local path = tmp .. "/account.pem"
+  assert(acme.run({ "acme", "key", path }) == 0)
+  local made = assert(Fs.read(path))
+  assert(Acme.read_key(made) ~= nil and (assert(Fs.stat(path)).mode & 0x1ff) == 0x180)
+  assert(acme.run({ "acme", "key", path }) == 2)
+  assert(Fs.read(path) == made, "a key there was written over")
+  local link = tmp .. "/link.pem"
+  assert(Fs.symlink(tmp .. "/elsewhere.pem", link))
+  assert(acme.run({ "acme", "key", link }) == 2)
+  assert(Fs.exists(tmp .. "/elsewhere.pem") == false, "a link was written through")
 end
 
 local function test_issue_refuses_a_directory_that_is_not_https()

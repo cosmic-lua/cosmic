@@ -17,6 +17,7 @@ local Stream = require("cosmic.stream")
 local Tls = require("cosmic.tls")
 local sys = require("cosmic.sys")
 local Server = require("cosmic.http.server")
+local Sign = require("cosmic.sign")
 local Test = require("cosmic.test")
 local acme_fixture = require("build.acme_fixture")
 
@@ -279,4 +280,20 @@ local function test_a_signal_during_the_first_load_is_a_clean_stop()
   assert(ok, why)
   assert(stopped and not ready, tostring(stopped) .. " " .. tostring(ready))
   assert(outer:release() == sys.SIGTERM)
+end
+
+--- An account key there, made by another process however lately, is
+--- the account: read, and never written over.
+local function test_an_account_key_there_is_the_account_and_kept(tmp: string)
+  local dir = tmp .. "/acme"
+  assert(Fs.mkdirs(dir, 0x1c0))
+  local account = Acme.p256_key(Sign.p256_secret())
+  assert(Fs.write(dir .. "/account.pem", assert(account.pem), 0x180))
+  local ca = fake_ca(free_port())
+  ca.check = function(_domain: string, _token: string): string return "valid" end
+  local loaded, why = auto_of(dir, ca).certs:load()
+  assert(loaded, why)
+  assert(Fs.read(dir .. "/account.pem") == account.pem, "the account key was written over")
+  local seen = assert(ca.account)
+  assert(seen["x"] == account.jwk["x"] and seen["y"] == account.jwk["y"], "another account was made")
 end

@@ -526,6 +526,7 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
   -- The resource whose answer names its URLs as http, and the step refused.
   local cases: {{string}} = {
     { "/directory", "acme: newAccount: \"http://acme.test/acct\" is not an https URL" },
+    { "/directory nonce", "acme: newNonce: \"http://acme.test/nonce\" is not an https URL" },
     { "/acct", "acme: newAccount: \"http://acme.test/acct/1\" is not an https URL" },
     { "/order", "acme: newOrder: \"http://acme.test/orders/1\" is not an https URL" },
     { "/authz/1", "acme: challenge: \"http://acme.test/chall/1/1\" is not an https URL" },
@@ -541,10 +542,17 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
         assert(url:sub(1, 8) == "https://", "sent to " .. url)
         if o.follow ~= false then followed = true end
         local body = assert(server.request(method, url, o))
-        if url ~= BASE .. resource then return body, "" end
+        -- "/directory nonce" makes newNonce's URL alone http.
+        local at = assert(resource:match("^%S+"))
+        local only = resource:match(" (%S+)$") or ""
+        if url ~= BASE .. at then return body, "" end
+        local plain = if only == "" then "https://" else BASE .. "/" .. only end
+        local function down(text: string): string
+          return (text:gsub(plain:gsub("%p", "%%%0"), (plain:gsub("^https", "http"))))
+        end
         local headers: mut {string: string} = {}
-        for k, v in pairs(body.headers) do headers[k] = (v:gsub("^https://", "http://")) end
-        return { status = body.status, headers = headers, body = (body.body:gsub("https://", "http://")) }, ""
+        for k, v in pairs(body.headers) do headers[k] = down(v) end
+        return { status = body.status, headers = headers, body = down(body.body) }, ""
       end,
     })
     local chain, why = client:issue({ "example.com" }, {
