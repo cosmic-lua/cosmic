@@ -638,3 +638,75 @@ local function test_the_statics_of_a_record_are_fields_of_its_declaration_and_no
   refused("local type Circle = require(\"circles\")\nlocal Circles = require(\"circles\")\nlocal c: Circle = Circles\n",
     "declaration_value", nil, modules)
 end
+
+-- generic methods ------------------------------------------------------------------------------------------------
+
+local BAG <const> = [[
+local class Bag
+  items: {integer}
+  function map<U>(self, f: function(integer): U): {U}
+    local out: mut {U} = {}
+    for i, item in ipairs(self.items) do
+      out[i] = f(item)
+    end
+    return out
+  end
+end
+local b: Bag = { items = { 1, 2, 3 } }
+]]
+
+--- A method takes type parameters of its own, which each call infers from its arguments.
+local function test_a_generic_method_is_inferred_at_each_call()
+  local source = BAG .. [[
+local names = b:map(function(n: integer): string return "#" .. tostring(n) end)
+local twice = b:map(function(n: integer): integer return n * 2 end)
+print(table.concat(names, ","), twice[3])
+]]
+  local done = Programs.execute(source, false)
+  assert(done.ran and done.fault == nil, tostring(done.fault) .. Programs.codes(done.run))
+  assert(done.printed[1] == "#1,#2,#3\t6", done.printed[1])
+  refused(BAG .. "local names: {integer} = b:map(function(n: integer): string return tostring(n) end)\nprint(names)\n",
+    "not_assignable")
+end
+
+--- A method's type parameter may be bounded, and sits inside the class's own.
+local function test_a_generic_method_of_a_generic_class_has_both_binders()
+  accepted([[
+local class Pair<A>
+  left: A
+  function with<B is Ordered>(self, right: B, other: B): {A | B}
+    if right < other then
+      return { self.left, right }
+    end
+    return { self.left, other }
+  end
+end
+local p: Pair<string> = { left = "x" }
+print(#p:with(1, 2))
+]])
+  declared_wrong("local class C\n  function f<T>(self): integer\n    return 1\n  end\nend\n", "unused_type_parameter", "`T`")
+  declared_wrong("local class C\n  function __tostring<T>(self): string\n    return \"c\"\n  end\nend\n", "metamethod_signature unused_type_parameter",
+    "Lua never gives a metamethod")
+end
+
+--- A class meets an interface's generic function field with a generic method.
+local function test_a_generic_method_meets_a_generic_field_of_an_interface()
+  accepted([[
+local record Key<T>
+  name: string
+end
+local interface Store
+  get: function<T>(Store, key: Key<T>): T?
+end
+local class Mem is Store
+  function get<T>(self, key: Key<T>): T?
+    local _ = key
+    return nil
+  end
+end
+local m: Mem = {}
+local s: Store = m
+local k: Key<string> = { name = "k" }
+print(s:get(k))
+]])
+end

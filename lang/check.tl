@@ -9459,7 +9459,7 @@ local function declaration_bodies(ctx: Ctx, node: Ast.Node, decl: Decl?)
   for _, m in ipairs(members) do
     if (m.kind == "Method") then
       local ft = ctx.lowered.types[m.id] or ctx.invalid
-      function_body(ctx, m.params, m.body, ft, {}, m, m.rets ~= nil, m.id,
+      function_body(ctx, m.params, m.body, ft, Declarations.parameter_names(m.typeparams), m, m.rets ~= nil, m.id,
         (if decl ~= nil then decl.name else "?" end) .. "." .. m.name.name)
     elseif (m.kind == "Record") or (m.kind == "Interface") or (m.kind == "Class") then
       local nested = ctx.lowered.decls[m.id]

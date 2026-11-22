@@ -1784,6 +1784,10 @@ local function parse_method(first: integer, seen: mut {string: boolean}): Ast.Me
     seen["\0method " .. name.name] = true
     seen[name.name] = false
   end
+  local typeparams: {Ast.TypeParam} = {}
+  if S.text == "<" then
+    typeparams = parse_typeparams()
+  end
   local open = S.pos
   local params: {Ast.Param} = {}
   local rets: Ast.Rets = nil -- checked: nil_not_allowed
@@ -1804,7 +1808,7 @@ local function parse_method(first: integer, seen: mut {string: boolean}): Ast.Me
   end
   local body = parse_body(first, "method `" .. name.name .. "`")
   S.arms, S.tables = arms, tables
-  return { kind = "Method", id = 0, first = first, last = S.pos - 1, name = name, params = params, rets = rets, body = body, doc = doc_of(first) }
+  return { kind = "Method", id = 0, first = first, last = S.pos - 1, name = name, typeparams = typeparams, params = params, rets = rets, body = body, doc = doc_of(first) }
 end
 
 local OLD_BODY <const>: {string: boolean} = { record = true, interface = true, enum = true, class = true }

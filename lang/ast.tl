@@ -958,6 +958,7 @@ local record Ast
     mut last: integer
     mut id: integer
     name: Binding
+    typeparams: {TypeParam}
     params: {Param}
     rets?: Rets
     body: Block
@@ -1056,7 +1057,7 @@ local SPEC <const>: {string: string} = {
   Class = "scope name typeparams* supers* members*",
   Enum = "scope name values* numeric", EnumValue = "value number",
   Alias = "scope name typeparams* type", Import = "scope name module",
-  FieldDecl = "name mut omittable type", Method = "name params* rets body",
+  FieldDecl = "name mut omittable type", Method = "name typeparams* params* rets body",
   Userdata = "", Error = "",
 }
 
@@ -1515,6 +1516,9 @@ local WALK <const>: {string: function(Ast.Node, Visit)} = {
   Method = function(n: Ast.Node, visit: Visit)
     if n.kind == "Method" then
       visit(n.name)
+      for _, item in ipairs(n.typeparams) do
+        visit(item)
+      end
       for _, item in ipairs(n.params) do
         visit(item)
       end

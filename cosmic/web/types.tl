@@ -128,7 +128,7 @@ local record Types
   --- One request, as a handler and its middleware see it. It wraps the
   --- server's [`Server.Request`] and is mutable by middleware (`state`,
   --- typed keys) and by the router (`params`, `route`) and nothing else.
-  record Request
+  interface Request
     --- The server's request, for anything not lifted below. Its `path` is
     --- as sent: authorization compares `path` or `segments`, never this.
     raw: Server.Request

@@ -285,10 +285,14 @@ local record Relation
   --- function field, which is `x`, replaced by `self_type`. Nil where the arguments cannot be put in.
   as_listed: function(store: Store, x: Named, field_type: Type, self_type: Type): Type?
 
+  --- `t` with each variable that reaches past its binders reaching `by` binders further out: the type as written one
+  --- binder further in, such as a class's type in the signature of a generic method of the class.
+  shifted: function(store: Store, t: Type, by: integer): Type
+
   --- Whether a declaration that leaves `f` out of an interface it lists has it from the interface, where `listed` is
   --- the field's type as `self_type` has it ([`as_listed`]): a class writes a method for each fixed function field
   --- whose first parameter is then `self_type`, the interface as listed, and has every other field.
-  brought_in: function(decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
+  brought_in: function(store: Store, decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
 
   --- For each field of the interface `pattern`, and of those it lists: the field's type as `pattern` declares it, with
   --- its arguments put in and a function field's receiver `actual`, then as `actual` has it, in pairs. Nil where
@@ -825,14 +829,41 @@ local function with_receiver_of(store: Store, t: Type, receivers: {integer: bool
   if callable.tag == "fn" then
     receiver = callable.params[1]
   end
-  if (callable.tag == "fn") and receiver ~= nil and #callable.tparams == 0 and receivers[receiver.type.id] == true then
-    local replaced = with_receiver(store, callable, self_type)
+  if not ((callable.tag == "fn")) or receiver == nil then
+    return t
+  end
+  -- A generic function's receiver is written under its own binder, one further in than the field: it is the interface
+  -- where it names none of that binder's parameters and is the interface one binder out.
+  local written = receiver.type
+  local here = self_type
+  if #callable.tparams > 0 then
+    local own = false
+    written = rewrite(store, written, 0, function(v: Var, level: integer): Type
+      if v.depth < level then
+        return v
+      elseif v.depth == level then
+        own = true
+        return v
+      end
+      return store:var(v.depth - 1, v.index)
+    end, {})
+    if own then
+      return t
+    end
+    here = shift(store, self_type, 1)
+  end
+  if receivers[written.id] == true then
+    local replaced = with_receiver(store, callable, here)
     if optional then
       return store:optional(replaced)
     end
     return replaced
   end
   return t
+end
+
+function Relation.shifted(store: Store, t: Type, by: integer): Type
+  return shift(store, t, by)
 end
 
 function Relation.as_listed(store: Store, x: Named, field_type: Type, self_type: Type): Type?
@@ -850,12 +881,13 @@ end
 --- an interface or a record has each such field, and a class each but a fixed function field that takes the interface
 --- as listed first (`listed` takes `self_type` first), which it meets with a method of its own. A field that takes
 --- another type first, or the interface with other arguments, is data the class holds.
-function Relation.brought_in(decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
+function Relation.brought_in(store: Store, decl: Types.Decl, f: Types.Field, listed: Type?, self_type: Type): boolean
   if decl.kind ~= "class" or f.mut == true or f.type.tag ~= "fn" or listed == nil or listed.tag ~= "fn" then
     return true
   end
   local first = listed.params[1]
-  return first == nil or first.type ~= self_type
+  local here = if #listed.tparams > 0 then shift(store, self_type, 1) else self_type end
+  return first == nil or first.type ~= here
 end
 
 --- A field or method that `n` has, with the arguments of `n` put in.
@@ -906,7 +938,7 @@ local function supplied(j: Relation.Judge, n: Named, name: string): {Supplied}
         for _, f in ipairs(xbody.fields) do
           if f.name == name then
             local listed = Relation.as_listed(j.store, x, f.type, n)
-            if kind == "interface" or Relation.brought_in(n.decl, f, listed, n) then
+            if kind == "interface" or Relation.brought_in(j.store, n.decl, f, listed, n) then
               add(listed, f.mut == true, f.omittable == true)
             end
           end
