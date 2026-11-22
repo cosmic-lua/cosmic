@@ -280,12 +280,15 @@ local function line(input: wire.Input, budget: integer): string?, string
   end
 end
 
---- `text` without a CR at its end, or nil where it holds a CR anywhere
---- else: a bare CR, which no line of HTTP holds.
-local function without_cr(text: string): string?
-  if text:sub(-1) == "\r" then text = text:sub(1, -2) end
-  if text:find("\r", 1, true) then return nil end
-  return text
+--- `text`, a line [`line`] took, without the CR that ends it: nil and
+--- why where it ends in a bare LF or holds a bare CR. A proxy before
+--- this server may read either otherwise, ending a line where this
+--- server reads on or the other way round.
+local function without_crlf(text: string): string?, string
+  if text:sub(-1) ~= "\r" then return nil, "a line ends in a bare LF" end
+  local bare = text:sub(1, -2)
+  if bare:find("\r", 1, true) then return nil, "a line holds a bare CR" end
+  return bare, ""
 end
 
 --- `text` without the spaces and tabs at either end. A pattern's
@@ -426,8 +429,8 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
   local function halted(): wire.Read
     return stopped[1] or refused(0, "")
   end
-  --- The next line of the head, without its CR; nil, `stopped` set, where
-  --- there is none.
+  --- The next line of the head, without its CRLF; nil, `stopped` set, where
+  --- there is none or it does not end in CRLF.
   local function next_line(): string?
     local text, why = line(input, limits.head_bytes - (input.taken - start))
     if text == nil then
@@ -442,8 +445,8 @@ function wire.read_head(input: wire.Input, limits: wire.Limits): wire.Read
       end
       return nil
     end
-    local bare = without_cr(text)
-    if bare == nil then stopped[1] = refused(400, "a line holds a bare CR") end
+    local bare, bare_why = without_crlf(text)
+    if bare == nil then stopped[1] = refused(400, bare_why) end
     return bare
   end
   -- A blank line or more before the request line is passed over (RFC
@@ -568,12 +571,11 @@ local function stopped(self: BodyReader, state: wire.BodyState, why: string): bo
   return false, why
 end
 
---- A chunked body's next line, ended by CRLF: a bare LF, which a
---- proxy before this server may read otherwise, is refused here though
---- a head may hold one. No line passes `head_bytes`, and `spent` counts
---- a trailer against it, and a size line's extension and the zeros
---- before its size ([`next_chunk`]), but not the framing every chunk
---- has, so many small chunks pass as one large one does.
+--- A chunked body's next line, ended by CRLF as a head's is. No line
+--- passes `head_bytes`, and `spent` counts a trailer against it, and a
+--- size line's extension and the zeros before its size
+--- ([`next_chunk`]), but not the framing every chunk has, so many small
+--- chunks pass as one large one does.
 local function meta_line(self: BodyReader): string?, string
   local text, why = line(self.input, self.limits.head_bytes)
   if text == nil then
@@ -582,11 +584,8 @@ local function meta_line(self: BodyReader): string?, string
     end
     return fail(self, "failed", if why ~= "" then why else "http: the request body ended early" end)
   end
-  if text:sub(-1) ~= "\r" then
-    return fail(self, "bad", "http: a chunked body's line ends in a bare LF")
-  end
-  local bare = without_cr(text)
-  if bare == nil then return fail(self, "bad", "http: a chunked body holds a bare CR") end
+  local bare, bare_why = without_crlf(text)
+  if bare == nil then return fail(self, "bad", "http: in a chunked body, " .. bare_why) end
   return bare, ""
 end
 

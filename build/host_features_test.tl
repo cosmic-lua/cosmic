@@ -56,7 +56,7 @@ local function host(tmp: string, machine: string, cpuinfo: string):
     packages = { write("packages", "p1") },
     system = { write("os", "o1"), write("osrelease", "6.17.0-1022-azure\n"),
       write("version", "#22-Ubuntu SMP\n") },
-    machine = machine,
+    sysname = "Linux", machine = machine,
     status = write("status", "Uid: 1 1 1 1\n"), own_proc = true, host_id = "h", uid = 1,
   }
   local names: mut {string:boolean} = {}
@@ -87,9 +87,11 @@ local function test_a_host_is_named_by_its_kernel_and_keys_its_features(tmp: str
   write("cpuinfo", "flags : sse a b_2 avx avx2\n")
   seen("a feature more", false, true)
   write("osrelease", "6.17.0-1023-azure\n")
-  seen("another kernel", true, false)
+  seen("another build of the kernel's series", false, false)
   write("version", "#23-Ubuntu SMP\n")
-  seen("another build of it", true, false)
+  seen("another version string", false, false)
+  write("osrelease", "6.18.0-1001-aws\n")
+  seen("another series", true, false)
   assert(Fs.remove(tmp .. "/cpuinfo"))
   seen("no features at all", false, true)
 end

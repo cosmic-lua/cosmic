@@ -542,7 +542,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
       sysname = "Linux", system_id = "s1",
       cpu_features = { "aes", "pclmulqdq", "asimd" }, machine = "x86_64",
       status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\nGid: 1 1 1 1\n"),
-      own_proc = true, host_id = "h1", uid = 1, gid = 1, groups = { 1, 20 },
+      own_proc = true, landlock = 3, host_id = "h1", uid = 1, gid = 1, groups = { 1, 20 },
       walked = { write("walked", "w1") },
     }
   end
@@ -572,7 +572,7 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     system_id = set("system_id", "s2"), cpu_features = set("cpu_features", { "aes" }),
     machine = set("machine", "aarch64"),
     status = set("status", tmp .. "/status2"),
-    own_proc = set("own_proc", false), host_id = set("host_id", "h2"),
+    own_proc = set("own_proc", false), landlock = set("landlock", 4), host_id = set("host_id", "h2"),
     uid = set("uid", 2),
     gid = { from = without_status, change = set("gid", 2).change },
     groups = { from = without_status, change = set("groups", { 1 }).change },
@@ -810,11 +810,10 @@ local function test_only_a_closure_that_reads_the_compiler_is_keyed_by_it(tmp: s
   assert(run_under("one compiler", reading) ~= run_under("another compiler", reading))
 end
 
---- Each part of the host's identity moves it: its kernel, the
---- processor's features, the status of this process, the user, which
---- /proc a sandbox gets, and what the host says of itself; the
---- processor's features are each counted once, and only those a core
---- chooses code by. Its package database and the system it says it is
+--- Each part of the host's identity moves it: its kernel's series (not
+--- its build or version string) and Landlock ABI, the status of this
+--- process, the user, which /proc a sandbox gets, and what the host says
+--- of itself; the processor's features move none of it. Its package database and the system it says it is
 --- move what it has installed (`system_identity`) instead, and not it.
 local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   local function write(name: string, text: string): string
@@ -826,7 +825,7 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
     system = { write("os", "o1"), write("release", "r1"), write("version", "v1") },
     cpu_features = { "aes", "fma", "fma", "aes" }, machine = "x86_64",
     status = write("status", "Name: x\nCapEff: 0\nUid: 1 1 1 1\n"),
-    own_proc = true, host_id = "h1", uid = 1,
+    sysname = "Linux", landlock = 3, own_proc = true, host_id = "h1", uid = 1,
   }
   local function identity(): string
     return declared_key.host_identity(declared_key.digests(tmp), sources)
@@ -854,9 +853,19 @@ local function test_each_part_of_the_host_moves_its_identity(tmp: string)
   write("release", "r2")
   differs("the kernel's release")
   write("version", "v2")
-  differs("the kernel's version")
+  assert(seen[identity()] == "the kernel's release", "the kernel's version string")
+  write("release", "7.0.0-1014-aws\n")
+  differs("the kernel's series")
+  write("release", "7.0.0-1017-azure\n")
+  assert(seen[identity()] == "the kernel's series", "another build of the series")
+  write("release", "7.1.0-1001-azure\n")
+  differs("another series")
   sources.cpu_features = { "aes", "fma", "pclmulqdq" }
-  assert(seen[identity()] == "the kernel's version", "a feature of the processor")
+  assert(seen[identity()] == "another series", "a feature of the processor")
+  sources.landlock = 0
+  differs("no Landlock")
+  sources.landlock = 999
+  differs("another Landlock ABI")
   write("status", "Name: x\nCapEff: 1\nUid: 1 1 1 1\n")
   differs("the capabilities")
   write("status", "Name: y\nCapEff: 1\nUid: 1 1 1 1\n")
@@ -1434,8 +1443,8 @@ local function test_a_file_rewritten_since_an_earlier_run_is_read_once(tmp: stri
 end
 
 --- The rest of the host's identity (`host_split`) moves with everything
---- of it but its kernel: the kernel's release and version move the
---- identity and not the rest, while the user, the sandbox's /proc and
+--- of it but its kernel: the kernel's release and Landlock ABI move the
+--- identity and not the rest, its version neither, while the user, the sandbox's /proc and
 --- what the host says of itself move both, and the processor's features
 --- move neither. A gathering run takes the verdicts of a host of another
 --- kernel by this (build/shared_verdicts.tl's `hosts_like`).
@@ -1469,6 +1478,12 @@ local function test_the_rest_of_a_hosts_identity_leaves_out_its_kernel(tmp: stri
   assert(kernel.identity ~= first.identity and kernel.rest == first.rest, "a kernel's release")
   assert(Fs.write(version, "v2"))
   assert(start().rest == first.rest, "a kernel's version")
+  local abi = declared_key.host_split(declared_key.digests(tmp), {
+    packages = { packages }, system = { os_release, release, version },
+    cpu_features = { "aes", "pclmulqdq" }, machine = "x86_64", status = status,
+    own_proc = true, landlock = 999, host_id = "h1", uid = 1,
+  })
+  assert(abi.identity ~= start().identity and abi.rest == first.rest, "a kernel's Landlock ABI")
   local features = split({ "aes", "ssse3" }, "h1", true, 1)
   assert(features.identity == start().identity and features.rest == first.rest, "a feature")
   assert(Fs.write(release, "r1"))

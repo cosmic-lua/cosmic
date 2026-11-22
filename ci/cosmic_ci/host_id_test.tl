@@ -91,9 +91,11 @@ local function test_every_recorded_host_is_named_as_the_script_named_it()
   assert(count >= 20, "the recorded hosts are gone")
 end
 
---- The kernel of a host moves with its release and its version, and with
---- nothing else: not with the processor's features, which a cache is not
---- named by, so runners of other processors restore one.
+--- The kernel of a host moves with its release's series, and with
+--- nothing else: not with another build of the series or its version
+--- string, so runners of one series from other clouds restore one cache,
+--- and not with the processor's features, so runners of other
+--- processors do.
 local function test_what_moves_the_kernel_of_a_host()
   local x86 = vector_named("x86")
   local function kernel(cpuinfo: string, osrelease: string, version: string): string
@@ -103,8 +105,11 @@ local function test_what_moves_the_kernel_of_a_host()
   local start = kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n")
   assert(kernel("flags : aes pclmulqdq\n", "6.17.0-1022-azure\n", "#22-Ubuntu SMP\n") == start,
     "the processor named another kernel")
-  assert(kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1023-azure\n", "#22-Ubuntu SMP\n") ~= start)
-  assert(kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#23-Ubuntu SMP\n") ~= start)
+  assert(kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1023-aws\n", "#22-Ubuntu SMP\n") == start,
+    "another build of the series named another kernel")
+  assert(kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.17.0-1022-azure\n", "#23-Ubuntu SMP\n") == start,
+    "another version string named another kernel")
+  assert(kernel("flags : aes pclmulqdq sse4_1 ssse3\n", "6.18.0-1001-azure\n", "#1-Ubuntu SMP\n") ~= start)
   assert(HostId.kernel(facts_of(x86)) == x86.kernel)
 end
 
@@ -173,7 +178,7 @@ local function named(tmp: string, host: string, words: {string}, env: {string:st
 end
 
 local LINUX <const> = "x86"
-local LINUX_KERNEL <const> = "1a26de7daed63ab0"
+local LINUX_KERNEL <const> = "86fd0d69b7b0e37d"
 local IMAGE <const> = "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:" ..
   "947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a"
 local STARTED <const> = ("a"):rep(64)
@@ -195,11 +200,11 @@ end
 local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: string)
   local _, platform = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(platform == "prefix=verdicts-linux-x86_64-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-1f567ab2409dcb5c-\n", platform)
+      "verdicts=verdicts-linux-x86_64-cd38a6c7ffd72fed-39eecf1242a56852-\n", platform)
   local env, checked = named(tmp, "this", { "linux-x86_64-checked", IMAGE, "ubuntu-24.04", STARTED }, {}, "28.0.4")
   assert(env == "COSMIC_HOST_ID=" .. IMAGE .. " " .. STARTED .. " docker-28.0.4\n", env)
   assert(checked == "prefix=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-\n" ..
-      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-1f567ab2409dcb5c-\n", checked)
+      "verdicts=verdicts-linux-x86_64-checked-cd38a6c7ffd72fed-39eecf1242a56852-\n", checked)
   local none, light = named(tmp, "this", { "linux-x86_64", IMAGE, "ubuntu-24.04", STARTED },
     { GITHUB_ENV = "/dev/null" }, "28.0.4")
   assert(none == nil, "the environment file is /dev/null's")
@@ -207,15 +212,15 @@ local function test_the_workflows_legs_are_named_as_the_script_named_them(tmp: s
   local _, arm = named(tmp, "arm", { "linux-aarch64", "ghcr.io/c/arm@sha256:cd", "ubuntu-24.04-arm", "beef" },
     {}, "28.0.4")
   assert(arm == "prefix=verdicts-linux-aarch64-5d5805cd0d3eb351-\n" ..
-      "verdicts=verdicts-linux-aarch64-5d5805cd0d3eb351-1a26de7daed63ab0-\n", arm)
+      "verdicts=verdicts-linux-aarch64-5d5805cd0d3eb351-86fd0d69b7b0e37d-\n", arm)
   -- A leg with no runner is named by its container alone, and a name
   -- is taken as given.
   local _, odd = named(tmp, "this", { "a b", "i", "r", "s" }, {}, "28.0.4")
   assert(odd == "prefix=verdicts-a b-561229c72f9f67eb-\nverdicts=verdicts-a b-561229c72f9f67eb-" ..
-      "1f567ab2409dcb5c-\n", odd)
+      "39eecf1242a56852-\n", odd)
   local _, bare = named(tmp, "this", { "alpine-x86_64", "img", "", "abc" }, {}, "28.0.4")
   assert(bare == "prefix=verdicts-alpine-x86_64-2b06a98f2cd61c3a-\nverdicts=verdicts-alpine-x86_64-" ..
-      "2b06a98f2cd61c3a-1f567ab2409dcb5c-\n", bare)
+      "2b06a98f2cd61c3a-39eecf1242a56852-\n", bare)
 end
 
 --- The macOS leg, with no image, is named by its runner, and names the

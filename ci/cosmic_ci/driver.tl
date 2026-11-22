@@ -17,6 +17,7 @@ local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
+local QueueVerdicts = require("cosmic_ci.queue_verdicts")
 local Verdicts = require("cosmic_ci.verdicts")
 local ZigPrune = require("cosmic_ci.zig_prune")
 local ZigRestat = require("cosmic_ci.zig_restat")
@@ -108,6 +109,10 @@ local commands: {string:Command} = {
     usage = "SINCE [RESTORED]", handler = Compiles.trim_command },
   ["verdicts-trim"] = { about = "trim the test verdicts to those used since SINCE, and digest them",
     usage = "SINCE|whole", handler = Verdicts.trim_command },
+  ["queue-run"] = { about = "name the merge-queue run that tested SHA and uploaded ARTIFACT, the verdicts main's push takes",
+    usage = "", handler = QueueVerdicts.find_command },
+  ["verdicts-merge"] = { about = "merge the verdicts in FROM, the merge queue's, into those restored",
+    usage = "FROM", handler = QueueVerdicts.merge_command },
   ["zig-prune"] = { about = "remove the zig build outputs no manifest of a current step vouches for",
     usage = "", handler = ZigPrune.prune_command },
   ["zig-restat"] = { about = "take restored zig caches' new inodes into their manifests",

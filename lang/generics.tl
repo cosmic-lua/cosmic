@@ -527,8 +527,15 @@ function Generics.expect(s: Generics.Solver, pattern: Type, expected: Type)
   if #aside.conflicts > 0 then
     return
   end
-  for i = 1, #s.fn.tparams do
+  for i, tp in ipairs(s.fn.tparams) do
     local held = Generics.value(aside, i)
+    -- A hint the parameter's bounds refuse says nothing: `table.concat(sorted(xs))` expects `{string | number}`, and
+    -- the arguments still fix `T is Ordered`.
+    for _, bound in ipairs(tp.bounds or {}) do
+      if held ~= nil and not s.hooks.below(held, bound) then
+        held = nil
+      end
+    end
     if held ~= nil then
       s.fallback[i] = held
       local fixed = aside.exact[i]

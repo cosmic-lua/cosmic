@@ -1108,8 +1108,9 @@ is below an interface it lists, or one whose fields it has, each of exactly the 
 field's receiver its own), `mut` and omittable alike, and one that lists an interface has each field of it that it leaves out
 (a class each but a method); two records, or two classes, are two types whatever their fields. a
 type parameter is bounded by an interface, by `Ordered` (a number type or a string type, whose values `<` compares), by
-`Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), and
-keys a map only where `Key` or an interface bounds it. a record is not a map; an
+`Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), or by
+several of these (`T is A & B`), each of which its argument meets; it keys a map only where `Key` or an interface
+bounds it. a record is not a map; an
 enum is a union of strings, and a union of enums is told apart by `is`. a record that is not a class is not tested by `is`:
 a tagged union is told by its tag. there is no implicit conversion: `integer` is not concatenated without `tostring`, and
 a number does not compare with a string. the error-slot discipline of the third principle ([`build/syntax_contracts.tl`])
@@ -1142,7 +1143,7 @@ computed, `require(name)` or `pcall(require, name)`, names no module the build c
 (`computed_require`); to choose between modules, require each by its literal name and pick from a table. this holds for
 `cosmic.*` and C modules as for a project's: a literal name that no database holds is no edge, and a probe of it
 answers false when it runs. a `.d.tl` file imports only with `local type T = require("m")`, whose name is a literal
-`require` is a special form: the build reads only a direct call by its name, `require("m")` (a parenthesised literal counts as a literal), and `pcall(require, "m")` with `require` as pcall's first argument. Any other use of the name (kept in a variable, in parentheses, passed to another call) is refused (`require_value`), so a load of a module the build cannot see has no spelling in checked code. A chunk built by `load` gets, by default, an environment of its own, loaded as text: the base functions that share no state with the host (not `collectgarbage` or `warn`) and copies of the pure libraries (without `string.dump`, `math.random` and `math.randomseed`), so a chunk that writes into `string` changes its copy; it holds no `require`, `package`, `_G` or `_ENV`, and no metatable leads back to the globals. Method calls on strings go through the real metatable to the host's own `string`, which the chunk cannot change. A program that runs a chunk needing the globals passes them as its environment, through [`cosmic.internal.globals`], which only the tool and its tests may require (the tree check `requirers` lists who does). A module that is no test may read `package` only if the tree check `package_readers` names it, so the searchers and the table of loaded modules are no way around the build's edges. The type checker is a second barrier (`_G`, `_ENV` and `debug` have no declaration), and the one the build relies on is the first.
+`require` is a special form: the build reads only a direct call by its name, `require("m")` (a parenthesised literal counts as a literal), and `pcall(require, "m")` with `require` as pcall's first argument. Any other use of the name (kept in a variable, in parentheses, passed to another call) is refused (`require_value`), so a load of a module the build cannot see has no spelling in checked code. A chunk built by `load` gets, by default, an environment of its own, loaded as text: the base functions that share no state with the host (not `collectgarbage` or `warn`) and copies of the pure libraries (without `string.dump`, `math.random` and `math.randomseed`), so a chunk that writes into `string` changes its copy; it holds no `require`, `package`, `_G` or `_ENV`, and no metatable leads back to the globals. Method calls on strings go through the real metatable to the host's own `string`, which the chunk cannot change. Nor can it spell the class forms of the compiler's Lua (`{ ... } @ C`, and `@v`, which reads a metatable whatever `__metatable` says): `load` refuses the mode that reads them, which only [`cosmic.internal.compiled`] passes, for the Lua the compiler writes. A program that runs a chunk needing the globals passes them as its environment, through [`cosmic.internal.globals`], which only the tool and its tests may require (the tree check `requirers` lists who does). A module that is no test may read `package` only if the tree check `package_readers` names it, so the searchers and the table of loaded modules are no way around the build's edges. The type checker is a second barrier (`_G`, `_ENV` and `debug` have no declaration), and the one the build relies on is the first.
 already.
 
 `: never` is a flag on a function type, declared by a helper that only raises or exits (`error`, [`Proc.exit`], a module's
@@ -1535,6 +1536,7 @@ in [roadmap.md](roadmap.md).
 [`build/positions.tl`]: ../build/positions.tl
 [`cosmic.doc`]: ../cosmic/doc.tl
 [`cosmic.http.server`]: ../cosmic/http/server.tl
+[`cosmic.internal.compiled`]: ../cosmic/internal/compiled.d.tl
 [`cosmic.internal.globals`]: ../cosmic/internal/globals.d.tl
 [`cosmic.protobuf`]: ../cosmic/protobuf/init.tl
 [`cosmic.shape`]: ../cosmic/shape.tl

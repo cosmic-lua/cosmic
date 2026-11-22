@@ -1117,14 +1117,20 @@ parse_typeparams = function(): {Ast.TypeParam}
   while true do
     local first = S.pos
     local name = binding("a type parameter")
-    local constraint: Ast.TypeName = nil -- checked: nil_not_allowed
+    local constraints: mut {Ast.TypeName} = {}
     if S.text == "is" then
       advance()
-      local cfirst = S.pos
-      local path = parse_path()
-      constraint = { kind = "TypeName", id = 0, first = cfirst, last = S.pos - 1, path = path, args = {} }
+      while true do
+        local cfirst = S.pos
+        local path = parse_path()
+        constraints[#constraints + 1] = { kind = "TypeName", id = 0, first = cfirst, last = S.pos - 1, path = path, args = {} }
+        if S.text ~= "&" then
+          break
+        end
+        advance()
+      end
     end
-    list[#list + 1] = { kind = "TypeParam", id = 0, first = first, last = S.pos - 1, name = name, constraint = constraint }
+    list[#list + 1] = { kind = "TypeParam", id = 0, first = first, last = S.pos - 1, name = name, constraints = constraints }
     if S.text == "," then
       advance()
     else

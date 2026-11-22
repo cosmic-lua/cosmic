@@ -226,11 +226,11 @@ a_function = function(c: Cursor, depth: integer): Types.Type -- checked: not_ass
   local store = c.store
   local tparams: mut {Types.TParam} = {}
   for i = 1, pick(c, 3) do
-    local bound: Types.Type?
+    local bounds: {Types.Type}? = nil
     if pick(c, 3) == 0 then
-      bound = store:named(declared(c.fixture.decls, "Stream.Reader"))
+      bounds = { store:named(declared(c.fixture.decls, "Stream.Reader")) }
     end
-    tparams[i] = { bound = bound }
+    tparams[i] = { bounds = bounds }
   end
   if #tparams > 0 then
     c.binders[#c.binders + 1] = #tparams

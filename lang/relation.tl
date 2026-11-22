@@ -51,7 +51,8 @@
 ---   place, else from what the type wanted answers, and each meeting its bound
 ---   ([`lang.generics`]). The function with those types in is then compared as any other. A
 ---   generic function type wanted is met only by itself.
---- - A type variable is below itself and its bound. The bound is read from the
+--- - A type variable is below itself and what one of its bounds is below, or an interface whose fields its interface
+---   bounds have together. The bounds are read from the
 ---   binders [`Relation.Judge.enter`] has entered.
 --- - `any` is below `any` and nothing below it but `never`.
 ---
@@ -93,7 +94,7 @@ local record Relation
   ---   not an interface. `not_listed`: the target is an interface the source's declaration
   ---   neither lists nor has each field of; `field` is the first field it lacks.
   ---   `declaration_value`: a declaration used as a value, the table of its
-  ---   functions, where a value of it is wanted, or the reverse. `variable`: a type variable, below only itself and its bound.
+  ---   functions, where a value of it is wanted, or the reverse. `variable`: a type variable, below only itself and its bounds.
   --- - `nil`: the source is `nil` and the target admits none. `number_for_integer`: a `number`
   ---   where an `integer` is wanted. `never_target`: nothing is below `never`.
   --- - `any_source`: the data of `any` is no other type. `any_sink`: a value reaches `any` only as
@@ -374,8 +375,11 @@ local function rewrite(
     local inside = if #t.tparams > 0 then level + 1 else level end
     local tparams: mut {Types.TParam} = {}
     for i, tp in ipairs(t.tparams) do
-      local bound = tp.bound
-      tparams[i] = { bound = bound ~= nil and rewrite(store, bound, inside, on_var, memo) or nil } -- checked: and_ternary
+      local bounds: mut {Type} = {}
+      for k, bound in ipairs(tp.bounds or {}) do
+        bounds[k] = rewrite(store, bound, inside, on_var, memo)
+      end
+      tparams[i] = { bounds = if #bounds > 0 then bounds else nil end }
     end
     local params: mut {Types.Param} = {}
     for i, p in ipairs(t.params) do
@@ -618,8 +622,8 @@ local function memo_of(j: Relation.Judge, a: Type, b: Type): {integer: boolean}
   return j.free
 end
 
---- The bound of the type variable `v` under the binders entered, or nil.
-local function bound_of(j: Relation.Judge, v: Var): Type?
+--- The bounds of the type variable `v` under the binders entered, or nil where it has none.
+local function bounds_of(j: Relation.Judge, v: Var): {Type}?
   local scope = j.scopes[#j.scopes - v.depth]
   if scope == nil then
     return nil
@@ -628,7 +632,7 @@ local function bound_of(j: Relation.Judge, v: Var): Type?
   if tparam == nil then
     return nil
   end
-  return tparam.bound
+  return tparam.bounds
 end
 
 --- The ids of the members of a union.
@@ -926,6 +930,58 @@ local function conforms(j: Relation.Judge, a: Named, b: Named, why: boolean, clo
         return {
           code = "not_listed", path = {}, sub = a, super = b, lists = copy_of(closure.list),
           field = { name = f.name, type = expected or f.type, mut = f.mut, omittable = f.omittable }, has_name = #found > 0,
+        }
+      end
+    end
+  end
+  return nil
+end
+
+--- Whether the type variable `a`, bounded by `bounds`, conforms to the interface `b` through the fields of its interface
+--- bounds together: each field of `b`, and of the interfaces it lists, is a field of one of them as [`conforms`] holds a
+--- field. `T is Titled & Aged` is below an interface of `title` and `age`.
+local function conforms_through(j: Relation.Judge, a: Var, bounds: {Type}, b: Named, why: boolean): Relation.Refusal?
+  defined(b)
+  local wanted: mut {Named} = { b }
+  local receivers: mut {integer: boolean} = { [b.id] = true }
+  for _, x in ipairs(closure_of(j, b).list) do
+    if (x.tag == "named") then
+      wanted[#wanted + 1] = x
+      receivers[x.id] = true
+    end
+  end
+  local bbody = b.decl.body
+  if bbody ~= nil and bbody.array ~= nil then
+    return leaf(j, why, "variable", a, b)
+  end
+  for _, x in ipairs(wanted) do
+    local xbody = x.decl.body
+    local fields: {Types.Field} = if xbody ~= nil then xbody.fields else {} end
+    for _, f in ipairs(fields) do
+      local ok = false
+      local named = false
+      for _, bound in ipairs(bounds) do
+        if (bound.tag == "named") and not ok then
+          defined(bound)
+          local listed = Relation.as_listed(j.store, x, f.type, bound)
+          local expected = if listed ~= nil then with_receiver_of(j.store, listed, receivers, bound) else nil end
+          for _, s in ipairs(supplied(j, bound, f.name)) do
+            named = true
+            local same = expected ~= nil and (s.type == expected or s.type.tag == "invalid" or expected.tag == "invalid")
+            if same and s.mut == (f.mut == true) and s.omittable == (f.omittable == true) then
+              ok = true
+              break
+            end
+          end
+        end
+      end
+      if not ok then
+        if not why then
+          return j.none
+        end
+        return {
+          code = "not_listed", path = {}, sub = a, super = b, lists = {},
+          field = { name = f.name, type = f.type, mut = f.mut, omittable = f.omittable }, has_name = named,
         }
       end
     end
@@ -1250,7 +1306,7 @@ end
 
 --- The generic function `a` where the function type `b` is wanted: `a` with its type parameters taken from what `b` is
 --- called with and answers, below `b`. Each parameter of `a` is solved from the parameter of `b` in its place (the value
---- `b` passes is the one `a` takes), else from the values `b` answers, and has to meet its bound.
+--- `b` passes is the one `a` takes), else from the values `b` answers, and has to meet its bounds.
 local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Relation.Refusal?
   local solver = Generics.new(j.store, a, hooks_of(j))
   for i, p in ipairs(a.params) do
@@ -1289,13 +1345,14 @@ local function from_generic(j: Relation.Judge, a: Fn, b: Fn, why: boolean): Rela
     return leaf(j, why, "generic_function", a, b)
   end
   for i, tp in ipairs(a.tparams) do
-    local bound = tp.bound
     local solved = args[i]
     if solved == nil then
       return leaf(j, why, "generic_function", a, b)
     end
-    if bound ~= nil and rel(j, solved, bound, false) ~= nil then
-      return leaf(j, why, "generic_function", a, b)
+    for _, bound in ipairs(tp.bounds or {}) do
+      if rel(j, solved, bound, false) ~= nil then
+        return leaf(j, why, "generic_function", a, b)
+      end
     end
   end
   local instance = specialize_within(j.store, a, args)
@@ -1325,23 +1382,37 @@ local function from_fn(j: Relation.Judge, a: Fn, b: Type, why: boolean): Relatio
   return returns_below(j, a, b, why)
 end
 
+--- A variable is below what one of its bounds is below: `T is A & B` has the fields of both, and is below each.
 local function from_var(j: Relation.Judge, a: Var, b: Type, why: boolean): Relation.Refusal?
-  local bound = bound_of(j, a)
-  if bound == nil or (b.tag == "var") then
+  local bounds = bounds_of(j, a)
+  if bounds == nil or (b.tag == "var") then
     return leaf(j, why, "variable", a, b)
   end
-  local r = rel(j, bound, b, why)
-  if r ~= nil then
-    return through(why, "bound", nil, r)
+  local first: Relation.Refusal? = nil
+  for _, bound in ipairs(bounds) do
+    local r = rel(j, bound, b, why)
+    if r == nil then
+      return nil
+    end
+    if first == nil then
+      first = r
+    end
   end
-  return nil
+  if #bounds > 1 and (b.tag == "named") and b.decl.kind == "interface" and #b.args == 0 then
+    local r = conforms_through(j, a, bounds, b, why)
+    if r == nil then
+      return nil
+    end
+    return r
+  end
+  return through(why, "bound", nil, (assert(first, "a type parameter with bounds has one")))
 end
 
 --- Whether `a` is below the built-in bound `b`. `Numeric` holds `integer` and `number`, for which `+`, `-`, `*`, `%`,
 --- `//` and unary `-` answer the type of their operands; an integer enum is not one, since its sum is no member.
 --- `Ordered` holds a type all of whose values are numbers, or all strings, so that `<` of two of its values never
 --- raises: a union of a number and a string is none. `Numeric` is below `Ordered`. `Key` holds the types a map is
---- keyed by ([`Types.keys_a_map`]), an interface among them. A type variable is below a bound where its own bound is.
+--- keyed by ([`Types.keys_a_map`]), an interface among them. A type variable is below a bound where one of its own bounds is.
 local function into_builtin(j: Relation.Judge, a: Type, b: Type, why: boolean): Relation.Refusal?
   if (a.tag == "var") then
     return from_var(j, a, b, why)
@@ -1525,8 +1596,7 @@ end
 Relation.Judge.enter = function(self: Relation.Judge, tparams: {Types.TParam}) -- checked: field_unknown
   local copied: mut {Types.TParam} = {}
   for i, tp in ipairs(tparams) do
-    local bound = tp.bound
-    if bound ~= nil then
+    for _, bound in ipairs(tp.bounds or {}) do
       owned(self, bound)
       -- The bound is read as it is, with no variable of a binder outside it to shift.
       if not Types.builtin_bound(bound) and (not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or
@@ -1584,11 +1654,12 @@ function Relation.binder(decl: Types.Decl): {Types.TParam}
     error("relation: " .. decl.name .. " is not defined", 0)
   end
   for i, tp in ipairs(body.tparams) do
-    local bound = tp.bound
-    if bound ~= nil and bound.owner ~= decl.owner then
-      error("relation: a type of another store", 2)
+    for _, bound in ipairs(tp.bounds or {}) do
+      if bound.owner ~= decl.owner then
+        error("relation: a type of another store", 2)
+      end
     end
-    out[i] = { bound = bound }
+    out[i] = { bounds = tp.bounds }
   end
   return out
 end

@@ -4,6 +4,7 @@
 --- (`type_violations`). The programs are compiled with the wraps and run in this process, beside the fork's checks
 --- (build.checked_narrowing_test).
 local Test = require("cosmic.test")
+local Compiled = require("cosmic.internal.compiled")
 local programs = require("build.fact_programs")
 local worker = require("build.test_worker")
 
@@ -198,7 +199,7 @@ local function loaded(code: string, name: string, lax: boolean): any
     end
   end
   setmetatable(env, { __index = _G }) -- checked: setmetatable_call, unchecked_binding
-  return assert(load(code, "=" .. name, "t", env))()
+  return assert(Compiled.load(code, "=" .. name, env))()
 end
 
 local function nothing() end

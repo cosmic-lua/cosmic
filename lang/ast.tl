@@ -795,7 +795,8 @@ local record Ast
     mut last: integer
     mut id: integer
     name: Binding
-    constraint?: TypeName
+    --- The bounds after `is`, `A & B`, in the order written; none where the parameter has none.
+    constraints: {TypeName}
   end
 
   enum Record_kind
@@ -1012,7 +1013,7 @@ local SPEC <const>: {string: string} = {
   TypeArray = "element", TypeMap = "key value", TypeUnion = "members*",
   TypeOptional = "inner", TypeMut = "inner", TypeFunction = "typeparams* params* rets",
   PType = "name optional variadic type", Narrows = "param type asserts",
-  TypeParam = "name constraint",
+  TypeParam = "name constraints*",
   Record = "scope name typeparams* supers* array members*",
   Interface = "scope name typeparams* supers* members*",
   Class = "scope name typeparams* supers* members*",
@@ -1386,9 +1387,8 @@ local WALK <const>: {string: function(Ast.Node, Visit)} = {
   TypeParam = function(n: Ast.Node, visit: Visit)
     if n.kind == "TypeParam" then
       visit(n.name)
-      local constraint_node = n.constraint
-      if constraint_node ~= nil then
-        visit(constraint_node)
+      for _, c in ipairs(n.constraints) do
+        visit(c)
       end
     end
   end,

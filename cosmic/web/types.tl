@@ -8,6 +8,7 @@ local Net = require("cosmic.net")
 local Server = require("cosmic.http.server")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
+local type Acme = require("cosmic.acme")
 local type Json = require("cosmic.json")
 local type Tailscale = require("cosmic.tailscale")
 local type Tls = require("cosmic.tls")
@@ -660,6 +661,16 @@ local record Types
     --- raises. Pair it with [`Web.tailnet`] to know who each request
     --- comes from.
     tailnet?: boolean | TailnetServe
+    --- Serves HTTPS with a certificate from an ACME CA, kept current
+    --- ([`Acme.auto`]): its certificate is the server's `tls`, and each
+    --- request in the clear is the CA's http-01 check, answered, or is
+    --- redirected to HTTPS (308). With no `listeners` the app listens at
+    --- port 443 of every IPv4 address, and with no `clear` at port 80.
+    --- With `tls` or `tailnet` too it raises.
+    acme?: Acme.Auto
+    --- Where to serve plain HTTP beside `listeners`, as
+    --- [`Server.ServeSpec.clear`]; it needs `tls`, `tailnet` or `acme`.
+    clear?: {Net.Address}
     --- As [`Server.ServeSpec.limits`].
     limits?: Server.ServeSpec.Limits
     --- As [`Server.ServeSpec.timeout_ns`].

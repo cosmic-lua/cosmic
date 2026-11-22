@@ -152,6 +152,10 @@ local record Server
     --- Serves HTTPS, presenting these certificates: see
     --- [`Net.ServeSpec.tls`]. Nil to serve in the clear.
     tls?: Tls.Certs
+    --- Where to serve plain HTTP beside `listeners`, which `tls`
+    --- serves: see [`Net.ServeSpec.clear`]. A request that came this way
+    --- has no `tls`.
+    clear?: {Net.Address}
     --- How long any one read or write of a connection waits once a
     --- request's head is in -- the body's reads, the reply's writes
     --- -- (30 seconds); see [`Net.ServeSpec.timeout_ns`].
@@ -262,7 +266,7 @@ local LINGER_NS <const> = Clock.seconds(1)
 local LINGER_BYTES <const> = 256 * KIB
 
 local SPEC_FIELDS <const>: {string:boolean} = {
-  listeners = true, handle = true, limits = true, tls = true, compress = true, timeout_ns = true, grace_ns = true,
+  listeners = true, handle = true, limits = true, tls = true, clear = true, compress = true, timeout_ns = true, grace_ns = true,
   idle_ns = true, head_ns = true, body_ns = true, on_ready = true, on_stop = true,
   on_error = true,
 }
@@ -1042,6 +1046,7 @@ function Server.serve(spec: Server.ServeSpec): boolean, string
     serve = function(conn: Net.Conn) serve_conn(s, conn) end,
     limits = { connections = limits.connections or 256 },
     tls = spec.tls,
+    clear = spec.clear,
     timeout_ns = s.timeout_ns,
     grace_ns = spec.grace_ns,
     on_ready = spec.on_ready,

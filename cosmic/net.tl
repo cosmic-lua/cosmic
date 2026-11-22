@@ -523,16 +523,27 @@ local record Net
     end
     --- Bounds on what the server takes on; nil for none.
     limits?: Limits
-    --- Serves every connection over TLS, presenting these certificates:
-    --- see [`cosmic.tls`]. The server loads them before it listens
-    --- where they are not loaded yet (a source that fails fails
-    --- [`Net.serve`]), and renews them in a task of its run as they
+    --- Serves every connection of `listeners` over TLS, presenting
+    --- these certificates: see [`cosmic.tls`]. Where they are not loaded
+    --- yet, the server loads them before it listens; with `clear`, once
+    --- every listener listens, `clear`'s serving meanwhile, and before it
+    --- accepts at `listeners` or calls `on_ready`, so a source may wait
+    --- on what `clear` serves, an ACME http-01 check ([`Acme.auto`]). A
+    --- source that fails fails [`Net.serve`]; a stop or a signal during
+    --- that load stops the server as at any other time. It renews them
+    --- in a task of its run as they
     --- come due, a failure given to `on_error` and the old ones served
     --- meanwhile. A connection's handshake happens at its first read or
     --- write, or at [`Net.Conn`]'s `handshake`, under its timeout like
     --- any read; one that fails fails that read, and every one after.
     --- Nil to serve in the clear.
     tls?: Tls.Certs
+    --- Where to listen in the clear beside `listeners`, which `tls`
+    --- serves: port 80 for HTTP's redirect to HTTPS and ACME's http-01
+    --- check. Their connections go to `serve` too, and [`Net.Conn`]'s
+    --- `tls` tells them apart. Raises without `tls`, which would serve
+    --- every listener in the clear.
+    clear?: {Address}
     --- Each connection's `timeout_ns`: how long any one read or write of
     --- it waits, from 0; nil for no limit.
     timeout_ns?: integer
@@ -542,8 +553,9 @@ local record Net
     grace_ns?: integer
     --- Called once every listener listens, in a task of the server's
     --- run, with where each listens -- a port the kernel chose for one
-    --- at port 0 included -- in the order of `listeners`, and the
-    --- server, to stop it by. It may spawn tasks of its own there, which
+    --- at port 0 included -- in the order of `listeners` and then of
+    --- `clear`, and the server, to stop it by: with `clear`, once `tls`
+    --- has first loaded too. It may spawn tasks of its own there, which
     --- [`Net.serve`] waits for too. What it raises, [`Net.serve`] raises,
     --- having closed every listener.
     on_ready?: function(addresses: {Address}, server: Server)
@@ -1145,6 +1157,16 @@ local function checked_spec(spec: Net.ServeSpec)
     local trouble = address_trouble(address)
     if trouble ~= "" then spec_error("listeners[" .. tostring(i) .. "]", trouble) end
   end
+  local clear = spec.clear
+  if clear ~= nil then
+    if spec.tls == nil then
+      spec_error("clear", "nil where there is no tls, which serves every listener in the clear")
+    end
+    for i, address in ipairs(clear) do
+      local trouble = address_trouble(address)
+      if trouble ~= "" then spec_error("clear[" .. tostring(i) .. "]", trouble) end
+    end
+  end
   local limits = spec.limits
   if limits ~= nil then
     local most = limits.connections
@@ -1161,6 +1183,8 @@ end
 local record Accepting
   listener: Net.Listener
   fd: integer
+  --- Whether it serves in the clear: one of [`Net.ServeSpec.clear`].
+  clear: boolean
   mut task?: Poll.Task
   --- The errno the last accept failed with, reported once until another
   --- answer comes; 0 after one that did not fail.
@@ -1195,6 +1219,11 @@ local record Serving
   renewer?: Poll.Task
   --- Set once a signal has ended the grace.
   mut hurried: boolean
+  --- Set while `spec.tls` is loaded for the first time: only `clear`'s
+  --- listeners accept meanwhile.
+  mut loading: boolean
+  --- Why the first load of `spec.tls` failed, which stopped the server.
+  mut unloaded?: string
   --- Set once a signal `guard` caught has stopped the server: only
   --- then has the server acted on what the guard holds.
   mut signalled: boolean
@@ -1265,7 +1294,7 @@ local function accept_loop(s: Serving, a: Accepting)
     if socket ~= nil then
       a.failing = 0
       local certs = s.spec.tls
-      local config = if certs ~= nil then certs:config() else nil end
+      local config = if certs ~= nil and not a.clear then certs:config() else nil end
       if config == nil then
         local conn = Connection.new(socket, s.spec.timeout_ns)
         conn.listener = a.listener.address
@@ -1299,7 +1328,9 @@ end
 resume_accepting = function(s: Serving)
   if s.stopping or s.open >= s.most then return end
   for _, a in ipairs(s.accepts) do
-    if a.task == nil then a.task = Poll.spawn(function() accept_loop(s, a) end) end
+    if a.task == nil and (a.clear or not s.loading) then
+      a.task = Poll.spawn(function() accept_loop(s, a) end)
+    end
   end
 end
 
@@ -1386,23 +1417,26 @@ local function serving(spec: Net.ServeSpec): boolean, string
   local state: Serving = { -- checked: literal_missing
     spec = spec, most = limits and limits.connections or math.maxinteger,
     open = 0, stopping = false, accepts = {}, conns = {}, hurried = false,
-    signalled = false,
+    signalled = false, loading = false,
   }
   local s <close> = setmetatable(state, serving_mt) -- checked: setmetatable_call -- untyped: call
   local guard, guard_trouble = Signal.guard()
   if guard == nil then return false, "net: signal guard: " .. guard_trouble end
   s.guard = guard
   local certs = spec.tls
-  if certs ~= nil and certs:config() == nil then
+  local clear = spec.clear or {}
+  if certs ~= nil and #clear == 0 and certs:config() == nil then
     local loaded, why = certs:load()
     if not loaded then return false, why end
   end
   local addresses: mut {Net.Address} = {}
-  for i, address in ipairs(spec.listeners) do
-    local opened, trouble = listening(address, {}, 1)
+  for i = 1, #spec.listeners + #clear do
+    local in_clear = i > #spec.listeners
+    local address = if in_clear then clear[i - #spec.listeners] else spec.listeners[i] end
+    local opened, trouble = listening(assert(address), {}, 1)
     if opened == nil then return false, trouble end
-    s.accepts[i] = { listener = opened.listener, fd = opened.fd, failing = 0 } -- checked: arms_differ
-    addresses[i] = opened.listener.address
+    s.accepts[#s.accepts + 1] = { listener = opened.listener, fd = opened.fd, clear = in_clear, failing = 0 } -- checked: arms_differ
+    addresses[#addresses + 1] = opened.listener.address
   end
   local server: Net.Server = {
     addresses = addresses,
@@ -1421,21 +1455,42 @@ local function serving(spec: Net.ServeSpec): boolean, string
     -- whose protocol called `stop`.
     s.stopper = Poll.spawn(function()
       local _, _ = waiter:join()
+      -- A server whose first load failed never served: it calls nothing.
+      if s.unloaded ~= nil then return end
       local ok, trouble: boolean, any = xpcall(on_stop, traced, server) -- checked: any_use
       if not ok then report(s, tostring(trouble)) end
     end)
   end
+  local watcher = Poll.spawn(function() watch(s) end)
+  s.watcher = watcher
+  local on_ready = spec.on_ready
   if certs ~= nil then
+    -- The first load waits in this task, which `stop` cancels: `clear`
+    -- serves meanwhile, so an ACME check reaches it, and a signal ends
+    -- the wait.
+    s.loading = certs:config() == nil
     s.renewer = Poll.spawn(function()
+      if s.loading then
+        local loaded, why = certs:load()
+        if not loaded then
+          -- A stop or a signal during the load cut it short: no failure.
+          if not s.stopping then
+            s.unloaded = why
+            stop(s)
+          end
+          return
+        end
+        s.loading = false
+        resume_accepting(s)
+        if on_ready ~= nil then on_ready(addresses, server) end
+      end
       certs:keep(function(trouble: string) report(s, trouble) end, function(): boolean
         return s.stopping
       end)
     end)
   end
   resume_accepting(s)
-  local watcher = Poll.spawn(function() watch(s) end)
-  s.watcher = watcher
-  if spec.on_ready ~= nil then spec.on_ready(addresses, server) end
+  if on_ready ~= nil and not s.loading then on_ready(addresses, server) end
   local _, _ = waiter:join()
   drain(s)
   watcher:cancel()
@@ -1451,6 +1506,8 @@ local function serving(spec: Net.ServeSpec): boolean, string
     restore_trouble = trouble
   end
   if restore_trouble ~= "" then return false, "net: signal restore: " .. restore_trouble end
+  local unloaded = s.unloaded
+  if unloaded ~= nil then return false, unloaded end
   return true, ""
 end
 
@@ -1461,8 +1518,9 @@ end
 --- ended -- each connection's, and any [`Net.ServeSpec.on_ready`] or
 --- [`Net.ServeSpec.on_stop`] spawned -- and false and why, having called
 --- nothing, where a listener cannot listen or its signal guard cannot
---- be opened, or, having served, where the guard cannot restore the
---- dispositions it found. What
+--- be opened, or where the first load of `spec.tls` fails (`clear`
+--- having served meanwhile), or, having served, where the guard cannot
+--- restore the dispositions it found. What
 --- [`Net.ServeSpec.on_ready`] or [`Net.ServeSpec.on_error`] raises, it raises,
 --- having closed every listener and connection.
 ---

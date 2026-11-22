@@ -112,14 +112,16 @@ allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the hos
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
-allowed["cosmic.tls.leaf"] = "what a program reads of a certificate it holds, its names and when it ends; " ..
-  "Certs.load reads leaves through the same local, so nothing in the tree calls it but its test"
-allowed["cosmic.tls.static"] = "the source of certificates a program holds already, for Net.serve's `tls`; the " ..
-  "tree's own servers take theirs from tailscaled, so only its tests serve static pairs"
+allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept current for a server, " ..
+  "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
 allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..
   "internet from one of the tailnet; no app of the tree serves through Funnel"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
   "the tree's own clients speak through cosmic.http, so only its tests make one"
+allowed["cosmic.web.client_cert"] = "public API: the client certificate an app reads of a request over mutual TLS; " ..
+  "no app in the tree serves mutual TLS, so only its tests read one"
+allowed["cosmic.web.require_client_cert"] = "public API: middleware admitting the clients of mutual TLS; " ..
+  "no app in the tree serves mutual TLS, so only its tests use it"
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
 
 allowed["build.importer.due"] = "when a compile says a refusal ahead of its report; the compile loop asks it of the " ..
@@ -1096,6 +1098,12 @@ local requirers: {string: Restriction} = {
     why = "only the tool's entry and the test worker load a module by a name they get at run " ..
       "time, which is no edge of the build: any other module requires what it needs by a " ..
       "literal name, `require(\"cosmic.fs\")`, or picks from a table of such requires",
+  },
+  ["cosmic.internal.compiled"] = {
+    files = { "build.lua_tail", "build.sandbox", "build.standalone", "build.test_worker", "build.fact_hook_test",
+      "core.class_form_test", "lang.check_programs", "lang.codegen_test" },
+    why = "only the modules that load the Lua the compiler wrote read the class forms of patch/lua/, whose `@v` " ..
+      "answers a metatable whatever `__metatable` says: any other module loads text with `load`, which refuses them",
   },
   ["cosmic.internal.globals"] = {
     files = { "build.fuzz", "build.load_module",

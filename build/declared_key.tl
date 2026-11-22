@@ -317,7 +317,8 @@ local record declared_key
     packages?: {string}
     --- The system the host says it is, then its kernel's release and
     --- version: [`system_identity`] reads the first, [`host_identity`] the
-    --- other two. Where it is nil, `system_sources(sysname)`.
+    --- second (its series, [`host_kernel`]); the third is read by none.
+    --- Where it is nil, `system_sources(sysname)`.
     mut system?: mut {string}
     --- The kernel `uname` names, which chooses where `system` looks
     --- when it is nil ([`system_sources`]).
@@ -330,6 +331,9 @@ local record declared_key
     --- The machine whose features `cpu_features` keys (`dispatched`).
     machine?: string
     mut own_proc?: boolean
+    --- The Landlock ABI this host gives, 0 for none
+    --- ([`confine.landlock_abi`]).
+    mut landlock?: integer
     mut host_id?: string
     mut uid?: integer
     --- The group and the supplementary groups this process runs with,
@@ -1172,7 +1176,7 @@ local package_databases: {string} = {
 
 --- Where [`host_identity`] and [`system_identity`] read the system the
 --- host says it is, and its kernel's release and version ([`HostSources`]'
---- `system`).
+--- `system`); the version is read by no key, only logged by CI.
 local default_system: {string} = { "/etc/os-release", "/proc/sys/kernel/osrelease",
   "/proc/sys/kernel/version" }
 
@@ -1192,7 +1196,8 @@ local darwin_system: {string} = { "/System/Library/CoreServices/SystemVersion.pl
   "/System/Library/CoreServices/SystemVersion.plist", "" }
 
 --- Where [`host_identity`], [`system_identity`] and [`host_kernel`] read
---- the system the host says it is and its kernel's release and version
+--- the system the host says it is and its kernel's release (and version,
+--- which no key reads)
 --- ([`HostSources`]' `system`) on a host whose kernel `uname` names
 --- `sysname`: `darwin_system` on "Darwin", and /etc/os-release and
 --- /proc's elsewhere.
@@ -1231,8 +1236,38 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- only a module given the system's paths is keyed by it.
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
+--- What a key holds of the host's kernel ([`host_kernel`]), as `from`'s
+--- `system` (its second path, the release) gives it: on Linux, the
+--- release's series alone (`7.0` of `7.0.0-1017-azure`), or the whole
+--- release where it names none; on macOS, the system volume's
+--- SystemVersion.plist whole. A missing file is read as empty. The
+--- kernel's build and version are left out: hosted runners of one CI
+--- leg run builds of one series from more than one cloud, and what a
+--- test can tell of a kernel -- Landlock's ABI, whether a sandbox gets a
+--- /proc of its own -- every key holds ([`host_split`]), and its module
+--- declares the rest that [`build.host_requires`] names (a user
+--- namespace, nesting). What no name there covers -- a flavor's config,
+--- a backport within the series -- a key no longer tells apart.
+local function kernel_text(from: declared_key.HostSources): string
+  local path = system_of(from)[2] or ""
+  -- None ("") is read as nothing, not as the working directory "" would open.
+  local release = ""
+  if path ~= "" then
+    local read, _ = Fs.read(path)
+    release = read or ""
+  end
+  local sysname = from.sysname
+  if sysname == nil then
+    local names, _ = sys.uname()
+    sysname = if names ~= nil then names.sysname else "" end
+  end
+  if sysname == "Darwin" then return release end
+  return release:match("^(%d+%.%d+)") or release
+end
+
 --- [`host_identity`] and, beside it, the digest of every line of it
---- but the kernel's ([`host_kernel`]: its release and version), in
+--- but the kernel's ([`host_kernel`]: its release's series, and the
+--- Landlock ABI it gives), in
 --- order. Two hosts of one rest differ in their kernel alone, which
 --- is what a CI gathering run asks of the hosts whose verdicts it takes
 --- (build/shared_verdicts.tl's `hosts_like`). The processor's features
@@ -1245,16 +1280,8 @@ function declared_key.host_split(digests: declared_key.Digests,
   local lines: mut {string} = {}
   -- Whether each line is the kernel's ([`host_kernel`]) alone.
   local featured: mut {integer:boolean} = {}
-  local system = system_of(from)
-  for i = 2, 3 do
-    -- None ("", macOS's version) is read as nothing, not as the
-    -- working directory "" would open.
-    if system[i] ~= "" then
-      local text, _ = Fs.read(system[i] or "")
-      lines[#lines + 1] = tostring(system[i]) .. " " .. (text or "missing")
-      featured[#lines] = true
-    end
-  end
+  lines[#lines + 1] = "kernel " .. kernel_text(from)
+  featured[#lines] = true
   local names, _ = sys.uname()
   if names ~= nil then lines[#lines + 1] = "uname " .. names.sysname .. " " .. names.machine end
   lines[#lines + 1] = "uid " .. tostring(from.uid or sys.getuid())
@@ -1292,6 +1319,14 @@ function declared_key.host_split(digests: declared_key.Digests,
   local own = from.own_proc
   if own == nil then own = confine.own_proc_given() end
   lines[#lines + 1] = "own proc " .. tostring(own)
+  local abi = from.landlock
+  if abi == nil then
+    local given, _ = confine.landlock_abi()
+    abi = given or 0
+  end
+  lines[#lines + 1] = "landlock " .. tostring(abi)
+  -- The kernel's, as its series is: the rest leaves it out.
+  featured[#lines] = true
   local host_id = from.host_id or sys.getenv(host_variable) or ""
   lines[#lines + 1] = "host " .. host_id
   local rest: mut {string} = {}
@@ -1306,11 +1341,15 @@ end
 --- module declares, as every key holds it -- each part because it
 --- decides what the core does, or what a sandbox lets a worker do:
 ---
---- - its kernel's release and version (/proc/sys/kernel/osrelease and
----   version; on macOS, the system volume's SystemVersion.plist, which
----   names its build, `darwin_system`): the syscalls the core makes, and
----   what a sandbox is (namespaces, Landlock's ABI, whether a procfs may
----   be mounted), are the kernel's;
+--- - its kernel's series (of /proc/sys/kernel/osrelease, [`host_kernel`];
+---   on macOS, the system volume's SystemVersion.plist, which names its
+---   build, `darwin_system`) and the Landlock ABI it gives
+---   ([`confine.landlock_abi`]): the syscalls the core makes, and what a
+---   sandbox is, are the kernel's. Not its build or version string:
+---   hosted runners of one CI leg run builds of one series from more
+---   than one cloud, and the rest of what a test can tell of a kernel --
+---   whether a user namespace is allowed, or may nest -- its module
+---   declares ([`build.host_requires`]), and its key holds;
 --- - its name and machine (`uname`): the core a run selects;
 --- - not the processor's features a core chooses code by
 ---   ([`sys.cpu_features`], each once, `dispatched`): [`host_cpu`] keys
@@ -1343,12 +1382,6 @@ end
 -- (with the verdict caches' naming, which a later change reconsiders):
 -- today COSMIC_HOST_ID holds all three, and every key holds it, so
 -- CI's legs of two images share no verdict that turns on neither.
--- TODO: key the kernel by what a test can tell of it -- its series and
--- the features the core probes (Landlock's ABI, whether a user
--- namespace may mount a procfs) -- rather than its release and build
--- string whole, once the core reports what it found (a [`cosmic.sys`]
--- table of the probes' answers): today every kernel update splits
--- every verdict, though almost none turns on it.
 function declared_key.host_identity(digests: declared_key.Digests,
                                     sources?: declared_key.HostSources): string
   return declared_key.host_split(digests, sources).identity
@@ -1533,32 +1566,19 @@ function declared_key.system_identity(digests: declared_key.Digests,
   return hex_sha256(table.concat(lines, "\n"))
 end
 
---- What of [`host_identity`] differs between runners of one CI leg, as
---- the first 16 hex digits of a sha256: the kernel's release and version
---- as their files hold them, a missing one as empty -- on macOS, the
---- system volume's SystemVersion.plist, and nothing (`darwin_system`).
+--- What of [`host_identity`] can differ between runners of one CI leg,
+--- as the first 16 hex digits of a sha256: the kernel's series
+--- ([`kernel_text`]), a missing release as empty -- on macOS, the system
+--- volume's SystemVersion.plist (`darwin_system`).
 --- It is what ci/cosmic_ci/host_id.tl's `kernel` answers, which names a
 --- leg's verdict cache, so a run restores one whose keys its host
 --- reaches. The processor's features are no part of it: runners of
 --- other processors share a cache, and the rows of the modules that
 --- declare `cpu_features` are keyed apart inside it ([`host_cpu`]).
 --- `sources` stands in for what it reads of this host (`sysname`, and
---- `system`'s second and third paths), for a test.
+--- `system`'s second path), for a test.
 function declared_key.host_kernel(sources?: declared_key.HostSources): string
-  local from: declared_key.HostSources = sources or {}
-  local system = system_of(from)
-  local parts: mut {string} = {}
-  for i = 2, 3 do
-    -- None ("", macOS's version) is read as nothing, as in [`host_identity`].
-    local text: string? = nil
-    local path = system[i]
-    if path ~= nil and path ~= "" then
-      local read, _ = Fs.read(path)
-      text = read
-    end
-    parts[#parts + 1] = text or ""
-  end
-  return hex_sha256(table.concat(parts)):sub(1, 16)
+  return hex_sha256(kernel_text(sources or {})):sub(1, 16)
 end
 
 --- The processor's features a key holds for a module that declares

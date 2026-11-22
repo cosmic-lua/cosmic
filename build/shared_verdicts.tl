@@ -404,8 +404,8 @@ end
 
 --- The identities of the hosts, other than `own`, whose rows the cache
 --- holds and whose rest but for their kernel is `rest`: hosts that
---- differ from the one of identity `own` in its kernel's release and
---- version alone ([`declared_key.host_split`]), sorted. A gathering run looks a test up
+--- differ from the one of identity `own` in its kernel's series and
+--- Landlock ABI alone ([`declared_key.host_split`]), sorted. A gathering run looks a test up
 --- under each one's key (build/test_key.tl's `lookup`), in this order, and
 --- the first row found answers: a pass on any like host stands though
 --- another like host failed the same key, since a failing run deletes its

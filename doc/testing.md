@@ -216,7 +216,8 @@ its temporary directory and sets them.
 ### processor features
 
 A verdict stands across hosts of other processors. A key holds the
-host's kernel (its release and version) and not the processor's
+host's kernel (the series of its release, and its Landlock ABI) and
+not the processor's
 features, so CI's runners of one image, which land on processors that
 differ, share their verdicts and their cache. (Measured on them: the
 kernel is the same, and only the VNNI features differ, which only
