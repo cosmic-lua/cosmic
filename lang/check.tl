@@ -5830,6 +5830,11 @@ end
 
 --- The steps of a generic call.
 local record Calls
+  --- The mode of `setmetatable({}, { __mode = "k" })`, the one call of `setmetatable` a program makes, which makes a
+  --- weak table: an empty literal, and a literal whose one item is `__mode` with "k", "v" or "kv". Nil for any other
+  --- arguments. A weak "v" map may lose a value at any allocation, so the checker must never narrow a map index read
+  --- (`m[k] ~= nil` then `m[k]`): only arrays have element facts, and no array is weak.
+  weak_mode: function(args: {Ast.Exp}): string?
   prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
   asserted: function(alts: {Alt}): Alt?
   --- Notes that the call `node` runs no code of the program through the standard library: it was given a `string` receiver
@@ -7194,6 +7199,23 @@ local function dispatch_call(ctx: Ctx, node: Ast.Node, callee_node: Ast.Node, ca
   return alts
 end
 
+function Calls.weak_mode(args: {Ast.Exp}): string?
+  local made, meta = args[1], args[2]
+  if #args ~= 2 or made == nil or meta == nil or not ((made.kind == "Table")) or #made.items ~= 0 or
+      not ((meta.kind == "Table")) or #meta.items ~= 1 then
+    return nil
+  end
+  local item = meta.items[1]
+  if not ((item.kind == "Named")) or item.name ~= "__mode" then
+    return nil
+  end
+  local value = item.value
+  if (value.kind == "String") and (value.value == "k" or value.value == "v" or value.value == "kv") then
+    return value.value
+  end
+  return nil
+end
+
 --- A call `callee(args)` whose callee has type `ft`.
 local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type?): {Alt}
   local callee = node.callee
@@ -7206,7 +7228,23 @@ local function apply_call(ctx: Ctx, node: Ast.Call, ft: Type, expected: Type?): 
   local module = if ctx.member_node == callee then ctx.member_module else "" end
   local callee_text = text_of(ctx, callee)
   if (callee.kind == "Name") and callee.binding == nil then
-    if callee.text == "setmetatable" then
+    local mode = if callee.text == "setmetatable" then Calls.weak_mode(node.args) else nil end
+    if mode ~= nil then
+      -- A weak table: an empty literal with `{ __mode = ... }`, which only tells the collector what it may drop. It is
+      -- the map that its place declares.
+      local wanted = if expected ~= nil then ctx.store:non_nil(expected) else nil end
+      if wanted ~= nil and ((wanted.tag == "map") and wanted.mut or wanted == ctx.invalid) then
+        -- An invalid type was refused where it is written.
+        if (ft.tag == "fn") and ctx.typed then
+          ctx.callees[base_of(node).id] = ft
+        end
+        return { { items = { wanted } } }
+      end
+      report(ctx, "setmetatable_call", node, "a weak table is a `mut` map, and nothing here says which",
+        "declare the map where it is made: `local m: mut {K: V} = setmetatable({}, { __mode = \"" ..
+          mode .. "\" })`")
+      return unknown_lists(ctx)
+    elseif callee.text == "setmetatable" then
       report(ctx, "setmetatable_call", node, "a program has no `setmetatable`: the metatable of a value is the compiler's, " ..
           "attached to the literal that makes the value of a class",
         "declare a `class` with the methods and write the value as a table literal typed as the class " ..

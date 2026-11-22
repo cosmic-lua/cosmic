@@ -710,3 +710,34 @@ local k: Key<string> = { name = "k" }
 print(s:get(k))
 ]])
 end
+
+-- weak tables ----------------------------------------------------------------------------------------------------
+
+--- `setmetatable({}, { __mode = ... })` makes a weak table, the `mut` map its place declares; any other call of
+--- `setmetatable` is refused, and so is a weak table whose type nothing gives.
+local function test_a_weak_table_is_the_map_its_place_declares()
+  local source = [[
+local class Node
+  n: integer
+end
+local seen: mut {Node: boolean} = setmetatable({}, { __mode = "k" })
+local a: Node = { n = 1 }
+seen[a] = true
+print(seen[a])
+]]
+  local done = Programs.execute(source, false)
+  assert(done.ran and done.fault == nil, tostring(done.fault) .. Programs.codes(done.run))
+  assert(done.printed[1] == "true", done.printed[1])
+  assert(done.lua:find("__mode", 1, true) ~= nil, done.lua)
+  refused("local seen = setmetatable({}, { __mode = \"k\" })\nprint(seen)\n", "setmetatable_call", "a weak table is a `mut` map")
+  refused("local seen: {string: boolean} = setmetatable({}, { __mode = \"v\" })\nprint(seen)\n", "setmetatable_call")
+  -- An array of weak values would gain holes as the collector drops them, which an array never has.
+  refused("local held: mut {string} = setmetatable({}, { __mode = \"v\" })\nprint(held)\n", "setmetatable_call")
+  refused("local seen: mut {string: boolean} = setmetatable({}, { __mode = \"x\" })\nprint(seen)\n", "setmetatable_call",
+    "a program has no `setmetatable`")
+  refused("local seen: mut {string: boolean} = setmetatable({ a = true }, { __mode = \"k\" })\nprint(seen)\n",
+    "setmetatable_call", "a program has no `setmetatable`")
+  -- The collector may drop a weak value between a write and a read, so a read stays optional after a test.
+  refused("local m: mut {string: string} = setmetatable({}, { __mode = \"v\" })\nm[\"a\"] = \"x\"\n" ..
+      "if m[\"a\"] ~= nil then print(m[\"a\"]:upper()) end\n", "nil_not_allowed")
+end

@@ -940,7 +940,7 @@ end
 --- The functions of each translation unit read, by its declarations,
 --- while they are held: `check` and `unit` read each one's functions,
 --- and the second reuses what the first indexed.
-local read: {{Node}: {Function}} = setmetatable({}, { __mode = "k" }) -- declared: key_type -- checked: setmetatable_call -- untyped: call
+local read: mut {{Node}: {Function}} = setmetatable({}, { __mode = "k" }) -- declared: key_type
 
 local function functions(decls: {Node}): {Function}
   local known = read[decls]
