@@ -1107,7 +1107,8 @@ when its parameters accept what the other's do and its returns are subtypes of t
 is below an interface it lists, or one whose fields it has, each of exactly the type the interface declares (a function
 field's receiver its own), `mut` and omittable alike, and one that lists an interface has each field of it that it leaves out
 (a class each but a method); two records, or two classes, are two types whatever their fields. a
-type parameter is bounded by an interface, by `Ordered` (a number type or a string type, whose values `<` compares), by
+type parameter is bounded by an interface, by `Ordered` (a number type, a string type, or a class that declares
+`__lt` and `__le`, whose values `<` compares), by
 `Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), or by
 several of these (`T is A & B`), each of which its argument meets; it keys a map only where `Key` or an interface
 bounds it. a record is not a map; an

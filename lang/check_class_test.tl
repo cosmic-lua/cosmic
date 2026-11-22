@@ -1,5 +1,5 @@
 --- The class piece of the new checker ([`lang.check`], [`lang.declarations`]): classes are nominal to each other, a value of one is
---- made by a table literal typed as it, a class's names are distinct and its `__close` and `__tostring` are held to
+--- made by a table literal typed as it, a class's names are distinct and its `__close`, `__tostring`, `__lt` and `__le` are held to
 --- what Lua calls, a `<close>` local holds one with a `__close`, and `is` of one is the test of its metatable. A
 --- declaration used as a value is a type of its own. The code generator's side is [`lang.codegen_test`]'s.
 local Array = require("cosmic.array")
@@ -302,7 +302,7 @@ local function test_a_close_method_takes_the_value_and_a_tostring_method_answers
 end
 
 local function test_no_other_metamethod_has_a_form_in_a_class()
-  for _, name in ipairs({ "__index", "__newindex", "__call", "__gc", "__mode", "__len", "__eq", "__lt", "__concat", "__add",
+  for _, name in ipairs({ "__index", "__newindex", "__call", "__gc", "__mode", "__len", "__eq", "__concat", "__add",
       "__pairs", "__metatable", "__name", "__anything" }) do
     declared_wrong("local class C\n  function " .. name .. "(self)\n  end\nend\n", "class_metamethod",
       "the method `" .. name .. "` of `C` would be read by Lua as a metamethod")
@@ -310,7 +310,90 @@ local function test_no_other_metamethod_has_a_form_in_a_class()
   declared_wrong("local class C\n  function m(self)\n  end\nend\nfunction C.__index()\nend\n", "class_metamethod",
     "the function `C.__index` is a name Lua reads as a metamethod")
   declared_wrong("local class C\n  function m(self)\n  end\nend\nfunction C.__close()\nend\n", "class_metamethod",
-    "`__close` and `__tostring` are written as methods")
+    "`__close`, `__tostring`, `__lt` and `__le` are written as methods")
+end
+
+local VERSION <const> = "local class Version\n  major: integer\n  minor: integer\n" ..
+  "  function __lt(self, other: Version): boolean\n" ..
+  "    return self.major < other.major or (self.major == other.major and self.minor < other.minor)\n  end\n" ..
+  "  function __le(self, other: Version): boolean\n    return not (other < self)\n  end\nend\n" ..
+  "local a: Version = { major = 1, minor = 2 }\nlocal b: Version = { major = 1, minor = 3 }\n"
+
+local function test_a_class_that_declares_lt_and_le_is_compared_and_is_ordered()
+  accepted(VERSION .. "local lt: boolean = a < b\nlocal le: boolean = a <= b\nlocal gt: boolean = a > b\n" ..
+      "local ge: boolean = a >= b\n")
+  accepted(VERSION .. "local function max<T is Ordered>(x: T, y: T): T\n  if x < y then\n    return y\n  end\n" ..
+      "  return x\nend\nlocal m: Version = max(a, b)\n")
+  accepted(VERSION .. "local all: mut {Version} = { b, a }\ntable.sort(all)\n")
+  local x = Programs.execute(VERSION .. "print(tostring(a < b) .. \" \" .. tostring(a <= b) .. \" \" .. tostring(b < a) .. " ..
+      "\" \" .. tostring(a <= a))\n", false)
+  assert(x.ran and x.fault == nil, Programs.codes(x.run) .. " " .. tostring(x.fault))
+  assert(table.concat(x.printed, ",") == "true true false true", table.concat(x.printed, ","))
+end
+
+local function test_a_class_compares_by_the_metamethod_the_operator_calls()
+  local only_lt = "local class P\n  n: integer\n  function __lt(self, other: P): boolean\n    return self.n < other.n\n" ..
+    "  end\nend\nlocal a: P = { n = 1 }\nlocal b: P = { n = 2 }\n"
+  accepted(only_lt .. "local lt: boolean = a < b\nlocal gt: boolean = a > b\n")
+  refused(only_lt .. "local le: boolean = a <= b\n", "operand_type")
+  local r = Programs.run(only_lt .. "local le: boolean = a <= b\n")
+  assert(Array.at(r.errors, 1).fix == "declare `function __le(self, other: P): boolean` in `P`", Array.at(r.errors, 1).fix)
+  -- `Ordered` asks for both, since a function bounded by it may use any of the four operators
+  local bounded = Programs.run(only_lt .. "local function max<T is Ordered>(x: T, y: T): T\n  return x\nend\n" ..
+      "local m = max(a, b)\n")
+  local only = "declare `function __le(self, other: P): boolean` in `P`: it declares `__lt`, and `Ordered` takes a class " ..
+    "that declares both"
+  assert(Array.at(bounded.errors, 1).fix == only, Array.at(bounded.errors, 1).fix)
+  refused(only_lt .. "local all: mut {P} = { b, a }\ntable.sort(all)\n", "overload_none")
+  local sorted = Programs.run(only_lt .. "local all: mut {P} = { b, a }\ntable.sort(all)\n")
+  local said = Array.at(sorted.errors, 1).fix
+  assert(said:find("classes that declare `__lt` and `__le`", 1, true) ~= nil, said)
+  -- two classes are not compared with each other, nor a class with a number
+  refused(VERSION .. "local class W\n  n: integer\nend\nlocal w: W = { n = 1 }\nlocal bad = a < w\n", "operand_type",
+    "a value of `Version`, as its left operand is")
+  refused(VERSION .. "local bad = 1 <= a\n", "operand_type", "a value of `Version`, as its right operand is")
+  local mixed = Programs.run(VERSION .. "local bad = a < 1\n")
+  assert(Array.at(mixed.errors, 1).fix == "compare two values of one class, which `<` gives to its `__lt`: it converts nothing",
+    Array.at(mixed.errors, 1).fix)
+end
+
+local function test_a_generic_class_compares_two_values_of_one_instance()
+  local box = "local class Box<T>\n  n: integer\n  function __lt(self, other: Box<T>): boolean\n    return self.n < other.n\n" ..
+    "  end\n  function __le(self, other: Box<T>): boolean\n    return self.n <= other.n\n  end\nend\n" ..
+    "local a: Box<string> = { n = 1 }\nlocal b: Box<string> = { n = 2 }\n"
+  accepted(box .. "local lt: boolean = a < b\nlocal all: mut {Box<string>} = { b, a }\ntable.sort(all)\n")
+  refused(box .. "local c: Box<integer> = { n = 3 }\nlocal bad = a < c\n", "operand_type")
+end
+
+local function test_a_comparison_of_class_values_may_shorten_an_array_as_a_call_may()
+  -- `__lt` is code of the program, so a loop over `#xs` that compares two values of a class no longer knows `xs[i]` is set.
+  local head = "local xs: mut {integer} = { 1, 2, 3 }\nlocal class C\n  n: integer\n" ..
+    "  function __lt(self, other: C): boolean\n    table.remove(xs)\n    return true\n  end\n" ..
+    "  function __le(self, other: C): boolean\n    return true\n  end\nend\nlocal a: C = { n = 1 }\nlocal b: C = { n = 2 }\n"
+  accepted(head .. "for i = 1, #xs do\n  local n: integer = xs[i]\nend\n")
+  refused(head .. "for i = 1, #xs do\n  local _ = a < b\n  local n: integer = xs[i]\nend\n", "index_may_be_nil")
+  -- a comparison with a number calls no metamethod
+  accepted(head .. "for i = 1, #xs do\n  local _ = xs[i] < 2\n  local n: integer = xs[i]\nend\n")
+end
+
+local function test_table_sort_takes_any_ordered_array_and_a_comparator_that_may_be_nil()
+  accepted("local all: mut {integer | number} = { 2, 1.5 }\ntable.sort(all)\n")
+  accepted("local enum Color\n  \"red\"\n  \"blue\"\nend\nlocal all: mut {Color} = { \"red\", \"blue\" }\ntable.sort(all)\n")
+  accepted("local all: mut {string} = { \"b\", \"a\" }\nlocal by: (function(string, string): boolean)? = nil\n" ..
+      "table.sort(all, by)\n")
+  accepted("local function f<N is Numeric>(xs: mut {N})\n  table.sort(xs)\nend\n")
+  refused("local all: mut {integer | string} = { 2, \"a\" }\ntable.sort(all)\n", "overload_none")
+end
+
+local function test_a_comparison_method_takes_the_value_and_another_of_its_class_and_answers_a_boolean()
+  for _, bad in ipairs({ "(self): boolean", "(self, other: integer): boolean", "(self, other?: Q): boolean",
+      "(self, other: Q, more: Q): boolean", "(self, other: Q): integer", "(self, other: Q)",
+      "(self, other: Q): boolean, boolean", "(self, ...: Q): boolean" }) do
+    declared_wrong("local class Q\n  function __lt" .. bad .. "\n    return nil as any\n  end\nend\n",
+      "metamethod_signature", "the method `__lt` of `Q` is not what `<` calls")
+  end
+  declared_wrong("local class Q\n  function __le(self): boolean\n    return true\n  end\nend\n", "metamethod_signature",
+    "the method `__le` of `Q` is not what `<=` calls")
 end
 
 local function test_a_field_of_a_class_named_for_a_metamethod_is_refused_as_a_method_is()
