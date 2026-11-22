@@ -647,7 +647,7 @@ local function decoded(response: Response): Response?, string
   if named == nil then return response, "" end
   local codings: mut {string} = {}
   for listed in named:gmatch("[^,]+") do
-    local coding = (listed:match("^%s*(.-)%s*$") or ""):lower()
+    local coding = String.trim(listed):lower()
     if coding ~= "identity" and coding ~= "" then
       if coding ~= "zstd" and coding ~= "gzip" and coding ~= "x-gzip" and coding ~= "deflate" then
         local _, _ = response:close()
@@ -986,9 +986,7 @@ end
 --- past is 0. The date reader is loaded here, for cosmic.time brings in
 --- cosmic.fs, which a program that never sees a dated header does not need.
 local function retry_after(text: string): integer?
-  -- Optional whitespace in HTTP is a space or a tab alone.
-  local value = text:match("^[ \t]*(.-)[ \t]*$")
-  if value == nil then return nil end
+  local value = String.trim(text)
   if value:find("^%d+$") then
     local digits = value:gsub("^0+(%d)", "%1")
     -- Nine digits is more seconds than any `max_wait_ns` a nanosecond

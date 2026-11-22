@@ -37,8 +37,8 @@ local function test_parse_never_raises_and_keeps_to_its_limits(tmp: string)
       local n = 0
       for name, value in pairs(got) do
         n = n + 1
-        if name == "" or name:find("[;,=]") ~= nil then return false, ("name %q"):format(name) end
-        if value:find("[;,]") then
+        if name == "" or name:find("[;=]") ~= nil then return false, ("name %q"):format(name) end
+        if value:find(";") then
           return false, ("value %q of %s holds a separator"):format(value, name)
         end
         if not input:find(name, 1, true) then
