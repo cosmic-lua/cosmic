@@ -90,17 +90,11 @@ local MAX_HEADER <const> = 8192
 --- The most cookies [`Cookies.parse`] returns.
 local MAX_COOKIES <const> = 100
 
---- Strips spaces and tabs from both ends.
-local function trim(text: string): string
-  -- The pattern matches every string: `.-` takes any text and the rest can be empty.
-  local trimmed = assert(text:match("^[ \t]*(.-)[ \t]*$"))
-  return trimmed
-end
-
 --- The cookies in a `Cookie` header, by name. The first of a name wins
---- (browsers send the most specific path first). Pairs are split on `;`,
---- and on `,` as well: a cookie value never holds a comma, so one means a
---- sender joined several `Cookie` lines with ", ". A piece without `=` or
+--- (browsers send the most specific path first). Pairs are split on `;`
+--- alone: browsers keep a comma in a value, so a split on `,` would let a
+--- cookie of any site that shares the host smuggle in a pair such as
+--- `__Host-id=x` ahead of the real one. A piece without `=` or
 --- with an empty name is skipped, a value in double quotes loses them, and
 --- nothing is percent-decoded. At most 100 cookies and 8 KiB of the header
 --- are read. It never raises.
@@ -113,15 +107,15 @@ function Cookies.parse(header: string?): {string:string}
   if #text > MAX_HEADER then
     -- Cut at a separator, so a cookie is never read half.
     text = text:sub(1, MAX_HEADER)
-    local last = text:find("[;,][^;,]*$")
+    local last = text:find(";[^;]*$")
     text = if last ~= nil then text:sub(1, last - 1) else "" end
   end
   local count = 0
-  for piece in (text .. ";"):gmatch("([^;,]*)[;,]") do
+  for piece in (text .. ";"):gmatch("([^;]*);") do
     local name, value = piece:match("^([^=]*)=(.*)$")
     if name ~= nil and value ~= nil then
-      name = trim(name)
-      value = trim(value)
+      name = String.trim(name)
+      value = String.trim(value)
       if name ~= "" and out[name] == nil then
         if #value >= 2 and value:sub(1, 1) == '"' and value:sub(-1) == '"' then
           value = value:sub(2, -2)
@@ -277,15 +271,15 @@ function Cookies.parse_set_cookie(line: string): Cookies.Parsed?, string
   if first == nil or rest == nil then return nil, "cookies: a Set-Cookie line needs name=value" end
   local name, value = first:match("^([^=]*)=(.*)$")
   if name == nil or value == nil then return nil, "cookies: a Set-Cookie line needs name=value" end
-  name = trim(name)
+  name = String.trim(name)
   if name == "" then return nil, "cookies: a Set-Cookie line needs a name" end
-  local parsed: Cookies.Parsed = { name = name, value = trim(value), secure = false,
+  local parsed: Cookies.Parsed = { name = name, value = String.trim(value), secure = false,
     http_only = false, partitioned = false }
   for piece in rest:gmatch(";([^;]*)") do
     local key, attr = piece:match("^([^=]*)=(.*)$")
     if key == nil or attr == nil then key, attr = piece, "" end
-    key = trim(key):lower()
-    attr = trim(attr)
+    key = String.trim(key):lower()
+    attr = String.trim(attr)
     if key == "path" then
       if attr:sub(1, 1) == "/" then parsed.path = attr end
     elseif key == "domain" then

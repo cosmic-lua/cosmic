@@ -75,6 +75,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Sign = require("cosmic.sign")
+local String = require("cosmic.string")
 local Fs = require("cosmic.fs")
 local Poll = require("cosmic.poll")
 local Tls = require("cosmic.tls")
@@ -774,7 +775,7 @@ end
 local function rate_limit_wait(body: Http.Body): integer?
   local text = body.headers["retry-after"]
   if text == nil then return nil end
-  local value = text:match("^[ \t]*(.-)[ \t]*$") or ""
+  local value = String.trim(text)
   if value:find("^%d+$") ~= nil then
     local digits = value:gsub("^0+(%d)", "%1")
     if #digits > 9 then return math.maxinteger end

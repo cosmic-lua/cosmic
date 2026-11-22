@@ -279,6 +279,7 @@ name the shape of their input and have it checked before the handler runs.
 local Html = require("cosmic.html")
 local Input = require("cosmic.web.input")
 local Store = require("store")
+local String = require("cosmic.string")
 local Url = require("cosmic.url")
 local View = require("view")
 local Web = require("cosmic.web")
@@ -304,7 +305,7 @@ function Site.routes(store: Store): {Web.Route}
     local read = Input.form(req)
     local invalid = read.invalid
     if invalid ~= nil then return Web.abort(invalid.status, invalid.message) end
-    local title = assert((Url.query_last(assert(read.value), "title") or ""):match("^%s*(.-)%s*$"))
+    local title = String.trim(Url.query_last(assert(read.value), "title") or "")
     if title == "" then
       return Web.html(shown("", "give the task a name"), { status = 422 })
     end
