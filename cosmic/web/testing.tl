@@ -276,11 +276,15 @@ local function path_matches(cookie_path: string, path: string): boolean
 end
 
 --- Updates the jar with a `Set-Cookie` line the reply to a request for
---- `path` carried, as a browser does for what it can tell: a cookie with a
---- `Max-Age` of 0 or less, or an `Expires` in the past, deletes the one at
---- its path; `Path`, `Secure` and the expiry are kept for the requests that
---- follow. `Domain` and `SameSite` are not read, as the client has one
---- host and sends every request itself.
+--- `path` carried: a cookie with a `Max-Age` of 0 or less, or an
+--- `Expires` in the past, deletes the one at its path; `Path`, `Secure`
+--- and the expiry are kept for the requests that follow. It takes more
+--- than a browser does. `Domain`, `SameSite` and `HttpOnly` are not read,
+--- as the client has one host and sends every request itself. A `Secure`
+--- cookie is stored whatever the client's scheme, and sent only while it
+--- is "https"; one named `__Secure-` or `__Host-` is kept whatever its
+--- attributes. A browser refuses either from an http page, and the
+--- second without the attributes its prefix needs.
 local function remember(client: Testing.Client, line: string, path: string)
   local parsed, _ = Cookies.parse_set_cookie(line)
   if parsed == nil then return end
