@@ -715,6 +715,12 @@ local record Types
     head_ns?: integer
     --- As [`Server.ServeSpec.body_ns`].
     body_ns?: integer
+    --- Compresses replies for the request's `Accept-Encoding`, as
+    --- [`Server.ServeSpec.compress`]: `true` for the defaults, or a
+    --- [`Server.Compression`]. Read what it says first: of secrets beside
+    --- reflected input (BREACH), and of a slow [`Web.stream`] of a text
+    --- type, which the compressor holds back until it has a block.
+    compress?: boolean | Server.Compression
     --- How long requests in flight have to finish once the server stops
     --- (10 seconds): the server's own default waits for every request,
     --- and an event stream never ends.

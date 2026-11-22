@@ -42,7 +42,11 @@ and a plain name still works with revalidation. A stale fingerprint is a
 404, never a different file's bytes. A file is answered with a strong ETag
 from its content hash, `If-None-Match`, `Range` and stored zstd and gzip variants,
 and a request for a hidden file or a path that climbs out of the root is a
-404.
+404. What the app makes as it answers (a page, a JSON answer) has no stored
+variant: `Web.serve(app, { compress = true, ... })` has the server compress
+a text reply for the client's `Accept-Encoding`, as
+[`Server.ServeSpec.compress`] says, with its warning on secrets beside
+reflected input.
 
 ```teal file=static/app.css
 body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; }
@@ -348,6 +352,7 @@ test: 5 tests passed
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.web`]: ../../cosmic/web/init.tl
 [`Dev.app`]: ../../cosmic/web/dev.tl
+[`Server.ServeSpec.compress`]: ../../cosmic/http/server.tl
 [`Session.middleware`]: ../../cosmic/web/session/init.tl
 [`StaticFiles.mount`]: ../../cosmic/web/static.tl
 [`Web.serve`]: ../../cosmic/web/init.tl

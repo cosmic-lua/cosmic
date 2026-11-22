@@ -2,6 +2,7 @@
 --- worker's own loopback.
 
 local Clock = require("cosmic.clock")
+local Compress = require("cosmic.compress")
 local Input = require("cosmic.web.input")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -61,6 +62,31 @@ local function test_head_has_the_gets_head_and_no_body_on_the_wire()
     assert(head.status == 200 and head.body == "" and head.headers["content-length"] == "12")
     local after = assert(client:get("/x"))
     assert(after.body == "twelve bytes", "the connection is in step after a HEAD")
+  end)
+end
+
+local function test_compress_has_the_server_gzip_a_text_reply_that_opts_in_and_out()
+  local page = ("<p>a line of the page</p>"):rep(100)
+  local app = Web.app{ routes = {
+    Web.get("/page", function(_req: Web.Request): Web.Response
+      return Web.text(page, { headers = { ["Content-Type"] = "text/html; charset=utf-8" } })
+    end),
+    Web.get("/secret", function(_req: Web.Request): Web.Response
+      return Web.text(page, { headers = { ["Cache-Control"] = "no-transform" } })
+    end),
+  } }
+  local gzip: Web.TestOptions = { headers = { ["Accept-Encoding"] = "gzip" } }
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local res = assert(client:get("/page", gzip))
+    assert(res.headers["content-encoding"] == "gzip", tostring(res.headers["content-encoding"]))
+    assert(tostring(res.headers["vary"]):find("Accept-Encoding", 1, true) ~= nil)
+    assert(#res.body < #page and Compress.inflate("gzip", res.body) == page)
+    local kept = assert(client:get("/secret", gzip))
+    assert(kept.headers["content-encoding"] == nil and kept.body == page, "no-transform is left as it is")
+  end, { compress = true })
+  Web.with_server(app, function(client: Web.LoopbackClient)
+    local res = assert(client:get("/page", gzip))
+    assert(res.headers["content-encoding"] == nil and res.body == page, "without compress, a reply is as made")
   end)
 end
 

@@ -73,6 +73,13 @@ local record Testing
     __close: function(Client)
   end
 
+  --- What [`Testing.with_server`] gives [`Web.serve`] besides the
+  --- listener and `on_ready`, which are its own.
+  record ServerOptions
+    --- As [`Types.ServeOptions.compress`].
+    compress?: boolean | Server.Compression
+  end
+
   --- A client of an app served on the loopback: see [`Testing.with_server`].
   record Loopback
     --- The connection, kept alive between requests.
@@ -712,14 +719,17 @@ end
 --- cannot see: real framing, `Connection: close`, what the server answers
 --- itself, and graceful stop. It runs a [`Poll.run`] of its own, so it
 --- cannot be called in a task, and a test using it declares
---- `Test.policy{ loopback = { "127.0.0.1" } }`.
+--- `Test.policy{ loopback = { "127.0.0.1" } }`. `opts` is what else
+--- [`Web.serve`] is given.
 --- @param app Types.App The app
 --- @param fn function(client: Testing.Loopback) The test
-function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopback))
+--- @param opts Testing.ServerOptions | nil The server's options
+function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopback), opts?: Testing.ServerOptions)
   -- Why the test or its connection failed, if either did.
   local failures: mut {string} = {}
   local ok, why = App.serve(app, {
     listeners = { Net.tcp("127.0.0.1", 0) },
+    compress = opts and opts.compress,
     on_ready = function(addresses: {Net.Address}, server: Net.Server)
       local address = addresses[1]
       if address == nil then
