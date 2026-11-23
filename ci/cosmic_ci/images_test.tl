@@ -1,7 +1,6 @@
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Images = require("cosmic_ci.images")
 local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
@@ -192,7 +191,7 @@ local function test_publish_refuses_an_index_without_a_digest(tmp: string)
   assert(code == 1 and trouble == "no digest for ghcr.io/owner/repo-ci-ubuntu:abc123",
     trouble)
   assert(read(tmp .. "/out") == "")
-  assert(Predicate.exists(assert(env["GITHUB_STEP_SUMMARY"])) == false)
+  assert(assert(Fs.status(assert(env["GITHUB_STEP_SUMMARY"]))).exists == false)
 end
 
 local function test_publish_stops_at_a_docker_failure(tmp: string)
@@ -313,5 +312,5 @@ local function test_failed_image_output_does_not_append_the_summary(tmp: string)
   seams.fs_put, seams.fs_append = put, append
   assert(Fs.close(output))
   assert(outcome.code == 1 and outcome.trouble == "injected output failure", outcome.trouble)
-  assert(calls.value == 0 and Predicate.exists(assert(env["GITHUB_STEP_SUMMARY"])) == false)
+  assert(calls.value == 0 and assert(Fs.status(assert(env["GITHUB_STEP_SUMMARY"]))).exists == false)
 end

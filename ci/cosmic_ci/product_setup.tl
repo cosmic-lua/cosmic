@@ -1,6 +1,5 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 
 local record ProductSetup
@@ -9,7 +8,7 @@ end
 function ProductSetup.build(root: string, product: string, tmp: string): string
   local cosmic = BuildPaths.directory(root) .. "/bin/cosmic"
   local targets_path = BuildPaths.directory(root) .. "/targets.tsv"
-  local product_exists = Predicate.exists(product)
+  local product_exists = assert(Fs.status(product)).exists
   assert(not product_exists, "product already exists: " .. product)
   for _, required in ipairs({ cosmic, BuildPaths.directory(root) .. "/carried.db", targets_path }) do
     assert(assert(Fs.stat(required)).kind == "file",

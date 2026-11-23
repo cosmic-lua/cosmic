@@ -8,17 +8,6 @@ local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local record Proof
 end
 
@@ -30,9 +19,7 @@ end
 
 --- Whether nothing is at `path`.
 local function missing(path: string): boolean
-  local there, why = path_there(path)
-  assert(there ~= nil, why)
-  return not there
+  return not assert(Fs.status(path)).exists
 end
 
 local function good(result: Child.Result)

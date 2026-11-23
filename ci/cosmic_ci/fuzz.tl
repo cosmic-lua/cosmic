@@ -329,8 +329,8 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
     local started, start_trouble = seams.child_start(argv, { timeout_ns = Child.FOREVER, cwd = cwd, env = env,
       stdout = "stream", stderr = "stdout" })
     if started == nil then
-      local there, _ = seams.fs_exists(program)
-      if there == true then kept.status = 126 else kept.status = 127 end
+      local status, _ = seams.fs_status(program)
+      if status ~= nil and status.exists then kept.status = 126 else kept.status = 127 end
       local wrote, why = sink:write(program .. ": " .. start_trouble .. "\n")
       if not wrote then kept.trouble = why end
       return

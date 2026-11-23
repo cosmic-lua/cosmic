@@ -7,7 +7,6 @@ local ContextEnv = require("cosmic_ci.context")
 local Env = require("cosmic.env")
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local Maps = require("cosmic_ci.maps")
@@ -82,13 +81,11 @@ local function chmodded(path: string, mode: integer): boolean, string
   return true, ""
 end
 
-local exists = Predicate.exists
-local is_dir = Predicate.is_dir
 local function read(path: string): string return (assert(Fs.read(path))) end
 
 --- The file at `path`, "" where there is none.
 local function read_or_empty(path: string): string
-  if exists(path) then return read(path) end
+  if assert(Fs.status(path)).exists then return read(path) end
   return ""
 end
 local function hash(path: string): string return Hash.hex_sha256(read(path)) end
@@ -1103,7 +1100,7 @@ local function checked_suite(c: Context, target: string, work: string,
     -- leg's cache, none of whose rows a run reaches, would ride along
     -- whole in every save (cosmic_ci/verdicts.tl).
     local stale = Orchestration.suite_verdicts(Env.all(), "checked")
-    if stale ~= "0" and exists(stale) then
+    if stale ~= "0" and assert(Fs.status(stale)).exists then
       local removed, trouble = Fs.remove(stale)
       local _, _ = Fs.put(Fs.stderr, if removed then ("checked suite: removed this leg's " .. stale .. "\n") else
         ("checked suite: could not remove " .. stale .. ": " .. tostring(trouble) .. "\n") end)
@@ -1169,7 +1166,7 @@ local function checked_suite(c: Context, target: string, work: string,
   -- With its write-ahead log, which holds what a run committed and has
   -- not yet copied into the file.
   for _, name in ipairs({ "build.db", "build.db-wal" }) do
-    if exists(BuildPaths.directory(c.root) .. "/" .. name) then
+    if assert(Fs.status(BuildPaths.directory(c.root) .. "/" .. name)).exists then
       write(diagnostics .. "/" .. name, read(BuildPaths.directory(c.root) .. "/" .. name))
     end
   end
@@ -1190,7 +1187,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
       not String.starts_with(destination, candidate .. "/"),
     "snapshot path must be outside candidate checkout")
   local out = destination .. "/" .. label
-  assert(not exists(out), "snapshot already exists: " .. out)
+  assert(not assert(Fs.status(out)).exists, "snapshot already exists: " .. out)
   mkdir(out)
   -- The file, and beside it what SQLite reads with it: a rollback
   -- journal, or the write-ahead log the working database is kept in
@@ -1198,13 +1195,13 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local sidecars <const> = { "build.db-journal", "build.db-wal" }
   write(out .. "/build.db", read(BuildPaths.directory(c.root) .. "/build.db"))
   for _, name in ipairs(sidecars) do
-    if exists(BuildPaths.directory(c.root) .. "/" .. name) then
+    if assert(Fs.status(BuildPaths.directory(c.root) .. "/" .. name)).exists then
       write(out .. "/" .. name, read(BuildPaths.directory(c.root) .. "/" .. name))
     end
   end
   local hashes = hash(out .. "/build.db") .. "  build.db\n"
   for _, name in ipairs(sidecars) do
-    if exists(out .. "/" .. name) then
+    if assert(Fs.status(out .. "/" .. name)).exists then
       hashes = hashes .. hash(out .. "/" .. name) .. "  " .. name .. "\n"
     end
   end
@@ -1216,7 +1213,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
   local called, answer = pcall(function()
     write(inspect .. "/build.db", read(out .. "/build.db"))
     for _, name in ipairs(sidecars) do
-      if exists(out .. "/" .. name) then
+      if assert(Fs.status(out .. "/" .. name)).exists then
         write(inspect .. "/" .. name, read(out .. "/" .. name))
       end
     end
@@ -1227,7 +1224,7 @@ local function snapshot(c: Context, diagnostics: string, label: string,
       out .. "/integrity.out", out .. "/integrity.err", Clock.seconds(30), inspect)
   end)
   local removed, remove_trouble = Fs.remove_tree(inspect)
-  assert(removed and not exists(inspect),
+  assert(removed and not assert(Fs.status(inspect)).exists,
     "could not remove disposable integrity directory: " ..
       tostring(remove_trouble))
   if not called then error(answer) end
@@ -1271,7 +1268,7 @@ local function suite(c: Context, name: string, executable: string,
 end
 
 local function archive(c: Context, destination: string): integer
-  assert(not exists(destination), "archive destination already exists: " .. destination)
+  assert(not assert(Fs.status(destination)).exists, "archive destination already exists: " .. destination)
   mkdir(destination)
   local tar = destination .. ".tar"
   local status = checked(c, "tracked source archive",
@@ -1283,7 +1280,7 @@ local function archive(c: Context, destination: string): integer
     if written == nil then return false, trouble end
     return true, ""
   end)
-  assert(not exists(destination .. "/o"), "tracked source archive holds o/")
+  assert(not assert(Fs.status(destination .. "/o")).exists, "tracked source archive holds o/")
   return status
 end
 
@@ -1311,7 +1308,7 @@ end
 local function boot(p: PlatformContext): integer
   local c = p.operation
   local root = p.root
-  assert(not exists(BuildPaths.directory(root) .. "/build.db"), "build requires fresh working database")
+  assert(not assert(Fs.status(BuildPaths.directory(root) .. "/build.db")).exists, "build requires fresh working database")
   -- zig's caches are used where CI restored them: its global cache
   -- (COSMIC_ZIG_GLOBAL_CACHE, build/zig.tl) and the project cache, the
   -- zig-cache under COSMIC_ZIG_CACHE_SEED (see `operation`). Only a
@@ -1322,11 +1319,11 @@ local function boot(p: PlatformContext): integer
   local cache = if seed then seed .. "/zig-cache" else from end
   -- A cache named but absent costs a cold compile of vendor/ and core/
   -- (minutes) and fails nothing, so say so where the log shows it.
-  if cache ~= nil and not is_dir(cache) then
+  if cache ~= nil and not assert(Fs.status(cache)).is_dir then
     local _, _ = Fs.put(Fs.stderr, "build: no zig-cache at " .. cache ..
         "; compiling from nothing\n")
   end
-  if seed == nil and from ~= nil and is_dir(from) then
+  if seed == nil and from ~= nil and assert(Fs.status(from)).is_dir then
     local source: string = from
     mkdir(BuildPaths.directory(root))
     local copied = step(c, "restore zig-cache", function(): boolean, string
@@ -1418,8 +1415,8 @@ local function phase_darwin_suite(p: PlatformContext): integer
   local words = Orchestration.darwin_words(darwin_run.words, Orchestration.darwin_modules(listed))
   if words == nil then return 0 end
   local native = p.local_diagnostics .. "/local-test"
-  if exists(native .. ".out") and
-      exists(native .. ".status") then
+  if assert(Fs.status(native .. ".out")).exists and
+      assert(Fs.status(native .. ".status")).exists then
     local code = math.tointeger(tonumber((read(native .. ".status"):gsub("%s+$", ""))))
     if code ~= nil and Orchestration.native_ran_every(read(native .. ".out"), code) then
       local _, _ = Fs.put(Fs.stderr, "darwin suite: the native suite ran every test here, none " ..
@@ -1535,7 +1532,7 @@ local function phase_checked_build(p: PlatformContext): integer
   if s ~= 0 then return s end
   local format = p.contract .. "/format"
   local decoder = format .. "/format-test-" .. p.target
-  assert(not exists(decoder), "format decoder already exists: " .. decoder)
+  assert(not assert(Fs.status(decoder)).exists, "format decoder already exists: " .. decoder)
   mkdir(format)
   write(decoder, read(BuildPaths.directory(root) .. "/portable-fixture/format/format-test-" .. p.target))
   return step(c, "format decoder mode", function(): boolean, string
@@ -1627,8 +1624,8 @@ end
 --- after its boundary was checked (`local-boundary`); a job that ran
 --- none has no boundary to keep.
 local function format_check(p: PlatformContext): integer
-  if exists(p.local_diagnostics .. "/local-immediate/hashes.sha256") then
-    assert(exists(p.local_diagnostics .. "/local-boundary/hashes.sha256"),
+  if assert(Fs.status(p.local_diagnostics .. "/local-immediate/hashes.sha256")).exists then
+    assert(assert(Fs.status(p.local_diagnostics .. "/local-boundary/hashes.sha256")).exists,
       "no local-boundary snapshot; run the local-boundary phase first")
   end
   if Env.get("COSMIC_CI_FORMAT") == "skip" then
@@ -1866,7 +1863,7 @@ function Orchestration.seed_compiles(env: {string:string},
       return false, path .. ": writable by its group or others"
     end
   end
-  if exists(destination) then
+  if assert(Fs.status(destination)).exists then
     return false, destination .. ": already exists"
   end
   local db, open_trouble = Sqlite.open(source)
@@ -1986,7 +1983,7 @@ local function phase_fixtures(p: PlatformContext): integer
   else
     local compiles = work .. "/self-rebuild-compiles.db"
     s = step(c, "self-rebuild compiles seed", function(): boolean, string
-      if exists(compiles) then assert(Fs.remove(compiles)) end
+      if assert(Fs.status(compiles)).exists then assert(Fs.remove(compiles)) end
       return Orchestration.seed_compiles(Env.all(), compiles)
     end)
     if s ~= 0 then return s end
@@ -2021,7 +2018,7 @@ local function phase_fixtures(p: PlatformContext): integer
     -- (fixtures/fixed_point_test.tl's `seeded_compiles`).
     local seed = work .. "/fixed-point-seed.db"
     s = step(c, "fixed-point compiles seed", function(): boolean, string
-      if exists(seed) then assert(Fs.remove(seed)) end
+      if assert(Fs.status(seed)).exists then assert(Fs.remove(seed)) end
       return Orchestration.seed_compiles(Env.all(), seed)
     end)
     if s ~= 0 then return s end
@@ -2169,7 +2166,7 @@ local function provenance_impl(c: Context, products: string, expected: integer):
     if name:match("^portable%-product%-.+") then
       local p = products .. "/" .. name
       local att = p .. "/executed-cosmic.sha256"
-      assert(exists(att) and exists(p .. "/cosmic"), "incomplete product: " .. p)
+      assert(assert(Fs.status(att)).exists and assert(Fs.status(p .. "/cosmic")).exists, "incomplete product: " .. p)
       local digest = read(att):match("^([0-9a-f]+)  cosmic\n$")
       assert(digest ~= nil and #digest == 64, "invalid attestation: " .. att)
       assert(Hash.hex_sha256(ArtifactRow.with(read(p .. "/cosmic"), p .. "/provenance.db", nil)) == digest,

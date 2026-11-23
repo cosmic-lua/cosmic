@@ -12,17 +12,6 @@ local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local record Arena
 end
 
@@ -108,11 +97,11 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   end
   local existing, rest = parent, ""
   while true do
-    local exists, exists_trouble = path_there(existing)
-    if exists == nil then
-      return nil, existing .. ": " .. exists_trouble
+    local status, trouble = Fs.status(existing)
+    if status == nil then
+      return nil, tostring(trouble)
     end
-    if exists then break end
+    if status.exists then break end
     local leaf = existing:match("([^/]+)$")
     if leaf == nil then
       return nil, existing .. ": no directory of the path exists"

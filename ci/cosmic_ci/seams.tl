@@ -6,8 +6,8 @@
 --- nothing else is routed through it.
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
@@ -49,7 +49,7 @@ local record Seams
     mut env_get: function(name: string): string?
     mut fs_absolute: function(path: string): string?, string
     mut fs_append: function(path: string, data: string, mode?: integer): boolean, string
-    mut fs_exists: function(path: string): boolean?, string
+    mut fs_status: function(path: string): (Fs.Status) | (nil, Failure)
     mut fs_open_write: function(path: string, mode?: integer): integer?, string
     mut fs_put: function(fd: integer, bytes: string): boolean, string
     fs_read: function(path: string): string?, string
@@ -96,7 +96,7 @@ local current: Seams.Calls = {
     if not appended then return false, tostring(why) end
     return true, ""
   end,
-  fs_exists = Predicate.there,
+  fs_status = Fs.status,
   fs_open_write = function(path: string, mode?: integer): integer?, string
     local fd, why = Fs.open_write(path, mode)
     if fd == nil then return nil, tostring(why) end

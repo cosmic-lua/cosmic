@@ -1,6 +1,5 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
@@ -91,7 +90,7 @@ local function refused(ctx: Context, label: string, pattern: string, program?: s
   assert(not answer.result.ok and not answer.result.timed_out,
     label .. " unexpectedly succeeded or timed out")
   Fixture.contains(answer.err, pattern)
-  assert(Predicate.exists(marker) == false, label .. " ran the payload")
+  assert(assert(Fs.status(marker)).exists == false, label .. " ran the payload")
   for _, name in ipairs((assert(Fs.list(cache)))) do
     assert(String.starts_with(name, "."), label .. " published " .. name)
   end

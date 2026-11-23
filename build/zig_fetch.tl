@@ -32,17 +32,6 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local SECOND <const> = Clock.seconds(1)
 
 local record ZigFetch
@@ -285,10 +274,11 @@ local function unpack(work: string, version: string, host: string,
     return nil, archive .. ": " .. xtrouble
   end
   local extracted = work .. "/zig-" .. host .. "-" .. version
-  local has_zig, look_trouble = path_there(extracted .. "/zig")
-  if has_zig == nil then
-    return nil, look_trouble
+  local has_zig_status, look_trouble = Fs.status(extracted .. "/zig")
+  if has_zig_status == nil then
+    return nil, tostring(look_trouble)
   end
+  local has_zig = has_zig_status.exists
   if not has_zig then
     return nil, name .. " holds no zig binary"
   end
@@ -325,10 +315,11 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
     if trouble == "" then return nil, "no zig was extracted for " .. host end
     return nil, trouble
   end
-  local installed, look_trouble = path_there(zig)
-  if installed == nil then
-    return nil, look_trouble
+  local installed_status, look_trouble = Fs.status(zig)
+  if installed_status == nil then
+    return nil, tostring(look_trouble)
   end
+  local installed = installed_status.exists
   if not installed then
     return nil, "could not install zig into " .. install
   end
