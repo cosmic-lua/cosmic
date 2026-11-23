@@ -304,7 +304,7 @@ end
 --- session's last, in one transaction.
 function Sessions.add(db: Sqlite.Handle, id: integer, message: Json.Value, model: string): boolean, string
   local text, why = Json.encode(message)
-  if text == nil then return false, why end
+  if text == nil then return false, tostring(why) end
   return Sqlite.transact(db, function(): boolean, string
     local ok, run_why = Sqlite.run(db, [[INSERT INTO messages (session, seq, message)
       SELECT ?1, coalesce(max(seq), 0) + 1, ?2 FROM messages WHERE session = ?1]],
@@ -339,7 +339,7 @@ function Sessions.load(db: Sqlite.Handle, id: integer): Sessions.Loaded?, string
   local out: mut {Json.Value} = {}
   for _, t in ipairs(texts) do
     local m, bad = Json.decode(t, { null_value = Json.null })
-    if m == nil then return nil, "session " .. tostring(id) .. ": " .. bad end
+    if m == nil then return nil, "session " .. tostring(id) .. ": " .. tostring(bad) end
     out[#out + 1] = m
   end
   return { messages = out, model = row:text(1), restarts = row:integer(2), ended = row:integer(3) ~= 0 }, ""

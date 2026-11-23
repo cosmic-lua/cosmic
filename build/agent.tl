@@ -408,7 +408,7 @@ end
 --- Prints `event` as a line of JSON.
 local function emit(r: Run, event: Json.Value)
   local text, why = Json.encode(event)
-  r.io.out(text or assert(Json.encode({ type = "error", error = why })))
+  r.io.out(text or assert(Json.encode({ type = "error", error = tostring(why) })))
 end
 
 --- The end event, which leaves "error" out when the turn went well.
@@ -592,7 +592,9 @@ local function rpc(r: Run, got: Flags.Parsed): integer
     local function command(line: string): {string: Json.Value}?
       if line:match("^%s*$") then return nil end
       local c, bad = Json.decode_object(line)
-      if c == nil then emit(r, { type = "error", error = "not a JSON object: " .. bad }) end
+      if c == nil then
+        emit(r, { type = "error", error = "not a JSON object: " .. tostring(bad) })
+      end
       return c
     end
     -- Commands that come while a turn runs: steer and abort act on it, the rest wait.
