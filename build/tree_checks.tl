@@ -275,7 +275,7 @@ for _, name in ipairs({ "pack", "unpack" }) do
   allowed["build.fuzz." .. name] = "the fuzz tests' inputs of several fields; only tests " ..
     "pack them"
 end
-allowed["build.verb_list.entries"] = "what build/verb_list_test.tl holds each verb's spec name to"
+allowed["build.verb_list.loads"] = "what build/verb_list_test.tl holds each verb's spec name to"
 allowed["build.identity.compiler_modules"] = "what build/importer_test.tl holds the tree to, " ..
   "walked over the running binary's modules: every module build.importer requires is " ..
   "in the compiler's identity or left out of it with a reason"

@@ -1,7 +1,7 @@
 --- The verb registry (build/verb_list.tl): each listed module carries a
---- `spec` that says what it is, and the list, [`cosmic.cli`]'s `order` (the
---- prose of every verb is held in build/verbs_store_test.tl, which reads
---- each one's help) and the verbs dispatch reaches agree. A module's `spec`
+--- `spec` that says what it is, and the verbs listed are those
+--- [`cosmic.cli`]'s groups name (the prose of every verb is held in
+--- build/verbs_store_test.tl, which reads each one's help). A module's `spec`
 --- missing from the list, and a verb's guide and tests, are held over the
 --- whole tree by build/tree_checks.tl's `verbs`.
 
@@ -10,20 +10,20 @@ local verb_list = require("build.verb_list")
 
 --- The verbs that run code -- a file, a chunk, `--version` -- which no
 --- module of the list holds, and `help`, which build/dispatch.tl holds
---- itself: what [`Cli.order`] has around the list.
+--- itself: the verbs [`Cli.groups`] names that the list has not.
 local before <const> = { "run", "standalone", "eval", "version" }
 local after <const> = { "help" }
 
 local function test_every_listed_module_has_its_spec()
-  for _, entry in ipairs(verb_list.entries) do
-    local spec = entry.load()
-    assert(spec.name == entry.name, entry.name .. ": its spec names " .. tostring(spec.name))
+  for name, loader in pairs(verb_list.loads) do
+    local spec = loader()
+    assert(spec.name == name, name .. ": its spec names " .. tostring(spec.name))
     local run: any = spec.run -- checked: any_use
     local bare: any = spec.bare -- checked: any_use
-    assert(type(run) == "function", entry.name .. ": no run")
+    assert(type(run) == "function", name .. ": no run")
     local takes: any = spec.takes -- checked: any_use
-    assert(type(takes) == "string", entry.name .. ": say what it takes")
-    assert(type(bare) == "boolean", entry.name .. ": say whether it is bare")
+    assert(type(takes) == "string", name .. ": say what it takes")
+    assert(type(bare) == "boolean", name .. ": say whether it is bare")
   end
 end
 
@@ -55,25 +55,32 @@ local function test_a_bare_verb_says_how_it_exits_and_why_it_is_uncased()
   end
 end
 
-local function test_the_list_and_cli_order_agree()
-  local want: mut {string} = {}
-  for _, name in ipairs(before) do want[#want + 1] = name end
-  for _, spec in ipairs(verb_list.specs()) do want[#want + 1] = spec.name end
-  for _, name in ipairs(after) do want[#want + 1] = name end
-  assert(table.concat(want, " ") == table.concat(Cli.order, " "),
-    "verb_list and Cli.order differ:\n  " .. table.concat(want, " ") .. "\n  " ..
-      table.concat(Cli.order, " "))
-end
-
-local function test_every_verb_record_is_a_verb_in_order_and_back()
-  local known: mut {string:boolean} = {}
+local function test_the_list_holds_the_grouped_verbs_that_are_not_code_or_help()
+  local own: mut {string:boolean} = {}
+  for _, name in ipairs(before) do own[name] = true end
+  for _, name in ipairs(after) do own[name] = true end
+  local listed = 0
   for _, name in ipairs(Cli.order) do
-    known[name] = true
-    assert(Cli.verbs[name] ~= nil, "Cli.order names " .. name .. ", which Cli.verbs lacks")
+    if own[name] ~= true then
+      assert(verb_list.loads[name] ~= nil, name .. " is in Cli.groups but not in verb_list")
+      listed = listed + 1
+    end
   end
-  for name in pairs(Cli.verbs) do
-    assert(known[name] == true, "Cli.verbs." .. name .. " is not a verb in Cli.order")
+  local loads = 0
+  for name in pairs(verb_list.loads) do
+    loads = loads + 1
+    assert(Cli.verbs[name] ~= nil, name .. " is in verb_list but not in Cli.verbs")
   end
+  assert(loads == listed, "verb_list has " .. tostring(loads) .. " verbs, Cli.groups " .. tostring(listed))
+  local want: mut {string} = {}
+  for _, name in ipairs(Cli.order) do
+    if own[name] ~= true then want[#want + 1] = name end
+  end
+  local got: mut {string} = {}
+  for _, spec in ipairs(verb_list.specs()) do got[#got + 1] = spec.name end
+  assert(table.concat(got, " ") == table.concat(want, " "),
+    "specs answers the listed verbs in Cli.order's order:\n  " .. table.concat(got, " ") .. "\n  " ..
+      table.concat(want, " "))
 end
 
 local function test_the_groups_name_every_verb_once_and_nothing_else()
@@ -92,7 +99,7 @@ local function test_the_groups_name_every_verb_once_and_nothing_else()
 end
 
 --- `cosmic help exit` gathers each bare verb's clause with the others', in the
---- list's order, so a clause that leans on its neighbours ("instead", "likewise")
+--- order of [`Cli.order`], so a clause that leans on its neighbours ("instead", "likewise")
 --- says something else there than in its own module.
 local function test_a_spec_prose_stands_by_itself()
   for _, spec in ipairs(verb_list.specs()) do

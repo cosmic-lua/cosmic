@@ -1054,8 +1054,9 @@ end
 
 local record Module
   --- One field per verb, named for it: the text `cosmic help <verb>`
-  --- prints, as [`Cli`] documents it.
-  fields: Cli
+  --- prints, as [`Cli`] documents it. Help and `cosmic docs` read that
+  --- text from each field's doc; the value is always nil.
+  fields?: Cli
   --- Each verb as [`Flags.Command`] records it, by verb. Its `spec` is the
   --- verb's options, as [`Flags.parse`] reads a spec: what the verb parses
   --- its command line with, and what `cosmic help` lists beneath its
@@ -1068,19 +1069,32 @@ local record Module
   --- module holds.
   verbs: {string: Flags.Command}
   --- The index's sections, each a title and the verbs under it, in
-  --- order. Together they name every verb once.
+  --- order. Together they name every verb once, and set its place.
   groups: {{string}}
-  --- The order `verb_help` prints these in. A record's field order is
-  --- not queryable at runtime, so it is spelled out here.
+  --- Every verb, in the order of [`Module.groups`]: the order help
+  --- prints them in.
   order: {string}
 end
 
+local GROUPS <const>: {{string}} = {
+  { "Running code", "run", "standalone", "eval", "version", "sandbox", "agent" },
+  { "Project", "test", "fix", "build", "db", "lsp" },
+  { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile" },
+  { "Lookup", "docs", "uses", "todos", "help" },
+  { "This binary", "bom", "refresh", "release" },
+}
+
+--- The verbs of `groups` in turn: slot 1 of a group is its title, and
+--- its verbs follow.
+local function order_of(groups: {{string}}): {string}
+  local out: mut {string} = {}
+  for _, group in ipairs(groups) do
+    for slot = 2, #group do out[#out + 1] = group[slot] end
+  end
+  return out
+end
+
 local module: Module = {
-  fields = {
-    run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", lsp = "lsp", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", qr = "qr", acme = "acme", tailscale = "tailscale", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
-    refresh = "refresh", release = "release", sandbox = "sandbox", agent = "agent", help = "help",
-  },
   verbs = {
     run = {
       about = "build the tree around a file and run it (COSMIC_STANDALONE=1: as --standalone)",
@@ -1464,15 +1478,8 @@ local module: Module = {
       usage = "[verb]",
     },
   },
-  groups = {
-    { "Running code", "run", "standalone", "eval", "version", "sandbox", "agent" },
-    { "Project", "test", "fix", "build", "db", "lsp" },
-    { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile" },
-    { "Lookup", "docs", "uses", "todos", "help" },
-    { "This binary", "bom", "refresh", "release" },
-  },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile", "docs", "uses", "todos",
-    "bom", "refresh", "release", "sandbox", "agent", "help" },
+  groups = GROUPS,
+  order = order_of(GROUPS),
 }
 
 return module
