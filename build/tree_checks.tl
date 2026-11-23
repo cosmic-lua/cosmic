@@ -110,6 +110,9 @@ allowed["build.c.bootstrap_cosmic"] = "the bootstrap cosmic a check's compiler r
   "where it is not cached; the module's toolchain calls it, and a test holds it to saying why where it cannot be had"
 allowed["build.c.own_caches"] = "the environment c.check gives a confined compiler, with every cache it writes in " ..
   "the check's own directory, which a test holds to the cores among them: the host's fail a check where they are cold"
+-- TODO: drop this allowance once cosmic agent's code-mode worker checks its snippets with it.
+allowed["build.pipeline.kept_alone"] = "the checker that lives on, for a process that checks one snippet after another " ..
+  "(cosmic agent's code-mode worker, next): a test holds it to answering each text as a check alone does"
 allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the host's /proc/meminfo: a sandbox's /proc has " ..
   "none, and no test is to depend on what its host has free"
 allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which a test reads to know that copies " ..
