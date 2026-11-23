@@ -432,7 +432,7 @@ end
 --- is given, never the tree: never stale-checked.
 verb.spec = {
   name = "hash",
-  guide = "the digest of a file",
+  guide = "hashing bytes",
   tests = { "build.hash_test", "build.hash_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
