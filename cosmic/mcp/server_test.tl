@@ -481,7 +481,7 @@ local class DuctReader is Stream.Reader
     while self.duct.held == "" do
       if self.duct.closed then return nil, "" end
       local ok, why = self.duct.notifier:wait()
-      if not ok then return nil, tostring(why) end
+      if not ok then return nil, why.message end
     end
     local out = self.duct.held
     self.duct.held = ""
@@ -542,6 +542,87 @@ local function test_a_stdio_client_hears_progress_and_cancels()
     assert(served:join(Clock.seconds(20)))
   end)
   assert(#seen == 1, table.concat(seen, "; "))
+end
+
+--- Waits in a run until `ready` answers true, a millisecond at a time, for at most 20 seconds.
+local function until_true(ready: function(): boolean)
+  for _ = 1, 20000 do
+    if ready() then return end
+    assert(Poll.delay(Clock.ms(1)))
+  end
+  error("waited 20 seconds")
+end
+
+--- A subscription over stdio hears the acknowledgment first, then a notice of each change it asked for, while
+--- other calls of the session go on. The server's end answers it true; a cancelled one tells the server, and the
+--- session goes on after it.
+local function test_a_stdio_subscription_hears_changes_while_calls_go_on()
+  Poll.run(function()
+    local up, down = duct(), duct()
+    local server_in: DuctReader = { duct = up, skip = nil }
+    local server_out: DuctWriter = { duct = down }
+    local server = adder()
+    local served = Poll.spawn(function()
+      assert(server:serve_stdio(server_in, server_out))
+    end)
+    local client_in: DuctReader = { duct = down, skip = nil }
+    local client_out: DuctWriter = { duct = up }
+    local session = Client.stdio(client_in, client_out)
+    local agreed: Client.Subscription? = nil
+    local notices: mut {string} = {}
+    local ended: boolean? = nil
+    local listener = Poll.spawn(function()
+      local ok, why = session:listen({ tools = true, uris = { "note://hello", "note://other" } },
+        function(n: Client.Notice)
+          -- A callback may call the session: its request is read for while the subscription's waits.
+          if n.kind == "updated" then assert(session:read(assert(n.uri))) end
+          notices[#notices + 1] = n.kind .. " " .. (n.uri or "")
+        end,
+        function(a: Client.Subscription) agreed = a end)
+      assert(ok, tostring(why))
+      ended = ok
+    end)
+    until_true(function(): boolean return agreed ~= nil end)
+    local a = assert(agreed)
+    assert(a.tools == true and a.prompts == false and #assert(a.uris) == 2)
+    local said = assert(session:call("add", { a = 1, b = 2 }))
+    assert(assert(said.content[1]).text == "3", "a call goes on while the subscription waits")
+    local caps = assert(session:discover()).capabilities
+    assert(assert(caps.tools).listChanged == true and assert(caps.resources).subscribe == true, "it offers what it tells of")
+    server:update({ prompts = {} })
+    server:update({ tools = {} })
+    server:resource_updated("note://elsewhere")
+    server:resource_updated("note://hello")
+    until_true(function(): boolean return #notices >= 2 end)
+    server:end_subscriptions()
+    assert(listener:join(Clock.seconds(20)))
+    assert(ended == true)
+    assert(table.concat(notices, "|") == "tools |updated note://hello", table.concat(notices, "|"))
+    local acked = false
+    local second = Poll.spawn(function()
+      local ok, why = session:listen({ prompts = true }, function(_: Client.Notice) end,
+        function(_: Client.Subscription) acked = true end)
+      assert(not ok and why.kind == "cancelled", tostring(why))
+    end)
+    until_true(function(): boolean return acked end)
+    second:cancel()
+    assert(second:join(Clock.seconds(20)))
+    assert(session:close())
+    assert(served:join(Clock.seconds(20)))
+  end)
+end
+
+--- A request whose id is one a running request has is refused, as a cancel could not tell the two apart.
+local function test_over_stdio_a_running_id_is_not_taken_again()
+  local seen: mut {string} = {}
+  local cancel = '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}'
+  local input = Stream.from_string(request(1, "tools/call", '"name":"long"') .. "\n" ..
+      request(1, "tools/call", '"name":"short"') .. "\n" .. cancel .. "\n")
+  local output = Stream.collect()
+  assert(stepper(seen):serve_stdio(input, output))
+  local said = decoded(output:result():match("[^\n]+"))
+  assert(said["id"] == 1 and object(said["error"])["code"] == Mcp.INVALID_REQUEST, output:result())
+  assert(#seen == 1, "the first is still the one cancelled")
 end
 
 --- A cancel is read while every place is taken: 33 long calls, then a cancel of each, end at once.

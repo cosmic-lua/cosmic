@@ -70,10 +70,42 @@ local record McpClient
     on_progress?: function(progress: Mcp.Progress)
   end
 
+  --- What a subscription asks to be told of, which [`Session.listen`]
+  --- takes; its `on_ack` is given what the server agreed to, in the same
+  --- shape.
+  record Subscription
+    --- That the server's list of tools changed.
+    tools?: boolean
+    --- That its list of prompts changed.
+    prompts?: boolean
+    --- That its list of resources, or of their families, changed.
+    resources?: boolean
+    --- The URIs of the resources whose updates to be told of.
+    uris?: {string}
+  end
+
+  --- What a notice of a subscription tells of: that the list of
+  --- `tools`, `prompts` or `resources` changed, or that a resource was
+  --- `updated`.
+  enum NoticeKind
+    "tools"
+    "prompts"
+    "resources"
+    "updated"
+  end
+
+  --- One notice of a subscription.
+  record Notice
+    --- What changed.
+    kind: NoticeKind
+    --- The resource that changed, for `updated`.
+    uri?: string
+  end
+
   --- Where a client's requests go. Each call is one request (a list,
-  --- one per page), answered before it returns. A session over stdio
-  --- is one task's: two tasks calling it at once read each other's
-  --- answers, so give each task a session of its own.
+  --- one per page), answered before it returns. Tasks of one run may
+  --- call a session at once: over stdio each request waits for its own
+  --- answer, and over HTTP each is a POST of its own.
   -- TODO: once Failure has a kind (the API audit's finding 2), give a
   -- request that timed out or whose pipe closed its kind, so a caller
   -- tells it from a refusal without reading the words.
@@ -105,6 +137,16 @@ local record McpClient
     prompts: function(Session): ({Mcp.Prompt}) | (nil, Failure)
     --- The prompt `name`, filled in from `arguments`.
     prompt: function(Session, name: string, arguments?: {string: string}): (Mcp.PromptResult) | (nil, Failure)
+    --- Subscribes to the changes `wanted` names, giving `on_notice` each
+    --- notice as it comes, and `on_ack` what the server agreed to, once,
+    --- first: a server leaves out what it cannot tell of. It runs until
+    --- the server ends the subscription, which answers true, or until
+    --- its task is cancelled, which answers false and a Failure of kind
+    --- "cancelled"; the request has no time limit. Over stdio, other
+    --- tasks may call the session meanwhile. A notice says only what
+    --- changed: list or read again to see how.
+    listen: function(Session, wanted: Subscription, on_notice: function(Notice),
+                     on_ack?: function(agreed: Subscription)): (true) | (false, Failure)
     --- Ends the session: closes the server's stdin and waits for a
     --- spawned server to exit. Safe to call more than once.
     close: function(Session): (true) | (false, Failure)
@@ -138,6 +180,19 @@ local record Request
   on_progress?: function(Mcp.Progress)
   --- The last progress given: one that does not grow it is not given.
   mut last_progress?: number
+  --- Given each notice of the subscription whose id is the request's: a `subscriptions/listen`.
+  on_notice?: function(wire.Message)
+  --- Whether the request runs until it is ended, with no time limit: a `subscriptions/listen` over HTTP.
+  forever: boolean
+end
+
+--- What a request takes beside its method and fields.
+local record Asking
+  name?: string
+  mirrored?: {string: string}
+  on_progress?: function(Mcp.Progress)
+  on_notice?: function(wire.Message)
+  forever?: boolean
 end
 
 --- Sends one request and answers its response, which holds a result,
@@ -187,14 +242,15 @@ end
 
 --- Sends `method` with `fields`, and answers the result once it is a
 --- final one.
-local function ask(self: State, method: string, fields: {string: Json.Value}, name?: string,
-                   mirrored?: {string: string}, on_progress?: function(Mcp.Progress)): (wire.Message) | (nil, Failure)
+local function ask(self: State, method: string, fields: {string: Json.Value}, opts?: Asking): (wire.Message) | (nil, Failure)
   if self.closed then return nil, Failure.new("mcp: the session is closed") end
+  local o: Asking = opts or {}
   self.next_id = self.next_id + 1
   -- The request's id is its progress token: unique among the requests in flight, as the token must be.
-  local token = if on_progress ~= nil then self.next_id else nil end
+  local token = if o.on_progress ~= nil then self.next_id else nil end
   local req: Request = { id = tostring(self.next_id), method = method, params = params_of(self, fields, token),
-    name = name, mirrored = mirrored, on_progress = on_progress }
+    name = o.name, mirrored = o.mirrored, on_progress = o.on_progress, on_notice = o.on_notice,
+    forever = o.forever == true }
   local response, why = self.send(req)
   if response == nil then return nil, why end
   local complete, kind = wire.complete(response.result)
@@ -315,7 +371,7 @@ local function call(self: State, name: string, arguments?: {string: Json.Value},
   end
   local headers, why = mirrored()
   if headers == nil then return nil, why end
-  local response, failed = ask(self, "tools/call", fields, name, headers, on_progress)
+  local response, failed = ask(self, "tools/call", fields, { name = name, mirrored = headers, on_progress = on_progress })
   if response ~= nil then return checked(self, name, response.result) end
   if not (self.http and failed.code == Mcp.HEADER_MISMATCH) then return nil, failed end
   -- The tool's schema may have changed since it was listed: list again,
@@ -324,7 +380,7 @@ local function call(self: State, name: string, arguments?: {string: Json.Value},
   if listed == nil then return nil, lwhy end
   local again, awhy = mirrored()
   if again == nil then return nil, awhy end
-  local retried, rwhy = ask(self, "tools/call", fields, name, again, on_progress)
+  local retried, rwhy = ask(self, "tools/call", fields, { name = name, mirrored = again, on_progress = on_progress })
   if retried == nil then return nil, rwhy end
   return checked(self, name, retried.result)
 end
@@ -369,7 +425,7 @@ local function prompts(self: State): ({Mcp.Prompt}) | (nil, Failure)
 end
 
 local function read(self: State, uri: string): ({Mcp.ResourceContents}) | (nil, Failure)
-  local response, why = ask(self, "resources/read", { uri = uri }, uri)
+  local response, why = ask(self, "resources/read", { uri = uri }, { name = uri })
   if response == nil then return nil, why end
   return wire.read(response.result)
 end
@@ -377,9 +433,67 @@ end
 local function prompt(self: State, name: string, arguments?: {string: string}): (Mcp.PromptResult) | (nil, Failure)
   local args: mut {string: Json.Value} = {}
   for k, v in pairs(arguments or {}) do args[k] = v end
-  local response, why = ask(self, "prompts/get", { name = name, arguments = args }, name)
+  local response, why = ask(self, "prompts/get", { name = name, arguments = args }, { name = name })
   if response == nil then return nil, why end
   return wire.prompt_result_of(response.result)
+end
+
+--- What the acknowledgment of a subscription, `params`, says the server agreed to.
+local function agreed_of(params: any): McpClient.Subscription
+  local p, _ = Json.to_object(params)
+  local n = if p ~= nil then Json.object_of(p["notifications"]) else nil end
+  if n == nil then return {} end
+  local uris: mut {string} = {}
+  for _, uri in ipairs(Json.array_of(n["resourceSubscriptions"]) or {}) do
+    if uri is string then uris[#uris + 1] = uri end
+  end
+  return { tools = n["toolsListChanged"] == true, prompts = n["promptsListChanged"] == true,
+    resources = n["resourcesListChanged"] == true, uris = uris }
+end
+
+--- The kind of notice a subscription's `method` is, nil for one it does not know.
+local NOTICE_KINDS <const>: {string: McpClient.NoticeKind} = {
+  ["notifications/tools/list_changed"] = "tools",
+  ["notifications/prompts/list_changed"] = "prompts",
+  ["notifications/resources/list_changed"] = "resources",
+  ["notifications/resources/updated"] = "updated",
+}
+
+local function listen(self: State, wanted: McpClient.Subscription, on_notice: function(McpClient.Notice),
+                      on_ack?: function(McpClient.Subscription)): (true) | (false, Failure)
+  local asked: mut {string: Json.Value} = {}
+  if wanted.tools == true then asked["toolsListChanged"] = true end
+  if wanted.prompts == true then asked["promptsListChanged"] = true end
+  if wanted.resources == true then asked["resourcesListChanged"] = true end
+  local named: mut {string: boolean} = {}
+  local uris = wanted.uris or {}
+  for _, uri in ipairs(uris) do named[uri] = true end
+  if #uris > 0 then asked["resourceSubscriptions"] = wire.strings(uris) end
+  local acked = false
+  local function heard_notice(message: wire.Message)
+    local method = message.method or ""
+    if method == "notifications/subscriptions/acknowledged" then
+      if acked then return end
+      acked = true
+      if on_ack ~= nil then on_ack(agreed_of(message.params)) end
+      return
+    end
+    -- The acknowledgment comes first; a notice before it, or of what was not asked, is passed over.
+    local kind = NOTICE_KINDS[method]
+    if not acked or kind == nil then return end
+    if kind == "updated" then
+      local p, _ = Json.to_object(message.params)
+      local uri = if p ~= nil then p["uri"] else nil end
+      if uri is string and named[uri] == true then on_notice({ kind = kind, uri = uri }) end
+    elseif (kind == "tools" and wanted.tools == true) or (kind == "prompts" and wanted.prompts == true) or
+        (kind == "resources" and wanted.resources == true) then
+      on_notice({ kind = kind })
+    end
+  end
+  local response, why = ask(self, "subscriptions/listen", { notifications = asked },
+    { on_notice = heard_notice, forever = true })
+  if response == nil then return false, why end
+  return true
 end
 
 local function discover(self: State): (Mcp.Discovery) | (nil, Failure)
@@ -405,6 +519,10 @@ local class Running is McpClient.Session
     return read(self.state, uri)
   end
   function prompts(self): ({Mcp.Prompt}) | (nil, Failure) return prompts(self.state) end
+  function listen(self, wanted: McpClient.Subscription, on_notice: function(McpClient.Notice),
+                  on_ack?: function(McpClient.Subscription)): (true) | (false, Failure)
+    return listen(self.state, wanted, on_notice, on_ack)
+  end
   function prompt(self, name: string, arguments?: {string: string}): (Mcp.PromptResult) | (nil, Failure)
     return prompt(self.state, name, arguments)
   end
@@ -425,12 +543,17 @@ local function session(send: Send, info?: Mcp.Implementation, http: boolean,
   return running
 end
 
---- Gives `req`'s `on_progress` the progress `message` tells of, where it is a notice of progress of `req`.
+--- Gives `req` the notice `message` where it is one of `req`'s: to `on_progress` a notice of its progress, to
+--- `on_notice` a notice of its subscription.
 local function heard(req: Request, message: wire.Message)
-  local on_progress = req.on_progress
-  if on_progress == nil or message.method ~= "notifications/progress" or message.id ~= nil then
+  if message.method == nil or message.id ~= nil then return end
+  local on_notice = req.on_notice
+  if on_notice ~= nil and message.method ~= "notifications/progress" then
+    if wire.subscription_id(message.params) == req.id then on_notice(message) end
     return
   end
+  local on_progress = req.on_progress
+  if on_progress == nil or message.method ~= "notifications/progress" then return end
   local progress, token = wire.progress_of(message.params)
   if progress == nil or token ~= req.id then return end
   local last = req.last_progress
@@ -441,46 +564,260 @@ end
 
 -- stdio.
 
---- The answer to `req`, read from `lines` after writing it to `writer`:
---- the response whose id is the request's, the notifications before it
---- passed over.
-local function stdio_send(lines: Stream.Lines, writer: Stream.Writer): Send
-  return function(req: Request): (wire.Message) | (nil, Failure)
-    local ok, wtrouble = writer:write(wire.request(req.id, req.method, req.params) .. "\n")
-    if not ok then return nil, Failure.new("mcp: writing to the server: " .. wtrouble) end
-    while true do
-      local line, trouble = lines:read()
-      if line == nil then
-        if trouble == Poll.CANCELLED then
-          -- The caller's task is cancelled: tell the server, which has no stream of this request to see close.
-          Poll.shielded(function()
-            local cancelled: {string: Json.Value} = { requestId = assert(math.tointeger(tonumber(req.id))),
-              reason = "the caller cancelled" }
-            local _, _ = writer:write(wire.notification("notifications/cancelled", cancelled) .. "\n")
-          end)
-          return nil, Failure.new("mcp: " .. req.method .. " was cancelled")
-        end
-        if trouble ~= "" then
-          return nil, Failure.new("mcp: reading from the server: " .. trouble)
-        end
-        return nil, Failure.new("mcp: the server closed its output before it answered " .. req.method)
-      end
-      if line:find("%S") ~= nil then
-        local message, bad = wire.message(line)
-        if message == nil then
-          return nil, Failure.new("mcp: the server wrote a line that is not a message: " .. bad.message)
-        end
-        heard(req, message)
-        if message.method == nil and message.id == req.id then
-          local err = message.error
-          if err ~= nil then return nil, refused(err) end
-          if message.result == nil then
-            return nil, Failure.new("mcp: the server answered " .. req.method .. " with no result")
-          end
-          return message
-        end
+--- The most notices one request holds for its task to take: past it, the request fails, as the server sends faster
+--- than the caller takes them.
+local MAX_NOTICES <const> = 256
+
+--- A request waiting for its answer over stdio.
+local record Waiter
+  req: Request
+  --- Woken when its answer, a notice or its failure is in, or when it is its turn to read; nil outside a task,
+  --- where the caller reads for itself.
+  wake?: Poll.Notifier
+  mut message?: wire.Message
+  mut failure?: Failure
+  --- Its notices, read by another task and held for its own to give, in order.
+  notices: mut {wire.Message}
+  --- Its task waits on `wake` now: only such a waiter is handed the reading, as a notice sent while none waits is lost.
+  mut parked: boolean
+  --- What a callback given one of its notices raised, raised again once the request is put away.
+  mut raised?: any
+end
+
+--- One stdio connection to a server, which every task of the session shares. Each request waits for its own
+--- answer. One waiting task at a time reads, and hands each message to the request it belongs to; when it is done,
+--- it hands the reading to another. No task reads while none waits, so a run with no request in flight ends.
+local record Link
+  lines: Stream.Lines
+  writer: Stream.Writer
+  waiting: mut {string: Waiter}
+  --- A task reads now.
+  mut reading: boolean
+  --- A task writes now: a line is written whole, one at a time.
+  mut writing: boolean
+  --- The tasks waiting for their turn to write.
+  writers: mut {Poll.Notifier}
+  --- Why the link failed, for each request after.
+  mut broken?: Failure
+end
+
+--- Calls `fn` shielded from a cancel where it runs in a task, as it is.
+local function whole(fn: function())
+  if Poll.in_task() then Poll.shielded(fn) else fn() end
+end
+
+--- Writes `text` as one line on `link`, whole, after any other task's line; it is shielded from a cancel once it
+--- begins, so a line is never cut.
+local function write_line(link: Link, text: string): (true) | (false, Failure)
+  if link.writing then
+    local turn = Poll.notifier()
+    link.writers[#link.writers + 1] = turn
+    local why: Failure? = nil
+    while link.writing do
+      local ok, failed = turn:wait()
+      if not ok then
+        why = failed
+        break
       end
     end
+    for i, each in ipairs(link.writers) do
+      if each == turn then
+        table.remove(link.writers, i)
+        break
+      end
+    end
+    if why ~= nil then return false, why end
+  end
+  link.writing = true
+  local ok, trouble = true, ""
+  whole(function()
+    ok, trouble = link.writer:write(text .. "\n")
+  end)
+  link.writing = false
+  -- Each waiting writer looks again, so the turn is never lost to one whose task was cancelled meanwhile.
+  for _, turn in ipairs(link.writers) do turn:notify_one() end
+  if not ok then return false, Failure.new("mcp: writing to the server: " .. trouble) end
+  return true
+end
+
+--- Wakes `w`'s task, where it waits in one.
+local function woken(w: Waiter)
+  local wake = w.wake
+  if wake ~= nil then wake:notify_one() end
+end
+
+--- Gives `message` to the request it belongs to: an answer, a notice of progress, a subscription's notice.
+local function route(link: Link, message: wire.Message)
+  local key: string? = nil
+  if message.method == nil then
+    key = message.id
+  elseif message.id == nil and message.method == "notifications/progress" then
+    local _, token = wire.progress_of(message.params)
+    key = token
+  elseif message.id == nil then
+    key = wire.subscription_id(message.params)
+  end
+  if key == nil then return end
+  local w = link.waiting[key]
+  if w == nil then return end
+  if message.method == nil then
+    w.message = message
+  elseif #w.notices >= MAX_NOTICES then
+    w.failure = Failure.new("mcp: " .. w.req.method .. ": the server sent more than " ..
+        String.counted(MAX_NOTICES, "notice") .. " before they were taken")
+  else
+    w.notices[#w.notices + 1] = message
+  end
+  woken(w)
+end
+
+--- Fails every request waiting on `link` with `why`, and each after.
+local function break_link(link: Link, why: Failure)
+  link.broken = why
+  for _, w in pairs(link.waiting) do
+    w.failure = why
+    woken(w)
+  end
+end
+
+--- Reads one message from `link` and routes it: false where the read was cancelled, which leaves the lines as they
+--- were, or where the link broke (the server is done, or wrote what is not a message).
+local function read_one(link: Link): boolean
+  local line, trouble = link.lines:read()
+  if line == nil then
+    if trouble == Poll.CANCELLED or trouble == Poll.TIMEOUT then return false end
+    if trouble ~= "" then
+      break_link(link, Failure.new("mcp: reading from the server: " .. trouble))
+    else
+      break_link(link, Failure.new("mcp: the server closed its output"))
+    end
+    return false
+  end
+  if line:find("%S") ~= nil then
+    local message, bad = wire.message(line)
+    if message == nil then
+      break_link(link, Failure.new("mcp: the server wrote a line that is not a message: " .. bad.message))
+      return false
+    end
+    route(link, message)
+  end
+  return true
+end
+
+--- Hands the reading on to a request still waiting, where no task reads.
+local function hand_on(link: Link)
+  if link.reading then return end
+  for _, w in pairs(link.waiting) do
+    if w.parked then
+      woken(w)
+      return
+    end
+  end
+end
+
+--- Gives `w`'s request the notices held for it, in order.
+local function give(w: Waiter)
+  while #w.notices > 0 and w.raised == nil do
+    local message = assert(table.remove(w.notices, 1))
+    local ok, err = pcall(heard, w.req, message)
+    if not ok then
+      w.raised = err
+      w.failure = Failure.new("mcp: " .. w.req.method .. ": a callback raised")
+    end
+  end
+end
+
+--- Whether `w` is done: its answer or its failure is in.
+local function done(w: Waiter): boolean
+  return w.message ~= nil or w.failure ~= nil
+end
+
+--- Waits in a task for `w`'s answer, reading for every request while no other task does: false where the task is
+--- cancelled.
+local function wait_in_task(link: Link, w: Waiter): boolean
+  local wake = assert(w.wake)
+  while true do
+    give(w)
+    if done(w) then return true end
+    if #w.notices == 0 then
+      if not link.reading then
+        link.reading = true
+        local ok = read_one(link)
+        link.reading = false
+        if not ok and link.broken == nil then return false end
+      else
+        w.parked = true
+        local ok, _ = wake:wait()
+        w.parked = false
+        if not ok then return false end
+      end
+    end
+  end
+end
+
+--- Tells the server `req` is cancelled, as stdio has no stream of it to close.
+local function cancelled(link: Link, req: Request)
+  local note: {string: Json.Value} = { requestId = assert(math.tointeger(tonumber(req.id))), reason = "the caller cancelled" }
+  whole(function()
+    local _, _ = write_line(link, wire.notification("notifications/cancelled", note))
+  end)
+end
+
+--- The answer to `req` over `link`: its response, or why there is none.
+local function link_send(link: Link, req: Request): (wire.Message) | (nil, Failure)
+  local broken = link.broken
+  if broken ~= nil then return nil, broken end
+  local in_task = Poll.in_task()
+  local wake: Poll.Notifier? = nil
+  if in_task then wake = Poll.notifier() end
+  local w: Waiter = { req = req, wake = wake, notices = {}, parked = false }
+  link.waiting[req.id] = w
+  local wrote, wwhy = write_line(link, wire.request(req.id, req.method, req.params))
+  if not wrote then
+    link.waiting[req.id] = nil
+    return nil, wwhy
+  end
+  if in_task then
+    local ok = wait_in_task(link, w)
+    link.waiting[req.id] = nil
+    hand_on(link)
+    if not ok then
+      cancelled(link, req)
+      return nil, Failure.cancelled("mcp: " .. req.method .. " was cancelled")
+    end
+  else
+    -- Outside a task nothing else runs: the caller reads until its answer is in.
+    while not done(w) do
+      give(w)
+      if not read_one(link) and not done(w) then
+        w.failure = link.broken or Failure.new("mcp: reading from the server was cut off")
+      end
+    end
+    give(w)
+    link.waiting[req.id] = nil
+  end
+  local failure = w.failure
+  if failure ~= nil then
+    -- Failed here, not by the server, which may still run it: a listen past MAX_NOTICES, a callback that raised.
+    if w.message == nil and link.broken == nil then cancelled(link, req) end
+    local raised = w.raised
+    if raised ~= nil then error(raised, 0) end
+    return nil, failure
+  end
+  local message = assert(w.message)
+  local err = message.error
+  if err ~= nil then return nil, refused(err) end
+  if message.result == nil then
+    return nil, Failure.new("mcp: the server answered " .. req.method .. " with no result")
+  end
+  return message
+end
+
+--- The [`Send`] of a stdio connection over `lines` and `writer`.
+local function stdio_send(lines: Stream.Lines, writer: Stream.Writer): Send
+  local link: Link = { lines = lines, writer = writer, waiting = {}, reading = false, writing = false, writers = {} }
+  return function(req: Request): (wire.Message) | (nil, Failure)
+    return link_send(link, req)
   end
 end
 
@@ -628,6 +965,14 @@ local class EventSplitter
   end
 end
 
+--- The failure of `req` that `trouble`, the words of a transport, says: of kind "cancelled" where its task was
+--- cancelled.
+local function trouble_of(req: Request, trouble: string): Failure
+  local message = "mcp: " .. req.method .. ": " .. trouble
+  if trouble == Poll.CANCELLED then return Failure.cancelled(message) end
+  return Failure.new(message)
+end
+
 --- The response to `req` read from `response`, an event stream, giving `req`'s `on_progress` each notice of its
 --- progress as it comes.
 local function streamed_response(response: Http.Response, req: Request): (wire.Message | false) | (nil, Failure)
@@ -635,7 +980,7 @@ local function streamed_response(response: Http.Response, req: Request): (wire.M
   while true do
     local chunk, trouble = response:read()
     if chunk == nil then
-      if trouble ~= "" then return nil, Failure.new("mcp: " .. req.method .. ": " .. trouble) end
+      if trouble ~= "" then return nil, trouble_of(req, trouble) end
       return false
     end
     local datas = splitter:feed(chunk)
@@ -700,9 +1045,10 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
     local body = wire.request(req.id, req.method, req.params)
     local got: Http.Body
     local message: wire.Message
-    local opened, owhy = Http.open(url, { method = "POST", timeout_ns = opts.timeout_ns, headers = headers,
+    local timeout_ns = if req.forever then Http.FOREVER else opts.timeout_ns end
+    local opened, owhy = Http.open(url, { method = "POST", timeout_ns = timeout_ns, headers = headers,
       body = body, follow = false })
-    if opened == nil then return nil, Failure.new("mcp: " .. req.method .. ": " .. owhy) end
+    if opened == nil then return nil, trouble_of(req, tostring(owhy)) end
     local response <close> = opened
     local kind = ((response.headers["content-type"] or ""):match("^%s*([^;%s]+)") or ""):lower()
     if kind == "text/event-stream" and response.status // 100 == 2 then

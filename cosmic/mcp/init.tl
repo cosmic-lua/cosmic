@@ -279,13 +279,21 @@ local record Mcp
     listChanged?: boolean
   end
 
+  --- Whether the list of resources can change while the server runs, and whether a client may subscribe to one.
+  record ResourcesCapability
+    --- True where the server tells a subscriber the list changed.
+    listChanged?: boolean
+    --- True where it tells a subscriber that a resource it names changed.
+    subscribe?: boolean
+  end
+
   --- What a server can do, as `server/discover` answers it: a feature it
   --- has is present, and one it lacks is nil.
   record ServerCapabilities
     --- Present where the server offers tools.
     tools?: ListChanged
     --- Present where it offers resources.
-    resources?: ListChanged
+    resources?: ResourcesCapability
     --- Present where it offers prompts.
     prompts?: ListChanged
   end
