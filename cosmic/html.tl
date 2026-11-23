@@ -42,6 +42,7 @@ local type raw_html = require("cosmic.internal.html")
 -- reach [`cosmic.stream`] and [`cosmic.string`], which every template that
 -- imports this module would then load to type-check.
 
+local Failure = require("cosmic.failure")
 local raw = require("cosmic.internal.html")
 local json = require("cosmic.internal.json")
 
@@ -185,14 +186,14 @@ end
 --- `entries` as a query string: each `{name, value}` written
 --- `name=value` with both halves escaped as by [`Html.url_part`] but for
 --- the dot rule, joined by `&`, in order. A name may repeat. Answers
---- `nil` and why for a pair that is not two strings; raises for
+--- `nil` and a Failure for a pair that is not two strings; raises for
 --- `entries` that is no sequence.
 ---
----     Html.raw_url_part(Html.url_query({ { "q", "a b" }, { "t", "x&y" } })) -- "q=a%20b&t=x%26y"
-function Html.url_query(entries: {{string}}): Html.SafeUrlPart?, string
+---     Html.raw_url_part(assert(Html.url_query({ { "q", "a b" }, { "t", "x&y" } }))) -- "q=a%20b&t=x%26y"
+function Html.url_query(entries: {{string}}): (Html.SafeUrlPart) | (nil, Failure)
   local part, why = raw.url_query(entries)
-  if part == nil then return nil, why end
-  return part, ""
+  if part == nil then return nil, Failure.new(why) end
+  return part
 end
 
 --- The string a [`Html.SafeUrlPart`] holds.
@@ -214,22 +215,22 @@ function Html.escape_css_attr(s: string | number): Html.SafeAttr
   return raw.escape_css_attr(s)
 end
 
---- `value` as JSON text, from [`Json.encode`]. Answers `nil` and why
---- where it cannot be encoded (a function, a cycle, NaN, ...).
+--- `value` as JSON text, from [`Json.encode`]. Answers `nil` and a
+--- Failure where it cannot be encoded (a function, a cycle, NaN, ...).
 ---
 ---     Html.raw_json(assert(Html.json({ id = 7 }))) -- '{"id":7}'
-function Html.json(value: any): Html.SafeJson?, string
+function Html.json(value: any): (Html.SafeJson) | (nil, Failure)
   local text, why = json.encode(value)
-  if text == nil then return nil, "json: " .. why end
-  return raw.trust_json(text), ""
+  if text == nil then return nil, Failure.new("json: " .. why) end
+  return raw.trust_json(text)
 end
 
 --- `text` as JSON text already encoded, if [`Json.check`] reads it.
---- Answers `nil` and why otherwise.
-function Html.json_text(text: string): Html.SafeJson?, string
+--- Answers `nil` and a Failure otherwise.
+function Html.json_text(text: string): (Html.SafeJson) | (nil, Failure)
   local ok, why = json.check(text)
-  if not ok then return nil, "json: " .. why end
-  return raw.trust_json(text), ""
+  if not ok then return nil, Failure.new("json: " .. why) end
+  return raw.trust_json(text)
 end
 
 --- The string a [`Html.SafeJson`] holds: JSON, not escaped for an

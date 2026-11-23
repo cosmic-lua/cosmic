@@ -1629,7 +1629,7 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local payload, attr, quote, key = fields[1] or "", fields[2] or "", fields[3] or '"', fields[4] or ""
-      local json = Html.json({ [key] = payload, list = { payload, key }, ["js:" .. payload] = key }) -- checked: literal_shape
+      local json, _ = Html.json({ [key] = payload, list = { payload, key }, ["js:" .. payload] = key }) -- checked: literal_shape
       if json == nil then
         -- Bytes that are not UTF-8 are not JSON text.
         return true, ""
