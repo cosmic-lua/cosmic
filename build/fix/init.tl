@@ -1765,8 +1765,9 @@ local function run_tree_checks(ctx: Fix)
         local said = "tree checks: " .. tostring(guide_trouble)
         findings[#findings + 1] = said
       end
-      local carried, carried_trouble = docs_checks.carried(build_paths.resolve(root).projection,
-        build_paths.resolve(root).docs_check)
+      local paths = build_paths.resolve(root)
+      -- Kept on disk while the checks run, for the copies that run them to open too.
+      local carried, carried_trouble = docs_checks.carried(paths.projection, paths.docs_check, true)
       if carried == nil then
         findings[#findings + 1] = "tree checks: " .. carried_trouble
       end
@@ -1775,12 +1776,25 @@ local function run_tree_checks(ctx: Fix)
         findings[#findings + 1] = "tree checks: " .. help_trouble
       end
       tree_begin(timing, "the checks of the projection, docs and examples")
-      local found = tree_checks.run(db, guide, tree_checks.ci_sources(root), carried, help, ctx.plurals)
-      for _, line in ipairs(found) do
-        findings[#findings + 1] = line
+      local function reopen(): Sqlite.Handle?, Sqlite.Handle?
+        local projection, _ = Sqlite.open(paths.projection)
+        local shown: Sqlite.Handle? = nil
+        if carried ~= nil then
+          -- A copy that cannot read the carried docs leaves its checks to the process, which can.
+          shown = assert(Sqlite.open(paths.docs_check))
+        end
+        return projection, shown
       end
+      local ran, found = pcall(function(): {string}
+        return tree_checks.run(db, guide, tree_checks.ci_sources(root), carried, help, ctx.plurals, reopen)
+      end)
       if carried ~= nil then
         local _, _ = carried:close()
+      end
+      local _, _ = Fs.remove(paths.docs_check)
+      if not ran then error(found, 0) end
+      for _, line in ipairs(found) do
+        findings[#findings + 1] = line
       end
       for _, line in ipairs(example_checks.run(db, root)) do
         findings[#findings + 1] = "examples as shown: " .. line

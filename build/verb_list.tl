@@ -1,64 +1,62 @@
---- The verbs `cosmic` dispatches to a module of their own, in the order
---- `cosmic help exit` lists them after the verbs that name a file to run
---- (`run`, `standalone`, `eval`, `version`) and before `help`, which
---- build/dispatch.tl holds itself. Each entry loads its module's `spec`
---- (build/verb_spec.tl) only when asked, so a command line loads the one
---- verb it runs.
+--- The verbs `cosmic` dispatches to a module of their own, each by how
+--- to load its `spec` (build/verb_spec.tl), loaded only when asked, so a
+--- command line loads the one verb it runs. The verbs that name a file
+--- to run (`run`, `standalone`, `eval`, `version`) have none, and `help`
+--- is build/dispatch.tl's own.
 ---
---- Adding a verb takes a module with a `spec`, a line here, its
---- `Cli.<name>` prose and options, and its place in `Cli.order`
---- (build/verb_list_test.tl holds the list, `Cli.order` and the verbs
---- dispatch reaches to agree). The spec also names a `guide` and `tests`
---- (build/tree_checks.tl's `verbs` holds them to the quickstart and the
---- tree's tests).
+--- Adding a verb takes a module with a `spec`, a line here, and in
+--- [`cosmic.cli`] its prose, its `verbs` entry and its place in a group,
+--- which sets its order in help (build/verb_list_test.tl holds the
+--- verbs here to be those groups name). The spec also names a `guide`
+--- and `tests` (build/tree_checks.tl's `verbs` holds them to the
+--- quickstart and the tree's tests).
 
 local verb_spec = require("build.verb_spec")
 
 local record verb_list
-  --- A verb and how to load its spec.
-  record Entry
-    name: string
-    load: function(): verb_spec.Spec
-  end
+  --- How to load a verb's spec.
+  type Load = function(): verb_spec.Spec
 
-  --- Each verb, in help's order.
-  mut entries: {Entry}
+  --- How to load each verb's spec, by its name.
+  loads: {string: Load}
 end
 
-verb_list.entries = {
-  { name = "test", load = function(): verb_spec.Spec return require("build.test").spec end },
-  { name = "fix", load = function(): verb_spec.Spec return require("build.fix").spec end },
-  { name = "build", load = function(): verb_spec.Spec return require("build.embed").spec end },
-  { name = "db", load = function(): verb_spec.Spec return require("build.databases").spec end },
-  { name = "lsp", load = function(): verb_spec.Spec return require("build.lsp").spec end },
-  { name = "sql", load = function(): verb_spec.Spec return require("build.sql").spec end },
-  { name = "cache", load = function(): verb_spec.Spec return require("build.cache").spec end },
-  { name = "json", load = function(): verb_spec.Spec return require("build.json").spec end },
-  { name = "hash", load = function(): verb_spec.Spec return require("build.hash").spec end },
-  { name = "codec", load = function(): verb_spec.Spec return require("build.codec").spec end },
-  { name = "archive", load = function(): verb_spec.Spec return require("build.archive").spec end },
-  { name = "fetch", load = function(): verb_spec.Spec return require("build.fetch").spec end },
-  { name = "time", load = function(): verb_spec.Spec return require("build.time").spec end },
-  { name = "rand", load = function(): verb_spec.Spec return require("build.rand").spec end },
-  { name = "qr", load = function(): verb_spec.Spec return require("build.qr").spec end },
-  { name = "acme", load = function(): verb_spec.Spec return require("build.acme").spec end },
-  { name = "tailscale", load = function(): verb_spec.Spec return require("build.tailscale").spec end },
-  { name = "compile", load = function(): verb_spec.Spec return require("build.compile").spec end },
-  { name = "docs", load = function(): verb_spec.Spec return require("build.docs").spec end },
-  { name = "uses", load = function(): verb_spec.Spec return require("build.docs").uses_spec end },
-  { name = "todos", load = function(): verb_spec.Spec return require("build.todos").spec end },
-  { name = "bom", load = function(): verb_spec.Spec return require("build.bom").spec end },
-  { name = "refresh", load = function(): verb_spec.Spec return require("build.refresh").spec end },
-  { name = "release", load = function(): verb_spec.Spec return require("build.release").spec end },
-  { name = "sandbox", load = function(): verb_spec.Spec return require("build.sandbox").spec end },
-  { name = "agent", load = function(): verb_spec.Spec return require("build.agent").spec end },
+verb_list.loads = {
+  test = function(): verb_spec.Spec return require("build.test").spec end,
+  fix = function(): verb_spec.Spec return require("build.fix").spec end,
+  build = function(): verb_spec.Spec return require("build.embed").spec end,
+  db = function(): verb_spec.Spec return require("build.databases").spec end,
+  lsp = function(): verb_spec.Spec return require("build.lsp").spec end,
+  sql = function(): verb_spec.Spec return require("build.sql").spec end,
+  cache = function(): verb_spec.Spec return require("build.cache").spec end,
+  json = function(): verb_spec.Spec return require("build.json").spec end,
+  hash = function(): verb_spec.Spec return require("build.hash").spec end,
+  codec = function(): verb_spec.Spec return require("build.codec").spec end,
+  archive = function(): verb_spec.Spec return require("build.archive").spec end,
+  fetch = function(): verb_spec.Spec return require("build.fetch").spec end,
+  time = function(): verb_spec.Spec return require("build.time").spec end,
+  rand = function(): verb_spec.Spec return require("build.rand").spec end,
+  qr = function(): verb_spec.Spec return require("build.qr").spec end,
+  acme = function(): verb_spec.Spec return require("build.acme").spec end,
+  tailscale = function(): verb_spec.Spec return require("build.tailscale").spec end,
+  compile = function(): verb_spec.Spec return require("build.compile").spec end,
+  docs = function(): verb_spec.Spec return require("build.docs").spec end,
+  uses = function(): verb_spec.Spec return require("build.docs").uses_spec end,
+  todos = function(): verb_spec.Spec return require("build.todos").spec end,
+  bom = function(): verb_spec.Spec return require("build.bom").spec end,
+  refresh = function(): verb_spec.Spec return require("build.refresh").spec end,
+  release = function(): verb_spec.Spec return require("build.release").spec end,
+  sandbox = function(): verb_spec.Spec return require("build.sandbox").spec end,
+  agent = function(): verb_spec.Spec return require("build.agent").spec end,
 }
 
---- Every verb's spec, in help's order.
+--- Every verb's spec, in help's order ([`cosmic.cli.order`]).
 function verb_list.specs(): mut {verb_spec.Spec}
+  local Cli = require("cosmic.cli")
   local specs: mut {verb_spec.Spec} = {}
-  for _, entry in ipairs(verb_list.entries) do
-    specs[#specs + 1] = entry.load()
+  for _, name in ipairs(Cli.order) do
+    local loader = verb_list.loads[name]
+    if loader ~= nil then specs[#specs + 1] = loader() end
   end
   return specs
 end
@@ -66,12 +64,9 @@ end
 --- The spec of the verb `name`, loading that verb's module alone, or nil
 --- when no listed verb has that name.
 function verb_list.find(name: string): verb_spec.Spec?
-  for _, entry in ipairs(verb_list.entries) do
-    if entry.name == name then
-      return entry.load()
-    end
-  end
-  return nil
+  local loader = verb_list.loads[name]
+  if loader == nil then return nil end
+  return loader()
 end
 
 return verb_list
