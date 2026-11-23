@@ -2,7 +2,7 @@
 
 <!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
-[`cosmic.web`] answers JSON as readily as markup. This guide builds `notes`,
+[`cosmic.web`] serves JSON as readily as markup. This guide builds `notes`,
 a small API under `/api`: JSON in and out, errors as problem documents, a
 bearer token for changes and CORS for pages on another origin. It starts from
 an empty directory and needs only what [web apps](web.md) says about routes
@@ -170,9 +170,9 @@ API, like this one, has no session and no CSRF middleware at all. The
 ## cors
 
 [`cosmic.web.cors`] is for pages on another origin that call the API.
-[`Cors.middleware`] answers a preflight and marks the responses a listed
-origin may read; it is not authorization, it only tells a browser whose
-scripts may read a response. It goes on the mount here, so a 404 or a 401
+[`Cors.middleware`] responds to a preflight, and marks the responses that
+a listed origin may read. It is not authorization: it only tells a browser
+whose scripts may read a response. It goes on the mount here, so a 404 or a 401
 from the API carries the headers too and a browser shows the problem.
 Origins match exactly on scheme, host and port; `"*"` cannot be combined
 with credentials.

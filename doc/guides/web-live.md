@@ -15,7 +15,7 @@ what [web apps](web.md) says about routes and templates.
   replay ring of the last events of each. `publish` never waits, and a
   slow client costs only its own queue: when the queue is full the
   subscription is cut off and the browser reconnects.
-- A **stream** ([`Sse.EventStream`]) answers a request with a
+- A **stream** ([`Sse.EventStream`]) responds to a request with a
   `text/event-stream` body read from a subscription. It sends a heartbeat
   so a client that left is found.
 - An **event** names itself (`event:`), may carry an id (`id:`) and has
@@ -92,7 +92,7 @@ return data
 
 A post adds a note and publishes the whole list, so an event that was
 missed costs nothing: the next one carries everything. The stream route
-subscribes to the topic from `Last-Event-ID` on, and answers 503 with
+subscribes to the topic from `Last-Event-ID` on, and responds with 503 and
 `Retry-After` when the hub is full or closed. This app has no CSRF check,
 to keep the subject in view; a page that changes state adds the layers
 [the security guide](web-security.md) builds before it ships.

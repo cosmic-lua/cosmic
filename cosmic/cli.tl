@@ -193,79 +193,105 @@ local record Cli
   --- from the working directory. COSMIC_TREE=<dir> names the tree outright,
   --- with `.` for the working directory.
   test: string
-  --- `cosmic fix [options] [path...]`: rewrites every Teal source in
-  --- the working directory structurally, then writes it back out as
-  --- canonical text, in place: run it after editing rather than
-  --- formatting by hand -- checking along the way that rendering it
-  --- again would change nothing further, and refusing a file it does
-  --- not. It also builds the tree, failing where the build refuses it,
-  --- with the compiler's reasons, and parenthesizes every `assert(...)`
-  --- the type checker says passes on more values than its place can
-  --- take -- `(assert(...))` keeps only the first. It fails a link in a
-  --- comment or a Markdown file -- `` [`x`] ``, `[text](target)` or
-  --- `[text][label]` -- that names nothing, or more than one thing, and
-  --- makes a link of a plain `` `x` `` that names one top-level
-  --- declaration of its own file, one file, or, written in full
-  --- (`module.member`), one symbol; in Markdown it also
-  --- writes the definitions GitHub needs to show one, at the file's
-  --- end. That is all it writes to a Markdown or Zig file: it never
-  --- reflows or re-indents one. `--check` writes nothing and reports
-  --- what a run would change, the dry run. A path the tree's own
-  --- .gitignore files ignore (not the user's global excludes), and
-  --- anything under a `node_modules/`, is neither checked, rewritten
-  --- nor linked to; where git cannot say (no git, no repository) only
-  --- `node_modules/` is left alone. A Teal file the
-  --- build does not read (under `bin/` or a hidden directory, or
-  --- outside the tree), named or under a named directory, is
-  --- type-checked alone, as `cosmic --standalone` checks a file;
-  --- cosmic's own tree is excepted. The tree is found as `test` finds it
+  --- `cosmic fix [options] [path...]`: lays out every Teal source in the
+  --- working directory as canonical text, in place. Run it after editing,
+  --- instead of formatting by hand. The tree is found as `test` finds it.
+  ---
+  --- What it does:
+  ---
+  --- - It rewrites each Teal file from its parsed tree, then checks that a
+  ---   second rendering would change nothing further. It refuses a file
+  ---   that fails this check.
+  --- - It builds the tree, and fails where the build refuses it, with the
+  ---   compiler's reasons.
+  --- - It puts parentheses around each `assert(...)` that the type checker
+  ---   says passes on more values than its place can take.
+  ---   `(assert(...))` keeps only the first value.
+  --- - It fails a link in a comment or a Markdown file (`` [`x`] ``,
+  ---   `[text](target)` or `[text][label]`) that names nothing, or more
+  ---   than one thing.
+  --- - It makes a link of a plain `` `x` `` that names one top-level
+  ---   declaration of its own file, one file, or, written in full
+  ---   (`module.member`), one symbol. In Markdown it also writes, at the
+  ---   file's end, the definitions GitHub needs to show the link.
+  ---
+  --- Links and their definitions are all that it writes to a Markdown or
+  --- Zig file: it never reflows or re-indents one. `--check` is the dry
+  --- run: it writes nothing and reports what a run would change.
+  ---
+  --- What it reads:
+  ---
+  --- - A path that the tree's own .gitignore files ignore, and anything
+  ---   under a `node_modules/`, is not checked, rewritten or linked to. The
+  ---   user's global excludes do not count. Where git cannot say (no git,
+  ---   no repository), only `node_modules/` is left alone.
+  --- - A Teal file that the build does not read (under `bin/` or a hidden
+  ---   directory, or outside the tree), named or under a named directory,
+  ---   is type-checked alone, as `cosmic --standalone` checks a file.
+  ---   cosmic's own tree is an exception.
   fix: string
   --- `cosmic build [options] [path...]`: builds the tree in the working
-  --- directory, then writes one executable in its build directory's
-  --- bin/ for each cmd/<name>/main.tl it holds -- or only those under
-  --- the paths -- bin/<name>, whose path it prints on a line of its own
-  --- on stdout -- see cmd. The build directory is
-  --- $XDG_CACHE_HOME/cosmic/trees/<key> (the
-  --- home directory's .cache/cosmic/trees/<key>), <key> the SHA-256 of
-  --- the project root's canonical path, so the file is
-  --- <that>/bin/<name>; COSMIC_BUILD_HOME=/absolute/path puts the
-  --- <key> directories there instead. That one file is the whole program: copied
-  --- alone to a host with no cosmic, it runs with an empty environment
-  --- (`env -i ./name`) on every supported system. It is a /bin/sh
-  --- launcher with a core for each system and the program appended;
-  --- the launcher calls uname, stat
-  --- and the like from the PATH (the shell's default when none is set),
-  --- and a host's first run copies its core into a private cache:
-  --- $COSMIC_PORTABLE_CACHE, else $XDG_CACHE_HOME/cosmic/cores, else
-  --- the home directory's cache, else $TMPDIR, or /tmp, under
-  --- cosmic-cores-<uid>. `--host` writes this cosmic's own core and the
-  --- program alone, which the kernel runs directly -- no shell, PATH or
-  --- cache -- but only on this system and processor: the choice for a
-  --- container with no /bin/sh or a host with nowhere to write. It
-  --- writes the same bin/<name>, replacing a launcher build of it (and
-  --- the other way round). The launcher `exec`s the core once ready, so
-  --- the process you start is the program's own and signals reach it
-  --- directly. Every executable carries every CA root this cosmic does,
-  --- and its requests trust the minimal ones ([`Http.default_roots`])
-  --- unless `--roots mozilla` makes it all of them, as COSMIC_CA_ROOTS
-  --- does when it runs. Either
-  --- carries this binary's CA roots, the certificates it refuses as
-  --- revoked, and time zones: `cosmic refresh --binary <path> -o <copy>`
-  --- writes a copy with newer ones
-  --- later. The tree is found as `test` finds it. In cosmic's own
-  --- tree the program is the tool itself, which `bin/zig build boot`
-  --- builds: `build` prints the tool's path there, a stale tool
-  --- rebuilt first, and `--out` writes a copy to dir/cosmic, which
-  --- runs any project as a release does with the cores that boot
-  --- built; it takes no other option and no path.
+  --- directory, then writes one executable for each cmd/<name>/main.tl
+  --- that the tree holds, or only for those under the paths (see cmd). The
+  --- tree is found as `test` finds it.
   ---
-  --- A file that does not compile (a test among them) holds back only
-  --- the programs that need it. The other programs are written, the
-  --- old executable of each program held back is removed, and the
-  --- exit status is 4. An import cycle, a `global` in a declaration
-  --- file, or a source that cannot be read stops the whole tree, and
-  --- nothing is written. A failure to write exits 1, and the refusal
-  --- is still named.
+  --- Where it writes:
+  ---
+  --- - Each executable is bin/<name> in the build directory. Its path
+  ---   prints on a line of its own on standard output.
+  --- - The build directory is `$XDG_CACHE_HOME/cosmic/trees/<key>` (or
+  ---   `~/.cache/cosmic/trees/<key>`). `<key>` is the SHA-256 of the
+  ---   project root's canonical path.
+  --- - `COSMIC_BUILD_HOME=/absolute/path` puts the `<key>` directories
+  ---   there instead.
+  ---
+  --- The executable:
+  ---
+  --- - That one file is the whole program. Copied alone to a host with no
+  ---   cosmic, it runs with an empty environment (`env -i ./name`) on
+  ---   every supported system.
+  --- - It is a /bin/sh launcher with a core for each system, and the
+  ---   program appended. The launcher calls uname, stat and the like from
+  ---   the PATH (the shell's default when none is set).
+  --- - A host's first run copies its core into a private cache:
+  ---   `$COSMIC_PORTABLE_CACHE`, else `$XDG_CACHE_HOME/cosmic/cores`, else
+  ---   the home directory's cache, else `$TMPDIR` or /tmp, under
+  ---   cosmic-cores-<uid>.
+  --- - The launcher `exec`s the core once ready, so the process you start
+  ---   is the program's own and signals reach it directly.
+  --- - `--host` writes this cosmic's own core and the program alone, which
+  ---   the kernel runs directly, with no shell, PATH or cache. It runs only
+  ---   on this system and processor. Use it for a container with no
+  ---   /bin/sh, or a host with nowhere to write. It writes the same
+  ---   bin/<name>, and replaces a launcher build of it (and the other way
+  ---   round).
+  ---
+  --- Certificates and time zones:
+  ---
+  --- - Each executable carries every CA root that this cosmic does. Its
+  ---   requests trust the minimal roots ([`Http.default_roots`]), unless
+  ---   `--roots mozilla` makes them trust every root. COSMIC_CA_ROOTS
+  ---   picks the roots in the same way when the program runs.
+  --- - Both kinds of executable carry this binary's CA roots, the
+  ---   certificates it refuses as revoked, and time zones. To get newer
+  ---   ones later, `cosmic refresh --binary <path> -o <copy>` writes a
+  ---   copy.
+  ---
+  --- In cosmic's own tree, the program is the tool itself, which
+  --- `bin/zig build boot` builds. There, `build` rebuilds a stale tool and
+  --- prints the tool's path. `--out` writes a copy to dir/cosmic, which
+  --- runs any project as a release does, with the cores that boot built.
+  --- It takes no other option and no path.
+  ---
+  --- Failures:
+  ---
+  --- - A file that does not compile (a test among them) holds back only
+  ---   the programs that need it. The other programs are written, the old
+  ---   executable of each program held back is removed, and the exit
+  ---   status is 4.
+  --- - An import cycle, a `global` in a declaration file, or a source that
+  ---   cannot be read stops the whole tree, and nothing is written.
+  --- - A failure to write exits 1, and the refusal is still named.
   build: string
   --- `cosmic db [path...]`: what the three databases in the build
   --- directory hold, each named by its path,
@@ -557,36 +583,56 @@ local record Cli
   --- Exit 0 means complete, 1 incomplete maintenance, and 2 a refused command
   --- line. Diagnostics go to stderr; no summary is printed.
   cache: string
-  --- `cosmic archive list|extract|create`: the zip and tar files a
-  --- release ships, with no script. `list <file>|-` prints one entry
-  --- per line -- path (a symlink's `path -> target`), size, mode in
-  --- octal, and type, tab-separated, control bytes escaped -- or, with
-  --- `--json`, an array of objects (path, type, size, mode as the same
-  --- octal string, mtime and a symlink's linkpath) for `cosmic json`.
-  --- `extract <file>|- [-C dir] [member...]` unpacks into dir (the
-  --- working directory by default) and prints the paths written; a
-  --- member is a path in the archive and takes what is under it. The
-  --- format -- zip, tar, or tar under gzip, xz, bzip2 or zstd -- is read from
-  --- the file's first bytes, not its name. An absolute path, a `..`,
-  --- or a symlink out of the target is refused ([`Archive.extract`]), and
-  --- so is replacing an existing path unless `--force` is given. Only
-  --- that refusal and a member not in the archive write nothing: an
-  --- unsafe entry, or a file past the default size limits of
-  --- [`Archive.extract`] (1 GiB a file, 8 GiB in all), stops the
-  --- extraction after the entries before it, which stay written; the
-  --- refused file itself is not left. `create <out> <path>...` packs the
-  --- paths and what is under them, sorted by name, as a zip, a gzip, xz, bzip2 or zstd tar or a plain tar, by the
-  --- extension of out (`.zip`, `.tar.gz`, `.tgz`, `.tar.xz`, `.txz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.zst`, `.tzst`, `.tar`) ([`Archive.create`]); `--reproducible` fixes every
-  --- modification time (tar 0, zip 1980) so the same tree packs to the
-  --- same bytes; file modes are kept, not normalised. Paths must be relative and stay under the
-  --- working directory; a fifo, socket or device is refused, named,
-  --- wherever it is found. A symlink is stored as a link in both
-  --- formats; a zip tool that ignores Unix attributes extracts the
-  --- target's text as a file. Prints no summary, its output being data
-  --- for a pipe. Exits 0 when done, 1 for a
-  --- member or a path that is not there or files it would overwrite, 2
-  --- for a command line, an archive it cannot read or one it refuses
-  --- to unpack. See also `cosmic json`
+  --- `cosmic archive list|extract|create`: reads and writes the zip and
+  --- tar files that a release ships, with no script. See also
+  --- `cosmic json`.
+  ---
+  --- Commands:
+  ---
+  --- - `list <file>|-` prints one entry a line: path (a symlink's
+  ---   `path -> target`), size, mode in octal, and type, separated by
+  ---   tabs, with control bytes escaped. With `--json`, it prints an array
+  ---   of objects (path, type, size, mode as the same octal string, mtime,
+  ---   and a symlink's linkpath) for `cosmic json`.
+  --- - `extract <file>|- [-C dir] [member...]` unpacks into dir (default
+  ---   the working directory) and prints the paths it wrote. A member is a
+  ---   path in the archive, and takes what is under it.
+  --- - `create <out> <path>...` packs the paths and what is under them,
+  ---   sorted by name ([`Archive.create`]).
+  ---
+  --- Formats:
+  ---
+  --- - `extract` reads the format from the file's first bytes, not its
+  ---   name: zip, tar, or tar under gzip, xz, bzip2 or zstd.
+  --- - `create` picks the format from the extension of out: `.zip`;
+  ---   `.tar.gz` or `.tgz`; `.tar.xz` or `.txz`; `.tar.bz2`, `.tbz2` or
+  ---   `.tbz`; `.tar.zst` or `.tzst`; or `.tar`.
+  ---
+  --- Extracting safely ([`Archive.extract`]):
+  ---
+  --- - An absolute path, a `..`, or a symlink out of the target is
+  ---   refused. Replacing an existing path is refused unless `--force` is
+  ---   given.
+  --- - Only that refusal and a member not in the archive write nothing.
+  --- - An unsafe entry, or a file past the default size limits (1 GiB a
+  ---   file, 8 GiB in all), stops the extraction. The entries before it
+  ---   stay written, and the refused file itself is not left.
+  ---
+  --- Creating:
+  ---
+  --- - Paths must be relative and stay under the working directory.
+  --- - A fifo, socket or device is refused, and named, wherever it is
+  ---   found.
+  --- - `--reproducible` fixes every modification time (tar 0, zip 1980),
+  ---   so the same tree packs to the same bytes. File modes are kept, not
+  ---   normalised.
+  --- - A symlink is stored as a link in both formats. A zip tool that
+  ---   ignores Unix attributes extracts the target's text as a file.
+  ---
+  --- It prints no summary, because its output is data for a pipe. It
+  --- exits 0 when done, and 1 for a member or a path that is not there,
+  --- or files it would overwrite. It exits 2 for a command line, an
+  --- archive it cannot read, or one it refuses to unpack.
   archive: string
   --- `cosmic rand <uuid|token|int|pick|shuffle|normal|gamma> [options]`: prints
   --- an id, a token, a number, a shuffled list, or a normal or gamma draw,
@@ -714,33 +760,44 @@ local record Cli
   --- the server or a challenge refused the issue or a request failed, 2
   --- for a command line, a key file or a write it refuses
   acme: string
-  --- `cosmic tailscale <status|whois|cert|ping|file> ...`: the machine's own
-  --- Tailscale node, asked through tailscaled's LocalAPI with no
-  --- `tailscale` binary. `status` prints this node and each peer, a line
-  --- each: its address, MagicDNS name, owner or tags, OS and how traffic
-  --- reaches it, and exits 1 for a node that is not running. `whois
-  --- <address|name>` prints the node an address of the
-  --- tailnet belongs to, its user and the capabilities the policy's grants
-  --- give it here. `cert [domain]` writes the certificate of one of the
-  --- node's names (the first by default) to `<domain>.crt` and its key to
-  --- `<domain>.key`, mode 0600, or to `--cert-file` and `--key-file` (`-`
-  --- for standard output); `--min-validity 30d` has the daemon renew one
-  --- that expires sooner first. `ping <address|name>` prints the round trip and
-  --- the path it took (`--kind disco|ICMP|TSMP|peerapi`). `--json` prints
-  --- the answer as JSON; `--socket <path>` names the daemon's socket.
-  --- `file` is Taildrop: `file targets` lists the nodes a file can go to,
-  --- `file send <file|-> <target>` sends one to a node by name, address or
-  --- stable id (`--name` renames it), `file list` lists the files that wait
-  --- here, and `file get <dir>` writes each into the directory and drops
-  --- it from the daemon (`--keep` leaves it; `--wait` waits for one;
-  --- `--conflict skip|overwrite|rename` for a name already taken, skip by
-  --- default).
-  --- Examples: `cosmic tailscale status`, `cosmic tailscale whois
-  --- 100.101.102.103`, `cosmic tailscale cert`. A program asks the daemon
-  --- with [`cosmic.tailscale`]. It prints no summary. Exits 0 when it
-  --- answered, 1 when the daemon could not be asked or refused, the node
-  --- is not running, or no node has the address or name, 2 for a command
-  --- line or a write it refuses
+  --- `cosmic tailscale <status|whois|cert|ping|file> ...`: asks the
+  --- machine's own Tailscale node, through tailscaled's LocalAPI, with no
+  --- `tailscale` binary. A program asks the daemon with
+  --- [`cosmic.tailscale`].
+  ---
+  --- Commands:
+  ---
+  --- - `status` prints this node and each peer, one a line: its address,
+  ---   MagicDNS name, owner or tags, OS, and how traffic reaches it. It
+  ---   exits 1 when the node is not running.
+  --- - `whois <address|name>` prints the node that a tailnet address
+  ---   belongs to, its user, and the capabilities that the policy's grants
+  ---   give it here.
+  --- - `cert [domain]` writes the certificate of one of the node's names
+  ---   (the first by default, as in `cosmic tailscale cert`) to
+  ---   `<domain>.crt`, and its key to `<domain>.key` with mode 0600.
+  ---   `--cert-file` and `--key-file` name other files (`-` for standard
+  ---   output). `--min-validity 30d` makes the daemon first renew a
+  ---   certificate that expires sooner.
+  --- - `ping <address|name>` prints the round trip and the path it took
+  ---   (`--kind disco|ICMP|TSMP|peerapi`).
+  ---
+  --- Taildrop (`file`):
+  ---
+  --- - `file targets` lists the nodes that a file can go to.
+  --- - `file send <file|-> <target>` sends a file to a node by name,
+  ---   address or stable id. `--name` renames it.
+  --- - `file list` lists the files that wait here.
+  --- - `file get <dir>` writes each waiting file into the directory and
+  ---   drops it from the daemon. `--keep` leaves it there, and `--wait`
+  ---   waits for a file. `--conflict skip|overwrite|rename` says what to
+  ---   do when a name is already taken (default skip).
+  ---
+  --- Other options:
+  ---
+  --- - `--json` prints the daemon's answer as JSON, for `status`, `whois`,
+  ---   `ping`, `file targets` and `file list`.
+  --- - `--socket <path>` names the daemon's socket, for every command.
   tailscale: string
   --- `cosmic mcp <action> ... [--url URL | -- program args...]`: asks a
   --- Model Context Protocol server, revision 2026-07-28, and prints its
@@ -868,43 +925,68 @@ local record Cli
   --- broke off, or an `-o` write that failed. It exits 2 for a command line,
   --- a URL or a write to standard output that it cannot use.
   fetch: string
-  --- `cosmic docs [q...]`: what the database says about q -- a symbol
-  --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
-  --- or words to search the documentation for, the first five matches
-  --- shown whole and the rest a line each; a module lists the
-  --- signature of each function it offers, ahead of the rest of its
-  --- prose. Several qualified names (Fs.read Fs.write) are each looked
-  --- up in turn; any other words are searched for together. A word no
-  --- documentation holds is searched again as the nearest word one does,
-  --- a misspelling of it, and the page says which it searched. With no q,
-  --- every module there is, with what it is for; with `cosmic`, the
-  --- standard library's. `--json` prints one JSON object per entry
-  --- found, every one and not the first five, a line each (query, exact,
-  --- module, symbol, kind, signature, text, and file, line, verb and
-  --- respelled where it has them), with no summary on standard error but the one
-  --- a stale answer gets (below); with no q,
-  --- or `cosmic`, each module the page lists. Filter it by composing,
-  --- as `cosmic json` does: `cosmic docs --json Fs.read Fs.write |
-  --- cosmic sql --from docs=- --as ndjson "SELECT symbol, line FROM
-  --- docs WHERE kind = 'function'"`. A doc is the run of comment
-  --- lines directly above a declaration, a record's field or an
-  --- enum's value: its `---` lines where it has any, else its `--`
-  --- lines, less TODO lines and the build's `--- @` tags. A
-  --- trailing comment and a comment inside a table constructor are
-  --- none, so a table's entries are documented by the record that
-  --- types it. A function declared as a field of the record a module
-  --- returns, and defined as `function Record.f`, shows the field's
-  --- doc unless the definition has a `---` doc of its own, and is
-  --- placed at the definition. Where the build directory holds a working
-  --- database or a projection (any run that builds or stages there made
-  --- it, `todos` and `lsp` among them), it builds the tree first, as
-  --- `test` does but running no test, so it answers for the tree as it
-  --- stands; where it holds neither, it builds nothing and answers from
-  --- cosmic's own docs, saying the directory has not been built. Where the
-  --- tree does not build, or the build is left alone (another run holds
-  --- it, the working database is another tool's), it answers from the
-  --- last build, and the summary says so and why, as each `--json` object
-  --- does with `"stale": true`. The tree is found as `test` finds it
+  --- `cosmic docs [q...]`: prints what the database says about q. The
+  --- tree is found as `test` finds it.
+  ---
+  --- What it looks up:
+  ---
+  --- - A symbol ([`Fs.read`], `read`).
+  --- - A module ([`cosmic.fs`], or `fs` for its last name). A module page
+  ---   lists the signature of each function the module offers, ahead of
+  ---   the rest of its prose.
+  --- - Words to search the documentation for. The first five matches are
+  ---   shown whole, and the rest one a line.
+  --- - Several qualified names (`Fs.read Fs.write`) are each looked up in
+  ---   turn. Other words are searched for together.
+  --- - A word that no documentation holds is searched again as the
+  ---   nearest word that one does, as a misspelling of it. The page says
+  ---   which word it searched.
+  --- - With no q, it lists every module there is, with what it is for.
+  ---   With `cosmic`, it lists the standard library's modules.
+  ---
+  --- JSON output:
+  ---
+  --- - `--json` prints one JSON object a line for each entry found, every
+  ---   entry and not only the first five. The keys are query, exact,
+  ---   module, symbol, kind, signature and text, and file, line, verb and
+  ---   respelled where the entry has them.
+  --- - With no q, or with `cosmic`, it prints each module that the page
+  ---   lists.
+  --- - It prints no summary on standard error, except the one that a
+  ---   stale result gets (see "Which tree it reads").
+  --- - To filter the objects, compose with `cosmic sql`, as `cosmic json`
+  ---   does: `cosmic docs --json Fs.read Fs.write | cosmic sql --from
+  ---   docs=- --as ndjson "SELECT symbol, line FROM docs WHERE kind =
+  ---   'function'"`.
+  ---
+  --- What a doc is:
+  ---
+  --- - A doc is the run of comment lines directly above a declaration, a
+  ---   record's field or an enum's value. It is the `---` lines where
+  ---   there are any, else the `--` lines, less TODO lines and the build's
+  ---   `--- @` tags.
+  --- - A trailing comment and a comment inside a table constructor are
+  ---   not docs. A table's entries are documented by the record that types
+  ---   the table.
+  --- - A function declared as a field of the record that a module
+  ---   returns, and defined as `function Record.f`, shows the field's doc,
+  ---   unless the definition has a `---` doc of its own. Its place is the
+  ---   definition.
+  ---
+  --- Which tree it reads:
+  ---
+  --- - Where the build directory holds a working database or a
+  ---   projection, it builds the tree first, as `test` does but with no
+  ---   test run, so it prints the docs of the tree as it stands. Any run
+  ---   that builds or stages there makes them, `todos` and `lsp` among
+  ---   them.
+  --- - Where the build directory holds neither, it builds nothing and
+  ---   prints cosmic's own docs. It says that the directory has not been
+  ---   built.
+  --- - Where the tree does not build, or the build is left alone (another
+  ---   run holds it, or the working database is another tool's), it
+  ---   prints the docs of the last build. The summary says so and why, and
+  ---   each `--json` object has `"stale": true`.
   docs: string
   --- `cosmic uses <sym> [path...]`: every place that refers to a
   --- symbol, as file:line -- only those under the paths, when given --

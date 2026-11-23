@@ -17,7 +17,7 @@ nothing about meaning, but everything after the call is the real thing.
 ## embeddings from an API
 
 An OpenAI-compatible `/v1/embeddings` endpoint takes a model name and a
-list of texts, and answers one embedding per text. Ask for
+list of texts, and responds with one embedding per text. Ask for
 `encoding_format: "base64"`: the embedding then arrives as the base64 of
 its little-endian 32-bit floats, which is the blob [`cosmic.vector`]
 and the SQL functions store. [`cosmic.http`] sends the request,
@@ -25,7 +25,7 @@ and the SQL functions store. [`cosmic.http`] sends the request,
 the embedding straight into one, with no list of numbers in between.
 
 A provider caps the number of texts in one request, so `embed_all` sends
-them in batches. A server that ignores `encoding_format` answers float
+them in batches. A server that ignores `encoding_format` sends back float
 arrays; the shape check then fails with its message instead of storing
 garbage.
 
@@ -87,7 +87,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
   if #parsed.data ~= #texts then
     return nil, "embeddings: asked for " .. tostring(#texts) .. " vectors, got " .. tostring(#parsed.data)
   end
-  -- Each item carries the index of its text; the API may answer out of order.
+  -- Each item carries the index of its text; the API may send them back out of order.
   local vectors: mut {integer: string} = {}
   for _, item in ipairs(parsed.data) do
     local blob, trouble = Codec.unbase64(item.embedding)
@@ -107,7 +107,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
   return { vectors = ordered, model = parsed.model, dims = #assert(ordered[1]) // 4 }, ""
 end
 
--- Sends the texts `batch` at a time, and joins the answers.
+-- Sends the texts `batch` at a time, and joins the results.
 local function embed_all(texts: {string}, model: string, key: string, batch: integer): Embedded?, string
   if #texts == 0 then
     return nil, "embeddings: no texts"
@@ -251,7 +251,7 @@ local function embed(text: string): string
   return Vector.pack(dims)
 end
 
--- A database with the schema and one model registered; answers the model's id.
+-- A database with the schema and one model registered; returns the model's id.
 local function open_corpus(): Sqlite.Handle, integer
   local db = assert(Sqlite.memory())
   assert(db:exec([[
@@ -447,10 +447,10 @@ Scanning a table reads a page per row. For a corpus that is searched
 many times, load it once with [`Vector.load`], which keeps every embedding
 in one buffer, and search that. A search then scores contiguous floats
 and keeps the best `k` in a small heap, with no SQLite in the loop. A tie
-goes to the lower id, so an answer is stable.
+goes to the lower id, so a result is stable.
 
 [`Vector.load`] runs the query and reads each row as an id and a vector
-blob. When the query answers no rows, `load` returns nil with a message,
+blob. When the query returns no rows, `load` returns nil with a message,
 because a corpus takes its dimensions from its first vector. The query
 keeps `embedding IS NOT NULL` because a passage not yet embedded has no
 blob, and `load` refuses a row without one rather than skip it.
@@ -546,7 +546,7 @@ print("int8", table.concat(approx.ids, " "), small.storage)
 A scan of `chunks` reads a page per row, and [`Vector.load`] reads rows one
 at a time, so a program pays seconds of load before its first search.
 A packed row holds many vectors: `vector_block` packs the rows of a
-group into one blob, a block, and `vector_block_search` answers the
+group into one blob, a block, and `vector_block_search` returns the
 nearest rows of each block, so a search straight from the database reads
 a row for a few dozen vectors and the arithmetic is nearly all that is
 left. [`Vector.load_blocks`] fills a corpus from the blocks, without
@@ -786,11 +786,11 @@ from a job, not from a request.
 ## measuring recall
 
 A fast path is approximate, and only the caller's own data says how
-approximate. Use the exact search as the answer: for a sample of real
+approximate. Use the exact search as the reference: for a sample of real
 queries, count how many of the exact top `k` the fast path also returns.
 
 ```teal continue
--- The share of the exact top k that the fast path also answers.
+-- The share of the exact top k that the fast path also returns.
 local function recall(queries: {string}, k: integer, fast: function(string): {integer}): number
   local found, total = 0, 0
   for _, q in ipairs(queries) do

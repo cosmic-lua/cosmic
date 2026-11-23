@@ -130,7 +130,7 @@ date is its serial with style 1.
 
 A sheet can be large, so it is written with [`Xml.writer`], a row at a
 time, straight into its entry in the zip: [`Zip.Writer`]'s `file_writer`
-answers a [`Stream.Writer`] that compresses the body as it comes, so the
+returns a [`Stream.Writer`] that compresses the body as it comes, so the
 sheet is never held whole. Closing the XML writer closes the entry.
 
 ```teal continue
