@@ -319,10 +319,18 @@ local KEY_FILE <const> = "cache-key"
 
 --- Whether `key` is the start of a verdict cache's name as `leg-host-id`
 --- writes it (cosmic_ci/host_id.tl): `verdicts-`, the leg and the host's
---- parts, ending in `-`; of the leg `leg` where one is named.
+--- parts, ending in `-`; of the leg `leg` where one is named, whose name
+--- is followed by the host's two digests alone (16 hex digits each), so
+--- the cache of another job of that host (`linux-x86_64-checked-...`) is
+--- none.
 local function is_key(key: string, leg?: string): boolean
-  if leg ~= nil and key:sub(1, #"verdicts-" + #leg + 1) ~= "verdicts-" .. leg .. "-" then
-    return false
+  if leg ~= nil then
+    local start = "verdicts-" .. leg .. "-"
+    if key:sub(1, #start) ~= start then return false end
+    local rest = key:sub(#start + 1)
+    if #rest ~= 34 or rest:match("^%x+%-%x+%-$") == nil or rest:sub(17, 17) ~= "-" then
+      return false
+    end
   end
   return #key <= 200 and key:match("^verdicts%-[%w_.%-]+%-$") ~= nil
 end

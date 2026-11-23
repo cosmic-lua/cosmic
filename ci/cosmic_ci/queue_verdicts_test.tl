@@ -192,10 +192,13 @@ local function test_the_cache_the_verdicts_belong_in_is_relayed_beside_them(tmp:
   assert(QueueVerdicts.key(tmp .. "/absent", "linux-x86_64", missing.host) == 0)
   assert(#missing.outputs == 0, GithubFake.text(missing.outputs))
   -- Another leg's cache is not the relay's to write.
-  assert(QueueVerdicts.name(tmp, "verdicts-macos-aarch64-3a9f8d7b94f5492e-").code == 0)
-  local other = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
-  assert(QueueVerdicts.key(tmp, "linux-x86_64", other.host) == 0)
-  assert(#other.outputs == 0, GithubFake.text(other.outputs))
+  for _, foreign in ipairs({ "verdicts-macos-aarch64-3a9f8d7b94f5492e-0de7cf39e1e63661-",
+      "verdicts-linux-x86_64-checked-3a9f8d7b94f5492e-0de7cf39e1e63661-", "verdicts-linux-x86_64-3a9f8d7b94f5492e-" }) do
+    assert(QueueVerdicts.name(tmp, foreign).code == 0, foreign)
+    local other = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+    assert(QueueVerdicts.key(tmp, "linux-x86_64", other.host) == 0)
+    assert(#other.outputs == 0, foreign .. ": " .. GithubFake.text(other.outputs))
+  end
 end
 
 --- Main's push says whether main is still its commit: false where main
