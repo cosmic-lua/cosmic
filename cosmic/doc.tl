@@ -2839,12 +2839,17 @@ local function members_under(view: Doc.View, target: Doc.Entry): {Doc.Entry}?, s
     if documented then
       local rows, trouble = Sqlite.text_rows(db,
         "SELECT " .. columns .. " FROM docs d WHERE d.module = ?1 AND " ..
-          "d.kind IN ('field', 'value') AND d.source_symbol GLOB ?2 ORDER BY d.id",
-        { text(target.module), text(target.source_symbol .. ".*") })
+          "((d.kind IN ('field', 'value') AND d.source_symbol GLOB ?2) OR " ..
+          "(d.kind = 'method' AND d.source_symbol GLOB ?3)) ORDER BY d.id",
+        { text(target.module), text(target.source_symbol .. ".*"), text(target.source_symbol .. ":*") })
       if rows == nil then
         return nil, tostring(trouble)
       end
       for _, member in ipairs(entries_of(rows)) do
+        -- A class's method is `Lid:open`; as a member it is `Lid.open`.
+        if member.kind == "method" then
+          member.source_symbol = member.source_symbol:gsub(":([^:.]*)$", ".%1")
+        end
         local name = last_name(member.source_symbol)
         if parent_of(member.source_symbol) == target.source_symbol and
             name:sub(1, 1) ~= "_" then
@@ -2944,7 +2949,8 @@ local function inherited_lines(view: Doc.View, entry: Doc.Entry): {string}?, str
         local name = last_name(member.source_symbol)
         if own[name] ~= true then
           local note = first_sentence(member.text)
-          local tail = member.signature:match("^[%w_]+: function%(" .. short .. "(.*)$")
+          local tail = member.signature:match("^[%w_]+: function%(" .. short .. "(.*)$") or
+            member.signature:match("^function [%w_]+%(self(.*)$")
           if member.kind == "value" then
             values[#values + 1] = "    " .. member_line(member)
           elseif tail ~= nil then
