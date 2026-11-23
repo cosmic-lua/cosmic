@@ -639,17 +639,18 @@ such as a `ROLLBACK` after a statement fails, where the first error is
 the one to report.
 
 ```teal
+local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
-local function add(db: Sqlite.Handle, body: string): boolean, string
-  local began, trouble = db:exec("BEGIN")
+local function add(db: Sqlite.Handle, body: string): (true) | (false, Failure)
+  local began, trouble = Sqlite.run(db, "BEGIN")
   if not began then return false, trouble end
   local ok, why = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = body } })
   if not ok then
-    local _, _ = db:exec("ROLLBACK")
-    return false, why.message
+    local _, _ = Sqlite.run(db, "ROLLBACK")
+    return false, why
   end
-  return db:exec("COMMIT")
+  return Sqlite.run(db, "COMMIT")
 end
 
 local db = assert(Sqlite.memory())
