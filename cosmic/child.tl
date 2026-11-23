@@ -3390,12 +3390,6 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if files == nil then return nil, loader_trouble end
   local missing = ungranted(files, merged.grants or {}, opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
-  local parameters = if profile.tmp ~= nil then 1 else 0 end
-  for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
-  if parameters > raw.SEATBELT_PARAMETER_MAX then
-    return nil, "sandbox: grants: the paths the profile holds, " .. tostring(parameters) .. ", are past the " ..
-      "most a start takes, " .. tostring(raw.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead"
-  end
   local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
     local value = sys.getenv(name)

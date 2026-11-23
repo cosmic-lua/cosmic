@@ -209,7 +209,7 @@ local function test_more_paths_than_a_start_takes_are_refused(tmp: string)
     grants[i] = { path = path, letters = "r" }
   end
   local why = refusal({ profiles = { "system" }, grants = grants })
-  assert(why:find("^child: start: sandbox: grants: ") and why:find("past the most", 1, true), why)
+  assert(why:find("^child: start: sandbox: seatbelt: grants: ") and why:find("past the most", 1, true), why)
 end
 
 local function test_a_grant_that_is_not_there_fails_the_start_naming_it(tmp: string)

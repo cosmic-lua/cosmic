@@ -479,12 +479,6 @@ local function held_by_seatbelt(policy: Sandbox.Policy, kept: {integer}): boolea
   if options == nil then return denied(resolve_trouble) end
   local profile, compile_trouble = seatbelt_compile(held, options)
   if profile == nil then return denied(compile_trouble) end
-  local parameters = 0
-  for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
-  if parameters > raw.SEATBELT_PARAMETER_MAX then
-    return denied("grants: the paths the profile holds, " .. tostring(parameters) .. ", are past the " ..
-        "most it takes, " .. tostring(raw.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead")
-  end
   local done, why, failure = raw.restrict_self({ grants = {}, promises = {},
     rlimits = profile.rlimits, seatbelt = { profile = profile.text, parameters = profile.parameters } },
     kept)
