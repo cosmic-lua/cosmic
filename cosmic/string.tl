@@ -1,6 +1,7 @@
 --- Small text operations a program otherwise writes by hand: splitting
 --- on a separator, iterating over lines, trimming, testing a prefix, a
---- suffix or a part, reading a byte that must be there, and counting a noun. Every separator, prefix and suffix is plain
+--- suffix or a part, reading a byte that must be there, cutting UTF-8
+--- text to a length in bytes, and counting a noun. Every separator, prefix and suffix is plain
 --- text, never a Lua pattern, so a `.` or `%` in one means itself.
 ---
 ---     for line in String.lines("a\n\nb") do print(line) end -- a, "", b
@@ -102,6 +103,22 @@ function String.byte_at(text: string, index: integer): integer
       index, String.counted(#text, "byte"), #text), 2)
   end
   return byte
+end
+
+--- At most `most` bytes of `text`, UTF-8, cut where no character is
+--- split: a label, a subject or a preview kept to a store's limit stays
+--- valid UTF-8. The cut backs up past the continuation bytes (0x80 to
+--- 0xBF) after it, so it may keep fewer than `most`. A negative `most`
+--- raises.
+--- @param text string The UTF-8 text to cut
+--- @param most integer The most bytes to keep, 0 or more
+--- @return string The text, or its start up to a character's end
+function String.cut(text: string, most: integer): string
+  if most < 0 then error(("string: cut(%d) keeps a negative count of bytes"):format(most), 2) end
+  if #text <= most then return text end
+  local at = most
+  while at > 0 and String.byte_at(text, at + 1) & 0xC0 == 0x80 do at = at - 1 end
+  return text:sub(1, at)
 end
 
 --- `n` and `singular` as a count of things, "1 entry" or "2 entries": the

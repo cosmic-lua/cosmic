@@ -115,3 +115,29 @@ local function test_counted_takes_an_irregular_plural()
   assert(String.counted(3, "entry", "entries") == "3 entries")
   assert(String.counted(0, "entry", "entries") == "0 entries")
 end
+
+local function test_cut_keeps_text_within_the_limit()
+  assert(String.cut("abc", 3) == "abc")
+  assert(String.cut("abc", 5) == "abc")
+  assert(String.cut("abc", 2) == "ab")
+  assert(String.cut("abc", 0) == "")
+  assert(String.cut("", 0) == "")
+end
+
+local function test_cut_never_splits_a_character()
+  -- "a", then é (2 bytes), then € (3 bytes), then 😀 (4 bytes).
+  local text = "a\195\169\226\130\172\240\159\152\128"
+  assert(String.cut(text, 1) == "a")
+  assert(String.cut(text, 2) == "a")
+  assert(String.cut(text, 3) == "a\195\169")
+  assert(String.cut(text, 5) == "a\195\169")
+  assert(String.cut(text, 6) == "a\195\169\226\130\172")
+  assert(String.cut(text, 9) == "a\195\169\226\130\172")
+  assert(String.cut(text, 10) == text)
+  assert(utf8.len(String.cut(text, 8)) ~= nil)
+end
+
+local function test_cut_refuses_a_negative_count()
+  local ok, err = pcall(String.cut, "abc", -1)
+  assert(not ok and tostring(err):find("cut%(%-1%)") ~= nil, tostring(err))
+end
