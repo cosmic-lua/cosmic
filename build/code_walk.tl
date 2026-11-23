@@ -1,7 +1,7 @@
 --- Which modules the identities of the code that reads and checks hash the source of.
 ---
 --- Four identities hold the source of the code that decides what a compile or a parse stores: the checker's readers
---- ([`build.pipeline`]'s `coded`), the analyzer ([`build.importer`]'s `analyzer_identity`), the readers of the
+--- ([`code_identity.coded`]), the analyzer ([`build.importer`]'s `analyzer_identity`), the readers of the
 --- record-field uses (`receivers_identity`) and the code that finds the links of the files ([`build.work`]'s
 --- `links_finder`). Each is a walk from roots over `require`, defined here once, so that the identities and the writer
 --- of a test's pure store ([`build.closure_store`]) reach the same modules: the pure store keeps the source of exactly the

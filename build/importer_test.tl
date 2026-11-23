@@ -16,7 +16,7 @@ local Doc = require("cosmic.doc")
 local importer = require("build.importer")
 local Hash = require("cosmic.hash")
 local GrammarMode = require("build.grammar_mode")
-local Pipeline = require("build.pipeline")
+local code_identity = require("build.code_identity")
 local CodeWalk = require("build.code_walk")
 local type _ = require("build.test_inputs")
 -- Read as source by the closure checks below, though the modules above
@@ -271,11 +271,11 @@ local function test_self_compile_consumes_cache_after_identity_selection()
     assert(selected.value == (phase ~= "record"))
     if phase == "success" then
       assert(result ~= nil, trouble)
-      -- The tool the selection answered, as the compile in the new mode keys it ([`Pipeline.coded_of`]).
+      -- The tool the selection answered, as the compile in the new mode keys it ([`code_identity.coded_of`]).
       local chosen = "chosen-compiler"
       local moded = GrammarMode.tool(chosen)
-      local c1, c2 = Pipeline.coded(chosen), assert(Pipeline.coded_of(chosen, handle.db))
-      local c3, c4 = Pipeline.coded(moded), assert(Pipeline.coded_of(moded, handle.db))
+      local c1, c2 = code_identity.coded(chosen), assert(code_identity.coded_of(chosen, handle.db))
+      local c3, c4 = code_identity.coded(moded), assert(code_identity.coded_of(moded, handle.db))
       assert(result.parses.parsed == 2, tostring(result.parses.parsed))
       assert(result.tool == c1 or result.tool == c2 or result.tool == c3 or result.tool == c4,
         result.tool .. " not in " .. c1 .. " " .. c2 .. " " .. c3 .. " " .. c4)
@@ -1955,7 +1955,7 @@ local function test_the_compiler_modules_are_closed_under_require()
   local covered: mut {string:boolean} = {}
   for _, name in ipairs(modules) do covered[name] = true end
   -- The parse's own modules ([`build.parse_derive`] and what it reaches) are the checker's readers' too, which every
-  -- compile's key holds ([`Pipeline.coded`]).
+  -- compile's key holds ([`code_identity.coded`]).
   local readers: mut {string:boolean} = {}
   for _, name in ipairs((assert(CodeWalk.reach(CodeWalk.pipeline, store_lookups.requires)))) do
     readers[name] = true
@@ -1990,11 +1990,11 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
       "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
-      "(`Pipeline.coded`) and not by the compiler's identity, which a default run keeps",
+      "(`code_identity.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
     ["build.logger"] = "says a refusal ahead of the report of a long compile; what is said, not what is stored",
     ["build.parse_derive"] = "the parse, keyed by the analyzer's identity, of which it is a root (`CodeWalk.analyzer_roots`), " ..
-      "and held in every compile's key by the code that reads (`Pipeline.coded`), not by the compiler's identity",
+      "and held in every compile's key by the code that reads (`code_identity.coded`), not by the compiler's identity",
     ["build.reads.analyzer"] = "a declaration of what text this module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text this module reads, which a test's store follows; no code",
   }
@@ -2105,12 +2105,12 @@ local function test_the_writer_modules_are_closed_under_require()
   end
   local reached = reach({})
   -- The new grammar's compile (build.pipeline and what it reads) runs only where the build is asked for
-  -- it, and its output is keyed apart from the compiler's by [`Pipeline.coded`] over those sources; no projection of the
+  -- it, and its output is keyed apart from the compiler's by [`code_identity.coded`] over those sources; no projection of the
   -- default compile turns on them.
   -- The parse ([`build.parse_derive`]) is among what it reads, and build.importer requires it too: a parse is keyed by the
   -- analyzer's identity, and a projection holds a parse's rows and not its code.
   local through_pipeline = reach({ ["build.pipeline"] = true, ["build.parse_derive"] = true })
-  neither["build.pipeline"] = "compiles in the new grammar only when asked, its output keyed by Pipeline.coded over its own closure"
+  neither["build.pipeline"] = "compiles in the new grammar only when asked, its output keyed by code_identity.coded over its own closure"
   neither["build.parse_derive"] = "parses the tree, its rows keyed by the analyzer's identity over its own closure"
   local only_pipeline: mut {string:boolean} = {}
   for name in pairs(reached) do
@@ -2126,7 +2126,7 @@ local function test_the_writer_modules_are_closed_under_require()
       assert(covered[name] ~= true and compiler[name] ~= true,
         name .. " is named as in neither identity, but is in one")
     elseif only_pipeline[name] == true or name:sub(1, 5) == "lang." then
-      -- The new checker's own modules: the code a compile is keyed by is [`Pipeline.coded`] over them.
+      -- The new checker's own modules: the code a compile is keyed by is [`code_identity.coded`] over them.
       used[name] = true
     elseif covered[name] ~= true and compiler[name] ~= true then
       unclassified[#unclassified + 1] = name
