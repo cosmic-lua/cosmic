@@ -129,16 +129,18 @@
     # not cost it: after a green push run, where no full run of main (the
     # daily or a manual one) started in the last six hours, it starts a
     # manual run of main; after a full run's first attempt failed, it
-    # re-runs the failed jobs once (cosmic_ci/prerelease_follow.tl). Its
-    # token's `actions: write` could cancel or delete runs too; only the
+    # re-runs the failed jobs once; after a red push run, it opens the
+    # issue "main is red" where none is open, and the next green push run
+    # closes it (cosmic_ci/prerelease_follow.tl). Its token's
+    # `actions: write` could cancel or delete runs too; only the
     # pinned driver, running main's own ci/, holds it. It checks out main's
     # tip (a workflow_run's default), not the triggering commit, so a run
     # of a commit from before this job still has the command, and only
     # what the driver needs, as `publish` does; it runs no byte the
     # triggering run made.
     follow: {
-      permissions: {contents: "read", actions: "write"},
-      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && ((github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') || ((github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1))",
+      permissions: {contents: "read", actions: "write", issues: "write"},
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && ((github.event.workflow_run.event == 'push' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')) || ((github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1))",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 10,
       steps: [
@@ -155,7 +157,7 @@
           uses: "./.github/actions/cosmic-driver",
         },
         {
-          name: "start a full run, or retry a failed one",
+          name: "start a full run, retry a failed one, or report a red main",
           "working-directory": "ci",
           env: {
             GH_TOKEN: "${{ github.token }}",
@@ -165,6 +167,7 @@
             ATTEMPT: "${{ github.event.workflow_run.run_attempt }}",
             RUN_ID: "${{ github.event.workflow_run.id }}",
             BRANCH: "${{ github.event.workflow_run.head_branch }}",
+            HEAD_SHA: "${{ github.event.workflow_run.head_sha }}",
           },
           run: "cosmic-driver cosmic_ci/driver.tl prerelease-follow",
         },

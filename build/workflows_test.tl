@@ -1919,7 +1919,8 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
       publish:find("workflow_run.event == 'push'", 1, true) == nil,
     "prerelease.yml publishes from a run of fewer than four legs")
   local follow = job_of(prerelease.jobs, "follow")
-  assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write",
+  assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write" and
+      map_of(follow.permissions)["issues"] == "write",
     "prerelease.yml's follow job's permissions")
   local follows = follow["if"] or ""
   assert(follows:find("github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && ", 1, true) == 1 and

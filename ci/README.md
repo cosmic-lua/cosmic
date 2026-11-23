@@ -348,15 +348,18 @@ downloads over `cosmic.http`'s scripted replies; neither reaches the
 network.
 
 `prerelease-follow` is prerelease.yml's `follow` job, which runs after a
-green push run on main and after a full run's failed first attempt, checks
-out main's tip, only what `publish` does, and holds an `actions: write`
-token, which only the pinned driver running main's own `ci/` uses. After a green push run, where no daily or manual run of main
+push run on main that passed or failed and after a full run's failed first
+attempt, checks out main's tip, only what `publish` does, and holds an
+`actions: write` and `issues: write` token, which only the pinned driver running main's own `ci/` uses. After a green push run, where no daily or manual run of main
 started in the last six hours, it starts a manual run of main
 (`POST .../workflows/ci.yml/dispatches`), so a prerelease follows main
 within hours. After a daily or manual run's first attempt failed, it
 re-runs that run's failed jobs once, so one flaky test does not cost the
-prerelease; a second failure stands. It reads the triggering run's `EVENT`,
-`CONCLUSION`, `ATTEMPT`, `RUN_ID` and `BRANCH`, with `REPOSITORY` and
+prerelease; a second failure stands. After a red push run, it opens the
+issue "main is red", naming the run and its commit, where the bot has none
+open, so a break on main is seen within minutes; the next green push run
+comments which run passed and closes it. It reads the triggering run's
+`EVENT`, `CONCLUSION`, `ATTEMPT`, `RUN_ID`, `BRANCH` and `HEAD_SHA`, with `REPOSITORY` and
 `GH_TOKEN`; [`cosmic_ci/prerelease_follow_test.tl`] drives it against a
 fake client.
 
