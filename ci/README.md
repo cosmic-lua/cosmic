@@ -437,32 +437,36 @@ are where CI answers for everything. A branch's push runs nothing.
 
 Each job is a plain sequence of steps on one runner: none is split into
 shares, and none waits on another but the gate. Three things are relayed
-between runs. The merge queue's linux-x86_64 leg, where its native suite
-passed, trims its verdicts to what it used and uploads them
-(`queue-verdicts-linux-x86_64`, kept a day); main's push of the same
-commit finds that run (`driver.tl queue-run`, the job's `actions: read`),
-downloads them and merges them into the verdicts it restored
-(`driver.tl verdicts-merge`, [`cosmic_ci/queue_verdicts.tl`]) before its
-suites. The queue's run saves no cache, its caches scoped to its ref, and
-main's last cache is a commit or more behind, so without them main's push
-ran its whole native suite again for the commit the queue had just
-passed. A row stands only for a test whose key is the same, so the relay
-decides how many tests stand, never whether one is right, and no step of
-it fails the leg. The queue's format job, where its check passed, seals
-the memo of the tree checks (the shared rows of `build/check_memo.tl`, in
-the cache directory: `driver.tl checks-seal` keeps the rows the run used,
-in one file with no write-ahead log) and uploads it
-(`queue-checks-linux-x86_64`); main's push, which runs no format check,
-downloads it, holds it to a memo with rows, and saves it
+between runs, by the relay (relay.yml), a workflow of its own that runs on
+each push to main a minute after the merge, apart from ci.yml's pushes,
+which wait on each other and save only as they end, 15 to 30 minutes
+later. The merge queue's linux-x86_64 leg, where its native suite passed,
+trims its verdicts to what it used and uploads them with the name of the
+cache its host keeps them in (`queue-verdicts-linux-x86_64`, kept a day;
+`driver.tl verdicts-name`). The relay finds that run (`driver.tl
+queue-run`, the job's `actions: read`), restores main's newest verdicts of
+that cache (`driver.tl verdicts-key`), merges the queue's into them
+(`driver.tl verdicts-merge`, [`cosmic_ci/queue_verdicts.tl`]) and saves
+them; main's push of the commit takes them in too, before its suites. The
+queue's run saves no cache, its caches scoped to its ref, so without the
+relay the next queue entry stood on main's last save, a commit or more
+behind, and ran its whole native suite where that commit moved a key. A
+row stands only for a test whose key is the same, so the relay decides how
+many tests stand, never whether one is right, and no step of it fails a
+job. The queue's format job, where its check passed, seals the memo of the
+tree checks (the shared rows of `build/check_memo.tl`, in the cache
+directory: `driver.tl checks-seal` keeps the rows the run used, in one
+file with no write-ahead log) and uploads it (`queue-checks-linux-x86_64`);
+the relay downloads it, holds it to a memo with rows, and saves it
 (`checks-linux-x86_64-<sha>`, [`cosmic_ci/checks_seal.tl`]). The format
 check of a pull request or a queue entry restores the newest, so the tree
 checks check again only the files its rows do not answer: from cold they
-take some 3.5 minutes. The queue's suite job also uploads the compiles
-and parses it trimmed (`queue-compiles-linux-x86_64`); main's push puts
-them in place of the entry it restored and saves them at once
-(`compiles-linux-x86_64-queue-<sha>`), not as its run ends 4 to 20 minutes
-later, so a pull request or a queue entry that boots soon after a merge
-takes them rather than compiling the tree from cold (about a minute).
+take some 3.5 minutes. The queue's suite job also uploads the compiles and
+parses it trimmed (`queue-compiles-linux-x86_64`); the relay saves them
+(`compiles-linux-x86_64-queue-<sha>`), and main's push boots on them in
+place of the entry it restored, so a pull request or a queue entry that
+boots soon after a merge takes them rather than compiling the tree from
+cold (about a minute).
 No other markers, products or verdicts pass between
 runs. That costs main's run its wall clock, which no one waits on, rather
 than runner minutes. The queue, which every change waits on, is the one

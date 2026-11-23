@@ -170,3 +170,25 @@ local function test_a_schema_of_more_than_a_table_is_refused(tmp: string)
   assert(said.code == 0 and said.err:find("left as restored", 1, true) ~= nil, said.out .. said.err)
   assert(rows(into .. "/verdicts.db", "SELECT name FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name") == "kept")
 end
+
+--- The queue writes the name of its verdicts' cache beside them, and the
+--- relay reads it back as the step's output; a name that is no verdict
+--- cache's is refused on the way in and passed over on the way out.
+local function test_the_cache_the_verdicts_belong_in_is_relayed_beside_them(tmp: string)
+  local key = "verdicts-linux-x86_64-3a9f8d7b94f5492e-0de7cf39e1e63661-"
+  local wrote = QueueVerdicts.name(tmp, key)
+  assert(wrote.code == 0, wrote.err)
+  local fake = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.key(tmp, fake.host) == 0)
+  assert(GithubFake.text(fake.outputs) == "verdicts=" .. key .. "\n", GithubFake.text(fake.outputs))
+  for _, bad in ipairs({ "", "verdicts-linux-x86_64", "other-linux-x86_64-", "verdicts-a b-", "verdicts-a\n-" }) do
+    assert(QueueVerdicts.name(tmp .. "/none", bad).code == 2, bad)
+  end
+  assert(Fs.write(tmp .. "/cache-key", "verdicts-a\nb-\n"))
+  local refused = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.key(tmp, refused.host) == 0)
+  assert(#refused.outputs == 0, GithubFake.text(refused.outputs))
+  local missing = GithubFake.new(function(_path: string, _nth: integer): string? return nil end)
+  assert(QueueVerdicts.key(tmp .. "/absent", missing.host) == 0)
+  assert(#missing.outputs == 0, GithubFake.text(missing.outputs))
+end

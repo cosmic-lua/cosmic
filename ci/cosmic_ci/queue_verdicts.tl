@@ -309,4 +309,62 @@ function QueueVerdicts.merge_command(argv: {string}): integer
   return said.code
 end
 
+--- The file, beside the verdicts the queue uploads, that names the cache
+--- they belong in: what the queue's `leg-host-id` named, its host's
+--- kernel among it. The relay on main's push (relay.yml) runs on another
+--- runner, whose kernel may be another, so it reads the name from here
+--- rather than naming its own host.
+local KEY_FILE <const> = "cache-key"
+
+--- Whether `key` is the start of a verdict cache's name as `leg-host-id`
+--- writes it (cosmic_ci/host_id.tl): `verdicts-`, the leg and the host's
+--- parts, ending in `-`.
+local function is_key(key: string): boolean
+  return #key <= 200 and key:match("^verdicts%-[%w_.%-]+%-$") ~= nil
+end
+
+--- Writes `key`, the cache the verdicts in `dir` belong in, to `dir`'s
+--- KEY_FILE. 2 where `key` is no verdict cache's name, 1 where the file
+--- cannot be written, else 0.
+function QueueVerdicts.name(dir: string, key: string): QueueVerdicts.Said
+  if not is_key(key) then
+    return { code = 2, out = "", err = "verdicts-name: VERDICTS names no verdict cache: " .. key .. "\n" }
+  end
+  local wrote, why = Fs.write(dir .. "/" .. KEY_FILE, key .. "\n")
+  if not wrote then
+    return { code = 1, out = "", err = "verdicts-name: " .. tostring(why) .. "\n" }
+  end
+  return { code = 0, out = "verdicts-name: the verdicts in " .. dir .. " belong in " .. key .. "\n", err = "" }
+end
+
+--- `driver.tl verdicts-name DIR`, of the cache VERDICTS names.
+function QueueVerdicts.name_command(argv: {string}): integer
+  local said = QueueVerdicts.name(argv[1] or ".", Env.get("VERDICTS") or "")
+  if said.out ~= "" then local _, _ = Fs.put(Fs.stdout, said.out) end
+  if said.err ~= "" then local _, _ = Fs.put(Fs.stderr, said.err) end
+  return said.code
+end
+
+--- `driver.tl verdicts-key DIR`: writes `verdicts=<name>` to the step's
+--- outputs, the cache the queue's verdicts in `dir` belong in
+--- ([`QueueVerdicts.name`]). Where `dir` names none, or one that is no
+--- verdict cache's name, it says so and writes nothing, and the relay
+--- saves no verdicts. Always 0.
+function QueueVerdicts.key(dir: string, host: Github.Host): integer
+  local text, _ = Fs.read(dir .. "/" .. KEY_FILE)
+  local key = (text or ""):gsub("\n$", "")
+  if not is_key(key) then
+    host.print("verdicts-key: " .. dir .. " names no verdict cache; no verdicts are relayed")
+    return 0
+  end
+  host.output("verdicts=" .. key)
+  host.print("verdicts-key: the merge queue's verdicts belong in " .. key)
+  return 0
+end
+
+function QueueVerdicts.key_command(argv: {string}): integer
+  local env = Env.all()
+  return QueueVerdicts.key(argv[1] or ".", Github.live(env))
+end
+
 return QueueVerdicts
