@@ -3,6 +3,7 @@
 --- to give cannot: the module is skipped where Linux refuses it.
 
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
@@ -66,9 +67,19 @@ local function tool(work: string, policy?: Sandbox.Policy, timeout_ns?: integer)
   }
 end
 
+--- A call made here, not for a client: no progress to send, never cancelled.
+local function bare(): McpServer.Call
+  return { capabilities = {}, progress = function(_: number, _?: number, _?: string) end,
+    cancelled = function(): boolean return false end,
+    elicit = function(_: string, _: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+      return nil, Failure.new("no client to ask")
+    end,
+    keep = function(_: string) end }
+end
+
 --- What the tool answers for `path`; skips the test where the host gives no sandbox.
 local function called(spec: McpServer.ToolSpec, path: string): Mcp.ToolResult
-  local result, why = spec.call({ path = path }, { capabilities = {} })
+  local result, why = spec.call({ path = path }, bare())
   if result == nil then
     assert(ChildPolicy.unsandboxable(tostring(why)), "the start was refused: " .. tostring(why))
     Test.skip(tostring(why))
@@ -145,7 +156,7 @@ local function test_a_failed_start_gives_its_place_back(tmp: string)
     argv = { work .. "/no-such-program" }, policy = { grants = { { path = work, letters = "rx" } } }, concurrency = 1 }
   for _ = 1, 2 do
     Test.raises(function()
-      local _, _ = missing.call({}, { capabilities = {} })
+      local _, _ = missing.call({}, bare())
     end, "did not start")
   end
 end

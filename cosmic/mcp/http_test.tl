@@ -10,7 +10,9 @@ local HttpServer = require("cosmic.http.server")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Server = require("cosmic.mcp.server")
+local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
 Test.policy{ loopback = { "127.0.0.1" } }
@@ -181,4 +183,177 @@ local function test_a_header_the_protocol_sets_cannot_be_given()
   end,
     "the protocol sets")
   Test.raises(function() server():handler{ authorize = Server.bearer("short") } end, "at least 16 bytes")
+end
+
+--- A tool that tells its progress `steps` times, a pause apart, and notes in `seen` when it finds itself cancelled.
+local function slow_tool(name: string, steps: integer, seen: mut {string}): Server.ToolSpec
+  return {
+    tool = { name = name, inputSchema = Mcp.object_schema({}) },
+    call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      for i = 1, steps do
+        call.progress(i, steps, "step " .. tostring(i))
+        call.progress(i, steps, "the same again, dropped")
+        local ok, why = Poll.delay(Clock.ms(20))
+        if not ok or call.cancelled() then
+          local said = "cancelled: " .. tostring(why)
+          seen[#seen + 1] = said
+          return nil, Failure.new("cancelled")
+        end
+      end
+      return Mcp.result({ "done" })
+    end,
+  }
+end
+
+local function test_progress_comes_as_events_and_a_closed_stream_cancels()
+  local seen: mut {string} = {}
+  local troubles: mut {string} = {}
+  local instance = Server.new{ info = { name = "slow", version = "1" }, tools = { slow_tool("slow", 3, seen),
+    slow_tool("long", 500, seen) },
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end }
+  serving(instance:handler{ authorize = Server.anyone }, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT })
+    local heard: mut {Mcp.Progress} = {}
+    local done = assert(session:call("slow", {}, { on_progress = function(p: Mcp.Progress)
+      heard[#heard + 1] = p
+    end }))
+    assert(assert(done.content[1]).text == "done")
+    assert(#heard == 3, "each step once: " .. tostring(#heard))
+    local first = assert(heard[1])
+    assert(first.progress == 1 and first.total == 3 and first.message == "step 1")
+    local plain = assert(session:call("slow"))
+    assert(assert(plain.content[1]).text == "done", "a call that asks for no progress is answered as JSON")
+    -- A caller that gives up mid-call closes the stream, and the tool finds itself cancelled.
+    local caller = Poll.spawn(function()
+      local _, _ = session:call("long", {}, { on_progress = function(_: Mcp.Progress) end })
+    end)
+    assert(Poll.delay(Clock.ms(50)))
+    caller:cancel()
+    local _, _ = caller:join(WAIT)
+    for _ = 1, 500 do
+      if #seen > 0 then break end
+      assert(Poll.delay(Clock.ms(10)))
+    end
+    assert(#seen == 1 and assert(seen[1]):find("cancelled", 1, true) ~= nil, table.concat(seen, "; "))
+  end)
+  assert(#troubles == 0, table.concat(troubles, "\n"))
+end
+
+--- A subscription over HTTP is one event stream: the acknowledgment, each notice asked for, then the graceful end
+--- the server sends as it stops. One that asks without a stream is refused.
+local function test_a_subscription_comes_as_events_and_ends_with_the_server()
+  local instance = server()
+  serving(instance:handler{ authorize = Server.anyone }, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT })
+    local agreed: Client.Subscription? = nil
+    local notices: mut {string} = {}
+    local result: boolean? = nil
+    local listener = Poll.spawn(function()
+      local ok, why = session:listen({ tools = true, prompts = true, uris = { "note://x" } },
+        function(n: Client.Notice) notices[#notices + 1] = n.kind end,
+        function(a: Client.Subscription) agreed = a end)
+      assert(ok, tostring(why))
+      result = ok
+    end)
+    for _ = 1, 2000 do
+      if agreed ~= nil then break end
+      assert(Poll.delay(Clock.ms(10)))
+    end
+    local a = assert(agreed, "the acknowledgment comes first")
+    assert(a.tools == true and a.prompts == false and #assert(a.uris) == 0, "it agrees only to what it offers")
+    assert(session:call("echo", { text = "meanwhile" }))
+    instance:update({ tools = { count_tool() } })
+    for _ = 1, 2000 do
+      if #notices > 0 then break end
+      assert(Poll.delay(Clock.ms(10)))
+    end
+    instance:end_subscriptions()
+    assert(listener:join(WAIT))
+    assert(result == true and table.concat(notices, "|") == "tools", table.concat(notices, "|"))
+    local plain = post(url, '{"jsonrpc":"2.0","id":9,"method":"subscriptions/listen","params":{"notifications":{},' ..
+        '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}',
+      { Accept = "application/json", ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "subscriptions/listen" })
+    assert(plain.body:find("text/event-stream", 1, true) ~= nil, plain.body)
+  end)
+end
+
+--- A tool that asks for a link to be opened, then answers what the person did.
+local function linking(): Server.Instance
+  return Server.new{ info = { name = "links", version = "1" }, tools = { {
+    tool = { name = "connect", inputSchema = Mcp.object_schema({}) },
+    call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      call.keep("asked")
+      local answer, why = call.elicit("signin", Mcp.elicit_url("Sign in to connect.", "https://example.com/signin"))
+      if answer == nil then return nil, why end
+      return Mcp.result({ answer.action .. " " .. (call.state or "-") })
+    end,
+  } } }
+end
+
+--- Over HTTP a tool asks for input as it does over stdio, and the state it keeps holds only for the caller whose
+--- `Authorization` it was kept for.
+local function test_a_tool_asks_for_input_over_http_and_its_state_is_the_callers()
+  serving(linking():handler{ authorize = Server.anyone }, function(url: string)
+    local shown: mut {string} = {}
+    local session = Client.http(url, { timeout_ns = WAIT, headers = { Authorization = "Bearer one" },
+      elicit = function(e: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+        local line = e.mode .. " " .. tostring(e.url)
+        shown[#shown + 1] = line
+        return { action = "accept" }
+      end })
+    local said = assert(session:call("connect"))
+    assert(assert(said.content[1]).text == "accept asked", assert(said.content[1]).text)
+    assert(#shown == 1 and shown[1] == "url https://example.com/signin", table.concat(shown, "; "))
+    local caps = '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ..
+      '"io.modelcontextprotocol/clientCapabilities":{"elicitation":{"url":{}}}}'
+    local headers: {string: string} = { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/call",
+      ["Mcp-Name"] = "connect", ["Authorization"] = "Bearer one" }
+    local first, fwhy = Json.decode(post(url, '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"connect",' ..
+        caps .. "}}", headers).body)
+    assert(first ~= nil, tostring(fwhy))
+    local result = assert(Json.object_of(assert(Json.object_of(first))["result"]))
+    local state = result["requestState"]
+    assert(state is string)
+    local other: mut {string: string} = {}
+    for k, v in pairs(headers) do other[k] = v end
+    other["Authorization"] = "Bearer two"
+    local stolen = post(url, '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"connect",' ..
+        '"requestState":' .. Json.quote(state) .. ',"inputResponses":{"signin":{"action":"accept"}},' .. caps .. "}}", other)
+    assert(stolen.body:find("requestState does not hold", 1, true) ~= nil, stolen.body)
+  end)
+end
+
+--- A body that gives its text a byte at a time.
+local class Trickle is Stream.Reader
+  mut text: string
+
+  function read(self, _max?: integer): string?, string
+    if self.text == "" then return nil, "" end
+    local byte = self.text:sub(1, 1)
+    self.text = self.text:sub(2)
+    return byte, ""
+  end
+
+  function close(self): boolean, string return true, "" end
+end
+
+--- An event stream sent a byte at a time, its lines ended CRLF, is read whole: each notice once, a notice that
+--- does not grow its progress passed over, then the answer.
+local function test_the_client_reads_events_sent_a_byte_at_a_time()
+  local progress = '{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":1,"progress":%d}}'
+  local answer = '{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","content":[{"type":"text","text":"ok"}]}}'
+  local text = "data: " .. progress:format(1) .. "\r\n\r\n" .. ": comment\r\n\r\n" .. "data: " .. progress:format(2) ..
+    "\r\n\r\ndata: " .. progress:format(2) .. "\r\n\r\ndata: " .. answer .. "\r\n\r\n"
+  serving(function(_: HttpServer.Request): HttpServer.Reply
+    local body: Trickle = { text = text, skip = nil }
+    return { status = 200, headers = { ["Content-Type"] = "text/event-stream" }, body = body }
+  end, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT })
+    local heard: mut {number} = {}
+    local said = assert(session:call("x", {}, { on_progress = function(p: Mcp.Progress)
+      heard[#heard + 1] = p.progress
+    end }))
+    assert(assert(said.content[1]).text == "ok")
+    assert(#heard == 2 and heard[1] == 1 and heard[2] == 2, tostring(#heard))
+  end)
 end

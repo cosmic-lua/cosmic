@@ -242,7 +242,7 @@ end
 ## rows
 
 A sheet can hold a great many rows, so it is read a row at a time:
-[`Xml.subtrees`] answers each `row` whole as the parser reaches its
+[`Xml.subtrees`] returns each `row` whole as the parser reaches its
 end, from the sheet's body read in chunks. Each row is written as CSV with
 [`Csv.encode`], which quotes a cell that holds a comma, a quote or a line
 break (Alt-Enter puts one in a cell), so the columns stay where they were.

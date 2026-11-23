@@ -38,6 +38,13 @@ local bind = require("build.bind")
 local rebuild_lock = require("build.rebuild_lock")
 
 local record writer
+  --- What a write signed ([`writer.signed`]).
+  record Signed
+    --- The projection's signature (`meta`'s `projected`), "" where the write ended with none.
+    signature: string
+    --- The digest of the links it signed ([`link_index.pending`]).
+    links: string
+  end
 end
 
 local text = bind.text
@@ -1092,6 +1099,16 @@ function writer.held(): boolean
   return reader_held
 end
 
+local last_signed = ""
+local last_links = ""
+
+--- What the last [`writer.write_result`] signed, of the projection it wrote or found already written: what a file run
+--- keys and keeps ([`build.run_stamp`]), taken from the write rather than worked out again from a disk or a file that
+--- may have moved since.
+function writer.signed(): writer.Signed
+  return { signature = last_signed, links = last_links }
+end
+
 --- Writes an already-compiled result into a fresh host-independent database
 --- and leaves it at `out`, unless the file there already is that projection.
 --- The attached in-memory projection is filled before the working transaction
@@ -1112,6 +1129,8 @@ function writer.write_result(handle: work.Handle, out: string,
                              result: importer.Result, tree_code?: boolean,
                              library?: link_index.Library, reader?: string): boolean, string
   reader_held = false
+  last_signed = ""
+  last_links = ""
   local db = handle.db
   if not handle.inside then
     local begun, begin_trouble = work.begin(handle)
@@ -1134,7 +1153,11 @@ function writer.write_result(handle: work.Handle, out: string,
     return false, sign_trouble
   end
   if projected_signature(out) == signature then
-    return work.commit(handle)
+    local committed, commit_trouble = work.commit(handle)
+    if not committed then return false, commit_trouble end
+    last_signed = signature
+    last_links = pending.digest
+    return true, ""
   end
   local attached, attach_trouble = db:exec("ATTACH ':memory:' AS out")
   if not attached then return false, tostring(attach_trouble) end
@@ -1215,6 +1238,8 @@ function writer.write_result(handle: work.Handle, out: string,
   if not ok then
     return false, tostring(trouble)
   end
+  last_signed = signature
+  last_links = pending.digest
   return true, ""
 end
 

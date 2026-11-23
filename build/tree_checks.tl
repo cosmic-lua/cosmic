@@ -110,9 +110,6 @@ allowed["build.c.bootstrap_cosmic"] = "the bootstrap cosmic a check's compiler r
   "where it is not cached; the module's toolchain calls it, and a test holds it to saying why where it cannot be had"
 allowed["build.c.own_caches"] = "the environment c.check gives a confined compiler, with every cache it writes in " ..
   "the check's own directory, which a test holds to the cores among them: the host's fail a check where they are cold"
--- TODO: drop this allowance once cosmic agent's code-mode worker checks its snippets with it.
-allowed["build.pipeline.kept_alone"] = "the checker that lives on, for a process that checks one snippet after another: " ..
-  "a test holds it to answering each text as a check alone does"
 allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the host's /proc/meminfo: a sandbox's /proc has " ..
   "none, and no test is to depend on what its host has free"
 allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which a test reads to know that copies " ..
@@ -120,6 +117,10 @@ allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which 
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.agent.host.call"] = "public API: what a snippet of cosmic agent's run tool calls to reach the agent; " ..
+  "snippets, which the tree never holds, are its users"
+allowed["cosmic.agent.host.sql"] = "public API: what a snippet of cosmic agent's run tool calls to query sessions.db; " ..
+  "snippets, which the tree never holds, are its users"
 allowed["cosmic.mcp.MISSING_CAPABILITY"] = "public API: the protocol's code for a request that needs a capability the " ..
   "client did not declare, which a client tests a failure's code against"
 allowed["cosmic.mcp.text"] = "public API: a text block of a tool's result or a prompt's message, which a server builds"
@@ -131,6 +132,8 @@ allowed["cosmic.mcp.client.stdio"] = "public API: a session over a reader and a 
   "or a socket; the tree's own callers start a server with spawn or reach one with http"
 allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
 allowed["cosmic.mcp.structured"] = "public API: a tool's result whose structuredContent holds to its outputSchema, which a server builds"
+allowed["cosmic.mcp.elicit_form"] = "public API: a form a tool's handler asks the person to fill in, through call.elicit"
+allowed["cosmic.mcp.elicit_url"] = "public API: a URL a tool's handler asks the person to open, through call.elicit"
 
 allowed["cosmic.compress.zstd_encoder"] = "ci/ calls it on the pinned release, which has no Compress.encoder; " ..
   "goes with the TODO in cosmic/compress.tl"

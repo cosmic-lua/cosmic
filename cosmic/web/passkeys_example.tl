@@ -7,11 +7,11 @@ local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Input = require("cosmic.web.input")
 local Json = require("cosmic.json")
+local Key = require("cosmic.key")
 local Rand = require("cosmic.rand")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
-local Sign = require("cosmic.sign")
 local Sqlite = require("cosmic.sqlite")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
@@ -74,7 +74,7 @@ function Example.passkeys()
       },
     },
   }
-  local secret, id = assert(Rand.entropy(32)), assert(Rand.entropy(16))
+  local key, id = Key.generate("ed25519"), assert(Rand.entropy(16))
   local none: {string: Json.Value} = {}
   local function challenge_of(res: Web.TestResponse): string
     local options = assert(Json.to_object((res:json())))
@@ -101,7 +101,7 @@ function Example.passkeys()
   assert(#handle == 16 and handle ~= "ada")
   local cose = Cbor.encode(Cbor.map({
     { Cbor.integer(1), Cbor.integer(1) }, { Cbor.integer(3), Cbor.integer(-8) },
-    { Cbor.integer(-1), Cbor.integer(6) }, { Cbor.integer(-2), Cbor.bytes(Sign.ed25519_public(secret)) },
+    { Cbor.integer(-1), Cbor.integer(6) }, { Cbor.integer(-2), Cbor.bytes(key.public.bytes) },
   }), { sort = true })
   local made = Hash.sha256("example.com") .. "\x5d" .. string.pack(">I4", 0) .. ("\0"):rep(16) ..
     string.pack(">I2", #id) .. id .. cose
@@ -132,7 +132,7 @@ function Example.passkeys()
     id = Codec.base64url(id), rawId = Codec.base64url(id), type = "public-key",
     response = {
       clientDataJSON = Codec.base64url(cd), authenticatorData = Codec.base64url(data),
-      signature = Codec.base64url(Sign.ed25519(secret, data .. Hash.sha256(cd))),
+      signature = Codec.base64url(key:sign(data .. Hash.sha256(cd))),
       userHandle = Codec.base64url(handle),
     },
   } })

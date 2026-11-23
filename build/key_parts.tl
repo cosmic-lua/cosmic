@@ -139,8 +139,8 @@ end
 --- holds one of its readers is keyed by the tool's (build.declared_key's
 --- [`Spec.compiler`]).
 local compiler_readers <const>: {string} = {
-  "build.embed", "build.importer", "build.reboot",
-  "build.rebuild", "build.test_key", "build.tree_checks", "core.allocation_test",
+  "build.embed", "build.reboot",
+  "build.rebuild", "build.run_stamp", "build.test_key", "build.tree_checks", "core.allocation_test",
   "cosmic.store_handles_test", "doc.guides.internal.portable-runtime",
 }
 
@@ -177,7 +177,7 @@ local meta_readers <const>: {string:key_parts.MetaReaders} = {
     },
   },
   image_hash = {
-    keys = { "image_hash" }, readers = { "build.reboot" },
+    keys = { "image_hash" }, readers = { "build.reboot", "build.run_stamp" },
     carriers = { "build.importer_boot_test", "build.shared_parses_test", "build.test_key",
       "cosmic.store", "cosmic.web.assets_test" },
   },

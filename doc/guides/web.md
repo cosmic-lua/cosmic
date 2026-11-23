@@ -9,11 +9,11 @@ a request and a response that are plain data, routes, mounts, middleware
 as `function(Handler): Handler`, a test client, `StaticFiles`.
 
 This is the first of seven guides. It builds `tasks`, a small task list
-whose buttons talk to the server with htmx, from an empty directory: each
-file below is written there, and the block at the end of the guide runs the
+whose buttons talk to the server with htmx, from an empty directory. Each
+file below is written there. The block at the end of the guide runs the
 tests of the finished project, so what you read is what runs. The other
-guides each take one subject further, with a small project of their own, and
-can be read alone; the map at the end of this one lists them. The guide for
+guides each take one subject further, with a small project of their own,
+and can be read alone. The map at the end of this one lists them. The guide for
 a first project, `cosmic docs project`, covers the verbs this one
 uses.
 
@@ -143,9 +143,9 @@ path: the list is the row, once per task, or a line saying there are none.
 {{range .tasks}}{{. | pages.row.render}}{{else}}<li>nothing to do</li>{{end}}
 ```
 
-The panel is the form and the list together, because the server answers
-an `add` with the whole panel: the new row appears and the form is empty
-again, or shows what was wrong with it. `{{.rows}}` is
+The panel is the form and the list together, because the server responds
+to an `add` with the whole panel. The new row appears, and the form is
+empty again or shows what was wrong with it. `{{.rows}}` is
 markup the program already made safe (an [`Html.SafeHtml`]), taken as it is.
 
 ```teal file=pages/panel.tmpl
@@ -192,20 +192,20 @@ reason a later section shows.
 A route is data: a method, a pattern and a handler, built by [`Web.get`],
 [`Web.post`], [`Web.delete`] and the other method constructors. A pattern
 is literal segments, `:name` for one segment and `*name` for the rest.
-The most specific route wins whatever the order, a path is made canonical
-before any middleware sees it, a HEAD is answered by the GET, and a wrong
-method is a 405 with `Allow`. `name` is how a route is found again:
+The most specific route wins, whatever the order. A path is made canonical
+before any middleware sees it. The GET route responds to a HEAD, and a
+wrong method gets a 405 with `Allow`. `name` is how a route is found again:
 `app:url_for("toggle", { id = 3 })` and `req:url_for(...)` build the URL,
 escaping a parameter as a template does. A [`Web.mount`] puts routes under
 a prefix and, if it is named, prefixes theirs (`api:show`).
 
-A handler takes a [`Web.Request`] and answers a [`Web.Response`], the
+A handler takes a [`Web.Request`] and returns a [`Web.Response`], the
 server's own reply record. The constructors are [`Web.html`] (which takes
 only [`Html.SafeHtml`], never a string), [`Web.json`], [`Web.text`],
-[`Web.redirect`], [`Web.empty`], [`Web.stream`] and [`Web.problem`];
-[`Web.abort`] ends the request from anywhere with a status, and a handler
-that raises any other error is answered 500 with nothing of the fault
-shown (`debug = true` shows it, in development only). A response is a
+[`Web.redirect`], [`Web.empty`], [`Web.stream`] and [`Web.problem`].
+[`Web.abort`] ends the request from anywhere with a status. A handler
+that raises any other error gets a 500, with nothing of the fault shown
+(`debug = true` shows it, in development only). A response is a
 table, so [`Web.add_header`] appends a header line, as for a second
 `Set-Cookie`.
 
@@ -224,7 +224,7 @@ local class Store
   --- The id the next task takes.
   mut next_id: integer
 
-  --- Adds a task and answers it.
+  --- Adds a task and returns it.
   function add(self, title: string): data.Task
     local task: data.Task = { id = self.next_id, title = title, done = false }
     self.next_id = self.next_id + 1
@@ -267,10 +267,10 @@ end
 return Store
 ```
 
-The pages' routes follow. `home` answers a whole page or a fragment;
-`create`, `toggle` and `remove` answer what a button asked for. `create`
-reads the form with [`Input.form`], which answers a body it cannot decode
-with a status to pass on; [the forms guide](web-forms.md) shows routes that
+The pages' routes follow. `home` returns a whole page or a fragment.
+`create`, `toggle` and `remove` return what a button asked for. `create`
+reads the form with [`Input.form`], which returns a status to pass on for
+a body it cannot decode. [The forms guide](web-forms.md) shows routes that
 name the shape of their input and have it checked before the handler runs.
 
 ```teal file=site.tl
@@ -400,8 +400,8 @@ CSP modules do. `req.state` is an untyped table for scratch values only.
 [`cosmic.web.htmx`] is the server's half of htmx. [`Htmx.request`] reads
 the `HX-*` headers a request carries and [`Htmx.partial`] says whether it
 wants a fragment. They are client-controlled: use them to choose what to
-show, never to decide what is allowed. [`Htmx.page`] answers a fragment
-request with the fragment and any other with the whole page, and marks both
+show, never to decide what is allowed. [`Htmx.page`] returns the fragment for a
+fragment request and the whole page for any other, and marks both
 `Vary` on the headers that chose, so a cache keeps them apart. Here is the
 page around a fragment, with the head every page needs:
 
@@ -444,18 +444,18 @@ tags for the htmx the binary carries (and for its SSE extension, with
 `sse = true`, which [the live guide](web-live.md) uses), each with a
 subresource integrity value computed from the bytes served. The
 configuration is closed: no `eval`, no script in swapped HTML, no injected
-style, same-origin requests only, and a 422 is swapped in so a form's errors
-reach the page while other 4xx and 5xx responses are not. The files
+style, and same-origin requests only. A 422 is swapped in, so a form's
+errors reach the page. Other 4xx and 5xx responses are not swapped in. The files
 themselves are served under `/_web/` by every [`Web.app`], ahead of the
 routes, at paths that carry the version, so no route may live there. The
 head is Teal because `<link href>` and `<script src>` take no slot in a
 template.
 
-An answer says what htmx should do with it in headers. [`Htmx.apply`] writes
-them, and refuses a redirect to another origin since htmx navigates by
-script. After a form post, [`Htmx.redirect_to`] answers an htmx request with
-`HX-Redirect` and any other with an ordinary redirect. [`Htmx.stop_polling`]
-answers 286, which ends an `every 2s` poll.
+A response tells htmx in headers what to do with it. [`Htmx.apply`] writes
+them, and refuses a redirect to another origin, since htmx navigates by
+script. After a form post, [`Htmx.redirect_to`] returns an `HX-Redirect` for an
+htmx request, and an ordinary redirect for any other.
+[`Htmx.stop_polling`] returns a 286, which ends an `every 2s` poll.
 
 ```teal continue
 do
@@ -493,8 +493,8 @@ A page's own script works beside htmx, and a few things trip it:
   reads its `htmx-config`, at `DOMContentLoaded`. A `defer` script after
   htmx's tag runs before that. Add its listeners (`htmx:configRequest`,
   `htmx:beforeSwap`) there, as the script runs, with
-  `document.addEventListener`: one added later misses the page's first
-  requests, such as a `load` trigger's, and `htmx.on` adds it later, at
+  `document.addEventListener`. A listener added later misses the page's
+  first requests, such as a `load` trigger's. `htmx.on` adds it later, at
   `DOMContentLoaded`, after htmx's own start. Send no request
   from there, since htmx's own defaults, not the page's configuration,
   would still hold.
@@ -506,7 +506,7 @@ A page's own script works beside htmx, and a few things trip it:
 - `htmx.trigger(element, name)` dispatches the event at once, but an
   element's `hx-trigger` hears it only after htmx has taken in that
   element, at `DOMContentLoaded` or after a swap.
-- A URL that answers both a fragment and a whole page varies on the
+- A URL that returns both a fragment and a whole page varies on the
   headers that chose: [`Htmx.page`] marks `Vary: HX-Request,
   HX-History-Restore-Request, HX-Boosted`. A service worker's
   `cache.match` keeps the two apart unless it is passed `ignoreVary`.
@@ -664,18 +664,23 @@ end
 
 Run it with `TASKS_KEYS=$(cosmic -e 'print(require("cosmic.web.secret").generate())') cosmic dev.tl`.
 Because the supervisor sets `COSMIC_WEB_DEV=1` the app, built by
-[`Dev.app`], is in development mode: it shows a fault's stack, serves
-`static/` from disk with `Cache-Control: no-store` (a program run as
-`cosmic cmd/<name>/main.tl` lays its own `cmd/<name>/static/` over it, as
-its built executable does; `app.tl` is no program's main and has none), adds
-a script to every
-page that reloads the browser when the process is replaced and swaps the
-stylesheets when only a `.css` file changed, and carries the page's CSP
-nonce on that script's tag. An app that shows source paths to whoever asks
-serves the loopback only: [`Web.serve`] refuses a development app a listener
-elsewhere, a socket file (how a proxy reaches an app) and a `trusted_proxy`, and the app answers only `localhost`,
-`127.0.0.1` and `[::1]` unless `trusted_hosts` names others, so a page on
-another site cannot reach it by a name that resolves to the loopback.
+[`Dev.app`], is in development mode:
+
+- It shows a fault's stack.
+- It serves `static/` from disk with `Cache-Control: no-store`. A program
+  run as `cosmic cmd/<name>/main.tl` lays its own `cmd/<name>/static/`
+  over it, as its built executable does. `app.tl` is no program's main,
+  and has no `cmd/<name>/static/`.
+- It adds a script to every page. The script reloads the browser when the
+  process is replaced, and swaps the stylesheets when only a `.css` file
+  changed. The script's tag carries the page's CSP nonce.
+
+An app that shows source paths to whoever asks serves the loopback only.
+[`Web.serve`] refuses a development app a listener elsewhere, a socket
+file (how a proxy reaches an app) and a `trusted_proxy`. The app responds
+only to `localhost`, `127.0.0.1` and `[::1]`, unless `trusted_hosts` names
+others, so a page on another site cannot reach it by a name that resolves
+to the loopback.
 
 ## testing
 
@@ -688,10 +693,10 @@ leaves the body unread in `reply.stream`); [`Web.with_server`] serves the
 app on the loopback for what only a socket shows, such as the server's
 body limit.
 
-A test of the app does not read `static/`: a program that has a `cmd/`
-main takes `/static` from the executable's embedded files, which a test
-does not have, so `Tasks.app` takes the files as `assets` and the test gives
-it [`Assets.memory`]. [`Assets.directory`] reads a directory and
+A test of the app does not read `static/`. A program that has a `cmd/`
+main takes `/static` from the executable's embedded files, and a test
+does not have them. So `Tasks.app` takes the files as `assets`, and the
+test gives it [`Assets.memory`]. [`Assets.directory`] reads a directory and
 [`Assets.embedded`] the executable's own.
 
 The tests of the finished app go through a page for its tokens as a

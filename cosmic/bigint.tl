@@ -2,10 +2,10 @@
 --- protocols built on it: Diffie-Hellman, SRP, RSA by hand.
 ---
 --- A number is a big-endian byte string, as those protocols send and
---- hash it. Leading zero bytes change nothing, and "" is zero. An answer
+--- hash it. Leading zero bytes change nothing, and "" is zero. A result
 --- is the shortest such string: no leading zero byte, and one zero byte
 --- for zero. [`Bigint.pad`] gives the fixed width a protocol hashes. The
---- functions for secrets answer at a fixed width themselves.
+--- functions for secrets return a string of fixed width themselves.
 ---
 --- - [`Bigint.powmod`] is modular exponentiation.
 --- - Four functions stand beside it in a protocol's formulas: they
@@ -17,7 +17,7 @@
 ---   [`Bigint.secret_mulmod`], [`Bigint.secret_addmod`],
 ---   [`Bigint.secret_submod`] and [`Bigint.secret_mod`] modulo a public
 ---   number, [`Bigint.secret_mul`] and [`Bigint.secret_add`] with no
----   modulus. Each answers a [`Bigint.Secret`], which no function that
+---   modulus. Each returns a [`Bigint.Secret`], which no function that
 ---   shows a value takes: the checker refuses a secret passed to
 ---   [`Bigint.mul`], and [`Bigint.reveal`] says where one leaves.
 --- - [`Bigint.compare`] orders two numbers.
@@ -42,18 +42,19 @@
 --- exponent of one string length: leading zero bytes count, so pass a
 --- secret exponent at the fixed width its protocol gives it. Two things
 --- still show: a check of the exponent's size reads past its leading
---- zero 8-byte words, a few instructions each, and an exponent of no
---- bytes is answered at once. The library has no blinding to ask for.
+--- zero 8-byte words, a few instructions each, and a call with an
+--- exponent of no bytes returns at once. The library has no blinding to
+--- ask for.
 --- Its modulus is public: the setup that depends on it divides. Its
 --- base is public too: it is compared with the modulus, and reduced by
 --- a division when it is not below it. [`Bigint.secret_powmod`] is the
---- exponentiation that hides its base and its answer's size as well.
+--- exponentiation that hides its base and its result's size as well.
 ---
 --- The seven functions for secrets hide the values of their operands,
 --- the modulus excepted. Each does the same work for every operand of one
---- string length, leading zero bytes counted, and answers a string
---- whose length the arguments' lengths fix, so neither the time nor the
---- answer's length says anything of a value. Between reading the bytes
+--- string length, leading zero bytes counted, and returns a string
+--- whose length the arguments' lengths fix. So neither the time nor the
+--- result's length says anything of a value. Between reading the bytes
 --- and writing them, they call only what the library documents as
 --- constant in time in its operands' values (a multiplication by one
 --- word added in, a subtraction, Montgomery's multiplication, a
@@ -69,7 +70,7 @@
 --- Nothing else is hidden. The four functions that stand beside
 --- [`Bigint.powmod`], and [`Bigint.compare`], take a time that depends
 --- on their operands' values. The length of a shortest
---- answer shows how many leading zero bytes its number had, and a
+--- result shows how many leading zero bytes its number had, and a
 --- secret's bytes are an ordinary string, which nothing wipes. Compare
 --- secrets with [`cosmic.hash.equal`] over revealed strings of one
 --- width, not [`Bigint.compare`].

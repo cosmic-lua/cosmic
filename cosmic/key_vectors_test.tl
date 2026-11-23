@@ -1,9 +1,51 @@
---- Proves [`cosmic.sign`]'s Ed25519 against the test vectors of RFC 8032
+--- Proves [`cosmic.key`]'s Ed25519 against the test vectors of RFC 8032
 --- section 7.1, and that a signature, a message or a key changed by a
 --- bit, or malformed, is refused with false rather than a raise.
 
 local Codec = require("cosmic.codec")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
+
+--- The operations of each signing algorithm on bytes, through
+--- [`cosmic.key`]: the shape the vectors are written in. A secret that
+--- [`Key.secret`] refuses raises its Failure; a public key that
+--- [`Key.public`] refuses verifies nothing.
+local record Sign
+end
+
+local function secret_key(alg: Key.Alg, bytes: string): Key.Secret
+  return assert(Key.secret(alg, bytes))
+end
+
+local function verify(alg: Key.Alg, public: string, message: string, signature: string): boolean
+  local key, _ = Key.public(alg, public)
+  return key ~= nil and key:verify(message, signature)
+end
+
+function Sign.ed25519_public(seed: string): string
+  return secret_key("ed25519", seed).public.bytes
+end
+function Sign.ed25519(seed: string, message: string): string
+  return secret_key("ed25519", seed):sign(message)
+end
+function Sign.ed25519_verify(public: string, message: string, signature: string): boolean
+  return verify("ed25519", public, message, signature)
+end
+function Sign.p256_secret(): string return Key.generate("p256").secret end
+function Sign.p256_public(s: string): string return secret_key("p256", s).public.bytes end
+function Sign.p256(s: string, message: string): string
+  return secret_key("p256", s):sign(message)
+end
+function Sign.p256_verify(public: string, message: string, signature: string): boolean
+  return verify("p256", public, message, signature)
+end
+function Sign.rsa_secret(bits?: integer): string
+  return Key.generate("rsa", { bits = bits }).secret
+end
+function Sign.rsa_public(s: string): string return secret_key("rsa", s).public.bytes end
+function Sign.rsa(s: string, message: string): string return secret_key("rsa", s):sign(message) end
+function Sign.rsa_verify(public: string, message: string, signature: string): boolean
+  return verify("rsa", public, message, signature)
+end
 
 local record Vector
   name: string
@@ -246,9 +288,9 @@ end
 local function test_a_seed_of_the_wrong_length_raises()
   for _, seed in ipairs({ "", string.rep("s", 31), string.rep("s", 33), string.rep("s", 64) }) do
     local derived, why = pcall(Sign.ed25519_public, seed)
-    assert(not derived and tostring(why):find("sign: an Ed25519 seed is 32 bytes", 1, true) ~= nil, tostring(why))
+    assert(not derived and tostring(why):find("key: an Ed25519 seed is 32 bytes", 1, true) ~= nil, tostring(why))
     local signed, trouble = pcall(Sign.ed25519, seed, "message")
-    assert(not signed and tostring(trouble):find("sign: an Ed25519 seed is 32 bytes", 1, true) ~= nil,
+    assert(not signed and tostring(trouble):find("key: an Ed25519 seed is 32 bytes", 1, true) ~= nil,
       tostring(trouble))
   end
 end
@@ -339,16 +381,16 @@ end
 local function test_a_p256_secret_of_the_wrong_length_or_out_of_range_raises()
   for _, secret in ipairs({ "", string.rep("s", 31), string.rep("s", 33) }) do
     local derived, why = pcall(Sign.p256_public, secret)
-    assert(not derived and tostring(why):find("sign: a P-256 secret is 32 bytes", 1, true) ~= nil, tostring(why))
+    assert(not derived and tostring(why):find("key: a P-256 secret is 32 bytes", 1, true) ~= nil, tostring(why))
     local signed, trouble = pcall(Sign.p256, secret, "message")
-    assert(not signed and tostring(trouble):find("sign: a P-256 secret is 32 bytes", 1, true) ~= nil,
+    assert(not signed and tostring(trouble):find("key: a P-256 secret is 32 bytes", 1, true) ~= nil,
       tostring(trouble))
   end
   for _, secret in ipairs({ zero, bytes(p256_order), string.rep("\xff", 32) }) do
     local derived, why = pcall(Sign.p256_public, secret)
-    assert(not derived and tostring(why):find("sign: not a P-256 secret", 1, true) ~= nil, tostring(why))
+    assert(not derived and tostring(why):find("key: not a P-256 secret", 1, true) ~= nil, tostring(why))
     local signed, trouble = pcall(Sign.p256, secret, "message")
-    assert(not signed and tostring(trouble):find("sign: not a P-256 secret", 1, true) ~= nil, tostring(trouble))
+    assert(not signed and tostring(trouble):find("key: not a P-256 secret", 1, true) ~= nil, tostring(trouble))
   end
   -- n - 1, the largest secret there is, is taken.
   local largest = bytes(p256_order:sub(1, 62) .. "50")
@@ -531,7 +573,7 @@ end
 local function test_a_new_rsa_secret_of_other_bits_than_2048_3072_or_4096_raises()
   for _, bits in ipairs({ 0, 1024, 2047, 2049, 8192 }) do
     local drawn, why = pcall(Sign.rsa_secret, bits)
-    assert(not drawn and tostring(why):find("sign: a new RSA key is 2048, 3072 or 4096 bits", 1, true) ~= nil,
+    assert(not drawn and tostring(why):find("key: a new RSA key is 2048, 3072 or 4096 bits", 1, true) ~= nil,
       tostring(why))
   end
 end
@@ -565,14 +607,14 @@ local function test_an_rsa_secret_that_is_none_or_of_too_few_bits_raises()
   for _, secret in ipairs({ "", "not a key", bytes(rsa_public), bytes(rsa_secret):sub(1, 600),
       bytes(rsa_secret) .. "\0" }) do
     local derived, why = pcall(Sign.rsa_public, secret)
-    assert(not derived and tostring(why):find("sign: not an RSA secret", 1, true) ~= nil, tostring(why))
+    assert(not derived and tostring(why):find("key: not an RSA secret", 1, true) ~= nil, tostring(why))
     local signed, trouble = pcall(Sign.rsa, secret, "message")
-    assert(not signed and tostring(trouble):find("sign: not an RSA secret", 1, true) ~= nil, tostring(trouble))
+    assert(not signed and tostring(trouble):find("key: not an RSA secret", 1, true) ~= nil, tostring(trouble))
   end
   local derived, why = pcall(Sign.rsa_public, bytes(rsa_1024_secret))
-  assert(not derived and tostring(why):find("sign: an RSA key is from 2048 to 4096 bits", 1, true) ~= nil,
+  assert(not derived and tostring(why):find("key: an RSA key is from 2048 to 4096 bits", 1, true) ~= nil,
     tostring(why))
   local signed, trouble = pcall(Sign.rsa, bytes(rsa_1024_secret), "message")
-  assert(not signed and tostring(trouble):find("sign: an RSA key is from 2048 to 4096 bits", 1, true) ~= nil,
+  assert(not signed and tostring(trouble):find("key: an RSA key is from 2048 to 4096 bits", 1, true) ~= nil,
     tostring(trouble))
 end

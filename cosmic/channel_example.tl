@@ -9,8 +9,9 @@ local Poll = require("cosmic.poll")
 local Example = {} -- checked: literal_needs_type
 
 --- A producer task and a consumer loop: the consumer takes jobs in the
---- order they were queued until the producer closes the queue, which
---- ends with the word [`Channel.CLOSED`] once the queue is drained.
+--- order they were queued until the producer closes the queue: once it
+--- is drained, `receive` answers false. That is the stream's end, not a
+--- failure.
 function Example.new()
   local taken: mut {string} = {}
   Poll.run(function()
@@ -21,11 +22,8 @@ function Example.new()
     end)
     while true do
       local job, why = queue:receive()
-      if job == nil then
-        print(why)
-        assert(why == Channel.CLOSED)
-        break
-      end
+      if job == nil then error(why) end
+      if job == false then break end
       taken[#taken + 1] = job
     end
   end)
@@ -34,22 +32,25 @@ function Example.new()
 end
 
 --- A full "block" queue makes `send` wait for room, so a fast producer
---- is slowed to its consumer's pace; `try_send` and a timeout say
---- no instead of waiting.
+--- is slowed to its consumer's pace; `try_send` and a timeout answer
+--- nil and a Failure instead of waiting.
 function Example.send()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 1 })
     assert(queue:send(1))
-    local ok, why = queue:try_send(2)
-    print(ok, why)
-    assert(not ok and why == Channel.FULL)
-    ok, why = queue:send(2, Clock.ms(5))
-    print(ok, why)
-    assert(not ok and why == Poll.TIMEOUT)
+    local tried, full = queue:try_send(2)
+    print(tried, full)
+    assert(tried == nil and full.message == Channel.FULL)
+    local sent, late = queue:send(2, Clock.ms(5))
+    print(sent, late)
+    assert(sent == nil and late.kind == "timeout")
     local producer = Poll.spawn(function() assert(queue:send(3)) end)
-    assert(queue:receive() == 1)
+    local first, _ = queue:receive()
+    assert(first == 1)
     assert(producer:join())
-    print(queue:len(), queue:receive())
+    local held = queue:len()
+    local last, _ = queue:receive()
+    print(held, last)
   end)
 end
 
@@ -60,25 +61,26 @@ function Example.dropped()
   Poll.run(function()
     local queue: Channel.Queue<integer> = Channel.new({ capacity = 3, overflow = "drop_oldest" })
     for i = 1, 10 do assert(queue:send(i)) end
-    local oldest = queue:receive()
+    local oldest, _ = queue:receive()
     print(queue:len(), queue:dropped(), oldest)
     assert(queue:len() == 2 and queue:dropped() == 7 and oldest == 8)
   end)
 end
 
 --- A "close" queue cuts off a consumer that falls behind: the send that
---- finds it full closes it, the consumer takes what was queued, and
---- `closed` says why nothing more comes.
+--- finds it full closes it and answers false, the consumer takes what
+--- was queued, and then `receive` answers false.
 function Example.closed()
   Poll.run(function()
     local queue: Channel.Queue<string> = Channel.new({ capacity = 1, overflow = "close" })
     assert(queue:send("first"))
-    local ok, why = queue:send("second")
-    print(ok, why, queue:closed())
-    assert(not ok and why == Channel.CLOSED and queue:closed())
-    assert(queue:receive() == "first")
-    local item, reason = queue:receive()
-    assert(item == nil and reason == Channel.CLOSED)
+    local sent, _ = queue:send("second")
+    print(sent, queue:closed())
+    assert(sent == false and queue:closed())
+    local first, _ = queue:receive()
+    assert(first == "first")
+    local after, _ = queue:receive()
+    assert(after == false)
   end)
 end
 

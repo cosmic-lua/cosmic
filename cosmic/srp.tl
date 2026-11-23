@@ -26,13 +26,13 @@
 --- has checked that, sends its own.
 ---
 --- Numbers (a prime, a public value, a verifier) are big-endian byte
---- strings, as in [`cosmic.bigint`]. One that a function here answers is
+--- strings, as in [`cosmic.bigint`]. One that a function here returns is
 --- as wide as the group's prime, zero bytes on the left. One that a peer
 --- sent may have any number of leading zero bytes. An identity, a
 --- password and a salt are bytes, hashed as given: a caller that takes
 --- text from a person settles its encoding and normal form first.
 ---
---- What a correct program can meet answers nil and why: a peer's public
+--- What a correct program can meet returns nil and why: a peer's public
 --- value that is not a number from 1 to the prime less 1, a scrambling
 --- value of zero, a proof that is wrong. An argument that is the
 --- caller's own mistake raises (a group whose prime is even or, unless

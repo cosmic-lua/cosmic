@@ -3,9 +3,11 @@
 --- client writes is answered before it reads.
 
 local Client = require("cosmic.mcp.client")
+local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
+local Poll = require("cosmic.poll")
 local Server = require("cosmic.mcp.server")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -283,11 +285,11 @@ local class PipeWriter is Stream.Writer
   function abort(self): boolean, string return true, "" end
 end
 
-local function piped(server: Server.Instance): Client.Session
+local function piped(server: Server.Instance, opts?: Client.Options): Client.Session
   local pipe: Pipe = { pending = "" }
   local reader: PipeReader = { pipe = pipe, skip = nil }
   local writer: PipeWriter = { pipe = pipe, server = server }
-  return Client.stdio(reader, writer)
+  return Client.stdio(reader, writer, opts)
 end
 
 --- A server of the tool `measure`, which answers `answer`, promising `promised` where given.
@@ -415,4 +417,320 @@ local function test_a_main_refuses_a_line_it_cannot_serve()
   assert(s:main({ "--http", "127.0.0.1:0", "--anyone", "--path", "mcp" }) == 2, "a path starts with /")
   assert(s:main({ "--http", "127.0.0.1:0", "--http", "127.0.0.1:1", "--anyone" }) == 2, "--http twice")
   assert(s:main({ "--path", "/x" }) == 2, "--path is for --http")
+end
+
+--- A tool that tells its progress `steps` times, a pause apart, and notes in `seen` when it finds itself cancelled.
+local function stepping(name: string, steps: integer, seen: mut {string}): Server.ToolSpec
+  return {
+    tool = { name = name, inputSchema = Mcp.object_schema({}) },
+    call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      for i = 1, steps do
+        call.progress(i, steps)
+        call.progress(i - 1, steps, "backwards, dropped")
+        local ok, why = Poll.delay(Clock.ms(10))
+        if not ok or call.cancelled() then
+          local said = "cancelled: " .. tostring(why)
+          seen[#seen + 1] = said
+          return nil, Failure.new("cancelled")
+        end
+      end
+      return Mcp.result({ "done" })
+    end,
+  }
+end
+
+local function stepper(seen: mut {string}): Server.Instance
+  return Server.new{ info = { name = "steps", version = "1" },
+    tools = { stepping("short", 2, seen), stepping("long", 1000, seen) } }
+end
+
+local function test_over_stdio_progress_comes_before_the_answer_and_a_cancel_ends_a_call()
+  local seen: mut {string} = {}
+  local with_token = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"short","arguments":{},' ..
+    '"_meta":{"progressToken":"t","io.modelcontextprotocol/protocolVersion":"2026-07-28",' ..
+    '"io.modelcontextprotocol/clientCapabilities":{}}}}'
+  local cancel = '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2,"reason":"enough"}}'
+  local input = Stream.from_string(with_token .. "\n" .. request(2, "tools/call", '"name":"long"') .. "\n" .. cancel .. "\n" ..
+      request(3, "tools/call", '"name":"short"') .. "\n")
+  local output = Stream.collect()
+  assert(stepper(seen):serve_stdio(input, output))
+  local said: mut {{string: Json.Value}} = {}
+  for line in output:result():gmatch("[^\n]+") do said[#said + 1] = decoded(line) end
+  local kinds: mut {string} = {}
+  for _, m in ipairs(said) do
+    kinds[#kinds + 1] = if m["method"] == "notifications/progress" then "p" .. tostring(object(m["params"])["progressToken"]) else
+      "r" .. tostring(m["id"]) end
+  end
+  local order = table.concat(kinds, " ")
+  -- Two notices of progress for request 1 before its answer, none for 3, which asked for none; 2 is not answered.
+  assert(order:find("pt pt r1", 1, true) ~= nil and order:find("r2", 1, true) == nil and order:find("r3", 1, true) ~= nil, order)
+  assert(#seen == 1, table.concat(seen, "; "))
+end
+
+--- One direction of a pipe in a run: what is written waits for a read.
+local record Duct
+  mut held: string
+  mut closed: boolean
+  notifier: Poll.Notifier
+end
+
+local class DuctReader is Stream.Reader
+  duct: Duct
+
+  function read(self, _max?: integer): string?, string
+    while self.duct.held == "" do
+      if self.duct.closed then return nil, "" end
+      local ok, why = self.duct.notifier:wait()
+      if not ok then return nil, why.message end
+    end
+    local out = self.duct.held
+    self.duct.held = ""
+    return out, ""
+  end
+
+  function close(self): boolean, string return true, "" end
+end
+
+local class DuctWriter is Stream.Writer
+  duct: Duct
+
+  function write(self, data: string): boolean, string
+    self.duct.held = self.duct.held .. data
+    self.duct.notifier:notify_all()
+    return true, ""
+  end
+
+  function close(self): boolean, string
+    self.duct.closed = true
+    self.duct.notifier:notify_all()
+    return true, ""
+  end
+
+  function abort(self): boolean, string return self:close() end
+end
+
+local function duct(): Duct
+  return { held = "", closed = false, notifier = Poll.notifier() }
+end
+
+--- The client hears progress over stdio as it comes, and a cancelled caller tells the server.
+local function test_a_stdio_client_hears_progress_and_cancels()
+  local seen: mut {string} = {}
+  Poll.run(function()
+    local up, down = duct(), duct()
+    local server_in: DuctReader = { duct = up, skip = nil }
+    local server_out: DuctWriter = { duct = down }
+    local served = Poll.spawn(function()
+      assert(stepper(seen):serve_stdio(server_in, server_out))
+    end)
+    local client_in: DuctReader = { duct = down, skip = nil }
+    local client_out: DuctWriter = { duct = up }
+    local session = Client.stdio(client_in, client_out)
+    local heard: mut {number} = {}
+    local done = assert(session:call("short", {}, { on_progress = function(p: Mcp.Progress)
+      heard[#heard + 1] = p.progress
+    end }))
+    assert(assert(done.content[1]).text == "done" and #heard == 2 and heard[2] == 2, tostring(#heard))
+    local caller = Poll.spawn(function()
+      local none, why = session:call("long")
+      assert(none == nil and tostring(why):find("cancelled", 1, true) ~= nil, tostring(why))
+    end)
+    assert(Poll.delay(Clock.ms(30)))
+    caller:cancel()
+    assert(caller:join(Clock.seconds(20)))
+    assert(session:close())
+    assert(served:join(Clock.seconds(20)))
+  end)
+  assert(#seen == 1, table.concat(seen, "; "))
+end
+
+--- Waits in a run until `ready` answers true, a millisecond at a time, for at most 20 seconds.
+local function until_true(ready: function(): boolean)
+  for _ = 1, 20000 do
+    if ready() then return end
+    assert(Poll.delay(Clock.ms(1)))
+  end
+  error("waited 20 seconds")
+end
+
+--- A subscription over stdio hears the acknowledgment first, then a notice of each change it asked for, while
+--- other calls of the session go on. The server's end answers it true; a cancelled one tells the server, and the
+--- session goes on after it.
+local function test_a_stdio_subscription_hears_changes_while_calls_go_on()
+  Poll.run(function()
+    local up, down = duct(), duct()
+    local server_in: DuctReader = { duct = up, skip = nil }
+    local server_out: DuctWriter = { duct = down }
+    local server = adder()
+    local served = Poll.spawn(function()
+      assert(server:serve_stdio(server_in, server_out))
+    end)
+    local client_in: DuctReader = { duct = down, skip = nil }
+    local client_out: DuctWriter = { duct = up }
+    local session = Client.stdio(client_in, client_out)
+    local agreed: Client.Subscription? = nil
+    local notices: mut {string} = {}
+    local ended: boolean? = nil
+    local listener = Poll.spawn(function()
+      local ok, why = session:listen({ tools = true, uris = { "note://hello", "note://other" } },
+        function(n: Client.Notice)
+          -- A callback may call the session: its request is read for while the subscription's waits.
+          if n.kind == "updated" then assert(session:read(assert(n.uri))) end
+          notices[#notices + 1] = n.kind .. " " .. (n.uri or "")
+        end,
+        function(a: Client.Subscription) agreed = a end)
+      assert(ok, tostring(why))
+      ended = ok
+    end)
+    until_true(function(): boolean return agreed ~= nil end)
+    local a = assert(agreed)
+    assert(a.tools == true and a.prompts == false and #assert(a.uris) == 2)
+    local said = assert(session:call("add", { a = 1, b = 2 }))
+    assert(assert(said.content[1]).text == "3", "a call goes on while the subscription waits")
+    local caps = assert(session:discover()).capabilities
+    assert(assert(caps.tools).listChanged == true and assert(caps.resources).subscribe == true, "it offers what it tells of")
+    server:update({ prompts = {} })
+    server:update({ tools = {} })
+    server:resource_updated("note://elsewhere")
+    server:resource_updated("note://hello")
+    until_true(function(): boolean return #notices >= 2 end)
+    server:end_subscriptions()
+    assert(listener:join(Clock.seconds(20)))
+    assert(ended == true)
+    assert(table.concat(notices, "|") == "tools |updated note://hello", table.concat(notices, "|"))
+    local acked = false
+    local second = Poll.spawn(function()
+      local ok, why = session:listen({ prompts = true }, function(_: Client.Notice) end,
+        function(_: Client.Subscription) acked = true end)
+      assert(not ok and why.kind == "cancelled", tostring(why))
+    end)
+    until_true(function(): boolean return acked end)
+    second:cancel()
+    assert(second:join(Clock.seconds(20)))
+    assert(session:close())
+    assert(served:join(Clock.seconds(20)))
+  end)
+end
+
+--- A request whose id is one a running request has is refused, as a cancel could not tell the two apart.
+local function test_over_stdio_a_running_id_is_not_taken_again()
+  local seen: mut {string} = {}
+  local cancel = '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}'
+  local input = Stream.from_string(request(1, "tools/call", '"name":"long"') .. "\n" ..
+      request(1, "tools/call", '"name":"short"') .. "\n" .. cancel .. "\n")
+  local output = Stream.collect()
+  assert(stepper(seen):serve_stdio(input, output))
+  local said = decoded(output:result():match("[^\n]+"))
+  assert(said["id"] == 1 and object(said["error"])["code"] == Mcp.INVALID_REQUEST, output:result())
+  assert(#seen == 1, "the first is still the one cancelled")
+end
+
+--- A tool that asks the person for a name, keeps a count over the rounds, and greets them.
+local function greeter(rounds: mut {integer}): Server.Instance
+  return Server.new{
+    info = { name = "greeter", version = "1" },
+    tools = {
+      {
+        tool = { name = "greet", inputSchema = Mcp.object_schema({}) },
+        call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+          local round = (math.tointeger(tonumber(call.state or "0")) or 0) + 1
+          rounds[#rounds + 1] = round
+          call.keep(tostring(round))
+          local answer, why = call.elicit("who", Mcp.elicit_form("Who are you?",
+            Mcp.object_schema({ name = { type = "string", minLength = 1 } }, { "name" })))
+          if answer == nil then return nil, why end
+          if answer.action ~= "accept" then
+            return Mcp.result({ "no name, round " .. tostring(round) })
+          end
+          local name = assert(answer.content)["name"]
+          return Mcp.result({ "hello " .. tostring(name) .. ", round " .. tostring(round) })
+        end,
+      },
+    },
+  }
+end
+
+--- A tool asks for input: the client's `elicit` answers, and the call is asked again with the answer and the
+--- state the handler kept. An answer that does not hold to the form is asked for again; a client that gives no
+--- `elicit` fails the call, and one that declares nothing is never asked.
+local function test_a_tool_asks_the_person_and_the_client_answers()
+  local rounds: mut {integer} = {}
+  local asked: mut {string} = {}
+  local answers: {Mcp.Elicited} = { { action = "accept", content = { name = "" } }, { action = "accept", content = { name = "Ada" } } }
+  local session = piped(greeter(rounds), { elicit = function(e: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+    asked[#asked + 1] = e.mode .. ": " .. e.message
+    return assert(answers[#asked])
+  end })
+  local said = assert(session:call("greet"))
+  assert(assert(said.content[1]).text == "hello Ada, round 3", assert(said.content[1]).text)
+  assert(#asked == 2 and asked[1] == "form: Who are you?", table.concat(asked, "; "))
+  local plain = piped(greeter(rounds))
+  local refused = assert(plain:call("greet"))
+  local text = assert(assert(refused.content[1]).text)
+  assert(text:find("cannot be asked", 1, true) ~= nil and refused.isError == true, text)
+end
+
+--- The state a handler keeps is sealed: changed, or sent for another tool, it is refused.
+local function test_kept_state_is_sealed_to_its_request()
+  local rounds: mut {integer} = {}
+  local server = greeter(rounds)
+  local caps = '"io.modelcontextprotocol/clientCapabilities":{"elicitation":{}}'
+  local first = decoded(server:answer('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet",' ..
+      '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' .. caps .. '}}}').body)
+  local r = object(first["result"])
+  assert(r["resultType"] == "input_required" and object(r["inputRequests"])["who"] ~= nil)
+  local state = r["requestState"]
+  assert(state is string)
+  local function retry(sealed: string, name: string, arguments?: string): {string: Json.Value}
+    return decoded(server:answer('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":' .. Json.quote(name) ..
+        (if arguments ~= nil then ',"arguments":' .. arguments else "" end) ..
+        ',"requestState":' .. Json.quote(sealed) .. ',"inputResponses":{"who":{"action":"decline"}},' ..
+        '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' .. caps .. '}}}').body)
+  end
+  local good = object(retry(state, "greet")["result"])
+  local block = object(list(good["content"])[1])
+  assert(block["text"] == "no name, round 2", tostring(block["text"]))
+  local flipped = state:sub(1, -2) .. (if state:sub(-1) == "A" then "B" else "A" end)
+  local bad = object(retry(flipped, "greet")["error"])
+  assert(bad["code"] == Mcp.INVALID_PARAMS and tostring(bad["message"]):find("requestState", 1, true) ~= nil)
+  local elsewhere = object(retry(state, "other")["error"])
+  assert(elsewhere["code"] == Mcp.INVALID_PARAMS, "a state is for the tool it was kept by")
+  local changed = object(retry(state, "greet", '{"to":"mallory"}')["error"])
+  assert(changed["code"] == Mcp.INVALID_PARAMS, "a state is for the arguments it was kept with")
+  assert(rounds[2] == 2, "the second round read the first round's state")
+end
+
+--- A cancel is read while every place is taken: 33 long calls, then a cancel of each, end at once.
+local function test_a_cancel_is_read_while_the_server_is_full()
+  local seen: mut {string} = {}
+  local text: mut {string} = {}
+  for i = 1, 33 do text[#text + 1] = request(i, "tools/call", '"name":"long"') end
+  for i = 1, 33 do
+    text[#text + 1] = '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":' .. tostring(i) .. "}}"
+  end
+  local output = Stream.collect()
+  assert(stepper(seen):serve_stdio(Stream.from_string(table.concat(text, "\n") .. "\n"), output))
+  assert(output:result() == "", output:result())
+  -- The 33rd starts once one of the first ends, or not at all where its cancel is read first.
+  assert(#seen == 32 or #seen == 33, tostring(#seen))
+end
+
+local class FailingWriter is Stream.Writer
+  function write(self, _: string): boolean, string return false, "the pipe is broken" end
+  function close(self): boolean, string return true, "" end
+  function abort(self): boolean, string return true, "" end
+end
+
+--- A write that fails ends the server, though its input has nothing more to say and never ends.
+local function test_a_failed_write_ends_the_server_while_its_input_waits()
+  local seen: mut {string} = {}
+  Poll.run(function()
+    local up = duct()
+    local input: DuctReader = { duct = up, skip = nil }
+    local broken: FailingWriter = {}
+    local feeder: DuctWriter = { duct = up }
+    assert(feeder:write(request(1, "tools/call", '"name":"short"') .. "\n"))
+    local ok, why = stepper(seen):serve_stdio(input, broken)
+    assert(not ok and tostring(why):find("broken", 1, true) ~= nil, tostring(why))
+  end)
 end

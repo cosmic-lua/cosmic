@@ -934,6 +934,52 @@ local function test_a_parameter_with_two_interface_bounds_meets_an_interface_of_
   assert(e.code == "bound_unmet" and e.fix == "bound `T` by `Aged` where it is declared (`<T is Aged & Titled>`)", e.fix)
 end
 
+local SOME_HEAD <const> = "local function first<T is Some>(xs: {T}): (T) | (nil, string)\n" ..
+  "  local x = xs[1]\n  if x == nil then\n    return nil, \"empty\"\n  end\n  return x\nend\n" ..
+  "local function wrap<T is Some>(x: T): T\n  return x\nend\n"
+
+--- A type parameter bounded by `Some` takes only types that are never nil, so a value of it tells one list of a call
+--- from another that has `nil` there; any other bound does too, since none holds `nil`.
+local function test_a_type_parameter_bounded_by_some_is_never_nil()
+  Programs.stands(SOME_HEAD .. "local v, why = first({ 3 })\nif v == nil then\n  error(why)\nend\n" ..
+      "local w, _ = first({ { \"a\" } })\nprint(v + 1, w ~= nil, wrap(\"s\"))\n", "4\ttrue\ts")
+  -- A closed source answers `false`, not a failure, beside its values.
+  Programs.stands("local function next_of<T is Some>(xs: {T}, i: integer): (T | false) | (nil, string)\n" ..
+      "  local x = xs[i]\n  if x == nil then\n    return false\n  end\n  return x\nend\n" ..
+      "local x, _ = next_of({ 7 }, 1)\nlocal y, _ = next_of({ 7 }, 2)\nprint(x, y)\n", "7\tfalse")
+  -- A generic body tells the lists apart by its own bounded type parameter.
+  Programs.stands(SOME_HEAD .. "local function both<U is Some>(xs: {U}): (U) | (nil, string)\n" ..
+      "  local v, why = first(xs)\n  if v == nil then\n    return nil, why\n  end\n  return v\nend\n" ..
+      "local a, _ = both({ 1 })\nlocal none: {string} = {}\nlocal b, why = both(none)\nprint(a, b, why)\n", "1\tnil\tempty")
+  Programs.stands("local function key_of<K is Key>(k: K): (K) | (nil, string)\n  return k\nend\n" ..
+      "local k, _ = key_of(\"a\")\nprint(k)\n", "a")
+  -- A method of a bounded generic record is defined with the record's bound.
+  Programs.stands("local record Box<T is Some>\n  v: T\n  get: function(self: Box<T>): (T) | (nil, string)\nend\n" ..
+      "function Box.get<T is Some>(self: Box<T>): (T) | (nil, string)\n  return self.v\nend\n" ..
+      "local function boxed<T is Some>(v: T): Box<T>\n  local b: Box<T> = { v = v, get = Box.get }\n  return b\nend\n" ..
+      "local v, _ = boxed(3):get()\nprint(v)\n", "3")
+  -- A type that may be nil meets no `Some`, nor does a type parameter with no bound.
+  Programs.refused(SOME_HEAD .. "local function f(m: integer?)\n  print(wrap(m))\nend\n", "bound_unmet")
+  local passed = Programs.run(SOME_HEAD .. "local function pass<U>(u: U): U\n  return wrap(u)\nend\n")
+  local e = Array.at(passed.errors, 1)
+  assert(e.code == "bound_unmet" and e.fix == "bound `U` by `Some` where it is declared (`<U is Some>`)", e.fix)
+end
+
+--- A test against `false` drops `false` where it fails: `T | false` is `T` there, so "none" as a value is taken apart
+--- without `is`, which a type parameter has no tag for.
+local function test_a_test_against_false_drops_false_where_it_fails()
+  Programs.stands("local function f(x: integer | false): integer\n  if x == false then\n    return 0\n  end\n  return x + 1\nend\n" ..
+      "local function g<T is Some>(x: T | false, d: T): T\n  if x == false then\n    return d\n  end\n  return x\nend\n" ..
+      "local function h(x: string | false): string\n  if false ~= x then\n    return x\n  end\n  return \"none\"\nend\n" ..
+      "print(f(1), f(false), g(3, 0), g(false, 9), h(\"a\"), h(false))\n", "2\t0\t3\t9\ta\tnone")
+  -- A test against `true` drops `true` the same way, and nil stays.
+  Programs.stands("local function g(b: boolean?): string\n  if b ~= true then\n    local x: false? = b\n    return tostring(x)\n" ..
+      "  end\n  return \"t\"\nend\nprint(g(true), g(false), g(nil))\n", "t\tfalse\tnil")
+  -- Where it holds, the value is not narrowed to `false`: only nil is ruled out.
+  Programs.refused("local function f(x: integer | false): integer\n  if x == false then\n    return x\n  end\n  return 0\nend\n",
+    "not_assignable")
+end
+
 local function test_a_generic_function_in_a_field_that_may_be_nil_is_narrowed_and_called()
   local head = "local record R\n  pick?: function<T>(T): T\nend\nlocal function same<T>(x: T): T\n  return x\nend\n"
   Programs.stands(head .. "local r: R = { pick = same }\nlocal p = r.pick\nif p ~= nil then\n" ..

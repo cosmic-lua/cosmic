@@ -1103,7 +1103,7 @@ first line, no `a and b or c` for a choice (`if ... then ... else ... end` is an
 argument without parentheses. `pcall` and `coroutine.wrap` are typed, and the alternatives of a `pcall` are read with
 `match`. a call that answers several lists (`(true, R) | (false, E)`, `(T) | (nil, E)`) has lists told apart by a
 position that is `true` in one and `false` in the other, or `nil` in one and never nil in the other (an optional, `any`,
-a type variable, or a union with one, may be nil); `match` tells them by `true`, `false` and `nil` patterns, and a test of
+a type variable with no bound, or a union with one, may be nil; a bounded one, `T is Some` among them, never is); `match` tells them by `true`, `false` and `nil` patterns, and a test of
 the first local of `local v, why = f()` narrows the others. such a call is no statement (`failure_ignored`): its values
 are bound, it is matched, or they are discarded on purpose with `local _, _ = f()`; `assert(f())` gives the values of the one list whose first value is never nil or false where every other list's is `nil` or `false`. the failure a library answers is a [`cosmic.failure`]: its message, the path it concerns and its errno, apart, with `tostring` for its text. a type changes only by a guard, `is` of a class or a tagged
 union, a narrowing declaration or a validator ([`cosmic.shape`]); `any` is legal only where untrusted data enters.
@@ -1128,7 +1128,8 @@ or nilable, and below a map
 `{string: V}` that is not `mut`. a
 type parameter is bounded by an interface, by `Ordered` (a number type, a string type, or a class that declares
 `__lt` and `__le`, whose values `<` compares), by
-`Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), or by
+`Numeric` (`integer` or `number`, whose arithmetic answers its own type), by `Key` (a type a map is keyed by), by
+`Some` (a type that is never nil), or by
 several of these (`T is A & B`), each of which its argument meets; it keys a map only where `Key` or an interface
 bounds it. a record is not a map; an
 enum is a set of strings, below an enum or a union of string literal types (`"circle"`, the type of that one string)
@@ -1211,10 +1212,10 @@ entropy and DRBG modules. [`cosmic.hash`] is the Teal face of it, the
 raw [`cosmic.internal.hash`] table's `digest`, `hmac` and streaming
 hasher the bindings, and every SQLite
 handle knows the same functions, so a query hashes in place. the
-crypto subtree serves authenticated encryption (ChaCha20-Poly1305) and X25519 key
-agreement the same way: [`cosmic.cipher`] over the raw
-[`cosmic.internal.cipher`] table, each key in a PSA key slot for one
-computation. the TLS
+crypto subtree serves authenticated encryption (ChaCha20-Poly1305) the
+same way: [`cosmic.cipher`] over the raw [`cosmic.internal.cipher`]
+table, each key in a PSA key slot for one computation; [`cosmic.key`]
+agrees on X25519 secrets over the same table. the TLS
 1.2 and 1.3 client under [`cosmic.http`] (curl over c-ares and mbedtls)
 comes from the same library and the same configuration: one header,
 [`core/mbedtls_cosmic_config.h`], which every file that includes an
@@ -1230,7 +1231,7 @@ trust the default.
 
 mbedtls's PSA driver carries no Ed25519, so signatures come from
 Monocypher 4, vendored as its two portable C files: the curve, and RFC
-8032's SHA-512 over it. [`cosmic.sign`] is the Teal face of it and the
+8032's SHA-512 over it. [`cosmic.key`] is the Teal face of it and the
 raw [`cosmic.internal.sign`] table the bindings. Only Ed25519 is bound:
 Monocypher's own `crypto_eddsa_*` signs with BLAKE2b, which no Ed25519
 implementation verifies.
@@ -1513,7 +1514,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
-[`cosmic.sign`]: ../cosmic/sign.tl
+[`cosmic.key`]: ../cosmic/key.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h

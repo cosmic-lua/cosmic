@@ -14,8 +14,8 @@ token lives in a [session](web-sessions.md).
 ## csrf
 
 A cookie is sent by the browser whoever made the page, so a form on another
-site could post to yours. [`Csrf.middleware`] answers that on every request
-whose method changes state, with two layers:
+site could post to yours. [`Csrf.middleware`] checks every request whose
+method changes state, with two layers:
 
 - **Where it came from.** The `Origin` header (the `Referer`'s origin where
   there is none) must be the app's own, or one of `trusted_origins`;
@@ -42,8 +42,8 @@ loads a fresh page.
 
 The `HX-Request` header exempts nothing. A request with `Authorization:
 Bearer` skips the token layer by default, since a cross-site page cannot
-set that header without a preflight; the better answer for an API is that
-no cookie authenticates it, which [the API guide](web-api.md) shows.
+set that header without a preflight. For an API, it is better that no
+cookie authenticates it, as [the API guide](web-api.md) shows.
 
 ## the page
 
@@ -146,8 +146,8 @@ app chooses:
   scripts, styles, images and connections and nothing else. Try a new policy
   with `csp_report_only = true` first.
 - **`hsts`**, `Strict-Transport-Security`, sent on https requests only. A
-  browser keeps it for the whole `max_age`, so an app turns it on once the
-  site is https for good and not before: the app below takes it as an
+  browser keeps it for the whole `max_age`, so an app turns it on only once
+  the site is https for good. The app below takes it as an
   option, and [the deployment guide](web-deploy.md) reads it from the
   environment.
 
@@ -182,7 +182,7 @@ local record Guestbook
     keys: {string}
     --- Send HSTS on https requests; only once the site is https for good.
     hsts?: boolean
-    --- The hosts the app answers to; nil for any.
+    --- The hosts the app responds to; nil for any.
     trusted_hosts?: {string}
     --- Where the proxy that ends TLS connects from; nil for no proxy.
     trusted_proxy?: {string}
@@ -215,24 +215,24 @@ return Guestbook
 ## failed attempts
 
 A password or a one-time code can be guessed, so a login limits wrong
-answers. [`Attempts.limiter`] counts failures per key in memory: after
+guesses. [`Attempts.limiter`] counts failures per key in memory: after
 `limit` of them within `window_ns`, the key is refused until the oldest is
 `window_ns` old. The handler asks before it checks the secret, records a
 failure, and forgets the key after a success; [`Attempts.too_many`]
-answers 429 with `Retry-After`. Read the form first and do not wait on
+returns a 429 with `Retry-After`. Read the form first and do not wait on
 anything between asking and recording, or concurrent guesses each see the
 count from before the others failed.
 
 The key is the choice that matters. One key for everyone stops a guesser
 however many addresses it has, but anyone can lock everyone out; it suits
 an app with a few known users. A key per client address,
-`req.client.host`, locks out the guesser alone, but behind a proxy every
-request comes from the proxy, one key for all, unless the app sets
-`trusted_proxy` (the next section). A key per account name lets anyone
-lock that account out. The limiter keeps at most `max_keys` keys, so a
-flood of new keys (made-up names, many addresses) pushes old ones out and
-starts their count over: limit an account key together with an address
-key. The counts live in memory, so a restart forgets them and each
+`req.client.host`, locks out the guesser alone. But behind a proxy every
+request comes from the proxy, so there is one key for all, unless the app
+sets `trusted_proxy` (the next section). A key per account name lets
+anyone lock that account out. The limiter keeps at most `max_keys` keys.
+A flood of new keys (made-up names, many addresses) pushes old ones out
+and starts their count over, so limit an account key together with an
+address key. The counts live in memory, so a restart forgets them and each
 process of an app keeps its own.
 
 ## behind a proxy
@@ -250,21 +250,21 @@ sessions guide](web-sessions.md)). Without it every https `Origin` looks
 foreign to CSRF.
 
 A request from any other peer keeps its own scheme, host and address,
-whatever headers it sends, so a client that reaches the app past the proxy
+whatever headers it sends. So a client that reaches the app past the proxy
 cannot pass for https, another host or another address. Only the last
 entry of `X-Forwarded-Proto` and `X-Forwarded-Host` is read, the one the
 proxy added. The client is the right-most entry of `X-Forwarded-For` that
 is none of the proxy's addresses, since every entry left of it is the
-client's own to write; where there is none, the client is the proxy itself.
+client's own to write. Where there is none, the client is the proxy itself.
 Name the proxy alone: a prefix wider than the proxy
 lets every address in it say what it likes.
 
 "The one the proxy added" holds only where the proxy sets each of the three
 headers on every request. One that passes a header on as the client sent it
 leaves its last entry to the client. nginx sets none of them unless told, so
-its configuration names all three: the first two replace what the client
-sent, and the third appends the client's address to it, whose last entry the
-app reads (`$http_host` keeps a port the client named):
+its configuration names all three. The first two replace what the client
+sent. The third appends the client's address to what the client sent, and
+the app reads that last entry. `$http_host` keeps a port the client named.
 
 ```text
 proxy_set_header X-Forwarded-Proto $scheme;
@@ -274,10 +274,10 @@ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
 Caddy's `reverse_proxy` and Tailscale Serve set all three already.
 
-`trusted_hosts` lists the hosts the app answers to; a request for another
-host, at any port, is a 400. The `Host` header is the client's, so an app
+`trusted_hosts` lists the hosts the app responds to. A request for another
+host, at any port, is a 400. The `Host` header is the client's. So an app
 that builds absolute links from it, or that sits behind a proxy forwarding
-any host, should name its own: otherwise a forged `Host` can put an
+any host, should name its own hosts. Otherwise a forged `Host` can put an
 attacker's name in a password-reset link. It also makes `req:base_url()`
 available for building absolute links.
 
@@ -376,7 +376,7 @@ Most of the safety is that the unsafe thing is not the easy one:
   safe, never a string.
 - A redirect target from the client (a referer, a `?next=`) goes through
   [`Web.safe_next`], which keeps a local path only.
-- A fault is answered 500 with nothing of it shown; `debug` is false unless
+- A fault gets a 500 with nothing of it shown; `debug` is false unless
   set, and is never read from the environment.
 - The session cookie is `HttpOnly` and `SameSite=Lax`, and keys come from
   the environment, never from source.

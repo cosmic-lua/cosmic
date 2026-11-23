@@ -1,19 +1,19 @@
---- JSON text to Lua values and back. What `decode` answers is a [`Json.Value`],
---- the closed union of what JSON can hold: narrow it with `is`, or
---- to read it as a record of your own, check it with [`cosmic.shape`]
---- -- `Shape.record_of("Job"):into(value)` answers a `Job`, or the path
---- of the first field that does not fit -- rather than casting fields
---- with `as`, which checks nothing (`cosmic docs cosmic.shape`).
+--- JSON text to Lua values and back. `decode` returns a [`Json.Value`], the
+--- closed union of what JSON can hold. Narrow it with `is`. To read it as a
+--- record of your own, check it with [`cosmic.shape`]:
+--- `Shape.record_of("Job"):into(value)` returns a `Job`, or the path of the
+--- first field that does not fit. Do not cast fields with `as`, which
+--- checks nothing (`cosmic docs cosmic.shape`).
 ---
 --- Reading is RFC 8259 and nothing else: no comments, no trailing
 --- commas, no NaN, and a string must be UTF-8 with no lone surrogate.
 --- A failure names the line and column where the text stopped being
 --- JSON. The reader is yyjson.
 ---
---- `decode(text, { json5 = true })` reads JSON5 instead -- comments,
---- trailing commas, single-quoted strings, unquoted keys, hexadecimal
---- and `+`/`.5`/`5.` numbers, NaN and Infinity -- for text people
---- write, like configuration. yyjson's JSON5 is a little wider than
+--- `decode(text, { json5 = true })` reads JSON5 instead, for text people
+--- write, like configuration: comments, trailing commas, single-quoted
+--- strings, unquoted keys, hexadecimal and `+`/`.5`/`5.` numbers, NaN and
+--- Infinity. yyjson's JSON5 is a little wider than
 --- the specification: it also takes escapes such as `\a` and `\e`,
 --- unquoted keys with any character past U+007F, and `nan`, `inf` and
 --- `infinity` in any case. Output is always RFC 8259, which every JSON5
@@ -21,11 +21,13 @@
 ---
 --- `decode(text, { hash_comments = true })` also reads `#` line
 --- comments, which neither JSON nor JSON5 has, in either. With `json5`,
---- it reads a text that YAML reads too, written in YAML's flow style:
---- a GitHub workflow, say, with double-quoted strings, keys quoted
---- unless they are identifiers YAML reads as their text (`on`, `no`
---- and `null` it does not), a space after each `:`, and a space before
---- each `#`.
+--- it reads a text that YAML reads too, written in YAML's flow style, such
+--- as a GitHub workflow. That text has:
+---
+--- - double-quoted strings
+--- - keys quoted unless they are identifiers that YAML reads as their text
+---   (YAML does not read `on`, `no` and `null` as their text)
+--- - a space after each `:`, and a space before each `#`
 ---
 ---     local text = '{\n  # what GitHub shows\n  name: "ci",\n}'
 ---     local workflow = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
@@ -34,8 +36,8 @@
 ---     local value, why = Json.decode('{"name": "cosmic", "tags": ["lua"]}')
 ---     if value == nil then error(tostring(why)) end
 ---
---- Every fallible function answers its value alone on success and
---- `nil` and a [`Failure`] on failure, whose text opens `json: ` and
+--- Every fallible function returns its value alone on success, and `nil`
+--- and a [`Failure`] on failure. The failure's text opens `json: `, and
 --- names the line and column of a refusal at a place in the text. A
 --- value read is never nil: a document that is just `null` decodes to
 --- [`Json.null`].
@@ -67,11 +69,12 @@
 --- refused where it is written. [`Json.encode_any`] takes `any`, for
 --- what the checker cannot see into: a record or a class of your own.
 --- It encodes by the same rules, and what is not JSON is the same
---- error, found when it runs and not before. What [`Json.decode`] and
---- [`Json.get`] answer is a [`Json.Value`], but a `null` decodes to nothing
---- unless `null_value = Json.null` is given, and nothing in an array is a hole,
---- which [`Json.encode`] refuses: decode with `null_value = Json.null` for a
---- value it takes back.
+--- error, found when it runs and not before.
+---
+--- [`Json.decode`] and [`Json.get`] return a [`Json.Value`]. But a `null`
+--- decodes to nothing unless `null_value = Json.null` is given, and nothing
+--- in an array is a hole, which [`Json.encode`] refuses. To get a value that
+--- it takes back, decode with `null_value = Json.null`.
 ---
 --- To explore a document whose shape is not known, `Json.encode_any(v,
 --- { pretty = true })` dumps a value, and [`Json.decode_object`] and
@@ -114,11 +117,10 @@
 --- `/users/1/role`, and a JSONPath query (RFC 9535), `$.users[1].role`,
 --- count from 0. [`Json.pointer`] and [`Json.path`] write steps as either;
 --- [`Json.from_pointer`] and [`Json.from_path`] read them back;
---- [`Json.get`] follows steps, and [`Json.set`] and [`Json.remove`] answer
---- a changed copy; [`Json.query`] reads a JSONPath query
---- that can select many values (`*`, `..`), strictly and in a subset
---- that leaves filters, slices and unions out, and [`Json.select`] runs
---- it.
+--- [`Json.get`] follows steps, and [`Json.set`] and [`Json.remove`] return
+--- a changed copy. [`Json.query`] reads a JSONPath query that can select
+--- many values (`*`, `..`). It reads strictly, in a subset that leaves out
+--- filters, slices and unions. [`Json.select`] runs the query.
 
 -- The raw module behind this one lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -1088,18 +1090,18 @@ local function to_object_text(value: any): {string: Json.Value}?, string
   return Check.members(value, m, "", 1, { [("%p"):format(t)] = true }, {}, {})
 end
 
---- `v` as an object where it is one, nil where it is not: a scalar, [`Json.null`] or an array. It looks at `v`
+--- `v` as an object where it is one, nil where it is not: missing, a scalar, [`Json.null`] or an array. It looks at `v`
 --- alone, not at its members, which as a [`Json.Value`]'s are values already, so a walk over a value narrows each
 --- level at no cost; [`Json.to_object`] is for a value of any type. A table with no keys is an object unless
 --- [`Json.is_array`] marks it.
-function Json.object_of(v: Json.Value): {string: Json.Value}?
+function Json.object_of(v?: Json.Value): {string: Json.Value}?
   local t = table_of(v)
   if t == nil or raw.is_array(t) or Json.layout(t) ~= "object" then return nil end
   return members_of(v)
 end
 
 --- `v` as an array where it is one, nil where it is not, as [`Json.object_of`] tells an object.
-function Json.array_of(v: Json.Value): {Json.Value}?
+function Json.array_of(v?: Json.Value): {Json.Value}?
   local t = table_of(v)
   if t == nil then return nil end
   if not raw.is_array(t) and Json.layout(t) ~= "array" then return nil end

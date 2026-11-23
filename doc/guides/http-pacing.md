@@ -1,6 +1,6 @@
 # calling a rate-limited api politely
 
-A rate-limited API answers too many requests in a row with 429 or 503,
+A rate-limited API responds to too many requests in a row with 429 or 503,
 and often says when to come back. This guide fetches a list of items
 from one with [`cosmic.http`]: a pacer spaces the requests out, `retry`
 waits out the refusals that still come, and the loop stops cleanly when
@@ -25,7 +25,7 @@ spacing that attempt too. `attempts` counts the first request: 3 is one
 request and up to two more.
 
 The examples run without a network, in one program from top to bottom,
-and print at the end of the page. They answer from `script`, one canned
+and print at the end of the page. Their requests get replies from `script`, one canned
 reply per connection: each call starts its script over, and with `retry`
 attempt N reads entry N. `fetch` takes its `script` as an argument and
 leaves it out in a real program, and the loops take the function that
@@ -381,7 +381,7 @@ print(#partial, cut_short, signal == sys.SIGINT)
 ```
 
 The module's `cancelled` option ends the same waits when a function of
-the caller's answers true, for a stop that is not a signal. The refusal
+the caller's returns true, for a stop that is not a signal. The refusal
 of an open after a signal is this:
 
 ```teal continue
@@ -396,7 +396,7 @@ print(none == nil, interrupted)
 
 ## what is not retried
 
-`retry` answers a 429 or 503. A request that fails (`nil` and why: a
+`retry` sends the request again after a 429 or 503. A request that fails (`nil` and why: a
 refused or reset connection, a timeout, a reply that is not HTTP) is not
 retried, since the server may have acted on it, and sending it again is
 the caller's decision.

@@ -201,7 +201,7 @@ local CASES <const>: {Case} = {
     code = "lists_overlap",
     source = "local function f<T>(x: T): (T) | (nil, string)\n  return x\nend\n",
     msg = "the return lists `(T)` and `(nil, string)` are told apart by no position",
-    fix = "(`(R) | (nil, E)`)",
+    fix = "bound it by `Some` where it is declared (`<T is Some>`)",
   },
   {
     code = "bound_not_met",
@@ -745,6 +745,18 @@ local function test_a_bound_is_one_interface_used_with_no_arguments()
   -- a generic interface used bare is the arguments' mistake, and the bound is dropped
   local args = only("local interface G<T>\nend\nlocal function f<T is G>(a: T)\nend\n")
   assert(args.code == "type_arguments" and has(args.msg, "`G` takes 1 type argument, not 0"), args.msg)
+end
+
+--- A type made of a type parameter of the code around meets `Some` where it is never nil, whatever that parameter
+--- is; one that may be nil meets none.
+local function test_a_use_meets_some_where_its_argument_is_never_nil()
+  local boxed = "local record Box<T is Some>\n  v: T\nend\n"
+  assert(#errors_of(boxed .. "local function f<U>(b: Box<{U}>, c: Box<function(U): U>)\nend\n" ..
+      "local s: Box<string>\n") == 0)
+  local open = only(boxed .. "local function f<U>(b: Box<U?>)\nend\n")
+  assert(open.code == "bound_not_met" and has(open.msg, "is not a type that is never nil"), open.msg)
+  local closed = only(boxed .. "local s: Box<string?>\n")
+  assert(closed.code == "bound_not_met" and has(closed.msg, "may be nil"), closed.msg)
 end
 
 local function test_a_type_parameter_of_the_code_around_a_use_meets_a_bound_through_its_own()

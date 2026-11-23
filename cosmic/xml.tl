@@ -7,14 +7,14 @@
 ---     -- { { kind = "text", text = "hi" }, { kind = "end", name = "a" } }
 ---     assert(p:finish())
 ---
---- A parser takes the text a chunk at a time, split anywhere, and answers
+--- A parser takes the text a chunk at a time, split anywhere, and returns
 --- each chunk with events in document order: those it completes, or
 --- fewer. An event may come with a later chunk than the one that
---- completes it, and every one has come once `finish` answers: expat
+--- completes it, and every one has come once `finish` returns: expat
 --- puts off reading again a token a chunk left open until the text it
 --- holds has doubled, so a large token fed in small chunks costs linear
 --- time, not quadratic. A parser made `eager` reads it again at every
---- chunk instead, so each chunk answers every event it completes, which
+--- chunk instead, so each chunk returns every event it completes, which
 --- a protocol that waits for a reply element before it sends more
 --- needs. A run of character data is one `text` event however the
 --- chunks split it: it is held back, whole, until markup follows it or
@@ -23,7 +23,7 @@
 --- sections, character references and the predefined and declared
 --- entities are read into the text they stand for, and the text is
 --- UTF-8, whatever encoding the document declares (UTF-8, UTF-16,
---- ISO-8859-1 or US-ASCII). A name is answered as written: `p:x` stays
+--- ISO-8859-1 or US-ASCII). A name is returned as written: `p:x` stays
 --- `p:x` unless the parser was asked for namespaces, when an element's
 --- or attribute's name in one is `{uri}local`, Clark's notation, or for
 --- local names, when it is `x`; either way a prefix with no declaration

@@ -268,7 +268,7 @@ print(area({ kind = "circle", r = 1 }), describe(41), describe(true))
 
 In an arm, a `|` that begins a line begins the next arm, so an expression that goes on to the next line keeps its
 operator at the end of the line before. A `match` whose arms are lists, `| (true, v)`, takes a call apart by the lists it
-may answer instead.
+may return instead.
 
 ## an array with named fields
 
@@ -326,8 +326,8 @@ playing	2	1
 ```
 
 An integer that comes from outside, such as a field a decoder read off the wire, becomes a member through the table's
-function `of`: `E.of(n)` answers the member `n` is, or nil where it is none, so the caller decides what an unknown integer
-means. `E.name(v)` answers the name of a member. No member is called `of` or `name` (`repeated_value`).
+function `of`: `E.of(n)` returns the member `n` is, or nil where it is none, so the caller decides what an unknown integer
+means. `E.name(v)` returns the name of a member. No member is called `of` or `name` (`repeated_value`).
 
 ```teal
 local enum State: integer
@@ -388,7 +388,7 @@ print(count("[1, 2, 3]"))
 
 ## reading an array by index
 
-`xs[i]` is `T?`: Lua answers nil for an index out of range. Write `xs[i] or 0` and an out-of-range read becomes a zero that
+`xs[i]` is `T?`: Lua gives nil for an index out of range. Write `xs[i] or 0` and an out-of-range read becomes a zero that
 nothing reports. Four ways to read that name the case instead (`index_may_be_nil`, `cosmic docs index_may_be_nil`).
 
 A loop `for i = 1, #xs do` counts the keys of `xs`, and in its body `xs[i]` is a `T`. It holds when the loop starts at a
@@ -640,12 +640,12 @@ type where the literal is made.
 A type parameter ranges over every type, so a generic body may not apply `<` or `+` to its values (`generic_op`). A
 bound says which operators it takes. `T is Ordered` takes a number type, a string type, or a class that declares
 `__lt` and `__le`: two values of `T` compare with `<`, `<=`, `>` and `>=`. `N is Numeric` takes `integer` or `number`:
-two values of `N` take `+`, `-`, `*`, `%`, `//` and unary `-`, which answer `N`, and compare with any number. `/`
-and `^` answer `number`, as they do for integers.
+two values of `N` take `+`, `-`, `*`, `%`, `//` and unary `-`, which return `N`, and compare with any number. `/`
+and `^` return `number`, as they do for integers.
 
 A type whose values may be a number or a string, such as `integer | string`, is no `Ordered`, because `1 < "a"` raises.
-An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered`, `Numeric` and `Key`
-are bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
+An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered`, `Numeric`, `Key` and
+`Some` are bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
 
 ```teal
 local function largest<T is Ordered>(xs: {T}, first: T): T
@@ -676,7 +676,7 @@ print(total({ 1, 2, 3 }, 0), total({ 0.5, 0.25 }, 0.0))
 ```
 
 A class orders its values with the methods `__lt`, which `<` and `>` call, and `__le`, which `<=` and `>=` call. Each
-takes the value and another of the class and answers a `boolean` (`metamethod_signature`). Two values of a class compare
+takes the value and another of the class and returns a `boolean` (`metamethod_signature`). Two values of a class compare
 with the operators whose methods it declares, and a class that declares both is `Ordered`, so `table.sort` of an array
 of its values needs no comparator.
 
@@ -699,7 +699,7 @@ table.sort(all) -- 1.4, then 2.0
 ## a class that releases what it holds
 
 A class's method `__gc(self)` is its finalizer: Lua calls it once, some time after the last reference to a value is
-gone, with the value alone, and drops what it answers. It suits a value that holds what the collector cannot free
+gone, with the value alone, and drops what it returns. It suits a value that holds what the collector cannot free
 itself, such as a child process or a descriptor. A finalizer runs only where the program calls a Lua function or
 `collectgarbage`, never between two statements with no call, so the checker's facts about a value's fields and an
 array's length hold across it as they hold across any call. A value whose release matters at a known point should
@@ -763,7 +763,7 @@ A map is keyed by `integer`, `string`, `boolean`, an enum, or a record, class, i
 keys a map only where `Key` bounds it, or an interface does: an unbounded `K` may be `number`, a union or a function,
 which no key is (`key_type`). A generic record that keys a map by its parameter bounds it the same way, and a type
 parameter passed on to a bounded one is bounded by it too (`bound_not_met`, `bound_unmet`). A declaration may take the
-name `Key`, `Ordered` or `Numeric`; where it is in scope, the name is the declaration's.
+name `Key`, `Ordered`, `Numeric` or `Some`; where it is in scope, the name is the declaration's.
 
 ```teal
 local function index<K is Key, V>(xs: {V}, key: function(V): K): {K: V}
@@ -857,10 +857,42 @@ print(numbers.value)
 A function that returns a value or a failure declares both lists of
 results: `(T) | (nil, E)`. One position must tell the lists apart: it is
 `true` in one list and `false` in the other, or `nil` in one and never
-nil in the other. An optional, `any` or a type parameter may be nil, and
-so may a union that holds one. So `(integer?) | (nil, string)` is
-refused (`lists_overlap`): a `nil` first value would not say which list
-the call returned.
+nil in the other. An optional, `any` or a type parameter with no bound
+may be nil, and so may a union that holds one. So `(integer?) | (nil,
+string)` is refused (`lists_overlap`): a `nil` first value would not say
+which list the call returned.
+
+A type parameter with a bound is never nil, since no bound holds `nil`.
+`T is Some` says only that: it takes every type that is never nil, and
+gives the body nothing more. A generic function answers `(T) | (nil, E)`
+with it, and `(T | false) | (nil, E)` where "none" is a value. A type
+that may be nil, or a type parameter with no bound, meets no `Some`
+(`bound_unmet`).
+
+A test against `false` drops `false` where it fails: after `if v ==
+false then return end`, a `T | false` is a `T`. That is how a caller
+takes "none" apart from a value of a type parameter, which has no tag
+for `is`.
+
+```teal
+local function first<T is Some>(xs: {T}): (T) | (nil, string)
+  local x = xs[1]
+  if x == nil then
+    return nil, "empty"
+  end
+  return x
+end
+
+local n, _ = first({ 3, 4 })
+local s, _ = first({ "fig" })
+local empty: {integer} = {}
+local none, why = first(empty)
+print(n, s, none, why)
+```
+
+```output
+3	fig	nil	empty
+```
 
 The caller binds the results to locals and tests the first, the value.
 The test narrows the others. Where the value is nil, the failure is an `E`.

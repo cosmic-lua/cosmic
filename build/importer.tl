@@ -23,7 +23,6 @@ local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
-local GrammarMode = require("build.grammar_mode")
 local Store = require("cosmic.store")
 local store_lookups = require("build.store_lookups")
 local CodeWalk = require("build.code_walk")
@@ -2147,16 +2146,6 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
       state = state, result = result }
   end
   return result, ""
-end
-
---- The tool string a compile of this binary's own compiler is keyed by
---- ([`build.grammar_mode`]'s `tool`): the compiler's
---- identity the build that made this binary recorded (its `meta`'s
---- `compiler`), so a project's rows made by another compiler are compiled
---- again. A worker's read of it is answered by the running tool
---- ([`build.key_parts`]' `meta_readers` names this module for it).
-function importer.own_tool(): string
-  return GrammarMode.tool(Store.meta("compiler") or "")
 end
 
 --- Compiles every module as [`importer.compile`] does, for a file run

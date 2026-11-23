@@ -1,12 +1,13 @@
 --- @public
---- The tools of `cosmic agent`: pi's four, read, write, edit and bash, and
---- sql, over the sessions and outputs it keeps. Each is a definition the model reads (its name, description
+--- The tools of `cosmic agent`: pi's four, read, write, edit and bash; run,
+--- which checks and runs a snippet of Teal; and sql, over the sessions and
+--- outputs it keeps. Each is a definition the model reads (its name, description
 --- and input schema), a line for the system prompt, and a function that
 --- does it. A tool never raises: what goes wrong is its result, marked
 --- as an error, for the model to read and act on.
 ---
---- The model has pi's four tools, one for background jobs, and one
---- over what is kept:
+--- The model has pi's four tools, one for snippets of Teal, one for
+--- background jobs, and one over what is kept:
 ---
 ---     read   path, offset?, limit?
 ---       a file's lines, at most 2000 lines or 50KB; offset (from 1) and
@@ -17,6 +18,12 @@
 ---       the whole as an output when it cuts; no timeout unless the model
 ---       gives one, in seconds; background: true starts it as a job and
 ---       answers at once, with the job's id
+---     run    code, timeout?
+---       checks and runs a snippet of Teal in the session's worker
+---       (`cosmic docs cosmic.agent.worker`), under the same sandbox:
+---       what it printed, its last 8KB, and the JSON of what it
+---       returned; a refused snippet's answer is the checker's lines;
+---       120 seconds unless the model says, after which the worker ends
 ---     jobs   id?, wait?, kill?
 ---       no id: each job, its state, seconds run and command; with id:
 ---       its state and its output since the last read, the last 2000
@@ -59,12 +66,14 @@ local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Jobs = require("cosmic.agent.jobs")
+local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Proc = require("cosmic.proc")
 local Policy = require("cosmic.agent.policy")
 local Sandbox = require("cosmic.sandbox")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local Worker = require("cosmic.agent.worker")
 
 local record Tools
   --- A JSON object.
@@ -94,6 +103,8 @@ local record Tools
     policy?: Sandbox.Policy
     --- The background jobs of this run (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
+    --- The worker run sends its snippets to (cosmic.agent.worker); nil for none.
+    worker?: Worker.Set
     --- Whether the user stopped the turn, which ends a wait.
     stopped?: function(): boolean
   end
@@ -405,6 +416,21 @@ local function bash(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
+--- The most bytes of a snippet's output run gives the model: a snippet prints what it needs, so less than bash gives.
+local RUN_BYTES <const> = 8 * 1024
+--- How long a snippet may run, in seconds, unless the model says.
+local RUN_SECONDS <const> = 120
+
+--- The last RUN_BYTES of `text`, from a line's start where one is near, and whether that is less than all of it.
+local function run_tail(text: string): string, boolean
+  if #text <= RUN_BYTES then return text, false end
+  local from = #text - RUN_BYTES + 1
+  local nl = text:find("\n", from, true)
+  if nl ~= nil and nl < #text then from = nl + 1 end
+  while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
+  return text:sub(from), true
+end
+
 --- How `job` stands: running, or how it ended.
 local function state(job: Jobs.Job): string
   local r = job.result
@@ -537,26 +563,164 @@ local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Too
   return ok(text)
 end
 
+--- The sessions database of `context`, opened again read-only, so a query cannot change what is kept; or why it is not.
+local function reader_of(context: Tools.Context): (Sqlite.Handle) | (nil, string)
+  local db = context.db
+  if db == nil then return nil, "no sessions are kept here" end
+  local files, files_why = db:rows("SELECT file FROM pragma_database_list WHERE name = 'main'")
+  if files == nil then return nil, tostring(files_why) end
+  local main = files[1]
+  local file = if main ~= nil then main:text(1) else "" end
+  if file == "" then return nil, "the sessions database has no file to read" end
+  local reader, open_why = Sqlite.open(file)
+  if reader == nil then return nil, tostring(open_why) end
+  -- Read-only holds for the main database alone: ATTACH and VACUUM INTO
+  -- would still write another file, so no database may be attached.
+  reader:limit("attached", 0)
+  local _, _ = reader:exec("PRAGMA query_only = 1")
+  return reader
+end
+
 --- Runs one SQL statement on the sessions database, opened again
 --- read-only, so a query cannot change what is kept.
 local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
   local query, why = text_of(input, "query")
   if query == nil then return fail(why) end
-  local db = context.db
-  if db == nil then return fail("No sessions are kept here") end
-  local files, files_why = db:rows("SELECT file FROM pragma_database_list WHERE name = 'main'")
-  if files == nil then return fail("sql: " .. tostring(files_why)) end
-  local main = files[1]
-  local file = if main ~= nil then main:text(1) else "" end
-  if file == "" then return fail("sql: the sessions database has no file to read") end
-  local reader, open_why = Sqlite.open(file)
-  if reader == nil then return fail("sql: " .. tostring(open_why)) end
-  -- Read-only holds for the main database alone: ATTACH and VACUUM INTO
-  -- would still write another file, so no database may be attached.
-  reader:limit("attached", 0)
-  local _, _ = reader:exec("PRAGMA query_only = 1")
+  local reader, open_why = reader_of(context)
+  if reader == nil then return fail("sql: " .. open_why) end
   local r = rows_of(reader, query, context.session)
   local _, _ = reader:close()
+  return r
+end
+
+--- The most bytes of the JSON of the rows a snippet's sql call is answered: well within the line of 1MB the
+--- worker's answer may be, should the snippet return them.
+local MAX_REPLY <const> = 512 * 1024
+
+--- The rows of `query` on `db`, each an object of its columns, for a snippet's sql call; `?1` is `session`. It stops
+--- between rows once `over` is true: the snippet's time ran out, or the user stopped the turn.
+local function objects_of(db: Sqlite.Handle, query: string, session: integer?, over: function(): boolean):
+    (Json.Value) | (nil, Failure)
+  local statement, why = db:prepare(query)
+  if statement == nil then return nil, Failure.new(why) end
+  if statement:parameters() >= 1 and session ~= nil then
+    local bound, bind_why = statement:bind_integer(1, session)
+    if not bound then
+      statement:finalize()
+      return nil, Failure.new(bind_why)
+    end
+  end
+  local columns = statement:columns()
+  local names: mut {string} = {}
+  for i = 0, columns - 1 do names[#names + 1] = String.as_utf8(statement:name(i)) end
+  local rows: mut {Json.Value} = {}
+  local bytes = 2
+  local function refused(trouble: string): (nil, Failure)
+    statement:finalize()
+    return nil, Failure.new(trouble)
+  end
+  local function too_many(): (nil, Failure)
+    return refused("the rows are more than the " .. String.counted(MAX_REPLY, "byte") .. " of JSON a reply holds, " ..
+        "after " .. String.counted(#rows, "row") .. ": narrow the query (LIMIT/OFFSET for rows, " ..
+        "substr(text, start, length) for a long text)")
+  end
+  -- TODO: stop a step that runs long too (a recursive CTE counted, one step of no row), once cosmic.sqlite sets a
+  -- deadline by a progress handler: until then `over` is tested between rows alone, as the sql tool tests nothing.
+  while true do
+    if over() then
+      return refused("the snippet's time ran out, or the turn was stopped, as the query ran")
+    end
+    local step, step_why = statement:step()
+    if step == nil then return refused(step_why) end
+    if step == "done" then break end
+    local row: mut {string: Json.Value} = {}
+    for index, name in ipairs(names) do
+      local i = index - 1
+      local kind = statement:kind(i)
+      if kind == "null" then
+        row[name] = Json.null
+      elseif kind == "integer" then
+        row[name] = statement:integer(i)
+      elseif kind == "number" then
+        local x = statement:number(i)
+        if x ~= x or x == math.huge or x == -math.huge then
+          return refused("column " .. Json.quote(name) .. " is " .. tostring(x) .. ", which JSON holds no number " ..
+              "for: CAST it AS TEXT, or test it in the query")
+        end
+        row[name] = x
+      else
+        local cell = statement:bytes(i)
+        if #cell > MAX_REPLY then return too_many() end
+        row[name] = String.as_utf8(cell)
+      end
+    end
+    local text, encode_why = Json.encode(row)
+    if text == nil then return refused(tostring(encode_why)) end
+    bytes = bytes + #text + 1
+    if bytes > MAX_REPLY then return too_many() end
+    rows[#rows + 1] = row
+  end
+  statement:finalize()
+  return Json.array(rows)
+end
+
+--- What answers the calls a snippet of `context` makes of the agent: sql alone, as the sql tool runs it.
+local function served(context: Tools.Context): Worker.Serve
+  return function(name: string, args: Json.Value, over: function(): boolean): (Json.Value) | (nil, Failure)
+    if name ~= "sql" then
+      return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
+          ": it serves sql")
+    end
+    local fields, _ = Json.to_object(args)
+    local query = if fields ~= nil then fields["query"] else nil end
+    if not (query is string) then return nil, Failure.new("the call has no query") end
+    local reader, open_why = reader_of(context)
+    if reader == nil then return nil, Failure.new(open_why) end
+    local rows, why = objects_of(reader, query, context.session, over)
+    local _, _ = reader:close()
+    if rows == nil then return nil, why end
+    return rows
+  end
+end
+
+local function run(input: Tools.Object, context: Tools.Context): Tools.Result
+  local code, why = text_of(input, "code")
+  if code == nil then return fail(why) end
+  local seconds, seconds_why = count(input, "timeout")
+  if seconds_why ~= "" then return fail(seconds_why) end
+  local set = context.worker
+  if set == nil then return fail("No worker runs snippets here") end
+  local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy,
+    seconds = seconds or RUN_SECONDS, stopped = context.stopped, serve = served(context) })
+  if answer == nil then return fail(tostring(run_why)) end
+  local refused, _ = Json.to_array(answer["refused"])
+  if refused ~= nil then
+    local told: mut {string} = {}
+    for _, line in ipairs(refused) do told[#told + 1] = tostring(line) end
+    return fail("The checker refused the snippet, so it did not run:\n" .. table.concat(told, "\n"))
+  end
+  local trouble = answer["error"]
+  local output = answer["output"]
+  local said = if output is string then output else "" end
+  local text, cut = run_tail(said)
+  if cut or answer["cut"] == true then
+    text = "[Output truncated to its last part; the whole is kept in sessions.db.]\n" .. text
+  end
+  local value = answer["value"]
+  if value ~= nil then
+    local encoded, _ = Json.encode(value)
+    local shown = encoded or "?"
+    if #shown > RUN_BYTES then
+      shown = String.cut(shown, RUN_BYTES) .. " ... (" .. String.counted(#shown, "byte") .. "; the whole is kept in sessions.db)"
+      said = said .. "\nReturned: " .. (encoded or "?")
+      cut = true
+    end
+    text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
+  end
+  if text == "" then text = "(no output)" end
+  local r = if answer["ok"] == true then ok(text) else
+    fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
+  if cut then r.raw = said end
   return r
 end
 
@@ -606,6 +770,30 @@ Tools.list = {
           "(optional): for servers, watchers and long builds. Read it with jobs." },
     }, { "command" }),
     run = bash,
+  },
+  {
+    name = "run",
+    snippet = "Check and run a snippet of Teal against cosmic's standard library, in a worker kept for the session",
+    guidelines = {
+      "Use run for work of several steps (reading and changing many files, parsing JSON, SQLite, running " ..
+        "programs with cosmic.child): one snippet in place of many tool calls. Print only what you need.",
+      "A snippet is type-checked before it runs, as `cosmic -e` checks a chunk; a refusal gives the fix: " ..
+        "make it and run again. A snippet reaches cosmic.* alone, and its locals end with it.",
+      "From a snippet, `require(\"cosmic.agent.host\").sql(query)` answers the sql tool's query as a list of rows, " ..
+        "each an object of its columns: read sessions.db and act on it in one snippet.",
+    },
+    description = "Check and run a snippet of Teal, the typed Lua of cosmic, in a worker process kept for the " ..
+      "session, under the same sandbox as bash. The snippet may require cosmic.* modules (cosmic.fs, cosmic.json, " ..
+      "cosmic.sqlite, cosmic.child, cosmic.http, ...). It is checked first, in milliseconds; one the checker refuses " ..
+      "does not run, and the answer is the checker's lines, each with its fix. Returns what it printed (its last " ..
+      tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned. Timeout in seconds, " ..
+      tostring(RUN_SECONDS) .. " unless given, counted from when the snippet is sent (a first run starts the worker " ..
+      "too), and 0 for none; a snippet that runs past it ends the worker, and the next run starts another.",
+    schema = schema({
+      code = string_field("The snippet of Teal, as the body of a file: `local Fs = require(\"cosmic.fs\")` ..."),
+      timeout = integer_field("Timeout in seconds (optional, " .. tostring(RUN_SECONDS) .. " by default)"),
+    }, { "code" }),
+    run = run,
   },
   {
     name = "jobs",

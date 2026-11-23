@@ -240,7 +240,7 @@ local record Scopes
   --- The type names a program may use with no declaration.
   primitives: {string: boolean}
 
-  --- The primitives that are bounds of a type parameter, `Ordered`, `Numeric` and `Key`. A declaration may take one
+  --- The primitives that are bounds of a type parameter, `Ordered`, `Numeric`, `Key` and `Some`. A declaration may take one
   --- of their names, and where it is in scope the name is the declaration's.
   bounds: {string: boolean}
 
@@ -250,10 +250,10 @@ end
 
 Scopes.primitives = {
   any = true, boolean = true, integer = true, never = true, number = true, string = true, thread = true,
-  Ordered = true, Numeric = true, Key = true,
+  Ordered = true, Numeric = true, Key = true, Some = true,
 }
 
-Scopes.bounds = { Ordered = true, Numeric = true, Key = true }
+Scopes.bounds = { Ordered = true, Numeric = true, Key = true, Some = true }
 
 -- A function being walked.
 local record Frame
