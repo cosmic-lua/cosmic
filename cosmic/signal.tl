@@ -157,7 +157,7 @@ local class Guard is Innermost.Held
       local left: integer?
       if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
       local woken, why = Poll.readable(raw.child_signal_fd(), left)
-      if not woken then return 0, why end
+      if not woken then return 0, why.message end
       -- The last close wakes this wait having closed the pipe.
       if not self.state.closed then Innermost.drain_wake(raw.child_signal_fd()) end
     end

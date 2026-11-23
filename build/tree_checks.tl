@@ -128,8 +128,6 @@ allowed["cosmic.mcp.client.stdio"] = "public API: a session over a reader and a 
   "or a socket; the tree's own callers start a server with spawn or reach one with http"
 allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
 
-allowed["cosmic.failure.timeout"] = "public API: the failure of a wait that ran past its time limit, which " ..
-  "a module answers in place of the words Poll.TIMEOUT as each moves to (T) | (nil, Failure)"
 allowed["cosmic.compress.zstd_encoder"] = "ci/ calls it on the pinned release, which has no Compress.encoder; " ..
   "goes with the TODO in cosmic/compress.tl"
 allowed["cosmic.compress.zstd_decoder"] = "ci/ calls it on the pinned release, which has no Compress.decoder; " ..

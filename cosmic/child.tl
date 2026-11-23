@@ -1067,7 +1067,9 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
     if in_run then
       local waited: Delayed = {}
       local function pause()
-        waited.paused, waited.cancelled = Poll.delay(timeout_ns)
+        local paused, why = Poll.delay(timeout_ns)
+        waited.paused = paused
+        if why ~= nil then waited.cancelled = why.message end
       end
       if cancellable == true then pause() else Poll.shielded(pause) end
       if waited.paused == true then return false, "" end
@@ -1081,7 +1083,9 @@ local function pump(entries: mut {Entry}, timeout_ns: integer,
   if in_run then
     local looked: Readied = {}
     local function look()
-      looked.answers, looked.why = Poll.ready(fds, events, if timeout_ns >= 0 then timeout_ns else nil end)
+      local answers, why = Poll.ready(fds, events, if timeout_ns >= 0 then timeout_ns else nil end)
+      looked.answers = answers
+      if why ~= nil then looked.why = why.message end
     end
     if cancellable == true then look() else Poll.shielded(look) end
     -- A wait that ran out of time found nothing: no stream moved.

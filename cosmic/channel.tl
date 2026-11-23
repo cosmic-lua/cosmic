@@ -203,7 +203,7 @@ function State.send<T>(self: State<T>, item: T, timeout_ns?: integer): boolean, 
       if left <= 0 then return false, Poll.TIMEOUT end
     end
     local woke, reason = self.not_full:wait(left)
-    if not woke then return false, reason end
+    if not woke then return false, reason.message end
   end
 end
 
@@ -218,7 +218,7 @@ function State.receive<T>(self: State<T>, timeout_ns?: integer): T?, string
       if left <= 0 then return nil, Poll.TIMEOUT end
     end
     local woke, reason = self.not_empty:wait(left)
-    if not woke then return nil, reason end
+    if not woke then return nil, reason.message end
   end
   local item = pop(self)
   self.not_full:notify_one()

@@ -69,7 +69,7 @@ local function tunnels(userinfo?: string)
         read = function(): string?, string
           while waiting.value == "" and ended.value ~= true do
             local ok, why = Poll.delay(Clock.ms(1))
-            if not ok then return nil, why end
+            if not ok then return nil, why.message end
           end
           local data = waiting.value
           waiting.value = ""
@@ -99,7 +99,8 @@ local function tunnels(userinfo?: string)
     assert(relay:write(RelayWire.socks_reply("succeeded")))
     ended.value = true
     assert(relay:shutdown("write"))
-    assert(client:join(Clock.seconds(4)), "the client did not end")
+    local waited, _ = client:join(Clock.seconds(4))
+    assert(waited, "the client did not end")
     local _, _ = relay:close()
     local _, _ = listener:close()
   end)
