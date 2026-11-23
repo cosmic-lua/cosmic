@@ -3442,7 +3442,7 @@ end
 
 --- The modules `cosmic docs <words...>` lists when [`Doc.asked`] names no
 --- query: every module for no words, the standard library's modules and
---- guides for `cosmic`. Nil and a [`Failure`] when a database cannot be read; a mark that cannot be judged
+--- guides for `cosmic`. Nil and why when a database cannot be read; a mark that cannot be judged
 --- is left off.
 local function modules_asked(view: Doc.View, words: {string}): {Doc.Summary}?, string
   local index, trouble = index_text(view)
