@@ -916,7 +916,7 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
   another day. CI's scheduled run, which stands on nothing, runs it weekly.
 - *what the host has installed*: what the system's own paths hold, for a test
   that declares `system`, is keyed by the package database, the image
-  `COSMIC_SYSTEM_ID` names, and a walk of their files by mode, size and
+  `COSMIC_SYSTEM_ID` names, and, where it names none, a walk of their files by mode, size and
   modification time, but /etc's, the host's configuration, which a run
   holding such a test makes once and remembers while no directory it
   walked moves (`system_identity`): a file written in place is not seen
