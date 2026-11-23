@@ -49,7 +49,8 @@ on it to see what the checker asks of it.
 ## help for one verb
 
 `cosmic help` prints a short index, a line per verb. `cosmic help <verb>`
-prints that verb's full text and options; `--help` or `-h` anywhere on a
+prints that verb's usage, its summary, options and examples, then its
+full text; `--help` or `-h` anywhere on a
 verb's line, before a `--`, does the same. Like every verb's, its summary
 goes to stderr, so stdout holds the text alone. `cosmic help exit` says
 what the exit codes and summaries mean.
@@ -74,7 +75,7 @@ local result = assert(Child.run(argv,
     timeout_ns = Clock.seconds(10) }))
 assert(Fs.remove_tree(dir))
 local out = result.stdout or ""
-print(out:match("^`cosmic db[^`]*`"))
+print(out:match("^usage: cosmic db[^\n]*"))
 local verbs = 0
 for line in out:gmatch("[^\n]+") do
   if line:sub(1, 8) == "`cosmic " then verbs = verbs + 1 end
@@ -84,7 +85,7 @@ print(out:find("help: ", 1, true) == nil, (result.stderr or ""):match("^help: 1 
 ```
 
 ```output
-`cosmic db [path...]`
+usage: cosmic db [path...]
 1 verb
 true	true
 ```

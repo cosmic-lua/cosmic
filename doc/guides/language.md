@@ -714,6 +714,26 @@ local class Lease
 end
 ```
 
+## closing what a block opened
+
+A `<close>` local is closed when its block ends, however it ends: by its
+last line, a `return` or an error. Closing calls its type's `__close`.
+The compiler refuses `<close>` on a type that may be nil, so an opener's
+result goes through `assert` first:
+`local child <close> = assert(Child.start(argv, opts))`. The same line holds a
+[`Signal.guard`], a [`cosmic.net`] socket or an [`Http.open`] response.
+A descriptor from [`Fs.open_read`] is an integer, which `<close>` cannot
+hold: [`Fs.close`] closes it, and [`Fs.read`] reads a whole file without
+one.
+
+A type of your own is closable too: declare it a class whose body has
+`function __close(self)`, and make each value as a table literal.
+[`Fs.Scratch`] is one. Without the method the compiler refuses `<close>`
+with `to-be-closed variable h has a non-closable type Handle`. Code that
+only needs to run at the end of a block, and reads locals of the
+function around it, is a [`cosmic.defer`]:
+`local _ <close> = Defer.new(function() ... end)`.
+
 ## a method with type parameters of its own
 
 A method of a class may take type parameters, written after its name as a function's are. Each call solves them from
@@ -903,4 +923,12 @@ true	/no/such/file: No such file or directory
 ```
 
 [`cosmic.array`]: ../../cosmic/array.tl
+[`cosmic.defer`]: ../../cosmic/defer.tl
 [`cosmic.failure`]: ../../cosmic/failure.tl
+[`cosmic.net`]: ../../cosmic/net.tl
+[`Fs.close`]: ../../cosmic/fs.tl
+[`Fs.open_read`]: ../../cosmic/fs.tl
+[`Fs.read`]: ../../cosmic/fs.tl
+[`Fs.Scratch`]: ../../cosmic/fs.tl
+[`Http.open`]: ../../cosmic/http/init.tl
+[`Signal.guard`]: ../../cosmic/signal.tl

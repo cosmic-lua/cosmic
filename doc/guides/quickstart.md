@@ -2,10 +2,29 @@
 
 <!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
-cosmic is one executable: the Lua runtime, the Teal compiler, and a
-standard library, `cosmic.*`, for the everyday things a script needs.
-This guide uses several of those modules and shows what they do. To
-start a project of your own, see the guide `cosmic docs project`.
+cosmic is one executable. It holds the Lua runtime, the Teal compiler,
+and a standard library, `cosmic.*`, for the everyday work a script
+does. This guide shows a few modules and verbs, with one example each.
+`cosmic help <verb>` and `cosmic docs <module>` have the rest. To start
+a project of your own, see `cosmic docs project`.
+
+## running a file
+
+Write a Teal file and give it to `cosmic`.
+
+```teal file=hello.tl
+print("hello")
+```
+
+```sh
+cosmic hello.tl
+```
+
+```output
+hello
+```
+
+`cosmic -e '<chunk>'` runs a line of Teal with no file.
 
 ## hashing bytes
 
@@ -22,18 +41,17 @@ print(Hash.hex_sha256("cosmic"))
 01307b41e7ff0bb31cca03fb7ff5bea9fdb3dd83afaca63d588a0c07e7ae98b8
 ```
 
-To hash a file without reading it whole, [`Hash.hex_file`] streams it in
-chunks and answers the digest, or `nil` and why: `Hash.hex_file("sha256",
-path)`. [`Hash.file`] answers the raw bytes.
+[`Hash.hex_file`] hashes a file in chunks, so a large file is never read
+whole. At the shell, `cosmic hash <file>` prints the same lines as
+`sha256sum`, on every platform.
 
 ## reading a file back
 
-[`cosmic.fs`] reads and writes files. [`Fs.mkdtemp`] makes a fresh directory
-to work in, [`Fs.write`] puts a file in it, and [`Fs.read`] reads it back.
+[`cosmic.fs`] reads and writes files. [`Fs.mkdtemp`] makes a fresh
+directory, [`Fs.write`] puts a file in it, and [`Fs.read`] reads it back.
 
 ```teal
 local Fs = require("cosmic.fs")
-local Hash = require("cosmic.hash")
 
 local dir = assert(Fs.mkdtemp("quickstart-"))
 assert(Fs.write(dir .. "/notes.txt", "hello from notes.txt"))
@@ -42,307 +60,109 @@ if content == nil then
   error(trouble)
 end
 print(content)
-print(Hash.hex_sha256(content))
 assert(Fs.remove_tree(dir))
 ```
 
 ```output
 hello from notes.txt
-568a78ac9be8ab08ce84c90363cef53bab5d6aecf684e83cd44193dbad50cca6
 ```
 
 ## a quick question about a JSON file
 
-For a ten-second question about a JSON file, skip the script: `cosmic
-json` looks one value up. `cosmic json --exists '$.users[0].email'
-export.json` prints nothing and answers by its exit status (0 found, 1
-not there); `cosmic json --keys export.json` lists the top-level keys,
-sorted, or an array's length; `cosmic json --shape '$.users' export.json`
-summarizes what is inside; `cosmic json -r '$.users[0].name' export.json`
-prints a string without its quotes. The path is a JSONPath query: `$`
-first, then names and indices counted from 0 (`[-1]` is the last), as
-JSON Pointer counts them in the messages; quote it in single quotes, as
-a shell expands `$` and `[0]`. The file is `-` or left out to read
-standard input, so `curl ... | cosmic json '$.items[0]'` works. Numbers
-print as [`Json.encode`] writes them, so `1e2` reads `100.0`.
+`cosmic json` looks up a value in a JSON file, with no script. The path
+is a JSONPath query. Put it in single quotes, so the shell leaves its
+`$` and `[0]` alone.
 
-When you do not know where a value lives, list them all: `cosmic json
---flat export.json` prints every leaf as a `path = value` line, keys
-sorted, and `cosmic json --flat export.json | grep -i email` finds the
-one you want, say `$.users[1].contact.email = "bo@example.com"`. That
-path is one `cosmic json` reads, so paste it back in single quotes:
-`cosmic json '$.users[1].contact' export.json` shows what is around it.
-A key that is not a word prints as `$["a key"]`; one holding `'` needs
-`'\''` inside the shell's single quotes. A `*` stands for every
-member or element, and `..` for any depth: `cosmic json '$.users[*].name'
-export.json` prints each user's name as such a line, `cosmic json -r
-'$..email' export.json` every email in the file, bare (a string with a
-newline in it takes more than one line), and `cosmic json
---exists '$..error' export.json` asks whether any `error` key is there.
-`--keys` and `--shape` take one path, not a query of `*` or `..`.
-JSONPath filters, slices and unions are refused, on purpose: it is only
-a lookup, and `grep` over `--flat` covers the simple cases. To count or
-sum, use `cosmic sql --from` (next section); for anything else write
-the script with `cosmic.json`: [`Json.decode`] the file and walk the
-value in Lua, or look a path up with [`Json.get`] and [`Json.select`].
-To change the value at a path, [`Json.set`] answers a copy with it
-changed and [`Json.remove`] one without it; neither changes the value read.
-`cosmic help json` has the rest.
+```teal file=export.json
+{"users": [{"name": "Ada", "email": "ada@example.com"},
+           {"name": "Bo", "contact": {"email": "bo@example.com"}}]}
+```
 
-## a random id, token or number
-
-`cosmic rand uuid` prints a UUID (`--v7` for a time-ordered one, by RFC 9562's
-method 3 clock precision, `-n 5` for five, at most ten million); `cosmic rand token` a 32-byte base64url token; `cosmic rand int
-1 6` a die roll; `cosmic rand pick file` or `shuffle file` draws lines;
-`cosmic rand normal --mean 100 --stddev 15` and `cosmic rand gamma --shape 2
---scale 3` draw floats. All of it comes from the operating system's entropy,
-unless you name `--seed` to replay `int`, `pick`, `shuffle`, `normal` or
-`gamma`, which is not secret. `cosmic help
-rand` has the rest. A program draws a UUID of its own with [`Rand.uuid`].
-
-## a QR code of an address
-
-`cosmic qr https://example.com/` prints a code a phone can scan from the
-terminal, and `echo https://example.com/ | cosmic qr` reads the text from
-standard input. The blocks show the light modules, for a dark terminal;
-`--invert` suits a light one, `--color` paints it black on white for
-either, and `--ascii` suits a font with no block characters. `cosmic qr --svg code.svg https://example.com/` writes an image
-instead (`--svg -` prints it), and `cosmic qr --read code.svg` reads either
-drawing back. `cosmic help qr` has the rest. A program draws its own with
-[`Qr.text`] and [`Qr.svg`], and reads one with [`Qr.read`].
-
-## a certificate from Let's Encrypt
-
-`cosmic acme key account.pem` and `cosmic acme key site.pem` make two
-keys, one for the ACME account and one for the certificate. Then
-`cosmic acme issue --account account.pem --key site.pem --webroot /var/www
---agree-tos --out chain.pem example.com www.example.com` answers the
-http-01 challenge from the web server's root and writes the chain.
-`--dns-hook <program>` answers dns-01 instead, which a wildcard name
-needs: the program puts the TXT record and takes it away. Try a flow
-with `--staging` first, as Let's Encrypt's limits are lower in
-production. `cosmic help acme` has the rest. A program asks for its own
-with [`Acme.client`].
-
-## a node of your tailnet
-
-`cosmic tailscale status` lists this machine's Tailscale node and its
-peers, asking tailscaled itself, so no `tailscale` binary is needed.
-`cosmic tailscale whois 100.101.102.103` says which node and user an
-address of the tailnet is, and what the policy's grants let it do here.
-`cosmic tailscale cert` writes the node's `ts.net` certificate and key
-(HTTPS must be on for the tailnet), and `cosmic tailscale ping <address>`
-times a round trip. `cosmic tailscale file send report.pdf laptop`
-sends a file to another of your nodes with Taildrop, and `cosmic
-tailscale file get ~/Downloads` takes the files sent to this one.
-`--json` prints any answer as JSON. What a peer named itself is printed
-with its control bytes escaped. A program asks the daemon with
-[`Tailscale.connect`]. On macOS that reads the app's same-user token,
-which grants all the user may do through the daemon, so a program that
-can connect holds that power.
-
-## questions about a data file
-
-A question about a data file -- what is in it, how many of these it
-holds -- takes three steps, and none is a script. Stop at the first that
-answers:
-
-1. Look it up with `cosmic json`: `cosmic json --shape export.json` says
-   what is in the file, and `cosmic json '$.users[0]' export.json` prints
-   one value.
-2. Find where something is with `cosmic json --flat export.json | grep
-   needle`, and paste the path it prints back into `cosmic json`.
-3. Count, filter, join and sum with `cosmic sql --from`, which loads the
-   file as a table of an in-memory SQLite database and runs one
-   read-only statement on it:
-
-    cosmic sql --from accounts.json
-    cosmic sql --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP BY type'
-    cosmic sql --from accounts.json --from owners.jsonl 'SELECT who, balance FROM accounts JOIN owners USING (id)'
-    cosmic sql --from sales.csv 'SELECT region, sum(amount) FROM sales GROUP BY region'
-    curl ... | cosmic sql --from - --as ndjson 'SELECT count(*) FROM stdin'
-
-With no statement, `--from` prints each table's row count, its columns
-with the types stored in them, and one sample row, which is how to find
-what to query. A table is named for its file's stem (`--from
-name=file` names it), a `.jsonl` or `.ndjson` file is one row per line,
-and `--at '$.data.rows'` takes the rows from the array at a path. A
-`.csv` file (`.tsv` or `.tab` for tabs) takes its columns from the
-header line (`SELECT *` keeps that order), and a record with another
-number of fields is refused, naming its line. A blank line is skipped,
-except in a one-column file, where one before the last record is an
-empty cell (a final empty cell is written `""` to be kept). Its cells are typed by one rule: a plain number
-(`-12`, `3.5`, `1e5`) is an integer or a real, an empty cell is NULL,
-and anything else is text, so a ZIP code like `02134` and `007` keep
-their zeros. `--raw` after the `--from` keeps every cell text, and a CSV
-joins a JSON file on any column. Read standard input with `--from -
---as csv`. Nested
-objects and arrays are JSON text, so `json_extract(owner, '$.name')`
-reaches into them; a boolean is 0 or 1. A column or table that does not
-exist is answered with the ones that do. `cosmic help sql` has the rest.
-
-`cosmic fetch <url>` is a small curl: it prints the body, fails on a
-non-2xx, and takes `-o file` and `--sha256 hex`, so `cosmic fetch <url> |
-cosmic json '$.items'` works. A URL may carry its digest, as pip's do:
-`cosmic fetch -o tool.tgz https://host/tool.tgz#sha256=<hex>` renames the file into place only if it matches. `cosmic help fetch` has the rest.
-
-## the digest of a file
-
-`cosmic hash [--sha512 | --sha1 | --md5 | ...] [<file>|-]...` prints `sha256sum`'s `<hex>  <name>` lines, the same on every platform (`sha256sum` and `shasum -a 256` differ), streaming each file; `--check sums.txt` verifies a list (`name: OK` or `FAILED`, exit 1 on any failure), and `--hmac-file key.bin` makes each digest an HMAC without the key in `ps`. `cosmic help hash` has the rest.
-
-## the Lua of a Teal file
-
-`cosmic compile file.tl` prints the Lua this binary's compiler writes for a
-`.tl` file; `cosmic compile -o out a.tl b.tl` writes `out/a.lua` and
-`out/b.lua`. It reads only the files you name, so it runs in any directory,
-and the Lua is raw, with no wrapper. A type error is counted on standard
-error (`--errors` lists each) and the Lua is written anyway; with no `.d.tl`
-named, the file is checked as `cosmic --standalone` checks it, so its warnings
-and refused uses (`package`, `_G`) are counted and listed too. Only a syntax
-error refuses, naming `file:line:column`, writing nothing and exiting 2.
-`cosmic help compile` has the rest.
-
-## bytes to text and back
-
-`cosmic codec hex|base64|base64url [-d] [file|-]` encodes a file or
-standard input on one line (`--wrap N` wraps it; GNU base64's 76 is not
-the default) and with `-d` decodes it, ignoring whitespace and refusing
-a bad character or padding with exit 2 and its byte offset: `printf hi
-| cosmic codec base64` prints `aGk=`. base64url is unpadded, as JWTs
-write it; `--lenient` accepts the other padding. It prints no summary.
-
-## a quick look inside an archive
-
-`cosmic archive list release.tar.gz` prints one entry per line (path, size,
-mode, type), and `--json` an array of objects for `cosmic json` or
-`cosmic sql --from -`; `cosmic archive extract release.zip -C out [member...]` unpacks
-all or some of it, refusing a path that escapes `out` and a file it would
-overwrite (unless `--force`) -- only that and a missing member write
-nothing; an unsafe entry stops extraction after the entries before it, which
-stay written; `cosmic archive create out.tar.gz dir
---reproducible` packs a tree (fixed times, file modes kept), as a zip, a gzip tar or a plain tar, by its name. The format is read from
-the file's bytes, not its name; `-` reads standard input. `cosmic help archive`
-has the rest.
-
-## a quick question about a time
-
-For a clock or calendar question, `cosmic time` answers the same on every
-host, where GNU and BSD `date` differ, with zones from the binary's own tz
-database. `cosmic time now --zone Asia/Tokyo`; `cosmic time convert
-2026-03-08T12:00Z --to America/New_York`; `cosmic time between 2026-01-01
-2026-09-28 --days`; `cosmic time add 2026-01-31 1mo --clamp` (a duration is
-`1y2mo3d4h5m6s`, negative with a leading `-`). A time is RFC 3339, a date,
-a local `2026-03-08T02:30` (read in `--from`; a gap or overlap resolved by
-`--disambiguate`) or `@<epoch>`. `--json` prints the fields. `cosmic help
-time` has the rest.
-
-## looking up a symbol and where it is used
-
-`cosmic docs cosmic.hash` lists what a module offers: each function's
-signature, with how many places use it and how many examples it has, ahead
-of the rest of its prose. `cosmic docs hex_sha256` (or [`Hash.hex_sha256`])
-shows one symbol, with its doc comment and its examples. Words search the
-documentation instead, so `cosmic docs sha256 hex` finds the same function
-when you do not know its name, the first five matches whole and the rest a
-line each. Several qualified names, such as `cosmic docs Fs.read Fs.write`,
-are each looked up in turn. With no argument, `cosmic docs` lists every
-module, and `cosmic docs cosmic` the standard library's. Then
-`cosmic uses Hash.hex_sha256` prints each `file:line` that refers to it,
-to see how others call it before you do:
-
-    $ cosmic docs cosmic.hash
-    cosmic.hash (cosmic/hash.tl)
-      Content hashes and message authentication, over the vendored
-      mbedtls.
-    ...
-      function Hash.hex_sha256(data: string): string  (91 uses, 2 examples)
-    ...
-    $ cosmic uses Hash.hex_sha256
-    mylib/report_test.tl:40: cosmic.hash hex_sha256
-    myapp/main.tl:210: cosmic.hash hex_sha256
-    ...
-
-`cosmic help docs` and `cosmic help uses` have the rest.
-
-## a program held to what you grant it
-
-`cosmic sandbox --system --read . -- ls -l` runs `ls` held to nothing but
-what you name: it reads this directory and starts, and a path you did not
-grant, a program you did not run and a call it did not promise all fail. A
-policy that this host cannot meet is not run in part: the start fails
-(exit 125) and says what is missing. `--read`, `--run` and `--write` grant
-a path; `--path rwxc:work` names the letters; `--promise fork` lets it start
-processes; `--isolate file` gives it a root of its own; `--tmp`, `--env` and
-`--set-env` shape its environment; `--timeout` and the limits bound what it
-spends. Everything after the program is the program's own, so `cosmic
-sandbox --system -- sh --version` asks `sh`. It exits with the program's
-status. `cosmic help sandbox` has the rest, and `cosmic docs
-cosmic.sandbox` the policy these options write.
-
-`--cosmic` grants cosmic itself, so a script of yours runs held the same
-way: `cosmic sandbox --cosmic --read . -- cosmic convert.tl in.csv out.json`
-reads its words from the function it returns (`argv[1]`, `argv[2]`), runs
-as `--standalone` does and writes nothing beside it; add a `--write` for
-the output it makes. Standalone, it finds `cosmic.*` modules only: a script
-with modules of its own beside it takes `--set-env COSMIC_STANDALONE=0
---write ~/.cache/cosmic/trees`, which builds the tree around it in its
-build directory there (under `COSMIC_BUILD_HOME` when that is set).
-
-`--closure` holds a script to the modules it needs and nothing of this
-program's own file: `cosmic sandbox --closure -- cosmic convert.tl in.csv
-out.json` compiles `convert.tl` here, seals it with the `cosmic.*` modules
-it requires by name, and runs it on that, so a `require` of anything else
-fails; a module of your own beside the script is refused before the child
-starts. A `pcall(require, "name")` is followed as a `require` is, and a
-computed name is refused when the script is compiled.
-`--database PATH` runs a file [`Store.seal`] wrote, and `--modules a,b`
-seals exactly those modules (the first its main) from this program's store;
-the three are exclusive. The database a run seals is removed when it ends.
-
-## a coding agent in a sandbox
-
-`cosmic agent ask 'what does this repository do?'` asks Claude about the
-working directory, with `ANTHROPIC_API_KEY` set. The model reads, writes
-and edits files and runs commands there, each held to a sandbox: the
-directory is its to change, the host's programs run, and nothing else
-is there, the network included (`--network` and `--grant path:rw` give
-more; under `--sandbox read` the tools change nothing). `cosmic agent chat` is a
-conversation, a prompt a line; `cosmic agent ask --continue 'and now?'`
-goes on with the last one; `cosmic agent policy` prints what the sandbox
-grants here. Every message, tool output and request is kept in a SQLite
-database before it is shown, so `cosmic agent sessions` lists them and
-`cosmic agent resume` takes up a turn a run left unfinished. `cosmic help
-agent` has the rest, and `cosmic docs cosmic.agent` the loop a program
-runs itself.
-
-## below cosmic.fs
-
-[`cosmic.fs`] is built on [`cosmic.sys`], the syscall table: one C function
-per call, the same on Linux and on macOS. A call no module wraps, such
-as `lstat`, is there. A failure returns nil, the error, and the errno.
-`cosmic docs cosmic.sys` lists every call.
-
-```teal
-local Fs = require("cosmic.fs")
-local sys = require("cosmic.sys")
-
-local dir = assert(Fs.mkdtemp("quickstart-"))
-assert(sys.mkdir(dir .. "/made"))
-local stat = assert(sys.lstat(dir .. "/made"))
-print(stat.kind)
-assert(Fs.remove_tree(dir))
+```sh
+cosmic json -r '$.users[0].name' export.json
+cosmic json -r '$..email' export.json
+cosmic json --flat export.json
 ```
 
 ```output
-dir
+Ada
+ada@example.com
+bo@example.com
+$.users[0].email = "ada@example.com"
+$.users[0].name = "Ada"
+$.users[1].contact.email = "bo@example.com"
+$.users[1].name = "Bo"
 ```
+
+`-r` prints a string without its quotes. `..` finds a key at any depth.
+`--flat` prints every value with its path, and you can paste a path back
+into `cosmic json`. `cosmic help json` has the rest. A program reads JSON
+with [`Json.decode`] and [`Json.get`].
+
+## questions about a data file
+
+`cosmic sql --from` loads a JSON, CSV or NDJSON file as a table and runs
+one read-only SQL statement on it.
+
+```teal file=sales.csv
+region,amount
+east,10
+west,5
+east,7
+```
+
+```sh
+cosmic sql --from sales.csv 'SELECT region, sum(amount) AS total FROM sales GROUP BY region'
+```
+
+```output
+region	total
+east	17
+west	5
+```
+
+The table is named for the file. With no statement, `cosmic sql --from
+sales.csv` lists each table's columns and a sample row. `cosmic help sql`
+has the rest.
+
+`cosmic fetch <url>` gets a URL and prints the body, so `cosmic fetch
+<url> | cosmic json '$.items'` works. `cosmic help fetch` has the rest.
+
+## looking up a symbol and where it is used
+
+`cosmic docs` shows the documentation of the standard library, offline.
+
+```sh
+cosmic docs cosmic.hash
+cosmic docs Hash.hex_sha256
+cosmic docs sha256 hex
+cosmic uses Hash.hex_sha256
+```
+
+The first command lists what a module offers. The second shows one symbol,
+with its examples. The third searches by words, for when you do not
+know the name. `cosmic uses` prints each place that refers to a symbol,
+so you can see how others call it. `cosmic help docs` has the rest.
+
+## a program held to what you grant it
+
+`cosmic sandbox` runs a program that can reach only what you grant.
+
+```text
+cosmic sandbox --system --read . -- ls -l
+```
+
+Here `ls` can read this directory, and `--system` grants what a host
+program needs to start. A path you did not grant fails. If this host
+cannot enforce the policy, nothing runs, and the command says what is
+missing. `--cosmic` grants what cosmic itself needs, to run a script of
+yours the same way. `cosmic help sandbox` has the rest.
 
 ## running another cosmic program
 
-[`cosmic.child`] starts an executable from an exact path; it does not search
-`PATH`. Its result reports how the process ended. Output is inherited unless
-you redirect it to a caller-owned file descriptor, as this example does.
-It writes a small program, `greeter.tl`, and runs it.
+[`cosmic.child`] starts an executable by its exact path. It does not
+search `PATH`. This example writes a small program, `greeter.tl`, and
+runs it with the same cosmic that runs the example.
 
 ```teal
 local Child = require("cosmic.child")
@@ -388,13 +208,10 @@ hello, cosmic
 exit 0
 ```
 
-[`Child.start`] hands back a running child instead, and [`Child.wait_any`]
-waits for the first of several to finish. When its timeout passes first it
-answers `nil` and [`Poll.TIMEOUT`]: nothing finished, and nothing failed. Any
-other reason beside a `nil` is a failure to report, never a message to read
-for its meaning.
-The child's own `wait` then waits for it to finish, and answers how it
-ended.
+[`Child.start`] returns a running child instead, and [`Child.wait_any`]
+waits for the first of several to finish. When the timeout passes
+first, it returns `nil` and [`Poll.TIMEOUT`]. Any other reason is a
+failure to report.
 
 ```teal
 local Child = require("cosmic.child")
@@ -424,87 +241,74 @@ still running
 exit 3
 ```
 
-## closing what a block opened
-
-`local sleeper <close> = assert(Child.start(...))`, above, closes the
-child when the block ends, however it ends -- by its last line, a
-`return` or an error: `<close>` calls its type's `__close`, which ends
-a child still running. An opener answers a `Handle?` and a reason,
-and the compiler refuses `<close>` on a type that may be nil, so
-`assert` narrows it first, raising the reason when there is no handle.
-The same line holds a [`Signal.guard`], a [`cosmic.net`] socket or an
-[`Http.open`] response. A descriptor from [`Fs.open_read`] is an
-integer, which `<close>` cannot hold: [`Fs.close`] closes it, and
-[`Fs.read`] reads a whole file without one.
-
-A type of your own is closable too: declare it a class whose body has
-`function __close(self)`, and make each value as a table literal.
-[`Fs.Scratch`] is one. Without the method the compiler refuses `<close>`
-with `to-be-closed variable h has a non-closable type Handle`. Code that
-only needs to run at the end of a block, and reads locals of the
-function around it, is a [`cosmic.defer`]:
-`local _ <close> = Defer.new(function() ... end)`.
+`local sleeper <close> = ...` ends the child when the block ends,
+whatever way it ends. `<close>` takes no value that may be nil, so
+`assert` comes first. `cosmic docs language` says more about `<close>`.
 
 ## ending early
 
 A program's entry returns its exit status. Where returning is awkward,
-[`Proc.exit`] ends the process at once with a status: it runs no finalizers
-and never returns. This example declares no output, so it compiles and does
-not run: running it would end the test that runs this guide.
+[`Proc.exit`] ends the process at once with a status. It runs no
+finalizers and never returns. This example has no output block, so the
+guide's test compiles it and does not run it: running it would end the
+test.
 
 ```teal
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 
-local config, trouble = Fs.read("app.conf")
+local config, why = Fs.read("app.conf")
 if config == nil then
-  local _, _ = Fs.put(Fs.stderr, tostring(trouble) .. "\n")
+  print(tostring(why))
   Proc.exit(2)
 end
 ```
 
-## a number that starts at zero
+## more quick tools
 
-Teal infers `integer` for `local peak = 0`, so a later `peak = peak + 1.5`
-(or `peak = peak / 2`) is refused with `not_assignable`: "`peak + 1.5` is
-`number`, where `integer` is wanted in the assignment to `peak`". When the
-variable is a plain local declared from an integer literal, the fix names
-where to change it. Write `local peak = 0.0`, or annotate
-`local peak: number = 0`, for a variable that holds floats.
-A function declared `: number` may still
-`return 0`: an integer is a number.
+Each of these verbs does one job at the shell. `cosmic help <verb>` has
+its options.
+
+- `cosmic rand uuid` prints a UUID, and `cosmic rand token` a random
+  token. A program draws one with [`Rand.uuid`].
+- `cosmic time convert 2026-03-08T12:00Z --to America/New_York` converts
+  a time. Its answers are the same on every host.
+- `cosmic codec base64 <file>` encodes a file, and `-d` decodes it.
+- `cosmic archive list release.tar.gz` lists an archive, and `cosmic
+  archive extract` unpacks one safely.
+- `cosmic qr https://example.com/` prints a QR code in the terminal.
+  [`Qr.text`] draws one in a program.
+- `cosmic acme issue` gets a certificate from Let's Encrypt. A program
+  uses [`Acme.client`].
+- `cosmic tailscale status` lists this machine's Tailscale node and its
+  peers, with no `tailscale` binary. A program uses
+  [`Tailscale.connect`].
+- `cosmic compile file.tl` prints the Lua that a Teal file compiles to.
+- `cosmic agent ask 'what does this repository do?'` asks Claude about
+  this directory, with its tools held to a sandbox.
+
+## where to look next
+
+- `cosmic docs cosmic` lists every module of the standard library.
+- [`cosmic.sys`] is the syscall table below [`cosmic.fs`], one C function
+  per call, for a call no module wraps.
+- `cosmic docs language` covers the type checker's rules.
 
 [`Acme.client`]: ../../cosmic/acme.tl
 [`Child.start`]: ../../cosmic/child.tl
 [`Child.wait_any`]: ../../cosmic/child.tl
 [`cosmic.child`]: ../../cosmic/child.tl
-[`cosmic.defer`]: ../../cosmic/defer.tl
 [`cosmic.fs`]: ../../cosmic/fs.tl
 [`cosmic.hash`]: ../../cosmic/hash.tl
-[`cosmic.net`]: ../../cosmic/net.tl
 [`cosmic.sys`]: ../../core/syscalls.h
-[`Fs.close`]: ../../cosmic/fs.tl
 [`Fs.mkdtemp`]: ../../cosmic/fs.tl
-[`Fs.open_read`]: ../../cosmic/fs.tl
 [`Fs.read`]: ../../cosmic/fs.tl
-[`Fs.Scratch`]: ../../cosmic/fs.tl
 [`Fs.write`]: ../../cosmic/fs.tl
-[`Hash.file`]: ../../cosmic/hash.tl
 [`Hash.hex_file`]: ../../cosmic/hash.tl
-[`Hash.hex_sha256`]: ../../cosmic/hash.tl
-[`Http.open`]: ../../cosmic/http/init.tl
 [`Json.decode`]: ../../cosmic/json.tl
-[`Json.encode`]: ../../cosmic/json.tl
 [`Json.get`]: ../../cosmic/json.tl
-[`Json.remove`]: ../../cosmic/json.tl
-[`Json.select`]: ../../cosmic/json.tl
-[`Json.set`]: ../../cosmic/json.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
-[`Qr.read`]: ../../cosmic/qr.tl
-[`Qr.svg`]: ../../cosmic/qr.tl
 [`Qr.text`]: ../../cosmic/qr.tl
 [`Rand.uuid`]: ../../cosmic/rand.tl
-[`Signal.guard`]: ../../cosmic/signal.tl
-[`Store.seal`]: ../../cosmic/store.tl
 [`Tailscale.connect`]: ../../cosmic/tailscale.tl
