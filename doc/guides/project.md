@@ -399,14 +399,13 @@ build` writes `tally` in the project's build directory, outside the project
 prints its path on a line of its own; `cosmic build cmd/tally` writes only that one, and `cosmic build --out dist` also copies each program to `dist/<name>`, a path a Makefile can name. A file that does not compile does not stop a program that does not need it from being written; the build then exits 4, names the file, and removes the earlier executable of any program it could not write. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
-That `tally` is the whole program: copy that one file to a Linux (arm64
-with Armv8.2-A dot-product and half-precision floats: Cortex-A55 or
-Neoverse N1 and newer, Graviton2, Raspberry Pi 5, but not a Raspberry
-Pi 3 or 4; or x86-64 with AVX2, FMA, BMI1 and BMI2, F16C, LZCNT and
-MOVBE: Intel Haswell or AMD Excavator and newer mainstream cores, but
-not Atom-class or AVX-less Pentium and Celeron parts) or arm64 macOS
-host with no cosmic on it and it runs, even with an empty environment
-(`env -i ./tally`). `file` calls it a shell script because it starts as
+That `tally` is the whole program: copy that one file to a Linux host (x86-64
+mainstream cores from Intel Haswell or AMD Excavator on, not Atom-class,
+Pentium or Celeron parts without AVX2; or arm64 from Cortex-A55 or
+Neoverse N1 on, a Raspberry Pi 5 but not a 4) or an arm64 macOS host
+with no cosmic on it and it runs, even with an empty environment
+(`env -i ./tally`). On a CPU without what its core needs, the launcher
+refuses and names the missing features. `file` calls it a shell script because it starts as
 one: a /bin/sh launcher with a core for each supported system and the program
 appended. On a host's first run the
 launcher copies that host's core into a private cache
