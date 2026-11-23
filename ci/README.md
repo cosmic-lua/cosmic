@@ -347,6 +347,19 @@ old prereleases.
 downloads over `cosmic.http`'s scripted replies; neither reaches the
 network.
 
+`prerelease-follow` is prerelease.yml's `follow` job, which runs after a
+green push run on main and after a full run's failed first attempt, checks
+out main's tip, only what `publish` does, and holds an `actions: write`
+token, which only the pinned driver running main's own `ci/` uses. After a green push run, where no daily or manual run of main
+started in the last six hours, it starts a manual run of main
+(`POST .../workflows/ci.yml/dispatches`), so a prerelease follows main
+within hours. After a daily or manual run's first attempt failed, it
+re-runs that run's failed jobs once, so one flaky test does not cost the
+prerelease; a second failure stands. It reads the triggering run's `EVENT`,
+`CONCLUSION`, `ATTEMPT`, `RUN_ID` and `BRANCH`, with `REPOSITORY` and
+`GH_TOKEN`; [`cosmic_ci/prerelease_follow_test.tl`] drives it against a
+fake client.
+
 `fuzz` and `fuzz-cancelled` are fuzz.yml's, and record no operation.
 `fuzz` runs the sanitized tool (`sanitized/bin/cosmic` in the build
 directory `build/paths.tl` names) as `test --all` from `GITHUB_WORKSPACE`
@@ -429,7 +442,7 @@ are where CI answers for everything. A branch's push runs nothing.
 - **the daily scheduled run** and **a manual run** run all that and the
   macOS leg, and the gate compares the four products, which
   prerelease.yml publishes: a prerelease is tested on all four legs, and
-  at most a day behind main. The daily run and a manual run stand on the
+  some hours behind main (`prerelease-follow`, below). The daily run and a manual run stand on the
   verdicts main's pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's,
   the weekly run, stands on none, runs the fixed-point regression, and
   builds zig's caches cold. A manual run with `every_test` stands on none
@@ -618,6 +631,7 @@ the first tried once, with the clearing and sleeping step between them.
 
 [`cosmic_ci/cache_trim.tl`]: cosmic_ci/cache_trim.tl
 [`cosmic_ci/prerelease_test.tl`]: cosmic_ci/prerelease_test.tl
+[`cosmic_ci/prerelease_follow_test.tl`]: cosmic_ci/prerelease_follow_test.tl
 [`cosmic_ci/github_api.tl`]: cosmic_ci/github_api.tl
 [`cosmic_ci/github_api_test.tl`]: cosmic_ci/github_api_test.tl
 [`cosmic_ci/report_test.tl`]: cosmic_ci/report_test.tl
