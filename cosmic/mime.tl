@@ -115,7 +115,7 @@ end
 --- @return string The encoder's failure, empty where none
 function Mime.gzip(path: string, data: string): string?, string
   if not compressible(path, data) then return nil, "" end
-  local packed, trouble = Compress.deflate("gzip", data, 9)
+  local packed, trouble = Compress.encode("gzip", data, { level = 9 })
   if packed == nil then return nil, tostring(trouble) end
   return worth(packed, data), ""
 end
@@ -132,7 +132,7 @@ end
 --- @return string The encoder's failure, empty where none
 function Mime.zstd(path: string, data: string): string?, string
   if not compressible(path, data) then return nil, "" end
-  local encoder, trouble = Compress.zstd_encoder(ZSTD_LEVEL)
+  local encoder, trouble = Compress.encoder("zstd", { level = ZSTD_LEVEL })
   if encoder == nil then return nil, tostring(trouble) end
   local head, head_trouble = encoder:update(data)
   if head == nil then return nil, head_trouble end

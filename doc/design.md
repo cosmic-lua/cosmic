@@ -44,17 +44,28 @@ these argues with the principle, not with the reviewer.
    one path outside code may import, and every sibling beside it is
    reachable only from within that directory. no list to maintain,
    none to go stale.
-3. **honest returns.** `T | nil, string` for a value, `boolean,
-   string` for an effect, two slots and nothing in a third, a
-   structured error record when the failure has shape. the one
-   exception is the raw binding table [`cosmic.sys`], whose C calls
-   add the errno in a third slot, and a stand-in a module stores
-   into that table in a binding's place, which answers as the
-   binding does; every other Teal function over it folds its answer
-   back to two. a function a module exports answers one value, a
-   failure pair, or a record: never a bare tuple, whose later slots a
-   caller drops as quietly as a reason. a throw or exit carries a
-   trailing reason and is exceptional by construction.
+3. **honest returns.** `(T) | (nil, Failure)` for a value, `(true) |
+   (false, Failure)` for an effect, two slots and nothing in a third.
+   a [`cosmic.failure`] keeps the words, the path where there is one,
+   the errno where a system call failed, and a `kind` (`other`,
+   `system`, `parse`, `library`, `timeout`, `cancelled`), so a caller
+   acts on the cause and never matches the words. a call that asks
+   whether something is there answers that as a value ([`Fs.status`]'s
+   `exists`, [`Store.holds`]), not as a failure. the stdlib moves to this
+   shape a module at a time; a module not yet moved answers `T?,
+   string` and `boolean, string`, which the checks on callers hold as
+   well. intended: one operation is one function, with no twin beside
+   it that raises or that answers a classified record
+   ([`Proc.find_result`], [`Http.download_result`], `handle:exec_result`
+   go once their modules move). the one exception to the two slots is
+   the raw binding table [`cosmic.sys`], whose C calls add the errno in
+   a third slot, and a stand-in a module stores into that table in a
+   binding's place, which answers as the binding does; every other Teal
+   function over it folds its answer back to two. a function a module
+   exports answers one value, a failure pair, or a record: never a bare
+   tuple, whose later slots a caller drops as quietly as a reason. a
+   throw or exit carries a trailing reason and is exceptional by
+   construction.
 4. **no escape hatch in the type layer.** casts are foreclosed;
    `any` lives only where untrusted data enters and a shape validator
    turns it into a record.
@@ -253,7 +264,7 @@ entries, each an X-macro [`core/syscalls.c`] expands again, so there is
 no second list to drift from them.
 argument-shape errors raise; runtime failures return `nil, err,
 errno` for a value and `false, err, errno` for an effect, plain
-values, the convention the fork already uses at over a hundred sites.
+values.
 that errno in a third slot belongs to these two tables alone, the
 one exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
@@ -956,13 +967,9 @@ and keying them split hosted runners of one leg for nothing.
 [`build/dispatched_features_test.tl`] fails when the tree comes to ask the
 processor anything else.
 
-no run keys a verdict by what its test was seen to read: the observed key,
-the log of a worker's reads it was made from, and `--audit`, which named what
-a test read beyond its declaration, are gone, and with
-them the syscall table's log and the SQLite VFS that recorded the files a
-connection opened. a sandboxed
-test that reads what it does not declare finds nothing there and fails with
-its own error. what a declared key rests on beside the list above:
+no run keys a verdict by what its test was seen to read. a sandboxed test
+that reads what it does not declare finds nothing there and fails with its
+own error. what a declared key rests on beside the list above:
 
 - *the tree's location*, by rule ([`build/key_parts.tl`], above
   `tree_name`): a test may not turn on where the tree is, nor where the
@@ -1051,8 +1058,8 @@ a CycloneDX document. a pin with no license fails the build.
 the checker and compiler are the tree's own source, `lang/`, and the language is cosmic's own: it reads Teal's
 syntax where that serves and breaks with it where Teal or a Lua idiom costs
 soundness, simplicity or speed (`cosmic docs <code>` gives the rule behind any
-error the checker reports). there is one checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
-patch records; a project written in the old grammar is rewritten to this one by hand
+error the checker reports). there is one checker. code written for Teal's own checker is rewritten
+to this grammar by hand, by the checker's findings
 ([`doc/guides/project.md`]).
 
 the pieces are small modules, each deciding one thing and asked by the rest:
@@ -1346,7 +1353,7 @@ the build directory, which build/paths.tl names, is outside the tree:
 `$XDG_CACHE_HOME/cosmic/trees/<sha256 of the canonical root>`, or under the
 absolute base `COSMIC_BUILD_HOME` names. it holds cosmic.db, carried.db,
 build.db, stores/, bin/, core/ and the rebuild lock; nothing falls back to a
-checkout's `o/`, which an older tool wrote and the build now ignores.
+checkout's `o/`, which the build never reads.
 
 every directory name is singular: `doc`, not `docs`; `patch`, not
 `patches`. the rule reaches module paths too, since a module that
@@ -1559,3 +1566,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md
+[`Fs.status`]: ../cosmic/fs.tl
+[`Http.download_result`]: ../cosmic/http/init.tl
+[`Proc.find_result`]: ../cosmic/proc.tl
+[`Store.holds`]: ../cosmic/store.tl

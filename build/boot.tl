@@ -257,7 +257,7 @@ local function assemble(manifest_records: string, images: {string:string},
     packing = {
       stubs = stubs,
       compress = function(core: string): string?, string
-        local framed, why = Compress.zstd(core, artifact.zstd_level())
+        local framed, why = Compress.encode("zstd", core, { level = artifact.zstd_level() })
         if framed == nil then return nil, tostring(why) end
         return framed, ""
       end,

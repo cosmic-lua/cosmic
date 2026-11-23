@@ -26,7 +26,7 @@ local function test_gzip_keeps_only_a_text_file_it_shrinks_enough()
   local text = ("body { margin: 0 }\n"):rep(200)
   local packed = assert(Mime.gzip("app.css", text))
   assert(#packed * 10 <= #text * 9)
-  assert(assert(Compress.inflate("gzip", packed)) == text)
+  assert(assert(Compress.decode("gzip", packed)) == text)
   -- deterministic: the bytes depend on the input alone.
   assert(Mime.gzip("app.css", text) == packed)
   assert(Mime.gzip("app.css", ("x"):rep(1024)) == nil, "1 KiB is not past the minimum")
@@ -43,7 +43,7 @@ local function test_gzip_keeps_only_a_text_file_it_shrinks_enough()
 end
 
 local function unzstd(packed: string): string
-  local out = assert(Stream.run(assert(Compress.zstd_decoder()), packed))
+  local out = assert(Stream.run(assert(Compress.decoder("zstd")), packed))
   return out
 end
 

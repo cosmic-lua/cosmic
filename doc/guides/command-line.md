@@ -3,11 +3,10 @@
 <!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
 `cosmic` takes a verb, such as `test`, `fix`, `build` or `docs`, or a
-path to a file to run. Each example here starts the `cosmic` that runs
-it, through [`cosmic.child`], and shows what it prints. Each starts it the
-way `cosmic test` starts its workers, past its launcher: [`Proc.relaunch`]
-names the core it runs on and what the launcher would hand it, so the
-start needs no shell.
+path to a file to run. The examples here run `cosmic` and show what it
+prints. The Teal ones start it through [`cosmic.child`], the way
+`cosmic test` starts its workers: [`Proc.relaunch`] names the core it runs
+on and what the launcher would hand it, so the start needs no shell.
 
 ## a one-liner
 
@@ -20,31 +19,13 @@ nothing is bound for it. The words after
 the chunk are its `...`, each a `string?`, and an integer it returns is
 the exit code.
 
-```teal
-local Child = require("cosmic.child")
-local Env = require("cosmic.env")
-local Proc = require("cosmic.proc")
-local Clock = require("cosmic.clock")
-
-local relaunch = assert(Proc.relaunch())
-local env = Env.all()
-for name, value in pairs(relaunch.env) do env[name] = value end
-local function cosmic(...: string): {string}
-  local argv = { table.unpack(relaunch.argv) }
-  for _, word in ipairs({ ... }) do argv[#argv + 1] = word end
-  return argv
-end
-local said = assert(Child.run(cosmic("-e", "print(select('#', ...), ...)", "a", "b"),
-  { env = env, fds = relaunch.fds, stdout = "capture", timeout_ns = Clock.seconds(10) }))
-print(((said.stdout or ""):gsub("\n$", "")))
-local exited = assert(Child.run(cosmic("-e", "return 3"),
-  { env = env, fds = relaunch.fds, timeout_ns = Clock.seconds(10) }))
-print("exit " .. tostring(exited.code))
+```sh
+cosmic -e 'print(select("#", ...), ...)' a b
+cosmic -e 'return 3'  # exits 3
 ```
 
 ```output
 2	a	b
-exit 3
 ```
 
 A chunk prints only what it prints. It gets no summary, as a file run
@@ -65,10 +46,19 @@ and no `require` finds one: `cosmic hello.lua` says that cosmic runs
 Teal, checked, and to rename the file to `hello.tl` and run `cosmic fix`
 on it to see what the checker asks of it.
 
+A file that requires only `cosmic.*` modules runs as `cosmic --standalone`
+runs it. No tree is built around it, so nothing is staged and no build
+directory is written. This holds where each `require` names its module
+with a literal string, and the file is no program's `cmd/<name>/main.tl`
+and no `_test.tl`, outside cosmic's own checkout. A file that requires a
+module of its project builds the tree, as `COSMIC_STANDALONE=0` makes any
+file do.
+
 ## help for one verb
 
 `cosmic help` prints a short index, a line per verb. `cosmic help <verb>`
-prints that verb's full text and options; `--help` or `-h` anywhere on a
+prints that verb's usage, its summary, options and examples, then its
+full text; `--help` or `-h` anywhere on a
 verb's line, before a `--`, does the same. Like every verb's, its summary
 goes to stderr, so stdout holds the text alone. `cosmic help exit` says
 what the exit codes and summaries mean.
@@ -93,7 +83,7 @@ local result = assert(Child.run(argv,
     timeout_ns = Clock.seconds(10) }))
 assert(Fs.remove_tree(dir))
 local out = result.stdout or ""
-print(out:match("^`cosmic db[^`]*`"))
+print(out:match("^usage: cosmic db[^\n]*"))
 local verbs = 0
 for line in out:gmatch("[^\n]+") do
   if line:sub(1, 8) == "`cosmic " then verbs = verbs + 1 end
@@ -103,7 +93,7 @@ print(out:find("help: ", 1, true) == nil, (result.stderr or ""):match("^help: 1 
 ```
 
 ```output
-`cosmic db [path...]`
+usage: cosmic db [path...]
 1 verb
 true	true
 ```

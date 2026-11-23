@@ -121,9 +121,11 @@ local record Pipeline
 
   --- The Lua of the source `text`, which is the file `file`, checked as a module of its own that requires only what the
   --- binary carries ([`Pipeline.carried`]) and written for `options`: nil and every line the checker refuses it for. A
-  --- warning is a refusal. Nothing is pinned but that a lone file returns its entry point, which no declaration describes: the
-  --- contracts, the test tail and the record-field uses are the tree's compile alone.
-  lone: function(file: string, text: string, options: Options, tests?: boolean): string?, string
+  --- warning is a refusal. Nothing is pinned but what a lone source returns: with `declared_return`, it is held to a declaration as
+  --- a tree holds a module's (`export_not_declared`), as for a file, whose entry point its tree would hold so; without, it
+  --- is free, as for a chunk of `cosmic -e`, whose `return` is its exit code. The contracts, the test tail and the
+  --- record-field uses are the tree's compile alone.
+  lone: function(file: string, text: string, options: Options, tests?: boolean, declared_return?: boolean): string?, string
 
   --- The modules the source `text`, the file `file`, requires by a literal name, in the order they stand (a type-only require
   --- among them): the syntax tree of the new checker's parse of the text. nil and the refusal, in the checker's words,
@@ -141,12 +143,12 @@ local record Pipeline
   end
 
   --- [`Pipeline.lone`] with the refusal as a line for each problem, for a caller that lists them.
-  checked_alone: function(file: string, text: string, options: Options, tests?: boolean): Alone
+  checked_alone: function(file: string, text: string, options: Options, tests?: boolean, declared_return?: boolean): Alone
   --- [`Pipeline.checked_alone`] of each of `items`, `{ file, text }`, in one build: what each lowers of the standard
   --- library is lowered once for all, as it is for the files of a tree. Each answer is the one its text alone has: a
   --- text that names `lone`, as the items' modules are named, is checked in a build of its own. The build holds every
   --- item until the last is answered.
-  checked_alone_each: function(items: {{string}}, options: Options, tests?: boolean): {Alone}
+  checked_alone_each: function(items: {{string}}, options: Options, tests?: boolean, declared_return?: boolean): {Alone}
 
   --- The `cosmic.*` modules of the running binary, each its stub or its source ([`build.standard_text`]), a declaration
   --- ([`cosmic.sys`]) as one.
@@ -811,7 +813,8 @@ local function note_stages(stages: mut {string: string}, stage: string, list: {D
 end
 
 --- What a build holding `module`, the file `file`, lowered made of it ([`Pipeline.Alone`]).
-local function alone_of(build: Driver.Build, module: string, file: string, options: Pipeline.Options): Pipeline.Alone
+local function alone_of(build: Driver.Build, module: string, file: string, options: Pipeline.Options,
+                        declared_return?: boolean): Pipeline.Alone
   local result = build:result(module, true)
   if result == nil then
     return { code = nil, lines = { file .. ": the new checker's build has no module " .. module }, stages = {} }
@@ -823,10 +826,10 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
       told[#told + 1] = ErrorRender.line(file, p)
     end
   else
-    -- What the file returns is its entry point ([`build.standalone`]) or, for a chunk of `cosmic -e`, its exit code, which
-    -- nothing requires and so no declaration needs to describe: the one error a lone file is allowed, at every `return`,
-    -- whatever it returns.
-    for _, line in ipairs(build:held(result, false, { checked = { "export_not_declared" } })) do
+    -- What a chunk of `cosmic -e` returns is its exit code, which nothing requires and so no declaration needs to
+    -- describe: the one error it is allowed, at every `return`, whatever it returns. A file is held as its tree holds it.
+    local allowed: {string} = if declared_return == true then {} else { "export_not_declared" } end
+    for _, line in ipairs(build:held(result, false, { checked = allowed })) do
       told[#told + 1] = line
     end
     note_stages(stages, "scoped", result.scope_errors)
@@ -852,7 +855,8 @@ local function alone_of(build: Driver.Build, module: string, file: string, optio
   return { code = emitted.code, lines = {}, stages = stages }
 end
 
-function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Options, tests?: boolean): {Pipeline.Alone}
+function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Options, tests?: boolean,
+                                     declared_return?: boolean): {Pipeline.Alone}
   -- Each a module of its own. A text that names `lone` could require another item's module, which alone it could not,
   -- so it is checked in a build of its own.
   local entries: mut {{string}} = {}
@@ -862,7 +866,7 @@ function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Option
   for i, item in ipairs(items) do
     local file, text = assert(item[1]), assert(item[2])
     if #items > 1 and text:find("lone", 1, true) ~= nil then
-      apart[i] = assert(Pipeline.checked_alone_each({ { file, text } }, options, tests)[1])
+      apart[i] = assert(Pipeline.checked_alone_each({ { file, text } }, options, tests, declared_return)[1])
     else
       local name = if #entries == 0 then "lone" else "lone" .. tostring(#entries + 1) end
       entries[#entries + 1] = { file, text, name }
@@ -894,7 +898,7 @@ function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Option
     local made = apart[i]
     if made == nil then
       local entry = assert(entries[at])
-      made = refused[at] or alone_of(build, assert(entry[3]), assert(entry[1]), options)
+      made = refused[at] or alone_of(build, assert(entry[3]), assert(entry[1]), options, declared_return)
       at = at + 1
     end
     out[#out + 1] = made
@@ -902,12 +906,14 @@ function Pipeline.checked_alone_each(items: {{string}}, options: Pipeline.Option
   return out
 end
 
-function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean): Pipeline.Alone
-  return assert(Pipeline.checked_alone_each({ { file, text } }, options, tests)[1])
+function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean,
+                                declared_return?: boolean): Pipeline.Alone
+  return assert(Pipeline.checked_alone_each({ { file, text } }, options, tests, declared_return)[1])
 end
 
-function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean): string?, string
-  local made = Pipeline.checked_alone(file, text, options, tests)
+function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean,
+                       declared_return?: boolean): string?, string
+  local made = Pipeline.checked_alone(file, text, options, tests, declared_return)
   if made.code == nil then
     return nil, table.concat(made.lines, "\n")
   end

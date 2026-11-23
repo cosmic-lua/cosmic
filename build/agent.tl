@@ -768,7 +768,7 @@ end
 --- tree, so it is never stale-checked.
 verb.spec = {
   name = "agent",
-  guide = "a coding agent in a sandbox",
+  guide = "more quick tools",
   tests = { "build.agent_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,

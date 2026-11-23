@@ -53,8 +53,10 @@ local function test_summaries_keep_the_figures_ci_reads_in_order()
     skipped = 1, na = 2, every = 0, shared = 0 }, "7 ms") ==
       "9 tests passed in 3 modules; 4 ran, 3 stood, 1 skipped (this host could not check it), " ..
       "2 n/a (this platform has none of what they check), 7 ms")
-  assert(table.concat(test_report.nas({ "z: requires proc: none", "a: requires proc: none" }), "\n") ==
-      "test: N/A  a: requires proc: none\ntest: N/A  z: requires proc: none")
+  local nas = table.concat(test_report.nas({ "core.z test_b: requires proc: none", "core.a test_x: requires proc: none",
+    "core.z test_a: requires proc: none", "core.z test_c: requires checked", "odd" }), "\n")
+  assert(nas == "test: N/A  core.a: 1 test, requires proc: none\ntest: N/A  core.z: 1 test, requires checked\n" ..
+      "test: N/A  core.z: 2 tests, requires proc: none\ntest: N/A  odd", nas)
   assert(test_report.failed(2, 9, 1, "7 ms") ==
       "2 of 9 tests failed, 1 infrastructure error, 7 ms")
   assert(test_report.failed(1, 1, 0, "7 ms") == "1 of 1 test failed, 0 infrastructure errors, 7 ms")

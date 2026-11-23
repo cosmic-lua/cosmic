@@ -193,10 +193,10 @@ end
 --- A zstd frame the stub would take decodes to the core it names.
 local function test_the_frames_a_release_writes_decode_to_their_cores()
   local core = ("a core, repeated; "):rep(5000) .. "ELF"
-  local frame = assert(Compress.zstd(core, 19))
+  local frame = assert(Compress.encode("zstd", core, { level = 19 }))
   local prefix = assert(artifact.prefix("1\t1\trelease\tx86\tLinux\tx86_64\n", { x86 = core }, nil,
     { stubs = { x86 = "STUB" }, compress = function(c: string): string?, string
-      local framed, why = Compress.zstd(c, 19)
+      local framed, why = Compress.encode("zstd", c, { level = 19 })
       if framed == nil then return nil, tostring(why) end
       return framed, ""
     end }))
@@ -204,7 +204,7 @@ local function test_the_frames_a_release_writes_decode_to_their_cores()
   local core_entry = assert(entries[2])
   local stored = prefix:sub(core_entry.offset + 1, core_entry.offset + core_entry.stored_length)
   assert(stored == frame and #stored < #core // 10)
-  assert(assert(Stream.run(assert(Compress.zstd_decoder()), stored)) == core)
+  assert(assert(Stream.run(assert(Compress.decoder("zstd")), stored)) == core)
 end
 
 local function test_programs_share_the_prefix_and_have_distinct_suffixes()
@@ -522,9 +522,9 @@ local function test_a_release_frame_is_the_same_every_time_and_names_its_size()
   end
   local core = table.concat(pieces):rep(8)
   local level = artifact.zstd_level()
-  local one = assert(Compress.zstd(core, level))
-  assert(Compress.zstd("other work between the two", level))
-  local two = assert(Compress.zstd(core, level))
+  local one = assert(Compress.encode("zstd", core, { level = level }))
+  assert(Compress.encode("zstd", "other work between the two", { level = level }))
+  local two = assert(Compress.encode("zstd", core, { level = level }))
   assert(one == two, "the same core compressed to two frames")
   assert(one:sub(1, 4) == "\40\181\47\253", "a zstd frame")
   -- The frame header descriptor: bit 2 a content checksum, bits 6-7 the size of
@@ -532,5 +532,5 @@ local function test_a_release_frame_is_the_same_every_time_and_names_its_size()
   local descriptor = assert(one:byte(5))
   assert(descriptor & 0x04 ~= 0, "the frame carries a checksum")
   assert(descriptor & 0xc0 ~= 0 or descriptor & 0x20 ~= 0, "the frame names its content size")
-  assert(assert(Stream.run(assert(Compress.zstd_decoder(1 << 23)), one)) == core)
+  assert(assert(Stream.run(assert(Compress.decoder("zstd", { max_window = 1 << 23 })), one)) == core)
 end

@@ -363,18 +363,18 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   do
-    local _stream = assert(Compress.inflater("raw"))
+    local _stream = assert(Compress.decoder("raw"))
     local held_bytes, held_blocks = testing.c_heap()
-    assert(held_blocks == blocks + 1 and held_bytes > bytes, "an inflater holds its window")
+    assert(held_blocks == blocks + 1 and held_bytes > bytes, "a decoder holds its window")
   end
-  assert_c_heap(bytes, blocks, "a collected inflater")
-  -- Some run grants the userdata and refuses the window: the inflater
+  assert_c_heap(bytes, blocks, "a collected decoder")
+  -- Some run grants the userdata and refuses the window: the decoder
   -- answers that refused C allocation with nil and a message.
   local answered = false
   for after = 0, 100 do
     testing.fail_allocations(after)
     -- The core's own inflater, which answers the refusal in words:
-    -- Compress.inflater's Failure is a Lua table, and no Lua allocation
+    -- Compress.decoder's Failure is a Lua table, and no Lua allocation
     -- is granted until allow_allocations.
     local ok, made, trouble = pcall(raw_compress.inflater, "raw")
     local refused = testing.allow_allocations()
@@ -387,7 +387,7 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
     if refused == 0 then break end
   end
   assert(answered, "no run refused the window alone")
-  assert_c_heap(bytes, blocks, "a refused inflater")
+  assert_c_heap(bytes, blocks, "a refused decoder")
 end
 
 --- "hello, cosmic!", as `xz -c`, `bzip2 -c` and `zstd -c` write it.
@@ -424,21 +424,22 @@ end
 --- nil and a message, and leaves no block behind.
 local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   local function packed(format: Compress.Format): string
-    local encoder = assert(Compress.deflater(format))
+    local encoder = assert(Compress.encoder(format))
     return assert(encoder:update(hello)) .. assert(encoder:finish())
   end
   local decodings: {Decoding} = {
     { name = "raw", input = packed("raw"),
-      make = function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("raw") end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("raw") end },
     { name = "zlib", input = packed("zlib"),
-      make = function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("zlib") end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("zlib") end },
     { name = "gzip", input = packed("gzip") .. "trailing",
-      make = function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("gzip") end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("gzip") end },
     { name = "xz", input = hello_xz .. "trailing",
-      make = function(): (Compress.Stream) | (nil, Failure) return Compress.xz_decoder() end },
-    { name = "bz2", input = hello_bz2 .. "trailing", make = Compress.bz2_decoder },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("xz") end },
+    { name = "bz2", input = hello_bz2 .. "trailing",
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("bz2") end },
     { name = "zstd", input = hello_zst .. "trailing",
-      make = function(): (Compress.Stream) | (nil, Failure) return Compress.zstd_decoder() end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("zstd") end },
   }
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
@@ -452,13 +453,13 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
     assert_c_heap(bytes, blocks, decoding.name .. " decoding under refusal")
   end
   ended = ended + AllocationFixture.under_every_failure(function()
-    local encoder = assert(Compress.deflater("gzip"))
+    local encoder = assert(Compress.encoder("gzip"))
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
   end)
   assert_c_heap(bytes, blocks, "deflating under refusal")
   ended = ended + AllocationFixture.under_every_failure(function()
-    local encoder = assert(Compress.zstd_encoder())
+    local encoder = assert(Compress.encoder("zstd"))
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
   end)
@@ -466,13 +467,13 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   -- Preset 0, whose dictionary is the smallest: every refusal is walked,
   -- and each walk allocates what the preset asks for.
   ended = ended + AllocationFixture.under_every_failure(function()
-    local encoder = assert(Compress.xz_encoder(0))
+    local encoder = assert(Compress.encoder("xz", { level = 0 }))
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
   end)
   assert_c_heap(bytes, blocks, "xz encoding under refusal")
   ended = ended + AllocationFixture.under_every_failure(function()
-    local encoder = assert(Compress.bz2_encoder(1))
+    local encoder = assert(Compress.encoder("bz2", { level = 1 }))
     local out = assert(encoder:update(string.rep(hello, 64))) .. assert(encoder:finish())
     assert(#out > 0)
   end)
@@ -501,17 +502,17 @@ local function test_one_byte_updates_do_not_allocate_a_slice_each()
   end
   local codecs: {Pair} = {
     { name = "zstd", encoder = function(): (Compress.Stream) | (nil, Failure)
-      return Compress.zstd_encoder()
+      return Compress.encoder("zstd")
     end,
-      decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.zstd_decoder() end },
+      decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("zstd") end },
     { name = "xz", encoder = function(): (Compress.Stream) | (nil, Failure)
-      return Compress.xz_encoder()
+      return Compress.encoder("xz")
     end,
-      decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.xz_decoder() end },
+      decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("xz") end },
     { name = "bz2", encoder = function(): (Compress.Stream) | (nil, Failure)
-      return Compress.bz2_encoder()
+      return Compress.encoder("bz2")
     end,
-      decoder = Compress.bz2_decoder },
+      decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("bz2") end },
   }
   local count = 2000
   local warm = 50
@@ -571,7 +572,7 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   assert_c_heap(bytes, blocks, "deflate and inflate under refusal")
   ended = AllocationFixture.under_every_failure(function()
     local source = assert(Store.source("cosmic.compress"))
-    assert(source:find("function Compress.deflate", 1, true) ~= nil)
+    assert(source:find("function Compress.encode", 1, true) ~= nil)
   end)
   assert(ended > 0, "a source lookup allocates")
   assert_c_heap(bytes, blocks, "the source lookup under refusal")
@@ -938,12 +939,12 @@ local function test_bigint_leaves_nothing_whenever_an_allocation_fails()
   -- The functions for secrets hold their limbs in one block of the
   -- core's own each, under a guard of its own.
   ended = AllocationFixture.under_every_failure(function()
-    local product = Bigint.mulmod("\5", "\200\200", prime)
-    assert(Bigint.expmod("\5", "\200\200", prime) == assert(Bigint.pad(Bigint.powmod("\5", "\200\200", prime), #prime)))
-    local sum = Bigint.addmod(product, prime, prime)
-    assert(sum == product and Bigint.reduce(sum, prime) == product)
-    assert(Bigint.submod(sum, product, prime) == string.rep("\0", #prime))
-    assert(Bigint.sum(Bigint.product(product, "\2"), "") == "\0" .. Bigint.sum(product, product))
+    local product = Bigint.reveal(Bigint.secret_mulmod("\5", "\200\200", prime))
+    assert(Bigint.reveal(Bigint.secret_powmod("\5", "\200\200", prime)) == assert(Bigint.pad(Bigint.powmod("\5", "\200\200", prime), #prime)))
+    local sum = Bigint.reveal(Bigint.secret_addmod(product, prime, prime))
+    assert(sum == product and Bigint.reveal(Bigint.secret_mod(sum, prime)) == product)
+    assert(Bigint.reveal(Bigint.secret_submod(sum, product, prime)) == string.rep("\0", #prime))
+    assert(Bigint.reveal(Bigint.secret_add(Bigint.reveal(Bigint.secret_mul(product, "\2")), "")) == "\0" .. Bigint.reveal(Bigint.secret_add(product, product)))
   end)
   assert(ended > 0, "a call's limbs are an allocation")
   assert_c_heap(bytes, blocks, "big integers for secrets under refusal")

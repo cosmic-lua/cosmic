@@ -87,7 +87,8 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
         verb .. " " .. name .. " says nothing of what it does")
       local value = entry.value
       local shown = if value ~= nil then name .. " <" .. value .. ">" else name end
-      assert(out:find("\n  " .. shown .. " ", 1, true), verb .. ": " .. out)
+      assert(out:find("\n  " .. shown .. " ", 1, true) or out:find("\n  " .. shown .. "\n", 1, true),
+        verb .. ": " .. out)
     end
   end
   -- `cosmic docs` asked nothing lists the modules there are.
@@ -125,11 +126,11 @@ local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
   local e = verbs_fixture.expect(tmp, "help", { "help", "-e" }, 0).stdout
   assert(e:find("`cosmic -e", 1, true), e)
   assert(not e:find("`cosmic test ", 1, true), e)
-  -- Every verb's text opens with its synopsis, then what it takes and
+  -- Every verb's text opens with its usage line, then what it takes and
   -- how it ends.
   for _, verb in ipairs(Cli.order) do
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout
-    assert(out:sub(1, 8) == "`cosmic ", verb .. ": " .. out)
+    assert(out:sub(1, 14) == "usage: cosmic ", verb .. ": " .. out)
     assert(out:find("\n\nTakes ", 1, true) or out:find("\n\nPrints only", 1, true), verb .. ": " .. out)
   end
 end
@@ -139,19 +140,27 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
   local lines = 0
   for _ in all:gmatch("\n") do lines = lines + 1 end
-  -- A line a verb, and about 30 more: the guides, a heading and a blank
-  -- line a group, and the closing pointers.
-  assert(lines <= #Cli.order + 32, tostring(lines) .. " lines:\n" .. all)
+  -- A usage too wide to share its line with the summary takes a line of
+  -- its own.
+  local alone = 0
   for _, verb in ipairs(Cli.order) do
     local command = Cli.verbs[verb]
     assert(command ~= nil, verb .. " is in Cli.order but has no command")
-    assert(all:find(assert(command.usage) .. "  ", 1, true), verb .. " is not in the index:\n" .. all)
+    local usage = assert(command.usage)
+    local beside = all:find(usage .. "  ", 1, true) ~= nil
+    if not beside then
+      assert(all:find(usage .. "\n", 1, true), verb .. " is not in the index:\n" .. all)
+      alone = alone + 1
+    end
     assert(all:find(assert(command.about), 1, true), verb .. " has no line:\n" .. all)
   end
+  -- A line a verb, and about 30 more: the guides, a heading and a blank
+  -- line a group, and the closing pointers.
+  assert(lines <= #Cli.order + alone + 32, tostring(lines) .. " lines:\n" .. all)
   -- A usage follows the word that names its verb, or what is typed
   -- where a verb has no word of its own.
   for _, line in ipairs({ "\n  cosmic test [selector...]  ", "\n  cosmic <file.tl> [args]  ",
-      "\n  cosmic --standalone [--check] <file.tl> [args]  ", "\n  cosmic -e '<chunk>' [args]  ",
+      "\n  cosmic --standalone [--check] <file.tl> [args]\n", "\n  cosmic -e '<chunk>' [args]  ",
       "\n  cosmic --version  ", "\n  cosmic bom  " }) do
     assert(all:find(line, 1, true), line .. ":\n" .. all)
   end
@@ -169,23 +178,41 @@ local function test_help_is_a_short_index_of_every_verb(tmp: string)
   assert(bare:find("\nMore:\n", 1, true) and bare:find("\nQuick tools:\n", 1, true), bare)
 end
 
+--- Every line of the index fits a terminal of 80 columns. A usage too
+--- wide for that is one line alone, and its summary is under it.
+local function test_help_index_fits_80_columns(tmp: string)
+  local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
+  for line in all:gmatch("[^\n]+") do
+    local alone = false
+    for _, verb in ipairs(Cli.order) do
+      local command = assert(Cli.verbs[verb])
+      if line:find(assert(command.usage), 1, true) ~= nil and line:find("%S  +%S") == nil then
+        alone = true
+      end
+    end
+    assert(alone or #line <= 80, tostring(#line) .. " columns: " .. line)
+  end
+end
+
 --- The index names the guides to start from, each by a `cosmic docs`
 --- command that shows it, ahead of the verbs.
 local function test_help_starts_from_the_guides(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
   local verbs = assert(all:find("\nRunning code:\n", 1, true), all)
-  for _, guide in ipairs({ "doc.guides.quickstart", "doc.guides.project" }) do
+  for _, guide in ipairs({ "quickstart", "project" }) do
     local at = all:find("`cosmic docs " .. guide .. "`", 1, true)
     assert(at ~= nil and at < verbs, guide .. ":\n" .. all)
     local page = verbs_fixture.expect(tmp, "docs", { "docs", guide }, 0).stdout
-    assert(String.starts_with(page, guide .. " ("), page)
+    assert(String.starts_with(page, "doc.guides." .. guide .. " ("), page)
   end
 end
 
 --- `cosmic help test` says what a test is and how to run one before
 --- how verdicts and compiles are kept and how the tree is found.
 local function test_help_of_test_leads_with_writing_one(tmp: string)
-  local out = verbs_fixture.expect(tmp, "help", { "help", "test" }, 0).stdout
+  local page = verbs_fixture.expect(tmp, "help", { "help", "test" }, 0).stdout
+  -- The prose after the usage, options and examples.
+  local out = page:sub((assert(page:find("\n`cosmic test ", 1, true), page)))
   local caching = assert(out:find("COSMIC_VERDICT_CACHE", 1, true), out)
   for _, first in ipairs({ "`<name>_test.tl`", "`<name>_example.tl`", "doc/guides/",
       "\n    local function test_", "tally_test.tl:test_words" }) do

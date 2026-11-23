@@ -94,7 +94,10 @@ Diff: run `git diff origin/main...HEAD` there.
 
 Check, against the code rather than the diff's story:
 - Revert the fix (keep the new test) and confirm the test fails. A test
-  that passes without the fix is BLOCKING.
+  that passes without the fix is BLOCKING. Revert in a `git worktree` of
+  your own, never in the worktree above: a suite may be running there,
+  and an edit rebuilds its tool under it. A new worktree needs its own
+  `bin/zig build boot` (minutes); remove it when done.
 - Cases the change gets wrong: edge inputs, failure paths, other
   callers (`bin/cosmic uses <symbol>`).
 - Rules in AGENTS.md, including doc/c.md's checklist when C changed, and

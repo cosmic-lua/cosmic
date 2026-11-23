@@ -25,10 +25,10 @@ end
 --- `body` expanded from `coding`, as a client would.
 local function expanded(coding: string?, body: string): string
   if coding == "zstd" then
-    local out = assert(Stream.run(assert(Compress.zstd_decoder()), body))
+    local out = assert(Stream.run(assert(Compress.decoder("zstd")), body))
     return out
   elseif coding == "gzip" then
-    local out = assert(Compress.inflate("gzip", body))
+    local out = assert(Compress.decode("gzip", body))
     return out
   end
   return body

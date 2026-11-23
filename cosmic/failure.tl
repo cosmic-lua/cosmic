@@ -19,8 +19,34 @@
 local sys = require("cosmic.sys")
 
 --- What went wrong, where, and why, answered by [`Failure.new`],
---- [`Failure.at`] or [`Failure.system`].
+--- [`Failure.at`], [`Failure.system`], [`Failure.coded`],
+--- [`Failure.timeout`] or [`Failure.cancelled`].
 local class Failure
+  --- What kind of failure it is, for a caller that acts on the cause
+  --- rather than the words: `if why.kind == "timeout" then retry() end`.
+  --- Each constructor says which kind it gives.
+  enum Kind
+    --- Nothing more is known than the words ([`Failure.new`]).
+    "other"
+    --- A system call failed; `errno` says why ([`Failure.system`], but
+    --- for `ETIMEDOUT`).
+    "system"
+    --- A text was refused at a place; `line` says where ([`Failure.at`]).
+    "parse"
+    --- A library answered its own code; `code` holds it
+    --- ([`Failure.coded`]).
+    "library"
+    --- A wait ran past its time limit ([`Failure.timeout`], or
+    --- [`Failure.system`] of `ETIMEDOUT`).
+    "timeout"
+    --- A wait was stopped from outside before it ended: a cancelled task
+    --- of [`Poll.run`], or a signal the caller's [`Signal.guard`] holds
+    --- ([`Failure.cancelled`]).
+    "cancelled"
+  end
+
+  --- What kind of failure it is.
+  kind: Kind
   --- What went wrong, in words: `No such file or directory`.
   message: string
   --- The path the failure concerns, nil when it concerns none.
@@ -40,10 +66,6 @@ local class Failure
   --- The detail the library gives beside `code` ([`cosmic.sqlite`]'s
   --- extended result code), nil where it gives none.
   extended_code?: integer
-  --- Whether a wait was stopped for a signal the caller's guard holds,
-  --- rather than failing on its own ([`cosmic.sqlite`]'s busy wait);
-  --- nil or false where it was not.
-  cancelled?: boolean
 
   --- The text a person reads. With a path: `path: message`, or
   --- `path:line:column: message` where the failure is at a place, as a
@@ -70,29 +92,50 @@ end
 --- A failure of `message`, about `path` when one is given, that no
 --- system call answered: its errno is 0.
 function Failure.new(message: string, path?: string): Failure
-  return { message = message, path = path, errno = 0, line = nil, column = nil, code = nil, extended_code = nil, cancelled = nil }
+  return { kind = "other", message = message, path = path, errno = 0, line = nil, column = nil, code = nil, extended_code = nil }
 end
 
 --- A failure of `message` at `line` (and `column`, a byte from 1, when
 --- given) of a text, about `path` when one is given: what a decoder
 --- answers for what it refuses. Its errno is 0.
 function Failure.at(message: string, line: integer, column?: integer, path?: string): Failure
-  return { message = message, path = path, errno = 0, line = line, column = column, code = nil, extended_code = nil, cancelled = nil }
+  return { kind = "parse", message = message, path = path, errno = 0, line = line, column = column, code = nil, extended_code = nil }
 end
 
 --- The failure a system call answered with `errno`, about `path` when one
 --- is given: its message is the errno's, the same words on every OS
---- ([`sys.errno_message`]).
+--- ([`sys.errno_message`]). Its kind is "timeout" for `ETIMEDOUT`, so a
+--- caller tells a timeout by its kind wherever it came from, else
+--- "system".
 function Failure.system(errno: integer, path?: string): Failure
-  return { message = sys.errno_message(errno), path = path, errno = errno, line = nil, column = nil, code = nil, extended_code = nil, cancelled = nil }
+  local kind: Failure.Kind = if sys.errno_name(errno) == "ETIMEDOUT" then "timeout" else "system" end
+  return { kind = kind, message = sys.errno_message(errno), path = path, errno = errno, line = nil, column = nil,
+    code = nil, extended_code = nil }
 end
 
 --- A failure of `message` that a library answered with its own `code`,
---- and `extended_code` and `cancelled` where it gives them: what
---- [`cosmic.sqlite`] answers. Its errno is 0.
+--- and `extended_code` where it gives one: what [`cosmic.sqlite`]
+--- answers. Its kind is "cancelled" when `cancelled`, as a busy wait a
+--- caught signal stopped is, else "library". Its errno is 0.
 function Failure.coded(message: string, code: integer, extended_code?: integer, cancelled?: boolean): Failure
-  return { message = message, path = nil, errno = 0, line = nil, column = nil, code = code,
-    extended_code = extended_code, cancelled = cancelled }
+  return { kind = if cancelled == true then "cancelled" else "library" end, message = message, path = nil, errno = 0,
+    line = nil, column = nil, code = code, extended_code = extended_code }
+end
+
+--- A wait that ran past its time limit, `message` saying which wait
+--- ("timed out" when nil), about `path` when one is given. Its errno is 0.
+---
+---     return nil, Failure.timeout("connect to " .. host)
+function Failure.timeout(message?: string, path?: string): Failure
+  return { kind = "timeout", message = message or "timed out", path = path, errno = 0, line = nil, column = nil,
+    code = nil, extended_code = nil }
+end
+
+--- A wait stopped from outside before it ended, `message` saying which
+--- ("cancelled" when nil), about `path` when one is given. Its errno is 0.
+function Failure.cancelled(message?: string, path?: string): Failure
+  return { kind = "cancelled", message = message or "cancelled", path = path, errno = 0, line = nil, column = nil,
+    code = nil, extended_code = nil }
 end
 
 return Failure

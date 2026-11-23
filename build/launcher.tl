@@ -50,7 +50,18 @@ case $0 in
   *) cosmic_artifact=$PWD/$0 ;;
 esac
 
-portable_system=$(uname -sm)
+# The kernel names its OS and machine under /proc/sys/kernel, which the shell's
+# own `read` takes with no child process: `uname -sm` costs a fork and an exec,
+# about a millisecond of every start. Where that does not answer (macOS, a Linux
+# with no /proc, or an older one with no `arch`), uname does. `arch` is the
+# kernel's own machine, which a 32-bit personality (`setarch linux32`) does not
+# change as it changes uname's: such a process runs the 64-bit core, as it can.
+if { IFS= read -r portable_os < @KERNEL@/ostype &&
+     IFS= read -r portable_arch < @KERNEL@/arch; } 2>/dev/null; then
+  portable_system="$portable_os $portable_arch"
+else
+  portable_system=$(uname -sm)
+fi
 case "$portable_system" in
 @TARGETS@
   *) portable_die 'unsupported target' ;;
@@ -581,6 +592,8 @@ function launcher.render(arms: string, test_hooks: boolean): string
   if test_hooks then
     rendered = substitute(rendered, "@CPUINFO@",
       '"${COSMIC_PORTABLE_TEST_CPUINFO-/proc/cpuinfo}"')
+    rendered = substitute(rendered, "@KERNEL@",
+      '"${COSMIC_PORTABLE_TEST_KERNEL-/proc/sys/kernel}"')
     rendered = substitute(rendered, "@SELECT_HOOK@",
       "portable_test_hook after_select")
     rendered = substitute(rendered, "@ADOPT_HOOK@",
@@ -596,6 +609,7 @@ function launcher.render(arms: string, test_hooks: boolean): string
     rendered = rendered:gsub("portable_die%(%) %{", test_hook_function .. "\nportable_die() {")
   else
     rendered = substitute(rendered, "@CPUINFO@", "/proc/cpuinfo")
+    rendered = substitute(rendered, "@KERNEL@", "/proc/sys/kernel")
     rendered = substitute(rendered, "@SELECT_HOOK@", "")
     rendered = substitute(rendered, "@ADOPT_HOOK@", "")
     rendered = substitute(rendered, "@REPAIR_HOOK@", "")

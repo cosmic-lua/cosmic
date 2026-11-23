@@ -26,6 +26,28 @@ local log = logger.log
 -- holds `-e` to that). Only `cosmic help` of a verb loads its spec, and
 -- `cosmic help exit` loads them all.
 
+--- The verbs spelled as options, by that spelling.
+local as_option: {string:string} = {
+  ["--standalone"] = "standalone",
+  ["-e"] = "eval",
+  ["--version"] = "version",
+}
+
+--- How `cosmic help` names `verb` on its page's usage line: `cosmic`
+--- and the word the verb is typed as, or `cosmic` alone for a file run.
+local function typed_name(verb: string): string
+  if verb == "run" then
+    return "cosmic"
+  end
+  for spelled, name in pairs(as_option) do
+    if name == verb then return "cosmic " .. spelled end
+  end
+  return "cosmic " .. verb
+end
+
+--- The width Flags.help wraps a verb's options and examples to.
+local page_width <const> = 80
+
 --- The full text of each verb's `cosmic help <verb>`, generated from
 --- [`cosmic.cli`]'s own fields ([`cosmic.cli.Cli.run`],
 --- [`cosmic.cli.Cli.test`], ...) so this wording is never a second,
@@ -79,12 +101,12 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
     elseif text == nil then
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else
-      lines[#lines + 1] = text
       local command = Cli.verbs[verb]
-      local options = require("cosmic.flags").options(if command ~= nil then command.spec or {} else {} end)
-      if options ~= "" then
-        lines[#lines + 1] = options
+      if command ~= nil then
+        lines[#lines + 1] = require("cosmic.flags").help(command, typed_name(verb), page_width)
+        lines[#lines + 1] = ""
       end
+      lines[#lines + 1] = text
     end
     lines[#lines + 1] = ""
     out[verb] = table.concat(lines, "\n")
@@ -136,6 +158,11 @@ end
 --- The width `cosmic help` wraps the prose it generates to, as the prose
 --- written by hand is.
 local help_width <const> = 70
+
+--- The columns a line of the index may reach. A usage too wide to
+--- leave room for its summary takes a line of its own, with the summary
+--- under it.
+local index_width <const> = 80
 
 --- What `cosmic help fix` says of how it lays a file out, after the
 --- options: the design of the formatter, which no other verb's help
@@ -224,13 +251,6 @@ local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): 
   return text .. "\n" .. spec_notes(verb, spec)
 end
 
---- The verbs spelled as options, by that spelling.
-local as_option: {string:string} = {
-  ["--standalone"] = "standalone",
-  ["-e"] = "eval",
-  ["--version"] = "version",
-}
-
 --- What a refusal of the mistyped verb `word` ends with when any of
 --- `verbs` is near it by [`Flags.nearest`]'s rule, as [`cosmic.flags`]
 --- ends its own: "; did you mean test?". "" when none is.
@@ -275,7 +295,7 @@ local function index_help(): string
       group = group_of[verb], typed = typed[verb] }
   end
   local index = assert(Flags.dispatch({ "--help" }, 1, commands, "cosmic", {
-    groups = titles, order = order, usages = true,
+    groups = titles, order = order, usages = true, width = index_width,
     before = table.concat({
       "cosmic -- a runtime for self-contained command-line software",
       "",
@@ -284,10 +304,9 @@ local function index_help(): string
       "verbs run code, work on a project, do quick jobs at the shell, and",
       "look things up.",
       "",
-      "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
-      "library, and `cosmic docs doc.guides.project` builds a project with",
-      "a module, tests, an example, a record with methods and a program",
-      "with commands.",
+      "Start here: `cosmic docs quickstart` tours the standard library, and",
+      "`cosmic docs project` builds a project with a module, tests, an",
+      "example, a record with methods and a program with commands.",
     }, "\n"),
     after = table.concat({
       "More:",
@@ -578,6 +597,49 @@ local function run(file: string, argv: {string}): integer
   return 0
 end
 
+--- Runs `file` as `--standalone` does where a tree run of it would build nothing the file needs
+--- ([`standalone.runs_alone`]) and the tree is not cosmic's own, whose `cosmic.*` modules are its sources: so it
+--- stages nothing and writes no build directory. nil where the file runs in its tree, which then reads, checks and
+--- reports it as ever. The run is still a source run of the module the file is: [`Proc.relaunch`] names the file as
+--- its `script`, and its top level finds its module's name as its `...`. A tool built from a checkout holds itself
+--- to it first, as the tree run does ([`reboot.checkout_exit`]); a release is built from none.
+--- @param argv the whole command line, the file at slot 1
+local function run_alone(file: string, argv: {string}): integer?
+  local Fs = require("cosmic.fs")
+  local standalone = require("build.standalone")
+  local source, _ = Fs.read(file)
+  if source == nil then
+    return nil
+  end
+  local tree_root, _ = root_of(file)
+  if tree_root == nil then
+    return nil
+  end
+  local name, _ = module_of(tree_root.dir, file)
+  -- Judged by its path from the tree's root, as the tree names its modules, not as it was typed.
+  if name == nil or not standalone.runs_alone(tree_root.file:sub(#tree_root.dir + 2), source) then
+    return nil
+  end
+  local standing, _ = require("build.tree").standing(tree_root.dir)
+  if standing == nil or standing.own then
+    return nil
+  end
+  if require("cosmic.store").meta("built_from") ~= nil then
+    local code = require("build.reboot").checkout_exit(argv, tree_root.dir)
+    if code ~= nil then
+      return code
+    end
+  end
+  local source_run = require("cosmic.internal.source_run")
+  source_run.script = tree_root.file
+  source_run.main = name
+  local shifted: mut {string} = { "--standalone" }
+  for _, given in ipairs(argv) do
+    shifted[#shifted + 1] = given
+  end
+  return standalone.run(shifted, nil, name)
+end
+
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {string}): integer
@@ -599,7 +661,7 @@ local function version(argv: {string}): integer
   -- launch is hashed in its place, and an unlinked one fails.
   local digest, digest_trouble = Hash.hex_file("sha256", path)
   if digest == nil then
-    log:complain("--version: " .. digest_trouble)
+    log:complain("--version: " .. tostring(digest_trouble))
     return 1
   end
   log:say("cosmic " .. digest)
@@ -848,6 +910,12 @@ function Dispatch.main(argv: {string}): integer
     return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..
         "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic sandbox " ..
         "--cosmic`); COSMIC_STANDALONE=0 builds the tree around it, which finds its own")
+  end
+  if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") ~= "0" then
+    local code = run_alone(word, argv)
+    if code ~= nil then
+      return code
+    end
   end
   local Cli = require("cosmic.cli")
   local Env = require("cosmic.env")

@@ -949,7 +949,7 @@ end
 --- it is given, never the tree: not stale-checked.
 verb.spec = {
   name = "archive",
-  guide = "a quick look inside an archive",
+  guide = "more quick tools",
   tests = { "build.archive_test", "build.archive_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,

@@ -338,7 +338,7 @@ end
 --- stale-checked.
 verb.spec = {
   name = "compile",
-  guide = "the Lua of a Teal file",
+  guide = "more quick tools",
   tests = { "build.compile_test", "build.compile_grammar_test", "build.compile_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,

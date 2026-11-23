@@ -492,7 +492,7 @@ end
 --- - `digest(A, X)`: the digest of X under the algorithm A names (a
 ---   [`cosmic.hash`] `Algorithm`).
 --- - `hmac(A, K, X)`: the HMAC of X under the key K over A.
---- - `deflate(X)`: the raw deflate of X, as `Compress.deflate("raw", X)`
+--- - `deflate(X)`: the raw deflate of X, as `Compress.encode("raw", X)`
 ---   writes it; `inflate(X)` decodes such a stream, to a blob.
 --- - `chunk(X)`: a module's bytecode as `string.dump` wrote it, where X
 ---   is how a database stores it ([`cosmic.store`]): as it is, or
@@ -645,8 +645,9 @@ local function prepared(handle: Sqlite.Handle, sql: string,
 end
 
 --- Runs a statement that yields no rows: it answers `true`, or `false`
---- and why, with SQLite's codes ([`Failure`]'s `code`, `extended_code`
---- and `cancelled`: a busy wait the handle's guard stopped).
+--- and why, with SQLite's codes ([`Failure`]'s `code` and
+--- `extended_code`, and its kind "cancelled" for a busy wait the handle's
+--- guard stopped).
 ---
 --- `values` is a dense list indexed by SQLite's parameter index, through
 --- its highest index. Repeated named parameters share an index, and a

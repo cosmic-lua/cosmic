@@ -116,6 +116,7 @@ module never sees the class itself.
 ```teal file=counts.tl
 --- How many times each word appears in some text.
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 
 local record Counts
@@ -132,7 +133,7 @@ local record Counts
   end
 
   new: function(): Counts.Tally
-  open: function(path: string): Counts.Tally?, string
+  open: function(path: string): (Counts.Tally) | (nil, Failure)
 end
 
 --- Each word seen, and how many times.
@@ -167,23 +168,26 @@ function Counts.new(): Counts.Tally
 end
 
 --- Counts the words in the file at `path`, or nil and why it could not be
---- read. A constructor that can fail returns `Counts.Tally?, string`.
-function Counts.open(path: string): Counts.Tally?, string
+--- read. A constructor that can fail returns `(Counts.Tally) | (nil, Failure)`.
+function Counts.open(path: string): (Counts.Tally) | (nil, Failure)
   local text, why = Fs.read(path)
   if text == nil then
-    return nil, tostring(why)
+    return nil, why
   end
   local made: Seen = { words = {} }
   made:add(text)
-  return made, ""
+  return made
 end
 
 return Counts
 ```
 
 `Counts.open` shows the usual shape of a constructor that can fail: it
-returns `Counts.Tally?, string`, and the class value may be returned
-straight from it.
+returns `(Counts.Tally) | (nil, Failure)`, the value alone or nil and a
+[`cosmic.failure`] that says why, and the class value may be returned
+straight from it. A caller that cannot go on without it writes
+`assert(Counts.open(path))`; one that can tests the failure's `kind` or
+`errno`.
 
 A record declared inside another, like `Entry` here, is `Counts.Entry`
 to every module; `record Counts.Entry` written outside the record's body
@@ -395,14 +399,13 @@ build` writes `tally` in the project's build directory, outside the project
 prints its path on a line of its own; `cosmic build cmd/tally` writes only that one, and `cosmic build --out dist` also copies each program to `dist/<name>`, a path a Makefile can name. A file that does not compile does not stop a program that does not need it from being written; the build then exits 4, names the file, and removes the earlier executable of any program it could not write. `cosmic docs` lists your own modules with the standard library's, and
 `cosmic docs Tally.words` shows a function with the examples that call it.
 
-That `tally` is the whole program: copy that one file to a Linux (arm64
-with Armv8.2-A dot-product and half-precision floats: Cortex-A55 or
-Neoverse N1 and newer, Graviton2, Raspberry Pi 5, but not a Raspberry
-Pi 3 or 4; or x86-64 with AVX2, FMA, BMI1 and BMI2, F16C, LZCNT and
-MOVBE: Intel Haswell or AMD Excavator and newer mainstream cores, but
-not Atom-class or AVX-less Pentium and Celeron parts) or arm64 macOS
-host with no cosmic on it and it runs, even with an empty environment
-(`env -i ./tally`). `file` calls it a shell script because it starts as
+That `tally` is the whole program: copy that one file to a Linux host (x86-64
+mainstream cores from Intel Haswell or AMD Excavator on, not Atom-class,
+Pentium or Celeron parts without AVX2; or arm64 from Cortex-A55 or
+Neoverse N1 on, a Raspberry Pi 5 but not a 4) or an arm64 macOS host
+with no cosmic on it and it runs, even with an empty environment
+(`env -i ./tally`). On a CPU without what its core needs, the launcher
+refuses and names the missing features. `file` calls it a shell script because it starts as
 one: a /bin/sh launcher with a core for each supported system and the program
 appended. On a host's first run the
 launcher copies that host's core into a private cache
@@ -635,17 +638,18 @@ such as a `ROLLBACK` after a statement fails, where the first error is
 the one to report.
 
 ```teal
+local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
-local function add(db: Sqlite.Handle, body: string): boolean, string
-  local began, trouble = db:exec("BEGIN")
+local function add(db: Sqlite.Handle, body: string): (true) | (false, Failure)
+  local began, trouble = Sqlite.run(db, "BEGIN")
   if not began then return false, trouble end
   local ok, why = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = body } })
   if not ok then
-    local _, _ = db:exec("ROLLBACK")
-    return false, why.message
+    local _, _ = Sqlite.run(db, "ROLLBACK")
+    return false, why
   end
-  return db:exec("COMMIT")
+  return Sqlite.run(db, "COMMIT")
 end
 
 local db = assert(Sqlite.memory())
@@ -653,34 +657,18 @@ assert(db:exec("CREATE TABLE t (body TEXT)"))
 assert(add(db, "a"))
 ```
 
-## moving a project to the new grammar
+## what the checker holds a project to
 
-The tool reads one grammar, the new checker's. A project written for the fork's checker (`T | nil`, `goto continue`,
-`function R:m()`, `c and a or b`) is refused by the compiler, which names the file, the line and the fix for each form it
-finds. A project in the old grammar is rewritten to the new one by hand. Commit it first, then run `cosmic fix` and `cosmic test` and work through what they report; each finding says what
-to write instead. What changed, and what the finding for it asks of the file:
+The checker holds a project outside the tree to every rule, with no ceiling. So fix each finding; do not count it. A
+cast or an `any` is not a fix. A finding names the file, the line and, for most forms, what to write instead. Code
+written for Teal's own checker meets these forms, whose findings do not yet name the fix:
 
-- `T | nil` is `T?` (and `(A | B)?` for a union with nil; a function type in a union is parenthesized). `T...` as a
-  parameter's type is `...: T`, and `? T` is a named optional parameter, `name?: T`.
-- `goto continue` and its label `::continue::` are the statement `continue`.
-- A record with `function R:m()` statements outside it, and the field that declared each, is a `class` that holds them as
-  `function m(self, ...)`. The `metatable<R>` local that set its metatable goes, and a table literal of the class takes its
-  type from where it is written.
-- `local type X = record` is `local record X`; `metamethod __close: T` is the field `__close: T`; `readonly f: T` is `f: T`.
-- `c and a or b` is `if c then a else b end`; `and_ternary` names the sites. The two answer differently where `a` is false or
-  nil, which is why the checker asks for the `if` expression and does not rewrite it for you.
-- `-a ^ b` was read as `(-a) ^ b` and is read as Lua reads it, `-(a ^ b)`: write the parentheses the program meant.
-- A trailing `;`, a `--[[ ]]` comment, a digit separator (`1_000`) and a hexadecimal float are not in the grammar.
-- A collection that is written is declared `mut` (`names: mut {string}`), as a local, a parameter or a field of a record;
-  a field that is assigned after its record is made is declared `mut`. `view_written` and `field_fixed` name the places.
-- `local seen = {}` needs a type that says what it holds (`local seen: mut {string: boolean} = {}`), and `m.NAME` on a map is
-  written `m["NAME"]`.
-- A type and an interface it lists agree on which fields are `mut` (`interface_disagrees`).
-
-The checker holds a project outside the tree to every rule with no ceiling, so each finding must be fixed, not counted. No
-cast and no `any` is a fix.
+- `-a ^ b` is read as Lua reads it, `-(a ^ b)`, with no finding. Write the parentheses the program means.
+- `readonly f: T` is refused; write `f: T`. A field is fixed unless it is declared `mut`.
+- `T...` as a parameter's type is `...: T`, and `? T` is a named optional parameter, `name?: T`.
 
 [`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.failure`]: ../../cosmic/failure.tl
 [`cosmic.flags`]: ../../cosmic/flags.tl
 [`cosmic.log`]: ../../cosmic/log.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl

@@ -451,7 +451,7 @@ static int push_modular_answer (lua_State *L, const struct modular *modular) {
                     modular->modulus.width);
 }
 
-/* reduce(a, modulus): a mod modulus, as wide as the modulus. */
+/* secret_mod(a, modulus): a mod modulus, as wide as the modulus. */
 static int bigint_reduce (lua_State *L) {
   lua_settop(L, 2);
   struct modular m = push_modular(L, 1, 2, 0);
@@ -459,7 +459,7 @@ static int bigint_reduce (lua_State *L) {
   return push_modular_answer(L, &m);
 }
 
-/* addmod(a, b, modulus): (a + b) mod modulus, as wide as the modulus.
+/* secret_addmod(a, b, modulus): (a + b) mod modulus, as wide as the modulus.
  * The sum of the two reduced operands is below twice the modulus:
  * mbedtls_mpi_core_mla with a factor of 1 is the addition the library
  * documents as constant in time. */
@@ -475,7 +475,7 @@ static int bigint_addmod (lua_State *L) {
   return push_modular_answer(L, &m);
 }
 
-/* submod(a, b, modulus): (a - b) mod modulus, as wide as the modulus.
+/* secret_submod(a, b, modulus): (a - b) mod modulus, as wide as the modulus.
  * The difference of the two reduced operands and that difference plus
  * the modulus are both computed, and the borrow chooses. */
 static int bigint_submod (lua_State *L) {
@@ -491,7 +491,7 @@ static int bigint_submod (lua_State *L) {
   return push_modular_answer(L, &m);
 }
 
-/* mulmod(a, b, modulus): (a * b) mod modulus, for an odd modulus, as
+/* secret_mulmod(a, b, modulus): (a * b) mod modulus, for an odd modulus, as
  * wide as the modulus. Montgomery's multiplication answers its factors'
  * product over R, so the product is multiplied once more, by R times R. */
 static int bigint_mulmod (lua_State *L) {
@@ -507,7 +507,7 @@ static int bigint_mulmod (lua_State *L) {
   return push_modular_answer(L, &m);
 }
 
-/* expmod(base, exponent, modulus): base^exponent mod modulus, for an odd
+/* secret_powmod(base, exponent, modulus): base^exponent mod modulus, for an odd
  * modulus, as wide as the modulus. The base is reduced and put in
  * Montgomery's form, which mbedtls_mpi_core_exp_mod takes it in and
  * answers in. That function is the library's exponentiation for a
@@ -533,7 +533,7 @@ static int bigint_expmod (lua_State *L) {
   return push_modular_answer(L, &m);
 }
 
-/* product(a, b): a * b in exactly as many bytes as a and b have
+/* secret_mul(a, b): a * b in exactly as many bytes as a and b have
  * together. It is mbedtls_mpi_core_mul's own loop, one
  * mbedtls_mpi_core_mla for each limb of b, written out because only the
  * inner function is documented as constant in time. */
@@ -554,7 +554,7 @@ static int bigint_product (lua_State *L) {
   return push_fixed(L, X, a_limbs + b_limbs, a_len + b_len);
 }
 
-/* sum(a, b): a + b in exactly one byte more than the longer of a and b
+/* secret_add(a, b): a + b in exactly one byte more than the longer of a and b
  * has, which no carry leaves. */
 static int bigint_sum (lua_State *L) {
   lua_settop(L, 2);
@@ -578,13 +578,13 @@ static const luaL_Reg module[] = {
   {"sub", bigint_sub},
   {"mod", bigint_mod},
   {"compare", bigint_compare},
-  {"reduce", bigint_reduce},
-  {"addmod", bigint_addmod},
-  {"submod", bigint_submod},
-  {"mulmod", bigint_mulmod},
-  {"expmod", bigint_expmod},
-  {"product", bigint_product},
-  {"sum", bigint_sum},
+  {"secret_mod", bigint_reduce},
+  {"secret_addmod", bigint_addmod},
+  {"secret_submod", bigint_submod},
+  {"secret_mulmod", bigint_mulmod},
+  {"secret_powmod", bigint_expmod},
+  {"secret_mul", bigint_product},
+  {"secret_add", bigint_sum},
   {NULL, NULL},
 };
 

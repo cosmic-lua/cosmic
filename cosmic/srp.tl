@@ -202,7 +202,7 @@ end
 local secret_length <const> = 64
 
 --- The most bytes of a secret a caller passes, so that the client's
---- exponent `a + u*x` stays an exponent [`Bigint.expmod`] takes.
+--- exponent `a + u*x` stays an exponent [`Bigint.secret_powmod`] takes.
 local secret_most <const> = 512
 
 --- The fewest bytes of a prime taken without `small_group`: 2048 bits.
@@ -359,21 +359,21 @@ local function suite_of(parameters: Srp.Parameters, level: integer): Suite
 end
 
 --- The private key `x` of an identity, a digest's length of bytes.
-local function private_key(suite: Suite, identity: string, password: string, salt: string): string
-  return suite.digest(salt .. suite.digest(identity .. ":" .. password))
+local function private_key(suite: Suite, identity: string, password: string, salt: string): Bigint.Secret
+  return Bigint.hide(suite.digest(salt .. suite.digest(identity .. ":" .. password)))
 end
 
 --- `secret` as given, or `secret_length` bytes of entropy. `level` is
 --- as [`suite_of`]'s.
-local function exponent_of(secret: string?, level: integer): string
-  if secret == nil then return (assert(Rand.entropy(secret_length))) end
+local function exponent_of(secret: string?, level: integer): Bigint.Secret
+  if secret == nil then return Bigint.hide((assert(Rand.entropy(secret_length)))) end
   if #secret < 1 or #secret > secret_most then
     error("srp: a secret must be from 1 to " .. String.counted(secret_most, "byte"), level + 1)
   end
   if Hash.equal(secret, string.rep("\0", #secret)) then
     error("srp: a secret must not be zero", level + 1)
   end
-  return secret
+  return Bigint.hide(secret)
 end
 
 --- `public` as a peer sent it, in its shortest form, when it is a number
@@ -391,7 +391,7 @@ end
 --- [`Bigint.compare`]: it is below the prime when reducing it changes
 --- nothing. Only bytes past the prime's width, which are zero in every
 --- verifier that passes, are read one by one.
-local function held(suite: Suite, verifier: string): string?
+local function held(suite: Suite, verifier: string): Bigint.Secret?
   local excess = #verifier - suite.width
   local number = verifier
   if excess > 0 then
@@ -401,10 +401,10 @@ local function held(suite: Suite, verifier: string): string?
     number = string.rep("\0", -excess) .. verifier
   end
   local zero = string.rep("\0", suite.width)
-  if Hash.equal(number, zero) or not Hash.equal(number, Bigint.reduce(number, suite.prime)) then
+  if Hash.equal(number, zero) or not Hash.equal(number, Bigint.reveal(Bigint.secret_mod(number, suite.prime))) then
     return nil
   end
-  return number
+  return Bigint.hide(number)
 end
 
 --- The scrambling value `u` of the two public values, or nil when it is
@@ -449,7 +449,7 @@ end
 ---     local verifier = Srp.verifier(parameters, "alice", "password123", salt)
 function Srp.verifier(parameters: Srp.Parameters, identity: string, password: string, salt: string): string
   local suite = suite_of(parameters, 2)
-  return Bigint.expmod(suite.generator, private_key(suite, identity, password, salt), suite.prime)
+  return Bigint.reveal(Bigint.secret_powmod(suite.generator, private_key(suite, identity, password, salt), suite.prime))
 end
 
 --- The client's side of one login as `identity`. `secret` is the
@@ -460,7 +460,7 @@ end
 function Srp.client(parameters: Srp.Parameters, identity: string, password: string, secret?: string): Srp.Client
   local suite = suite_of(parameters, 2)
   local exponent = exponent_of(secret, 2)
-  local sent = Bigint.expmod(suite.generator, exponent, suite.prime)
+  local sent = Bigint.reveal(Bigint.secret_powmod(suite.generator, exponent, suite.prime))
   local public = shortest(sent)
   local expected: string? = nil
 
@@ -475,13 +475,13 @@ function Srp.client(parameters: Srp.Parameters, identity: string, password: stri
       local u = scrambler(suite, public, theirs)
       if u == nil then return nil, "srp: the scrambling value is zero" end
       local x = private_key(suite, identity, password, salt)
-      local verifier = Bigint.expmod(suite.generator, x, suite.prime)
-      local masked = Bigint.mulmod(suite.multiplier, verifier, suite.prime)
-      local base = Bigint.submod(theirs, masked, suite.prime)
-      -- One width for every login, as expmod asks of a secret exponent:
+      local verifier = Bigint.secret_powmod(suite.generator, x, suite.prime)
+      local masked = Bigint.secret_mulmod(suite.multiplier, verifier, suite.prime)
+      local base = Bigint.secret_submod(theirs, masked, suite.prime)
+      -- One width for every login, as secret_powmod asks of a secret exponent:
       -- a byte more than the longer of `a` and `u*x`.
-      local power = Bigint.sum(exponent, Bigint.product(u, x))
-      local shared = shortest(Bigint.expmod(base, power, suite.prime))
+      local power = Bigint.secret_add(exponent, Bigint.secret_mul(u, x))
+      local shared = shortest(Bigint.reveal(Bigint.secret_powmod(base, power, suite.prime)))
       local key, proof, server_proof = proofs(suite, identity, salt, public, theirs, shared)
       expected = server_proof
       return { key = key, proof = proof }, ""
@@ -506,12 +506,13 @@ function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, 
   local suite = suite_of(parameters, 2)
   local v = held(suite, verifier)
   if v == nil then error("srp: the verifier is not from 1 to the prime less 1", 2) end
-  local masked = Bigint.mulmod(suite.multiplier, v, suite.prime)
-  local exponent, public: string, string
+  local masked = Bigint.secret_mulmod(suite.multiplier, v, suite.prime)
+  local exponent: Bigint.Secret
+  local public: string
   repeat
     exponent = exponent_of(secret, 2)
-    local power = Bigint.expmod(suite.generator, exponent, suite.prime)
-    public = shortest(Bigint.addmod(masked, power, suite.prime))
+    local power = Bigint.secret_powmod(suite.generator, exponent, suite.prime)
+    public = shortest(Bigint.reveal(Bigint.secret_addmod(masked, power, suite.prime)))
     if public == "\0" and secret ~= nil then
       error("srp: the secret makes a public value of zero", 2)
     end
@@ -526,8 +527,8 @@ function Srp.server(parameters: Srp.Parameters, identity: string, salt: string, 
       end
       local u = scrambler(suite, theirs, public)
       if u == nil then return nil, "srp: the scrambling value is zero" end
-      local base = Bigint.mulmod(theirs, Bigint.expmod(v, u, suite.prime), suite.prime)
-      local shared = shortest(Bigint.expmod(base, exponent, suite.prime))
+      local base = Bigint.secret_mulmod(theirs, Bigint.secret_powmod(v, u, suite.prime), suite.prime)
+      local shared = shortest(Bigint.reveal(Bigint.secret_powmod(base, exponent, suite.prime)))
       local key, expected, proof = proofs(suite, identity, salt, theirs, public, shared)
       if not Hash.equal(client_proof, expected) then
         return nil, "srp: the client's proof is wrong"

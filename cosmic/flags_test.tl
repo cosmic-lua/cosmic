@@ -966,6 +966,28 @@ local function test_program_help_wraps_what_a_command_does_past_the_width()
   }, "\n"))
 end
 
+--- One wide name that fits beside a short line would push every other
+--- command's line to the right and wrap it; it takes a line of its own
+--- instead, and the column stays as narrow as the rest.
+local function test_program_help_keeps_the_column_that_takes_the_fewest_lines()
+  local commands: {string:Flags.Command} = {
+    a = { about = "One line on what a does." },
+    b = { about = "One line on what b does." },
+    ["a-very-long-name"] = { about = "Short." },
+  }
+  assert(Flags.program_help("p", commands, { width = 30, after = "end" }) == table.concat({
+    "usage: p <command>",
+    "",
+    "commands:",
+    "  a  One line on what a does.",
+    "  a-very-long-name",
+    "     Short.",
+    "  b  One line on what b does.",
+    "",
+    "end",
+  }, "\n"))
+end
+
 local function test_dispatch_answers_a_topic_and_lets_see_name_one()
   local ran = 0
   local function run(_: Flags.Parsed): integer
