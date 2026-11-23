@@ -4,7 +4,7 @@
 --- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
 --- [`Fs.mkdtemp`], [`Fs.absolute`], [`Fs.readlink`], [`Fs.open_read`],
 --- [`Fs.open_write`], [`Fs.take`], [`Fs.create`], [`Fs.walk`],
---- [`Fs.walk_following`], [`Fs.scratch`] and [`Fs.relative`] answer
+--- [`Fs.scratch`] and [`Fs.relative`] answer
 --- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
 --- that names the path (none for `take`, which reads a descriptor) and
 --- the errno (0 for `relative`, which reads nothing). Other fallible calls
@@ -70,6 +70,16 @@ local record Fs
   --- What [`Fs.status`] finds at a path: whether anything is there,
   --- whether it is a directory, and its [`Stat`] when it is there. A
   --- missing path is a Status, not a failure.
+  --- How [`Fs.walk`] walks.
+  record WalkOptions
+    --- Take each link for what it leads to, as `find -L` does. Default
+    --- false: a link is neither listed nor walked into.
+    follow?: boolean
+    --- Asked of each entry (its relative path, its bare name, its
+    --- [`Fs.Kind`]); true leaves it out, and a directory's whole tree.
+    skip?: function(string, string, Fs.Kind): boolean
+  end
+
   record Status
     --- Whether anything is at the path.
     exists: boolean
@@ -649,7 +659,7 @@ local record Pending
   above?: Above
 end
 
---- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
+--- [`Fs.walk`], following links where `follow` is true.
 local function walk(root: string, follow: boolean,
                     skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
   local found: mut {string} = {}
@@ -704,32 +714,46 @@ end
 --- Every file under a root, as `find root -type f` lists them but
 --- relative to `root`: no leading `/` or `./` (`a.txt`, `css/main.css`),
 --- so `root .. "/" .. path` names the file. Only a regular file is
---- listed (`-type f`): a link is neither listed nor walked into,
---- whatever it leads to. The paths are sorted bytewise, whole.
---- `skip` is asked about each entry's relative path, its bare name
+--- listed (`-type f`). The paths are sorted bytewise, whole.
+---
+--- Without `opts.follow`, a link is neither listed nor walked into,
+--- whatever it leads to, and nothing is stat'd: the listing says what
+--- each entry is. With it, each link is taken for what it leads to, as
+--- `find -L root -type f` lists them: a link to a file is listed as a
+--- file, under the link's own path, and a link to a directory is walked
+--- into. A link that leads nowhere (or to a device, a socket or a pipe)
+--- is not listed. A directory already being walked, reached again
+--- through a link (`loop -> .`), is not walked a second time, so a loop
+--- ends the walk of that branch rather than failing it. As with
+--- `find -L`, a file reached along several paths (a diamond of links)
+--- is listed once per path, and a link to a directory above the root is
+--- walked in full, but for the directories the walk is already inside.
+--- Each directory, and each link, is then stat'd.
+---
+--- `opts.skip` is asked about each entry's relative path, its bare name
 --- second, and what the listing says it is third, a [`Fs.Kind`] as
 --- [`Fs.stat`]'s `kind` names it (`"file"`, `"dir"`, `"link"`,
---- `"socket"` and so on), and may refuse a whole directory. The
---- listing says what each entry is, so nothing here is stat'd.
-function Fs.walk(root: string,
-                 skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
-  return walk(root, false, skip)
+--- `"socket"` and so on), and may refuse a whole directory. It is asked
+--- before a link is followed, so it is told `"link"` and may refuse one.
+---
+---     local sources = assert(Fs.walk("src", {
+---       skip = function(_: string, name: string): boolean return name == ".git" end,
+---     }))
+---
+--- `opts` may also be the `skip` function alone, which ci/ and the
+--- files in ci/bootstrap-files.txt pass on the pinned release.
+function Fs.walk(root: string, opts?: Fs.WalkOptions | function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
+  if opts == nil then return walk(root, false, nil) end
+  if opts is Fs.WalkOptions then return walk(root, opts.follow == true, opts.skip) end
+  return walk(root, false, opts)
 end
 
---- Every file under a root as [`Fs.walk`] lists them -- relative to
---- `root`, sorted, regular files alone -- but with each link taken for
---- what it leads to, as `find -L root -type f` lists them: a link to a
---- file is listed as a file, under the link's own path, and a
---- link to a directory is walked into. A link that leads nowhere (or to
---- a device, a socket or a pipe) is not listed. A directory already
---- being walked, reached again through a link (`loop -> .`), is not
---- walked a second time, so a loop ends the walk of that branch rather
---- than failing it. As with `find -L`, a file reached along several
---- paths (a diamond of links) is listed once per path, and a link to a
---- directory above the root is walked in full, but for the directories
---- the walk is already inside. `skip` is asked as [`Fs.walk`] asks it,
---- before a link is followed, so it is told `"link"` and may refuse
---- one. Each directory, and each link, is stat'd.
+-- TODO: once ci/cosmic-driver.pin names a release with Fs.WalkOptions,
+-- move ci/ and the files in ci/bootstrap-files.txt to Fs.walk's options,
+-- delete this and take the bare function out of Fs.walk's `opts`.
+
+--- [`Fs.walk`] with `follow`, for the files in ci/bootstrap-files.txt
+--- on the pinned release.
 function Fs.walk_following(root: string,
                            skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
   return walk(root, true, skip)

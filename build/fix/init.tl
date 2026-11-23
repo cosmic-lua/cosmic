@@ -257,7 +257,7 @@ end
 --- @return {string}|nil
 --- @return string Error message on failure
 local function sources(root: string): {string}?, string
-  local files, trouble = Fs.walk(root, skip)
+  local files, trouble = Fs.walk(root, { skip = skip })
   if files == nil then
     return nil, tostring(trouble)
   end
@@ -274,7 +274,7 @@ end
 --- a `testdata/` directory, which the build never makes a module of
 --- ([`build.derivation`]) and a test may keep broken on purpose.
 local function template_sources(root: string): {string}?, string
-  local files, trouble = Fs.walk(root, skip)
+  local files, trouble = Fs.walk(root, { skip = skip })
   if files == nil then
     return nil, tostring(trouble)
   end
@@ -366,9 +366,9 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   if st == nil or st.kind ~= "dir" then
     return {}, ""
   end
-  local files, trouble = Fs.walk(base, function(entry: string): boolean
+  local files, trouble = Fs.walk(base, { skip = function(entry: string): boolean
     return Fs.basename(entry):sub(1, 1) == "."
-  end)
+  end })
   if files == nil then
     return nil, tostring(trouble)
   end
@@ -843,9 +843,9 @@ local function named_files(root: string, left_alone: function(string): boolean):
   return function(basename: string): {string}
     if not walked then
       walked = true
-      local files, _ = Fs.walk(root, function(entry: string, name: string): boolean
+      local files, _ = Fs.walk(root, { skip = function(entry: string, name: string): boolean
         return entry == "o" or name == ".git" or left_alone(entry)
-      end)
+      end })
       for _, file in ipairs(files or {}) do
         local list: mut {string} = by_name[Fs.basename(file)] or {}
         list[#list + 1] = file

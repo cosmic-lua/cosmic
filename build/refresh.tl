@@ -422,8 +422,8 @@ local tzdata: refresh.Dataset = {
   -- unpacked tzdata), naming its version by the `# version` line of the
   -- `tzdata.zi` beside it; today only the sdist PyPI publishes is read.
   -- A system zoneinfo holds its aliases as links (and some a `posix ->
-  -- .` loop), so reading one wants [`Fs.walk_following`], as
-  -- work.read_zoneinfo walks, not [`Fs.walk`], which lists no link.
+  -- .` loop), so reading one wants [`Fs.walk`] with `follow`, as
+  -- work.read_zoneinfo walks; without it, no link is listed.
   read = function(path: string, scratch: string): refresh.Release?, string
     local entries, trouble = Archive.list(path)
     if entries == nil then

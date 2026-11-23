@@ -2113,10 +2113,10 @@ end
 --- root and checked there (`cosmic fix --check` run in `ci/`, which build/ci_check_test.tl runs). The declarations of the globals ([`lang/prelude.d.tl`],
 --- [`lang/stdlib.d.tl`]) are left out: they are the globals of every build ([`build.tree_program`]), no module of it.
 local function sources_of(root: string): {{string}}?, string
-  local listed, trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean
+  local listed, trouble = Fs.walk(root, { skip = function(relative: string, name: string, kind: Fs.Kind): boolean
     return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or
       identity.is_foreign_tree(relative))
-  end)
+  end })
   if listed == nil then
     return nil, tostring(trouble)
   end
