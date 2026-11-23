@@ -776,7 +776,7 @@ local function test_the_members_of_a_binary_module_are_read_from_the_rows_the_to
   local db = session_fixture.carrying("cosmic.fs", "cosmic/fs.tl", "return {}\n", {}, {
     { "Fs.Staged", "", "interface", "both", "" },
     { "Fs.Staged", "rowonly", "field", "instance", "string", "Only a row has this." },
-    { "Fs.Staged", "write", "field", "instance", "function(Staged, string): boolean, string", "" },
+    { "Fs.Staged", "write", "field", "instance", "function(Staged, string): (true) | (false, Failure)", "" },
   })
   local ran = served(root, { initialize(root), open(root, "main.tl", text),
     change(root, "main.tl", 'local Fs = require("cosmic.fs")\nlocal s: Fs.Staged = nil\nlocal _ = s.\n'),

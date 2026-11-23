@@ -68,23 +68,26 @@ local record Fs
   type Kind = sys.Kind
 
   --- A file at a path being written through a temporary neighbor and a
-  --- rename, as [`Fs.create`] returns it: a [`cosmic.stream`] Writer
-  --- (`write`, `close` and `abort`) that can also `sync`. Every failure
-  --- names the path, never the temporary file, and is sticky.
+  --- rename, as [`Fs.create`] returns it: the calls of a
+  --- [`cosmic.stream`] Writer (`write`, `close` and `abort`), answering
+  --- a [`Failure`], and `sync`; [`Stream.create`] offers it as a Writer.
+  --- Every failure names the path, never the temporary file, and is
+  --- sticky.
   interface Staged
-    --- Appends `data`: false and why when it cannot all be written.
-    write: function(Staged, string): boolean, string
+    --- Appends `data`: false and a [`Failure`] when it cannot all be
+    --- written.
+    write: function(Staged, string): (true) | (false, Failure)
     --- Flushes what was written to storage, so that the rename `close`
     --- makes cannot reach it before the data does.
-    sync: function(Staged): boolean, string
-    --- Renames the file onto its path: false and why when a write
-    --- failed, or the rename or the closing of the file does. Safe to
-    --- call more than once; after `abort` it renames nothing and
-    --- answers true.
-    close: function(Staged): boolean, string
-    --- Removes the temporary file and leaves the path as it was. Safe
-    --- to call more than once.
-    abort: function(Staged): boolean, string
+    sync: function(Staged): (true) | (false, Failure)
+    --- Renames the file onto its path: false and a [`Failure`] when a
+    --- write failed, or the rename or the closing of the file does.
+    --- Safe to call more than once; after `abort` it renames nothing
+    --- and answers true.
+    close: function(Staged): (true) | (false, Failure)
+    --- Removes the temporary file and leaves the path as it was. It
+    --- cannot fail, and is safe to call more than once.
+    abort: function(Staged)
   end
 
   --- What [`Fs.cache_dir`], [`Fs.program_cache_dir`] and
@@ -186,13 +189,13 @@ end
 -- How an object of this module is made: see the note on objects in
 -- cosmic/stream.tl.
 
---- Remembers `why` as the file's failure, naming the caller's path: a
+--- Remembers `why` and `errno` as the file's Failure, naming the caller's path: a
 --- failure is sticky, and never names the temporary file, which the
 --- caller never chose and which is gone when it reads the message.
-local function failing(self: StagedFile, why: string, errno: integer): string
-  self.failed = self.path .. ": " .. why
-  self.failure = if errno ~= 0 then Failure.system(errno, self.path) else Failure.new(why, self.path) end
-  return self.failed
+local function failing(self: StagedFile, why: string, errno: integer): Failure
+  local failure = failure_of(errno, why, self.path)
+  self.failure = failure
+  return failure
 end
 
 --- What [`Fs.create`] returns: its methods live on the record's own
@@ -200,47 +203,47 @@ end
 local class StagedFile is Fs.Staged
   path: string
   temporary: sys.TemporaryFile
-  -- "" until a call fails.
-  mut failed: string
-  -- The same failure as a value, for [`Fs.write`]; nil until a call fails.
+  -- nil until a call fails.
   mut failure?: Failure
   mut closed: boolean
 
-  function write(self, data: string): boolean, string
-    if self.closed then return false, self.path .. ": the file is closed" end
-    if self.failed ~= "" then return false, self.failed end
+  function write(self, data: string): (true) | (false, Failure)
+    if self.closed then return false, Failure.new("the file is closed", self.path) end
+    local failed = self.failure
+    if failed ~= nil then return false, failed end
     local ok, why, errno = write_all(self.temporary.fd, data, "")
     if not ok then return false, failing(self, why, errno) end
-    return true, ""
+    return true
   end
 
-  function sync(self): boolean, string
-    if self.closed then return false, self.path .. ": the file is closed" end
-    if self.failed ~= "" then return false, self.failed end
+  function sync(self): (true) | (false, Failure)
+    if self.closed then return false, Failure.new("the file is closed", self.path) end
+    local failed = self.failure
+    if failed ~= nil then return false, failed end
     local ok, why, errno = sys.fsync(self.temporary.fd)
     if not ok then return false, failing(self, why, errno) end
-    return true, ""
+    return true
   end
 
-  function abort(self): boolean, string
-    if self.closed then return true, "" end
+  function abort(self)
+    if self.closed then return end
     self.closed = true
     local _, _ = sys.close(self.temporary.fd)
     local _, _ = sys.unlink(self.temporary.path)
-    return true, ""
   end
 
-  function close(self): boolean, string
+  function close(self): (true) | (false, Failure)
     local temporary = self.temporary
+    local failed = self.failure
     if self.closed then
-      if self.failed ~= "" then return false, self.failed end
-      return true, ""
+      if failed ~= nil then return false, failed end
+      return true
     end
     self.closed = true
-    if self.failed ~= "" then
+    if failed ~= nil then
       local _, _ = sys.close(temporary.fd)
       local _, _ = sys.unlink(temporary.path)
-      return false, self.failed
+      return false, failed
     end
     local closed, close_trouble, close_errno = sys.close(temporary.fd)
     if not closed then
@@ -252,7 +255,7 @@ local class StagedFile is Fs.Staged
       local _, _ = sys.unlink(temporary.path)
       return false, failing(self, why, errno)
     end
-    return true, ""
+    return true
   end
 end
 
@@ -262,7 +265,7 @@ local function staged_file(path: string, mode?: integer): (StagedFile) | (nil, F
   local temporary, why, errno = sys.open_temporary(path, mode or 0x1a4)
   if temporary == nil then return nil, failure_of(errno, why, path) end
   local staged: StagedFile = {
-    path = path, temporary = temporary, failed = "", failure = nil, closed = false,
+    path = path, temporary = temporary, failure = nil, closed = false,
   }
   return staged
 end
@@ -295,14 +298,12 @@ end
 function Fs.write(path: string, data: string, mode?: integer): (true) | (false, Failure)
   local file, trouble = staged_file(path, mode)
   if file == nil then return false, trouble end
-  local wrote, _ = file:write(data)
+  local wrote, write_failure = file:write(data)
   if not wrote then
-    local _, _ = file:abort()
-    return false, assert(file.failure)
+    file:abort()
+    return false, write_failure
   end
-  local closed, _ = file:close()
-  if not closed then return false, assert(file.failure) end
-  return true
+  return file:close()
 end
 
 local class AppendFile
