@@ -583,6 +583,49 @@ local function run(file: string, argv: {string}): integer
   return 0
 end
 
+--- Runs `file` as `--standalone` does where a tree run of it would build nothing the file needs
+--- ([`standalone.runs_alone`]) and the tree is not cosmic's own, whose `cosmic.*` modules are its sources: so it
+--- stages nothing and writes no build directory. nil where the file runs in its tree, which then reads, checks and
+--- reports it as ever. The run is still a source run of the module the file is: [`Proc.relaunch`] names the file as
+--- its `script`, and its top level finds its module's name as its `...`. A tool built from a checkout holds itself
+--- to it first, as the tree run does ([`reboot.checkout_exit`]); a release is built from none.
+--- @param argv the whole command line, the file at slot 1
+local function run_alone(file: string, argv: {string}): integer?
+  local Fs = require("cosmic.fs")
+  local standalone = require("build.standalone")
+  local source, _ = Fs.read(file)
+  if source == nil then
+    return nil
+  end
+  local tree_root, _ = root_of(file)
+  if tree_root == nil then
+    return nil
+  end
+  local name, _ = module_of(tree_root.dir, file)
+  -- Judged by its path from the tree's root, as the tree names its modules, not as it was typed.
+  if name == nil or not standalone.runs_alone(tree_root.file:sub(#tree_root.dir + 2), source) then
+    return nil
+  end
+  local standing, _ = require("build.tree").standing(tree_root.dir)
+  if standing == nil or standing.own then
+    return nil
+  end
+  if require("cosmic.store").meta("built_from") ~= nil then
+    local code = require("build.reboot").checkout_exit(argv, tree_root.dir)
+    if code ~= nil then
+      return code
+    end
+  end
+  local source_run = require("cosmic.internal.source_run")
+  source_run.script = tree_root.file
+  source_run.main = name
+  local shifted: mut {string} = { "--standalone" }
+  for _, given in ipairs(argv) do
+    shifted[#shifted + 1] = given
+  end
+  return standalone.run(shifted, nil, name)
+end
+
 --- `cosmic --version`: the SHA-256 of the file this binary runs from,
 --- read in pieces, as a release's SHA256SUMS names it: `cosmic <hex>`.
 local function version(argv: {string}): integer
@@ -853,6 +896,12 @@ function Dispatch.main(argv: {string}): integer
     return require("build.standalone").run(shifted, "this file ran as --standalone, which " ..
         "finds only cosmic.* modules, because COSMIC_STANDALONE=1 (as under `cosmic sandbox " ..
         "--cosmic`); COSMIC_STANDALONE=0 builds the tree around it, which finds its own")
+  end
+  if word ~= nil and word:sub(-3) == ".tl" and require("cosmic.env").get("COSMIC_STANDALONE") ~= "0" then
+    local code = run_alone(word, argv)
+    if code ~= nil then
+      return code
+    end
   end
   local Cli = require("cosmic.cli")
   local Env = require("cosmic.env")

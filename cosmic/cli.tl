@@ -37,6 +37,13 @@ local record Cli
   ---       return 0
   ---     end
   ---
+  --- A file that requires only `cosmic.*` modules, each by a literal
+  --- name, needs no tree, and runs as `cosmic --standalone` runs it: no
+  --- tree is built and nothing is written but the compile cache. A
+  --- program's `cmd/<name>/main.tl`, a `_test.tl` and a file of cosmic's
+  --- own checkout build the tree whatever they require, and
+  --- COSMIC_STANDALONE=0 makes any file build it.
+  ---
   --- A file of the tree that does not parse or type-check stops the run
   --- only when the file requires it, itself or through another module.
   --- One it does not require is left out, with a warning naming it and

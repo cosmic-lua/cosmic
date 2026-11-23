@@ -46,6 +46,14 @@ and no `require` finds one: `cosmic hello.lua` says that cosmic runs
 Teal, checked, and to rename the file to `hello.tl` and run `cosmic fix`
 on it to see what the checker asks of it.
 
+A file that requires only `cosmic.*` modules runs as `cosmic --standalone`
+runs it. No tree is built around it, so nothing is staged and no build
+directory is written. This holds where each `require` names its module
+with a literal string, and the file is no program's `cmd/<name>/main.tl`
+and no `_test.tl`, outside cosmic's own checkout. A file that requires a
+module of its project builds the tree, as `COSMIC_STANDALONE=0` makes any
+file do.
+
 ## help for one verb
 
 `cosmic help` prints a short index, a line per verb. `cosmic help <verb>`

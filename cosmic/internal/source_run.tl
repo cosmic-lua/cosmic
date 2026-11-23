@@ -3,7 +3,8 @@
 --- `cmd/<name>/main.tl` run from its source is. It is kept here, not in cosmic.proc's record, so the tool's write stays
 --- out of the public module's surface.
 local record source_run
-  --- The file's absolute path; nil in any other run: a built program, a test, `-e` or `--standalone`.
+  --- The file's absolute path, also where `cosmic <file.tl>` runs the file as `--standalone` does since it needs no
+  --- tree; nil in any other run: a built program, a test, `-e` or `--standalone` typed.
   mut script?: string
   --- The module the file is, by its path from the tree's root (`cmd.spam.main` for `cmd/spam/main.tl`); nil where
   --- `script` is.
