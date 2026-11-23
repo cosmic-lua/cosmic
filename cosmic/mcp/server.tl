@@ -45,9 +45,12 @@
 --- not is answered as an internal error too, so a client never reads a
 --- structure the tool did not promise.
 ---
---- Security: over HTTP every request passes `authorize`, which the
---- handler's spec must state ([`McpServer.bearer`] checks a token,
---- [`McpServer.anyone`] lets every caller in), and a request whose `Origin`
+--- Security: over HTTP every request passes `authorize` or `oauth`, one
+--- of which the handler's spec must state ([`McpServer.bearer`] checks a
+--- token, [`McpServer.anyone`] lets every caller in, and `oauth` makes the
+--- endpoint an OAuth 2.1 resource server whose access tokens
+--- [`McpServer.jwt`] checks, a tool's `scopes` checked for each call),
+--- and a request whose `Origin`
 --- is not one of `origins` is refused 403 before anything else, so a web
 --- page cannot reach a server on this machine by rebinding its DNS. Bind
 --- a local server to 127.0.0.1, not every address. Over stdio the client
@@ -69,6 +72,7 @@ local Failure = require("cosmic.failure")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
 local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
@@ -79,6 +83,7 @@ local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
+local Url = require("cosmic.url")
 local wire = require("cosmic.mcp.wire")
 local type HttpServer = require("cosmic.http.server")
 
@@ -93,6 +98,10 @@ local record McpServer
     --- The HTTP request this came in, nil over stdio: its headers say
     --- what `authorize` let in.
     http?: HttpServer.Request
+    --- Who the request's access token stands for and what it grants,
+    --- where the endpoint is a resource server ([`HttpSpec.oauth`]);
+    --- nil elsewhere.
+    grant?: Grant
     --- Tells the client how far the request has come, where it asked to
     --- be told (a `progressToken` in its `_meta`) over a transport that
     --- carries a notice before the answer: [`McpServer.Instance.serve_stdio`],
@@ -148,6 +157,12 @@ local record McpServer
     --- to the tool's `inputSchema`. A failure answered is sent as a result
     --- with `isError`, its words for the model to read.
     call: function(arguments: {string: Json.Value}, call: Call): (Mcp.ToolResult) | (nil, Failure)
+    --- The scopes an access token must grant for a call of the tool,
+    --- where the endpoint is a resource server ([`HttpSpec.oauth`]): a
+    --- call without them is answered 403, naming them all, for the client
+    --- to ask for more. Over stdio, and over HTTP without `oauth`, they
+    --- are not checked.
+    scopes?: {string}
   end
 
   --- A tool that is a program run under a sandbox: what [`McpServer.command`] makes a [`ToolSpec`] of.
@@ -237,7 +252,15 @@ local record McpServer
   record HttpSpec
     --- Whether the request may be answered: false is answered 401.
     --- [`McpServer.bearer`] checks a token; [`McpServer.anyone`] lets each in.
-    authorize: function(HttpServer.Request): boolean
+    --- One of `authorize` and `oauth` is given, not both.
+    authorize?: function(HttpServer.Request): boolean
+    --- Makes the endpoint an OAuth 2.1 resource server, as the
+    --- protocol's authorization has it: a request needs an access token
+    --- `verify` takes, and one without is answered 401 with a
+    --- `WWW-Authenticate` that names where to find the authorization
+    --- servers (the protected resource metadata, served at
+    --- `/.well-known/oauth-protected-resource` and the endpoint's path).
+    oauth?: OAuth
     --- The origins a browser's request may come from, each as
     --- `scheme://host[:port]`; a request whose `Origin` is not one is
     --- refused 403. Nil or empty for none: a request with no `Origin`,
@@ -248,10 +271,64 @@ local record McpServer
     path?: string
     --- Who asks, for a request `authorize` let in: what a handler
     --- `keep`s for a request is bound to, so another caller cannot send
-    --- it back. Nil binds it to the request's `Authorization` header;
-    --- a server that knows its callers otherwise (a cookie, a client
+    --- it back. Nil binds it to the [`Grant`]'s issuer and subject under
+    --- `oauth`, and to the request's `Authorization` header under
+    --- `authorize`; a server that knows its callers otherwise (a cookie, a client
     --- certificate, one token shared by many) names them here.
     principal?: function(HttpServer.Request): string
+  end
+
+  --- Who a request's access token stands for, and what it grants: what
+  --- [`OAuth.verify`] answers.
+  record Grant
+    --- The authorization server that issued the token (`iss`).
+    issuer: string
+    --- Who the token is about (`sub`), as `issuer` names them: with
+    --- `issuer`, what state a handler keeps is bound to, unless
+    --- [`HttpSpec.principal`] says otherwise.
+    subject: string
+    --- The scopes it grants.
+    scopes: {string}
+    --- When it expires, in seconds since the epoch (`exp`): an event
+    --- stream it opened ends then. Nil: when the stream ends by itself.
+    expires?: integer
+  end
+
+  --- What makes an endpoint a resource server ([`HttpSpec.oauth`]).
+  record OAuth
+    --- This endpoint's canonical URI, the audience its tokens must be
+    --- for: `https://mcp.example.com/mcp`, its path the endpoint's. http
+    --- is taken only for a loopback host.
+    resource: string
+    --- The issuers of the authorization servers whose tokens it takes,
+    --- at least one.
+    authorization_servers: {string}
+    --- The scopes a client asks for to use the server at all
+    --- (`scopes_supported`), named in a 401's challenge. Each is a
+    --- scope token of RFC 6749: printable ASCII, no space, `"` or `\`.
+    scopes?: {string}
+    --- The grant of the access token `token`, or nil and why it is
+    --- refused: not signed by an authorization server named, past its
+    --- time, or for another audience than `resource` (the endpoint's
+    --- [`resource`], given), which it must refuse. [`McpServer.jwt`]
+    --- makes one for JWT access tokens.
+    verify: function(token: string, resource: string): (Grant) | (nil, Failure)
+    --- Whether `granted` covers the scope `needed`, for scopes where a
+    --- broader one holds narrower ones; nil: only `needed` itself does.
+    covers?: function(granted: {string}, needed: string): boolean
+  end
+
+  --- What [`McpServer.jwt`] checks a JWT access token against.
+  record JwtSpec
+    --- The `iss` a token must hold: an authorization server's issuer.
+    issuer: string
+    --- The authorization server's signing keys ([`Jose.keys`] of its JWKS).
+    keys: {Jose.Jwk}
+    --- How far the issuer's clock may be from this one, in seconds (60).
+    leeway?: integer
+    --- The header's `typ` a token must have ("at+jwt", as RFC 9068
+    --- says): so an ID token the issuer signed is not taken for one.
+    typ?: string
   end
 
   --- What [`McpServer.Instance.answer`] makes of one message: the text to
@@ -419,6 +496,16 @@ end
 --- The state of a server of `spec`. A tool named twice or outside `A-Z a-z 0-9
 --- _ - .`, one whose schema names an `x-mcp-header` the transport
 --- refuses, a resource's URI or a prompt's name given twice, raises.
+--- Whether `scope` is a scope token of RFC 6749: one or more of %x21 / %x23-5B / %x5D-7E.
+local function is_scope(scope: string): boolean
+  if #scope < 1 then return false end
+  for i = 1, #scope do
+    local b = assert(scope:byte(i))
+    if b < 0x21 or b > 0x7E or b == 0x22 or b == 0x5C then return false end
+  end
+  return true
+end
+
 local function state_of(spec: McpServer.Spec): State
   local by_tool: mut {string: McpServer.ToolSpec} = {}
   local mirrors: mut {string: {Mcp.Mirror}} = {}
@@ -430,6 +517,11 @@ local function state_of(spec: McpServer.Spec): State
       refuse("tool name " .. Json.quote(name) .. " is not 1 to 128 of A-Z a-z 0-9 _ - .")
     end
     if by_tool[name] ~= nil then refuse("tool " .. name .. " is named twice") end
+    for _, scope in ipairs(t.scopes or {}) do
+      if not is_scope(scope) then
+        refuse("tool " .. name .. ": scope " .. Json.quote(scope) .. " is not a scope token")
+      end
+    end
     if t.tool.inputSchema["type"] ~= "object" then
       refuse("tool " .. name .. ": inputSchema must have \"type\": \"object\"")
     end
@@ -1014,6 +1106,8 @@ local record Flight
   --- Who asks, as [`McpServer.HttpSpec.principal`] names them: what state a handler keeps is bound to; nil over
   --- stdio, where one client is all there is.
   principal?: string
+  --- What the request's access token grants, over a resource server.
+  grant?: McpServer.Grant
 end
 
 --- Whether `n` is a number JSON can hold: not NaN, not infinite.
@@ -1216,7 +1310,7 @@ local function dispatch(self: State, method: string, params: any, flight: Flight
   local inputs: Inputs = { given = given, asked = {}, count = 0, context = context,
     needed = Failure.new("mcp: the client is asked for input first") }
   local declared = meta.capabilities
-  local call: McpServer.Call = { client = meta.client, capabilities = declared, http = http,
+  local call: McpServer.Call = { client = meta.client, capabilities = declared, http = http, grant = flight.grant,
     progress = progress_of(flight), cancelled = function(): boolean return flight.cancelled end,
     state = state,
     elicit = function(key: string, elicitation: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
@@ -1651,6 +1745,8 @@ local class EventReader is Stream.Reader
   mut answer?: string
   mut task?: Poll.Task
   mut finished: boolean
+  --- When the stream ends, its grant's time past, in nanoseconds since the epoch; nil: never by time.
+  ends_ns?: integer
 
   function read(self, _max_bytes?: integer): string?, string
     while true do
@@ -1671,7 +1767,18 @@ local class EventReader is Stream.Reader
         return "event: message\ndata: " .. final .. "\n\n", ""
       end
       if self.finished then return nil, "" end
-      local ok, why = self.notifier:wait(KEEPALIVE_NS)
+      local wait_ns = KEEPALIVE_NS
+      local ends_ns = self.ends_ns
+      if ends_ns ~= nil then
+        local left = ends_ns - Clock.now_ns()
+        if left <= 0 then
+          -- The token it was opened with is past its time: the client asks again with a new one.
+          local _, _ = self:close()
+          return nil, ""
+        end
+        if left < wait_ns then wait_ns = left end
+      end
+      local ok, why = self.notifier:wait(wait_ns)
       if not ok then
         if why.kind ~= "timeout" then return nil, why.message end
         return ": working\n\n", ""
@@ -1693,11 +1800,14 @@ local class EventReader is Stream.Reader
 end
 
 --- `message` answered as an event stream, its handler in a task of its own.
-local function streamed(self: State, message: wire.Message, req: HttpServer.Request, principal: string): HttpServer.Reply
+local function streamed(self: State, message: wire.Message, req: HttpServer.Request, principal: string,
+                        grant?: McpServer.Grant): HttpServer.Reply
   local notifier = Poll.notifier()
-  local flight: Flight = { done = false, cancelled = false, principal = principal }
+  local flight: Flight = { done = false, cancelled = false, principal = principal, grant = grant }
+  local expires = if grant ~= nil then grant.expires else nil end
   local body: EventReader = { notifier = notifier, flight = flight, queue = {}, head = 1, tail = 1, finished = false,
-    latest = nil, answer = nil, task = nil, skip = nil }
+    latest = nil, answer = nil, task = nil, skip = nil,
+    ends_ns = if expires ~= nil then expires * 1000000000 else nil end }
   flight.emit = function(text: string, lossy: boolean)
     if body.finished then return end
     if lossy then
@@ -1731,15 +1841,124 @@ local function names(accept: string?, want: string): boolean
   return false
 end
 
+--- Whether `host` is this machine's loopback, where a resource may be http.
+local function loopback(host: string): boolean
+  return host == "localhost" or host == "127.0.0.1" or host == "::1" or host == "[::1]"
+end
+
+--- What a resource server answers beside its endpoint: where its metadata is, and the metadata.
+local record Protected
+  oauth: McpServer.OAuth
+  --- The path the metadata is served at, and its whole URL.
+  path: string
+  url: string
+  --- The metadata's JSON text.
+  body: string
+end
+
+--- The resource server `oauth` makes of an endpoint at `path`; raises where it does not hold.
+local function protected(oauth: McpServer.OAuth, path: string): Protected
+  local parts, why = Url.parse(oauth.resource)
+  if parts == nil then error("mcp: handler: oauth.resource: " .. tostring(why), 4) end
+  if not (parts.scheme == "https" or (parts.scheme == "http" and loopback(parts.host))) then
+    error("mcp: handler: oauth.resource must be https (http only for loopback)", 4)
+  end
+  if parts.query ~= nil or parts.fragment ~= nil or parts.userinfo ~= nil then
+    error("mcp: handler: oauth.resource has a query, a fragment or a user: a canonical URI has none", 4)
+  end
+  local at = if parts.path == "" then "/" else parts.path end
+  if at ~= path then
+    error("mcp: handler: oauth.resource's path " .. Json.quote(at) .. " is not the endpoint's, " .. Json.quote(path), 4)
+  end
+  if #oauth.authorization_servers < 1 then
+    error("mcp: handler: oauth.authorization_servers is empty", 4)
+  end
+  local host = if parts.host:find(":", 1, true) ~= nil and parts.host:sub(1, 1) ~= "[" then
+    "[" .. parts.host .. "]" else parts.host end
+  local origin = parts.scheme .. "://" .. host .. (if parts.port ~= nil then ":" .. tostring(parts.port) else "" end)
+  local metadata_path = "/.well-known/oauth-protected-resource" .. (if at == "/" then "" else at end)
+  local doc: mut {string: Json.Value} = { resource = oauth.resource,
+    authorization_servers = wire.strings(oauth.authorization_servers),
+    bearer_methods_supported = wire.strings({ "header" }) }
+  local scopes = oauth.scopes
+  if scopes ~= nil then
+    for _, scope in ipairs(scopes) do
+      if not is_scope(scope) then
+        error("mcp: handler: oauth.scopes: " .. Json.quote(scope) .. " is not a scope token", 4)
+      end
+    end
+    doc["scopes_supported"] = wire.strings(scopes)
+  end
+  local body, bad = Json.encode(doc)
+  if body == nil then error("mcp: handler: oauth: " .. tostring(bad), 4) end
+  return { oauth = oauth, path = metadata_path, url = origin .. metadata_path, body = body }
+end
+
+--- `text` as the value of a challenge's parameter: quoted, its quotes and backslashes escaped.
+local function quoted(text: string): string
+  return '"' .. text:gsub('[\\"]', "\\%0") .. '"'
+end
+
+--- The answer that challenges a request: 401 for a token missing or refused, 403 for one that grants too little;
+--- `scopes` are what to ask for.
+local function challenge(p: Protected, status: integer, err?: string, scopes?: {string}, words?: string): HttpServer.Reply
+  local parts: mut {string} = { "resource_metadata=" .. quoted(p.url) }
+  if err ~= nil then parts[#parts + 1] = "error=" .. quoted(err) end
+  if scopes ~= nil and #scopes > 0 then
+    local named = "scope=" .. quoted(table.concat(scopes, " "))
+    parts[#parts + 1] = named
+  end
+  local reply = refused(status, Mcp.INVALID_REQUEST, words or (if status == 403 then "Forbidden" else "Unauthorized" end))
+  local headers: mut {string: string} = { ["Content-Type"] = "application/json" }
+  headers["WWW-Authenticate"] = "Bearer " .. table.concat(parts, ", ")
+  reply.headers = headers
+  return reply
+end
+
+--- The access token of an `Authorization` header (`Bearer <token>`, the scheme in any case), or nil.
+local function bearer_token(header?: string): string?
+  if header == nil then return nil end
+  local scheme, credentials = header:match("^(%S+) +(%S+)%s*$")
+  if scheme == nil or credentials == nil or scheme:lower() ~= "bearer" then return nil end
+  return credentials
+end
+
+--- Whether `granted` holds `needed`, as `oauth` reads scopes.
+local function holds(oauth: McpServer.OAuth, granted: {string}, needed: string): boolean
+  local covers = oauth.covers
+  if covers ~= nil then return covers(granted, needed) end
+  for _, g in ipairs(granted) do
+    if g == needed then return true end
+  end
+  return false
+end
+
 --- The handler [`McpServer.Instance.handler`] answers.
 local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServer.Request): HttpServer.Reply
   local path = spec.path or "/mcp"
   local origins = spec.origins or {}
   local authorize = spec.authorize
-  local principal_of = spec.principal or function(req: HttpServer.Request): string
+  local oauth = spec.oauth
+  if (authorize == nil) == (oauth == nil) then
+    error("mcp: handler: give one of authorize and oauth", 3)
+  end
+  local resource = if oauth ~= nil then protected(oauth, path) else nil end
+  local given_principal = spec.principal
+  local function principal_of(req: HttpServer.Request, grant?: McpServer.Grant): string
+    if given_principal ~= nil then return given_principal(req) end
+    if grant ~= nil then return "iss " .. grant.issuer .. "\0sub " .. grant.subject end
     return req.headers["authorization"] or ""
   end
   return function(req: HttpServer.Request): HttpServer.Reply
+    if resource ~= nil and req.path == resource.path then
+      if req.method ~= "GET" then
+        local reply = refused(405)
+        reply.headers = { Allow = "GET" }
+        return reply
+      end
+      return { status = 200, headers = { ["Content-Type"] = "application/json", ["Access-Control-Allow-Origin"] = "*" },
+        body = resource.body }
+    end
     local origin = req.headers["origin"]
     if origin ~= nil and not allowed_origin(origin, origins) then
       return refused(403, Mcp.INVALID_REQUEST, "Forbidden: origin " .. Json.quote(origin) .. " is not allowed")
@@ -1750,7 +1969,18 @@ local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServ
       reply.headers = { Allow = "POST" }
       return reply
     end
-    if not authorize(req) then return refused(401, Mcp.INVALID_REQUEST, "Unauthorized") end
+    local grant: McpServer.Grant? = nil
+    if resource ~= nil then
+      local token = bearer_token(req.headers["authorization"])
+      if token == nil then return challenge(resource, 401, nil, resource.oauth.scopes) end
+      local granted, _ = resource.oauth.verify(token, resource.oauth.resource)
+      if granted == nil then
+        return challenge(resource, 401, "invalid_token", resource.oauth.scopes)
+      end
+      grant = granted
+    elseif authorize ~= nil and not authorize(req) then
+      return refused(401, Mcp.INVALID_REQUEST, "Unauthorized")
+    end
     if not media_is(req.headers["content-type"], "application/json") then
       return refused(415, Mcp.INVALID_REQUEST, "the body must be application/json")
     end
@@ -1778,14 +2008,39 @@ local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServ
         end
       end
     end
+    if resource ~= nil and grant ~= nil and message.method == "tools/call" then
+      -- Every scope the tool needs, named at once, so one authorization gets them all.
+      local named, _ = NAMED:into(message.params)
+      local tool = if named ~= nil and named.name ~= nil then self.by_tool[named.name] else nil end
+      local none: {string} = {}
+      local needs = if tool ~= nil then tool.scopes or none else none end
+      for _, needed in ipairs(needs) do
+        if not holds(resource.oauth, grant.scopes, needed) then
+          -- Asked for with those granted, so the token that comes back does not lose them.
+          local wanted: mut {string} = {}
+          local seen: mut {string: boolean} = {}
+          for _, list in ipairs({ grant.scopes, needs }) do
+            for _, each in ipairs(list) do
+              if seen[each] == nil and is_scope(each) then
+                seen[each] = true
+                wanted[#wanted + 1] = each
+              end
+            end
+          end
+          return challenge(resource, 403, "insufficient_scope", wanted,
+            "Forbidden: the tool " .. tostring(assert(named).name) .. " needs the scopes " .. table.concat(needs, " "))
+        end
+      end
+    end
+    local principal = principal_of(req, grant)
     if message.method ~= nil and message.id ~= nil and names(req.headers["accept"], "text/event-stream") and
         Poll.in_task() then
       local meta, _ = meta_of(message.params)
       if meta ~= nil and (meta.progress_token ~= nil or message.method == "subscriptions/listen") then
-        return streamed(self, message, req, principal_of(req))
+        return streamed(self, message, req, principal, grant)
       end
     end
-    local said = answer_message(self, message, req, { done = false, cancelled = false, principal = principal_of(req) })
+    local said = answer_message(self, message, req, { done = false, cancelled = false, principal = principal, grant = grant })
     if said.body == nil then return { status = said.status } end
     return { status = said.status, headers = { ["Content-Type"] = "application/json" }, body = said.body }
   end
@@ -2103,6 +2358,39 @@ function McpServer.command(spec: McpServer.CommandSpec): McpServer.ToolSpec
       return Mcp.result({ capped(said) }, true)
     end,
   }
+end
+
+--- The scopes a token's claims grant: `scope`, a space-separated string, or `scp`, an array of strings.
+local function scopes_of(claims: {string: Json.Value}): {string}
+  local out: mut {string} = {}
+  local scope = claims["scope"]
+  if scope is string then
+    for each in scope:gmatch("%S+") do out[#out + 1] = each end
+    return out
+  end
+  for _, each in ipairs(Json.array_of(claims["scp"]) or {}) do
+    if each is string then out[#out + 1] = each end
+  end
+  return out
+end
+
+--- An [`OAuth.verify`] for JWT access tokens (RFC 9068): a token one of
+--- `spec.keys` signed, of `typ` "at+jwt", whose `iss` is `spec.issuer`,
+--- whose `aud` holds the endpoint's resource, that has a `sub` and an
+--- `exp` and is within its time. Its grant is its `iss`, its `sub`, its
+--- `exp` and the scopes of its `scope` (or `scp`).
+---
+---     local keys = assert(Jose.keys(jwks))
+---     local verify = McpServer.jwt{ issuer = "https://auth.example.com", keys = keys }
+function McpServer.jwt(spec: McpServer.JwtSpec): function(token: string, resource: string): (McpServer.Grant) | (nil, Failure)
+  if #spec.keys < 1 then error("mcp: jwt: spec.keys is empty", 2) end
+  local typ = spec.typ or "at+jwt"
+  return function(token: string, resource: string): (McpServer.Grant) | (nil, Failure)
+    local claims, why = Jose.verify_jwt(token, spec.keys, { issuer = spec.issuer, audience = resource,
+      leeway = spec.leeway, require_exp = true, typ = typ })
+    if claims == nil then return nil, why end
+    return { issuer = claims.iss, subject = claims.sub, scopes = scopes_of(claims.claims), expires = claims.exp }
+  end
 end
 
 --- An `authorize` that lets every request in: for a server bound to
