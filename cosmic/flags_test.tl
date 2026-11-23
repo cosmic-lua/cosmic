@@ -298,10 +298,23 @@ local function test_dispatch_runs_a_subcommand_with_its_own_options()
   assert(listed.help:find("commands:\n  add [options] <time>  Adds a duration.\n  now [options]", 1, true) ~= nil,
     listed.help)
   local unknown, unknown_why = Flags.dispatch({ "help", "time", "later" }, 1, commands, "prog")
-  assert(unknown == nil and unknown_why:find("^help: no such command: later") ~= nil, unknown_why)
+  assert(unknown == nil and unknown_why:find("^time: no such command: later") ~= nil, unknown_why)
   Test.raises(function()
     Flags.dispatch({ "x" }, 1, { x = { spec = {}, subcommands = assert(commands["time"]).subcommands } }, "prog")
   end)
+  Test.raises(function() Flags.dispatch({ "x" }, 1, { x = { subcommands = {} } }, "prog") end)
+  local extra, extra_why = Flags.dispatch({ "help", "time", "add", "more" }, 1, commands, "prog")
+  assert(extra == nil and extra_why == "time: help: one command at a time", extra_why)
+  -- A subcommand typed as another word is listed, and run, by that word.
+  local typed: {string:Flags.Command} = {
+    cmd = { subcommands = { other = { typed = "oth", run = function(_: Flags.Parsed): integer
+      return 4
+    end } } },
+  }
+  local shown = assert(Flags.dispatch({ "cmd", "--help" }, 1, typed, "prog"))
+  assert(shown.help:find("usage: prog cmd <oth> ...", 1, true) ~= nil and shown.help:find("other", 1, true) == nil,
+    shown.help)
+  assert(assert(Flags.dispatch({ "cmd", "oth" }, 1, typed, "prog")).code == 4)
 end
 
 local help_commands: {string:Flags.Command} = {

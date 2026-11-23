@@ -31,7 +31,7 @@ end
 
 --- Each subcommand has its own help, by either spelling, and a refusal names only its usage.
 local function test_each_subcommand_has_its_own_help(tmp: string)
-  for _, line in ipairs({ { "help", "rand", "gamma" }, { "rand", "gamma", "--help" } }) do
+  for _, line in ipairs({ { "help", "rand", "gamma" }, { "rand", "gamma", "--help" }, { "rand", "help", "gamma" } }) do
     local helped = tool_fixture.cosmic(tmp, line)
     assert(helped.code == 0 and helped.out:find("^usage: cosmic rand gamma %[options%]") ~= nil and
         helped.out:find("--shape <k>", 1, true) ~= nil and helped.out:find("--bytes", 1, true) == nil, helped.out)
@@ -41,8 +41,10 @@ local function test_each_subcommand_has_its_own_help(tmp: string)
   local refused = tool_fixture.cosmic(tmp, { "rand", "uuid", "--bytes", "3" })
   assert(refused.code == 2 and refused.err:find("rand: uuid: no such option: --bytes; usage: cosmic rand uuid", 1,
     true) ~= nil and refused.err:find("token", 1, true) == nil, refused.err)
-  local unknown = tool_fixture.cosmic(tmp, { "help", "rand", "uuidd" })
-  assert(unknown.code == 2 and unknown.err:find("did you mean uuid?", 1, true) ~= nil, unknown.err)
+  for _, line in ipairs({ { "help", "rand", "uuidd" }, { "rand", "uuidd", "--help" } }) do
+    local unknown = tool_fixture.cosmic(tmp, line)
+    assert(unknown.code == 2 and unknown.err:find("did you mean uuid?", 1, true) ~= nil, unknown.err)
+  end
 end
 
 local function test_usage_is_exit_2_with_no_summary(tmp: string)

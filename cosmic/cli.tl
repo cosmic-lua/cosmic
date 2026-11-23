@@ -634,7 +634,7 @@ local record Cli
   --- or files it would overwrite. It exits 2 for a command line, an
   --- archive it cannot read, or one it refuses to unpack.
   archive: string
-  --- `cosmic rand <uuid|token|int|pick|shuffle|normal|gamma> [options]`: prints
+  --- `cosmic rand <gamma|int|normal|pick|shuffle|token|uuid> ...`: prints
   --- an id, a token, a number, a shuffled list, or a normal or gamma draw,
   --- with no script to write.
   ---
@@ -1394,6 +1394,9 @@ local function order_of(groups: {{string}}): {string}
   return out
 end
 
+-- TODO: give time, archive, acme, tailscale, agent and cache their `subcommands`, as rand has them, one pull request
+-- each: each still shows `<command> ...`, names its subcommand by hand in each option's help, and refuses a line
+-- with every subcommand's usage at once.
 local module: Module = {
   verbs = {
     run = {
@@ -1671,7 +1674,7 @@ local module: Module = {
     },
     rand = {
       about = "uuids, tokens, integers, picks and draws",
-      usage = "<uuid|token|int|pick|shuffle|normal|gamma> ...",
+      usage = "<gamma|int|normal|pick|shuffle|token|uuid> ...",
       examples = {
         { line = "uuid", about = "a random UUID" },
         { line = "token", about = "a 32-byte token" },

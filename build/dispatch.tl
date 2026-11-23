@@ -803,6 +803,10 @@ local function help(argv: {string}, asked: string?, asked_sub?: string): integer
     local _, _ = logger.summary("help", "1 verb, " .. clock.took(started))
     return 0
   end
+  if #words > 2 and subcommands ~= nil then
+    log:complain("help: one subcommand of " .. tostring(requested) .. " at a time, not " .. tostring(#words - 1))
+    return 2
+  end
   if #words > 1 then
     log:complain("help: one verb at a time, not " .. tostring(#words))
     return 2
@@ -999,12 +1003,14 @@ function Dispatch.main(argv: {string}): integer
   -- Whether the verb is typed by its name, and so is a command Flags.dispatch reads the line of: `help`, a file
   -- run and the verbs spelled as options read their own.
   local typed_by_name = chosen ~= nil and verb ~= "help" and verb ~= "run" and verb:sub(1, 1) ~= "-"
-  if chosen ~= nil and verb ~= "help" and Flags.asks_help(own, 2, options) then
-    -- `cosmic <verb> --help` is `cosmic help <verb>`, and `cosmic <verb> <sub> --help` is `cosmic help <verb> <sub>`.
+  local verb_subcommands = if command ~= nil then command.subcommands else nil end
+  local asks_sub_help = verb_subcommands ~= nil and own[2] == "help"
+  if chosen ~= nil and verb ~= "help" and (asks_sub_help or Flags.asks_help(own, 2, options)) then
+    -- `cosmic <verb> --help` is `cosmic help <verb>`, and `cosmic <verb> <sub> --help` and
+    -- `cosmic <verb> help <sub>` are `cosmic help <verb> <sub>`.
     local asked = verb
-    local subcommands = if command ~= nil then command.subcommands else nil end
-    local second = own[2]
-    local asked_sub = if subcommands ~= nil and second ~= nil and subcommands[second] ~= nil then second else nil end
+    local second = if asks_sub_help then own[3] else own[2] end
+    local asked_sub = if verb_subcommands ~= nil and second ~= nil and second:sub(1, 1) ~= "-" then second else nil end
     typed_by_name = false
     local own_spec = assert(help_spec, "help's spec is set before a verb is dispatched")
     verb = "help"
