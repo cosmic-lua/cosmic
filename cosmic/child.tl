@@ -379,7 +379,8 @@ local record Options
   ---   variable of the policy's), removed after the child is settled; under
   ---   `isolate` file, the sandbox's own /tmp instead.
   --- - `limits` are rlimits on every process of the child: 1024 open
-  ---   files unless `open_files` says, and no core dump; `file_bytes` and
+  ---   files (this process's own hard limit where that is lower) unless
+  ---   `open_files` says, and no core dump; `file_bytes` and
   ---   `cpu_seconds` as given. `processes` (RLIMIT_NPROC) holds the
   ---   whole sandbox: the kernel counts the processes and threads of the
   ---   user namespace the program runs in, so the program itself is

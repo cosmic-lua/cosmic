@@ -513,7 +513,8 @@ end
 --- Nothing lifts it, and the process cannot start a program its grants
 --- do not let run. The policy is merged first ([`Sandbox.merge`]), so it
 --- may name `profiles`, and its limits have a child's defaults: no core
---- dump and 1024 open files; a limit is only ever lowered, never
+--- dump and 1024 open files (this process's own hard limit where that
+--- is lower); a limit is only ever lowered, never
 --- raised. `cpu_seconds` is RLIMIT_CPU, which counts the CPU time the
 --- process has already spent: lowering it below that on a process that has
 --- run long ends it by SIGKILL at once.
