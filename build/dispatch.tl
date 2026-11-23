@@ -26,6 +26,28 @@ local log = logger.log
 -- holds `-e` to that). Only `cosmic help` of a verb loads its spec, and
 -- `cosmic help exit` loads them all.
 
+--- The verbs spelled as options, by that spelling.
+local as_option: {string:string} = {
+  ["--standalone"] = "standalone",
+  ["-e"] = "eval",
+  ["--version"] = "version",
+}
+
+--- How `cosmic help` names `verb` on its page's usage line: `cosmic`
+--- and the word the verb is typed as, or `cosmic` alone for a file run.
+local function typed_name(verb: string): string
+  if verb == "run" then
+    return "cosmic"
+  end
+  for spelled, name in pairs(as_option) do
+    if name == verb then return "cosmic " .. spelled end
+  end
+  return "cosmic " .. verb
+end
+
+--- The width Flags.help wraps a verb's options and examples to.
+local page_width <const> = 80
+
 --- The full text of each verb's `cosmic help <verb>`, generated from
 --- [`cosmic.cli`]'s own fields ([`cosmic.cli.Cli.run`],
 --- [`cosmic.cli.Cli.test`], ...) so this wording is never a second,
@@ -79,12 +101,12 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
     elseif text == nil then
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else
-      lines[#lines + 1] = text
       local command = Cli.verbs[verb]
-      local options = require("cosmic.flags").options(if command ~= nil then command.spec or {} else {} end)
-      if options ~= "" then
-        lines[#lines + 1] = options
+      if command ~= nil then
+        lines[#lines + 1] = require("cosmic.flags").help(command, typed_name(verb), page_width)
+        lines[#lines + 1] = ""
       end
+      lines[#lines + 1] = text
     end
     lines[#lines + 1] = ""
     out[verb] = table.concat(lines, "\n")
@@ -229,13 +251,6 @@ local function verb_text(verb: string, specs: {verb_spec.Spec}, docs?: string): 
   return text .. "\n" .. spec_notes(verb, spec)
 end
 
---- The verbs spelled as options, by that spelling.
-local as_option: {string:string} = {
-  ["--standalone"] = "standalone",
-  ["-e"] = "eval",
-  ["--version"] = "version",
-}
-
 --- What a refusal of the mistyped verb `word` ends with when any of
 --- `verbs` is near it by [`Flags.nearest`]'s rule, as [`cosmic.flags`]
 --- ends its own: "; did you mean test?". "" when none is.
@@ -289,10 +304,9 @@ local function index_help(): string
       "verbs run code, work on a project, do quick jobs at the shell, and",
       "look things up.",
       "",
-      "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
-      "library, and `cosmic docs doc.guides.project` builds a project with",
-      "a module, tests, an example, a record with methods and a program",
-      "with commands.",
+      "Start here: `cosmic docs quickstart` tours the standard library, and",
+      "`cosmic docs project` builds a project with a module, tests, an",
+      "example, a record with methods and a program with commands.",
     }, "\n"),
     after = table.concat({
       "More:",

@@ -104,7 +104,7 @@
 ---
 --- In a task of [`Poll.run`] a search waits through the run, so the other tasks go on: it also
 --- lets them run after every 16 datagrams, however fast those come. A cancelled task's search
---- ends with nil and [`Poll.CANCELLED`], and answers no list: a failure carries no value. What
+--- ends with nil and a Failure of kind "cancelled", and answers no list: a failure carries no value. What
 --- it had found is given to `found`, which a cancelled browse calls, before it ends, with each
 --- instance it would have listed and had not given yet, so a caller that may cancel a search
 --- and wants what it found passes `found`. Anywhere else a search holds the thread until it
@@ -147,6 +147,7 @@
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
+local Failure = require("cosmic.failure")
 local Nearby = require("cosmic.internal.nearby")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -511,21 +512,21 @@ local function send_by(socket: Net.Datagram, vias: {string}, bytes: string, to: 
 end
 
 --- The search `opts` describes, its socket bound and, for "group", joined; nil and why where the
---- socket cannot be made so. Raises for a field out of range, at the caller of the function that
---- calls this.
+--- socket cannot be made so. Raises for a field out of range, at the caller of the public
+--- function whose text body calls this.
 local function open(opts: Mdns.Options): Hunt?, string
-  Poll.checked_ns(opts.timeout_ns, "mdns", "timeout_ns", 3)
-  Poll.checked_ns(opts.retry_ns, "mdns", "retry_ns", 3)
-  Poll.checked_ns(opts.settle_ns, "mdns", "settle_ns", 3)
+  Poll.checked_ns(opts.timeout_ns, "mdns", "timeout_ns", 4)
+  Poll.checked_ns(opts.retry_ns, "mdns", "retry_ns", 4)
+  Poll.checked_ns(opts.settle_ns, "mdns", "settle_ns", 4)
   local retry_ns = opts.retry_ns or Clock.seconds(1)
-  if retry_ns < Clock.ms(1) then error("mdns: retry_ns must be 1 millisecond or more", 3) end
+  if retry_ns < Clock.ms(1) then error("mdns: retry_ns must be 1 millisecond or more", 4) end
   local port = opts.port or PORT
   if math.type(port) ~= "integer" or port < 1 or port > 65535 then
-    error("mdns: port must be an integer from 1 to 65535", 3)
+    error("mdns: port must be an integer from 1 to 65535", 4)
   end
   local limit = opts.limit or DEFAULT_LIMIT
   if math.type(limit) ~= "integer" or limit < 1 or limit > MAX_LIMIT then
-    error("mdns: limit must be an integer from 1 to " .. tostring(MAX_LIMIT), 3)
+    error("mdns: limit must be an integer from 1 to " .. tostring(MAX_LIMIT), 4)
   end
   local address = opts.address or GROUP
   local grouped = opts.listen == "group"
@@ -927,34 +928,14 @@ local function service_of(service: string): Service?, string
   return { written = service, name = name, suffix = { application:lower(), kind:lower(), "local" } }, ""
 end
 
---- The instances of `service` on the local network that answer within `opts.timeout_ns`, in the
---- order they were first named; none where nothing answers. `service` is a service type as
---- DNS-SD writes it, `_http._tcp` or `_ipp._tcp.local`: the name of the application's protocol,
---- then `_tcp` or `_udp` (`_udp` for all that is not TCP), then `.local` or nothing, since the
---- domain is always `local`. A sub-type is `_printer._sub._http._tcp`, and answers the instances
---- of `_http._tcp` that declare it. The case of ASCII letters means nothing.
----
---- `service` is also a list of such types, 1 to 32 of them, which one search asks for: every
---- type in each repeat of its questions, from one socket, in as few messages as hold them. The
---- list it answers holds the instances of them all, in the order they were first named, each
---- with the type it is one of in its `service`. A type written twice is asked for once and named
---- as it was first written.
----
---- The list holds each instance whose SRV record came, so each has its host and port; one that
---- was only named is left out, and so is one with a TXT record and no SRV record unless
---- `opts.txt_only` asks for those. Its TXT strings and its host's addresses are there where they
---- came too, and the search asks for them when an answer leaves them out. The search ends early
---- once `opts.limit` instances have all three: a limit of 1 answers the first instance found.
---- It ends `opts.settle_ns` after the first instance has all three, where that is given.
---- `opts.found` is called with each instance of the list as it becomes known.
----
---- Nil and why where the search cannot be made: a `service` that is no service type, or a list
---- with one that is none, with no type or with more than 32, a socket that cannot be bound, which
---- says the address and port first, a group that cannot be joined on any interface, which says
---- the group first, a question no interface takes, or a wait that failed, with [`Poll.CANCELLED`]
---- for a cancelled task, whose search has called `opts.found` with each instance it would have
---- listed. The socket is closed however the search ends. Raises for an option out of range.
-function Mdns.browse(service: string | {string}, opts?: Mdns.Options): {Mdns.Instance}?, string
+--- `why` as a Failure: of kind "cancelled" where a wait was cancelled.
+local function failure_of(why: string): Failure
+  if why == Poll.CANCELLED then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
+-- Mdns.browse, its failure in words.
+local function browse_text(service: string | {string}, opts?: Mdns.Options): {Mdns.Instance}?, string
   local written: {string}
   if service is string then written = { service } else written = service end
   if #written == 0 then return nil, "mdns: no service type was asked for" end
@@ -1001,6 +982,39 @@ function Mdns.browse(service: string | {string}, opts?: Mdns.Options): {Mdns.Ins
   return instances, ""
 end
 
+--- The instances of `service` on the local network that answer within `opts.timeout_ns`, in the
+--- order they were first named; none where nothing answers. `service` is a service type as
+--- DNS-SD writes it, `_http._tcp` or `_ipp._tcp.local`: the name of the application's protocol,
+--- then `_tcp` or `_udp` (`_udp` for all that is not TCP), then `.local` or nothing, since the
+--- domain is always `local`. A sub-type is `_printer._sub._http._tcp`, and answers the instances
+--- of `_http._tcp` that declare it. The case of ASCII letters means nothing.
+---
+--- `service` is also a list of such types, 1 to 32 of them, which one search asks for: every
+--- type in each repeat of its questions, from one socket, in as few messages as hold them. The
+--- list it answers holds the instances of them all, in the order they were first named, each
+--- with the type it is one of in its `service`. A type written twice is asked for once and named
+--- as it was first written.
+---
+--- The list holds each instance whose SRV record came, so each has its host and port; one that
+--- was only named is left out, and so is one with a TXT record and no SRV record unless
+--- `opts.txt_only` asks for those. Its TXT strings and its host's addresses are there where they
+--- came too, and the search asks for them when an answer leaves them out. The search ends early
+--- once `opts.limit` instances have all three: a limit of 1 answers the first instance found.
+--- It ends `opts.settle_ns` after the first instance has all three, where that is given.
+--- `opts.found` is called with each instance of the list as it becomes known.
+---
+--- Nil and a Failure where the search cannot be made: a `service` that is no service type, or a list
+--- with one that is none, with no type or with more than 32, a socket that cannot be bound, which
+--- says the address and port first, a group that cannot be joined on any interface, which says
+--- the group first, a question no interface takes, or a wait that failed, of kind "cancelled"
+--- for a cancelled task, whose search has called `opts.found` with each instance it would have
+--- listed. The socket is closed however the search ends. Raises for an option out of range.
+function Mdns.browse(service: string | {string}, opts?: Mdns.Options): ({Mdns.Instance}) | (nil, Failure)
+  local value, why = browse_text(service, opts)
+  if value == nil then return nil, failure_of(why) end
+  return value
+end
+
 --- The name of the host `name` as [`Dns.name`] writes it, or nil and why `name` is no host of the
 --- `local` domain.
 local function local_host(name: string): string?, string
@@ -1015,16 +1029,8 @@ local function local_host(name: string): string?, string
   return host, ""
 end
 
---- The addresses of the host `name` of the `local` domain, as `printer.local`, that answer within
---- `opts.timeout_ns`: its IPv4 addresses, then its IPv6 ones, each in the order they came, and
---- none where nothing answers. The search ends a tenth of a second after the first address,
---- which is time for the host's other addresses to come. The question is asked three times at
---- most: at once, after `opts.retry_ns` and after twice that again. `opts.found` is not read,
---- and `opts.limit` only to hold it to its range.
----
---- Nil and why for a `name` that is not one of the `local` domain, and where the search cannot
---- be made, as [`Mdns.browse`] says. Raises for an option out of range.
-function Mdns.resolve(name: string, opts?: Mdns.Options): {Net.Resolved}?, string
+-- Mdns.resolve, its failure in words.
+local function resolve_text(name: string, opts?: Mdns.Options): {Net.Resolved}?, string
   local asked, unnamed = local_host(name)
   if asked == nil then return nil, unnamed end
   local hunt, unopened = open(opts or {})
@@ -1051,6 +1057,21 @@ function Mdns.resolve(name: string, opts?: Mdns.Options): {Net.Resolved}?, strin
     addresses[#addresses + 1] = { address = address, family = "ipv6" }
   end
   return addresses, ""
+end
+
+--- The addresses of the host `name` of the `local` domain, as `printer.local`, that answer within
+--- `opts.timeout_ns`: its IPv4 addresses, then its IPv6 ones, each in the order they came, and
+--- none where nothing answers. The search ends a tenth of a second after the first address,
+--- which is time for the host's other addresses to come. The question is asked three times at
+--- most: at once, after `opts.retry_ns` and after twice that again. `opts.found` is not read,
+--- and `opts.limit` only to hold it to its range.
+---
+--- Nil and a Failure for a `name` that is not one of the `local` domain, and where the search cannot
+--- be made, as [`Mdns.browse`] says. Raises for an option out of range.
+function Mdns.resolve(name: string, opts?: Mdns.Options): ({Net.Resolved}) | (nil, Failure)
+  local value, why = resolve_text(name, opts)
+  if value == nil then return nil, failure_of(why) end
+  return value
 end
 
 --- An instance as a responder holds it: its names in lower case, as a question's is compared,
@@ -1257,29 +1278,15 @@ local function respond(socket: Net.Datagram, port: integer, group: Net.Address, 
   end
 end
 
---- A responder that publishes `instances`, 1 to 64 of them: its socket bound at `opts.port`,
---- shared, and a member of the group on the interfaces `opts.via` names, ready for `serve` to
---- answer the questions about them ([`cosmic.mdns`] says which, and what a responder leaves
---- undone). Two instances may be at one host; where they give it different addresses, the host
---- has them all, and each of its instances is answered for with them all. The names are the
---- caller's to use: no other responder is asked whether it answers for them.
----
---- Nil and why where it cannot be made: no instance or more than 64, an instance whose service
---- is no service type or is a sub-type, whose name is no label, whose host is not one of the
---- `local` domain, whose port is out of range, with an address that is none, with a TXT record
---- past what a search keeps, with the same name and service as another, or whose records are
---- longer than one answer holds; a host given more than 16 addresses of a family by its
---- instances together; a socket that cannot be bound, which says the address and port first, as where a
---- program holds the port without sharing it; or a group that cannot be joined on any
---- interface, which says the group first. Raises for an option out of range.
-function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOptions): Mdns.Responder?, string
+-- Mdns.responder, its failure in words.
+local function responder_text(instances: {Mdns.Published}, opts?: Mdns.ResponderOptions): Mdns.Responder?, string
   local options = opts or {}
   local port = options.port or PORT
   if math.type(port) ~= "integer" or port < 0 or port > 65535 then
-    error("mdns: port must be an integer from 0 to 65535", 2)
+    error("mdns: port must be an integer from 0 to 65535", 3)
   end
   local address = options.address or GROUP
-  if not is_group(address) then error("mdns: address must be an IPv4 multicast group", 2) end
+  if not is_group(address) then error("mdns: address must be an IPv4 multicast group", 3) end
   if #instances == 0 then return nil, "mdns: a responder publishes one instance at least" end
   if #instances > MAX_PUBLISHED then
     return nil, ("mdns: the list of instances holds %d, more than the %d a responder publishes"):format(
@@ -1323,6 +1330,27 @@ function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOption
     end,
   }
   return made, ""
+end
+
+--- A responder that publishes `instances`, 1 to 64 of them: its socket bound at `opts.port`,
+--- shared, and a member of the group on the interfaces `opts.via` names, ready for `serve` to
+--- answer the questions about them ([`cosmic.mdns`] says which, and what a responder leaves
+--- undone). Two instances may be at one host; where they give it different addresses, the host
+--- has them all, and each of its instances is answered for with them all. The names are the
+--- caller's to use: no other responder is asked whether it answers for them.
+---
+--- Nil and a Failure where it cannot be made: no instance or more than 64, an instance whose service
+--- is no service type or is a sub-type, whose name is no label, whose host is not one of the
+--- `local` domain, whose port is out of range, with an address that is none, with a TXT record
+--- past what a search keeps, with the same name and service as another, or whose records are
+--- longer than one answer holds; a host given more than 16 addresses of a family by its
+--- instances together; a socket that cannot be bound, which says the address and port first, as where a
+--- program holds the port without sharing it; or a group that cannot be joined on any
+--- interface, which says the group first. Raises for an option out of range.
+function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOptions): (Mdns.Responder) | (nil, Failure)
+  local value, why = responder_text(instances, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 return Mdns

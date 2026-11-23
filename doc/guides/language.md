@@ -854,19 +854,32 @@ print(numbers.value)
 
 ## a value or a failure
 
-A function that answers a value or a failure declares both lists: `(T) | (nil, E)`. The lists must be told apart by a
-position, which is `true` in one and `false` in the other, or `nil` in one and never nil in the other. An optional,
-`any`, a type parameter, or a union that holds one of them, may be nil, so `(integer?) | (nil, string)` is refused
-(`lists_overlap`): a `nil` first value would not say which list the call answered.
+A function that returns a value or a failure declares both lists of
+results: `(T) | (nil, E)`. One position must tell the lists apart: it is
+`true` in one list and `false` in the other, or `nil` in one and never
+nil in the other. An optional, `any` or a type parameter may be nil, and
+so may a union that holds one. So `(integer?) | (nil, string)` is
+refused (`lists_overlap`): a `nil` first value would not say which list
+the call returned.
 
-The caller binds the values to locals and tests the first. The test narrows the others: where the value is nil, the
-failure is an `E`, and where it is not, the failure is nil. A test of truth (`if n then`) tells the lists apart only where
-the value is never `false`; where it may be `false` (a `boolean`), test it against `nil`. An assignment to any of the locals ends this.
-A `match` takes the lists apart with a `nil` pattern, before the arm that names the value. A call that may answer
-a failure is no statement (`failure_ignored`): bind its values, match it, or discard them on purpose with
-`local _, _ = f()`. `assert(f())` answers the values of the one list whose first value is never nil or false, where the first
-value of each other list is `nil` or `false`, and raises the failure of the others. Where a value may be either
-(`(boolean) | (nil, E)`), `assert` does not tell the lists apart: test it against `nil`.
+The caller binds the results to locals and tests the first, the value.
+The test narrows the others. Where the value is nil, the failure is an `E`.
+Where the value is not nil, the failure is nil. An assignment to any of
+the locals ends this narrowing.
+
+- `if n then` tells the lists apart only where the value is never
+  `false`. Where it may be `false` (a `boolean`), test `n ~= nil`.
+- A `match` takes the lists apart with a `nil` pattern, before the arm
+  that names the value.
+- `assert(f())` works when exactly one list has a first value that is
+  never nil or false, and each other list's first value is nil or
+  false. Then it returns that list's values and raises the others'
+  failure. Any other shape is refused (`alternatives_as_value`). So
+  where the value may be `false` (`(boolean) | (nil, E)`), test it
+  against `nil`.
+- A call that may return a failure cannot be a statement on its own
+  (`failure_ignored`). Bind its results, match it, or discard them on
+  purpose with `local _, _ = f()`.
 
 ```teal
 local function parse(s: string): (integer) | (nil, string)
@@ -895,10 +908,14 @@ end
 not a number: x
 ```
 
-Where `E` is a `string`, the failure carries words alone. A [`cosmic.failure`] keeps apart what went wrong (`message`), the
-path it concerns (`path`) and the errno that says why (`errno`, 0 where no system call failed), so a caller tests the
-cause and does not match the words. It is no string: `tostring` gives its text, `path: message`, and so do `print`, and
-an `error` or `assert` that nothing catches. Where a string is wanted, the checker's fix names `tostring(why)`.
+Where `E` is a `string`, the failure is only words. A
+[`cosmic.failure`] keeps three things apart: what went wrong
+(`message`), the path it concerns (`path`), and the errno that says why
+(`errno`, 0 where no system call failed). So a caller tests the cause,
+not the words. A failure is not a string. `tostring` gives its text,
+`path: message`, and so do `print` and an uncaught `error` or `assert`.
+Where a string is wanted, the checker's fix suggests
+`tostring(why)`.
 
 ```teal
 local Failure = require("cosmic.failure")

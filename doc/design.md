@@ -264,7 +264,7 @@ entries, each an X-macro [`core/syscalls.c`] expands again, so there is
 no second list to drift from them.
 argument-shape errors raise; runtime failures return `nil, err,
 errno` for a value and `false, err, errno` for an effect, plain
-values, the convention the fork already uses at over a hundred sites.
+values.
 that errno in a third slot belongs to these two tables alone, the
 one exception to the two slots of honest returns: a Teal function over a
 binding reads the errno where it needs one and answers in two slots
@@ -967,13 +967,9 @@ and keying them split hosted runners of one leg for nothing.
 [`build/dispatched_features_test.tl`] fails when the tree comes to ask the
 processor anything else.
 
-no run keys a verdict by what its test was seen to read: the observed key,
-the log of a worker's reads it was made from, and `--audit`, which named what
-a test read beyond its declaration, are gone, and with
-them the syscall table's log and the SQLite VFS that recorded the files a
-connection opened. a sandboxed
-test that reads what it does not declare finds nothing there and fails with
-its own error. what a declared key rests on beside the list above:
+no run keys a verdict by what its test was seen to read. a sandboxed test
+that reads what it does not declare finds nothing there and fails with its
+own error. what a declared key rests on beside the list above:
 
 - *the tree's location*, by rule ([`build/key_parts.tl`], above
   `tree_name`): a test may not turn on where the tree is, nor where the
@@ -1062,8 +1058,8 @@ a CycloneDX document. a pin with no license fails the build.
 the checker and compiler are the tree's own source, `lang/`, and the language is cosmic's own: it reads Teal's
 syntax where that serves and breaks with it where Teal or a Lua idiom costs
 soundness, simplicity or speed (`cosmic docs <code>` gives the rule behind any
-error the checker reports). there is one checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
-patch records; a project written in the old grammar is rewritten to this one by hand
+error the checker reports). there is one checker. code written for Teal's own checker is rewritten
+to this grammar by hand, by the checker's findings
 ([`doc/guides/project.md`]).
 
 the pieces are small modules, each deciding one thing and asked by the rest:
@@ -1357,7 +1353,7 @@ the build directory, which build/paths.tl names, is outside the tree:
 `$XDG_CACHE_HOME/cosmic/trees/<sha256 of the canonical root>`, or under the
 absolute base `COSMIC_BUILD_HOME` names. it holds cosmic.db, carried.db,
 build.db, stores/, bin/, core/ and the rebuild lock; nothing falls back to a
-checkout's `o/`, which an older tool wrote and the build now ignores.
+checkout's `o/`, which the build never reads.
 
 every directory name is singular: `doc`, not `docs`; `patch`, not
 `patches`. the rule reaches module paths too, since a module that

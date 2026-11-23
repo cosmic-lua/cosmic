@@ -181,12 +181,25 @@ function test_report.stopped(entries: mut {string}): {string}
       " stopped by FUZZ_SECONDS: " .. table.concat(names, ", ") }
 end
 
---- Each not applicable test with why, sorted as the skips are: its
---- module requires what this platform never has.
-function test_report.nas(nas: mut {string}): {string}
-  table.sort(nas)
+--- The not applicable tests (`<module> <test>: <why>`), counted in one line for each module and reason, sorted: a
+--- module requires what this platform never has, and its tests share that. An entry of another form is its own line.
+function test_report.nas(nas: {string}): {string}
+  local counts: mut {string: integer} = {}
   local lines: mut {string} = {}
-  for _, na in ipairs(nas) do lines[#lines + 1] = "test: N/A  " .. na end
+  for _, na in ipairs(nas) do
+    local module, why = na:match("^(%S+) %S+: (.*)$")
+    if module ~= nil and why ~= nil then
+      local key = module .. ": " .. why
+      counts[key] = (counts[key] or 0) + 1
+    else
+      lines[#lines + 1] = "test: N/A  " .. na
+    end
+  end
+  for key, count in pairs(counts) do
+    local module, why = key:match("^(%S+): (.*)$")
+    lines[#lines + 1] = "test: N/A  " .. tostring(module) .. ": " .. plural.count(count, "test") .. ", " .. tostring(why)
+  end
+  table.sort(lines)
   return lines
 end
 

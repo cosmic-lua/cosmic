@@ -1072,7 +1072,7 @@ local record Cli
   --- `cosmic help [verb | exit]`: with no word, the guides to start
   --- from, an index of every verb, one line each, and where to read
   --- more. `cosmic help <verb>`
-  --- prints that verb's full text, options and exit codes. `cosmic help
+  --- prints that verb's usage, summary, options, examples and full text. `cosmic help
   --- exit` prints the exit codes and summary every verb shares.
   --- `cosmic <verb> --help` is `cosmic help <verb>`
   help: string
@@ -1125,25 +1125,45 @@ local module: Module = {
     run = {
       about = "build the tree around a file and run it",
       usage = "<file.tl> [args]",
+      examples = {
+        { line = "hello.tl", about = "build the tree around hello.tl and run it" },
+        { line = "cmd/tally/main.tl words.txt", about = "run a program from its source, with its words" },
+      },
     },
     standalone = {
       about = "run one file with no tree around it",
       usage = "[--check] <file.tl> [args]",
+      examples = {
+        { line = "script.tl", about = "run a file alone, against the standard library" },
+        { line = "--check script.tl", about = "only check it" },
+      },
     },
     eval = {
       about = "run a chunk of Teal, checked",
       usage = "'<chunk>' [args]",
+      examples = {
+        { line = "'print(1 + 2)'", about = "run a line of Teal" },
+        { line = "'print(...)' a b", about = "give it words" },
+      },
     },
     version = {
       about = "print this binary's digest",
       usage = "",
+      examples = {
+        { line = "", about = "print this binary's digest" },
+      },
     },
     test = {
       about = "build the tree and run its tests",
       usage = "[selector...]",
+      examples = {
+        { line = "", about = "run every test of the tree" },
+        { line = "tally_test.tl", about = "run one file's tests" },
+        { line = "tally_test.tl:test_words", about = "run one test" },
+      },
       spec = {
         ["--all"] = { about = "run every test, whatever verdict stands for it (COSMIC_TEST_ALL=1); " ..
-            "COSMIC_VERDICT_CACHE=0 does not, see above" },
+            "COSMIC_VERDICT_CACHE=0 turns off only the shared verdict cache" },
         ["--show-output"] = { about = "also list what a passing test printed, beneath it; a test " ..
             "that stands is not run and prints nothing (--all runs it)" },
         ["--no-shared"] = { about = "stand on no verdict another checkout reached; what " ..
@@ -1174,6 +1194,10 @@ local module: Module = {
     fix = {
       about = "format source files and check the tree",
       usage = "[path...]",
+      examples = {
+        { line = "tally.tl", about = "lay out a file and check the tree" },
+        { line = "--check .", about = "change nothing; fail if a fix would change anything" },
+      },
       spec = {
         ["--check"] = { about = "write nothing; name what a fix would change, and fail if any (a Teal file that is " ..
             "not laid out, or that the formatter refuses, fails it)" },
@@ -1184,6 +1208,10 @@ local module: Module = {
     build = {
       about = "write an executable per cmd/<name>/main.tl",
       usage = "[path...]",
+      examples = {
+        { line = "", about = "write an executable per program" },
+        { line = "--host cmd/tally", about = "write one program, native to this system" },
+      },
       spec = {
         ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
         ["--out"] = { value = "dir", about = "also write each executable to dir/<name>, made if missing; a program " ..
@@ -1195,10 +1223,17 @@ local module: Module = {
     db = {
       about = "what the build directory's databases hold",
       usage = "[path...]",
+      examples = {
+        { line = "", about = "what the build directory's databases hold" },
+        { line = "tally.tl", about = "only the rows about one source" },
+      },
     },
     lsp = {
       about = "a language server for editors",
       usage = "[--stdio] [--listen [host:]port] [--socket path]",
+      examples = {
+        { line = "", about = "serve one editor over standard input and output" },
+      },
       spec = {
         ["--stdio"] = { about = "serve one editor over standard input and output (the default)" },
         ["--listen"] = { value = "[host:]port",
@@ -1210,6 +1245,11 @@ local module: Module = {
     sql = {
       about = "read-only SQL on a database or data files",
       usage = "<statement>",
+      examples = {
+        { line = "--from sales.csv 'SELECT region, sum(amount) FROM sales GROUP BY region'", about = "query a CSV file" },
+        { line = "--from accounts.json", about = "list a file's columns and a sample row" },
+        { line = "--build 'SELECT count(*) FROM modules'", about = "query the build database" },
+      },
       spec = {
         ["--db"] = { value = "path", about = "run against this file" },
         ["--build"] = { about = "run against the build directory's build.db" },
@@ -1228,6 +1268,9 @@ local module: Module = {
     cache = {
       about = "trim the shared caches named",
       usage = "trim compiles|verdicts PATH...",
+      examples = {
+        { line = "trim compiles --since-ns 1700000000000000000 /var/cache/cosmic/compiles.db", about = "drop compile rows last used before that time" },
+      },
       spec = {
         ["--since-ns"] = { value = "N", about = "keep rows used at or after this Unix nanosecond timestamp" },
         ["--whole"] = { about = "keep verdict rows whole, without vacuuming" },
@@ -1238,6 +1281,11 @@ local module: Module = {
     json = {
       about = "look up a path in a JSON file",
       usage = "<path> [file]",
+      examples = {
+        { line = "'$.users[0].name' export.json", about = "print one value" },
+        { line = "--flat export.json", about = "print every value with its path" },
+        { line = "--keys export.json", about = "list the top-level keys" },
+      },
       spec = {
         ["--compact"] = { about = "print the value on one line" },
         ["-r"] = { about = "print a string as its text, without quotes; a query's matches as bare values" },
@@ -1251,6 +1299,11 @@ local module: Module = {
     hash = {
       about = "digest files, or check a sums file",
       usage = "[file...]",
+      examples = {
+        { line = "notes.txt", about = "the SHA-256 of a file" },
+        { line = "--sha512 notes.txt", about = "another algorithm" },
+        { line = "--check SHA256SUMS", about = "verify a sums file" },
+      },
       spec = {
         ["--md5"] = { about = "digest with MD5" },
         ["--sha1"] = { about = "digest with SHA-1" },
@@ -1272,6 +1325,10 @@ local module: Module = {
     codec = {
       about = "encode or decode base64, hex and the like",
       usage = "<encoding> [file]",
+      examples = {
+        { line = "base64 notes.txt", about = "encode a file" },
+        { line = "base64 -d notes.b64", about = "decode it" },
+      },
       spec = {
         ["-d"] = { about = "decode text to bytes, ignoring whitespace" },
         ["--decode"] = { about = "decode text to bytes, ignoring whitespace" },
@@ -1282,6 +1339,11 @@ local module: Module = {
     archive = {
       about = "list, extract or create tar and zip files",
       usage = "<command> ...",
+      examples = {
+        { line = "list release.tar.gz", about = "list what an archive holds" },
+        { line = "extract release.zip -C out", about = "unpack it into out" },
+        { line = "create out.tar.gz dir --reproducible", about = "pack a directory" },
+      },
       spec = {
         ["--json"] = { about = "list: print an array of objects, not lines" },
         ["-C"] = { value = "dir", about = "extract: unpack into dir (default: the working directory)" },
@@ -1292,6 +1354,10 @@ local module: Module = {
     fetch = {
       about = "GET a URL, verifying what it keeps",
       usage = "<url>",
+      examples = {
+        { line = "https://example.com/", about = "print the body" },
+        { line = "-o tool.tgz https://example.com/tool.tgz --sha256 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae", about = "save it, if it has this digest" },
+      },
       spec = {
         ["-o"] = { value = "file", about = "write the body to file, renamed into place once complete and verified" },
         ["--sha256"] = { value = "hex", about = "fail unless the body has this sha256; on stdout, buffer until verified" },
@@ -1310,6 +1376,11 @@ local module: Module = {
     time = {
       about = "show, convert and calculate with times",
       usage = "<command> ...",
+      examples = {
+        { line = "now --zone Asia/Tokyo", about = "the time in a zone" },
+        { line = "convert 2026-03-08T12:00Z --to America/New_York", about = "convert a time" },
+        { line = "between 2026-01-01 2026-09-28 --days", about = "count the days between two dates" },
+      },
       spec = {
         ["--zone"] = { value = "IANA", about = "the zone to show, or to run the calendar in (default: the host's)" },
         ["--from"] = { value = "IANA", about = "the zone a local time is read in (default: the host's)" },
@@ -1327,6 +1398,11 @@ local module: Module = {
     rand = {
       about = "uuids, tokens, integers, picks and draws",
       usage = "<command> ...",
+      examples = {
+        { line = "uuid", about = "a random UUID" },
+        { line = "token", about = "a 32-byte token" },
+        { line = "int 1 6", about = "roll a die" },
+      },
       spec = {
         ["--v4"] = { about = "uuid: version 4, random (the default)" },
         ["--v7"] = { about = "uuid: version 7, time-ordered within a run" },
@@ -1344,6 +1420,11 @@ local module: Module = {
     qr = {
       about = "draw a QR code, or read one back",
       usage = "[options] [text...]",
+      examples = {
+        { line = "https://example.com/", about = "a QR code in the terminal" },
+        { line = "--svg code.svg https://example.com/", about = "an SVG image" },
+        { line = "--read code.svg", about = "read one back" },
+      },
       spec = {
         ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
         ["--max-version"] = { value = "n", about = "the largest code, 1 to 40 (default 40)" },
@@ -1360,6 +1441,10 @@ local module: Module = {
     acme = {
       about = "a certificate from Let's Encrypt",
       usage = "<key|issue> [options] [names...]",
+      examples = {
+        { line = "key account.pem", about = "make a key" },
+        { line = "issue --account account.pem --key site.pem --webroot /var/www --agree-tos --out chain.pem example.com", about = "get a certificate" },
+      },
       spec = {
         ["--rsa"] = { about = "key: an RSA key, not P-256" },
         ["--bits"] = { value = "n", about = "key: the RSA key's bits, 2048, 3072 or 4096 (default 2048)" },
@@ -1377,6 +1462,11 @@ local module: Module = {
     tailscale = {
       about = "this machine's Tailscale node, and Taildrop",
       usage = "<status|whois|cert|ping|file> [options] [words...]",
+      examples = {
+        { line = "status", about = "this node and its peers" },
+        { line = "whois 100.101.102.103", about = "who an address is" },
+        { line = "file send report.pdf laptop", about = "send a file with Taildrop" },
+      },
       spec = {
         ["--socket"] = { value = "path", about = "the daemon's socket, where it is not where it is looked for" },
         ["--json"] = { about = "status, whois, ping, file targets, file list: the answer as JSON" },
@@ -1402,6 +1492,11 @@ local module: Module = {
     docs = {
       about = "a symbol's or module's docs, or a search",
       usage = "[words...]",
+      examples = {
+        { line = "Fs.read", about = "one symbol's docs and examples" },
+        { line = "cosmic.fs", about = "a module" },
+        { line = "read a file", about = "search by words" },
+      },
       spec = {
         ["--json"] = { about = "print one JSON object per entry found (ndjson), not the page" },
       },
@@ -1409,10 +1504,17 @@ local module: Module = {
     uses = {
       about = "every place that refers to a symbol",
       usage = "<symbol> [path...]",
+      examples = {
+        { line = "Fs.read", about = "every place that refers to Fs.read" },
+      },
     },
     todos = {
       about = "every TODO, with its date and commit",
       usage = "[path | words...]",
+      examples = {
+        { line = "", about = "every TODO of the tree" },
+        { line = "--oldest", about = "the oldest first" },
+      },
       spec = {
         ["--oldest"] = { about = "list the oldest first, even when searching" },
       },
@@ -1420,6 +1522,10 @@ local module: Module = {
     bom = {
       about = "third-party components in this binary",
       usage = "",
+      examples = {
+        { line = "", about = "the components this binary carries" },
+        { line = "--licenses", about = "with their licenses" },
+      },
       spec = {
         ["--licenses"] = { about = "print each component's license notices" },
         ["--json"] = { value = "path", about = "write a CycloneDX document to path" },
@@ -1428,6 +1534,9 @@ local module: Module = {
     refresh = {
       about = "update a binary's certificates and time zones",
       usage = "-o <path>",
+      examples = {
+        { line = "-o cosmic.new", about = "a copy with newer CA roots, revocations and time zones" },
+      },
       spec = {
         ["-o"] = { value = "path", about = "write the refreshed binary here" },
         ["--binary"] = { value = "path", about = "refresh this binary rather than the running one" },
@@ -1439,6 +1548,10 @@ local module: Module = {
     release = {
       about = "find, verify and download a release",
       usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]",
+      examples = {
+        { line = "--list", about = "list the recent releases" },
+        { line = "-o cosmic", about = "download and verify the latest" },
+      },
       spec = {
         ["--commit"] = { value = "hex", about = "the release whose commit starts with this, 7 to 40 hex digits" },
         ["--until"] = { value = "time", about = "the newest published at or before this RFC 3339 time, or by the end of this date (UTC)" },
@@ -1454,6 +1567,11 @@ local module: Module = {
     agent = {
       about = "a coding agent, Claude, held to a sandbox",
       usage = "<ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]",
+      examples = {
+        { line = "ask 'what does this repository do?'", about = "ask Claude about this directory" },
+        { line = "chat", about = "a conversation, a prompt a line" },
+        { line = "sessions", about = "list the kept sessions" },
+      },
       spec = {
         ["--model"] = { value = "name", about = "ask, chat, resume, rpc: opus or sonnet, the latest of each (default opus)" },
         ["--effort"] = { value = "level", about = "ask, chat, resume, rpc: low, medium, high, xhigh or max (default medium)" },
@@ -1468,6 +1586,10 @@ local module: Module = {
     sandbox = {
       about = "run a program held to what you grant it",
       usage = "[options] [--] <program> [args...]",
+      examples = {
+        { line = "--system --read . -- ls -l", about = "run ls, able to read this directory and what a host program needs" },
+        { line = "--cosmic --read . -- cosmic convert.tl", about = "run a script of yours the same way" },
+      },
       spec = {
         ["--read"] = { value = "path", about = "grant a path to read (r)" },
         ["--run"] = { value = "path", about = "grant a path to read and run (rx)" },
@@ -1498,6 +1620,10 @@ local module: Module = {
     compile = {
       about = "Teal to Lua, even with type errors",
       usage = "[options] <file.tl>...",
+      examples = {
+        { line = "file.tl", about = "print the Lua a Teal file compiles to" },
+        { line = "-o out a.tl b.tl", about = "write out/a.lua and out/b.lua" },
+      },
       spec = {
         ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
         ["--errors"] = { about = "list each type error, warning and refusal, not only the count" },
@@ -1507,6 +1633,10 @@ local module: Module = {
     help = {
       about = "this index, or a verb's full text",
       usage = "[verb]",
+      examples = {
+        { line = "", about = "the index of verbs" },
+        { line = "json", about = "one verb's full text" },
+      },
     },
   },
   groups = GROUPS,

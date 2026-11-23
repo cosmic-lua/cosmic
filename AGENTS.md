@@ -73,7 +73,10 @@ worktree's build directory when you delete the worktree.
    given, so run it on the files you changed and commit what it wrote. A
    file it refuses (a syntax error, or a layout that is not the same file) is
    left as it is, with the reason. `fix --check` fails on a Teal file that is
-   not laid out and on one it refuses. The checks only the whole tree can answer ([`build/tree_checks.tl`]) run in `bin/cosmic fix --check .`,
+   not laid out and on one it refuses. A run over some paths of cosmic's
+   own tree also makes the cheap checks of the tree (exports, doc references, the plurals of
+   the files named, their markers' ceilings), and in `ci/` the plurals.
+   The rest of the checks only the whole tree can answer ([`build/tree_checks.tl`]) run in `bin/cosmic fix --check .`,
    as CI runs it, which also refuses a tree that does not build: run it
    before pushing a change to what they read.
 3. A tool older than the tree rebuilds itself and re-enters the command
@@ -85,11 +88,10 @@ worktree's build directory when you delete the worktree.
    it). A boot that fails stops the command: check its exit status, do
    not pipe it away.
 4. Run the tests of what you changed: `bin/cosmic test <their *_test.tl
-   files>`, seconds to half a minute. Before pushing, the full suite,
-   `timeout 2700 bin/cosmic test`: about 8 minutes where few verdicts
-   stand (a fresh worktree), about half a minute where they all do, so
-   a `timeout 30` fails it in the first case. It says `test: running
-   n/m tests` as it goes.
+   files>`. Before pushing, run the full suite,
+   `timeout 2700 bin/cosmic test`: it takes about 8 minutes in a fresh
+   worktree, so a short `timeout` fails it ([`doc/testing.md`] has the
+   timings). It says `test: running n/m tests` as it goes.
 5. Commit, push and open the pull request as [`doc/contributing.md`]
    says.
 

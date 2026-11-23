@@ -1173,6 +1173,24 @@ local function test_plurals_found_before_stand_for_the_same_text(dir: string)
     table.concat(unread, "\n"))
 end
 
+--- The plurals of some files, as a run of `cosmic fix` over some paths holds them: each file the whole tree's check reads
+--- is held to it, an exemption still counts, a file the check does not read is passed over, and an exemption nothing
+--- named answers to is no line, since the files not named may answer to it.
+local function test_the_plurals_of_some_files_are_the_whole_checks_lines_for_them()
+  local counting = source("local n = 2", "return n .. \" tests\"")
+  local found = tree_checks.plurals_of({
+    { "cosmic/count.tl", counting },
+    { "ci/cosmic_ci/rows.tl", source("local n = 2", "return n .. \" rows\"") },
+    { "build/kept.tl", source("local n = 2", "return n .. \" files\"") },
+    { "cosmic/count_test.tl", counting },
+    { "examples/count.tl", counting },
+  }, { ["build/kept.tl:files"] = "always many", ["build/gone.tl:files"] = "nothing answers" })
+  local all = table.concat(found, "\n")
+  assert(#found == 2, all)
+  assert(assert(found[1]):find("^cosmic/count%.tl:2: .*`tests`") ~= nil, all)
+  assert(assert(found[2]):find("^ci/cosmic_ci/rows%.tl:2: .*`rows`") ~= nil, all)
+end
+
 --- The `ci/` sources the plural check reads are the modules of
 --- `ci/cosmic_ci`, tests left out; `ci/fixtures` are all tests.
 local function test_ci_sources_are_the_non_test_modules_of_cosmic_ci(dir: string)
