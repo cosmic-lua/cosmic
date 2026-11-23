@@ -450,7 +450,9 @@ local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
   if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
   local wait = opts.wait
   if wait ~= nil then return wait(fd, events, left) end
-  return Poll.wait(fd, events, left)
+  local ok, why = Poll.wait(fd, events, left)
+  if not ok then return false, why.message end
+  return true, ""
 end
 
 --- Whether a failed wait leaves its stream as it was: a deadline or a

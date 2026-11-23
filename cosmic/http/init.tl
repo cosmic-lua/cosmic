@@ -76,11 +76,11 @@ local function pump(): boolean, string
   local wait = if ms < 0 then PUMP_MOST_NS else math.min(ms * 1000000, PUMP_MOST_NS) end
   if #fds > 0 then
     local _, why = Poll.ready(fds, events, wait)
-    if why == Poll.CANCELLED then return false, why end
+    if why ~= nil and why.kind == "cancelled" then return false, why.message end
   else
     -- A wait of 0 too, so a loop of pumps lets the other tasks run.
     local waited, why = Poll.delay(wait)
-    if not waited then return false, why end
+    if not waited then return false, why.message end
   end
   local pumped, why = http.pump()
   if pumped == nil then return false, why end
@@ -1047,7 +1047,7 @@ local function pause(ns: integer, cancelled: (function(): boolean)?): boolean, s
     local slice = math.min(left, PAUSE_SLICE)
     if in_task then
       local waited, why = Poll.delay(slice)
-      if not waited then return false, why end
+      if not waited then return false, why.message end
     end
     local slept = true
     if not in_task then

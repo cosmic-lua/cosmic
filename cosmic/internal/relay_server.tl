@@ -715,7 +715,7 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     if not joined then
       -- This connection's task was cancelled, or the lookup was at stop.
       lookup:cancel()
-      found, why = nil, joined_why
+      found, why = nil, joined_why.message
     elseif found == nil and why == nil then
       -- Ended without an answer, which a cancel or a stop does not do.
       why = "the lookup ended without an answer"

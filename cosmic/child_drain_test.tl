@@ -271,7 +271,9 @@ local function test_killing_a_task_in_a_yielding_sink_releases_ownership()
   local writing: boolean = false
   sink.write = function(_self: Stream.Collector, _data: string): boolean, string -- checked: field_fixed
     writing = true
-    return Poll.delay(Clock.seconds(10))
+    local paused, why = Poll.delay(Clock.seconds(10))
+    if not paused then return false, why.message end
+    return true, ""
   end
   Poll.run(function()
     local task = Poll.spawn(function() h:drain(options(sink)) end)

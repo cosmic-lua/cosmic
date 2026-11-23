@@ -125,9 +125,6 @@ allowed["cosmic.mcp.audio"] = "public API: an audio block of a tool's result, it
 allowed["cosmic.mcp.link"] = "public API: a block that links a resource from a tool's result, which a server builds"
 allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's contents, which a server builds"
 allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
-
-allowed["cosmic.failure.timeout"] = "public API: the failure of a wait that ran past its time limit, which " ..
-  "a module answers in place of the words Poll.TIMEOUT as each moves to (T) | (nil, Failure)"
 allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
   "runs the loop reads; the loop keeps each request's cost through billed"
 allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..

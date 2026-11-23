@@ -2,6 +2,7 @@ local Array = require("cosmic.array")
 local Signal = require("cosmic.signal")
 local unix_socket = require("build.unix_socket")
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -309,9 +310,10 @@ local function test_a_protocol_ignoring_failures_is_killed_at_grace_ns()
       started = started + 1
       local reads = started == 1
       while true do
-        local _, why: any, string
+        local _, why: any, (string | Failure)?
         if reads then _, why = conn:read() else _, why = Poll.delay(Clock.seconds(60)) end -- checked: any_use*2
-        failures[#failures + 1] = why
+        local said = tostring(why)
+        failures[#failures + 1] = said
         -- A bound, so a regression fails the assertion below rather
         -- than looping until the test times out.
         if #failures == 100 then return end
@@ -792,7 +794,7 @@ local function a_second_signal_cancels_on_stops_wait_at(path: string?)
     serve = echo,
     on_stop = function(_server: Net.Server)
       local _, why = Poll.delay(Clock.seconds(30))
-      waited = why
+      waited = if why ~= nil then why.message else "" end
     end,
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       assert(sys.kill(sys.getpid(), sys.SIGINT))

@@ -13,11 +13,11 @@
 --- [`Poll.run`] runs its function as the first task, and returns once every
 --- task has ended. A task waits by calling `wait` (`readable` and
 --- `writable` are calls to it), `delay` or a Task's `join`, each of which
---- answers true and "" once what it waits for happens, or false and
---- [`Poll.TIMEOUT`] once its `timeout_ns` passes first, or false and
---- [`Poll.CANCELLED`] once the task is cancelled; `ready` waits on
+--- answers true once what it waits for happens, or false and a
+--- [`Failure`] of kind "timeout" once its `timeout_ns` passes first, or of
+--- kind "cancelled" once the task is cancelled; `ready` waits on
 --- several descriptors at once, and answers what each had, as
---- [`sys.poll`] does, or nil and the same two words; a Task's `kill`
+--- [`sys.poll`] does, or nil and the same Failures; a Task's `kill`
 --- ends one outright, for a task that goes on after its waits fail.
 --- `wait` is the one that goes on where there is no task to wait in --
 --- outside a run, in a coroutine of its own, in a finalizer -- holding
@@ -37,6 +37,7 @@
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
 local errors = require("cosmic.internal.errors")
+local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
 
 local record Poll
@@ -44,12 +45,12 @@ local record Poll
   --- [`Poll.spawn`].
   interface Task
     --- Waits for the task to end, at most `timeout_ns` nanoseconds (no
-    --- limit when nil): true and "" once it has returned, false and
-    --- [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] otherwise -- CANCELLED, too, for
+    --- limit when nil): true once it has returned, false and
+    --- a Failure of kind "timeout" or "cancelled" otherwise -- "cancelled", too, for
     --- a task killed, or one a failed run closed where it waited.
-    join: function(Task, timeout_ns?: integer): boolean, string
+    join: function(Task, timeout_ns?: integer): (true) | (false, Failure)
     --- Ends the task at its next wait: the wait it is in, if any, and
-    --- every one after, answers false and [`Poll.CANCELLED`] at once --
+    --- every one after, answers false and a Failure of kind "cancelled" at once --
     --- but for one in [`Poll.shielded`], which waits on as though the
     --- task were not cancelled. A task that has ended is left alone.
     cancel: function(Task)
@@ -57,7 +58,7 @@ local record Poll
     --- resuming it: the pending `<close>` variables of its own coroutine
     --- are closed (not those of a coroutine it made and left
     --- suspended), none of its waits answers it again, and each task
-    --- joining it answers false and [`Poll.CANCELLED`]. A task that has
+    --- joining it answers false and a Failure of kind "cancelled". A task that has
     --- ended is left alone. Unlike `cancel`, it is called from a task's
     --- own coroutine, and raises elsewhere in the run, and in the task
     --- it would kill. A `<close>` handler of a task being killed cannot
@@ -91,12 +92,12 @@ local record Poll
   --- task may have run first.
   interface Notifier
     --- Waits for a notice, at most `timeout_ns` nanoseconds (no limit
-    --- when nil): true and "" once one came, false and [`Poll.TIMEOUT`]
-    --- once `timeout_ns` passes first, false and [`Poll.CANCELLED`] once
+    --- when nil): true once one came, false and a Failure of kind "timeout"
+    --- once `timeout_ns` passes first, false and a Failure of kind "cancelled" once
     --- the task is cancelled. Waiters are woken in the order they began
     --- to wait. Like [`Poll.delay`] it raises outside a task, and in a
     --- `<close>` handler of a task being ended.
-    wait: function(Notifier, timeout_ns?: integer): boolean, string
+    wait: function(Notifier, timeout_ns?: integer): (true) | (false, Failure)
     --- Wakes the task that has waited longest, if any: a no-op when none
     --- waits. The woken task runs on the run's next turn, so it is
     --- callable from any code of the run -- a task, a `<close>` handler,
@@ -112,11 +113,12 @@ local record Poll
     waiting: function(Notifier): integer
   end
 
-  --- What a wait answers once its `timeout_ns` passes first: the one
-  --- word every module that waits answers, [`cosmic.child`] and
-  --- [`cosmic.net`] included.
+  --- The words of a wait that ran past its `timeout_ns`: the message of
+  --- the "timeout" Failure a wait here answers, and the reason a module
+  --- that still answers its failure in words ([`cosmic.child`],
+  --- [`cosmic.net`]'s methods) gives for one.
   TIMEOUT: string
-  --- What a wait answers once its task is cancelled.
+  --- The words of a wait whose task was cancelled, as `TIMEOUT` is.
   CANCELLED: string
   --- The longest wait [`sys.poll`] takes, in nanoseconds, and so the
   --- longest timeout any wait here, in [`cosmic.child`] and in
@@ -126,6 +128,20 @@ end
 
 Poll.TIMEOUT = "timed out"
 Poll.CANCELLED = "cancelled"
+
+--- `why`, a wait's failure in words, as a Failure: of kind "timeout" for
+--- [`Poll.TIMEOUT`] and "cancelled" for [`Poll.CANCELLED`].
+local function failure_of(why: string): Failure
+  if why == Poll.TIMEOUT then return Failure.timeout(why) end
+  if why == Poll.CANCELLED then return Failure.cancelled(why) end
+  return Failure.new(why)
+end
+
+--- `ok` and `why` from a wait in words, as a wait answers them.
+local function answered(ok: boolean, why: string): (true) | (false, Failure)
+  if ok then return true end
+  return false, failure_of(why)
+end
 
 Poll.MOST_NS = Clock.ms(0x7fffffff)
 --- One millisecond, which [`sys.poll`] counts its waits in.
@@ -500,15 +516,16 @@ local class State is Poll.Task
   mut parked?: Wait
   joiners: mut {Wait}
 
-  function join(self, timeout_ns?: integer): boolean, string
+  function join(self, timeout_ns?: integer): (true) | (false, Failure)
     local task = current("Task:join", 2)
     Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
-    if self.killed then return false, Poll.CANCELLED end
-    if self.ended or self.loop ~= ongoing.loop then return true, "" end
+    if self.killed then return false, failure_of(Poll.CANCELLED) end
+    if self.ended or self.loop ~= ongoing.loop then return true end
     if self == task then error("poll: a task cannot join itself", 2) end
     local w: Wait = { task = task, joined = self }
     self.joiners[#self.joiners + 1] = w
-    return park(task, w, timeout_ns)
+    local ok, why = park(task, w, timeout_ns)
+    return answered(ok, why)
   end
 
   function cancel(self)
@@ -538,7 +555,7 @@ local class NotifierState is Poll.Notifier
   --- The waits in it, longest first.
   mut waiters: mut {Wait}
 
-  function wait(self, timeout_ns?: integer): boolean, string
+  function wait(self, timeout_ns?: integer): (true) | (false, Failure)
     local task = current("Notifier:wait", 2)
     Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
     if self.loop ~= ongoing.loop then
@@ -546,7 +563,8 @@ local class NotifierState is Poll.Notifier
     end
     local w: Wait = { task = task, gate = self }
     self.waiters[#self.waiters + 1] = w
-    return park(task, w, timeout_ns)
+    local ok, why = park(task, w, timeout_ns)
+    return answered(ok, why)
   end
 
   function notify_one(self)
@@ -704,8 +722,8 @@ end
 
 --- Waits until `fd` has any of `events` ([`sys.POLLIN`], [`sys.POLLOUT`])
 --- or has failed, at most `timeout_ns` nanoseconds (no limit when nil):
---- true and "" once it has, false and [`Poll.TIMEOUT`] once `timeout_ns`
---- passes first, false and [`Poll.CANCELLED`] once the task is cancelled,
+--- true once it has, false and a Failure of kind "timeout" once `timeout_ns`
+--- passes first, false and a Failure of kind "cancelled" once the task is cancelled,
 --- or false and why the descriptor could not be waited on. In a task
 --- the other tasks run meanwhile. A caller that is none holds the thread:
 --- one [`sys.poll`] for the whole time left, called again only where it
@@ -719,34 +737,37 @@ end
 --- promise that `fd` is ready: [`Poll.closing`] answers a wait as though
 --- it were, so a caller reads or writes without waiting
 --- (a nonblocking descriptor) and waits again on EAGAIN.
-function Poll.wait(fd: integer, events: integer, timeout_ns?: integer): boolean, string
-  return wait_on(fd, events, timeout_ns, "Poll.wait")
+function Poll.wait(fd: integer, events: integer, timeout_ns?: integer): (true) | (false, Failure)
+  local ok, why = wait_on(fd, events, timeout_ns, "Poll.wait")
+  return answered(ok, why)
 end
 
 --- Waits until `fd` can be read without waiting -- data, the end of what
 --- the peer sends, a connection to accept, or an error to read -- at most
 --- `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
 --- [`sys.POLLIN`].
-function Poll.readable(fd: integer, timeout_ns?: integer): boolean, string
-  return wait_on(fd, sys.POLLIN, timeout_ns, "Poll.readable")
+function Poll.readable(fd: integer, timeout_ns?: integer): (true) | (false, Failure)
+  local ok, why = wait_on(fd, sys.POLLIN, timeout_ns, "Poll.readable")
+  return answered(ok, why)
 end
 
 --- Waits until `fd` can be written without waiting, or has failed, at
 --- most `timeout_ns` nanoseconds (no limit when nil): [`Poll.wait`] for
 --- [`sys.POLLOUT`].
-function Poll.writable(fd: integer, timeout_ns?: integer): boolean, string
-  return wait_on(fd, sys.POLLOUT, timeout_ns, "Poll.writable")
+function Poll.writable(fd: integer, timeout_ns?: integer): (true) | (false, Failure)
+  local ok, why = wait_on(fd, sys.POLLOUT, timeout_ns, "Poll.writable")
+  return answered(ok, why)
 end
 
 --- Waits until any of `fds` is ready for its mask of `events`
 --- ([`sys.POLLIN`], [`sys.POLLOUT`]), at most `timeout_ns` nanoseconds
 --- (no limit when nil), as [`sys.poll`] does: the events each descriptor
 --- had, by its place -- [`sys.POLLERR`] and [`sys.POLLHUP`] among them,
---- unasked -- or nil and [`Poll.TIMEOUT`] once `timeout_ns` passes
---- first, as [`Poll.readable`] fails, or nil and [`Poll.CANCELLED`] once
+--- unasked -- or nil and a Failure of kind "timeout" once `timeout_ns` passes
+--- first, as [`Poll.readable`] fails, or nil and a Failure of kind "cancelled" once
 --- the task is cancelled. A descriptor another module is about to close
 --- ([`Poll.closing`]) answers [`sys.POLLNVAL`].
-function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {integer}?, string
+function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): ({integer}) | (nil, Failure)
   local task = current("Poll.ready", 2)
   Poll.checked_ns(timeout_ns, "poll", "timeout_ns", 2)
   if #fds == 0 or #events ~= #fds then
@@ -763,22 +784,23 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): {i
   end
   local ok, why = park(task,
     { task = task, fds = watched, masks = masks, answers = answers }, timeout_ns)
-  if not ok then return nil, why end
+  if not ok then return nil, failure_of(why) end
   local had: mut {integer} = {}
   for place = 1, #watched do
     local answer = answers[place] or 0
     had[#had + 1] = answer
   end
-  return had, ""
+  return had
 end
 
---- Waits `ns` nanoseconds while the other tasks run: true and "" once
---- they have passed, false and [`Poll.CANCELLED`] once the task is
+--- Waits `ns` nanoseconds while the other tasks run: true once
+--- they have passed, false and a Failure of kind "cancelled" once the task is
 --- cancelled first.
-function Poll.delay(ns: integer): boolean, string
+function Poll.delay(ns: integer): (true) | (false, Failure)
   local task = current("Poll.delay", 2)
   Poll.checked_ns(ns, "poll", "ns", 2)
-  return park(task, { task = task, expiry_ok = true }, ns)
+  local ok, why = park(task, { task = task, expiry_ok = true }, ns)
+  return answered(ok, why)
 end
 
 --- A new notifier for the tasks of the running [`Poll.run`] to wait on
@@ -815,7 +837,7 @@ end
 --- Calls `fn` in the calling task with its waits shielded from a
 --- cancel: one that comes meanwhile answers none of them, nor the
 --- waits `fn` begins after it, which each wait for what they wait for.
---- Once `fn` returns, the task's next wait answers [`Poll.CANCELLED`] at
+--- Once `fn` returns, the task's next wait answers "cancelled" at
 --- once, as a cancelled task's do. It is for a cleanup that must wait --
 --- a child to be ended, a peer to read its last bytes -- while the other
 --- tasks run. A kill still ends the task, and a failed run still closes
@@ -1076,7 +1098,7 @@ end
 ---   a message with `f`'s stack beneath it -- what the caller's run
 ---   raises too, of an error its task did not catch. A value that is no
 ---   string is raised as it is in both.
---- * A cancel. In a task, `f`'s waits answer [`Poll.CANCELLED`] once the
+--- * A cancel. In a task, `f`'s waits answer "cancelled" once the
 ---   calling task is cancelled. A run of `within`'s own has no task the
 ---   caller holds, and nothing cancels it.
 ---
