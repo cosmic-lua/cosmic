@@ -4661,7 +4661,14 @@ function Narrowing.compare_edges(ctx: Ctx, f: Flow.State, node: Ast.Binary): Flo
     else
       local p = place_of(ctx, f, operand)
       if p ~= nil then
-        yes = Narrowing.when_true(f, p, Tests.not_nil_of(ctx, current(f, p)))
+        local cur = current(f, p)
+        yes = Narrowing.when_true(f, p, Tests.not_nil_of(ctx, cur))
+        -- What differs from `false` is no `false`: `T | false` is `T` there, as `boolean` is `true`.
+        local literal = if (r.kind == "Boolean") then r.value elseif (l.kind == "Boolean") then l.value else true end
+        local rest = Tests.drop_is(ctx, cur, ctx.store:atom(if literal then "true" else "false" end))
+        if rest ~= cur then
+          no = Narrowing.narrowed_flow(f, p, rest)
+        end
       else
         yes = Tests.has_element(ctx, f, operand)
       end
@@ -9569,7 +9576,16 @@ local function function_statement(ctx: Ctx, s: Ast.Function)
       ctx.cands, ctx.cand_node = nil, nil
     end
     if field_type.tag ~= "invalid" then
+      -- A field of a generic declaration is typed by its type parameters, whose bounds a method's own must meet.
+      local arity = if (owner.tag == "named") then owner.decl.arity else nil end
+      local generic = arity ~= nil and arity > 0 and (owner.tag == "named") and owner.decl.body ~= nil
+      if generic and (owner.tag == "named") then
+        ctx.judge:enter(Relation.binder(owner.decl))
+      end
       local _ = expect(ctx, s, ft, field_type, " as the declaration of " .. quoted(text))
+      if generic then
+        ctx.judge:leave()
+      end
     end
   end
   if (owner.tag == "named") and #s.path == 2 then

@@ -14,7 +14,8 @@
 ---       end)
 ---       while true do
 ---         local job, why = queue:receive()
----         if job == nil then break end
+---         if job == nil then error(why) end
+---         if job == false then break end
 ---         print(job)
 ---       end
 ---     end)
@@ -24,6 +25,7 @@
 --- builds that from [`Poll.notifier`].
 
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Poll = require("cosmic.poll")
 
 local record Channel
@@ -46,11 +48,14 @@ local record Channel
     overflow?: Channel.Overflow
   end
 
-  --- A queue of `T`, answered by [`Channel.new`]. Items leave in the
-  --- order they were queued. A call that has to wait does so in a
-  --- [`Poll.Notifier`] wait: it raises outside a task, and answers false
-  --- or nil and [`Poll.TIMEOUT`] or [`Poll.CANCELLED`] as every wait
-  --- does.
+  --- A queue of `T`, a type that is never nil, answered by [`Channel.new`]. Items leave in the
+  --- order they were queued. A closed queue is an answer, not a
+  --- failure: [`send`] answers false and a drained [`receive`] answers
+  --- false, so an item is never false (nor nil): a `Queue<boolean>`
+  --- carries only `true`. A call that has to
+  --- wait does so in a [`Poll.Notifier`] wait: it raises outside a task,
+  --- and answers nil and a [`Failure`] of kind "timeout" or "cancelled"
+  --- as every wait does.
   ---
   --- Waiters are noticed longest first, but a notice is no reservation:
   --- a task that does not wait ([`try_send`], or a [`send`] or
@@ -59,29 +64,29 @@ local record Channel
   --- others. So blocked senders' items can reach the queue out of the
   --- order they began to wait; only one task's own items keep their
   --- order.
-  interface Queue<T>
-    --- Queues `item` (never nil, which raises) and notices the receiver
-    --- that has waited longest (which a caller that does not wait may
-    --- still outrun). True once it is queued or, under a
+  interface Queue<T is Some>
+    --- Queues `item` (never nil or false, which raise) and notices the
+    --- receiver that has waited longest (which a caller that does not
+    --- wait may still outrun). True once it is queued or, under a
     --- "drop_oldest" or "drop_newest" policy, once the drop has settled
-    --- the overflow. Under "block" a full queue makes it wait for room,
-    --- at most `timeout_ns` nanoseconds (no limit when nil): false and
-    --- [`Poll.TIMEOUT`] or [`Poll.CANCELLED`]. False and
-    --- [`Channel.CLOSED`] once the queue is closed -- also when this
-    --- very item overflowed a "close" queue, which it closes.
-    send: function(self: Queue<T>, item: T, timeout_ns?: integer): boolean, string
+    --- the overflow. False once the queue is closed -- also when this
+    --- very item overflowed a "close" queue, which it closes. Under
+    --- "block" a full queue makes it wait for room, at most `timeout_ns`
+    --- nanoseconds (no limit when nil): nil and a Failure of kind
+    --- "timeout" or "cancelled".
+    send: function(self: Queue<T>, item: T, timeout_ns?: integer): (true) | (false) | (nil, Failure)
     --- [`send`] that never waits: under "block" a full queue answers
-    --- false and [`Channel.FULL`] instead.
-    try_send: function(self: Queue<T>, item: T): boolean, string
+    --- nil and a Failure whose message is [`Channel.FULL`] instead.
+    try_send: function(self: Queue<T>, item: T): (true) | (false) | (nil, Failure)
     --- The oldest item, waiting for one at most `timeout_ns`
-    --- nanoseconds (no limit when nil). Nil and [`Channel.CLOSED`] once
-    --- the queue is closed and every item has been taken: a closed queue
-    --- still gives up what it holds first. Nil and [`Poll.TIMEOUT`] or
-    --- [`Poll.CANCELLED`] otherwise.
-    receive: function(self: Queue<T>, timeout_ns?: integer): T?, string
+    --- nanoseconds (no limit when nil). False once the queue is closed
+    --- and every item has been taken: a closed queue still gives up what
+    --- it holds first. Nil and a Failure of kind "timeout" or
+    --- "cancelled" otherwise.
+    receive: function(self: Queue<T>, timeout_ns?: integer): (T | false) | (nil, Failure)
     --- Closes the queue: every task waiting to send or receive wakes, a
-    --- [`send`] after it fails, and a [`receive`] drains what is queued
-    --- and then answers [`Channel.CLOSED`]. Closing again does nothing.
+    --- [`send`] after it answers false, and a [`receive`] drains what is
+    --- queued and then answers false. Closing again does nothing.
     --- It never waits, so a `<close>` handler may call it.
     close: function(self: Queue<T>)
     --- How many items are queued.
@@ -93,22 +98,18 @@ local record Channel
     dropped: function(self: Queue<T>): integer
   end
 
-  --- What [`Channel.Queue.send`] and [`Channel.Queue.receive`] answer
-  --- once the queue is closed.
-  CLOSED: string
-  --- What [`Channel.Queue.try_send`] answers when a "block" queue has no
-  --- room.
+  --- The message of the Failure [`Channel.Queue.try_send`] answers when
+  --- a "block" queue has no room.
   FULL: string
 
-  new: function<T>(opts?: Options): Queue<T>
+  new: function<T is Some>(opts?: Options): Queue<T>
 end
 
-Channel.CLOSED = "closed"
-Channel.FULL = "full"
+Channel.FULL = "channel: the queue is full"
 
 local DEFAULT_CAPACITY <const> = 256
 
-local record State<T>
+local record State<T is Some>
   is Channel.Queue<T>
   items: mut {integer: T}
   mut first: integer
@@ -119,22 +120,22 @@ local record State<T>
   mut drops: integer
   not_empty: Poll.Notifier
   not_full: Poll.Notifier
-  send: function(self: State<T>, item: T, timeout_ns?: integer): boolean, string
-  try_send: function(self: State<T>, item: T): boolean, string
-  receive: function(self: State<T>, timeout_ns?: integer): T?, string
+  send: function(self: State<T>, item: T, timeout_ns?: integer): (true) | (false) | (nil, Failure)
+  try_send: function(self: State<T>, item: T): (true) | (false) | (nil, Failure)
+  receive: function(self: State<T>, timeout_ns?: integer): (T | false) | (nil, Failure)
   close: function(self: State<T>)
   len: function(self: State<T>): integer
   closed: function(self: State<T>): boolean
   dropped: function(self: State<T>): integer
 end
 
-local function push<T>(self: State<T>, item: T)
+local function push<T is Some>(self: State<T>, item: T)
   self.items[self.first + self.count] = item
   self.count = self.count + 1
   self.not_empty:notify_one()
 end
 
-local function pop<T>(self: State<T>): T
+local function pop<T is Some>(self: State<T>): T
   local item = self.items[self.first]
   -- `pop` runs only with `count > 0`, so the slot at `first` holds an item.
   if item == nil then error("channel: no item at the head of a non-empty queue", 2) end
@@ -145,7 +146,7 @@ local function pop<T>(self: State<T>): T
   return item
 end
 
-function State.close<T>(self: State<T>)
+function State.close<T is Some>(self: State<T>)
   if self.is_closed then return end
   self.is_closed = true
   self.not_empty:notify_all()
@@ -155,7 +156,7 @@ end
 --- Queues `item` if the policy lets it without waiting: "queued" (also
 --- for an item a drop policy settled), "closed", or "full" when a "block"
 --- queue has no room and a sender may wait.
-local function offer<T>(self: State<T>, item: T): string
+local function offer<T is Some>(self: State<T>, item: T): string
   if self.is_closed then return "closed" end
   if self.count < self.capacity then
     push(self, item)
@@ -177,63 +178,65 @@ local function offer<T>(self: State<T>, item: T): string
   return "full"
 end
 
-local function need_item<T>(item: T)
+-- A false item would read as the closed queue's answer to `receive`.
+local function need_item<T is Some>(item: T)
   if item == nil then error("channel: send of nil", 3) end
+  if rawequal(item, false) then error("channel: send of false", 3) end
 end
 
-function State.try_send<T>(self: State<T>, item: T): boolean, string
+function State.try_send<T is Some>(self: State<T>, item: T): (true) | (false) | (nil, Failure)
   need_item(item)
   local result = offer(self, item)
-  if result == "queued" then return true, "" end
-  if result == "closed" then return false, Channel.CLOSED end
-  return false, Channel.FULL
+  if result == "queued" then return true end
+  if result == "closed" then return false end
+  return nil, Failure.new(Channel.FULL)
 end
 
-function State.send<T>(self: State<T>, item: T, timeout_ns?: integer): boolean, string
+function State.send<T is Some>(self: State<T>, item: T, timeout_ns?: integer): (true) | (false) | (nil, Failure)
   need_item(item)
   Poll.checked_ns(timeout_ns, "channel", "timeout_ns", 2)
   local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   while true do
     local result = offer(self, item)
-    if result == "queued" then return true, "" end
-    if result == "closed" then return false, Channel.CLOSED end
+    if result == "queued" then return true end
+    if result == "closed" then return false end
     local left: integer? = nil
     if deadline ~= nil then
       left = deadline - Clock.monotonic_ns()
-      if left <= 0 then return false, Poll.TIMEOUT end
+      if left <= 0 then return nil, Failure.timeout(Poll.TIMEOUT) end
     end
     local woke, reason = self.not_full:wait(left)
-    if not woke then return false, reason.message end
+    if not woke then return nil, reason end
   end
 end
 
-function State.receive<T>(self: State<T>, timeout_ns?: integer): T?, string
+function State.receive<T is Some>(self: State<T>, timeout_ns?: integer): (T | false) | (nil, Failure)
   Poll.checked_ns(timeout_ns, "channel", "timeout_ns", 2)
   local deadline = if timeout_ns ~= nil then Clock.monotonic_ns() + timeout_ns else nil end
   while self.count == 0 do
-    if self.is_closed then return nil, Channel.CLOSED end
+    if self.is_closed then return false end
     local left: integer? = nil
     if deadline ~= nil then
       left = deadline - Clock.monotonic_ns()
-      if left <= 0 then return nil, Poll.TIMEOUT end
+      if left <= 0 then return nil, Failure.timeout(Poll.TIMEOUT) end
     end
     local woke, reason = self.not_empty:wait(left)
-    if not woke then return nil, reason.message end
+    if not woke then return nil, reason end
   end
   local item = pop(self)
   self.not_full:notify_one()
-  return item, ""
+  return item
 end
 
-function State.len<T>(self: State<T>): integer return self.count end
-function State.closed<T>(self: State<T>): boolean return self.is_closed end
-function State.dropped<T>(self: State<T>): integer return self.drops end
+function State.len<T is Some>(self: State<T>): integer return self.count end
+function State.closed<T is Some>(self: State<T>): boolean return self.is_closed end
+function State.dropped<T is Some>(self: State<T>): integer return self.drops end
 
 --- A new empty queue for the tasks of the running [`Poll.run`]; `T`
 --- comes from the declaration it is bound to
 --- (`local q: Channel.Queue<string> = Channel.new()`). It raises outside a
 --- run (in [`Poll.notifier`]'s words), and for a capacity under 1.
-function Channel.new<T>(opts?: Channel.Options): Channel.Queue<T>
+function Channel.new<T is Some>(opts?: Channel.Options): Channel.Queue<T>
   local capacity = DEFAULT_CAPACITY
   local overflow: Channel.Overflow = "block"
   if opts ~= nil then

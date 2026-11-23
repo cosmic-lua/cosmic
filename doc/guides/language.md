@@ -869,6 +869,11 @@ with it, and `(T | false) | (nil, E)` where "none" is a value. A type
 that may be nil, or a type parameter with no bound, meets no `Some`
 (`bound_unmet`).
 
+A test against `false` drops `false` where it fails: after `if v ==
+false then return end`, a `T | false` is a `T`. That is how a caller
+takes "none" apart from a value of a type parameter, which has no tag
+for `is`.
+
 ```teal
 local function first<T is Some>(xs: {T}): (T) | (nil, string)
   local x = xs[1]

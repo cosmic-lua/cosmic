@@ -953,11 +953,31 @@ local function test_a_type_parameter_bounded_by_some_is_never_nil()
       "local a, _ = both({ 1 })\nlocal none: {string} = {}\nlocal b, why = both(none)\nprint(a, b, why)\n", "1\tnil\tempty")
   Programs.stands("local function key_of<K is Key>(k: K): (K) | (nil, string)\n  return k\nend\n" ..
       "local k, _ = key_of(\"a\")\nprint(k)\n", "a")
+  -- A method of a bounded generic record is defined with the record's bound.
+  Programs.stands("local record Box<T is Some>\n  v: T\n  get: function(self: Box<T>): (T) | (nil, string)\nend\n" ..
+      "function Box.get<T is Some>(self: Box<T>): (T) | (nil, string)\n  return self.v\nend\n" ..
+      "local function boxed<T is Some>(v: T): Box<T>\n  local b: Box<T> = { v = v, get = Box.get }\n  return b\nend\n" ..
+      "local v, _ = boxed(3):get()\nprint(v)\n", "3")
   -- A type that may be nil meets no `Some`, nor does a type parameter with no bound.
   Programs.refused(SOME_HEAD .. "local function f(m: integer?)\n  print(wrap(m))\nend\n", "bound_unmet")
   local passed = Programs.run(SOME_HEAD .. "local function pass<U>(u: U): U\n  return wrap(u)\nend\n")
   local e = Array.at(passed.errors, 1)
   assert(e.code == "bound_unmet" and e.fix == "bound `U` by `Some` where it is declared (`<U is Some>`)", e.fix)
+end
+
+--- A test against `false` drops `false` where it fails: `T | false` is `T` there, so "none" as a value is taken apart
+--- without `is`, which a type parameter has no tag for.
+local function test_a_test_against_false_drops_false_where_it_fails()
+  Programs.stands("local function f(x: integer | false): integer\n  if x == false then\n    return 0\n  end\n  return x + 1\nend\n" ..
+      "local function g<T is Some>(x: T | false, d: T): T\n  if x == false then\n    return d\n  end\n  return x\nend\n" ..
+      "local function h(x: string | false): string\n  if false ~= x then\n    return x\n  end\n  return \"none\"\nend\n" ..
+      "print(f(1), f(false), g(3, 0), g(false, 9), h(\"a\"), h(false))\n", "2\t0\t3\t9\ta\tnone")
+  -- A test against `true` drops `true` the same way, and nil stays.
+  Programs.stands("local function g(b: boolean?): string\n  if b ~= true then\n    local x: false? = b\n    return tostring(x)\n" ..
+      "  end\n  return \"t\"\nend\nprint(g(true), g(false), g(nil))\n", "t\tfalse\tnil")
+  -- Where it holds, the value is not narrowed to `false`: only nil is ruled out.
+  Programs.refused("local function f(x: integer | false): integer\n  if x == false then\n    return x\n  end\n  return 0\nend\n",
+    "not_assignable")
 end
 
 local function test_a_generic_function_in_a_field_that_may_be_nil_is_narrowed_and_called()
