@@ -117,6 +117,22 @@ local function test_gzip_corrupt_crc_is_refused()
   assert(trouble ~= "" and trouble:find("CRC", 1, true) ~= nil, trouble)
 end
 
+-- RFC 1952 2.3.1.2: a decompressor must refuse a member whose FLG sets
+-- any of the reserved bits 0x20, 0x40 and 0x80, as zlib does. Each
+-- vector is test_gzip_known_vector_decodes's with one of them set.
+local function test_gzip_reserved_header_flags_are_refused()
+  local body = "\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
+  for _, flg in ipairs({ 0x20, 0x40, 0x80 }) do
+    local vector = "\31\139\8" .. string.char(flg) .. body
+    local out, trouble = Compress.inflate("gzip", vector)
+    assert(out == nil, string.format("FLG 0x%02x decoded to %q", flg, tostring(out)))
+    assert(tostring(trouble) == "compress: reserved gzip header flags set", tostring(trouble))
+    local dec = assert(Compress.inflater("gzip"))
+    local _, streamed = drive(dec, vector, 1)
+    assert(streamed == "compress: reserved gzip header flags set", streamed)
+  end
+end
+
 local function test_zlib_and_raw_truncated_input_errors_on_finish()
   for _, format in ipairs({ "raw", "zlib" } as {Compress.Format}) do -- checked: cast_refused
     local enc = assert(Compress.deflater(format))

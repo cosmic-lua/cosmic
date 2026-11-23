@@ -139,9 +139,9 @@ local function inflater_text(format: Compress.Format): Compress.Stream?, string
 end
 
 --- A streaming decoder for `format`. A gzip decoder parses the header
---- (including FEXTRA/FNAME/FCOMMENT/FHCRC), verifies the CRC-32 and
---- ISIZE trailer, and decodes every member of a multi-member stream.
---- Raises on an unknown format.
+--- (including FEXTRA/FNAME/FCOMMENT/FHCRC), refuses one with a reserved
+--- flag set, verifies the CRC-32 and ISIZE trailer, and decodes every
+--- member of a multi-member stream. Raises on an unknown format.
 function Compress.inflater(format: Compress.Format): (Compress.Stream) | (nil, Failure)
   local value, why = inflater_text(format)
   if value == nil then return nil, Failure.new(why) end
