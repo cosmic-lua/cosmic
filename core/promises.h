@@ -129,8 +129,8 @@ int cosmic_promises_apply (unsigned promises, unsigned sockets, unsigned held);
  * see it: openat2, io_uring_setup and open_by_handle_at, whose open
  * flags it does not read, and x32's calls, which number truncate again
  * (core/promises.c's `truncation_program_for`). For a process a
- * Landlock ruleset that does not handle truncation holds (below ABI 3, or
- * a ruleset no one can say of), with no promises filter, which would hold
+ * Landlock ruleset that does not handle truncation holds (below ABI 3),
+ * with no promises filter, which would hold
  * it instead. 0, or an errno; ENOSYS where [`cosmic_promises_apply`] is. */
 int cosmic_truncation_apply (void);
 

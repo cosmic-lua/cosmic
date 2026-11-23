@@ -57,16 +57,3 @@ local function test_a_promises_filter_is_applied_before_an_absent_program_is_ref
     assert(errno == sys.ENOSYS and why == "Function not implemented", why)
   end
 end
-
---- A regular file is an open descriptor, but cannot restrict a child.
---- The child must refuse it before attempting the absent executable.
-local function test_a_regular_file_descriptor_is_not_a_ruleset(tmp: string)
-  local fd = assert(sys.open(tmp .. "/regular", sys.O_CREAT | sys.O_RDWR | sys.O_EXCL, 420))
-  local path = tmp .. "/absent"
-  local pid, why, errno = require("cosmic.internal.process").spawn(path, { path }, nil, nil, nil, nil, nil,
-    false, nil, { ruleset = fd })
-  assert(sys.close(fd))
-  assert(pid == nil)
-  assert(sys.errno_name(errno) == "EBADFD" or errno == sys.ENOSYS or errno == sys.EPERM, why)
-  assert(why == sys.errno_message(errno), why)
-end

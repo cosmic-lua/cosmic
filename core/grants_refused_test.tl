@@ -20,9 +20,8 @@ local process = require("cosmic.internal.process")
 
 local function test_a_degenerate_grant_raises(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local function raises(grants: any, extra?: {string:any}): boolean
-    local sandbox: mut {string:any} = { grants = grants }
-    for key, value in pairs(extra or {}) do sandbox[key] = value end
+  local function raises(grants: any): boolean
+    local sandbox: {string:any} = { grants = grants }
     return not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
       sandbox as raw_process.Sandbox) -- checked: cast_refused
   end
@@ -36,7 +35,6 @@ local function test_a_degenerate_grant_raises(tmp: string)
   assert(raises({ probe }), "a grant that is no table")
   assert(raises("r"), "grants that are no list")
   assert(raises({ { path = "a\0b", access = "r" } }), "a path with a NUL")
-  assert(raises({ { path = probe, access = "r" } }, { ruleset = 0 }), "a ruleset beside grants") -- checked: any_use
 end
 
 local function test_the_landlock_abi_is_a_version_or_a_refusal(_tmp: string)
