@@ -24,6 +24,8 @@
 --- where the checkout holds enough history to tell (a shallow one, as CI's branch pushes are, cannot), a base that is not an
 --- ancestor of HEAD.
 local Markers = require("build.markers")
+local GlossaryCount = require("build.glossary_count")
+local plural = require("build.plural")
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
@@ -49,6 +51,13 @@ local record CeilingsBase
 
   --- [`CeilingsBase.Git`] for the host's own `git`.
   live_git: function(): Git
+
+  --- What `text`, the file at `path`, holds that the check holds: its markers' counts and its glossary count
+  --- ([`build.glossary_count`]), in one table.
+  counts: function(text: string, path: string): {string: integer}
+
+  --- Whether `text` holds anything [`CeilingsBase.counts`] counts, found without lexing it.
+  mentions: function(text: string): boolean
 
   --- Holds the markers the tree at `root` `held` to the markers of the files at the base `env` names, or that `git` finds:
   --- a file may hold no more markers of a code than it did there.
@@ -85,6 +94,19 @@ function CeilingsBase.live_git(): CeilingsBase.Git
     end
     return 0, result.stdout or ""
   end
+end
+
+function CeilingsBase.counts(text: string, path: string): {string: integer}
+  local out: mut {string: integer} = {}
+  if Markers.mentions(text) then
+    for key, n in pairs(Markers.counts(text, path)) do out[key] = n end
+  end
+  for key, n in pairs(GlossaryCount.counts(text)) do out[key] = n end
+  return out
+end
+
+function CeilingsBase.mentions(text: string): boolean
+  return Markers.mentions(text) or GlossaryCount.mentions(text)
 end
 
 --- The first of `names` that `env` sets to something.
@@ -125,11 +147,14 @@ end
 --- keyword (`git grep`), then their blobs in one stream (`git cat-file --batch`). nil and why where git fails.
 local function base_marks(root: string, base: string, held: CeilingsBase.Held, git: CeilingsBase.Git):
     CeilingsBase.Held?, string
-  local args: mut {string} = { "grep", "-l", "-F" }
+  local args: mut {string} = { "grep", "-l", "-F", "-i" }
   for _, key in ipairs(Markers.keys()) do
     args[#args + 1] = "-e"
     args[#args + 1] = key
   end
+  -- Any case, as [`glossary_count.counts`] counts it; the markers' keys are matched in any case too, which only lists more.
+  args[#args + 1] = "-e"
+  args[#args + 1] = GlossaryCount.word
   for _, word in ipairs({ base, "--", "*.tl", ":(exclude)vendor", ":(exclude)ci" }) do
     args[#args + 1] = word
   end
@@ -175,7 +200,7 @@ local function base_marks(root: string, base: string, held: CeilingsBase.Held, g
       if there == content and mine ~= nil then
         out[path] = mine
       else
-        local counts = Markers.counts(content, path)
+        local counts = CeilingsBase.counts(content, path)
         if next(counts) ~= nil then
           out[path] = counts
         end
@@ -218,7 +243,11 @@ local function marks_rise(root: string, base: string, held: CeilingsBase.Held, g
     for _, code in ipairs(codes) do
       local now = assert(held[file])[code] or 0
       local before = (was[file] or {})[code] or 0
-      if now > before then
+      if now > before and code == GlossaryCount.code then
+        out[#out + 1] = file .. ": " .. plural.count(now, "comment line") .. " say \"" .. GlossaryCount.word .. "\" and the merge base held " ..
+          tostring(before) .. "; the count only falls: write \"returns\" for what a function gives back and \"responds\" for " ..
+          "a server's reply (doc/writing.md's glossary)"
+      elseif now > before then
         local line = file .. ": " .. tostring(now) .. " of its markers hold " .. code .. " and the merge base held " ..
           tostring(before) .. "; a marker is never added and a count only falls: fix the finding instead"
         if anywhere[code:match(" (%S+)$") or code] ~= true then

@@ -1734,8 +1734,8 @@ local function hold_named_markers(root: string, files: {string}, findings: mut {
     local named = under(root, file)
     local path = if named ~= nil then (named:gsub("/+", "/")) else nil end
     local source, _ = Fs.read(file)
-    if path ~= nil and path ~= "" and source ~= nil and Markers.mentions(source) then
-      local held = Markers.counts(source, path)
+    if path ~= nil and path ~= "" and source ~= nil and CeilingsBase.mentions(source) then
+      local held = CeilingsBase.counts(source, path)
       if next(held) ~= nil then counts[path] = held end
     end
   end
