@@ -387,7 +387,7 @@ local function install_vendor(manifest: string, output: string): boolean, string
     local made, make_trouble = Fs.mkdirs(output .. "/vendor")
     if not made then return false, tostring(make_trouble) end
     local copied, copy_trouble = Fs.copy_tree(from, to)
-    if not copied then return false, to .. ": " .. copy_trouble end
+    if not copied then return false, tostring(copy_trouble) end
   end
   return true, ""
 end

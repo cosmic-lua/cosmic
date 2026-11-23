@@ -1380,7 +1380,7 @@ local function account_key(path: string): Acme.Key?, string
   local closed, unclosed = Fs.close(fd)
   if not wrote or not closed then
     local _, _ = Fs.remove(path)
-    return nil, "acme: " .. path .. ": " .. (if wrote then unclosed else unwritten end)
+    return nil, "acme: " .. path .. ": " .. (if wrote then tostring(unclosed) else unwritten end)
   end
   return key, ""
 end

@@ -56,7 +56,8 @@ local function test_runner_owns_input_and_retained_output(tmp: string)
   assert(outcome.code == 0 and assert(Fs.read(tmp .. "/out")) == "input bytes")
   assert(assert(Fs.read(tmp .. "/err")) == "error-bytes")
   local reopened = assert(Fs.open_write(tmp .. "/out"))
-  assert(Fs.close(reopened), "retained output descriptor remained open")
+  local closed, _ = Fs.close(reopened)
+  assert(closed, "retained output descriptor remained open")
   local unopenable: Runner.Request = {
     argv = { "/bin/sh", "-c", "exit 0" }, cwd = tmp, output = tmp .. "/missing/out",
   }
@@ -279,7 +280,8 @@ local function test_spawned_commands_run_at_once_and_are_reaped_in_the_order_the
       assert(rows[2]):text(1) == "slow" and assert(rows[2]):text(2) == "exit" and assert(rows[2]):text(3) == "5",
     "spawned commands were not recorded once each, as they ended")
   local reopened = assert(Fs.open_write(tmp .. "/quick.out"))
-  assert(Fs.close(reopened), "a spawned command's descriptor stayed open")
+  local closed, _ = Fs.close(reopened)
+  assert(closed, "a spawned command's descriptor stayed open")
 end
 
 local function test_a_spawned_command_keeps_its_own_timeout(tmp: string)

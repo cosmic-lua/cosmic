@@ -300,11 +300,12 @@ local function write_synced(path: string, data: string,
       local _, _ = Fs.close(fd)
       return false, tostring(mode_trouble)
     end
-    ok, failure = Fs.fsync(fd)
+    local fsync_ok, fsync_why = Fs.fsync(fd)
+    ok, failure = fsync_ok, if fsync_ok then "" else tostring(fsync_why) end
   end
   local closed, close_trouble = Fs.close(fd)
   if ok and not closed then
-    ok, failure = false, close_trouble
+    ok, failure = false, tostring(close_trouble)
   end
   if not ok then
     return false, path .. ": " .. failure
@@ -318,14 +319,10 @@ local function sync_dir(path: string): boolean, string
   if fd == nil then
     return false, trouble
   end
-  local ok, failure = Fs.fsync(fd)
-  local closed, close_trouble = Fs.close(fd)
-  if ok and not closed then
-    ok, failure = false, close_trouble
-  end
-  if not ok then
-    return false, path .. ": " .. failure
-  end
+  local synced, sync_why = Fs.fsync(fd)
+  local closed, close_why = Fs.close(fd)
+  if not synced then return false, path .. ": " .. tostring(sync_why) end
+  if not closed then return false, path .. ": " .. tostring(close_why) end
   return true, ""
 end
 
@@ -521,7 +518,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   local payload = holding.path .. "/payload"
   local copied, copy_trouble = Fs.copy_tree(lib, payload)
   if not copied then
-    return false, copy_trouble
+    return false, tostring(copy_trouble)
   end
   for _, entry in ipairs(names) do
     if #entry > 4 and entry:sub(-4) == ".txt" then

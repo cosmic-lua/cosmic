@@ -462,7 +462,9 @@ end
 local function release(self: FdReader): boolean, string
   if self.released or not self.owned then return true, "" end
   self.released = true
-  return Fs.close(self.fd)
+  local closed, close_why = Fs.close(self.fd)
+  if not closed then return false, tostring(close_why) end
+  return true, ""
 end
 
 local class FdReader is Stream.Reader

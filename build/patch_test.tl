@@ -313,7 +313,7 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
   raw.uname = function(): sys.Uname
     return { ...assert(real_uname()), sysname = "Darwin" }
   end
-  fs.fsync = function(fd: integer): boolean, string
+  fs.fsync = function(fd: integer): (true) | (false, Failure)
     assert(flushes == 0 or renamed == true, "payload fsync followed the device flush")
     syncs = syncs + 1
     return real_sync(fd)

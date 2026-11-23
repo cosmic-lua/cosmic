@@ -1695,7 +1695,8 @@ local function test_full_fsync_has_native_or_unsupported_effect_shape(tmp: strin
     failed_with(sys.ENOSYS, ok, trouble, errno)
   end
   assert(sys.fstat(fd), "full_fsync closed its caller's descriptor")
-  assert(Fs.fsync(fd), "ordinary Fs.fsync remains available")
+  local synced, _ = Fs.fsync(fd)
+  assert(synced, "ordinary Fs.fsync remains available")
   assert(sys.close(fd))
   local closed, why, number = sys.full_fsync(fd)
   assert(closed == false, "a closed descriptor must not be flushed")

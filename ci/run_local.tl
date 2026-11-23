@@ -85,7 +85,9 @@ local class Opened
     local fd = self.fd
     if fd < 0 then return true, "" end
     self.fd = -1
-    return Fs.close(fd)
+    local closed, close_why = Fs.close(fd)
+    if not closed then return false, tostring(close_why) end
+    return true, ""
   end
 
   function __close(self)

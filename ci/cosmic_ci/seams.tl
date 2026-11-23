@@ -95,7 +95,11 @@ local current: Seams.Calls = {
     if real == nil then return nil, tostring(why) end
     return real, ""
   end,
-  fs_append = Fs.append,
+  fs_append = function(path: string, data: string, mode?: integer): boolean, string
+    local appended, why = Fs.append(path, data, mode)
+    if not appended then return false, tostring(why) end
+    return true, ""
+  end,
   fs_exists = Fs.exists,
   fs_open_write = Fs.open_write,
   fs_put = Fs.put,

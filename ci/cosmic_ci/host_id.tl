@@ -294,7 +294,7 @@ function HostId.leg_host_id(words: {string}, env: {string:string}, facts: HostId
     end
     local ok, trouble = Fs.append(file, text)
     if not ok then
-      local _, _ = Fs.put(Fs.stderr, "leg-host-id: " .. trouble .. "\n")
+      local _, _ = Fs.put(Fs.stderr, "leg-host-id: " .. tostring(trouble) .. "\n")
     end
     return ok
   end

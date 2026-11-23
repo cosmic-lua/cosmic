@@ -116,8 +116,6 @@ allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept cu
   "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
 allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..
   "internet from one of the tailnet; no app of the tree serves through Funnel"
-allowed["cosmic.failure.message"] = "public API: the words of a failure a call answers as `(T) | (nil, Failure)`, " ..
-  "which a caller reads; the standard library's own calls move to it one module at a time"
 allowed["cosmic.failure.path"] = "public API: the path a failure concerns, which a caller reads; the standard " ..
   "library's own calls move to it one module at a time"
 allowed["cosmic.defer.run"] = "the function a Defer runs, which its `__close` calls: a field of the class, set by " ..

@@ -1330,7 +1330,9 @@ local function boot(p: PlatformContext): integer
     local source: string = from
     mkdir(BuildPaths.directory(root))
     local copied = step(c, "restore zig-cache", function(): boolean, string
-      return Fs.copy_tree(source, BuildPaths.directory(root) .. "/zig-cache")
+      local copied_tree, copy_why = Fs.copy_tree(source, BuildPaths.directory(root) .. "/zig-cache")
+      if not copied_tree then return false, tostring(copy_why) end
+      return true, ""
     end)
     if copied ~= 0 then return copied end
   end
