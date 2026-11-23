@@ -112,7 +112,9 @@ local function test_copies_of_the_process_answer_as_the_process_does(tmp: string
     return table.concat(lines, "\n"), table.concat(kept, "\n")
   end
   local alone, alone_kept = compare(false)
+  local ended = fanout.ended_well
   local copied, copied_kept = compare(true)
+  assert(fanout.ended_well > ended, "no copy did the work")
   fanout.least, fanout.meminfo = least, meminfo
   assert(alone:find("m6.tl: the main chunk of its Lua holds 182 locals", 1, true) ~= nil and
       alone:find("m4.tl", 1, true) == nil, alone)

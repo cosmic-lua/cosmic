@@ -1643,7 +1643,9 @@ local function test_the_checks_find_the_same_in_copies_of_the_process(dir: strin
     return found, rows
   end
   local alone, alone_rows = run(false)
+  local ended = fanout.ended_well
   local copied, copied_rows = run(true)
+  assert(fanout.ended_well > ended, "no copy did the work")
   fanout.least, fanout.meminfo = least, meminfo
   assert(alone:find("build/f6.tl:2:", 1, true) ~= nil and alone:find("build/open.tl: 1 error of call", 1, true) ~= nil, alone)
   assert(copied == alone, "the copies found otherwise:\n" .. copied .. "\n\nthan the process:\n" .. alone)

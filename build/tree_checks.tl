@@ -111,6 +111,8 @@ allowed["build.c.own_caches"] = "the environment c.check gives a confined compil
   "the check's own directory, which a test holds to the cores among them: the host's fail a check where they are cold"
 allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the host's /proc/meminfo: a sandbox's /proc has " ..
   "none, and no test is to depend on what its host has free"
+allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which a test reads to know that copies " ..
+  "did the work, where the process doing it alone would answer the same"
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
@@ -2480,8 +2482,8 @@ end
 --- the syntax and the declarations of the modules it lowers.
 local check_copy_bytes <const> = 1024 * 1024 * 1024
 
---- What [`fanned`] answers: the memo text `judge` gave each file of the rows, by file, and the problems the
---- build met, once each in the order first met.
+--- What [`fanned`] answers: the memo text `judge` gave each file of the rows, by file, and the problems the build met,
+--- in the order one process meets them.
 local record Fanned
   texts: {string: string}
   problems: {string}
@@ -2491,18 +2493,10 @@ end
 --- copies of the process ([`build.compile_fanout`]) where the rows are many: each copy streams every so many of the modules
 --- and leaves its texts, its problems and its time in a file. The rows of a copy that did not end well, and every row where
 --- no copy runs, are judged in the process. A row `judge` gives no text has none. The build's timing gets each copy's
---- time added.
+--- time added: the time of the processors, which is more than the time the fan took.
 local function fanned(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodies: boolean, spliced: boolean,
                       judge: function(row: DeclareFile, result: Driver.Outcome?): string?): Fanned
   local texts: mut {string: string} = {}
-  local problems: mut {string} = {}
-  local met: mut {string: boolean} = {}
-  local function problem(text: string)
-    if met[text] ~= true then
-      met[text] = true
-      problems[#problems + 1] = text
-    end
-  end
   local modules: mut {string} = {}
   local seen_module: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
@@ -2511,7 +2505,6 @@ local function fanned(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodi
       modules[#modules + 1] = row.module
     end
   end
-  local left: mut {DeclareFile} = {}
   local copies = fanout.copies(#modules, Proc.cpu_count(), check_copy_bytes)
   local dir: string? = nil
   if copies > 0 then
@@ -2519,65 +2512,95 @@ local function fanned(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodi
     dir = made
   end
   if dir == nil then
-    for _, row in ipairs(rows) do left[#left + 1] = row end
-  else
-    local copy_of: mut {string: integer} = {}
-    for index, module in ipairs(modules) do
-      copy_of[module] = (index - 1) % copies + 1
-    end
-    local ran = fanout.run(copies, function(copy: integer)
-      local mine: mut {DeclareFile} = {}
-      for _, row in ipairs(rows) do
-        if copy_of[row.module] == copy then mine[#mine + 1] = row end
-      end
-      local out: mut {{string}} = {}
-      streamed(build, tree, mine, bodies, spliced, function(row: DeclareFile, result: Driver.Outcome?)
-        local text = judge(row, result)
-        if text ~= nil then out[#out + 1] = { "A", row.file, text } end
-      end)
-      for _, text in ipairs(build.problems) do out[#out + 1] = { "P", text } end
-      local t = build.timing
-      local times = { "T", tostring(t.prepare), tostring(t.lower), tostring(t.check) }
-      out[#out + 1] = times
-      assert(Fs.write(dir .. "/" .. tostring(copy), check_memo.encode(out)))
-    end)
-    local start = build.timing
-    local prepare, lower, check = start.prepare, start.lower, start.check
-    for copy = 1, copies do
-      local text: string? = nil
-      if ran.ended[copy] == true then
-        local read, _ = Fs.read(dir .. "/" .. tostring(copy))
-        text = read
-      end
-      if text == nil then
-        for _, row in ipairs(rows) do
-          if copy_of[row.module] == copy then left[#left + 1] = row end
-        end
-      else
-        for _, fields in ipairs(check_memo.decode(text)) do
-          local kind, a, b, c = fields[1], fields[2], fields[3], fields[4]
-          if kind == "A" and a ~= nil and b ~= nil then
-            texts[a] = b
-          elseif kind == "P" and a ~= nil then
-            problem(a)
-          elseif kind == "T" then
-            prepare = prepare + (math.tointeger(tonumber(a)) or 0) - start.prepare
-            lower = lower + (math.tointeger(tonumber(b)) or 0) - start.lower
-            check = check + (math.tointeger(tonumber(c)) or 0) - start.check
-          end
-        end
-      end
-    end
-    start.prepare, start.lower, start.check = prepare, lower, check
-    local _, _ = Fs.remove_tree(dir)
-  end
-  if #left > 0 then
-    streamed(build, tree, left, bodies, spliced, function(row: DeclareFile, result: Driver.Outcome?)
+    streamed(build, tree, rows, bodies, spliced, function(row: DeclareFile, result: Driver.Outcome?)
       local text = judge(row, result)
       if text ~= nil then texts[row.file] = text end
     end)
+    return { texts = texts, problems = build.problems }
   end
-  for _, text in ipairs(build.problems) do problem(text) end
+  -- The problems of each module: the stream splices a module, which may add one, just before it is lowered and judged.
+  local before = #build.problems
+  local of_module: mut {string: mut {string}} = {}
+  local function told(module: string, text: string)
+    local list = of_module[module] or {}
+    of_module[module] = list
+    list[#list + 1] = text
+  end
+  local function streamed_told(mine: {DeclareFile}, each: function(row: DeclareFile, text: string?))
+    local seen = #build.problems
+    streamed(build, tree, mine, bodies, spliced, function(row: DeclareFile, result: Driver.Outcome?)
+      for at = seen + 1, #build.problems do
+        local text = assert(build.problems[at], "an index within the list is a problem")
+        told(row.module, text)
+      end
+      seen = #build.problems
+      local text = judge(row, result)
+      each(row, text)
+    end)
+  end
+  local copy_of: mut {string: integer} = {}
+  for index, module in ipairs(modules) do
+    copy_of[module] = (index - 1) % copies + 1
+  end
+  local ran = fanout.run(copies, function(copy: integer)
+    local mine: mut {DeclareFile} = {}
+    for _, row in ipairs(rows) do
+      if copy_of[row.module] == copy then mine[#mine + 1] = row end
+    end
+    local out: mut {{string}} = {}
+    streamed_told(mine, function(row: DeclareFile, text: string?)
+      if text ~= nil then out[#out + 1] = { "A", row.file, text } end
+    end)
+    for module, list in pairs(of_module) do
+      for _, text in ipairs(list) do out[#out + 1] = { "P", module, text } end
+    end
+    local t = build.timing
+    local times = { "T", tostring(t.prepare), tostring(t.lower), tostring(t.check) }
+    out[#out + 1] = times
+    assert(Fs.write(dir .. "/" .. tostring(copy), check_memo.encode(out)))
+  end)
+  local start = build.timing
+  local prepare, lower, check = start.prepare, start.lower, start.check
+  local left: mut {DeclareFile} = {}
+  for copy = 1, copies do
+    local text: string? = nil
+    if ran.ended[copy] == true then
+      local read, _ = Fs.read(dir .. "/" .. tostring(copy))
+      text = read
+    end
+    if text == nil then
+      for _, row in ipairs(rows) do
+        if copy_of[row.module] == copy then left[#left + 1] = row end
+      end
+    else
+      for _, fields in ipairs(check_memo.decode(text)) do
+        local kind, a, b, c = fields[1], fields[2], fields[3], fields[4]
+        if kind == "A" and a ~= nil and b ~= nil then
+          texts[a] = b
+        elseif kind == "P" and a ~= nil and b ~= nil then
+          told(a, b)
+        elseif kind == "T" then
+          prepare = prepare + (math.tointeger(tonumber(a)) or 0) - start.prepare
+          lower = lower + (math.tointeger(tonumber(b)) or 0) - start.lower
+          check = check + (math.tointeger(tonumber(c)) or 0) - start.check
+        end
+      end
+    end
+  end
+  start.prepare, start.lower, start.check = prepare, lower, check
+  local _, _ = Fs.remove_tree(dir)
+  if #left > 0 then
+    streamed_told(left, function(row: DeclareFile, text: string?)
+      if text ~= nil then texts[row.file] = text end
+    end)
+  end
+  local problems: mut {string} = {}
+  for at = 1, before do
+    problems[#problems + 1] = assert(build.problems[at], "an index within the list is a problem")
+  end
+  for _, module in ipairs(TreeProgram.ordered(tree.index, modules)) do
+    for _, text in ipairs(of_module[module] or {}) do problems[#problems + 1] = text end
+  end
   return { texts = texts, problems = problems }
 end
 

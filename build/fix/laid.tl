@@ -128,7 +128,9 @@ function laid.fan(kept: laid.Kept, files: {{string}}): integer
     for index = copy, #due, copies do
       local one = assert(due[index], "an index within the list is a file")
       local source = one[2] or ""
-      if Format.format(source, one[1] or "").text == source then keys[#keys + 1] = one[3] or "" end
+      -- A file the formatter raises on is the run's to tell, and costs the copy none of its other files.
+      local done, formatted = pcall(Format.format, source, one[1] or "")
+      if done and formatted.text == source then keys[#keys + 1] = one[3] or "" end
     end
     assert(Fs.write(dir .. "/" .. tostring(copy), table.concat(keys, "\n")))
   end)

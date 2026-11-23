@@ -860,7 +860,9 @@ that does run runs in a process of its own:
   what requires it and the build tells of it while the copies run; a run of a file, which stops at the first
   module the file needs that does not build, tells its copies to compile no more once that module is settled. a
   copy still running after fifteen minutes is ended, and the build does its work. the bytes written are the same;
-  `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. each test runs in a worker
+  `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. `cosmic fix` copies itself the same
+  way to lay out, lower and check the files its memo lacks, and takes each copy's answers as its own; a copy that
+  does not end well leaves its files to the one process, and the answers are the same either way. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
   one more than the processors at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. where

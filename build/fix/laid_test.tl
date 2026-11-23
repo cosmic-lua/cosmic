@@ -104,8 +104,9 @@ local function test_a_fan_keeps_the_files_its_copies_found_laid_out()
   if Proc.cpu_count() < 2 then
     Test.skip("this host has one processor, for which no copy is forked")
   end
-  local least = fanout.least
+  local least, meminfo = fanout.least, fanout.meminfo
   fanout.least = 2
+  fanout.meminfo = "MemAvailable: 67108864 kB\n"
   local kept = begun()
   local files: mut {{string}} = {}
   for index = 1, 8 do
@@ -114,7 +115,7 @@ local function test_a_fan_keeps_the_files_its_copies_found_laid_out()
   files[#files + 1] = { "unlaid.tl", "local   y=1\n" }
   files[#files + 1] = { "refused.tl", "local = \n" }
   local answered = laid.fan(kept, files)
-  fanout.least = least
+  fanout.least, fanout.meminfo = least, meminfo
   assert(answered == #files, "the copies answered " .. tostring(answered))
   for index = 1, 8 do
     assert(held(kept, "tl", "local x" .. tostring(index) .. " = 1\n"), "a file laid out was not kept")

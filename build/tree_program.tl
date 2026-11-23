@@ -98,6 +98,8 @@ local record TreeProgram
   --- the build's problems too. The collector is generational while it runs.
   stream: function(build: Driver.Build, index: Driver.Index, modules: {string}, spliced: boolean,
     each: function(module: string)): {string}
+  --- `modules` in the order [`TreeProgram.stream`] takes them.
+  ordered: function(index: Driver.Index, modules: {string}): {string}
 end
 
 -- Which files are sources, and under what names, decides what a parse stores: a parse and a compile read one answer.
@@ -158,7 +160,7 @@ end
 --- requires are the parser's reading of the text; a text that does not parse is read by a pattern, so one in a comment or
 --- a string counts too: that costs a module being retired later than it could be, and never a verdict. Only the modules asked for are ordered, so a chain through a module
 --- left out ([`Driver.Build.lower`] lowers it as it is needed) is not followed.
-local function ordered(index: Driver.Index, modules: {string}): {string}
+function TreeProgram.ordered(index: Driver.Index, modules: {string}): {string}
   local wanted: mut {string: boolean} = {}
   for _, module in ipairs(modules) do
     wanted[module] = true
@@ -205,7 +207,7 @@ function TreeProgram.stream(build: Driver.Build, index: Driver.Index, modules: {
   -- collector waits to free is the resident set the process keeps. A collector already in this mode is left in it.
   local previous = collectgarbage("generational")
   local count = 0
-  for _, module in ipairs(ordered(index, modules)) do
+  for _, module in ipairs(TreeProgram.ordered(index, modules)) do
     if spliced then
       local read = build:parsed(module)
       if read ~= nil then
