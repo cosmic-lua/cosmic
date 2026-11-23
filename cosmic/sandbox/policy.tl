@@ -5,7 +5,6 @@
 --- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
 
-local Codec = require("cosmic.codec")
 local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -437,12 +436,6 @@ local function sorted_set<T is Key>(...: {T}): {T}
   return out
 end
 
---- The SHA-256 of `value`, in lowercase hex. cosmic/policy.tl's `encode`
---- keeps a copy, which must answer the same digest.
-local function digest_of(value: string): string
-  return Codec.hex(Hash.sha256(value))
-end
-
 --- Why `held` and `incoming`, two values for the limit `name` (either nil
 --- for none), disagree, or "" when they do not.
 local function limit_conflict(name: string, held: integer?, incoming: integer?): string
@@ -707,7 +700,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   end
   if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
-    if digests[name] ~= nil and digests[name] ~= digest_of(value) then
+    if digests[name] ~= nil and digests[name] ~= Hash.hex_sha256(value) then
       return refuse(path_of({ "set_env_digests", name }) .. ": not the digest of set_env's value")
     end
     digests[name] = nil
