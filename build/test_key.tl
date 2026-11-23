@@ -2236,15 +2236,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
     cpu = hex_sha256(cpu .. "\0" .. cpu_salt)
   end
   rec.cpu = cpu
-  -- What the system's paths hold is walked only for a run that holds
-  -- a module given them, whose key alone holds it: half a second of
-  -- /usr's entries otherwise spent for nothing.
-  local holds_system = false
-  for _, m in ipairs(selected_modules) do
-    local effective = rec.effective[m.path]
-    if effective ~= nil and effective.system == true then holds_system = true end
-  end
-  rec.system = declared_key.system_identity(digests_of(rec), nil, holds_system)
+  rec.system = declared_key.system_identity(digests_of(rec))
   tool_of(rec)
   -- The runtime identity holds the core an artifact selects, not the
   -- launcher and manifest that selected it, which a test that does

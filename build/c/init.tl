@@ -324,8 +324,11 @@ end
 --- and `tr` that `PATH` finds, and the launcher's `uname` and `stat`)
 --- come only from the sandbox: the system's paths, the tree's and the
 --- test's own. A test's sandboxed worker is given the system's paths only
---- where its module declares `system`, and its key holds what they hold,
---- walked ([`declared_key.system_identity`]). A compiler confined in an
+--- where its module declares `system`, and its key holds what is
+--- installed there by the package database and the system the host says
+--- it is ([`declared_key.system_identity`]), not a walk of them: a tool
+--- replaced outside the package manager moves no key unless the host
+--- names it in COSMIC_SYSTEM_ID. A compiler confined in an
 --- unsandboxed worker is given them as every confined process is. A
 --- `PATH` directory outside those is not there for it.
 local function toolchain(root: string, variables: {string:string}, direct: boolean):
