@@ -23,6 +23,7 @@ local Address = require("cosmic.relay.address")
 local Grant = require("cosmic.relay.grant")
 local Wire = require("cosmic.internal.relay_wire")
 local String = require("cosmic.string")
+local Url = require("cosmic.url")
 local sys = require("cosmic.sys")
 
 local lower <const> = Wire.lower
@@ -278,14 +279,6 @@ function relay_config.host_addresses(): {string}?, string
   return relay_config.parse_addresses(trie, inet6), ""
 end
 
-local function percent_decoded(text: string): string
-  return (text:gsub("%%(%x%x)", function(hex: string): string
-    local byte = tonumber(hex, 16)
-    if byte == nil then return "%" .. hex end
-    return string.char(byte)
-  end))
-end
-
 --- The upstream a caller's environment names, and nil when it names none:
 --- `https_proxy` (or `HTTPS_PROXY`) as `http://[user:password@]host[:port]`
 --- (the scheme and the port, 80, may be left out) and `no_proxy` (or
@@ -331,7 +324,11 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
   local upstream: relay_config.Upstream = { host = lower(host), port = port, no_proxy = {} }
   if userinfo ~= nil and userinfo ~= "" then
     local user, password = userinfo:match("^([^:]*):?(.*)$") -- untyped: call
-    upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password)) -- checked: field_fixed
+    local name, name_why = Url.unescape(user)
+    if name == nil then return nil, "https_proxy's user: " .. tostring(name_why) end
+    local secret, secret_why = Url.unescape(password)
+    if secret == nil then return nil, "https_proxy's password: " .. tostring(secret_why) end
+    upstream.authorization = "Basic " .. Codec.base64(name .. ":" .. secret) -- checked: field_fixed
   end
   for entry in ((env.no_proxy or env["NO_PROXY"] or "") .. ","):gmatch("([^,]*),") do -- checked: map_field -- untyped: call
     local trimmed = String.trim(entry)
