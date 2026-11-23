@@ -1,6 +1,6 @@
 --- A store that carries a module's row without its source (the pure store of a test, [`build.closure_store`]) answers
---- [`Store.source`] with why, not with a failure to inflate nothing, and what decides a module is held from its source
---- ([`Store.withheld`]) tells it from one the binary does not hold. The program runs on a sealed database whose rows
+--- [`Store.source`] with a Failure that says why, not with a failure to inflate nothing, and what decides a module is
+--- held from its source ([`Store.withheld`]) tells it from one the binary does not hold. The program runs on a sealed database whose rows
 --- were emptied, so no switch of the test run is needed.
 
 local Child = require("cosmic.child")
@@ -42,17 +42,25 @@ local function test_a_withheld_source_is_said_so_and_not_taken_for_absent(tmp: s
       local ok, found = pcall(standard, name)
       return tostring(ok) .. "\t" .. tostring(found)
     end
-    show("withheld", sealed_store.source("cosmic.json"))
-    show("absent", sealed_store.source("no.such.module"))
-    show("held", sealed_store.source("cosmic.fs") ~= nil)
-    show("flag_withheld", sealed_store.withheld("cosmic.json") ~= nil)
-    show("flag_held", sealed_store.withheld("cosmic.fs"))
-    show("flag_absent", sealed_store.withheld("no.such.module"))
+    local withheld_source, withheld_why = sealed_store.source("cosmic.json")
+    show("withheld", withheld_source, withheld_why)
+    local absent_source, absent_why = sealed_store.source("no.such.module")
+    show("absent", absent_source, absent_why)
+    local held_source, _ = sealed_store.source("cosmic.fs")
+    show("held", held_source ~= nil)
+    local flag_withheld, _ = sealed_store.withheld("cosmic.json")
+    show("flag_withheld", flag_withheld is string)
+    local flag_held, _ = sealed_store.withheld("cosmic.fs")
+    show("flag_held", flag_held)
+    local flag_absent, _ = sealed_store.withheld("no.such.module")
+    show("flag_absent", flag_absent)
     local databases = sealed_store.databases()
     local binary = assert(databases[#databases])
     show("query", sealed_sqlite.text_rows(binary, "SELECT inflate(source) FROM modules WHERE path = 'cosmic.json'"))
-    show("decl", sealed_store.source("cosmic.decl_only"))
-    show("decl_flag", sealed_store.withheld("cosmic.decl_only") ~= nil)
+    local decl_source, decl_why = sealed_store.source("cosmic.decl_only")
+    show("decl", decl_source, decl_why)
+    local decl_flag, _ = sealed_store.withheld("cosmic.decl_only")
+    show("decl_flag", decl_flag is string)
     show("analyzer", importer.analyzer_modules())
     local ok, raised = pcall(importer.analyzer_identity)
     show("identity", tostring(ok), raised)
@@ -91,8 +99,8 @@ local function test_a_withheld_source_is_said_so_and_not_taken_for_absent(tmp: s
   assert(line("absent") == "nil\tno module 'no.such.module' in the binary", detail)
   assert(line("held") == "true", detail)
   assert(line("flag_withheld") == "true", detail)
-  assert(line("flag_held") == "nil\t", detail)
-  assert(line("flag_absent") == "nil\t", detail)
+  assert(line("flag_held") == "false", detail)
+  assert(line("flag_absent") == "false", detail)
   assert(line("query"):find("^nil\t.*the value is empty.*store_text = true"), detail)
   -- The importer names the withheld module, not a shorter set of the analyzer's modules.
   assert(line("decl"):find("^nil\t.*'cosmic.decl_only' is withheld"), detail)

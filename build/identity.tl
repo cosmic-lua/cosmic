@@ -503,6 +503,8 @@ local compiler_roots: {string} = {
   -- What answers the identities a compile and a parse are keyed by from the binary's stamps: a stamp it
   -- answered wrongly would store a row under another code's key.
   "build.stamp",
+  -- The Store lookups the analyzer's walk and the tree checks' memo are handed in the text shape.
+  "build.store_lookups",
 }
 
 --- The modules the compiler's identity holds, sorted, as `requires`

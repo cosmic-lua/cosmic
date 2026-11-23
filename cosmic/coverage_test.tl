@@ -21,7 +21,7 @@ end
 
 local function test_untrusted_load_cannot_reach_raw_debug()
   local bytes, trouble = Store.bytecode("cosmic.coverage")
-  assert(bytes ~= nil and trouble == "", tostring(trouble))
+  assert(bytes ~= nil, tostring(trouble))
   local chunk, load_trouble = load(bytes, "@cosmic.coverage", "b", Globals.table())
   assert(chunk ~= nil, tostring(load_trouble))
   -- Given anything but a table as `extra`, as an untrusted loader does,
@@ -35,7 +35,7 @@ end
 --- same way: an untrusted load of it fails rather than answering hits.
 local function test_untrusted_load_of_the_hits_reader_cannot_reach_raw_debug()
   local bytes, trouble = Store.bytecode("build.coverage_hits")
-  assert(bytes ~= nil and trouble == "", tostring(trouble))
+  assert(bytes ~= nil, tostring(trouble))
   local chunk, load_trouble = load(bytes, "@build.coverage_hits", "b", Globals.table())
   assert(chunk ~= nil, tostring(load_trouble))
   Test.raises(function() chunk("build.coverage_hits", "not a table") end)

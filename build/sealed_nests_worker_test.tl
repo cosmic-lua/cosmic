@@ -36,9 +36,12 @@ end
 
 local function test_a_worker_that_nests_runs_on_a_sealed_database()
   sealed_or_skip()
-  assert(Store.source("cosmic.zip") == nil, "a module outside the closure is in the program")
-  assert(Store.bytecode("build.writer") == nil)
-  assert(Store.bytecode("cosmic.store") ~= nil, "a module of the closure is not")
+  local outside, _ = Store.source("cosmic.zip")
+  assert(outside == nil, "a module outside the closure is in the program")
+  local writer, _ = Store.bytecode("build.writer")
+  assert(writer == nil)
+  local inside, _ = Store.bytecode("cosmic.store")
+  assert(inside ~= nil, "a module of the closure is not")
 end
 
 local function test_a_worker_that_nests_confines_a_child_on_the_same_database()
@@ -48,8 +51,10 @@ local function test_a_worker_that_nests_confines_a_child_on_the_same_database()
   argv[#argv + 1] = "-e"
   argv[#argv + 1] = [[
 local Store = require("cosmic.store")
-assert(Store.source("cosmic.zip") == nil, "a child reads a module outside the closure")
-assert(Store.bytecode("cosmic.store") ~= nil)
+local outside, _ = Store.source("cosmic.zip")
+assert(outside == nil, "a child reads a module outside the closure")
+local inside, _ = Store.bytecode("cosmic.store")
+assert(inside ~= nil)
 print("confined")
 ]]
   -- The child runs the core on the worker's own database, which it reads.

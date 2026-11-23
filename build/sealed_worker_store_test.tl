@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 Test.policy{ grants = { { path = "o/cosmic.db", letters = "r" } } }
 
 local function test_the_whole_program_is_read()
-  assert(Store.source("cosmic.zip") ~= nil)
-  assert(Store.bytecode("build.writer") ~= nil)
+  assert(Store.source("cosmic.zip"))
+  assert(Store.bytecode("build.writer"))
   assert(#assert(Store.requires("build.writer")) > 0)
 end

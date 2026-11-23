@@ -29,6 +29,7 @@
 --- sees this process's. Nothing times the run out but the test's own
 --- limit.
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Store = require("cosmic.store")
 local dispatch = require("build.dispatch")
@@ -158,7 +159,7 @@ function invoke.run(args: {string}, opts: invoke.Options): invoke.Result
         boolean, string, integer
       refuse("sys.execve")
     end
-    Store.attach = function(_: string, _?: Store.AttachOptions): boolean, string -- checked: field_fixed
+    Store.attach = function(_: string, _?: Store.AttachOptions): (true) | (false, Failure) -- checked: field_fixed
       refuse("Store.attach")
     end
     Store.alone(function()

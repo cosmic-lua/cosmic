@@ -252,7 +252,7 @@ local function test_a_project_that_attaches_a_database_is_refused_unless_it_says
   local _, aliased_why = Pipeline.lone("p.tl", aliased, project)
   assert(aliased_why:find("used as a value", 1, true) ~= nil, tostring(aliased_why))
   local said = "local Store = require(\"cosmic.store\")\n" ..
-    "local ok = Store.attach(\"foreign.db\", { unchecked_bytecode = true })\nreturn ok\n"
+    "local ok, _ = Store.attach(\"foreign.db\", { unchecked_bytecode = true })\nreturn ok\n"
   -- (this project declares no globals, so it fails to build for want of `require`, but not by this check)
   local _, said_why = Pipeline.lone("p.tl", said, project)
   assert(said_why:find("unchecked_bytecode", 1, true) == nil and said_why:find("used as a value", 1, true) == nil, said_why)

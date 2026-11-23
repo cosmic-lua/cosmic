@@ -34,8 +34,8 @@ function stale_reason.of(handle: work.Handle): string
     if source == nil then
       -- A module held without its source has not moved: say what is wrong rather than that it did.
       local withheld, trouble = Store.withheld(row:text(1))
-      if trouble ~= "" then return " (" .. trouble .. ")" end
-      if withheld ~= nil then return " (" .. withheld .. ")" end
+      if withheld == nil then return " (" .. tostring(trouble) .. ")" end
+      if withheld is string then return " (" .. withheld .. ")" end
     end
     if source == nil or Hash.hex_sha256(source) ~= row:text(2) then
       count = count + 1
