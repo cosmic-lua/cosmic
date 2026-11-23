@@ -517,8 +517,9 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     closes = closes + 1
     return (real_close as function(any): boolean, string)(self) -- checked: cast_refused
   end
+  -- [`Sqlite.memory`] opens through [`Sqlite.open`], so the stand-in opens through the real one.
   Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure) -- checked: field_fixed
-    return Sqlite.memory()
+    return real_open(":memory:", { writable = true })
   end
   for i, each in ipairs(outcomes) do
     outcome, calls, closes = each, 0, 0

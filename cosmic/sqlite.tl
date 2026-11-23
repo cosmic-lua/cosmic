@@ -509,7 +509,10 @@ function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) |
   local called, opened = pcall(sqlite.open_result, path, writable, immutable, create)
   if not called then
     local handle, why = sqlite.open(path, writable, immutable, create)
-    if handle ~= nil then local _, _ = handle:close() end
+    if handle ~= nil then
+      local _, _ = handle:close()
+      error(opened, 0)
+    end
     return nil, Failure.coded("sqlite: " .. why, MISUSE)
   end
   if opened.code ~= Sqlite.OK then return nil, failed(opened) end
@@ -625,7 +628,10 @@ local function prepared(handle: Sqlite.Handle, sql: string,
   local called, opened = pcall(handle.prepare_result, handle, sql)
   if not called then
     local statement, why = handle:prepare(sql)
-    if statement ~= nil then statement:finalize() end
+    if statement ~= nil then
+      statement:finalize()
+      error(opened, 0)
+    end
     return nil, Failure.coded("sqlite: " .. why, MISUSE)
   end
   if opened.code ~= Sqlite.OK then return nil, failed(opened) end
@@ -749,7 +755,7 @@ end
 ---
 ---     local q <close> = assert(Sqlite.query(db, "SELECT id, body FROM t"))
 ---     for row in q:each() do print(row:integer(1), row:text(2)) end
----     assert(q:failure() == "", q:failure())
+---     assert(q:failure() == nil, q:failure())
 function Sqlite.query(handle: Sqlite.Handle, sql: string,
                       values?: {Sqlite.Value}): (Sqlite.Query) | (nil, Failure)
   local opened, trouble = prepared(handle, sql, values)
@@ -774,8 +780,9 @@ function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
 end
 
 --- Runs `work` inside a transaction and commits when it answers `true`.
---- When `work` answers `false` and why, or the commit fails, the
---- transaction rolls back and this answers `false` and that reason. When
+--- When `work` answers `false` and a [`Failure`], or the commit fails,
+--- the transaction rolls back and this answers `false` and that failure
+--- (one that says the work gave no why, where it gave none). When
 --- `work` raises, the transaction rolls back and the same error is
 --- raised again. A transaction already open on `handle` makes `BEGIN`
 --- fail, so calls do not nest.

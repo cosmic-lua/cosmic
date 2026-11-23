@@ -42,7 +42,7 @@ local class Failure
   extended_code?: integer
   --- Whether a wait was stopped for a signal the caller's guard holds,
   --- rather than failing on its own ([`cosmic.sqlite`]'s busy wait);
-  --- nil where nothing waited.
+  --- nil or false where it was not.
   cancelled?: boolean
 
   --- The text a person reads. With a path: `path: message`, or

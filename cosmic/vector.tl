@@ -325,8 +325,9 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
     end
     corpus = grown
   end
-  if failure == "" then
-    failure = tostring(q:failure())
+  local stopped = q:failure()
+  if failure == "" and stopped ~= nil then
+    failure = tostring(stopped)
   end
   q:close()
   if failure ~= "" then
@@ -388,8 +389,9 @@ function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Val
     end
     corpus = target
   end
-  if failure == "" then
-    failure = tostring(q:failure())
+  local stopped = q:failure()
+  if failure == "" and stopped ~= nil then
+    failure = tostring(stopped)
   end
   q:close()
   if failure ~= "" then

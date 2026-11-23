@@ -677,6 +677,6 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       if #rows == 0 then Fuzz.label("empty") end
       return true, ""
     end,
-    requires = { "integers", "numbers", "texts", "blobs", "empty", "bound in Lua", "bound in C" },
+    requires = { "integers", "numbers", "texts", "blobs", "empty" },
   })
 end
