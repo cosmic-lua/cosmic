@@ -146,3 +146,17 @@ local function test_cut_refuses_a_negative_count()
   local ok, err = pcall(String.cut, "abc", -1)
   assert(not ok and tostring(err):find("cut%(%-1%)") ~= nil, tostring(err))
 end
+
+local function test_as_utf8_keeps_utf8_and_replaces_what_is_not()
+  local text = "a\195\169\226\130\172\240\159\152\128"
+  assert(String.as_utf8(text) == text)
+  assert(String.as_utf8("") == "")
+  local fffd = "\239\191\189"
+  assert(String.as_utf8("a\255b") == "a" .. fffd .. "b")
+  assert(String.as_utf8("\128") == fffd)
+  -- A cut sequence, an overlong slash and a surrogate.
+  assert(String.as_utf8("x\226\130") == "x" .. fffd .. fffd)
+  assert(String.as_utf8("\192\175") == fffd .. fffd)
+  assert(String.as_utf8("\237\160\128") == fffd .. fffd .. fffd)
+  assert(utf8.len(String.as_utf8("\244\144\128\128")) ~= nil)
+end

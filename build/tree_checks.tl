@@ -117,6 +117,10 @@ allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which 
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.agent.host.call"] = "public API: what a snippet of cosmic agent's run tool calls to reach the agent; " ..
+  "snippets, which the tree never holds, are its users"
+allowed["cosmic.agent.host.sql"] = "public API: what a snippet of cosmic agent's run tool calls to query sessions.db; " ..
+  "snippets, which the tree never holds, are its users"
 allowed["cosmic.mcp.MISSING_CAPABILITY"] = "public API: the protocol's code for a request that needs a capability the " ..
   "client did not declare, which a client tests a failure's code against"
 allowed["cosmic.mcp.text"] = "public API: a text block of a tool's result or a prompt's message, which a server builds"

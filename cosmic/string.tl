@@ -1,7 +1,7 @@
 --- Small text operations a program otherwise writes by hand: splitting
 --- on a separator, iterating over lines, trimming, testing a prefix, a
 --- suffix or a part, reading a byte that must be there, cutting UTF-8
---- text to a length in bytes, and counting a noun. Every separator, prefix and suffix is plain
+--- text to a length in bytes, making any bytes UTF-8, and counting a noun. Every separator, prefix and suffix is plain
 --- text, never a Lua pattern, so a `.` or `%` in one means itself.
 ---
 ---     for line in String.lines("a\n\nb") do print(line) end -- a, "", b
@@ -120,6 +120,33 @@ function String.cut(text: string, most: integer): string
   local at = most
   while at > 0 and String.byte_at(text, at + 1) & 0xC0 == 0x80 do at = at - 1 end
   return text:sub(1, at)
+end
+
+--- `text` as UTF-8: `text` itself where it is UTF-8, else each byte
+--- that begins no whole character (a stray continuation byte, a cut
+--- sequence, an overlong form, a surrogate or past U+10FFFF) is one
+--- U+FFFD. What a program ran and wrote, or a database
+--- cell, so goes where only UTF-8 may: JSON, a terminal, an API.
+--- @param text string Any bytes
+--- @return string The bytes as UTF-8
+function String.as_utf8(text: string): string
+  if utf8.len(text) ~= nil then return text end
+  local out: mut {string} = {}
+  local at = 1
+  while at <= #text do
+    local b = text:byte(at) or 0
+    local n = if b < 0x80 then 1 elseif b >= 0xC2 and b <= 0xDF then 2 elseif b >= 0xE0 and b <= 0xEF then 3
+      elseif b >= 0xF0 and b <= 0xF4 then 4 else 0 end
+    local piece = if n > 0 then text:sub(at, at + n - 1) else "" end
+    if n > 0 and #piece == n and utf8.len(piece) == 1 then
+      out[#out + 1] = piece
+      at = at + n
+    else
+      out[#out + 1] = "\u{FFFD}"
+      at = at + 1
+    end
+  end
+  return table.concat(out)
 end
 
 --- `n` and `singular` as a count of things, "1 entry" or "2 entries": the
