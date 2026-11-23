@@ -56,17 +56,6 @@ local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local record Vendor
   record Pin
     url: string
@@ -168,10 +157,11 @@ function Vendor.all_names(root: string): {string}?, string
   end
   local names: mut {string} = {}
   for _, name in ipairs(entries) do
-    local pinned, pin_trouble = path_there(root .. "/vendor/" .. name .. "/PIN")
-    if pinned == nil then
-      return nil, pin_trouble
+    local pinned_status, pin_trouble = Fs.status(root .. "/vendor/" .. name .. "/PIN")
+    if pinned_status == nil then
+      return nil, tostring(pin_trouble)
     end
+    local pinned = pinned_status.exists
     if pinned then
       names[#names + 1] = name
     end

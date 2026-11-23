@@ -1,7 +1,7 @@
 local BuildPaths = require("cosmic_ci.build_paths")
 local Clock = require("cosmic.clock")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
+local Fs = require("cosmic.fs")
 
 local native_build_timeout_ns <const> = Clock.seconds(120)
 
@@ -10,7 +10,7 @@ end
 
 function LauncherSetup.build(root: string, output: string,
                              worker_target: string, tmp: string): string
-  local output_exists = Predicate.exists(output)
+  local output_exists = assert(Fs.status(output)).exists
   assert(not output_exists, "launcher output already exists: " .. output)
   local targets = Fixture.targets(BuildPaths.directory(root) .. "/targets.tsv")
   local supported = false

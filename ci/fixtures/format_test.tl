@@ -1,8 +1,8 @@
 local Clock = require("cosmic.clock")
 local Compress = require("cosmic.compress")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Fixture = require("cosmic_ci.fixture")
+local Fs = require("cosmic.fs")
 
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -191,7 +191,7 @@ local function test_portable_format_contract(tmp: string)
     if target.name == publish_target then supported = true end
   end
   assert(supported, "unsupported target: " .. publish_target)
-  local publish_exists = Predicate.exists(publish)
+  local publish_exists = assert(Fs.status(publish)).exists
   assert(not publish_exists, "format output already exists: " .. publish)
   Fixture.mkdir(publish)
   Fixture.copy(program .. ".a", publish .. "/program")

@@ -115,9 +115,9 @@ local function spelling(path: string): string?, string
   local seams = Seams.calls()
   local resolved, trouble = seams.fs_absolute(path)
   if resolved ~= nil then return resolved, "" end
-  local exists, why = seams.fs_exists(path)
-  if exists == nil then return nil, why end
-  if exists ~= false then return nil, trouble end
+  local status, why = seams.fs_status(path)
+  if status == nil then return nil, tostring(why) end
+  if status.exists then return nil, trouble end
   local parent, parent_trouble = spelling(Fs.dirname(path))
   if parent == nil then return nil, parent_trouble end
   local parts: mut {string} = {}
@@ -148,13 +148,17 @@ function CacheTrim.snapshot_safe(live: string, restored: string): CacheTrim.Snap
       end
       local sa, a_trouble = Fs.stat(a)
       if sa == nil then
-        local there, _ = seams.fs_exists(a)
-        if there ~= false then return { ownership = "unknown", why = tostring(a_trouble) } end
+        local there, _ = seams.fs_status(a)
+        if there == nil or there.exists then
+          return { ownership = "unknown", why = tostring(a_trouble) }
+        end
       end
       local sb, b_trouble = Fs.stat(b)
       if sb == nil then
-        local there, _ = seams.fs_exists(b)
-        if there ~= false then return { ownership = "unknown", why = tostring(b_trouble) } end
+        local there, _ = seams.fs_status(b)
+        if there == nil or there.exists then
+          return { ownership = "unknown", why = tostring(b_trouble) }
+        end
       end
       if sa ~= nil and sb ~= nil and sa.dev == sb.dev and sa.ino == sb.ino then
         return { ownership = "aliased", why = "RESTORED aliases the live cache or its sidecars" }
@@ -168,10 +172,10 @@ local function remove_snapshot(path: string): string
   local failures: mut {string} = {}
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
     local name = path .. suffix
-    local exists, trouble = Seams.calls().fs_exists(name)
-    if exists == nil then
-      failures[#failures + 1] = name .. ": " .. trouble
-    elseif exists then
+    local status, trouble = Seams.calls().fs_status(name)
+    if status == nil then
+      failures[#failures + 1] = tostring(trouble)
+    elseif status.exists then
       local ok, why = Fs.remove(name)
       if not ok then
         local said = tostring(why)

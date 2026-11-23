@@ -1,5 +1,4 @@
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
@@ -101,7 +100,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   outcome_ok(default, "default cache")
   local default_cache = if ctx.target == "aarch64-macos" then
     home .. "/Library/Caches/cosmic/cores" else home .. "/.cache/cosmic/cores" end
-  local default_exists = Predicate.is_dir(default_cache)
+  local default_exists = assert(Fs.status(default_cache)).is_dir
   assert(default_exists and permissions(default_cache) == 0x1c0,
     "default cache is missing or not 0700: " .. default_cache)
   local xdg_env = Maps.with(Maps.without(environment(), { "COSMIC_PORTABLE_CACHE" }),
@@ -109,7 +108,7 @@ local function test_launcher_cold_warm_and_default_paths(tmp: string)
   outcome_ok(Fixture.call_with_environment("xdg-cache",
     { ctx.artifact }, ctx.work,
     ctx.diagnostics, xdg_env), "XDG cache")
-  local xdg_exists = Predicate.is_dir(xdg .. "/cosmic/cores")
+  local xdg_exists = assert(Fs.status(xdg .. "/cosmic/cores")).is_dir
   assert(xdg_exists, "XDG cache was not made under " .. xdg)
   local relative_home = ctx.work .. "/relative-home"
   Fixture.mkdir(relative_home)
@@ -290,7 +289,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local marker = ctx.work .. "/read-only-short.marker"
   local refused = run(ctx, "read-only-short", base,
     { PORTABLE_PAYLOAD_MARKER = marker })
-  assert(not refused.result.ok and Predicate.exists(marker) == false,
+  assert(not refused.result.ok and assert(Fs.status(marker)).exists == false,
     "read-only short core was not refused before the payload ran")
   Fixture.contains(refused.err, "length differs and cache is read-only")
   Process.chmod(base, 0x1c0)
@@ -468,7 +467,7 @@ exit "$result"
     Fixture.contains(err,
       "fewer than two private descriptors are available in 3 through 9")
     assert(Fixture.read(guard) == "before\nafter\n" and
-        Predicate.exists(ctx.work .. "/" .. assert(one[1]) .. "-cache") == false,
+        assert(Fs.status(ctx.work .. "/" .. assert(one[1]) .. "-cache")).exists == false,
       assert(one[1]) .. " disturbed the caller's descriptors or made a cache")
   end
 

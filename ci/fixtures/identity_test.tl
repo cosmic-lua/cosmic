@@ -1,5 +1,4 @@
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
 local Test = require("cosmic.test")
@@ -323,7 +322,7 @@ local function test_identity_primary(tmp: string)
     "corrupt-core build unexpectedly succeeded")
   Fixture.contains(corrupt_outcome.err, "retained portable range ")
   Fixture.contains(corrupt_outcome.err, " digest differs from manifest")
-  assert(Predicate.exists(Fixture.built(corrupt_project) .. "/bin/hello") == false,
+  assert(assert(Fs.status(Fixture.built(corrupt_project) .. "/bin/hello")).exists == false,
     "corrupt-core build produced an application")
 
   local hello_run = Fixture.run("hello", { Fixture.built(project) .. "/bin/hello" }, project,
@@ -390,7 +389,7 @@ local function test_identity_primary(tmp: string)
       tostring(missing_outcome.result.code) .. ", want 1")
   Fixture.contains(missing_outcome.err,
     "the running binary names no runtime identity")
-  assert(Predicate.exists(missing_counter) == false,
+  assert(assert(Fs.status(missing_counter)).exists == false,
     "missing-runtime test wrote a counter file")
 
   check_transported(fixture_dir, project, work, diagnostics)

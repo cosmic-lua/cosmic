@@ -1,5 +1,4 @@
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local GithubApi = require("cosmic_ci.github_api")
 local Http = require("cosmic.http")
 local Shape = require("cosmic.shape")
@@ -185,7 +184,7 @@ local function test_a_download_refuses_a_location_that_is_not_https(tmp: string)
     assert(not ok and why:find("GET repos/o/r/z" .. tostring(i) .. ": ", 1, true) == 1, tostring(why))
   end
   assert(not fetched.value, "a URL was fetched")
-  assert(Predicate.exists(tmp .. "/z") ~= true)
+  assert(assert(Fs.status(tmp .. "/z")).exists ~= true)
 end
 
 local function test_a_download_reports_the_apis_refusal_and_the_fetchs_failure(tmp: string)
@@ -439,7 +438,7 @@ local function test_a_download_takes_the_bytes_when_the_api_answers_with_them(tm
   client = live({ { reply("200 OK", "", "x") } })
   ok, why = GithubApi.download(client, "repos/o/r/z", tmp .. "/b")
   assert(not ok and why:find("no redirect to a file", 1, true) ~= nil, tostring(why))
-  assert(Predicate.exists(tmp .. "/b") ~= true)
+  assert(assert(Fs.status(tmp .. "/b")).exists ~= true)
 end
 
 --- A client whose `send` answers each page after `cost_ns` of a clock

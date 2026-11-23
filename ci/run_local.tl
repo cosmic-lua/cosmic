@@ -11,17 +11,6 @@ local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local record Local
   --- The calls into the host that a test stands another in for: the new checker holds a library's functions
   --- fixed, so [`Local.calls`] hands out this record, which the run reads each call from. This file runs
@@ -147,9 +136,7 @@ local function successful(result: Child.Result, program: string)
 end
 
 local function present(path: string): boolean
-  local exists, why = path_there(path)
-  assert(exists ~= nil, why)
-  return exists
+  return assert(Fs.status(path)).exists
 end
 
 --- Resolve the existing prefix before appending missing components.

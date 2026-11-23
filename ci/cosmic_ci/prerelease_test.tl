@@ -1,7 +1,6 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local ArtifactRow = require("cosmic_ci.artifact_row")
 local Fixture = require("cosmic_ci.fixture")
 local GithubApi = require("cosmic_ci.github_api")
@@ -30,9 +29,7 @@ local tag <const> = day .. "-" .. commit
 local function read(path: string): string return (assert(Fs.read(path))) end
 local function write(path: string, data: string) assert(Fs.write(path, data)) end
 local function exists(path: string): boolean
-  local there, why = Predicate.there(path)
-  assert(there ~= nil, why)
-  return there
+  return assert(Fs.status(path)).exists
 end
 local function output(value: string?): string return value or "" end
 

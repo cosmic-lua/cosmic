@@ -1,5 +1,4 @@
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Seams = require("cosmic_ci.seams")
 local State = require("cosmic_ci.state")
 
@@ -39,7 +38,7 @@ function Context.read(): Context
   -- Resolved, not asserted canonical: the workspace is the runner's own
   -- path, and the self-check's scratch sits behind a symlink on macOS.
   local root = State.canonical_directory(required("GITHUB_WORKSPACE"))
-  local agents_exists = Predicate.exists(root .. "/AGENTS.md")
+  local agents_exists = assert(Fs.status(root .. "/AGENTS.md")).exists
   assert(agents_exists, "GITHUB_WORKSPACE is not a candidate checkout root")
   local scratch = State.external_path(scratch_path(), root)
   assert(Fs.mkdirs(scratch))
