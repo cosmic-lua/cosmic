@@ -669,7 +669,7 @@ local function test_csv_faults_name_the_file_and_the_place_and_at_is_refused()
   assert(Fs.write(dir .. "/ragged.csv", "a,b\n1,2\n3\n"))
   assert(Fs.write(dir .. "/open.csv", 'a,b\n1,"2\n'))
   local code, written = run(dir, { "--from", dir .. "/ragged.csv", "SELECT 1" })
-  assert(code == 1 and support.nth(written.err, 1):find("ragged.csv: csv: line 3, column 1: the record has 1 field, the header 2", 1, true) ~= nil,
+  assert(code == 1 and support.nth(written.err, 1):find("ragged.csv: csv: the record has 1 field, the header 2 at line 3, column 1", 1, true) ~= nil,
     written.err[1])
   code, written = run(dir, { "--from", dir .. "/open.csv", "SELECT 1" })
   assert(code == 1 and support.nth(written.err, 1):find("unclosed quote opened at line 2, column 3", 1, true) ~= nil, written.err[1])

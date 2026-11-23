@@ -412,7 +412,9 @@ local function target_parts(method: string, target: string): Target?, string
   end
   if target:sub(1, 1) ~= "/" then
     local parts, why = Url.parse(target)
-    if parts == nil then return nil, "the target is neither a path nor an absolute URL: " .. why end
+    if parts == nil then
+      return nil, "the target is neither a path nor an absolute URL: " .. tostring(why)
+    end
     if parts.scheme ~= "http" and parts.scheme ~= "https" then
       return nil, "an absolute target's scheme is not http or https"
     end

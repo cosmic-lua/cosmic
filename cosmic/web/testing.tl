@@ -441,7 +441,7 @@ local function request(self: Testing.Client, method: string, path: string, opts?
     if target:sub(1, 1) ~= "/" then
       local parts, why = Url.parse(target)
       if parts == nil then
-        error("web: test client: the redirect to " .. target .. ": " .. why, 2)
+        error("web: test client: the redirect to " .. target .. ": " .. tostring(why), 2)
       end
       local query = parts.query
       target = parts.path .. (if query ~= nil then "?" .. query else "" end)

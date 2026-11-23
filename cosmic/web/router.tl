@@ -81,7 +81,7 @@ end
 --- @return string Why it is refused
 function Router.canonical(path: string): Router.Canon?, string
   local segments, why = Url.segments(path)
-  if segments == nil then return nil, why end
+  if segments == nil then return nil, tostring(why) end
   local rest = path:sub(2)
   local _, slashes = rest:gsub("/", "/")
   local last_empty = rest == "" or rest:sub(-1) == "/"

@@ -977,15 +977,15 @@ end
 local function refused(bytes: string, fragment: string, opts?: Plist.DecodeOptions)
   local value, why = Plist.decode(bytes, opts)
   assert(value == nil, ("read, where a refusal with %q was wanted"):format(fragment))
-  assert(why:find(fragment, 1, true) ~= nil, ("refused with %q, not with %q"):format(why, fragment))
-  assert(why:sub(1, 7) == "plist: ", why)
+  assert(tostring(why):find(fragment, 1, true) ~= nil, ("refused with %q, not with %q"):format(tostring(why), fragment))
+  assert(tostring(why):sub(1, 7) == "plist: ", why)
 end
 
 --- `value` is not written, for a reason that holds `fragment`.
 local function unwritable(value: Plist.Value, fragment: string, opts?: Plist.EncodeOptions)
   local bytes, why = Plist.encode(value, opts)
   assert(bytes == nil, ("written, where a refusal with %q was wanted"):format(fragment))
-  assert(why:find(fragment, 1, true) ~= nil, ("refused with %q, not with %q"):format(why, fragment))
+  assert(tostring(why):find(fragment, 1, true) ~= nil, ("refused with %q, not with %q"):format(tostring(why), fragment))
 end
 
 local function read(bytes: string, opts?: Plist.DecodeOptions): Plist.Value
@@ -1365,11 +1365,11 @@ end
 
 local function test_an_xml_refusal_names_where_it_is()
   local _, why = Plist.decode(xml("<dict><key>users</key><array><dict/><dict><key>age</key><integer>x</integer></dict></array></dict>"))
-  assert(why == "plist: not an integer from -2^63 to 2^64 - 1 (at users/2/age)", why)
+  assert(tostring(why) == "plist: not an integer from -2^63 to 2^64 - 1 (at users/2/age)", why)
   -- A long way to it is cut to its innermost end, at a whole character.
   local long = ("\u{E9}"):rep(200)
   local _, long_why = Plist.decode(xml("<dict><key>" .. long .. "</key><real>x</real></dict>"))
-  assert(long_why == "plist: not a real (at ..." .. ("\u{E9}"):rep(48) .. ")", long_why)
+  assert(tostring(long_why) == "plist: not a real (at ..." .. ("\u{E9}"):rep(48) .. ")", long_why)
 end
 
 local function test_entities_are_held_to_what_xml_allows()
@@ -1457,9 +1457,13 @@ local function test_nesting_is_held_to_max_depth()
   refused(xml("<dict><key>a</key><array><dict/></array></dict>"), "nested deeper than 2", { max_depth = 2 })
   assert(read(xml("<dict><key>a</key><array><true/></array></dict>"), { max_depth = 2 }).kind == "dict")
   for _, max_depth in ipairs({ 0, -1, 1001 }) do
-    local ok, why = pcall(Plist.decode, "bplist00", { max_depth = max_depth })
+    local ok, why = pcall(function()
+      local _, _ = Plist.decode("bplist00", { max_depth = max_depth })
+    end)
     assert(not ok and tostring(why):find("max_depth is " .. tostring(max_depth) .. ", not 1 to 1000", 1, true) ~= nil)
-    ok, why = pcall(Plist.encode, Plist.boolean(true), { max_depth = max_depth })
+    ok, why = pcall(function()
+      local _, _ = Plist.encode(Plist.boolean(true), { max_depth = max_depth })
+    end)
     assert(not ok and tostring(why):find("max_depth is", 1, true) ~= nil)
   end
 end

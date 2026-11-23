@@ -578,7 +578,7 @@ local function send(hunt: Hunt, questions: {Dns.Question}): boolean, string
   local message: Dns.Message = { ...Dns.query(".", Dns.PTR, hunt.id), recursion_desired = false,
     questions = questions }
   local bytes, why = Dns.encode(message)
-  if bytes == nil then return false, why end
+  if bytes == nil then return false, tostring(why) end
   return send_by(hunt.socket, hunt.vias, bytes, hunt.to)
 end
 
@@ -908,7 +908,7 @@ end
 --- What a browse for `service` asks about, or nil and why `service` names no service type.
 local function service_of(service: string): Service?, string
   local given, why = Dns.labels(service)
-  if given == nil then return nil, why end
+  if given == nil then return nil, tostring(why) end
   local labels: mut {string} = {}
   for i, label in ipairs(given) do
     if i < #given or label:lower() ~= "local" then labels[#labels + 1] = label end
@@ -923,7 +923,7 @@ local function service_of(service: string): Service?, string
   end
   labels[#labels + 1] = "local"
   local name, trouble = Dns.name(labels)
-  if name == nil then return nil, trouble end
+  if name == nil then return nil, tostring(trouble) end
   return { written = service, name = name, suffix = { application:lower(), kind:lower(), "local" } }, ""
 end
 
@@ -1005,12 +1005,14 @@ end
 --- `local` domain.
 local function local_host(name: string): string?, string
   local labels, why = Dns.labels(name)
-  if labels == nil then return nil, why end
+  if labels == nil then return nil, tostring(why) end
   local last = labels[#labels]
   if #labels < 2 or last == nil or last:lower() ~= "local" then
     return nil, ("mdns: '%s' is no host of the local domain, as printer.local is"):format(name)
   end
-  return Dns.name(labels)
+  local host, trouble = Dns.name(labels)
+  if host == nil then return nil, tostring(trouble) end
+  return host, ""
 end
 
 --- The addresses of the host `name` of the `local` domain, as `printer.local`, that answer within
@@ -1079,7 +1081,7 @@ local function publication(given: Mdns.Published, hosts: mut {string: mut {Dns.R
   local service, unnamed = service_of(given.service)
   if service == nil then return nil, unnamed end
   local labels, unread = Dns.labels(service.name)
-  if labels == nil then return nil, unread end
+  if labels == nil then return nil, tostring(unread) end
   if #labels ~= #service.suffix then
     return nil, ("mdns: '%s' is a sub-type, which a responder does not publish"):format(given.service)
   end

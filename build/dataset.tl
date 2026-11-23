@@ -248,7 +248,7 @@ local function delimited(name: string, delimiter: string): function(text: string
     end
     local made, trouble = Csv.table(text, { delimiter = delimiter })
     if made == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     local rows: dataset.Rows = {}
     rows.columns = made.columns
@@ -525,7 +525,7 @@ local function copied(handle: Sqlite.Handle, name: string, format: string, text:
   end
   local loaded, why = Csv.load(handle, name, source)
   if loaded == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   local renamed: mut {string:string} = {}
   local columns: mut {string} = {}

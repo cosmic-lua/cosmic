@@ -325,7 +325,9 @@ local function test_url_part_writes_only_unreserved_bytes_and_escapes(tmp: strin
         return true, ""
       end
       if out ~= Url.escape(input) then return false, "differs from Url.escape: " .. out end
-      if Url.unescape(out) ~= input then return false, "reads back as another text: " .. out end
+      if assert(Url.unescape(out)) ~= input then
+        return false, "reads back as another text: " .. out
+      end
       if out ~= input then Fuzz.label("escaped") else Fuzz.label("plain") end
       if input == "" then Fuzz.label("empty") end
       return true, ""

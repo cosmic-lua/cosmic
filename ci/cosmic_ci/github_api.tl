@@ -101,7 +101,7 @@ local upload_ns <const> = Clock.seconds(600)
 --- that does not parse or has a scheme with no default port.
 local function origin_of(url: string): string?, string
   local parts, why = Url.parse(url)
-  if parts == nil then return nil, why end
+  if parts == nil then return nil, tostring(why) end
   local port = parts.port or default_ports[parts.scheme]
   if port == nil then return nil, "the scheme " .. parts.scheme .. " has no default port" end
   local host = if parts.host:find(":", 1, true) then ("[" .. parts.host .. "]") else parts.host end
@@ -119,7 +119,7 @@ end
 --- host (Enterprise Server) serves them itself under /api/uploads.
 local function uploads_of(base: string): Uploads?, string
   local parts, why = Url.parse(base)
-  if parts == nil then return nil, why end
+  if parts == nil then return nil, tostring(why) end
   local host, prefix = parts.host, "/api/uploads"
   if host:sub(1, 4) == "api." then host, prefix = "uploads." .. host:sub(5), "" end
   local authority = if host:find(":", 1, true) then ("[" .. host .. "]") else host end
@@ -372,7 +372,7 @@ function GithubApi.upload(client: GithubApi.Client, upload_url: string, name: st
   end
   local url = (upload_url:gsub("{[^}]*}$", ""))
   local parts, why = Url.parse(url)
-  if parts == nil then return false, "upload URL: " .. why end
+  if parts == nil then return false, "upload URL: " .. tostring(why) end
   local path = parts.path
   local url_origin, _ = origin_of(url)
   if url_origin ~= upload_origin or parts.userinfo ~= nil or parts.query ~= nil or

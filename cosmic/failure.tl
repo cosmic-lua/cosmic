@@ -18,8 +18,8 @@
 
 local sys = require("cosmic.sys")
 
---- What went wrong, where, and why, answered by [`Failure.new`] or
---- [`Failure.system`].
+--- What went wrong, where, and why, answered by [`Failure.new`],
+--- [`Failure.at`] or [`Failure.system`].
 local class Failure
   --- What went wrong, in words: `No such file or directory`.
   message: string
@@ -28,28 +28,53 @@ local class Failure
   --- The errno that says why, as [`cosmic.sys`] names them
   --- ([`sys.ENOENT`]), or 0 where no system call failed.
   errno: integer
+  --- The line of the text the failure is at, from 1, nil when it is at
+  --- no place in a text: a decoder's refusal names one.
+  line?: integer
+  --- The column of that line, a byte from 1, nil when only the line is
+  --- known.
+  column?: integer
 
-  --- `path: message`, or the message alone where the path is nil or empty.
+  --- The text a person reads. With a path: `path: message`, or
+  --- `path:line:column: message` where the failure is at a place, as a
+  --- compiler says it. With no path: the message, then ` at line N,
+  --- column M` where it is at a place.
   function __tostring(self): string
-    local path = self.path
-    if path == nil or path == "" then
+    local path, line, column = self.path or "", self.line, self.column
+    local has_path = path ~= ""
+    if line == nil then
+      if has_path then return path .. ": " .. self.message end
       return self.message
     end
-    return path .. ": " .. self.message
+    if has_path then
+      local place = path .. ":" .. tostring(line)
+      if column ~= nil then place = place .. ":" .. tostring(column) end
+      return place .. ": " .. self.message
+    end
+    local place = "line " .. tostring(line)
+    if column ~= nil then place = place .. ", column " .. tostring(column) end
+    return self.message .. " at " .. place
   end
 end
 
 --- A failure of `message`, about `path` when one is given, that no
 --- system call answered: its errno is 0.
 function Failure.new(message: string, path?: string): Failure
-  return { message = message, path = path, errno = 0 }
+  return { message = message, path = path, errno = 0, line = nil, column = nil }
+end
+
+--- A failure of `message` at `line` (and `column`, a byte from 1, when
+--- given) of a text, about `path` when one is given: what a decoder
+--- answers for what it refuses. Its errno is 0.
+function Failure.at(message: string, line: integer, column?: integer, path?: string): Failure
+  return { message = message, path = path, errno = 0, line = line, column = column }
 end
 
 --- The failure a system call answered with `errno`, about `path` when one
 --- is given: its message is the errno's, the same words on every OS
 --- ([`sys.errno_message`]).
 function Failure.system(errno: integer, path?: string): Failure
-  return { message = sys.errno_message(errno), path = path, errno = errno }
+  return { message = sys.errno_message(errno), path = path, errno = errno, line = nil, column = nil }
 end
 
 return Failure

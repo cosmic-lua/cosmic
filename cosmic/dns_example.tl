@@ -54,7 +54,7 @@ end
 function Example.decode_refuses()
   local message, why = Dns.decode("\x00\x00\x81\x80\x00\x00\x00\x01\x00\x00\x00\x00")
   print(why)
-  assert(message == nil and why ~= "")
+  assert(message == nil and tostring(why) ~= "")
 end
 
 --- A server's answer to a query: [`Dns.reply`] repeats what a response repeats, and each record is written from
@@ -146,7 +146,7 @@ end
 function Example.labels_refuses()
   local labels, why = Dns.labels(("a"):rep(64) .. ".example.com")
   print(why)
-  assert(labels == nil and why ~= "")
+  assert(labels == nil and tostring(why) ~= "")
 end
 
 --- The strings of a TXT record as the keys and values a service describes itself with (RFC 6763): keys in

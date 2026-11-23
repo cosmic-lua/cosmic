@@ -15,7 +15,7 @@ end
 local function rows_of(text: string, opts?: Csv.Options): {{string:string}}?, string
   local made, why = Csv.table(text, opts)
   if made == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   return made.rows, ""
 end
@@ -29,7 +29,7 @@ end
 local function refused(text: string, opts?: Csv.Options): string
   local records, why = Csv.parse(text, opts)
   assert(records == nil, "parsed as " .. show(records or {}))
-  return why
+  return tostring(why)
 end
 
 local function test_plain_records_with_lf_crlf_and_no_final_newline()
@@ -74,11 +74,11 @@ local function test_delimiters_tab_and_semicolon()
   -- Not a tail call, which would leave no frame here to name.
   local readers: {function(text: string, opts: Csv.Options): any} = {
     function(text: string, opts: Csv.Options): any
-      local records = Csv.parse(text, opts)
+      local records, _ = Csv.parse(text, opts)
       return records -- checked: any_use
     end,
     function(text: string, opts: Csv.Options): any
-      local made = Csv.table(text, opts)
+      local made, _ = Csv.table(text, opts)
       return made -- checked: any_use
     end,
   }
@@ -121,12 +121,12 @@ end
 
 local function test_a_ragged_record_is_refused_strictly_naming_its_line()
   local none, why = rows_of("a,b\n1,2\n3\n")
-  assert(none == nil and why == "csv: line 3, column 1: the record has 1 field, the header 2", why)
+  assert(none == nil and why == "csv: the record has 1 field, the header 2 at line 3, column 1", why)
   none, why = rows_of("a,b\n1,2,3\n")
-  assert(none == nil and why == "csv: line 2, column 1: the record has 3 fields, the header 2", why)
+  assert(none == nil and why == "csv: the record has 3 fields, the header 2 at line 2, column 1", why)
   -- The line is where the record began, after a quoted line break.
   none, why = rows_of('a,b\n"x\ny",1\n\n7\n')
-  assert(none == nil and why == "csv: line 5, column 1: the record has 1 field, the header 2", why)
+  assert(none == nil and why == "csv: the record has 1 field, the header 2 at line 5, column 1", why)
   -- A trailing delimiter is a field, so it must be in the header too.
   none, why = rows_of("a,b\n1,2,\n")
   assert(none == nil, "a trailing delimiter makes a third field")
@@ -204,8 +204,8 @@ local function test_records_agree_with_parse_and_table_and_refuse_as_parse_does(
     if index > 1 then assert(row.line == made.lines[index - 1]) end
   end
   local none, why = Csv.records('a\n"x\n')
-  assert(none == nil and why == refused('a\n"x\n'), why)
-  Test.raises(function() Csv.records("a", { delimiter = "ab" }) end)
+  assert(none == nil and tostring(why) == refused('a\n"x\n'), why)
+  Test.raises(function() local _, _ = Csv.records("a", { delimiter = "ab" }) end)
 end
 
 local function test_headers_are_renamed_deterministically()
@@ -229,10 +229,10 @@ local function test_a_large_file_reads_in_full()
   assert(#rows == 60000 and Array.at(rows, 60000).id == "60000" and Array.at(rows, 1).note == 'note, "1" \nmore') -- checked: map_field*2
   -- A fault at the end is placed by the line count, quoted breaks included.
   local none, why = rows_of(text .. "9,x")
-  assert(none == nil and why == "csv: line 120002, column 1: the record has 2 fields, the header 3", why)
+  assert(none == nil and why == "csv: the record has 2 fields, the header 3 at line 120002, column 1", why)
   local big = '"' .. string.rep("line\n", 200000) .. '"x'
   local _, big_why = Csv.parse(big)
-  assert(big_why == "csv: after a closing quote, expected the delimiter or the end of the line at line 200001, column 2",
+  assert(tostring(big_why) == "csv: after a closing quote, expected the delimiter or the end of the line at line 200001, column 2",
     big_why)
 end
 
@@ -256,7 +256,7 @@ local function test_a_file_of_two_columns_skips_blank_lines()
   assert(#rows == 2 and rows[2].a == "3") -- checked: map_field
   assert(#assert(rows_of("\na,b\r\n\r\n1,2\r\n")) == 1)
   local none, why = rows_of("a,b\n1,2\n\n3\n")
-  assert(none == nil and why == "csv: line 4, column 1: the record has 1 field, the header 2", why)
+  assert(none == nil and why == "csv: the record has 1 field, the header 2 at line 4, column 1", why)
 end
 
 local function test_table_keeps_the_headers_order()

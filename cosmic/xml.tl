@@ -51,6 +51,7 @@
 local type raw_xml = require("cosmic.internal.xml")
 
 local raw = require("cosmic.internal.xml")
+local Failure = require("cosmic.failure")
 
 local Stream = require("cosmic.stream")
 
@@ -141,11 +142,25 @@ local record Xml
   end
 end
 
---- A parser, as [`Xml.Parser`] describes it; nil and why when memory runs
---- out. Raises where [`Xml.Options`] says.
-function Xml.parser(opts?: Xml.Options): Xml.Parser?, string
-  if opts == nil then return raw.parser() end
-  return raw.parser(opts.namespaces, opts.eager, opts.max_text, opts.local_names)
+--- A parser, as [`Xml.Parser`] describes it; nil and a [`Failure`]
+--- when memory runs out. Raises where [`Xml.Options`] says.
+function Xml.parser(opts?: Xml.Options): (Xml.Parser) | (nil, Failure)
+  local made, why: Xml.Parser?, string
+  if opts == nil then
+    made, why = raw.parser()
+  else
+    made, why = raw.parser(opts.namespaces, opts.eager, opts.max_text, opts.local_names)
+  end
+  if made == nil then return nil, Failure.new(why) end
+  return made
+end
+
+--- `why`, a parser's words, as a [`Failure`]: one at a place in the text
+--- where they begin `xml: line N, column M: `.
+local function placed(why: string): Failure
+  local line, column, rest = why:match("^xml: line (%d+), column (%d+): (.*)$")
+  if line == nil or column == nil or rest == nil then return Failure.new(why) end
+  return Failure.at("xml: " .. rest, math.tointeger(tonumber(line)) or 0, math.tointeger(tonumber(column)))
 end
 
 --- Whether the open elements `names` stand at `path`'s segments, `*`
@@ -211,14 +226,14 @@ function Xml.subtrees(path?: string): Xml.Subtrees
   return made
 end
 
---- The root element of `text`, read whole; nil and why when it does not
---- read.
-function Xml.tree(text: string, opts?: Xml.Options): Xml.Element?, string
+--- The root element of `text`, read whole; nil and a [`Failure`] at the
+--- place it stops reading when it does not read.
+function Xml.tree(text: string, opts?: Xml.Options): (Xml.Element) | (nil, Failure)
   local events, trouble = Xml.events(text, opts)
   if events == nil then return nil, trouble end
   local root = Xml.subtrees():take(events)[1]
-  if root == nil then return nil, "xml: no root element" end
-  return root, ""
+  if root == nil then return nil, Failure.new("xml: no root element") end
+  return root
 end
 
 --- The child elements of `element` named `name`, or every one when
@@ -277,18 +292,19 @@ function Xml.text(element: Xml.Element): string
 end
 
 --- Every event in `text`, read whole, as one parser's `feed` and `finish`
---- answer them together; nil and why when it does not read.
-function Xml.events(text: string, opts?: Xml.Options): {Xml.Event}?, string
+--- answer them together; nil and a [`Failure`], at the line and column
+--- the parser stopped at, when it does not read.
+function Xml.events(text: string, opts?: Xml.Options): ({Xml.Event}) | (nil, Failure)
   local p <close>, trouble = Xml.parser(opts)
   if p == nil then return nil, trouble end
   local events, feed_trouble = p:feed(text)
-  if events == nil then return nil, feed_trouble end
+  if events == nil then return nil, placed(feed_trouble) end
   local last, finish_trouble = p:finish()
-  if last == nil then return nil, finish_trouble end
+  if last == nil then return nil, placed(finish_trouble) end
   local all: mut {Xml.Event} = {}
   for _, e in ipairs(events) do all[#all + 1] = e end
   for _, e in ipairs(last) do all[#all + 1] = e end
-  return all, ""
+  return all
 end
 
 --- Whether `s` is UTF-8 that XML 1.0 can carry: no C0 control but tab,
@@ -602,7 +618,7 @@ end
 --- name for themselves is never chosen; written a batch at a time
 --- ([`Xml.writer`]), one the writer has bound in an element still open may
 --- not be named inside it.
---- nil and why, naming the event, when they are no document: an element
+--- nil and a [`Failure`], naming the event, when they are no document: an element
 --- that is not closed, or closed by another name; no root element, or a
 --- second; text outside the root; a name that is no XML name, or one in a
 --- namespace no name may be in (none, or `xmlns`'s own); two attributes
@@ -610,13 +626,13 @@ end
 --- instruction whose target is `xml` in any case or whose text holds
 --- `?>`; or a string that is not UTF-8 or holds a character XML cannot
 --- carry, even as a reference.
-function Xml.write(events: {Xml.Event}): string?, string
+function Xml.write(events: {Xml.Event}): (string) | (nil, Failure)
   local collected = Stream.collect()
   local w = Xml.writer(collected)
   local ok, why = w:write(events)
   if ok then ok, why = w:close() end
-  if not ok then return nil, why end
-  return collected:result(), ""
+  if not ok then return nil, Failure.new(why) end
+  return collected:result()
 end
 
 return Xml

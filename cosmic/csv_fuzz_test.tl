@@ -26,7 +26,7 @@ end
 local function rows_of(text: string, opts?: Csv.Options): {{string:string}}?, string
   local made, why = Csv.table(text, opts)
   if made == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   return made.rows, ""
 end
@@ -104,7 +104,7 @@ local function test_what_is_written_parse_reads_back(tmp: string)
       local delimiter, records = records_from(input)
       local text = encode(records, delimiter)
       local back, trouble = Csv.parse(text, { delimiter = delimiter })
-      if back == nil then return false, "parse refused its own text: " .. trouble end
+      if back == nil then return false, "parse refused its own text: " .. tostring(trouble) end
       if not same(back, records) then return false, "read back differently from " .. text end
       if #records == 0 then Fuzz.label("no records") end
       if text:find('"', 1, true) then Fuzz.label("quoted") else Fuzz.label("plain") end
@@ -161,18 +161,20 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
       if not rows_ok then return false, "table raised: " .. tostring(rows) end
       if records == nil then
         Fuzz.label("refused")
-        if not why:find("line %d+, column %d+") then return false, "no place in: " .. why end
+        if why.line == nil or why.column == nil then
+          return false, "no place in: " .. tostring(why)
+        end
         if rows ~= nil then return false, "table read what parse refused" end
         local none_ok, none, none_why = pcall(Csv.records, fields[2], options) -- checked: overload_none
         if not none_ok then return false, "records raised: " .. tostring(none) end
-        if none ~= nil or none_why ~= why then
-          return false, "records said " .. tostring(none_why) .. ", not " .. why
+        if none ~= nil or tostring(none_why) ~= tostring(why) then
+          return false, "records said " .. tostring(none_why) .. ", not " .. tostring(why)
         end
         return true, ""
       end
       Fuzz.label("read")
-      local located = Csv.records(Array.at(fields, 2), options)
-      local made = Csv.table(Array.at(fields, 2), options)
+      local located, _ = Csv.records(Array.at(fields, 2), options)
+      local made, _ = Csv.table(Array.at(fields, 2), options)
       if located == nil or #located ~= #records then
         return false, "records disagrees with parse"
       end
@@ -194,14 +196,14 @@ local function test_parse_and_table_are_total_on_any_bytes(tmp: string)
         end
       end
       local text = encode(records, Array.at(fields, 1))
-      local again = Csv.parse(text, options)
+      local again, _ = Csv.parse(text, options)
       if again == nil or not same(again, records) then
         return false, "not a fixed point: " .. text
       end
       if rows == nil then
         Fuzz.label("ragged")
-        if not rows_why:find("^csv: line %d+, column 1: the record has ") then
-          return false, "table said: " .. rows_why
+        if not tostring(rows_why):find("^csv: the record has .* at line %d+, column 1$") then
+          return false, "table said: " .. tostring(rows_why)
         end
       elseif (records[1] == nil or #records[1] > 1) and #rows ~= math.max(#records - 1, 0) then
         return false, #rows .. " rows for " .. #records .. " records"
@@ -256,11 +258,11 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
       if kind == 3 then
         Fuzz.label("ragged")
         local rows, why = rows_of("h1,h2\n" .. text)
-        local expected = "csv: line " .. tostring((where + 1)) .. ", column 1: the record has 3 fields, the header 2"
+        local expected = "csv: the record has 3 fields, the header 2 at line " .. tostring((where + 1)) .. ", column 1"
         if rows ~= nil or why ~= expected then
           return false, "rows said " .. tostring(why) .. ", not " .. expected
         end
-        local records = Csv.parse("h1,h2\n" .. text)
+        local records, _ = Csv.parse("h1,h2\n" .. text)
         if records == nil or #records ~= lines + 1 then
           return false, "parse refused a ragged table"
         end
@@ -276,7 +278,7 @@ local function test_a_defect_is_refused_at_the_place_it_was_put(tmp: string)
         expected = "csv: unclosed quote opened at line " .. tostring(where) .. ", column " .. tostring((#("k" .. tostring(where)) + 2))
       end
       local records, why = Csv.parse(text)
-      if records ~= nil or why ~= expected then
+      if records ~= nil or tostring(why) ~= expected then
         return false, "parse said " .. tostring(why) .. ", not " .. expected
       end
       return true, ""
@@ -437,7 +439,7 @@ local function test_each_row_is_at_the_line_its_record_was_written_on(tmp: strin
       end
       local text = table.concat(out)
       local made, why = Csv.table(text, { delimiter = delimiter })
-      if made == nil then return false, "table refused its own text: " .. why end
+      if made == nil then return false, "table refused its own text: " .. tostring(why) end
       if #made.lines ~= #made.rows or #made.rows ~= #expected then
         return false, tostring(#made.lines) .. " lines, " .. tostring(#made.rows) .. " rows, " .. tostring(#expected) .. " written"
       end
