@@ -74,6 +74,7 @@ local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
 local Signal = require("cosmic.signal")
 local Sqlite = require("cosmic.sqlite")
+local String = require("cosmic.string")
 local Tools = require("cosmic.agent.tools")
 local bare = require("build.bare")
 local verb_spec = require("build.verb_spec")
@@ -213,7 +214,7 @@ local standard: verb.Io = {
 --- Shortens `text` to one line of at most 80 bytes.
 local function brief(text: string): string
   local line = text:gsub("\n.*", " ...")
-  if #line > 80 then line = line:sub(1, 77) .. "..." end
+  if #line > 80 then line = String.cut(line, 77) .. "..." end
   return line
 end
 
