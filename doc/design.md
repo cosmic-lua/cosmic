@@ -44,9 +44,14 @@ these argues with the principle, not with the reviewer.
    one path outside code may import, and every sibling beside it is
    reachable only from within that directory. no list to maintain,
    none to go stale.
-3. **honest returns.** `T | nil, string` for a value, `boolean,
-   string` for an effect, two slots and nothing in a third, a
-   structured error record when the failure has shape. the one
+3. **honest returns.** `(T) | (nil, Failure)` for a value, `(true) |
+   (false, Failure)` for an effect, two slots and nothing in a third.
+   a [`cosmic.failure`] carries the words, the path, the errno and a
+   `kind` (`timeout`, `cancelled`, ...), so a caller acts on the cause
+   and never matches the words; an absence that is no failure is a
+   value (`false`, or a record such as [`Fs.status`]'s), not a failure.
+   one operation is one function: no twin that raises, or that answers
+   a classified record, beside it. the one
    exception is the raw binding table [`cosmic.sys`], whose C calls
    add the errno in a third slot, and a stand-in a module stores
    into that table in a binding's place, which answers as the
@@ -1559,3 +1564,4 @@ in [roadmap.md](roadmap.md).
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md
+[`Fs.status`]: ../cosmic/fs.tl
