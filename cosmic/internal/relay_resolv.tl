@@ -126,13 +126,13 @@ local function run(name: string, request: resolv.Request): {raw_socket.Resolved}
     if in_task then
       if #fds == 0 then
         local waited, because = Poll.delay(wait_ns)
-        if not waited then return nil, because end
+        if not waited then return nil, because.message end
       else
         local answers, because = Poll.ready(fds, events, wait_ns)
         if answers ~= nil then
           ready_fds, ready_events = fds, answers
-        elseif because == Poll.CANCELLED then
-          return nil, because
+        elseif because.kind == "cancelled" then
+          return nil, because.message
         end
       end
     else

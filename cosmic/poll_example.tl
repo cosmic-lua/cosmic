@@ -52,15 +52,15 @@ function Example.spawn()
   assert(Fs.remove_tree(dir))
 end
 
---- A wait bounded by its timeout answers false and [`Poll.TIMEOUT`] when
---- nothing comes in time.
+--- A wait bounded by its timeout answers false and a Failure of kind
+--- "timeout" when nothing comes in time.
 function Example.readable()
   local dir = assert(Fs.mkdtemp("cosmic-poll-example-"))
   local reader, writer = pipe(dir)
   Poll.run(function()
     local ok, why = Poll.readable(reader, Clock.ms(10))
     print(ok, why)
-    assert(not ok and why == Poll.TIMEOUT)
+    assert(not ok and why.kind == "timeout")
   end)
   sys.close(reader)
   sys.close(writer)
@@ -95,26 +95,26 @@ function Example.delay()
   assert(woke[1] == 5 and woke[2] == 20)
 end
 
---- A cancelled task's wait answers [`Poll.CANCELLED`], and it unwinds on
---- its own terms.
+--- A cancelled task's wait answers a Failure of kind "cancelled", and it
+--- unwinds on its own terms.
 function Example.cancel()
-  local waited = { answer = "" }
+  local waited: mut {string: string} = { answer = "" }
   Poll.run(function()
     local sleeper = Poll.spawn(function()
       local _, why = Poll.delay(Clock.seconds(60))
-      waited["answer"] = why
+      waited["answer"] = if why ~= nil then why.kind else "" end
     end)
     assert(Poll.delay(0))
     sleeper:cancel()
     assert(sleeper:join())
   end)
   print(waited["answer"])
-  assert(waited["answer"] == Poll.CANCELLED)
+  assert(waited["answer"] == "cancelled")
 end
 
 --- A task that waits on whatever its waits answer outlasts `cancel`,
 --- and is ended by `kill` where it waits: its `<close>` variables are
---- closed, and a join answers [`Poll.CANCELLED`].
+--- closed, and a join answers a Failure of kind "cancelled".
 function Example.kill()
   local released = false
   Poll.run(function()
@@ -125,11 +125,11 @@ function Example.kill()
     assert(Poll.delay(0))
     stubborn:cancel()
     local _, still = stubborn:join(Clock.ms(10))
-    assert(still == Poll.TIMEOUT)
+    assert(still ~= nil and still.kind == "timeout")
     stubborn:kill()
     local ended, why = stubborn:join()
     print(released, ended, why)
-    assert(released and not ended and why == Poll.CANCELLED)
+    assert(released and not ended and why.kind == "cancelled")
   end)
 end
 
@@ -144,7 +144,8 @@ function Example.notifier()
     local consumer = Poll.spawn(function()
       while #handled < 3 do
         while #queue == 0 do
-          if not notifier:wait(Clock.seconds(5)) then return end
+          local woken, _ = notifier:wait(Clock.seconds(5))
+          if not woken then return end
         end
         table.insert(handled, assert(table.remove(queue, 1)))
       end

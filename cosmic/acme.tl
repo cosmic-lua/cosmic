@@ -991,7 +991,11 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
   local request: Acme.Request = opts.request or default_request
   -- In a task of Poll.run the other tasks go on meanwhile.
   local pause_for = opts.pause or function(ns: integer): boolean, string
-    if Poll.in_task() then return Poll.delay(ns) end
+    if Poll.in_task() then
+      local paused, why = Poll.delay(ns)
+      if not paused then return false, why.message end
+      return true, ""
+    end
     return Clock.sleep_ns(ns)
   end
   local thumbprint = Acme.thumbprint(key)

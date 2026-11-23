@@ -266,9 +266,9 @@ function Assets.directory(root: string): Assets.Source
       return asset, ""
     end,
     paths = function(_self: Assets.Source): {string}
-      local list, _ = Fs.walk(root, function(_rel: string, name: string): boolean
+      local list, _ = Fs.walk(root, { skip = function(_rel: string, name: string): boolean
         return name:sub(1, 1) == "."
-      end)
+      end })
       return list or {}
     end,
     dynamic = function(_self: Assets.Source): boolean return true end,

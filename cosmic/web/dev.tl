@@ -287,9 +287,9 @@ local function scan(roots: {string}, ignored: function(string, string): boolean,
     local files: {string} = {}
     local present, _ = Fs.status(root)
     if not (absent_ok == true and present ~= nil and not present.exists) then
-      local listed, why = Fs.walk_following(root, function(rel: string, name: string, _kind: Fs.Kind): boolean
+      local listed, why = Fs.walk(root, { follow = true, skip = function(rel: string, name: string, _kind: Fs.Kind): boolean
         return ignored(rel, name)
-      end)
+      end })
       if listed == nil then return nil, tostring(why) end
       files = listed
     end

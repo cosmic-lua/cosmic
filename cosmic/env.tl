@@ -16,6 +16,9 @@ local record Env
     "COSMIC_BUILD_HOME"
     --- Set to anything, writes a line of memory use at each mark of a run.
     "COSMIC_MEMPROBE"
+    --- Set and neither empty nor "0", writes a line to stderr for each module a process loads from a database,
+    --- indented by how deep it was required, with the time it took, the time it took itself and the time reading it.
+    "COSMIC_TRACE_REQUIRE"
     --- Names the zig to run, over the pinned one.
     "COSMIC_ZIG"
     --- Where zig keeps its project cache.
@@ -104,7 +107,7 @@ end
 --- One variable, or nil when it is not set; this is the os.getenv
 --- operation, C's `getenv`. Any name is read: a program of its own
 --- reads its own variables here, and the tree reads its own through
---- [`Env.read`].
+--- [`Env.read`]. A default goes at the call: `Env.get("PORT") or "8080"`.
 function Env.get(name: string): string?
   return sys.getenv(name)
 end
@@ -113,15 +116,6 @@ end
 --- in [`Env.Name`] is a checker error.
 function Env.read(name: Env.Name): string?
   return sys.getenv(name)
-end
-
---- One variable, or the fallback when it is not set.
-function Env.get_or(name: string, fallback: string): string
-  local value = sys.getenv(name)
-  if value == nil then
-    return fallback
-  end
-  return value
 end
 
 --- Every variable the process has, in a table of the caller's own: it may be changed (a child's environment is built that

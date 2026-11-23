@@ -27,7 +27,7 @@
 --- ([`build.tree_checks`]), and that every public example and user-guide example compiles as shown, alone
 --- ([`build.example_checks`]). A tree that does not build fails, since the checks need its projection, and a note on the
 --- standard library fails the run instead of being a note. A run over some paths of cosmic's own tree makes the few of
---- these that cost it seconds -- the exports, the doc references, the plurals of the files named -- and holds their
+--- these that cost it seconds -- the exports, the doc references, the public docs and plurals of the Teal files named -- and holds their
 --- markers to the merge base; a run in its `ci/` holds the files named to the plurals.
 ---
 --- `--changed` names the paths that changed since the whole tree passed
@@ -259,7 +259,7 @@ end
 --- @return {string}|nil
 --- @return string Error message on failure
 local function sources(root: string): {string}?, string
-  local files, trouble = Fs.walk(root, skip)
+  local files, trouble = Fs.walk(root, { skip = skip })
   if files == nil then
     return nil, tostring(trouble)
   end
@@ -276,7 +276,7 @@ end
 --- a `testdata/` directory, which the build never makes a module of
 --- ([`build.derivation`]) and a test may keep broken on purpose.
 local function template_sources(root: string): {string}?, string
-  local files, trouble = Fs.walk(root, skip)
+  local files, trouble = Fs.walk(root, { skip = skip })
   if files == nil then
     return nil, tostring(trouble)
   end
@@ -368,9 +368,9 @@ local function workflow_sources(dir: string, root: string): {string}?, string
   if st == nil or st.kind ~= "dir" then
     return {}, ""
   end
-  local files, trouble = Fs.walk(base, function(entry: string): boolean
+  local files, trouble = Fs.walk(base, { skip = function(entry: string): boolean
     return Fs.basename(entry):sub(1, 1) == "."
-  end)
+  end })
   if files == nil then
     return nil, tostring(trouble)
   end
@@ -845,9 +845,9 @@ local function named_files(root: string, left_alone: function(string): boolean):
   return function(basename: string): {string}
     if not walked then
       walked = true
-      local files, _ = Fs.walk(root, function(entry: string, name: string): boolean
+      local files, _ = Fs.walk(root, { skip = function(entry: string, name: string): boolean
         return entry == "o" or name == ".git" or left_alone(entry)
-      end)
+      end })
       for _, file in ipairs(files or {}) do
         local list: mut {string} = by_name[Fs.basename(file)] or {}
         list[#list + 1] = file
@@ -1747,21 +1747,31 @@ local function hold_named_markers(root: string, files: {string}, findings: mut {
   if held.note ~= "" then log:say("fix: ceilings: " .. held.note) end
 end
 
---- The plurals of the Teal files `files` ([`tree_checks.plurals_of`]). Each file is named by its path under `root`
---- with `prefix` in front, which is its path from cosmic's own root; a file outside `root` is passed over.
-local function named_plurals(root: string, prefix: string, files: {string}, findings: mut {string})
-  local texts: mut {{string}} = {}
+--- Each of `files` by its path under `root`, the real path with no `..` left, which is the name the whole tree's checks
+--- and their exemptions use; a file outside `root` is left out.
+local function named_files_of(root: string, files: {string}): {string: string}
+  local out: mut {string: string} = {}
   local resolved, _ = Fs.absolute(root)
   local real_root = resolved or root
   for _, file in ipairs(files) do
-    -- The real path, with no `..` left, is the name the whole tree's check and its exemptions use.
     local real, _ = Fs.absolute(file)
     local named = if real ~= nil then under(real_root, real) else nil end
-    local text, _ = Fs.read(file)
-    if named ~= nil and text ~= nil then
-      texts[#texts + 1] = { prefix .. named, text }
-    end
+    if named ~= nil then out[file] = named end
   end
+  return out
+end
+
+--- The plurals of the Teal files `files` ([`tree_checks.plurals_of`]). Each file is named by its path under `root`
+--- ([`named_files_of`]) with `prefix` in front, which is its path from cosmic's own root.
+local function named_plurals(root: string, prefix: string, files: {string}, findings: mut {string})
+  local texts: mut {{string}} = {}
+  for file, named in pairs(named_files_of(root, files)) do
+    local text, _ = Fs.read(file)
+    if text ~= nil then texts[#texts + 1] = { prefix .. named, text } end
+  end
+  table.sort(texts, function(a: {string}, b: {string}): boolean
+    return (a[1] or "") < (b[1] or "")
+  end)
   for _, line in ipairs(tree_checks.plurals_of(texts)) do
     findings[#findings + 1] = "plurals: " .. line
   end
@@ -1776,7 +1786,7 @@ local function ci_tree(root: string): boolean
 end
 
 --- A run of some paths in cosmic's own tree makes the checks of the tree that cost it a few seconds: the exports
---- earned, the names the docs and help refer to, and the plurals of the files named. The rest wait for
+--- earned, the names the docs and help refer to, and the public docs and plurals of the Teal files named. The rest wait for
 --- `cosmic fix --check .` (or `--changed`). Each line is the whole tree's check's, so a line
 --- may name a file that was not named: a new module's name can break a reference in another. A tree that does not build
 --- has no projection, and its refusal is said already.
@@ -1792,6 +1802,11 @@ local function named_tree_checks(ctx: Fix, findings: mut {string})
   end
   for _, line in ipairs(tree_checks.exports(db)) do
     findings[#findings + 1] = "exports: " .. line
+  end
+  local named: mut {string: boolean} = {}
+  for _, path in pairs(named_files_of(root, picked.files)) do named[path] = true end
+  for _, line in ipairs(tree_checks.public_docs(db, nil, named)) do
+    findings[#findings + 1] = "public docs: " .. line
   end
   local paths = build_paths.resolve(root)
   -- A scratch name of its own: a whole run in the same checkout keeps `docs_check` open for its copies.

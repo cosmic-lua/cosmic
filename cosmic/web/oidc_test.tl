@@ -105,7 +105,7 @@ local function fetch_of(p: Provider): Web.OidcFetch
     end
     if url == ISSUER .. "/token" and method == "POST" then
       local hold = p.hold
-      if hold ~= nil then hold:wait() end
+      if hold ~= nil then local _, _ = hold:wait() end
       local form = assert(Url.decode_query(opts.body or ""))
       local seen: mut {string: string} = {}
       for _, pair in ipairs(form.pairs) do seen[pair.name] = pair.value end

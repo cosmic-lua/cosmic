@@ -935,7 +935,7 @@ local function test_walk_neither_lists_nor_follows_a_link(tmp: string)
   assert(table.concat(found, " ") == "g sub/f", "as find -type f lists: " .. table.concat(found, " "))
 end
 
-local function test_walk_following_takes_a_link_for_what_it_leads_to(tmp: string)
+local function test_walk_with_follow_takes_a_link_for_what_it_leads_to(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/sub"))
   assert(Fs.mkdirs(tmp .. "/outside"))
@@ -946,7 +946,7 @@ local function test_walk_following_takes_a_link_for_what_it_leads_to(tmp: string
   assert(Fs.symlink("sub", root .. "/to_dir"))
   assert(Fs.symlink("../outside", root .. "/away"))
   assert(Fs.symlink("missing", root .. "/dangling"))
-  local found, trouble = Fs.walk_following(root)
+  local found, trouble = Fs.walk(root, { follow = true })
   assert(found ~= nil, tostring(trouble))
   local listed = table.concat(found, " ")
   assert(listed == "away/o g sub/f to_dir/f to_file", "as find -L -type f lists: " .. listed)
@@ -954,16 +954,16 @@ end
 
 --- `skip` is told what the listing says each entry is, a link before
 --- it is followed, so it may refuse one by what it is.
-local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
+local function test_walk_with_follow_tells_skip_a_link_is_one(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/sub"))
   assert(Fs.write(root .. "/sub/f", "f"))
   assert(Fs.symlink("sub", root .. "/to_dir"))
   local kinds: mut {string} = {}
-  local found, trouble = Fs.walk_following(root, function(entry: string, _name: string, kind: Fs.Kind): boolean
+  local found, trouble = Fs.walk(root, { follow = true, skip = function(entry: string, _name: string, kind: Fs.Kind): boolean
     kinds[#kinds + 1] = entry .. "=" .. kind
     return kind == "link"
-  end)
+  end })
   assert(found ~= nil, tostring(trouble))
   assert(table.concat(found, " ") == "sub/f", table.concat(found, " "))
   table.sort(kinds)
@@ -972,14 +972,26 @@ end
 
 --- A link back to a directory the walk is already inside is not walked
 --- again, however far down it is, and the walk still finds the rest.
-local function test_walk_following_ends_a_loop_of_links(tmp: string)
+local function test_walk_with_follow_ends_a_loop_of_links(tmp: string)
   local root = tmp .. "/root"
   assert(Fs.mkdirs(root .. "/a/b"))
   assert(Fs.write(root .. "/a/b/f", "f"))
   assert(Fs.symlink(".", root .. "/loop"))
   assert(Fs.symlink("../..", root .. "/a/b/up"))
   assert(Fs.symlink("self", root .. "/self"))
-  local found, trouble = Fs.walk_following(root)
+  local found, trouble = Fs.walk(root, { follow = true })
   assert(found ~= nil, tostring(trouble))
   assert(table.concat(found, " ") == "a/b/f", table.concat(found, " "))
+end
+
+--- A bare `skip` function, the shape the pinned release takes, walks as
+--- `{ skip = f }` does.
+local function test_walk_takes_a_bare_skip(tmp: string)
+  assert(Fs.mkdirs(tmp .. "/a/skipped"))
+  assert(Fs.write(tmp .. "/a/kept.txt", "k"))
+  assert(Fs.write(tmp .. "/a/skipped/gone.txt", "g"))
+  local skip = function(_: string, name: string, _: Fs.Kind): boolean return name == "skipped" end
+  local bare = assert(Fs.walk(tmp .. "/a", skip))
+  local named = assert(Fs.walk(tmp .. "/a", { skip = skip }))
+  assert(#bare == 1 and bare[1] == "kept.txt" and #named == 1 and named[1] == "kept.txt")
 end

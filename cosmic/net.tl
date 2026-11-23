@@ -784,7 +784,7 @@ local function connection(address: Net.Address, timeout_ns: integer?): Attempt
   if socket == nil then return { trouble = trouble, errno = errno } end
   local held <close>: Connecting = { socket = socket }
   local ready, why = Poll.writable(socket:fd(), timeout_ns)
-  if not ready then return { trouble = why, errno = 0 } end
+  if not ready then return { trouble = why.message, errno = 0 } end
   local made, refused, number = raw.connected(socket:fd())
   if not made then return { trouble = refused, errno = number } end
   held.socket = nil
