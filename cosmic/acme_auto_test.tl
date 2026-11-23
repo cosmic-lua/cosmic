@@ -280,7 +280,10 @@ local function test_a_signal_during_the_first_load_is_a_clean_stop()
   }
   assert(ok, why)
   assert(stopped and not ready, tostring(stopped) .. " " .. tostring(ready))
-  assert(outer:release() == sys.SIGTERM)
+  do
+    local got, _ = outer:release()
+    assert(got == sys.SIGTERM)
+  end
 end
 
 --- An account key there, made by another process however lately, is

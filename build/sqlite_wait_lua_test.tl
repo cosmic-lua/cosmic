@@ -71,7 +71,7 @@ local function test_work_begin_stops_the_long_wait_and_can_be_used_again(tmp: st
   signal(sender)
   local begun, reason = work.begin(handle)
   local caught = guard:take()
-  guard:release()
+  local _, _ = guard:release()
   assert(not begun and reason:find("interrupted", 1, true) ~= nil, reason)
   assert(not handle.inside and caught == sys.SIGTERM)
   done(sender)
@@ -110,7 +110,7 @@ local function test_work_open_does_not_retry_a_cancelled_first_or_second_begin(t
     log.complain = complain
     assert(ran, tostring(opened))
     local caught = guard:take()
-    guard:release()
+    local _, _ = guard:release()
     assert(opened == nil and reason:find("interrupted", 1, true) ~= nil, reason)
     assert(caught == sys.SIGTERM)
     assert(notices.value == (if retried then 1 else 0 end), tostring(notices.value) .. " notices")
@@ -137,7 +137,7 @@ local function test_rebuild_sqlite_wait_releases_the_flock_after_cancellation(tm
   -- a wait the signal did not end answers "busy".
   local taken, reason = rebuild_lock.take(tmp, Clock.seconds(6))
   local caught = guard:take()
-  guard:release()
+  local _, _ = guard:release()
   assert(taken == nil and reason:find("interrupted", 1, true) ~= nil, tostring(taken) .. " " .. reason)
   assert(caught == sys.SIGTERM)
   done(sender)

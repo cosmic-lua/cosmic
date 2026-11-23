@@ -8,6 +8,13 @@ local Clock = require("cosmic.clock")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
+local type Failure = require("cosmic.failure")
+
+--- A wait's Failure as its kind and words, or "" for none.
+local function seen(why?: Failure): string
+  if why == nil then return "" end
+  return why.kind .. " " .. why.message
+end
 
 --- Guards nest, and each closes once: a guard opened inside another
 --- is taken, and every guard closed, the next one taken afresh.
@@ -53,9 +60,15 @@ local function test_an_outer_guard_sees_what_an_inner_one_took()
   assert(inner:cancelled() == sys.SIGTERM)
   local late = assert(Signal.guard())
   assert(late:cancelled() == 0, "a guard opened after the signal saw it")
-  assert(late:release() == 0)
+  do
+    local released, _ = late:release()
+    assert(released == 0)
+  end
   assert(outer:take() == sys.SIGTERM)
-  assert(outer:release() == sys.SIGTERM)
+  do
+    local released, _ = outer:release()
+    assert(released == sys.SIGTERM)
+  end
 end
 
 --- A guard's wait takes the next signal while the run's other tasks go
@@ -70,7 +83,7 @@ local function test_guard_wait_takes_a_signal_in_a_task()
     local function waiter(g: Signal.Guard, name: string): Poll.Task
       return Poll.spawn(function()
         local signal, why = g:wait(Clock.seconds(5))
-        table.insert(got, name .. "=" .. tostring(signal) .. why)
+        table.insert(got, name .. "=" .. tostring(signal) .. seen(why))
       end)
     end
     local a = waiter(outer, "outer")
@@ -80,15 +93,21 @@ local function test_guard_wait_takes_a_signal_in_a_task()
     assert(a:join())
     assert(b:join())
     local signal, why = inner:wait(Clock.ms(10))
-    table.insert(got, tostring(signal) .. " " .. why)
+    table.insert(got, tostring(signal) .. " " .. seen(why))
   end)
   table.sort(got)
   local term = tostring(sys.SIGTERM)
-  assert(table.concat(got, ",") == "0 " .. Poll.TIMEOUT .. ",inner=" .. term .. ",outer=" .. term,
+  assert(table.concat(got, ",") == "inner=" .. term .. ",nil timeout " .. Poll.TIMEOUT .. ",outer=" .. term,
     table.concat(got, ","))
-  Test.raises(function() outer:wait() end, "in a task of Poll.run")
-  assert(inner:release() == sys.SIGTERM)
-  assert(outer:release() == sys.SIGTERM)
+  Test.raises(function() local _, _ = outer:wait() end, "in a task of Poll.run")
+  do
+    local released, _ = inner:release()
+    assert(released == sys.SIGTERM)
+  end
+  do
+    local released, _ = outer:release()
+    assert(released == sys.SIGTERM)
+  end
 end
 
 --- A guard's wait ends once that guard closes, though another stays
@@ -100,27 +119,33 @@ local function test_a_guard_s_wait_ends_when_it_closes_under_another()
   Poll.run(function()
     local on_inner = Poll.spawn(function()
       local signal, why = inner:wait(Clock.seconds(5))
-      table.insert(got, "inner=" .. tostring(signal) .. " " .. why)
+      table.insert(got, "inner=" .. tostring(signal) .. " " .. seen(why))
     end)
     local on_outer = Poll.spawn(function()
       local signal, why = outer:wait(Clock.ms(100))
-      table.insert(got, "outer=" .. tostring(signal) .. " " .. why)
+      table.insert(got, "outer=" .. tostring(signal) .. " " .. seen(why))
     end)
     assert(Poll.delay(Clock.ms(10)))
     assert(inner:close())
     assert(on_inner:join())
     assert(on_outer:join())
   end)
-  assert(table.concat(got, ",") == "inner=0 signal: the guard is closed,outer=0 " .. Poll.TIMEOUT,
+  assert(table.concat(got, ",") == "inner=nil other signal: the guard is closed,outer=nil timeout " .. Poll.TIMEOUT,
     table.concat(got, ","))
-  assert(outer:release() == 0)
+  do
+    local released, _ = outer:release()
+    assert(released == 0)
+  end
 end
 
 local function test_guard_release_with_nothing_caught_answers_zero()
   local guard = assert(Signal.guard())
   local caught, trouble = guard:release()
-  assert(caught == 0 and trouble == "", tostring(caught) .. " " .. trouble)
-  assert(guard:release() == 0)
+  assert(caught == 0 and trouble == nil, tostring(caught) .. " " .. tostring(trouble))
+  do
+    local released, _ = guard:release()
+    assert(released == 0)
+  end
   assert(guard:close())
   local again = assert(Signal.guard())
   assert(again:close())

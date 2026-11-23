@@ -724,7 +724,7 @@ end
 function Zig.run(argv: {string}, env?: {string:string}): integer
   local opened, guard_trouble = Signal.guard()
   if opened == nil then
-    log:complain("signal guard: " .. guard_trouble)
+    log:complain("signal guard: " .. tostring(guard_trouble))
     return 1
   end
   -- Released below; an error that leaves `supervise` first closes it
@@ -779,7 +779,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   -- round and the release is kept.
   local untaken = g:take()
   if caught == nil then
-    log:complain("signal guard: " .. release_trouble)
+    log:complain("signal guard: " .. tostring(release_trouble))
   end
   -- A signal the child never got is re-raised only when it is SIGTERM,
   -- which a terminal never sends. A Ctrl-C the child caught and exited

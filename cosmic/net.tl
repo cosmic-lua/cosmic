@@ -1325,7 +1325,7 @@ local function watch(s: Serving)
   local guard = assert(s.guard)
   while true do
     local signal, _ = guard:wait()
-    if signal == 0 then return end
+    if signal == nil then return end
     if not s.stopping then
       s.signalled = true
       stop(s)
@@ -1349,7 +1349,7 @@ local function serving(spec: Net.ServeSpec): boolean, string
     grace = nil, renewer = nil, unloaded = nil,
   }
   local guard, guard_trouble = Signal.guard()
-  if guard == nil then return false, "net: signal guard: " .. guard_trouble end
+  if guard == nil then return false, "net: signal guard: " .. tostring(guard_trouble) end
   s.guard = guard
   local certs = spec.tls
   local clear = spec.clear or {}
@@ -1428,10 +1428,10 @@ local function serving(spec: Net.ServeSpec): boolean, string
   local restore_trouble: string
   if s.signalled then
     local _, trouble = guard:release()
-    restore_trouble = trouble
+    restore_trouble = if trouble ~= nil then trouble.message else "" end
   else
     local _, trouble = guard:close()
-    restore_trouble = trouble
+    restore_trouble = if trouble ~= nil then trouble.message else "" end
   end
   if restore_trouble ~= "" then return false, "net: signal restore: " .. restore_trouble end
   local unloaded = s.unloaded

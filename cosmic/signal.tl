@@ -9,6 +9,7 @@
 --- background job (`cmd &`) with SIGINT ignored, so `kill -INT` of one
 --- does nothing; send SIGTERM, or start it with the signal restored.
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Innermost = require("cosmic.internal.innermost_guard")
 local Poll = require("cosmic.poll")
 local sys = require("cosmic.sys")
@@ -100,50 +101,51 @@ local class Guard is Innermost.Held
 
   --- Closes the guard. The last guard open to close restores the
   --- dispositions the process had and delivers the last signal caught
-  --- again; another leaves it to the guards still open. False and why
-  --- when they cannot be restored, and again on every later close.
-  function close(self): boolean, string
+  --- again; another leaves it to the guards still open. False and a
+  --- Failure when they cannot be restored, and again on every later close.
+  function close(self): (true) | (false, Failure)
     if self.state.closed then
-      if self._trouble ~= "" then return false, self._trouble end
-      return true, ""
+      if self._trouble ~= "" then return false, Failure.new(self._trouble) end
+      return true
     end
     local trouble, last, owing = restore_guard(self)
-    if trouble ~= "" then return false, trouble end
+    if trouble ~= "" then return false, Failure.new(trouble) end
     if not last then
       -- The caller's dispositions are not back yet: the guards still
       -- open have seen the signal, if they opened before it, and the
       -- last to close delivers it.
       if self._signal ~= 0 and self.state.read > owed then owed = self.state.read end
-      return true, ""
+      return true
     end
     local signal = if self._signal ~= 0 then self._signal else owing end
     if signal ~= 0 then
       -- The caller's own dispositions are back: deliver it as it came.
       local _, _ = sys.kill(sys.getpid(), signal)
     end
-    return true, ""
+    return true
   end
 
   --- Closes the guard as `close` does, but keeps the last signal caught
   --- instead of delivering it, and answers that signal, or 0. Nil and
-  --- why when the dispositions cannot be restored.
-  function release(self): integer?, string
+  --- a Failure when the dispositions cannot be restored.
+  function release(self): (integer) | (nil, Failure)
     if self.state.closed then
-      if self._trouble ~= "" then return nil, self._trouble end
-      return self._signal, ""
+      if self._trouble ~= "" then return nil, Failure.new(self._trouble) end
+      return self._signal
     end
     local trouble, last, owing = restore_guard(self)
-    if trouble ~= "" then return nil, trouble end
+    if trouble ~= "" then return nil, Failure.new(trouble) end
     if last and self._signal == 0 and owing ~= 0 then
       local _, _ = sys.kill(sys.getpid(), owing)
     end
-    return self._signal, ""
+    return self._signal
   end
 
   --- In a task of [`Poll.run`], waits for a signal to take, and takes
-  --- it; 0 and why once `timeout_ns` passes or the task is cancelled
-  --- first, or the guard is closed.
-  function wait(self, timeout_ns?: integer): integer, string
+  --- it; nil and a Failure once `timeout_ns` passes (kind "timeout") or
+  --- the task is cancelled first (kind "cancelled"), or the guard is
+  --- closed.
+  function wait(self, timeout_ns?: integer): (integer) | (nil, Failure)
     if not Poll.in_task() then error("signal: g:wait waits in a task of Poll.run", 2) end
     Poll.checked_ns(timeout_ns, "signal", "timeout_ns", 2)
     local deadline: integer?
@@ -152,12 +154,12 @@ local class Guard is Innermost.Held
       -- Asked before each wait and after each wake, never from the
       -- pipe's bytes: another task waiting on it may have drained it.
       local signal = self:take()
-      if signal ~= 0 then return signal, "" end
-      if self.state.closed then return 0, "signal: the guard is closed" end
+      if signal ~= 0 then return signal end
+      if self.state.closed then return nil, Failure.new("signal: the guard is closed") end
       local left: integer?
       if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
       local woken, why = Poll.readable(raw.child_signal_fd(), left)
-      if not woken then return 0, why.message end
+      if not woken then return nil, why end
       -- The last close wakes this wait having closed the pipe.
       if not self.state.closed then Innermost.drain_wake(raw.child_signal_fd()) end
     end
@@ -209,9 +211,9 @@ end
 --- a repeat included; signals
 --- delivered between two takes answer as the last of them. In a task
 --- of [`Poll.run`], `g:wait(timeout_ns)` waits for the next signal to
---- take while the other tasks run, and takes it: the signal, or 0 and
---- why once `timeout_ns` passes, the task is cancelled, or the guard
---- closes. A signal this process ignores stays ignored: a non-interactive
+--- take while the other tasks run, and takes it: the signal, or nil
+--- and a Failure once `timeout_ns` passes (kind "timeout"), the task is
+--- cancelled (kind "cancelled"), or the guard closes. A signal this process ignores stays ignored: a non-interactive
 --- shell starts `cmd &` with SIGINT ignored, so the guard never catches
 --- it there.
 ---
@@ -230,23 +232,25 @@ end
 --- and delivers: one closed while another is open leaves the signal to
 --- the guards still open, and the last to close delivers it though it
 --- opened after it. `close`
---- answers false and why when the dispositions could not be restored,
+--- answers false and a Failure when the dispositions could not be restored,
 --- and again on every later close; the signal is not delivered then.
 --- A guard never closed holds the signals for the rest of the
 --- process's life: hold it in a `<close>` variable.
 --- `g:release()` restores the dispositions as closing does but keeps
 --- the last signal caught rather than delivering it, and answers it,
 --- or 0: a caller that passed signals on to its child re-raises one
---- only if the child died of it, or never got it. It answers nil and
---- why when the dispositions could not be restored, and again on every
+--- only if the child died of it, or never got it. It answers nil and a
+--- Failure when the dispositions could not be restored, and again on every
 --- later release. A released guard is closed: closing it again, or
 --- releasing it again, does nothing, and a release after a close
 --- answers the signal the close delivered. The first guard fails, nil
---- and why, where the process has no descriptor left for the pipe
+--- and a Failure, where the process has no descriptor left for the pipe
 --- `g:wait` waits on. In [`Poll.run`], a wait another task began while no
 --- guard was open is not ended by the signals of one opened after it.
-function Signal.guard(): Guard?, string
-  return opened()
+function Signal.guard(): (Guard) | (nil, Failure)
+  local guard, why = opened()
+  if guard == nil then return nil, Failure.new(why) end
+  return guard
 end
 
 return Signal

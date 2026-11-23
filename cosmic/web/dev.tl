@@ -617,7 +617,7 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
   -- TODO: once cosmic.child can start a program with PR_SET_PDEATHSIG, set
   -- it, so a supervisor ended by SIGKILL does not leave the app orphaned.
   local made, held = Signal.guard()
-  if made == nil then return false, "web: dev: " .. held end
+  if made == nil then return false, "web: dev: " .. tostring(held) end
   local guard: Signal.Guard = made
   local program: Program = { handle = nil, boot = 0 }
 
