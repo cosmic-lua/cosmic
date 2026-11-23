@@ -28,11 +28,8 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #if defined(__linux__)
-#include <linux/audit.h>
 #include <linux/capability.h>
-#include <linux/filter.h>
 #include <linux/landlock.h>
-#include <linux/seccomp.h>
 #include <linux/sched.h>
 #include <linux/if.h>
 #include <linux/sockios.h>
@@ -4170,6 +4167,17 @@ COSMIC_SYSCALL(spawn, 12) {
   gid_t drop_gid = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
+    /* Options a caller once had, refused rather than passed over: a child
+     * started without the hold its caller asked for would run unconfined. */
+    static const char *const gone[] = { "ruleset", "pledge" };
+    for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) {
+      lua_pushstring(L, gone[i]);
+      int given = lua_rawget(L, 10) != LUA_TNIL;
+      lua_pop(L, 1);
+      if (given)
+        return luaL_argerror(L, 10, "a sandbox's `ruleset` and `pledge` are gone: hold the child "
+                                    "with `grants` and `promises`");
+    }
     lua_pushliteral(L, "promises");
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {

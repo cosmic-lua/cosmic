@@ -18,12 +18,20 @@ Test.policy{}
 
 local process = require("cosmic.internal.process")
 
+--- Starts `probe` under a sandbox of the one field `name` holding `value`,
+--- as an untyped caller could: whether the start raised, and why.
+local function raised(probe: string, name: string, value: any): boolean, string
+  local sandbox: mut {string:any} = {}
+  sandbox[name] = value
+  local started, why = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
+    sandbox as raw_process.Sandbox) -- checked: cast_refused
+  return not started, tostring(why)
+end
+
 local function test_a_degenerate_grant_raises(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   local function raises(grants: any): boolean
-    local sandbox: {string:any} = { grants = grants }
-    return not pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, false, nil, -- checked: overload_none
-      sandbox as raw_process.Sandbox) -- checked: cast_refused
+    return (raised(probe, "grants", grants))
   end
   assert(raises({ { path = probe, access = "rq" } }), "a letter that is none")
   assert(raises({ { path = probe, access = "" } }), "no letters")
@@ -35,6 +43,19 @@ local function test_a_degenerate_grant_raises(tmp: string)
   assert(raises({ probe }), "a grant that is no table")
   assert(raises("r"), "grants that are no list")
   assert(raises({ { path = "a\0b", access = "r" } }), "a path with a NUL")
+end
+
+--- A sandbox naming an option spawn no longer has is refused, so a
+--- caller that asked for that hold never gets an unconfined child.
+local function test_a_sandbox_naming_a_gone_option_raises(tmp: string)
+  local probe = assert(stand_in.build(tmp .. "/stand-in"))
+  local none: {string} = {}
+  local ruleset_raised, ruleset_why = raised(probe, "ruleset", 0)
+  local pledge_raised, pledge_why = raised(probe, "pledge", none)
+  for _, said in ipairs({ ruleset_why, pledge_why }) do
+    assert(said:find("`grants` and `promises`", 1, true) ~= nil, said)
+  end
+  assert(ruleset_raised and pledge_raised)
 end
 
 local function test_the_landlock_abi_is_a_version_or_a_refusal(_tmp: string)
