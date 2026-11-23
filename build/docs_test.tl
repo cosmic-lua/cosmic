@@ -2328,7 +2328,7 @@ end
 --- alias (`type Box = raw.Box`) or by extending it, are listed on the
 --- public type's page with their notes, and each answers to its own
 --- dotted name. A same-module alias (`type Config = Config`) lists the
---- record's fields, and one of a class (`type Lid = Lid`) its methods too.
+--- record's fields, and an alias of a class (`type Lid = Lid`) its methods too.
 local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
   local db = built(dir, {
     ["cosmic/internal/raw.tl"] = source(
