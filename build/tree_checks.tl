@@ -124,6 +124,8 @@ allowed["cosmic.mcp.image"] = "public API: an image block of a tool's result, it
 allowed["cosmic.mcp.audio"] = "public API: an audio block of a tool's result, its bytes in base64, which a server builds"
 allowed["cosmic.mcp.link"] = "public API: a block that links a resource from a tool's result, which a server builds"
 allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's contents, which a server builds"
+allowed["cosmic.mcp.client.stdio"] = "public API: a session over a reader and a writer the caller holds, a pipe " ..
+  "or a socket; the tree's own callers start a server with spawn or reach one with http"
 allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
 
 allowed["cosmic.failure.timeout"] = "public API: the failure of a wait that ran past its time limit, which " ..

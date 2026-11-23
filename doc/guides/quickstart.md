@@ -283,6 +283,9 @@ its options.
 - `cosmic tailscale status` lists this machine's Tailscale node and its
   peers, with no `tailscale` binary. A program uses
   [`Tailscale.connect`].
+- `cosmic mcp tools -- server.tl` starts an MCP server and lists its
+  tools, and `cosmic mcp call add '{"a":1}' -- server.tl` runs one.
+  [`McpServer.Instance.main`] serves one from a program.
 - `cosmic compile file.tl` prints the Lua that a Teal file compiles to.
 - `cosmic agent ask 'what does this repository do?'` asks Claude about
   this directory, with its tools held to a sandbox.
@@ -307,6 +310,7 @@ its options.
 [`Hash.hex_file`]: ../../cosmic/hash.tl
 [`Json.decode`]: ../../cosmic/json.tl
 [`Json.get`]: ../../cosmic/json.tl
+[`McpServer.Instance.main`]: ../../cosmic/mcp/server.tl
 [`Poll.TIMEOUT`]: ../../cosmic/poll.tl
 [`Proc.exit`]: ../../cosmic/proc.tl
 [`Qr.text`]: ../../cosmic/qr.tl

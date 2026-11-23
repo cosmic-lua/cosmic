@@ -314,3 +314,22 @@ local function test_a_read_is_never_for_a_shared_cache()
   local read = object(decoded(server:answer(request(2, "resources/read", '"uri":"a://b"')).body)["result"])
   assert(read["cacheScope"] == "private")
 end
+
+--- [`McpServer.Instance.main`] refuses a command line that would serve where it should not, before it serves.
+local function test_a_main_refuses_a_line_it_cannot_serve()
+  local s = adder()
+  assert(s:main({ "--http", "127.0.0.1:0" }) == 2, "HTTP needs a token or --anyone")
+  assert(s:main({ "--http", "0.0.0.0:0", "--anyone" }) == 2, "--anyone only on loopback")
+  assert(s:main({ "--http", "127.0.0.1:0", "--token-env", "COSMIC_MCP_TEST_NO_SUCH" }) == 2, "an unset token")
+  assert(s:main({ "--http", "nowhere" }) == 2)
+  assert(s:main({ "--origin", "https://a.example" }) == 2, "--origin is for --http")
+  assert(s:main({ "--nosuch" }) == 2)
+  assert(s:main({ "word" }) == 2)
+  assert(s:main({ "--http", "127.0.0.1.evil:0", "--anyone" }) == 2, "a name is not the loopback")
+  assert(s:main({ "--http", "localhost:0", "--anyone" }) == 2, "nor is localhost")
+  assert(s:main({ "--http", "127.0.0.1:65536", "--anyone" }) == 2)
+  assert(s:main({ "--http", "127.0.0.1:0", "--anyone", "--token-env", "X" }) == 2, "a token and --anyone")
+  assert(s:main({ "--http", "127.0.0.1:0", "--anyone", "--path", "mcp" }) == 2, "a path starts with /")
+  assert(s:main({ "--http", "127.0.0.1:0", "--http", "127.0.0.1:1", "--anyone" }) == 2, "--http twice")
+  assert(s:main({ "--path", "/x" }) == 2, "--path is for --http")
+end
