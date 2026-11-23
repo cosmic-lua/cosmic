@@ -602,7 +602,7 @@ local MAX_REPLY <const> = 512 * 1024
 local function objects_of(db: Sqlite.Handle, query: string, session: integer?, over: function(): boolean):
     (Json.Value) | (nil, Failure)
   local statement, why = db:prepare(query)
-  if statement == nil then return nil, Failure.new(why) end
+  if statement == nil then return nil, why end
   if statement:parameters() >= 1 and session ~= nil then
     local bound, bind_why = statement:bind_integer(1, session)
     if not bound then
