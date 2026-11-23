@@ -80,7 +80,7 @@ end
 --- `script` out: `Http.open("https://example.com/upload", { timeout_ns = Clock.seconds(30), method = "PUT", body = gzip })`.
 function Example.open()
   local reply = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n"
-  local gzip = assert(Stream.run(assert(Compress.deflater("gzip")), string.rep("sent whole\n", 1000)))
+  local gzip = assert(Stream.run(assert(Compress.encoder("gzip")), string.rep("sent whole\n", 1000)))
   local response <close> = assert(Http.open("http://example.test/upload", { timeout_ns = Clock.seconds(60),
     method = "PUT", headers = { ["Content-Encoding"] = "gzip" }, body = gzip,
     script = { reply } }))

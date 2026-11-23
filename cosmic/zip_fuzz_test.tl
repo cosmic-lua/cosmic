@@ -225,9 +225,9 @@ local function gen_laid_out(src: Fuzz.Source): string
     local method = Fuzz.pick(src, { 0, 8, 8, 93, 12 })
     local body = data
     if method == 8 then
-      body = assert(Compress.deflate("raw", data))
+      body = assert(Compress.encode("raw", data))
     elseif method == 93 then
-      body = assert(Stream.run(assert(Compress.zstd_encoder()), data))
+      body = assert(Stream.run(assert(Compress.encoder("zstd")), data))
     end
     local crc = crc32_reference(data)
     local lfh: Rec = {

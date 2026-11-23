@@ -358,7 +358,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
   local function inflated_part(index: integer): string?
     local packed_part = bytes_at(row, index)
     if packed_part == nil then return nil end
-    local inflated, _ = Compress.inflate("raw", packed_part)
+    local inflated, _ = Compress.decode("raw", packed_part)
     return inflated
   end
   -- Each part is read only when the ones before it were found.
@@ -451,7 +451,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
   local packed_rows = bytes_at(row, 2)
   local inflated: string? = nil
   if packed_rows ~= nil then
-    local out, _ = Compress.inflate("raw", packed_rows)
+    local out, _ = Compress.decode("raw", packed_rows)
     inflated = out
   end
   local names = if requires ~= nil then unpacked_requires(requires) else nil end

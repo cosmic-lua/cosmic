@@ -186,13 +186,13 @@ local function open_tar(kind: string, source: Stream.Reader, label: string):
   local codec: Compress.Stream?
   local ctrouble: Failure?
   if kind == "gzip" then
-    codec, ctrouble = Compress.inflater("gzip")
+    codec, ctrouble = Compress.decoder("gzip")
   elseif kind == "xz" then
-    codec, ctrouble = Compress.xz_decoder()
+    codec, ctrouble = Compress.decoder("xz")
   elseif kind == "zstd" then
-    codec, ctrouble = Compress.zstd_decoder()
+    codec, ctrouble = Compress.decoder("zstd")
   else
-    codec, ctrouble = Compress.bz2_decoder()
+    codec, ctrouble = Compress.decoder("bz2")
   end
   if codec == nil then
     local _, _ = source:close()
@@ -342,19 +342,19 @@ local function create_text(path: string, opts?: Archive.CreateOptions): Archive.
   local codec: Compress.Stream?
   if format == "tar.gz" then
     local ctrouble: Failure?
-    codec, ctrouble = Compress.deflater("gzip")
+    codec, ctrouble = Compress.encoder("gzip")
     if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   elseif format == "tar.xz" then
     local ctrouble: Failure?
-    codec, ctrouble = Compress.xz_encoder()
+    codec, ctrouble = Compress.encoder("xz")
     if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   elseif format == "tar.bz2" then
     local ctrouble: Failure?
-    codec, ctrouble = Compress.bz2_encoder()
+    codec, ctrouble = Compress.encoder("bz2")
     if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   elseif format == "tar.zst" then
     local ctrouble: Failure?
-    codec, ctrouble = Compress.zstd_encoder()
+    codec, ctrouble = Compress.encoder("zstd")
     if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   end
   local file, trouble = Stream.create(path)

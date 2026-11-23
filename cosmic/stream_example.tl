@@ -140,12 +140,12 @@ end
 --- the Reader's side, here undoing it.
 function Example.transform_writer()
   local packed = Stream.collect()
-  local w = Stream.transform_writer(packed, (assert(Compress.deflater("gzip"))))
+  local w = Stream.transform_writer(packed, (assert(Compress.encoder("gzip"))))
   assert(w:write("hello, "))
   assert(w:write("world"))
   assert(w:close())
   local unpacked = Stream.transform(Stream.from_string(packed:result()),
-    (assert(Compress.inflater("gzip"))))
+    (assert(Compress.decoder("gzip"))))
   local text = assert(Stream.read_all(unpacked))
   print(text)
   assert(text == "hello, world", text)
@@ -195,10 +195,10 @@ end
 --- memory. Any record that lists [`Stream.Transform`] and gives its
 --- functions is one, such as this one that shouts.
 function Example.run()
-  local packed = assert(Stream.run(assert(Compress.deflater("gzip")), string.rep("a", 10000)))
-  local back = assert(Stream.run(assert(Compress.inflater("gzip")), packed, 10000))
+  local packed = assert(Stream.run(assert(Compress.encoder("gzip")), string.rep("a", 10000)))
+  local back = assert(Stream.run(assert(Compress.decoder("gzip")), packed, 10000))
   assert(back == string.rep("a", 10000))
-  local out, why = Stream.run(assert(Compress.inflater("gzip")), packed, 100)
+  local out, why = Stream.run(assert(Compress.decoder("gzip")), packed, 100)
   print(why)
   assert(out == nil and tostring(why) == "stream: output is larger than 100 bytes", why)
   local record Shouter is Stream.Transform
