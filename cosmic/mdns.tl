@@ -538,7 +538,7 @@ local function open(opts: Mdns.Options): Hunt?, string
   end
   local bound = Net.udp("0.0.0.0", if grouped then port else 0 end)
   local socket, why = Net.datagram(bound, { shared = grouped })
-  if socket == nil then return nil, why end
+  if socket == nil then return nil, tostring(why) end
   local vias: {string} = {}
   if is_group(address) then vias = opts.via or default_vias() end
   local ready, trouble = socket:set_multicast({ hops = HOPS })
@@ -1304,7 +1304,7 @@ function Mdns.responder(instances: {Mdns.Published}, opts?: Mdns.ResponderOption
     if why ~= "" then return nil, why end
   end
   local socket, why = Net.datagram(Net.udp("0.0.0.0", port), { shared = true })
-  if socket == nil then return nil, why end
+  if socket == nil then return nil, tostring(why) end
   local vias = options.via or default_vias()
   local ready, trouble = socket:set_multicast({ hops = HOPS })
   if ready then ready, trouble = join(socket, address, vias) end

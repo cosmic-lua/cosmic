@@ -982,7 +982,7 @@ local function socket_trouble(via: Net.Address, trouble: string, code: string?):
     return trouble
   end
   -- Its failure reads "path: reason" already.
-  return "cannot connect to unix socket " .. why
+  return "cannot connect to unix socket " .. tostring(why)
 end
 
 --- How long a `Retry-After` header value asks to wait, in nanoseconds, or

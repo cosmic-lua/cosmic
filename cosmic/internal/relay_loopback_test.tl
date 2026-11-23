@@ -134,7 +134,7 @@ local function test_a_loopback_relay_listens_itself_and_serves_both_protocols_be
       assert(v6:close())
       local taken, taken_why = Net.listen(Net.tcp("::1", port))
       assert(taken == nil, "another listener took the relay's port on ::1")
-      assert(taken_why ~= "")
+      assert(taken_why.message ~= "", tostring(taken_why))
       local over_v6, echoed_v6 = connect("127.0.0.1:" .. tostring(granted), auth, "::1")
       assert(over_v6 == "HTTP/1.1 200 Connection established" and echoed_v6 == "echo:ping", over_v6)
       assert(connect("127.0.0.1:" .. tostring(granted), "", "::1") == "HTTP/1.1 407 Proxy Authentication Required")

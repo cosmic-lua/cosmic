@@ -72,7 +72,7 @@ local function test_the_server_ends_with_the_body()
   assert(client:close())
   assert(not returned, "a handler went on past the end of the server")
   local conn, refused = Net.connect(Net.tcp("127.0.0.1", port_given), { timeout_ns = WAIT })
-  assert(conn == nil and refused:find("Connection refused", 1, true) ~= nil, refused)
+  assert(conn == nil and tostring(refused):find("Connection refused", 1, true) ~= nil, refused)
 end
 
 --- In a task the body runs in the caller's run, and the call returns
@@ -111,7 +111,7 @@ local function test_what_the_body_raises_is_raised_once_the_server_has_ended()
   end, "the body failed")
   assert(why:find("stack traceback:", 1, true) ~= nil, why)
   local conn, refused = Net.connect(Net.tcp("127.0.0.1", port_given), { timeout_ns = WAIT })
-  assert(conn == nil and refused:find("Connection refused", 1, true) ~= nil, refused)
+  assert(conn == nil and tostring(refused):find("Connection refused", 1, true) ~= nil, refused)
   local caught: string = ""
   Poll.run(function()
     local ok, err: boolean, any = pcall(Net.with_loopback, answering, function(port: integer)
@@ -123,7 +123,7 @@ local function test_what_the_body_raises_is_raised_once_the_server_has_ended()
     assert(not ok)
     caught = tostring(err)
     local again, trouble = Net.connect(Net.tcp("127.0.0.1", port_given), { timeout_ns = WAIT })
-    assert(again == nil and trouble:find("Connection refused", 1, true) ~= nil, trouble)
+    assert(again == nil and tostring(trouble):find("Connection refused", 1, true) ~= nil, trouble)
   end)
   assert(caught == "the body failed again", caught)
 end
@@ -224,5 +224,5 @@ local function test_a_caller_killed_in_its_body_still_ends_the_server()
   assert(not returned, "the body went on past its kill")
   assert(held.closed, "the handler outlived the run")
   local conn, refused = Net.connect(Net.tcp("127.0.0.1", port_given), { timeout_ns = WAIT })
-  assert(conn == nil and refused:find("Connection refused", 1, true) ~= nil, refused)
+  assert(conn == nil and tostring(refused):find("Connection refused", 1, true) ~= nil, refused)
 end

@@ -207,10 +207,12 @@ local function test_auto_refuses_options_out_of_shape()
 end
 
 local function test_clear_without_tls_is_refused()
-  local ok, why = pcall(Net.serve, {
-    listeners = { Net.tcp("127.0.0.1", 0) }, clear = { Net.tcp("127.0.0.1", 0) },
-    serve = function(_conn: Net.Conn) end,
-  })
+  local ok, why = pcall(function()
+    local _, _ = Net.serve({
+      listeners = { Net.tcp("127.0.0.1", 0) }, clear = { Net.tcp("127.0.0.1", 0) },
+      serve = function(_conn: Net.Conn) end,
+    })
+  end)
   assert(not ok and tostring(why):find("spec.clear", 1, true) ~= nil, tostring(why))
 end
 

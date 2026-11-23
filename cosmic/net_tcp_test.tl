@@ -44,27 +44,27 @@ local function test_a_port_held_is_refused_and_one_closed_refuses()
   local server = assert(Net.listen(Net.tcp("127.0.0.1", 0)))
   local port = assert(server.address.port)
   local again, taken = Net.listen(Net.tcp("127.0.0.1", port))
-  assert(again == nil and taken == "127.0.0.1:" .. tostring(port) .. ": Address in use", taken)
+  assert(again == nil and tostring(taken) == "127.0.0.1:" .. tostring(port) .. ": Address in use", taken)
   assert(server:close())
   local conn, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
-  assert(conn == nil and why == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why)
+  assert(conn == nil and tostring(why) == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why)
 end
 
 --- A host is a numeric address: a name is refused, saying so, and a
 --- port out of range is no address at all.
 local function test_a_host_that_is_no_address_is_refused()
   local conn, why = Net.connect(Net.tcp("localhost", 80))
-  assert(conn == nil and why:find("localhost:80: Invalid argument (not a numeric", 1,
+  assert(conn == nil and tostring(why):find("localhost:80: Invalid argument (not a numeric", 1,
     true) == 1, why)
   local server, listen_why = Net.listen(Net.tcp("::zz", 0))
-  assert(server == nil and listen_why:find("[::zz]:0: Invalid argument", 1, true) == 1,
+  assert(server == nil and tostring(listen_why):find("[::zz]:0: Invalid argument", 1, true) == 1,
     listen_why)
   local nul, nul_why = Net.connect(Net.tcp("127.0.0.1\0junk", 1))
-  assert(nul == nil and nul_why:find("Invalid argument", 1, true) ~= nil, nul_why)
-  assert(not pcall(Net.connect, Net.tcp("127.0.0.1", 65536))) -- checked: alternatives_as_value
-  assert(not pcall(Net.connect, Net.tcp("127.0.0.1", -1))) -- checked: alternatives_as_value
+  assert(nul == nil and tostring(nul_why):find("Invalid argument", 1, true) ~= nil, nul_why)
+  Test.raises(function() local _, _ = Net.connect(Net.tcp("127.0.0.1", 65536)) end)
+  Test.raises(function() local _, _ = Net.connect(Net.tcp("127.0.0.1", -1)) end)
   local no_host: Net.Address = { kind = "tcp", port = 1 }
-  Test.raises(function() Net.connect(no_host) end)
+  Test.raises(function() local _, _ = Net.connect(no_host) end)
 end
 
 --- The words of a failure `why` at `address`.
@@ -92,7 +92,7 @@ local function full_backlog(held: mut {function()}): Net.Address, string
   for _ = 1, ASKED do
     local conn, trouble = Net.connect(server.address, { timeout_ns = Clock.ms(50) })
     if conn == nil then
-      why = trouble
+      why = tostring(trouble)
       break
     end
     -- A connection the kernel reset may say so again as it closes.
@@ -128,11 +128,11 @@ local function unanswered_or_skip(held: mut {function()}): Net.Address
   if why == at(full, Poll.TIMEOUT) then return full end
   local absent = Net.tcp("127.0.0.2", assert(full.port))
   local conn, trouble = Net.connect(absent, { timeout_ns = Clock.ms(50) })
-  if trouble == at(absent, Poll.TIMEOUT) then return absent end
+  if tostring(trouble) == at(absent, Poll.TIMEOUT) then return absent end
   if conn ~= nil then assert(conn:close()) end
   for _, close in ipairs(held) do close() end
   Test.skip("no connection is left waiting here: a full backlog resets one, and 127.0.0.2 answers " ..
-      (if conn ~= nil then "by taking it" else trouble end))
+      (if conn ~= nil then "by taking it" else tostring(trouble) end))
   return absent
 end
 
@@ -147,7 +147,7 @@ local function test_a_connection_to_a_full_backlog_waits_or_is_reset()
     for _ = 1, 32 do
       local conn, trouble = Net.connect(full, { timeout_ns = Clock.seconds(5) })
       if conn == nil then
-        assert(trouble == at(full, RESET), trouble)
+        assert(tostring(trouble) == at(full, RESET), trouble)
       else
         local data, read_why = conn:read()
         local _, _ = conn:close()
@@ -165,13 +165,13 @@ local function test_an_unanswered_connection_times_out_or_is_interrupted()
   local silent = unanswered_or_skip(held)
   local began = Clock.monotonic_ns()
   local late, why = Net.connect(silent, { timeout_ns = Clock.ms(50) })
-  assert(late == nil and why == at(silent, Poll.TIMEOUT), why)
+  assert(late == nil and tostring(why) == at(silent, Poll.TIMEOUT), why)
   assert(Clock.monotonic_ns() - began >= Clock.ms(50), "it failed before its time ran out")
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGINT))
   local conn, interrupted = Net.connect(silent)
   assert(assert(guard:release()) == sys.SIGINT)
-  assert(conn == nil and interrupted == at(silent, "interrupted"), interrupted)
+  assert(conn == nil and tostring(interrupted) == at(silent, "interrupted"), interrupted)
   for _, close in ipairs(held) do close() end
 end
 
@@ -193,7 +193,7 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
     local waiting = Poll.spawn(function()
       local conn, trouble = Net.connect(silent, { timeout_ns = Clock.ms(200) })
       if conn ~= nil then assert(conn:close()) end
-      why = trouble
+      why = tostring(trouble)
       ticks_at_end = ticks
     end)
     while ticks_at_end < 0 do
@@ -209,7 +209,8 @@ local function test_in_a_run_a_tcp_connect_waits_through_the_run()
   assert(server:close())
   local refused: Net.Conn? = nil
   Poll.run(function()
-    refused, why = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
+    local refused_got, why_failure = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
+    refused, why = refused_got, if refused_got == nil then tostring(why_failure) else "" end
   end)
   assert(refused == nil and why == "127.0.0.1:" .. tostring(port) .. ": Connection refused", why)
 end

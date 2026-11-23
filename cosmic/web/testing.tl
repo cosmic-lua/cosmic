@@ -741,7 +741,8 @@ function Testing.with_server(app: Types.App, fn: function(client: Testing.Loopba
       end
       local conn, connect_why = Net.connect(address, { timeout_ns = IO_TIMEOUT_NS })
       if conn == nil then
-        failures[1] = "web: with_server: connecting: " .. connect_why
+        local said = "web: with_server: connecting: " .. tostring(connect_why)
+        failures[1] = said
         server:stop()
         return
       end

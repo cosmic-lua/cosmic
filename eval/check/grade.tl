@@ -800,7 +800,7 @@ end
 local function exchange(port: integer, request: string, head_only: boolean,
                         to_close: boolean): Answer?, string
   local conn, ctrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(3) })
-  if conn == nil then return nil, ctrouble end
+  if conn == nil then return nil, tostring(ctrouble) end
   local sent, strouble = conn:write(request)
   if not sent then
     local _, _ = conn:close()
@@ -1090,7 +1090,7 @@ end
 local function kv_wait(g: Grade, port: integer)
   local waiting, trouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(8) })
   if waiting == nil then
-    fail(g, "GET /later?wait=5: " .. trouble)
+    fail(g, "GET /later?wait=5: " .. tostring(trouble))
     return
   end
   local _, _ = waiting:write("GET /later?wait=5 HTTP/1.1\r\nHost: x\r\n\r\n")
@@ -1197,7 +1197,7 @@ local function kv(g: Grade)
   -- A client that sends half a request and waits must not hold up the next.
   local idle, itrouble = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(3) })
   if idle == nil then
-    fail(g, "idle connection: " .. itrouble)
+    fail(g, "idle connection: " .. tostring(itrouble))
   else
     local _, _ = idle:write("GET /beta HTTP/1.1\r\nHo")
     local started = Clock.monotonic_ns()
@@ -1699,7 +1699,7 @@ local function mirror_requests(g: Grade, site: Site)
   local idle, itrouble = Net.connect(Net.tcp("127.0.0.1", site.port),
     { timeout_ns = Clock.seconds(3) })
   if idle == nil then
-    fail(g, "idle connection: " .. itrouble)
+    fail(g, "idle connection: " .. tostring(itrouble))
   else
     local _, _ = idle:write("GET /a.txt HTTP/1.1\r\nHo")
     local started = Clock.monotonic_ns()
@@ -1812,7 +1812,7 @@ local function mirror_lie(g: Grade)
   })
   local ran = pull.result
   if not served or ran == nil then
-    fail(g, "the lying server did not serve: " .. trouble)
+    fail(g, "the lying server did not serve: " .. tostring(trouble))
     return
   end
   local err = ran.stderr or ""
@@ -1959,7 +1959,9 @@ end
 --- A connection to the relay at `port`, whose every wait lasts 5 s at
 --- most.
 local function dial(port: integer): Net.Conn?, string
-  return Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
+  local got, failure = Net.connect(Net.tcp("127.0.0.1", port), { timeout_ns = Clock.seconds(5) })
+  if got == nil then return nil, tostring(failure) end
+  return got, ""
 end
 
 --- Reads `conn` until `n` bytes have come or it ends; answers what
@@ -2137,7 +2139,7 @@ end
 local function relay_refused(g: Grade)
   local listener, trouble = Net.listen(Net.tcp("127.0.0.1", 0))
   if listener == nil then
-    fail(g, "could not find a free port: " .. trouble)
+    fail(g, "could not find a free port: " .. tostring(trouble))
     return
   end
   local dead = assert(listener.address.port)
@@ -2214,7 +2216,7 @@ local function relay(g: Grade)
     end,
   })
   if not served then
-    fail(g, "the grader's echo target did not serve: " .. trouble)
+    fail(g, "the grader's echo target did not serve: " .. tostring(trouble))
   end
   help(g, { "--idle" })
 end

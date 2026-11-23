@@ -705,7 +705,8 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     end
     local looked: Looked = {}
     local lookup = Poll.spawn(function()
-      looked.found, looked.why = Net.resolve(name, opts)
+      local found, why = Net.resolve(name, opts)
+      looked.found, looked.why = found, if found == nil then tostring(why) else nil end
     end)
     run.lookups[lookup] = true
     local joined, joined_why = lookup:join()

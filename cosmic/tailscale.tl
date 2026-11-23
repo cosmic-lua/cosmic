@@ -828,7 +828,7 @@ local function sent(endpoint: Endpoint, default_ns: integer, method: string, pat
   local request, bad = Message.format_request({ method = method, target = path, headers = headers, body = sending })
   if request == nil then return nil, "tailscale: " .. bad end
   local conn <close>, why = Net.connect(endpoint.via, { timeout_ns = left() })
-  if conn == nil then return nil, "tailscale: " .. why end
+  if conn == nil then return nil, "tailscale: " .. tostring(why) end
   conn:set_timeout(left())
   local wrote, refused = conn:write(request)
   if not wrote then return nil, "tailscale: " .. refused end
@@ -1109,7 +1109,7 @@ local function exchanged(endpoint: Endpoint, wait_ns: integer, method: string, p
   -- 0 is no limit, as everywhere in this module.
   local limit = if wait_ns == 0 then nil else wait_ns end
   local conn, why = Net.connect(endpoint.via, { timeout_ns = limit })
-  if conn == nil then return nil, "tailscale: " .. why end
+  if conn == nil then return nil, "tailscale: " .. tostring(why) end
   local function failed(reason: string): Exchange?, string
     local _, _ = conn:close()
     return nil, "tailscale: " .. reason

@@ -111,7 +111,7 @@ return function(argv: {string}): integer
   local lines: mut {string} = {}
   for _, resolved in ipairs(found or {}) do lines[#lines + 1] = resolved.family .. " " .. resolved.address end
   table.sort(lines)
-  if found == nil then lines = { "error " .. why } end
+  if found == nil then lines = { "error " .. tostring(why) } end
   local _, _ = Fs.put(Fs.stdout, table.concat(lines, "\n"))
   return 0
 end
@@ -127,7 +127,7 @@ return function(argv: {string}): integer
   local guard = assert(Signal.guard())
   local found, why = Net.resolve(argv[1] or "",
     { servers = { { host = "127.0.0.1", port = assert(math.tointeger(argv[2])) } } })
-  local _, _ = Fs.put(Fs.stdout, if found == nil then "error " .. why else "found" end)
+  local _, _ = Fs.put(Fs.stdout, if found == nil then "error " .. tostring(why) else "found" end)
   assert(guard:release())
   return 0
 end

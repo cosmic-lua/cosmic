@@ -103,7 +103,7 @@ return function(_argv: {string}): integer
       error("on_ready failed")
     end,
   }
-  local _, _ = pcall(Net.serve, spec)
+  local _, _ = pcall(function() local _, _ = Net.serve(spec) end)
   return 0
 end
 ]]))

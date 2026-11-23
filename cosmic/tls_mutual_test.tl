@@ -71,7 +71,7 @@ end
 --- "failed: " and why.
 local function answer(port: integer, client: Tls.Client): string
   local conn, why = Net.connect(Net.tcp("127.0.0.1", port), { tls = client, server_name = "localhost" })
-  if conn == nil then return "failed: " .. why end
+  if conn == nil then return "failed: " .. tostring(why) end
   local said, lost = Stream.read_all(conn)
   local _, _ = conn:close()
   if said == nil then return "failed: " .. tostring(lost) end
@@ -143,7 +143,7 @@ end
 --- line and the body, or "failed: " and why.
 local function fetched(port: integer, client: Tls.Client): string
   local conn, why = Net.connect(Net.tcp("127.0.0.1", port), { tls = client, server_name = "localhost" })
-  if conn == nil then return "failed: " .. why end
+  if conn == nil then return "failed: " .. tostring(why) end
   assert(conn:write("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"))
   local said, lost = Stream.read_all(conn)
   local _, _ = conn:close()

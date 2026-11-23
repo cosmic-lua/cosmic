@@ -60,6 +60,7 @@
 ---     assert(socket:set_multicast({ via = "192.0.2.7", hops = 1 }))
 
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Loopback = require("cosmic.internal.loopback")
 local Poll = require("cosmic.poll")
@@ -674,6 +675,36 @@ local function datagram_trouble(address: Net.Address): string
   return "a udp address, from Net.udp, whose host is a string and port an integer from 0 to 65535"
 end
 
+-- Net.resolve, its failure in words.
+local function resolve_text(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string
+  opts = opts or {}
+  Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", 3)
+  local hosts_file = opts.hosts_file
+  local servers: string?
+  local opts_servers = opts.servers
+  if opts_servers ~= nil then
+    local listed = opts_servers
+    if #listed == 0 then
+      error("net: servers must be a list of endpoints", 3)
+    end
+    local parts: mut {string} = {}
+    for _, endpoint in ipairs(listed) do
+      local host, port = endpoint.host, endpoint.port
+      if port < 1 or port > 65535 then
+        error("net: a server must be an endpoint with a port from 1 to 65535", 3)
+      end
+      -- Only a host that holds none of the list's own punctuation may
+      -- reach it, so one server cannot name another; the resolver
+      -- refuses what is not an address.
+      if host:find("[^%x:.]") then return nil, "Invalid argument" end
+      parts[#parts + 1] = if host:find(":", 1, true) then ("[" .. host .. "]:" .. tostring(port)) else
+        (host .. ":" .. tostring(port)) end
+    end
+    servers = table.concat(parts, ",")
+  end
+  return Resolv.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
+end
+
 --- Resolves `name` with c-ares and answers every address it has, IPv4
 --- and IPv6, as the system's configuration (resolv.conf and hosts; on
 --- macOS also the system's DNS configuration) makes it: none is dropped
@@ -703,33 +734,19 @@ end
 --- task cancelled in it ends the lookup and fails "cancelled"; anywhere
 --- else it holds the thread until it answers. A `timeout_ns` out of range,
 --- an empty `servers` list or a server port outside 1 to 65535 raises.
-function Net.resolve(name: string, opts?: Net.ResolveOptions): {Net.Resolved}?, string
-  opts = opts or {}
-  Poll.checked_ns(opts.timeout_ns, "net", "timeout_ns", 2)
-  local hosts_file = opts.hosts_file
-  local servers: string?
-  local opts_servers = opts.servers
-  if opts_servers ~= nil then
-    local listed = opts_servers
-    if #listed == 0 then
-      error("net: servers must be a list of endpoints", 2)
-    end
-    local parts: mut {string} = {}
-    for _, endpoint in ipairs(listed) do
-      local host, port = endpoint.host, endpoint.port
-      if port < 1 or port > 65535 then
-        error("net: a server must be an endpoint with a port from 1 to 65535", 2)
-      end
-      -- Only a host that holds none of the list's own punctuation may
-      -- reach it, so one server cannot name another; the resolver
-      -- refuses what is not an address.
-      if host:find("[^%x:.]") then return nil, "Invalid argument" end
-      parts[#parts + 1] = if host:find(":", 1, true) then ("[" .. host .. "]:" .. tostring(port)) else
-        (host .. ":" .. tostring(port)) end
-    end
-    servers = table.concat(parts, ",")
-  end
-  return Resolv.lookup(name, { timeout_ns = opts.timeout_ns, servers = servers, hosts = hosts_file })
+function Net.resolve(name: string, opts?: Net.ResolveOptions): ({Net.Resolved}) | (nil, Failure)
+  local value, why = resolve_text(name, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Net.nameservers, its failure in words.
+local function nameservers_text(): {Net.Endpoint}?, string
+  local listed, why = Resolv.nameservers()
+  if listed == nil then return nil, why end
+  local out: mut {Net.Endpoint} = {}
+  for i, server in ipairs(listed) do out[i] = { host = server.host, port = server.port } end
+  return out, ""
 end
 
 --- The system's DNS servers, each at port 53, as [`ResolveOptions.servers`]
@@ -743,13 +760,11 @@ end
 ---     local found = assert(Net.resolve("localhost", { servers = servers }))
 ---
 --- @return {Net.Endpoint}|nil The servers
---- @return string Why there are none, "" otherwise
-function Net.nameservers(): {Net.Endpoint}?, string
-  local listed, why = Resolv.nameservers()
-  if listed == nil then return nil, why end
-  local out: mut {Net.Endpoint} = {}
-  for i, server in ipairs(listed) do out[i] = { host = server.host, port = server.port } end
-  return out, ""
+--- @return Failure|nil Why there are none
+function Net.nameservers(): ({Net.Endpoint}) | (nil, Failure)
+  local value, why = nameservers_text()
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- A socket connected to `address`, waiting at most `timeout_ns`: in a
@@ -798,6 +813,13 @@ local function listening(address: Net.Address, opts: Net.ListenOptions,
   return new_listener(socket, Net.tcp(assert(bound.host), assert(bound.port)), opts.timeout_ns), ""
 end
 
+-- Net.listen, its failure in words.
+local function listen_text(address: Net.Address, opts?: Net.ListenOptions): Net.Listener?, string
+  local opened, why = listening(address, opts or {}, 3)
+  if opened == nil then return nil, why end
+  return opened.listener, ""
+end
+
 --- Listens at `address`. A unix one makes its socket file, and fails
 --- where the path is already there -- a socket file left behind by a
 --- listener that did not close included -- rather than take the name
@@ -807,25 +829,18 @@ end
 --- and raises where the process cannot return to its working directory
 --- after. An `address` that is no [`Net.Address`] (a unix one with an
 --- empty path, a TCP port past 65535) raises, as does a `backlog` below 1.
-function Net.listen(address: Net.Address, opts?: Net.ListenOptions): Net.Listener?, string
-  local opened, why = listening(address, opts or {}, 2)
-  if opened == nil then return nil, why end
-  return opened.listener, ""
+function Net.listen(address: Net.Address, opts?: Net.ListenOptions): (Net.Listener) | (nil, Failure)
+  local value, why = listen_text(address, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
---- Binds a UDP socket at `address`, a [`Net.udp`] one: port 0 takes a
---- port the kernel chooses, which the socket's `address` then names, and
---- the host "0.0.0.0" or "::" takes datagrams at every address of the
---- machine. Nil and why where it cannot be bound: a port in use, or a
---- host that is no numeric address. With `shared`, a port in use by
---- sockets that are all `shared` is bound all the same
---- ([`DatagramOptions.shared`]). Raises on an address of another
---- kind or with a port past 65535, and on a `timeout_ns` no wait can last.
-function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): Net.Datagram?, string
+-- Net.datagram, its failure in words.
+local function datagram_text(address: Net.Address, opts?: Net.DatagramOptions): Net.Datagram?, string
   local trouble = datagram_trouble(address)
-  if trouble ~= "" then error("net: address must be " .. trouble, 2) end
+  if trouble ~= "" then error("net: address must be " .. trouble, 3) end
   local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
-  Poll.checked_ns(timeout_ns, "net", "timeout_ns", 2)
+  Poll.checked_ns(timeout_ns, "net", "timeout_ns", 3)
   local socket, why, errno = raw.datagram(address, opts ~= nil and opts.shared == true)
   if socket == nil then return nil, named(address) .. ": " .. said(why, errno, address) end
   local fd = socket:fd()
@@ -838,15 +853,22 @@ function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): Net.Dat
   return made, ""
 end
 
---- The machine's network interfaces, each once with every IPv4 and IPv6
---- address it has, in the system's order: what a caller picks the `via`
---- of a multicast call from. An interface with no address is listed with
---- none. Nil and why where the system does not say. On Linux it is asked
---- over a netlink socket, which a sandbox ([`cosmic.sandbox`]) allows only
---- where it allows IPv4 and IPv6 sockets, so the call fails in one that
---- has none. A sandbox that has them is in a network namespace of its
---- own, and lists that namespace's interfaces, not the machine's.
-function Net.interfaces(): {Net.Interface}?, string
+--- Binds a UDP socket at `address`, a [`Net.udp`] one: port 0 takes a
+--- port the kernel chooses, which the socket's `address` then names, and
+--- the host "0.0.0.0" or "::" takes datagrams at every address of the
+--- machine. Nil and a Failure where it cannot be bound: a port in use, or a
+--- host that is no numeric address. With `shared`, a port in use by
+--- sockets that are all `shared` is bound all the same
+--- ([`DatagramOptions.shared`]). Raises on an address of another
+--- kind or with a port past 65535, and on a `timeout_ns` no wait can last.
+function Net.datagram(address: Net.Address, opts?: Net.DatagramOptions): (Net.Datagram) | (nil, Failure)
+  local value, why = datagram_text(address, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Net.interfaces, its failure in words.
+local function interfaces_text(): {Net.Interface}?, string
   local entries, why = raw.interfaces()
   if entries == nil then return nil, "net: interfaces: " .. why end
   local listed: mut {Net.Interface} = {}
@@ -869,27 +891,29 @@ function Net.interfaces(): {Net.Interface}?, string
   return listed, ""
 end
 
---- The listener over a listening TCP socket this process already holds:
---- one it inherited, or one received over a Unix socket with
---- `sendfds`/`recvfds`. It takes a copy of `fd`, so closing the listener
---- never closes `fd`, which stays its holder's to close, and the
---- listener then behaves as one [`Net.listen`] answered: its `address` is
---- the socket's own, and `accept`, [`set_timeout`] and `close` are the same.
---- The copy shares `fd`'s open file description, so adopting makes `fd`
---- nonblocking, as every listener here is, for whoever else holds it.
---- Anything but a listening stream socket of IPv4 or IPv6 -- a file, a
---- pipe, a datagram or unconnected socket, a unix listener -- fails nil
---- and why, naming `fd`. A descriptor the runtime retains raises, as it does
---- anywhere; so does an `fd` that is no integer from 0, or a
---- `timeout_ns` no wait can last.
+--- The machine's network interfaces, each once with every IPv4 and IPv6
+--- address it has, in the system's order: what a caller picks the `via`
+--- of a multicast call from. An interface with no address is listed with
+--- none. Nil and a Failure where the system does not say. On Linux it is asked
+--- over a netlink socket, which a sandbox ([`cosmic.sandbox`]) allows only
+--- where it allows IPv4 and IPv6 sockets, so the call fails in one that
+--- has none. A sandbox that has them is in a network namespace of its
+--- own, and lists that namespace's interfaces, not the machine's.
+function Net.interfaces(): ({Net.Interface}) | (nil, Failure)
+  local value, why = interfaces_text()
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 -- TODO: take a unix listener too, once a use needs one: its Net.Address
 -- would come from raw.bound, but the adopted Socket would not own the
 -- socket file, which removing is the binder's.
-function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener?, string
+-- Net.listener_from, its failure in words.
+local function listener_from_text(fd: integer, opts?: Net.ListenOptions): Net.Listener?, string
   if math.type(fd) ~= "integer" or fd < 0 then
-    error("net: fd must be an integer from 0", 2)
+    error("net: fd must be an integer from 0", 3)
   end
-  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 2)
+  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 3)
   local socket, why, errno = raw.adopt(fd)
   if socket == nil then
     local reason = why
@@ -905,12 +929,31 @@ function Net.listener_from(fd: integer, opts?: Net.ListenOptions): Net.Listener?
     if opts ~= nil then opts.timeout_ns else nil end).listener, ""
 end
 
+--- The listener over a listening TCP socket this process already holds:
+--- one it inherited, or one received over a Unix socket with
+--- `sendfds`/`recvfds`. It takes a copy of `fd`, so closing the listener
+--- never closes `fd`, which stays its holder's to close, and the
+--- listener then behaves as one [`Net.listen`] answered: its `address` is
+--- the socket's own, and `accept`, [`set_timeout`] and `close` are the same.
+--- The copy shares `fd`'s open file description, so adopting makes `fd`
+--- nonblocking, as every listener here is, for whoever else holds it.
+--- Anything but a listening stream socket of IPv4 or IPv6 -- a file, a
+--- pipe, a datagram or unconnected socket, a unix listener -- fails nil
+--- and a Failure, naming `fd`. A descriptor the runtime retains raises, as it does
+--- anywhere; so does an `fd` that is no integer from 0, or a
+--- `timeout_ns` no wait can last.
+function Net.listener_from(fd: integer, opts?: Net.ListenOptions): (Net.Listener) | (nil, Failure)
+  local value, why = listener_from_text(fd, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 --- The two listeners a sandbox's relay channel carries: the TCP sockets a
 --- child bound in a network namespace of its own and sent over `channel`,
 --- a descriptor this process holds, in the order they were sent. Each is
 --- adopted as [`Net.listener_from`] does, and the descriptors received
 --- are closed. A channel that carries no such pair, or sockets that are no
---- listening TCP, fails nil and why; `channel` is left open for its holder
+--- listening TCP, fails nil and a Failure; `channel` is left open for its holder
 --- to close. The child sends both in one message before it runs its
 --- program, so a channel whose start has answered holds them already and
 --- this does not wait; a `timeout_ns` no wait can last raises.
@@ -920,22 +963,19 @@ end
 -- cosmic.internal.socket now that the raw tables are plain modules): until
 -- then the relay's process receives them itself, so that Child only moves
 -- the channel.
---- @param channel integer The descriptor of the channel's receiving end
---- @param opts? Net.ListenOptions The listeners' options
---- @return {Net.Listener}|nil The listeners
---- @return string Why there are none, "" otherwise
-function Net.receive_listeners(channel: integer, opts?: Net.ListenOptions): {Net.Listener}?, string
+-- Net.receive_listeners, its failure in words.
+local function receive_listeners_text(channel: integer, opts?: Net.ListenOptions): {Net.Listener}?, string
   if math.type(channel) ~= "integer" or channel < 0 then
-    error("net: channel must be an integer from 0", 2)
+    error("net: channel must be an integer from 0", 3)
   end
-  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 2)
+  Poll.checked_ns(if opts ~= nil then opts.timeout_ns else nil end, "net", "timeout_ns", 3)
   local received, why = raw.recvfds(channel, 2)
   if received == nil then return nil, "net: descriptor " .. tostring(channel) .. ": " .. why end
   local listeners: mut {Net.Listener} = {}
   local failure = ""
   for _, owned in ipairs(received) do
     if failure == "" then
-      local listener, trouble = Net.listener_from(owned:fd(), opts)
+      local listener, trouble = listener_from_text(owned:fd(), opts)
       if listener == nil then
         failure = trouble
       else
@@ -949,6 +989,41 @@ function Net.receive_listeners(channel: integer, opts?: Net.ListenOptions): {Net
     return nil, failure
   end
   return listeners, ""
+end
+
+--- @param channel integer The descriptor of the channel's receiving end
+--- @param opts? Net.ListenOptions The listeners' options
+--- @return {Net.Listener}|nil The listeners
+--- @return Failure|nil Why there are none
+function Net.receive_listeners(channel: integer, opts?: Net.ListenOptions): ({Net.Listener}) | (nil, Failure)
+  local value, why = receive_listeners_text(channel, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Net.connect, its failure in words.
+local function connect_text(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?, string
+  local unusable = address_trouble(address)
+  if unusable ~= "" then error("net: address must be " .. unusable, 3) end
+  local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
+  if opts ~= nil and opts.server_name ~= nil and opts.tls == nil then
+    error("net: opts.server_name is what opts.tls asks for, and there is no opts.tls", 3)
+  end
+  local attempt = connection(address, timeout_ns)
+  local socket = attempt.socket
+  if socket == nil then
+    return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
+  end
+  local conn = Connection.new(socket, timeout_ns)
+  local client = if opts ~= nil then opts.tls else nil end
+  if client == nil then return conn, "" end
+  local name = opts and opts.server_name or address.host
+  local secured, why = conn:start_tls(client, name)
+  if not secured then
+    local _, _ = conn:close()
+    return nil, named(address) .. ": " .. why
+  end
+  return conn, ""
 end
 
 --- Connects to `address`. A unix one fails "No such file or directory"
@@ -969,28 +1044,10 @@ end
 ---     local client = assert(Tls.client())
 ---     local conn = assert(Net.connect(Net.tcp("93.184.215.14", 443),
 ---       { tls = client, server_name = "example.com", timeout_ns = Clock.seconds(10) }))
-function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): Net.Conn?, string
-  local unusable = address_trouble(address)
-  if unusable ~= "" then error("net: address must be " .. unusable, 2) end
-  local timeout_ns = if opts ~= nil then opts.timeout_ns else nil end
-  if opts ~= nil and opts.server_name ~= nil and opts.tls == nil then
-    error("net: opts.server_name is what opts.tls asks for, and there is no opts.tls", 2)
-  end
-  local attempt = connection(address, timeout_ns)
-  local socket = attempt.socket
-  if socket == nil then
-    return nil, named(address) .. ": " .. said(assert(attempt.trouble), assert(attempt.errno), address)
-  end
-  local conn = Connection.new(socket, timeout_ns)
-  local client = if opts ~= nil then opts.tls else nil end
-  if client == nil then return conn, "" end
-  local name = opts and opts.server_name or address.host
-  local secured, why = conn:start_tls(client, name)
-  if not secured then
-    local _, _ = conn:close()
-    return nil, named(address) .. ": " .. why
-  end
-  return conn, ""
+function Net.connect(address: Net.Address, opts?: Net.ConnectOptions): (Net.Conn) | (nil, Failure)
+  local value, why = connect_text(address, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- Raises for the spec's `field`, at the caller of [`Net.serve`].
@@ -1387,7 +1444,7 @@ end
 --- in a task of another. It returns true once [`Server.stop`] has been
 --- called, or a signal has stopped it, and every task of the run has
 --- ended -- each connection's, and any [`Net.ServeSpec.on_ready`] or
---- [`Net.ServeSpec.on_stop`] spawned -- and false and why, having called
+--- [`Net.ServeSpec.on_stop`] spawned -- and false and a Failure, having called
 --- nothing, where a listener cannot listen or its signal guard cannot
 --- be opened, or where the first load of `spec.tls` fails (`clear`
 --- having served meanwhile), or, having served, where the guard cannot
@@ -1425,15 +1482,15 @@ end
 --- the signal runs to its end. A wait that holds the thread rather than
 --- waiting through the run (`h:wait` on a child a protocol started)
 --- reads the server's guard, and ends at a signal.
-function Net.serve(spec: Net.ServeSpec): boolean, string
+function Net.serve(spec: Net.ServeSpec): (true) | (false, Failure)
   checked_spec(spec)
   if Poll.in_task() then
     error("net: serve runs a Poll.run of its own, and cannot be called in a task of another", 2)
   end
   local served = { ok = true, why = "" }
   Poll.run(function() served.ok, served.why = serving(spec) end)
-  if not served.ok then return false, served.why end
-  return true, ""
+  if not served.ok then return false, Failure.new(served.why) end
+  return true
 end
 
 --- What [`Net.with_loopback`] holds while its body runs.
@@ -1516,7 +1573,7 @@ end
 function Net.with_loopback(serve: function(conn: Net.Conn), body: function(port: integer))
   Poll.within(function()
     local listener, refused = Net.listen(Net.tcp("127.0.0.1", 0))
-    if listener == nil then error("net: with_loopback: " .. refused, 0) end
+    if listener == nil then error("net: with_loopback: " .. tostring(refused), 0) end
     local standing <close>: Standing = { listener = listener, acceptor = nil, conns = {}, stopped = false }
     standing.acceptor = Poll.spawn(function()
       while true do
