@@ -79,8 +79,9 @@ local record Cli
   --- one -- its words in `arg` and the returned function's `argv` --
   --- with a record's `main` field standing for a returned function.
   --- `cosmic --standalone --check <file.tl>` only checks the file, as
-  --- a run does, and never calls it: it prints the refusals and exits 1,
-  --- or exits 0 when there are none.
+  --- a run does, and never calls it: it prints the refusals and exits 4,
+  --- as a run of a file that does not compile does. It exits 0 when there
+  --- are none, and 1 when it cannot read the file.
   --- COSMIC_STANDALONE=1 makes `cosmic <file.tl>` run so
   standalone: string
   --- `cosmic -e '<chunk>' [args...]`: runs the chunk as the body of a Teal
@@ -89,8 +90,9 @@ local record Cli
   --- and no staleness check. The chunk is checked as strictly as a file
   --- run `--standalone` is (a warning is refused with an error), and one
   --- the checker refuses does not run: its messages are printed and it
-  --- exits 1. It reaches the library as a file does,
-  --- `require("cosmic.json")`, by a literal name, and the tool's own
+  --- exits 4, as a file that does not compile does. It reaches the
+  --- library as a file does, `require("cosmic.json")`, by a literal
+  --- name, and the tool's own
   --- modules the same way; no module is bound for it, and it is Teal, not
   --- Lua (`cosmic -e 'print(1 + "x")'` is refused). The words after the chunk are its `...`, each a
   --- `string?`; it prints only what it prints. What it returns is the
