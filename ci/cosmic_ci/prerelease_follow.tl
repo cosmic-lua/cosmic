@@ -13,8 +13,8 @@
 ---
 --- It reads the run from its environment: EVENT, CONCLUSION, ATTEMPT,
 --- RUN_ID and BRANCH, the triggering run's (github.event.workflow_run),
---- and REPOSITORY, with the client GH_TOKEN makes. Nothing it does fails
---- the job but a request GitHub refuses.
+--- and REPOSITORY, with the client GH_TOKEN makes. A missing input, a
+--- request GitHub refuses or one that gets no answer fails the job.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local GithubApi = require("cosmic_ci.github_api")
@@ -86,9 +86,13 @@ function PrereleaseFollow.follow(c: PrereleaseFollow.Context): string
   if c.event ~= "push" or c.conclusion ~= "success" then
     return "a " .. c.event .. " run that ended " .. c.conclusion .. ": nothing follows"
   end
-  local text = assert(GithubApi.get(c.client, base .. "/workflows/ci.yml/runs?branch=main&per_page=100"))
-  local answer = assert(RUNS:decode_into(text))
-  local newest = newest_full(answer.workflow_runs)
+  local runs: mut {RunItem} = {}
+  for _, event in ipairs({ "schedule", "workflow_dispatch" }) do
+    local text = assert(GithubApi.get(c.client, base .. "/workflows/ci.yml/runs?branch=main&event=" .. event ..
+        "&per_page=5"))
+    for _, run in ipairs(assert(RUNS:decode_into(text)).workflow_runs) do runs[#runs + 1] = run end
+  end
+  local newest = newest_full(runs)
   if newest ~= nil and c.now - newest < c.window then
     return "a full run of main started " .. tostring((c.now - newest) // 60) .. " minutes ago: none is started"
   end

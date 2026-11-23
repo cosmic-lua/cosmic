@@ -40,8 +40,9 @@ local function test_a_green_push_starts_a_full_run_where_none_is_recent()
     '{"event":"schedule","created_at":"2026-11-22T12:00:00Z"}'))
   local said = PrereleaseFollow.follow(context(client, "push", "success"))
   assert(said:find("one is started", 1, true), said)
-  assert(#calls == 2 and calls[1] == "GET /workflows/ci.yml/runs?branch=main&per_page=100 ", calls[1])
-  assert(calls[2] == 'POST /workflows/ci.yml/dispatches {"ref":"main"}', calls[2])
+  assert(#calls == 3 and calls[1] == "GET /workflows/ci.yml/runs?branch=main&event=schedule&per_page=5 " and
+      calls[2] == "GET /workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=5 ", table.concat(calls, "|"))
+  assert(calls[3] == 'POST /workflows/ci.yml/dispatches {"ref":"main"}', calls[3])
 end
 
 --- A full run that started within the window, a daily or a manual one,
@@ -51,7 +52,7 @@ local function test_a_recent_full_run_keeps_a_push_from_starting_another()
     local client, calls = fake(runs_text('{"event":"' .. event .. '","created_at":"2026-11-23T06:01:00Z"}'))
     local said = PrereleaseFollow.follow(context(client, "push", "success"))
     assert(said:find("359 minutes ago", 1, true), said)
-    assert(#calls == 1, table.concat(calls, "|"))
+    assert(#calls == 2, table.concat(calls, "|"))
   end
 end
 
@@ -66,7 +67,9 @@ local function test_nothing_follows_a_red_push_or_another_branch()
   local cases: {Case} = { { event = "push", conclusion = "failure", branch = "main" },
     { event = "pull_request", conclusion = "success", branch = "main" },
     { event = "push", conclusion = "success", branch = "topic" },
-    { event = "schedule", conclusion = "success", branch = "main" } }
+    { event = "schedule", conclusion = "success", branch = "main" },
+    { event = "schedule", conclusion = "cancelled", branch = "main" },
+    { event = "workflow_dispatch", conclusion = "failure", branch = "topic" } }
   for _, case in ipairs(cases) do
     local client, calls = fake(runs_text())
     local said = PrereleaseFollow.follow(context(client, case.event, case.conclusion, 1, case.branch))
@@ -98,4 +101,12 @@ local function test_a_refused_request_fails_the_command()
   assert(tostring(why):find("answered 403", 1, true), tostring(why))
   assert(PrereleaseFollow.command({}, context(client, "push", "success")) == 1)
   assert(PrereleaseFollow.command({ "extra" }, context(client, "push", "failure")) == 1)
+end
+
+--- A full run that started exactly the window ago no longer counts.
+local function test_a_full_run_exactly_the_window_ago_does_not_count()
+  local client, calls = fake(runs_text('{"event":"schedule","created_at":"2026-11-23T06:00:00Z"}'))
+  local said = PrereleaseFollow.follow(context(client, "push", "success"))
+  assert(said:find("one is started", 1, true), said)
+  assert(#calls == 3, table.concat(calls, "|"))
 end

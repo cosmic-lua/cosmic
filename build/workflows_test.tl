@@ -1921,6 +1921,10 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
   local follow = job_of(prerelease.jobs, "follow")
   assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write",
     "prerelease.yml's follow job's permissions")
+  local follows = follow["if"] or ""
+  assert(follows:find("github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && ", 1, true) == 1 and
+      follows:find("pull_request", 1, true) == nil and follows:find("merge_group", 1, true) == nil,
+    "prerelease.yml's follow job runs after a run of another repository, branch or event: " .. follows)
   for name in pairs(jobs) do
     assert(name == "platform" or name == "checked" or name == "narrowing" or name == "driver" or name == "ci",
       "ci.yml has a job " .. name)
