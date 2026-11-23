@@ -46,6 +46,7 @@ local ProjectRefusals = require("build.project_refusals")
 local library_record = require("build.library_record")
 local positions = require("build.positions")
 local Receivers = require("build.syntax_receivers")
+local RecordSplices = require("build.syntax_record_splices")
 local Report = require("build.syntax_report")
 local Stub = require("build.syntax_stub")
 local Sqlite = require("cosmic.sqlite")
@@ -152,6 +153,22 @@ local record Pipeline
   --- text that names `lone`, as the items' modules are named, is checked in a build of its own. The build holds every
   --- item until the last is answered.
   checked_alone_each: function(items: {{string}}, options: Options, tests?: boolean, declared_return?: boolean): {Alone}
+
+  --- A checker that lives on: one build over the options it was made with, which checks one text after another as the
+  --- module `lone`, each the file it was named, as [`Pipeline.checked_alone`] checks one. What a text lowers of the
+  --- standard library stays lowered for the next, so a text that requires what an earlier one did is checked without
+  --- lowering it again ([`Driver.Build.replace`]). A text with calls to splice ([`build.syntax_record_splices`]) is checked
+  --- in a build of its own.
+  record Kept
+    --- [`Pipeline.checked_alone`] of `text` in the kept build.
+    check: function(Kept, text: string): Alone
+    --- How many modules its build lowered so far, the texts' own among them: a text that requires only what an earlier
+    --- one lowered adds one, its own.
+    lowerings: function(Kept): integer
+  end
+  --- A [`Pipeline.Kept`] whose texts are each the file `file`, with `options`, `tests` and `declared_return` as
+  --- [`Pipeline.checked_alone`] takes them.
+  kept_alone: function(file: string, options: Options, tests?: boolean, declared_return?: boolean): Kept
 
   --- The `cosmic.*` modules of the running binary, each its stub or its source ([`build.standard_text`]), a declaration
   --- ([`cosmic.sys`]) as one.
@@ -1032,6 +1049,39 @@ end
 function Pipeline.checked_alone(file: string, text: string, options: Pipeline.Options, tests?: boolean,
                                 declared_return?: boolean): Pipeline.Alone
   return assert(Pipeline.checked_alone_each({ { file, text } }, options, tests, declared_return)[1])
+end
+
+function Pipeline.kept_alone(file: string, options: Pipeline.Options, tests?: boolean, declared_return?: boolean):
+    Pipeline.Kept
+  local kind = if tests == true then "test" else "main" end
+  local built: Pipeline.Built? = nil
+  return {
+    lowerings = function(_self: Pipeline.Kept): integer
+      local b = built
+      return if b == nil then 0 else b.build.timing.lowerings end
+    end,
+    check = function(_self: Pipeline.Kept, text: string): Pipeline.Alone
+      -- TODO: check a text with calls to splice in the kept build, once TreeProgram.splice reads them in a scratch build
+      -- that has not met the module: the build's scratch is kept, and holds the text before.
+      if RecordSplices.mentions(text) then
+        return Pipeline.checked_alone(file, text, options, tests, declared_return)
+      end
+      local b = built
+      if b == nil then
+        b = Pipeline.over({ { file, text, "lone" } }, { [file] = kind }, options)
+        built = b
+      elseif b.build:replace("lone", text) == nil then
+        return { code = nil, lines = { file .. ": the kept build has no module lone" }, stages = {} }
+      end
+      local build = b.build
+      local spliced, spec_trouble = TreeProgram.splice(build, "lone", file)
+      if spliced == nil then
+        return { code = nil, lines = { spec_trouble }, stages = {} }
+      end
+      build:lower({ "lone" })
+      return alone_of(build, "lone", file, options, declared_return)
+    end,
+  }
 end
 
 function Pipeline.lone(file: string, text: string, options: Pipeline.Options, tests?: boolean,
