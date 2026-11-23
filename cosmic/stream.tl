@@ -1186,19 +1186,26 @@ local class StagedWriter is Stream.FileWriter
   staged: Fs.Staged
 
   function write(self, data: string): boolean, string
-    return self.staged:write(data)
+    local ok, why = self.staged:write(data)
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 
   function sync(self): boolean, string
-    return self.staged:sync()
+    local ok, why = self.staged:sync()
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 
   function close(self): boolean, string
-    return self.staged:close()
+    local ok, why = self.staged:close()
+    if not ok then return false, tostring(why) end
+    return true, ""
   end
 
   function abort(self): boolean, string
-    return self.staged:abort()
+    self.staged:abort()
+    return true, ""
   end
 end
 
