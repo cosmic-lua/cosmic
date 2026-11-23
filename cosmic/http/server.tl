@@ -693,10 +693,10 @@ end
 --- A new encoder for `coding`, nil where there is none.
 local function encoder_for(coding: string): Compress.Stream?
   if coding == "zstd" then
-    local encoder, _ = Compress.zstd_encoder()
+    local encoder, _ = Compress.encoder("zstd")
     return encoder
   end
-  local encoder, _ = Compress.deflater("gzip")
+  local encoder, _ = Compress.encoder("gzip")
   return encoder
 end
 
@@ -1088,7 +1088,7 @@ local MOST <const> = tostring(math.maxinteger)
 --- one comes out the same either way.
 local function count(digits: string): integer
   if fewer(MOST, digits) then return math.maxinteger end
-  return Number.integer(digits)
+  return assert(Number.integer(digits))
 end
 
 --- Reads the Range `header` of a GET (nil where it sent none) against

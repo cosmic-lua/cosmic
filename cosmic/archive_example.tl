@@ -16,7 +16,7 @@ function Example.open()
   local dir = assert(Fs.mkdtemp("cosmic-archive-example-"))
   local path = dir .. "/release"
   local file = assert(Stream.create(path))
-  local w = Tar.writer(Stream.transform_writer(file, (assert(Compress.deflater("gzip")))))
+  local w = Tar.writer(Stream.transform_writer(file, (assert(Compress.encoder("gzip")))))
   assert(w:add_file("README", "read me first"))
   assert(w:close())
 

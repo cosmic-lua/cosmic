@@ -16,43 +16,58 @@ local Flags = require("cosmic.flags")
 
 --- One field per verb: the full text of `cosmic help <verb>`.
 local record Cli
-  --- `cosmic <file.tl> [args...]`: builds the tree the file sits in --
-  --- the working directory when the file is under it, so a file of a
-  --- project reaches the rest of it; the file's own directory
-  --- otherwise -- into its build directory, then runs it: requires the file, and if
-  --- what it returns is a function, calls it with one argument, the
-  --- words after the file's path (`argv[1]` on, its own path at
-  --- `argv[0]`), and exits with what it returns, as `eval` does:
-  --- nothing is 0, a whole number from 0 to 255, or text naming one, is
-  --- itself, and anything else is complained about and exits 2. The
-  --- file's top level finds the same words in the global `arg`; its `...`
-  --- is what `require` hands a module, its own name. The words are the
-  --- file's as typed, since no option of this program's comes after the
-  --- file. A "--" there is the file's own too. [`Flags.parse`] from
-  --- `argv[1]` reads it as the end of the options, so `cosmic f.tl --
-  --- --help` gives it the word "--help" and no option.
+  --- `cosmic <file.tl> [args...]`: builds the file's tree into the tree's
+  --- build directory, then runs the file. The tree is the working directory when
+  --- the file is under it, so a file of a project reaches the rest of the
+  --- project. Otherwise the tree is the file's own directory.
+  ---
+  --- Running the file requires it. If it returns a function, cosmic calls
+  --- that function with the words after the file's path (`argv[1]` on; its
+  --- own path is `argv[0]`), and exits with the status the function
+  --- returns:
+  ---
+  --- - nothing: 0;
+  --- - a whole number from 0 to 255, or text that holds one: that number;
+  --- - anything else: an error, and exit 2.
+  ---
+  --- The file's top level finds the same words in the global `arg`. Its
+  --- `...` is what `require` gives a module: its own name. Every word after
+  --- the file is the file's, "--" too: no option of cosmic comes after the
+  --- file. [`Flags.parse`] from `argv[1]` reads "--" as the end of the
+  --- options, so `cosmic f.tl -- --help` gives the file the word "--help"
+  --- and no option.
   ---
   ---     return function(argv: {string}): integer
   ---       print("from " .. argv[1] .. " to " .. argv[2])
   ---       return 0
   ---     end
   ---
+  --- A file that requires only `cosmic.*` modules, each by a literal
+  --- name, needs no tree, and runs as `cosmic --standalone` runs it: no
+  --- tree is built and nothing is written but the compile cache. A
+  --- program's `cmd/<name>/main.tl`, a `_test.tl` and a file of cosmic's
+  --- own checkout build the tree whatever they require, and
+  --- COSMIC_STANDALONE=0 makes any file build it.
+  ---
   --- A file of the tree that does not parse or type-check stops the run
-  --- only when the file requires it, itself or through another module.
-  --- One it does not require is left out, with a warning naming it and
-  --- why, and the file runs. A check of the whole tree -- a global, a
-  --- cycle of imports -- stops every run wherever it is met. `cosmic test`
-  --- and `cosmic fix` build the whole tree, and refuse a broken file anywhere.
+  --- only when the file requires it, itself or through another module. A
+  --- broken file that it does not require is left out with a warning that
+  --- names it and why, and the file runs. A check of the whole tree (a
+  --- global, a cycle of imports) stops every run. `cosmic test` and
+  --- `cosmic fix` build the whole tree, and refuse a broken file anywhere.
   ---
-  --- A tree's build directory is outside it, this user's own:
-  --- $XDG_CACHE_HOME/cosmic/trees/<key> (~/.cache/cosmic/trees/<key>),
-  --- <key> the SHA-256 of the tree's canonical path, or under the
-  --- absolute base COSMIC_BUILD_HOME names; so a tree this user cannot
-  --- write (another user's checkout, say) builds as any other.
+  --- A tree's build directory is outside the tree, and belongs to this
+  --- user: `$XDG_CACHE_HOME/cosmic/trees/<key>` (`~/.cache/cosmic/trees/<key>`),
+  --- where `<key>` is the SHA-256 of the tree's canonical path. When
+  --- COSMIC_BUILD_HOME is set, it replaces that base: the build directory
+  --- is `$COSMIC_BUILD_HOME/<key>`, and a path that is not absolute is an
+  --- error. So a tree that this user cannot write, such as another
+  --- user's checkout, builds as any other does.
   ---
-  --- With COSMIC_STANDALONE=1 it runs the file as `--standalone` does,
-  --- building nothing and writing no build directory; a program `cosmic sandbox
-  --- --cosmic` runs has it set unless `--set-env` says otherwise
+  --- With COSMIC_STANDALONE=1, cosmic runs the file as `--standalone`
+  --- does: it builds nothing and writes no build directory. A program that
+  --- `cosmic sandbox --cosmic` runs has COSMIC_STANDALONE=1 unless
+  --- `--set-env` says otherwise.
   run: string
   --- `cosmic --standalone <file.tl> [args...]`: runs one file against this
   --- binary's own standard library, with no tree around it -- nothing

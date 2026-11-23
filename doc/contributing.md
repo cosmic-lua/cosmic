@@ -42,13 +42,11 @@ conflict with the parent's squash.
    (a worktree's copied build directory, a moved checkout) refuses the
    checkout: run `bin/zig build boot` there.
 
-   on an x86_64 box the build runs the checked core and the host's
-   shipped core, which are built for x86-64-v3, so the box's CPU needs
-   AVX2, FMA, BMI1 and BMI2, F16C, LZCNT and MOVBE.
-
-   on an aarch64 Linux box the same holds for the Armv8.2-A core: the
-   CPU needs dot-product and half-precision floats (Cortex-A55 or
-   Neoverse N1 and newer, a Raspberry Pi 5; not a Raspberry Pi 4).
+   on Linux the build runs the host's shipped core and the checked core,
+   both built for the host's target, so the box's CPU needs what that
+   target needs: x86-64-v3 on x86_64, Armv8.2-A with dot-product and
+   half-precision floats on aarch64. [`doc/design.md`] ("targets") lists
+   the features and the processors.
 
 ## check before pushing
 
@@ -72,7 +70,8 @@ conflict with the parent's squash.
   fixture: [`ci/run-local`] (`ci/run-local fixtures` to re-run edited
   fixtures), and for C the checklist in [`doc/c.md`]. a change to `ci/`
   also needs `../bin/cosmic fix --check` from `ci/`, a tree of its own
-  with its own build directory. its `fixtures/*_test.tl` run only under
+  with its own build directory, and `../bin/cosmic-bootstrap fix --check .`,
+  the pinned release's check of the same files. its `fixtures/*_test.tl` run only under
   the CI driver. run as root, [`ci/run-local`] runs the driver as an
   unprivileged user (`COSMIC_CI_LOCAL_USER`), as CI's runners are. the
   launcher fixture's core is a stand-in that checks nothing: a case about
@@ -344,6 +343,7 @@ the tool named can be older than the tree's generator.
 [`ci/run-local`]: ../ci/run-local
 [`core/bridge.lua`]: ../core/bridge.lua
 [`doc/c.md`]: c.md
+[`doc/design.md`]: design.md
 [`doc/testing.md`]: testing.md
 [`doc/writing.md`]: writing.md
 [`lang/codegen.tl`]: ../lang/codegen.tl

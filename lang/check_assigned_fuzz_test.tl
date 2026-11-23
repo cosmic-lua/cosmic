@@ -402,7 +402,7 @@ end
 --- How many programs to draw: `FUZZ_ITERS` where it is set, else 24, which a test of a few seconds under coverage
 --- allows.
 local function iterations(): integer
-  return math.tointeger(tonumber(Env.get_or("FUZZ_ITERS", ""))) or 24
+  return math.tointeger(tonumber(Env.get("FUZZ_ITERS") or "")) or 24
 end
 
 local function test_the_checker_refuses_exactly_the_programs_that_read_before_they_assign(tmp: string)

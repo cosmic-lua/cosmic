@@ -1053,6 +1053,12 @@ local function test_a_public_doc_naming_internals_is_refused(dir: string)
   found = tree_checks.public_docs(db, excused)
   assert(#found == 1 and found[1]:find("^cosmic.thing e path: exempt, but") ~= nil,
     table.concat(found, "\n"))
+  -- Held to some files, the docs of the rest say nothing, nor does an exemption nothing named answers to.
+  found = tree_checks.public_docs(db, { ["cosmic.thing a path"] = "a", ["cosmic.thing x path"] = "unneeded" },
+    { ["cosmic/thing.tl"] = true })
+  assert(#found == 5 and found[1]:find("^cosmic/thing%.tl:7: .*%(todo rule%)") ~= nil, table.concat(found, "\n"))
+  found = tree_checks.public_docs(db, {}, { ["cosmic/other.tl"] = true })
+  assert(#found == 0, table.concat(found, "\n"))
   local clean = fixture.database(dir, {
     ["cosmic/thing.tl"] = source(
       "--- Things.",

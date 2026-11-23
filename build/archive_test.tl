@@ -90,7 +90,7 @@ local function make_tar(path: string, members: {Member}, gzip?: boolean): string
   local sink = assert(Stream.create(path))
   local w: Tar.Writer
   if gzip == true then
-    w = Tar.writer(Stream.transform_writer(sink, (assert(Compress.deflater("gzip")))))
+    w = Tar.writer(Stream.transform_writer(sink, (assert(Compress.encoder("gzip")))))
   else
     w = Tar.writer(sink)
   end
@@ -257,7 +257,7 @@ local function write_big_tgz(path: string, mib: integer): integer
   local rounds = mib * 16
   local left = rounds
   local sink = assert(Stream.create(path))
-  local w = Tar.writer(Stream.transform_writer(sink, (assert(Compress.deflater("gzip")))))
+  local w = Tar.writer(Stream.transform_writer(sink, (assert(Compress.encoder("gzip")))))
   local body: Stream.Reader = { -- checked: literal_shape
     read = function(_self: Stream.Reader, _max_bytes?: integer): string?, string
       if left == 0 then return nil, "" end

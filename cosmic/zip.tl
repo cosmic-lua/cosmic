@@ -462,7 +462,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
   if method == 0 then
     body = raw
   elseif method == 8 then
-    local inflater, itrouble = Compress.inflater("raw")
+    local inflater, itrouble = Compress.decoder("raw")
     if inflater == nil then return nil, tostring(itrouble) end
     body = Stream.transform(raw, inflater)
   elseif method == ZSTD then
@@ -471,7 +471,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     -- bounded by the entry's recorded size through CheckedReader. A
     -- limit derived from that size would refuse cosmic's own encoder
     -- output, which declares a 2 MiB window even for an empty entry.
-    local decoder, dtrouble = Compress.zstd_decoder()
+    local decoder, dtrouble = Compress.decoder("zstd")
     if decoder == nil then return nil, tostring(dtrouble) end
     body = Stream.transform(raw, decoder)
   else
@@ -988,11 +988,11 @@ local function write_whole(self: EntryWriter, path: string, data: string, method
   local payload = data
   done.crc, done.usize = sums.crc32(data), #data
   if method == 8 then
-    local packed, dtrouble = Compress.deflate("raw", data)
+    local packed, dtrouble = Compress.encode("raw", data)
     if packed == nil then return false, tostring(dtrouble) end
     payload = packed
   elseif method == ZSTD then
-    local encoder, etrouble = Compress.zstd_encoder()
+    local encoder, etrouble = Compress.encoder("zstd")
     if encoder == nil then return false, tostring(etrouble) end
     local packed, ptrouble = Stream.run(encoder, data)
     if packed == nil then return false, tostring(ptrouble) end
@@ -1028,11 +1028,11 @@ local function begin_streamed(self: EntryWriter, path: string, method: integer, 
     Streamed?, string
   local encoder: Compress.Stream?
   if method == 8 then
-    local made, dtrouble = Compress.deflater("raw")
+    local made, dtrouble = Compress.encoder("raw")
     if made == nil then return nil, tostring(dtrouble) end
     encoder = made
   elseif method == ZSTD then
-    local made, etrouble = Compress.zstd_encoder()
+    local made, etrouble = Compress.encoder("zstd")
     if made == nil then return nil, tostring(etrouble) end
     encoder = made
   end

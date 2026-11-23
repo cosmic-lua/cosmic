@@ -1,16 +1,12 @@
---- Bounded child-process supervision with explicit argv, environment,
---- directory and descriptors. A child started with [`Child.start`]
---- keeps running if a signal ends this process, which then never closes
---- its handle -- unless a `sandbox` that unveils holds it, whose pid
---- namespace ends with this process. Only [`Child.run`] holds SIGINT
---- and SIGTERM for you. A supervisor takes a [`Signal.guard`] and asks
---- `g:cancelled()` after each round of [`Child.wait_any`] or
---- `h:try_wait`, which do not read the guard. Once one is caught, it
---- closes its handles, ending their children, and calls `g:release()`
---- -- not `g:close()`, which delivers the signal again and so ends this
---- process -- before it prints its report and exits non-zero, as the
---- `supervisor` example in [`cosmic/child_example.tl`] does
---- (`cosmic docs Child.wait_any` shows it).
+--- Runs other programs and waits for them. [`Child.run`] runs one to its
+--- end and returns a [`Child.Result`]: its exit `code` (or the `signal`
+--- that ended it), `ok`, and the output it captured. [`Child.start`]
+--- starts one and returns a handle to wait on or close. Each returns nil
+--- and a reason when the program cannot start. Each takes an argv and
+--- runs the program with no shell, and options for the environment, the
+--- directory, the descriptors and a timeout. A bare name in `argv[1]` is
+--- not searched on PATH ([`Proc.find`] finds it), except under a
+--- `policy` or a `sandbox`.
 ---
 --- A child owns a new process group by default, and its Handle owns
 --- that group: once a wait, a timeout, or a close has an answer, no
@@ -40,6 +36,18 @@
 --- together with [`Child.wait_any`]. Completion is the child's exit, never
 --- end of file: a descendant that escaped the group and still holds a
 --- captured pipe cannot hold up a wait.
+---
+--- A child started with [`Child.start`] keeps running if a signal ends this process, which then never closes
+--- its handle -- unless a `sandbox` that unveils holds it, whose pid
+--- namespace ends with this process. Only [`Child.run`] holds SIGINT
+--- and SIGTERM for you. A supervisor takes a [`Signal.guard`] and asks
+--- `g:cancelled()` after each round of [`Child.wait_any`] or
+--- `h:try_wait`, which do not read the guard. Once one is caught, it
+--- closes its handles, ending their children, and calls `g:release()`
+--- -- not `g:close()`, which delivers the signal again and so ends this
+--- process -- before it prints its report and exits non-zero, as the
+--- `supervisor` example in [`cosmic/child_example.tl`] does
+--- (`cosmic docs Child.wait_any` shows it).
 ---
 --- In a task of [`Poll.run`], every wait here -- a handle's, a stream's,
 --- [`Child.run`]'s, [`Child.wait_any`]'s, [`Child.end_strays`]'s -- waits

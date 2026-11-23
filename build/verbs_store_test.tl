@@ -199,11 +199,11 @@ end
 local function test_help_starts_from_the_guides(tmp: string)
   local all = verbs_fixture.expect(tmp, "help", { "help" }, 0).stdout
   local verbs = assert(all:find("\nRunning code:\n", 1, true), all)
-  for _, guide in ipairs({ "doc.guides.quickstart", "doc.guides.project" }) do
+  for _, guide in ipairs({ "quickstart", "project" }) do
     local at = all:find("`cosmic docs " .. guide .. "`", 1, true)
     assert(at ~= nil and at < verbs, guide .. ":\n" .. all)
     local page = verbs_fixture.expect(tmp, "docs", { "docs", guide }, 0).stdout
-    assert(String.starts_with(page, guide .. " ("), page)
+    assert(String.starts_with(page, "doc.guides." .. guide .. " ("), page)
   end
 end
 

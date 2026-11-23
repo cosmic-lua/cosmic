@@ -128,6 +128,12 @@ allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's a
 
 allowed["cosmic.failure.timeout"] = "public API: the failure of a wait that ran past its time limit, which " ..
   "a module answers in place of the words Poll.TIMEOUT as each moves to (T) | (nil, Failure)"
+allowed["cosmic.compress.zstd_encoder"] = "ci/ calls it on the pinned release, which has no Compress.encoder; " ..
+  "goes with the TODO in cosmic/compress.tl"
+allowed["cosmic.compress.zstd_decoder"] = "ci/ calls it on the pinned release, which has no Compress.decoder; " ..
+  "goes with the TODO in cosmic/compress.tl"
+allowed["cosmic.compress.zstd"] = "ci/ calls it on the pinned release, which has no Compress.encode; " ..
+  "goes with the TODO in cosmic/compress.tl"
 allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
   "runs the loop reads; the loop keeps each request's cost through billed"
 allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
@@ -1815,11 +1821,23 @@ local doc_rules: {DocRule} = {
 --- `build.<module>` the tree has, `core/`, `cosmic.internal`,
 --- `cosmic/internal/`, `vendor/` and a C file's name (`foo.c`, not a
 --- header in angle brackets). `build.zig` is a file name, not a module.
-function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}): {string}
+--- @param files where given, the files (paths from the tree's root) whose docs are checked, as a run of `cosmic fix` over
+---   some paths checks them: no word is said of an exemption, since the files not named may answer to it
+function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}, files?: {string: boolean}): {string}
   excused = excused or doc_exempt
+  local named = ""
+  local values: mut {Sqlite.Value} = {}
+  if files ~= nil then
+    local marks: mut {string} = {}
+    for file in pairs(files) do
+      values[#values + 1] = { text = file }
+      marks[#marks + 1] = "?"
+    end
+    named = " AND d.file IN (" .. table.concat(marks, ", ") .. ")"
+  end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
-      symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
+      symbols.shown_docs("d", true) .. " AND d.text <> ''" .. named .. " ORDER BY d.file, d.line, d.id", values)
   if rows == nil then
     return { "reading the public docs: " .. tostring(trouble) }
   end
@@ -1861,7 +1879,8 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
     end
   end
   local stale: mut {string} = {}
-  for key in pairs(excused) do
+  local unexcused: {string: string} = {}
+  for key in pairs(if files == nil then excused else unexcused end) do
     if found[key] ~= true then
       stale[#stale + 1] = key .. ": exempt, but its doc no longer breaks the rule -- " ..
         "remove the exemption"
@@ -2141,10 +2160,10 @@ end
 --- root and checked there (`cosmic fix --check` run in `ci/`, which build/ci_check_test.tl runs). The declarations of the globals ([`lang/prelude.d.tl`],
 --- [`lang/stdlib.d.tl`]) are left out: they are the globals of every build ([`build.tree_program`]), no module of it.
 local function sources_of(root: string): {{string}}?, string
-  local listed, trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean
+  local listed, trouble = Fs.walk(root, { skip = function(relative: string, name: string, kind: Fs.Kind): boolean
     return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or
       identity.is_foreign_tree(relative))
-  end)
+  end })
   if listed == nil then
     return nil, tostring(trouble)
   end

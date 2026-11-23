@@ -359,7 +359,7 @@ local function decimal(digits: string): integer?
   digits = digits:gsub("^0+", "")
   if digits == "" then return 0 end
   if #digits > 18 then return math.maxinteger end
-  return Number.integer(digits)
+  return assert(Number.integer(digits))
 end
 
 --- The size a Content-Length's value names; nil and why where it is
@@ -635,7 +635,7 @@ function wire.chunk_size(text: string): wire.ChunkSize?, string
   hex = hex:gsub("^0+", "")
   local extra = #rest + math.max(digits - #hex - 1, 0)
   if #hex > 15 then return { size = 0, huge = true, extra = extra }, "" end
-  return { size = if hex == "" then 0 else Number.integer(hex, 16) end, huge = false, extra = extra }, ""
+  return { size = if hex == "" then 0 else assert(Number.integer(hex, 16)) end, huge = false, extra = extra }, ""
 end
 
 --- Reads the next chunked size line, `left` and `phase` set from it:

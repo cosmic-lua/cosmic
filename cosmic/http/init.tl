@@ -557,11 +557,11 @@ local class DecodingReader is Stream.Reader
   --- The codec for the reader's coding, made from `head`, the body's
   --- first bytes.
   function start(self, head: string): (Compress.Stream) | (nil, Failure)
-    if self.coding == "zstd" then return Compress.zstd_decoder() end
+    if self.coding == "zstd" then return Compress.decoder("zstd") end
     if self.coding == "deflate" then
-      return Compress.inflater(if zlib_header(head) then "zlib" else "raw" end)
+      return Compress.decoder(if zlib_header(head) then "zlib" else "raw" end)
     end
-    return Compress.inflater("gzip")
+    return Compress.decoder("gzip")
   end
 
   --- What the codec gives for `chunk`: its output, possibly "".

@@ -105,13 +105,13 @@ local function sdist(path: string, version: string, files: {string:string})
     assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), data))
   end
   assert(w:close())
-  assert(Fs.write(path, (assert(Compress.deflate("gzip", out:result())))))
+  assert(Fs.write(path, (assert(Compress.encode("gzip", out:result())))))
 end
 
 --- Every vendored zone, by its path under the sdist's `src/tzdata/`.
 local function vendored_zones(): mut {string:string}
   local files: mut {string:string} = {}
-  for _, name in ipairs((assert(Fs.walk_following(zones)))) do
+  for _, name in ipairs((assert(Fs.walk(zones, { follow = true })))) do
     files["zoneinfo/" .. name] = assert(Fs.read(zones .. "/" .. name))
   end
   return files

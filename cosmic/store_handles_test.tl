@@ -87,8 +87,8 @@ local function test_a_store_database_handle_only_reads()
     statement:finalize()
   end
   local Compress = require("cosmic.compress")
-  local packed = assert(Compress.deflate("zlib", "unaffected"))
-  assert(assert(Compress.inflate("zlib", packed, 10)) == "unaffected")
+  local packed = assert(Compress.encode("zlib", "unaffected"))
+  assert(assert(Compress.decode("zlib", packed, { max_bytes = 10 })) == "unaffected")
   assert(Store.bytecode("cosmic.compress"))
 end
 
