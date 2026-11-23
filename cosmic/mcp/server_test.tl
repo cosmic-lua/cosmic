@@ -3,9 +3,11 @@
 --- client writes is answered before it reads.
 
 local Client = require("cosmic.mcp.client")
+local Clock = require("cosmic.clock")
 local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
+local Poll = require("cosmic.poll")
 local Server = require("cosmic.mcp.server")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
@@ -415,4 +417,164 @@ local function test_a_main_refuses_a_line_it_cannot_serve()
   assert(s:main({ "--http", "127.0.0.1:0", "--anyone", "--path", "mcp" }) == 2, "a path starts with /")
   assert(s:main({ "--http", "127.0.0.1:0", "--http", "127.0.0.1:1", "--anyone" }) == 2, "--http twice")
   assert(s:main({ "--path", "/x" }) == 2, "--path is for --http")
+end
+
+--- A tool that tells its progress `steps` times, a pause apart, and notes in `seen` when it finds itself cancelled.
+local function stepping(name: string, steps: integer, seen: mut {string}): Server.ToolSpec
+  return {
+    tool = { name = name, inputSchema = Mcp.object_schema({}) },
+    call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      for i = 1, steps do
+        call.progress(i, steps)
+        call.progress(i - 1, steps, "backwards, dropped")
+        local ok, why = Poll.delay(Clock.ms(10))
+        if not ok or call.cancelled() then
+          local said = "cancelled: " .. tostring(why)
+          seen[#seen + 1] = said
+          return nil, Failure.new("cancelled")
+        end
+      end
+      return Mcp.result({ "done" })
+    end,
+  }
+end
+
+local function stepper(seen: mut {string}): Server.Instance
+  return Server.new{ info = { name = "steps", version = "1" },
+    tools = { stepping("short", 2, seen), stepping("long", 1000, seen) } }
+end
+
+local function test_over_stdio_progress_comes_before_the_answer_and_a_cancel_ends_a_call()
+  local seen: mut {string} = {}
+  local with_token = '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"short","arguments":{},' ..
+    '"_meta":{"progressToken":"t","io.modelcontextprotocol/protocolVersion":"2026-07-28",' ..
+    '"io.modelcontextprotocol/clientCapabilities":{}}}}'
+  local cancel = '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2,"reason":"enough"}}'
+  local input = Stream.from_string(with_token .. "\n" .. request(2, "tools/call", '"name":"long"') .. "\n" .. cancel .. "\n" ..
+      request(3, "tools/call", '"name":"short"') .. "\n")
+  local output = Stream.collect()
+  assert(stepper(seen):serve_stdio(input, output))
+  local said: mut {{string: Json.Value}} = {}
+  for line in output:result():gmatch("[^\n]+") do said[#said + 1] = decoded(line) end
+  local kinds: mut {string} = {}
+  for _, m in ipairs(said) do
+    kinds[#kinds + 1] = if m["method"] == "notifications/progress" then "p" .. tostring(object(m["params"])["progressToken"]) else
+      "r" .. tostring(m["id"]) end
+  end
+  local order = table.concat(kinds, " ")
+  -- Two notices of progress for request 1 before its answer, none for 3, which asked for none; 2 is not answered.
+  assert(order:find("pt pt r1", 1, true) ~= nil and order:find("r2", 1, true) == nil and order:find("r3", 1, true) ~= nil, order)
+  assert(#seen == 1, table.concat(seen, "; "))
+end
+
+--- One direction of a pipe in a run: what is written waits for a read.
+local record Duct
+  mut held: string
+  mut closed: boolean
+  notifier: Poll.Notifier
+end
+
+local class DuctReader is Stream.Reader
+  duct: Duct
+
+  function read(self, _max?: integer): string?, string
+    while self.duct.held == "" do
+      if self.duct.closed then return nil, "" end
+      local ok, why = self.duct.notifier:wait()
+      if not ok then return nil, tostring(why) end
+    end
+    local out = self.duct.held
+    self.duct.held = ""
+    return out, ""
+  end
+
+  function close(self): boolean, string return true, "" end
+end
+
+local class DuctWriter is Stream.Writer
+  duct: Duct
+
+  function write(self, data: string): boolean, string
+    self.duct.held = self.duct.held .. data
+    self.duct.notifier:notify_all()
+    return true, ""
+  end
+
+  function close(self): boolean, string
+    self.duct.closed = true
+    self.duct.notifier:notify_all()
+    return true, ""
+  end
+
+  function abort(self): boolean, string return self:close() end
+end
+
+local function duct(): Duct
+  return { held = "", closed = false, notifier = Poll.notifier() }
+end
+
+--- The client hears progress over stdio as it comes, and a cancelled caller tells the server.
+local function test_a_stdio_client_hears_progress_and_cancels()
+  local seen: mut {string} = {}
+  Poll.run(function()
+    local up, down = duct(), duct()
+    local server_in: DuctReader = { duct = up, skip = nil }
+    local server_out: DuctWriter = { duct = down }
+    local served = Poll.spawn(function()
+      assert(stepper(seen):serve_stdio(server_in, server_out))
+    end)
+    local client_in: DuctReader = { duct = down, skip = nil }
+    local client_out: DuctWriter = { duct = up }
+    local session = Client.stdio(client_in, client_out)
+    local heard: mut {number} = {}
+    local done = assert(session:call("short", {}, { on_progress = function(p: Mcp.Progress)
+      heard[#heard + 1] = p.progress
+    end }))
+    assert(assert(done.content[1]).text == "done" and #heard == 2 and heard[2] == 2, tostring(#heard))
+    local caller = Poll.spawn(function()
+      local none, why = session:call("long")
+      assert(none == nil and tostring(why):find("cancelled", 1, true) ~= nil, tostring(why))
+    end)
+    assert(Poll.delay(Clock.ms(30)))
+    caller:cancel()
+    assert(caller:join(Clock.seconds(20)))
+    assert(session:close())
+    assert(served:join(Clock.seconds(20)))
+  end)
+  assert(#seen == 1, table.concat(seen, "; "))
+end
+
+--- A cancel is read while every place is taken: 33 long calls, then a cancel of each, end at once.
+local function test_a_cancel_is_read_while_the_server_is_full()
+  local seen: mut {string} = {}
+  local text: mut {string} = {}
+  for i = 1, 33 do text[#text + 1] = request(i, "tools/call", '"name":"long"') end
+  for i = 1, 33 do
+    text[#text + 1] = '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":' .. tostring(i) .. "}}"
+  end
+  local output = Stream.collect()
+  assert(stepper(seen):serve_stdio(Stream.from_string(table.concat(text, "\n") .. "\n"), output))
+  assert(output:result() == "", output:result())
+  -- The 33rd starts once one of the first ends, or not at all where its cancel is read first.
+  assert(#seen == 32 or #seen == 33, tostring(#seen))
+end
+
+local class FailingWriter is Stream.Writer
+  function write(self, _: string): boolean, string return false, "the pipe is broken" end
+  function close(self): boolean, string return true, "" end
+  function abort(self): boolean, string return true, "" end
+end
+
+--- A write that fails ends the server, though its input has nothing more to say and never ends.
+local function test_a_failed_write_ends_the_server_while_its_input_waits()
+  local seen: mut {string} = {}
+  Poll.run(function()
+    local up = duct()
+    local input: DuctReader = { duct = up, skip = nil }
+    local broken: FailingWriter = {}
+    local feeder: DuctWriter = { duct = up }
+    assert(feeder:write(request(1, "tools/call", '"name":"short"') .. "\n"))
+    local ok, why = stepper(seen):serve_stdio(input, broken)
+    assert(not ok and tostring(why):find("broken", 1, true) ~= nil, tostring(why))
+  end)
 end

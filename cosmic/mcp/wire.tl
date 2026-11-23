@@ -182,6 +182,36 @@ function wire.request(id: string, method: string, params: Json.Value): string
     assert(Json.encode(params)) .. "}"
 end
 
+--- A notification of `method` with `params`, as a line's text.
+function wire.notification(method: string, params: Json.Value): string
+  return '{"jsonrpc":"2.0","method":' .. Json.quote(method) .. ',"params":' .. assert(Json.encode(params)) .. "}"
+end
+
+--- The params of `notifications/progress`.
+local record ProgressParams
+  progressToken: any
+  progress: number
+  total?: number
+  message?: string
+end
+
+local PROGRESS_PARAMS <const>: Shape.Typed<ProgressParams> = Shape.record_of("ProgressParams")
+
+--- The progress `params` says, and its token encoded as JSON (`1`, `"a"`), or nil where they are not progress's.
+function wire.progress_of(params: any): (Mcp.Progress, string) | (nil)
+  local p, _ = PROGRESS_PARAMS:into(params)
+  if p == nil then return nil end
+  local token = p.progressToken
+  local encoded: string? = nil
+  if token is string then
+    encoded = Json.quote(token)
+  elseif math.type(token) == "integer" then
+    encoded = tostring(token)
+  end
+  if encoded == nil then return nil end
+  return { progress = p.progress, total = p.total, message = p.message }, encoded
+end
+
 -- Records as values.
 
 --- Sets `key` of `o` to `v`, where `v` is there.
