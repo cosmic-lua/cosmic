@@ -51,12 +51,15 @@
 --- cosmic.mcp.client`).
 --- @public
 
+local Env = require("cosmic.env")
 local Errors = require("cosmic.errors")
 local Failure = require("cosmic.failure")
+local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
+local Net = require("cosmic.net")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
 local wire = require("cosmic.mcp.wire")
@@ -195,8 +198,29 @@ local record McpServer
     ---       handle = server:handler{ authorize = McpServer.bearer(token) },
     ---     })
     handler: function(Instance, spec: HttpSpec): function(HttpServer.Request): HttpServer.Reply
+    --- Serves as a program's main, by its command line `argv` from slot `from` (1 when nil), and answers the exit
+    --- status: 0 when stdin ended or the server stopped, 1 when serving failed, and 2 for a command line it refuses,
+    --- with why on stderr. With no options it serves stdio ([`McpServer.Instance.serve_stdio`]). `--http host:port`
+    --- serves Streamable HTTP there instead ([`McpServer.Instance.handler`]; the host numeric, port 0 for any),
+    --- and says the endpoint's URL on stderr once it listens. Each request must then carry the bearer token held in
+    --- the environment variable `--token-env NAME` names, at least 16 bytes; `--anyone` lets every request in
+    --- instead, and only on a loopback host. `--origin O`, which may be repeated, names an origin a browser's
+    --- request may come from, and `--path P` the endpoint's path ("/mcp").
+    ---
+    ---     return function(argv: {string}): integer
+    ---       return server:main(argv)
+    ---     end
+    ---
+    --- run as `cosmic server.tl` for stdio, or `MCP_TOKEN=... cosmic server.tl --http 127.0.0.1:8080 --token-env
+    --- MCP_TOKEN` for HTTP.
+    main: function(Instance, argv: {string}, from?: integer): integer
   end
 end
+
+--- The options [`McpServer.Instance.main`] reads.
+local MAIN_OPTIONS <const>: {string: boolean} = {
+  ["--http"] = true, ["--token-env"] = true, ["--anyone"] = false, ["--origin"] = true, ["--path"] = true,
+}
 
 --- One server: its spec, read once, and its lists in order.
 local record State
@@ -876,6 +900,117 @@ local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServ
   end
 end
 
+--- Says `line` on stderr.
+local function say(line: string)
+  local _, _ = Fs.put(Fs.stderr, line .. "\n")
+end
+
+--- `text` (`host:port`, `[v6]:port`) as a TCP address, or nil and why.
+local function listen_address(text: string): (Net.Address) | (nil, Failure)
+  local host, port = text:match("^%[([^%]]+)%]:(%d+)$")
+  if host == nil then host, port = text:match("^([^:]+):(%d+)$") end
+  local number = if port ~= nil and #port <= 5 then math.tointeger(tonumber(port)) else nil end
+  if host == nil or number == nil or number > 65535 then
+    return nil, Failure.new("--http takes host:port, as 127.0.0.1:8080, not " .. text)
+  end
+  return Net.tcp(host, number)
+end
+
+--- What `main`'s HTTP options ask for: the spec, and where to listen.
+local record Listening
+  address: Net.Address
+  spec: McpServer.HttpSpec
+end
+
+--- The HTTP serving `parsed` asks for, or nil and why it is refused.
+local function listening(parsed: Flags.Parsed, at: string): (Listening) | (nil, Failure)
+  local address, bad = listen_address(at)
+  if address == nil then return nil, bad end
+  local token_env = parsed.values["--token-env"]
+  local anyone = parsed.set["--anyone"] == true
+  local authorize: function(HttpServer.Request): boolean
+  if token_env ~= nil and anyone then
+    return nil, Failure.new("--token-env and --anyone are each other's opposite: give one")
+  elseif token_env ~= nil then
+    local token = Env.get(token_env)
+    if token == nil or #token < 16 then
+      return nil, Failure.new("--token-env " .. token_env .. ": $" .. token_env ..
+          " must hold a token of at least 16 bytes")
+    end
+    authorize = McpServer.bearer(token)
+  elseif anyone then
+    if not Net.is_loopback(address) then
+      return nil, Failure.new("--anyone serves every caller, so only on a loopback host, not " .. at)
+    end
+    authorize = McpServer.anyone
+  else
+    return nil, Failure.new("--http needs --token-env NAME, the variable that holds the bearer token, or --anyone " ..
+        "on a loopback host")
+  end
+  return { address = address, spec = { authorize = authorize, origins = parsed.all["--origin"], path = parsed.values["--path"] } }
+end
+
+--- [`McpServer.Instance.main`].
+local function main(self: McpServer.Instance, argv: {string}, from?: integer): integer
+  local parsed, trouble = Flags.parse(argv, from or 1, MAIN_OPTIONS)
+  if parsed == nil then
+    say("mcp: " .. trouble)
+    return 2
+  end
+  if #parsed.words > 0 then
+    say("mcp: " .. parsed.words[1] .. ": the server takes options only")
+    return 2
+  end
+  for _, name in ipairs({ "--http", "--token-env", "--path" }) do
+    local all = parsed.all[name]
+    if all ~= nil and #all > 1 then
+      say("mcp: " .. name .. " is given more than once")
+      return 2
+    end
+  end
+  local path_given = parsed.values["--path"]
+  if path_given ~= nil and path_given:sub(1, 1) ~= "/" then
+    say("mcp: --path takes a path that starts with /, not " .. path_given)
+    return 2
+  end
+  local at = parsed.values["--http"]
+  if at == nil then
+    for _, name in ipairs(parsed.given) do
+      say("mcp: " .. name .. " is for --http")
+      return 2
+    end
+    local ok, why = self:serve_stdio()
+    if not ok then
+      say("mcp: " .. tostring(why))
+      return 1
+    end
+    return 0
+  end
+  local wanted, refused_why = listening(parsed, at)
+  if wanted == nil then
+    say("mcp: " .. tostring(refused_why))
+    return 2
+  end
+  local path = wanted.spec.path or "/mcp"
+  local Http = require("cosmic.http.server")
+  local served, why = Http.serve{
+    listeners = { wanted.address },
+    handle = self:handler(wanted.spec),
+    on_ready = function(addresses: {Net.Address}, _: Net.Server)
+      for _, bound in ipairs(addresses) do
+        local host = bound.host or ""
+        if host:find(":", 1, true) then host = "[" .. host .. "]" end
+        say("mcp: serving http://" .. host .. ":" .. tostring(bound.port) .. path)
+      end
+    end,
+  }
+  if not served then
+    say("mcp: " .. tostring(why))
+    return 1
+  end
+  return 0
+end
+
 --- A server, over its state.
 local class Running is McpServer.Instance
   state: State
@@ -890,6 +1025,10 @@ local class Running is McpServer.Instance
 
   function handler(self, spec: McpServer.HttpSpec): function(HttpServer.Request): HttpServer.Reply
     return handler(self.state, spec)
+  end
+
+  function main(self, argv: {string}, from?: integer): integer
+    return main(self, argv, from)
   end
 end
 

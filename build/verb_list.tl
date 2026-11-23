@@ -39,6 +39,7 @@ verb_list.loads = {
   qr = function(): verb_spec.Spec return require("build.qr").spec end,
   acme = function(): verb_spec.Spec return require("build.acme").spec end,
   tailscale = function(): verb_spec.Spec return require("build.tailscale").spec end,
+  mcp = function(): verb_spec.Spec return require("build.mcp").spec end,
   compile = function(): verb_spec.Spec return require("build.compile").spec end,
   docs = function(): verb_spec.Spec return require("build.docs").spec end,
   uses = function(): verb_spec.Spec return require("build.docs").uses_spec end,
