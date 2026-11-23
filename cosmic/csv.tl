@@ -41,7 +41,7 @@
 --- closing quote, and a quote never closed (where it was opened). `table`
 --- also refuses, strictly, a record whose field count is not the
 --- header's: a short or long row is a file whose columns are not what
---- they seem, and padding it would answer a query wrongly without a
+--- they seem, and padding it would give a query a wrong result without a
 --- word. It names the line the record began on.
 ---
 --- `table` turns each header field into a column name, so a row can be a
@@ -56,9 +56,9 @@
 ---
 --- `cosmic sql --from` names the columns of a data file by the same rule.
 ---
---- `table` also answers the line of the text each row's record began on,
+--- `table` also returns the line of the text each row's record began on,
 --- in `lines`, so a caller that refuses a row can say where it is.
---- `records` answers each record of `parse` with its line, for a caller
+--- `records` returns each record of `parse` with its line, for a caller
 --- that skips a ragged record rather than refusing the file.
 ---
 --- A line counts as the refusals above count it: a quoted line break
