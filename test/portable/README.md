@@ -37,14 +37,15 @@ shell builtins plus `uname`, `stat`, `id`, `mkdir`, `chmod`, `mktemp`, `dd`,
 `head`, `ln`, `rm`, and either `sha256sum` or `shasum`. The directory
 containing the cache leaf is the user's trust boundary; the launcher
 rejects a linked leaf, an unexpected owner or mode, and unexpected entries,
-a warm launch stats the cached core and hashes it unless startup's verified
-stamp still holds for it. `COSMIC_PORTABLE_CACHE` is the public cache setting; the
+a warm launch whose entry startup has stamped runs no child process, and
+startup checks the leaf's and the entry's modes; any other stats the cached
+core and hashes it unless startup's verified stamp still holds for it. `COSMIC_PORTABLE_CACHE` is the public cache setting; the
 remaining `COSMIC_PORTABLE_*` fields are a reserved launcher-to-core
 contract that startup requires complete, adopts, and clears before Lua
 runs. `launcher_packed_test.tl` covers the second stage that decodes a
 compressed core with the stub: a damaged stub, frame or stored range, a stub
 that fails or writes the wrong bytes, a read-only cache, races, a signal and a
-kill during decoding, and the CPU check coming first. The launcher also
+kill during decoding. The launcher also
 needs no utility for it beyond those above.
 
 The driver's `product_setup.tl` makes the per-host provenance bundle

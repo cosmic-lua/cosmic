@@ -12,9 +12,9 @@ local template = [=[#!/bin/sh
 # Cosmic portable artifact format v2.
 #
 # The directory containing the managed cache leaf is the trust boundary: it
-# must be controlled by this user, or be a sticky temp directory. The launcher
-# lstat-checks the leaf and its entries, but does not claim to make a hostile
-# HOME, TMPDIR or cache parent safe.
+# must be controlled by this user, or be a sticky temp directory. The launcher,
+# or on a warm start the core it starts, checks the leaf and its entries, but
+# does not claim to make a hostile HOME, TMPDIR or cache parent safe.
 
 portable_die() {
   printf 'cosmic portable: %s\n' "$*" >&2
@@ -66,45 +66,6 @@ case "$portable_system" in
 @TARGETS@
   *) portable_die 'unsupported target' ;;
 esac
-# The x86_64 Linux core is built for x86-64-v3 and the aarch64 Linux core for
-# Armv8.2-A with dot-product and half-precision floats, and either dies with
-# SIGILL on an older CPU, so refuse before anything is extracted. The kernel
-# lists only the features it has enabled for user space (avx when the OS does
-# not enable YMM state), so the list answers for the OS too. The baseline
-# features that come with these (x86-64-v2, Armv8.0 NEON) are not checked:
-# every CPU with these has them. A host that shows no such line (no /proc) is
-# not refused: the check cannot tell, and the core may well run.
-# $1 is the /proc/cpuinfo key of the list, $2 what the core needs, and the
-# rest the words that must be in the list, as whole words.
-portable_cpuinfo=@CPUINFO@
-portable_require_cpu() {
-  portable_key=$1
-  portable_needs=$2
-  shift 2
-  portable_flags=
-  while IFS= read -r portable_line; do
-    case $portable_line in
-      "$portable_key"*) portable_flags=" ${portable_line#*:} "; break ;;
-    esac
-  done 2>/dev/null < "$portable_cpuinfo"
-  [ -n "$portable_flags" ] || return 0
-  portable_missing=
-  for portable_flag in "$@"; do
-    case $portable_flags in
-      *" $portable_flag "*) ;;
-      *) portable_missing="$portable_missing $portable_flag" ;;
-    esac
-  done
-  [ -z "$portable_missing" ] ||
-    portable_die "this CPU lacks${portable_missing}; $portable_needs"
-}
-# Not a case on $portable_system: a header line opening with an arm's
-# quoted name is the arm the manifest selects.
-if [ "$portable_system" = 'Linux x86_64' ]; then
-  portable_require_cpu flags 'the x86_64 core needs x86-64-v3 (AVX2 and the rest of x86-64-v3: Intel Haswell 2013 or AMD Excavator 2015 or newer)' avx avx2 fma bmi1 bmi2 movbe f16c abm xsave
-elif [ "$portable_system" = 'Linux aarch64' ]; then
-  portable_require_cpu Features 'the aarch64 core needs Armv8.2-A with dot-product and half-precision floats (Cortex-A55 or A75, Neoverse N1, Graviton2, Raspberry Pi 5 or newer)' asimddp asimdhp fphp atomics asimdrdm crc32
-fi
 @SELECT_HOOK@
 
 # Keep this open across extraction and exec: startup adopts this descriptor,
@@ -152,6 +113,73 @@ fi
 while [ "$cosmic_cache" != / ] && [ "${cosmic_cache%/}" != "$cosmic_cache" ]; do
   cosmic_cache=${cosmic_cache%/}
 done
+
+cosmic_key=core-$cosmic_target_id-$cosmic_configuration_id-$cosmic_length-$cosmic_sha256
+cosmic_core=$cosmic_cache/$cosmic_key
+cosmic_repair_lock=$cosmic_cache/.repair-$cosmic_key
+cosmic_stamp=$cosmic_cache/.verified-$cosmic_key
+
+# Replaces this shell with the core at `cosmic_run`, open on its descriptor,
+# handing it the artifact and what the launcher chose.
+portable_start() {
+  # This is the complete bounded private launcher/startup environment contract.
+  COSMIC_PORTABLE_ARTIFACT_FD=$cosmic_artifact_fd
+  COSMIC_PORTABLE_CORE_FD=$cosmic_core_fd
+  COSMIC_PORTABLE_TARGET_ID=$cosmic_target_id
+  COSMIC_PORTABLE_CONFIGURATION_ID=$cosmic_configuration_id
+  COSMIC_PORTABLE_CORE_OFFSET=$cosmic_offset
+  COSMIC_PORTABLE_CORE_LENGTH=$cosmic_length
+  COSMIC_PORTABLE_CORE_SHA256=$cosmic_sha256
+  export COSMIC_PORTABLE_ARTIFACT_FD COSMIC_PORTABLE_CORE_FD
+  export COSMIC_PORTABLE_TARGET_ID COSMIC_PORTABLE_CONFIGURATION_ID
+  export COSMIC_PORTABLE_CORE_OFFSET COSMIC_PORTABLE_CORE_LENGTH
+  export COSMIC_PORTABLE_CORE_SHA256
+
+  # Where test(1) asks the kernel, `test -x` also reflects a noexec filesystem.
+  # Check before the special-builtin exec: a non-interactive shell exits on
+  # execve failure and never reaches a diagnostic after it.
+  [ -x "$cosmic_run" ] ||
+    portable_die 'verified core cannot execute on the cache filesystem'
+  trap - HUP INT TERM
+  trap 'portable_exec_failed "$?"' EXIT
+  exec "$cosmic_run" --artifact "$cosmic_artifact" "$@"
+}
+# BusyBox test answers `-x` from the mode bits alone, so there a noexec cache
+# passes the check above and the exec itself fails. ash, dash and mksh still
+# run the EXIT trap as they exit on that failure, and a successful exec
+# replaces the shell before any trap can run. The shell has already printed
+# the errno. 126 is any core found but refused (E2BIG and an LSM denial too),
+# so the hint names noexec only as the reading of a Permission denied there.
+portable_exec_failed() {
+  trap - EXIT
+  case $1 in
+    126) portable_die 'verified core was refused execution; Permission denied here usually means a noexec cache filesystem' ;;
+    *) portable_die 'cannot execute verified core' ;;
+  esac
+}
+
+# A warm start, with no child process, on Linux: a leaf this user owns, an
+# entry and the stamp startup leaves beside an entry it has hashed, none a
+# symbolic link; the entry is opened, and what is run is the file opened,
+# through /proc/self/fd, once the shell's own test has found it a regular
+# file this user owns and can run. So whoever else could rename a file into
+# the leaf (one others can write) cannot have theirs run, since only this
+# user's own file is, which no one else can write while it keeps the 0500
+# the launcher gives it. What these builtins cannot see -- the leaf's mode, the entry's, and
+# whether the entry still answers its stamp -- startup checks before
+# anything else runs (core/startup.c), and it removes an entry it refuses,
+# so the next start takes the path below. Anything else takes that path now:
+# it inspects everything here, repairs what it can, and hashes an entry no
+# stamp holds. So do macOS, with no /proc, and a shell whose test(1) has no
+# -O (status 2). `command` keeps a failed open from ending the shell.
+cosmic_run=/proc/self/fd/$cosmic_core_fd
+if [ -d "$cosmic_cache" ] && [ ! -L "$cosmic_cache" ] && [ -O "$cosmic_cache" ] &&
+   [ -f "$cosmic_core" ] && [ ! -L "$cosmic_core" ] &&
+   [ -f "$cosmic_stamp" ] && [ ! -L "$cosmic_stamp" ] &&
+   { command eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"'; } 2>/dev/null &&
+   [ -f "$cosmic_run" ] && [ -O "$cosmic_run" ] && [ -x "$cosmic_run" ]; then
+  portable_start "$@"
+fi
 
 if [ -L "$cosmic_cache" ]; then
   portable_die "cache leaf is a symbolic link: $cosmic_cache"
@@ -214,11 +242,6 @@ portable_owned() {
   fi
   [ "$2" = "$portable_uid" ]
 }
-
-cosmic_key=core-$cosmic_target_id-$cosmic_configuration_id-$cosmic_length-$cosmic_sha256
-cosmic_core=$cosmic_cache/$cosmic_key
-cosmic_repair_lock=$cosmic_cache/.repair-$cosmic_key
-cosmic_stamp=$cosmic_cache/.verified-$cosmic_key
 
 # One stat answers for both the leaf and the selected entry: on a warm start,
 # the only one. The entry's line is kept for its first inspection below. A
@@ -517,41 +540,8 @@ fi
 [ "$cosmic_core_verified" = 1 ] || portable_die 'selected core was not verified'
 eval 'exec '"$cosmic_core_fd"'<"$cosmic_core"' ||
   portable_die 'cannot open verified core descriptor'
-
-# This is the complete bounded private launcher/startup environment contract.
-COSMIC_PORTABLE_ARTIFACT_FD=$cosmic_artifact_fd
-COSMIC_PORTABLE_CORE_FD=$cosmic_core_fd
-COSMIC_PORTABLE_TARGET_ID=$cosmic_target_id
-COSMIC_PORTABLE_CONFIGURATION_ID=$cosmic_configuration_id
-COSMIC_PORTABLE_CORE_OFFSET=$cosmic_offset
-COSMIC_PORTABLE_CORE_LENGTH=$cosmic_length
-COSMIC_PORTABLE_CORE_SHA256=$cosmic_sha256
-export COSMIC_PORTABLE_ARTIFACT_FD COSMIC_PORTABLE_CORE_FD
-export COSMIC_PORTABLE_TARGET_ID COSMIC_PORTABLE_CONFIGURATION_ID
-export COSMIC_PORTABLE_CORE_OFFSET COSMIC_PORTABLE_CORE_LENGTH
-export COSMIC_PORTABLE_CORE_SHA256
-
-# Where test(1) asks the kernel, `test -x` also reflects a noexec filesystem.
-# Check before the special-builtin exec: a non-interactive shell exits on
-# execve failure and never reaches a diagnostic after it.
-[ -x "$cosmic_core" ] ||
-  portable_die 'verified core cannot execute on the cache filesystem'
-trap - HUP INT TERM
-# BusyBox test answers `-x` from the mode bits alone, so there a noexec cache
-# passes the check above and the exec itself fails. ash, dash and mksh still
-# run the EXIT trap as they exit on that failure, and a successful exec
-# replaces the shell before any trap can run. The shell has already printed
-# the errno. 126 is any core found but refused (E2BIG and an LSM denial too),
-# so the hint names noexec only as the reading of a Permission denied there.
-portable_exec_failed() {
-  trap - EXIT
-  case $1 in
-    126) portable_die 'verified core was refused execution; Permission denied here usually means a noexec cache filesystem' ;;
-    *) portable_die 'cannot execute verified core' ;;
-  esac
-}
-trap 'portable_exec_failed "$?"' EXIT
-exec "$cosmic_core" --artifact "$cosmic_artifact" "$@"
+cosmic_run=$cosmic_core
+portable_start "$@"
 exit
 ]=]
 
@@ -590,8 +580,6 @@ local shipped = without_comments(template)
 function launcher.render(arms: string, test_hooks: boolean): string
   local rendered = substitute(shipped, "@TARGETS@", arms)
   if test_hooks then
-    rendered = substitute(rendered, "@CPUINFO@",
-      '"${COSMIC_PORTABLE_TEST_CPUINFO-/proc/cpuinfo}"')
     rendered = substitute(rendered, "@KERNEL@",
       '"${COSMIC_PORTABLE_TEST_KERNEL-/proc/sys/kernel}"')
     rendered = substitute(rendered, "@SELECT_HOOK@",
@@ -608,7 +596,6 @@ function launcher.render(arms: string, test_hooks: boolean): string
       "    portable_test_hook after_stub")
     rendered = rendered:gsub("portable_die%(%) %{", test_hook_function .. "\nportable_die() {")
   else
-    rendered = substitute(rendered, "@CPUINFO@", "/proc/cpuinfo")
     rendered = substitute(rendered, "@KERNEL@", "/proc/sys/kernel")
     rendered = substitute(rendered, "@SELECT_HOOK@", "")
     rendered = substitute(rendered, "@ADOPT_HOOK@", "")

@@ -1,17 +1,13 @@
---- The launcher's CPU check, run on the shell the template renders: the
---- x86_64 core is built for x86-64-v3 and the aarch64 Linux core for Armv8.2-A
---- with dot-product and half-precision floats, and either dies with SIGILL on
---- an older CPU, so the launcher names what the CPU lacks and exits 126 first.
---- The full launch, cache and all, is ci/fixtures/launcher_test.tl's. Also here: the list of the host's
---- programs the launcher runs, held to the launcher's text, and what the modules that run it grant, held to
---- that list.
+--- The launcher's choice of a target, run on the shell the template renders: the kernel names the machine, and
+--- uname where it does not. The full launch, cache and all, is ci/fixtures/launcher_test.tl's. Also here: the
+--- list of the host's programs the launcher runs, held to the launcher's text, and what the modules that run it
+--- grant, held to that list.
 
 local Child = require("cosmic.child")
 local artifact = require("build.artifact")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
 local launcher = require("build.launcher")
-local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
 
 --- The host's shell, which runs the rendered launcher, and the programs
@@ -63,34 +59,16 @@ local arm64 = "  'Linux aarch64') cosmic_os=Linux; cosmic_target_id=2; " ..
   "cosmic_length=0; cosmic_sha256=0; cosmic_stub_block=; cosmic_stub_length=; " ..
   "cosmic_stub_sha256= ;;"
 
-local v3 = "fpu sse4_2 avx avx2 fma bmi1 bmi2 movbe f16c abm xsave"
+--- An aarch64 arm that says it was chosen, and goes no further.
+local chosen64 = "  'Linux aarch64') portable_die 'chose the aarch64 core' ;;"
 
--- What the Linux kernel lists for a Cortex-A76 (a Raspberry Pi 5).
-local v82 = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid " ..
-  "asimdrdm lrcpc dcpop asimddp"
-
---- Runs the rendered launcher over a cpuinfo of `flags`, or one that is absent.
-local function launch(tmp: string, hooks: boolean, flags?: string): Child.Result
+--- Runs the rendered launcher as an aarch64 Linux machine, whose arm ([`chosen64`]) says it was chosen. The
+--- machine is named by a /proc/sys/kernel of the test's own (`ostype` and `arch`), and a `uname` ahead of the real
+--- one on PATH refuses `-sm`, which a launch the kernel answers never runs. With `by_uname`, that directory holds
+--- `ostype` alone, as a kernel with no `arch` has it, and the `uname` answers `-sm` instead.
+local function launch_aarch64(tmp: string, by_uname?: boolean): Child.Result
   local script = tmp .. "/launcher"
-  assert(Fs.write(script, launcher.render(arm, hooks), 0x1ed))
-  local env: mut {string:string} = { PATH = "/usr/bin:/bin", COSMIC_PORTABLE_CACHE = tmp .. "/cache" }
-  local cpuinfo = tmp .. "/cpuinfo"
-  if flags ~= nil then
-    assert(Fs.write(cpuinfo, "processor\t: 0\nflags\t\t: " .. flags .. "\nvmx flags\t: ept\n"))
-  end
-  env["COSMIC_PORTABLE_TEST_CPUINFO"] = cpuinfo
-  return (assert(Child.run({ "/bin/sh", script }, { env = env, cwd = tmp,
-    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
-end
-
---- Runs the rendered launcher as an aarch64 Linux machine over a cpuinfo whose Features line is `features`, or one
---- that has none, so the check runs on any host. The machine is named by a /proc/sys/kernel of the test's own
---- (`ostype` and `arch`), and a `uname` ahead of the real one on PATH refuses `-sm`, which a launch the kernel
---- answers never runs. With `by_uname`, that directory holds `ostype` alone, as a kernel with no `arch` has it, and
---- the `uname` answers `-sm` instead.
-local function launch_aarch64(tmp: string, features?: string, by_uname?: boolean): Child.Result
-  local script = tmp .. "/launcher"
-  assert(Fs.write(script, launcher.render(arm64, true), 0x1ed))
+  assert(Fs.write(script, launcher.render(chosen64, true), 0x1ed))
   if not assert(Fs.status(tmp .. "/bin")).exists then assert(Fs.mkdirs(tmp .. "/bin")) end
   local answer = if by_uname == true then "{ echo 'Linux aarch64'; exit 0; }" else
     "{ echo 'uname -sm ran' >&2; exit 1; }" end
@@ -113,120 +91,18 @@ local function launch_aarch64(tmp: string, features?: string, by_uname?: boolean
     COSMIC_PORTABLE_CACHE = tmp .. "/cache",
     COSMIC_PORTABLE_TEST_KERNEL = kernel,
   }
-  local cpuinfo = tmp .. "/cpuinfo"
-  if features ~= nil then
-    assert(Fs.write(cpuinfo, "processor\t: 0\nBogoMIPS\t: 50.00\nFeatures\t: " .. features ..
-        "\nCPU implementer\t: 0x41\n\nprocessor\t: 1\nFeatures\t: fp asimd\n"))
-  end
-  env["COSMIC_PORTABLE_TEST_CPUINFO"] = cpuinfo
   return (assert(Child.run({ "/bin/sh", script }, { env = env, cwd = tmp,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
-end
-
-local function on_x86_64_linux(): boolean
-  local names = sys.uname()
-  return names ~= nil and names.sysname == "Linux" and names.machine == "x86_64"
-end
-
-local function test_a_cpu_below_x86_64_v3_is_refused_by_name(tmp: string)
-  if not on_x86_64_linux() then
-    Test.skip("the check runs on x86_64 Linux")
-    return
-  end
-  local r = launch(tmp, true, "fpu sse4_2 avx xsave abm")
-  assert(r.code == 126, "exit status " .. tostring(r.code))
-  assert((r.stderr or ""):find("cosmic portable: this CPU lacks avx2 fma bmi1 bmi2 movbe f16c; ", 1, true),
-    tostring(r.stderr))
-  assert(not assert(Fs.status(tmp .. "/cache")).exists, "a refused launch made the cache")
-end
-
-local function test_a_feature_is_matched_whole(tmp: string)
-  if not on_x86_64_linux() then
-    Test.skip("the check runs on x86_64 Linux")
-    return
-  end
-  -- "bmi1" is not "bmi2", and "avx2" is not "avx".
-  local r = launch(tmp, true, "avx2 fma bmi1 movbe f16c abm xsave")
-  assert((r.stderr or ""):find("this CPU lacks avx bmi2;", 1, true), tostring(r.stderr))
-end
-
--- The arm's core is empty, so a launch that gets past the CPU check stops at
--- the digest of the core it extracts and has made the cache by then. A
--- launch the check refuses does neither (the first test above).
-local function assert_passed_the_cpu_check(r: Child.Result, tmp: string)
-  local err = r.stderr or ""
-  assert(not err:find("this CPU lacks", 1, true), err)
-  assert(r.code == 126, "exit status " .. tostring(r.code))
-  assert(err:find("cosmic portable: extracted core digest differs", 1, true), err)
-  assert(assert(Fs.status(tmp .. "/cache")).exists, "a launch past the check made no cache")
-end
-
-local function test_a_cpu_with_x86_64_v3_is_not_refused(tmp: string)
-  if not on_x86_64_linux() then
-    Test.skip("the check runs on x86_64 Linux")
-    return
-  end
-  assert_passed_the_cpu_check(launch(tmp, true, v3), tmp)
-end
-
-local function test_an_aarch64_cpu_below_armv8_2_is_refused_by_name(tmp: string)
-  -- A Cortex-A72 (a Raspberry Pi 4, Graviton1): NEON, AES, SHA and CRC32.
-  local r = launch_aarch64(tmp, "fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid")
-  assert(r.code == 126, "exit status " .. tostring(r.code))
-  assert((r.stderr or ""):find("cosmic portable: this CPU lacks asimddp asimdhp fphp atomics asimdrdm; " ..
-      "the aarch64 core needs Armv8.2-A", 1, true), tostring(r.stderr))
-  assert(not assert(Fs.status(tmp .. "/cache")).exists, "a refused launch made the cache")
 end
 
 --- The machine is read of /proc/sys/kernel by the shell's own `read`, with no `uname` run (whose stub fails here);
 --- with no `arch` there, `uname -sm` names it, and the read that failed says nothing.
 local function test_the_kernel_names_the_machine_and_uname_answers_where_it_does_not(tmp: string)
-  local refusal = "cosmic portable: this CPU lacks asimddp asimdhp fphp atomics asimdrdm crc32; the aarch64 core needs"
-  local by_kernel = launch_aarch64(tmp, "fp asimd")
-  assert((by_kernel.stderr or ""):find(refusal, 1, true) == 1, tostring(by_kernel.stderr))
-  local by_uname = launch_aarch64(tmp, "fp asimd", true)
-  assert((by_uname.stderr or ""):find(refusal, 1, true) == 1, tostring(by_uname.stderr))
-end
-
-local function test_an_aarch64_feature_is_matched_whole(tmp: string)
-  -- "asimd" is not "asimdhp", "fp" is not "fphp", and only the first
-  -- Features line counts.
-  local r = launch_aarch64(tmp, (v82:gsub(" asimdhp", ""):gsub(" crc32", "")))
-  assert((r.stderr or ""):find("this CPU lacks asimdhp crc32;", 1, true), tostring(r.stderr))
-  local lone = launch_aarch64(tmp, "fp asimd")
-  assert((lone.stderr or ""):find("this CPU lacks asimddp asimdhp fphp atomics asimdrdm crc32;", 1, true),
-    tostring(lone.stderr))
-end
-
--- A launch past the check goes on to the cache, which the stub `uname` has
--- told to use Linux's tools; those runs need a Linux host.
-local function on_linux(): boolean
-  local names = sys.uname()
-  return names ~= nil and names.sysname == "Linux"
-end
-
-local function test_an_aarch64_cpu_with_armv8_2_is_not_refused(tmp: string)
-  if not on_linux() then
-    Test.skip("past the check, the launcher uses Linux's tools")
-    return
-  end
-  assert_passed_the_cpu_check(launch_aarch64(tmp, v82), tmp)
-end
-
-local function test_an_aarch64_missing_features_line_is_not_refused(tmp: string)
-  if not on_linux() then
-    Test.skip("past the check, the launcher uses Linux's tools")
-    return
-  end
-  assert_passed_the_cpu_check(launch_aarch64(tmp, nil), tmp)
-end
-
-local function test_a_missing_flags_line_is_not_refused(tmp: string)
-  if not on_x86_64_linux() then
-    Test.skip("the check runs on x86_64 Linux")
-    return
-  end
-  assert_passed_the_cpu_check(launch(tmp, true, nil), tmp)
+  local chose = "cosmic portable: chose the aarch64 core\n"
+  local by_kernel = launch_aarch64(tmp)
+  assert(by_kernel.code == 126 and by_kernel.stderr == chose, tostring(by_kernel.stderr))
+  local by_uname = launch_aarch64(tmp, true)
+  assert(by_uname.code == 126 and by_uname.stderr == chose, tostring(by_uname.stderr))
 end
 
 --- What a shell reads as a word to run that is no program of the host's: its own words.
@@ -350,14 +226,16 @@ local function test_the_launcher_runs_the_listed_programs_and_no_other_the_scan_
   end
 end
 
---- The absolute paths the policy of the module at `file` grants, however each grant is laid out; the module
---- declares no profile "system", which would give it every program.
+--- The programs the policy of the module at `file` grants, by their paths under /bin and /usr/bin, however each
+--- grant is laid out; the module declares no profile "system", which would give it every program.
 local function granted(file: string): {string:boolean}
   local text = assert(Fs.read(file))
   local policy = assert(text:match("\nTest%.policy%s*(%b{})"), file .. " has no policy")
   assert(policy:find('"system"', 1, true) == nil, file .. " declares the system, and so grants every program")
   local out: mut {string:boolean} = {}
-  for path in policy:gmatch('path%s*=%s*"(/[^"]+)"') do out[path] = true end
+  for path in policy:gmatch('path%s*=%s*"(/[^"]+)"') do
+    if path:match("^/bin/") ~= nil or path:match("^/usr/bin/") ~= nil then out[path] = true end
+  end
   return out
 end
 
@@ -384,10 +262,8 @@ local function test_the_modules_that_run_the_launcher_grant_its_programs()
   held({ "cosmic/signal_ignored_test.tl", "build/test_policy_plan_tool_test.tl" }, warm_programs)
 end
 
-local function test_a_release_launcher_reads_only_proc_cpuinfo()
+local function test_a_release_launcher_reads_the_kernel_and_carries_no_override()
   local text = launcher.render(arm, false)
-  assert(text:find('portable_cpuinfo=/proc/cpuinfo', 1, true), "release reads /proc/cpuinfo")
-  assert(not text:find("TEST_CPUINFO", 1, true), "release carries the test override")
   assert(text:find("< /proc/sys/kernel/ostype", 1, true) and text:find("< /proc/sys/kernel/arch", 1, true),
     "release reads /proc/sys/kernel")
   assert(not text:find("TEST_KERNEL", 1, true), "release carries the kernel's test override")

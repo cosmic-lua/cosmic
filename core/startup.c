@@ -264,6 +264,70 @@ static void stamp_write (const char *path, const char *directory,
   if (!written || rename(temporary, path) != 0) unlink(temporary);
 }
 
+/* Refuses the cache entry this core runs from, in the leaf `directory`, for
+ * `reason`: removed with its stamp where this user owns the leaf, so the next
+ * launch finds none and extracts it again, as the launcher repairs what it
+ * sees is wrong. */
+static const char *entry_refusal (const char *directory, const char *stamp,
+                                  const char *reason) {
+  static char why[2 * COSMIC_ARTIFACT_PATH_CAPACITY + 256];
+  char core_path[COSMIC_ARTIFACT_PATH_CAPACITY];
+  bool named = cosmic_executable_path(core_path, sizeof core_path);
+  struct stat leaf;
+  bool removed = false;
+  if (named && lstat(directory, &leaf) == 0 && leaf.st_uid == geteuid()) {
+    removed = unlink(core_path) == 0;
+    (void)unlink(stamp);
+  }
+  snprintf(why, sizeof why, "cache entry %s %s%s",
+           named ? core_path : "of this core", reason,
+           removed ? "; removed it: run again to extract it" :
+                     "; remove it to extract it again");
+  return why;
+}
+
+/* Why the cache entry this core runs from, in the leaf `directory`, may not
+ * run, or NULL where it may: what a warm launch takes on trust, since its
+ * shell sees no mode or length (build/launcher.tl). The leaf is this
+ * user's, or root's, and no group or others can write it, so no one else
+ * can plant an entry there; the entry is mode 0500 and the manifest's
+ * length, as the launcher publishes it. Root's leaf is trusted as root is:
+ * a worker that a root run of `cosmic test` starts as a user of its own
+ * runs root's cached core. The entry's owner is not judged here: only the
+ * leaf's owner can have put it there, and the launcher's warm start runs
+ * only a file this user owns. A leaf that fails is refused as the launcher
+ * refuses it; an entry that fails is refused by [`entry_refusal`]. */
+static const char *cache_refusal (const char *directory, const char *stamp,
+                                  const struct stat *core_stat,
+                                  uint64_t length) {
+  static char why[2 * COSMIC_ARTIFACT_PATH_CAPACITY + 256];
+  struct stat leaf;
+  uid_t user = geteuid();
+  if (lstat(directory, &leaf) != 0 || !S_ISDIR(leaf.st_mode) ||
+      (leaf.st_uid != user && leaf.st_uid != 0)) {
+    snprintf(why, sizeof why,
+             "cache leaf is not a directory this user owns: %s", directory);
+    return why;
+  }
+  if ((leaf.st_mode & (S_IWGRP | S_IWOTH)) != 0) {
+    snprintf(why, sizeof why,
+             "cache leaf is writable by group or others, mode %o: %s (run "
+             "chmod go-w '%s', or name a directory only you control in "
+             "COSMIC_PORTABLE_CACHE)",
+             (unsigned)(leaf.st_mode & 0777), directory, directory);
+    return why;
+  }
+  if ((core_stat->st_mode & 07777) != 0500) {
+    char reason[64];
+    snprintf(reason, sizeof reason, "is not mode 0500 (mode %o)",
+             (unsigned)(core_stat->st_mode & 07777));
+    return entry_refusal(directory, stamp, reason);
+  }
+  if ((uint64_t)core_stat->st_size != length)
+    return entry_refusal(directory, stamp, "length differs from the manifest");
+  return NULL;
+}
+
 static bool fail_adoption (struct cosmic_artifact *artifact, int core_fd,
                            int physical_fd, const char **error,
                            const char *why) {
@@ -424,22 +488,31 @@ bool cosmic_startup_adopt (const struct cosmic_startup *startup,
       !S_ISREG(core_stat.st_mode) || core_stat.st_size < 0)
     return fail_adoption(artifact, core_fd, -1, error,
                          "retained core descriptor is not a regular file");
-  if ((uint64_t)core_stat.st_size != selected->length)
-    return fail_adoption(artifact, core_fd, -1, error,
-                         "executing core length differs from manifest");
   char stamp[COSMIC_ARTIFACT_PATH_CAPACITY + 160];
   char stamp_directory[COSMIC_ARTIFACT_PATH_CAPACITY];
   bool stamped = stamp_path(selected, &core_stat, stamp, sizeof stamp,
                             stamp_directory, sizeof stamp_directory);
+  if (stamped) {
+    const char *refused = cache_refusal(stamp_directory, stamp, &core_stat,
+                                        selected->length);
+    if (refused != NULL)
+      return fail_adoption(artifact, core_fd, -1, error, refused);
+  } else if ((uint64_t)core_stat.st_size != selected->length) {
+    return fail_adoption(artifact, core_fd, -1, error,
+                         "executing core length differs from manifest");
+  }
   /* A stamp that holds says the entry was hashed and not written since. */
   bool fresh = stamped && stamp_holds(stamp, &core_stat);
   if (!fresh && !cosmic_sha256_range_matches(core_fd, 0,
                                              selected->length,
                                              selected->sha256)) {
-    /* The launcher checks a cached core's kind, owner, mode and length but
-     * leaves its digest to this one pass, so a cached core damaged in place
-     * stops here. Name the entry: removing it lets the next launch extract
-     * it again. */
+    /* A warm launch leaves a cached core's digest to this one pass, so a
+     * cached core damaged in place stops here, and is removed so the next
+     * launch extracts it again. A core run from anywhere else is named. */
+    if (stamped)
+      return fail_adoption(artifact, core_fd, -1, error,
+                           entry_refusal(stamp_directory, stamp,
+                                         "digest differs from the manifest"));
     static char corrupt[COSMIC_ARTIFACT_PATH_CAPACITY + 96];
     char core_path[COSMIC_ARTIFACT_PATH_CAPACITY];
     if (cosmic_executable_path(core_path, sizeof core_path))
