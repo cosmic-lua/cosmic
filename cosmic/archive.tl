@@ -205,10 +205,10 @@ end
 --- plain ustar tar, or a tar compressed with gzip, xz, bzip2 or zstd.
 function Archive.open(path: string): Archive.Reader?, string
   local fd, trouble = Fs.open_read(path)
-  if fd == nil then return nil, trouble end
+  if fd == nil then return nil, tostring(trouble) end
   local head, htrouble = Fs.take(fd, 262)
   local _, _ = Fs.close(fd)
-  if head == nil then return nil, htrouble end
+  if head == nil then return nil, tostring(htrouble) end
   local kind = detect(head)
   if kind == "zip" then return Zip.open(path) end
   if kind == "unknown" then

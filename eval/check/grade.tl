@@ -241,7 +241,7 @@ local function step(g: Grade, label: string, work: function(out: integer): boole
   local log = g.logs .. "/check-" .. tostring(g.steps) .. ".out"
   local out, trouble = Fs.open_write(log)
   if out == nil then
-    fail(g, label .. ": " .. trouble)
+    fail(g, label .. ": " .. tostring(trouble))
     return false
   end
   local passed = work(out)

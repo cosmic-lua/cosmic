@@ -32,7 +32,7 @@ if not db:exec("BEGIN IMMEDIATE") then
 end
 print("held")
 local wait = %d
-if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
+if wait < 0 then local _, _ = Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local flock_tool = [[
@@ -46,7 +46,7 @@ if not sys.flock(fd, "exclusive", 0) then
 end
 print("held")
 local wait = %d
-if wait < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
+if wait < 0 then local _, _ = Fs.take(Fs.stdin, 1) else Clock.sleep_ns(wait) end
 ]]
 
 local function start(root: string, wait_ns: integer, flock?: boolean): Child.Handle, string
@@ -100,7 +100,7 @@ local Fs = require("cosmic.fs")
 local Zig = require("build.zig")
 Zig.with_lock(%q, { COSMIC_REBUILD_LOCK_HANDED = %q }, function(_: {string:string}): integer
   print("held")
-  Fs.take(Fs.stdin, 1)
+  local _, _ = Fs.take(Fs.stdin, 1)
   return 0
 end)
 ]]
@@ -234,7 +234,7 @@ local signal = guard:take()
 guard:release()
 assert(status == 1 and signal == sys.SIGTERM)
 print("cancelled")
-Fs.take(Fs.stdin, 1)
+local _, _ = Fs.take(Fs.stdin, 1)
 ]]
   local command = this_program.program({ "-e", script:format(build_paths.required(root)) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "stream" })

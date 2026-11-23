@@ -101,7 +101,11 @@ local current: Seams.Calls = {
     return true, ""
   end,
   fs_exists = Fs.exists,
-  fs_open_write = Fs.open_write,
+  fs_open_write = function(path: string, mode?: integer): integer?, string
+    local fd, why = Fs.open_write(path, mode)
+    if fd == nil then return nil, tostring(why) end
+    return fd, ""
+  end,
   fs_put = function(fd: integer, data: string): boolean, string
     local wrote, why = Fs.put(fd, data)
     if not wrote then return false, tostring(why) end

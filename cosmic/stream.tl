@@ -591,7 +591,7 @@ end
 --- `skip`.
 function Stream.open(path: string): Stream.Reader?, string
   local fd, trouble = Fs.open_read(path)
-  if fd == nil then return nil, trouble end
+  if fd == nil then return nil, tostring(trouble) end
   return make_fd_reader(fd, true, {}), ""
 end
 

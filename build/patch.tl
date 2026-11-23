@@ -290,7 +290,7 @@ local function write_synced(path: string, data: string,
                             mode: integer): boolean, string
   local fd, trouble = Fs.open_write(path, mode)
   if fd == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   local put, put_why = Fs.put(fd, data)
   local ok, failure = put, if put then "" else tostring(put_why) end
@@ -318,7 +318,7 @@ end
 local function sync_dir(path: string): boolean, string
   local fd, trouble = Fs.open_read(path)
   if fd == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   local synced, sync_why = Fs.fsync(fd)
   local closed, close_why = Fs.close(fd)

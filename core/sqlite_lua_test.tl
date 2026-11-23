@@ -17,7 +17,7 @@ local Sqlite = require("cosmic.sqlite")
 local db = assert(Sqlite.open(%q, { writable = true }))
 assert(db:exec("BEGIN IMMEDIATE"))
 print("held")
-Fs.take(Fs.stdin, 1)
+local _, _ = Fs.take(Fs.stdin, 1)
 assert(db:close())
 ]]
   local command = this_program.program({ "-e", script:format(path) },

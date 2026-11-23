@@ -548,7 +548,7 @@ local function execute(argv: {string}, program: string): integer
         end
         local _, _ = reading:close()
       else
-        say("cannot read phase log: " .. read_why)
+        say("cannot read phase log: " .. tostring(read_why))
       end
       return status
     end

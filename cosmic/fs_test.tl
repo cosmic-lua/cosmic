@@ -400,6 +400,19 @@ local function test_symlink_and_set_mtime_answer_a_failure_with_the_path_and_the
   assert(not set and set_why.path == missing and set_why.errno == sys.ENOENT)
 end
 
+local function test_open_and_take_answer_a_failure_with_the_errno(tmp: string)
+  local missing = tmp .. "/missing"
+  local fd, why = Fs.open_read(missing)
+  assert(fd == nil and why.errno == sys.ENOENT and why.path == missing, tostring(why))
+  local wfd, wwhy = Fs.open_write(tmp .. "/none/file")
+  assert(wfd == nil and wwhy.errno == sys.ENOENT and wwhy.path == tmp .. "/none/file", tostring(wwhy))
+  local closed = assert(Fs.open_write(tmp .. "/file"))
+  assert(Fs.close(closed))
+  local data, twhy = Fs.take(closed, 1)
+  assert(data == nil and twhy.errno == sys.EBADF and twhy.path == nil, tostring(twhy))
+  assert(tostring(twhy) == twhy.message)
+end
+
 local function test_symlink_and_readlink_round_trip(tmp: string)
   local target = tmp .. "/target"
   local link = tmp .. "/link"
