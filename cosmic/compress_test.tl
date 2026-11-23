@@ -47,11 +47,11 @@ local function drive(stream: Compress.Stream, data: string, size?: integer): str
 end
 
 local function roundtrip(format: Compress.Format, plain: string, chunk_size?: integer)
-  local enc = assert(Compress.deflater(format))
+  local enc = assert(Compress.encoder(format))
   local packed, enc_trouble = drive(enc, plain, chunk_size)
   assert(enc_trouble == "", enc_trouble)
 
-  local dec = assert(Compress.inflater(format))
+  local dec = assert(Compress.decoder(format))
   local out, dec_trouble = drive(dec, packed, chunk_size)
   assert(dec_trouble == "", dec_trouble)
   assert(out == plain, format .. ": " .. tostring(#out) .. " vs " .. tostring(#plain))
@@ -79,7 +79,7 @@ end
 local function test_gzip_known_vector_decodes()
   -- `printf 'hello, cosmic!' | gzip -9 -n`
   local vector = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
-  local dec = assert(Compress.inflater("gzip"))
+  local dec = assert(Compress.decoder("gzip"))
   local out, trouble = drive(dec, vector, 1)
   assert(trouble == "", trouble)
   assert(out == "hello, cosmic!", out)
@@ -91,7 +91,7 @@ local function test_gzip_multi_member_decodes_every_member()
   -- gzip.compress(b"first") .. gzip.compress(b"second"), both mtime 0
   local vector = "\31\139\8\0\0\0\0\0\2\3\75\203\44\42\46\1\0\87\238\113\146\5\0\0\0" ..
     "\31\139\8\0\0\0\0\0\2\3\43\78\77\206\207\75\1\0\105\17\31\182\6\0\0\0"
-  local dec = assert(Compress.inflater("gzip"))
+  local dec = assert(Compress.decoder("gzip"))
   local out, trouble = drive(dec, vector)
   assert(trouble == "", trouble)
   assert(out == "firstsecond", out)
@@ -100,7 +100,7 @@ end
 
 local function test_gzip_trailing_bytes_after_the_stream_become_rest()
   local member = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
-  local dec = assert(Compress.inflater("gzip"))
+  local dec = assert(Compress.decoder("gzip"))
   local out1 = assert(dec:update(member))
   assert(not dec:done())
   local out2 = assert(dec:update("trailer bytes"))
@@ -112,16 +112,16 @@ end
 
 local function test_gzip_corrupt_crc_is_refused()
   local vector = "\31\139\8\0\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\199\14\0\0\0"
-  local dec = assert(Compress.inflater("gzip"))
+  local dec = assert(Compress.decoder("gzip"))
   local _, trouble = drive(dec, vector)
   assert(trouble ~= "" and trouble:find("CRC", 1, true) ~= nil, trouble)
 end
 
 local function test_zlib_and_raw_truncated_input_errors_on_finish()
   for _, format in ipairs({ "raw", "zlib" } as {Compress.Format}) do -- checked: cast_refused
-    local enc = assert(Compress.deflater(format))
+    local enc = assert(Compress.encoder(format))
     local packed = assert(drive(enc, string.rep("abcdefgh", 200)))
-    local dec = assert(Compress.inflater(format))
+    local dec = assert(Compress.decoder(format))
     assert(dec:update(packed:sub(1, #packed - 4)))
     local last, trouble = dec:finish()
     assert(last == nil and trouble ~= "", format)
@@ -129,14 +129,14 @@ local function test_zlib_and_raw_truncated_input_errors_on_finish()
 end
 
 local function test_gzip_truncated_mid_header_errors_on_finish()
-  local dec = assert(Compress.inflater("gzip"))
+  local dec = assert(Compress.decoder("gzip"))
   assert(dec:update("\31\139\8"))
   local last, trouble = dec:finish()
   assert(last == nil and trouble ~= "")
 end
 
 local function test_corrupt_deflate_data_is_refused()
-  local dec = assert(Compress.inflater("zlib"))
+  local dec = assert(Compress.decoder("zlib"))
   local out, trouble = dec:update("not a zlib stream at all, just garbage")
   assert(out == nil and trouble ~= "")
 end
@@ -158,19 +158,19 @@ local EOB_ONLY <const> = "\5\224\129\8\0\0\0\0\32\248\91"
 local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever()
   for _, format in ipairs({ "gzip", "raw" } as {Compress.Format}) do -- checked: cast_refused
     local bytes = if format == "gzip" then NO_CODES_GZIP else NO_CODES_GZIP:sub(11) end
-    local dec = assert(Compress.inflater(format))
+    local dec = assert(Compress.decoder(format))
     -- One update is enough: before, it answered a full megabyte of
     -- zeros, and every update after it another.
     local out, trouble = dec:update(bytes)
     assert(out == nil and trouble == "compress: corrupt compressed data", format .. ": " .. tostring(out and #out))
-    local one_shot, why = Compress.inflate(format, bytes)
+    local one_shot, why = Compress.decode(format, bytes)
     assert(one_shot == nil and tostring(why):find("^compress: ") ~= nil, format)
   end
 end
 
 local function test_bits_that_name_no_code_are_refused()
   -- The one code the table holds decodes.
-  local dec = assert(Compress.inflater("raw"))
+  local dec = assert(Compress.decoder("raw"))
   local out: string?
   local trouble: string
   out, trouble = drive(dec, EOB_ONLY .. "\31")
@@ -192,7 +192,7 @@ local function test_bits_that_name_no_code_are_refused()
   }
   for _, case in ipairs(cases) do
     local tail, want = case.tail, case.want
-    dec = assert(Compress.inflater("raw"))
+    dec = assert(Compress.decoder("raw"))
     out, trouble = dec:update(EOB_ONLY .. "\95" .. tail)
     if out ~= nil then
       assert(out == "" and not dec:pending(), tostring(#tail) .. ": " .. tostring(#out) .. " bytes out")
@@ -230,7 +230,7 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
   -- tinfl's read-ahead meets the check at every split.
   local size = 100 << 20
   for _, format in ipairs({ "raw", "gzip" } as {Compress.Format}) do -- checked: cast_refused
-    local enc = assert(Compress.deflater(format, 9))
+    local enc = assert(Compress.encoder(format, { level = 9 }))
     local parts: mut {string} = {}
     local zeros = string.rep("\0", 1 << 20)
     for _ = 1, size >> 20 do parts[#parts + 1] = assert(enc:update(zeros)) end
@@ -238,7 +238,7 @@ local function test_the_ratio_check_passes_deflates_most_compressible_stream()
     local packed = table.concat(parts)
     assert(#packed * 1000 < size, format .. " packed to " .. tostring(#packed))
     for _, piece in ipairs({ #packed, 1 }) do
-      local total, trouble = count_out(assert(Compress.inflater(format)), packed, piece)
+      local total, trouble = count_out(assert(Compress.decoder(format)), packed, piece)
       assert(total == size, format .. " in pieces of " .. tostring(piece) .. ": " .. tostring(total) .. " " .. trouble)
     end
   end
@@ -247,7 +247,7 @@ end
 local function test_bz2_known_vector_decodes_one_byte_at_a_time()
   -- `printf 'hello, cosmic!' | bzip2 -9`
   local vector = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
-  local dec = assert(Compress.bz2_decoder())
+  local dec = assert(Compress.decoder("bz2"))
   local out, trouble = drive(dec, vector, 1)
   assert(trouble == "", trouble)
   assert(out == "hello, cosmic!", out)
@@ -258,7 +258,7 @@ local function test_bz2_multi_stream_decodes_every_stream()
   -- bz2.compress(b"first") .. bz2.compress(b"second")
   local vector = "\66\90\104\57\49\65\89\38\83\89\178\57\11\221\0\0\0\1\128\1\32\28\0\32\0\33\131\65\154\2\92\113\119\36\83\133\9\11\35\144\189\208" ..
     "\66\90\104\57\49\65\89\38\83\89\38\138\2\52\0\0\2\129\128\14\1\136\0\32\0\34\24\104\48\7\2\152\93\201\20\225\66\64\154\40\8\208"
-  local dec = assert(Compress.bz2_decoder())
+  local dec = assert(Compress.decoder("bz2"))
   local out, trouble = drive(dec, vector)
   assert(trouble == "", trouble)
   assert(out == "firstsecond", out)
@@ -267,14 +267,14 @@ end
 
 local function test_bz2_truncated_input_errors_on_finish()
   local vector = "\66\90\104\57\49\65\89\38\83\89\153\84\167\133\0\0\3\17\128\96\4\10\102\136\0\32\0\34\0\30\160\128\105\166\135\131\39\44\211\152\60\93\201\20\225\66\66\101\82\158\20"
-  local dec = assert(Compress.bz2_decoder())
+  local dec = assert(Compress.decoder("bz2"))
   assert(dec:update(vector:sub(1, #vector - 5)))
   local last, trouble = dec:finish()
   assert(last == nil and trouble ~= "")
 end
 
 local function test_bz2_corrupt_magic_is_refused()
-  local dec = assert(Compress.bz2_decoder())
+  local dec = assert(Compress.decoder("bz2"))
   local out, trouble = dec:update("not a bzip2 stream")
   assert(out == nil and trouble ~= "")
 end
@@ -282,7 +282,7 @@ end
 local function test_xz_known_vector_decodes_one_byte_at_a_time()
   -- `printf 'hello, cosmic!' | xz -c`
   local vector = "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\28\0\0\0\16\207\88\204\1\0\13\104\101\108\108\111\44\32\99\111\115\109\105\99\33\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
-  local dec = assert(Compress.xz_decoder())
+  local dec = assert(Compress.decoder("xz"))
   local out, trouble = drive(dec, vector, 1)
   assert(trouble == "", trouble)
   assert(out == "hello, cosmic!", out)
@@ -293,7 +293,7 @@ local function test_xz_multi_stream_decodes_every_stream()
   -- `xz -c <<<first` .. `xz -c <<<second`
   local vector = "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\22\0\0\0\116\47\229\163\1\0\4\102\105\114\115\116\0\0\0\0\86\173\25\37\122\6\229\243\0\1\29\5\184\45\128\175\31\182\243\125\1\0\0\0\0\4\89\90" ..
     "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\22\0\0\0\116\47\229\163\1\0\5\115\101\99\111\110\100\0\0\0\56\232\136\197\198\48\180\116\0\1\30\6\193\47\164\29\31\182\243\125\1\0\0\0\0\4\89\90"
-  local dec = assert(Compress.xz_decoder())
+  local dec = assert(Compress.decoder("xz"))
   local out, trouble = drive(dec, vector)
   assert(trouble == "", trouble)
   assert(out == "firstsecond", out)
@@ -307,7 +307,7 @@ local function test_xz_decodes_the_x86_and_delta_filters()
   local x86 = "\253\55\122\88\90\0\0\4\230\214\180\70\2\1\4\0\33\1\22\0\13\134\53\31\1\0\13\104\101\108\108\111\44\32\99\111\115\109\105\99\33\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
   local delta = "\253\55\122\88\90\0\0\4\230\214\180\70\2\1\3\1\0\33\1\22\121\32\196\238\1\0\13\104\253\7\0\3\189\244\67\12\4\250\252\250\190\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
   for _, vector in ipairs({ x86, delta }) do
-    local dec = assert(Compress.xz_decoder())
+    local dec = assert(Compress.decoder("xz"))
     local out, trouble = drive(dec, vector)
     assert(trouble == "", trouble)
     assert(out == "hello, cosmic!", out)
@@ -316,14 +316,14 @@ end
 
 local function test_xz_truncated_input_errors_on_finish()
   local vector = "\253\55\122\88\90\0\0\4\230\214\180\70\2\0\33\1\28\0\0\0\16\207\88\204\1\0\13\104\101\108\108\111\44\32\99\111\115\109\105\99\33\0\0\0\195\231\225\101\211\83\88\122\0\1\38\14\8\27\224\4\31\182\243\125\1\0\0\0\0\4\89\90"
-  local dec = assert(Compress.xz_decoder())
+  local dec = assert(Compress.decoder("xz"))
   assert(dec:update(vector:sub(1, #vector - 10)))
   local last, trouble = dec:finish()
   assert(last == nil and trouble ~= "")
 end
 
 local function test_xz_corrupt_magic_is_refused()
-  local dec = assert(Compress.xz_decoder())
+  local dec = assert(Compress.decoder("xz"))
   local out, trouble = dec:update("not an xz stream")
   assert(out == nil and trouble ~= "")
 end
@@ -390,10 +390,10 @@ local record Bomb
   make: Maker
 end
 
-local function gzip_decoder(): Compress.Stream return (assert(Compress.inflater("gzip"))) end
-local function bz2_decoder(): Compress.Stream return (assert(Compress.bz2_decoder())) end
-local function xz_decoder(): Compress.Stream return (assert(Compress.xz_decoder())) end
-local function zstd_decoder(): Compress.Stream return (assert(Compress.zstd_decoder())) end
+local function gzip_decoder(): Compress.Stream return (assert(Compress.decoder("gzip"))) end
+local function bz2_decoder(): Compress.Stream return (assert(Compress.decoder("bz2"))) end
+local function xz_decoder(): Compress.Stream return (assert(Compress.decoder("xz"))) end
+local function zstd_decoder(): Compress.Stream return (assert(Compress.decoder("zstd"))) end
 
 -- Feeds `data` in one update and drains it the way the contract asks,
 -- asserting no call returns more than `max_bytes` bytes. Returns the whole
@@ -420,11 +420,11 @@ local function test_a_decompression_bomb_comes_out_in_bounded_pieces()
     { packed = zstd_bomb, make = zstd_decoder },
   }
   for _, format in ipairs(formats) do
-    local enc = assert(Compress.deflater(format, 9))
+    local enc = assert(Compress.encoder(format, { level = 9 }))
     local packed = assert(enc:update(zeros)) .. assert(enc:finish())
     assert(#packed < 16 * 1024, format .. " packed to " .. tostring(#packed))
     cases[#cases + 1] = { packed = packed, make = function(): Compress.Stream
-      return (assert(Compress.inflater(format)))
+      return (assert(Compress.decoder(format)))
     end }
   end
   for _, case in ipairs(cases) do
@@ -440,9 +440,9 @@ end
 local function test_a_tiny_output_limit_still_decodes_everything()
   local plain = string.rep("the quick brown fox jumps over the lazy dog. ", 300)
   for _, format in ipairs(formats) do
-    local enc = assert(Compress.deflater(format))
+    local enc = assert(Compress.encoder(format))
     local packed = assert(enc:update(plain)) .. assert(enc:finish())
-    local dec = assert(Compress.inflater(format))
+    local dec = assert(Compress.decoder(format))
     assert(drain(dec, packed, 7) == plain, format)
     assert(dec:done())
   end
@@ -472,16 +472,16 @@ end
 
 local function test_every_success_carries_no_failure()
   local constructors: {function(): (Compress.Stream) | (nil, Failure)} = {
-    function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("gzip") end,
-    function(): (Compress.Stream) | (nil, Failure) return Compress.deflater("gzip") end,
-    function(): (Compress.Stream) | (nil, Failure) return Compress.xz_decoder() end,
-    function(): (Compress.Stream) | (nil, Failure) return Compress.bz2_decoder() end,
+    function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("gzip") end,
+    function(): (Compress.Stream) | (nil, Failure) return Compress.encoder("gzip") end,
+    function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("xz") end,
+    function(): (Compress.Stream) | (nil, Failure) return Compress.decoder("bz2") end,
   }
   for _, construct in ipairs(constructors) do
     local s, trouble = construct()
     assert(s ~= nil and trouble == nil, tostring(trouble))
   end
-  local enc, etrouble = Compress.deflater("gzip")
+  local enc, etrouble = Compress.encoder("gzip")
   assert(enc ~= nil and etrouble == nil)
   local body, utrouble = enc:update("hello, cosmic!")
   assert(body ~= nil and utrouble == "")
@@ -506,8 +506,8 @@ local function every_kind(): {Kind}
     { make = gzip_decoder, chunk = hello_gz },
     { make = bz2_decoder, chunk = hello_bz2 },
     { make = xz_decoder, chunk = hello_xz },
-    { make = function(): Compress.Stream return (assert(Compress.inflater("zlib"))) end, chunk = "x\156\203" },
-    { make = function(): Compress.Stream return (assert(Compress.deflater("gzip"))) end, chunk = "hello" },
+    { make = function(): Compress.Stream return (assert(Compress.decoder("zlib"))) end, chunk = "x\156\203" },
+    { make = function(): Compress.Stream return (assert(Compress.encoder("gzip"))) end, chunk = "hello" },
   }
 end
 
@@ -656,25 +656,25 @@ local function test_xz_stream_padding_is_skipped_but_ragged_nuls_are_rest()
 end
 
 local function test_xz_memory_limit_is_enforced()
-  local out, trouble = assert(Compress.xz_decoder(1024)):update(hello_xz)
+  local out, trouble = assert(Compress.decoder("xz", { max_memory = 1024 })):update(hello_xz)
   assert(out == nil and trouble == "compress: xz memory limit exceeded", trouble)
   -- hello_xz asks for a 64 MiB dictionary (`xz -9`), which fits in 80 MiB.
-  assert(drain(assert(Compress.xz_decoder(80 << 20)), hello_xz, 100) == "hello, cosmic!")
+  assert(drain(assert(Compress.decoder("xz", { max_memory = 80 << 20 })), hello_xz, 100) == "hello, cosmic!")
 end
 
 local function test_raw_and_zlib_truncation_is_reported_as_truncation()
   local stream_formats: {Compress.Format} = { "raw", "zlib" }
   for _, format in ipairs(stream_formats) do
-    local enc = assert(Compress.deflater(format))
+    local enc = assert(Compress.encoder(format))
     local packed = assert(enc:update(string.rep("abcdefgh", 200))) .. assert(enc:finish())
     for _, cut in ipairs({ 1, 4, #packed // 2 }) do
-      local dec = assert(Compress.inflater(format))
+      local dec = assert(Compress.decoder(format))
       assert(dec:update(packed:sub(1, #packed - cut)))
       local last, trouble = dec:finish()
       assert(last == nil and trouble == "compress: truncated compressed stream",
         format .. ": " .. tostring(trouble))
     end
-    local _, trouble = assert(Compress.inflater(format)):finish()
+    local _, trouble = assert(Compress.decoder(format)):finish()
     assert(trouble == "compress: truncated compressed stream", trouble)
   end
 end
@@ -702,21 +702,21 @@ local function test_the_first_member_must_carry_the_magic()
 end
 
 local function test_argument_shape_errors_raise()
-  Test.raises(function() local _, _ = Compress.inflater("brotli" as Compress.Format) end) -- checked: cast_refused
-  Test.raises(function() local _, _ = Compress.deflater("brotli" as Compress.Format) end) -- checked: cast_refused
-  Test.raises(function() local _, _ = Compress.deflater("raw", 11) end)
-  Test.raises(function() local _, _ = Compress.deflater("raw", -1) end)
-  Test.raises(function() local _, _ = Compress.xz_decoder(0) end)
-  Test.raises(function() local _, _ = Compress.zstd_decoder(1023) end)
-  Test.raises(function() local _, _ = Compress.zstd_encoder(0) end)
-  Test.raises(function() local _, _ = Compress.zstd_encoder(20) end)
-  assert((assert(Compress.zstd_decoder(1024))))
-  assert((assert(Compress.zstd_encoder(1))))
-  assert((assert(Compress.zstd_encoder(19))))
-  local dec = assert(Compress.inflater("raw"))
+  Test.raises(function() local _, _ = Compress.decoder("brotli" as Compress.Format) end) -- checked: cast_refused
+  Test.raises(function() local _, _ = Compress.encoder("brotli" as Compress.Format) end) -- checked: cast_refused
+  Test.raises(function() local _, _ = Compress.encoder("raw", { level = 11 }) end)
+  Test.raises(function() local _, _ = Compress.encoder("raw", { level = -1 }) end)
+  Test.raises(function() local _, _ = Compress.decoder("xz", { max_memory = 0 }) end)
+  Test.raises(function() local _, _ = Compress.decoder("zstd", { max_window = 1023 }) end)
+  Test.raises(function() local _, _ = Compress.encoder("zstd", { level = 0 }) end)
+  Test.raises(function() local _, _ = Compress.encoder("zstd", { level = 20 }) end)
+  assert((assert(Compress.decoder("zstd", { max_window = 1024 }))))
+  assert((assert(Compress.encoder("zstd", { level = 1 }))))
+  assert((assert(Compress.encoder("zstd", { level = 19 }))))
+  local dec = assert(Compress.decoder("raw"))
   Test.raises(function() dec:update("x", 0) end)
-  assert((assert(Compress.deflater("raw", 0))))
-  assert((assert(Compress.deflater("raw", 10))))
+  assert((assert(Compress.encoder("raw", { level = 0 }))))
+  assert((assert(Compress.encoder("raw", { level = 10 }))))
 end
 
 local function test_a_failed_stream_throws_afterward()
@@ -728,60 +728,60 @@ end
 
 local function test_one_shot_deflate_and_inflate_round_trip()
   local plain = string.rep("cosmic one-shot ", 1000)
-  local packed = assert(Compress.deflate("zlib", plain, 9))
+  local packed = assert(Compress.encode("zlib", plain, { level = 9 }))
   assert(#packed < #plain)
-  assert(assert(Compress.inflate("zlib", packed)) == plain)
-  assert(assert(Compress.inflate("zlib", packed, #plain)) == plain)
-  local out, trouble = Compress.inflate("zlib", packed, #plain - 1)
+  assert(assert(Compress.decode("zlib", packed)) == plain)
+  assert(assert(Compress.decode("zlib", packed, { max_bytes = #plain })) == plain)
+  local out, trouble = Compress.decode("zlib", packed, { max_bytes = #plain - 1 })
   assert(out == nil and tostring(trouble):find("larger than", 1, true) ~= nil, trouble)
-  out, trouble = Compress.inflate("zlib", packed .. "x")
+  out, trouble = Compress.decode("zlib", packed .. "x")
   assert(out == nil and tostring(trouble):find("trailing", 1, true) ~= nil, trouble)
-  out, trouble = Compress.inflate("zlib", packed:sub(1, -2))
+  out, trouble = Compress.decode("zlib", packed:sub(1, -2))
   assert(out == nil and tostring(trouble) == "compress: truncated compressed stream", trouble)
-  assert(assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))))) == "")
+  assert(assert(Compress.decode("zlib", (assert(Compress.encode("zlib", ""))))) == "")
 end
 
 local function test_inflate_validates_max_bytes()
-  local packed = assert(Compress.deflate("zlib", "abc"))
-  assert(assert(Compress.inflate("zlib", packed, 3)) == "abc")
-  local out, trouble = Compress.inflate("zlib", packed, 2)
+  local packed = assert(Compress.encode("zlib", "abc"))
+  assert(assert(Compress.decode("zlib", packed, { max_bytes = 3 })) == "abc")
+  local out, trouble = Compress.decode("zlib", packed, { max_bytes = 2 })
   assert(out == nil and tostring(trouble) == "stream: output is larger than 2 bytes", trouble)
-  assert(assert(Compress.inflate("zlib", (assert(Compress.deflate("zlib", ""))), 0)) == "")
-  Test.raises(function() local _, _ = Compress.inflate("zlib", packed, -1) end, "compress: max_bytes")
+  assert(assert(Compress.decode("zlib", (assert(Compress.encode("zlib", ""))), { max_bytes = 0 })) == "")
+  Test.raises(function() local _, _ = Compress.decode("zlib", packed, { max_bytes = -1 }) end, "compress: max_bytes")
 end
 
 --- Each one-shot call frames its bytes as `format` says, the same
 --- framing the streaming codec for that format writes and reads.
 local function test_one_shot_deflate_frames_as_its_format_says()
   local plain = string.rep("framed ", 200)
-  local gz = assert(Compress.deflate("gzip", plain))
+  local gz = assert(Compress.encode("gzip", plain))
   assert(gz:sub(1, 2) == "\31\139", "no gzip magic")
-  local raw = assert(Compress.deflate("raw", plain))
-  local zl = assert(Compress.deflate("zlib", plain))
+  local raw = assert(Compress.encode("raw", plain))
+  local zl = assert(Compress.encode("zlib", plain))
   assert(String.byte_at(zl, 1) & 0x0F == 8, "no zlib header")
   for format, packed in pairs({ gzip = gz, raw = raw, zlib = zl } as {Compress.Format: string}) do -- checked: cast_refused
-    assert(assert(Compress.inflate(format, packed)) == plain, format)
-    local dec = assert(Compress.inflater(format))
+    assert(assert(Compress.decode(format, packed)) == plain, format)
+    local dec = assert(Compress.decoder(format))
     local out = assert(dec:update(packed))
     assert(out .. assert(dec:finish()) == plain, format)
   end
   -- A framing is not guessed: zlib bytes are neither a raw deflate
   -- stream nor a gzip one.
-  local as_raw, _ = Compress.inflate("raw", zl)
+  local as_raw, _ = Compress.decode("raw", zl)
   assert(as_raw == nil)
-  local as_gzip, _ = Compress.inflate("gzip", zl)
+  local as_gzip, _ = Compress.decode("gzip", zl)
   assert(as_gzip == nil)
-  Test.raises(function() local _, _ = Compress.deflate("lz4" as Compress.Format, plain) end) -- checked: cast_refused
+  Test.raises(function() local _, _ = Compress.encode("lz4" as Compress.Format, plain) end) -- checked: cast_refused
 end
 
---- Without a level, the one-shot deflate compresses as a streaming
---- deflater does without one.
-local function test_one_shot_deflate_defaults_to_the_deflater_level()
+--- Without a level, a one-shot zlib encode compresses as a streaming
+--- encoder does without one.
+local function test_one_shot_encode_defaults_to_the_encoder_level()
   local plain = ("the quick brown fox jumps over the lazy dog "):rep(400) ..
     string.rep("0123456789", 300)
-  local enc = assert(Compress.deflater("zlib"))
+  local enc = assert(Compress.encoder("zlib"))
   local streamed = assert(enc:update(plain)) .. assert(enc:finish())
-  assert(assert(Compress.deflate("zlib", plain)) == streamed)
+  assert(assert(Compress.encode("zlib", plain)) == streamed)
 end
 
 --- `chunk(X)` answers a module's bytecode as it was dumped, whichever way
@@ -800,11 +800,11 @@ local function test_sql_chunk_answers_bytecode_stored_either_way()
   end
   -- A stream that began with the byte would open with a copy from before its start: none inflates,
   -- whatever byte follows.
-  local as_stream, why = Compress.inflate("raw", dumped)
+  local as_stream, why = Compress.decode("raw", dumped)
   assert(as_stream == nil and tostring(why):find("^compress: ") ~= nil, "a chunk inflated as a deflate stream")
   for second = 0, 255 do
     local stream = "\27" .. string.char(second) .. string.rep("\0", 16)
-    local inflated, _ = Compress.inflate("raw", stream)
+    local inflated, _ = Compress.decode("raw", stream)
     assert(inflated == nil, "a deflate stream begins with a chunk's first byte and " .. tostring(second))
   end
   assert(db:close())
@@ -825,19 +825,19 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
     local rows = assert(Sqlite.rows(db,
       "SELECT deflate(?1), inflate(deflate(?1))", { { text = input } }))
     local stored = Array.at(rows, 1):blob(1)
-    assert(stored == assert(Compress.deflate("raw", input)),
+    assert(stored == assert(Compress.encode("raw", input)),
       "SQL and Compress deflate alike")
-    assert(assert(Compress.inflate("raw", stored)) == input)
+    assert(assert(Compress.decode("raw", stored)) == input)
     assert(Array.at(rows, 1):kind(2) == "blob" and Array.at(rows, 1):blob(2) == input)
     local back = assert(Sqlite.rows(db, "SELECT inflate(?1)",
-      { { blob = assert(Compress.deflate("raw", input)) } }))
+      { { blob = assert(Compress.encode("raw", input)) } }))
     assert(Array.at(back, 1):blob(1) == input, "SQL inflates what Compress deflated")
   end
-  assert(#assert(Compress.deflate("raw", text)) < #text // 10)
+  assert(#assert(Compress.encode("raw", text)) < #text // 10)
   local nulls = assert(Sqlite.text_rows(db,
     "SELECT deflate(NULL) IS NULL, inflate(NULL) IS NULL"))
   assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
-  local stream = assert(Compress.deflate("raw", text))
+  local stream = assert(Compress.encode("raw", text))
   local record Damaged
     blob: string
     why: string
@@ -858,7 +858,7 @@ end
 local function test_zstd_known_vector_decodes_one_byte_at_a_time()
   -- `printf 'hello, cosmic!' | zstd -c`
   local vector = "\40\181\47\253\4\88\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33\150\176\201\168"
-  local dec = assert(Compress.zstd_decoder())
+  local dec = assert(Compress.decoder("zstd"))
   local out, trouble = drive(dec, vector, 1)
   assert(trouble == "", trouble)
   assert(out == "hello, cosmic!", out)
@@ -872,7 +872,7 @@ local function test_zstd_multi_frame_decodes_every_frame()
     "\40\181\47\253\4\88\49\0\0\115\101\99\111\110\100\55\0\94\77"
   local sizes: {integer} = { 1, 5 }
   for _, size in ipairs(sizes) do
-    local out, trouble = drive(assert(Compress.zstd_decoder()), vector, size)
+    local out, trouble = drive(assert(Compress.decoder("zstd")), vector, size)
     assert(trouble == "", trouble)
     assert(out == "firstsecond", out)
   end
@@ -885,33 +885,33 @@ local function test_zstd_skippable_frames_are_skipped()
   local last = "\95\42\77\24\0\0\0\0"
   local sizes: {integer} = { 1, 7 }
   for _, size in ipairs(sizes) do
-    local dec = assert(Compress.zstd_decoder())
+    local dec = assert(Compress.decoder("zstd"))
     local out, trouble = drive(dec, skip .. hello_zst .. last .. hello_zst, size)
     assert(trouble == "", trouble)
     assert(out == "hello, cosmic!hello, cosmic!", out)
     assert(dec:rest() == "")
   end
   -- A stream of skippable frames alone holds nothing, and is no error.
-  local out, trouble = drive(assert(Compress.zstd_decoder()), skip)
+  local out, trouble = drive(assert(Compress.decoder("zstd")), skip)
   assert(out == "" and trouble == "", trouble)
 end
 
 local function test_zstd_frame_without_a_checksum_decodes()
   -- `printf 'hello, cosmic!' | zstd -c --no-check`
   local vector = "\40\181\47\253\0\88\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33"
-  local out, trouble = drive(assert(Compress.zstd_decoder()), vector)
+  local out, trouble = drive(assert(Compress.decoder("zstd")), vector)
   assert(trouble == "", trouble)
   assert(out == "hello, cosmic!", out)
 end
 
 local function test_zstd_corrupt_checksum_is_refused()
   local bad = hello_zst:sub(1, -2) .. string.char((assert(hello_zst:byte(-1)) + 1) % 256)
-  local out, trouble = drive(assert(Compress.zstd_decoder()), bad)
+  local out, trouble = drive(assert(Compress.decoder("zstd")), bad)
   assert(trouble == "compress: corrupt zstd data", trouble)
   assert(out == "", out)
   -- A flipped byte in the content is caught by the same checksum.
   local flipped = hello_zst:sub(1, 9) .. "j" .. hello_zst:sub(11)
-  local _, flipped_trouble = drive(assert(Compress.zstd_decoder()), flipped)
+  local _, flipped_trouble = drive(assert(Compress.decoder("zstd")), flipped)
   assert(flipped_trouble == "compress: corrupt zstd data", flipped_trouble)
 end
 
@@ -924,7 +924,7 @@ local function test_zstd_frame_short_of_its_declared_size_is_corrupt_however_spl
   local short = "\40\181\47\253\32\72\1\0\0"
   for _, frame in ipairs({ short, short .. "\80\42\77\24\0\0\0\0" }) do
     for size = 1, #frame do
-      local out, trouble = drive(assert(Compress.zstd_decoder()), frame, size)
+      local out, trouble = drive(assert(Compress.decoder("zstd")), frame, size)
       assert(trouble == "compress: corrupt zstd data", ("split by %d: %q"):format(size, trouble))
       assert(out == "", out)
     end
@@ -935,7 +935,7 @@ local function test_zstd_frame_short_of_its_declared_size_is_corrupt_however_spl
   local one = "\40\181\47\253\32\1\9\0\0x"
   for _, frame in ipairs({ empty, one }) do
     for size = 1, #frame do
-      local out, trouble = drive(assert(Compress.zstd_decoder()), frame, size)
+      local out, trouble = drive(assert(Compress.decoder("zstd")), frame, size)
       assert(trouble == "", ("split by %d: %q"):format(size, trouble))
       assert(out == (if frame == one then "x" else "" end), out)
     end
@@ -953,7 +953,7 @@ local function test_zstd_frame_short_of_its_declared_size_is_corrupt_however_spl
   }
   for _, case in ipairs(cases) do
     for size = 1, #case.frames do
-      local out, trouble = drive(assert(Compress.zstd_decoder()), case.frames, size)
+      local out, trouble = drive(assert(Compress.decoder("zstd")), case.frames, size)
       assert(trouble == "", ("split by %d: %q"):format(size, trouble))
       assert(out == case.want, ("split by %d: %q"):format(size, out))
     end
@@ -961,7 +961,7 @@ local function test_zstd_frame_short_of_its_declared_size_is_corrupt_however_spl
   -- A second frame short of its declared size is corrupt as the first is.
   local twice = one .. short
   for size = 1, #twice do
-    local _, trouble = drive(assert(Compress.zstd_decoder()), twice, size)
+    local _, trouble = drive(assert(Compress.decoder("zstd")), twice, size)
     assert(trouble == "compress: corrupt zstd data", ("split by %d: %q"):format(size, trouble))
   end
 end
@@ -970,7 +970,7 @@ local function test_zstd_malformed_frame_header_is_corrupt()
   -- The frame header descriptor's bit 3 is reserved and must be zero:
   -- ZSTD_getFrameHeader refuses the header before any window is judged.
   local reserved = "\40\181\47\253\8\0\0\0\0\0"
-  local out, trouble = assert(Compress.zstd_decoder()):update(reserved)
+  local out, trouble = assert(Compress.decoder("zstd")):update(reserved)
   assert(out == nil and trouble == "compress: corrupt zstd data", tostring(trouble))
 end
 
@@ -979,14 +979,14 @@ local function test_zstd_header_window_log_over_the_maximum_is_refused()
   -- over zstd's maximum: the header parse itself answers windowTooLarge,
   -- which reads as the window message, not as corrupt.
   local huge = "\40\181\47\253\0\248\1\0\0\0"
-  local out, trouble = assert(Compress.zstd_decoder()):update(huge)
+  local out, trouble = assert(Compress.decoder("zstd")):update(huge)
   assert(out == nil and trouble == "compress: zstd window larger than the limit", tostring(trouble))
 end
 
 local function test_zstd_truncated_input_errors_on_finish()
   local cuts: {integer} = { 1, 4, 20 }
   for _, cut in ipairs(cuts) do
-    local dec = assert(Compress.zstd_decoder())
+    local dec = assert(Compress.decoder("zstd"))
     assert(dec:update(hello_zst:sub(1, #hello_zst - cut)))
     local last, trouble = dec:finish()
     assert(last == nil and trouble == "compress: truncated zstd stream", tostring(trouble))
@@ -997,14 +997,14 @@ local function test_zstd_window_limit_is_enforced()
   -- `printf 'hello, cosmic!' | zstd -c --long=28`: its header asks for a
   -- 256 MiB window, over the default limit of 128 MiB.
   local wide = "\40\181\47\253\4\144\113\0\0\104\101\108\108\111\44\32\99\111\115\109\105\99\33\150\176\201\168"
-  local out, trouble = assert(Compress.zstd_decoder()):update(wide)
+  local out, trouble = assert(Compress.decoder("zstd")):update(wide)
   assert(out == nil and trouble == "compress: zstd window larger than the limit", trouble)
-  assert(drain(assert(Compress.zstd_decoder(1 << 28)), wide, 100) == "hello, cosmic!")
+  assert(drain(assert(Compress.decoder("zstd", { max_window = 1 << 28 })), wide, 100) == "hello, cosmic!")
   -- The limit is compared as given, not rounded: 2^28 - 1 refuses 2^28.
-  local _, rounded = assert(Compress.zstd_decoder((1 << 28) - 1)):update(wide)
+  local _, rounded = assert(Compress.decoder("zstd", { max_window = (1 << 28) - 1 })):update(wide)
   assert(rounded == "compress: zstd window larger than the limit", rounded)
   -- hello_zst asks for 2 MiB, which 1 MiB refuses.
-  local _, small = assert(Compress.zstd_decoder(1 << 20)):update(hello_zst)
+  local _, small = assert(Compress.decoder("zstd", { max_window = 1 << 20 })):update(hello_zst)
   assert(small == "compress: zstd window larger than the limit", small)
 end
 
@@ -1014,17 +1014,17 @@ local function test_zstd_window_limit_holds_for_a_frame_decoded_in_one_pass()
   -- is judged from the header, however the bytes arrive.
   local frame = "\40\181\47\253\64\144\44\0\99\9\0\97"
   local refused = "compress: zstd window larger than the limit"
-  local _, whole = assert(Compress.zstd_decoder()):update(frame)
+  local _, whole = assert(Compress.decoder("zstd")):update(frame)
   assert(whole == refused, whole)
-  local _, bounded = assert(Compress.zstd_decoder()):update(frame, 100)
+  local _, bounded = assert(Compress.decoder("zstd")):update(frame, 100)
   assert(bounded == refused, bounded)
-  local _, bytewise = drive(assert(Compress.zstd_decoder()), frame, 1)
+  local _, bytewise = drive(assert(Compress.decoder("zstd")), frame, 1)
   assert(bytewise == refused, bytewise)
-  assert(drain(assert(Compress.zstd_decoder(1 << 28)), frame, 100) == string.rep("a", 300))
+  assert(drain(assert(Compress.decoder("zstd", { max_window = 1 << 28 })), frame, 100) == string.rep("a", 300))
 end
 
 local function test_zstd_decoder_survives_many_empty_updates_mid_frame()
-  local dec = assert(Compress.zstd_decoder())
+  local dec = assert(Compress.decoder("zstd"))
   local first = assert(dec:update(hello_zst:sub(1, 10)))
   local parts: mut {string} = { first }
   for _ = 1, 40 do parts[#parts + 1] = assert(dec:update("")) end
@@ -1036,10 +1036,10 @@ end
 local function test_zstd_encoder_writes_what_the_zstd_command_writes()
   -- One frame, its window from the level and no content size (a stream
   -- does not know it), then the checksum: byte for byte the command's.
-  local enc = assert(Compress.zstd_encoder())
+  local enc = assert(Compress.encoder("zstd"))
   assert(assert(enc:update("hello, cosmic!")) .. assert(enc:finish()) == hello_zst)
   -- `zstd -19` differs only in the window its level asks for.
-  local enc19 = assert(Compress.zstd_encoder(19))
+  local enc19 = assert(Compress.encoder("zstd", { level = 19 }))
   local packed = assert(enc19:update("hello, cosmic!")) .. assert(enc19:finish())
   assert(packed == hello_zst:sub(1, 5) .. "\104" .. hello_zst:sub(7), Codec.hex(packed))
 end
@@ -1052,35 +1052,35 @@ local function test_zstd_round_trips_at_every_level_and_chunking()
   local sizes: {integer} = { 1000, #plain }
   for _, level in ipairs(levels) do
     for _, size in ipairs(sizes) do
-      local packed, enc_trouble = drive(assert(Compress.zstd_encoder(level)), plain, size)
+      local packed, enc_trouble = drive(assert(Compress.encoder("zstd", { level = level })), plain, size)
       assert(enc_trouble == "", enc_trouble)
       assert(#packed < #plain, tostring(level) .. ": " .. tostring(#packed))
-      local dec = assert(Compress.zstd_decoder())
+      local dec = assert(Compress.decoder("zstd"))
       local out, dec_trouble = drive(dec, packed, size)
       assert(dec_trouble == "", dec_trouble)
       assert(out == plain, tostring(level) .. "/" .. tostring(size) .. ": " .. tostring(#out))
     end
   end
   -- Nothing in is one empty frame out, which decodes to nothing.
-  local empty = assert(Compress.zstd_encoder())
+  local empty = assert(Compress.encoder("zstd"))
   local packed = assert(empty:update("")) .. assert(empty:finish())
   assert(packed:sub(1, 4) == "\40\181\47\253", Codec.hex(packed))
-  local out, trouble = drive(assert(Compress.zstd_decoder()), packed)
+  local out, trouble = drive(assert(Compress.decoder("zstd")), packed)
   assert(out == "" and trouble == "", trouble)
 end
 
 local function test_zstd_encoder_output_is_the_same_from_run_to_run()
   local plain = string.rep("reproducible ", 5000)
-  local first = assert(Compress.zstd_encoder(12))
+  local first = assert(Compress.encoder("zstd", { level = 12 }))
   local a = assert(first:update(plain)) .. assert(first:finish())
-  local second = assert(Compress.zstd_encoder(12))
+  local second = assert(Compress.encoder("zstd", { level = 12 }))
   local b = assert(second:update(plain:sub(1, 777))) .. assert(second:update(plain:sub(778))) ..
     assert(second:finish())
   assert(a == b, "the same input and level, split differently, came out differently")
 end
 
 local function test_zstd_encoder_throws_after_finish()
-  local enc = assert(Compress.zstd_encoder())
+  local enc = assert(Compress.encoder("zstd"))
   assert(enc:update("x"))
   assert(enc:finish())
   local updated, _ = pcall(enc.update, enc, "y")
@@ -1104,8 +1104,8 @@ local function xz_sample(): string
   return table.concat(parts)
 end
 
-local function xz_encode(plain: string, preset?: integer, opts?: Compress.XzOptions, size?: integer): string
-  local packed, trouble = drive(assert(Compress.xz_encoder(preset, opts)), plain, size)
+local function xz_encode(plain: string, preset?: integer, extreme?: boolean, size?: integer): string
+  local packed, trouble = drive(assert(Compress.encoder("xz", { level = preset, extreme = extreme })), plain, size)
   assert(trouble == "", trouble)
   return packed
 end
@@ -1118,7 +1118,7 @@ local function drive_bz2(enc: Compress.Stream, data: string, size?: integer): st
 end
 
 local function xz_decode(packed: string, size?: integer): string
-  local dec = assert(Compress.xz_decoder())
+  local dec = assert(Compress.decoder("xz"))
   local out, trouble = drive(dec, packed, size)
   assert(trouble == "", trouble)
   assert(dec:done())
@@ -1153,7 +1153,7 @@ local function test_xz_encoder_writes_what_the_xz_command_writes()
   -- Presets 0 to 6 (the memory of 7 to 9 is left out of a test run), and
   -- the extremes that differ in what they change.
   for _, case in ipairs(xz_digests) do
-    local packed = xz_encode(plain, case.preset, { extreme = case.extreme })
+    local packed = xz_encode(plain, case.preset, case.extreme)
     assert(Hash.hex_sha256(packed) == case.digest,
       "preset " .. tostring(case.preset) .. (if case.extreme then "e" else "" end) .. ": " .. tostring(#packed) .. " bytes")
   end
@@ -1165,7 +1165,7 @@ local function test_xz_encoder_empty_input_is_the_empty_stream()
   -- `xz -c </dev/null`: header, an index of no blocks, footer.
   local expected = assert(Codec.unhex(
     "fd377a585a000004e6d6b446000000001cdf44211fb6f37d010000000004595a"))
-  local enc = assert(Compress.xz_encoder())
+  local enc = assert(Compress.encoder("xz"))
   assert(assert(enc:update("")) .. assert(enc:update("")) .. assert(enc:finish()) == expected)
   assert(xz_decode(expected) == "")
 end
@@ -1190,7 +1190,7 @@ local function test_xz_encoder_round_trips_at_presets_and_chunkings()
   local bytewise = xz_encode(plain, 6, nil, 1)
   assert(bytewise == xz_encode(plain, 6), "chunks of 1")
   assert(xz_decode(bytewise, 1) == plain)
-  local extreme = xz_encode(plain, 1, { extreme = true })
+  local extreme = xz_encode(plain, 1, true)
   assert(xz_decode(extreme) == plain)
 end
 
@@ -1239,7 +1239,7 @@ local function test_xz_encoder_gives_output_past_one_slice()
     noise[i] = string.char((x >> 16) % 256)
   end
   local plain = table.concat(noise)
-  local enc = assert(Compress.xz_encoder(0))
+  local enc = assert(Compress.encoder("xz", { level = 0 }))
   local first = assert(enc:update(plain))
   assert(#first >= 65536, tostring(#first))
   local packed = first .. assert(enc:finish())
@@ -1248,7 +1248,7 @@ local function test_xz_encoder_gives_output_past_one_slice()
 end
 
 local function test_xz_encoder_throws_after_finish()
-  local enc = assert(Compress.xz_encoder(0))
+  local enc = assert(Compress.encoder("xz", { level = 0 }))
   assert(enc:update("x"))
   assert(enc:finish())
   local updated, _ = pcall(enc.update, enc, "y")
@@ -1272,14 +1272,14 @@ local abcdefg_bz2_9 = assert(Codec.unhex(
     "547408547808547c5dc914e14243a96642e4"))
 
 local function test_bz2_encoder_writes_what_the_bzip2_command_writes()
-  assert(drive_bz2(assert(Compress.bz2_encoder()), "hello, cosmic!") == hello_bz2)
+  assert(drive_bz2(assert(Compress.encoder("bz2")), "hello, cosmic!") == hello_bz2)
   local plain = string.rep("abcdefg\n", 40000)
-  assert(drive_bz2(assert(Compress.bz2_encoder(1)), plain) == abcdefg_bz2_1)
-  assert(drive_bz2(assert(Compress.bz2_encoder(9)), plain) == abcdefg_bz2_9)
+  assert(drive_bz2(assert(Compress.encoder("bz2", { level = 1 })), plain) == abcdefg_bz2_1)
+  assert(drive_bz2(assert(Compress.encoder("bz2", { level = 9 })), plain) == abcdefg_bz2_9)
   -- However the input is cut, the bytes are the same.
-  assert(drive_bz2(assert(Compress.bz2_encoder(1)), plain, 777) == abcdefg_bz2_1)
+  assert(drive_bz2(assert(Compress.encoder("bz2", { level = 1 })), plain, 777) == abcdefg_bz2_1)
   -- Only the block size in the header differs for a small input.
-  local five = drive_bz2(assert(Compress.bz2_encoder(5)), "hello, cosmic!")
+  local five = drive_bz2(assert(Compress.encoder("bz2", { level = 5 })), "hello, cosmic!")
   assert(five == hello_bz2:sub(1, 3) .. "5" .. hello_bz2:sub(5), Codec.hex(five))
 end
 
@@ -1292,47 +1292,47 @@ local function test_bz2_round_trips_at_every_level_and_chunking()
   local sizes: {integer} = { 1000, 70000, #plain }
   for _, level in ipairs(levels) do
     for _, size in ipairs(sizes) do
-      local packed = drive_bz2(assert(Compress.bz2_encoder(level)), plain, size)
+      local packed = drive_bz2(assert(Compress.encoder("bz2", { level = level })), plain, size)
       assert(#packed < #plain, tostring(level) .. ": " .. tostring(#packed))
-      local out, trouble = drive(assert(Compress.bz2_decoder()), packed, size)
+      local out, trouble = drive(assert(Compress.decoder("bz2")), packed, size)
       assert(trouble == "", trouble)
       assert(out == plain, tostring(level) .. "/" .. tostring(size) .. ": " .. tostring(#out))
     end
   end
   -- A byte at a time.
   local short = plain:sub(1, 3000)
-  local packed = drive_bz2(assert(Compress.bz2_encoder(3)), short, 1)
-  local out, trouble = drive(assert(Compress.bz2_decoder()), packed, 1)
+  local packed = drive_bz2(assert(Compress.encoder("bz2", { level = 3 })), short, 1)
+  local out, trouble = drive(assert(Compress.decoder("bz2")), packed, 1)
   assert(trouble == "" and out == short, trouble)
 end
 
 local function test_bz2_encoder_of_nothing_is_an_empty_stream()
   -- `bzip2 -c < /dev/null`: the header, the end-of-stream magic, a zero CRC.
-  local empty = drive_bz2(assert(Compress.bz2_encoder()), "")
+  local empty = drive_bz2(assert(Compress.encoder("bz2")), "")
   assert(empty == assert(Codec.unhex("425a683917724538509000000000")), Codec.hex(empty))
-  local out, trouble = drive(assert(Compress.bz2_decoder()), empty)
+  local out, trouble = drive(assert(Compress.decoder("bz2")), empty)
   assert(out == "" and trouble == "", trouble)
 end
 
 local function test_bz2_encoder_update_of_nothing_is_not_a_failure()
   -- bzlib answers BZ_PARAM_ERROR to a BZ_RUN call that takes and emits
   -- nothing; an empty update must not surface it.
-  local fresh = assert(Compress.bz2_encoder(1))
+  local fresh = assert(Compress.encoder("bz2", { level = 1 }))
   assert(fresh:update("") == "")
   -- Only empty updates, then finish: the 14 bytes of an empty stream.
   assert(fresh:update("") == "")
   local empty = assert(fresh:finish())
   assert(empty == assert(Codec.unhex("425a683117724538509000000000")), Codec.hex(empty))
   -- Between chunks, the stream is the one without the empty updates.
-  local enc = assert(Compress.bz2_encoder(1))
+  local enc = assert(Compress.encoder("bz2", { level = 1 }))
   local parts: mut {string} = {}
   for _, piece in ipairs({ "hello, ", "", "cosmic", "", "", "!" }) do
     parts[#parts + 1] = assert(enc:update(piece), piece)
   end
   parts[#parts + 1] = assert(enc:finish())
   local packed = table.concat(parts)
-  assert(packed == drive_bz2(assert(Compress.bz2_encoder(1)), "hello, cosmic!"), Codec.hex(packed))
-  local out, trouble = drive(assert(Compress.bz2_decoder()), packed)
+  assert(packed == drive_bz2(assert(Compress.encoder("bz2", { level = 1 })), "hello, cosmic!"), Codec.hex(packed))
+  local out, trouble = drive(assert(Compress.decoder("bz2")), packed)
   assert(out == "hello, cosmic!" and trouble == "", trouble)
 end
 
@@ -1347,24 +1347,24 @@ local function test_bz2_encoder_update_whose_output_fills_the_slice_exactly()
     noise[i] = string.char((x >> 16) % 256)
   end
   local plain = table.concat(noise) .. string.rep("abcdefg\n", 25000)
-  local enc = assert(Compress.bz2_encoder(1))
+  local enc = assert(Compress.encoder("bz2", { level = 1 }))
   local first, why = enc:update(plain)
   assert(first, why)
   assert(#first == 65536, "the input no longer fills a slice: " .. tostring(#first))
   local packed = first .. assert(enc:finish())
-  local out, trouble = drive(assert(Compress.bz2_decoder()), packed)
+  local out, trouble = drive(assert(Compress.decoder("bz2")), packed)
   assert(trouble == "" and out == plain, trouble)
 end
 
 local function test_bz2_encoder_level_out_of_range_raises()
-  Test.raises(function() local _, _ = Compress.bz2_encoder(0) end)
-  Test.raises(function() local _, _ = Compress.bz2_encoder(10) end)
-  assert((assert(Compress.bz2_encoder(1))))
-  assert((assert(Compress.bz2_encoder(9))))
+  Test.raises(function() local _, _ = Compress.encoder("bz2", { level = 0 }) end)
+  Test.raises(function() local _, _ = Compress.encoder("bz2", { level = 10 }) end)
+  assert((assert(Compress.encoder("bz2", { level = 1 }))))
+  assert((assert(Compress.encoder("bz2", { level = 9 }))))
 end
 
 local function test_bz2_encoder_throws_after_finish()
-  local enc = assert(Compress.bz2_encoder())
+  local enc = assert(Compress.encoder("bz2"))
   assert(enc:update("x"))
   assert(enc:finish())
   local updated, _ = pcall(enc.update, enc, "y")
@@ -1376,16 +1376,103 @@ end
 
 local function test_xz_encoder_closed_at_scope_end_frees_its_codec()
   do
-    local enc <close> = assert(Compress.xz_encoder(0))
+    local enc <close> = assert(Compress.encoder("xz", { level = 0 }))
     assert(enc:update("abc"))
   end
   -- An encoder never finished is collected too.
-  assert(Compress.xz_encoder(0))
+  assert(Compress.encoder("xz", { level = 0 }))
   collectgarbage("collect")
 end
 
 local function test_xz_encoder_presets_out_of_range_raise()
-  Test.raises(function() local _, _ = Compress.xz_encoder(-1) end)
-  Test.raises(function() local _, _ = Compress.xz_encoder(10) end)
-  assert((assert(Compress.xz_encoder(0))))
+  Test.raises(function() local _, _ = Compress.encoder("xz", { level = -1 }) end)
+  Test.raises(function() local _, _ = Compress.encoder("xz", { level = 10 }) end)
+  assert((assert(Compress.encoder("xz", { level = 0 }))))
+end
+
+local record Case
+  words: string
+  call: function()
+end
+
+-- The message of what `f` raised, which names the line of this file
+-- that called the public function.
+local function raised_here(f: function()): string
+  local ok, why = pcall(f)
+  assert(not ok, "expected a raise, but the call returned")
+  local text = tostring(why)
+  assert(text:match("^cosmic%.compress_test:%d+: ") ~= nil, text)
+  return text
+end
+
+--- An option the format does not read raises, blaming the caller.
+local function test_an_option_of_another_format_raises()
+  local cases: {Case} = {
+    { words = "extreme is not an option of gzip", call = function()
+      local _, _ = Compress.encode("gzip", "x", { extreme = false })
+    end },
+    { words = "extreme is not an option of zstd", call = function()
+      local _, _ = Compress.encoder("zstd", { extreme = true })
+    end },
+    { words = "max_memory is not an option of gzip", call = function()
+      local _, _ = Compress.decode("gzip", "x", { max_memory = 5 })
+    end },
+    { words = "max_window is not an option of xz", call = function()
+      local _, _ = Compress.decode("xz", "x", { max_window = 5000 })
+    end },
+    { words = "max_window is not an option of bz2", call = function()
+      local _, _ = Compress.decoder("bz2", { max_window = 5000 })
+    end },
+    { words = "max_bytes is an option of Compress.decode, not of a decoder",
+      call = function() local _, _ = Compress.decoder("gzip", { max_bytes = 1 }) end },
+  }
+  for _, case in ipairs(cases) do
+    local text = raised_here(case.call)
+    assert(text:find(case.words, 1, true) ~= nil, text)
+  end
+end
+
+--- A level or a limit out of its range raises in this module's words,
+--- blaming the caller.
+local function test_a_value_out_of_range_raises_from_the_caller()
+  local cases: {Case} = {
+    { words = "gzip level must be 0 to 10, not 11", call = function()
+      local _, _ = Compress.encode("gzip", "x", { level = 11 })
+    end },
+    { words = "zstd level must be 1 to 19, not 0", call = function()
+      local _, _ = Compress.encoder("zstd", { level = 0 })
+    end },
+    { words = "xz level must be 0 to 9, not 10", call = function()
+      local _, _ = Compress.encode("xz", "x", { level = 10 })
+    end },
+    { words = "bz2 level must be 1 to 9, not 0", call = function()
+      local _, _ = Compress.encoder("bz2", { level = 0 })
+    end },
+    { words = "max_memory must be positive", call = function()
+      local _, _ = Compress.decoder("xz", { max_memory = 0 })
+    end },
+    { words = "max_window must be at least 1024", call = function()
+      local _, _ = Compress.decode("zstd", "x", { max_window = 1023 })
+    end },
+    { words = "max_bytes must be at least 0", call = function()
+      local _, _ = Compress.decode("gzip", "x", { max_bytes = -1 })
+    end },
+  }
+  for _, case in ipairs(cases) do
+    local text = raised_here(case.call)
+    assert(text:find(case.words, 1, true) ~= nil, text)
+  end
+end
+
+--- Bytes after the end of the compressed data fail, in every format.
+local function test_decode_refuses_trailing_bytes_in_every_format()
+  local every_format: {Compress.Format} = { "raw", "zlib", "gzip", "zstd", "xz", "bz2" }
+  for _, format in ipairs(every_format) do
+    local packed = assert(Compress.encode(format, "a"))
+    assert(assert(Compress.decode(format, packed)) == "a", format)
+    local out, why = Compress.decode(format, packed .. "zz")
+    assert(out == nil, format)
+    local failure = assert(why)
+    assert(failure.message:find("trailing bytes", 1, true) ~= nil, format .. ": " .. failure.message)
+  end
 end

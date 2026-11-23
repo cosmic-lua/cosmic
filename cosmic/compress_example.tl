@@ -12,18 +12,18 @@ local Example = {} -- checked: literal_needs_type
 --- Bytes compressed whole into a gzip stream, and expanded back.
 function Example.deflate()
   local text = string.rep("cosmic ", 100)
-  local packed = assert(Compress.deflate("gzip", text))
+  local packed = assert(Compress.encode("gzip", text))
   print(#text, #packed)
   assert(#packed < #text)
-  local back = assert(Compress.inflate("gzip", packed))
+  local back = assert(Compress.decode("gzip", packed))
   assert(back == text)
 end
 
 --- A bound on what `inflate` may produce, for a body from outside: a
 --- small input can expand past any memory, and past `max_bytes` it fails.
 function Example.inflate()
-  local packed = assert(Compress.deflate("zlib", string.rep("a", 10000)))
-  local back, why = Compress.inflate("zlib", packed, 100)
+  local packed = assert(Compress.encode("zlib", string.rep("a", 10000)))
+  local back, why = Compress.decode("zlib", packed, { max_bytes = 100 })
   print(why)
   assert(back == nil and tostring(why):find("larger than 100 bytes", 1, true) ~= nil)
 end
@@ -31,12 +31,12 @@ end
 --- A zstd stream written a chunk at a time and read back through a
 --- decoder that holds each update's output to a bound.
 function Example.zstd_encoder()
-  local enc = assert(Compress.zstd_encoder(9))
+  local enc = assert(Compress.encoder("zstd", { level = 9 }))
   local parts: mut {string} = {}
   for _ = 1, 100 do parts[#parts + 1] = assert(enc:update("cosmic zstd ")) end
   parts[#parts + 1] = assert(enc:finish())
   local packed = table.concat(parts)
-  local dec = assert(Compress.zstd_decoder())
+  local dec = assert(Compress.decoder("zstd"))
   local first = assert(dec:update(packed, 256))
   local out: mut {string} = { first }
   while dec:pending() do out[#out + 1] = assert(dec:update("", 256)) end

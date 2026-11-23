@@ -1,11 +1,13 @@
 --- `cosmic --standalone <file.tl> [args...]`: one file, run against
 --- this binary's own embedded standard library and nothing else.
 ---
---- `cosmic <file.tl>` builds the tree the file sits in first -- stages
---- it into its build directory, compiles every module it holds, and refuses to go on
---- when the running binary is stale against that tree. That is right
---- for a project, and wrong for a script whose job is to repair the
---- tree: [`bin/zig`], which rebuilds a stale core, cannot itself need a
+--- `cosmic <file.tl>` of a file that requires a module of its project
+--- builds the tree the file sits in first -- stages it into its build
+--- directory, compiles every module it holds, and refuses to go on when
+--- the running binary is stale against that tree; of one that requires
+--- only `cosmic.*` modules, it runs as this does ([`standalone.runs_alone`]).
+--- Building is right for a project, and wrong for a script whose job is
+--- to repair the tree: [`bin/zig`], which rebuilds a stale core, cannot itself need a
 --- fresh one. A standalone run reads the one file, checks and compiles
 --- it in memory with the embedded compiler, and calls it. Nothing is
 --- staged, no build directory is written, the tree around the file is
@@ -110,7 +112,8 @@ function standalone.code(file: string, source: string, variables?: {string:strin
       options = { globals = options.globals, types = options.types,
         standard = Pipeline.carried_own(), project = options.project }
     end
-    local generated, generate_trouble = Pipeline.lone(file, source, options)
+    -- A file's entry point is held to a declaration, as `cosmic fix` holds it in a tree; a chunk's exit code is not.
+    local generated, generate_trouble = Pipeline.lone(file, source, options, nil, own ~= true)
     if generated == nil then
       if outcome ~= nil then outcome.refused = true end
       return nil, generate_trouble
@@ -129,15 +132,65 @@ function standalone.requires(file: string, source: string): {string}?, string
   return require("build.pipeline").requires(file, source)
 end
 
+--- The modules `source` requires, in the order they stand, as its tokens alone say ([`lang.lexer`], which loads
+--- nothing of the checker): each `require "name"` and `require("name")`. nil where `require` stands in any other
+--- form (a name that is no literal, `pcall(require, name)`) or the source does not lex, since only the checker can
+--- tell what such a file requires. A field or method of that name (`x.require`) is no require.
+function standalone.literal_requires(source: string): {string}?
+  local Lexer = require("lang.lexer")
+  local lexed = Lexer.lex(source, "")
+  if #lexed.errors > 0 then
+    return nil
+  end
+  local tokens = lexed.tokens
+  local kinds, texts, values = tokens.kind, tokens.text, tokens.value
+  local found: mut {string} = {}
+  for i = 1, #kinds do
+    local before = kinds[i - 1]
+    if kinds[i] == "identifier" and texts[i] == "require" and before ~= "." and before ~= ":" then
+      local at = if kinds[i + 1] == "(" then i + 2 else i + 1 end
+      local name = values[at]
+      if kinds[at] ~= "string" or name == nil or (at == i + 2 and kinds[at + 1] ~= ")") then
+        return nil
+      end
+      found[#found + 1] = name
+    end
+  end
+  return found
+end
+
+--- Whether `cosmic <file>` runs `file` as `--standalone` does, by its path and `source` alone: where it is no
+--- program's main (`cmd/<name>/main.tl`, whose run serves its `static/` and documents its program from the build)
+--- and no test (`_test.tl`, whose tests the tree's compile gives it), and requires by a literal name only
+--- `cosmic.*` modules ([`standalone.literal_requires`]), which the binary carries. Such a file
+--- compiles alone as it would in its tree, and a standalone run of it builds nothing. Whether the tree is
+--- cosmic's own, whose `cosmic.*` modules are its sources and not the binary's, the caller says.
+function standalone.runs_alone(file: string, source: string): boolean
+  if file:match("_test%.tl$") ~= nil or ("/" .. file):match("/cmd/[^/]+/main%.tl$") ~= nil then
+    return false
+  end
+  local required = standalone.literal_requires(source)
+  if required == nil then
+    return false
+  end
+  for _, name in ipairs(required) do
+    if name:sub(1, 7) ~= "cosmic." then
+      return false
+    end
+  end
+  return true
+end
+
 --- `file`'s Teal, checked and compiled to a loaded chunk ([`standalone.code`],
---- loaded as `file`'s), `own` and `outcome` as it says there.
+--- loaded as `file`'s, or as the module `module`'s where given, as its tree loads it), `own` and `outcome` as it says
+--- there.
 function standalone.compile(file: string, source: string, variables?: {string:string}, own?: boolean,
-                            outcome?: importer.Outcome): standalone.Main?, string
+                            outcome?: importer.Outcome, module?: string): standalone.Main?, string
   local code, trouble = standalone.code(file, source, variables, own, outcome)
   if code == nil then
     return nil, trouble
   end
-  return loaded(file, code)
+  return loaded(module or file, code)
 end
 
 --- The entry point `produced` names: itself when it is a function, its
@@ -201,7 +254,10 @@ end
 --- a file that does not compile is told beside its refusal: a require of a
 --- module that is not `cosmic.*` is refused here and not in the run the
 --- caller may have meant. A file the checker refuses or that does not parse exits [`exit_status.uncompiled`].
-function standalone.run(argv: {string}, why?: string): integer
+--- `name`, where given, is the module the file is, as a file run that runs it alone names it: its chunk is loaded as
+--- that module's, as its tree loads it (a traceback and coverage name the module), and its top level finds the name
+--- as its `...`, as `require` hands a module its own.
+function standalone.run(argv: {string}, why?: string, name?: string): integer
   -- `--check` stands before the file and takes nothing after it: the file is checked as a run checks it, and not run.
   local only = argv[2] == "--check"
   local file = argv[if only then 3 else 2 end]
@@ -215,9 +271,13 @@ function standalone.run(argv: {string}, why?: string): integer
     return 1
   end
   local outcome: importer.Outcome = { refused = false }
-  local chunk, trouble = standalone.compile(file, source, nil, nil, outcome)
+  local chunk, trouble = standalone.compile(file, source, nil, nil, outcome, name)
   if chunk == nil then
-    local _, _ = Fs.put(Fs.stderr, trouble .. "\n")
+    local shown = require("build.error_render").annotated(trouble, function(named: string): string?
+      local text, _ = Fs.read(named)
+      return text
+    end)
+    local _, _ = Fs.put(Fs.stderr, shown .. "\n")
     if why ~= nil then
       local _, _ = Fs.put(Fs.stderr, "cosmic: " .. why .. "\n")
     end
@@ -240,7 +300,7 @@ function standalone.run(argv: {string}, why?: string): integer
   arguments[0] = file
   -- Its top level finds them in `arg`, as `lua file a b` gives them.
   rawset(_G as {string:any}, "arg", arguments) -- checked: cast_refused, unchecked_binding
-  local main = standalone.entry(chunk())
+  local main = standalone.entry(chunk(name))
   if main == nil then
     return 0
   end

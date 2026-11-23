@@ -286,7 +286,7 @@ local function test_transform_writer_drains_a_decoder_in_bounded_writes()
   -- 16 MiB of zeros compresses to a few KiB; a writer that never
   -- drained `pending()` would hand all 16 MiB to `finish` at close.
   local plain_size = 16 * 1024 * 1024
-  local packed = assert(Compress.deflate("zlib", string.rep("\0", plain_size)))
+  local packed = assert(Compress.encode("zlib", string.rep("\0", plain_size)))
   local total: integer = 0
   local largest: integer = 0
   local sink: Stream.Writer = { -- checked: literal_shape
@@ -298,7 +298,7 @@ local function test_transform_writer_drains_a_decoder_in_bounded_writes()
     close = function(_s: Stream.Writer): boolean, string return true, "" end,
     abort = function(_s: Stream.Writer): boolean, string return true, "" end,
   }
-  local w = Stream.transform_writer(sink, (assert(Compress.inflater("zlib"))))
+  local w = Stream.transform_writer(sink, (assert(Compress.decoder("zlib"))))
   assert(w:write(packed))
   assert(w:close())
   assert(total == plain_size, tostring(total))
@@ -339,7 +339,7 @@ local function test_transform_serves_small_reads_from_one_large_batch()
 end
 
 local function test_a_codec_error_is_sticky_rather_than_a_later_false_eof()
-  local inflater = assert(Compress.inflater("gzip"))
+  local inflater = assert(Compress.decoder("gzip"))
   local r = Stream.transform(Stream.from_string(string.rep("x", 100)), inflater)
   local first, trouble = r:read()
   assert(first == nil and trouble ~= "")
@@ -350,9 +350,9 @@ local function test_a_codec_error_is_sticky_rather_than_a_later_false_eof()
 end
 
 local function test_a_truncated_compressed_stream_fails_at_its_end_every_time()
-  local deflater = assert(Compress.deflater("gzip"))
+  local deflater = assert(Compress.encoder("gzip"))
   local packed = assert(deflater:update("hello, world")) .. assert(deflater:finish())
-  local inflater = assert(Compress.inflater("gzip"))
+  local inflater = assert(Compress.decoder("gzip"))
   local r = Stream.transform(Stream.from_string(packed:sub(1, #packed - 4)), inflater)
   local parts: mut {string} = {}
   local trouble = ""
@@ -782,9 +782,9 @@ local function test_transform_writer_hold_holds_a_writes_drained_output_as_one()
   -- A decoder's output for one write can take several calls to drain:
   -- all of it is that write's, and none is released before the next.
   local plain = string.rep("\0", 3 << 20)
-  local packed = assert(Compress.deflate("zlib", plain))
+  local packed = assert(Compress.encode("zlib", plain))
   local out = recording()
-  local w = Stream.transform_writer(out, assert(Compress.inflater("zlib")), { hold = 1 })
+  local w = Stream.transform_writer(out, assert(Compress.decoder("zlib")), { hold = 1 })
   assert(w:write(packed))
   assert(out.got == "")
   assert(w:close())
@@ -810,18 +810,18 @@ end
 
 local function test_run_drains_a_decoder_that_holds_output_back()
   local plain = string.rep("\0", 3 << 20)
-  local packed = assert(Compress.deflate("zlib", plain))
+  local packed = assert(Compress.encode("zlib", plain))
   -- A decoder's one call returns at most 1 MiB, so the whole answer
   -- takes `update("")` calls past the first.
-  assert(assert(Stream.run(assert(Compress.inflater("zlib")), packed)) == plain)
-  assert(Stream.run(assert(Compress.deflater("gzip")), ""))
+  assert(assert(Stream.run(assert(Compress.decoder("zlib")), packed)) == plain)
+  assert(Stream.run(assert(Compress.encoder("gzip")), ""))
 end
 
 local function test_run_bounds_what_it_returns()
   local plain = string.rep("x", 1000)
-  local packed = assert(Compress.deflate("raw", plain))
-  assert(assert(Stream.run(assert(Compress.inflater("raw")), packed, 1000)) == plain)
-  local out, trouble = Stream.run(assert(Compress.inflater("raw")), packed, 999)
+  local packed = assert(Compress.encode("raw", plain))
+  assert(assert(Stream.run(assert(Compress.decoder("raw")), packed, 1000)) == plain)
+  local out, trouble = Stream.run(assert(Compress.decoder("raw")), packed, 999)
   assert(out == nil and tostring(trouble) == "stream: output is larger than 999 bytes", trouble)
   -- The bound counts what `finish` returns too, and 0 is a bound.
   out, trouble = Stream.run(shouting(), "", 0)
@@ -834,16 +834,16 @@ end
 local function test_run_bounds_output_met_while_draining_a_decoder()
   -- A decoder's first call gives 1 MiB; the bound falls in a later
   -- `update("")`, in the drain loop.
-  local packed = assert(Compress.deflate("zlib", string.rep("\0", 3 << 20)))
-  local out, trouble = Stream.run(assert(Compress.inflater("zlib")), packed, (1 << 20) + 5)
+  local packed = assert(Compress.encode("zlib", string.rep("\0", 3 << 20)))
+  local out, trouble = Stream.run(assert(Compress.decoder("zlib")), packed, (1 << 20) + 5)
   assert(out == nil and tostring(trouble):find("larger than", 1, true) ~= nil, trouble)
 end
 
 local function test_run_answers_a_transform_failure()
-  local out, trouble = Stream.run(assert(Compress.inflater("zlib")), "not zlib")
+  local out, trouble = Stream.run(assert(Compress.decoder("zlib")), "not zlib")
   assert(out == nil and trouble.message ~= "", tostring(trouble))
-  local packed = assert(Compress.deflate("zlib", "some text to cut"))
-  out, trouble = Stream.run(assert(Compress.inflater("zlib")), packed:sub(1, -3))
+  local packed = assert(Compress.encode("zlib", "some text to cut"))
+  out, trouble = Stream.run(assert(Compress.decoder("zlib")), packed:sub(1, -3))
   assert(out == nil and tostring(trouble):find("truncated", 1, true) ~= nil, trouble)
 end
 

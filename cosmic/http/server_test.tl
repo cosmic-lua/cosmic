@@ -1005,10 +1005,10 @@ local TEXT_TYPE <const> = { ["Content-Type"] = "text/plain" }
 --- `body` expanded from `coding`, as a client would.
 local function expanded(coding: string, body: string): string
   if coding == "zstd" then
-    local out = assert(Stream.run(assert(Compress.zstd_decoder()), body))
+    local out = assert(Stream.run(assert(Compress.decoder("zstd")), body))
     return out
   end
-  local out = assert(Compress.inflate("gzip", body))
+  local out = assert(Compress.decode("gzip", body))
   return out
 end
 
@@ -1411,7 +1411,7 @@ end
 local function test_a_compressed_reader_that_fails_midway_is_closed_and_reported()
   local source = Stream.from_string(("not gzip at all, but long enough to read\n"):rep(60))
   local troubles = serving(function(_req: Server.Request): Server.Reply
-    local decoder = assert(Compress.inflater("gzip"))
+    local decoder = assert(Compress.decoder("gzip"))
     return { status = 200, headers = TEXT_TYPE, body = Stream.transform(source, decoder) }
   end, function(address: Net.Address)
     local p = peer(address)

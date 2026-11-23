@@ -48,7 +48,7 @@ local function sdist(path: string, version: string, files: {string:string})
     assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), content))
   end
   assert(w:close())
-  assert(Fs.write(path, (assert(Compress.deflate("gzip", out:result())))))
+  assert(Fs.write(path, (assert(Compress.encode("gzip", out:result())))))
 end
 
 --- A verdict of a test that read a zone does not stand on a refreshed
