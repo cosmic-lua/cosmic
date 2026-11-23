@@ -482,12 +482,11 @@ end
 local function test_fsync_reports_bad_descriptor(tmp: string)
   local path = tmp .. "/file"
   local fd = assert(Fs.open_write(path))
-  local ok, trouble = Fs.fsync(fd)
-  assert(ok and trouble == "")
+  assert(Fs.fsync(fd))
   assert(Fs.close(fd))
 
-  local failed, failed_trouble = Fs.fsync(fd)
-  assert(not failed and failed_trouble ~= "")
+  local failed, failed_why = Fs.fsync(fd)
+  assert(not failed and failed_why.errno == sys.EBADF and failed_why.path == nil, tostring(failed_why))
 end
 
 local function test_scratch_is_private_and_removed_when_closed(tmp: string)
@@ -765,9 +764,19 @@ local function test_copy_tree_refuses_an_existing_target(tmp: string)
   assert(Fs.mkdirs(tmp .. "/from"))
   assert(Fs.mkdirs(tmp .. "/to"))
   local copied, trouble = Fs.copy_tree(tmp .. "/from", tmp .. "/to")
-  assert(not copied and trouble == tmp .. "/to: already exists", trouble)
+  assert(not copied and trouble.errno == sys.EEXIST and trouble.path == tmp .. "/to", tostring(trouble))
   local missing, why = Fs.copy_tree(tmp .. "/absent", tmp .. "/new")
-  assert(not missing and why:find("absent", 1, true) ~= nil, why)
+  assert(not missing and why.errno == sys.ENOENT and why.path == tmp .. "/absent", tostring(why))
+end
+
+--- A link at the target is refused, never written through, and the
+--- failure names the target.
+local function test_copy_tree_does_not_write_through_a_link_at_the_target(tmp: string)
+  assert(Fs.write(tmp .. "/one", "1"))
+  assert(Fs.symlink(tmp .. "/elsewhere", tmp .. "/two"))
+  local copied, why = Fs.copy_tree(tmp .. "/one", tmp .. "/two")
+  assert(not copied and why.errno == sys.EEXIST and why.path == tmp .. "/two", tostring(why))
+  assert(Fs.exists(tmp .. "/elsewhere") == false)
 end
 
 local function test_copy_tree_copies_a_single_file(tmp: string)
@@ -782,7 +791,7 @@ local function test_copy_tree_into_itself_copies_once(tmp: string)
   assert(Fs.mkdirs(from .. "/x"))
   assert(Fs.write(from .. "/x/f", "f"))
   local copied, trouble = Fs.copy_tree(from, from .. "/b")
-  assert(copied, trouble)
+  assert(copied, tostring(trouble))
   assert(assert(Fs.read(from .. "/b/x/f")) == "f")
   assert(Fs.exists(from .. "/b/b") == false, "the copy was copied again")
 end
@@ -793,15 +802,14 @@ local function test_copy_tree_stops_at_a_named_pipe(tmp: string)
   assert(Fs.mkdirs(tmp .. "/from"))
   assert(sys.mkfifo(tmp .. "/from/pipe"))
   local copied, trouble = Fs.copy_tree(tmp .. "/from", tmp .. "/to")
-  assert(not copied and trouble == tmp .. "/from/pipe: not a file, directory or symbolic link",
-    trouble)
+  assert(not copied and tostring(trouble) == tmp .. "/from/pipe: not a file, directory or symbolic link",
+    tostring(trouble))
 end
 
 local function test_copy_tree_names_why_a_target_cannot_be_made(tmp: string)
   assert(Fs.write(tmp .. "/file", "f"))
   local copied, trouble = Fs.copy_tree(tmp .. "/file", tmp .. "/file/x")
-  assert(not copied and not trouble:find("already exists", 1, true) and -- checked: or_mix
-      trouble:find(tmp .. "/file/x", 1, true), trouble)
+  assert(not copied and trouble.errno == sys.ENOTDIR and trouble.path == tmp .. "/file/x", tostring(trouble))
 end
 
 local function test_copy_tree_drops_setuid_and_setgid(tmp: string)

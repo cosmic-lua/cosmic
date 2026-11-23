@@ -8,10 +8,11 @@
 --- a value still return `T | nil, string`: a value and `""` on success,
 --- or nil and an error. A predicate uses the same contract, with false
 --- as a valid answer. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
---- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`] and
---- [`Fs.set_mtime`] only have an effect and answer
---- `(true) | (false, Failure)`. The other calls that only have an
---- effect still return `boolean, string`.
+--- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],
+--- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.fsync`] and
+--- [`Fs.close`] only have an effect and answer `(true) | (false, Failure)`;
+--- one on a descriptor names no path. [`Fs.put`] still returns
+--- `boolean, string`.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
@@ -149,6 +150,13 @@ function Fs.read(path: string): (string) | (nil, Failure)
   end
   local _, _ = sys.close(fd)
   return table.concat(parts)
+end
+
+--- The failure of a call that answered `why` and `errno`: the errno's
+--- own words where one is set, `why` where none is (0).
+local function failure_of(errno: integer, why: string, path?: string): Failure
+  if errno ~= 0 then return Failure.system(errno, path) end
+  return Failure.new(why, path)
 end
 
 --- Writes all of `data` to `fd`; a write that moves nothing fails
@@ -311,21 +319,20 @@ end
 --- file. Each write starts at the file's current end, but short writes
 --- can interleave with another appender, and a failure can leave a
 --- prefix appended. Nothing is synced; use [`Fs.write`] to replace a
---- file atomically instead. Answers true and an empty reason on success,
---- or false and a reason naming `path`; a write failure wins over a
---- close failure.
-function Fs.append(path: string, data: string, mode?: integer): boolean, string
+--- file atomically instead. Answers true, or false and a [`Failure`]
+--- naming `path`; a write failure wins over a close failure.
+function Fs.append(path: string, data: string, mode?: integer): (true) | (false, Failure)
   local file <close>: AppendFile = { fd = -1 }
-  local fd, trouble = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
-  if fd == nil then return false, path .. ": " .. trouble end
+  local fd, open_why, open_errno = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_APPEND, mode or 0x1a4)
+  if fd == nil then return false, failure_of(open_errno, open_why, path) end
   file.fd = fd
-  local ok, why = write_all(fd, data, "")
+  local ok, why, errno = write_all(fd, data, "")
   -- close can report failure after releasing the descriptor: never retry it.
   file.fd = -1
-  local closed, close_trouble = sys.close(fd)
-  if not ok then return false, path .. ": " .. why end
-  if not closed then return false, path .. ": " .. close_trouble end
-  return true, ""
+  local closed, close_why, close_errno = sys.close(fd)
+  if not ok then return false, failure_of(errno, why, path) end
+  if not closed then return false, failure_of(close_errno, close_why, path) end
+  return true
 end
 
 --- Metadata for a path, or nil and a [`Failure`] that names `path`
@@ -865,12 +872,12 @@ end
 
 --- Closes a descriptor returned by Fs.open_read or Fs.open_write; it does not
 --- accept a Lua io.close file handle.
-function Fs.close(fd: integer): boolean, string
-  local ok, trouble = sys.close(fd)
+function Fs.close(fd: integer): (true) | (false, Failure)
+  local ok, why, errno = sys.close(fd)
   if not ok then
-    return false, trouble
+    return false, failure_of(errno, why)
   end
-  return true, ""
+  return true
 end
 
 --- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
@@ -915,56 +922,57 @@ function Fs.set_mtime(path: string, seconds: integer, ns?: integer): (true) | (f
 end
 
 --- Flushes a descriptor's data and metadata to storage.
-function Fs.fsync(fd: integer): boolean, string
-  local ok, trouble = sys.fsync(fd)
+function Fs.fsync(fd: integer): (true) | (false, Failure)
+  local ok, why, errno = sys.fsync(fd)
   if not ok then
-    return false, trouble
+    return false, failure_of(errno, why)
   end
-  return true, ""
+  return true
 end
 
 --- Copies one regular file's bytes a chunk at a time, so a large file
 --- is never held in memory whole.
-local function copy_bytes(from: string, to: string): boolean, string
+local function copy_bytes(from: string, to: string): (true) | (false, Failure)
   -- A source swapped for a link, a named pipe or a terminal since its
   -- lstat is refused rather than followed, waited on for a writer, or
   -- taken as this process's terminal.
-  local input, open_trouble = sys.open(from,
+  local input, _, open_errno = sys.open(from,
     sys.O_RDONLY | sys.O_NOFOLLOW | sys.O_NONBLOCK | sys.O_NOCTTY)
-  if input == nil then return false, from .. ": " .. open_trouble end
-  local st, stat_trouble = sys.fstat(input)
+  if input == nil then return false, Failure.system(open_errno, from) end
+  local st, _, stat_errno = sys.fstat(input)
   if st == nil or st.kind ~= "file" then
     local _, _ = Fs.close(input)
-    return false, from .. ": " .. (if st == nil then stat_trouble else "no longer a regular file" end)
+    if st == nil then return false, Failure.system(stat_errno, from) end
+    return false, Failure.new("no longer a regular file", from)
   end
   -- Exclusive: a name that appeared since the target was checked, a
   -- planted link included, is refused rather than written through.
-  local output, create_trouble = sys.open(to,
+  local output, _, create_errno = sys.open(to,
     sys.O_WRONLY | sys.O_CREAT | sys.O_EXCL, 0x180)
   if output == nil then
     local _, _ = Fs.close(input)
-    return false, to .. ": " .. create_trouble
+    return false, Failure.system(create_errno, to)
   end
-  local ok, trouble = true, ""
+  local failure: Failure? = nil
   while true do
-    local chunk, read_trouble = Fs.take(input, 1 << 20)
+    local chunk, _, read_errno = sys.read(input, 1 << 20)
     if chunk == nil then
-      ok, trouble = false, from .. ": " .. read_trouble
+      failure = Failure.system(read_errno, from)
       break
     end
     if chunk == "" then break end
-    local put, put_trouble = Fs.put(output, chunk)
+    local put, put_why, put_errno = write_all(output, chunk, "")
     if not put then
-      ok, trouble = false, to .. ": " .. put_trouble
+      failure = failure_of(put_errno, put_why, to)
       break
     end
   end
   -- A read-only source has nothing to lose in closing.
   local _, _ = Fs.close(input)
-  local closed, close_trouble = Fs.close(output)
-  if not ok then return false, trouble end
-  if not closed then return false, to .. ": " .. close_trouble end
-  return true, ""
+  local closed, close_why = Fs.close(output)
+  if failure ~= nil then return false, failure end
+  if not closed then return false, failure_of(close_why.errno, close_why.message, to) end
+  return true
 end
 
 -- TODO: keep what `cp -a` also keeps -- hard links as links (Stat has
@@ -983,47 +991,47 @@ end
 --- else in the tree (a device, a socket, a named pipe) stops the copy
 --- with its path, and a copy that stops leaves what it made so far in
 --- place.
-function Fs.copy_tree(from: string, to: string): boolean, string
-  local present, present_trouble, number = sys.lstat(to)
+function Fs.copy_tree(from: string, to: string): (true) | (false, Failure)
+  local present, _, number = sys.lstat(to)
   if present ~= nil then
-    return false, to .. ": already exists"
+    return false, Failure.system(sys.EEXIST, to)
   elseif number ~= sys.ENOENT then
-    return false, to .. ": " .. present_trouble
+    return false, Failure.system(number, to)
   end
-  local function copy(source: string, target: string): boolean, string
-    local st, trouble = sys.lstat(source)
-    if st == nil then return false, source .. ": " .. trouble end
+  local function copy(source: string, target: string): (true) | (false, Failure)
+    local st, _, stat_errno = sys.lstat(source)
+    if st == nil then return false, Failure.system(stat_errno, source) end
     local permissions = st.mode & 0x3ff
     if st.kind == "link" then
-      local target_of, link_trouble = Fs.readlink(source)
-      if target_of == nil then return false, tostring(link_trouble) end
-      local linked, symlink_trouble = Fs.symlink(target_of, target)
-      if not linked then return false, tostring(symlink_trouble) end
+      local target_of, link_why = Fs.readlink(source)
+      if target_of == nil then return false, link_why end
+      local linked, symlink_why = Fs.symlink(target_of, target)
+      if not linked then return false, symlink_why end
     elseif st.kind == "file" then
-      local copied, copy_trouble = copy_bytes(source, target)
-      if not copied then return false, copy_trouble end
-      local changed, chmod_trouble = Fs.chmod(target, permissions)
-      if not changed then return false, tostring(chmod_trouble) end
+      local copied, copy_why = copy_bytes(source, target)
+      if not copied then return false, copy_why end
+      local changed, chmod_why = Fs.chmod(target, permissions)
+      if not changed then return false, chmod_why end
     elseif st.kind == "dir" then
-      local entries, list_trouble = sys.readdir(source)
-      if entries == nil then return false, source .. ": " .. list_trouble end
-      local made, mkdir_trouble = sys.mkdir(target, 0x1c0)
-      if not made then return false, target .. ": " .. mkdir_trouble end
+      local entries, _, list_errno = sys.readdir(source)
+      if entries == nil then return false, Failure.system(list_errno, source) end
+      local made, _, mkdir_errno = sys.mkdir(target, 0x1c0)
+      if not made then return false, Failure.system(mkdir_errno, target) end
       for _, name in ipairs(sorted_names(entries)) do
         local copied, why = copy(source .. "/" .. name, target .. "/" .. name)
         if not copied then return false, why end
       end
       -- The directory's own mode last, so a read-only one still took
       -- its entries.
-      local changed, chmod_trouble = Fs.chmod(target, permissions)
-      if not changed then return false, tostring(chmod_trouble) end
+      local changed, chmod_why = Fs.chmod(target, permissions)
+      if not changed then return false, chmod_why end
     else
-      return false, source .. ": not a file, directory or symbolic link"
+      return false, Failure.new("not a file, directory or symbolic link", source)
     end
-    local timed, time_trouble = sys.utimensat(target, st.atime, st.atime_ns,
+    local timed, _, time_errno = sys.utimensat(target, st.atime, st.atime_ns,
       st.mtime, st.mtime_ns)
-    if not timed then return false, target .. ": " .. time_trouble end
-    return true, ""
+    if not timed then return false, Failure.system(time_errno, target) end
+    return true
   end
   return copy(from, to)
 end

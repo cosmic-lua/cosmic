@@ -248,7 +248,7 @@ function Fuzz.tail(path: string): {string}?
   end)
   local closed, trouble = Fs.close(fd)
   if not called then error(raised) end
-  assert(closed, trouble)
+  assert(closed, tostring(trouble))
   return tailed.lines
 end
 
@@ -390,7 +390,7 @@ local function streamed(guard: Signal.Guard, argv: {string}, cwd: string,
   local closed, close_trouble = Fs.close(out_fd)
   if not called then return { status = kept.status, trouble = tostring(failure) } end
   if kept.trouble ~= "" then return kept end
-  if not closed then return { status = kept.status, trouble = close_trouble } end
+  if not closed then return { status = kept.status, trouble = tostring(close_trouble) } end
   return { status = kept.status, trouble = "" }
 end
 

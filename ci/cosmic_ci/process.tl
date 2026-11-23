@@ -101,13 +101,14 @@ local function close_descriptors(running: Process.Running)
     local input_closed, input_trouble = true, ""
     local input_fd = running.input_fd
     if input_fd then
-      input_closed, input_trouble = Fs.close(input_fd)
+      local close_ok, close_why = Fs.close(input_fd)
+      input_closed, input_trouble = close_ok, if close_ok then "" else tostring(close_why) end
     end
     local out_closed, out_trouble = Fs.close(running.out_fd)
     local err_closed, err_trouble = Fs.close(running.err_fd)
     assert(input_closed, input_trouble)
-    assert(out_closed, out_trouble)
-    assert(err_closed, err_trouble)
+    assert(out_closed, tostring(out_trouble))
+    assert(err_closed, tostring(err_trouble))
   end
 end
 

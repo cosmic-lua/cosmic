@@ -824,7 +824,9 @@ function Zip.open(path: string): Zip.Reader?, string
   end
   local reader, otrouble = open_reader(st.size, pread, function(): boolean, string
     reading_closed = true
-    return Fs.close(fd)
+    local closed, close_why = Fs.close(fd)
+    if not closed then return false, tostring(close_why) end
+    return true, ""
   end)
   if reader == nil then
     reading_closed = true

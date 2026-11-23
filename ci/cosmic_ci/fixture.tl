@@ -191,7 +191,7 @@ end
 --- raises naming `label`.
 function Fixture.copy_tree(label: string, from: string, to: string)
   local copied, trouble = Fs.copy_tree(from, to)
-  assert(copied, label .. ": " .. trouble)
+  assert(copied, label .. ": " .. tostring(trouble))
 end
 
 --- The prefix length the runtime fixture in `fixture_dir` recorded. It
@@ -413,7 +413,7 @@ local function preview(path: string): string
   end)
   local closed, close_trouble = Fs.close(fd)
   if not called then error(raised) end
-  assert(closed, close_trouble)
+  assert(closed, tostring(close_trouble))
   return (assert(taken.text, taken.trouble))
 end
 
