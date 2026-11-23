@@ -1,8 +1,10 @@
 --- @public
 --- What `cosmic agent`'s tools are held to: a [`cosmic.sandbox`] policy, made
 --- from the working directory and the user's flags. bash runs under it
---- ([`Child.run`]'s `policy`); read, write and edit, which run in the agent
---- itself, check each path against its grants.
+--- ([`Child.run`]'s `policy`), and so does run's worker, which is also
+--- granted this program's own file and refused the nest promise
+--- (`cosmic docs cosmic.agent.worker`); read, write and edit, which run in
+--- the agent itself, check each path against its grants.
 ---
 ---     local p = assert(Policy.of("/work", { mode = "write", network = false, grants = {} }))
 ---     assert(Policy.allows(p, "/work/a.txt", "w"))

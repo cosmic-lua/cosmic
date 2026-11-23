@@ -70,8 +70,8 @@ local function cached_path(source: string, variables?: {string:string}, own?: bo
   return dir .. "/" .. key .. ".lua"
 end
 
---- `code`, loaded as `file`'s chunk.
-local function loaded(file: string, code: string): standalone.Main?, string
+--- `code`, Lua the checker wrote of `file`, loaded as `file`'s chunk.
+function standalone.loaded(file: string, code: string): standalone.Main?, string
   local chunk, chunk_trouble = Compiled.load(code, "@" .. file, Globals.table())
   if chunk == nil then
     return nil, file .. ": " .. tostring(chunk_trouble)
@@ -190,7 +190,7 @@ function standalone.compile(file: string, source: string, variables?: {string:st
   if code == nil then
     return nil, trouble
   end
-  return loaded(module or file, code)
+  return standalone.loaded(module or file, code)
 end
 
 --- The entry point `produced` names: itself when it is a function, its

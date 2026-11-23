@@ -1033,7 +1033,9 @@ local record Cli
   --- `cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> ...`: a
   --- small coding agent, after pi: Claude, with tools to read, write and
   --- edit files, run commands, in the foreground or as background jobs,
-  --- and query what it has kept, every tool held to a sandbox. A first
+  --- check and run snippets of Teal in a worker kept for the session
+  --- (`worker` is that process, which the agent starts), and query what
+  --- it has kept, every tool held to a sandbox. A first
   --- session, in the directory to work in, with `ANTHROPIC_API_KEY` set
   --- (or another credential, `cosmic docs cosmic.agent.auth`):
   ---

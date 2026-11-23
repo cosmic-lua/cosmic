@@ -63,6 +63,7 @@ local Auth = require("cosmic.agent.auth")
 local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local type Jobs = require("cosmic.agent.jobs")
+local type Worker = require("cosmic.agent.worker")
 local Json = require("cosmic.json")
 local Sandbox = require("cosmic.sandbox")
 local Sessions = require("cosmic.agent.sessions")
@@ -107,6 +108,8 @@ local record Agent
     policy?: Sandbox.Policy
     --- The background jobs the tools start (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
+    --- The worker the run tool sends its snippets to (cosmic.agent.worker); nil for none.
+    worker?: Worker.Set
     --- The build of cosmic, kept with each request.
     build?: string
   end
@@ -605,7 +608,7 @@ local function loop(s: Agent.Session, events: Agent.Events): boolean, string
           local given = input or {}
           events.tool(called, given)
           local result = Tools.run(called, given, { cwd = s.config.cwd, db = s.db, session = s.id,
-            policy = s.config.policy, jobs = s.config.jobs,
+            policy = s.config.policy, jobs = s.config.jobs, worker = s.config.worker,
             stopped = function(): boolean return stopped(events) end })
           local shown, record_why = record(s, call_id, called, given, result)
           if shown == nil then failed = record_why end
