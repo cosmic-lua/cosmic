@@ -68,6 +68,19 @@ doctest machinery of its own.
   that needs a host the build does not have. a shebang line, real
   only as a file's first line, is always a skip, shown for reading,
   never run.
+- a block tagged `sh` is command lines for a reader's shell. each line
+  that is not blank or a `#` comment runs `cosmic` with the words after
+  it, split as a shell splits them, in the example's directory (its
+  `file=` blocks are there). there is no shell, so any command but
+  `cosmic` is refused, and so is each of `` |&;<>()$`*?[]{}~ `` outside
+  quotes (and `$` or `` ` `` inside double quotes). show such a line in
+  a `text` block.
+- a `sh` block with an `output` block after it runs. what its lines
+  print on stdout is held to that output; stderr is not shown. a line
+  exits 0, or the status a trailing `# exits <n>` names, and any other
+  status fails the example. a `sh` block with no `output` block does
+  not run. a doc with a `sh` block declares the `cosmic` profile in its
+  policy line (below), which lets its examples start `cosmic`.
 - a block tagged `text` is prose in a box. nothing runs.
 - a line `<!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->`, alone and outside any
   fence, is what the doc's examples are held to and read beyond their
