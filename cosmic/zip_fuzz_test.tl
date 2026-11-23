@@ -112,7 +112,7 @@ local function walk(input: string): boolean, string
           "body refused" end)
       end
       if body ~= nil then
-        local data = Stream.read_all(body)
+        local data, _ = Stream.read_all(body)
         if data ~= nil then Fuzz.label("body read") end
         if data ~= nil and e.method == 93 then Fuzz.label("zstd body read") end
         if data ~= nil and #data ~= e.size then
@@ -225,7 +225,7 @@ local function gen_laid_out(src: Fuzz.Source): string
     local method = Fuzz.pick(src, { 0, 8, 8, 93, 12 })
     local body = data
     if method == 8 then
-      body = Compress.deflate("raw", data)
+      body = assert(Compress.deflate("raw", data))
     elseif method == 93 then
       body = assert(Stream.run(assert(Compress.zstd_encoder()), data))
     end

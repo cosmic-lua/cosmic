@@ -98,7 +98,7 @@ local function test_a_corrupt_body_fails_its_crc_check()
   local entry = by_path(entries_of(r), "f")
   local reader = assert(entry:open())
   local data, trouble = Stream.read_all(reader)
-  assert(data == nil and trouble:find("crc32", 1, true) ~= nil, trouble)
+  assert(data == nil and tostring(trouble):find("crc32", 1, true) ~= nil, trouble)
 end
 
 local function test_a_stream_without_an_eocd_is_refused()
@@ -115,7 +115,7 @@ local function test_open_reads_a_zip_from_a_path(tmp: string)
   assert(Fs.write(path, c:result()))
   local r = assert(Zip.open(path))
   local entry = by_path(entries_of(r), "f")
-  assert(Stream.read_all((assert(entry:open()))) == "on disk")
+  assert(assert(Stream.read_all((assert(entry:open())))) == "on disk")
   assert(r:close())
 end
 
@@ -148,12 +148,12 @@ local function test_a_system_made_zip_fixture_lists_its_stored_entries()
   assert(#entries == 4, tostring(#entries))
   local short = by_path(entries, "src/short.txt")
   assert(short.method == 0)
-  assert(Stream.read_all((assert(short:open()))) == "short file contents\n")
+  assert(assert(Stream.read_all((assert(short:open())))) == "short file contents\n")
   local link = by_path(entries, "src/adir/alink")
   assert(link.method == 0)
-  assert(Stream.read_all((assert(link:open()))) == "short.txt")
+  assert(assert(Stream.read_all((assert(link:open())))) == "short.txt")
   local stored = by_path(entries, "src/short_stored.txt")
-  assert(Stream.read_all((assert(stored:open()))) == "short file contents\n")
+  assert(assert(Stream.read_all((assert(stored:open())))) == "short file contents\n")
 end
 
 local function le16(n: integer): string
@@ -228,8 +228,8 @@ local function test_local_header_offsets_past_4_gib_go_in_zip64_extra_fields(tmp
   local r = assert(Zip.open(path))
   local entries = assert(r:entries())
   assert(#entries == 2)
-  assert(Stream.read_all((assert(by_path(entries, "a"):open()))) == "first body")
-  assert(Stream.read_all((assert(by_path(entries, "b"):open()))) == string.rep("deflate me ", 50))
+  assert(assert(Stream.read_all((assert(by_path(entries, "a"):open())))) == "first body")
+  assert(assert(Stream.read_all((assert(by_path(entries, "b"):open())))) == string.rep("deflate me ", 50))
   assert(r:close())
 end
 
@@ -389,7 +389,7 @@ local function test_an_entry_body_larger_than_its_recorded_size_fails_at_once()
   local r = assert(Zip.open_string(lying))
   local body = assert(by_path(entries_of(r), "f"):open())
   local data, trouble = Stream.read_all(body)
-  assert(data == nil and trouble:find("larger than its recorded size", 1, true) ~= nil, trouble)
+  assert(data == nil and tostring(trouble):find("larger than its recorded size", 1, true) ~= nil, trouble)
 end
 
 local function test_entries_of_a_closed_reader_cannot_be_opened(tmp: string)
@@ -461,7 +461,7 @@ local function test_next_walks_a_central_directory_many_windows_long()
     assert(e.path == prefix .. tostring(count), e.path)
     assert(e.path == Array.at(listed, count).path)
     if count % 997 == 0 then
-      assert(Stream.read_all((assert(e:open()))) == "body " .. tostring(count))
+      assert(assert(Stream.read_all((assert(e:open())))) == "body " .. tostring(count))
     end
   end
   assert(count == n, tostring(count))
@@ -491,7 +491,7 @@ local function test_bodies_read_back_whatever_the_local_extra_field_and_size()
       local r = assert(Zip.open_string(zip_with_local_extra("f", body, extra_len)))
       local got = assert(r:next())
       local data, trouble = Stream.read_all((assert(got:open())))
-      assert(data == body, tostring(extra_len) .. "/" .. tostring(size) .. ": " .. trouble)
+      assert(data == body, tostring(extra_len) .. "/" .. tostring(size) .. ": " .. (if trouble ~= nil then tostring(trouble) else "" end))
     end
   end
 end
@@ -541,10 +541,10 @@ local function test_a_streamed_body_round_trips_through_the_reader()
     local r = assert(Zip.open_string(c:result()))
     local entries = assert(r:entries())
     assert(#entries == 4)
-    assert(Stream.read_all((assert(by_path(entries, "a"):open()))) == whole, method)
-    assert(Stream.read_all((assert(by_path(entries, "empty"):open()))) == "", method)
-    assert(Stream.read_all((assert(by_path(entries, "plain"):open()))) == "after a stream", method)
-    assert(Stream.read_all((assert(by_path(entries, "sized"):open()))) == whole, method)
+    assert(assert(Stream.read_all((assert(by_path(entries, "a"):open())))) == whole, method)
+    assert(assert(Stream.read_all((assert(by_path(entries, "empty"):open())))) == "", method)
+    assert(assert(Stream.read_all((assert(by_path(entries, "plain"):open())))) == "after a stream", method)
+    assert(assert(Stream.read_all((assert(by_path(entries, "sized"):open())))) == whole, method)
     local a = by_path(entries, "a")
     assert(a.size == #whole and a.crc32 == whole_crc)
     assert(a.method == (if method == "store" then 0 else 8 end))
@@ -910,7 +910,9 @@ end
 local function read_f(raw: string): string?, string
   local r = assert(Zip.open_string(raw))
   local body = assert(by_path(entries_of(r), "f"):open())
-  return Stream.read_all(body)
+  local got, failure = Stream.read_all(body)
+  if got == nil then return nil, tostring(failure) end
+  return got, ""
 end
 
 local function test_a_zstd_entry_round_trips_whole_and_streamed()
@@ -931,9 +933,9 @@ local function test_a_zstd_entry_round_trips_whole_and_streamed()
     assert(e.method == 93, name)
     assert(e.size == #text and e.crc32 == crc32_reference(text), name)
     assert(e.compressed_size < #text // 10, name)
-    assert(Stream.read_all((assert(e:open()))) == text, name)
+    assert(assert(Stream.read_all((assert(e:open())))) == text, name)
   end
-  assert(Stream.read_all((assert(by_path(entries, "empty"):open()))) == "")
+  assert(assert(Stream.read_all((assert(by_path(entries, "empty"):open())))) == "")
   assert(by_path(entries, "empty").method == 93)
 end
 

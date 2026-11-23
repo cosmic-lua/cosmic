@@ -618,7 +618,7 @@ local function database_of(zip: string): string?, string
         trouble = opened
       else
         local bytes, read_trouble = Stream.read_all(stream)
-        if bytes == nil then trouble = read_trouble else found = bytes end
+        if bytes == nil then trouble = tostring(read_trouble) else found = bytes end
       end
     end
   end

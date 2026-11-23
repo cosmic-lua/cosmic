@@ -332,8 +332,8 @@ local function body_text(req: Types.Request, kind: string, opts: Types.InputOpti
     if body_failure ~= nil then return nil, read_failed(body_failure) end
     local read, why = Stream.read_all(Stream.limit(req.raw.body, limit + 1))
     if read == nil then
-      req.body_failure = why
-      return nil, read_failed(why)
+      req.body_failure = tostring(why)
+      return nil, read_failed(tostring(why))
     end
     data = read
     if #data <= limit then
@@ -534,7 +534,7 @@ local function read_multipart(req: Types.Request, limit: integer, opts: Types.In
         end
         local path = into .. "/" .. Codec.hex((assert(Rand.entropy(16))))
         local writer, trouble = Stream.create(path, 384)
-        if writer == nil then return storage_failed(trouble) end
+        if writer == nil then return storage_failed(tostring(trouble)) end
         spooling.writer = writer
         local size = 0
         local verdict, detail = "ok", ""

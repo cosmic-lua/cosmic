@@ -7,12 +7,13 @@
 -- the public surface.
 local type raw_compress = require("cosmic.internal.compress")
 
+local Failure = require("cosmic.failure")
 local Stream = require("cosmic.stream")
 
 local raw = require("cosmic.internal.compress")
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- A failure's text under the module's name, which a public function's
+--- [`Failure`] carries.
 local function refuse(why: string): nil, string
   return nil, "compress: " .. why
 end
@@ -29,8 +30,9 @@ local record Compress
   --- One incremental transform, a chunk at a time: a
   --- [`Stream.Transform`], so [`Stream.transform`],
   --- [`Stream.transform_writer`] and [`Stream.run`] drive it. Every
-  --- call that can fail answers `value, ""` on success and
-  --- `nil, error` on failure, like the constructors.
+  --- method that can fail answers `value, ""` on success and
+  --- `nil, error` on failure; the constructors answer the stream, or
+  --- nil and a [`Failure`].
   ---
   --- `update(chunk, max_bytes?)` feeds `chunk` and returns output,
   --- possibly "". A decoder returns at most `max_bytes` bytes per
@@ -87,13 +89,33 @@ local record Compress
   end
 end
 
---- Compresses `data` whole in the `format` framing, at `level` as
---- `deflater(format, level)` takes it; raises where that does.
-function Compress.deflate(format: Compress.Format, data: string, level?: integer):
-    string?, string
+-- Compress.deflate, its failure in words.
+local function deflate_text(format: Compress.Format, data: string, level?: integer): string?, string
   local enc, trouble = raw.deflater(format, level)
   if enc == nil then return nil, trouble end
-  return Stream.run(enc, data)
+  local packed, run_trouble = Stream.run(enc, data)
+  if packed == nil then return nil, tostring(run_trouble) end
+  return packed, ""
+end
+
+--- Compresses `data` whole in the `format` framing, at `level` as
+--- `deflater(format, level)` takes it; raises where that does.
+function Compress.deflate(format: Compress.Format, data: string, level?: integer): (string) | (nil, Failure)
+  local value, why = deflate_text(format, data, level)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.inflate, its failure in words.
+local function inflate_text(format: Compress.Format, data: string, max_bytes?: integer): string?, string
+  local dec, trouble = raw.inflater(format)
+  if dec == nil then return nil, trouble end
+  local out, run_trouble = Stream.run(dec, data, max_bytes)
+  if out == nil then return nil, tostring(run_trouble) end
+  if dec:rest() ~= "" then
+    return refuse("trailing bytes after the compressed data")
+  end
+  return out, ""
 end
 
 --- Expands `data`, whole, from the `format` framing, such as `deflate`
@@ -102,35 +124,48 @@ end
 --- answer, and a `max_bytes` under 0
 --- raises. Bytes after the end of the compressed data are an error
 --- too.
-function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer):
-    string?, string
+function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer): (string) | (nil, Failure)
   if max_bytes ~= nil and max_bytes < 0 then
     error("compress: max_bytes must be at least 0", 2)
   end
-  local dec, trouble = raw.inflater(format)
-  if dec == nil then return nil, trouble end
-  local out, run_trouble = Stream.run(dec, data, max_bytes)
-  if out == nil then return nil, run_trouble end
-  if dec:rest() ~= "" then
-    return refuse("trailing bytes after the compressed data")
-  end
-  return out, ""
+  local value, why = inflate_text(format, data, max_bytes)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.inflater, its failure in words.
+local function inflater_text(format: Compress.Format): Compress.Stream?, string
+  return raw.inflater(format)
 end
 
 --- A streaming decoder for `format`. A gzip decoder parses the header
 --- (including FEXTRA/FNAME/FCOMMENT/FHCRC), verifies the CRC-32 and
 --- ISIZE trailer, and decodes every member of a multi-member stream.
 --- Raises on an unknown format.
-function Compress.inflater(format: Compress.Format): Compress.Stream?, string
-  return raw.inflater(format)
+function Compress.inflater(format: Compress.Format): (Compress.Stream) | (nil, Failure)
+  local value, why = inflater_text(format)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.deflater, its failure in words.
+local function deflater_text(format: Compress.Format, level?: integer): Compress.Stream?, string
+  return raw.deflater(format, level)
 end
 
 --- A streaming encoder for `format` at `level`, 0 to 10 (default the
 --- miniz default, 6); raises on an unknown format or a level out of
 --- range. A gzip encoder writes a minimal ten-byte header (mtime 0,
 --- OS 255, no extra fields) and the CRC-32/ISIZE trailer.
-function Compress.deflater(format: Compress.Format, level?: integer): Compress.Stream?, string
-  return raw.deflater(format, level)
+function Compress.deflater(format: Compress.Format, level?: integer): (Compress.Stream) | (nil, Failure)
+  local value, why = deflater_text(format, level)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.xz_decoder, its failure in words.
+local function xz_decoder_text(max_memory?: integer): Compress.Stream?, string
+  return raw.xz_decoder(max_memory)
 end
 
 --- A streaming decoder for the .xz container: multi-stream and stream
@@ -140,13 +175,27 @@ end
 --- ask for more than `max_memory` bytes of decoder memory (default 256
 --- MiB; `xz -9` needs 65 MiB).
 --- Raises when `max_memory` is not positive.
-function Compress.xz_decoder(max_memory?: integer): Compress.Stream?, string
-  return raw.xz_decoder(max_memory)
+function Compress.xz_decoder(max_memory?: integer): (Compress.Stream) | (nil, Failure)
+  local value, why = xz_decoder_text(max_memory)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.bz2_decoder, its failure in words.
+local function bz2_decoder_text(): Compress.Stream?, string
+  return raw.bz2_decoder()
 end
 
 --- A streaming decoder for .bz2: multi-stream is handled.
-function Compress.bz2_decoder(): Compress.Stream?, string
-  return raw.bz2_decoder()
+function Compress.bz2_decoder(): (Compress.Stream) | (nil, Failure)
+  local value, why = bz2_decoder_text()
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.zstd_decoder, its failure in words.
+local function zstd_decoder_text(max_window?: integer): Compress.Stream?, string
+  return raw.zstd_decoder(max_window)
 end
 
 --- A streaming decoder for zstd (RFC 8878): frames one after another
@@ -158,16 +207,34 @@ end
 --- limit is compared with the window the header declares, which is not
 --- always a power of two, however the input is split.
 --- Raises when `max_window` is under 1024.
-function Compress.zstd_decoder(max_window?: integer): Compress.Stream?, string
-  return raw.zstd_decoder(max_window)
+function Compress.zstd_decoder(max_window?: integer): (Compress.Stream) | (nil, Failure)
+  local value, why = zstd_decoder_text(max_window)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.zstd_encoder, its failure in words.
+local function zstd_encoder_text(level?: integer): Compress.Stream?, string
+  return raw.zstd_encoder(level)
 end
 
 --- A streaming zstd encoder at `level`, 1 to 19 (default 3, the `zstd`
 --- command's); raises on a level out of range. It writes one frame,
 --- with a checksum of its content, as the `zstd` command does; its
 --- output for the same input and level is the same from run to run.
-function Compress.zstd_encoder(level?: integer): Compress.Stream?, string
-  return raw.zstd_encoder(level)
+function Compress.zstd_encoder(level?: integer): (Compress.Stream) | (nil, Failure)
+  local value, why = zstd_encoder_text(level)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.zstd, its failure in words.
+local function zstd_text(data: string, level?: integer): string?, string
+  local encoder, trouble = raw.zstd_encoder(level, #data)
+  if encoder == nil then return nil, trouble end
+  local packed, run_trouble = Stream.run(encoder, data)
+  if packed == nil then return nil, tostring(run_trouble) end
+  return packed, ""
 end
 
 --- Compresses `data` whole as one zstd frame at `level` (as
@@ -176,10 +243,17 @@ end
 --- the frame a decoder that refuses any other, such as the portable
 --- artifact's decode stub, takes. The output is the same from run to run.
 --- Raises on a level out of range.
-function Compress.zstd(data: string, level?: integer): string?, string
-  local encoder, trouble = raw.zstd_encoder(level, #data)
-  if encoder == nil then return nil, trouble end
-  return Stream.run(encoder, data)
+function Compress.zstd(data: string, level?: integer): (string) | (nil, Failure)
+  local value, why = zstd_text(data, level)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.xz_encoder, its failure in words.
+local function xz_encoder_text(preset?: integer, opts?: Compress.XzOptions): Compress.Stream?, string
+  local extreme: boolean? = nil
+  if opts ~= nil then extreme = opts.extreme == true end
+  return raw.xz_encoder(preset, extreme)
 end
 
 --- A streaming encoder for the .xz container, one stream of one LZMA2
@@ -200,15 +274,20 @@ end
 --- and Lua's accounting does not see it: a caller that holds many
 --- encoders, or uses presets 8 and 9 in a server, should hold each
 --- `<close>`. Presets are not capped below 9, as the `xz` command's are
---- not; an allocation the machine refuses answers nil and "compress:
---- out of memory" (from the constructor) or, from `update` or
+--- not; an allocation the machine refuses answers nil and a [`Failure`]
+--- whose message is "compress: out of memory" (from the constructor) or, from `update` or
 --- `finish`, finishes the stream and answers the same. Only a single
 --- thread is used. [`Compress.xz_decoder`] reads what this writes at
 --- its default memory limit through preset 9.
-function Compress.xz_encoder(preset?: integer, opts?: Compress.XzOptions): Compress.Stream?, string
-  local extreme: boolean? = nil
-  if opts ~= nil then extreme = opts.extreme == true end
-  return raw.xz_encoder(preset, extreme)
+function Compress.xz_encoder(preset?: integer, opts?: Compress.XzOptions): (Compress.Stream) | (nil, Failure)
+  local value, why = xz_encoder_text(preset, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Compress.bz2_encoder, its failure in words.
+local function bz2_encoder_text(level?: integer): Compress.Stream?, string
+  return raw.bz2_encoder(level)
 end
 
 --- A streaming bzip2 encoder: `level` is the block size in units of
@@ -218,8 +297,10 @@ end
 --- an encoder given nothing writes the 14 bytes of an empty stream.
 --- It holds about 262 kB plus eight times the block size (7.5 MB at
 --- level 9, where the block is 900 kB) until it finishes.
-function Compress.bz2_encoder(level?: integer): Compress.Stream?, string
-  return raw.bz2_encoder(level)
+function Compress.bz2_encoder(level?: integer): (Compress.Stream) | (nil, Failure)
+  local value, why = bz2_encoder_text(level)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 return Compress

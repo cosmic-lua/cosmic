@@ -42,6 +42,7 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Innermost = require("cosmic.internal.innermost_guard")
 local Poll = require("cosmic.poll")
@@ -555,7 +556,7 @@ local class DecodingReader is Stream.Reader
 
   --- The codec for the reader's coding, made from `head`, the body's
   --- first bytes.
-  function start(self, head: string): Compress.Stream?, string
+  function start(self, head: string): (Compress.Stream) | (nil, Failure)
     if self.coding == "zstd" then return Compress.zstd_decoder() end
     if self.coding == "deflate" then
       return Compress.inflater(if zlib_header(head) then "zlib" else "raw" end)
@@ -570,7 +571,7 @@ local class DecodingReader is Stream.Reader
       self.head = self.head .. chunk
       if #self.head < 2 and not self.ended then return "", "" end
       local made, trouble = self:start(self.head)
-      if made == nil then return self:fail(trouble) end
+      if made == nil then return self:fail(tostring(trouble)) end
       codec = made
       self.codec = made
       chunk, self.head = self.head, ""
@@ -1375,7 +1376,7 @@ local function downloading(url: string, path: string,
     local algorithm, wanted = pair.algorithm, pair.wanted
     if wanted ~= "" then
       local hashing, trouble = Stream.hashing(algorithm)
-      if hashing == nil then return { kind = "failed", reason = trouble } end
+      if hashing == nil then return { kind = "failed", reason = tostring(trouble) } end
       checks[#checks + 1] = { algorithm = algorithm, hex = wanted:lower(), hashing = hashing }
     end
   end
@@ -1392,7 +1393,7 @@ local function downloading(url: string, path: string,
   local file, create_trouble = Stream.create(path)
   pending.file = file
   if file == nil then
-    return { kind = "failed", reason = create_trouble }
+    return { kind = "failed", reason = tostring(create_trouble) }
   end
   local sink: Stream.Writer = file
   for _, check in ipairs(checks) do sink = Stream.tee(sink, check.hashing) end
@@ -1403,7 +1404,7 @@ local function downloading(url: string, path: string,
   local _, _ = response:close()
   pending.response = nil
   if copied == nil then
-    return { kind = "failed", reason = trouble }
+    return { kind = "failed", reason = tostring(trouble) }
   end
   for _, check in ipairs(checks) do
     local digest, digest_trouble = check.hashing:digest()

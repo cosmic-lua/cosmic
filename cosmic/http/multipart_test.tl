@@ -38,7 +38,7 @@ local function parse(text: string, n?: integer, opts?: Multipart.Options): {Seen
       return out, ""
     end
     local data, trouble = Stream.read_all(got.body)
-    if data == nil then return nil, trouble end
+    if data == nil then return nil, tostring(trouble) end
     out[#out + 1] = { name = got.name, filename = got.filename, content_type = got.content_type, body = data }
   end
 end
@@ -262,7 +262,7 @@ local function test_a_failed_parser_stays_failed_and_a_part_body_reports_it()
   local reader = assert(Multipart.reader(ChunkedReaderFixture.drip(text, 4), { boundary = B }))
   local got = assert(reader:next_part())
   local data, why = Stream.read_all(got.body)
-  assert(data == nil and why:find("before the closing") ~= nil, why)
+  assert(data == nil and tostring(why):find("before the closing") ~= nil, why)
   local next_got, again = reader:next_part()
   assert(next_got == nil and again:find("before the closing") ~= nil)
   assert(reader:close())

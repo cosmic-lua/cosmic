@@ -463,7 +463,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     body = raw
   elseif method == 8 then
     local inflater, itrouble = Compress.inflater("raw")
-    if inflater == nil then return nil, itrouble end
+    if inflater == nil then return nil, tostring(itrouble) end
     body = Stream.transform(raw, inflater)
   elseif method == ZSTD then
     -- The decoder keeps its default 128 MiB window. A declared window
@@ -472,7 +472,7 @@ local function open_entry(pread: Pread, e: Zip.Entry): Stream.Reader?, string
     -- limit derived from that size would refuse cosmic's own encoder
     -- output, which declares a 2 MiB window even for an empty entry.
     local decoder, dtrouble = Compress.zstd_decoder()
-    if decoder == nil then return nil, dtrouble end
+    if decoder == nil then return nil, tostring(dtrouble) end
     body = Stream.transform(raw, decoder)
   else
     return refuse("unsupported compression method " .. tostring(method))
@@ -644,7 +644,7 @@ local function read_link(entry: Zip.Entry): string?, string
   local body, trouble = entry:open()
   if body == nil then return nil, trouble end
   local target, rtrouble = Stream.read_all(body)
-  if target == nil then return nil, entry.path .. ": " .. rtrouble end
+  if target == nil then return nil, entry.path .. ": " .. tostring(rtrouble) end
   local refusal = nul_refusal(target, "in the target of symlink " .. entry.path)
   if refusal ~= "" then return nil, refusal end
   return target, ""
@@ -989,13 +989,13 @@ local function write_whole(self: EntryWriter, path: string, data: string, method
   done.crc, done.usize = sums.crc32(data), #data
   if method == 8 then
     local packed, dtrouble = Compress.deflate("raw", data)
-    if packed == nil then return false, dtrouble end
+    if packed == nil then return false, tostring(dtrouble) end
     payload = packed
   elseif method == ZSTD then
     local encoder, etrouble = Compress.zstd_encoder()
-    if encoder == nil then return false, etrouble end
+    if encoder == nil then return false, tostring(etrouble) end
     local packed, ptrouble = Stream.run(encoder, data)
-    if packed == nil then return false, ptrouble end
+    if packed == nil then return false, tostring(ptrouble) end
     payload = packed
   end
   done.csize = #payload
@@ -1029,11 +1029,11 @@ local function begin_streamed(self: EntryWriter, path: string, method: integer, 
   local encoder: Compress.Stream?
   if method == 8 then
     local made, dtrouble = Compress.deflater("raw")
-    if made == nil then return nil, dtrouble end
+    if made == nil then return nil, tostring(dtrouble) end
     encoder = made
   elseif method == ZSTD then
     local made, etrouble = Compress.zstd_encoder()
-    if made == nil then return nil, etrouble end
+    if made == nil then return nil, tostring(etrouble) end
     encoder = made
   end
   local wide = hint ~= nil and hint >= STREAM_ZIP64_AT
@@ -1172,7 +1172,7 @@ local function put_entry(self: EntryWriter, path: string, body: string | Stream.
     -- A failed write is the sink's already, said as the Writer said it.
     local usable, failure = self.sink:usable()
     if not usable then return false, failure end
-    return self.sink:fail("zip: add_file: " .. ctrouble)
+    return self.sink:fail("zip: add_file: " .. tostring(ctrouble))
   end
   return finish_streamed(self, st)
 end

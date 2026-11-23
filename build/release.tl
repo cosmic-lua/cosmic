@@ -583,7 +583,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local body, read_trouble: string?, string = nil, ""
     if response.status >= 200 and response.status < 300 then
       -- One byte past the cap tells a body at it from one over it.
-      body, read_trouble = Stream.read_all(Stream.limit(response, max_small + 1))
+      local body_got, read_trouble_failure = Stream.read_all(Stream.limit(response, max_small + 1))
+      body, read_trouble = body_got, if body_got == nil then tostring(read_trouble_failure) else "" end
     end
     local _, _ = response:close()
     if response.status < 200 or response.status >= 300 then
@@ -674,7 +675,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     local hashing = assert(Stream.hashing("sha256"))
     local copied, copy_trouble: integer?, string = nil, ""
     if response.status >= 200 and response.status < 300 then
-      copied, copy_trouble = Stream.copy(response, hashing)
+      local copied_got, copy_trouble_failure = Stream.copy(response, hashing)
+      copied, copy_trouble = copied_got, if copied_got == nil then tostring(copy_trouble_failure) else "" end
     end
     local _, _ = response:close()
     if response.status < 200 or response.status >= 300 then

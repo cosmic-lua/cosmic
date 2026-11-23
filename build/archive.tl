@@ -142,7 +142,7 @@ local function spool(source: Stream.Reader): string?, string
   if sink == nil then
     local _, _ = source:close()
     local _, _ = Fs.remove_tree(dir)
-    return nil, sink_why
+    return nil, tostring(sink_why)
   end
   local copied, why = Stream.copy(source, sink)
   local _, _ = source:close()
@@ -154,7 +154,7 @@ local function spool(source: Stream.Reader): string?, string
   end
   if copied == nil or not closed then
     local _, _ = Fs.remove_tree(dir)
-    return nil, if why ~= "" then why else close_why end
+    return nil, if why ~= nil then tostring(why) else close_why end
   end
   return dir, ""
 end
@@ -793,7 +793,7 @@ end
 --- `item`, a file, added to `writer` as the one body it was when its size was read.
 local function add_file(writer: Stream.ArchiveWriter, item: Item): boolean, string
   local body, why = Stream.open(item.full)
-  if body == nil then return false, why end
+  if body == nil then return false, tostring(why) end
   local ok, added = writer:add_file(item.name, body, { mode = item.mode, mtime = item.mtime, size = item.size })
   -- A tar reads only the size it was given, so a file that grew since
   -- it was stat'd has bytes past it that would be silently dropped; a

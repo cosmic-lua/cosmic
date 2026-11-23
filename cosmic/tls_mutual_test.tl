@@ -74,7 +74,7 @@ local function answer(port: integer, client: Tls.Client): string
   if conn == nil then return "failed: " .. why end
   local said, lost = Stream.read_all(conn)
   local _, _ = conn:close()
-  if said == nil then return "failed: " .. lost end
+  if said == nil then return "failed: " .. tostring(lost) end
   if said == "" then return "failed: the server said nothing" end
   return said
 end
@@ -147,7 +147,7 @@ local function fetched(port: integer, client: Tls.Client): string
   assert(conn:write("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"))
   local said, lost = Stream.read_all(conn)
   local _, _ = conn:close()
-  if said == nil then return "failed: " .. lost end
+  if said == nil then return "failed: " .. tostring(lost) end
   local status = said:match("^HTTP/1%.1 (%d+)") or "?"
   return status .. " " .. (said:match("\r\n\r\n(.*)$") or "")
 end

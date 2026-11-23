@@ -104,7 +104,9 @@ local function test_assemble_writes_the_prefix_and_the_carried_database(tmp: str
   local stubs: {string:string} = { x86 = "STUB-x86", arm = "STUB-arm", mac = "STUB-mac" }
   local packing: artifact.Packing = { stubs = stubs,
     compress = function(core: string): string?, string
-      return Compress.zstd(core, artifact.zstd_level())
+      local framed, why = Compress.zstd(core, artifact.zstd_level())
+      if framed == nil then return nil, tostring(why) end
+      return framed, ""
     end }
   local prefix = assert(artifact.prefix(records, cores, nil, packing))
   assert(tool_of(build_directory) == assert(artifact.program(prefix, carried)))

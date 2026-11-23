@@ -24,7 +24,9 @@ end
 --- fraction of the release's seconds a core and is the same format; the
 --- release level is held by `compress-core` and the product.
 local function compress_core(core: string): string?, string
-  return Compress.zstd(core, 3)
+  local framed, why = Compress.zstd(core, 3)
+  if framed == nil then return nil, tostring(why) end
+  return framed, ""
 end
 
 --- Writes the frame a release stores the core file CORE as, at the release

@@ -159,7 +159,7 @@ local function test_starttls_secures_a_connection_from_both_sides()
   assert(Net.serve{
     listeners = { Net.tcp("127.0.0.1", 0) },
     serve = function(conn: Net.Conn)
-      local asked = Stream.read_exact(conn, 9)
+      local asked, _ = Stream.read_exact(conn, 9)
       if asked ~= "STARTTLS\n" then return end
       assert(conn:write("GO\n"))
       assert(conn:serve_tls(certs))
@@ -171,7 +171,7 @@ local function test_starttls_secures_a_connection_from_both_sides()
         local conn <close> = assert(Net.connect(Array.at(addresses, 1)))
         assert(conn:tls() == nil)
         assert(conn:write("STARTTLS\n"))
-        assert(Stream.read_exact(conn, 3) == "GO\n")
+        assert(assert(Stream.read_exact(conn, 3)) == "GO\n")
         assert(conn:start_tls(trusting(), "localhost"))
         local said = assert(conn:read())
         assert(said == "secured TLSv1.3 localhost\n", said)

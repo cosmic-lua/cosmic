@@ -31,7 +31,7 @@ local function summary(r: Tar.Reader, read_bodies: boolean): {string}?, string
     if read_bodies and entry.kind == "file" then
       local reader = assert(entry:open())
       local data, rtrouble = Stream.read_all(reader)
-      if data == nil then return nil, rtrouble end
+      if data == nil then return nil, tostring(rtrouble) end
       body = data
       assert(#data == entry.size, entry.path .. ": size mismatch")
     end
@@ -71,7 +71,7 @@ local function test_a_long_path_round_trips_through_a_pax_header()
   local r = Tar.reader(Stream.from_string(c:result()))
   local entry = assert(r:next())
   assert(entry.path == long_path, entry.path)
-  assert(Stream.read_all((assert(entry:open()))) == "payload")
+  assert(assert(Stream.read_all((assert(entry:open())))) == "payload")
   local last, trouble = r:next()
   assert(last == nil and trouble == "")
 end
@@ -136,7 +136,7 @@ local function test_add_file_from_a_reader_streams_the_body()
   assert(w:close())
   local r = Tar.reader(Stream.from_string(c:result()))
   local entry = assert(r:next())
-  assert(Stream.read_all((assert(entry:open()))) == "abcdef")
+  assert(assert(Stream.read_all((assert(entry:open())))) == "abcdef")
 end
 
 local function test_a_body_not_opened_is_skipped_automatically()
@@ -151,7 +151,7 @@ local function test_a_body_not_opened_is_skipped_automatically()
   -- first.open() is never called: next() must skip its body itself
   local second = assert(r:next())
   assert(second.path == "second")
-  assert(Stream.read_all((assert(second:open()))) == "two")
+  assert(assert(Stream.read_all((assert(second:open())))) == "two")
 end
 
 local function test_an_entry_reader_is_invalid_once_the_next_entry_is_asked_for()
@@ -250,7 +250,7 @@ local function test_opening_an_entry_a_second_time_is_refused()
   local r = Tar.reader(Stream.from_string(c:result()))
   local entry = assert(r:next())
   local first = assert(entry:open())
-  assert(Stream.read_all(first) == "hello")
+  assert(assert(Stream.read_all(first)) == "hello")
   local second, trouble = entry:open()
   assert(second == nil and trouble:find("already opened", 1, true) ~= nil, trouble)
 end
@@ -472,7 +472,7 @@ local function test_a_file_backed_reader_skips_bodies_and_notices_truncation(tmp
   local r = Tar.reader((assert(Stream.open(path))))
   assert((assert(r:next())).path == "big")
   local small = assert(r:next())
-  assert(small.path == "small" and Stream.read_all((assert(small:open()))) == "tiny")
+  assert(small.path == "small" and assert(Stream.read_all((assert(small:open())))) == "tiny")
   assert(r:next() == nil)
   assert(r:close())
   assert(r:close())
@@ -540,12 +540,12 @@ local function test_bodies_read_and_skipped_through_a_trickling_unseekable_reade
   for _, step in ipairs({ 7, 512, 100000 }) do
     local r = Tar.reader(trickle(c:result(), step))
     local a = assert(r:next())
-    assert(Stream.read_all((assert(a:open()))) == "first")
+    assert(assert(Stream.read_all((assert(a:open())))) == "first")
     local b = assert(r:next())
-    assert(Stream.read_all((assert(b:open()))) == big)
+    assert(assert(Stream.read_all((assert(b:open())))) == big)
     assert((assert(r:next())).path == "skipped")
     local last = assert(r:next())
-    assert(last.path == "b" and Stream.read_all((assert(last:open()))) == "last")
+    assert(last.path == "b" and assert(Stream.read_all((assert(last:open())))) == "last")
     local none, trouble = r:next()
     assert(none == nil and trouble == "", trouble)
   end
@@ -562,7 +562,7 @@ local function test_a_stale_entry_cannot_be_opened()
   local b = assert(r:next())
   local body, trouble = a:open()
   assert(body == nil and trouble:find("no longer current", 1, true) ~= nil, trouble)
-  assert(Stream.read_all((assert(b:open()))) == "two")
+  assert(assert(Stream.read_all((assert(b:open())))) == "two")
 end
 
 local function test_a_reader_body_is_read_to_its_stated_size_and_no_further()
@@ -571,10 +571,10 @@ local function test_a_reader_body_is_read_to_its_stated_size_and_no_further()
   local w = Tar.writer(c)
   assert(w:add_file("f", source, { size = 4 }))
   assert(w:close())
-  assert(Stream.read_all(source) == "efghij", "the writer read past its stated size")
+  assert(assert(Stream.read_all(source)) == "efghij", "the writer read past its stated size")
   local r = Tar.reader(Stream.from_string(c:result()))
   local entry = assert(r:next())
-  assert(entry.size == 4 and Stream.read_all((assert(entry:open()))) == "abcd")
+  assert(entry.size == 4 and assert(Stream.read_all((assert(entry:open())))) == "abcd")
 end
 
 local function test_a_failing_body_names_what_the_writer_was_doing()

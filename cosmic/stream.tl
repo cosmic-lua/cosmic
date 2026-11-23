@@ -18,6 +18,7 @@
 
 local Array = require("cosmic.array")
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Poll = require("cosmic.poll")
@@ -586,13 +587,20 @@ function Stream.from_fd(fd: integer, opts?: Stream.FdOptions): Stream.Reader
   return make_fd_reader(fd, false, fd_options(opts, 2))
 end
 
---- A Reader over a file at `path`, which it closes at end of file or
---- at `close`, whichever comes first. Over a regular file it can
---- `skip`.
-function Stream.open(path: string): Stream.Reader?, string
+-- Stream.open, its failure in words.
+local function open_text(path: string): Stream.Reader?, string
   local fd, trouble = Fs.open_read(path)
   if fd == nil then return nil, tostring(trouble) end
   return make_fd_reader(fd, true, {}), ""
+end
+
+--- A Reader over a file at `path`, which it closes at end of file or
+--- at `close`, whichever comes first. Over a regular file it can
+--- `skip`.
+function Stream.open(path: string): (Stream.Reader) | (nil, Failure)
+  local value, why = open_text(path)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- Whether `t` holds output back, which `update("")` gives out; a
@@ -751,15 +759,8 @@ function Stream.prepend(prefix: string, reader: Stream.Reader): Stream.Reader
   return r
 end
 
---- Reads up to `n` bytes: all of them, or what is left when the stream
---- ends first, answered with "". So "" is a clean end of the stream and
---- fewer than `n` bytes are a truncated one; nil and why when `reader`
---- fails, with the bytes already read dropped.
----
----     local head, why = Stream.read_up_to(reader, 4)
----     assert(head, why)
----     if #head < 4 then print("shorter than a header") end
-function Stream.read_up_to(reader: Stream.Reader, n: integer): string?, string
+-- Stream.read_up_to, its failure in words.
+local function read_up_to_text(reader: Stream.Reader, n: integer): string?, string
   if n <= 0 then return "", "" end
   local first, trouble = reader:read(n)
   if first == nil then
@@ -781,10 +782,22 @@ function Stream.read_up_to(reader: Stream.Reader, n: integer): string?, string
   return table.concat(parts), ""
 end
 
---- Reads exactly `n` bytes, or nil and an error when the stream ends
---- first.
-function Stream.read_exact(reader: Stream.Reader, n: integer): string?, string
-  local data, trouble = Stream.read_up_to(reader, n)
+--- Reads up to `n` bytes: all of them, or what is left when the stream
+--- ends first, answered with "". So "" is a clean end of the stream and
+--- fewer than `n` bytes are a truncated one; nil and a Failure when
+--- `reader` fails, with the bytes already read dropped.
+---
+---     local head = assert(Stream.read_up_to(reader, 4))
+---     if #head < 4 then print("shorter than a header") end
+function Stream.read_up_to(reader: Stream.Reader, n: integer): (string) | (nil, Failure)
+  local value, why = read_up_to_text(reader, n)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Stream.read_exact, its failure in words.
+local function read_exact_text(reader: Stream.Reader, n: integer): string?, string
+  local data, trouble = read_up_to_text(reader, n)
   if data == nil then return nil, trouble end
   if #data < n then
     return refuse("truncated: wanted " .. String.counted(n, "byte") ..
@@ -793,10 +806,16 @@ function Stream.read_exact(reader: Stream.Reader, n: integer): string?, string
   return data, ""
 end
 
---- Moves `reader` forward `n` bytes: with its `skip` when it has one,
---- by reading and discarding otherwise. Fails when the stream ends
+--- Reads exactly `n` bytes, or nil and a Failure when the stream ends
 --- first.
-function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
+function Stream.read_exact(reader: Stream.Reader, n: integer): (string) | (nil, Failure)
+  local value, why = read_exact_text(reader, n)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Stream.skip, its failure in words.
+local function skip_text(reader: Stream.Reader, n: integer): boolean, string
   if n <= 0 then return true, "" end
   if reader.skip ~= nil then return reader:skip(n) end
   local left = n
@@ -813,10 +832,17 @@ function Stream.skip(reader: Stream.Reader, n: integer): boolean, string
   return true, ""
 end
 
---- Reads a Reader to its end of file and returns everything as one
---- string. For bounded, whole-file cases; a streaming caller reads
---- [`Reader.read`] in a loop instead, or `copy`s to a Writer.
-function Stream.read_all(reader: Stream.Reader): string?, string
+--- Moves `reader` forward `n` bytes: with its `skip` when it has one,
+--- by reading and discarding otherwise. Answers `true`, or `false` and
+--- a Failure when the stream ends first or fails.
+function Stream.skip(reader: Stream.Reader, n: integer): (true) | (false, Failure)
+  local ok, why = skip_text(reader, n)
+  if not ok then return false, Failure.new(why) end
+  return true
+end
+
+-- Stream.read_all, its failure in words.
+local function read_all_text(reader: Stream.Reader): string?, string
   local parts: mut {string} = {}
   while true do
     local chunk, trouble = reader:read(chunk_size)
@@ -826,6 +852,15 @@ function Stream.read_all(reader: Stream.Reader): string?, string
     end
     parts[#parts + 1] = chunk
   end
+end
+
+--- Reads a Reader to its end of file and returns everything as one
+--- string. For bounded, whole-file cases; a streaming caller reads
+--- [`Reader.read`] in a loop instead, or `copy`s to a Writer.
+function Stream.read_all(reader: Stream.Reader): (string) | (nil, Failure)
+  local value, why = read_all_text(reader)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 local class StickyWriter is Stream.Sticky
@@ -1040,13 +1075,8 @@ function Stream.lines(reader: Stream.Reader, max_bytes?: integer): Stream.Lines
   return lines
 end
 
---- Copies `reader` to `writer` until `reader`'s end of file, and
---- returns how many bytes went across. Closes neither side: on failure
---- the caller decides whether to `abort` `writer` or `close` it. To
---- cap a copy, copy `Stream.limit(reader, max_bytes + 1)` and compare the
---- count with `max_bytes`, which tells a source that ends at it from one
---- that goes on past it.
-function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): integer?, string
+-- Stream.copy, its failure in words.
+local function copy_text(reader: Stream.Reader, writer: Stream.Writer): integer?, string
   local total = 0
   while true do
     local chunk, trouble = reader:read(chunk_size)
@@ -1060,15 +1090,20 @@ function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): integer?, st
   end
 end
 
---- Copies exactly `n` bytes of `reader` to `writer`, and no more of
---- `reader` than that: for a body whose size a header states and a
---- reader that holds more after it. Answers `true, ""`, or `false` and
---- why: a `reader` that ends before `n` bytes (its size was not the
---- stated one), or fails, or a `writer` that does. Closes neither side.
----
----     local ok, why = Stream.copy_n(reader, writer, size)
----     if not ok then writer:abort() end
-function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer): boolean, string
+--- Copies `reader` to `writer` until `reader`'s end of file, and
+--- returns how many bytes went across. Closes neither side: on failure
+--- the caller decides whether to `abort` `writer` or `close` it. To
+--- cap a copy, copy `Stream.limit(reader, max_bytes + 1)` and compare the
+--- count with `max_bytes`, which tells a source that ends at it from one
+--- that goes on past it.
+function Stream.copy(reader: Stream.Reader, writer: Stream.Writer): (integer) | (nil, Failure)
+  local value, why = copy_text(reader, writer)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Stream.copy_n, its failure in words.
+local function copy_n_text(reader: Stream.Reader, writer: Stream.Writer, n: integer): boolean, string
   local left = n
   while left > 0 do
     local want = left
@@ -1084,6 +1119,20 @@ function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer)
     left = left - #chunk
   end
   return true, ""
+end
+
+--- Copies exactly `n` bytes of `reader` to `writer`, and no more of
+--- `reader` than that: for a body whose size a header states and a
+--- reader that holds more after it. Answers `true`, or `false` and a
+--- Failure: a `reader` that ends before `n` bytes (its size was not the
+--- stated one), or fails, or a `writer` that does. Closes neither side.
+---
+---     local ok, why = Stream.copy_n(reader, writer, size)
+---     if not ok then writer:abort() end
+function Stream.copy_n(reader: Stream.Reader, writer: Stream.Writer, n: integer): (true) | (false, Failure)
+  local ok, why = copy_n_text(reader, writer, n)
+  if not ok then return false, Failure.new(why) end
+  return true
 end
 
 local class ToFdWriter is Stream.FdWriter
@@ -1209,13 +1258,8 @@ local class StagedWriter is Stream.FileWriter
   end
 end
 
---- A Writer over a file at `path`: bytes go to a temporary neighbor,
---- which is renamed onto `path` only when `close` succeeds, so a
---- reader of `path` never sees a partial write. A write or close
---- failure, or `abort`, leaves `path` untouched and removes the
---- temporary file. A failure names `path`, never the temporary file.
---- This is [`Fs.create`], which says more of the file.
-function Stream.create(path: string, mode?: integer): Stream.FileWriter?, string
+-- Stream.create, its failure in words.
+local function create_text(path: string, mode?: integer): Stream.FileWriter?, string
   local file, trouble = Fs.create(path, mode)
   if file == nil then return nil, tostring(trouble) end
   -- Teal's interfaces are nominal, and cosmic.fs, a harness module, may
@@ -1224,6 +1268,18 @@ function Stream.create(path: string, mode?: integer): Stream.FileWriter?, string
   -- cosmic.stream (see its TODO) and declares Staged a Stream.Writer.
   local w: StagedWriter = { staged = file }
   return w, ""
+end
+
+--- A Writer over a file at `path`: bytes go to a temporary neighbor,
+--- which is renamed onto `path` only when `close` succeeds, so a
+--- reader of `path` never sees a partial write. A write or close
+--- failure, or `abort`, leaves `path` untouched and removes the
+--- temporary file. A failure names `path`, never the temporary file.
+--- This is [`Fs.create`], which says more of the file.
+function Stream.create(path: string, mode?: integer): (Stream.FileWriter) | (nil, Failure)
+  local value, why = create_text(path, mode)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 local class CollectWriter is Stream.Collector
@@ -1300,16 +1356,12 @@ local class HashingWriter is Stream.Hashing
   end
 end
 
---- A Writer that digests what is written to it under `algorithm`,
---- for checking a body against a published digest as it streams past
---- -- `tee` it beside the Writer the body is really going to. Given a
---- `key`, it is the HMAC under that key ([`Hash.hmac_hasher`]) that
---- `digest` answers, not the plain digest.
 -- TODO: once Hash.Hasher's `update` answers `"", ""` (or a thin adapter
 -- stands over it), make a Hasher a Stream.Transform with `finish` as its
 -- `digest`, so [`Stream.run`] and [`transform_writer`] drive it and this
 -- Writer shrinks to that adapter.
-function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing?, string
+-- Stream.hashing, its failure in words.
+local function hashing_text(algorithm: Hash.Algorithm, key?: string): Stream.Hashing?, string
   local hasher, trouble: Hash.Hasher?, string
   if key == nil then
     hasher, trouble = Hash.hasher(algorithm)
@@ -1319,6 +1371,17 @@ function Stream.hashing(algorithm: Hash.Algorithm, key?: string): Stream.Hashing
   if hasher == nil then return nil, trouble end
   local h: HashingWriter = { hasher = hasher, closed = false, result = nil, failure = "" }
   return h, ""
+end
+
+--- A Writer that digests what is written to it under `algorithm`,
+--- for checking a body against a published digest as it streams past
+--- -- `tee` it beside the Writer the body is really going to. Given a
+--- `key`, it is the HMAC under that key ([`Hash.hmac_hasher`]) that
+--- `digest` answers, not the plain digest.
+function Stream.hashing(algorithm: Hash.Algorithm, key?: string): (Stream.Hashing) | (nil, Failure)
+  local value, why = hashing_text(algorithm, key)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 local class TeeWriter is Stream.Writer
@@ -1480,20 +1543,8 @@ function Stream.transform_writer(writer: Stream.Writer, codec: Stream.Transform,
   return w
 end
 
---- Drives `t` over the whole of `data` and answers everything it
---- produces: `t:update(data)`, `update("")` while `t` holds output
---- back, then `t:finish()`. Output that would pass `max_bytes`, when
---- given, fails naming the bound, so a small input a decoder expands
---- greatly cannot fill memory; a `max_bytes` under 0
---- raises. `t` is finished by it, or left unfinished by a
---- failure, and is not reused.
----
----     local gz = assert(Compress.deflater("gzip"))
----     local packed = assert(Stream.run(gz, text))
-function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): string?, string
-  if max_bytes ~= nil and max_bytes < 0 then
-    error("stream: max_bytes must be at least 0", 2)
-  end
+-- Stream.run, its failure in words.
+local function run_text(t: Stream.Transform, data: string, max_bytes?: integer): string?, string
   local parts: mut {string} = {}
   local kept: integer = 0
   --- Keeps `out`, or answers why not when it takes the total past the bound.
@@ -1518,6 +1569,25 @@ function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): str
   local last_over = keep(last)
   if last_over ~= nil then return refuse(last_over) end
   return table.concat(parts), ""
+end
+
+--- Drives `t` over the whole of `data` and answers everything it
+--- produces: `t:update(data)`, `update("")` while `t` holds output
+--- back, then `t:finish()`. Output that would pass `max_bytes`, when
+--- given, fails naming the bound, so a small input a decoder expands
+--- greatly cannot fill memory; a `max_bytes` under 0
+--- raises. `t` is finished by it, or left unfinished by a
+--- failure, and is not reused.
+---
+---     local gz = assert(Compress.deflater("gzip"))
+---     local packed = assert(Stream.run(gz, text))
+function Stream.run(t: Stream.Transform, data: string, max_bytes?: integer): (string) | (nil, Failure)
+  if max_bytes ~= nil and max_bytes < 0 then
+    error("stream: max_bytes must be at least 0", 2)
+  end
+  local value, why = run_text(t, data, max_bytes)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 return Stream

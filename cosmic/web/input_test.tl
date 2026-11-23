@@ -415,7 +415,7 @@ local function test_a_form_body_is_decoded_once_and_kept()
     assert(rawequal(second.value, first.value), "the decode is the cached one")
     assert(req:get(Input.FORM) == first.value)
     assert(req:bytes() == "a=1&b=x+y&b=z")
-    assert(Stream.read_all(req.raw.body) == "a=1&b=x+y&b=z", "the bytes are still there to read")
+    assert(assert(Stream.read_all(req.raw.body)) == "a=1&b=x+y&b=z", "the bytes are still there to read")
   end)
 end
 

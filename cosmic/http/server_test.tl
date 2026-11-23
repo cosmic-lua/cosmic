@@ -816,7 +816,7 @@ local function test_a_body_slower_than_body_ns_is_answered_408()
   local read_failed: boolean = false
   serving(function(req: Server.Request): Server.Reply
     local _, why = Stream.read_all(req.body)
-    read_failed = why ~= nil -- checked: compare_disjoint
+    read_failed = why ~= nil
     return { status = 200, body = "never" }
   end, function(address: Net.Address)
     local p <close> = peer(address)
@@ -1411,7 +1411,7 @@ end
 local function test_a_compressed_reader_that_fails_midway_is_closed_and_reported()
   local source = Stream.from_string(("not gzip at all, but long enough to read\n"):rep(60))
   local troubles = serving(function(_req: Server.Request): Server.Reply
-    local decoder, _ = assert(Compress.inflater("gzip"))
+    local decoder = assert(Compress.inflater("gzip"))
     return { status = 200, headers = TEXT_TYPE, body = Stream.transform(source, decoder) }
   end, function(address: Net.Address)
     local p = peer(address)
