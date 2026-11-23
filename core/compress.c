@@ -112,6 +112,10 @@ typedef enum {
 #define GZ_FEXTRA 0x04u
 #define GZ_FNAME 0x08u
 #define GZ_FCOMMENT 0x10u
+/* FLG bits 5 to 7, which RFC 1952 reserves: a decompressor must refuse
+ * a member that sets one, since it may name a field this one would read
+ * as the deflate body. */
+#define GZ_FRESERVED 0xe0u
 
 /* What one step of a member's decoder ended on. */
 enum {
@@ -438,6 +442,10 @@ static int gzip_step (struct stream *s, const unsigned char *p, size_t n,
       if (!gzip_collect(f, p, n, &i, 10)) goto starved;
       if (f->field[2] != 8) {
         *err = "unsupported gzip compression method";
+        return STEP_ERROR;
+      }
+      if ((f->field[3] & GZ_FRESERVED) != 0) {
+        *err = "gzip header has reserved flags set";
         return STEP_ERROR;
       }
       f->flg = f->field[3];

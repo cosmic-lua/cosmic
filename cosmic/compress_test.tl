@@ -116,6 +116,19 @@ local function test_gzip_corrupt_crc_is_refused()
   assert(trouble ~= "" and trouble:find("CRC", 1, true) ~= nil, trouble)
 end
 
+local function test_gzip_reserved_flag_bits_are_refused()
+  -- RFC 1952 section 2.3.1.2: a decompressor must give an error where a
+  -- reserved FLG bit (5 to 7) is set, since it may name a field that
+  -- would make the rest be read wrongly. The member is otherwise
+  -- `printf 'hello, cosmic!' | gzip -9 -n`.
+  for _, bit in ipairs({ 0x20, 0x40, 0x80 }) do
+    local vector = "\31\139\8" .. string.char(bit) ..
+      "\0\0\0\0\2\3\203\72\205\201\201\215\81\72\206\47\206\205\76\86\4\0\92\110\87\198\14\0\0\0"
+    local _, trouble = drive(assert(Compress.inflater("gzip")), vector)
+    assert(trouble == "compress: gzip header has reserved flags set", ("flag %d: %q"):format(bit, trouble))
+  end
+end
+
 local function test_zlib_and_raw_truncated_input_errors_on_finish()
   for _, format in ipairs({ "raw", "zlib" } as {Compress.Format}) do -- checked: cast_refused
     local enc = assert(Compress.deflater(format))
