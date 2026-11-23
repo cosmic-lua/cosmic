@@ -658,32 +658,15 @@ assert(db:exec("CREATE TABLE t (body TEXT)"))
 assert(add(db, "a"))
 ```
 
-## moving a project to the new grammar
+## what the checker holds a project to
 
-The tool reads one grammar, the new checker's. A project written for the fork's checker (`T | nil`, `goto continue`,
-`function R:m()`, `c and a or b`) is refused by the compiler, which names the file, the line and the fix for each form it
-finds. A project in the old grammar is rewritten to the new one by hand. Commit it first, then run `cosmic fix` and `cosmic test` and work through what they report; each finding says what
-to write instead. What changed, and what the finding for it asks of the file:
+The checker holds a project outside the tree to every rule, with no ceiling. So fix each finding; do not count it. A
+cast or an `any` is not a fix. A finding names the file, the line and, for most forms, what to write instead. Code
+written for Teal's own checker meets these forms, whose findings do not yet name the fix:
 
-- `T | nil` is `T?` (and `(A | B)?` for a union with nil; a function type in a union is parenthesized). `T...` as a
-  parameter's type is `...: T`, and `? T` is a named optional parameter, `name?: T`.
-- `goto continue` and its label `::continue::` are the statement `continue`.
-- A record with `function R:m()` statements outside it, and the field that declared each, is a `class` that holds them as
-  `function m(self, ...)`. The `metatable<R>` local that set its metatable goes, and a table literal of the class takes its
-  type from where it is written.
-- `local type X = record` is `local record X`; `metamethod __close: T` is the field `__close: T`; `readonly f: T` is `f: T`.
-- `c and a or b` is `if c then a else b end`; `and_ternary` names the sites. The two answer differently where `a` is false or
-  nil, which is why the checker asks for the `if` expression and does not rewrite it for you.
-- `-a ^ b` was read as `(-a) ^ b` and is read as Lua reads it, `-(a ^ b)`: write the parentheses the program meant.
-- A trailing `;`, a `--[[ ]]` comment, a digit separator (`1_000`) and a hexadecimal float are not in the grammar.
-- A collection that is written is declared `mut` (`names: mut {string}`), as a local, a parameter or a field of a record;
-  a field that is assigned after its record is made is declared `mut`. `view_written` and `field_fixed` name the places.
-- `local seen = {}` needs a type that says what it holds (`local seen: mut {string: boolean} = {}`), and `m.NAME` on a map is
-  written `m["NAME"]`.
-- A type and an interface it lists agree on which fields are `mut` (`interface_disagrees`).
-
-The checker holds a project outside the tree to every rule with no ceiling, so each finding must be fixed, not counted. No
-cast and no `any` is a fix.
+- `-a ^ b` is read as Lua reads it, `-(a ^ b)`, with no finding. Write the parentheses the program means.
+- `readonly f: T` is refused; write `f: T`. A field is fixed unless it is declared `mut`.
+- `T...` as a parameter's type is `...: T`, and `? T` is a named optional parameter, `name?: T`.
 
 [`cosmic.child`]: ../../cosmic/child.tl
 [`cosmic.failure`]: ../../cosmic/failure.tl
