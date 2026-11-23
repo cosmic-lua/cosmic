@@ -30,21 +30,21 @@ local record bigint
   -- the modulus, and answer at a fixed width. A modulus of zero raises.
 
   -- a mod modulus, in as many bytes as the modulus was given in.
-  reduce: function(a: string, modulus: string): string
+  secret_mod: function(a: string, modulus: string): string
   -- (a + b) mod modulus, as wide as the modulus.
-  addmod: function(a: string, b: string, modulus: string): string
+  secret_addmod: function(a: string, b: string, modulus: string): string
   -- (a - b) mod modulus, as wide as the modulus.
-  submod: function(a: string, b: string, modulus: string): string
+  secret_submod: function(a: string, b: string, modulus: string): string
   -- (a * b) mod modulus, as wide as the modulus. Raises on an even
   -- modulus.
-  mulmod: function(a: string, b: string, modulus: string): string
+  secret_mulmod: function(a: string, b: string, modulus: string): string
   -- base^exponent mod modulus, as wide as the modulus. Raises on an
   -- even modulus.
-  expmod: function(base: string, exponent: string, modulus: string): string
+  secret_powmod: function(base: string, exponent: string, modulus: string): string
   -- a * b in #a + #b bytes.
-  product: function(a: string, b: string): string
+  secret_mul: function(a: string, b: string): string
   -- a + b in one byte more than the longer of a and b.
-  sum: function(a: string, b: string): string
+  secret_add: function(a: string, b: string): string
 end
 
 return bigint
