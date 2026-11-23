@@ -429,10 +429,11 @@ are where CI answers for everything. A branch's push runs nothing.
 - **the daily scheduled run** and **a manual run** run all that and the
   macOS leg, and the gate compares the four products, which
   prerelease.yml publishes: a prerelease is tested on all four legs, and
-  at most a day behind main. The daily run stands on the verdicts main's
-  pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's, the weekly
-  run, stands on none, runs the fixed-point regression, and builds zig's
-  caches cold. A manual run with `fixed_point` runs that regression too. macOS keys its verdicts by the tree's path, which a
+  at most a day behind main. The daily run and a manual run stand on the
+  verdicts main's pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's,
+  the weekly run, stands on none, runs the fixed-point regression, and
+  builds zig's caches cold. A manual run with `every_test` stands on none
+  either, and one with `fixed_point` runs that regression too. macOS keys its verdicts by the tree's path, which a
   scheduled run chooses by the commit, so its leg runs every test each
   day and saves none.
 

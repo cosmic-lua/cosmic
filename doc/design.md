@@ -202,8 +202,8 @@ the build directory's `sanitized/bin/cosmic`; every full CI run (merge queue, ma
 manual run) verifies the embedded core bytes and, on the Linux x86-64
 leg, runs the test suite under a 320-second limit, with full
 undefined-behavior checking and coverage collection enabled: every
-test in main's scheduled run and a manual one, and in the merge
-queue's and main's only the tests whose sandboxed verdict does not
+test in main's weekly run and a manual one with `every_test`, and in
+the others only the tests whose sandboxed verdict does not
 stand from an earlier run ([`ci/cosmic_ci/orchestration.tl`]'s
 `stands`). zig
 ships no address sanitizer runtime for any target;

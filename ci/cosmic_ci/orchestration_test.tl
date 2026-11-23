@@ -425,8 +425,8 @@ end
 --- merge queue's, and nowhere else: on a Linux leg, its workers
 --- sandboxed, and required to be, and on the macOS leg, keyed by what
 --- they declare with no sandbox (COSMIC_CI_DECLARED_KEYS); a leg that
---- is neither, a manual run and main's scheduled one each run every
---- test.
+--- is neither, and the events ci.yml keeps for the weekly run and a
+--- manual run with `every_test`, run every test.
 local function test_a_suite_stands_on_verdicts_in_a_push_or_merge_queue()
   local Orchestration = require("cosmic_ci.orchestration")
   local function words(env: {string:string}): string
@@ -658,7 +658,7 @@ end
 --- workers sandboxed where the leg's are, and its verdicts kept in
 --- `fixtures.db` beside the leg's `verdicts.db`, which it stands on
 --- where the suites stand on theirs -- a push's run -- and not on a
---- manual one's.
+--- manual one with `every_test`.
 local function test_a_sandboxed_fixture_keeps_verdicts_beside_the_legs(tmp: string)
   local Orchestration = require("cosmic_ci.orchestration")
   local fixtures = Orchestration.suite_verdicts({ COSMIC_VERDICT_CACHE = tmp .. "/v/verdicts.db" },
