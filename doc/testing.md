@@ -62,8 +62,7 @@ stands on another checkout's pass.
   row of another processor's features (below). Unset, a run reuses only
   the rows of its own host's keys.
 - The new checker is the tool's only one: [`build.pipeline`] reads the tree, checks it against its markers and writes
-  the Lua. A project outside cosmic's own
-  holds no marker: every error refuses, its globals are the declarations of the standard library the tool carries
+  the Lua. A project outside cosmic's own holds no marker: every error refuses, its globals are the declarations of the standard library the tool carries
   ([`build.checker_declarations`]), and a form of the old grammar is refused with the new checker's words and fix. A
   lone file run (`cosmic --standalone`, `cosmic sandbox`) and a file run (`cosmic <file>`) are built by it too. `cosmic
   build` compiles the project with it. A module it refuses, a test file included, or one that breaks a position rule (a
@@ -1137,7 +1136,6 @@ Other rules:
 [`build.confine`]: ../build/confine.tl
 [`build.example_checks`]: ../build/example_checks.tl
 [`build.fuzz`]: ../build/fuzz/init.tl
-[`build.grammar_mode`]: ../build/grammar_mode.tl
 [`build.harness_epoch_test`]: ../build/harness_epoch_test.tl
 [`build.harness_epoch`]: ../build/harness_epoch.tl
 [`build.host_names`]: ../build/host_names.tl
