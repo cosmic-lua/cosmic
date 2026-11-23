@@ -42,7 +42,10 @@ function docs_checks.carried(whole: string, scratch: string, kept?: boolean): Sq
   end
   local db, open_trouble = Sqlite.open(scratch)
   if kept == true then
-    if db == nil then return nil, open_trouble end
+    if db == nil then
+      local _, _ = Fs.remove(scratch)
+      return nil, open_trouble
+    end
     return db, ""
   end
   local removed, remove_trouble = Fs.remove(scratch)

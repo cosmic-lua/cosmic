@@ -3511,7 +3511,7 @@ function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{strin
     local _, _ = Fs.remove_tree(dir)
   end
   local out: mut {string} = {}
-  -- In the order the checks have always been told.
+  -- The lines in the order they are printed, whichever process ran each check.
   for _, name in ipairs({ "text readers", "image_hash readers", "exports", "unnamed types", "doc anchors",
       "compiler readers", "build directory", "stand-ins", "docs queries", "quieted", "restricted", "declarations",
       "verbs", "rendered docs", "doc references", "public docs", "plurals" }) do
