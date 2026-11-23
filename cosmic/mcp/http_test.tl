@@ -10,7 +10,9 @@ local HttpServer = require("cosmic.http.server")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Server = require("cosmic.mcp.server")
+local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
 Test.policy{ loopback = { "127.0.0.1" } }
@@ -181,4 +183,93 @@ local function test_a_header_the_protocol_sets_cannot_be_given()
   end,
     "the protocol sets")
   Test.raises(function() server():handler{ authorize = Server.bearer("short") } end, "at least 16 bytes")
+end
+
+--- A tool that tells its progress `steps` times, a pause apart, and notes in `seen` when it finds itself cancelled.
+local function slow_tool(name: string, steps: integer, seen: mut {string}): Server.ToolSpec
+  return {
+    tool = { name = name, inputSchema = Mcp.object_schema({}) },
+    call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      for i = 1, steps do
+        call.progress(i, steps, "step " .. tostring(i))
+        call.progress(i, steps, "the same again, dropped")
+        local ok, why = Poll.delay(Clock.ms(20))
+        if not ok or call.cancelled() then
+          local said = "cancelled: " .. tostring(why)
+          seen[#seen + 1] = said
+          return nil, Failure.new("cancelled")
+        end
+      end
+      return Mcp.result({ "done" })
+    end,
+  }
+end
+
+local function test_progress_comes_as_events_and_a_closed_stream_cancels()
+  local seen: mut {string} = {}
+  local troubles: mut {string} = {}
+  local instance = Server.new{ info = { name = "slow", version = "1" }, tools = { slow_tool("slow", 3, seen),
+    slow_tool("long", 500, seen) },
+    on_error = function(trouble: string) troubles[#troubles + 1] = trouble end }
+  serving(instance:handler{ authorize = Server.anyone }, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT })
+    local heard: mut {Mcp.Progress} = {}
+    local done = assert(session:call("slow", {}, { on_progress = function(p: Mcp.Progress)
+      heard[#heard + 1] = p
+    end }))
+    assert(assert(done.content[1]).text == "done")
+    assert(#heard == 3, "each step once: " .. tostring(#heard))
+    local first = assert(heard[1])
+    assert(first.progress == 1 and first.total == 3 and first.message == "step 1")
+    local plain = assert(session:call("slow"))
+    assert(assert(plain.content[1]).text == "done", "a call that asks for no progress is answered as JSON")
+    -- A caller that gives up mid-call closes the stream, and the tool finds itself cancelled.
+    local caller = Poll.spawn(function()
+      local _, _ = session:call("long", {}, { on_progress = function(_: Mcp.Progress) end })
+    end)
+    assert(Poll.delay(Clock.ms(50)))
+    caller:cancel()
+    local _, _ = caller:join(WAIT)
+    for _ = 1, 500 do
+      if #seen > 0 then break end
+      assert(Poll.delay(Clock.ms(10)))
+    end
+    assert(#seen == 1 and assert(seen[1]):find("cancelled", 1, true) ~= nil, table.concat(seen, "; "))
+  end)
+  assert(#troubles == 0, table.concat(troubles, "\n"))
+end
+
+--- A body that gives its text a byte at a time.
+local class Trickle is Stream.Reader
+  mut text: string
+
+  function read(self, _max?: integer): string?, string
+    if self.text == "" then return nil, "" end
+    local byte = self.text:sub(1, 1)
+    self.text = self.text:sub(2)
+    return byte, ""
+  end
+
+  function close(self): boolean, string return true, "" end
+end
+
+--- An event stream sent a byte at a time, its lines ended CRLF, is read whole: each notice once, a notice that
+--- does not grow its progress passed over, then the answer.
+local function test_the_client_reads_events_sent_a_byte_at_a_time()
+  local progress = '{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":1,"progress":%d}}'
+  local answer = '{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","content":[{"type":"text","text":"ok"}]}}'
+  local text = "data: " .. progress:format(1) .. "\r\n\r\n" .. ": comment\r\n\r\n" .. "data: " .. progress:format(2) ..
+    "\r\n\r\ndata: " .. progress:format(2) .. "\r\n\r\ndata: " .. answer .. "\r\n\r\n"
+  serving(function(_: HttpServer.Request): HttpServer.Reply
+    local body: Trickle = { text = text, skip = nil }
+    return { status = 200, headers = { ["Content-Type"] = "text/event-stream" }, body = body }
+  end, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT })
+    local heard: mut {number} = {}
+    local said = assert(session:call("x", {}, { on_progress = function(p: Mcp.Progress)
+      heard[#heard + 1] = p.progress
+    end }))
+    assert(assert(said.content[1]).text == "ok")
+    assert(#heard == 2 and heard[1] == 1 and heard[2] == 2, tostring(#heard))
+  end)
 end

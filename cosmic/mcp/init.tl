@@ -181,6 +181,17 @@ local record Mcp
     isError?: boolean
   end
 
+  --- How far a request has come, as a server tells a client that asked
+  --- (`notifications/progress`).
+  record Progress
+    --- How much is done: more with each notice, whether or not `total` is known.
+    progress: number
+    --- How much there is to do, where the server knows.
+    total?: number
+    --- What is happening, for a person to read.
+    message?: string
+  end
+
   --- A resource a server offers to be read by its URI.
   record Resource
     --- The URI it is read by.
