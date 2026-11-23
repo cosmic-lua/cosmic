@@ -53,6 +53,30 @@ local function test_directory_profile_is_recursive_and_parameterized()
   assert(not out.text:find("/private/data", 1, true), out.text)
 end
 
+--- ROOT, `tmp`, the terminal and each grant are a parameter; a start takes at most
+--- SEATBELT_PARAMETER_MAX.
+local function test_more_parameters_than_a_start_takes_are_refused()
+  local most = require("cosmic.internal.process").SEATBELT_PARAMETER_MAX
+  local function policy_of(n: integer, tmp: boolean): Sandbox.Policy, {string:Seatbelt.Path}
+    local grants: mut {Sandbox.Grant} = {}
+    local paths: mut {string:Seatbelt.Path} = {}
+    for i = 1, n do
+      local path = "/data/" .. tostring(i)
+      grants[i] = { path = path, letters = "r" }
+      paths[path] = { path = path, directory = false }
+    end
+    return { grants = grants, tmp = tmp }, paths
+  end
+  local fits, fits_paths = policy_of(most - 1, false)
+  assert(#compile(fits, fits_paths).text > 0)
+  for _, case in ipairs({ { n = most, tmp = false }, { n = most - 1, tmp = true } }) do
+    local over, over_paths = policy_of(case.n, case.tmp)
+    local none, why = Seatbelt.compile(over, { paths = over_paths })
+    assert(none == nil and why == "seatbelt: grants: the paths the profile holds, " .. tostring(most + 1) ..
+        ", are past the most it takes, " .. tostring(most) .. "; grant a directory above them instead", why)
+  end
+end
+
 local function test_promises_are_precise_and_fattr_only_reaches_writable_grants()
   local out = compile({ promises = { "jit", "fork", "fattr" }, grants = {
     { path = "read", letters = "r" }, { path = "write", letters = "w" },
