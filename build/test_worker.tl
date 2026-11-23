@@ -2016,7 +2016,7 @@ local function fork_tests(names: {string}, tested: function(string): (worker.Rep
       if preface ~= nil and preface ~= "" then local _, _ = put(1, preface) end
       local wrote, write_trouble = put(relay, worker.encode(tested(name)))
       if not wrote then
-        complain("the test report: " .. write_trouble)
+        complain("the test report: " .. tostring(write_trouble))
         return 2
       end
       return nil
@@ -2420,7 +2420,7 @@ function worker.run(argv: {string}): integer
   end
   local wrote, trouble = put(worker.report_fd, worker.encode(tested(name)))
   if not wrote then
-    complain("the test report: " .. trouble)
+    complain("the test report: " .. tostring(trouble))
     return 2
   end
   return 0

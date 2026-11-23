@@ -9,10 +9,9 @@
 --- or nil and an error. A predicate uses the same contract, with false
 --- as a valid answer. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
 --- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],
---- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.fsync`] and
---- [`Fs.close`] only have an effect and answer `(true) | (false, Failure)`;
---- one on a descriptor names no path. [`Fs.put`] still returns
---- `boolean, string`.
+--- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.put`],
+--- [`Fs.fsync`] and [`Fs.close`] only have an effect and answer
+--- `(true) | (false, Failure)`; one on a descriptor names no path.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
@@ -882,10 +881,10 @@ end
 
 --- Writes bytes to a descriptor, without a newline. Fs.stdout and Fs.stderr
 --- are the standard-stream descriptors used instead of io.write/io.output.
-function Fs.put(fd: integer, data: string): boolean, string
-  local ok, why = write_all(fd, data, "fs: ")
-  if not ok then return false, why end
-  return true, ""
+function Fs.put(fd: integer, data: string): (true) | (false, Failure)
+  local ok, why, errno = write_all(fd, data, "fs: ")
+  if not ok then return false, failure_of(errno, why) end
+  return true
 end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is

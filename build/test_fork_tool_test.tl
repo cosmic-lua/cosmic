@@ -24,7 +24,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
-Fs.put(Fs.stdout, "loading\n")
+local _, _ = Fs.put(Fs.stdout, "loading\n")
 local ran = 0
 
 -- Fails where an earlier test of the module left its mark: in the module, in its directory or beside it.
@@ -39,7 +39,7 @@ local function fresh(tmp: string)
 end
 
 local function test_a_first()
-  Fs.put(Fs.stdout, "first speaks\n")
+  local _, _ = Fs.put(Fs.stdout, "first speaks\n")
   assert(true)
 end
 local function test_b_second(tmp: string)
@@ -50,7 +50,7 @@ local function test_c_third(tmp: string)
 end
 local function test_d_exits(tmp: string)
   fresh(tmp)
-  Fs.put(Fs.stdout, "exiting\n")
+  local _, _ = Fs.put(Fs.stdout, "exiting\n")
   Proc.exit(0)
 end
 local function test_e_after_an_exit(tmp: string)
@@ -62,7 +62,7 @@ local function test_f_fails(tmp: string)
 end
 local function test_g_after_a_failure(tmp: string)
   fresh(tmp)
-  Fs.put(Fs.stdout, "seventh speaks\n")
+  local _, _ = Fs.put(Fs.stdout, "seventh speaks\n")
 end
 local function test_h_litters(tmp: string)
   fresh(tmp)
@@ -73,7 +73,7 @@ local function test_i_after_litter(tmp: string)
 end
 local function test_j_hangs(tmp: string)
   fresh(tmp)
-  Fs.put(Fs.stdout, "about to hang\n")
+  local _, _ = Fs.put(Fs.stdout, "about to hang\n")
   while true do end
 end
 local function test_k_after_a_hang(tmp: string)
@@ -186,7 +186,7 @@ local function fresh(tmp: string, mark: string)
   assert(Fs.exists(tmp .. "/mark") == false, "its directory holds what an earlier test left")
   assert(Fs.write(tmp .. "/mark", mark))
   local opened = assert(sys.open("/dev/null", sys.O_RDONLY))
-  Fs.put(Fs.stdout, "opened " .. tostring(opened) .. "\n")
+  local _, _ = Fs.put(Fs.stdout, "opened " .. tostring(opened) .. "\n")
   assert(sys.close(opened))
 end
 

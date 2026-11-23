@@ -273,7 +273,7 @@ function paths.main(argv: {string}): integer
   end
   local printed, print_trouble = put(Fs.stdout, directory .. "\n")
   if not printed then
-    local _, _ = put(Fs.stderr, print_trouble .. "\n")
+    local _, _ = put(Fs.stderr, tostring(print_trouble) .. "\n")
     return 1
   end
   return 0

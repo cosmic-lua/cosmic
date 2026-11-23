@@ -139,7 +139,7 @@ local function create(path: string, data: string, mode: integer): boolean, strin
   local closed, unclosed = Fs.close(fd)
   if not wrote or not closed then
     local _, _ = Fs.remove(path)
-    return false, path .. ": " .. (if wrote then tostring(unclosed) else why end)
+    return false, path .. ": " .. tostring(if wrote then unclosed else why end)
   end
   return true, ""
 end

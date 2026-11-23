@@ -78,7 +78,7 @@ end
 
 local function put_all(fd: integer, data: string): integer?
   local ok, trouble = Fs.put(fd, data)
-  if not ok then return failed("write", trouble) end
+  if not ok then return failed("write", tostring(trouble)) end
   return nil
 end
 

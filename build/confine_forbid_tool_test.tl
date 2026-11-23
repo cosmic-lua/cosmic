@@ -48,7 +48,7 @@ local out = {
   "exe " .. ran({ "/proc/self/exe" }),
   "sibling " .. ran({ %q, "exists / 3" }),
 }
-require("cosmic.fs").put(1, table.concat(out, "\n"))
+local _, _ = require("cosmic.fs").put(1, table.concat(out, "\n"))
 ]=], "{ " .. string.format("%q, %q, %q", within[1], within[2], within[3]) .. " }",
     program, tmp .. "/links/program", sibling)
   local started = this_program.program({ "-e", chunk }, { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout" })

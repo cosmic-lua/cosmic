@@ -1161,7 +1161,7 @@ end
 --- documentation, so it declares `Test.policy { store_text = true }`.
 ---
 ---     local ran, why = Flags.dispatch(argv, 1, commands, "prog")
----     if ran == nil then Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
+---     if ran == nil then local _, _ = Fs.put(Fs.stderr, "prog: " .. why .. "\n") return 2 end
 ---     if ran.help ~= "" then print(ran.help) end
 ---     return ran.code
 --- @param argv {string} The command line

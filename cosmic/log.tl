@@ -25,12 +25,19 @@ local record Log
   end
 end
 
+--- `text` on `fd`, answering as a Logger's calls do.
+local function put(fd: integer, text: string): boolean, string
+  local wrote, why = Fs.put(fd, text)
+  if not wrote then return false, tostring(why) end
+  return true, ""
+end
+
 local function say(_: Log.Logger, line: string): boolean, string
-  return Fs.put(Fs.stdout, line .. "\n")
+  return put(Fs.stdout, line .. "\n")
 end
 
 local function complain(self: Log.Logger, line: string): boolean, string
-  return Fs.put(Fs.stderr, self.name .. ": " .. line .. "\n")
+  return put(Fs.stderr, self.name .. ": " .. line .. "\n")
 end
 
 --- A logger whose complaints carry `name`, as a program's own name.
