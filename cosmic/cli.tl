@@ -1488,6 +1488,11 @@ local module: Module = {
         ["--token-env"] = { value = "name", about = "url: the variable that holds the bearer token" },
         ["--timeout"] = { value = "seconds", about = "the most a request over --url, or a program's run, may take (default 30)" },
       },
+      examples = {
+        { line = "tools -- server.tl", about = "list the tools of a server this program runs from server.tl" },
+        { line = "call add '{\"a\":2,\"b\":5}' -- server.tl", about = "call its tool add" },
+        { line = "tools --url https://example.com/mcp --token-env MCP_TOKEN", about = "ask a server over HTTP, its token in $MCP_TOKEN" },
+      },
     },
     docs = {
       about = "a symbol's or module's docs, or a search",
