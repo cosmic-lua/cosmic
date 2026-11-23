@@ -1054,8 +1054,8 @@ end
 
 local record Module
   --- One field per verb, named for it: the text `cosmic help <verb>`
-  --- prints, as [`Cli`] documents it. The text is the field's doc, read
-  --- from the source, so the module holds no value here.
+  --- prints, as [`Cli`] documents it. Help and `cosmic docs` read that
+  --- text from each field's doc; the value is always nil.
   fields?: Cli
   --- Each verb as [`Flags.Command`] records it, by verb. Its `spec` is the
   --- verb's options, as [`Flags.parse`] reads a spec: what the verb parses
@@ -1084,7 +1084,8 @@ local GROUPS <const>: {{string}} = {
   { "This binary", "bom", "refresh", "release" },
 }
 
--- The verbs of `groups`, each group's after its title.
+--- The verbs of `groups` in turn: slot 1 of a group is its title, and
+--- its verbs follow.
 local function order_of(groups: {{string}}): {string}
   local out: mut {string} = {}
   for _, group in ipairs(groups) do

@@ -72,7 +72,15 @@ local function test_the_list_holds_the_grouped_verbs_that_are_not_code_or_help()
     assert(Cli.verbs[name] ~= nil, name .. " is in verb_list but not in Cli.verbs")
   end
   assert(loads == listed, "verb_list has " .. tostring(loads) .. " verbs, Cli.groups " .. tostring(listed))
-  assert(#verb_list.specs() == listed, "specs answers each listed verb once")
+  local want: mut {string} = {}
+  for _, name in ipairs(Cli.order) do
+    if own[name] ~= true then want[#want + 1] = name end
+  end
+  local got: mut {string} = {}
+  for _, spec in ipairs(verb_list.specs()) do got[#got + 1] = spec.name end
+  assert(table.concat(got, " ") == table.concat(want, " "),
+    "specs answers the listed verbs in Cli.order's order:\n  " .. table.concat(got, " ") .. "\n  " ..
+      table.concat(want, " "))
 end
 
 local function test_the_groups_name_every_verb_once_and_nothing_else()
@@ -91,7 +99,7 @@ local function test_the_groups_name_every_verb_once_and_nothing_else()
 end
 
 --- `cosmic help exit` gathers each bare verb's clause with the others', in the
---- list's order, so a clause that leans on its neighbours ("instead", "likewise")
+--- order of [`Cli.order`], so a clause that leans on its neighbours ("instead", "likewise")
 --- says something else there than in its own module.
 local function test_a_spec_prose_stands_by_itself()
   for _, spec in ipairs(verb_list.specs()) do
