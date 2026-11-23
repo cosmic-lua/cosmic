@@ -16,12 +16,21 @@
     # main takes changes only through the merge queue, which waits on
     # the `ci` check for the queued merge commit.
     merge_group: {},
-    # A dispatch with `fixed_point` also runs the fixed-point regression,
-    # as Sunday's scheduled run does (COSMIC_CI_FIXED_POINT below).
+    # A dispatch stands on the verdicts main's pushes left, as the daily
+    # scheduled run does; with `every_test` it runs every test, as
+    # Sunday's does (COSMIC_CI_EVENT below). With `fixed_point` it also
+    # runs the fixed-point regression, as Sunday's does
+    # (COSMIC_CI_FIXED_POINT below).
     workflow_dispatch: {
       inputs: {
         fixed_point: {
           description: "Run the fixed-point regression on every leg",
+          type: "boolean",
+          required: false,
+          default: false,
+        },
+        every_test: {
+          description: "Run every test, standing on no earlier verdict",
           type: "boolean",
           required: false,
           default: false,
@@ -119,10 +128,11 @@
         # Linux leg's sandbox holds the same declaration, so one that lies
         # fails there first.
         COSMIC_CI_DECLARED_KEYS: "${{ matrix.image && '0' || '1' }}",
-        # Pushes, the merge queue and the daily scheduled run stand on
-        # verdicts; a manual and the weekly run (Sunday's) run every test
-        # (orchestration.tl's `stands`).
-        COSMIC_CI_EVENT: "${{ github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' && 'push' || github.event_name }}",
+        # Pushes, the merge queue, the daily scheduled run and a manual
+        # run stand on verdicts; the weekly run (Sunday's) and a manual
+        # run with `every_test` run every test (orchestration.tl's
+        # `stands`).
+        COSMIC_CI_EVENT: "${{ (github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' || github.event_name == 'workflow_dispatch' && !inputs.every_test) && 'push' || github.event_name }}",
       },
       steps: [
         {
@@ -734,7 +744,7 @@
         COSMIC_CI_CHECKED_SUITE: "run",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
-        COSMIC_CI_EVENT: "${{ github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' && 'push' || github.event_name }}",
+        COSMIC_CI_EVENT: "${{ (github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' || github.event_name == 'workflow_dispatch' && !inputs.every_test) && 'push' || github.event_name }}",
       },
       steps: [
         {
@@ -961,7 +971,7 @@
         TARGET: "x86_64-linux-musl",
         COSMIC_CI_REQUIRE_SANDBOX: "1",
         COSMIC_CI_DECLARED_KEYS: "0",
-        COSMIC_CI_EVENT: "${{ github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' && 'push' || github.event_name }}",
+        COSMIC_CI_EVENT: "${{ (github.event_name == 'schedule' && github.event.schedule != '41 3 * * 0' || github.event_name == 'workflow_dispatch' && !inputs.every_test) && 'push' || github.event_name }}",
       },
       steps: [
         {

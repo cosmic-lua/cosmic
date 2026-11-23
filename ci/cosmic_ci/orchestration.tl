@@ -118,13 +118,14 @@ local standing_events: {string:boolean} = { push = true, merge_group = true }
 --- restores the newest cache main saved of its leg, host and host
 --- features (ci.yml's "name the leg's host").
 ---
---- A manual run and main's scheduled one run every test (`--all`) and
---- stand on nothing another run reached (COSMIC_TEST_NO_SHARED=1). So no
---- gating run runs every test: a pass a key does not answer for, such as
---- a test that turns on the clock or a flaky one, is caught only by
---- main's scheduled run the next day. When that run fails, GitHub tells
---- only whoever last edited its cron line (the TODO on ci.yml's
---- `schedule`).
+--- ci.yml gives the daily scheduled run and a manual run `push` too.
+--- The weekly scheduled run and a manual run with `every_test` keep
+--- their own event, so they run every test (`--all`) and stand on
+--- nothing another run reached (COSMIC_TEST_NO_SHARED=1). So no gating
+--- run runs every test: a pass a key does not answer for, such as a
+--- test that turns on the clock or a flaky one, is caught only by the
+--- weekly run. When that run fails, GitHub tells only whoever last
+--- edited its cron line (the TODO on ci.yml's `schedule`).
 -- TODO: share a Linux leg's verdicts across its runners only once the
 -- key holds what a host's package database does not say (the TODO on
 -- build/declared_key.tl's `system_identity`). Today they are keyed by
