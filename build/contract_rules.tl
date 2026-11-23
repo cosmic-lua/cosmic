@@ -53,9 +53,6 @@ local casts: {string: string} = {
   ["cosmic/sqlite.tl:cells_of"] =
     "a stored row is a record with an array part for its slots, and the grammar has no record " ..
     "with an array part that also implements Sqlite.Row",
-  ["cosmic/sqlite.tl:texts_of"] =
-    "a stored row is a record with an array part for its slots, and the grammar has no record " ..
-    "with an array part that also implements Sqlite.Row",
 
   ["build/confine.tl:policy_kind"] =
     "a record read raw, as the core reads it, so no metamethod answers for a field",
