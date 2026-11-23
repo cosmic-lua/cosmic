@@ -232,7 +232,7 @@ local function test_success_results_carry_empty_errors()
 end
 
 local function test_captures_stdout_and_stderr_apart()
-  local r = assert(Child.run(lua(FS .. 'Fs.put(1, "out") Fs.put(2, "err") return 3', nil,
+  local r = assert(Child.run(lua(FS .. 'local _, _ = Fs.put(1, "out") local _, _ = Fs.put(2, "err") return 3', nil,
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "capture" })))
   assert(r.code == 3 and not r.ok)
   assert(r.stdout == "out" and r.stderr == "err")
@@ -241,7 +241,7 @@ local function test_captures_stdout_and_stderr_apart()
 end
 
 local function test_stderr_can_share_captured_stdout()
-  local r = assert(Child.run(lua(FS .. 'Fs.put(1, "a") Fs.put(2, "b") Fs.put(1, "c")', nil,
+  local r = assert(Child.run(lua(FS .. 'local _, _ = Fs.put(1, "a") local _, _ = Fs.put(2, "b") local _, _ = Fs.put(1, "c")', nil,
     { timeout_ns = Child.FOREVER, stdout = "capture", stderr = "stdout" })))
   assert(r.ok and r.stdout == "abc" and r.stderr == nil)
 end
@@ -263,7 +263,7 @@ local function test_a_child_that_stops_reading_ends_the_input_quietly()
 end
 
 local function test_capture_keeps_the_newest_bytes_past_the_limit()
-  local r = assert(Child.run(lua(FS .. 'for _ = 1, 1000 do Fs.put(1, "0123456789") end Fs.put(1, "END")',
+  local r = assert(Child.run(lua(FS .. 'for _ = 1, 1000 do local _, _ = Fs.put(1, "0123456789") end local _, _ = Fs.put(1, "END")',
     nil, { timeout_ns = Child.FOREVER, stdout = "capture", capture_limit = 100 })))
   assert(r.ok and r.truncated)
   local kept = assert(r.stdout)
@@ -271,7 +271,7 @@ local function test_capture_keeps_the_newest_bytes_past_the_limit()
 end
 
 local function test_null_streams()
-  local r = assert(Child.run(lua(CAT .. 'Fs.put(1, "gone") Fs.put(2, "gone")', nil,
+  local r = assert(Child.run(lua(CAT .. 'local _, _ = Fs.put(1, "gone") local _, _ = Fs.put(2, "gone")', nil,
     { timeout_ns = Child.FOREVER, stdin = "null", stdout = "null", stderr = "null" })))
   assert(r.ok and r.stdout == nil)
 end
@@ -279,7 +279,7 @@ end
 local function test_more_descriptors_by_number(tmp: string)
   local fd, path = output(tmp, "five")
   -- Descriptors 19 and 20: a sealed child's SQLite holds its database open at a low number.
-  local r = assert(Child.run(lua(FS .. SYS .. 'Fs.put(3, "report") Fs.put(20, "five") ' ..
+  local r = assert(Child.run(lua(FS .. SYS .. 'local _, _ = Fs.put(3, "report") local _, _ = Fs.put(20, "five") ' ..
       'if sys.fstat(19) == nil then return 0 end return 1', nil,
     { timeout_ns = Child.FOREVER, fds = { [3] = "capture", [20] = fd }, stdout = "capture" })))
   assert(Fs.close(fd))
@@ -307,9 +307,9 @@ end
 --- answers what it is sent, through the stdin stream, only after its
 --- first output has been read.
 local function test_streams_are_read_and_written_while_the_child_runs()
-  local h = assert(Child.start(lua(FS .. 'Fs.put(1, "first") local x = "" while true do ' ..
+  local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "first") local x = "" while true do ' ..
       'local c = assert(Fs.take(0, 1)) if c == "" or c == "\\n" then break end x = x .. c end ' ..
-      'Fs.put(1, "second-" .. x)', nil, { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })))
+      'local _, _ = Fs.put(1, "second-" .. x)', nil, { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
   local stdin = assert(h.stdin_stream)
   assert(h.stderr_stream == nil)
@@ -328,7 +328,7 @@ end
 --- stderr before it writes stdout does not stall the read.
 local function test_reading_stdout_does_not_stall_on_a_full_stderr()
   local h = assert(Child.start(lua(FS .. 'assert(Fs.put(2, string.rep("0123456789", 20000))) ' ..
-      'Fs.put(1, "done")', nil, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "stream" })))
+      'local _, _ = Fs.put(1, "done")', nil, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "stream" })))
   assert(read_all(assert(h.stdout_stream)) == "done")
   assert(#read_all(assert(h.stderr_stream)) == 200000)
   assert(assert(h:wait(Clock.seconds(5))).ok)
@@ -366,7 +366,7 @@ end
 --- What the child wrote before a wait settled it is still there to
 --- read afterward.
 local function test_a_streamed_output_is_read_after_the_wait()
-  local h = assert(Child.start(lua(FS .. 'Fs.put(1, "hello") Fs.put(2, "there")', nil,
+  local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "hello") local _, _ = Fs.put(2, "there")', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "stdout" })))
   assert(assert(h:wait(Clock.seconds(5))).ok)
   assert(read_all(assert(h.stdout_stream)) == "hellothere")
@@ -394,7 +394,7 @@ end
 local function test_an_escaped_writer_does_not_hold_up_a_read()
   local started = Clock.monotonic_ns()
   local h = assert(Child.start(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-      "') " .. FS .. 'Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'local _, _ = Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream" })))
   local said = read_all(assert(h.stdout_stream))
   -- A zombie answers `kill(pid, 0)` too, where this process adopted
@@ -411,7 +411,7 @@ end
 --- it started with SIGPIPE ignored (as a CI runner may start this
 --- process), stopped by its write's EPIPE.
 local function test_closing_a_streamed_output_ends_a_writer()
-  local h = assert(Child.start(lua(FS .. 'while Fs.put(1, "0123456789") do end return 1', nil,
+  local h = assert(Child.start(lua(FS .. 'while true do local put, _ = Fs.put(1, "0123456789") if not put then break end end return 1', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "null" })))
   local stdout = assert(h.stdout_stream)
   assert(stdout:read(10))
@@ -425,7 +425,7 @@ end
 --- A streamed output's `read` refuses a `max_bytes` below 1 by raising,
 --- and a read of a positive one still answers.
 local function test_a_streamed_output_refuses_a_max_bytes_below_one()
-  local h = assert(Child.start(lua(FS .. 'Fs.put(1, "x")', nil, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "null" })))
+  local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "x")', nil, { timeout_ns = Child.FOREVER, stdout = "stream", stderr = "null" })))
   local stdout = assert(h.stdout_stream)
   for _, bad in ipairs({ 0, -1 }) do
     local ok, why: boolean, any = pcall(function() local _, _ = stdout:read(bad) end)
@@ -463,7 +463,7 @@ end
 --- fill the pipe ahead of it and leave the child blocked.
 local function test_a_wait_holds_a_streamed_output_to_its_limit()
   local h = assert(Child.start(lua(AGAIN .. FS .. 'assert(Fs.put(1, string.rep("\\0", 2048))) ' ..
-      "again('" .. FS .. 'Fs.put(1, string.rep("\\\\0", 4000000))' .. "', " ..
+      "again('" .. FS .. 'local _, _ = Fs.put(1, string.rep("\\\\0", 4000000))' .. "', " ..
       '{ timeout_ns = -1, process_group = false }) require("cosmic.sys").exit(0)', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream", capture_limit = 1024, process_group = false })))
   assert(assert(h:wait(Clock.seconds(5))).ok)
@@ -481,7 +481,7 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
 end
 
 local function test_a_streamed_read_of_nothing_is_refused()
-  local h = assert(Child.start(lua(FS .. 'Fs.put(1, "x")', nil, { timeout_ns = Child.FOREVER, stdout = "stream" })))
+  local h = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "x")', nil, { timeout_ns = Child.FOREVER, stdout = "stream" })))
   local stdout = assert(h.stdout_stream)
   Test.raises(function() stdout:read(0) end)
   assert(read_all(stdout) == "x")
@@ -522,7 +522,7 @@ local function test_exit_ends_and_reaps_what_the_group_left_behind()
   local function check()
     local h = assert(Child.start(lua(AGAIN .. "local h = again('" .. sleep(30000) ..
         "', { timeout_ns = -1, process_group = false }) " .. FS ..
-        'Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil, { timeout_ns = Child.FOREVER, stdout = "capture" })))
+        'local _, _ = Fs.put(1, tostring(h.pid)) require("cosmic.sys").exit(0)', nil, { timeout_ns = Child.FOREVER, stdout = "capture" })))
     local r = assert(h:wait(Clock.seconds(5)))
     assert(r.ok and not r.timed_out and assert(math.tointeger(tonumber(r.stdout))) > 0)
     local alive, _, errno = sys.kill(-h.pid, 0)
@@ -538,7 +538,7 @@ end
 --- times out.
 local function test_an_escaped_writer_does_not_hold_up_the_wait()
   local r = assert(Child.run(lua(AGAIN .. "local escaped = again('" .. sleep(ESCAPED_MS) ..
-      "') " .. FS .. 'Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
+      "') " .. FS .. 'local _, _ = Fs.put(1, "done " .. tostring(escaped.pid)) require("cosmic.sys").exit(0)', nil,
     { stdout = "capture", timeout_ns = Clock.seconds(5) })))
   local alive = ended_escaped(assert(r.stdout))
   assert(r.ok and not r.timed_out, "the wait was held open: " .. tostring(r.stdout))
@@ -547,7 +547,7 @@ end
 
 local function test_wait_any_returns_the_first_to_finish()
   local slow = assert(Child.start(lua(sleep(5000))))
-  local fast = assert(Child.start(lua(FS .. 'Fs.put(1, "quick")', nil, { timeout_ns = Child.FOREVER, stdout = "capture" })))
+  local fast = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "quick")', nil, { timeout_ns = Child.FOREVER, stdout = "capture" })))
   local first, first_trouble = Child.wait_any({ slow, fast }, Clock.seconds(5))
   assert(first == fast, first_trouble)
   local r = assert(fast:wait())
@@ -628,7 +628,7 @@ end
 --- timeout must outlast the child's start and its write
 --- ([`startup_timeout`]); how long past them it runs proves nothing more.
 local function test_timeout_keeps_what_was_captured()
-  local r = assert(Child.run(lua(FS .. 'Fs.put(1, "partial") ' .. sleep(30000), nil,
+  local r = assert(Child.run(lua(FS .. 'local _, _ = Fs.put(1, "partial") ' .. sleep(30000), nil,
     { stdout = "capture", timeout_ns = startup_timeout() })))
   assert(r.timed_out and not r.ok and r.stdout == "partial", tostring(r.stdout))
 end
@@ -645,7 +645,7 @@ local function test_a_start_timeout_ends_the_child_a_wait_waits_on()
   assert(r.timed_out and not r.ok, "the child was not ended for its start's timeout")
   assert(about(began, timeout), ms_since(began))
   began = Clock.monotonic_ns()
-  local captured <close> = assert(Child.start(lua(FS .. 'Fs.put(1, "early") ' .. sleep(30000), nil,
+  local captured <close> = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "early") ' .. sleep(30000), nil,
     { stdout = "capture", timeout_ns = timeout })))
   r = assert(captured:wait(Clock.seconds(10)))
   assert(r.timed_out and r.stdout == "early", tostring(r.stdout))
@@ -718,7 +718,7 @@ end
 --- deadline: the child is ended there, and the read ends with its pipe.
 local function test_a_stream_read_ends_a_child_past_its_start_timeout()
   local timeout = startup_timeout()
-  local h <close> = assert(Child.start(lua(FS .. 'Fs.put(1, "early") ' .. sleep(30000), nil,
+  local h <close> = assert(Child.start(lua(FS .. 'local _, _ = Fs.put(1, "early") ' .. sleep(30000), nil,
     { stdout = "stream", timeout_ns = timeout })))
   local began = Clock.monotonic_ns()
   local out = assert(Stream.read_all(h.stdout_stream as Stream.Reader)) -- checked: cast_refused

@@ -77,11 +77,11 @@ local function test_a_sandboxed_child_has_only_what_it_unveils(tmp: string)
   reads[#reads + 1] = "/dev/null"
   local r, trouble = Child.run(lua(AGAIN .. FS .. SYS .. 'local hidden, given = ... ' ..
       'if hidden == nil or given == nil then return 2 end ' ..
-      'Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
+      'local _, _ = Fs.put(1, assert(Fs.read("f")) .. "\\n" .. assert(sys.getcwd()) .. "\\n" .. ' ..
       '(if Fs.exists(hidden) == true then "hidden-seen" else "hidden-absent" end) .. "\\n") ' ..
       'local own = assert(again("if require(\'cosmic.fs\').exists(" .. ' ..
       'string.format("%q", given) .. ") == true then return 0 end return 1"):wait()) ' ..
-      'Fs.put(1, (if own.code == 0 then "own-name" else "no-own-name" end) .. "\\n")', { hidden, given },
+      'local _, _ = Fs.put(1, (if own.code == 0 then "own-name" else "no-own-name" end) .. "\\n")', { hidden, given },
     { timeout_ns = Child.FOREVER, cwd = "/given", stdout = "capture", stderr = "stdout",
       sandbox = { unveil = { reads = reads, at = { [given] = "/given" } }, offline = true } }))
   if r == nil then

@@ -292,7 +292,8 @@ local function write_synced(path: string, data: string,
   if fd == nil then
     return false, trouble
   end
-  local ok, failure = Fs.put(fd, data)
+  local put, put_why = Fs.put(fd, data)
+  local ok, failure = put, if put then "" else tostring(put_why) end
   if ok then
     -- Its failure names the path already; the rest are prefixed below.
     local moded, mode_trouble = Fs.chmod(path, mode)
@@ -620,7 +621,7 @@ function Patch.main(argv: {string}): integer
   end
   local put, put_trouble = Fs.put(Fs.stdout, table.concat(lines))
   if not put then
-    log:complain(put_trouble)
+    log:complain(tostring(put_trouble))
     return 1
   end
   return 0

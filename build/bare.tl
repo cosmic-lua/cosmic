@@ -55,7 +55,9 @@ bare.empty_file = "an empty file name"
 --- bytes did not all go, so a run can say so: its exit status is its
 --- only verdict.
 function bare.out(text: string): boolean, string
-  return Fs.put(Fs.stdout, text)
+  local wrote, why = Fs.put(Fs.stdout, text)
+  if not wrote then return false, tostring(why) end
+  return true, ""
 end
 
 --- Writes one complaint line to standard error, adding its newline.

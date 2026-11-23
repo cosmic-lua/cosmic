@@ -40,7 +40,11 @@ local current: Local.Calls = {
     return Child.run(argv, options or { timeout_ns = CEILING_NS })
   end,
   env_all = Env.all,
-  fs_put = Fs.put,
+  fs_put = function(fd: integer, data: string): boolean, string
+    local wrote, why = Fs.put(fd, data)
+    if not wrote then return false, tostring(why) end
+    return true, ""
+  end,
   fs_read = function(path: string): string?, string
     local text, why = Fs.read(path)
     if text == nil then return nil, tostring(why) end

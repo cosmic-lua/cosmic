@@ -74,14 +74,14 @@ end
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local function test_exits()
-  Fs.put(Fs.stdout, "said something\n")
+  local _, _ = Fs.put(Fs.stdout, "said something\n")
   Proc.exit(0)
 end
 ]]))
   assert(Fs.write(root .. "/suite/fine_test.tl", [[
 local Fs = require("cosmic.fs")
 local function test_fine()
-  Fs.put(Fs.stdout, "quiet\n")
+  local _, _ = Fs.put(Fs.stdout, "quiet\n")
 end
 ]]))
   return root
