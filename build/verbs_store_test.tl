@@ -87,7 +87,8 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
         verb .. " " .. name .. " says nothing of what it does")
       local value = entry.value
       local shown = if value ~= nil then name .. " <" .. value .. ">" else name end
-      assert(out:find("\n  " .. shown .. " ", 1, true), verb .. ": " .. out)
+      assert(out:find("\n  " .. shown .. " ", 1, true) or out:find("\n  " .. shown .. "\n", 1, true),
+        verb .. ": " .. out)
     end
   end
   -- `cosmic docs` asked nothing lists the modules there are.
@@ -125,11 +126,11 @@ local function test_help_of_a_verb_is_that_verb_alone(tmp: string)
   local e = verbs_fixture.expect(tmp, "help", { "help", "-e" }, 0).stdout
   assert(e:find("`cosmic -e", 1, true), e)
   assert(not e:find("`cosmic test ", 1, true), e)
-  -- Every verb's text opens with its synopsis, then what it takes and
+  -- Every verb's text opens with its usage line, then what it takes and
   -- how it ends.
   for _, verb in ipairs(Cli.order) do
     local out = verbs_fixture.expect(tmp, "help", { "help", verb }, 0).stdout
-    assert(out:sub(1, 8) == "`cosmic ", verb .. ": " .. out)
+    assert(out:sub(1, 14) == "usage: cosmic ", verb .. ": " .. out)
     assert(out:find("\n\nTakes ", 1, true) or out:find("\n\nPrints only", 1, true), verb .. ": " .. out)
   end
 end
@@ -209,7 +210,9 @@ end
 --- `cosmic help test` says what a test is and how to run one before
 --- how verdicts and compiles are kept and how the tree is found.
 local function test_help_of_test_leads_with_writing_one(tmp: string)
-  local out = verbs_fixture.expect(tmp, "help", { "help", "test" }, 0).stdout
+  local page = verbs_fixture.expect(tmp, "help", { "help", "test" }, 0).stdout
+  -- The prose after the usage, options and examples.
+  local out = page:sub((assert(page:find("\n`cosmic test ", 1, true), page)))
   local caching = assert(out:find("COSMIC_VERDICT_CACHE", 1, true), out)
   for _, first in ipairs({ "`<name>_test.tl`", "`<name>_example.tl`", "doc/guides/",
       "\n    local function test_", "tally_test.tl:test_words" }) do
