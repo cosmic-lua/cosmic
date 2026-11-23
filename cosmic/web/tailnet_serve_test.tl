@@ -42,7 +42,7 @@ return function(argv: {string}): integer
     middleware = { Web.tailnet({ required = false }) },
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        local who = Web.tailnet_identity(req)
+        local who = Web.who(req).tailnet
         local admin = who ~= nil and who.caps["example.com/cap/admin"] ~= nil
         return Web.text((if who ~= nil then who.login_name else "nobody" end) .. " admin=" .. tostring(admin) ..
           " funnel=" .. tostring(Web.tailnet_funnel(req)))

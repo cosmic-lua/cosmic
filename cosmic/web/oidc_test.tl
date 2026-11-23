@@ -162,7 +162,7 @@ local function app_of(p: Provider, extra?: Extra): Web.App
   return Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        local who = Web.oidc_identity(req)
+        local who = Web.who(req).oidc
         if who == nil then return Web.text("nobody") end
         local groups = who.claims["groups"]
         local shown = if groups ~= nil then " " .. assert(Json.encode(groups)) else "" end
