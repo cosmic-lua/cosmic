@@ -11,7 +11,6 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Key = require("cosmic.key")
 local Json = require("cosmic.json")
-local Sign = require("cosmic.sign")
 local acme_fixture = require("build.acme_fixture")
 local rsa_fixture = require("build.rsa_fixture")
 
@@ -238,7 +237,7 @@ local function test_issue_takes_rsa_account_and_certificate_keys()
   assert(chain ~= nil, why)
   local csr = read_csr(server.csr)
   assert(csr.verified, "the request's RSA signature verifies under its own key")
-  assert(csr.public == Sign.rsa_public(secret), "the request carries the certificate key")
+  assert(csr.public == assert(Key.secret("rsa", secret)).public.bytes, "the request carries the certificate key")
   assert(#csr.names == 1 and csr.names[1] == "example.com")
 end
 

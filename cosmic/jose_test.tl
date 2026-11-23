@@ -8,6 +8,7 @@ local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
 local Key = require("cosmic.key")
+local Test = require("cosmic.test")
 
 --- The key that checks what `key` signs, as a provider publishes it.
 local function verifier(key: Key.Secret, kid?: string): Jose.Jwk
@@ -263,4 +264,10 @@ local function test_a_published_jwk_names_its_alg_use_and_kid()
   assert(jwk["alg"] == "EdDSA" and jwk["use"] == "sig" and jwk["kid"] == "k9" and jwk["kty"] == "OKP")
   assert(Jose.jwk(Key.generate("p256").public)["alg"] == "ES256")
   assert(Jose.jwk(Key.generate("p256").public)["kid"] == nil)
+end
+
+local function test_an_x25519_key_signs_no_token_and_is_published_as_no_jwk()
+  local key = Key.generate("x25519")
+  Test.raises(function() Jose.sign(key, { sub = "ada" }) end, "jose: an X25519 key signs nothing")
+  Test.raises(function() Jose.jwk(key.public) end, "jose: an X25519 key signs nothing")
 end

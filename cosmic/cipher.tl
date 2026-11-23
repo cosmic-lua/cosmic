@@ -1,14 +1,13 @@
---- Authenticated encryption under a shared key, and X25519 key agreement,
---- which gives two parties such a key over a channel anyone can read.
+--- Authenticated encryption under a shared key. Two parties agree on such
+--- a key over a channel anyone can read with X25519 keys of
+--- [`cosmic.key`], each agreeing on it from its own key and the other's
+--- public key.
 ---
 --- - [`Cipher.seal`] encrypts a message and appends a tag;
 ---   [`Cipher.open`] answers the message only when the tag proves that
 ---   the holder of the key sealed exactly these bytes.
 --- - [`Cipher.channel`] seals and opens the messages of a session, one
 ---   key for each direction, and counts the nonces itself.
---- - [`Cipher.x25519_public`] is the public key of a private key, and
----   [`Cipher.x25519`] the secret that one party's private key and the
----   other's public key share.
 ---
 ---     local key = assert(Rand.entropy(Cipher.key_length))
 ---     local nonce = assert(Rand.entropy(Cipher.nonce_length))
@@ -20,10 +19,8 @@
 --- of [`cosmic.rand`], or a key derivation's output, never a password.
 ---
 --- What a correct program can meet answers nil and why: a sealed message
---- that does not authenticate, a peer's key of low order. An argument of
---- the wrong length raises, and so does every other failure: memory
---- running out, or the system's entropy source failing, which the X25519
---- functions draw on.
+--- that does not authenticate. An argument of the wrong length raises,
+--- and so does every other failure: memory running out.
 
 -- The raw module behind every function here lives under the reserved
 -- `cosmic.internal.` namespace -- see cosmic/store.tl for why it is off
@@ -39,8 +36,7 @@ local record Cipher
     "chacha20-poly1305"
   end
 
-  --- How many bytes a key is, 32: [`Cipher.seal`]'s, and an X25519
-  --- private key, public key and shared secret alike.
+  --- How many bytes a key is, 32: [`Cipher.seal`]'s.
   key_length: integer
   --- How many bytes a nonce is, 12.
   nonce_length: integer
@@ -206,32 +202,6 @@ function Cipher.channel(output_key: string, input_key: string, options?: Cipher.
       return plaintext, ""
     end,
   }
-end
-
---- The X25519 public key (RFC 7748) of a private key, 32 bytes each:
---- what a party sends the other. A private key is 32 bytes nobody can
---- guess, `Rand.entropy(32)` of [`cosmic.rand`]; it is clamped as the
---- RFC says, so any 32 bytes are one. Raises on another length, and on
---- any other failure.
-function Cipher.x25519_public(private: string): string
-  return raw.x25519_public(private)
-end
-
---- The 32-byte secret that `private` and the peer's public key share,
---- and "": the peer computes the same bytes from its private key and
---- this party's public key, and nobody who saw only the public keys
---- can. nil and why when `peer_public` is a point of low order, which
---- makes the secret all zero bytes whatever the private key: a peer
---- that sends one is choosing the secret, not agreeing on it. Raises
---- when either key is not 32 bytes, and on any other failure.
----
---- The secret is not a key yet. Pass it through a key derivation
---- ([`Hash.hkdf`]), together with both public keys, and use what that
---- answers as [`Cipher.seal`]'s key. Public keys are not authenticated here: a
---- party that must know who the peer is checks the peer's public key
---- against one it already trusts.
-function Cipher.x25519(private: string, peer_public: string): string?, string
-  return raw.x25519(private, peer_public)
 end
 
 return Cipher
