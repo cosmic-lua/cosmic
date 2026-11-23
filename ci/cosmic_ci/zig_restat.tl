@@ -38,11 +38,6 @@ local Predicate = require("cosmic_ci.fs_predicate")
 local ZigPrune = require("cosmic_ci.zig_prune")
 local sys = require("cosmic.sys")
 
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 local record ZigRestat
   --- What `restat` did: how many files the manifests list, how many it
   --- verified by digest and took a new inode for, how many it verified
@@ -215,7 +210,7 @@ function ZigRestat.run(root: string, project: string, shared: string?): ZigPrune
   local env = Maps.with(Env.all(), { COSMIC_ZIG_CACHE = project })
   if shared ~= nil then env = Maps.with(env, { COSMIC_ZIG_GLOBAL_CACHE = shared }) end
   local lib: string? = nil
-  local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { timeout_ns = CEILING_NS, cwd = root, env = env,
+  local ran, _ = Child.run({ root .. "/bin/zig", "env" }, { timeout_ns = Child.FOREVER, cwd = root, env = env,
     stdout = "capture", stderr = "capture" })
   if ran ~= nil and ran.ok then lib = ZigRestat.lib_dir(ran.stdout or "") end
   return ZigRestat.command(project, shared, root, lib)

@@ -1,5 +1,6 @@
 --- CI policy around the running driver's build-free cache maintenance.
 --- The driver owns formats; incomplete reports withhold save outputs.
+local Child = require("cosmic.child")
 local Fs = require("cosmic.fs")
 local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
@@ -7,11 +8,6 @@ local Seams = require("cosmic_ci.seams")
 local Plural = require("cosmic_ci.plural")
 local Signal = require("cosmic.signal")
 local Shape = require("cosmic.shape")
-
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
 
 local record CacheTrim
   enum Family
@@ -222,7 +218,7 @@ local function invoke(request: CacheTrim.Request): Invoked
   local env = Maps.with(Seams.calls().env_all(), start.env)
   local fds: mut {integer:integer | string} = {}
   for fd, given in pairs(start.fds) do fds[fd] = given end
-  local result, trouble = Seams.calls().child_run(argv, { timeout_ns = CEILING_NS, env = env, fds = fds,
+  local result, trouble = Seams.calls().child_run(argv, { timeout_ns = Child.FOREVER, env = env, fds = fds,
     stdout = "capture", stderr = "capture", capture_limit = report_limit })
   if result == nil then return { trouble = trouble } end
   if result.truncated then return { trouble = "cache maintenance report was truncated" } end
