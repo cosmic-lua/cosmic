@@ -2,14 +2,14 @@
 
 <!-- policy: loopback = { "127.0.0.1" }, profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->
 
-A form is text that a person typed, and the binder in [`cosmic.web`] turns
-it into a record your handler can trust: a route names the shape of its
-path parameters, its query and its body, and input that does not fit is
-answered before the handler runs. This guide builds `signup`, a form that
-checks its fields and shows what was wrong, and an upload route with its
-limits. It starts from an empty directory and needs only what the first
-guide, [web apps](web.md), says about routes and templates: a route is a
-method, a pattern and a handler, and a `.tmpl` file is a typed template.
+A form is text that a person typed. The binder in [`cosmic.web`] turns it
+into a record your handler can trust. A route names the shape of its path
+parameters, its query and its body, and input that does not fit is refused
+before the handler runs. This guide builds `signup`, a form that checks its
+fields and shows what was wrong, and an upload route with its limits. It
+starts from an empty directory, and needs only what the first guide,
+[web apps](web.md), says about routes and templates. A route is a method,
+a pattern and a handler, and a `.tmpl` file is a typed template.
 
 ## typed routes
 
@@ -38,7 +38,7 @@ The statuses keep four failures apart:
 - **413**: a body over its limit (below).
 - **422**: a value that decodes but fails its spec.
 
-A form re-renders on 422 with every field's error; an API answers
+A form re-renders on 422 with every field's error. An API responds with
 `application/problem+json`, each error with the JSON Pointer of the value
 that failed (a JSON body reports its first failure). A route's `on_invalid`
 turns the refusal into whatever the route wants, as `refuse` does below;
@@ -81,11 +81,11 @@ return data
 ```
 
 The routes show the form, bind a post to `Signup` and, whatever the
-refusal, answer it with the same form. `age` is optional, so a form that
+refusal, respond with the same form. `age` is optional, so a form that
 leaves it empty binds it as nil.
 
 ```teal file=signup.tl
---- The signup form: a page, and a post that binds, checks and answers.
+--- The signup form: a page, and a post that binds, checks and responds.
 
 local Input = require("cosmic.web.input")
 local Shape = require("cosmic.shape")
@@ -133,9 +133,9 @@ return Site
 ```
 
 The test goes through each kind of refusal. A form that binds reaches the
-handler; an `age` that is no integer is a 422 that shows the message beside
-the field and keeps what was typed; undecodable input is a 400 and JSON
-posted to a form route a 415. A form over 64 KiB is a 413, the default for
+handler. An `age` that is no integer is a 422, which shows the message
+beside the field and keeps what was typed. Undecodable input is a 400, and
+JSON posted to a form route is a 415. A form over 64 KiB is a 413, the default for
 every body but an upload.
 
 ```teal file=signup_test.tl
@@ -195,8 +195,8 @@ Three limits apply, and the smallest wins:
 - **`max_file_bytes`**, the largest single file part: 8 MiB by default,
   also an `input_options` field. A file over it is a 413.
 - **`limits.body_bytes`**, the server's own limit on every request, 1 MiB
-  by default. The server answers 413 past it before the route is known, so
-  a route that allows more than that cannot receive it: a larger upload
+  by default. Past it, the server responds with 413 before the route is
+  known, so a route that allows more cannot receive it. A larger upload
   needs [`Web.serve`] given a higher `limits.body_bytes`, for the whole app
   ([the deployment guide](web-deploy.md) shows where).
 

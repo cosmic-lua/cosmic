@@ -34,19 +34,19 @@ next page: at most 10 are kept, of at most 500 bytes each.
 ## listing and ending sessions
 
 A page of "your devices" needs the sessions a user holds, without their
-cookies. [`SessionSqlite.list`] answers the live ones, all or one user's,
+cookies. [`SessionSqlite.list`] returns the live ones, all or one user's,
 the one seen last first. Each has a public id, which is not a credential and
-which a regeneration keeps, and [`SessionSqlite.destroy_id`] ends the session
-it names: check that the user may end it first, as the id is shown, or pass
+which a regeneration keeps. [`SessionSqlite.destroy_id`] ends the session
+it names. The id is shown, so check first that the user may end it, or pass
 the user as `subject`, which ends it only where it is theirs.
 `session:label("M's iPad")` gives a session a name to show beside it, and
-[`SessionSqlite.label`] renames one by its id. [`SessionSqlite.info`] answers
+[`SessionSqlite.label`] renames one by its id. [`SessionSqlite.info`] returns
 the request's own session (from `session:id()`), to mark it on the page.
 
 With `seen_interval`, the store notes when and from which client address
-each session was last used, after a request that reads or saves it, at most once per
-interval: a page that polls every second writes once a minute with
-`seen_interval = 60`. Without it nothing is noted. A table an earlier version
+each session was last used. It writes after a request that reads or saves
+the session, at most once per interval: a page that polls every second
+writes once a minute with `seen_interval = 60`. Without it nothing is noted. A table an earlier version
 made gains the columns, and each of its sessions a public id, the first time
 it is opened.
 
@@ -191,14 +191,14 @@ The tests build the app over each store. They show a weak key refused, a
 greeting flashed once, a name that is too long refused, the
 cookie a signed session sets, a stored session revoked for every device of
 a user, and a login that changes the session's id. The cookie is `Secure`
-and named `__Host-session` (`__Secure-session` with a `domain`), the name a
-browser holds to `Secure`, path `/` and no domain, so neither a page over
-http nor a sibling subdomain can plant one in its place. That holds whatever
+and named `__Host-session` (`__Secure-session` with a `domain`). A browser
+holds a `__Host-` cookie to `Secure`, path `/` and no domain, so neither a
+page over http nor a sibling subdomain can plant one in its place. That holds whatever
 scheme the request came over, since behind a proxy that ends TLS the app
 sees http. A browser sends it back only over https, so the tests' client is
 one on an https page (`scheme = "https"`). An app in development mode
 ([`Dev.app`]) follows the request's scheme, so it works over plain http on
-the loopback; one served over plain http anywhere else passes
+the loopback. An app served over plain http anywhere else passes
 `secure = false`, and its cookie is a plain `session`.
 
 ```teal file=greet_test.tl

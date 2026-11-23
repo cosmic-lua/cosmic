@@ -5,20 +5,26 @@
 A [`cosmic.web`] app ships as one program: `cosmic build` makes an
 executable with `static/` and htmx inside it, and the program is
 configured by its environment. This guide builds `hello`, a tiny app with a
-stylesheet, and the configuration a deployment needs: where it listens, the
-keys, where the proxy in front is, which hosts it answers to and whether the
-site is https for good. It starts from an empty directory and needs only
-what [web apps](web.md) says about routes and the app; the settings it
-touches are explained in [the sessions](web-sessions.md) and
+stylesheet, and the configuration a deployment needs:
+
+- where it listens
+- the keys
+- where the proxy in front is
+- which hosts it responds to
+- whether the site is https for good
+
+It starts from an empty directory, and needs only what [web apps](web.md)
+says about routes and the app. The settings it touches are explained in [the sessions](web-sessions.md) and
 [security](web-security.md) guides.
 
 ## building
 
-`cosmic build` writes the program of `cmd/hello/main.tl` (the name of its
-directory) into the build directory, with every file under `static/` and the
-htmx files inside it (and those under `cmd/hello/static/`, which `hello` alone
-carries, each in place of a file of the same path under `static/`). `cosmic build --host` makes a native executable for
-the machine it runs on, which needs no shell. Nothing is read from the
+`cosmic build` writes the program of `cmd/hello/main.tl` (named for its
+directory) into the build directory. Every file under `static/` and the
+htmx files are inside it. So are the files under `cmd/hello/static/`, which
+`hello` alone carries, each in place of a file of the same path under
+`static/`. `cosmic build --host` makes a native executable for the machine
+it runs on, which needs no shell. Nothing is read from the
 source tree at run time, so the executable can be copied alone to the
 server.
 
@@ -33,17 +39,16 @@ end
 ## static files and fingerprints
 
 A file under `static/` is a public asset. [`StaticFiles.mount`] serves the
-directory under a prefix and names itself `static`, and
-`app:url_for("static", { path = "app.css" })` answers the fingerprinted
-name: ten hex digits of the content hash are part of the name, as in
-`/static/app.<10 hex>.css`, so a changed file has a new URL and an old one
-may be cached for a year (`immutable`). A page links the fingerprinted name,
+directory under a prefix and names itself `static`.
+`app:url_for("static", { path = "app.css" })` returns the fingerprinted
+name. Ten hex digits of the content hash are part of the name, as in
+`/static/app.<10 hex>.css`. So a changed file has a new URL, and an old
+one may be cached for a year (`immutable`). A page links the fingerprinted name,
 and a plain name still works with revalidation. A stale fingerprint is a
-404, never a different file's bytes. A file is answered with a strong ETag
-from its content hash, `If-None-Match`, `Range` and stored zstd and gzip variants,
-and a request for a hidden file or a path that climbs out of the root is a
-404. What the app makes as it answers (a page, a JSON answer) has no stored
-variant: `Web.serve(app, { compress = true, ... })` has the server compress
+404, never a different file's bytes. A file is served with a strong ETag from its content hash, with
+`If-None-Match`, `Range`, and stored zstd and gzip variants. A request for
+a hidden file, or for a path that climbs out of the root, is a 404. What
+the app makes as it responds (a page, a JSON body) has no stored variant: `Web.serve(app, { compress = true, ... })` has the server compress
 a text reply for the client's `Accept-Encoding`, as
 [`Server.ServeSpec.compress`] says, with its warning on secrets beside
 reflected input.
@@ -53,8 +58,8 @@ body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; 
 ```
 
 A test of the app gives it [`Assets.memory`] in place of the executable's
-files, because a test of a project with a `cmd/` main is not a built program
-and has none embedded. [`Assets.directory`] reads a directory and
+files. A test of a project with a `cmd/` main is not a built program, so
+it has no embedded files. [`Assets.directory`] reads a directory and
 [`Assets.embedded`] the executable's own.
 
 ## the settings
@@ -67,7 +72,7 @@ so that a test can give it any environment it likes:
 | `HELLO_KEYS` | signing keys for the session cookie, newest first (required) |
 | `HELLO_LISTEN` | `host:port` to listen on; default `127.0.0.1:8080` |
 | `HELLO_PROXIES` | where the proxy that ends TLS connects from, comma-separated: `loopback` for one on the same machine, or its addresses and prefixes (`10.0.0.0/8`) |
-| `HELLO_HOSTS` | the host names the app answers to, comma-separated |
+| `HELLO_HOSTS` | the host names the app responds to, comma-separated |
 | `HELLO_HTTPS` | `1` when the site is https for good |
 
 ```teal file=config.tl
@@ -86,7 +91,7 @@ local record Config
     port: integer
     --- Where the proxy that ends TLS connects from; nil for no proxy.
     proxies?: {string}
-    --- The hosts the app answers to; nil for any.
+    --- The hosts the app responds to; nil for any.
     hosts?: {string}
     --- Whether the site is https for good.
     https: boolean
@@ -128,10 +133,10 @@ name its hosts, since the `Host` header is the client's.
 
 `HELLO_HTTPS` is for the day the site is https for good. It turns on HSTS,
 which a browser keeps for the whole `max_age`, so it stays off until then.
-The session cookie needs no setting: it is `Secure` and named
-`__Host-session` (`__Secure-session` with a `domain`), a name the browser
-accepts only from a secure origin, for path `/` and with no `domain`,
-whatever scheme the app sees behind the proxy. A site served over plain http
+The session cookie needs no setting, whatever scheme the app sees behind
+the proxy. It is `Secure`, and named `__Host-session` (`__Secure-session`
+with a `domain`). The browser accepts a `__Host-` cookie only from a
+secure origin, for path `/`, and with no `domain`. A site served over plain http
 passes `secure = false` to [`Session.middleware`], or no browser sends the
 cookie back.
 
@@ -154,7 +159,7 @@ local record Hello
     assets?: Assets.Source
     --- Where the proxy that ends TLS connects from; nil for no proxy.
     proxies?: {string}
-    --- The hosts the app answers to; nil for any.
+    --- The hosts the app responds to; nil for any.
     hosts?: {string}
     --- Whether the site is https for good.
     https?: boolean
@@ -207,7 +212,7 @@ takes:
 - **`grace_ns`**, the time requests in flight have once the server stops.
 
 The app itself keeps `debug` false, since `debug = true` shows a fault's
-stack; `error_pages` and `error_view` make the pages that answer a status.
+stack; `error_pages` and `error_view` make the pages for an error status.
 A development app ([`Dev.app`], see the first guide) refuses to listen beyond
 the loopback, or at a socket file.
 
