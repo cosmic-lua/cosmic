@@ -599,7 +599,7 @@ local function version(argv: {string}): integer
   -- launch is hashed in its place, and an unlinked one fails.
   local digest, digest_trouble = Hash.hex_file("sha256", path)
   if digest == nil then
-    log:complain("--version: " .. digest_trouble)
+    log:complain("--version: " .. tostring(digest_trouble))
     return 1
   end
   log:say("cosmic " .. digest)
