@@ -428,7 +428,7 @@ local function listed(set: Jobs.Set): Tools.Result
   for _, j in ipairs(set.list) do
     local _ = Jobs.settle(j)
     local line = j.command:gsub("\n.*", " ...")
-    if #line > 80 then line = line:sub(1, 77) .. "..." end
+    if #line > 80 then line = String.cut(line, 77) .. "..." end
     out[#out + 1] = string.format("job %d  %s  %ds  %s", j.id, state(j), ran(j), line)
   end
   return ok(table.concat(out, "\n"))
@@ -509,7 +509,7 @@ local function rows_of(db: Sqlite.Handle, query: string, session?: integer): Too
     local _, breaks = line:gsub("\n", "")
     if lines_used + 1 + breaks > MAX_LINES or bytes + 1 + #line > MAX_BYTES then
       if rows == 0 then
-        local part = line:sub(1, math.max(MAX_BYTES - bytes - 1, 0))
+        local part = String.cut(line, math.max(MAX_BYTES - bytes - 1, 0))
         local at: integer? = 0
         for _ = 1, MAX_LINES - lines_used do
           if at == nil then break end

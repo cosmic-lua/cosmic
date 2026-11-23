@@ -44,8 +44,8 @@
 ---   what the host says of itself; only for a module that declares
 ---   `cpu_features`, the processor's features a core chooses code by
 ---   ([`host_cpu`]); and, only for a module that declares `system`, what
----   the host has installed ([`system_identity`]): its packages and the
----   system it says it is;
+---   the host has installed ([`system_identity`]): its packages, the
+---   system it says it is, and the name it gives its system;
 --- - the module's graph key ([`build.positions`]' `graph_key`), over its
 ---   import graph's kinds and sources, the standard library's included;
 --- - the compiler's identity ([`build.identity`]'s `Identities`), as the
@@ -1231,7 +1231,10 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- Xcode and its command line tools, whose shims /usr/bin's git, make
 --- and cc are, and /opt/homebrew and /usr/local -- as CI's macOS leg
 --- names its runner image there. Only [`system_identity`] reads it, so
---- only a module given the system's paths is keyed by it.
+--- only a module given the system's paths is keyed by it. The paths
+--- themselves are not walked, so a Linux runner outside a container may
+--- set it as the macOS leg does ("$ImageOS $ImageVersion") for its
+--- verdicts to move with its image.
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
 --- What a key holds of the host's kernel ([`host_kernel`]), as `from`'s
