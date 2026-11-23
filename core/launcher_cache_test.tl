@@ -14,8 +14,10 @@ local sys = require("cosmic.sys")
 --- The program itself, which its tests start through its launcher, and
 --- the host's programs the launcher runs: `sh`, and the `uname`, `id`,
 --- `stat`, `mkdir`, `mktemp`, `dd`, `head`, `wc`, `sha256sum`, `chmod`,
---- `ln`, `rm` and `rmdir` it calls (build/launcher.tl; build/launcher_test.tl
---- holds what this module grants to what the launcher's text runs), each granted
+--- `ln`, `rm` and `rmdir` it calls, and the kernel's names of the OS and
+--- machine it reads in uname's place (build/launcher.tl;
+--- build/launcher_test.tl holds what this module grants to what the
+--- launcher's text runs), each granted
 --- where a host has it, under /bin or /usr/bin: a grant of a path a host
 --- lacks gives nothing. The `shasum` it falls back to is macOS's, where no
 --- worker is sandboxed. A portable artifact is a `#!/bin/sh` script by
@@ -36,6 +38,7 @@ Test.policy{ profiles = { "cosmic" }, grants = {
   { path = "/bin/ln", letters = "r" }, { path = "/usr/bin/ln", letters = "r" },
   { path = "/bin/rmdir", letters = "r" }, { path = "/usr/bin/rmdir", letters = "r" },
   { path = "/bin/sha256sum", letters = "r" }, { path = "/usr/bin/sha256sum", letters = "r" },
+  { path = "/proc/sys/kernel/ostype", letters = "r" }, { path = "/proc/sys/kernel/arch", letters = "r" },
   { path = "o/bin", letters = "rx" } } }
 
 local function environment(): mut {string:string}
@@ -166,4 +169,128 @@ local function test_a_setgid_leaf_is_judged_without_the_bit(tmp: string)
   assert(r.ok and r.stdout == "ok\n", err)
   local w, werr = launch_with_mode(program, tmp, "setgid-group-write", 0x5f8)
   assert(not w.ok and w.code == 126 and werr:find("writable by group or others", 1, true) ~= nil, werr)
+end
+
+--- Launches this artifact with `cache` as its cache leaf and a PATH that finds `uname` alone, so a launch that
+--- runs any other program (`stat`, `sha256sum`) fails. A warm start runs none: where the kernel names the machine
+--- (outside a sandbox, whose /proc has no sys/), not even `uname`.
+local function launch_bare(program: string, cache: string, dir: string): Child.Result
+  local bare = dir .. "/only-uname"
+  if not assert(Fs.status(bare)).exists then
+    assert(Fs.mkdirs(bare))
+    local uname = if assert(Fs.status("/bin/uname")).exists then "/bin/uname" else "/usr/bin/uname" end
+    assert(Fs.symlink(uname, bare .. "/uname"))
+  end
+  local env = environment()
+  env["COSMIC_PORTABLE_CACHE"] = cache
+  env["PATH"] = bare
+  return (assert(Child.run({ program, "ok.tl" }, { env = env, cwd = dir,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
+end
+
+--- A cache leaf of a warm entry, stamped: skipped off Linux, whose launcher's cold path runs other programs.
+local function stamped_cache(tmp: string): (string, string)
+  relaunch_or_skip()
+  local names = sys.uname()
+  if names == nil or names.sysname ~= "Linux" then
+    Test.skip("the stamp's launches use Linux's tools")
+  end
+  local program = assert(Proc.executable())
+  local cache = tmp .. "/cache"
+  assert(Fs.write(tmp .. "/ok.tl", "return function(): integer print('ok') return 0 end\n"))
+  launch(program, cache, tmp)
+  assert(Clock.sleep_ns(1100000000))
+  launch(program, cache, tmp)
+  assert(stamps(cache) == 1, "a settled entry is stamped")
+  return program, cache
+end
+
+--- The entry of `cache`: its one core.
+local function entry_of(cache: string): string
+  for _, name in ipairs((assert(Fs.list(cache)))) do
+    if name:sub(1, 5) == "core-" then return cache .. "/" .. name end
+  end
+  error("the cache holds no core")
+end
+
+--- A warm start of a stamped entry runs no program but the shell, and `uname` where the kernel does not name the
+--- machine.
+local function test_a_warm_start_runs_no_program(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local r = launch_bare(program, cache, tmp)
+  assert(r.ok and r.stdout == "ok\n", tostring(r.stderr))
+end
+
+--- What a warm start's shell cannot see, startup checks: a leaf group or others can write is refused with its
+--- remedy, though the shell ran no `stat` to see it.
+local function test_a_warm_start_refuses_a_leaf_others_can_write(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  assert(Fs.chmod(cache, 0x1f8))
+  local r = launch_bare(program, cache, tmp)
+  assert(Fs.chmod(cache, 0x1c0))
+  local err = r.stderr or ""
+  assert(not r.ok and err:find("writable by group or others", 1, true) ~= nil and
+      err:find("chmod go-w", 1, true) ~= nil, err)
+end
+
+--- An entry that is no longer mode 0500 is refused by startup and removed with its stamp, so the next launch
+--- extracts it again and runs.
+local function test_a_warm_start_removes_an_entry_of_another_mode(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local entry = entry_of(cache)
+  assert(Fs.chmod(entry, 0x1c0))
+  local r = launch_bare(program, cache, tmp)
+  local err = r.stderr or ""
+  assert(not r.ok and err:find("is not mode 0500 (mode 700); removed it", 1, true) ~= nil, err)
+  assert(not assert(Fs.status(entry)).exists and stamps(cache) == 0, "the refused entry or its stamp is left")
+  launch(program, cache, tmp)
+end
+
+--- An entry this user cannot run (0600, as a copy that dropped the bit leaves it) is not taken by the warm start,
+--- whose exec would fail on it each time: the launcher's full path repairs it, and the launch runs.
+local function test_an_entry_with_no_run_bit_is_repaired(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local entry = entry_of(cache)
+  assert(Fs.chmod(entry, 0x180))
+  local env = environment()
+  env["COSMIC_PORTABLE_CACHE"] = cache
+  local r = assert(Child.run({ program, "ok.tl" }, { env = env, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) }))
+  assert(r.ok and r.stdout == "ok\n" and (r.stderr or ""):find("mode is not 0500; repairing", 1, true) ~= nil,
+    tostring(r.stderr))
+end
+
+--- Writes `bytes` over the entry `entry`, leaving it mode 0500 as the launcher made it.
+local function overwrite(entry: string, bytes: string)
+  assert(Fs.chmod(entry, 0x1c0))
+  assert(Fs.write(entry, bytes, 0x1c0))
+  assert(Fs.chmod(entry, 0x140))
+end
+
+--- A stamped entry damaged in place, shorter than its core or of its length, is refused by startup and removed with
+--- its stamp, so the next launch extracts it again and runs.
+local function test_a_warm_start_removes_a_damaged_entry(tmp: string)
+  local program, cache = stamped_cache(tmp)
+  local entry = entry_of(cache)
+  local bytes = assert(Fs.read(entry))
+  local record Damage
+    bytes: string
+    says: string
+  end
+  local damages: {Damage} = {
+    { bytes = bytes:sub(1, #bytes - 1), says = "length differs from the manifest; removed it" },
+    { bytes = bytes:sub(1, #bytes - 1) .. (if bytes:sub(-1) == "x" then "y" else "x" end),
+      says = "digest differs from the manifest; removed it" },
+  }
+  for _, damage in ipairs(damages) do
+    overwrite(entry, damage.bytes)
+    local r = launch_bare(program, cache, tmp)
+    local err = r.stderr or ""
+    assert(not r.ok and err:find(damage.says, 1, true) ~= nil, err)
+    assert(not assert(Fs.status(entry)).exists and stamps(cache) == 0, "the damaged entry or its stamp is left")
+    launch(program, cache, tmp)
+    assert(Clock.sleep_ns(1100000000))
+    launch(program, cache, tmp)
+    assert(stamps(cache) == 1, "the extracted entry is stamped again")
+  end
 end

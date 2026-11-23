@@ -148,16 +148,21 @@ across rename, unlink, replacement, and database-only rebuilds.
 ## select and cache one core
 
 The generated shell in [`build.launcher`](../../../build/launcher.tl) maps
-`uname -sm` to a generated release record. On Linux x86_64 it then reads
-the `flags` line of `/proc/cpuinfo` and exits 126, naming the missing
-features, when the CPU lacks what the core's x86-64-v3 build needs (AVX,
-AVX2, FMA, BMI1 and BMI2, F16C, MOVBE, LZCNT, XSAVE). On Linux aarch64 it
-does the same with the `Features` line, for what the core's Armv8.2-A
-build needs: `asimddp` (dot-product), `asimdhp` and `fphp` (half-precision
-floats), `atomics` (LSE), `asimdrdm` and `crc32`. A host with no such line
-is not refused. It opens the artifact before changing the
-cache. It validates the cache leaf's kind, owner, mode,
-and contents. The cache parent is the user's trust boundary.
+the OS and machine (`/proc/sys/kernel`'s `ostype` and `arch`, or
+`uname -sm`) to a generated release record. It reads no CPU flags: a CPU
+older than the core's build (x86-64-v3, or Armv8.2-A with dot-product and
+half-precision floats) stops the core with SIGILL. It opens the artifact
+before changing the cache. The cache parent is the user's trust boundary.
+
+A warm start runs no child process. Where the cache leaf and the entry
+are this user's, neither is a symbolic link, and startup's verified stamp
+stands beside the entry, the shell execs the core at once. Startup then
+checks what the shell's builtins cannot see: the leaf is this user's (or
+root's) and no group or others can write it, and the entry is owned so
+and is mode 0500. A leaf that fails is refused; an entry that fails is
+removed with its stamp, so the next launch extracts it again. Any other
+start takes the full path: it validates the cache leaf's kind, owner,
+mode, and contents, and repairs what it can.
 
 On a cold start, the launcher copies the selected manifest range to a private
 temporary file, verifies its length and SHA-256 digest, sets its mode, and

@@ -106,10 +106,9 @@ That is Intel Haswell (2013) or AMD Excavator (2015) or newer mainstream
 cores, but not Atom-class or AVX-less Pentium and Celeron parts, which
 are still sold without AVX2. It buys wide vectors and fused multiply-add
 in the numeric kernels (the vector search above all) with no runtime
-dispatch, one core and one set of bytes to verify. The launcher reads
-the CPU's flags before extracting anything and refuses a CPU without
-them by naming what is missing, rather than letting the core die with
-SIGILL.
+dispatch, one core and one set of bytes to verify. On an older CPU the
+core dies with SIGILL: the launcher does not read the CPU's flags, which
+would cost every start to name what only a CPU from before 2013 lacks.
 
 The aarch64 Linux core is built for Armv8.2-A with the dot-product and
 half-precision floating-point extensions (and what Armv8.1-A brought:
@@ -122,9 +121,8 @@ boards from before 2017. It buys `sdot` for the integer kernels, native
 half-precision arithmetic and single-instruction atomics with no runtime
 dispatch. The model is the generic Armv8 one with those features added,
 so the code is not scheduled for one chip, and the optional cryptographic
-extensions stay off. The launcher reads the `Features` line of
-`/proc/cpuinfo` and refuses a CPU without them, as it does on x86_64. The
-aarch64 macOS core stays at Apple M1, the oldest Apple silicon Mac.
+extensions stay off. An older CPU stops the core with SIGILL, as on
+x86_64. The aarch64 macOS core stays at Apple M1, the oldest Apple silicon Mac.
 The host tools the build runs stay at each architecture's baseline, since
 their bytes key the build's caches across runners.
 
