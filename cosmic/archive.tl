@@ -16,8 +16,9 @@ local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
 local String = require("cosmic.string")
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
+--- What a failure of this module's `*_text` forms answers, nil and
+--- `why` under the module's name, which the public functions make a
+--- Failure.
 local function refuse(why: string): nil, string
   return nil, "archive: " .. why
 end
@@ -201,10 +202,8 @@ local function open_tar(kind: string, source: Stream.Reader, label: string):
   return draining(Tar.reader(transformed), transformed), ""
 end
 
---- Detects `path`'s format from its first bytes and returns a reader
---- over its entries, uniform whether it turns out to be a zip, a
---- plain ustar tar, or a tar compressed with gzip, xz, bzip2 or zstd.
-function Archive.open(path: string): Archive.Reader?, string
+-- Archive.open, its failure in words.
+local function open_text(path: string): Archive.Reader?, string
   local fd, trouble = Fs.open_read(path)
   if fd == nil then return nil, tostring(trouble) end
   local head, htrouble = Fs.take(fd, 262)
@@ -220,14 +219,17 @@ function Archive.open(path: string): Archive.Reader?, string
   return open_tar(kind, raw, path)
 end
 
---- Like `open`, for an archive that arrives as a stream (a pipe, a
---- socket) rather than as a file: a plain, gzip, xz, bzip2 or zstd tar, read
---- as `source` yields it, so memory stays bounded however long it is.
---- The format is detected from the first bytes, which are not lost.
---- A zip is refused, since reading one means seeking in it: write the
---- stream to a file and `open` that. Closing the reader closes `source`,
---- which is closed here as well when this fails.
-function Archive.open_stream(source: Stream.Reader): Archive.Reader?, string
+--- Detects `path`'s format from its first bytes and returns a reader
+--- over its entries, uniform whether it turns out to be a zip, a
+--- plain ustar tar, or a tar compressed with gzip, xz, bzip2 or zstd.
+function Archive.open(path: string): (Archive.Reader) | (nil, Failure)
+  local value, why = open_text(path)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Archive.open_stream, its failure in words.
+local function open_stream_text(source: Stream.Reader): Archive.Reader?, string
   local head, trouble = Stream.read_up_to(source, 262)
   if head == nil then
     local _, _ = source:close()
@@ -245,15 +247,25 @@ function Archive.open_stream(source: Stream.Reader): Archive.Reader?, string
   return open_tar(kind, Stream.prepend(head, source), "stream")
 end
 
+--- Like `open`, for an archive that arrives as a stream (a pipe, a
+--- socket) rather than as a file: a plain, gzip, xz, bzip2 or zstd tar, read
+--- as `source` yields it, so memory stays bounded however long it is.
+--- The format is detected from the first bytes, which are not lost.
+--- A zip is refused, since reading one means seeking in it: write the
+--- stream to a file and `open` that. Closing the reader closes `source`,
+--- which is closed here as well when this fails.
+function Archive.open_stream(source: Stream.Reader): (Archive.Reader) | (nil, Failure)
+  local value, why = open_stream_text(source)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 local function listed_open(_e: Archive.Entry): Stream.Reader?, string
   return refuse("an entry from Archive.list cannot be opened; walk Archive.open instead")
 end
 
---- Every entry `reader` yields, read to the end and then closed (on
---- every path), as [`Archive.extract_reader`] reads a reader. The
---- entries' `open` fails, since the reader is closed before this
---- returns; walk the reader to read bodies.
-function Archive.list_reader(reader: Archive.Reader): {Archive.Entry}?, string
+-- Archive.list_reader, its failure in words.
+local function list_reader_text(reader: Archive.Reader): {Archive.Entry}?, string
   local out: mut {Archive.Entry} = {}
   while true do
     local entry, etrouble = reader:next()
@@ -269,25 +281,37 @@ function Archive.list_reader(reader: Archive.Reader): {Archive.Entry}?, string
   end
 end
 
+--- Every entry `reader` yields, read to the end and then closed (on
+--- every path), as [`Archive.extract_reader`] reads a reader. The
+--- entries' `open` fails, since the reader is closed before this
+--- returns; walk the reader to read bodies.
+function Archive.list_reader(reader: Archive.Reader): ({Archive.Entry}) | (nil, Failure)
+  local value, why = list_reader_text(reader)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Archive.list, its failure in words.
+local function list_text(path: string): {Archive.Entry}?, string
+  local reader, trouble = open_text(path)
+  if reader == nil then return nil, trouble end
+  return list_reader_text(reader)
+end
+
 --- Every entry of the archive at `path`, as [`Archive.list_reader`]
 --- lists them. Walk [`Archive.open`] to read bodies.
-function Archive.list(path: string): {Archive.Entry}?, string
-  local reader, trouble = Archive.open(path)
-  if reader == nil then return nil, trouble end
-  return Archive.list_reader(reader)
+function Archive.list(path: string): ({Archive.Entry}) | (nil, Failure)
+  local value, why = list_text(path)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 ------------------------------------------------------------------
 -- writers
 ------------------------------------------------------------------
 
---- The format [`Archive.create`] would write at `path`, from the
---- suffix the name ends in, whatever its case: `.tar.gz` or `.tgz`,
---- `.tar.xz` or `.txz`, `.tar.bz2`, `.tbz2` or `.tbz`, `.tar.zst` or
---- `.tzst`, `.tar`, `.zip`. Any other name is nil and why, naming the
---- suffixes it knows. Nothing is read or created, so a caller can refuse a
---- name before doing work for it.
-function Archive.format_of(path: string): Archive.Format?, string
+-- Archive.format_of, its failure in words.
+local function format_of_text(path: string): Archive.Format?, string
   local lower = path:lower()
   if lower:match("%.zip$") then return "zip", "" end
   if lower:match("%.tar%.gz$") or lower:match("%.tgz$") then return "tar.gz", "" end
@@ -298,23 +322,21 @@ function Archive.format_of(path: string): Archive.Format?, string
   return refuse(path .. ": cannot tell the format from the name; end it in .tar.gz, .tgz, .tar.xz, .txz, .tar.bz2, .tbz2, .tbz, .tar.zst, .tzst, .tar or .zip")
 end
 
---- A writer of a new archive at `path`, of the format its name ends
---- in, whatever its case: `.tar.gz` or `.tgz` (a tar compressed with
---- gzip), `.tar.xz` or `.txz` (with xz, at preset 6), `.tar.bz2`,
---- `.tbz2` or `.tbz` (with bzip2, at the `bzip2` command's block size),
---- `.tar.zst` or `.tzst` (with zstd, at its default level), `.tar` or
---- `.zip`. The inverse of [`Archive.open`], which
---- reads any of them back. The bytes go to a temporary neighbor, as
---- [`Stream.create`] writes, so `path` holds nothing until `close`
---- succeeds, and then the whole archive; a failed call or `abort`
---- leaves `path` as it was. Any other name answers nil and why, naming
---- the suffixes it knows, and creates nothing.
----
----     local w = assert(Archive.create("release.tar.gz"))
----     assert(w:add_file("README", "read me first"))
----     assert(w:close())
-function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Writer?, string
-  local format, why = Archive.format_of(path)
+--- The format [`Archive.create`] would write at `path`, from the
+--- suffix the name ends in, whatever its case: `.tar.gz` or `.tgz`,
+--- `.tar.xz` or `.txz`, `.tar.bz2`, `.tbz2` or `.tbz`, `.tar.zst` or
+--- `.tzst`, `.tar`, `.zip`. Any other name is nil and a Failure, naming the
+--- suffixes it knows. Nothing is read or created, so a caller can refuse a
+--- name before doing work for it.
+function Archive.format_of(path: string): (Archive.Format) | (nil, Failure)
+  local value, why = format_of_text(path)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Archive.create, its failure in words.
+local function create_text(path: string, opts?: Archive.CreateOptions): Archive.Writer?, string
+  local format, why = format_of_text(path)
   if format == nil then return nil, why end
   local deterministic = opts ~= nil and opts.deterministic or false
   local codec: Compress.Stream?
@@ -341,6 +363,27 @@ function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Wri
   local sink: Stream.Writer = file
   if codec ~= nil then sink = Stream.transform_writer(file, codec) end
   return Tar.writer(sink, { deterministic = deterministic }), ""
+end
+
+--- A writer of a new archive at `path`, of the format its name ends
+--- in, whatever its case: `.tar.gz` or `.tgz` (a tar compressed with
+--- gzip), `.tar.xz` or `.txz` (with xz, at preset 6), `.tar.bz2`,
+--- `.tbz2` or `.tbz` (with bzip2, at the `bzip2` command's block size),
+--- `.tar.zst` or `.tzst` (with zstd, at its default level), `.tar` or
+--- `.zip`. The inverse of [`Archive.open`], which
+--- reads any of them back. The bytes go to a temporary neighbor, as
+--- [`Stream.create`] writes, so `path` holds nothing until `close`
+--- succeeds, and then the whole archive; a failed call or `abort`
+--- leaves `path` as it was. Any other name answers nil and a Failure, naming
+--- the suffixes it knows, and creates nothing.
+---
+---     local w = assert(Archive.create("release.tar.gz"))
+---     assert(w:add_file("README", "read me first"))
+---     assert(w:close())
+function Archive.create(path: string, opts?: Archive.CreateOptions): (Archive.Writer) | (nil, Failure)
+  local value, why = create_text(path, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 ------------------------------------------------------------------
@@ -435,16 +478,16 @@ local DEFAULT_MAX_ENTRY_BYTES <const> = 1 << 30
 local DEFAULT_MAX_BYTES <const> = 8 << 30
 
 --- The limit `value` names for the option `name`, or `default` when
---- there is none; raises, blaming level 3 (the caller of `extract` or
---- [`extract_reader`], which tail-call [`extract_from`]), for one that is
---- no whole number of at least 0.
+--- there is none; raises, blaming level 4 (the caller of `extract` or
+--- [`extract_reader`], which call [`extract_from`], which calls this), for
+--- one that is no whole number of at least 0.
 local function byte_limit(name: string, value: number?, default: integer): integer
   if value == nil then return default end
   local whole = math.tointeger(value)
   if whole == nil then
-    error("archive: " .. name .. " is not a whole number of bytes", 3)
+    error("archive: " .. name .. " is not a whole number of bytes", 4)
   elseif whole < 0 then
-    error("archive: " .. name .. " is negative", 3)
+    error("archive: " .. name .. " is negative", 4)
   end
   return whole
 end
@@ -469,15 +512,15 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   local opts: Archive.ExtractOptions = given or {}
   local max_entries = opts.max_entries
   if max_entries ~= nil and max_entries < 0 then
-    error("archive: max_entries is negative", 2)
+    error("archive: max_entries is negative", 3)
   end
   local entry_limit = byte_limit("max_entry_bytes", opts.max_entry_bytes, DEFAULT_MAX_ENTRY_BYTES)
   local total_limit = byte_limit("max_bytes", opts.max_bytes, DEFAULT_MAX_BYTES)
   local strip = opts.strip_components
   if strip ~= nil and math.tointeger(strip) == nil then
-    error("archive: strip_components is not a whole number of components", 2)
+    error("archive: strip_components is not a whole number of components", 3)
   elseif strip ~= nil and strip < 0 then
-    error("archive: strip_components is negative", 2)
+    error("archive: strip_components is negative", 3)
   end
   -- A float that is a whole number (2.0) counts as one.
   local count = if strip ~= nil then math.tointeger(strip) else nil end
@@ -485,7 +528,7 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   local entries_left = opts.max_entries
   local reader: Archive.Reader
   if from is string then
-    local opened, trouble = Archive.open(from)
+    local opened, trouble = open_text(from)
     if opened == nil then return nil, trouble end
     reader = opened
   else
@@ -779,10 +822,12 @@ end
 --- `max_bytes` is never put in place, and none of it is written past
 --- the limit.
 function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
-    {string}?, string
-  -- A tail call: [`extract_from`]'s argument errors, raised at level 2,
-  -- blame this function's caller.
-  return extract_from(path, dest, opts)
+    ({string}) | (nil, Failure)
+  -- [`extract_from`]'s argument errors, raised at level 3, blame this
+  -- function's caller.
+  local written, why = extract_from(path, dest, opts)
+  if written == nil then return nil, Failure.new(why) end
+  return written
 end
 
 --- Like `extract`, for the entries `reader` yields (from [`open_stream`],
@@ -793,9 +838,11 @@ end
 --- already written: unpack into a scratch directory and move it into
 --- place to have all or nothing.
 function Archive.extract_reader(reader: Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
-    {string}?, string
-  -- A tail call, as in `extract`.
-  return extract_from(reader, dest, opts)
+    ({string}) | (nil, Failure)
+  -- Level 3, as in `extract`.
+  local written, why = extract_from(reader, dest, opts)
+  if written == nil then return nil, Failure.new(why) end
+  return written
 end
 
 return Archive
