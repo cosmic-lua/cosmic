@@ -1815,11 +1815,23 @@ local doc_rules: {DocRule} = {
 --- `build.<module>` the tree has, `core/`, `cosmic.internal`,
 --- `cosmic/internal/`, `vendor/` and a C file's name (`foo.c`, not a
 --- header in angle brackets). `build.zig` is a file name, not a module.
-function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}): {string}
+--- @param files where given, the files (paths from the tree's root) whose docs are checked, as a run of `cosmic fix` over
+---   some paths checks them: no word is said of an exemption, since the files not named may answer to it
+function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}, files?: {string: boolean}): {string}
   excused = excused or doc_exempt
+  local named = ""
+  local values: mut {Sqlite.Value} = {}
+  if files ~= nil then
+    local marks: mut {string} = {}
+    for file in pairs(files) do
+      values[#values + 1] = { text = file }
+      marks[#marks + 1] = "?"
+    end
+    named = " AND d.file IN (" .. table.concat(marks, ", ") .. ")"
+  end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
-      symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
+      symbols.shown_docs("d", true) .. " AND d.text <> ''" .. named .. " ORDER BY d.file, d.line, d.id", values)
   if rows == nil then
     return { "reading the public docs: " .. tostring(trouble) }
   end
@@ -1861,7 +1873,8 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
     end
   end
   local stale: mut {string} = {}
-  for key in pairs(excused) do
+  local unexcused: {string: string} = {}
+  for key in pairs(if files == nil then excused else unexcused end) do
     if found[key] ~= true then
       stale[#stale + 1] = key .. ": exempt, but its doc no longer breaks the rule -- " ..
         "remove the exemption"
