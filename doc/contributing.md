@@ -72,7 +72,8 @@ conflict with the parent's squash.
   fixture: [`ci/run-local`] (`ci/run-local fixtures` to re-run edited
   fixtures), and for C the checklist in [`doc/c.md`]. a change to `ci/`
   also needs `../bin/cosmic fix --check` from `ci/`, a tree of its own
-  with its own build directory. its `fixtures/*_test.tl` run only under
+  with its own build directory, and `../bin/cosmic-bootstrap fix --check .`,
+  the pinned release's check of the same files. its `fixtures/*_test.tl` run only under
   the CI driver. run as root, [`ci/run-local`] runs the driver as an
   unprivileged user (`COSMIC_CI_LOCAL_USER`), as CI's runners are. the
   launcher fixture's core is a stand-in that checks nothing: a case about

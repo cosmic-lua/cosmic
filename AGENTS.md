@@ -23,8 +23,11 @@ The operating guide every agent session loads. Detail lives in
   a line or two lives under `.github/scripts/`. A job gets the pinned CI
   driver on its PATH with `uses: ./.github/actions/cosmic-driver`.
 - `ci/` is a tree of its own: after editing it, run `../bin/cosmic fix
-  --check` from `ci/`. [`doc/contributing.md`] says when to run
-  [`ci/run-local`].
+  --check` from `ci/`. Its code also runs on the pinned release
+  (ci/cosmic-driver.pin), whose checker is older: run
+  `../bin/cosmic-bootstrap fix --check .` from `ci/` too, with
+  COSMIC_BOOTSTRAP unset, which fetches and caches the pin.
+  [`doc/contributing.md`] says when to run [`ci/run-local`].
 - Run the tool only as [`bin/cosmic`], from any directory and with the
   checkout at any path; never by its path in the build directory. It
   passes its arguments and exit status through, and runs
