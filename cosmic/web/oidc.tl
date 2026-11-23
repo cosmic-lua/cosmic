@@ -155,7 +155,7 @@ local record Oidc
     --- logout goes through the provider; else it ends the app's session
     --- alone.
     provider_logout?: string
-    --- Claims of the ID token to keep in [`Oidc.Identity.claims`]
+    --- Claims of the ID token to keep in [`cosmic.web.identity.Oidc.claims`]
     --- beside the standard ones (`groups`, say). Each is kept in the
     --- session: under the signed cookie store, all of the session must
     --- fit in its cookie, and a login whose claims do not is a 500.
