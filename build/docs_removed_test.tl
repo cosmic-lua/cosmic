@@ -12,33 +12,27 @@ local function source(...: string): string
   return table.concat({ ... }, "\n") .. "\n"
 end
 
---- A standard-library module `name` (`net`) that documents [`Net.unix`]
---- and nothing else; `extra` is more of its source, before its return.
-local function module(name: string, record: string, extra?: string): string
+--- The standard-library module `env`, whose [`Env.get`] the
+--- `os.getenv` query finds.
+local function env_module(): string
   return source(
-    "--- The " .. name .. " module.",
+    "--- The env module.",
     "",
-    "local record " .. record,
+    "local record Env",
     "end",
     "",
-    "--- A live member.",
-    "function " .. record .. ".unix(path: string): string",
-    "  return path",
+    "--- One variable; this is the os.getenv operation.",
+    "function Env.get(name: string): string?",
+    "  return name",
     "end",
     "",
-    extra or "",
-    "return " .. record)
+    "return Env")
 end
 
 --- The tree each test queries.
 local function tree(): {string: string}
   return {
-    ["cosmic/env.tl"] = module("env", "Env", source(
-      "--- One variable; this is the os.getenv operation.",
-      "function Env.get(name: string): string?",
-      "  return name",
-      "end",
-      "")),
+    ["cosmic/env.tl"] = env_module(),
   }
 end
 
