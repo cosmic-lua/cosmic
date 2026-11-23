@@ -216,7 +216,7 @@ function paths.prepare(root: string, environment?: {string:string}): string?, st
   if selected.none ~= "" then return nil, selected.none end
   if selected.cache then
     local made, made_trouble = cache_dir("trees", { environment = environment })
-    if made == nil then return nil, "build directory base " .. made_trouble end
+    if made == nil then return nil, "build directory base " .. tostring(made_trouble) end
   else
     local made, made_trouble = mkdirs(dirname(selected.home))
     if not made then return nil, "COSMIC_BUILD_HOME " .. tostring(made_trouble) end

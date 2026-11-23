@@ -176,7 +176,7 @@ function shared_verdicts.location(environment?: {string:string}, checked?: boole
     return value, ""
   end
   local dir, trouble = Fs.cache_dir("verdicts", { environment = environment })
-  if dir == nil then return nil, trouble end
+  if dir == nil then return nil, tostring(trouble) end
   return dir .. (if checked == true then "/verdicts-checked.db" else "/verdicts.db" end), ""
 end
 

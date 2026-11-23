@@ -178,7 +178,7 @@ end
 --- an arena's bin/cosmic or its verdicts. `opts` are [`Fs.cache_dir`]'s.
 function Round.default_out(model: string, commit: string, opts?: Fs.CacheOptions): string?, string
   local base, why = Fs.cache_dir("evals", opts)
-  if base == nil then return nil, why end
+  if base == nil then return nil, tostring(why) end
   return base .. "/" .. (model:gsub("[^%w%._-]", "-")) .. "-" .. commit, ""
 end
 

@@ -1839,7 +1839,7 @@ function Orchestration.seed_compiles(env: {string:string},
   end
   if source == "" then
     local dir, trouble = Fs.cache_dir("build", { environment = env, make = false })
-    if dir == nil then return false, trouble end
+    if dir == nil then return false, tostring(trouble) end
     source = dir .. "/cache.db"
   end
   if source:sub(1, 1) ~= "/" then

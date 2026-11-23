@@ -655,7 +655,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if not ok then return fail(download_trouble) end
   elseif to_cache then
     local dir, dir_trouble = Fs.cache_dir("bootstrap", { environment = to.env })
-    if dir == nil then return fail(dir_trouble) end
+    if dir == nil then return fail(tostring(dir_trouble)) end
     local path = dir .. "/cosmic-" .. digest
     local have, _ = Fs.read(path)
     if have == nil or Hash.hex_sha256(have) ~= digest then

@@ -18,7 +18,7 @@ local function test_a_cache_is_where_its_tool_puts_it()
   local zig = caches.all({ "zig" }, "/repo", env)
   assert(table.concat(zig, " ") == "/c/cosmic/zig /c/cosmic/zig-global /c/cosmic/zig-project",
     table.concat(zig, " "))
-  assert(zig[2] == zig_caches.paths("/repo", env)[1] and zig[1] == Fs.cache_dir("zig", { environment = env, make = false }))
+  assert(zig[2] == zig_caches.paths("/repo", env)[1] and zig[1] == assert(Fs.cache_dir("zig", { environment = env, make = false })))
   local moved = caches.all({ "zig", "bootstrap" }, "/repo", { HOME = "/h",
     COSMIC_ZIG_GLOBAL_CACHE = "/g", ZIG_LOCAL_CACHE_DIR = "/l", COSMIC_PORTABLE_CACHE = "/p" })
   assert(table.concat(moved, " ") == "/h/.cache/cosmic/zig /g /h/.cache/cosmic/zig-project " ..

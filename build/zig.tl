@@ -481,7 +481,7 @@ local function locate(root: string): Located?, string
   end
   local cache, ctrouble = Fs.cache_dir("zig")
   if cache == nil then
-    return nil, ctrouble
+    return nil, tostring(ctrouble)
   end
   local install, trouble = Zig.pinned_install(root, cache)
   if install == nil then
