@@ -19,7 +19,7 @@ function Example.directory()
   local environment = { COSMIC_BUILD_HOME = dir .. "/builds" }
   local location = assert(Project.directory(dir .. "/notes", environment))
   print(location.none == "", Fs.dirname(location.directory) == assert(sys.realpath(dir)) .. "/builds")
-  assert(Fs.exists(location.directory) == false)
+  assert(not assert(Fs.status(location.directory)).exists)
   assert(assert(Project.directory(dir .. "/notes/.", environment)).directory == location.directory)
   local inside = assert(Project.directory(dir .. "/notes", { COSMIC_BUILD_HOME = dir .. "/notes/o" }))
   print(inside.directory == "", inside.none ~= "")

@@ -892,10 +892,11 @@ function importer.derive(handle: work.Handle, shared?: importer.Shared,
                          broken?: mut {derivation.Broken}, outcome?: importer.Outcome): importer.Parses?, string
   local db = handle.db
   if not work.standing(handle).own then
-    local reserved, reserved_trouble = Fs.is_dir(handle.root .. "/cosmic")
-    if reserved == nil then
-      return nil, reserved_trouble
+    local reserved_status, reserved_trouble = Fs.status(handle.root .. "/cosmic")
+    if reserved_status == nil then
+      return nil, tostring(reserved_trouble)
     end
+    local reserved = reserved_status.is_dir
     if reserved then
       return nil, "cosmic: the 'cosmic' directory is reserved to cosmic's own tree, which only the tool built from it reads; " ..
         "run bin/cosmic, which runs that tool"

@@ -22,8 +22,7 @@ local function test_a_test_directory_is_reached_through_a_link(tmp: string)
   local resolved = assert(Fs.absolute(tmp))
   assert(resolved ~= tmp, resolved)
   do
-    local held_true, held_why = Fs.is_dir(resolved)
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(resolved)).is_dir)
   end
   local scratch = assert(test_key.scratch())
   assert(assert(Fs.absolute(scratch)) == scratch, scratch)

@@ -619,10 +619,11 @@ local vendored_key <const> = "projection_vendored"
 --- the writer's identity holds. Nil where a file is there and cannot be read.
 local function vendored_digest(root: string): string?
   local function digest_of(path: string): string?
-    local there, _ = Fs.exists(path)
-    if there == nil then
+    local there_status, _ = Fs.status(path)
+    if there_status == nil then
       return nil
     end
+    local there = there_status.exists
     if not there then
       return "-"
     end
@@ -1130,7 +1131,8 @@ function writer.write_result(handle: work.Handle, out: string,
   if not attached then return false, attach_trouble end
   -- The file there, if it is a projection, is the base of the write ([`usable_base`]).
   local based = false
-  local there, _ = Fs.exists(out)
+  local there_status, _ = Fs.status(out)
+  local there = there_status ~= nil and there_status.exists
   if there == true then
     local joined, _ = Sqlite.run(db, "ATTACH DATABASE ?1 AS prev", { text(out) })
     based = joined

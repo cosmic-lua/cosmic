@@ -169,11 +169,11 @@ local function test_tmp_is_made_writable_named_by_tmpdir_and_removed(tmp: string
   local dir = out.said:match("^TMPDIR=([^\n]+)\n")
   assert(dir ~= nil and out.said:find("\nhello\n", 1, true) ~= nil, out.said)
   assert(dir:find("cosmic-sandbox-", 1, true), dir)
-  assert(Fs.exists(dir) == false, dir .. " was left behind")
+  assert(not assert(Fs.status(dir)).exists, dir .. " was left behind")
   -- A sibling of it is not the child's.
   local sibling = under(probe, policy, "write " .. tmp .. "/outside x")
   assert(sibling.code == 1 and sibling.said:find(DENIED, 1, true) ~= nil, sibling.said)
-  assert(Fs.exists(tmp .. "/outside") == false)
+  assert(not assert(Fs.status(tmp .. "/outside")).exists)
   -- No tmp, no TMPDIR.
   local without = under(probe, { grants = itself(probe) }, "env-of TMPDIR")
   assert(without.said == "TMPDIR unset\n", without.said)

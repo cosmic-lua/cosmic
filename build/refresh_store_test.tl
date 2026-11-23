@@ -215,7 +215,7 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   assert(Fs.write(pem, "Bad\n===\n-----BEGIN CERTIFICATE-----\nMANhYmM=\n-----END CERTIFICATE-----\n"))
   lines, trouble = refresh.binary(path, out, { datasets.cacert }, { cacert = pem }) -- checked: map_field
   assert(lines == nil and trouble:find("certificate 1 (Bad)", 1, true) ~= nil, trouble)
-  assert(Fs.exists(out) ~= true)
+  assert(not assert(Fs.status(out)).exists)
 
   -- Among roots it can read, it is left out, as the binary would drop
   -- it, and named.
@@ -232,7 +232,7 @@ local function test_a_bad_release_writes_nothing(tmp: string)
   assert(after:close())
   assert(want:close())
   assert(Fs.remove(out))
-  assert(Fs.exists(out) ~= true)
+  assert(not assert(Fs.status(out)).exists)
 end
 
 --- The command line: -o is required, and a dataset it does not know is

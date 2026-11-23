@@ -24,7 +24,7 @@ local function test_a_directory_is_named_without_being_made(tmp: string)
   local root, home = project(tmp)
   local directory = named(root, { COSMIC_BUILD_HOME = home })
   assert(Fs.dirname(directory) == home, directory)
-  assert(Fs.exists(home) == false, "naming the directory made its base")
+  assert(not assert(Fs.status(home)).exists, "naming the directory made its base")
 end
 
 --- With no COSMIC_BUILD_HOME the base is the user's cache, XDG_CACHE_HOME's

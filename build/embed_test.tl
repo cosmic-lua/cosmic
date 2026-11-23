@@ -29,10 +29,9 @@ local function test_a_tree_without_a_main_builds_and_writes_nothing(tmp: string)
   local names, trouble = embed.tree(tmp)
   assert(names ~= nil, trouble)
   assert(#names == 0, "a library tree has no executable to write")
-  local database_exists, exists_trouble = Fs.exists(support.build_dir(tmp) .. "/cosmic.db")
-  assert(database_exists ~= nil, exists_trouble)
+  local database_exists = assert(Fs.status(support.build_dir(tmp) .. "/cosmic.db")).exists
   assert(database_exists, "but it was built")
-  assert(Fs.exists(support.build_dir(tmp) .. "/bin") == false)
+  assert(not assert(Fs.status(support.build_dir(tmp) .. "/bin")).exists)
 end
 
 local function test_cosmic_s_own_tree_is_refused(tmp: string)
@@ -54,7 +53,7 @@ local function test_cosmic_s_own_tool_is_named_and_copied(tmp: string)
   assert(Fs.write(tool, "#!/bin/sh\necho the tool\n", 0x1ed))
   local named, trouble = embed.tree_tool(root)
   assert(named == tool, trouble)
-  assert(Fs.exists(root .. "/cosmic") == false, "with no out, nothing is written")
+  assert(not assert(Fs.status(root .. "/cosmic")).exists, "with no out, nothing is written")
   local out = tmp .. "/dist/nested"
   local again, copy_trouble = embed.tree_tool(root, out)
   assert(again == tool, copy_trouble)
@@ -71,7 +70,7 @@ local function test_cosmic_s_own_tree_with_no_tool_names_the_boot(tmp: string)
   assert(named == nil, "a tool was named where there is none")
   assert(trouble:find(support.build_dir(root) .. "/bin/cosmic", 1, true) ~= nil and
       trouble:find("bin/zig build boot", 1, true) ~= nil, trouble)
-  assert(Fs.exists(out) == false, "a directory was made for a copy that was not written")
+  assert(not assert(Fs.status(out)).exists, "a directory was made for a copy that was not written")
 end
 
 --- The verb in cosmic's own tree answers for the tool and builds no program: `--out` gets the copy, and what
@@ -90,10 +89,10 @@ local function test_build_in_cosmic_s_own_tree_takes_out_alone(tmp: string)
     for _, word in ipairs(words) do argv[#argv + 1] = word end
     assert(embed.run(argv, root, own) == 2, table.concat(words, " ") .. " was taken")
   end
-  assert(Fs.exists(tmp .. "/refused") == false, "a refused command line wrote a copy")
+  assert(not assert(Fs.status(tmp .. "/refused")).exists, "a refused command line wrote a copy")
   assert(embed.run({ "build", "--out", tmp .. "/dist" }, root, own) == 0)
   assert(assert(Fs.read(tmp .. "/dist/cosmic")) == assert(Fs.read(tool)), "the copy differs from the tool")
-  assert(Fs.exists(support.build_dir(root) .. "/bin/hello") == false, "a program of the tree was built")
+  assert(not assert(Fs.status(support.build_dir(root) .. "/bin/hello")).exists, "a program of the tree was built")
   assert(Fs.remove(tool))
   assert(embed.run({ "build" }, root, own) == 1, "a tree with no tool answered for one")
 end

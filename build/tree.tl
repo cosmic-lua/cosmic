@@ -77,8 +77,9 @@ end
 
 --- [`tree.standing`] once `here`, the canonical path of `root`, and `built`, what the tool records, are known.
 local function decided(root: string, here: string, built: string?, executable?: string): tree.Standing?, string
-  local core, core_trouble = Fs.is_dir(root .. "/core")
-  if core == nil then return nil, core_trouble end
+  local core_status, core_trouble = Fs.status(root .. "/core")
+  if core_status == nil then return nil, tostring(core_trouble) end
+  local core = core_status.is_dir
   if built == here and core then return { own = true }, "" end
   local inside, inside_trouble = tree.own_tool(root, executable)
   if inside == nil then return nil, inside_trouble end

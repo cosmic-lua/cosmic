@@ -102,7 +102,7 @@ local record verb
     --- A file written through a temporary neighbour, renamed into place
     --- on `close`: [`Stream.create`].
     create: function(path: string): Stream.Writer?, string
-    --- Whether a path is there: [`Fs.exists`].
+    --- Whether a path is there, as [`Fs.status`] finds it.
     exists: function(path: string): boolean?, string
     --- Whether a path is a directory there.
     is_dir: function(path: string): boolean
@@ -173,7 +173,11 @@ local standard: verb.Io = {
     return bare.stdin_text("send reads standard input, which is a terminal: name a file")
   end,
   create = function(path: string): Stream.Writer?, string return Stream.create(path) end,
-  exists = function(path: string): boolean?, string return Fs.exists(path) end,
+  exists = function(path: string): boolean?, string
+    local found, why = Fs.status(path)
+    if found == nil then return nil, tostring(why) end
+    return found.exists, ""
+  end,
   is_dir = function(path: string): boolean
     local st, _ = Fs.stat(path)
     return st ~= nil and st.kind == "dir"

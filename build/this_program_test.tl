@@ -136,7 +136,7 @@ if cmdline ~= nil then print(cmdline:match("^[^%z]*")) else print("") end
     Test.skip("a native start has no relaunch to compare")
     return
   end
-  if Fs.exists("/proc/self/cmdline") ~= true then
+  if not assert(Fs.status("/proc/self/cmdline")).exists then
     Test.skip("this host has no /proc/self/cmdline")
   end
   local program = Array.at(relaunch.argv, 1)

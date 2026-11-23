@@ -320,16 +320,16 @@ end
 local function test_existing_only_open_never_creates_a_missing_database(tmp: string)
   for _, path in ipairs({ tmp .. "/missing.db", tmp .. "/missing/db" }) do
     failed(Sqlite.open(path, { writable = true, create = false }))
-    assert(Fs.exists(path) ~= true)
+    assert(not assert(Fs.status(path)).exists)
   end
-  assert(Fs.exists(tmp .. "/missing") ~= true)
+  assert(not assert(Fs.status(tmp .. "/missing")).exists)
   local path = tmp .. "/removed.db"
   local made = assert(Sqlite.open(path, { writable = true }))
   assert(made:exec("CREATE TABLE t (a)"))
   assert(made:close())
   assert(Fs.remove(path))
   failed(Sqlite.open(path, { writable = true, create = false }))
-  assert(Fs.exists(path) ~= true)
+  assert(not assert(Fs.status(path)).exists)
 end
 
 --- Existing-only is writable, including WAL; it is not immutable mode.
@@ -371,7 +371,7 @@ local function test_create_is_only_an_option_of_writable_open(tmp: string)
     local path = tmp .. "/readonly.db"
     failed(Sqlite.open(path, { create = create }))
     failed(Sqlite.open(path, { create = create, immutable = true }))
-    assert(Fs.exists(path) ~= true)
+    assert(not assert(Fs.status(path)).exists)
     raises(Sqlite.open, path, { writable = true, immutable = true, create = create })
   end
 end
@@ -379,7 +379,7 @@ end
 --- An explicit false is the same as leaving the option out.
 local function test_open_takes_an_explicit_false_option_as_left_out(tmp: string)
   failed(Sqlite.open(tmp .. "/never.db", { writable = false }))
-  assert(Fs.exists(tmp .. "/never.db") == false)
+  assert(not assert(Fs.status(tmp .. "/never.db")).exists)
 end
 
 local function test_a_nul_byte_in_a_path_or_exec_sql_is_refused(tmp: string)
@@ -505,12 +505,12 @@ local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp:
   local writer = assert(Sqlite.open(path, { writable = true }))
   assert(writer:exec("PRAGMA journal_mode = WAL; CREATE TABLE t (v); INSERT INTO t VALUES (1)"))
   assert(writer:close())
-  assert(Fs.exists(path .. "-wal") == false)
+  assert(not assert(Fs.status(path .. "-wal")).exists)
   local reader = assert(Sqlite.open(path, { immutable = true }))
   local rows = assert(Sqlite.text_rows(reader, "SELECT v FROM t"))
   assert(#rows == 1 and rows[1]:text(1) == "1")
-  assert(Fs.exists(path .. "-wal") == false, "an immutable open made a -wal")
-  assert(Fs.exists(path .. "-shm") == false, "an immutable open made a -shm")
+  assert(not assert(Fs.status(path .. "-wal")).exists, "an immutable open made a -wal")
+  assert(not assert(Fs.status(path .. "-shm")).exists, "an immutable open made a -shm")
   failed(reader:exec("INSERT INTO t VALUES (2)"))
   assert(reader:close())
   -- A path with URI syntax in it is a filename still.
@@ -522,7 +522,7 @@ local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp:
   assert(#assert(Sqlite.text_rows(again, "SELECT v FROM t")) == 0)
   assert(again:close())
   failed(Sqlite.open(tmp .. "/absent.db", { immutable = true }))
-  assert(Fs.exists(tmp .. "/absent.db") == false)
+  assert(not assert(Fs.status(tmp .. "/absent.db")).exists)
   raises(Sqlite.open, path, { writable = true, immutable = true })
 end
 

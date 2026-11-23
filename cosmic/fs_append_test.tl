@@ -46,7 +46,7 @@ local function test_append_open_failures_name_the_path(tmp: string)
   local ok, why = Fs.append(tmp .. "/denied", "data")
   sys.open = real_open -- checked: field_fixed
   assert(not ok and why.errno == sys.EACCES and why.path == tmp .. "/denied", tostring(why))
-  assert(Fs.exists(tmp .. "/denied") == false)
+  assert(not assert(Fs.status(tmp .. "/denied")).exists)
 end
 
 local function test_append_completes_short_writes(tmp: string)

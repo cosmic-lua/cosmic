@@ -29,8 +29,7 @@ Test.policy{
 }
 
 local function path_exists(path: string): boolean
-  local answer, trouble = Fs.exists(path)
-  assert(answer ~= nil, trouble)
+  local answer = assert(Fs.status(path)).exists
   return answer
 end
 

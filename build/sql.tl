@@ -154,10 +154,11 @@ function sql.source(root: string, parsed: Flags.Parsed): sql.Source?, string
     return { name = "the binary's own database" }, ""
   end
   local project = build_paths.under(directory).projection
-  local present, trouble = Fs.exists(project)
-  if present == nil then
-    return nil, trouble
+  local present_status, trouble = Fs.status(project)
+  if present_status == nil then
+    return nil, tostring(trouble)
   end
+  local present = present_status.exists
   if present then
     return { name = project, path = project }, ""
   end
@@ -182,10 +183,11 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
     return { db = db, owned = false }, ""
   end
   local path: string = named
-  local present, trouble = Fs.exists(path)
-  if present == nil then
-    return nil, trouble
+  local present_status, trouble = Fs.status(path)
+  if present_status == nil then
+    return nil, tostring(trouble)
   end
+  local present = present_status.exists
   if not present then
     return nil, "no such database: " .. (source.hint or path)
   end
@@ -212,10 +214,11 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
   -- lock is what an immutable open is for.
   local wal = path .. "-wal"
   local function has_frames(): boolean?, string
-    local there, exists_trouble = Fs.exists(wal)
-    if there == nil then
-      return nil, exists_trouble
+    local there_status, exists_trouble = Fs.status(wal)
+    if there_status == nil then
+      return nil, tostring(exists_trouble)
     end
+    local there = there_status.exists
     if not there then
       return false, ""
     end

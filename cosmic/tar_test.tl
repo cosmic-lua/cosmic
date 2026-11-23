@@ -450,7 +450,7 @@ local function test_a_failed_add_aborts_the_archive_and_fails_every_later_call(t
   assert(not again)
   local closed, close_trouble = w:close()
   assert(not closed and close_trouble == trouble, close_trouble)
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   local left = assert(Fs.list(tmp))
   assert(#left == 0, table.concat(left, ","))
 end

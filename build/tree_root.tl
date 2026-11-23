@@ -62,8 +62,8 @@ end
 local function established(dir: string): boolean
   local directory, _ = build_paths.optional(dir)
   if directory == nil then return false end
-  local found, _ = Fs.exists(build_paths.under(directory).projection)
-  return found == true
+  local found, _ = Fs.status(build_paths.under(directory).projection)
+  return found ~= nil and found.exists
 end
 
 --- Whether `root`'s last build staged a source at `path` or under it,
@@ -158,7 +158,8 @@ function tree_root.move(argv: {string},
   local note = ""
   if named ~= nil and named ~= "" then
     root = narrow.lexical(joined_to(from, named))
-    local directory, _ = Fs.is_dir(root)
+    local directory_status, _ = Fs.status(root)
+    local directory = directory_status ~= nil and directory_status.is_dir
     if directory ~= true then
       return { refused = "COSMIC_TREE=" .. named .. " is not a directory", note = "" }
     end
@@ -195,7 +196,8 @@ function tree_root.move(argv: {string},
       if argv[1] == "test" then name = word:match("^(.-):[^:/]*$") or word end
       local takes = kind == "all" or (kind == "rest" and seen > 1)
       if not takes and kind == "named" then
-        local there, _ = Fs.exists(name)
+        local there_status, _ = Fs.status(name)
+        local there = there_status ~= nil and there_status.exists
         takes = there == true
       end
       if takes then

@@ -200,7 +200,7 @@ local function test_a_socket_listener_stops_at_sigterm_with_a_connection_open(tm
   local started = listening(tmp, { "lsp", "--socket", path })
   assert(started.at == path, started.at)
   served_and_stopped(tmp, started, Net.unix(path))
-  assert(Fs.exists(path) ~= true, "the stop removes the socket file")
+  assert(not assert(Fs.status(path)).exists, "the stop removes the socket file")
 end
 
 --- The signal that ends a process with no chance to clean up, as a crash does.
@@ -213,14 +213,14 @@ local function test_a_socket_file_already_there_is_refused_and_left(tmp: string)
   assert(crashed.handle:stop(SIGKILL))
   local result = assert(crashed.handle:wait(Clock.seconds(20)))
   assert(result.signal == SIGKILL, tostring(result.signal))
-  assert(Fs.exists(path) == true, "the crash leaves the socket file")
+  assert(assert(Fs.status(path)).exists, "the crash leaves the socket file")
   -- Whether a listener is behind it no connect can tell: a live one's
   -- full backlog refuses as a dead one does.
   local ran = tool_fixture.cosmic(tmp, { "lsp", "--socket", path })
   assert(ran.code == 1, tostring(ran.code) .. ": " .. ran.err)
   assert(ran.err:find(path .. " is a socket file already; remove it if no server is running there",
     1, true), ran.err)
-  assert(Fs.exists(path) == true, "the socket file is left")
+  assert(assert(Fs.status(path)).exists, "the socket file is left")
 end
 
 local function test_a_socket_path_holding_another_file_is_left_alone(tmp: string)

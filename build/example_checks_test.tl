@@ -73,10 +73,10 @@ end
 
 local function test_a_guide_example_must_compile_alone(dir: string)
   local found = found_in_guide(dir, source(
-    "# Fixture", "", "```teal", 'local Fs = require("cosmic.fs")', "print(Fs.is_dir(\".\"))", "```"))
+    "# Fixture", "", "```teal", 'local Fs = require("cosmic.fs")', "print(assert(Fs.status(\".\")).exists)", "```"))
   assert(#found == 0, table.concat(found, "\n"))
   found = found_in_guide(dir, source(
-    "# Fixture", "", "```teal", "print(Fs.is_dir(\".\"))", "```"))
+    "# Fixture", "", "```teal", "print(assert(Fs.status(\".\")).exists)", "```"))
   assert(#found >= 1 and assert(found[1]):find("^doc/guides/fixture%.md:3: example:%d+:%d+: `Fs` is not declared") ~= nil,
     table.concat(found, "\n"))
   found = found_in_guide(dir, source(

@@ -53,8 +53,9 @@ end
 function rebuild.started(directory: string): boolean?, string
   local layout = build_paths.under(directory)
   for _, path in ipairs({ layout.working, layout.projection }) do
-    local there, trouble = Fs.exists(path)
-    if there == nil then return nil, trouble end
+    local there_status, trouble = Fs.status(path)
+    if there_status == nil then return nil, tostring(trouble) end
+    local there = there_status.exists
     if there == true then return true, "" end
   end
   return false, ""

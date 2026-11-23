@@ -252,7 +252,7 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan?, string
           -- made) is a file, `c/<digest>`, rather than a directory.
           if outputs[manifest.output] == nil then
             local configuration = cache.path .. "/c/" .. assert(manifest.output:match("/(.*)$"))
-            local there, there_trouble = Fs.exists(configuration)
+            local there, there_trouble = Predicate.there(configuration)
             if there == nil then return nil, configuration .. ": " .. there_trouble end
             if there then
               manifest.output = "c" .. manifest.output

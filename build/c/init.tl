@@ -296,7 +296,8 @@ function c.bootstrap_cosmic(root: string, variables: {string:string}, digest: st
   local why = "the bootstrap cosmic ci/cosmic-driver.pin names is not cached" ..
     (if path ~= nil then " at " .. path else "" end)
   if result == nil then
-    local there, _ = Fs.exists(script)
+    local there_status, _ = Fs.status(script)
+    local there = there_status ~= nil and there_status.exists
     why = why .. ", and " .. script .. ", which fetches it, could not start" ..
       (if there ~= true then " (it is not there)" else "" end)
     if trouble ~= "" then why = why .. ": " .. trouble end
@@ -373,7 +374,8 @@ function c.worker_zig(root: string, variables: {string:string}, sandboxed: boole
   local cache, trouble = Fs.cache_dir("zig", { environment = variables, make = false })
   local named = variables["COSMIC_ZIG"]
   if named ~= nil and named ~= "" then
-    local there, _ = Fs.exists(named)
+    local there_status, _ = Fs.status(named)
+    local there = there_status ~= nil and there_status.exists
     if there ~= true then return nil, "COSMIC_ZIG names " .. named .. ", which is not there" end
     if sandboxed then
       local real, _ = Fs.absolute(named)
@@ -619,7 +621,8 @@ local function sensitive(root: string, cwd: string, file: string, variant: c.Var
       for name in ("\n" .. text):gmatch('\n%s*#%s*include%s*"([^"\n]+)"') do
         for _, dir in ipairs({ Fs.dirname(path), root .. "/core" }) do
           local header = dir .. "/" .. name
-          local present, _ = Fs.exists(header)
+          local present_status, _ = Fs.status(header)
+          local present = present_status ~= nil and present_status.exists
           if present == true then
             if visit(header, stack) then found = true end
             break

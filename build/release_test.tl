@@ -356,11 +356,11 @@ end
 local function test_a_binary_that_is_not_the_digest_leaves_nothing(tmp: string)
   local path = tmp .. "/cosmic"
   failed(run({ "-o", path }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   assert(#assert(Fs.list(tmp)) == 0, "a temporary file was left")
   local pin = tmp .. "/pin"
   failed(run({ "--pin", pin }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
-  assert(Fs.exists(pin) == false)
+  assert(not assert(Fs.status(pin)).exists)
 end
 
 local function test_cache_fills_bootstraps_cache_once(tmp: string)
@@ -407,7 +407,7 @@ local function test_launcher_writes_the_script_and_its_pin(tmp: string)
   assert(#assert(Fs.list(tmp .. "/bin")) == 2, "only the launcher and its pin are kept")
   local other = tmp .. "/bin/next"
   failed(run({ "--launcher", other }, newest_then(sums(), source(newest), ok("other bytes"))), "sha256 mismatch")
-  assert(Fs.exists(other) == false and Fs.exists(other .. ".pin") == false)
+  assert(not assert(Fs.status(other)).exists and not assert(Fs.status(other .. ".pin")).exists)
 end
 
 --- A `--launcher` that could not be written whole is refused before any request, each for its own reason,

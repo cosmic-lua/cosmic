@@ -686,7 +686,8 @@ function source.refusal(src: source.View, name: string, text?: string): string?
   local code: string? = nil
   local other_code: string? = nil
   for _, file in ipairs(Driver.candidates(module)) do
-    local there, _ = Fs.exists(src.root .. "/" .. file)
+    local there_status, _ = Fs.status(src.root .. "/" .. file)
+    local there = there_status ~= nil and there_status.exists
     if there == true then
       if file:match("%.d%.tl$") ~= nil then
         if declaration == nil then declaration = file elseif second == nil then second = file end

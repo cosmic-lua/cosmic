@@ -1,5 +1,6 @@
 local Fixture = require("cosmic_ci.fixture")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local LauncherSetup = require("cosmic_ci.launcher_setup")
 local ProductSetup = require("cosmic_ci.product_setup")
@@ -15,7 +16,7 @@ local function test_product_setup_rejects_missing_boot_outputs(tmp: string)
   Test.raises(function()
     ProductSetup.build(tmp .. "/root", tmp .. "/product", tmp .. "/work")
   end, "/o/bin/cosmic")
-  assert(Fs.exists(tmp .. "/product") == false, "failed setup created a product")
+  assert(Predicate.exists(tmp .. "/product") == false, "failed setup created a product")
 end
 
 local function test_launcher_setup_rejects_missing_targets(tmp: string)
@@ -25,7 +26,7 @@ local function test_launcher_setup_rejects_missing_targets(tmp: string)
     LauncherSetup.build(tmp .. "/root", tmp .. "/launcher", "target",
       tmp .. "/work")
   end, "/o/targets.tsv")
-  assert(Fs.exists(tmp .. "/launcher") == false, "failed setup created a launcher")
+  assert(Predicate.exists(tmp .. "/launcher") == false, "failed setup created a launcher")
 end
 
 local function test_runtime_setup_rejects_missing_writer(tmp: string)
@@ -36,7 +37,7 @@ local function test_runtime_setup_rejects_missing_writer(tmp: string)
       tmp .. "/missing-writer", tmp .. "/database", tmp .. "/runtime",
       tmp .. "/work")
   end, "missing-writer")
-  assert(Fs.exists(tmp .. "/runtime") == false, "failed setup created a runtime")
+  assert(Predicate.exists(tmp .. "/runtime") == false, "failed setup created a runtime")
 end
 
 --- The product fixture runs once, before the portable suite and the

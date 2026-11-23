@@ -166,10 +166,11 @@ local function module_files(root: string, working: boolean): {string:string}?, s
   end
   for _, source in ipairs(sources) do
     local path = source.path
-    local present, present_trouble = Fs.exists(path)
-    if present == nil then
-      return nil, present_trouble
+    local present_status, present_trouble = Fs.status(path)
+    if present_status == nil then
+      return nil, tostring(present_trouble)
     end
+    local present = present_status.exists
     if present then
       local db, open_trouble = Sqlite.open(path)
       if db == nil then
@@ -244,8 +245,9 @@ end
 --- ([`work.tell_other_schema`]) and none of it beyond its schema is read.
 --- Nil and why where that cannot be told.
 local function readable(path: string): boolean?, string
-  local present, present_trouble = Fs.exists(path)
-  if present == nil then return nil, present_trouble end
+  local present_status, present_trouble = Fs.status(path)
+  if present_status == nil then return nil, tostring(present_trouble) end
+  local present = present_status.exists
   if not present then return false, "" end
   local db, open_trouble = Sqlite.open(path)
   if db == nil then return nil, open_trouble end
@@ -318,12 +320,12 @@ local function run(argv: {string}): integer
   local described = { layout.projection, layout.carried }
   if working then table.insert(described, layout.working) end
   for _, path in ipairs(described) do
-    local present, present_trouble = Fs.exists(path)
+    local present, present_trouble = Fs.status(path)
     if present == nil then
-      log:complain(present_trouble)
+      log:complain(tostring(present_trouble))
       return 1
     end
-    if present then
+    if present.exists then
       local counted, trouble: integer?, string
       if #paths > 0 then
         counted, trouble = describe_under(path, about)

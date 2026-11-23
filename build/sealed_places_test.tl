@@ -19,7 +19,7 @@ local function test_a_sealed_database_holds_the_places_of_the_closure_s_modules(
     Test.skip("this worker does not run on a sealed database")
   end
   -- A module of the closure, by value: this file's own require.
-  assert(Fs.exists(".") == true and Store.bytecode("cosmic.fs") ~= nil, "cosmic.fs is in the closure")
+  assert(assert(Fs.status(".")).exists and Store.bytecode("cosmic.fs") ~= nil, "cosmic.fs is in the closure")
   local databases = Store.databases()
   local held = assert(databases[#databases])
   local placed = assert(Sqlite.text_rows(held,

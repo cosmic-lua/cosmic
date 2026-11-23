@@ -117,7 +117,8 @@ function Seed.program(root: string, declared: {string: string}): Seed.Program
           first, first_text = file, read
         end
       else
-        local there, _ = Fs.exists(root .. "/" .. file)
+        local there_status, _ = Fs.status(root .. "/" .. file)
+        local there = there_status ~= nil and there_status.exists
         if there == true then
           others[#others + 1] = file
         end

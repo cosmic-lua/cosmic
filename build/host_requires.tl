@@ -99,7 +99,7 @@ local confine = require("build.confine")
 local digest = require("build.digest")
 local host_names = require("build.host_names")
 
-local find_program, exists, is_dir = Proc.find, Fs.exists, Fs.is_dir
+local find_program, status = Proc.find, Fs.status
 local relaunch, getuid, realpath = Proc.relaunch, sys.getuid, Fs.absolute
 local sandbox_platform, may_map_ids = confine.sandbox_platform, confine.may_map_ids
 local own_proc_given, landlock_abi = confine.own_proc_given, confine.landlock_abi
@@ -245,20 +245,20 @@ local type Entry = host_requires.Entry
 --- Whether `path` is there; raises where the host cannot say, as for a
 --- directory it may not search.
 local function there(path: string): boolean
-  local found, trouble = exists(path)
+  local found, trouble = status(path)
   if found == nil then
-    error("host_requires: " .. path .. " cannot be inspected: " .. trouble, 0)
+    error("host_requires: " .. path .. " cannot be inspected: " .. tostring(trouble), 0)
   end
-  return found
+  return found.exists
 end
 
 --- Whether `path` is a directory, which it must be there to be.
 local function directory(path: string): boolean
-  local found, trouble = is_dir(path)
+  local found, trouble = status(path)
   if found == nil then
-    error("host_requires: " .. path .. " cannot be inspected: " .. trouble, 0)
+    error("host_requires: " .. path .. " cannot be inspected: " .. tostring(trouble), 0)
   end
-  return found
+  return found.is_dir
 end
 
 local function present(text: string): Found

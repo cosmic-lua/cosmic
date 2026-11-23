@@ -152,7 +152,7 @@ local function test_a_waiting_run_takes_the_lock_once_let_go(tmp: string)
     local holder, said = start(script, root, Clock.seconds(1))
     assert(said == "held", said)
     local taken, trouble = rebuild_lock.take(root, Clock.seconds(20))
-    local let_go = Fs.exists(support.build_dir(root) .. "/let-go")
+    local let_go = assert(Fs.status(support.build_dir(root) .. "/let-go")).exists
     rebuild_lock.release()
     finish(holder)
     assert(taken == "held", tostring(taken) .. " " .. trouble)

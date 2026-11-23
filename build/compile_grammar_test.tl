@@ -133,7 +133,7 @@ local function test_a_syntax_error_is_refused_naming_the_file_and_line_and_write
   assert(ran.code == 2, ran.code)
   assert(ran.err:find("bad.tl:2:", 1, true) and ran.err:find("syntax error", 1, true), ran.err)
   assert(not ran.err:find("good.tl", 1, true), ran.err)
-  assert(Fs.exists(tmp .. "/out/good.lua") == false and Fs.exists(tmp .. "/out/bad.lua") == false)
+  assert(not assert(Fs.status(tmp .. "/out/good.lua")).exists and not assert(Fs.status(tmp .. "/out/bad.lua")).exists)
 end
 
 --- Teal's `T | nil` is a form the new grammar cuts, and the refusal says what to write.
@@ -217,7 +217,7 @@ local function test_a_require_of_a_given_file_is_typed_from_it_in_any_order(tmp:
     local ran = run(words)
     assert(ran.code == 0, ran.err)
     assert(ran.err:find("main.tl:2:", 1, true) ~= nil and not ran.err:find("require_unknown", 1, true), ran.err)
-    assert(Fs.exists(tmp .. "/out/lib.lua") == true and Fs.exists(tmp .. "/out/main.lua") == true)
+    assert(assert(Fs.status(tmp .. "/out/lib.lua")).exists and assert(Fs.status(tmp .. "/out/main.lua")).exists)
   end
 end
 
@@ -232,7 +232,7 @@ local function test_the_globals_are_those_the_declaration_files_declare(tmp: str
   assert(with.code == 0, with.err)
   assert(not with.err:find("user.tl", 1, true), with.err)
   assert(with.err:find("std.d.tl: declares globals and types and has no Lua", 1, true), with.err)
-  assert(Fs.exists(tmp .. "/out/user.lua") == true and Fs.exists(tmp .. "/out/std.lua") == false)
+  assert(assert(Fs.status(tmp .. "/out/user.lua")).exists and not assert(Fs.status(tmp .. "/out/std.lua")).exists)
 end
 
 --- A syntax error in a declaration file refuses the run, as one in a program does.
@@ -242,7 +242,7 @@ local function test_a_syntax_error_in_a_declaration_file_is_refused(tmp: string)
   local ran = run({ "-o", tmp .. "/out", decl, user })
   assert(ran.code == 2, ran.err)
   assert(ran.err:find("std.d.tl:3:1: expected `)`", 1, true), ran.err)
-  assert(Fs.exists(tmp .. "/out/user.lua") == false)
+  assert(not assert(Fs.status(tmp .. "/out/user.lua")).exists)
 end
 
 --- A declaration beside its source is refused, and so are two sources of one module: the program has one file for a module.
@@ -252,7 +252,7 @@ local function test_a_declaration_beside_its_source_and_two_sources_are_refused(
   local ran = run({ "-o", tmp .. "/out", decl, source })
   assert(ran.code == 2, ran.err)
   assert(ran.err:find("is already the module foo", 1, true) ~= nil, ran.err)
-  assert(Fs.exists(tmp .. "/out/foo.lua") == false)
+  assert(not assert(Fs.status(tmp .. "/out/foo.lua")).exists)
   assert(Fs.mkdirs(tmp .. "/foo"))
   local nested = file(tmp, "foo/init.tl", "local n: integer = 1\nreturn n\n")
   local twice = run({ "-o", tmp .. "/out2", source, nested })
@@ -266,7 +266,7 @@ local function test_a_cycle_between_given_files_names_each_others_types(tmp: str
   local b = file(tmp, "b.tl", "local type A = require(\"a\")\nlocal record B\n  a: A?\nend\nreturn B\n")
   local ran = run({ "--errors", "-o", tmp .. "/out", a, b })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  assert(Fs.exists(tmp .. "/out/a.lua") == true and Fs.exists(tmp .. "/out/b.lua") == true)
+  assert(assert(Fs.status(tmp .. "/out/a.lua")).exists and assert(Fs.status(tmp .. "/out/b.lua")).exists)
 end
 
 --- A file is lowered after the files it requires, whichever order they are given in: the value a module
@@ -306,7 +306,7 @@ local function test_a_form_the_generator_refuses_writes_no_lua(tmp: string)
   local ran = run({ "-o", tmp .. "/out", file(tmp, "nested.tl", text) })
   assert(ran.code == 2, ran.code)
   assert(ran.err:find("the generator wrote no Lua", 1, true) and ran.err:find("(class_nested_refused)", 1, true), ran.err)
-  assert(Fs.exists(tmp .. "/out/nested.lua") == false)
+  assert(not assert(Fs.status(tmp .. "/out/nested.lua")).exists)
 end
 
 --- The errors of every stage are listed in the order of the source, whichever stage found them.
@@ -397,7 +397,7 @@ local function test_an_is_test_of_a_record_or_an_interface_is_refused_not_writte
     local ran = run({ "-o", tmp .. "/out", shapes, path })
     assert(ran.code == 2, ran.err)
     assert(ran.err:find("the generator wrote no Lua", 1, true) and ran.err:find("(is_on_record)", 1, true), ran.err)
-    assert(Fs.exists(tmp .. "/out/" .. (path:match("([^/]*)%.tl$") or "") .. ".lua") == false)
+    assert(not assert(Fs.status(tmp .. "/out/" .. (path:match("([^/]*)%.tl$") or "") .. ".lua")).exists)
   end
   local tags = file(tmp, "tags.tl", "local function f(v: any): boolean\n  return v is {string: any} or v is function(): integer\nend\nreturn f\n")
   local ran = run({ "--errors", "-o", tmp .. "/ok", tags })

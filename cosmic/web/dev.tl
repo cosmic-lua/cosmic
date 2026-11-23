@@ -285,8 +285,8 @@ local function scan(roots: {string}, ignored: function(string, string): boolean,
   local found: mut {string:string} = {}
   for _, root in ipairs(roots) do
     local files: {string} = {}
-    local present, _ = Fs.exists(root)
-    if not (absent_ok == true and present == false) then
+    local present, _ = Fs.status(root)
+    if not (absent_ok == true and present ~= nil and not present.exists) then
       local listed, why = Fs.walk_following(root, function(rel: string, name: string, _kind: Fs.Kind): boolean
         return ignored(rel, name)
       end)

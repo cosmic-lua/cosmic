@@ -329,7 +329,7 @@ local function test_a_required_label_no_input_reached_fails_the_run(tmp: string)
     requires = { "checked", "long" } })
   assert(err == 'fuzz never long: seed=1: no input of 64 reached "long", which the ' ..
       "property requires: its inputs do not exercise what it is meant to", err)
-  assert(Fs.exists(tmp .. "/never-long.input") ~= true)
+  assert(not assert(Fs.status(tmp .. "/never-long.input")).exists)
 end
 
 -- A label the property requires a share of fails a run in which fewer
@@ -346,7 +346,7 @@ local function test_a_label_under_its_required_share_fails_the_run(tmp: string)
     shares = { ["a quarter"] = 0.6 } })
   assert(err:find('^fuzz too rare: seed=1: %d+ inputs of 64 reached "a quarter", under the share of 0.6 ' ..
       "the property requires: its inputs exercise it too rarely$"), err)
-  assert(Fs.exists(tmp .. "/too-rare.input") ~= true)
+  assert(not assert(Fs.status(tmp .. "/too-rare.input")).exists)
 end
 
 -- A share outside (0, 1], NaN among them, is refused before anything is

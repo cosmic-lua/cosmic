@@ -89,7 +89,7 @@ end
 local function launch_aarch64(tmp: string, features?: string): Child.Result
   local script = tmp .. "/launcher"
   assert(Fs.write(script, launcher.render(arm64, true), 0x1ed))
-  if Fs.exists(tmp .. "/bin") ~= true then assert(Fs.mkdirs(tmp .. "/bin")) end
+  if not assert(Fs.status(tmp .. "/bin")).exists then assert(Fs.mkdirs(tmp .. "/bin")) end
   assert(Fs.write(tmp .. "/bin/uname", table.concat({
     "#!/bin/sh",
     "[ \"$*\" = -sm ] && { echo 'Linux aarch64'; exit 0; }",
@@ -124,7 +124,7 @@ local function test_a_cpu_below_x86_64_v3_is_refused_by_name(tmp: string)
   assert(r.code == 126, "exit status " .. tostring(r.code))
   assert((r.stderr or ""):find("cosmic portable: this CPU lacks avx2 fma bmi1 bmi2 movbe f16c; ", 1, true),
     tostring(r.stderr))
-  assert(Fs.exists(tmp .. "/cache") ~= true, "a refused launch made the cache")
+  assert(not assert(Fs.status(tmp .. "/cache")).exists, "a refused launch made the cache")
 end
 
 local function test_a_feature_is_matched_whole(tmp: string)
@@ -145,7 +145,7 @@ local function assert_passed_the_cpu_check(r: Child.Result, tmp: string)
   assert(not err:find("this CPU lacks", 1, true), err)
   assert(r.code == 126, "exit status " .. tostring(r.code))
   assert(err:find("cosmic portable: extracted core digest differs", 1, true), err)
-  assert(Fs.exists(tmp .. "/cache") == true, "a launch past the check made no cache")
+  assert(assert(Fs.status(tmp .. "/cache")).exists, "a launch past the check made no cache")
 end
 
 local function test_a_cpu_with_x86_64_v3_is_not_refused(tmp: string)
@@ -162,7 +162,7 @@ local function test_an_aarch64_cpu_below_armv8_2_is_refused_by_name(tmp: string)
   assert(r.code == 126, "exit status " .. tostring(r.code))
   assert((r.stderr or ""):find("cosmic portable: this CPU lacks asimddp asimdhp fphp atomics asimdrdm; " ..
       "the aarch64 core needs Armv8.2-A", 1, true), tostring(r.stderr))
-  assert(Fs.exists(tmp .. "/cache") ~= true, "a refused launch made the cache")
+  assert(not assert(Fs.status(tmp .. "/cache")).exists, "a refused launch made the cache")
 end
 
 local function test_an_aarch64_feature_is_matched_whole(tmp: string)

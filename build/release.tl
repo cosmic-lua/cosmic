@@ -326,7 +326,8 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     -- Before anything is asked of the network or written: a name that could not be a file's, or is a
     -- directory's, would leave a pin with no launcher beside it.
-    local directory, _ = Fs.is_dir(launcher)
+    local directory_status, _ = Fs.status(launcher)
+    local directory = directory_status ~= nil and directory_status.is_dir
     if launcher:sub(-1) == "/" or directory == true then
       return refuse("--launcher " .. launcher .. " is a directory: it takes the file to write the launcher to")
     end

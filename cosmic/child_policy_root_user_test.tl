@@ -293,7 +293,7 @@ local function test_a_root_caller_s_closed_read_only_grant_is_idmapped_and_stays
     { path = dir, letters = "r" } } }, at.work,
     "cat " .. dir .. "/inside; create " .. dir .. "/made y")
   assert(ran.code == 1 and ran.said:find("secret", 1, true) ~= nil, tostring(ran.code) .. ": " .. ran.said)
-  assert(Fs.exists(dir .. "/made") ~= true)
+  assert(not assert(Fs.status(dir .. "/made")).exists)
 end
 
 local function test_a_root_caller_s_closed_grant_fails_naming_it_without_isolate_file(tmp: string)

@@ -151,12 +151,12 @@ local function test_stage_does_not_need_the_cores(tmp: string)
   assert(code == 1, out)
   assert(out:find("cosmic: boot: ", 1, true), out)
   assert(not out:find("cosmic-core", 1, true), out)
-  assert(Fs.exists(layout.carried .. ".stamp") ~= true)
+  assert(not assert(Fs.status(layout.carried .. ".stamp")).exists)
 
   local other = build_paths.under(tmp .. "/other")
   assert(Fs.mkdirs(other.directory))
   assert(run("--assemble", tmp .. "/targets.tsv", other.directory) == 1)
-  assert(Fs.exists(other.bin) ~= true, "the assembly went on without a core")
+  assert(not assert(Fs.status(other.bin)).exists, "the assembly went on without a core")
 end
 
 --- The assembly ships only the database its stage stamped, and says the

@@ -62,7 +62,7 @@ local function test_each_copy_runs_and_one_that_raises_is_told(tmp: string)
   local ended = ran.ended
   assert(ended[1] == true and ended[2] == false and ended[3] == true)
   assert(assert(Fs.read(tmp .. "/1")) == "made by 1" and assert(Fs.read(tmp .. "/3")) == "made by 3")
-  assert(Fs.exists(tmp .. "/2") ~= true)
+  assert(not assert(Fs.status(tmp .. "/2")).exists)
 end
 
 --- A copy is refused a connection the process opened before it forked ([`Sqlite.disown`]), and the process's

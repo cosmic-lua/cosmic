@@ -86,7 +86,7 @@ local function scripted(replies: {string:{Http.DownloadResult}}, calls: mut {str
       assert(connect_timeout_ns ~= nil and connect_timeout_ns > 0 and
           low_speed_bytes ~= nil and low_speed_bytes >= 1024 and
           low_speed_ns ~= nil and low_speed_ns > 0, "an attempt has no stall guard")
-      assert(Fs.exists(path) == false, "an attempt started over an earlier file")
+      assert(not assert(Fs.status(path)).exists, "an attempt started over an earlier file")
       calls[#calls + 1] = url
       if seen ~= nil then
         seen[#seen + 1] = opts
@@ -155,7 +155,7 @@ local function test_fetch_names_every_source_when_all_fail(tmp: string)
   -- Bounded: two sources a round for three rounds, and the bad one once.
   assert(#calls == 7, tostring(#calls))
   assert(#sleeps == 2 and sleeps[2] > sleeps[1], "the pause does not grow")
-  assert(Fs.exists(tmp .. "/z") == false)
+  assert(not assert(Fs.status(tmp .. "/z")).exists)
 end
 
 local function test_fetch_asks_the_fallback_again_after_a_mismatch(tmp: string)
@@ -224,7 +224,7 @@ local function test_fetch_sees_a_real_mismatch(tmp: string)
   assert(table.concat(calls, " ") ==
       "http://127.0.0.1/a http://127.0.0.1/b http://127.0.0.1/b http://127.0.0.1/b",
     table.concat(calls, " "))
-  assert(Fs.exists(tmp .. "/z") == false)
+  assert(not assert(Fs.status(tmp .. "/z")).exists)
 end
 
 local function test_sweep_removes_only_a_provably_dead_owner(tmp: string)
@@ -237,9 +237,9 @@ local function test_sweep_removes_only_a_provably_dead_owner(tmp: string)
   local legacy = cache .. "/.work.2147483646"
   assert(Fs.mkdirs(legacy))
   local _, _ = ZigFetch.install(cache, cache .. "/install", "0.16.0", "x86_64-linux", nil)
-  assert(Fs.exists(dead) == false)
-  assert(Fs.exists(missing) == true)
-  assert(Fs.exists(legacy) == true)
+  assert(not assert(Fs.status(dead)).exists)
+  assert(assert(Fs.status(missing)).exists)
+  assert(assert(Fs.status(legacy)).exists)
 end
 
 local function test_limits_preserve_native_nanoseconds()

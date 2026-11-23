@@ -76,11 +76,11 @@ local function test_a_tree_keeps_what_the_pin_names(dir: string)
   local tree = dir .. "/tree"
   assert(assert(Fs.read(tree .. "/src/one.c")) == "one")
   assert(assert(Fs.read(tree .. "/include/a/b.h")) == "header")
-  assert(Fs.exists(tree .. "/src/main.c") ~= true)
-  assert(Fs.exists(tree .. "/src/deep") ~= true)
-  assert(Fs.exists(tree .. "/doc") ~= true)
-  assert(Fs.exists(tree .. "/old") ~= true, "the stale tree was not pruned")
-  assert(Fs.exists(tree .. "/PIN") == true)
+  assert(not assert(Fs.status(tree .. "/src/main.c")).exists)
+  assert(not assert(Fs.status(tree .. "/src/deep")).exists)
+  assert(not assert(Fs.status(tree .. "/doc")).exists)
+  assert(not assert(Fs.status(tree .. "/old")).exists, "the stale tree was not pruned")
+  assert(assert(Fs.status(tree .. "/PIN")).exists)
   only_the_tree(dir)
 end
 
@@ -115,7 +115,7 @@ local function test_an_escaping_entry_refuses_the_whole_archive(dir: string)
     ["a.c"] = "a",
     ["../escaped.c"] = "out",
   }) == 1)
-  assert(Fs.exists(dir .. "/escaped.c") ~= true)
+  assert(not assert(Fs.status(dir .. "/escaped.c")).exists)
   assert(assert(Fs.read(dir .. "/tree/old/gone.c")) == "stale", "the tree changed")
   only_the_tree(dir)
 end
@@ -123,7 +123,7 @@ end
 local function test_a_keep_that_matches_nothing_changes_nothing(dir: string)
   assert(run(dir, "keep missing.c\n", { ["a.c"] = "a" }) == 1)
   assert(assert(Fs.read(dir .. "/tree/old/gone.c")) == "stale")
-  assert(Fs.exists(dir .. "/tree/a.c") ~= true)
+  assert(not assert(Fs.status(dir .. "/tree/a.c")).exists)
 end
 
 local function test_a_pin_with_no_keep_at_all_is_refused(dir: string)
@@ -140,7 +140,7 @@ local function test_keeps_from_a_zip_archive_too(dir: string)
   })
   assert(Vendor.run({ dir .. "/tree", archive }, "build/vendor.tl") == 0)
   assert(assert(Fs.read(dir .. "/tree/src/one.c")) == "one")
-  assert(Fs.exists(dir .. "/tree/doc") ~= true)
+  assert(not assert(Fs.status(dir .. "/tree/doc")).exists)
 end
 
 local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: string)
@@ -152,7 +152,7 @@ local function test_a_single_file_pin_vendors_the_download_as_its_file(dir: stri
   assert(Fs.write(download, "cert bytes"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 0)
   assert(assert(Fs.read(dir .. "/tree/cacert.pem")) == "cert bytes")
-  assert(Fs.exists(dir .. "/tree/old") ~= true, "the stale tree was not pruned")
+  assert(not assert(Fs.status(dir .. "/tree/old")).exists, "the stale tree was not pruned")
 end
 
 local function test_a_single_file_pin_whose_keep_misses_its_file_is_refused(dir: string)
@@ -160,7 +160,7 @@ local function test_a_single_file_pin_whose_keep_misses_its_file_is_refused(dir:
   local download = dir .. "/cacert.pem"
   assert(Fs.write(download, "cert bytes"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
-  assert(Fs.exists(dir .. "/tree/cacert.pem") ~= true)
+  assert(not assert(Fs.status(dir .. "/tree/cacert.pem")).exists)
 end
 
 --- An archive [`cosmic.archive`] cannot read, under a PIN that names no
@@ -175,7 +175,7 @@ local function test_an_unreadable_archive_without_a_file_line_is_an_error(dir: s
   assert(Fs.write(download, "not an archive at all"))
   assert(Vendor.run({ dir .. "/tree", download }, "build/vendor.tl") == 1)
   assert(assert(Fs.read(dir .. "/tree/src/kept.c")) == "the tree as it was")
-  assert(Fs.exists(dir .. "/tree/pkg.tar.gz") ~= true)
+  assert(not assert(Fs.status(dir .. "/tree/pkg.tar.gz")).exists)
 end
 
 local function test_read_pin_takes_the_first_word_and_the_first_line()
@@ -266,7 +266,7 @@ local function test_the_fetch_step_is_a_cache_hit_when_already_verified(dir: str
   assert(Fs.write(tree .. "/PIN", "strip thing-1/\nkeep src/*.c\n"))
   assert(Vendor.run({ tree, fetched }, "build/vendor.tl") == 0)
   assert(assert(Fs.read(tree .. "/src/one.c")) == "one")
-  assert(Fs.exists(tree .. "/doc") ~= true)
+  assert(not assert(Fs.status(tree .. "/doc")).exists)
 end
 
 local function test_a_word_like_an_option_is_refused_not_read_as_a_name(dir: string)

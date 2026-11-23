@@ -152,8 +152,8 @@ local function test_a_relative_cache_home_is_passed_over_for_home(tmp: string)
   assert(Fs.mkdirs(home))
   local result = run(p, cwd, { "fix" }, { XDG_CACHE_HOME = "xdg", HOME = home })
   assert(result.code == 0, tostring(result.stderr))
-  assert(Fs.is_dir(home .. "/.cache/cosmic/bootstrap") == true, "the cache is under HOME")
-  assert(Fs.is_dir(cwd .. "/xdg") ~= true, "nothing is cached in the called directory")
+  assert(assert(Fs.status(home .. "/.cache/cosmic/bootstrap")).is_dir, "the cache is under HOME")
+  assert(not assert(Fs.status(cwd .. "/xdg")).is_dir, "nothing is cached in the called directory")
   local relative = run(p, cwd, { "fix" }, { XDG_CACHE_HOME = "xdg", HOME = "home" })
   assert(relative.code ~= 0 and (relative.stderr or ""):find("absolute path", 1, true) ~= nil, tostring(relative.stderr))
 end
@@ -179,7 +179,7 @@ end
 --- in one directory keep a pin each.
 local function test_a_launcher_reads_the_pin_named_after_it(tmp: string)
   local p = project(tmp, "cosmic-next")
-  assert(Fs.exists(p.launcher .. ".pin") == true)
+  assert(assert(Fs.status(p.launcher .. ".pin")).exists)
   local result = run(p, p.tmp, { "test" })
   assert(result.code == 0 and result.stdout == "release in " .. p.tmp .. ": [test] tool=unset\n",
     tostring(result.stdout) .. tostring(result.stderr))
@@ -196,7 +196,7 @@ local function test_a_download_that_is_not_the_pin_s_never_runs(tmp: string)
   local result = run(p, p.tmp, { "test" }, { DOWNLOAD_SOURCE = p.tmp .. "/other", COSMIC_TOOL_ATTEMPTS = "1" })
   assert(result.code == 1 and result.stdout == "", tostring(result.stdout) .. tostring(result.stderr))
   assert(tostring(result.stderr):find("the pin says " .. p.digest, 1, true), tostring(result.stderr))
-  assert(Fs.exists(p.tmp .. "/ran other") == false, "bytes that are not the pin's were run")
+  assert(not assert(Fs.status(p.tmp .. "/ran other")).exists, "bytes that are not the pin's were run")
   assert(cache_names(p) == "", cache_names(p))
 end
 
@@ -210,7 +210,7 @@ local function test_a_download_of_other_bytes_is_tried_again(tmp: string)
     tostring(result.stdout) .. tostring(result.stderr))
   assert(tostring(result.stderr):find("retrying in 2s", 1, true), tostring(result.stderr))
   assert(downloads(p) == 2 and cache_names(p) == "cosmic-" .. p.digest, cache_names(p))
-  assert(Fs.exists(p.tmp .. "/ran other") == false, "bytes that are not the pin's were run")
+  assert(not assert(Fs.status(p.tmp .. "/ran other")).exists, "bytes that are not the pin's were run")
 end
 
 --- A pin that is not a commit, the release of that commit in
@@ -301,13 +301,13 @@ local function test_verify_replaces_a_cached_file_that_is_not_the_pin_s(tmp: str
   local result = run(p, p.tmp, { "test" }, { COSMIC_TOOL_VERIFY = "1" })
   assert(result.code == 0 and result.stdout == "release in " .. p.tmp .. ": [test] tool=unset\n",
     tostring(result.stdout) .. tostring(result.stderr))
-  assert(Fs.exists(p.tmp .. "/ran other") == false, "a cached file that is not the pin's was run")
+  assert(not assert(Fs.status(p.tmp .. "/ran other")).exists, "a cached file that is not the pin's was run")
   assert(downloads(p) == 1 and assert(Fs.read(p.cached)) == release_source)
   assert(Fs.remove(p.cached))
   assert(Fs.symlink(p.tmp .. "/other", p.cached))
   local linked = run(p, p.tmp, { "test" }, { COSMIC_TOOL_VERIFY = "1" })
   assert(linked.code == 0, tostring(linked.stderr))
-  assert(Fs.exists(p.tmp .. "/ran other") == false, "what a cached link named was run")
+  assert(not assert(Fs.status(p.tmp .. "/ran other")).exists, "what a cached link named was run")
   assert(downloads(p) == 2 and assert(Fs.read(p.tmp .. "/other")) == other_source)
   assert(assert(Fs.read(p.cached)) == release_source)
   local kept = run(p, p.tmp, { "test" }, { COSMIC_TOOL_VERIFY = "1" })

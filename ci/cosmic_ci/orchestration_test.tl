@@ -134,7 +134,7 @@ end
 --- explicitly and passes it as Fixture.call's extra env instead.
 local function context(candidate: string, runner_temp: string,
                        extra?: {string:string}): {string:string}
-  if Fs.exists(candidate .. "/AGENTS.md") == true then build_resolver(candidate) end
+  if Predicate.exists(candidate .. "/AGENTS.md") == true then build_resolver(candidate) end
   local env: mut {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run",
@@ -270,7 +270,7 @@ local function test_attest_records_the_digest_it_ran(tmp: string)
   assert(outcome.result.ok, "attest answered " .. tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
   local manifest = assert(assert(Fs.read(product .. "/executed-cosmic.sha256")), "no digest attested")
   assert(manifest:match("^%x+  cosmic\n$") ~= nil, manifest)
-  assert(Fs.exists(product .. "/expected-platforms") ~= true and Fs.exists(product .. "/portable-share") ~= true,
+  assert(Predicate.exists(product .. "/expected-platforms") ~= true and Predicate.exists(product .. "/portable-share") ~= true,
     "attest wrote more than the digest")
 end
 
@@ -350,7 +350,7 @@ chmod 755 o/bin/cosmic
     "the project cache was not used where it was restored")
   assert(not Predicate.is_dir(fake .. "/o/zig-cache"), "project cache was copied into o/")
   assert(not Predicate.is_dir(fake .. "/o/zig-global"), "global cache was copied into o/")
-  assert(Fs.exists(fake .. "/o/poison") == false)
+  assert(Predicate.exists(fake .. "/o/poison") == false)
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")
 end
@@ -382,7 +382,7 @@ exit 9
   local copy = assert(Fs.absolute(fake)) .. "/o/zig-cache"
   assert(assert(Fs.read(copy .. "/o/entry")) == "compiled", "the project cache was not copied into o/")
   assert(assert(Fs.read(copy .. "/named")) == copy, "the build did not use the copy")
-  assert(Fs.exists(from .. "/named") == false, "the build wrote the cache it copied")
+  assert(Predicate.exists(from .. "/named") == false, "the build wrote the cache it copied")
 end
 
 --- Where COSMIC_CI_REQUIRE_SANDBOX=1 (ci.yml's Linux legs), the sandbox
@@ -622,7 +622,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   local named = tmp .. "/named/cache.db"
   -- Left open while it is copied, so its row is in the WAL alone.
   local named_db = cache_at(named)
-  assert(Fs.exists(named .. "-wal") == true, "the cache's row is not in its WAL")
+  assert(Predicate.exists(named .. "-wal") == true, "the cache's row is not in its WAL")
   assert(Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named }, tmp .. "/one.db"))
   assert(seeded_from(tmp .. "/one.db") == named)
   local again, again_trouble = Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named },
@@ -656,7 +656,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   assert(not under_file and under_file_trouble:find("cache.db: not a directory", 1, true) ~= nil,
     under_file_trouble)
   for _, name in ipairs({ "three", "four", "five", "six", "seven", "eight" }) do
-    assert(Fs.exists(tmp .. "/" .. name .. ".db") ~= true, name)
+    assert(Predicate.exists(tmp .. "/" .. name .. ".db") ~= true, name)
   end
 end
 
@@ -1875,7 +1875,7 @@ local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   assert(Fs.write(placed .. "/file", "earlier"))
   assert(Orchestration.fixture_project(driver, tmp .. "/work") == project)
   assert(assert(Fs.read(project .. "/fixtures/a_test.tl")) == "\n")
-  assert(Fs.exists(placed) ~= true, "the earlier fixture's placement was kept")
+  assert(Predicate.exists(placed) ~= true, "the earlier fixture's placement was kept")
 end
 
 --- The fixture project holds the driver namespace's JSON data beside its

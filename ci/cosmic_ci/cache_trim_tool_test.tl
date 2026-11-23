@@ -2,6 +2,7 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
@@ -52,9 +53,9 @@ error("the original signal was swallowed")
   local result = assert(handle:wait(Clock.seconds(10)))
   assert(result.signal == sys.SIGTERM, (result.stderr or "") .. tostring(result.code))
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
-    assert(Fs.exists(restored .. suffix) ~= true, "snapshot remained at signal redelivery")
+    assert(Predicate.exists(restored .. suffix) ~= true, "snapshot remained at signal redelivery")
   end
-  assert(Fs.exists(output) ~= true, "cancelled maintenance published a save key")
+  assert(Predicate.exists(output) ~= true, "cancelled maintenance published a save key")
 end
 
 local function test_wrapper_maintenance_does_not_build_a_broken_candidate(tmp: string)
@@ -85,5 +86,5 @@ end
   local result = assert(Child.run({ assert(Proc.executable()), project .. "/check.tl" },
     { timeout_ns = CEILING_NS, cwd = project, env = Env.all(), stdout = "capture", stderr = "capture" }))
   assert(result.ok, (result.stdout or "") .. (result.stderr or ""))
-  assert(Fs.exists(candidate .. "/o") ~= true and Fs.exists(candidate .. "/missing") ~= true)
+  assert(Predicate.exists(candidate .. "/o") ~= true and Predicate.exists(candidate .. "/missing") ~= true)
 end

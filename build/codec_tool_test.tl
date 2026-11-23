@@ -40,7 +40,7 @@ local function test_a_failed_standard_output_write_exits_2(tmp: string)
   -- /dev/full, where a write fails with ENOSPC, is Linux's, and every
   -- worker there is given it (build.confine's `runtime_paths`): one
   -- without it, or a host that has none, is skipped.
-  if Fs.exists("/dev/full") ~= true then
+  if not assert(Fs.status("/dev/full")).exists then
     Test.skip("this worker has no /dev/full")
     return
   end

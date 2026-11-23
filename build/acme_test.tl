@@ -265,7 +265,7 @@ local function test_key_creates_its_file_exclusively(tmp: string)
   local link = tmp .. "/link.pem"
   assert(Fs.symlink(tmp .. "/elsewhere.pem", link))
   assert(acme.run({ "acme", "key", link }) == 2)
-  assert(Fs.exists(tmp .. "/elsewhere.pem") == false, "a link was written through")
+  assert(not assert(Fs.status(tmp .. "/elsewhere.pem")).exists, "a link was written through")
 end
 
 local function test_issue_refuses_a_directory_that_is_not_https()

@@ -290,7 +290,7 @@ local function test_launcher_cache_policy_and_integrity(tmp: string)
   local marker = ctx.work .. "/read-only-short.marker"
   local refused = run(ctx, "read-only-short", base,
     { PORTABLE_PAYLOAD_MARKER = marker })
-  assert(not refused.result.ok and Fs.exists(marker) == false,
+  assert(not refused.result.ok and Predicate.exists(marker) == false,
     "read-only short core was not refused before the payload ran")
   Fixture.contains(refused.err, "length differs and cache is read-only")
   Process.chmod(base, 0x1c0)
@@ -468,7 +468,7 @@ exit "$result"
     Fixture.contains(err,
       "fewer than two private descriptors are available in 3 through 9")
     assert(Fixture.read(guard) == "before\nafter\n" and
-        Fs.exists(ctx.work .. "/" .. assert(one[1]) .. "-cache") == false,
+        Predicate.exists(ctx.work .. "/" .. assert(one[1]) .. "-cache") == false,
       assert(one[1]) .. " disturbed the caller's descriptors or made a cache")
   end
 

@@ -77,6 +77,17 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
+--- Whether anything is at `path`, false where it or a parent is missing,
+--- nil and why where it cannot be looked at. This file runs on the
+--- bootstrap release too, whose cosmic.fs has no status call yet, so it
+--- asks [`sys.stat`], which both have.
+local function path_there(path: string): boolean?, string
+  local st, why, errno = sys.stat(path)
+  if st ~= nil then return true, "" end
+  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
+  return nil, path .. ": " .. why
+end
+
 -- TODO: Child.FOREVER in place of CEILING_NS once
 -- ci/cosmic-driver.pin names a release whose Child has it: this file runs
 -- standalone on that release. Until then a ceiling no run reaches.
@@ -249,7 +260,7 @@ function SeededBoot.cached(cache: string, digest: string): string?, string
     local _, _ = Fs.remove(path)
     return nil, "a link stood there"
   end
-  local there, _ = Fs.exists(path)
+  local there, _ = path_there(path)
   if there ~= true then return nil, "it is not there" end
   -- TODO: Hash.hex_file in place of reading the whole file, once
   -- ci/cosmic-driver.pin names a release whose Hash has it: this file

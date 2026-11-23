@@ -180,7 +180,8 @@ function artifact_fd_fixture.swapped_link_changes_nothing(tmp: string, policy?: 
   local result = assert(Child.run({ artifact_fd_fixture.program_of(relaunch), "--artifact", copy, "-e",
     filled(caller, values) }, { env = if held == nil then env else nil end, fds = fds, stdout = "capture",
       stderr = "capture", policy = held, timeout_ns = Clock.seconds(7) }))
-  local stopped, _ = Fs.exists(stop)
+  local stopped_status, _ = Fs.status(stop)
+  local stopped = stopped_status ~= nil and stopped_status.exists
   if stopped ~= true then assert(Fs.write(stop, "")) end
   local flipped = assert(flipping:wait())
   assert(sys.close(opened))

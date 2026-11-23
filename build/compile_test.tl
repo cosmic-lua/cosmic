@@ -85,8 +85,8 @@ local function test_a_syntax_error_writes_no_file_at_all(tmp: string)
   local ran = run({ "-o", tmp .. "/out", good, bad })
   assert(ran.code == 2, ran.code)
   assert(ran.err:find("bad.tl:", 1, true), ran.err)
-  assert(Fs.exists(tmp .. "/out/good.lua") == false, "good.lua was written beside a refused file")
-  assert(Fs.exists(tmp .. "/out/bad.lua") == false)
+  assert(not assert(Fs.status(tmp .. "/out/good.lua")).exists, "good.lua was written beside a refused file")
+  assert(not assert(Fs.status(tmp .. "/out/bad.lua")).exists)
 end
 
 local function test_a_well_typed_file_gives_the_lua_the_compiler_writes(tmp: string)
@@ -164,7 +164,7 @@ local function test_a_d_tl_is_skipped_with_a_note_and_types_a_require(tmp: strin
   assert(ran.code == 0, ran.err)
   assert(ran.err:find("shapes.d.tl: declares globals and types and has no Lua", 1, true), ran.err)
   assert(not ran.err:find("not found", 1, true) and not ran.err:find("type error", 1, true), ran.err)
-  assert(Fs.exists(tmp .. "/out/user.lua") == true and Fs.exists(tmp .. "/out/shapes.lua") == false)
+  assert(assert(Fs.status(tmp .. "/out/user.lua")).exists and not assert(Fs.status(tmp .. "/out/shapes.lua")).exists)
 end
 
 --- Names are relative to the root, however a path is spelt.
@@ -215,7 +215,7 @@ local function test_two_files_of_one_name_or_module_are_refused(tmp: string)
   assert(module.code == 2 and module.err:find("both answer to import path 'x.y'", 1, true) ~= nil, module.err)
   local base = run({ "-o", tmp .. "/o", nested, same })
   assert(base.code == 2 and base.err:find("compile them in two runs", 1, true) ~= nil, base.err)
-  assert(Fs.exists(tmp .. "/o/y.lua") == false)
+  assert(not assert(Fs.status(tmp .. "/o/y.lua")).exists)
 end
 
 --- A declaration types a require of it whichever file is named first.

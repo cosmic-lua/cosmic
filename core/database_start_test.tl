@@ -162,10 +162,10 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   local stamp = directory .. "/.verified-" .. Fs.basename(copy)
   -- A stamp is written only once a second has passed since the entry changed.
   local _, _ = Clock.sleep_ns(Clock.ms(1100))
-  assert(Fs.exists(stamp) ~= true, "a stamp before any start")
+  assert(not assert(Fs.status(stamp)).exists, "a stamp before any start")
   local first = run({ copy, "--database", path })
   assert(first.ok, "exit " .. tostring(first.code) .. ": " .. tostring(first.stderr))
-  assert(Fs.exists(stamp) == true, "the first start left no stamp")
+  assert(assert(Fs.status(stamp)).exists, "the first start left no stamp")
   local second = run({ copy, "--database", path })
   assert(second.ok, "exit " .. tostring(second.code) .. ": " .. tostring(second.stderr))
   -- Written in place, a second or more after the stamp: the same inode and
@@ -238,7 +238,7 @@ local function test_no_artifact_or_launcher_is_opened_and_the_core_is_held_back(
   local core = core_or_skip()
   -- The probe reads the descriptors it holds through /proc, which only
   -- Linux has.
-  if Fs.is_dir("/proc/self/fd") ~= true then
+  if not assert(Fs.status("/proc/self/fd")).is_dir then
     Test.skip("this host has no /proc/self/fd to probe")
   end
   local path = tmp .. "/program.db"

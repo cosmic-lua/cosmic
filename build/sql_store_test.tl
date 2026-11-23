@@ -107,6 +107,6 @@ local function test_the_default_is_the_project_database_else_the_binarys_own()
     local written = sql.query(opened.db, statement)
     assert(written == nil, statement .. " ran")
   end
-  assert(Fs.exists(root .. "/copy.db") == false, "VACUUM INTO made a file")
+  assert(not assert(Fs.status(root .. "/copy.db")).exists, "VACUUM INTO made a file")
   assert(Fs.remove_tree(root))
 end

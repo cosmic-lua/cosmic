@@ -64,8 +64,8 @@ local function test_project_keeps_uses_of_bundled_symbols()
       "end",
       "--- Checks whether a path exists.",
       "function Main.check(path: string): boolean, string",
-      "  local found, _ = disk.exists(path)",
-      "  if found ~= true then",
+      "  local found, _ = disk.status(path)",
+      "  if found == nil or not found.exists then",
       "    return false, \"the project path does not exist\"",
       "  end",
       "  return true, \"\"",
@@ -82,9 +82,14 @@ local function test_project_keeps_uses_of_bundled_symbols()
   local shipped = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
   local rows = assert(Sqlite.text_rows(shipped,
     "SELECT module, symbol, from_module, line FROM uses ORDER BY module, symbol"))
-  assert(#rows == 1, tostring(#rows))
-  assert(assert(rows[1]):text(1) == "cosmic.fs" and assert(rows[1]):text(2) == "exists")
-  assert(assert(rows[1]):text(3) == "main" and assert(rows[1]):text(4) == "7")
+  local status_use = false
+  for _, row in ipairs(rows) do
+    if row:text(1) == "cosmic.fs" and row:text(2) == "status" then
+      assert(row:text(3) == "main" and row:text(4) == "7", row:text(4))
+      status_use = true
+    end
+  end
+  assert(status_use, tostring(#rows))
   local guidance = assert(Sqlite.text_rows(shipped,
     "SELECT coalesce(c.text, (SELECT d.text FROM docs d " ..
       "WHERE d.module = c.module AND d.source_symbol = c.symbol)) " ..
@@ -95,9 +100,9 @@ local function test_project_keeps_uses_of_bundled_symbols()
     databases[#databases + 1] = database
   end
   local effective = assert(docs.view(databases))
-  local definition = assert(Doc.lookup(effective, "Fs.exists"))
+  local definition = assert(Doc.lookup(effective, "Fs.status"))
   assert(#definition == 1 and assert(definition[1]).module == "cosmic.fs")
-  local uses = assert(Doc.uses(effective, "Fs.exists"))
+  local uses = assert(Doc.uses(effective, "Fs.status"))
   local found_main = false
   for _, use in ipairs(uses) do
     if use.from_module == "main" and use.line == 7 then found_main = true end

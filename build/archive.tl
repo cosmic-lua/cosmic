@@ -460,8 +460,8 @@ local function missing_above(dir: string): {string}
   local out: mut {string} = {}
   local at = dir
   while true do
-    local present, _ = Fs.is_dir(at)
-    if present ~= false then break end
+    local present, _ = Fs.status(at)
+    if present == nil or present.is_dir then break end
     out[#out + 1] = at
     local up = Fs.dirname(at)
     if up == at then break end
@@ -493,7 +493,8 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
   local inner: Archive.Reader = reader
 
   local dest_exists = false
-  local is_dir, _ = Fs.is_dir(dest)
+  local is_dir_status, _ = Fs.status(dest)
+  local is_dir = is_dir_status ~= nil and is_dir_status.is_dir
   if is_dir == true then dest_exists = true end
   local made: {string} = {}
   local parent = if dest_exists then dest else Fs.dirname(dest) end
@@ -739,7 +740,8 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
       local trouble = add(name, given)
       if trouble ~= nil then return nil, trouble end
     end
-    local rooted, _ = Fs.is_dir(given)
+    local rooted_status, _ = Fs.status(given)
+    local rooted = rooted_status ~= nil and rooted_status.is_dir
     local added = by_name[name]
     if (root and rooted == true) or (not root and added ~= nil and added.kind == "dir") then
       local record Seen
@@ -812,7 +814,8 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   local format, format_why = Archive.format_of(out)
   if format == nil then return fail(bare.refused, bare_message(format_why)) end
   local skip_file: string?
-  local present, _ = Fs.exists(out)
+  local present_status, _ = Fs.status(out)
+  local present = present_status ~= nil and present_status.exists
   if present == true then
     local resolved, _ = Fs.absolute(out)
     skip_file = resolved

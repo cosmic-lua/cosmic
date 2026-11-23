@@ -85,7 +85,7 @@ end
   assert(result.signal == sys.SIGINT,
     "code=" .. tostring(result.code) .. " signal=" .. tostring(result.signal) ..
       " " .. tostring(result.stderr))
-  assert(Fs.exists(tmp .. "/target") ~= true, "the target was created")
+  assert(not assert(Fs.status(tmp .. "/target")).exists, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(name == "interrupted.tl", "left behind: " .. name)
   end

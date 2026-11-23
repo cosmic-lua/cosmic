@@ -1820,7 +1820,8 @@ local function default_socket(darwin: boolean): string
     "/var/run/tailscale/tailscaled.sock", "/run/tailscale/tailscaled.sock",
   } end
   for _, path in ipairs(candidates) do
-    local there, _ = Fs.exists(path)
+    local there_status, _ = Fs.status(path)
+    local there = there_status ~= nil and there_status.exists
     if there == true then return path end
   end
   return assert(candidates[1])

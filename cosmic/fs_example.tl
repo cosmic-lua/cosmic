@@ -141,7 +141,7 @@ function Example.scratch()
     assert(Fs.write(path .. "/work/part", "half"))
     print(assert(Fs.read(path .. "/work/part")))
   end
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   assert(Fs.remove_tree(parent))
 end
 

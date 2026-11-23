@@ -145,8 +145,8 @@ local built = assert(Child.run(argv,
 print("exit " .. tostring(built.code))
 -- The build prints each program it wrote, a path per line.
 local program = assert(("\n" .. (built.stdout or "")):match("\n(/[^\n]+)"))
-local hi, _ = Fs.exists(program)
-local bye, _ = Fs.exists(Fs.dirname(program) .. "/bye")
+local hi = assert(Fs.status(program)).exists
+local bye = assert(Fs.status(Fs.dirname(program) .. "/bye")).exists
 print(Fs.basename(program) .. ": " .. tostring(hi) .. ", bye: " .. tostring(bye))
 local ran = assert(Child.run({ program }, { stdout = "capture", timeout_ns = Clock.seconds(10) }))
 print(((ran.stdout or ""):gsub("\n$", "")))

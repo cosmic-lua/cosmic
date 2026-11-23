@@ -65,6 +65,17 @@ local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
+--- Whether anything is at `path`, false where it or a parent is missing,
+--- nil and why where it cannot be looked at. This file runs on the
+--- bootstrap release too, whose cosmic.fs has no status call yet, so it
+--- asks [`sys.stat`], which both have.
+local function path_there(path: string): boolean?, string
+  local st, why, errno = sys.stat(path)
+  if st ~= nil then return true, "" end
+  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
+  return nil, path .. ": " .. why
+end
+
 local record Patch
   --- One record, parsed: `note` is its `note:` line's value, and
   --- `find_at` and `replace_at` are where in the record's text the find
@@ -257,7 +268,7 @@ local function read_inputs(root: string, name: string): Inputs?, string
     return nil, trouble
   end
   local dir = root .. "/patch/" .. name
-  local present, present_trouble = Fs.exists(dir)
+  local present, present_trouble = path_there(dir)
   if present == nil then
     return nil, present_trouble
   end
@@ -456,7 +467,7 @@ function Patch.prepare(root: string, name: string, cache: string): string?, stri
     return nil, patch_trouble
   end
   local dir = cache .. "/" .. name .. "-" .. key_of(tree)
-  local present, present_trouble = Fs.exists(dir)
+  local present, present_trouble = path_there(dir)
   if present == nil then
     return nil, present_trouble
   end
@@ -486,7 +497,7 @@ function Patch.prepare(root: string, name: string, cache: string): string?, stri
   local moved, move_trouble = Fs.rename(payload, dir)
   if not moved then
     -- Another build may have won the race; its tree is the same bytes.
-    local raced, _ = Fs.exists(dir)
+    local raced, _ = path_there(dir)
     if raced == true then
       return dir, ""
     end
@@ -559,7 +570,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   local moved, move_trouble = Fs.rename(payload, out)
   if not moved then
     -- Another build may have won the race; its library is the same bytes.
-    local raced, _ = Fs.exists(out)
+    local raced, _ = path_there(out)
     if raced == true then
       return true, ""
     end
@@ -577,7 +588,7 @@ function Patch.names(root: string): {string}?, string
   end
   local names: mut {string} = {}
   for _, name in ipairs(entries) do
-    local pinned, _ = Fs.exists(root .. "/vendor/" .. name .. "/PIN")
+    local pinned, _ = path_there(root .. "/vendor/" .. name .. "/PIN")
     if pinned == true then
       names[#names + 1] = name
     end

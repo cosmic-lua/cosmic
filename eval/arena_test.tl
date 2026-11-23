@@ -30,8 +30,7 @@ local function test_an_arena_holds_the_binary_the_task_and_their_hashes(dir: str
   assert(assert(Fs.read(arena .. "/PROMPT.md")) == Arena.prompt(arena))
   assert(assert(Fs.stat(arena .. "/bin/cosmic")).mode & 0x1ff == 0x1ed)
   do
-    local held_true, held_why = Fs.is_dir(arena .. "/tmp")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(arena .. "/tmp")).is_dir)
   end
   assert(assert(Fs.read(arena .. "/inputs.sha256")) ==
       Hash.hex_sha256("#!/bin/sh\n") .. "  bin/cosmic\n" ..
@@ -53,7 +52,7 @@ local function test_an_arena_stays_outside_the_repository_through_a_link(dir: st
   assert(Fs.symlink(dir .. "/repo", dir .. "/link"))
   laid, trouble = Arena.lay(eval, "t", binary, dir .. "/link/run")
   assert(laid == nil and trouble == "put the arena outside the repository", trouble)
-  assert(Fs.exists(dir .. "/repo/run") ~= true)
+  assert(not assert(Fs.status(dir .. "/repo/run")).exists)
 end
 
 local function test_a_task_and_an_executable_are_required(dir: string)
@@ -79,11 +78,11 @@ local function test_a_refusal_through_a_link_makes_nothing_inside_the_repository
   assert(Fs.symlink(dir .. "/repo", dir .. "/link"))
   local laid, trouble = Arena.lay(eval, "t", binary, dir .. "/link/new/deeper/run")
   assert(laid == nil and trouble == "put the arena outside the repository", trouble)
-  assert(Fs.exists(dir .. "/repo/new") ~= true)
+  assert(not assert(Fs.status(dir .. "/repo/new")).exists)
   assert(Fs.mkdirs(dir .. "/out"))
   laid, trouble = Arena.lay(eval, "t", binary, dir .. "/out/gone/../../repo/run")
   assert(laid == nil and trouble == "put the arena outside the repository", trouble)
-  assert(Fs.exists(dir .. "/repo/run") ~= true)
+  assert(not assert(Fs.status(dir .. "/repo/run")).exists)
 end
 
 -- TODO: hold a task's paths to the same rule. Mirror's `sub/b.bin`,

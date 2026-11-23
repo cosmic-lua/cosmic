@@ -31,8 +31,8 @@ local ran = 0
 local function fresh(tmp: string)
   assert(ran == 0, "an earlier test's change to the module is seen")
   ran = ran + 1
-  assert(Fs.exists(tmp .. "/mark") == false, "its directory holds what an earlier test left")
-  assert(Fs.exists("/tmp/stray") == false, "what an earlier test left in /tmp is seen")
+  assert(not assert(Fs.status(tmp .. "/mark")).exists, "its directory holds what an earlier test left")
+  assert(not assert(Fs.status("/tmp/stray")).exists, "what an earlier test left in /tmp is seen")
   assert(assert(sys.stat(tmp)).mtime ~= 12345, "the time an earlier test gave its directory is seen")
   assert(Fs.write(tmp .. "/mark", "left behind"))
   assert(sys.utimensat(tmp, 12345, 0, 12345, 0))
@@ -183,7 +183,7 @@ local Test = require("cosmic.test")
 Test.policy { grants = { { path = "suite", letters = "r" } } }
 
 local function fresh(tmp: string, mark: string)
-  assert(Fs.exists(tmp .. "/mark") == false, "its directory holds what an earlier test left")
+  assert(not assert(Fs.status(tmp .. "/mark")).exists, "its directory holds what an earlier test left")
   assert(Fs.write(tmp .. "/mark", mark))
   local opened = assert(sys.open("/dev/null", sys.O_RDONLY))
   local _, _ = Fs.put(Fs.stdout, "opened " .. tostring(opened) .. "\n")
@@ -259,10 +259,10 @@ local function test_a_asserts_nothing(tmp: string)
   local _, _ = Fs.write(tmp .. "/mark", "unchecked")
 end
 local function test_b_second(tmp: string)
-  assert(Fs.exists(tmp .. "/mark") == false, "its directory holds what an earlier test left")
+  assert(not assert(Fs.status(tmp .. "/mark")).exists, "its directory holds what an earlier test left")
 end
 local function test_c_third(tmp: string)
-  assert(Fs.exists(tmp .. "/mark") == false, "its directory holds what an earlier test left")
+  assert(not assert(Fs.status(tmp .. "/mark")).exists, "its directory holds what an earlier test left")
 end
 ]]))
   local output = tmp .. "/run.out"

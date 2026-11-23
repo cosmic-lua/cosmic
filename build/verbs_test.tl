@@ -79,8 +79,7 @@ local function test_e_runs_a_teal_chunk(tmp: string)
     assert(refused.stderr:find("-e returned " .. shown, 1, true) ~= nil, refused.stderr)
     assert(refused.stderr:find("not an exit status 0-255", 1, true) ~= nil, refused.stderr)
   end
-  local nothing, _ = Fs.exists(tmp .. "/o")
-  assert(nothing == false, "-e wrote under o/")
+  assert(not assert(Fs.status(tmp .. "/o")).exists, "-e wrote under o/")
 end
 
 local function test_every_verb_is_classified()

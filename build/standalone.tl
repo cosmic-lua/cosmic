@@ -186,7 +186,8 @@ local function project_module(file: string, source: string): string?
       local directory = Fs.dirname(absolute)
       while true do
         for _, candidate in ipairs({ stem .. ".tl", stem .. "/init.tl", stem .. ".tmpl" }) do
-          local there, _ = Fs.exists(directory .. "/" .. candidate)
+          local there_status, _ = Fs.status(directory .. "/" .. candidate)
+          local there = there_status ~= nil and there_status.exists
           if there == true then
             return name
           end

@@ -78,6 +78,17 @@ local Signal = require("cosmic.signal")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
+--- Whether anything is at `path`, false where it or a parent is missing,
+--- nil and why where it cannot be looked at. This file runs on the
+--- bootstrap release too, whose cosmic.fs has no status call yet, so it
+--- asks [`sys.stat`], which both have.
+local function path_there(path: string): boolean?, string
+  local st, why, errno = sys.stat(path)
+  if st ~= nil then return true, "" end
+  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
+  return nil, path .. ": " .. why
+end
+
 -- TODO: Child.FOREVER in place of CEILING_NS once
 -- ci/cosmic-driver.pin names a release whose Child has it: this file runs
 -- standalone on that release. Until then a ceiling no run reaches.
@@ -273,7 +284,7 @@ end
 function Zig.ensure_installed(root: string, cache: string, install: string, pin: Zig.Pin,
                               host: string): string?, string
   local zig = install .. "/zig"
-  local installed, look_trouble = Fs.exists(zig)
+  local installed, look_trouble = path_there(zig)
   if installed == nil then
     return nil, look_trouble
   end
@@ -290,7 +301,7 @@ function Zig.ensure_installed(root: string, cache: string, install: string, pin:
     if why == "" then why = "build/zig_fetch.tl failed" end
     return nil, why
   end
-  installed, look_trouble = Fs.exists(zig)
+  installed, look_trouble = path_there(zig)
   if installed == nil then
     return nil, look_trouble
   end
@@ -376,7 +387,7 @@ function Zig.pinned_program(root: string, cache: string): string?, string
   local install, trouble = Zig.pinned_install(root, cache)
   if install == nil then return nil, trouble end
   local zig = install.path .. "/zig"
-  local there, _ = Fs.exists(zig)
+  local there, _ = path_there(zig)
   if there ~= true then return nil, zig .. " is not there" end
   return zig, ""
 end
@@ -421,7 +432,7 @@ end
 -- cache-same-contents-hit and build-root-path, not yet sent upstream).
 local function patched_lib(root: string, install: string): string?, string
   local dir = root .. "/patch/zig-lib"
-  local present, present_trouble = Fs.exists(dir)
+  local present, present_trouble = path_there(dir)
   if present == nil then
     return nil, present_trouble
   end
@@ -448,7 +459,7 @@ local function patched_lib(root: string, install: string): string?, string
     return nil, ""
   end
   local out = install .. "/lib-" .. Zig.lib_key(records)
-  local made, made_trouble = Fs.exists(out)
+  local made, made_trouble = path_there(out)
   if made == nil then
     return nil, made_trouble
   end

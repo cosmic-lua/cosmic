@@ -92,7 +92,7 @@ local function test_a_digest_mismatch_names_both_and_sends_nothing(tmp: string)
   local filed = run({ url, "-o", path, "--sha256", wrong }, { reply("200 OK", "", "hello") })
   assert(filed.code == 1, tostring(filed.code))
   assert(filed.err:find(wrong, 1, true) and filed.err:find(right, 1, true), filed.err)
-  assert(Fs.exists(path) == false, "a failed digest leaves nothing at -o")
+  assert(not assert(Fs.status(path)).exists, "a failed digest leaves nothing at -o")
   local entries = assert(Fs.list(tmp))
   for _, name in ipairs(entries) do
     assert(not name:find("never", 1, true), "a temporary file was left: " .. name)
@@ -107,7 +107,7 @@ local function test_a_bad_status_fails_and_names_it(tmp: string)
   local path = tmp .. "/page.html"
   local filed = run({ url, "-o", path }, { reply("500 Oops", "", "x") })
   assert(filed.code == 1 and filed.err:find("HTTP 500", 1, true) ~= nil, filed.err)
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
 end
 
 local function test_a_redirect_is_followed()
@@ -284,7 +284,7 @@ local function test_a_cancelled_download_leaves_no_file_and_fails(tmp: string)
   })
   assert(code == 1, tostring(code))
   assert(table.concat(err):find("interrupted", 1, true) ~= nil, table.concat(err))
-  assert(Fs.exists(path) ~= true, "the target was created")
+  assert(not assert(Fs.status(path)).exists, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find("got.txt", 1, true), "left behind: " .. name)
   end
@@ -341,7 +341,7 @@ local function test_a_sha512_alone_checks_a_download_to_a_file(tmp: string)
   local bad = run({ "--sha512", string.rep("0", 128), "-o", other, url }, { reply("200 OK", "", "hello") })
   assert(bad.code == 1 and bad.err:find("sha512 mismatch", 1, true) ~= nil, bad.err)
   assert(not bad.err:find("sha256", 1, true), bad.err)
-  assert(Fs.exists(other) ~= true, "the target was created")
+  assert(not assert(Fs.status(other)).exists, "the target was created")
 end
 
 local function test_the_sum_aliases_work()
@@ -391,7 +391,7 @@ local function test_different_algorithms_must_both_match(tmp: string)
   local filed = run({ url .. "#sha256=" .. s256, "--sha512", string.rep("0", 128), "-o", path },
     { reply("200 OK", "", "hello") })
   assert(filed.code == 1, filed.err)
-  assert(Fs.exists(path) ~= true, "the target was created")
+  assert(not assert(Fs.status(path)).exists, "the target was created")
   for _, name in ipairs((assert(Fs.list(tmp)))) do
     assert(not name:find("both.txt", 1, true), "left behind: " .. name)
   end

@@ -36,29 +36,23 @@ local function test_write_answers_a_failure_with_the_path_and_the_errno(tmp: str
   assert(not wrote and why.errno == sys.ENOENT and why.path == tmp .. "/absent/file", tostring(why))
 end
 
-local function test_path_predicates_distinguish_answers_from_errors(tmp: string)
+local function test_status_tells_a_missing_path_from_a_failure(tmp: string)
   local file = tmp .. "/file"
   assert(Fs.write(file, "contents"))
 
-  local exists, exists_trouble = Fs.exists(file)
-  assert(exists == true and exists_trouble == "")
-  local directory, directory_trouble = Fs.is_dir(tmp)
-  assert(directory == true and directory_trouble == "")
-  local plain, plain_trouble = Fs.is_dir(file)
-  assert(plain == false and plain_trouble == "")
+  local found = assert(Fs.status(file))
+  assert(found.exists and not found.is_dir and assert(found.stat).size == 8)
+  local directory = assert(Fs.status(tmp))
+  assert(directory.exists and directory.is_dir and assert(directory.stat).kind == "dir")
 
-  local missing, missing_trouble = Fs.exists(tmp .. "/missing")
-  assert(missing == false and missing_trouble == "")
-  local below_file, below_file_trouble = Fs.exists(file .. "/child")
-  assert(below_file == false and below_file_trouble == "")
-  local missing_dir, missing_dir_trouble = Fs.is_dir(tmp .. "/missing")
-  assert(missing_dir == false and missing_dir_trouble == "")
+  for _, path in ipairs({ tmp .. "/missing", file .. "/child", tmp .. "/missing/child" }) do
+    local missing = assert(Fs.status(path))
+    assert(not missing.exists and not missing.is_dir and missing.stat == nil, path)
+  end
 
   local too_long = tmp .. "/" .. string.rep("x", 300)
-  local unknown, unknown_trouble = Fs.exists(too_long)
-  assert(unknown == nil and unknown_trouble:find(too_long, 1, true) ~= nil)
-  local unknown_dir, unknown_dir_trouble = Fs.is_dir(too_long)
-  assert(unknown_dir == nil and unknown_dir_trouble:find(too_long, 1, true) ~= nil)
+  local unknown, why = Fs.status(too_long)
+  assert(unknown == nil and why.path == too_long and why.errno ~= 0, tostring(why))
 end
 
 local function test_remove_tolerates_absence_but_reports_other_errors(tmp: string)
@@ -69,7 +63,7 @@ local function test_remove_tolerates_absence_but_reports_other_errors(tmp: strin
   assert(Fs.write(file, "contents"))
   assert(Fs.remove(file .. "/child"))
   assert(Fs.remove(file))
-  assert(Fs.exists(file) == false)
+  assert(not assert(Fs.status(file)).exists)
 
   local too_long = tmp .. "/" .. string.rep("x", 300)
   local failed, trouble = Fs.remove(too_long)
@@ -134,7 +128,7 @@ local function test_write_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and tostring(trouble) == path .. ": injected write failure", tostring(trouble))
   assert(assert(Fs.read(path)) == "old")
-  assert(created ~= "" and Fs.exists(created) == false)
+  assert(created ~= "" and not assert(Fs.status(created)).exists)
 end
 
 local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -165,7 +159,7 @@ local function test_close_failure_preserves_destination_and_cleans_its_temp(tmp:
   sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and tostring(trouble) == path .. ": injected close failure", tostring(trouble))
   assert(assert(Fs.read(path)) == "old")
-  assert(created ~= "" and Fs.exists(created) == false)
+  assert(created ~= "" and not assert(Fs.status(created)).exists)
 end
 
 local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp: string)
@@ -187,7 +181,7 @@ local function test_rename_failure_preserves_destination_and_cleans_its_temp(tmp
   sys.open_temporary = real_open_temporary -- checked: field_fixed
   assert(not ok and trouble.errno == sys.EACCES and trouble.path == path, tostring(trouble))
   assert(assert(Fs.read(path)) == "old")
-  assert(created ~= "" and Fs.exists(created) == false)
+  assert(created ~= "" and not assert(Fs.status(created)).exists)
 end
 
 --- A file begun with `create` is a stage of `write`: nothing is at the
@@ -233,7 +227,7 @@ local function test_create_failures_name_the_path_and_stay(tmp: string)
   assert(not synced and sync_trouble == trouble, tostring(sync_trouble))
   local closed, close_trouble = file:close()
   assert(not closed and close_trouble == trouble, tostring(close_trouble))
-  assert(Fs.exists(path) == false and #assert(Fs.list(tmp)) == 0, "a failed file was left behind")
+  assert(not assert(Fs.status(path)).exists and #assert(Fs.list(tmp)) == 0, "a failed file was left behind")
   local missing = tmp .. "/missing/target"
   local made, make_trouble = Fs.create(missing)
   assert(made == nil and make_trouble.path == missing and make_trouble.errno ~= 0, tostring(make_trouble))
@@ -277,9 +271,9 @@ local function test_cache_dir_without_make_makes_and_checks_nothing(tmp: string)
   local environment = { XDG_CACHE_HOME = tmp .. "/xdg" }
   local named = assert(Fs.cache_dir("tool", { environment = environment, make = false }))
   assert(named == tmp .. "/xdg/cosmic/tool", named)
-  assert(Fs.exists(tmp .. "/xdg") == false, "the name alone made a directory")
+  assert(not assert(Fs.status(tmp .. "/xdg")).exists, "the name alone made a directory")
   assert(assert(Fs.cache_dir("tool", { environment = environment })) == named)
-  assert(Fs.is_dir(named) == true, "the default did not make it")
+  assert(assert(Fs.status(named)).is_dir, "the default did not make it")
   assert(sys.chmod(named, 0x1ff))
   local refused, _ = Fs.cache_dir("tool", { environment = environment })
   assert(refused == nil)
@@ -356,7 +350,7 @@ end
 local function test_data_dir_refuses_one_others_can_write_to_and_names_that_are_not_one(tmp: string)
   local environment = { XDG_DATA_HOME = tmp }
   local named = assert(Fs.data_dir("prog", { environment = environment, make = false }))
-  assert(Fs.exists(named) == false, "the name alone made a directory")
+  assert(not assert(Fs.status(named)).exists, "the name alone made a directory")
   assert(assert(Fs.data_dir("prog", { environment = environment })) == named)
   assert(sys.chmod(named, 0x1ff))
   local dir, trouble = Fs.data_dir("prog", { environment = environment })
@@ -372,7 +366,7 @@ local function test_program_cache_dir_is_outside_cosmics_own(tmp: string)
   local dir = assert(Fs.program_cache_dir("prog", { environment = environment }))
   assert(dir == tmp .. "/xdg/prog", dir)
   assert(assert(Fs.stat(dir)).mode & 0x3f == 0, dir)
-  assert(Fs.exists(tmp .. "/xdg/cosmic") == false, "made cosmic's own")
+  assert(not assert(Fs.status(tmp .. "/xdg/cosmic")).exists, "made cosmic's own")
   dir = assert(Fs.program_cache_dir("prog", { environment = { HOME = tmp .. "/home" }, make = false }))
   assert(dir == tmp .. "/home/.cache/prog", dir)
   local none, trouble = Fs.program_cache_dir("a/b", { environment = environment })
@@ -383,7 +377,7 @@ local function test_mkdirs_with_a_trailing_slash_makes_every_parent()
   local root = assert(Fs.mkdtemp("mkdirs"))
   local ok, trouble = Fs.mkdirs(root .. "/a/b/c/")
   assert(ok, trouble)
-  assert(Fs.is_dir(root .. "/a/b/c") == true)
+  assert(assert(Fs.status(root .. "/a/b/c")).is_dir)
 end
 
 --- A link to nothing is something at the path: mkdirs says it exists,
@@ -516,7 +510,7 @@ local function test_scratch_is_private_and_removed_when_closed(tmp: string)
     assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1c0, "private to its user")
     assert(Fs.write(path .. "/payload", "x"))
   end
-  assert(Fs.exists(path) == false)
+  assert(not assert(Fs.status(path)).exists)
   -- The gate stays: every creator and sweeper must lock one inode.
   assert(table.concat(assert(Fs.list(tmp)), " ") == ".scratch-gate")
 end
@@ -557,12 +551,11 @@ local function test_scratch_is_removed_when_its_block_raises(tmp: string)
     local scratch <close> = assert(Fs.scratch(tmp))
     seen[#seen + 1] = scratch.path
     do
-      local held_true, held_why = Fs.exists(scratch.path)
-      assert(held_true == true, held_why)
+      assert(assert(Fs.status(scratch.path)).exists)
     end
     error("raised inside the block")
   end, "raised inside the block")
-  assert(#seen == 1 and Fs.exists(assert(seen[1])) == false, "the directory outlived the raise")
+  assert(#seen == 1 and not assert(Fs.status(assert(seen[1]))).exists, "the directory outlived the raise")
 end
 
 local function test_a_second_close_of_a_scratch_leaves_a_reused_descriptor(tmp: string)
@@ -595,19 +588,19 @@ local function test_scratch_sweeps_only_a_provably_dead_owner(tmp: string)
   local legacy = tmp .. "/.work.2147483646"
   assert(Fs.mkdirs(legacy))
   local first <close> = assert(Fs.scratch(tmp))
-  assert(Fs.exists(dead) == false, "an owner nobody holds is dead")
-  assert(Fs.exists(missing) == true, "no owner file says nothing")
-  assert(Fs.exists(legacy) == true, "a name that is not ours is left alone")
+  assert(not assert(Fs.status(dead)).exists, "an owner nobody holds is dead")
+  assert(assert(Fs.status(missing)).exists, "no owner file says nothing")
+  assert(assert(Fs.status(legacy)).exists, "a name that is not ours is left alone")
   local second <close> = assert(Fs.scratch(tmp))
   assert(second.path ~= first.path)
-  assert(Fs.exists(first.path) == true, "a live owner is never swept")
+  assert(assert(Fs.status(first.path)).exists, "a live owner is never swept")
 end
 
 local function test_scratch_in_a_missing_directory_names_it(tmp: string)
   local missing = tmp .. "/missing"
   local scratch, why = Fs.scratch(missing)
   assert(scratch == nil and tostring(why):find(missing, 1, true) ~= nil, tostring(why))
-  assert(Fs.exists(missing) == false)
+  assert(not assert(Fs.status(missing)).exists)
 end
 
 local function test_remove_tree_removes_everything_but_follows_no_link(tmp: string)
@@ -620,12 +613,12 @@ local function test_remove_tree_removes_everything_but_follows_no_link(tmp: stri
   assert(Fs.write(tree .. "/top", "gone"))
   assert(Fs.symlink(outside, tree .. "/a/link"))
   assert(Fs.remove_tree(tree))
-  assert(Fs.exists(tree) == false)
+  assert(not assert(Fs.status(tree)).exists)
   assert(assert(Fs.read(outside .. "/keep")) == "kept", "a link was followed")
   -- Already gone is not a failure, and neither is a plain file.
   assert(Fs.remove_tree(tree))
   assert(Fs.remove_tree(outside .. "/keep"))
-  assert(Fs.exists(outside .. "/keep") == false)
+  assert(not assert(Fs.status(outside .. "/keep")).exists)
 end
 
 local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree(tmp: string)
@@ -634,7 +627,7 @@ local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree
   assert(Fs.write(outside .. "/inner/keep", "kept"))
   assert(Fs.symlink(outside, tmp .. "/link"))
   assert(Fs.remove_tree(tmp .. "/link"))
-  assert(Fs.exists(tmp .. "/link") == false and assert(Fs.read(outside .. "/inner/keep")) == "kept")
+  assert(not assert(Fs.status(tmp .. "/link")).exists and assert(Fs.read(outside .. "/inner/keep")) == "kept")
   -- A directory of links to directories, and one of wide and deep names.
   local tree = tmp .. "/deep"
   local path = tree
@@ -645,7 +638,7 @@ local function test_remove_tree_of_a_link_removes_the_link_and_walks_a_deep_tree
     assert(Fs.symlink(outside .. "/inner", tree .. "/l" .. tostring(i)))
   end
   assert(Fs.remove_tree(tree))
-  assert(Fs.exists(tree) == false and assert(Fs.read(outside .. "/inner/keep")) == "kept")
+  assert(not assert(Fs.status(tree)).exists and assert(Fs.read(outside .. "/inner/keep")) == "kept")
 end
 
 local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_not_follow_a_link(tmp: string)
@@ -657,7 +650,7 @@ local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_n
   assert(Fs.write(outside .. "/inner/keep", "kept"))
   assert(Fs.symlink(outside, tmp .. "/link"))
   assert(Fs.remove_tree(tmp .. "/link/"))
-  assert(Fs.exists(tmp .. "/link") == false, "the link is removed")
+  assert(not assert(Fs.status(tmp .. "/link")).exists, "the link is removed")
   assert(assert(Fs.read(outside .. "/inner/keep")) == "kept", "a trailing slash followed the link")
   assert(Fs.symlink(outside, tmp .. "/link"))
   assert(Fs.remove_tree(tmp .. "/link///"))
@@ -684,7 +677,7 @@ local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(
   assert(sys.chdir(here))
   local removed, why = Fs.remove_tree(deep)
   assert(not removed and why.path == deep, "a tree past the bound was removed")
-  assert(Fs.exists(deep) == true, "what failed to go is left")
+  assert(assert(Fs.status(deep)).exists, "what failed to go is left")
   -- What is left is taken from the bottom for the test's own directory
   -- to be removable.
   assert(sys.chdir(deep))
@@ -695,7 +688,7 @@ local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(
   end
   assert(sys.chdir(here))
   assert(Fs.remove_tree(deep))
-  assert(Fs.exists(deep) == false)
+  assert(not assert(Fs.status(deep)).exists)
   -- No descriptor was left open by the failed walk.
   assert(Fs.mkdirs(tmp .. "/after/a/b"))
   assert(Fs.remove_tree(tmp .. "/after"))
@@ -767,8 +760,7 @@ local function test_copy_tree_keeps_bytes_modes_times_and_links(tmp: string)
   assert(secret.atime == 1000000000 and secret.atime_ns == 42, tostring(secret.atime) .. "." .. tostring(secret.atime_ns))
   assert(assert(Fs.stat(to .. "/sub")).mode & 0xfff == 0x16d)
   do
-    local held_true, held_why = Fs.is_dir(to .. "/sub/empty")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(to .. "/sub/empty")).is_dir)
   end
   assert(assert(Fs.readlink(to .. "/sub/link")) == "../big")
   local link_st = assert(sys.lstat(to .. "/sub/link"))
@@ -794,7 +786,7 @@ local function test_copy_tree_does_not_write_through_a_link_at_the_target(tmp: s
   assert(Fs.symlink(tmp .. "/elsewhere", tmp .. "/two"))
   local copied, why = Fs.copy_tree(tmp .. "/one", tmp .. "/two")
   assert(not copied and why.errno == sys.EEXIST and why.path == tmp .. "/two", tostring(why))
-  assert(Fs.exists(tmp .. "/elsewhere") == false)
+  assert(not assert(Fs.status(tmp .. "/elsewhere")).exists)
 end
 
 local function test_copy_tree_copies_a_single_file(tmp: string)
@@ -811,7 +803,7 @@ local function test_copy_tree_into_itself_copies_once(tmp: string)
   local copied, trouble = Fs.copy_tree(from, from .. "/b")
   assert(copied, tostring(trouble))
   assert(assert(Fs.read(from .. "/b/x/f")) == "f")
-  assert(Fs.exists(from .. "/b/b") == false, "the copy was copied again")
+  assert(not assert(Fs.status(from .. "/b/b")).exists, "the copy was copied again")
 end
 
 --- A named pipe in the tree stops the copy with its path, rather than

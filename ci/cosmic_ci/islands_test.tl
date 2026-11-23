@@ -2,6 +2,7 @@
 --- running driver's Teal refuses, and refuses a list that is stale or a run of the pinned binary nothing names.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Predicate = require("cosmic_ci.fs_predicate")
 local Islands = require("cosmic_ci.islands")
 local Test = require("cosmic.test")
 
@@ -60,7 +61,7 @@ local function test_a_script_is_checked_and_not_run(tmp: string)
   assert(typed:find("build/typed.tl (listed in ci/bootstrap-files.txt): ", 1, true) == 1, typed)
   assert(typed:find("(not_assignable)", 1, true) ~= nil, typed)
   assert(typed:find("use only APIs of the pinned release, or move the pin", 1, true) ~= nil, typed)
-  assert(Fs.exists(marker) == false, "a script was run")
+  assert(Predicate.exists(marker) == false, "a script was run")
 end
 
 --- A script the new grammar's checker refuses and the fork's would let by is the point of the check: a write to a

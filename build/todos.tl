@@ -164,7 +164,8 @@ local function in_repository(root: string): boolean
   local dir, _ = Fs.absolute(root)
   while dir ~= nil do
     -- One that cannot be looked at (EACCES) is none git could open.
-    local there, _ = Fs.exists(dir .. "/.git")
+    local there_status, _ = Fs.status(dir .. "/.git")
+    local there = there_status ~= nil and there_status.exists
     if there == true then return true end
     local parent = Fs.dirname(dir)
     if parent == dir then return false end
@@ -218,7 +219,8 @@ end
 
 --- The file of commits to pass over, where `root` holds one.
 local function ignored_revs(root: string): string?
-  local listed, _ = Fs.exists(root .. "/" .. IGNORED_REVS)
+  local listed_status, _ = Fs.status(root .. "/" .. IGNORED_REVS)
+  local listed = listed_status ~= nil and listed_status.exists
   if listed == true then return root .. "/" .. IGNORED_REVS end
   return nil
 end

@@ -204,8 +204,8 @@ local function test_other_subcommands_accept_cache_directories_not_yet_created(t
   })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.ok, result.stderr)
-  assert(Fs.exists(project) ~= true and Fs.exists(shared) ~= true)
-  assert(Fs.exists(tmp .. "/root/o") ~= true)
+  assert(not assert(Fs.status(project)).exists and not assert(Fs.status(shared)).exists)
+  assert(not assert(Fs.status(tmp .. "/root/o")).exists)
 end
 
 local function test_a_build_repairs_a_manifest_whose_contents_do_not_match_its_name(tmp: string)
@@ -245,6 +245,6 @@ local function test_boot_refuses_an_install_prefix_that_would_name_another_lock(
     assert(result.code == 2)
     assert((result.stderr or ""):find("do not pass --prefix or -p", 1, true))
   end
-  assert(Fs.exists(tmp .. "/other") ~= true)
-  assert(Fs.exists(tmp .. "/root/o") ~= true)
+  assert(not assert(Fs.status(tmp .. "/other")).exists)
+  assert(not assert(Fs.status(tmp .. "/root/o")).exists)
 end

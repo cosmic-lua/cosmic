@@ -209,7 +209,7 @@ local function test_a_cancelled_download_does_not_wait_or_retry(tmp: string)
   })
   assert(Clock.monotonic_ns() - began < Clock.seconds(5), "the download waited")
   assert(result.kind == "failed" and result.reason == "interrupted", result.reason)
-  assert(Fs.exists(tmp .. "/got") ~= true, "the 200 was read")
+  assert(not assert(Fs.status(tmp .. "/got")).exists, "the 200 was read")
 end
 
 --- `cancelled` answering true during the wait ends it between slices.
@@ -226,7 +226,7 @@ local function test_a_download_cancelled_during_the_wait_stops_waiting(tmp: stri
   local took = Clock.monotonic_ns() - began
   assert(not ok and why == "interrupted", tostring(why))
   assert(took >= Clock.ms(300) and took < Clock.seconds(5), tostring(took))
-  assert(Fs.exists(tmp .. "/got") ~= true, "the 200 was read")
+  assert(not assert(Fs.status(tmp .. "/got")).exists, "the 200 was read")
 end
 
 local function test_an_attempt_that_followed_a_redirect_leaves_the_next_the_entries_after_it()
@@ -287,7 +287,7 @@ local function test_a_policy_of_the_wrong_shape_raises_naming_the_option(tmp: st
       assert(err:find("http_retry_test:", 1, true) ~= nil, name .. ": " .. err)
     end
   end
-  assert(Fs.exists(tmp .. "/never") ~= true)
+  assert(not assert(Fs.status(tmp .. "/never")).exists)
 end
 
 --- The message of the raise that calling `entry` with `literal`, Lua source,
@@ -353,7 +353,7 @@ local function test_a_policy_of_the_wrong_lua_type_raises_naming_the_option(tmp:
       assert(err:find("http_retry_test:", 1, true) ~= nil, name .. " " .. case.literal .. ": " .. err)
     end
   end
-  assert(Fs.exists(tmp .. "/never") ~= true)
+  assert(not assert(Fs.status(tmp .. "/never")).exists)
 end
 
 --- A `retry` that is no table (a string, a number) raises naming the option,
@@ -383,5 +383,5 @@ local function test_a_retry_that_is_no_table_raises_naming_the_option(tmp: strin
       assert(err:find("http_retry_test:", 1, true) ~= nil, name .. " " .. literal .. ": " .. err)
     end
   end
-  assert(Fs.exists(tmp .. "/never") ~= true)
+  assert(not assert(Fs.status(tmp .. "/never")).exists)
 end

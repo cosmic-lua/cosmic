@@ -36,7 +36,7 @@ local function test_bare_success_usage_and_help_ignore_broken_project(tmp: strin
   end
   local usage = run(tmp, { "cache", "trim", "verdicts", "relative", "--whole" })
   assert(usage.code == 2 and not (usage.stderr or ""):find("stale", 1, true), usage.stderr)
-  assert(Fs.exists(tmp .. "/o") ~= true and Fs.exists(tmp .. "/missing") ~= true)
+  assert(not assert(Fs.status(tmp .. "/o")).exists and not assert(Fs.status(tmp .. "/missing")).exists)
 end
 
 local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: string)
@@ -49,7 +49,7 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   assert(db:exec("ROLLBACK"))
   assert(db:close())
   assert(result.timed_out, "the live writer must block maintenance")
-  assert(Fs.exists(path) == true)
+  assert(assert(Fs.status(path)).exists)
   db = assert(Sqlite.open(path))
   local untouched = assert(Sqlite.text_rows(db, "SELECT value FROM untouched"))
   assert(#untouched == 1, "the table holds its one row")
@@ -74,7 +74,7 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
     { cwd = tmp, stdout = "capture", stderr = "capture", timeout_ns = Clock.ms(200) })
   local result = assert(Child.run(started.argv, started.options))
   assert(result.timed_out and not (result.stdout or ""):find('"digest"', 1, true))
-  assert(Fs.exists(path .. "-wal") == true, "maintenance must never unlink a live WAL")
+  assert(assert(Fs.status(path .. "-wal")).exists, "maintenance must never unlink a live WAL")
   assert(assert(reader.stdin_stream):close())
   assert(assert(reader:wait(Clock.seconds(5))).code == 0)
   assert(#assert(Sqlite.rows(db, "SELECT * FROM keep")) == 2)
@@ -120,5 +120,5 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   assert(not report:find('"digest"', 1, true) and not report:find('"fresh"', 1, true), report)
   assert(db:exec("ROLLBACK"))
   assert(db:close())
-  assert(Fs.exists(path) == true)
+  assert(assert(Fs.status(path)).exists)
 end

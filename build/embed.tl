@@ -920,8 +920,8 @@ local function build_tree(root: string, host?: boolean, under?: {string},
   for key, _ in pairs(held) do
     local directory, name = key:match("^(.*)\t([^\t]*)$")
     if directory ~= nil and name ~= nil then
-      local there, _ = Fs.exists(directory .. "/" .. name)
-      if there == false then gone[#gone + 1] = key end
+      local there, _ = Fs.status(directory .. "/" .. name)
+      if there ~= nil and not there.exists then gone[#gone + 1] = key end
     end
   end
   for _, key in ipairs(gone) do held[key] = nil end
@@ -1153,14 +1153,16 @@ local function out_directory(root: string, given: string): string?, string
   -- The nearest part of the path that exists decides: a directory, it can hold the rest; anything else cannot.
   local near = path
   while true do
-    local there, there_trouble = Fs.exists(near)
-    if there == nil then return nil, "--out " .. given .. ": " .. there_trouble end
+    local there_status, there_trouble = Fs.status(near)
+    if there_status == nil then return nil, "--out " .. given .. ": " .. tostring(there_trouble) end
+    local there = there_status.exists
     if there then break end
     local parent = near:match("^(.*)/[^/]+$")
     if parent == nil or parent == "" then near = "/" else near = parent end
     if near == "/" then break end
   end
-  local directory, _ = Fs.is_dir(near)
+  local directory_status, _ = Fs.status(near)
+  local directory = directory_status ~= nil and directory_status.is_dir
   if directory ~= true then
     if near == path then
       return nil, "--out " .. given .. " is not a directory: it takes the directory to write the executables to"

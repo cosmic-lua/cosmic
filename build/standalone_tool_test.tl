@@ -185,7 +185,7 @@ local function test_check_types_a_file_without_running_it(tmp: string)
   end
   local passed = check(clean)
   assert(passed.code == 0, tostring(passed.stderr))
-  assert(Fs.exists(marker) ~= true, "--check ran the file")
+  assert(not assert(Fs.status(marker)).exists, "--check ran the file")
   local refused = check(broken)
   assert(refused.code == 4, tostring(refused.stderr))
   assert(tostring(refused.stderr):find("not_assignable", 1, true), tostring(refused.stderr))

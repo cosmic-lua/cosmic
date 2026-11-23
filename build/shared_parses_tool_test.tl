@@ -259,5 +259,5 @@ local function test_the_cache_turned_off_shares_no_parse(tmp: string)
   built_as(tmp .. "/first", env, "(4 compiled, 0 cached; 4 sources parsed;")
   checkout(tmp .. "/second")
   built_as(tmp .. "/second", env, "(4 compiled, 0 cached; 4 sources parsed;")
-  assert(Fs.exists(tmp .. "/cache") ~= true, "a cache turned off was written")
+  assert(not assert(Fs.status(tmp .. "/cache")).exists, "a cache turned off was written")
 end

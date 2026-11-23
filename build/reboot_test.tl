@@ -529,7 +529,7 @@ local function test_a_lookups_build_leaves_a_database_of_another_schema(tmp: str
   end)
   assert(all:find("docs: " .. layout.working .. " is of schema another", 1, true), all)
   assert(assert(Fs.stat(layout.working)).ino == before, "the file was removed")
-  assert(Fs.exists(layout.projection) == false, "a projection was written")
+  assert(not assert(Fs.status(layout.projection)).exists, "a projection was written")
   local db = assert(Sqlite.open(layout.working))
   local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs"))
   assert(db:close())
@@ -573,7 +573,8 @@ end
 
 --- Whether the working database of `root` has staged `path`.
 local function staged_in(root: string, path: string): boolean
-  local exists, _ = Fs.exists(paths.resolve(root).working)
+  local exists_status, _ = Fs.status(paths.resolve(root).working)
+  local exists = exists_status ~= nil and exists_status.exists
   if exists ~= true then
     return false
   end
@@ -710,7 +711,8 @@ local function test_a_fresh_project_run_leaves_the_checkouts_database_unwritten(
   end)
   assert(code == "nil" and said == "", code .. " " .. said)
   assert(assert(Fs.read(layout.working)) == before, "a project run with a fresh tool wrote the checkout's database")
-  local logged, _ = Fs.exists(layout.working .. "-wal")
+  local logged_status, _ = Fs.status(layout.working .. "-wal")
+  local logged = logged_status ~= nil and logged_status.exists
   assert(logged ~= true, "a project run left a write-ahead log beside the checkout's database")
 end
 

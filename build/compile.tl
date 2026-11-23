@@ -166,7 +166,8 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
     complain(tostring(root_why) .. ": --root must name a directory that exists")
     return bare.refused
   end
-  local is_directory, _ = Fs.is_dir(root)
+  local is_directory_status, _ = Fs.status(root)
+  local is_directory = is_directory_status ~= nil and is_directory_status.is_dir
   if is_directory ~= true then
     complain(root .. ": --root must name a directory, not a file")
     return bare.refused

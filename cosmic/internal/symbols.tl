@@ -224,9 +224,9 @@ end
 --- The condition under which `alias` (a row of `uses`) is a use of what
 --- `?1` names, the same way [`named_where`] finds its declaration. A use
 --- is recorded under its canonical path, without the module's own
---- record (`exists`, `Writer.add_file`), so besides that path and
+--- record (`status`, `Writer.add_file`), so besides that path and
 --- its last name alone, `?1` may spell it from the module's record
---- down ([`Fs.exists`], [`Zip.Writer.add_file`]): one name more, and
+--- down ([`Fs.status`], [`Zip.Writer.add_file`]): one name more, and
 --- only one, so [`Stream.Writer.write`] is not a use of every `write`.
 --- A use is recorded with `.` throughout (`Box.grow`), so `?1`'s `:`
 --- is read as one (`Thing.Box:grow`, `Box:grow`), as `cosmic docs`

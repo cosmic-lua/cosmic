@@ -225,10 +225,11 @@ local function patches_of(root: string, name: string): string?, string
     end
   end
   local directory = root .. "/patch/" .. name
-  local exists, trouble = Fs.exists(directory)
-  if exists == nil then
-    return nil, trouble
+  local exists_status, trouble = Fs.status(directory)
+  if exists_status == nil then
+    return nil, tostring(trouble)
   end
+  local exists = exists_status.exists
   if not exists then
     return table.concat(lines, "\n"), ""
   end
@@ -252,10 +253,11 @@ end
 --- The entries of `directory`, or none when there is no such directory:
 --- a tree shaped like cosmic's own need not vendor anything.
 local function entries(directory: string): {string}?, string
-  local exists, trouble = Fs.exists(directory)
-  if exists == nil then
-    return nil, trouble
+  local exists_status, trouble = Fs.status(directory)
+  if exists_status == nil then
+    return nil, tostring(trouble)
   end
+  local exists = exists_status.exists
   if not exists then
     return {}, ""
   end
@@ -282,10 +284,11 @@ local function records(root: string): {Record}?, string
   end
   for _, name in ipairs(vendored) do
     local directory = root .. "/vendor/" .. name
-    local pinned, pin_trouble = Fs.exists(directory .. "/PIN")
-    if pinned == nil then
-      return nil, pin_trouble
+    local pinned_status, pin_trouble = Fs.status(directory .. "/PIN")
+    if pinned_status == nil then
+      return nil, tostring(pin_trouble)
     end
+    local pinned = pinned_status.exists
     if pinned then
       found[#found + 1] = { name = name, path = directory .. "/PIN", directory = directory }
     end

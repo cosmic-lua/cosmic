@@ -201,8 +201,8 @@ local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: st
       tmp .. "/open/fifo; rename " .. tmp .. "/open/new " .. tmp .. "/open/renamed; rm " ..
       tmp .. "/open/renamed; rmdir " .. tmp .. "/open/sub/deeper")
   assert(made.code == 0, "created and removed: " .. made.said)
-  assert(Fs.exists(tmp .. "/open/new") == false and Fs.exists(tmp .. "/open/renamed") == false)
-  assert(Fs.exists(tmp .. "/open/fifo") == true and Fs.is_dir(tmp .. "/open/sub") == true)
+  assert(not assert(Fs.status(tmp .. "/open/new")).exists and not assert(Fs.status(tmp .. "/open/renamed")).exists)
+  assert(assert(Fs.status(tmp .. "/open/fifo")).exists and assert(Fs.status(tmp .. "/open/sub")).is_dir)
   for _, script in ipairs({
       "create " .. tmp .. "/shut/new x", "mkdirs " .. tmp .. "/shut/sub", "rm " .. tmp .. "/shut/old",
       "mkfifo " .. tmp .. "/shut/fifo",
@@ -210,7 +210,7 @@ local function test_c_creates_and_removes_where_granted_and_nowhere_else(tmp: st
     local refused = under(tmp, probe, grants, script)
     assert(refused.code == 1 and refused.said:find(DENIED, 1, true) ~= nil, script .. ": " .. refused.said)
   end
-  assert(Fs.exists(tmp .. "/shut/old") == true and Fs.exists(tmp .. "/shut/new") == false)
+  assert(assert(Fs.status(tmp .. "/shut/old")).exists and not assert(Fs.status(tmp .. "/shut/new")).exists)
 end
 
 local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
@@ -223,7 +223,7 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local both: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/b", access = "c" } }
   local moved = under(tmp, probe, both, "rename " .. tmp .. "/a/f " .. tmp .. "/b/f")
   assert(moved.code == 0, "renamed: " .. moved.said)
-  assert(Fs.exists(tmp .. "/b/f") == true and Fs.exists(tmp .. "/a/f") == false)
+  assert(assert(Fs.status(tmp .. "/b/f")).exists and not assert(Fs.status(tmp .. "/a/f")).exists)
   -- Into a directory granted to read alone: refused, as any creation there is.
   local read_only: {raw_process.Grant} = { { path = tmp .. "/a", access = "c" }, { path = tmp .. "/c", access = "r" } }
   local refused = under(tmp, probe, read_only, "rename " .. tmp .. "/a/g " .. tmp .. "/c/g")
@@ -234,8 +234,7 @@ local function test_a_rename_between_grants_needs_c_on_both(tmp: string)
   local gained = under(tmp, probe, more, "rename " .. tmp .. "/a/g " .. tmp .. "/b/g")
   assert(gained.code == 1 and gained.said:find("Cross-device link", 1, true) ~= nil, "EXDEV: " .. gained.said)
   do
-    local held_true, held_why = Fs.exists(tmp .. "/a/g")
-    assert(held_true == true, held_why)
+    assert(assert(Fs.status(tmp .. "/a/g")).exists)
   end
 end
 
