@@ -287,7 +287,9 @@ end
 --- The failure SQLite answered `outcome` with, its codes kept.
 local function failed(outcome: raw_sqlite.Outcome): Failure
   local reason = if outcome.reason ~= "" then outcome.reason else "sqlite: the call failed" end
-  return Failure.coded(reason, outcome.code, outcome.extended_code, outcome.cancelled == true)
+  local kind: Failure.Kind = if outcome.timed_out == true then "timeout" elseif outcome.cancelled == true then
+    "cancelled" else "library" end
+  return Failure.coded(reason, outcome.code, outcome.extended_code, kind)
 end
 
 --- Steps `statement` once and gives `project` the row it stands on: the
@@ -513,7 +515,8 @@ end
 --- An open database, as [`Sqlite.open`] and [`Sqlite.memory`] answer it.
 --- Every method that can fail answers `nil` or `false` and a [`Failure`]
 --- with SQLite's codes (`code` and `extended_code`, and the kind
---- "cancelled" for a busy wait the handle's guard stopped). A call on a
+--- "cancelled" for a wait or call the handle's guard stopped, and
+--- "timeout" for one past [`Handle.time_limit`]). A call on a
 --- closed handle raises. Hold it in a `<close>` variable to close it on
 --- the way out of a block.
 local class Handle
@@ -728,6 +731,18 @@ local class Handle
     self.connection:busy_timeout(timeout_ns)
   end
 
+  --- Stops each later call that runs past `limit_ns` from its start,
+  --- checked every 1000 of SQLite's steps: the call answers a failure
+  --- of kind "timeout" with code [`Sqlite.INTERRUPT`]. While a limit is
+  --- set, a signal the innermost guard catches stops a call too, of
+  --- kind "cancelled". An interrupted write rolls back its transaction;
+  --- a read leaves it open. Nil removes the limit, and a signal still
+  --- stops a call. A negative duration raises, as does a borrowed
+  --- handle.
+  function time_limit(self, limit_ns: integer?)
+    self.connection:time_limit(limit_ns)
+  end
+
   --- Closes the connection: true, or false and why, [`Sqlite.BUSY`] as
   --- SQLite answers it, while a statement or query is still open.
   --- Closing one already closed does nothing. A borrowed handle, such as
@@ -802,6 +817,9 @@ local record Sqlite
   BUSY: integer
   --- This connection, or one sharing its cache, prevents the operation.
   LOCKED: integer
+  --- The call was stopped before it ended: [`Handle.time_limit`] ran
+  --- out, or a guard caught a signal.
+  INTERRUPT: integer
   --- SQLite found a malformed database structure.
   CORRUPT: integer
   --- SQLite did not recognize a database file.
@@ -972,6 +990,7 @@ end
 
 Sqlite.OK = OK
 Sqlite.LOCKED = 6
+Sqlite.INTERRUPT = 9
 Sqlite.CORRUPT = 11
 Sqlite.NOTADB = 26
 Sqlite.ERROR = ERROR

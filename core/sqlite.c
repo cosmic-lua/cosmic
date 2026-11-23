@@ -41,7 +41,21 @@ struct handle {
   int64_t deadline_ms;
   int64_t pause_ms;
   bool cancelled;
+  /* What each call may run for, in milliseconds, -1 for no limit
+   * ([`handle_time_limit`]), and the deadline of the call running, set
+   * as it begins ([`begin_wait`]), -1 for none. */
+  int64_t run_ms;
+  int64_t run_deadline_ms;
+  /* Why the progress handler stopped the call running: STOP_NONE, or the
+   * time limit or a guard's caught signal. */
+  int stop;
 };
+
+enum { STOP_NONE, STOP_TIME, STOP_SIGNAL };
+
+/* How many virtual machine steps go between two looks at the clock: a
+ * look is a vDSO read, small beside a thousand steps. */
+#define PROGRESS_STEPS 1000
 
 struct statement {
   sqlite3_stmt *stmt;
@@ -53,6 +67,8 @@ struct statement {
  * again with count zero for another statement in the same exec. The
  * clock is read only if the installed handler actually meets a lock. */
 static void begin_wait (struct handle *h) {
+  h->run_deadline_ms = h->run_ms < 0 ? -1 : cosmic_deadline_ms(h->run_ms);
+  h->stop = STOP_NONE;
   if (h->busy_ms < 0) return;
   h->deadline_ms = -1;
   h->pause_ms = 1;
@@ -68,6 +84,32 @@ static int wait_busy (void *context, int previous) {
   int status = cosmic_paused(h->deadline_ms, &h->pause_ms);
   if (status == EINTR) h->cancelled = true;
   return status == 0;
+}
+
+/* SQLite's progress handler, installed by [`handle_time_limit`]: stops
+ * the call running (SQLITE_INTERRUPT) once its time has passed, or once
+ * a guard caught a signal, as a busy wait stops for one. */
+static int progress (void *context) {
+  struct handle *h = context;
+  if (cosmic_signal_caught()) {
+    h->stop = STOP_SIGNAL;
+    return 1;
+  }
+  if (h->run_deadline_ms < 0) return 0;
+  if (cosmic_wait_slice(h->run_deadline_ms) == 0) {
+    h->stop = STOP_TIME;
+    return 1;
+  }
+  return 0;
+}
+
+/* What a call the progress handler stopped failed for, in place of
+ * SQLite's "interrupted", or NULL for any other failure. */
+static const char *stopped_reason (const struct handle *h, int rc) {
+  if (h == NULL || (rc & 0xff) != SQLITE_INTERRUPT) return NULL;
+  if (h->stop == STOP_TIME) return "the call ran past its time limit (handle:time_limit)";
+  if (h->stop == STOP_SIGNAL) return "the call was stopped by a signal the guard caught";
+  return NULL;
 }
 
 /* A limit's compiled ceiling, which sqlite3_limit lowers a larger value
@@ -107,6 +149,10 @@ static void push_reason (lua_State *L, sqlite3 *db) {
   }
 }
 
+/* A call's failure as a nil and its reason, the progress handler's own
+ * where it stopped the call. */
+static int stopped_or_failed (lua_State *L, const struct handle *h, sqlite3 *db, int rc);
+
 static int failed (lua_State *L, sqlite3 *db, int rc) {
   lua_pushnil(L);
   if (db != NULL) {
@@ -135,18 +181,22 @@ struct outcome {
   int code;
   int extended;
   bool cancelled;
+  bool timed_out;
   struct cosmic_guard *message;
 };
 
 /* Copy before any Lua allocation: a finalizer can run another operation
  * on this connection, finalize a statement, or close the connection. */
 static void capture (lua_State *L, struct outcome *out, sqlite3 *db, int rc,
-                     bool cancelled) {
+                     const struct handle *h) {
   out->code = rc & 0xff;
   out->extended = rc == SQLITE_OK || db == NULL ? rc : sqlite3_extended_errcode(db);
-  out->cancelled = out->code == SQLITE_BUSY && cancelled;
+  out->cancelled = h != NULL && ((out->code == SQLITE_BUSY && h->cancelled) ||
+                                 (out->code == SQLITE_INTERRUPT && h->stop == STOP_SIGNAL));
+  out->timed_out = h != NULL && out->code == SQLITE_INTERRUPT && h->stop == STOP_TIME;
   if (rc != SQLITE_OK) {
-    const char *reason = db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
+    const char *stopped = stopped_reason(h, rc);
+    const char *reason = stopped != NULL ? stopped : db == NULL ? sqlite3_errstr(rc) : sqlite3_errmsg(db);
     char hint[HINT_SIZE] = "";
     if (db != NULL) attach_hint(db, reason, hint);
     size_t length = strlen(reason);
@@ -171,6 +221,10 @@ static void push_outcome (lua_State *L, const struct outcome *out, bool payload)
   lua_setfield(L, -2, "reason");
   lua_pushboolean(L, out->cancelled);
   lua_setfield(L, -2, "cancelled");
+  if (out->timed_out) {
+    lua_pushboolean(L, 1);
+    lua_setfield(L, -2, "timed_out");
+  }
 }
 
 /* Whether `h` holds a connection this process has disowned: one of its own,
@@ -504,6 +558,9 @@ static int open_database (lua_State *L, bool result) {
   h->deadline_ms = -1;
   h->pause_ms = 1;
   h->cancelled = false;
+  h->run_ms = -1;
+  h->run_deadline_ms = -1;
+  h->stop = STOP_NONE;
   luaL_setmetatable(L, HANDLE_TYPE);
 
   /* The program's own file named through a descriptor of it
@@ -521,7 +578,7 @@ static int open_database (lua_State *L, bool result) {
   if (rc == SQLITE_OK) sqlite3_limit(h->db, SQLITE_LIMIT_ATTACHED, ATTACHED_DEFAULT);
   if (rc == SQLITE_OK) rc = cosmic_sqlite_functions(h->db);
   if (result) {
-    capture(L, &out, h->db, rc, false);
+    capture(L, &out, h->db, rc, NULL);
     if (rc != SQLITE_OK) {
       sqlite3_close_v2(h->db);
       h->db = NULL;
@@ -544,6 +601,14 @@ static int open_database (lua_State *L, bool result) {
 
 static int sqlite_open (lua_State *L) {
   return open_database(L, false);
+}
+
+static int stopped_or_failed (lua_State *L, const struct handle *h, sqlite3 *db, int rc) {
+  const char *reason = stopped_reason(h, rc);
+  if (reason == NULL) return failed(L, db, rc);
+  lua_pushnil(L);
+  lua_pushstring(L, reason);
+  return 2;
 }
 
 static int sqlite_open_result (lua_State *L) {
@@ -571,6 +636,12 @@ static int handle_exec (lua_State *L) {
    * held in a local across the push that can raise. */
   int rc = execute(h, sql);
   if (rc != SQLITE_OK) {
+    const char *stopped = stopped_reason(h, rc);
+    if (stopped != NULL) {
+      lua_pushboolean(L, 0);
+      lua_pushstring(L, stopped);
+      return 2;
+    }
     return failed_effect(L, h->db, rc);
   }
   return cosmic_done(L);
@@ -585,9 +656,30 @@ static int handle_exec_result (lua_State *L) {
   out.message = cosmic_guard_push(L, release_message);
   struct handle *h = checked_handle(L);
   int rc = execute(h, sql);
-  capture(L, &out, h->db, rc, h->cancelled);
+  capture(L, &out, h->db, rc, h);
   push_outcome(L, &out, false);
   return 1;
+}
+
+/* Stops each later exec or step that runs longer than timeout_ns,
+ * rounded up to milliseconds, and any once a guard caught a signal; nil
+ * takes the limit away, though a caught signal still stops a call. */
+static int handle_time_limit (lua_State *L) {
+  struct handle *h = checked_handle(L);
+  lua_Integer ns = -1;
+  if (!lua_isnoneornil(L, 2)) {
+    ns = luaL_checkinteger(L, 2);
+    if (ns < 0) return luaL_error(L, "sqlite: time_limit must be nonnegative, or nil for none");
+  }
+  /* The owner's connection outlives a borrowed wrapper, and SQLite has
+   * no destructor for a progress handler's context. */
+  if (h->borrowed)
+    return luaL_error(L, "sqlite: cannot set time_limit on a borrowed handle");
+  h->run_ms = ns < 0 ? -1 : ns / 1000000 + (ns % 1000000 != 0);
+  h->run_deadline_ms = -1;
+  h->stop = STOP_NONE;
+  sqlite3_progress_handler(h->db, PROGRESS_STEPS, progress, h);
+  return 0;
 }
 
 static int handle_busy_timeout (lua_State *L) {
@@ -641,7 +733,7 @@ static int prepare_statement (lua_State *L, bool result) {
   int rc = sqlite3_prepare_v2(h->db, sql, (int)len, &s->stmt, &tail);
   if (rc != SQLITE_OK) {
     if (!result) return failed(L, h->db, rc);
-    capture(L, &out, h->db, rc, h->cancelled);
+    capture(L, &out, h->db, rc, h);
     push_outcome(L, &out, false);
     return 1;
   }
@@ -657,7 +749,7 @@ static int prepare_statement (lua_State *L, bool result) {
   rc = sqlite3_prepare_v2(h->db, tail, (int)(end - tail), &extra, NULL);
   if (rc != SQLITE_OK) {
     if (result) {
-      capture(L, &out, h->db, rc, h->cancelled);
+      capture(L, &out, h->db, rc, h);
       sqlite3_finalize(s->stmt);
       s->stmt = NULL;
       push_outcome(L, &out, false);
@@ -679,7 +771,7 @@ static int prepare_statement (lua_State *L, bool result) {
     return 2;
   }
   if (result) {
-    capture(L, &out, h->db, SQLITE_OK, false);
+    capture(L, &out, h->db, SQLITE_OK, NULL);
     push_outcome(L, &out, true);
     lua_pushvalue(L, statement_index);
     lua_setfield(L, -2, "statement");
@@ -733,6 +825,9 @@ void cosmic_sqlite_push_borrowed (lua_State *L, sqlite3 *db) {
   h->deadline_ms = -1;
   h->pause_ms = 1;
   h->cancelled = false;
+  h->run_ms = -1;
+  h->run_deadline_ms = -1;
+  h->stop = STOP_NONE;
   luaL_setmetatable(L, HANDLE_TYPE);
 }
 
@@ -1013,7 +1108,7 @@ static int statement_bind_values_result (lua_State *L) {
     lua_pop(L, 1);
     if (rc != SQLITE_OK) break;
   }
-  capture(L, &out, s->db, rc, false);
+  capture(L, &out, s->db, rc, NULL);
   push_outcome(L, &out, false);
   return 1;
 }
@@ -1042,7 +1137,7 @@ static int statement_step_result (lua_State *L) {
     lua_pushstring(L, rc == SQLITE_ROW ? "row" : "done");
     return 1;
   }
-  capture(L, &out, s->db, rc, s->owner->cancelled);
+  capture(L, &out, s->db, rc, s->owner);
   lua_pushnil(L);
   lua_setiuservalue(L, 1, 2);
   if (!marked) lua_toclose(L, guard_index);
@@ -1062,7 +1157,7 @@ static int statement_step (lua_State *L) {
     lua_pushstring(L, "done");
     return cosmic_succeeded(L);
   }
-  return failed(L, s->db, rc);
+  return stopped_or_failed(L, s->owner, s->db, rc);
 }
 
 static int statement_columns (lua_State *L) {
@@ -1198,6 +1293,7 @@ static const luaL_Reg handle_methods[] = {
   {"last_insert_rowid", handle_last_insert_rowid},
   {"limit", handle_limit},
   {"busy_timeout", handle_busy_timeout},
+  {"time_limit", handle_time_limit},
   {"prepare_result", handle_prepare_result},
   {NULL, NULL},
 };

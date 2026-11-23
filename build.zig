@@ -1700,6 +1700,10 @@ fn vendorLibraries(
     // expression depth keeps SQLite's ceiling of 1000: its parser and code
     // generator recurse once per level, so a deeper expression, from a query
     // or from a view a database file holds, would overflow the C stack.
+    // The progress callback is on: it is how `handle:time_limit` stops a
+    // query that runs too long, or one a guard's signal interrupts (a
+    // single thread has no other way in), at the cost of a counter the
+    // virtual machine tests at each jump.
     const sqlite_flags = [_][]const u8{
         "-std=c11",
         debug_dir,
@@ -1708,7 +1712,6 @@ fn vendorLibraries(
         "-DSQLITE_OMIT_SHARED_CACHE=1",
         "-DSQLITE_OMIT_DEPRECATED=1",
         "-DSQLITE_OMIT_AUTOINIT=1",
-        "-DSQLITE_OMIT_PROGRESS_CALLBACK=1",
         "-DSQLITE_OMIT_UTF16=1",
         "-DSQLITE_DQS=0",
         "-DSQLITE_DEFAULT_MEMSTATUS=0",
