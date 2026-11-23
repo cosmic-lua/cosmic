@@ -390,12 +390,21 @@ local function test_mkdirs_on_a_dangling_link_says_it_exists(tmp: string)
   assert(not made and why.errno == sys.EEXIST and why.path == link)
 end
 
+local function test_symlink_and_set_mtime_answer_a_failure_with_the_path_and_the_errno(tmp: string)
+  local taken = tmp .. "/taken"
+  assert(Fs.write(taken, "x"))
+  local linked, link_why = Fs.symlink("anywhere", taken)
+  assert(not linked and link_why.path == taken and link_why.errno == sys.EEXIST)
+  local missing = tmp .. "/missing"
+  local set, set_why = Fs.set_mtime(missing, 1000)
+  assert(not set and set_why.path == missing and set_why.errno == sys.ENOENT)
+end
+
 local function test_symlink_and_readlink_round_trip(tmp: string)
   local target = tmp .. "/target"
   local link = tmp .. "/link"
   assert(Fs.write(target, "contents"))
-  local made, trouble = Fs.symlink(target, link)
-  assert(made and trouble == "")
+  assert(Fs.symlink(target, link))
 
   assert(assert(Fs.readlink(link)) == target)
 
@@ -412,8 +421,7 @@ local function test_set_mtime_sets_nanoseconds_and_leaves_the_access_time(tmp: s
   local path = tmp .. "/file"
   assert(Fs.write(path, "contents"))
   assert(sys.utimensat(path, 1000, 7))
-  local set, trouble = Fs.set_mtime(path, 2000, 123456789)
-  assert(set and trouble == "")
+  assert(Fs.set_mtime(path, 2000, 123456789))
   local st = assert(sys.stat(path))
   assert(st.mtime == 2000 and st.mtime_ns == 123456789, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
   assert(st.atime == 1000 and st.atime_ns == 7, tostring(st.atime) .. "." .. tostring(st.atime_ns))
@@ -428,8 +436,8 @@ local function test_set_mtime_defaults_to_a_whole_second_and_checks_ns(tmp: stri
   assert(Fs.set_mtime(path, 4000))
   local st = assert(sys.stat(path))
   assert(st.mtime == 4000 and st.mtime_ns == 0, tostring(st.mtime) .. "." .. tostring(st.mtime_ns))
-  Test.raises(function() Fs.set_mtime(path, 4000, 1000000000) end, "fs: nanoseconds are outside [0, 1e9)")
-  Test.raises(function() Fs.set_mtime(path, 4000, -1) end)
+  Test.raises(function() local _, _ = Fs.set_mtime(path, 4000, 1000000000) end, "fs: nanoseconds are outside [0, 1e9)")
+  Test.raises(function() local _, _ = Fs.set_mtime(path, 4000, -1) end)
 end
 
 --- Why a test skips where the worker's filter refuses a setuid mode.
@@ -457,17 +465,17 @@ local function test_chmod_sets_the_bits_stat_reads_back(tmp: string)
   local refused = special_bits_refused(path, bits)
   if refused then bits = 0x1c0 end
   local set, trouble = Fs.chmod(path, bits)
-  assert(set and trouble == "", trouble)
+  assert(set, tostring(trouble))
   assert(assert(Fs.stat(path)).mode & 0xfff == bits)
   assert(Fs.chmod(path, 0))
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
-  Test.raises(function() Fs.chmod(path, -1) end)
-  Test.raises(function() Fs.chmod(path, 0x1000) end)
+  Test.raises(function() local _, _ = Fs.chmod(path, -1) end)
+  Test.raises(function() local _, _ = Fs.chmod(path, 0x1000) end)
   assert(assert(Fs.stat(path)).mode & 0xfff == 0)
 
   local missing, missing_trouble = Fs.chmod(tmp .. "/missing", 0x1a4)
-  assert(not missing and missing_trouble:find(tmp .. "/missing", 1, true) ~= nil)
+  assert(not missing and missing_trouble.path == tmp .. "/missing" and missing_trouble.errno == sys.ENOENT)
   if refused then Test.skip(SPECIAL_BITS) end
 end
 

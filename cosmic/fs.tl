@@ -8,7 +8,8 @@
 --- a value still return `T | nil, string`: a value and `""` on success,
 --- or nil and an error. A predicate uses the same contract, with false
 --- as a valid answer. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
---- [`Fs.remove_tree`] and [`Fs.rename`] only have an effect and answer
+--- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`] and
+--- [`Fs.set_mtime`] only have an effect and answer
 --- `(true) | (false, Failure)`. The other calls that only have an
 --- effect still return `boolean, string`.
 ---
@@ -809,16 +810,16 @@ end
 --- setgid and sticky included; one outside 0 to 0xfff raises, since
 --- the kernel would silently drop the bits it does not hold.
 --- `assert(Fs.stat(path)).mode & 0xfff` reads them back.
-function Fs.chmod(path: string, mode: integer): boolean, string
+function Fs.chmod(path: string, mode: integer): (true) | (false, Failure)
   if mode < 0 or mode > 0xfff then
     local shown = if mode > 0 and math.tointeger(mode) ~= nil then string.format("0x%x", mode) else tostring(mode) end
     error("fs: mode " .. shown .. " is outside 0 to 0xfff", 2)
   end
-  local changed, trouble = sys.chmod(path, mode)
+  local changed, _, number = sys.chmod(path, mode)
   if not changed then
-    return false, path .. ": " .. trouble
+    return false, Failure.system(number, path)
   end
-  return true, ""
+  return true
 end
 
 --- The Lua io module and io.open handles are unavailable. This opens a file
@@ -882,12 +883,12 @@ end
 
 --- Creates a symbolic link at `path` pointing at `target`, which is
 --- stored verbatim and never resolved: `ln -s target path`.
-function Fs.symlink(target: string, path: string): boolean, string
-  local made, trouble = sys.symlink(target, path)
+function Fs.symlink(target: string, path: string): (true) | (false, Failure)
+  local made, _, number = sys.symlink(target, path)
   if not made then
-    return false, path .. ": " .. trouble
+    return false, Failure.system(number, path)
   end
-  return true, ""
+  return true
 end
 
 --- The target of a symbolic link.
@@ -902,15 +903,15 @@ end
 --- it in (`st.mtime`, `st.mtime_ns`), leaving its access time as it
 --- is, as `touch -h -m -d` does. Changes the link itself, not its
 --- target. `ns` outside [0, 1e9) raises.
-function Fs.set_mtime(path: string, seconds: integer, ns?: integer): boolean, string
+function Fs.set_mtime(path: string, seconds: integer, ns?: integer): (true) | (false, Failure)
   if ns ~= nil and (ns < 0 or ns >= 1000000000) then
     error("fs: nanoseconds are outside [0, 1e9)", 2)
   end
-  local set, trouble = sys.utimensat(path, nil, nil, seconds, ns)
+  local set, _, number = sys.utimensat(path, nil, nil, seconds, ns)
   if not set then
-    return false, path .. ": " .. trouble
+    return false, Failure.system(number, path)
   end
-  return true, ""
+  return true
 end
 
 --- Flushes a descriptor's data and metadata to storage.
@@ -997,12 +998,12 @@ function Fs.copy_tree(from: string, to: string): boolean, string
       local target_of, link_trouble = Fs.readlink(source)
       if target_of == nil then return false, tostring(link_trouble) end
       local linked, symlink_trouble = Fs.symlink(target_of, target)
-      if not linked then return false, symlink_trouble end
+      if not linked then return false, tostring(symlink_trouble) end
     elseif st.kind == "file" then
       local copied, copy_trouble = copy_bytes(source, target)
       if not copied then return false, copy_trouble end
       local changed, chmod_trouble = Fs.chmod(target, permissions)
-      if not changed then return false, chmod_trouble end
+      if not changed then return false, tostring(chmod_trouble) end
     elseif st.kind == "dir" then
       local entries, list_trouble = sys.readdir(source)
       if entries == nil then return false, source .. ": " .. list_trouble end
@@ -1015,7 +1016,7 @@ function Fs.copy_tree(from: string, to: string): boolean, string
       -- The directory's own mode last, so a read-only one still took
       -- its entries.
       local changed, chmod_trouble = Fs.chmod(target, permissions)
-      if not changed then return false, chmod_trouble end
+      if not changed then return false, tostring(chmod_trouble) end
     else
       return false, source .. ": not a file, directory or symbolic link"
     end

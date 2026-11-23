@@ -167,7 +167,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   -- The binary is 0755 whatever the umask.
   local executable, etrouble = Fs.chmod(dir .. "/bin/cosmic", 0x1ed)
   if not executable then
-    return nil, etrouble
+    return nil, tostring(etrouble)
   end
   local wrote, wtrouble = Fs.write(dir .. "/inputs.sha256", table.concat(hashes))
   if not wrote then

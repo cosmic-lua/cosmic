@@ -624,7 +624,11 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local binary = assets_url .. release.tag .. "/cosmic"
   local function download_until(path: string, cancelled: function(): boolean): boolean, string
     local result = Http.download_result(binary, path, options(nil, digest, cancelled))
-    if result.kind == "downloaded" then return Fs.chmod(path, 0x1ed) end
+    if result.kind == "downloaded" then
+      local changed, mode_why = Fs.chmod(path, 0x1ed)
+      if not changed then return false, tostring(mode_why) end
+      return true, ""
+    end
     if result.kind == "http_status" then
       return false, binary .. ": HTTP " .. tostring(result.status)
     end
@@ -659,7 +663,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if not ok then return fail(download_trouble) end
     else
       local ok, chmod_trouble = Fs.chmod(path, 0x1ed)
-      if not ok then return fail(chmod_trouble) end
+      if not ok then return fail(tostring(chmod_trouble)) end
     end
     kept = path
   else

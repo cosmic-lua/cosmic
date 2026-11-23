@@ -303,7 +303,7 @@ local function release_cosmic(tag: string, work: string): string?, string
     return nil, "its cosmic: " .. fetched.reason
   end
   local made, mode_trouble = Fs.chmod(part, 0x1ed)
-  local placed, place_trouble = false, mode_trouble
+  local placed, place_trouble = false, if made then "" else tostring(mode_trouble) end
   if made then
     local rename_ok, rename_why = Fs.rename(part, path)
     placed, place_trouble = rename_ok, if rename_ok then "" else tostring(rename_why) end
@@ -366,7 +366,7 @@ local function place(from: string, to: string): boolean, string
   local written, write_trouble = Fs.write(aside, data)
   if not written then return false, tostring(write_trouble) end
   local made, mode_trouble = Fs.chmod(aside, 0x1ed)
-  if not made then return false, mode_trouble end
+  if not made then return false, tostring(mode_trouble) end
   local moved, move_why = Fs.rename(aside, to)
   if not moved then return false, tostring(move_why) end
   return true, ""

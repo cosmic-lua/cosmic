@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local this_program = require("build.this_program")
 local Test = require("cosmic.test")
+local sys = require("cosmic.sys")
 
 --- The program itself, which its tests start through its launcher, and
 --- the host's programs the launcher runs: `sh`, and the `uname`, `id`,
@@ -157,7 +158,7 @@ local function test_a_setgid_leaf_is_judged_without_the_bit(tmp: string)
   assert(Fs.mkdirs(probe))
   local set, why = Fs.chmod(probe, 0x5e8)
   if not set then
-    assert(why:find("not permitted", 1, true) ~= nil, why)
+    assert(why.errno == sys.EPERM, tostring(why))
     Test.skip("the worker's filter refuses a mode with a setgid bit: `fattr` never allows one")
     return
   end

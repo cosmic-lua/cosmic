@@ -298,7 +298,7 @@ local function write_synced(path: string, data: string,
     local moded, mode_trouble = Fs.chmod(path, mode)
     if not moded then
       local _, _ = Fs.close(fd)
-      return false, mode_trouble
+      return false, tostring(mode_trouble)
     end
     ok, failure = Fs.fsync(fd)
   end
@@ -387,7 +387,7 @@ local function write_tree(tree: Tree, out: string): boolean, string
     end
     local moded, mode_trouble = Fs.chmod(dir, tree.dir_mode)
     if not moded then
-      return false, mode_trouble
+      return false, tostring(mode_trouble)
     end
   end
   for _, file in ipairs(tree.files) do
