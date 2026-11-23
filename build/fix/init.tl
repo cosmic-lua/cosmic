@@ -255,7 +255,7 @@ end
 local function sources(root: string): {string}?, string
   local files, trouble = Fs.walk(root, skip)
   if files == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string} = {}
   for _, file in ipairs(files) do
@@ -272,7 +272,7 @@ end
 local function template_sources(root: string): {string}?, string
   local files, trouble = Fs.walk(root, skip)
   if files == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string} = {}
   for _, file in ipairs(files) do
@@ -366,7 +366,7 @@ local function workflow_sources(dir: string, root: string): {string}?, string
     return Fs.basename(entry):sub(1, 1) == "."
   end)
   if files == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string} = {}
   for _, file in ipairs(files) do

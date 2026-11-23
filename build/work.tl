@@ -1865,7 +1865,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
   end
   local walked, walk_trouble = Fs.walk_following(root, skip)
   if walked == nil then
-    return nil, walk_trouble
+    return nil, tostring(walk_trouble)
   end
   if walking.above ~= "" then
     return nil, walking.above
@@ -2277,7 +2277,7 @@ end
 function work.read_zoneinfo(dir: string): {string:string}?, string
   local names, trouble = Fs.walk_following(dir)
   if names == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local zones: mut {string:string} = {}
   for _, name in ipairs(names) do

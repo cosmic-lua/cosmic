@@ -2092,7 +2092,7 @@ local function sources_of(root: string): {{string}}?, string
       identity.is_foreign_tree(relative))
   end)
   if listed == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {{string}} = {}
   for _, file in ipairs(listed) do

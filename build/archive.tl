@@ -758,7 +758,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
         end
         return false
       end)
-      if listed == nil then return nil, fail(bare.refused, walk_why) end
+      if listed == nil then return nil, fail(bare.refused, tostring(walk_why)) end
       local stray = odd[1]
       if stray ~= nil then
         return nil, fail(bare.refused, given .. "/" .. stray .. ": neither a file, a directory nor a symlink")

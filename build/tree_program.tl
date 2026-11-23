@@ -337,7 +337,7 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
     return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or relative == "ci/o")
   end)
   if listed == nil then
-    return nil, walk_trouble
+    return nil, tostring(walk_trouble)
   end
   for _, file in ipairs(listed) do
     if file:match("%.tmpl$") ~= nil and analysis_schema.is_module_file(file) then

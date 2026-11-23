@@ -215,7 +215,7 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan?, string
       outputs_seen = outputs_seen + 1
     end
     local walked, walk_trouble = Fs.walk(cache.path .. "/o")
-    if walked == nil then return nil, cache.path .. "/o: " .. walk_trouble end
+    if walked == nil then return nil, tostring(walk_trouble) end
     for _, path in ipairs(walked) do
       local dir, under = path:match("^([^/]+)/(.+)$")
       if dir ~= nil and under ~= nil then

@@ -232,7 +232,7 @@ local function test_create_failures_name_the_path_and_stay(tmp: string)
   assert(Fs.exists(path) == false and #assert(Fs.list(tmp)) == 0, "a failed file was left behind")
   local missing = tmp .. "/missing/target"
   local made, make_trouble = Fs.create(missing)
-  assert(made == nil and make_trouble:find(missing .. ": ", 1, true) == 1, make_trouble)
+  assert(made == nil and make_trouble.path == missing and make_trouble.errno ~= 0, tostring(make_trouble))
 end
 
 local function test_put_rejects_zero_progress(tmp: string)
@@ -601,7 +601,7 @@ end
 local function test_scratch_in_a_missing_directory_names_it(tmp: string)
   local missing = tmp .. "/missing"
   local scratch, why = Fs.scratch(missing)
-  assert(scratch == nil and why:find(missing, 1, true) ~= nil, why)
+  assert(scratch == nil and tostring(why):find(missing, 1, true) ~= nil, tostring(why))
   assert(Fs.exists(missing) == false)
 end
 
@@ -896,13 +896,13 @@ local function test_within_compares_whole_components()
 end
 
 local function test_relative_answers_the_rest_or_why_not()
-  assert(Fs.relative("a/b/c", "a/b") == "c")
-  assert(Fs.relative("a/b/c/d", "a/b") == "c/d")
-  assert(Fs.relative("a/b", "a/b") == ".")
-  assert(Fs.relative("/x/y", "/") == "x/y")
-  assert(Fs.relative("a/b/c", "a/b/") == "c")
+  assert(assert(Fs.relative("a/b/c", "a/b")) == "c")
+  assert(assert(Fs.relative("a/b/c/d", "a/b")) == "c/d")
+  assert(assert(Fs.relative("a/b", "a/b")) == ".")
+  assert(assert(Fs.relative("/x/y", "/")) == "x/y")
+  assert(assert(Fs.relative("a/b/c", "a/b/")) == "c")
   local rest, why = Fs.relative("a/bc", "a/b")
-  assert(rest == nil and why == "a/bc: not within a/b", why)
+  assert(rest == nil and tostring(why) == "a/bc: not within a/b", tostring(why))
 end
 
 local function test_path_edges_the_call_sites_rely_on()
@@ -910,10 +910,11 @@ local function test_path_edges_the_call_sites_rely_on()
   assert(Fs.dirname("a/./b") == "a/." and Fs.basename("a/b/.") == ".")
   assert(Fs.within("a/", "a") and Fs.within("a/b", "a//"))
   assert(Fs.within("/b", "//") and not Fs.within("b", "/"))
-  assert(Fs.relative("a//b", "a") == "b")
-  assert(Fs.relative("a/b/", "a") == "b")
-  assert(Fs.relative("/", "/") == ".")
-  assert(Fs.relative("a", "") == nil)
+  assert(assert(Fs.relative("a//b", "a")) == "b")
+  assert(assert(Fs.relative("a/b/", "a")) == "b")
+  assert(assert(Fs.relative("/", "/")) == ".")
+  local outside, _ = Fs.relative("a", "")
+  assert(outside == nil)
 end
 
 local function test_paths_are_linear_in_runs_of_slashes()
@@ -933,7 +934,7 @@ local function test_walk_neither_lists_nor_follows_a_link(tmp: string)
   assert(Fs.symlink(".", root .. "/loop"))
   assert(Fs.symlink("missing", root .. "/dangling"))
   local found, trouble = Fs.walk(root)
-  assert(found ~= nil, trouble)
+  assert(found ~= nil, tostring(trouble))
   assert(table.concat(found, " ") == "g sub/f", "as find -type f lists: " .. table.concat(found, " "))
 end
 
@@ -949,7 +950,7 @@ local function test_walk_following_takes_a_link_for_what_it_leads_to(tmp: string
   assert(Fs.symlink("../outside", root .. "/away"))
   assert(Fs.symlink("missing", root .. "/dangling"))
   local found, trouble = Fs.walk_following(root)
-  assert(found ~= nil, trouble)
+  assert(found ~= nil, tostring(trouble))
   local listed = table.concat(found, " ")
   assert(listed == "away/o g sub/f to_dir/f to_file", "as find -L -type f lists: " .. listed)
 end
@@ -966,7 +967,7 @@ local function test_walk_following_tells_skip_a_link_is_one(tmp: string)
     kinds[#kinds + 1] = entry .. "=" .. kind
     return kind == "link"
   end)
-  assert(found ~= nil, trouble)
+  assert(found ~= nil, tostring(trouble))
   assert(table.concat(found, " ") == "sub/f", table.concat(found, " "))
   table.sort(kinds)
   assert(table.concat(kinds, " ") == "sub/f=file sub=dir to_dir=link", table.concat(kinds, " "))
@@ -982,6 +983,6 @@ local function test_walk_following_ends_a_loop_of_links(tmp: string)
   assert(Fs.symlink("../..", root .. "/a/b/up"))
   assert(Fs.symlink("self", root .. "/self"))
   local found, trouble = Fs.walk_following(root)
-  assert(found ~= nil, trouble)
+  assert(found ~= nil, tostring(trouble))
   assert(table.concat(found, " ") == "a/b/f", table.concat(found, " "))
 end
