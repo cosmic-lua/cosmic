@@ -9,19 +9,20 @@
   # ruleset, so it can push branches and open pull requests but not land
   # them.
   #
-  # The agent is pi (ci/cosmic_ci/review.tl), not the Claude Code
-  # action: subscriber API credits pay for the Claude API and the Agent
-  # SDK but not for Claude Code, and the action's calls count as Claude
-  # Code. pi calls the API directly.
+  # The agent is `cosmic agent`, from the pinned CI driver
+  # (ci/cosmic_ci/review.tl), not the Claude Code action: subscriber API
+  # credits pay for the Claude API and the Agent SDK but not for Claude
+  # Code, and the action's calls count as Claude Code. cosmic agent calls
+  # the API directly.
   #
-  # There is no Claude API key: pi trades the job's GitHub OIDC token for
+  # There is no Claude API key: the agent trades the job's GitHub OIDC token for
   # a Claude token by workload identity federation. The Console rule
   # matches this repository's main, by the owner and repository ids GitHub
   # puts in the subject, and this workflow (`job_workflow_ref`); its id,
   # the organization's and the service account's are repository
   # variables. The agent can read the current token file and the whilpbot
-  # token, and could mint GitHub OIDC tokens (review.tl says why), and pi
-  # has no budget flag: the cosmic workspace's spend limit is the cap,
+  # token, and could mint GitHub OIDC tokens (review.tl says why), and the
+  # agent has no budget flag: the cosmic workspace's spend limit is the cap,
   # with this job's timeout.
   "on": {
     # Sunday 04:00 UTC: Saturday evening in Los Angeles.
@@ -39,7 +40,7 @@
     review: {
       if: "github.repository == 'cosmic-lua/cosmic' && github.ref == 'refs/heads/main'",
       "runs-on": "ubuntu-24.04",
-      # id-token: the GitHub OIDC token that pi trades for a Claude token.
+      # id-token: the GitHub OIDC token that the agent trades for a Claude token.
       permissions: {contents: "read", "id-token": "write"},
       "timeout-minutes": 150,
       steps: [
@@ -62,12 +63,6 @@
         {
           name: "boot the tree's cosmic",
           run: "bin/cosmic --version",
-        },
-
-        {
-          # pi needs Node 22.19 or later.
-          uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", # v7.1.0
-          with: {"node-version": "22"},
         },
 
         {uses: "./.github/actions/cosmic-driver"},
