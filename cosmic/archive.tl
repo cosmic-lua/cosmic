@@ -178,7 +178,7 @@ local function draining(tr: Tar.Reader, source: Stream.Reader): Archive.Reader
 end
 
 --- The tar `source` holds, of format `kind` ("tar", "gzip", "xz",
---- "bzip2" or "zstd"): the reader [`Archive.open`] and [`Archive.open_stream`] share.
+--- "bzip2" or "zstd"): the reader [`Archive.open`] answers for a path or a stream.
 --- `label` names the input in a complaint.
 local function open_tar(kind: string, source: Stream.Reader, label: string):
     Archive.Reader?, string
@@ -219,16 +219,7 @@ local function open_text(path: string): Archive.Reader?, string
   return open_tar(kind, raw, path)
 end
 
---- Detects `path`'s format from its first bytes and returns a reader
---- over its entries, uniform whether it turns out to be a zip, a
---- plain ustar tar, or a tar compressed with gzip, xz, bzip2 or zstd.
-function Archive.open(path: string): (Archive.Reader) | (nil, Failure)
-  local value, why = open_text(path)
-  if value == nil then return nil, Failure.new(why) end
-  return value
-end
-
--- Archive.open_stream, its failure in words.
+-- Archive.open of a stream, its failure in words.
 local function open_stream_text(source: Stream.Reader): Archive.Reader?, string
   local head, trouble = Stream.read_up_to(source, 262)
   if head == nil then
@@ -247,15 +238,23 @@ local function open_stream_text(source: Stream.Reader): Archive.Reader?, string
   return open_tar(kind, Stream.prepend(head, source), "stream")
 end
 
---- Like `open`, for an archive that arrives as a stream (a pipe, a
---- socket) rather than as a file: a plain, gzip, xz, bzip2 or zstd tar, read
---- as `source` yields it, so memory stays bounded however long it is.
---- The format is detected from the first bytes, which are not lost.
---- A zip is refused, since reading one means seeking in it: write the
---- stream to a file and `open` that. Closing the reader closes `source`,
---- which is closed here as well when this fails.
-function Archive.open_stream(source: Stream.Reader): (Archive.Reader) | (nil, Failure)
-  local value, why = open_stream_text(source)
+--- A reader over the entries of an archive: at a path, or arriving as
+--- a stream (a pipe, a socket). Its format is detected from its first
+--- bytes, and the reader is uniform whether it turns out to be a zip, a
+--- plain ustar tar, or a tar compressed with gzip, xz, bzip2 or zstd.
+--- A stream is read as `source` yields it, so memory stays bounded
+--- however long it is, and the bytes read to detect the format are not
+--- lost. A zip is refused from a stream, since reading one means
+--- seeking in it: write the stream to a file and open that. Closing the
+--- reader closes the stream, which is closed here as well when this
+--- fails.
+function Archive.open(source: string | Stream.Reader): (Archive.Reader) | (nil, Failure)
+  local value, why: Archive.Reader?, string
+  if source is string then
+    value, why = open_text(source)
+  else
+    value, why = open_stream_text(source)
+  end
   if value == nil then return nil, Failure.new(why) end
   return value
 end
@@ -264,7 +263,7 @@ local function listed_open(_e: Archive.Entry): Stream.Reader?, string
   return refuse("an entry from Archive.list cannot be opened; walk Archive.open instead")
 end
 
--- Archive.list_reader, its failure in words.
+-- Archive.list of a reader, its failure in words.
 local function list_reader_text(reader: Archive.Reader): {Archive.Entry}?, string
   local out: mut {Archive.Entry} = {}
   while true do
@@ -281,27 +280,23 @@ local function list_reader_text(reader: Archive.Reader): {Archive.Entry}?, strin
   end
 end
 
---- Every entry `reader` yields, read to the end and then closed (on
---- every path), as [`Archive.extract_reader`] reads a reader. The
---- entries' `open` fails, since the reader is closed before this
---- returns; walk the reader to read bodies.
-function Archive.list_reader(reader: Archive.Reader): ({Archive.Entry}) | (nil, Failure)
-  local value, why = list_reader_text(reader)
-  if value == nil then return nil, Failure.new(why) end
-  return value
-end
-
 -- Archive.list, its failure in words.
-local function list_text(path: string): {Archive.Entry}?, string
-  local reader, trouble = open_text(path)
-  if reader == nil then return nil, trouble end
-  return list_reader_text(reader)
+local function list_text(source: string | Archive.Reader): {Archive.Entry}?, string
+  if source is string then
+    local reader, trouble = open_text(source)
+    if reader == nil then return nil, trouble end
+    return list_reader_text(reader)
+  end
+  return list_reader_text(source)
 end
 
---- Every entry of the archive at `path`, as [`Archive.list_reader`]
---- lists them. Walk [`Archive.open`] to read bodies.
-function Archive.list(path: string): ({Archive.Entry}) | (nil, Failure)
-  local value, why = list_text(path)
+--- Every entry of an archive, at a path or from a reader
+--- ([`Archive.open`]), read to the end and then closed (on every path),
+--- as [`Archive.extract`] reads one. The entries' `open` fails, since
+--- the reader is closed before this returns; walk the reader to read
+--- bodies.
+function Archive.list(source: string | Archive.Reader): ({Archive.Entry}) | (nil, Failure)
+  local value, why = list_text(source)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
@@ -478,8 +473,8 @@ local DEFAULT_MAX_ENTRY_BYTES <const> = 1 << 30
 local DEFAULT_MAX_BYTES <const> = 8 << 30
 
 --- The limit `value` names for the option `name`, or `default` when
---- there is none; raises, blaming level 4 (the caller of `extract` or
---- [`extract_reader`], which call [`extract_from`], which calls this), for
+--- there is none; raises, blaming level 4 (the caller of `extract`,
+--- which calls [`extract_from`], which calls this), for
 --- one that is no whole number of at least 0.
 local function byte_limit(name: string, value: number?, default: integer): integer
   if value == nil then return default end
@@ -505,7 +500,7 @@ local record PendingLink
   mtime: integer
 end
 
---- The extraction [`Archive.extract`] and [`Archive.extract_reader`] share:
+--- What [`Archive.extract`] does:
 --- `from` is a path to open or a Reader to walk to its end.
 local function extract_from(from: string | Archive.Reader, dest: string,
                             given: Archive.ExtractOptions?): {string}?, string
@@ -810,37 +805,27 @@ local function extract_from(from: string | Archive.Reader, dest: string,
   return written, ""
 end
 
---- Unpacks `path` into `dest`, as `tar -x` or `unzip` would. Refuses an
---- absolute entry path, one with a `..` component or a NUL byte, any
---- entry whose path runs through a symlink, an entry it cannot extract
---- (a hard link, a device, a FIFO, a sparse file) and -- when `links` is
---- "create" -- a symlink whose target would land outside `dest`. Each
---- file, directory and symlink gets its archived modification time.
---- Returns the destination-relative paths actually written. A failure
---- partway leaves whatever was already written; a file that fails its
---- own checks (a CRC32, a size) or passes `max_entry_bytes` or
+--- Unpacks an archive into `dest`, as `tar -x` or `unzip` would: the
+--- archive at a path, or the entries a reader yields ([`Archive.open`]
+--- of a stream, say), read once, to the end, as they arrive, so a stream
+--- is unpacked in one pass and bounded memory. Refuses an absolute entry
+--- path, one with a `..` component or a NUL byte, any entry whose path
+--- runs through a symlink, an entry it cannot extract (a hard link, a
+--- device, a FIFO, a sparse file) and -- when `links` is "create" -- a
+--- symlink whose target would land outside `dest`. Each file, directory
+--- and symlink gets its archived modification time. Returns the
+--- destination-relative paths actually written. A failure partway
+--- leaves whatever was already written (unpack into a scratch directory
+--- and move it into place to have all or nothing); a file that fails
+--- its own checks (a CRC32, a size) or passes `max_entry_bytes` or
 --- `max_bytes` is never put in place, and none of it is written past
---- the limit.
-function Archive.extract(path: string, dest: string, opts?: Archive.ExtractOptions):
+--- the limit. A reader is closed on every path but a raised argument
+--- error, which leaves it open.
+function Archive.extract(source: string | Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
     ({string}) | (nil, Failure)
   -- [`extract_from`]'s argument errors, raised at level 3, blame this
   -- function's caller.
-  local written, why = extract_from(path, dest, opts)
-  if written == nil then return nil, Failure.new(why) end
-  return written
-end
-
---- Like `extract`, for the entries `reader` yields (from [`open_stream`],
---- say) rather than a path: read once, to the end, as they arrive, so a
---- stream is unpacked in one pass and bounded memory. Closes `reader`,
---- on every path but a raised argument error, which leaves it open. The
---- same refusals apply, and a failure partway likewise leaves what was
---- already written: unpack into a scratch directory and move it into
---- place to have all or nothing.
-function Archive.extract_reader(reader: Archive.Reader, dest: string, opts?: Archive.ExtractOptions):
-    ({string}) | (nil, Failure)
-  -- Level 3, as in `extract`.
-  local written, why = extract_from(reader, dest, opts)
+  local written, why = extract_from(source, dest, opts)
   if written == nil then return nil, Failure.new(why) end
   return written
 end

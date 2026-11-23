@@ -49,15 +49,15 @@ end
 
 --- The entries of an archive a reader walks, listed at once: the reader
 --- is read to its end and closed, so the entries' bodies are not there.
-function Example.list_reader()
+function Example.list()
   local out = Stream.collect()
   local w = Tar.writer(out)
   assert(w:add_file("README", "read me first"))
   assert(w:add_dir("docs"))
   assert(w:close())
 
-  local reader = assert(Archive.open_stream(Stream.from_string(out:result())))
-  local entries = assert(Archive.list_reader(reader))
+  local reader = assert(Archive.open(Stream.from_string(out:result())))
+  local entries = assert(Archive.list(reader))
   for _, entry in ipairs(entries) do print(entry.path, entry.kind, entry.size) end
   local readme, docs = assert(entries[1]), assert(entries[2])
   assert(#entries == 2 and readme.path == "README" and docs.kind == "dir")
