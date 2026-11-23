@@ -178,7 +178,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local public = read_public or {}
   local index, index_trouble = Doc.index(view)
   if index == nil then
-    return { "reading the index: " .. index_trouble }
+    return { "reading the index: " .. tostring(index_trouble) }
   end
   local modules: {Doc.Summary} = index
   local rows, trouble = Sqlite.text_rows(db,
@@ -197,7 +197,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
     if found == nil then
       local fresh, found_trouble = Doc.lookup(view, name)
       if fresh == nil then
-        out[#out + 1] = name .. ": " .. found_trouble
+        local said = name .. ": " .. tostring(found_trouble)
+        out[#out + 1] = said
         return nil
       end
       looked[name] = fresh
@@ -211,7 +212,8 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
   local function inspect(label: string, entry: Doc.Entry)
     local lines, render_trouble = Doc.render(view, entry)
     if lines == nil then
-      out[#out + 1] = label .. ": " .. render_trouble
+      local said = label .. ": " .. tostring(render_trouble)
+      out[#out + 1] = said
       return
     end
     for _, line in ipairs(lines) do
@@ -428,7 +430,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local view: Doc.View = read_view
   local index, index_trouble = Doc.index(view)
   if index == nil then
-    return { "reading the index: " .. index_trouble }
+    return { "reading the index: " .. tostring(index_trouble) }
   end
   -- The record a module of the library returns is its last name,
   -- capitalized: `Fs` for [`cosmic.fs`]. One a closed directory keeps to

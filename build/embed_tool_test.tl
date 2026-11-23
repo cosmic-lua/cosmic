@@ -1605,7 +1605,8 @@ local function test_the_project_s_guides_answer_in_its_store()
   local view = assert(Doc.program(Store.databases(), "till"))
   local found = assert(Doc.lookup(view, "doc.guides.closing"))
   assert(#found == 1 and found.exact, tostring(#found))
-  assert(Doc.guide(view, "closing") == "At the end of the day, reconcile the journal against the drawer.")
+  local text, _ = Doc.guide(view, "closing")
+  assert(text == "At the end of the day, reconcile the journal against the drawer.")
 end
 
 local function test_docs_finds_a_command_by_its_example_and_its_about()
