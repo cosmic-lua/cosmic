@@ -245,7 +245,7 @@ function ErrorCatalog.insert(db: Sqlite.Handle, schema: string): integer?, strin
       "INSERT INTO " .. schema .. "catalog (kind, module, symbol, message, text, file, line) VALUES ('code', ?1, ?2, NULL, ?3, ?4, 0)",
       { bind.text(r.module), bind.text(r.code), bind.text(ErrorCatalog.text(r)), bind.text(r.file) })
     if not ok then
-      return nil, r.code .. ": " .. why
+      return nil, r.code .. ": " .. tostring(why)
     end
     count = count + 1
   end

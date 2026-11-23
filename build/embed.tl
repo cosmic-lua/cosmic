@@ -32,6 +32,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local Store = require("cosmic.store")
 local clock = require("build.clock")
 local artifact = require("build.artifact")
@@ -144,7 +145,7 @@ local function copy_rows(from: Sqlite.Handle, into: Sqlite.Handle,
     local ok, insert_trouble = Sqlite.run(into, insert, row)
     if not ok then
       statement:finalize()
-      return false, table_name .. ": " .. insert_trouble
+      return false, table_name .. ": " .. tostring(insert_trouble)
     end
   end
   statement:finalize()
@@ -350,7 +351,7 @@ local function documented_modules(out: Sqlite.Handle, main: string, own: string,
       "(m.path IN carray(?3) AND p.kind = 'module') ORDER BY m.path",
     { text(own), text(main), { texts = paged } })
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local public: mut {string} = {}
   for _, row in ipairs(rows) do
@@ -363,7 +364,7 @@ local function documented_modules(out: Sqlite.Handle, main: string, own: string,
     "SELECT path, file FROM project.modules WHERE file GLOB 'doc/guides/*.md' OR file GLOB 'cmd/*/doc/guides/*.md' " ..
       "ORDER BY path")
   if found == nil then
-    return nil, guide_trouble
+    return nil, tostring(guide_trouble)
   end
   local prefix = own .. "doc.guides."
   local own_dir = "cmd/" .. own:sub(5, -2) .. "/doc/guides/"
@@ -406,7 +407,7 @@ local function copy_documentation(out: Sqlite.Handle, readable: Readable): boole
   local ok, trouble = Sqlite.run(out,
     "INSERT INTO public_modules (path) SELECT value FROM carray(?1) ORDER BY value", { public })
   if not ok then
-    return false, trouble
+    return false, tostring(trouble)
   end
   ok, trouble = Sqlite.run(out,
     "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
@@ -414,7 +415,7 @@ local function copy_documentation(out: Sqlite.Handle, readable: Readable): boole
       "WHERE d.module IN carray(?1) OR (d.symbol = '' AND d.module IN carray(?2)) ORDER BY id",
     { public, guides })
   if not ok then
-    return false, trouble
+    return false, tostring(trouble)
   end
   -- The program's own guides, each under the name of the project's it stands in for.
   ok, trouble = Sqlite.run(out,
@@ -423,29 +424,31 @@ local function copy_documentation(out: Sqlite.Handle, readable: Readable): boole
       "text, file, line FROM project.docs d WHERE d.symbol = '' AND d.module IN carray(?1) ORDER BY id",
     { { texts = readable.own_guides }, text(readable.own_guide_prefix) })
   if not ok then
-    return false, trouble
+    return false, tostring(trouble)
   end
   ok, trouble = Sqlite.run(out,
     "INSERT INTO uses SELECT * FROM project.uses u WHERE u.module IN carray(?1) AND " ..
       "u.from_module IN carray(?1) ORDER BY module, symbol, from_module, line", { public })
   if not ok then
-    return false, trouble
+    return false, tostring(trouble)
   end
   ok, trouble = Sqlite.run(out,
     "INSERT INTO links SELECT * FROM project.links l WHERE l.kind = 'symbol' AND l.module IN carray(?1) AND " ..
       "l.from_module IN carray(?1) ORDER BY module, symbol, path, anchor, from_file, line, column", { public })
   if not ok then
-    return false, trouble
+    return false, tostring(trouble)
   end
   ok, trouble = Sqlite.run(out,
     "INSERT INTO bound SELECT * FROM project.bound b WHERE b.path IN carray(?1) ORDER BY path, name", { public })
   if not ok then
-    return false, trouble
+    return false, tostring(trouble)
   end
-  return Sqlite.run(out,
+  local answered, answer_why = Sqlite.run(out,
     "INSERT INTO examples (module, name, text, file, line, source) " ..
       "SELECT module, name, text, file, line, source FROM project.examples e " ..
       "WHERE e.module IN carray(?1) ORDER BY id", { public })
+  if not answered then return false, tostring(answer_why) end
+  return answered, ""
 end
 
 --- The database one executable carries, as bytes: the project's own
@@ -475,7 +478,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
   local _, _ = Fs.remove(building .. ".vacuumed")
   local out, open_trouble = Sqlite.open(building, { writable = true })
   if out == nil then
-    return nil, building .. ": " .. open_trouble
+    return nil, building .. ": " .. tostring(open_trouble)
   end
   -- Written aside, read back whole and removed, and begun again from nothing if a build is cut short: a journal
   -- and a sync at each commit would only cost time.
@@ -494,7 +497,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     end
   end
 
-  local made, trouble = Sqlite.transact(out, function(): boolean, string
+  local made, trouble = Sqlite.transact(out, function(): (true) | (false, Failure)
     -- The standard library first, so a project's row never stands in
     -- for a `cosmic.*` module; then the project's own modules.
     local copied, copy_trouble = copy_rows(binary, out, "modules",
@@ -502,14 +505,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "SELECT " .. module_column_list .. " FROM modules WHERE kind = " ..
         "'module' AND path LIKE 'cosmic.%' ORDER BY path")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     copied, copy_trouble = copy_rows(binary, out, "imports",
       { "path", "requires" },
       "SELECT path, requires FROM imports WHERE path LIKE 'cosmic.%' " ..
         "ORDER BY path, requires")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     -- A binary written before `decl_imports` existed has no such table,
     -- and one written by a tool that lacked the rows has an empty one:
@@ -526,20 +529,20 @@ function embed.database(project: string, main: string, roots?: string): string?,
         "SELECT path, requires FROM decl_imports WHERE path LIKE 'cosmic.%' " ..
           "ORDER BY path, requires")
       if not copied then
-        return false, copy_trouble
+        return false, Failure.new(copy_trouble)
       end
     end
     copied, copy_trouble = copy_rows(binary, out, "decls",
       { "path", "source" }, "SELECT path, source FROM decls ORDER BY path")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     -- The time zones [`cosmic.time`] falls back on where the host has
     -- none of its own.
     copied, copy_trouble = copy_rows(binary, out, "zoneinfo",
       { "name", "data" }, "SELECT name, data FROM zoneinfo ORDER BY name")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     -- The browser-side files [`cosmic.web`] serves under /_web/.
     -- TODO: carry them only for a program whose closure requires
@@ -558,7 +561,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
         { "name", "data", "sha256", "sha384", "version" },
         "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
       if not copied then
-        return false, copy_trouble
+        return false, Failure.new(copy_trouble)
       end
     end
     -- The guidance a program's own errors can match: the standard
@@ -570,7 +573,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "SELECT kind, module, symbol, message, text, file, " ..
         "line FROM catalog WHERE module LIKE 'cosmic.%' ORDER BY id")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     -- The bill of materials ([`build.bom`]): the program runs on the same
     -- cores, so it carries the same components and the notices their
@@ -586,14 +589,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
       "SELECT name, kind, version, license, url, sha256, sha3_256, patches " ..
         "FROM components ORDER BY name")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     copied, copy_trouble = copy_rows(binary, out, "notices",
       { "component", "ordinal", "file", "text" },
       "SELECT component, ordinal, file, text FROM notices " ..
         "ORDER BY component, ordinal")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     -- The CA roots ([`build.roots`]): core/http.c reads them out of the
     -- program's own database, so without them it trusts no server.
@@ -601,14 +604,14 @@ function embed.database(project: string, main: string, roots?: string): string?,
       { "sha256", "label", "der", "distrust_after" },
       "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     -- And the certificates OneCRL revokes ([`build.onecrl`]), which it
     -- refuses in a chain.
     copied, copy_trouble = copy_rows(binary, out, "ca_revoked", { "kind", "name", "value" },
       "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
     if not copied then
-      return false, copy_trouble
+      return false, Failure.new(copy_trouble)
     end
     local attached, attach_trouble = Sqlite.run(out,
       "ATTACH DATABASE ?1 AS project", { text(project) })
@@ -636,7 +639,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     -- and without it the commands it documents would have no page.
     local own = own_prefix(main)
     if own == nil then
-      return false, main .. " is not a cmd.<name>.main"
+      return false, Failure.new(main .. " is not a cmd.<name>.main")
     end
     local carry = "WITH RECURSIVE carried(path) AS (SELECT value FROM carray(?1) UNION SELECT path FROM " ..
       "project.modules WHERE kind = 'module' AND substr(path, 1, length(?2)) = ?2 " ..
@@ -715,11 +718,11 @@ function embed.database(project: string, main: string, roots?: string): string?,
     end
     local readable, readable_trouble = documented_modules(out, main, own, paged)
     if readable == nil then
-      return false, readable_trouble
+      return false, Failure.new(readable_trouble)
     end
     local documented, documented_trouble = copy_documentation(out, readable)
     if not documented then
-      return false, documented_trouble
+      return false, Failure.new(documented_trouble)
     end
     local project_rows: mut {string} = {
       "INSERT OR IGNORE INTO imports SELECT * FROM project.imports " ..
@@ -753,7 +756,7 @@ function embed.database(project: string, main: string, roots?: string): string?,
     for _, statement in ipairs(project_rows) do
       local ok, failure = out:exec(statement)
       if not ok then
-        return false, failure
+        return false, Failure.new(failure)
       end
     end
     local meta: {MetaRow} = {
@@ -776,18 +779,18 @@ function embed.database(project: string, main: string, roots?: string): string?,
         return false, failure
       end
     end
-    return true, ""
+    return true
   end)
   if not made then
     local _, _ = out:close()
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local _, _ = out:exec("DETACH DATABASE project")
   local vacuumed, vacuum_trouble = Sqlite.run(out, "VACUUM INTO ?1",
     { text(building .. ".vacuumed") })
   local _, _ = out:close()
   if not vacuumed then
-    return nil, vacuum_trouble
+    return nil, tostring(vacuum_trouble)
   end
   local bytes, read_trouble = Fs.read(building .. ".vacuumed")
   local _, _ = Fs.remove(building)
@@ -808,7 +811,7 @@ end
 local function staged_programs(handle: work.Handle, paths: {string}): {Program}?, string
   local rows, trouble = Sqlite.text_rows(handle.db,
     "SELECT path, file FROM inputs WHERE kind = 'main' ORDER BY path")
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local programs: mut {Program} = {}
   for _, row in ipairs(rows) do
     if narrow.holds(paths, row:text(2)) then

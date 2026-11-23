@@ -298,11 +298,11 @@ local function test_a_database_s_own_schema_is_not_trusted()
   -- A pragma_* table and a function SQLite does not mark innocuous are
   -- refused from a view.
   local _, why = Sqlite.text_rows(handle, "SELECT * FROM pragmas")
-  assert(why:find("unsafe use of virtual table", 1, true) ~= nil, why)
+  assert(tostring(why):find("unsafe use of virtual table", 1, true) ~= nil, why)
   _, why = Sqlite.text_rows(handle, "SELECT * FROM middle")
-  assert(why:find("unsafe use of median()", 1, true) ~= nil, why)
+  assert(tostring(why):find("unsafe use of median()", 1, true) ~= nil, why)
   _, why = Sqlite.text_rows(handle, "SELECT * FROM listed")
-  assert(why:find('unsafe use of virtual table "carray"', 1, true) ~= nil, why)
+  assert(tostring(why):find('unsafe use of virtual table "carray"', 1, true) ~= nil, why)
   -- The caller's own SQL may use both.
   rows = assert(Sqlite.text_rows(handle, "SELECT count(*) FROM pragma_table_info('todos')"))
   assert(first_row(rows):text(1) == "2", first_row(rows):text(1))
@@ -331,7 +331,8 @@ local function test_rtree_finds_the_boxes_a_box_overlaps()
   rows = assert(Sqlite.text_rows(handle, "SELECT rtreedepth(data) FROM boxes_node WHERE nodeno = 1"))
   assert(first_row(rows):text(1) == "0", first_row(rows):text(1))
   for _, b in ipairs({ "x'01'", "'text'" }) do
-    assert(Sqlite.text_rows(handle, "SELECT rtreedepth(" .. b .. ")") == nil, b)
+    local depth, _ = Sqlite.text_rows(handle, "SELECT rtreedepth(" .. b .. ")")
+    assert(depth == nil, b)
   end
   handle:close()
 end

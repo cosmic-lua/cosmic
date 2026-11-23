@@ -501,12 +501,12 @@ local function carried_digest(database: string, kept: string): string?, string
   else
     local db, open_trouble = Sqlite.open(path)
     if db == nil then
-      trouble = open_trouble
+      trouble = tostring(open_trouble)
     else
       local lines: mut {string} = {}
       local schema, schema_trouble = Sqlite.text_rows(db,
         "SELECT type, name, coalesce(sql, '') FROM sqlite_schema ORDER BY type, name")
-      if schema == nil then trouble = schema_trouble end
+      if schema == nil then trouble = tostring(schema_trouble) end
       for _, row in ipairs(schema or {}) do
         lines[#lines + 1] = row:text(1) .. " " .. row:text(2) .. " " .. row:text(3)
         if row:text(1) == "table" and row:text(2):sub(1, 7) ~= "sqlite_" and
@@ -515,7 +515,7 @@ local function carried_digest(database: string, kept: string): string?, string
           local columns, columns_trouble = Sqlite.text_rows(db,
             "SELECT name FROM pragma_table_info(?1) ORDER BY cid", { { text = row:text(2) } })
           if columns == nil then
-            trouble = columns_trouble
+            trouble = tostring(columns_trouble)
             break
           end
           -- Each value by its type and its bytes: quote() ends a text
@@ -535,7 +535,7 @@ local function carried_digest(database: string, kept: string): string?, string
               "FROM (SELECT " .. table.concat(parts, " || ',' || ") .. ' AS r FROM "' ..
               quoted .. '"' .. where .. ")")
           if digest == nil then
-            trouble = digest_trouble
+            trouble = tostring(digest_trouble)
             break
           end
           -- A query of aggregates alone answers one row.

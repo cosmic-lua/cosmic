@@ -245,7 +245,7 @@ function roots.put(db: Sqlite.Handle, qualifier: string, found: {roots.Root}): b
       "INSERT INTO " .. qualifier .. "ca_roots (sha256, label, der, distrust_after) VALUES (?1, ?2, ?3, ?4)",
       { bind.blob(digest), bind.text(one.label), bind.blob(one.der), bind.text(one.distrust_after) })
     if not put then
-      return false, put_trouble
+      return false, tostring(put_trouble)
     end
   end
   return true, ""

@@ -176,7 +176,7 @@ function Grader.reset_evidence(path: string): boolean, string
   end
   local db, otrouble = Sqlite.open(path, { writable = true })
   if db == nil then
-    return false, otrouble
+    return false, tostring(otrouble)
   end
   local done, etrouble = db:exec("delete from runs")
   local closed, close_trouble = db:close()
@@ -193,7 +193,7 @@ function Grader.evidence(path: string): Grader.Evidence?, string
   if not present.exists then return nil, path .. ": no build database" end
   local db, otrouble = Sqlite.open(path)
   if db == nil then
-    return nil, otrouble
+    return nil, tostring(otrouble)
   end
   local rows, rtrouble = Sqlite.text_rows(db, [[
     select i.kind, i.origin, count(*)
@@ -205,7 +205,7 @@ function Grader.evidence(path: string): Grader.Evidence?, string
   -- answer is the one that counts.
   local _, _ = db:close()
   if rows == nil then
-    return nil, rtrouble
+    return nil, tostring(rtrouble)
   end
   local tests, examples = 0, 0
   for _, row in ipairs(rows) do

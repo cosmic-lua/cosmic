@@ -41,9 +41,9 @@ local function test_mismatched_parameters_do_not_execute()
   for _, case in ipairs(mismatched) do
     local values = case.values
     local ok, why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values)
-    assert(not ok and why == case.says, tostring(why))
+    assert(not ok and why.message == case.says and why.code == Sqlite.RANGE, tostring(why))
     local rows, failure = Sqlite.text_rows(db, "SELECT ?1, ?2", values)
-    assert(rows == nil and failure == case.says, tostring(failure))
+    assert(rows == nil and failure.message == case.says and failure.code == Sqlite.RANGE, tostring(failure))
   end
   local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
   assert(first_row(rows):text(1) == "0")
@@ -94,8 +94,10 @@ local function test_complete_parameters_and_explicit_null()
   assert(first_row(rows):text(1) == "twice" and first_row(rows):text(2) == "twice" and first_row(rows):text(3) == "bytes")
   rows = assert(Sqlite.text_rows(db, "SELECT :value, :value", { { number = 1.5 } }))
   assert(first_row(rows):text(1) == "1.5" and first_row(rows):text(2) == "1.5")
-  assert(Sqlite.text_rows(db, "SELECT ?3", { { integer = 3 } }) == nil)
-  assert(Sqlite.text_rows(db, "SELECT 1", { {} }) == nil)
+  local past, _ = Sqlite.text_rows(db, "SELECT ?3", { { integer = 3 } })
+  assert(past == nil)
+  local extra, _ = Sqlite.text_rows(db, "SELECT 1", { {} })
+  assert(extra == nil)
   assert(db:close())
 end
 
@@ -123,11 +125,11 @@ local function test_lists_bind_as_arrays_for_carray()
   local rows = assert(Sqlite.text_rows(db, "SELECT 2 IN carray(?1), 5 IN carray(?1), quote(?1)",
     { { integers = { 1, 2, 3 } } }))
   assert(table.concat(first_row(rows):texts(), " ") == "1 0 NULL", table.concat(first_row(rows):texts(), " "))
-  local result = Sqlite.text_rows_result(db, "SELECT value FROM carray(?1)", { { texts = { "x", "y" } } })
-  local result_rows = result.rows
-  assert(result.code == Sqlite.OK and result_rows ~= nil and #result_rows == 2, result.reason)
-  local ok, why: boolean, any = pcall(Sqlite.text_rows_result, db, "SELECT value FROM carray(?1)",
-    { { texts = { "x\0" } } })
+  local listed = assert(Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { { texts = { "x", "y" } } }))
+  assert(#listed == 2)
+  local ok, why: boolean, any = pcall(function()
+    local _, _ = Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { { texts = { "x\0" } } })
+  end)
   assert(not ok and tostring(why):find("holds a NUL", 1, true) ~= nil, tostring(why))
   assert(db:close())
 end

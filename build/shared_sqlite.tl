@@ -11,7 +11,7 @@
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 
-local text_rows_result <const> = Sqlite.text_rows_result
+local text_rows <const> = Sqlite.text_rows
 
 local record shared_sqlite
 end
@@ -43,19 +43,18 @@ local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
   if started == nil then return false, clock_trouble end
   local deadline = started + wait_ns
   while true do
-    local result = text_rows_result(db, "PRAGMA journal_mode = WAL")
-    local rows = result.rows
+    local rows, why = text_rows(db, "PRAGMA journal_mode = WAL")
     if rows ~= nil then
       local mode = if rows[1] ~= nil then rows[1]:text(1) else "" end
       if mode ~= "wal" then return false, "journal mode is " .. mode .. ", not wal" end
       return true, ""
     end
-    if result.cancelled or (result.code ~= Sqlite.BUSY and result.code ~= Sqlite.LOCKED) then
-      return false, result.reason
+    if why.cancelled == true or (why.code ~= Sqlite.BUSY and why.code ~= Sqlite.LOCKED) then
+      return false, tostring(why)
     end
     local now, now_trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
     if now == nil then return false, now_trouble end
-    if now >= deadline then return false, result.reason end
+    if now >= deadline then return false, tostring(why) end
     local _, _ = sys.nanosleep(math.min(10 * MS, deadline - now))
   end
 end
@@ -71,7 +70,7 @@ function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boo
                             wait_ns?: integer): Sqlite.Handle?, string
   wait_ns = wait_ns or busy_ns
   local opened, trouble = Sqlite.open(path, { writable = true })
-  if opened == nil then return nil, path .. ": " .. trouble end
+  if opened == nil then return nil, path .. ": " .. tostring(trouble) end
   local db: Sqlite.Handle = opened
   local function fail(why: string): Sqlite.Handle?, string
     local _, _ = db:close()

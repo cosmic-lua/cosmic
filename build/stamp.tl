@@ -68,7 +68,7 @@ local content_sql <const> = "SELECT lower(hex(sha256(" ..
 
 function stamp.content(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db, content_sql)
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local row = rows[1]
   if row == nil then return nil, "the digest of a database's rows answered no row" end
   return row:text(1), ""

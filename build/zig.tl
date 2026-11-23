@@ -1027,7 +1027,7 @@ local function take(lock: Lock, path: string, wait_ns: integer): string?, string
       db = lock_db
     else
       local opened, db_trouble = Sqlite.open(path, { writable = true })
-      if opened == nil then return nil, path .. ": " .. db_trouble end
+      if opened == nil then return nil, path .. ": " .. tostring(db_trouble) end
       lock.db = opened
       db = opened
     end

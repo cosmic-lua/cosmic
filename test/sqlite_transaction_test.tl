@@ -1,21 +1,21 @@
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 
 local function test_exception_rolls_back_and_preserves_error()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (value TEXT)"))
   local marker = { message = "callback failed" }
-  local called, failure = pcall(function(): any, string
-    return Sqlite.transact(db, function(): boolean, string -- checked: any_use
+  local called, failure = pcall(function()
+    local _, _ = Sqlite.transact(db, function(): (true) | (false, Failure)
       assert(db:exec("INSERT INTO items VALUES ('discard')"))
       error(marker)
-      return true, "" -- checked: unreachable
     end)
   end)
   assert(not called and failure == marker)
   local rows = assert(Sqlite.text_rows(db, "SELECT value FROM items"))
   assert(#rows == 0)
-  assert(Sqlite.transact(db, function(): boolean, string
-    return db:exec("INSERT INTO items VALUES ('keep')")
+  assert(Sqlite.transact(db, function(): (true) | (false, Failure)
+    return Sqlite.run(db, "INSERT INTO items VALUES ('keep')")
   end))
   rows = assert(Sqlite.text_rows(db, "SELECT value FROM items"))
   assert(#rows == 1 and rows[1]:text(1) == "keep")
@@ -25,11 +25,11 @@ end
 local function test_false_callback_rolls_back_with_reason()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (value TEXT)"))
-  local ok, why = Sqlite.transact(db, function(): boolean, string
+  local ok, why = Sqlite.transact(db, function(): (true) | (false, Failure)
     assert(db:exec("INSERT INTO items VALUES ('discard')"))
-    return false, "declined"
+    return false, Failure.new("declined")
   end)
-  assert(not ok and why == "declined")
+  assert(not ok and why.message == "declined")
   local rows = assert(Sqlite.text_rows(db, "SELECT value FROM items"))
   assert(#rows == 0)
   assert(db:exec("BEGIN; ROLLBACK"))
@@ -42,10 +42,10 @@ local function test_commit_failure_rolls_back()
   assert(db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)"))
   assert(db:exec("CREATE TABLE child (parent_id INTEGER REFERENCES parent(id) " ..
       "DEFERRABLE INITIALLY DEFERRED)"))
-  local ok, why = Sqlite.transact(db, function(): boolean, string
-    return db:exec("INSERT INTO child VALUES (1)")
+  local ok, why = Sqlite.transact(db, function(): (true) | (false, Failure)
+    return Sqlite.run(db, "INSERT INTO child VALUES (1)")
   end)
-  assert(not ok and why:find("FOREIGN KEY", 1, true) ~= nil)
+  assert(not ok and tostring(why):find("FOREIGN KEY", 1, true) ~= nil)
   local rows = assert(Sqlite.text_rows(db, "SELECT parent_id FROM child"))
   assert(#rows == 0)
   assert(db:exec("BEGIN; ROLLBACK"))

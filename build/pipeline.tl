@@ -502,7 +502,7 @@ function Pipeline.coded_of(tool: string, db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT count(*) FROM inputs i JOIN requires r ON r.source_hash = i.source_hash WHERE i.path = 'build.pipeline'")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local count = rows[1]
   if count == nil or count:text(1) == "0" then

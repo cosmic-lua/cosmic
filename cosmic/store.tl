@@ -296,7 +296,7 @@ local function locate(name: string, required?: string): Handle?, string
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT 1 FROM modules WHERE path = ?1", { text(name) })
     if rows == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     if #rows > 0 then
       return db, ""
@@ -330,7 +330,7 @@ local function requires_of(db: Handle, name: string, types: boolean): {string}
       "instr(chunk(m.bytecode), CAST(i.requires AS BLOB)) = 0)) ORDER BY i.requires",
     { text(name), { integer = if types then 1 else 0 end } })
   if rows == nil then
-    error("store: " .. name .. ": " .. trouble, 3)
+    error("store: " .. name .. ": " .. tostring(trouble), 3)
   end
   local out: mut {string} = {}
   for index, row in ipairs(rows) do
@@ -392,7 +392,7 @@ local function copy_rows(from: Handle, into: Handle, table_name: string,
                          values?: {Sqlite.Value}): boolean, string
   local rows, trouble = Sqlite.rows(from, query, values)
   if rows == nil then
-    return false, table_name .. ": " .. trouble
+    return false, table_name .. ": " .. tostring(trouble)
   end
   local slots: mut {string} = {}
   for index = 1, #columns do
@@ -407,7 +407,7 @@ local function copy_rows(from: Handle, into: Handle, table_name: string,
     end
     local ok, why = Sqlite.run(into, insert, bound)
     if not ok then
-      return false, table_name .. ": " .. why
+      return false, table_name .. ": " .. tostring(why)
     end
   end
   return true, ""
@@ -465,7 +465,7 @@ local function write_database(names: {string}, file: string, main: string?,
   end
   local out, open_trouble = Sqlite.open(file, { writable = true })
   if out == nil then
-    return false, file .. ": " .. open_trouble
+    return false, file .. ": " .. tostring(open_trouble)
   end
   local db: Handle = out
   local function fill(): boolean, string
@@ -475,12 +475,12 @@ local function write_database(names: {string}, file: string, main: string?,
         return false, why
       end
     end
-    return Sqlite.transact(db, function(): boolean, string
+    local transacted, transact_why = Sqlite.transact(db, function(): (true) | (false, Failure)
       local zones, roots, web = false, false, false
       for _, name in ipairs(names) do
         local source, locate_trouble = locate(name)
         if source == nil then
-          return false, name .. ": " .. locate_trouble
+          return false, Failure.new(name .. ": " .. locate_trouble)
         end
         -- The key is the compile's, which only the tree that compiled the
         -- module can use, and `tests` names the tree's tests, which a
@@ -490,7 +490,7 @@ local function write_database(names: {string}, file: string, main: string?,
           "SELECT path, file, kind, source_hash, X'', bytecode, '', source " ..
             "FROM modules WHERE path = ?1", { text(name) })
         if not copied then
-          return false, why
+          return false, Failure.new(why)
         end
         -- Every edge, within the set or not, as the database it came from
         -- holds them: a compile that resolves the module follows each. A
@@ -499,7 +499,7 @@ local function write_database(names: {string}, file: string, main: string?,
         local has_edges, has_trouble = Sqlite.text_rows(source,
           "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decl_imports'")
         if has_edges == nil then
-          return false, "decl_imports: " .. has_trouble
+          return false, Failure.new("decl_imports: " .. tostring(has_trouble))
         end
         if #has_edges > 0 then
           local edges_copied, edges_why = copy_rows(source, db, "decl_imports",
@@ -507,7 +507,7 @@ local function write_database(names: {string}, file: string, main: string?,
             "SELECT path, requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
             { text(name) })
           if not edges_copied then
-            return false, edges_why
+            return false, Failure.new(edges_why)
           end
         end
         -- Only edges within the set: one left out (by type alone) would
@@ -516,7 +516,7 @@ local function write_database(names: {string}, file: string, main: string?,
           "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
           { text(name) })
         if edges == nil then
-          return false, "imports: " .. edge_trouble
+          return false, Failure.new("imports: " .. tostring(edge_trouble))
         end
         for _, edge in ipairs(edges) do
           if present[edge:text(1)] == true then
@@ -524,7 +524,7 @@ local function write_database(names: {string}, file: string, main: string?,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(name), text(edge:text(1)) })
             if not inserted then
-              return false, "imports: " .. insert_trouble
+              return false, Failure.new("imports: " .. tostring(insert_trouble))
             end
           end
         end
@@ -540,7 +540,7 @@ local function write_database(names: {string}, file: string, main: string?,
           { text(script.name), text(script.name), { blob = Hash.sha256(script.source) },
             { blob = script.bytecode }, { blob = script.source } })
         if not added then
-          return false, script.name .. ": " .. why
+          return false, Failure.new(script.name .. ": " .. tostring(why))
         end
         for _, edge in ipairs(script.requires or {}) do -- checked: condition_type, literal_needs_type
           if present[edge] == true then
@@ -548,7 +548,7 @@ local function write_database(names: {string}, file: string, main: string?,
               "INSERT OR IGNORE INTO imports (path, requires) VALUES (?1, ?2)",
               { text(script.name), text(edge) })
             if not inserted then
-              return false, "imports: " .. insert_trouble
+              return false, Failure.new("imports: " .. tostring(insert_trouble))
             end
           end
         end
@@ -560,7 +560,7 @@ local function write_database(names: {string}, file: string, main: string?,
         local copied, why = copy_rows(binary_db, db, "zoneinfo", { "name", "data" },
           "SELECT name, data FROM zoneinfo ORDER BY name")
         if not copied then
-          return false, why
+          return false, Failure.new(why)
         end
       end
       if web then
@@ -575,7 +575,7 @@ local function write_database(names: {string}, file: string, main: string?,
             { "name", "data", "sha256", "sha384", "version" },
             "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
           if not copied then
-            return false, why
+            return false, Failure.new(why)
           end
         end
       end
@@ -584,12 +584,12 @@ local function write_database(names: {string}, file: string, main: string?,
           { "sha256", "label", "der", "distrust_after" },
           "SELECT sha256, label, der, distrust_after FROM ca_roots ORDER BY sha256")
         if not copied then
-          return false, why
+          return false, Failure.new(why)
         end
         copied, why = copy_rows(binary_db, db, "ca_revoked", { "kind", "name", "value" },
           "SELECT kind, name, value FROM ca_revoked ORDER BY rowid")
         if not copied then
-          return false, why
+          return false, Failure.new(why)
         end
       end
       -- What the program was made to run on and as.
@@ -604,8 +604,10 @@ local function write_database(names: {string}, file: string, main: string?,
         return Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('main', ?1)",
           { text(main) })
       end
-      return true, ""
+      return true
     end)
+    if not transacted then return false, tostring(transact_why) end
+    return true, ""
   end
   local ok, why = fill()
   local _, _ = db:close()
@@ -742,12 +744,12 @@ function Store.seal(names: {string}, path?: string,
     end
     local vacuumed, open_trouble = Sqlite.open(scratch .. "/building.db")
     if vacuumed == nil then
-      return nil, open_trouble
+      return nil, tostring(open_trouble)
     end
     local moved, why = Sqlite.run(vacuumed, "VACUUM INTO ?1", { text(scratch .. "/sealed.db") })
     local _, _ = vacuumed:close()
     if not moved then
-      return nil, why
+      return nil, tostring(why)
     end
     local bytes, read_trouble = Fs.read(scratch .. "/sealed.db")
     if bytes == nil then

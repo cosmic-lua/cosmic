@@ -494,7 +494,7 @@ local function index_of(view: Doc.View): symbol_index.Index?, string
   for index, db in ipairs(view.databases) do
     local tables, tables_trouble = Sqlite.text_rows(db,
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'docs'")
-    if tables == nil then return nil, tables_trouble end
+    if tables == nil then return nil, tostring(tables_trouble) end
     if #tables > 0 then
       -- Every row, as [`cosmic.doc`] reads a type an alias stands for
       -- in any; only those shown, of the database that owns the
@@ -503,7 +503,7 @@ local function index_of(view: Doc.View): symbol_index.Index?, string
         "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
           "d.id, " .. symbols.shown_docs("d", view.public[index] == true) .. " FROM docs d " ..
           "ORDER BY d.module, d.id")
-      if rows == nil then return nil, trouble end
+      if rows == nil then return nil, tostring(trouble) end
       for _, row in ipairs(rows) do
         symbol_index.add(out, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
           file = row:text(4), kind = row:text(5), signature = row:text(6), exported = row:text(7) == "1",

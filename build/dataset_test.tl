@@ -166,13 +166,13 @@ local function test_load_refuses_what_sqlite_or_the_caller_cannot_take()
   assert(nameless == nil and nameless_why == "dataset: a table needs a name")
   local odd = assert(dataset.load(db, 'we"ird name', rows))
   assert(odd.name == 'we"ird name')
-  local ok = Sqlite.rows(db, 'SELECT a FROM "we""ird name"')
-  assert(ok ~= nil)
+  assert(Sqlite.rows(db, 'SELECT a FROM "we""ird name"'))
   -- A row JSON cannot encode (NaN) is refused, naming the row.
   local bad, bad_why = dataset.load(db, "u", { { a = 0 / 0 } })
   assert(bad == nil and bad_why:find("row 1", 1, true) ~= nil, bad_why)
   -- A refused load leaves no table behind.
-  assert(not Sqlite.rows(db, "SELECT * FROM u"))
+  local left, _ = Sqlite.rows(db, "SELECT * FROM u")
+  assert(left == nil)
 end
 
 local function test_a_nul_byte_in_a_key_or_name_is_not_sql()
@@ -203,7 +203,8 @@ local function test_too_many_columns_says_the_limit_and_the_count()
   local made, why = dataset.load(db, "u", { row })
   assert(made == nil and why == "dataset: too many columns: 2000 distinct keys, and SQLite holds at most " ..
       "2000 columns in a table (one is `_json`)", why)
-  assert(not Sqlite.rows(db, "SELECT * FROM u"), "a refused load leaves no table")
+  local left, _ = Sqlite.rows(db, "SELECT * FROM u")
+  assert(left == nil, "a refused load leaves no table")
 end
 
 --- The cells of one CSV row, typed: `typeof|value` per column, in order.
@@ -291,7 +292,7 @@ local function test_a_csv_table_follows_the_header_and_json_stays_sorted()
   local db = memory()
   local made = assert(dataset.load(db, "t", rows))
   assert(table.concat(made.columns, ",") == "z,a,m,_json", table.concat(made.columns, ","))
-  local star = Sqlite.text_rows(db, "SELECT * FROM t")
+  local star, _ = Sqlite.text_rows(db, "SELECT * FROM t")
   assert(star ~= nil and support.nth(star, 1):text(1) == "1" and support.nth(star, 1):text(2) == "2" and support.nth(star, 1):text(3) == "3")
   -- Rows with no order of their own are in byte order.
   local db2 = memory()

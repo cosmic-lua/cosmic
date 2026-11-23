@@ -26,7 +26,7 @@ end
 function vector_fixture.refusal(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): string
   local rows, trouble = Sqlite.rows(db, sql, values)
   assert(rows == nil, sql)
-  return trouble
+  return tostring(trouble)
 end
 
 return vector_fixture

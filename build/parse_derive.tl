@@ -76,7 +76,7 @@ function ParseDerive.entries(db: Sqlite.Handle, own: boolean, refusal?: ParseDer
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT file, path, kind, origin, source FROM inputs WHERE kind <> 'vendor' ORDER BY file")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local entries: mut {{string}} = {}
   local kinds: mut {string: string} = {}

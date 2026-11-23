@@ -267,7 +267,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
       "(name GLOB 'compiled_v*' OR name GLOB 'parsed_v*')")
-  if rows == nil then return false, trouble end
+  if rows == nil then return false, tostring(trouble) end
   local stale: mut {string} = {}
   local current = 0
   for _, row in ipairs(rows) do
@@ -352,7 +352,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
                               key: string): importer.Shared.Compile?, string
   local rows, trouble = Sqlite.rows(cache.db,
     "SELECT lua, bytecode, refs, digest FROM " .. compiled .. " WHERE key = ?1", { text(key) })
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local row = rows[1]
   if row == nil then return nil, "" end
   local function inflated_part(index: integer): string?
@@ -408,7 +408,7 @@ function shared_compiles.analyzers(cache: shared_compiles.Cache,
       "(SELECT value FROM json_each(?1)) GROUP BY analyzer " ..
       "HAVING count(DISTINCT source_hash) = ?2 ORDER BY max(used_ns) DESC, analyzer",
     { text(json_list(hashes)), { integer = #hashes } })
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local out: mut {string} = {}
   for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
   return out, ""
@@ -425,7 +425,7 @@ function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string
     "SELECT source_hash, requires FROM " .. parsed .. " WHERE analyzer = ?1 " ..
       "AND source_hash IN (SELECT value FROM json_each(?2))",
     { text(analyzer), text(json_list(hashes)) })
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local out: mut {string:{string}} = {}
   for _, row in ipairs(rows) do
     local names = unpacked_requires(row:text(2))
@@ -444,7 +444,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
   local rows, trouble = Sqlite.rows(cache.db,
     "SELECT requires, rows, digest FROM " .. parsed ..
       " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3", where)
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local row = rows[1]
   if row == nil then return nil, "" end
   local requires = bytes_at(row, 1)
@@ -474,14 +474,14 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   for _, name in ipairs({ compiled, parsed }) do
     local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
       { { integer = now_ns - kept_ns } })
-    if not aged then return false, age_trouble end
+    if not aged then return false, tostring(age_trouble) end
   end
   local over, trouble = Sqlite.text_rows(db,
     "SELECT tab, id FROM (SELECT tab, id, SUM(size) OVER (ORDER BY used_ns DESC, tab, id) " ..
       "AS total FROM (SELECT 'c' AS tab, rowid AS id, size, used_ns FROM " .. compiled ..
       " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
     { { integer = bound_bytes } })
-  if over == nil then return false, trouble end
+  if over == nil then return false, tostring(trouble) end
   local compiled_ids: mut {string} = {}
   local parsed_ids: mut {string} = {}
   for _, row in ipairs(over) do
@@ -497,9 +497,11 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   end
   local function drop(name: string, list: {string}): boolean, string
     if #list == 0 then return true, "" end
-    return Sqlite.run(db, "DELETE FROM " .. name ..
+    local answered, answer_why = Sqlite.run(db, "DELETE FROM " .. name ..
         " WHERE rowid IN (SELECT value FROM json_each(?1))",
       { text("[" .. table.concat(list, ",") .. "]") })
+    if not answered then return false, tostring(answer_why) end
+    return answered, ""
   end
   local dropped, drop_trouble = drop(compiled, compiled_ids)
   if not dropped then return false, drop_trouble end
@@ -535,16 +537,16 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
           "used_ns) VALUES (?1, deflate(?2), deflate(?3), deflate(?4), ?5, 0, ?6)",
         { text(kept.key), { blob = kept.lua }, { blob = kept.bytecode }, { blob = refs },
           text(digest_of(kept.lua, kept.bytecode, refs)), { integer = now_ns } })
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
       ok, trouble = Sqlite.run(db, "UPDATE " .. compiled ..
           " SET size = length(key) + length(lua) + length(bytecode) + length(refs) " ..
           "WHERE key = ?1 AND size = 0", { text(kept.key) })
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
     end
     for _, key in ipairs(owed.used) do
       local ok, trouble = Sqlite.run(db, "UPDATE " .. compiled .. " SET used_ns = ?1 WHERE key = ?2",
         { { integer = now_ns }, text(key) })
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
     end
     for _, one in ipairs(parses) do
       local key = one.key
@@ -558,18 +560,18 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
           "digest, size, used_ns) VALUES (?1, ?2, ?3, ?4, deflate(?5), ?6, 0, ?7)",
         { analyzer_value, source_value, mapped_value, text(requires), { blob = one.made.rows },
           text(parse_digest(key, requires, one.made.rows)), { integer = now_ns } })
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
       ok, trouble = Sqlite.run(db, "UPDATE " .. parsed ..
           " SET size = length(analyzer) + length(source_hash) + length(requires) + length(rows) " ..
           "WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND size = 0", where)
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
     end
     for _, key in ipairs(parses_used) do
       local ok, trouble = Sqlite.run(db, "UPDATE " .. parsed .. " SET used_ns = ?1 " ..
           "WHERE analyzer = ?2 AND source_hash = ?3 AND mapped = ?4",
         { { integer = now_ns }, text(key.analyzer), text(key.source_hash),
           { integer = if key.mapped then 1 else 0 end } })
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
     end
     if #owed.kept == 0 and #parses == 0 then return true, "" end
     return evict(db, now_ns, bound_bytes or kept_bytes)

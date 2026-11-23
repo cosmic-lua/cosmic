@@ -88,7 +88,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
       local rows, trouble = Sqlite.text_rows(out,
         "SELECT requires FROM imports WHERE path = ?1 ORDER BY requires",
         { { text = name } })
-      if rows == nil then return nil, trouble end
+      if rows == nil then return nil, tostring(trouble) end
       local names: mut {string} = {}
       for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
       return names, ""
@@ -98,7 +98,7 @@ local function test_a_boot_names_its_analyzer_as_the_tool_it_writes()
         local rows, trouble = Sqlite.text_rows(out,
           "SELECT CAST(inflate(source) AS TEXT) FROM " .. table_name ..
             " WHERE path = ?1", { { text = name } })
-        if rows == nil then return nil, trouble end
+        if rows == nil then return nil, tostring(trouble) end
         if #rows > 0 then return rows[1]:text(1), "" end
       end
       return nil, "no module '" .. name .. "' in the binary"

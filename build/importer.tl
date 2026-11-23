@@ -343,7 +343,7 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
         "AND r.name IN (SELECT path FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. ") " ..
         "ORDER BY r.name", { text(name) })
     if rows == nil then
-      return nil, rows_trouble
+      return nil, tostring(rows_trouble)
     end
     local names: mut {string} = {}
     for _, row in ipairs(rows) do names[#names + 1] = row:text(1) end
@@ -356,7 +356,7 @@ function importer.tree_code(handle: work.Handle): importer.Code?, string
       "SELECT source FROM inputs WHERE path = ?1 " ..
         "ORDER BY " .. analysis_schema.declaration("kind") .. " DESC LIMIT 1", { text(name) })
     if rows == nil then
-      return nil, rows_trouble
+      return nil, tostring(rows_trouble)
     end
     if #rows == 0 then
       return nil, "no module '" .. name .. "' in the tree"
@@ -443,9 +443,11 @@ end
 
 --- Names the rows the analysis tables hold as derived by `identity`.
 local function record_analyzer(db: Sqlite.Handle, identity: string): boolean, string
-  return Sqlite.run(db,
+  local answered, answer_why = Sqlite.run(db,
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
     { text(identity) })
+  if not answered then return false, tostring(answer_why) end
+  return answered, ""
 end
 
 --- What `meta` names the analysis tables' rows as derived by, "" for
@@ -454,7 +456,7 @@ local function recorded_analyzer(db: Sqlite.Handle): string?, string
   local last, trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'analyzer'")
   if last == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   return if #last > 0 then last[1]:text(1) else "" end, ""
 end
@@ -521,7 +523,7 @@ local function receivers_identity(db: Sqlite.Handle): string?, string
     if booting then
       local rows, trouble = Sqlite.text_rows(db, "SELECT source FROM inputs WHERE path = ?1", { text(name) })
       if rows == nil then
-        return nil, trouble
+        return nil, tostring(trouble)
       end
       local first = rows[1]
       if first ~= nil then
@@ -555,7 +557,7 @@ local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
   end
   local last, last_trouble = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'receivers'")
   if last == nil then
-    return false, last_trouble
+    return false, tostring(last_trouble)
   end
   local recorded = last[1]
   if recorded ~= nil and recorded:text(1) == identity then
@@ -567,7 +569,9 @@ local function forget_stale_receivers(db: Sqlite.Handle): boolean, string
       return false, trouble
     end
   end
-  return Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('receivers', ?1)", { text(identity) })
+  local answered, answer_why = Sqlite.run(db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('receivers', ?1)", { text(identity) })
+  if not answered then return false, tostring(answer_why) end
+  return answered, ""
 end
 
 --- What a boot names its analyzer ([`running_analyzer`]) with `guessed`,
@@ -582,7 +586,7 @@ local function named_over(handle: work.Handle, guessed: {string:{string}}): stri
         local ok, why = Sqlite.run(db,
           "INSERT OR REPLACE INTO requires (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
           { text(hash), { integer = ordinal }, text(name) })
-        if not ok then return nil, why end
+        if not ok then return nil, tostring(why) end
       end
     end
     return running_analyzer(handle)
@@ -655,7 +659,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
     "SELECT DISTINCT source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind") .. " " ..
       "AND path IN (SELECT value FROM json_each(?1)) ORDER BY source_hash",
     { text('["' .. table.concat(roots, '","') .. '"]') })
-  if found == nil then return nil, trouble end
+  if found == nil then return nil, tostring(trouble) end
   if #found == 0 then return "", "" end
   local root_hashes: mut {string} = {}
   for _, row in ipairs(found) do root_hashes[#root_hashes + 1] = row:text(1) end
@@ -667,7 +671,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
   end
   local planned, planned_trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash FROM inputs WHERE " .. analysis_schema.not_declaration("kind"))
-  if planned == nil then return nil, planned_trouble end
+  if planned == nil then return nil, tostring(planned_trouble) end
   local hash_of: mut {string:string} = {}
   for _, row in ipairs(planned) do hash_of[row:text(1)] = row:text(2) end
   -- A module the roots reach through `guessed`, and through the rows
@@ -687,7 +691,7 @@ local function shared_analyzer(handle: work.Handle, shared: importer.Shared,
         if names == nil then
           local rows, rows_trouble = Sqlite.text_rows(db,
             "SELECT name FROM requires WHERE source_hash = ?1 ORDER BY ordinal", { text(hash) })
-          if rows == nil then return nil, rows_trouble end
+          if rows == nil then return nil, tostring(rows_trouble) end
           names = {}
           for _, row in ipairs(rows) do
             local first = row:text(1)
@@ -912,7 +916,7 @@ function importer.derive(handle: work.Handle, shared?: importer.Shared,
     local claimed, trouble = Sqlite.text_rows(db,
       "SELECT path FROM files WHERE path GLOB 'cosmic/*' ORDER BY path LIMIT 1")
     if claimed == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     if #claimed > 0 then
       return nil, claimed[1]:text(1) .. ": the 'cosmic' directory is reserved to " ..
@@ -1186,7 +1190,7 @@ local function reach(db: Sqlite.Handle, target: string): {string:boolean}?, stri
     "SELECT i.path, r.name FROM inputs i JOIN requires r ON r.source_hash = i.source_hash " ..
       "WHERE i.kind <> 'vendor' ORDER BY i.path, r.ordinal")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local requires: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
@@ -1317,7 +1321,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       local holders, holders_trouble = Sqlite.text_rows(handle.db,
         "SELECT path, file, kind FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
       if holders == nil then
-        return nil, holders_trouble
+        return nil, tostring(holders_trouble)
       end
       refusals[#refusals + 1] = one.message
       for _, row in ipairs(holders) do
@@ -1346,7 +1350,7 @@ local function compile_derived(handle: work.Handle, tool: string,
       local holders, holders_trouble = Sqlite.text_rows(handle.db,
         "SELECT path, file FROM inputs WHERE source_hash = ?1 ORDER BY file", { text(one.source_hash) })
       if holders == nil then
-        return nil, holders_trouble
+        return nil, tostring(holders_trouble)
       end
       for _, row in ipairs(holders) do
         if reached[row:text(1)] == true then
@@ -1922,7 +1926,7 @@ local function compile_derived(handle: work.Handle, tool: string,
         (if judged then " OR seen < 0" else "" end),
       { text(tool), { integer = handle.run - kept_runs - refresh_after } })
     if not pruned then
-      return false, prune_trouble
+      return false, tostring(prune_trouble)
     end
     -- Run whether or not the prune above dropped anything: a run that
     -- failed between a compile's [`plans.keep_references`] and its `remember`

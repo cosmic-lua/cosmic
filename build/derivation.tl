@@ -84,7 +84,7 @@ local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal)
       "AND path NOT GLOB 'cmd/*/doc/guides/*/*')) " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if guides == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   for _, row in ipairs(guides) do
     local file, doc_source, from_hash = row:text(1), row:text(2), row:text(3)
@@ -104,7 +104,7 @@ local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal)
       { text(file), text(import_path_of_doc(file)), text("test"),
         text("doctest"), text(from_hash), text(source) })
     if not ok then
-      return false, file .. ": " .. insert_trouble
+      return false, file .. ": " .. tostring(insert_trouble)
     end
   end
   return true, ""
@@ -133,7 +133,7 @@ local function derive_templates(db: Sqlite.Handle, refusal: derivation.Refusal):
       "WHERE path GLOB '*.tmpl' " .. analysis_schema.outside_apart("path") .. " " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
   if templates == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   for _, row in ipairs(templates) do
     local file, template_source, from_hash = row:text(1), row:text(2), row:text(3)
@@ -146,7 +146,7 @@ local function derive_templates(db: Sqlite.Handle, refusal: derivation.Refusal):
       { text(file), text(import_path_of_template(file)), text("module"),
         text("template"), text(from_hash), text(source) })
     if not ok then
-      return false, file .. ": " .. insert_trouble
+      return false, file .. ": " .. tostring(insert_trouble)
     end
   end
   return true, ""
@@ -163,7 +163,7 @@ local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): 
       "SELECT data, sha256 FROM files WHERE path = ? " ..
         "AND path NOT IN (SELECT file FROM derived)", { text(file) })
     if headers == nil then
-      return false, trouble
+      return false, tostring(trouble)
     end
     local found = headers[1]
     if found ~= nil then
@@ -178,7 +178,7 @@ local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): 
           text(analysis_schema.kind_of(target.path:gsub("%.", "/") .. ".d.tl", source)),
           text("syscalls"), text(from_hash), text(source) })
       if not ok then
-        return false, insert_trouble
+        return false, tostring(insert_trouble)
       end
     end
   end
@@ -195,7 +195,7 @@ local function duplicate_import_paths(db: Sqlite.Handle, refusal: derivation.Ref
     "SELECT path, group_concat(file, ' and ') FROM (SELECT path, file, kind FROM inputs ORDER BY file) " ..
       "GROUP BY path, " .. analysis_schema.not_declaration("kind") .. " HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   local first = doubled[1]
   if first ~= nil then
@@ -214,7 +214,7 @@ function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh}?, string
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {derivation.Fresh} = {}
   for _, row in ipairs(rows) do
@@ -242,7 +242,7 @@ function derivation.table_widths(db: Sqlite.Handle): {string:integer}?, string
   for _, name in ipairs(packed_tables) do
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT count(*) FROM pragma_table_info(?1)", { text(name) })
-    if rows == nil then return nil, trouble end
+    if rows == nil then return nil, tostring(trouble) end
     local counted = rows[1]
     if counted == nil then return nil, "pragma_table_info(" .. name .. ") answered no row" end
     widths[name] = (math.tointeger(tonumber(counted:text(1))) or 1) - 1
@@ -271,7 +271,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   local unpackable: mut {string:boolean} = {}
   local names, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, name FROM requires " .. chosen .. " ORDER BY source_hash, ordinal", list)
-  if names == nil then return nil, trouble end
+  if names == nil then return nil, tostring(trouble) end
   for _, row in ipairs(names) do
     local of = requires[row:text(1)] or {}
     requires[row:text(1)] = of
@@ -280,7 +280,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   for _, name in ipairs(packed_tables) do
     local rows, rows_trouble = Sqlite.rows(db,
       "SELECT * FROM " .. name .. " " .. chosen .. " ORDER BY 1, 2", list)
-    if rows == nil then return nil, rows_trouble end
+    if rows == nil then return nil, tostring(rows_trouble) end
     local by_hash: mut {string:mut {string}} = {}
     local counts: mut {string:integer} = {}
     for _, row in ipairs(rows) do
@@ -313,7 +313,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   end
   local present, present_trouble = Sqlite.text_rows(db,
     "SELECT source_hash FROM parsed WHERE source_hash IN (SELECT value FROM json_each(?1))", list)
-  if present == nil then return nil, present_trouble end
+  if present == nil then return nil, tostring(present_trouble) end
   local out: mut {string:derivation.Parse} = {}
   for _, row in ipairs(present) do
     local hash = row:text(1)
@@ -387,7 +387,7 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
       local ok, why = Sqlite.run(db,
         "INSERT INTO requires (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
         { text(hash), { integer = ordinal }, text(name) })
-      if not ok then return false, why end
+      if not ok then return false, tostring(why) end
     end
     for _, name in ipairs(packed_tables) do
       local table_rows = rows[name]
@@ -401,7 +401,7 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
         end
         local ok, why = Sqlite.run(db, "INSERT INTO " .. name .. " VALUES (" ..
             table.concat(marks, ", ") .. ")", values)
-        if not ok then return false, why end
+        if not ok then return false, tostring(why) end
       end
     end
     return true, ""
@@ -421,7 +421,7 @@ function derivation.unparsed(db: Sqlite.Handle): {Source}?, string
     "SELECT source_hash, max(origin <> 'tree') FROM inputs WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local out: mut {Source} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { source_hash = row:text(1), mapped = row:text(2) == "1" }

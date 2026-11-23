@@ -178,14 +178,13 @@ local function test_sqlite_runs_without_values_as_declared(tmp: string)
     assert(Sqlite.run(db, "create table t(a integer)"))
     assert(Sqlite.run(db, "insert into t values (1), (2)"))
     assert(#assert(Sqlite.rows(db, "select a from t")) == 2)
-    assert(Sqlite.rows_result(db, "select a from t").code == Sqlite.OK)
-    assert(Sqlite.run_result(db, "insert into t values (3)").code == Sqlite.OK)
+    assert(Sqlite.run(db, "insert into t values (3)"))
     local query = assert(Sqlite.query(db, "select a from t"))
     local count = 0
     -- (Not `each`, whose iterator answers nil at the end: see the TODO
     -- in cosmic/sqlite.tl.)
     while query:read() ~= nil do count = count + 1 end
-    assert(count == 3 and query:failure() == "")
+    assert(count == 3 and query:failure() == nil)
     assert(query:close() == nil) -- checked: no_value
     assert(db:close())
   end)

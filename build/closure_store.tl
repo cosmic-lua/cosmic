@@ -32,6 +32,7 @@ local Proc = require("cosmic.proc")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local schema = require("build.schema")
 
 local record closure_store
@@ -296,7 +297,7 @@ local function grouped(db: Sqlite.Handle, of: string, columns: {string}, from: s
     "SELECT " .. of .. ", lower(hex(sha256(group_concat(" ..
       table.concat(quoted, " || ',' || ") .. ", char(10) ORDER BY " .. order .. ")))) " ..
       "FROM " .. from .. " GROUP BY " .. of)
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local out: mut {string:string} = {}
   for _, row in ipairs(rows) do out[row:text(1)] = row:text(2) end
   return out, ""
@@ -486,7 +487,7 @@ end
 --- every row of it.
 local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, string
   local opened, trouble = Sqlite.open(whole)
-  if opened == nil then return nil, whole .. ": " .. trouble end
+  if opened == nil then return nil, whole .. ": " .. tostring(trouble) end
   local db: Sqlite.Handle = opened
   local function read(): closure_store.Basis?, string
     local rows, rows_trouble = Sqlite.text_rows(db,
@@ -494,7 +495,7 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
         "lower(hex(source_hash)) || char(9) || lower(hex(sha256(chunk(bytecode)))) || char(9) || " ..
         "lower(hex(sha256(tests))) || char(9) || lower(hex(sha256(source))), file " ..
         "FROM modules ORDER BY path")
-    if rows == nil then return nil, rows_trouble end
+    if rows == nil then return nil, tostring(rows_trouble) end
     -- The rows `closed` carries of each module, as it carries them: by
     -- its path, or, for its examples, by its file.
     local carried: mut {{string:string}} = {}
@@ -531,23 +532,23 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     local shared, shared_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT group_concat(key || ' ' || lower(hex(value)), char(10) " ..
         "ORDER BY key) FROM meta WHERE key IN " .. closure_meta .. "), '')")
-    if shared == nil then return nil, shared_trouble end
+    if shared == nil then return nil, tostring(shared_trouble) end
     local shared_row = assert(shared[1], "the shared meta query answers one row")
     local image, image_trouble = Sqlite.text_rows(db,
       "SELECT coalesce((SELECT lower(hex(value)) FROM meta WHERE key = '" .. gated_meta .. "'), '')")
-    if image == nil then return nil, image_trouble end
+    if image == nil then return nil, tostring(image_trouble) end
     local image_row = assert(image[1], "the gated meta query answers one row")
     local decl_rows, decl_trouble = Sqlite.text_rows(db,
       "SELECT path, lower(hex(sha256(source))), CAST(inflate(source) AS TEXT) FROM decls " ..
         "ORDER BY path")
-    if decl_rows == nil then return nil, decl_trouble end
+    if decl_rows == nil then return nil, tostring(decl_trouble) end
     local declared, declared_trouble = grouped(db, "module",
       { "symbol", "source_symbol", "exported", "kind", "signature", "text", "file", "line" },
       "docs WHERE module IN (SELECT path FROM decls)", "id")
     if declared == nil then return nil, declared_trouble end
     local names, names_trouble = Sqlite.text_rows(db,
       "SELECT path FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
-    if names == nil then return nil, names_trouble end
+    if names == nil then return nil, tostring(names_trouble) end
     local basis: closure_store.Basis = {
       modules = {}, shared = Hash.hex_sha256("closure-store-9\n" .. shared_row:text(1)),
       image = Hash.hex_sha256("closure-store-9 " .. gated_meta .. "\n" .. image_row:text(1)),
@@ -577,21 +578,21 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
     if pure == true then
       local found, pure_trouble = Sqlite.rows(db,
         "SELECT path, kind, file, lower(hex(sha256(tests))), chunk(bytecode) FROM modules ORDER BY path")
-      if found == nil then return nil, pure_trouble end
+      if found == nil then return nil, tostring(pure_trouble) end
       pure_rows = found
       -- What the checker reads of a standard-library module is its stub ([`build.standard_text`]); the
       -- stub keeps no comment but keeps every token at its source line and column ([`build.syntax_stub`]),
       -- so these digests move with a module's declared types and with a line added or removed above them.
       local stubbed, stubbed_trouble = Sqlite.text_rows(db,
         "SELECT path, lower(hex(sha256(inflate(source)))), CAST(inflate(source) AS TEXT) FROM stubs ORDER BY path")
-      if stubbed == nil then return nil, stubbed_trouble end
+      if stubbed == nil then return nil, tostring(stubbed_trouble) end
       for _, row in ipairs(stubbed) do
         basis.texts[row:text(1)] = row:text(2)
         basis.text_edges[row:text(1)] = closure_store.required_by(row:text(3))
       end
       local sourced, sourced_trouble = Sqlite.text_rows(db,
         "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind IN ('test', 'example') ORDER BY path")
-      if sourced == nil then return nil, sourced_trouble end
+      if sourced == nil then return nil, tostring(sourced_trouble) end
       for _, row in ipairs(sourced) do
         basis.type_requires[row:text(1)] = type_requires(row:text(2))
       end
@@ -599,10 +600,10 @@ local function read_basis(whole: string, pure?: boolean): closure_store.Basis?, 
       local hashed, hashed_trouble = Sqlite.text_rows(db,
         "SELECT path, lower(hex(sha256(inflate(source)))) FROM modules WHERE kind NOT IN ('test', 'example') " ..
           "AND length(source) > 0 ORDER BY path")
-      if hashed == nil then return nil, hashed_trouble end
+      if hashed == nil then return nil, tostring(hashed_trouble) end
       for _, row in ipairs(hashed) do basis.sources[row:text(1)] = row:text(2) end
       local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
-      if imported == nil then return nil, imported_trouble end
+      if imported == nil then return nil, tostring(imported_trouble) end
       local lists: mut {string:mut {string}} = {}
       for _, row in ipairs(imported) do
         local list: mut {string} = lists[row:text(1)] or {}
@@ -1010,12 +1011,12 @@ local withheld_tables: {string} = {
 function closure_store.extract(whole: string, path: string): boolean, string
   local _, _ = Fs.remove(path)
   local opened, open_trouble = Sqlite.open(path, { writable = true, create = true })
-  if opened == nil then return false, open_trouble end
+  if opened == nil then return false, tostring(open_trouble) end
   local db: Sqlite.Handle = opened
   local function fill(handle: Sqlite.Handle): boolean, string
     local attached, attach_trouble = Sqlite.run(handle, "ATTACH DATABASE ?1 AS whole",
       { text(whole) })
-    if not attached then return false, attach_trouble end
+    if not attached then return false, tostring(attach_trouble) end
     local statements = {
       "PRAGMA journal_mode = OFF",
       "PRAGMA synchronous = OFF",
@@ -1102,51 +1103,51 @@ function closure_store.write(whole: string, out: string, names: {string},
     for _, name in ipairs(stored(basis, names)) do
       local ok, failure = Sqlite.run(db, "INSERT INTO temp.wanted (path) VALUES (?1)",
         { text(name) })
-      if not ok then return false, failure end
+      if not ok then return false, tostring(failure) end
     end
     for _, name in ipairs(declared(basis, names)) do
       local ok, failure = Sqlite.run(db, "INSERT INTO temp.declared (path) VALUES (?1)",
         { text(name) })
-      if not ok then return false, failure end
+      if not ok then return false, tostring(failure) end
     end
     if own ~= nil then
       for _, name in ipairs(text_kept(basis, names, basis.type_requires[own] or {})) do
         local ok, failure = Sqlite.run(db, "INSERT INTO temp.kept (path) VALUES (?1)", { text(name) })
-        if not ok then return false, failure end
+        if not ok then return false, tostring(failure) end
       end
       for _, name in ipairs(source_kept(basis, names)) do
         local ok, failure = Sqlite.run(db, "INSERT INTO temp.sourced (path) VALUES (?1)", { text(name) })
-        if not ok then return false, failure end
+        if not ok then return false, tostring(failure) end
       end
     end
     local attached, attach_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS whole",
       { text(whole) })
-    if not attached then return false, attach_trouble end
+    if not attached then return false, tostring(attach_trouble) end
     local uses_from = "whole.uses"
     if extraction ~= nil and own == nil then
       local extracted, extract_trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS extracted",
         { text(extraction) })
       if not extracted then
         local _, _ = db:exec("DETACH whole")
-        return false, extract_trouble
+        return false, tostring(extract_trouble)
       end
       uses_from = "extracted.uses"
     end
-    local made, refused = Sqlite.transact(db, function(): boolean, string
+    local made, refused = Sqlite.transact(db, function(): (true) | (false, Failure)
       for _, statement in ipairs(if own ~= nil then closed_pure(image) else closed(uses_from, image) end) do
         local ok, failure = db:exec(statement)
-        if not ok then return false, failure end
+        if not ok then return false, Failure.new(failure) end
       end
       for _, statement in ipairs(schema.rebuild("main.")) do
         local ok, failure = db:exec(statement)
-        if not ok then return false, failure end
+        if not ok then return false, Failure.new(failure) end
       end
       if own ~= nil then
         -- The tables of text-derived rows are left out, not left empty: a query of one fails ("no such table")
         -- rather than answers nothing, so a test that reads text it was not given cannot pass on an empty answer.
         for _, statement in ipairs(withheld_tables) do
           local ok, failure = db:exec(statement)
-          if not ok then return false, failure end
+          if not ok then return false, Failure.new(failure) end
         end
         local held, held_trouble = Sqlite.rows(db,
           "SELECT path, chunk(bytecode) FROM main.modules WHERE path <> ?1 AND path IN temp.wanted", { text(own) })
@@ -1157,7 +1158,7 @@ function closure_store.write(whole: string, out: string, names: {string},
           local numbered = numbered_chunks[chunk_key]
           if numbered == nil then
             local made, why = lua_tail.numbered(code, row:text(1))
-            if made == nil then return false, why end
+            if made == nil then return false, Failure.new(why) end
             numbered_chunks[chunk_key] = made
             numbered = made
           end
@@ -1166,11 +1167,11 @@ function closure_store.write(whole: string, out: string, names: {string},
           if not ok then return false, failure end
         end
       end
-      return true, ""
+      return true
     end)
     local _, _ = db:exec("DETACH whole")
     if extraction ~= nil and own == nil then local _, _ = db:exec("DETACH extracted") end
-    if not made then return false, refused end
+    if not made then return false, tostring(refused) end
     -- Written aside under `out`'s one fixed `.building` name, which no
     -- other run writes or sweeps meanwhile: only `cosmic test` writes a
     -- checkout's stores, and one run of it at a time holds the
@@ -1178,7 +1179,7 @@ function closure_store.write(whole: string, out: string, names: {string},
     -- that build.test's `sweep_stores` finds is one cut short.
     local _, _ = Fs.remove(out .. ".building")
     local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1", { text(out .. ".building") })
-    if not vacuumed then return false, vacuum_trouble end
+    if not vacuumed then return false, tostring(vacuum_trouble) end
     local synced, sync_trouble = sync(out .. ".building")
     if not synced then return false, sync_trouble end
     local moved, move_why = Fs.rename(out .. ".building", out)
@@ -1186,7 +1187,7 @@ function closure_store.write(whole: string, out: string, names: {string},
     return true, ""
   end
   local db, open_trouble = Sqlite.memory()
-  if db == nil then return false, open_trouble end
+  if db == nil then return false, tostring(open_trouble) end
   local ok, trouble = fill(db)
   local _, _ = db:close()
   if not ok then return false, trouble end

@@ -36,6 +36,7 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local Vendor = require("build.vendor")
@@ -336,7 +337,7 @@ local cacert: refresh.Dataset = {
         local columns, column_trouble = Sqlite.text_rows(db,
           "SELECT 1 FROM pragma_table_info('ca_roots') WHERE name = 'distrust_after'")
         if columns == nil then
-          return false, column_trouble
+          return false, tostring(column_trouble)
         end
         if #columns == 0 then
           local added, add_trouble = db:exec(
@@ -502,7 +503,7 @@ local function recorded(db: Sqlite.Handle, name: string): Recorded?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT version, url, sha256, patches FROM components WHERE name = ?1", { bind.text(name) })
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local first = rows[1]
   if first == nil then
@@ -546,10 +547,10 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
     end
     url = if source.url ~= "" then source.url else "file:" .. Fs.basename(source.path) end
   end
-  local made, made_trouble = Sqlite.transact(db, function(): boolean, string
+  local made, made_trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
     local written, write_trouble = release.write(db)
     if not written then
-      return false, write_trouble
+      return false, Failure.new(write_trouble)
     end
     -- sha3_256 is left as it was: no dataset's upstream publishes one,
     -- and a binary older than that column has none to set.
@@ -558,7 +559,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
       { bind.text(version), bind.text(url), bind.text(sha256), bind.text(dataset.name) })
   end)
   if not made then
-    return nil, made_trouble
+    return nil, tostring(made_trouble)
   end
   local change = if sha256 == was.sha256 then version .. " (as it was)" else was.version .. " -> " .. version end
   local line = ("%s %s, %s"):format(dataset.name, change, plural.count(release.count, "row"))
@@ -612,7 +613,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     end
     local opened, open_trouble = Sqlite.open(path, { writable = true })
     if opened == nil then
-      return path .. ": " .. open_trouble
+      return path .. ": " .. tostring(open_trouble)
     end
     local db: Sqlite.Handle = opened
     local function done(why: string): string
@@ -625,7 +626,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
         local has, has_trouble = Sqlite.text_rows(db, "SELECT 1 FROM components WHERE name = ?1",
           { bind.text(dataset.name) })
         if has == nil then
-          return done(has_trouble)
+          return done(tostring(has_trouble))
         end
         if #has == 0 then
           skipped[dataset.name] = true
@@ -666,7 +667,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     -- the copy carries the cookie the binary did.
     local cookie, cookie_trouble = Sqlite.text_rows(db, "PRAGMA schema_version")
     if cookie == nil then
-      return done(cookie_trouble)
+      return done(tostring(cookie_trouble))
     end
     local cookie_row = cookie[1]
     local cookie_value = if cookie_row ~= nil then math.tointeger(tonumber(cookie_row:text(1))) else nil end
@@ -680,7 +681,7 @@ function refresh.binary(binary: string, out: string, chosen: {refresh.Dataset},
     local vacuumed, vacuum_trouble = Sqlite.run(db, "VACUUM INTO ?1",
       { bind.text(scratch .. "/refreshed.db") })
     if not vacuumed then
-      return done(vacuum_trouble)
+      return done(tostring(vacuum_trouble))
     end
     done("")
     local database, read_trouble = Fs.read(scratch .. "/refreshed.db")

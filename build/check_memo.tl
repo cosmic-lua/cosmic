@@ -248,15 +248,17 @@ function check_memo.prepare(db: Sqlite.Handle, kind: string): boolean, string
     "CREATE TABLE IF NOT EXISTS check_memo (kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, " ..
       "used INTEGER NOT NULL, PRIMARY KEY (kind, key)) WITHOUT ROWID")
   if not made then
-    return false, made_trouble
+    return false, tostring(made_trouble)
   end
   local reset, reset_trouble = Sqlite.run(db, "UPDATE check_memo SET used = 0 WHERE kind = ?1", { { text = kind } })
   if not reset then
-    return false, reset_trouble
+    return false, tostring(reset_trouble)
   end
   -- One transaction for a run's lookups and writes: a commit for each of a
   -- thousand files is most of the cost of a memo.
-  return Sqlite.run(db, "BEGIN")
+  local answered, answer_why = Sqlite.run(db, "BEGIN")
+  if not answered then return false, tostring(answer_why) end
+  return answered, ""
 end
 
 function check_memo.get(db: Sqlite.Handle, kind: string, key: string): string?

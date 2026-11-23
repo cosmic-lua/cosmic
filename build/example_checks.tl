@@ -273,7 +273,7 @@ local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: stri
     "SELECT file, line, name, source FROM examples WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY file, line")
   if rows == nil then
-    return { "reading the examples: " .. trouble }
+    return { "reading the examples: " .. tostring(trouble) }
   end
   local out: mut {string} = {}
   local items: mut {{string}} = {}

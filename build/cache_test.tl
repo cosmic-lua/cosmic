@@ -295,8 +295,10 @@ local function test_failed_delete_rolls_back_earlier_tables(tmp: string)
   assert(db:exec("INSERT INTO parsed_v1 VALUES ('a','s',0,'',x'','d',0,1)"))
   assert(db:close())
   local original = Sqlite.run
-  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string -- checked: field_fixed
-    if sql:find('DELETE FROM "parsed_v1"', 1, true) then return false, "injected delete failure" end
+  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): (true) | (false, Failure) -- checked: field_fixed
+    if sql:find('DELETE FROM "parsed_v1"', 1, true) then
+      return false, Failure.new("injected delete failure")
+    end
     return original(handle, sql, values)
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
@@ -345,7 +347,7 @@ local function test_disappearance_before_open_does_not_recreate_database(tmp: st
   compiled(db, "old", 1)
   assert(db:close())
   local original = Sqlite.open
-  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): Sqlite.Handle?, string -- checked: field_fixed
+  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure) -- checked: field_fixed
     if name == path then assert(Fs.remove(path)) end
     return original(name, options)
   end
@@ -360,7 +362,7 @@ local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   local db = database(path, formats.verdicts)
   assert(db:close())
   local original = Sqlite.rows
-  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): Sqlite.Rows?, string -- checked: field_fixed
+  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): (Sqlite.Rows) | (nil, Failure) -- checked: field_fixed
     if sql == "PRAGMA wal_checkpoint(TRUNCATE)" then
       return original(handle, "SELECT 1, 3, 2")
     end
@@ -391,13 +393,14 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
   compiled(db, "new", 5)
   assert(db:close())
   local original = Sqlite.run
-  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): boolean, string -- checked: field_fixed
+  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): (true) | (false, Failure) -- checked: field_fixed
     local ok, why = original(handle, sql, values)
     if ok and sql:find('DELETE FROM "compiled_v2"', 1, true) ~= nil then
       -- VACUUM needs its temporary attached database; COMMIT needs none.
       local _ = handle:limit("attached", 0)
     end
-    return ok, why
+    if not ok then return false, why end
+    return true
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
   Sqlite.run = original -- checked: field_fixed

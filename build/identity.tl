@@ -315,7 +315,7 @@ function identity.hash_over(db: Sqlite.Handle, where: string): string?, string
     "SELECT lower(hex(sha256(group_concat(path || ' ' || sha256, char(10) " ..
       "ORDER BY path)))) FROM tool WHERE " .. where)
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local row = assert(rows[1], "a hash query answers one row")
   return row:text(1), ""
@@ -396,7 +396,7 @@ function identity.record_fingerprint(db: Sqlite.Handle, root: string): identity.
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair.key), text(pair.value) })
     if not ok then
-      return nil, why
+      return nil, tostring(why)
     end
   end
   return { boot = boot, image = image }, ""
@@ -413,7 +413,7 @@ function identity.recorded_boot_hash(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT value FROM meta WHERE key = 'boot_hash'")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   if #rows == 0 then
     return nil, ""
@@ -448,7 +448,7 @@ local function requires_in(db: Sqlite.Handle): function(string): {string}?, stri
       local rows, rows_trouble = Sqlite.text_rows(db,
         "SELECT DISTINCT i.path, r.name FROM inputs i " ..
           "JOIN requires r ON r.source_hash = i.source_hash ORDER BY i.path, r.name")
-      if rows == nil then return nil, rows_trouble end
+      if rows == nil then return nil, tostring(rows_trouble) end
       local read: mut {string:mut {string}} = {}
       for _, row in ipairs(rows) do
         local list = read[row:text(1)] or {}
@@ -482,7 +482,7 @@ local function hash_of(db: Sqlite.Handle, names: {string}, extra: string): strin
       "source_hash, char(10) ORDER BY path) FROM inputs WHERE path IN (" ..
       table.concat(slots, ", ") .. ")), '') || char(10) || " .. extra .. ")))", values)
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local row = assert(rows[1], "a hash query answers one row")
   return row:text(1), ""
@@ -680,7 +680,7 @@ end
 function identity.runtime_basis(db: Sqlite.Handle): string?, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT lower(hex(sha256(" .. pins .. ")))")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   return assert(rows[1], "a hash query answers one row"):text(1), ""
 end
@@ -719,7 +719,7 @@ function identity.record_identities(db: Sqlite.Handle): identity.Identities?, st
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(pair.key), text(pair.value) })
     if not ok then
-      return nil, why
+      return nil, tostring(why)
     end
   end
   return identities, ""

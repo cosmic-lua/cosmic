@@ -18,6 +18,7 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local Store = require("cosmic.store")
 local bind = require("build.bind")
 local schema = require("build.schema")
@@ -53,7 +54,7 @@ local function store_of(module: string, path: string): boolean, string
   if basis == nil or basis == "" then return false, "the running binary names no runtime basis" end
   local _, _ = Fs.remove(path)
   local db, open_trouble = Sqlite.open(path, { writable = true })
-  if db == nil then return false, path .. ": " .. open_trouble end
+  if db == nil then return false, path .. ": " .. tostring(open_trouble) end
   local statements: mut {string} = {}
   for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
   for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
@@ -64,17 +65,17 @@ local function store_of(module: string, path: string): boolean, string
       return false, failure
     end
   end
-  local made, trouble = Sqlite.transact(db, function(): boolean, string
+  local made, trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
     local row, row_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, " ..
         "source) VALUES (?1, '', 'module', x'', x'', ?2, '', x'')", { bind.text(module), bind.blob(bytecode) })
     if not row then return false, row_trouble end
     local meta, meta_trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('runtime_basis', ?1)",
       { bind.text(basis) })
     if not meta then return false, meta_trouble end
-    return true, ""
+    return true
   end)
   local _, _ = db:close()
-  if not made then return false, trouble end
+  if not made then return false, tostring(trouble) end
   return true, ""
 end
 

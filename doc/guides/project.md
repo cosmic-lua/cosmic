@@ -643,7 +643,7 @@ local function add(db: Sqlite.Handle, body: string): boolean, string
   local ok, why = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = body } })
   if not ok then
     local _, _ = db:exec("ROLLBACK")
-    return false, why
+    return false, why.message
   end
   return db:exec("COMMIT")
 end

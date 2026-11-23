@@ -17,7 +17,7 @@ local sys = require("cosmic.sys")
 local function failed(value: any, message: any)
   assert(value == nil or value == false,
     "a failure must lead with nil or false, not " .. tostring(value))
-  assert(type(message) == "string" and message ~= "",
+  assert(message ~= nil and tostring(message) ~= "",
     "a failure must say what went wrong")
 end
 
@@ -311,15 +311,15 @@ local function test_a_closed_handle_raises_from_every_method()
 end
 
 local function test_open_reports_a_path_it_cannot_open(tmp: string)
-  failed(Sqlite.open(tmp .. "/missing/db", { writable = true }))
+  do local opened, why = Sqlite.open(tmp .. "/missing/db", { writable = true }) failed(opened, why) end
   -- Read-only never creates the file it was asked for.
-  failed(Sqlite.open(tmp .. "/missing.db"))
+  do local opened, why = Sqlite.open(tmp .. "/missing.db") failed(opened, why) end
 end
 
 --- Maintenance must not recreate a cache that disappeared after discovery.
 local function test_existing_only_open_never_creates_a_missing_database(tmp: string)
   for _, path in ipairs({ tmp .. "/missing.db", tmp .. "/missing/db" }) do
-    failed(Sqlite.open(path, { writable = true, create = false }))
+    do local opened, why = Sqlite.open(path, { writable = true, create = false }) failed(opened, why) end
     assert(not assert(Fs.status(path)).exists)
   end
   assert(not assert(Fs.status(tmp .. "/missing")).exists)
@@ -328,7 +328,7 @@ local function test_existing_only_open_never_creates_a_missing_database(tmp: str
   assert(made:exec("CREATE TABLE t (a)"))
   assert(made:close())
   assert(Fs.remove(path))
-  failed(Sqlite.open(path, { writable = true, create = false }))
+  do local opened, why = Sqlite.open(path, { writable = true, create = false }) failed(opened, why) end
   assert(not assert(Fs.status(path)).exists)
 end
 
@@ -369,8 +369,8 @@ local function test_create_is_only_an_option_of_writable_open(tmp: string)
   end
   for _, create in ipairs({ false, true }) do
     local path = tmp .. "/readonly.db"
-    failed(Sqlite.open(path, { create = create }))
-    failed(Sqlite.open(path, { create = create, immutable = true }))
+    do local opened, why = Sqlite.open(path, { create = create }) failed(opened, why) end
+    do local opened, why = Sqlite.open(path, { create = create, immutable = true }) failed(opened, why) end
     assert(not assert(Fs.status(path)).exists)
     raises(Sqlite.open, path, { writable = true, immutable = true, create = create })
   end
@@ -378,7 +378,7 @@ end
 
 --- An explicit false is the same as leaving the option out.
 local function test_open_takes_an_explicit_false_option_as_left_out(tmp: string)
-  failed(Sqlite.open(tmp .. "/never.db", { writable = false }))
+  do local opened, why = Sqlite.open(tmp .. "/never.db", { writable = false }) failed(opened, why) end
   assert(not assert(Fs.status(tmp .. "/never.db")).exists)
 end
 
@@ -387,7 +387,7 @@ local function test_a_nul_byte_in_a_path_or_exec_sql_is_refused(tmp: string)
   -- the path opened tmp/a.db, and exec skipped what followed
   local handle, trouble = Sqlite.open(tmp .. "/a.db\0.evil", { writable = true })
   failed(handle, trouble)
-  assert(trouble:find("NUL", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("NUL", 1, true) ~= nil, trouble)
   local db = memory()
   assert(db:exec("CREATE TABLE t (a)"))
   local ok, why = db:exec("INSERT INTO t VALUES (1)\0; INSERT INTO t VALUES (2)")
@@ -521,7 +521,7 @@ local function test_an_immutable_open_makes_no_wal_or_shm_and_takes_no_lock(tmp:
   local again = assert(Sqlite.open(odd, { immutable = true }))
   assert(#assert(Sqlite.text_rows(again, "SELECT v FROM t")) == 0)
   assert(again:close())
-  failed(Sqlite.open(tmp .. "/absent.db", { immutable = true }))
+  do local opened, why = Sqlite.open(tmp .. "/absent.db", { immutable = true }) failed(opened, why) end
   assert(not assert(Fs.status(tmp .. "/absent.db")).exists)
   raises(Sqlite.open, path, { writable = true, immutable = true })
 end
@@ -536,7 +536,8 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
     local made = assert(Sqlite.open(path, { writable = true }))
     assert(made:exec("CREATE TABLE t (v); INSERT INTO t VALUES ('" .. name:gsub("'", "") .. "')"))
     assert(made:close())
-    local read = assert(Sqlite.open(path, { immutable = true }), name)
+    local read, read_why = Sqlite.open(path, { immutable = true })
+    assert(read ~= nil, name .. ": " .. tostring(read_why))
     local rows = assert(Sqlite.text_rows(read, "SELECT v FROM t"))
     local row = assert(rows[1], name .. " holds a row")
     assert(row:text(1) == name, name)
@@ -550,10 +551,10 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
   for _, name in ipairs(names) do
     local read, why = Sqlite.open(name, { immutable = true })
     if read == nil then
-      trouble = name .. ": " .. why
+      trouble = name .. ": " .. tostring(why)
       break
     end
-    local rows = Sqlite.text_rows(read, "SELECT v FROM t")
+    local rows, _ = Sqlite.text_rows(read, "SELECT v FROM t")
     local row: Sqlite.Row?
     if rows ~= nil then row = rows[1] end
     if row == nil or row:text(1) ~= name then
@@ -561,7 +562,7 @@ local function test_an_immutable_open_names_the_path_it_was_given(tmp: string)
     end
     read:close()
   end
-  local dotted = Sqlite.open("../" .. assert(tmp:match("[^/]*$"), "a path ends in a name") .. "/rel.db", { immutable = true })
+  local dotted, _ = Sqlite.open("../" .. assert(tmp:match("[^/]*$"), "a path ends in a name") .. "/rel.db", { immutable = true })
   assert(sys.chdir(here))
   assert(trouble == nil, trouble)
   assert(dotted ~= nil and #assert(Sqlite.text_rows(dotted, "SELECT v FROM t")) == 1)

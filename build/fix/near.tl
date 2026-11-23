@@ -284,7 +284,7 @@ function near.known(databases: {Sqlite.Handle}): {near.Known}?, string
     local tables, tables_trouble = Sqlite.text_rows(db,
       "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
     if tables == nil then
-      return nil, tables_trouble
+      return nil, tostring(tables_trouble)
     end
     local rows: Sqlite.Rows = {}
     if #tables > 0 then
@@ -292,7 +292,7 @@ function near.known(databases: {Sqlite.Handle}): {near.Known}?, string
         "SELECT module, symbol, source_symbol, signature, text, kind FROM docs " ..
           "WHERE exported = 1 AND symbol <> '' ORDER BY module, id")
       if found == nil then
-        return nil, trouble
+        return nil, tostring(trouble)
       end
       rows = found
     end

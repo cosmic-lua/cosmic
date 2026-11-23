@@ -11,6 +11,7 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
 local build_paths = require("build.paths")
 local rebuild_lock = require("build.rebuild_lock")
@@ -516,8 +517,9 @@ local function test_boot_lock_classifies_the_begin_result_not_its_reason(tmp: st
     closes = closes + 1
     return (real_close as function(any): boolean, string)(self) -- checked: cast_refused
   end
-  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): Sqlite.Handle?, string -- checked: field_fixed
-    return Sqlite.memory()
+  -- [`Sqlite.memory`] opens through [`Sqlite.open`], so the stand-in opens through the real one.
+  Sqlite.open = function(_path: string, _opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure) -- checked: field_fixed
+    return real_open(":memory:", { writable = true })
   end
   for i, each in ipairs(outcomes) do
     outcome, calls, closes = each, 0, 0

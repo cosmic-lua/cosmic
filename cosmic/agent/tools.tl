@@ -545,12 +545,12 @@ local function sql(input: Tools.Object, context: Tools.Context): Tools.Result
   local db = context.db
   if db == nil then return fail("No sessions are kept here") end
   local files, files_why = Sqlite.rows(db, "SELECT file FROM pragma_database_list WHERE name = 'main'")
-  if files == nil then return fail("sql: " .. files_why) end
+  if files == nil then return fail("sql: " .. tostring(files_why)) end
   local main = files[1]
   local file = if main ~= nil then main:text(1) else "" end
   if file == "" then return fail("sql: the sessions database has no file to read") end
   local reader, open_why = Sqlite.open(file)
-  if reader == nil then return fail("sql: " .. open_why) end
+  if reader == nil then return fail("sql: " .. tostring(open_why)) end
   -- Read-only holds for the main database alone: ATTACH and VACUUM INTO
   -- would still write another file, so no database may be attached.
   reader:limit("attached", 0)

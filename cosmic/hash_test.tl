@@ -379,7 +379,7 @@ local function test_sql_knows_the_same_digests()
   assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
   local rows, trouble = Sqlite.text_rows(db, "SELECT digest('sha0', 'abc')")
   assert(rows == nil)
-  assert(trouble:find("no such digest algorithm", 1, true) ~= nil, trouble)
+  assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil, trouble)
   db:close()
 end
 

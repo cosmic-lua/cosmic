@@ -409,7 +409,7 @@ local function database(src: source.View): Sqlite.Handle?, string
   if identity == "" then return nil, "" end
   local opened, trouble = Sqlite.open(path)
   if opened == nil then
-    src.err("cosmic: lsp: " .. path .. ": " .. trouble)
+    src.err("cosmic: lsp: " .. path .. ": " .. tostring(trouble))
     return nil, ""
   end
   opened:busy_timeout(0)
@@ -474,7 +474,7 @@ local function listed(src: source.View, staged: boolean)
     "SELECT path, file, kind, source_hash, origin FROM inputs WHERE ?1 = 1 " ..
       "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC, file", { { integer = own } })
   if rows == nil then
-    src.err("cosmic: lsp: the staged tree: " .. trouble)
+    src.err("cosmic: lsp: the staged tree: " .. tostring(trouble))
     return
   end
   local modules: mut {string:Module} = {}
@@ -801,7 +801,7 @@ local function scratch_of(src: source.View): Sqlite.Handle?
   if held ~= nil then return held end
   local made, trouble = Sqlite.memory()
   if made == nil then
-    src.err("cosmic: lsp: the scratch database: " .. trouble)
+    src.err("cosmic: lsp: the scratch database: " .. tostring(trouble))
     return nil
   end
   for _, statement in ipairs(AnalysisSchema.statements) do

@@ -320,7 +320,7 @@ end
 --- How many modules the write at `handle` took from the base: the rows of
 --- `temp.reused`, which a write that found no usable base leaves absent.
 local function reused(handle: work.Handle): integer
-  local rows = Sqlite.text_rows(handle.db, "SELECT count(*) FROM temp.reused")
+  local rows, _ = Sqlite.text_rows(handle.db, "SELECT count(*) FROM temp.reused")
   if rows == nil then
     return 0
   end
@@ -553,17 +553,21 @@ end
 --- the columns that decide which modules stand (what [`build.writer`]'s
 --- `usable_base` and `make_reused` ask) though a row it carries cannot be read.
 local function readable_but_for_rows(path: string): boolean
-  local db = Sqlite.open(path)
+  local db, _ = Sqlite.open(path)
   if db == nil then
     return false
   end
-  local asked = Sqlite.text_rows(db, "SELECT count(*) FROM meta") ~= nil and
-    Sqlite.text_rows(db, "SELECT count(*) FROM sqlite_master") ~= nil and
-    Sqlite.text_rows(db, "SELECT path, file, kind, source_hash, key FROM modules") ~= nil and
-    Sqlite.text_rows(db, "SELECT path FROM decls") ~= nil
-  local carried = Sqlite.text_rows(db, "SELECT * FROM modules") ~= nil and
-    Sqlite.text_rows(db, "SELECT * FROM docs") ~= nil and
-    Sqlite.text_rows(db, "SELECT * FROM uses") ~= nil
+  local function answers(sql: string): boolean
+    local rows, _ = Sqlite.text_rows(db, sql)
+    return rows ~= nil
+  end
+  local asked = answers("SELECT count(*) FROM meta") and
+    answers("SELECT count(*) FROM sqlite_master") and
+    answers("SELECT path, file, kind, source_hash, key FROM modules") and
+    answers("SELECT path FROM decls")
+  local carried = answers("SELECT * FROM modules") and
+    answers("SELECT * FROM docs") and
+    answers("SELECT * FROM uses")
   assert(db:close())
   return asked and not carried
 end

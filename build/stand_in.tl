@@ -160,6 +160,7 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local artifact = require("build.artifact")
@@ -253,7 +254,7 @@ local function database(path: string): string?, string
   if modules == nil then return nil, closure_trouble end
   local _, _ = Fs.remove(path)
   local db, open_trouble = Sqlite.open(path, { writable = true })
-  if db == nil then return nil, path .. ": " .. open_trouble end
+  if db == nil then return nil, path .. ": " .. tostring(open_trouble) end
   local statements: mut {string} = {}
   for _, statement in ipairs(schema.settings("")) do statements[#statements + 1] = statement end
   for _, statement in ipairs(schema.create("")) do statements[#statements + 1] = statement end
@@ -269,10 +270,12 @@ local function database(path: string): string?, string
     local _, _ = db:close()
     return nil, "the running binary names no runtime basis"
   end
-  local made, trouble = Sqlite.transact(db, function(): boolean, string
+  local made, trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
     for _, module in ipairs(modules) do
       local bytecode, bytecode_trouble = Store.bytecode(module.name)
-      if bytecode == nil then return false, module.name .. ": " .. tostring(bytecode_trouble) end
+      if bytecode == nil then
+        return false, Failure.new(module.name .. ": " .. tostring(bytecode_trouble))
+      end
       local name = if module.name == probe_module then main_module else module.name end
       -- A module's kind is all the runtime reads of a row but its
       -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
@@ -280,7 +283,7 @@ local function database(path: string): string?, string
       local ok, insert_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, " ..
           "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
         { text(name), text(if name == main_module then "main" else "module" end), bind.blob(bytecode) })
-      if not ok then return false, name .. ": " .. insert_trouble end
+      if not ok then return false, Failure.new(name .. ": " .. tostring(insert_trouble)) end
       for _, required in ipairs(module.requires) do
         local edge, edge_trouble = Sqlite.run(db,
           "INSERT INTO imports (path, requires) VALUES (?1, ?2)", { text(name), text(required) })
@@ -295,10 +298,10 @@ local function database(path: string): string?, string
         { text(row.key), text(row.value) })
       if not ok then return false, meta_trouble end
     end
-    return true, ""
+    return true
   end)
   local _, _ = db:close()
-  if not made then return nil, trouble end
+  if not made then return nil, tostring(trouble) end
   local bytes, read_trouble = Fs.read(path)
   local _, _ = Fs.remove(path)
   if bytes == nil then return nil, tostring(read_trouble) end

@@ -36,20 +36,20 @@ end
 local function describe(path: string): integer?, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
-    return nil, open_trouble
+    return nil, tostring(open_trouble)
   end
   local sizes, size_trouble = Sqlite.text_rows(db,
     "SELECT name, count(*), sum(pgsize), sum(payload) FROM dbstat " ..
       "GROUP BY name ORDER BY sum(pgsize) DESC, name")
   if sizes == nil then
     local _, _ = db:close()
-    return nil, size_trouble
+    return nil, tostring(size_trouble)
   end
   local tables, table_trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table'")
   if tables == nil then
     local _, _ = db:close()
-    return nil, table_trouble
+    return nil, tostring(table_trouble)
   end
   local is_table: mut {string:boolean} = {}
   for _, row in ipairs(tables) do
@@ -67,7 +67,7 @@ local function describe(path: string): integer?, string
         "SELECT count(*) FROM " .. quoted(name))
       if counted == nil then
         local _, _ = db:close()
-        return nil, count_trouble
+        return nil, tostring(count_trouble)
       end
       local only = counted[1]
       if only == nil then
@@ -87,14 +87,14 @@ end
 local function builds(path: string): boolean, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
-    return false, open_trouble
+    return false, tostring(open_trouble)
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT run, ms, files, read, compiled, cached, verdict FROM builds " ..
       "ORDER BY run DESC LIMIT 5")
   local _, _ = db:close()
   if rows == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   log:say("builds, latest first")
   for _, row in ipairs(rows) do
@@ -114,13 +114,13 @@ local slowest_kept = 5
 local function slowest(path: string, about: function(string): boolean): boolean, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
-    return false, open_trouble
+    return false, tostring(open_trouble)
   end
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, test, elapsed_ns FROM runs ORDER BY elapsed_ns DESC")
   local _, _ = db:close()
   if rows == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   local kept: mut {Sqlite.Row} = {}
   for _, row in ipairs(rows) do
@@ -174,12 +174,12 @@ local function module_files(root: string, working: boolean): {string:string}?, s
     if present then
       local db, open_trouble = Sqlite.open(path)
       if db == nil then
-        return nil, open_trouble
+        return nil, tostring(open_trouble)
       end
       local rows, trouble = Sqlite.text_rows(db, source.sql)
       local _, _ = db:close()
       if rows == nil then
-        return nil, path .. ": " .. trouble
+        return nil, path .. ": " .. tostring(trouble)
       end
       for _, row in ipairs(rows) do files[row:text(1)] = row:text(2) end
     end
@@ -193,13 +193,13 @@ end
 local function describe_under(path: string, about: function(string): boolean): integer?, string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then
-    return nil, open_trouble
+    return nil, tostring(open_trouble)
   end
   local tables, table_trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if tables == nil then
     local _, _ = db:close()
-    return nil, table_trouble
+    return nil, tostring(table_trouble)
   end
   log:say(path)
   log:say("  " .. column("rows", 8) .. "  name")
@@ -210,7 +210,7 @@ local function describe_under(path: string, about: function(string): boolean): i
       "SELECT name FROM pragma_table_info(?1)", { { text = name } })
     if columns == nil then
       local _, _ = db:close()
-      return nil, column_trouble
+      return nil, tostring(column_trouble)
     end
     local has: mut {string:boolean} = {}
     for _, c in ipairs(columns) do has[c:text(1)] = true end
@@ -223,7 +223,7 @@ local function describe_under(path: string, about: function(string): boolean): i
         "SELECT " .. quoted(chosen) .. " FROM " .. quoted(name))
       if values == nil then
         local _, _ = db:close()
-        return nil, value_trouble
+        return nil, tostring(value_trouble)
       end
       local count = 0
       for _, value in ipairs(values) do
@@ -250,7 +250,7 @@ local function readable(path: string): boolean?, string
   local present = present_status.exists
   if not present then return false, "" end
   local db, open_trouble = Sqlite.open(path)
-  if db == nil then return nil, open_trouble end
+  if db == nil then return nil, tostring(open_trouble) end
   local other, other_trouble = work.other_schema(db)
   local _, _ = db:close()
   if other == nil then

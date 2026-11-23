@@ -589,7 +589,7 @@ local function rows_of(bytes: string, path: string): {State.SuiteRun}?, string
   local written, why = Fs.write(path, bytes)
   if not written then return nil, tostring(why) end
   local db, trouble = Sqlite.open(path)
-  if db == nil then return nil, trouble end
+  if db == nil then return nil, tostring(trouble) end
   local read: Read = { rows = {} }
   local called, raised = pcall(function()
     read.rows = State.suite_rows(db)

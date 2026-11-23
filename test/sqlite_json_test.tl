@@ -15,7 +15,7 @@ end
 --- SQLite's `json(text)`, or nil and its failure.
 local function minified(db: Sqlite.Handle, text: string): string?, string
   local rows, failure = Sqlite.text_rows(db, "SELECT json(?1)", { { text = text } })
-  if rows == nil then return nil, failure end
+  if rows == nil then return nil, tostring(failure) end
   return first_row(rows):text(1), ""
 end
 

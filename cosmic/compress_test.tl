@@ -796,7 +796,7 @@ local function test_sql_chunk_answers_bytecode_stored_either_way()
   assert(row:blob(1) == dumped and row:blob(2) == dumped and row:integer(3) == 1)
   for _, refused in ipairs({ "", "not a chunk" }) do
     local none, trouble = Sqlite.rows(db, "SELECT chunk(?1)", { { blob = refused } })
-    assert(none == nil and trouble ~= "", refused)
+    assert(none == nil and trouble.message ~= "", refused)
   end
   -- A stream that began with the byte would open with a copy from before its start: none inflates,
   -- whatever byte follows.
@@ -850,7 +850,7 @@ local function test_sql_deflate_and_inflate_speak_raw_deflate()
   for _, case in ipairs(damaged) do
     local rows, trouble = Sqlite.rows(db, "SELECT inflate(?1)", { { blob = case.blob } })
     assert(rows == nil, case.why)
-    assert(trouble:find(case.why, 1, true) ~= nil, trouble)
+    assert(tostring(trouble):find(case.why, 1, true) ~= nil, trouble)
   end
   assert(db:close())
 end

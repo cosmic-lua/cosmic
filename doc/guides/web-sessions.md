@@ -162,7 +162,7 @@ local function store(): (Session.Store?, string)
   local path = Env.get("VISITS_DB")
   if path ~= nil then
     local db, why = Sqlite.open(path)
-    if db == nil then return nil, why end
+    if db == nil then return nil, why.message end
     return SessionSqlite.store(db)
   end
   local keys, why = Secret.keys_from_env("VISITS_KEYS")

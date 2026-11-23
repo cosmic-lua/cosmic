@@ -199,7 +199,7 @@ local function test_map_answers_an_empty_list_for_no_rows()
   local found, trouble = Sqlite.map(db, "SELECT n FROM t", nil, function(r: Sqlite.Row): integer
     return r:integer(1)
   end)
-  assert(found ~= nil and #found == 0 and trouble == "")
+  assert(found ~= nil and #found == 0 and trouble == nil)
   assert(db:close())
 end
 
@@ -211,21 +211,21 @@ local function test_map_answers_nil_and_why_when_the_statement_fails()
     return r:integer(1)
   end
   local found, trouble = Sqlite.map(db, "SELECT * FROM missing", nil, project)
-  assert(found == nil and trouble:find("missing", 1, true) ~= nil, trouble)
+  assert(found == nil and tostring(trouble):find("missing", 1, true) ~= nil, trouble)
   -- A step that fails after a row was read gives no rows at all.
   found, trouble = Sqlite.map(db, "SELECT abs(n) FROM (SELECT 1 AS n UNION ALL " ..
       "SELECT -9223372036854775807 - 1)", nil, project)
-  assert(found == nil and trouble ~= "", trouble)
+  assert(found == nil and trouble ~= nil, trouble)
   assert(called.value == 1)
   found, trouble = Sqlite.map(db, "SELECT ?1", { { integer = 1 }, { integer = 2 } }, project)
-  assert(found == nil and trouble ~= "")
+  assert(found == nil and trouble ~= nil)
   assert(db:close(), "a failed map leaves no statement open")
 end
 
 local function test_map_finalizes_the_statement_when_the_projection_raises()
   local db = assert(Sqlite.memory())
   local seen = Test.raises(function()
-    Sqlite.map(db, "SELECT 'text'", nil, function(r: Sqlite.Row): integer
+    local _, _ = Sqlite.map(db, "SELECT 'text'", nil, function(r: Sqlite.Row): integer
       return r:integer(1)
     end)
   end)
@@ -240,7 +240,7 @@ local function test_map_refuses_a_projection_that_answers_nothing()
       return nil
     end
     local project = nothing as function(Sqlite.Row): integer -- cast: a projection that breaks its contract -- checked: cast_refused
-    Sqlite.map(db, "SELECT 1", nil, project)
+    local _, _ = Sqlite.map(db, "SELECT 1", nil, project)
   end)
   assert(seen:find("project answered nil", 1, true), seen)
   assert(db:close())
@@ -252,5 +252,5 @@ local function test_a_query_and_its_each_give_rows_the_same_accessors()
   local row = assert(q:read())
   assert(row:integer(1) == 5 and row:text(2) == "x" and row:is_null(3) and row:count() == 3)
   local nothing, why = q:read()
-  assert(nothing == nil and why == "")
+  assert(nothing == nil and why == nil)
 end

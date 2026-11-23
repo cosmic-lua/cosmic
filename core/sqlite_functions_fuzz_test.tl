@@ -36,7 +36,7 @@ end
 --- and the statement's error.
 local function value(sql: string, values: {Sqlite.Value}): string?, string
   local rows, trouble = Sqlite.text_rows(handle, sql, values)
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   assert(#rows == 1, sql .. ": " .. tostring(#rows) .. " rows")
   return first_row(rows):text(1), ""
 end
@@ -153,7 +153,7 @@ local function test_decimal_is_total_and_canonical(tmp: string)
         local rows, trouble = Sqlite.text_rows(handle,
           "SELECT decimal(decimal(?1)), decimal_cmp(?1, ?1)", one)
         if rows == nil then
-          return false, "decimal read " .. number .. " once only: " .. trouble
+          return false, "decimal read " .. number .. " once only: " .. tostring(trouble)
         end
         local again = first_row(rows)
         if again:text(1) ~= read or again:text(2) ~= "0" then
@@ -216,7 +216,7 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
       end
       local rows, trouble = Sqlite.text_rows(handle, "SELECT uuid_blob(?1) IS NULL, " ..
           "hex(uuid_blob(uuid_str(?1))) = hex(uuid_blob(?1))", { { text = uuid } })
-      if rows == nil then return false, "uuid_blob failed its statement: " .. trouble end
+      if rows == nil then return false, "uuid_blob failed its statement: " .. tostring(trouble) end
       local decoded = first_row(rows)
       if decoded:text(1) == "1" then
         Fuzz.label("uuid refused")
@@ -260,7 +260,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
           "typeof(ieee754(?2, ?3)), typeof(ieee754_inc(ieee754_from_blob(?1), ?2))",
         { { blob = fields[1] }, { integer = math.tointeger(fields[2]) },
           { integer = math.tointeger(fields[3]) } })
-      if rows == nil then return false, "ieee754 failed its statement: " .. trouble end
+      if rows == nil then return false, "ieee754 failed its statement: " .. tostring(trouble) end
       local row = first_row(rows)
       local least = math.tointeger(fields[2]) == math.mininteger
       if row:text(5) ~= (if least then "null" else "real" end) then
@@ -356,7 +356,7 @@ local function test_totype_reads_text_exactly(tmp: string)
           "typeof(tointeger(?1)), tointeger(?1), " ..
           "typeof(tointeger(?2)), typeof(toreal(?2))",
         { { text = text }, { blob = text } })
-      if rows == nil then return false, "totype failed its statement: " .. trouble end
+      if rows == nil then return false, "totype failed its statement: " .. tostring(trouble) end
       local row = first_row(rows)
       if row:text(1) == "real" then
         Fuzz.label("read as a real")
@@ -573,7 +573,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
         local rows, trouble = Sqlite.text_rows(reopened, q)
         if rows == nil then
           refused = true
-          if trouble == "" then return false, q .. " failed without saying why" end
+          if trouble.message == "" then return false, q .. " failed without saying why" end
         elseif q == "SELECT rtreecheck('b')" and first_row(rows):text(1) ~= "ok" then
           reported = true
         end
@@ -649,19 +649,8 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       else
         list = { blobs = strings }
       end
-      -- The plain and the captured helpers bind through different paths
-      -- (cosmic/sqlite.tl's bind, core/sqlite.c's bind_values_result).
-      local rows: Sqlite.Rows?
-      local trouble = ""
-      if #input % 2 == 0 then
-        rows, trouble = Sqlite.rows(handle, "SELECT value FROM carray(?1)", { list })
-        if rows ~= nil then Fuzz.label("bound in Lua") end
-      else
-        local result = Sqlite.rows_result(handle, "SELECT value FROM carray(?1)", { list })
-        rows, trouble = result.rows, result.reason
-        if rows ~= nil then Fuzz.label("bound in C") end
-      end
-      if rows == nil then return false, "carray failed its statement: " .. trouble end
+      local rows, trouble = Sqlite.rows(handle, "SELECT value FROM carray(?1)", { list })
+      if rows == nil then return false, "carray failed its statement: " .. tostring(trouble) end
       if #rows ~= #fields - 1 then
         return false, "carray read " .. tostring(#rows) .. " of " .. tostring((#fields - 1)) .. " " .. kind
       end
@@ -688,6 +677,6 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       if #rows == 0 then Fuzz.label("empty") end
       return true, ""
     end,
-    requires = { "integers", "numbers", "texts", "blobs", "empty", "bound in Lua", "bound in C" },
+    requires = { "integers", "numbers", "texts", "blobs", "empty" },
   })
 end
