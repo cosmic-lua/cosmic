@@ -1,8 +1,8 @@
 # weekly review
 
 instructions for the weekly review agent. it runs once a week, on Opus,
-in `.github/workflows/review.yml`, in the Claude Code
-GitHub Action, with a hard budget for each run. the agent is told to
+in `.github/workflows/review.yml`, in the pi coding agent, with a spend
+limit on its Console workspace. the agent is told to
 read this file and follow it, so a change here takes effect at the next
 run.
 
@@ -58,10 +58,10 @@ the checkout is the working directory, on main. use cosmic for the work:
   `git -c user.name='cosmic weekly review' -c user.email=weekly-review@users.noreply.github.com commit`,
   and push it with `git push origin <branch>`. never push to main or to
   any branch that you did not make in this run.
-- open each one with the `mcp__github__create_pull_request` tool: owner
-  `cosmic-lua`, repo `cosmic`, base `main`, the branch as head, and
-  `draft` true. the body says what is wrong, how the test shows it, and
-  how the fix works.
+- open each one with `gh`, which is signed in as the bot:
+  `gh pr create --draft --repo cosmic-lua/cosmic --base main --head <branch> --title <title> --body-file <file>`.
+  the body says what is wrong, how the test shows it, and how the fix
+  works.
 - a finding that you did not fix is dropped. if you open no pull
   request, that is the run's result.
 
