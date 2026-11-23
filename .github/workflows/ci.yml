@@ -64,8 +64,9 @@
     # the complete product, its regressions and its portable suite, the
     # bytes it ran uploaded for the join. The merge queue runs
     # linux-x86_64's native suite and the tree's format check, and no more:
-    # a light, fast gate, as two jobs at once, each booting the tree: one
-    # after the other, the two took some 15 minutes. A pull request runs
+    # a light, fast gate, as two jobs at once, each booting the tree, beside
+    # the `driver` job's check of the pinned CI driver: one after the
+    # other, the two took some 15 minutes. A pull request runs
     # lighter still, linux-x86_64's boot and the format check of what it
     # changed. A push to main runs
     # three legs whole, all but macOS; the daily scheduled run and a
@@ -371,9 +372,7 @@
         # since that base, whose tree the queue held to the check: the
         # check lays out only these and makes every check spanning files
         # over the whole tree (driver.tl changed-paths, `fix --check
-        # --changed`), and the queue checks the pinned driver only where
-        # they reach what its tests read. Where it names none, both cover
-        # everything.
+        # --changed`). Where it names none, it covers everything.
         {
           name: "name the paths the commit changed",
           id: "changed",
@@ -400,24 +399,14 @@
           name: "move the tree to a path of its own",
           run: "cosmic-driver cosmic_ci/driver.tl place-tree",
         },
-        # cosmic_ci's tests read ci/ and, of the tree around it,
-        # .github/workflows/ci.yml alone (their Test.policy grants).
-        {
-          name: "ask whether the change reaches the CI driver's tests",
-          id: "reach",
-          if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name == 'merge_group'",
-          shell: "sh",
-          env: {PATHS: "${{ steps.changed.outputs.paths }}"},
-          run: "if [ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"; then echo driver=run >> \"$GITHUB_OUTPUT\"; fi",
-        },
-        # --all, unsandboxed: cosmic_ci's tests start the host's own
+        # Every test, unsandboxed: cosmic_ci's tests start the host's own
         # programs and are not all declared to run sandboxed. Every leg
-        # of the daily, weekly and a manual run; in the queue, where the
-        # change reaches them; never on main's push, whose commit the
-        # queue checked.
+        # of the daily, weekly and a manual run; in the queue, the
+        # `driver` job's; never on main's push, whose commit the queue
+        # checked.
         {
           name: "check the pinned CI driver",
-          if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.reach.outputs.driver == 'run'",
+          if: "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
           env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
           run: "cosmic-driver test cosmic_ci",
         },
@@ -1174,14 +1163,107 @@
       ],
     },
 
+    # The queue's check of the pinned CI driver, beside its two
+    # linux-x86_64 jobs and booting nothing: cosmic_ci's tests, where what the commit
+    # changed since main reaches what they read (ci/ and, of the tree
+    # around it, .github/workflows/ci.yml alone, their Test.policy
+    # grants), or where the paths changed are not known. The other runs
+    # check it on each leg ("check the pinned CI driver" above).
+    driver: {
+      if: "github.event_name == 'merge_group'",
+      name: "linux-x86_64-driver",
+      defaults: {run: {"working-directory": "ci", shell: "leg-shell {0}"}},
+      "runs-on": "ubuntu-24.04",
+      permissions: {contents: "read", packages: "read"},
+      "timeout-minutes": 20,
+      env: {COSMIC_WORKER: "linux-x86_64", TARGET: "x86_64-linux-musl"},
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          # As the format job's checkout, for the base the change is held to.
+          with: {"fetch-depth": 2},
+        },
+        # The leg's container and its unprivileged builder, as the
+        # platform job's linux-x86_64 leg has them.
+        {
+          name: "start the leg's container",
+          "working-directory": ".",
+          shell: "sh",
+          env: {IMAGE: "ghcr.io/cosmic-lua/cosmic-ci-ubuntu@sha256:947fe8ea3f96e963d1e922113e55324276db1d6a92908d8c79094f29a23c8d4a", TOKEN: "${{ secrets.GITHUB_TOKEN }}", ACTOR: "${{ github.actor }}"},
+          run: "sh .github/scripts/leg-container.sh start \"$IMAGE\"",
+        },
+        {
+          name: "create the unprivileged builder",
+          "working-directory": "/",
+          shell: "leg-shell --root {0}",
+          run: "uid=\"$(stat -c %u \"$GITHUB_WORKSPACE\")\"; if command -v useradd >/dev/null; then useradd -m -o -u \"$uid\" runner; else adduser -D -u \"$uid\" runner; fi",
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          id: "driver",
+          uses: "./.github/actions/cosmic-driver",
+          with: {shell: "leg-shell {0}"},
+        },
+        {
+          name: "find the base the markers are held to",
+          id: "ceilings-base",
+          shell: "sh",
+          env: {SHA: "${{ github.sha }}", EVENT: "${{ github.event_name }}", REF: "${{ github.ref }}", BASE_REF: "${{ github.event.merge_group.base_ref }}", PR_BASE_REF: "${{ github.base_ref }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl ceilings-base",
+          # With no base the paths changed are not known, and the check runs.
+          "continue-on-error": true,
+        },
+        {
+          name: "name the paths the commit changed",
+          id: "changed",
+          if: "steps.ceilings-base.outputs.sha != ''",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {BASE: "${{ steps.ceilings-base.outputs.sha }}", OUT: "${{ runner.temp }}/changed-paths"},
+          run: "cosmic-driver cosmic_ci/driver.tl changed-paths",
+        },
+        {
+          name: "ask whether the change reaches the CI driver's tests",
+          id: "reach",
+          shell: "sh",
+          env: {PATHS: "${{ steps.changed.outputs.paths }}"},
+          run: "if [ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"; then echo driver=run >> \"$GITHUB_OUTPUT\"; fi",
+        },
+        # At a path of the commit's own, as the legs run it, so a test
+        # that turns on the tree's path fails here too (driver.tl
+        # place-tree).
+        {
+          name: "move the tree to a path of its own",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree",
+        },
+        # Every test, unsandboxed, as the platform job's step.
+        {
+          name: "check the pinned CI driver",
+          if: "steps.reach.outputs.driver == 'run'",
+          env: {COSMIC_VERDICT_CACHE: "0", COSMIC_TEST_SANDBOX: "0"},
+          run: "cosmic-driver test cosmic_ci",
+        },
+        # Before checkout's post step, whose git refuses the repository at
+        # another path.
+        {
+          name: "move the tree back to where it was checked out",
+          if: "always() && steps.driver.outcome == 'success'",
+          shell: "sh",
+          run: "cosmic-driver cosmic_ci/driver.tl place-tree --restore",
+        },
+      ],
+    },
+
     # The one check a ruleset requires: it fails when a leg, the checked
-    # suite or the checked narrowing run failed or was cancelled (the two
-    # read as passed in the merge queue and on a pull request, which skip
-    # them), and on main's runs it is the provenance join, proving the legs
-    # attested identical bytes: a push's three, the scheduled and a manual
-    # run's four.
+    # suite, the checked narrowing run or the queue's pinned driver check
+    # failed or was cancelled. The checked jobs read as passed in the
+    # merge queue and on a pull request, which skip them; the driver
+    # job's result is read in the queue alone, where it runs. On main's
+    # runs it is the provenance join too, proving the legs attested
+    # identical bytes: a push's three, the scheduled and a manual run's
+    # four.
     ci: {
-      needs: ["platform", "checked", "narrowing"],
+      needs: ["platform", "checked", "narrowing", "driver"],
       if: "always()",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 5,
@@ -1193,8 +1275,9 @@
             RESULT: "${{ needs.platform.result }}",
             CHECKED: "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || needs.checked.result }}",
             NARROWING: "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || needs.narrowing.result }}",
+            DRIVER: "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}",
           },
-          run: "echo \"legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ]",
+          run: "echo \"legs: $RESULT; checked suite: $CHECKED; checked narrowing: $NARROWING; pinned driver: $DRIVER\"; [ \"$RESULT\" = success ] && [ \"$CHECKED\" = success ] && [ \"$NARROWING\" = success ] && [ \"$DRIVER\" = success ]",
         },
         {
           if: "github.event_name != 'merge_group' && github.event_name != 'pull_request'",

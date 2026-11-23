@@ -1518,25 +1518,49 @@ end
 --- Main moves only through the merge queue, so main's push tests the very
 --- commit the queue just checked: it repeats neither the format check nor
 --- the pinned driver's, which the daily, weekly and a manual run make on
---- every leg. The queue checks the pinned driver only where what the
---- commit changed reaches what its tests read (ci/ and .github/), or where
---- the paths changed are not known.
+--- every leg. The queue checks the pinned driver in a job of its own
+--- (`driver`), which boots nothing, beside its two linux-x86_64 jobs, and
+--- only where what the commit changed reaches what its tests read (ci/ and
+--- .github/), or where the paths changed are not known.
 local function test_mains_push_repeats_nothing_the_queue_checked()
-  local steps = job_of(ci_workflow().jobs, "platform").steps
+  local jobs = ci_workflow().jobs
+  local steps = job_of(jobs, "platform").steps
   local base = step_named(steps, "find the base the markers are held to")
   assert(base["if"] == FORMAT_RUNS, "the markers' base is found on main's push: " .. tostring(base["if"]))
   local check = step_running(steps, "cosmic-driver test cosmic_ci")
-  assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || " ..
-      "steps.reach.outputs.driver == 'run'" and map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
-    "the pinned driver is checked on other runs: " .. tostring(check["if"]))
-  local reach, at = step_with_id(steps, "reach")
-  local _, check_at = step_named(steps, "check the pinned CI driver")
-  local _, changed_at = step_with_id(steps, "changed")
+  assert(check["if"] == "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'" and
+      map_of(check.env)["COSMIC_TEST_SANDBOX"] == "0",
+    "the legs check the pinned driver on other runs: " .. tostring(check["if"]))
+  local driver = job_of(jobs, "driver")
+  assert(driver["if"] == "github.event_name == 'merge_group'" and #needs_of(driver) == 0,
+    "the pinned driver's own job runs on other runs, or waits on another job")
+  local own = driver.steps
+  for _, s in ipairs(own) do
+    assert((s.run or ""):find("platform boot", 1, true) == nil, "the driver's job boots the tree")
+  end
+  local queued = step_running(own, "cosmic-driver test cosmic_ci")
+  assert(queued["if"] == "steps.reach.outputs.driver == 'run'" and map_of(queued.env)["COSMIC_TEST_SANDBOX"] == "0",
+    "the queue checks the pinned driver otherwise: " .. tostring(queued["if"]))
+  local reach, at = step_with_id(own, "reach")
+  local _, check_at = step_named(own, "check the pinned CI driver")
+  local _, placed_at = step_named(own, "move the tree to a path of its own")
+  local _, back_at = step_named(own, "move the tree back to where it was checked out")
+  local changed, changed_at = step_with_id(own, "changed")
+  assert(changed_at < placed_at and placed_at < check_at and check_at < back_at,
+    "the driver's job checks the tree where it was checked out")
+  assert(step_with_id(own, "ceilings-base")["continue-on-error"] == true,
+    "the driver's job fails where it finds no base, rather than check every test")
   assert(changed_at < at and at < check_at, "the driver's check is asked of the paths changed out of order")
-  assert(reach["if"] == "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name == 'merge_group'" and
+  assert(changed["run"] == "cosmic-driver cosmic_ci/driver.tl changed-paths" and
+      changed["if"] == "steps.ceilings-base.outputs.sha != ''",
+    "the driver's job names the paths changed otherwise")
+  assert(reach["if"] == nil and
       map_of(reach.env)["PATHS"] == "${{ steps.changed.outputs.paths }}" and
       (reach.run or ""):find("[ -z \"$PATHS\" ] || grep -qE '^(ci|\\.github)/' \"$PATHS\"", 1, true) ~= nil,
     "the queue asks otherwise whether the change reaches the driver's tests")
+  for _, s in ipairs(steps) do
+    assert(s["id"] ~= "reach", "a leg still asks whether the change reaches the driver's tests")
+  end
   local islands = step_named(steps, "type-check the bootstrap's scripts on the pinned driver")
   assert(islands["if"] == "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push'",
     "the bootstrap's scripts")
@@ -1802,14 +1826,16 @@ end
 local function test_the_gate_needs_every_job_and_compares_four_products()
   local jobs = ci_workflow().jobs
   local gate = job_of(jobs, "ci")
-  assert(table.concat(needs_of(gate), ",") == "platform,checked,narrowing" and gate["if"] == "always()",
+  assert(table.concat(needs_of(gate), ",") == "platform,checked,narrowing,driver" and gate["if"] == "always()",
     "the gate needs " .. table.concat(needs_of(gate), ","))
   local env = map_of(assert(gate.steps[1]).env)
   assert(env["RESULT"] == "${{ needs.platform.result }}" and
       env["CHECKED"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || " ..
       "needs.checked.result }}" and
       env["NARROWING"] == "${{ (github.event_name == 'merge_group' || github.event_name == 'pull_request') && 'success' || " ..
-      "needs.narrowing.result }}",
+      "needs.narrowing.result }}" and
+      env["DRIVER"] == "${{ github.event_name == 'merge_group' && needs.driver.result || 'success' }}" and
+      (assert(gate.steps[1]).run or ""):find("[ \"$DRIVER\" = success ]", 1, true) ~= nil,
     "the gate reads other results")
   local compare = step_named(gate.steps, "compare the Cosmic bytes executed on every native host")
   assert(compare["if"] == QUEUE_SKIPS and
@@ -1829,7 +1855,8 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
       prerelease:find("workflow_run.event == 'push'", 1, true) == nil,
     "prerelease.yml publishes from a run of fewer than four legs")
   for name in pairs(jobs) do
-    assert(name == "platform" or name == "checked" or name == "narrowing" or name == "ci", "ci.yml has a job " .. name)
+    assert(name == "platform" or name == "checked" or name == "narrowing" or name == "driver" or name == "ci",
+      "ci.yml has a job " .. name)
   end
 end
 
