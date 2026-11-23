@@ -107,11 +107,11 @@ function onecrl.parse(text: string): {onecrl.Entry}?, string
   local decoded, trouble = Json.decode(text)
   local feed, why = Json.to_object(decoded)
   if feed == nil then
-    return nil, "not a OneCRL changeset: " .. (if trouble ~= "" then trouble else why end)
+    return nil, "not a OneCRL changeset: " .. tostring(if decoded == nil then trouble else why end)
   end
   local changes, changes_why = Json.to_array(feed["changes"])
   if changes == nil then
-    return nil, "not a OneCRL changeset: $.changes: " .. changes_why
+    return nil, "not a OneCRL changeset: $.changes: " .. tostring(changes_why)
   end
   local found: mut {onecrl.Entry} = {}
   for i, value in ipairs(changes) do

@@ -509,7 +509,7 @@ input to the build, never to the runtime. one database holds:
   what it requires. Two rows are no module: `lang.prelude` and
   `lang.stdlib`, the text of [`lang/prelude.d.tl`] and of
   [`lang/stdlib.d.tl`], which are the globals the new checker types a
-  project against (`COSMIC_GRAMMAR=new`, [`build/checker_declarations.tl`]).
+  project against ([`build/checker_declarations.tl`]).
 - **catalog**: the errors a program can meet, one row per literal
   `return nil, ...` or `return false, ...` message under a top-level
   function, naming that function, plus hand-authored rows for the
@@ -860,7 +860,9 @@ that does run runs in a process of its own:
   what requires it and the build tells of it while the copies run; a run of a file, which stops at the first
   module the file needs that does not build, tells its copies to compile no more once that module is settled. a
   copy still running after fifteen minutes is ended, and the build does its work. the bytes written are the same;
-  `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. each test runs in a worker
+  `COSMIC_COMPILE_COPIES=1` parses and compiles in the one process. `cosmic fix` copies itself the same
+  way to lay out, lower and check the files its memo lacks, and takes each copy's answers as its own; a copy that
+  does not end well leaves its files to the one process, and the answers are the same either way. each test runs in a worker
   -- the same core relaunched directly, never through the launcher --
   one more than the processors at a time, with a fresh temporary directory, captured
   streams, and a deadline past which its whole process group is ended. where
@@ -897,7 +899,7 @@ CI's Linux legs stand on shared verdicts: those of sandboxed runs, keyed by
 each test's declared inputs ([`build/declared_key.tl`]), which the sandbox holds
 the test to, and the host's identity: its kernel, processor, user and
 capabilities; and what it has installed -- its package database, the system
-it says it is and what its system paths hold -- only for a module that
+it says it is and the image `COSMIC_SYSTEM_ID` names -- only for a module that
 declares `system`, whose worker alone
 is given /usr, /bin, /lib and /etc, or that declares a host directory. what
 that key still leaves out is in the `TODO:`s on `host_identity` and
@@ -915,15 +917,15 @@ what the declared key leaves out, each with a `TODO:` where its fix goes:
 - *the clock*: a test whose verdict turns on the date stands on one reached
   another day. CI's scheduled run, which stands on nothing, runs it weekly.
 - *what the host has installed*: what the system's own paths hold, for a test
-  that declares `system`, is keyed by the package database, the image
-  `COSMIC_SYSTEM_ID` names, and a walk of their files by mode, size and
-  modification time, but /etc's, the host's configuration, which a run
-  holding such a test makes once and remembers while no directory it
-  walked moves (`system_identity`): a file written in place is not seen
-  until a directory moves, one rewritten with its size and modification
-  time put back is not told apart, and on macOS, which walks nothing, what a
-  developer's Mac installs beyond the sealed system volume is keyed by
-  nothing -- its runs keyed so are CI's, whose image the variable names.
+  that declares `system`, is keyed by the package database, the system the
+  host says it is, and the image `COSMIC_SYSTEM_ID` names, not by a walk of
+  their files, which on a fresh CI runner's image took minutes
+  (`system_identity`): a file changed or added beneath them outside the
+  package manager -- a package built from source into /usr/local, a
+  container image's own layers -- is not seen unless the host names it in
+  `COSMIC_SYSTEM_ID`, and on macOS what a developer's Mac installs beyond
+  the sealed system volume is keyed by nothing -- its runs keyed so are
+  CI's, whose image the variable names.
 - *the program's own modules*: a worker whose module does not declare
   `store` is given at its build directory's `cosmic.db` the store of its import closure alone
   ([`build/closure_store.tl`]'s `write`, kept under the build directory's `stores/` by the address its
@@ -1051,7 +1053,7 @@ syntax where that serves and breaks with it where Teal or a Lua idiom costs
 soundness, simplicity or speed (`cosmic docs <code>` gives the rule behind any
 error the checker reports). there is one checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
 patch records; a project written in the old grammar is rewritten to this one by hand
-([`doc/guides/project.md`]), and `COSMIC_GRAMMAR=teal` is refused, pointing to that guide.
+([`doc/guides/project.md`]).
 
 the pieces are small modules, each deciding one thing and asked by the rest:
 
@@ -1248,9 +1250,8 @@ on macOS both enforce: read, write, and exec under paths; network
 none, loopback, or all; TCP connect and bind by port; new processes
 allowed or denied; inherited by children and never liftable. on
 Linux, Landlock carries the path and port rules and seccomp carries
-the rest (today the core's `landlock_ruleset` holds paths alone, and
-`spawn`'s `offline` namespace holds the network, the same on every
-kernel): `network none` denies `socket` for the internet families,
+the rest (today `spawn`'s `grants` hold paths, and its `offline`
+namespace holds the network, the same on every kernel): `network none` denies `socket` for the internet families,
 because Landlock cannot see UDP at all, and `no new processes`
 denies `clone`, because denying `execve` would refuse the box its
 own launch and a self-replacing exec is not a new process. every

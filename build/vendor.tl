@@ -46,7 +46,6 @@
 --- name it ([`Vendor.feed_pin`]): the state's timestamp, and the feed's
 --- URL asking for that timestamp.
 local Archive = require("cosmic.archive")
-local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -56,22 +55,6 @@ local Json = require("cosmic.json")
 local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
-
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
--- TODO: Http.FOREVER in place of CEILING_NS once
--- ci/cosmic-driver.pin names a release whose Http has it: this file runs
--- standalone on that release. Until then a ceiling no run reaches.
-local CEILING_NS <const> = Clock.minutes(24 * 60)
 
 local record Vendor
   record Pin
@@ -174,10 +157,11 @@ function Vendor.all_names(root: string): {string}?, string
   end
   local names: mut {string} = {}
   for _, name in ipairs(entries) do
-    local pinned, pin_trouble = path_there(root .. "/vendor/" .. name .. "/PIN")
-    if pinned == nil then
-      return nil, pin_trouble
+    local pinned_status, pin_trouble = Fs.status(root .. "/vendor/" .. name .. "/PIN")
+    if pinned_status == nil then
+      return nil, tostring(pin_trouble)
     end
+    local pinned = pinned_status.exists
     if pinned then
       names[#names + 1] = name
     end
@@ -229,7 +213,7 @@ function Vendor.fetch(url: string, path: string, digests: {Vendor.Digest}): stri
   -- default.
   local want: mut {string:string} = {}
   for _, digest in ipairs(digests) do want[digest.algorithm] = digest.hex end
-  local options: Http.Options = { timeout_ns = CEILING_NS, roots = "mozilla", sha256 = want["sha256"],
+  local options: Http.Options = { timeout_ns = Http.FOREVER, roots = "mozilla", sha256 = want["sha256"],
     sha3_256 = want["sha3-256"] }
   local ok, trouble = Http.download(url, path, options)
   if not ok then
@@ -458,7 +442,7 @@ end
 function Vendor.feed_timestamp(body: string): string?, string
   local state, trouble = Json.decode_object(body)
   if state == nil then
-    return nil, "is no JSON object: " .. trouble
+    return nil, "is no JSON object: " .. tostring(trouble)
   end
   local timestamp = state["timestamp"]
   if timestamp is integer and timestamp >= 0 then
@@ -527,7 +511,7 @@ local function feed_tree(tree: string, text: string, pin: Vendor.Pin,
   end
   local path = cache .. "/" .. pin.file
   local _, _ = Fs.remove(path)
-  local ok, trouble = Http.download(pin.feed, path, { timeout_ns = CEILING_NS })
+  local ok, trouble = Http.download(pin.feed, path, { timeout_ns = Http.FOREVER })
   if not ok then
     return 0, pin.feed .. ": " .. trouble
   end

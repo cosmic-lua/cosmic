@@ -69,29 +69,12 @@
 --- then.
 
 local Child = require("cosmic.child")
-local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
-
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
--- TODO: Child.FOREVER in place of CEILING_NS once
--- ci/cosmic-driver.pin names a release whose Child has it: this file runs
--- standalone on that release. Until then a ceiling no run reaches.
-local CEILING_NS <const> = Clock.minutes(24 * 60)
 
 local record SeededBoot
   --- What a boot asks of the network and which releases it tries.
@@ -260,14 +243,11 @@ function SeededBoot.cached(cache: string, digest: string): string?, string
     local _, _ = Fs.remove(path)
     return nil, "a link stood there"
   end
-  local there, _ = path_there(path)
-  if there ~= true then return nil, "it is not there" end
-  -- TODO: Hash.hex_file in place of reading the whole file, once
-  -- ci/cosmic-driver.pin names a release whose Hash has it: this file
-  -- runs standalone on that release.
-  local data, trouble = Fs.read(path)
-  if data == nil then return nil, tostring(trouble) end
-  if Hash.hex_sha256(data) == digest then return path, "" end
+  local there, _ = Fs.status(path)
+  if there == nil or not there.exists then return nil, "it is not there" end
+  local got, trouble = Hash.hex_file("sha256", path)
+  if got == nil then return nil, trouble end
+  if got == digest then return path, "" end
   local _, _ = Fs.remove(path)
   return nil, "its bytes are not its digest's"
 end
@@ -330,7 +310,7 @@ end
 --- (`--core`), its launcher having extracted it.
 local function core_of(program: string, script: string, work: string): string?, string
   local result, trouble = Child.run({ program, "--standalone", script, "--core" },
-    { cwd = work, stdout = "capture", stderr = "capture", timeout_ns = CEILING_NS })
+    { cwd = work, stdout = "capture", stderr = "capture", timeout_ns = Child.FOREVER })
   if result == nil then return nil, trouble end
   local core = (result.stdout or ""):match("^(/[^\n]+)\n")
   if not result.ok or core == nil then return nil, "it names no core: " .. (result.stderr or "") end
@@ -420,7 +400,7 @@ local function compile_seed(root: string, into: string): boolean, string
   for name, value in pairs(Env.all()) do env[name] = value end
   for name, value in pairs(relaunch.env) do env[name] = value end
   local result, run_trouble = Child.run(argv, { cwd = root, env = env, fds = relaunch.fds,
-    stdout = "capture", stderr = "capture", timeout_ns = CEILING_NS })
+    stdout = "capture", stderr = "capture", timeout_ns = Child.FOREVER })
   if result == nil then return false, run_trouble end
   if not result.ok then
     return false, "the seed did not compile: " .. (result.stderr or "") .. (result.stdout or "")
@@ -448,7 +428,7 @@ local function boot(root: string, output: string, manifest: string, core: string
   if not placed then return false, place_trouble end
   for _, mode in ipairs({ "--stage", "--assemble" }) do
     local result, trouble = Child.run({ own, "--boot", root, seed, "--host-only", mode, target, records, output },
-      { cwd = root, timeout_ns = CEILING_NS })
+      { cwd = root, timeout_ns = Child.FOREVER })
     if result == nil then return false, trouble end
     if not result.ok then
       return false, "the bridge's " .. mode .. " ended with " .. tostring(result.code)

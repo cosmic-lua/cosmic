@@ -269,12 +269,6 @@ local record Cli
   --- there, which it leaves for a person to remove; 2 for a command line
   --- it refuses
   lsp: string
-  --- `cosmic migrate`: removed. It said what it had been, the verb that
-  --- rewrote a project written in the fork's grammar into the new one, and
-  --- now says that it was removed and points to the project guide
-  --- ([`doc/guides/project.md`], "moving a project to the new grammar"). It
-  --- exits 2 whatever it is given
-  migrate: string
   --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
   --- one SQL statement read-only -- SQLite itself refuses a write --
   --- against the projection in the build directory, or the binary's own
@@ -430,7 +424,7 @@ local record Cli
   --- malformed line among them) or a write to standard output it cannot
   --- use, with `cosmic: hash: ...` on standard error
   hash: string
-  --- `cosmic compile [--grammar new] [--errors] [--root dir] [-o dir] file.tl...`: the Lua
+  --- `cosmic compile [--errors] [--root dir] [-o dir] file.tl...`: the Lua
   --- source of each `.tl` file, one text per file, written by this binary's
   --- own new checker for the tree's Lua, as it writes the tree's own modules. It reads the files named and the
   --- `cosmic.*` modules the binary carries, never the tree around them, so
@@ -446,9 +440,7 @@ local record Cli
   --- error gets a count per file, and with `--errors` each error as
   --- `file:line:column: message`. Only a syntax error refuses: each is
   --- named as `file:line:column: message`, no file is written, and the
-  --- exit is 2, as for a command line or a file it cannot use. The files
-  --- are written in the new checker's grammar,
-  --- which is the only one (`--grammar teal` is refused).
+  --- exit is 2, as for a command line or a file it cannot use.
   --- With a `.d.tl` file named, the files named are the whole program, the
   --- globals are those the `.d.tl` files declare, and a `cosmic.*` module
   --- no file named is the module of is typed `invalid` and reported. With
@@ -1086,7 +1078,7 @@ end
 local module: Module = {
   fields = {
     run = "run", standalone = "standalone", eval = "eval", version = "version", test = "test", fix = "fix", build = "build",
-    db = "db", lsp = "lsp", migrate = "migrate", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", qr = "qr", acme = "acme", tailscale = "tailscale", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
+    db = "db", lsp = "lsp", sql = "sql", cache = "cache", json = "json", hash = "hash", codec = "codec", archive = "archive", fetch = "fetch", time = "time", rand = "rand", qr = "qr", acme = "acme", tailscale = "tailscale", compile = "compile", docs = "docs", uses = "uses", todos = "todos", bom = "bom",
     refresh = "refresh", release = "release", sandbox = "sandbox", agent = "agent", help = "help",
   },
   verbs = {
@@ -1178,11 +1170,6 @@ local module: Module = {
         ["--socket"] = { value = "path",
           about = "serve each editor that connects to this socket file" },
       },
-    },
-    migrate = {
-      about = "removed; says where the new grammar is described",
-      usage = "",
-      spec = {},
     },
     sql = {
       about = "read-only SQL on a database or data files",
@@ -1470,7 +1457,6 @@ local module: Module = {
         ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
         ["--errors"] = { about = "list each type error, warning and refusal, not only the count" },
         ["--root"] = { value = "dir", about = "the directory module names are relative to (default: here)" },
-        ["--grammar"] = { value = "new", about = "the grammar of the files: the new checker's, the only one (default)" },
       },
     },
     help = {
@@ -1480,12 +1466,12 @@ local module: Module = {
   },
   groups = {
     { "Running code", "run", "standalone", "eval", "version", "sandbox", "agent" },
-    { "Project", "test", "fix", "build", "db", "lsp", "migrate" },
+    { "Project", "test", "fix", "build", "db", "lsp" },
     { "Quick tools", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile" },
     { "Lookup", "docs", "uses", "todos", "help" },
     { "This binary", "bom", "refresh", "release" },
   },
-  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "migrate", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile", "docs", "uses", "todos",
+  order = { "run", "standalone", "eval", "version", "test", "fix", "build", "db", "lsp", "sql", "cache", "json", "hash", "codec", "archive", "fetch", "time", "rand", "qr", "acme", "tailscale", "compile", "docs", "uses", "todos",
     "bom", "refresh", "release", "sandbox", "agent", "help" },
 }
 

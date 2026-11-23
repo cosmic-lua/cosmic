@@ -12,7 +12,6 @@
 ---     local policy = assert(PolicyJson.decode('{"grants":[{"path":"data","letters":"r"}],"tmp":true}'))
 ---     print(policy.grants[1].path, policy.tmp) -- data  true
 
-local Codec = require("cosmic.codec")
 local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
@@ -21,12 +20,6 @@ local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 
 local record PolicyJson
-end
-
---- The SHA-256 of `value`, in lowercase hex, as [`Sandbox.merge`] holds a
---- `set_env` value to its digest.
-local function digest_of(value: string): string
-  return Codec.hex(Hash.sha256(value))
 end
 
 --- A database as the text writes it: where it is and what it is, both required, where a [`Sandbox.Database`] may leave
@@ -141,7 +134,7 @@ function PolicyJson.encode(p: Sandbox.Policy): string
   local merged: Sandbox.Policy = made
   local digests: mut {string:string} = {}
   for name, digest in pairs(merged.set_env_digests or {}) do digests[name] = digest end
-  for name, value in pairs(merged.set_env or {}) do digests[name] = digest_of(value) end
+  for name, value in pairs(merged.set_env or {}) do digests[name] = Hash.hex_sha256(value) end
   local fields: mut {string: Json.Value} = {}
   local function put(name: string, list: {string})
     if #list > 0 then fields[name] = Json.array(list) end

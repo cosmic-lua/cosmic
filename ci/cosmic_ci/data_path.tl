@@ -4,7 +4,6 @@
 --- test's worker) reads them below the working directory, the project's
 --- root.
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 
 local record DataPath
 end
@@ -14,7 +13,7 @@ end
 function DataPath.beside(script: string?, name: string): string
   if script ~= nil then
     local beside = Fs.dirname(script) .. "/cosmic_ci/" .. name
-    if Predicate.exists(beside) then return beside end
+    if assert(Fs.status(beside)).exists then return beside end
   end
   return "cosmic_ci/" .. name
 end

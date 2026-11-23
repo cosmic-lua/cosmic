@@ -25,7 +25,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
@@ -124,7 +123,7 @@ local function mint_once(env: {string:string}, host: Review.Host, file: string):
   if response == nil then return false, trouble end
   if response.status ~= 200 then return false, "HTTP " .. tostring(response.status) end
   local answer, unread = Json.decode_object(response.body)
-  if answer == nil then return false, "the answer is no JSON object: " .. unread end
+  if answer == nil then return false, "the answer is no JSON object: " .. tostring(unread) end
   local token = answer["value"]
   if not token is string or token == "" then return false, "the answer names no token" end
   host.say("::add-mask::" .. token)
@@ -275,8 +274,8 @@ local function live(guard: Signal.Guard): Review.Host
       }, ""
     end,
     exists = function(path: string): boolean
-      local there, _ = Predicate.there(path)
-      return there == true
+      local status, _ = Fs.status(path)
+      return status ~= nil and status.exists
     end,
     now = Clock.monotonic_ns,
     sleep = function(ns: integer)

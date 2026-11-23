@@ -10,13 +10,13 @@ local json_query = require("build.json_query")
 --- The value `text` decodes to, or a failed assertion naming why.
 local function decoded(text: string, opts?: Json.DecodeOptions): Json.Value?
   local value, err = Json.decode(text, opts)
-  assert(err == "", "decode failed on " .. text .. ": " .. err)
+  assert(err == nil, "decode failed on " .. text .. ": " .. tostring(err))
   return value
 end
 
 local function encoded(value: any): string
   local text, err = Json.encode_any(value)
-  assert(text ~= nil, "encode failed: " .. err)
+  assert(text ~= nil, "encode failed: " .. tostring(err))
   return text
 end
 

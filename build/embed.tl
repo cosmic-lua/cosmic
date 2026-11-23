@@ -885,8 +885,6 @@ end
 local function build_tree(root: string, host?: boolean, under?: {string},
                           roots?: string, carried?: string, outcome?: importer.Outcome, out?: string,
                           report?: embed.Report): {string}?, string
-  local grammar_trouble = GrammarMode.refusal()
-  if grammar_trouble ~= nil then return nil, grammar_trouble end
   -- A failure before the programs are known (the tree's standing, the working database, the staging) says nothing
   -- of any program, and withdraws none.
   local standing, standing_trouble = tree.standing(root, carried)

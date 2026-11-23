@@ -32,17 +32,6 @@ local Fs = require("cosmic.fs")
 local Http = require("cosmic.http")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local SECOND <const> = Clock.seconds(1)
 
 local record ZigFetch
@@ -106,8 +95,8 @@ local BACKOFF_NS <const> = 2 * SECOND
 ---   at most about 12 minutes.
 --- - The fallback, ziglang.org, keeps the 10 s connect limit and a
 ---   stall guard, under 1 KiB/s for 60 s, which catches a dead stream
----   and nothing slower, and a ceiling of 6 hours; the budget does not
----   cut it, so a slow link still installs. It is tried once a round, and once more, last, when the
+---   and nothing slower, and no ceiling; the budget does not cut it, so
+---   a slow link still installs. It is tried once a round, and once more, last, when the
 ---   budget runs out partway through the mirrors -- at most `ROUNDS`
 ---   times in all.
 local CONNECT_TIMEOUT_NS <const> = 10 * SECOND
@@ -116,11 +105,6 @@ local MIRROR_LOW_SPEED_NS <const> = 20 * SECOND
 local MIRROR_TIMEOUT_NS <const> = 3 * 60 * SECOND
 local FALLBACK_LOW_SPEED_BYTES <const> = 1024
 local FALLBACK_LOW_SPEED_NS <const> = 60 * SECOND
--- TODO: give the fallback no ceiling, Http.FOREVER, as the limits above
--- say, once ci/cosmic-driver.pin names a release whose Http has it: this
--- runs on that release, whose Http has no FOREVER, and the tree's Http
--- requires a limit. Until then the ceiling is long enough for a slow link.
-local FALLBACK_TIMEOUT_NS <const> = 6 * 60 * 60 * SECOND
 local BUDGET_NS <const> = 12 * 60 * SECOND
 
 --- The URLs to fetch `name`, zig `version`'s release tarball, from, in
@@ -250,7 +234,7 @@ function ZigFetch.fetch(urls: {string}, path: string, sha256: string,
     end
     if fallback ~= nil then
       local result = attempt(fallback, ZigFetch.limits(CONNECT_TIMEOUT_NS, FALLBACK_LOW_SPEED_BYTES,
-        FALLBACK_LOW_SPEED_NS, FALLBACK_TIMEOUT_NS, sha256))
+        FALLBACK_LOW_SPEED_NS, Http.FOREVER, sha256))
       if result.kind == "downloaded" then
         return true, ""
       end
@@ -290,10 +274,11 @@ local function unpack(work: string, version: string, host: string,
     return nil, archive .. ": " .. xtrouble
   end
   local extracted = work .. "/zig-" .. host .. "-" .. version
-  local has_zig, look_trouble = path_there(extracted .. "/zig")
-  if has_zig == nil then
-    return nil, look_trouble
+  local has_zig_status, look_trouble = Fs.status(extracted .. "/zig")
+  if has_zig_status == nil then
+    return nil, tostring(look_trouble)
   end
+  local has_zig = has_zig_status.exists
   if not has_zig then
     return nil, name .. " holds no zig binary"
   end
@@ -330,10 +315,11 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
     if trouble == "" then return nil, "no zig was extracted for " .. host end
     return nil, trouble
   end
-  local installed, look_trouble = path_there(zig)
-  if installed == nil then
-    return nil, look_trouble
+  local installed_status, look_trouble = Fs.status(zig)
+  if installed_status == nil then
+    return nil, tostring(look_trouble)
   end
+  local installed = installed_status.exists
   if not installed then
     return nil, "could not install zig into " .. install
   end

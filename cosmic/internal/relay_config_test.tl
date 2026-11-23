@@ -162,14 +162,15 @@ local function test_an_upstream_is_read_from_the_environment()
   assert(v6.host == "::1" and v6.port == 8080)
   assert(RelayConfig.upstream({}) == nil and RelayConfig.upstream({ https_proxy = "" }) == nil)
   for _, bad in ipairs({ "https://proxy.example:443", "socks5://proxy.example:1080", "http://:80", "http://host:0",
-      "http://host:99999", "http://host:x" }) do
+      "http://host:99999", "http://host:x", "http://user:p%zz@host:80", "http://u%4:p@host:80" }) do
     local none, why = RelayConfig.upstream({ https_proxy = bad })
     assert(none == nil and why:find("https_proxy", 1, true) ~= nil, bad .. ": " .. tostring(why))
   end
   -- The credentials are never in the reason, whichever way the value is wrong.
   for _, value in ipairs({ "http://user:secret@host:0", "https://user:secret@host:443", "socks5://user:secret@host:1080",
       "user:secret@host:0", "http://user:secret@:80", "http://u:p@secret@host:x", "http://u:pa/secret@host:x",
-      "socks5://u:p@secret@host", "socks5://u:pa/secret@host", "http://u:pa/secret@host:x/path", "u:p@secret@host:x" }) do
+      "socks5://u:p@secret@host", "socks5://u:pa/secret@host", "http://u:pa/secret@host:x/path", "u:p@secret@host:x",
+      "http://user:secret%zz@host:80", "http://secret%4:p@host:80" }) do
     local _, why = RelayConfig.upstream({ https_proxy = value })
     assert(why ~= "" and not why:find("secret", 1, true), value .. ": " .. why)
   end
@@ -224,5 +225,5 @@ local function test_a_config_that_is_none_is_refused_naming_why()
   says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":["p.test"]}}', "upstream.addresses[1]")
   says('{"grants":["a"],"own_addresses":[],"log":"null","listeners":3}', "listeners is not 1 or 2")
   says('{"grants":["a"],"own_addresses":[],"log":"null","token":7}', "token is not a string")
-  assert(Json.decode_object('{"grants":[]}') ~= nil, "the fixtures are JSON")
+  assert(Json.decode_object('{"grants":[]}'))
 end

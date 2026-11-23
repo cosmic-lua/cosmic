@@ -9,7 +9,6 @@ local ArtifactRow = require("cosmic_ci.artifact_row")
 local Sqlite = require("cosmic.sqlite")
 local Runner = require("cosmic_ci.runner")
 local Plural = require("cosmic_ci.plural")
-local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 
 -- Candidate scripts, applications, and decoder executions normally finish in
@@ -222,7 +221,7 @@ end
 --- yet, and answers it: a copy the fixture may write in, of files the
 --- runtime setup packed (cosmic_ci/runtime_setup.tl's `pack`).
 function Fixture.unpack(tar: string, destination: string): string
-  assert(not Predicate.exists(destination), "unpack destination already exists: " .. destination)
+  assert(not assert(Fs.status(destination)).exists, "unpack destination already exists: " .. destination)
   Fixture.mkdir(destination)
   local written, trouble = Archive.extract(tar, destination)
   assert(written, tar .. ": " .. tostring(trouble))
@@ -235,7 +234,7 @@ end
 --- `require`s and writes what it builds (its o/).
 function Fixture.tool_tree(fixture_dir: string, work: string): string
   local tree = work .. "/tool-tree"
-  if Predicate.exists(tree) then return tree end
+  if assert(Fs.status(tree)).exists then return tree end
   return Fixture.unpack(fixture_dir .. "/tool.tar", tree)
 end
 

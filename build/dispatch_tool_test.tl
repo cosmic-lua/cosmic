@@ -22,7 +22,7 @@ end)
 --- The modules of the verbs ([`build.verb_list`]) and what only they read: `-e` loads the checker it
 --- checks its chunk with, and none of these.
 local verbs <const>: {string} = {
-  "build.test", "build.fix", "build.embed", "build.databases", "build.lsp", "build.migrate", "build.sql",
+  "build.test", "build.fix", "build.embed", "build.databases", "build.lsp", "build.sql",
   "build.cache", "build.json", "build.hash", "build.codec", "build.archive", "build.fetch", "build.time",
   "build.rand", "build.compile", "build.docs", "build.todos", "build.bom", "build.refresh", "build.release",
   "build.sandbox", "build.verb_list", "cosmic.cli", "cosmic.flags",
@@ -62,7 +62,7 @@ end
 
 --- The one-liner of the command-line guide takes the library as a file does, by a literal `require`.
 local function test_e_runs_a_chunk_that_requires_the_library(tmp: string)
-  local r = evaluate(tmp, 'local Json = require("cosmic.json") local text = Json.encode({ 1, 2 }) print(text)')
+  local r = evaluate(tmp, 'local Json = require("cosmic.json") print(assert(Json.encode({ 1, 2 })))')
   assert(r.ok and r.stdout == "[1,2]\n", tostring(r.stdout) .. tostring(r.stderr))
 end
 

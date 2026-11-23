@@ -92,6 +92,7 @@ local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
+local Loopback = require("cosmic.internal.loopback")
 local Rand = require("cosmic.rand")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
@@ -269,7 +270,7 @@ local function secure_url(url: string): boolean
   if parts == nil then return false end
   if parts.scheme == "https" then return true end
   local host = parts.host
-  return parts.scheme == "http" and (host == "localhost" or host == "::1" or host:match("^127%.%d+%.%d+%.%d+$") ~= nil)
+  return parts.scheme == "http" and (host == "localhost" or host == "::1" or Loopback.ipv4(host))
 end
 
 --- The member `name` of `object` when it is a string.
@@ -454,7 +455,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
       return nil, ("discovery: %s answered %d"):format(url, body.status)
     end
     local doc, bad = Json.decode_object(body.body)
-    if doc == nil then return nil, "discovery: " .. bad end
+    if doc == nil then return nil, "discovery: " .. tostring(bad) end
     local found, trouble = read_provider(doc, opts.issuer)
     if found == nil then return nil, "discovery: " .. trouble end
     return found, ""
@@ -489,7 +490,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
       return nil, ("keys: %s answered %d"):format(p.jwks_uri, body.status)
     end
     local set, bad = Json.decode_object(body.body)
-    if set == nil then return nil, "keys: " .. bad end
+    if set == nil then return nil, "keys: " .. tostring(bad) end
     local got, trouble = Jose.keys(set)
     if got == nil then return nil, "keys: " .. tostring(trouble) end
     return got, ""
@@ -643,7 +644,7 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
       return nil, Response.problem(401, "the provider did not take the login's code")
     end
     local tokens, wrong = Json.decode_object(body.body)
-    if tokens == nil then return nil, unreachable(req, "token: " .. wrong) end
+    if tokens == nil then return nil, unreachable(req, "token: " .. tostring(wrong)) end
     local id_token = text(tokens, "id_token")
     if id_token == nil then
       return nil, Response.problem(401, "the provider answered no ID token")

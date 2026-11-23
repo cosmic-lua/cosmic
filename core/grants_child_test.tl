@@ -140,9 +140,8 @@ end
 
 --- An open with O_TRUNC that writes nothing asks a ruleset below Landlock
 --- ABI 3 for no write right, yet empties the file. Wherever the ruleset
---- does not handle truncation -- below ABI 3, or a `ruleset` descriptor,
---- which cannot say it does -- the child's filter refuses it, and
---- truncate: the promises filter, or, without `promises`, one that holds
+--- does not handle truncation (below ABI 3) the child's filter refuses
+--- it, and truncate: the promises filter, or, without `promises`, one that holds
 --- truncation alone. Where the grants' ruleset handles it (ABI 3),
 --- Landlock's verdict is the answer.
 local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: string)
@@ -160,22 +159,6 @@ local function test_a_truncation_that_writes_nothing_is_held_on_every_abi(tmp: s
     if unsandboxable(read) then Test.skip(assert(read.refused)) end
     assert(read.code == 1 and read.said:find(refusal, 1, true) ~= nil,
       shown .. ": refused: " .. tostring(read.refused) .. " " .. read.said)
-    assert(assert(Fs.read(file)) == "kept")
-    local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
-    if ruleset == nil then Test.skip("no ruleset: " .. tostring(trouble)) end
-    local path = tmp .. "/said"
-    local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-    local pid, why = process.spawn(probe, { probe, script }, nil, nil, nil, output, output, false,
-      nil, { ruleset = assert(ruleset), promises = promises })
-    sys.close(assert(ruleset))
-    assert(pid ~= nil, tostring(why))
-    local status = assert(process.waitpid(pid, false))
-    sys.close(output)
-    local got, _ = Fs.read(path)
-    local said = got or ""
-    assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
-      shown .. ": the filter's refusal, though the ruleset gives the file: " ..
-        tostring(status.code) .. " " .. said)
     assert(assert(Fs.read(file)) == "kept")
     local written = start(tmp, probe, { { path = probe, access = "rx" }, { path = file, access = "rw" } },
       script, promises)
@@ -406,30 +389,6 @@ local function test_a_signal_outside_the_domain_is_refused_though_the_filter_let
   assert(refused.code == 1 and refused.said:find("not permitted", 1, true) ~= nil,
     "refused: " .. refused.said)
   assert(alive, "the process outside the sandbox was not signalled")
-end
-
---- A ruleset the caller made says nothing of what it scopes, so the filter
---- keeps its signal calls to the starting pid beside one.
-local function test_a_ruleset_descriptor_keeps_the_filter_to_the_starting_pid(tmp: string)
-  abi_or_skip()
-  local probe = assert(stand_in.build(tmp .. "/stand-in"))
-  local ruleset, trouble = process.landlock_ruleset({ probe }, { tmp })
-  if ruleset == nil then
-    Test.skip("no ruleset: " .. tostring(trouble))
-    return
-  end
-  local path = tmp .. "/said"
-  local output = assert(sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420))
-  local pid, why = process.spawn(probe, { probe, "run " .. probe .. " signal TERM" }, nil, nil, nil,
-    output, output, false, nil, { ruleset = ruleset, promises = { "fork" } })
-  sys.close(ruleset)
-  assert(pid ~= nil, tostring(why))
-  local status = assert(process.waitpid(pid, false))
-  sys.close(output)
-  local got, _ = Fs.read(path)
-  local said = got or ""
-  assert(status.code == 1 and said:find("not permitted", 1, true) ~= nil,
-    "its own pid only: " .. tostring(status.code) .. " " .. said)
 end
 
 local function test_no_grants_grant_nothing_and_the_program_needs_its_own(tmp: string)

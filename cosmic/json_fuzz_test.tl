@@ -12,6 +12,7 @@
 local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
+local type Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 -- TODO: once a generator can build a value that is not a Json.Value (a function, a cycle, a table of mixed keys) with a type, the `any` plumbing of this file, json_path_fuzz_test.tl and json_reader_fuzz_test.tl goes.
 
@@ -161,12 +162,14 @@ end
 --- `value`'s canonical text, which must re-read as itself.
 local function canonical(value: any, where: string): string?, string
   local text, err = Json.encode_any(finite(value), CANONICAL)
-  if text == nil then return nil, where .. ": decoded, but did not encode: " .. err end
+  if text == nil then return nil, where .. ": decoded, but did not encode: " .. tostring(err) end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
-  if berr ~= "" then return nil, where .. ": encode wrote what decode refuses: " .. berr end
+  if berr ~= nil then
+    return nil, where .. ": encode wrote what decode refuses: " .. tostring(berr)
+  end
   local again, aerr = Json.encode_any(finite(back), CANONICAL)
   if again ~= text then
-    return nil, where .. ": not a fixed point: " .. text .. " -> " .. tostring(again or aerr)
+    return nil, where .. ": not a fixed point: " .. text .. " -> " .. (again or tostring(aerr))
   end
   return text, ""
 end
@@ -174,11 +177,15 @@ end
 --- One decode, under pcall: nil and why when it broke its contract,
 --- else what it answered.
 local function decode_once(input: string, opts: Json.DecodeOptions, where: string): boolean, Json.Value?, string
-  local ok, value, err = pcall(Json.decode, input, opts)
+  local ok, value, err = pcall(function(): Json.Value?, Failure?
+    local v, why = Json.decode(input, opts)
+    return v, why
+  end)
   if not ok then return false, nil, where .. ": raised: " .. tostring(value) end
-  if not (err is string) then return false, nil, where .. ": no message slot" end
-  if err ~= "" and value ~= nil then return false, nil, where .. ": a failure with a value" end
-  return true, value, err
+  if (err == nil) == (value == nil) then
+    return false, nil, where .. ": a value and a failure, or neither"
+  end
+  return true, value, if err == nil then "" else tostring(err) end
 end
 
 --- Whether `compact`, the text [`Json.format`] writes, has an object that
@@ -244,7 +251,7 @@ local function decode_holds(input: string): boolean, string
       -- Whether a text that reads holds a key twice is answered from
       -- the members `format` writes, not by decode's own check.
       if err == "" then
-        local twice = holds_key_twice((Json.format(input, { json5 = json5, duplicate_keys = true })))
+        local twice = holds_key_twice((assert(Json.format(input, { json5 = json5, duplicate_keys = true }))))
         if twice ~= nil then
           Fuzz.label(if twice then "oracle saw a key twice" else "oracle saw no key twice" end)
           if twice ~= (once_err ~= "") then
@@ -325,10 +332,10 @@ local function same_reading(a: string, a_opts: Json.DecodeOptions, b: string,
                             b_opts: Json.DecodeOptions, where: string): boolean, boolean, string
   local va, ea = Json.decode(a, a_opts)
   local vb, eb = Json.decode(b, b_opts)
-  if (ea == "") ~= (eb == "") then
-    return false, false, where .. ": one read and one did not: " .. (if ea ~= "" then ea else eb end)
+  if (ea == nil) ~= (eb == nil) then
+    return false, false, where .. ": one read and one did not: " .. tostring(if ea ~= nil then ea else eb end)
   end
-  if ea ~= "" then return true, false, "" end
+  if ea ~= nil then return true, false, "" end
   if canonical(va, where) ~= canonical(vb, where) then
     return false, false, where .. ": read differently"
   end
@@ -359,7 +366,7 @@ local function test_hash_comments_read_as_line_comments(tmp: string)
         if text ~= input then
           Fuzz.label("held a # comment")
           local _, err = Json.decode(text, { json5 = five, duplicate_keys = true })
-          if err == "" then return false, where .. ": read a # comment without hash_comments" end
+          if err == nil then return false, where .. ": read a # comment without hash_comments" end
         end
       end
       return true, ""
@@ -717,23 +724,26 @@ local function repeating_holds(input: string): boolean, string
   local opts: Json.DecodeOptions = { json5 = as_json5, null_value = if null_value then Json.null else nil end }
   local where = ("json5=%s null_value=%s"):format(tostring(as_json5), tostring(null_value))
   local value, err = Json.decode(text, opts)
-  if err ~= expected then
-    return false, where .. ": decode said \"" .. err .. "\", expected \"" .. expected .. "\""
+  local said = if err == nil then "" else tostring(err) end
+  if said ~= expected then
+    return false, where .. ": decode said \"" .. tostring(err) .. "\", expected \"" .. expected .. "\""
   end
   if expected ~= "" and value ~= nil then return false, where .. ": a refusal with a value" end
   local ok, check_err = Json.check(text, { json5 = as_json5 })
-  if ok ~= (expected == "") or check_err ~= expected then
-    return false, where .. ": check said \"" .. check_err .. "\""
+  if ok ~= (expected == "") or (if check_err == nil then "" else tostring(check_err) end) ~= expected then
+    return false, where .. ": check said \"" .. tostring(check_err) .. "\""
   end
   if expected ~= "" then
     local _, format_err = Json.format(text, { json5 = as_json5 })
-    if format_err ~= expected then
-      return false, where .. ": format said \"" .. format_err .. "\""
+    if tostring(format_err) ~= expected then
+      return false, where .. ": format said \"" .. tostring(format_err) .. "\""
     end
   end
   opts.duplicate_keys = true
   local _, allowed = Json.decode(text, opts)
-  if allowed ~= "" then return false, where .. ": duplicate_keys refused: " .. allowed end
+  if allowed ~= nil then
+    return false, where .. ": duplicate_keys refused: " .. tostring(allowed)
+  end
   return true, ""
 end
 
@@ -783,50 +793,54 @@ local function text_holds(input: string): boolean, string
     local where = if json5 then "JSON5" else "RFC 8259" end
     local value, err = Json.decode(input, { null_value = Json.null, json5 = json5 })
     local ok, check_err = Json.check(input, { json5 = json5 })
-    if ok ~= (err == "") or (not ok and check_err ~= err) then
-      return false, where .. ": check said " .. check_err .. ", decode " .. err
+    if ok ~= (err == nil) or (not ok and tostring(check_err) ~= tostring(err)) then
+      return false, where .. ": check said " .. tostring(check_err) .. ", decode " .. tostring(err)
     end
     local compact, ferr = Json.format(input, { json5 = json5 })
     if compact == nil then
-      if err == "" and not ferr:match("^json: cannot format ") then
-        return false, where .. ": format refused what decode read: " .. ferr
+      if err == nil and not tostring(ferr):match("^json: cannot format ") then
+        return false, where .. ": format refused what decode read: " .. tostring(ferr)
       end
-      if err ~= "" and ferr ~= err then
-        return false, where .. ": format refused otherwise than decode: " .. ferr .. " vs " .. err
+      if err ~= nil and tostring(ferr) ~= tostring(err) then
+        return false, where .. ": format refused otherwise than decode: " .. tostring(ferr) .. " vs " .. tostring(err)
       end
     else
-      if err ~= "" then return false, where .. ": format read what decode refused: " .. err end
+      if err ~= nil then
+        return false, where .. ": format read what decode refused: " .. tostring(err)
+      end
       Fuzz.label(if json5 then "formatted JSON5" else "formatted" end)
       -- JSON5 reads a number past a double's range, as an infinity; RFC
       -- 8259 refuses it, so the text is read back as the input was.
       local back, berr = Json.decode(compact, { null_value = Json.null, max_depth = 1000, json5 = json5 })
-      if berr ~= "" then return false, where .. ": format wrote what decode refuses: " .. berr end
+      if berr ~= nil then
+        return false, where .. ": format wrote what decode refuses: " .. tostring(berr)
+      end
       if canonical(back, where) ~= canonical(value, where) then
         return false, where .. ": format changed the value: " .. compact
       end
-      if Json.format(compact, { json5 = json5 }) ~= compact then
+      if assert(Json.format(compact, { json5 = json5 })) ~= compact then
         return false, where .. ": format is no fixed point: " .. compact
       end
-      local pretty = Json.format(input, { json5 = json5, pretty = true })
-      if pretty == nil or Json.format(pretty, { json5 = json5 }) ~= compact then
+      local pretty, _ = Json.format(input, { json5 = json5, pretty = true })
+      if pretty == nil or assert(Json.format(pretty, { json5 = json5 })) ~= compact then
         return false, where .. ": laid out, it is not the same text: " .. tostring(pretty)
       end
     end
     local jcs, cerr = Json.canonical(input, { json5 = json5 })
     if jcs ~= nil then
       Fuzz.label("canonical")
-      if Json.canonical(jcs) ~= jcs then
+      if assert(Json.canonical(jcs)) ~= jcs then
         return false, where .. ": canonical is no fixed point: " .. jcs
       end
-      if compact == nil or Json.canonical(compact) ~= jcs then
+      if compact == nil or assert(Json.canonical(compact)) ~= jcs then
         return false, where .. ": canonical differs through format: " .. jcs
       end
-      local encoded = Json.encode_any(finite(value), CANONICAL)
-      if encoded == nil or Json.canonical(encoded) ~= jcs then
+      local encoded, _ = Json.encode_any(finite(value), CANONICAL)
+      if encoded == nil or assert(Json.canonical(encoded)) ~= jcs then
         return false, where .. ": canonical differs through decode and encode: " .. jcs
       end
-    elseif compact ~= nil and not (cerr:match("^json: cannot format ") or cerr:match("infinity")) then
-      return false, where .. ": canonical refused what format wrote: " .. cerr
+    elseif compact ~= nil and not (tostring(cerr):match("^json: cannot format ") or tostring(cerr):match("infinity")) then
+      return false, where .. ": canonical refused what format wrote: " .. tostring(cerr)
     end
   end
   return true, ""
@@ -937,7 +951,7 @@ local function encode_holds(input: string): boolean, string
   local opts = recipe_options(r)
   local value = recipe_value(r, 0)
   local encoded: string?
-  local err = ""
+  local err: Failure?
   local ok, raised = pcall(function() encoded, err = Json.encode_any(value, opts) end)
   if not ok then return false, "raised: " .. tostring(raised) end
   local text = encoded
@@ -945,7 +959,7 @@ local function encode_holds(input: string): boolean, string
   if opts.ascii == true then
     -- `ascii` changes how a string is written, never whether the value
     -- encodes, and the text has no byte past 0x7f.
-    local plain = Json.encode_any(value, { pretty = opts.pretty, max_depth = opts.max_depth })
+    local plain, _ = Json.encode_any(value, { pretty = opts.pretty, max_depth = opts.max_depth })
     if (plain == nil) ~= (text == nil) then
       return false, "ascii changed whether the value encodes"
     end
@@ -955,24 +969,26 @@ local function encode_holds(input: string): boolean, string
     end
   end
   if text == nil then
-    if not (err is string) or err == "" then return false, "a failure without a message" end
+    if tostring(err) == "" then return false, "a failure without a reason" end
     -- A path too long to tell whole names its innermost part.
-    if err:find(" at ", 1, true) ~= nil and not err:find(' at pointer "', 1, true) and
-        not err:find(' at pointer ending "', 1, true) then
-      return false, "a location that is not a pointer: " .. err
+    if tostring(err):find(" at ", 1, true) ~= nil and not tostring(err):find(' at pointer "', 1, true) and
+        not tostring(err):find(' at pointer ending "', 1, true) then
+      return false, "a location that is not a pointer: " .. tostring(err)
     end
     return true, ""
   end
-  if err ~= "" then return false, "a success with a message: " .. err end
+  if err ~= nil then return false, "a success with a message: " .. tostring(err) end
   local expected, eerr = Json.encode_any(value, { max_depth = opts.max_depth })
   if expected == nil then
-    return false, "encoded laid out, but not compactly: " .. eerr
+    return false, "encoded laid out, but not compactly: " .. tostring(eerr)
   end
   local back, berr = Json.decode(text, { null_value = Json.null, max_depth = 1000 })
-  if berr ~= "" then return false, "wrote what decode refuses: " .. berr .. ": " .. text end
+  if berr ~= nil then
+    return false, "wrote what decode refuses: " .. tostring(berr) .. ": " .. text
+  end
   local got, gerr = Json.encode_any(back, { max_depth = 1000 })
   if got ~= expected then
-    return false, "did not read back the same: " .. expected .. " vs " .. tostring(got or gerr)
+    return false, "did not read back the same: " .. expected .. " vs " .. (got or tostring(gerr))
   end
   return true, ""
 end
@@ -1013,21 +1029,23 @@ local function ascii_holds(input: string): boolean, string
   local text = scalars(input)
   local value = { [text] = text }
   local out, err = Json.encode(value, { ascii = true })
-  if out == nil then return false, "refused a string of scalar values: " .. err end
+  if out == nil then return false, "refused a string of scalar values: " .. tostring(err) end
   if out:find("[\128-\255]") then return false, "wrote a byte past 0x7f: " .. out end
   Fuzz.label(if text:find("[\128-\255]") then "escaped" else "plain" end)
   local back, berr = Json.decode(out)
-  if back == nil then return false, "wrote what decode refuses: " .. berr end
-  if Json.get(back, { text }) ~= text then
+  if back == nil then return false, "wrote what decode refuses: " .. tostring(berr) end
+  local got1, why1 = Json.get(back, { text })
+  assert(got1 ~= nil, tostring(why1))
+  if got1 ~= text then
     return false, "did not read back the same: " .. out
   end
   local plain = assert(Json.encode(value))
   local reread, reread_trouble = Json.decode(plain)
   assert(reread ~= nil, reread_trouble)
-  if Json.encode_any(reread) ~= Json.encode_any(back) then
+  if assert(Json.encode_any(reread)) ~= assert(Json.encode_any(back)) then
     return false, "reads differently from the text without the option: " .. out
   end
-  local stray = Json.encode(text .. "\xff", { ascii = true })
+  local stray, _ = Json.encode(text .. "\xff", { ascii = true })
   if stray ~= nil then return false, "wrote a string that is not UTF-8" end
   return true, ""
 end
@@ -1062,14 +1080,14 @@ local function test_the_depth_limits_are_exact(tmp: string)
       local _, n = opens:gsub("[%[{]", "")
       local value, err = Json.decode(opens .. "1" .. closes, { max_depth = limit })
       if n <= limit then
-        if err ~= "" then
+        if err ~= nil then
           return false, ("%d levels under a limit of %d: %s"):format(n, limit, err)
         end
-      elseif value ~= nil or err ~= ("json: JSON nests deeper than %d level%s at line 1, column %d (%s)"):
+      elseif value ~= nil or tostring(err) ~= ("json: JSON nests deeper than %d level%s at line 1, column %d (%s)"):
           format(limit, if limit == 1 then "" else "s" end, deepest(opens, limit + 1), path_into(opens, limit)) then
         return false, ("%d levels over a limit of %d: %s"):format(n, limit, err)
       end
-      if err == "" then
+      if err == nil then
         local text, eerr = Json.encode_any(value, { max_depth = limit })
         if n <= limit and text == nil then
           return false, ("%d levels encode under a limit of %d: %s"):format(n, limit, eerr)
@@ -1094,25 +1112,30 @@ local function test_json_lines_are_total_and_round_trip(tmp: string)
     dir = tmp,
     gen = gen_lines,
     check = function(input: string): boolean, string
-      local ok, values, err = pcall(Json.decode_lines, input,
-        { null_value = Json.null, json5 = true, duplicate_keys = true })
+      local ok, values, err = pcall(function(): {Json.Value}?, Failure?
+        local v, why = Json.decode_lines(input, { null_value = Json.null, json5 = true, duplicate_keys = true })
+        return v, why
+      end)
       if not ok then return false, "raised: " .. tostring(values) end
       if values == nil then
-        if err == "" then return false, "a failure without a message" end
+        if tostring(err) == "" then return false, "a failure without a reason" end
         return true, ""
       end
       local written: mut {string} = {}
       for i = 1, #values do
         local line, eerr = Json.encode_any(finite(values[i]))
         if line == nil then
-          return false, "decoded line " .. tostring(i) .. " did not encode: " .. eerr
+          return false, "decoded line " .. tostring(i) .. " did not encode: " .. tostring(eerr)
         end
         written[i] = line .. "\n"
       end
       local text = table.concat(written)
       local back, berr = Json.decode_lines(text, { null_value = Json.null })
-      if back == nil then return false, "encoded lines are what decode_lines refuses: " .. berr end
-      local a, b = Json.encode_any(finite(values), CANONICAL), Json.encode_any(finite(back), CANONICAL)
+      if back == nil then
+        return false, "encoded lines are what decode_lines refuses: " .. tostring(berr)
+      end
+      local a, _ = Json.encode_any(finite(values), CANONICAL)
+      local b, _ = Json.encode_any(finite(back), CANONICAL)
       if a ~= b then
         return false, "lines did not read back the same: " .. tostring(a) .. " vs " .. tostring(b)
       end

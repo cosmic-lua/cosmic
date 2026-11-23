@@ -143,7 +143,7 @@ end
 --- escape in single quotes. nil and why for a step [`Json.path`] refuses.
 local function shorthand(steps: Json.Steps): string?, string
   local checked, bad = Json.path(steps)
-  if checked == nil then return nil, bad end
+  if checked == nil then return nil, tostring(bad) end
   local parts: mut {string} = { "$" }
   for _, step in ipairs(steps) do
     if step is string then
@@ -173,7 +173,7 @@ function json_query.flat_line(steps: Json.Steps, value: any): string?, string
   local path, bad = shorthand(steps)
   if path == nil then return nil, bad end
   local text, err = Json.encode_any(value)
-  if text == nil then return nil, "the value at " .. at_pointer(steps) .. ": " .. err end
+  if text == nil then return nil, "the value at " .. at_pointer(steps) .. ": " .. tostring(err) end
   return path .. " = " .. text, ""
 end
 

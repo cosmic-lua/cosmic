@@ -17,7 +17,6 @@ local type _ = require("cosmic.zip")
 local type _tar = require("cosmic.tar")
 local type _archive = require("cosmic.archive")
 local type _json = require("cosmic.json")
-local _cli <const> = require("cosmic.cli")
 -- What a refusal says to write instead is [`cosmic.removed`]'s, which
 -- build.removed_fix reads: required here, it
 -- is in this test's closure, which the worker lets it load and its key
@@ -71,19 +70,11 @@ local function test_the_checker_refuses_a_file_with_a_place_a_code_and_the_repla
   chunk, trouble = compile(tmp, "work.tl", 'local w = require("build.work")\nreturn w\n')
   assert(chunk == nil and trouble:find("work.tl:1:11: the project has no module `build.work` (require_unknown)", 1, true) ~= nil,
     trouble)
-  -- a removed library is told what to write instead, for the field and the member used
+  -- a removed library is told what to write instead, for the field used
   chunk, trouble = compile(tmp, "old.tl", 'return function(): integer\n  io.stderr:write("x")\n  return 0\nend\n')
   assert(chunk == nil and trouble:find("old.tl:2:3: `io` is not declared (unknown_variable): io.stderr is not available: " ..
       "use Fs.stderr, a descriptor: Fs.put(Fs.stderr, text), which answers a result to discard on purpose: " ..
       'local _, _ = Fs.put(Fs.stderr, text .. "\\n")', 1, true) ~= nil, trouble)
-  chunk, trouble = compile(tmp, "hex.tl", 'local Digest = require("cosmic.hash")\nreturn Digest.hex("x")\n')
-  assert(chunk == nil and trouble:find("hex.tl:2:8: `Hash` has no field `hex` (field_unknown): Digest.hex was removed: " ..
-      "use Codec.hex(digest)", 1, true) ~= nil, trouble)
-  chunk, trouble = compile(tmp, "cli.tl", 'local Cli = require("cosmic.cli")\nreturn Cli.options.test\n')
-  assert(chunk == nil and trouble:find("Cli.options was removed: use Cli.verbs[verb].spec", 1, true) ~= nil, trouble)
-  chunk, trouble = compile(tmp, "bool.tl", 'local Sqlite = require("cosmic.sqlite")\nreturn Sqlite.open("x.db", true)\n')
-  assert(chunk == nil and trouble:find("bool.tl:2:28: `true` is `boolean`, where `Sqlite.OpenOptions?` is wanted as argument 2 " ..
-      "of `Sqlite.open` (not_assignable): Sqlite.OpenOptions replaced a boolean argument", 1, true) ~= nil, trouble)
   -- a float into an integer accumulator is told how to hold it
   chunk, trouble = compile(tmp, "acc.tl", "local peak = 0\npeak = peak + 1.5\nreturn peak\n")
   assert(chunk == nil and trouble:find("acc.tl:2:8: `peak + 1.5` is `number`, where `integer` is wanted in the assignment to " ..

@@ -335,10 +335,7 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     table.insert(text, '(allow network-inbound (local tcp "localhost:' .. tostring(serves) .. '"))')
     text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
   end
-  local limits = merged.limits or {}
-  local rlimits: {string:integer} = { nofile = limits.open_files or 1024, core = 0 }
-  rlimits.fsize, rlimits.cpu = limits.file_bytes, limits.cpu_seconds -- checked: map_field*2
-  return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rlimits,
+  return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rules.rlimits(merged.limits),
     tmp = tmp }, ""
 end
 

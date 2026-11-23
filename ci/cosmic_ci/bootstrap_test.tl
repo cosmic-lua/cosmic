@@ -2,17 +2,11 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local Maps = require("cosmic_ci.maps")
 local Proc = require("cosmic.proc")
 local Test = require("cosmic.test")
 local sys = require("cosmic.sys")
-
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
 
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
@@ -175,7 +169,7 @@ local function driver_project(tmp: string): string
   local project = tmp .. "/project"
   assert(Fs.mkdirs(project))
   assert(assert(Child.run({ "/bin/cp", "-R",
-    assert(Fs.absolute(".")) .. "/cosmic_ci", project }, { timeout_ns = CEILING_NS })).ok)
+    assert(Fs.absolute(".")) .. "/cosmic_ci", project }, { timeout_ns = Child.FOREVER })).ok)
   return project
 end
 
@@ -220,7 +214,7 @@ local function test_bootstrap_rejects_corrupt_cache_and_download(tmp: string)
   local result = bootstrap(tmp, root, tmp .. "/bad.out",
     { PATH = fake_curl(tmp), DOWNLOAD_SOURCE = tmp .. "/download",
       COSMIC_BOOTSTRAP_ATTEMPTS = "1" })
-  assert(not result.ok and Predicate.exists(cached) == false,
+  assert(not result.ok and assert(Fs.status(cached)).exists == false,
     "corrupt replacement was accepted")
 end
 
@@ -397,7 +391,7 @@ end
 --- `dir` as `pwd -P` prints it, links resolved.
 local function physical(dir: string): string
   local got = assert(Child.run({ "/bin/sh", "-c", "pwd -P" },
-    { timeout_ns = CEILING_NS, cwd = dir, stdout = "capture" }))
+    { timeout_ns = Child.FOREVER, cwd = dir, stdout = "capture" }))
   return ((assert(got.stdout)):gsub("\n$", ""))
 end
 
@@ -429,7 +423,7 @@ local function test_bootstrap_runs_cosmic_bootstrap_in_place_of_the_pin(tmp: str
     tmp, tmp .. "/verified.out", env)
   out = assert(Fs.read(tmp .. "/verified.out"))
   assert(not verified.ok and out:find("both set", 1, true) ~= nil, out)
-  assert(not Predicate.exists(tmp .. "/calls"), "a stand-in still fetched the pin's cosmic")
+  assert(not assert(Fs.status(tmp .. "/calls")).exists, "a stand-in still fetched the pin's cosmic")
 end
 
 --- A COSMIC_BOOTSTRAP that is not an executable file is refused, never
@@ -449,7 +443,7 @@ local function test_bootstrap_refuses_a_cosmic_bootstrap_it_cannot_run(tmp: stri
     assert(out == "bin/cosmic-bootstrap: COSMIC_BOOTSTRAP=" .. given ..
         " is not an executable file\n", out)
   end
-  assert(not Predicate.exists(tmp .. "/calls"), "a refused stand-in fell back to the pin")
+  assert(not assert(Fs.status(tmp .. "/calls")).exists, "a refused stand-in fell back to the pin")
 end
 
 --- Each tool behind bin/ runs its own Teal standalone, with the words it
@@ -535,7 +529,7 @@ local function test_standalone_runs_only_the_files_the_list_names(tmp: string)
   end
   local out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/build/unlisted.tl" })
   assert(not ok and out == refusal, out)
-  assert(not Predicate.exists(tmp .. "/calls"), "a refused run fetched the pin's cosmic")
+  assert(not assert(Fs.status(tmp .. "/calls")).exists, "a refused run fetched the pin's cosmic")
   -- A `..` after a linked directory is the physical one: ci/d/../x.tl is build/x.tl, not ci/x.tl, for the list and for
   -- the first-word form alike.
   out, ok = ran(tmp, wrapper, cosmic, { "--standalone", root .. "/ci/d/../unlisted.tl" })
@@ -611,7 +605,7 @@ local function test_the_entry_point_holds_the_list_and_the_raw_path_is_asked_for
   assert(run_ok and out == "ran\n" .. physical(tmp) .. "\nx y\n", out)
   out, run_ok = ran(tmp, { entry }, nil, {})
   assert(run_ok and out == "ran\n" .. physical(tmp) .. "\n", out)
-  assert(not Predicate.exists(tmp .. "/calls"), "the entry point fetched the pin's cosmic")
+  assert(not assert(Fs.status(tmp .. "/calls")).exists, "the entry point fetched the pin's cosmic")
 end
 
 --- The release an entry point runs gets its caller's environment: COSMIC_BOOTSTRAP, which the tree's tools read to mean
@@ -664,13 +658,13 @@ local function test_driver_records_success_failures_timeout_and_interruption(tmp
   local command = { runner, driver, "run", "interrupted", tostring(Clock.seconds(30)), "--", "/bin/sh", "-c",
     "printf ready > \"$1\"; sleep 30", "sh", ready }
   local fd = assert(Fs.open_write(tmp .. "/interrupted.out"))
-  local child = assert(Child.start(command, { timeout_ns = CEILING_NS, cwd = project, env = environment(ctx_env),
+  local child = assert(Child.start(command, { timeout_ns = Child.FOREVER, cwd = project, env = environment(ctx_env),
     stdout = fd, stderr = fd, process_group = true }))
   for _ = 1, driver_timeout // Clock.ms(20) do
-    if Predicate.exists(ready) then break end
+    if assert(Fs.status(ready)).exists then break end
     Clock.sleep_ns(10 * 1000 * 1000)
   end
-  assert(Predicate.exists(ready), "interrupted operation never started")
+  assert(assert(Fs.status(ready)).exists, "interrupted operation never started")
   assert(child:stop())
   local stopped = assert(child:wait(child_timeout))
   assert(Fs.close(fd))

@@ -2,7 +2,7 @@
 --- ([`lang/prelude.d.tl`], the types the language itself has) and the Lua standard library ([`lang/stdlib.d.tl`]), both
 --- written in the new grammar. The tool carries them as rows of `decls` ([`CheckerDeclarations.prelude_module`],
 --- [`CheckerDeclarations.stdlib_module`]), as it does the bindings of C, so that a project outside cosmic's tree has globals
---- when `COSMIC_GRAMMAR=new` compiles it ([`build.pipeline`]'s `options`): they are no module, and nothing requires them.
+--- when the tool compiles it ([`build.pipeline`]'s `options`): they are no module, and nothing requires them.
 ---
 --- A module of its own, because [`build.writer`] reads the tree for them and the writer's closure is part of the writer's
 --- identity ([`build.identity`]): it reaches no more of the tree than the files and the store.

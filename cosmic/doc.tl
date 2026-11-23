@@ -2042,8 +2042,8 @@ end
 --- - its exact matches, when it names a symbol or a module, a member of
 ---   a type an alias stands for, or a module's member written in full
 ---   ([`cosmic.fs.read`]) or from its last name (`Cli.order`);
---- - a name [`cosmic.removed`] lists as gone, which no live row answers
----   (`Codec.encoder`, `os.getenv`): what to write instead, as the
+--- - a field of a global [`cosmic.removed`] lists as withheld, which no
+---   live row answers (`os.getenv`): what to write instead, as the
 ---   compiler says it (see [`Members.removed_by`]);
 --- - for a qualified name that names nothing, what its qualifier offers
 ---   (see `scoped`);
@@ -2157,15 +2157,10 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
     end
     return lookup(answers, true, named_count), ""
   end
-  -- A name that was removed answers what replaces it, before a search
-  -- offers another module's member of the same name (`Codec.encoder`
-  -- would find the verb's, another module's).
-  local gone, gone_trouble = Members.removed_by(view, query)
-  if gone == nil then
-    return nil, gone_trouble
-  end
-  if #gone > 0 then
-    return lookup(gone, true, #gone), ""
+  -- A field of a withheld global answers what replaces it, before a search offers another module's member of the same name.
+  local gone = Members.removed_by(query)
+  if gone ~= nil then
+    return lookup({ gone }, true, 1), ""
   end
   -- A module the index lists is always answered, though it has no row
   -- of its own to name it.
@@ -2541,82 +2536,20 @@ function Members.by_last_name(view: Doc.View, query: string): {Doc.Entry}?, stri
   return out, ""
 end
 
---- A removed name: the module it left (`""` for a global's field) and the
---- sentence that says what to write instead.
-local record Removal
-  module: string
-  sentence: string
-end
-
---- The module a removed member left and what to write instead,
---- when [`cosmic.removed`] lists `query`: a member of a module written
---- from its last name in either case (`Net.pair`, `net.pair`) or in
---- full (`cosmic.net.pair`), by its `members`; else a field of a removed
---- global (`os.getenv`) or a removed field of `package` (`package.path`),
---- by what `message` answers, with module `""`.
---- The sentence is `message` for a global, which is the same words a refusal at run
---- time raises with.
----
-local function removed_as(query: string): Removal?
-  local instead = Removed.members[query]
-  local whole = query:match("^(.+)%.[%w_]+$")
-  if instead ~= nil and whole ~= nil then
-    return { module = whole, sentence = query .. " was removed: " .. instead }
-  end
+--- What a name [`cosmic.removed`] lists as withheld answers: one entry of kind `removed` saying what to write instead,
+--- for a field of a withheld global (`os.getenv`) or a withheld field of `package` (`package.path`), with the words a
+--- refusal at run time raises with; none for any other name.
+function Members.removed_by(query: string): Doc.Entry?
   local qualifier, name = query:match("^([%w_]+)%.([%w_]+)$")
-  if qualifier == nil then
+  if qualifier == nil or (Removed.names[qualifier] == nil and Removed.replacements[query] == nil) then
     return nil
   end
-  if Removed.names[qualifier] ~= nil or Removed.replacements[query] ~= nil then
-    return { module = "", sentence = Removed.message(qualifier, name) }
-  end
-  local keys: mut {string} = {}
-  for key in pairs(Removed.members) do
-    local module, member = key:match("^(.+)%.([%w_]+)$")
-    local tail = if module ~= nil then module:match("[^.]+$") else nil end
-    if member == name and tail ~= nil and tail:lower() == qualifier:lower() then
-      keys[#keys + 1] = key
-    end
-  end
-  table.sort(keys)
-  if #keys == 0 then
-    return nil
-  end
-  local first = keys[1]
-  local module = first:match("^(.+)%.")
-  local replacement = Removed.members[first]
-  if module == nil or replacement == nil then
-    return nil
-  end
-  return { module = module, sentence = query .. " was removed: " .. replacement }
-end
-
---- What a name [`cosmic.removed`] lists as gone answers: one entry of kind
---- `removed` saying what to write instead, or none, for a name it does
---- not list and for a member the module still has.
-function Members.removed_by(view: Doc.View, query: string): {Doc.Entry}?, string
-  local gone = removed_as(query)
-  if gone == nil then
-    return {}, ""
-  end
-  local module, sentence = gone.module, gone.sentence
-  -- A member the module still has is the live page's.
-  local member = query:match("[%w_]+$")
-  if module ~= "" and member ~= nil then
-    local live, trouble = member_of(view, module, member)
-    if live == nil then
-      return nil, trouble
-    end
-    if #live > 0 then
-      return {}, ""
-    end
-  end
-  return { {
-    module = if module ~= "" then module else "cosmic.removed" end, symbol = query,
+  return {
+    module = "cosmic.removed", symbol = query,
     source_symbol = query, exported = true, kind = "removed", signature = "",
-    text = sentence, file = "cosmic/removed.tl", line = 0,
+    text = Removed.message(qualifier, name), file = "cosmic/removed.tl", line = 0,
     uses = 0, links = 0, examples = 0, related = {},
-  } }, ""
+  }
 end
 
 --- The uses of `module`'s member recorded as `used`, and the links to
@@ -3567,7 +3500,7 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then
-        return nil, encode_trouble
+        return nil, tostring(encode_trouble)
       end
       lines[#lines + 1] = line
     end
@@ -3608,7 +3541,7 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then
-        return nil, encode_trouble
+        return nil, tostring(encode_trouble)
       end
       lines[#lines + 1] = line
     end

@@ -18,31 +18,6 @@ local Clock = require("cosmic.clock")
 local Time = require("cosmic.time")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
---- Whether a directory is at `path`, as [`path_there`] says whether
---- anything is.
-local function path_directory(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return st.kind == "dir", "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
--- TODO: Child.FOREVER in place of CEILING_NS once
--- ci/cosmic-driver.pin names a release whose Child has it: this file runs
--- standalone on that release. Until then a ceiling no run reaches.
-local CEILING_NS <const> = Clock.minutes(24 * 60)
-
 local record Solve
   --- What a run was asked for on the command line.
   record Options
@@ -281,21 +256,21 @@ end
 --- and nothing a run writes is yet.
 local function check_arena(arena: string): boolean, string
   for _, sub in ipairs({ "bin", "project", "tmp" }) do
-    local dir, trouble = path_directory(arena .. "/" .. sub)
-    if dir == nil then return false, trouble end
-    if not dir then return false, arena .. " is no arena: no " .. sub .. "/" end
+    local dir, trouble = Fs.status(arena .. "/" .. sub)
+    if dir == nil then return false, tostring(trouble) end
+    if not dir.is_dir then return false, arena .. " is no arena: no " .. sub .. "/" end
   end
   for _, name in ipairs({ "transcript.jsonl", "stderr", "started_at", "config", "home" }) do
-    local there, trouble = path_there(arena .. "/" .. name)
-    if there == nil then return false, trouble end
-    if there then return false, arena .. " has run already: " .. name .. " is there" end
+    local there, trouble = Fs.status(arena .. "/" .. name)
+    if there == nil then return false, tostring(trouble) end
+    if there.exists then return false, arena .. " has run already: " .. name .. " is there" end
   end
   return true, ""
 end
 
 local function exists(path: string): boolean
-  local there, _ = path_there(path)
-  return there == true
+  local there, _ = Fs.status(path)
+  return there ~= nil and there.exists
 end
 
 function Solve.main(argv: {string}): integer
@@ -379,7 +354,7 @@ function Solve.main(argv: {string}): integer
   -- that, in place of this probe.
   local probe, probe_trouble = Child.run(Solve.proc_probe(Proc.pid()), { env = {},
     cwd = arena .. "/project", stdin = "null", stdout = "null", stderr = "null",
-    sandbox = { unveil = unveil }, timeout_ns = CEILING_NS })
+    sandbox = { unveil = unveil }, timeout_ns = Child.FOREVER })
   if probe == nil then
     complain(probe_trouble .. " (where the sandbox is unavailable, eval/README.md has the manual launch)")
     return 2

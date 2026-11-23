@@ -854,7 +854,7 @@ local function test_each_workflow_and_action_is_laid_out()
       -- Its own value written back over its tree changes nothing, so
       -- a program that regenerates it keeps every comment.
       local doc = assert(flow.parse(text))
-      local value = Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null })
+      local value, _ = Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null })
       doc.root = flow.update(doc.root, value)
       assert(flow.render(doc) == text, path .. ": written back over itself, it changes")
     end
@@ -1408,7 +1408,7 @@ local function test_a_gating_download_is_tried_twice()
           assert(is_download(first) and first["continue-on-error"] == true,
             where .. ": " .. first_id .. " is not a download that tolerates its failure")
           assert(first.uses == step.uses, where .. ": " .. first_id .. " is another action")
-          assert(Json.encode_any(first.with) == Json.encode_any(step.with),
+          assert(assert(Json.encode_any(first.with)) == assert(Json.encode_any(step.with)),
             where .. ": " .. first_id .. " downloads other inputs")
           retried[first_id] = (retried[first_id] or 0) + 1
           local waits = 0

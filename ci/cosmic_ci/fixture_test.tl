@@ -1,7 +1,6 @@
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local ArtifactRow = require("cosmic_ci.artifact_row")
 local Fixture = require("cosmic_ci.fixture")
 
@@ -72,7 +71,7 @@ local function test_call_with_descriptors_refuses_a_missing_path(tmp: string)
     { [8] = tmp .. "/eight", [9] = tmp .. "/absent" })
   assert(not called and tostring(failure):find("absent", 1, true) ~= nil,
     tostring(failure))
-  assert(Predicate.exists(tmp .. "/logs/missing.out") ~= true, "a child started anyway")
+  assert(assert(Fs.status(tmp .. "/logs/missing.out")).exists ~= true, "a child started anyway")
 end
 
 --- A child a fixture starts compiles cold, whatever cache the fixture's

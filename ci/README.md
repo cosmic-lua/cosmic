@@ -514,7 +514,7 @@ in a new user namespace, where it mounts, unveils and goes offline. A
 Linux leg's container needs these relaxations for it, and no more; a
 probe, as uid 65534, of the ubuntu and alpine images on ubuntu-24.04
 (x86_64) and the ubuntu image on ubuntu-24.04-arm (aarch64) found every
-part (landlock, pledge, offline, unveil, unveil+offline) held with all
+part (landlock, offline, unveil, unveil+offline, and a seccomp filter) held with all
 of them, and each item says what failed without it:
 
 1. The host's `kernel.apparmor_restrict_unprivileged_userns=1` (GitHub's

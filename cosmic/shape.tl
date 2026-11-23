@@ -75,6 +75,16 @@
 ---   config file whose author wants every mistake sees them one at a
 ---   time, re-running after each fix.
 --- - `into` never raises on a value, whatever it holds.
+---
+--- [`Typed.lenient`] reads a payload of a service that is not the
+--- program's own as far as it fits:
+---
+---     local record Artist
+---       name: string
+---       score: integer?
+---       tags: {Tag}?
+---     end
+---     local ARTIST <const> = Shape.record_of("Artist"):lenient()
 
 local FieldPath = require("cosmic.internal.field_path")
 local Json = require("cosmic.json")
@@ -82,6 +92,14 @@ local Json = require("cosmic.json")
 local record Shape
   --- A table of anything, which [`Build.object`] answers for the generated code to read fields from.
   type Table = {any: any} -- declared: key_type
+
+  --- How a record's check reads what it is given: "plain" as [`record_of`] answers it, "strict" refusing a key the
+  --- record does not name ([`Typed.strict`]), "lenient" passing over what does not fit where it can ([`Typed.lenient`]).
+  enum Mode
+    "plain"
+    "strict"
+    "lenient"
+  end
 
   --- Which check a [`Node`] describes.
   enum Kind
@@ -135,8 +153,8 @@ local record Shape
     --- The record's name, as [`record_of`] was given it. A failure of
     --- `into` or [`decode_into`] starts with it: `Envelope: $.items[3].name: missing`.
     name: string
-    --- The record's check, by whether it refuses a key it does not name; what the build generated for it.
-    make: function(strict: boolean): Spec<T>
+    --- The record's check in each [`Mode`]; what the build generated for it.
+    make: function(mode: Shape.Mode): Spec<T>
     --- What the build read of the record's fields.
     node: Node
     --- [`into`] over `spec`, answering a `T`.
@@ -148,13 +166,28 @@ local record Shape
     strict: function(self: Typed<T>): Typed<T>
     --- The result of `strict`, kept by it.
     mut stricter?: Typed<T>
+    --- This record's shape, passing over what does not fit where it can, in it and in every record below it: an
+    --- optional field that does not fit reads as nil, a list keeps the elements that fit and a map the values that fit,
+    --- and a required field that is missing or does not fit fails the record, or drops it from a list or map it is
+    --- in. A list's elements kept are numbered from 1 again, so an index no longer names the payload's element.
+    --- Nothing is converted: a `"3"` does not fit an integer here either. A record is lenient or strict, not both:
+    --- `lenient` of a strict record raises, as `strict` of a lenient one does.
+    lenient: function(self: Typed<T>): Typed<T>
+    --- The result of `lenient`, kept by it.
+    mut lenienter?: Typed<T>
   end
 
   --- What the code the build generates for [`record_of`] calls. Nothing else has a use for them.
   record Build
     --- `value` as the table of a record of `names`, or nil and why it is none: a missing value, a value that is no
-    --- table or is a JSON array, and, where `strict`, a key the record does not name.
-    object: function(value: any, path: string, names: {string}, strict: boolean): Shape.Table?, string
+    --- table or is a JSON array, and, in the "strict" mode, a key the record does not name.
+    object: function(value: any, path: string, names: {string}, mode: Shape.Mode): Shape.Table?, string
+    --- [`Shape.optional`] in `mode`; in "lenient", a value `of` refuses reads as nil.
+    optional: function<A>(mode: Shape.Mode, of: Spec<A>): Spec<A?>
+    --- [`Shape.list`] in `mode`; in "lenient", an element `of` refuses or answers nothing for is dropped.
+    list: function<A>(mode: Shape.Mode, of: Spec<A>): Spec<{A}>
+    --- [`Shape.map`] in `mode`; in "lenient", a value `of` refuses or answers nothing for is dropped.
+    map: function<A>(mode: Shape.Mode, of: Spec<A>): Spec<{string: A}>
     --- The field `name` of the table `object` answered.
     get: function(t: Shape.Table, name: string): any
     --- `path` extended by the field `name`.
@@ -269,10 +302,10 @@ local record Shape
   --- by hand, or in a script run with `--standalone`, which has no build) raises
   --- here. Such a script runs as `cosmic script.tl`, which builds the tree around it.
   --- @param name string The record, as a string literal
-  --- @param make function(strict: boolean): Spec<T> What the build wrote
+  --- @param make function(mode: Mode): Spec<T> What the build wrote
   --- @param node Node What the build read off the record
   --- @return Typed<T> The spec and the record it checks
-  record_of: function<T>(name: string, make?: function(strict: boolean): Spec<T>, node?: Node): Typed<T>
+  record_of: function<T>(name: string, make?: function(mode: Mode): Spec<T>, node?: Node): Typed<T>
 
   --- What the generated code calls.
   build: Build
@@ -425,7 +458,7 @@ end
 
 local function decode_into<T>(text: string, spec: Shape.Spec<T>, opts?: Json.DecodeOptions): T?, string
   local decoded, trouble = Json.decode(text, opts)
-  if decoded == nil and trouble ~= "" then return nil, trouble end
+  if decoded == nil then return nil, tostring(trouble) end
   return into(decoded, spec)
 end
 
@@ -515,6 +548,18 @@ local function map<A>(of: Shape.Spec<A>): Shape.Spec<{string: A}>
   }
 end
 
+--- `of`, answering nil and no failure where it refuses a value: a lenient record's field, element or value that does not
+--- fit is passed over rather than failing what holds it.
+local function passing<A>(of: Shape.Spec<A>): Shape.Spec<A>
+  return {
+    check = function(value: any, path: string): A?, string
+      local got, failed = of.check(value, path)
+      if failed ~= "" then return nil, "" end
+      return got, ""
+    end,
+  }
+end
+
 local function optional<A>(of: Shape.Spec<A>): Shape.Spec<A?>
   return {
     check = function(value: any, path: string): A?, string
@@ -559,7 +604,7 @@ end
 local function typed_decode_into<T>(self: Shape.Typed<T>, text: string,
                                     opts?: Json.DecodeOptions): T?, string
   local decoded, trouble = Json.decode(text, opts)
-  if decoded == nil and trouble ~= "" then return nil, trouble end
+  if decoded == nil then return nil, tostring(trouble) end
   return typed_into(self, decoded)
 end
 
@@ -581,20 +626,24 @@ local function strict_node(node: Shape.Node): Shape.Node
 end
 
 --- The record's spec for `strict`, over what the build generated, with the node that describes it.
-local function spec_for<T>(make: function(strict: boolean): Shape.Spec<T>, node: Shape.Node, strict: boolean): Shape.Spec<T>
-  local made = make(strict)
+local function spec_for<T>(make: function(mode: Shape.Mode): Shape.Spec<T>, node: Shape.Node, mode: Shape.Mode):
+    Shape.Spec<T>
+  local made = make(mode)
   return { check = made.check, describe = function(): Shape.Node return node end }
 end
 
 local function typed_strict<T>(self: Shape.Typed<T>): Shape.Typed<T>
+  if self.lenienter == self then
+    error("shape: " .. self.name .. " is lenient, and a record is not strict as well", 2)
+  end
   local held = self.stricter
   if held ~= nil then
     return held
   end
   local node = strict_node(self.node)
   local strict: Shape.Typed<T> = {
-    name = self.name, spec = spec_for(self.make, node, true), make = self.make, node = node, into = typed_into,
-    decode_into = typed_decode_into, strict = typed_strict,
+    name = self.name, spec = spec_for(self.make, node, "strict"), make = self.make, node = node, into = typed_into,
+    decode_into = typed_decode_into, strict = typed_strict, lenient = self.lenient,
   }
   -- A strict record made strict again is itself; kept, so that a call per request builds nothing.
   strict.stricter = strict
@@ -602,7 +651,24 @@ local function typed_strict<T>(self: Shape.Typed<T>): Shape.Typed<T>
   return strict
 end
 
-local function record_of<T>(name: string, make?: function(strict: boolean): Shape.Spec<T>, node?: Shape.Node):
+local function typed_lenient<T>(self: Shape.Typed<T>): Shape.Typed<T>
+  if self.stricter == self then
+    error("shape: " .. self.name .. " is strict, and a record is not lenient as well", 2)
+  end
+  local held = self.lenienter
+  if held ~= nil then
+    return held
+  end
+  local lenient: Shape.Typed<T> = {
+    name = self.name, spec = spec_for(self.make, self.node, "lenient"), make = self.make, node = self.node,
+    into = typed_into, decode_into = typed_decode_into, strict = typed_strict, lenient = typed_lenient,
+  }
+  lenient.lenienter = lenient
+  self.lenienter = lenient
+  return lenient
+end
+
+local function record_of<T>(name: string, make?: function(mode: Shape.Mode): Shape.Spec<T>, node?: Shape.Node):
     Shape.Typed<T>
   if make == nil or node == nil then
     error(("shape: record_of(%q) was not resolved: the build writes a record's check from a call written as " ..
@@ -611,21 +677,59 @@ local function record_of<T>(name: string, make?: function(strict: boolean): Shap
       "under a build, or run the script as `cosmic script.tl`"):format(name), 2)
   end
   return {
-    name = name, spec = spec_for(make, node, false), make = make, node = node, into = typed_into,
-    decode_into = typed_decode_into, strict = typed_strict,
+    name = name, spec = spec_for(make, node, "plain"), make = make, node = node, into = typed_into,
+    decode_into = typed_decode_into, strict = typed_strict, lenient = typed_lenient,
   }
 end
 
+local function build_optional<A>(mode: Shape.Mode, of: Shape.Spec<A>): Shape.Spec<A?>
+  if mode ~= "lenient" then return optional(of) end
+  return optional(passing(of))
+end
+
+local function build_list<A>(mode: Shape.Mode, of: Shape.Spec<A>): Shape.Spec<{A}>
+  if mode ~= "lenient" then return list(of) end
+  local kept = passing(of)
+  return {
+    check = function(value: any, path: string): {A}?, string
+      local items, why = list_of(value, path, kept.check, true)
+      if items == nil then return nil, why end
+      local indices: mut {integer} = {}
+      for k in pairs(items) do indices[#indices + 1] = k end
+      table.sort(indices)
+      -- The elements kept, renumbered from 1 in index order, so the answer is an array again.
+      local out: mut {integer: A} = {}
+      local n = 0
+      for _, k in ipairs(indices) do
+        local v = items[k]
+        if v ~= nil then
+          n = n + 1
+          out[n] = v
+        end
+      end
+      local marked, trouble = Json.with_holes(out)
+      assert(marked, trouble)
+      return trust(marked), ""
+    end,
+  }
+end
+
+local function build_map<A>(mode: Shape.Mode, of: Shape.Spec<A>): Shape.Spec<{string: A}>
+  if mode ~= "lenient" then return map(of) end
+  return map(passing(of))
+end
+
 local BUILD: Shape.Build = {
-  object = function(value: any, path: string, names: {string}, strict: boolean): Shape.Table?, string
+  object = function(value: any, path: string, names: {string}, mode: Shape.Mode): Shape.Table?, string
     local t = as_table(value)
     if t == nil or Json.is_array(t) then return nil, mismatch(path, "record", value) end
-    if strict then
+    if mode == "strict" then
       local unknown = unknown_key(t, names, path)
       if unknown ~= "" then return nil, unknown end
     end
     return t, ""
   end,
+  optional = build_optional, list = build_list, map = build_map,
   get = function(t: Shape.Table, name: string): any return rawget(t, name) end,
   step = field_path,
   failed = function(why: string, path: string): string

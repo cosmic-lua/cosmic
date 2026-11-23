@@ -5,6 +5,8 @@
 
 local Driver = require("build.driver")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local fanout = require("build.compile_fanout")
 local Sqlite = require("cosmic.sqlite")
 local fixture = require("build.docs_fixture")
 local rebuild = require("build.rebuild")
@@ -1611,6 +1613,44 @@ local function test_a_call_the_checker_could_type_no_function_for_is_held_by_its
   local stale = table.concat(tree_checks.untyped(root), "\n")
   assert(stale:find("build/open.tl:1: its marker holds 1 finding of call that the line no longer has", 1, true) and
       stale:find("on line 2, marked 0", 1, true), stale)
+end
+
+--- The checks of the declarations, the bodies and the untyped calls give the same findings, and keep the same answers,
+--- where copies of the process ([`build.compile_fanout`]) lower the files as where the process lowers them all.
+local function test_the_checks_find_the_same_in_copies_of_the_process(dir: string)
+  if Proc.cpu_count() < 2 then
+    Test.skip("this host has one processor, for which no copy is forked")
+  end
+  local root = dir .. "/fannedchecks"
+  typed_tree(root)
+  assert(Fs.write(root .. "/build/open.tl", source("local x = missing(2)", "local y = x.field(1)", "return y")))
+  assert(Fs.write(root .. "/build/shape.tl", source("local record Shape", "  n: integer", "end", "return Shape")))
+  for index = 1, 6 do
+    assert(Fs.write(root .. "/build/f" .. tostring(index) .. ".tl", source("local Shape = require(\"build.shape\")",
+      "local s: Shape = { n = 1.5 }", "local t: {number: integer} = {}", "return { s, t }")))
+  end
+  local least, meminfo = fanout.least, fanout.meminfo
+  local function run(copied: boolean): string, integer
+    fanout.least = if copied then 1 else 1000000 end
+    fanout.meminfo = "MemAvailable: 67108864 kB\n"
+    local memo = assert(Sqlite.memory())
+    local found = table.concat(tree_checks.declared(root, memo), "\n") .. "\n--\n" ..
+      table.concat(tree_checks.checked(root, memo), "\n") .. "\n--\n" ..
+      table.concat(tree_checks.untyped(root, memo), "\n")
+    local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo"))
+    local rows = support.nth(count, 1):integer(1)
+    assert(memo:close())
+    return found, rows
+  end
+  local alone, alone_rows = run(false)
+  local ended = fanout.ended_well
+  local copied, copied_rows = run(true)
+  assert(fanout.ended_well > ended, "no copy did the work")
+  fanout.least, fanout.meminfo = least, meminfo
+  assert(alone:find("build/f6.tl:2:", 1, true) ~= nil and alone:find("build/open.tl: 1 error of call", 1, true) ~= nil, alone)
+  assert(copied == alone, "the copies found otherwise:\n" .. copied .. "\n\nthan the process:\n" .. alone)
+  assert(copied_rows == alone_rows, "the copies kept " .. tostring(copied_rows) .. " answers, the process " ..
+      tostring(alone_rows))
 end
 
 --- A tree with the headers of the bindings of C declares them from the headers (as the build derives them), so a call of one is

@@ -8,7 +8,6 @@
 local Child = require("cosmic.child")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local ArtifactRow = require("cosmic_ci.artifact_row")
 local GithubApi = require("cosmic_ci.github_api")
 local Hash = require("cosmic.hash")
@@ -18,11 +17,6 @@ local Shape = require("cosmic.shape")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 local StepEnv = require("cosmic_ci.step_env")
-
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
 
 local record Prerelease
   --- The platform legs, in the byte order of their products'
@@ -255,7 +249,7 @@ function Prerelease.smoke(path: string)
   local cache = assert(Fs.mkdtemp("cosmic-release-smoke-"))
   -- Seatbelt refuses a read of an ungranted start directory; the cache is granted.
   local result, trouble = Child.run({ path, "help" },
-    { timeout_ns = CEILING_NS, cwd = cache, policy = Prerelease.smoke_policy(path, cache) })
+    { timeout_ns = Child.FOREVER, cwd = cache, policy = Prerelease.smoke_policy(path, cache) })
   local _, _ = Fs.remove_tree(cache)
   assert(result ~= nil, path .. ": " .. tostring(trouble))
   assert(result.ok, path .. ": help failed")
@@ -630,9 +624,7 @@ end
 --- A directory under the job's temporary directory, made now.
 local function fresh(p: Prerelease.Publish, name: string): string
   local path = p.temp .. "/prerelease/" .. name
-  local there, why = Predicate.there(path)
-  assert(there ~= nil, why)
-  assert(not there, path .. " exists already")
+  assert(not assert(Fs.status(path)).exists, path .. " exists already")
   assert(Fs.mkdirs(path))
   return path
 end

@@ -311,7 +311,7 @@ local function check_client_data(client_data: string, kind: string, expected: We
     error("webauthn: expected.challenge, origin and rp_id must not be empty", 3)
   end
   local data, bad = Json.decode_object(client_data)
-  if data == nil then return false, "webauthn: the client data: " .. bad end
+  if data == nil then return false, "webauthn: the client data: " .. tostring(bad) end
   if text(data, "type") ~= kind then
     return false, ("webauthn: the client data is not of %s"):format(kind)
   end

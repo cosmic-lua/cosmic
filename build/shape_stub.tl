@@ -8,6 +8,11 @@ function ShapeStub.standard(): {string: string}
   return {
     ["cosmic.shape"] = [[
 local record Shape
+  enum Mode
+    "plain"
+    "strict"
+    "lenient"
+  end
   record Node
     kind: string
     optional: boolean
@@ -22,12 +27,15 @@ local record Shape
   record Typed<T>
     spec: Spec<T>
     name: string
-    make: function(strict: boolean): Spec<T>
+    make: function(mode: Shape.Mode): Spec<T>
     node: Node
     into: function(self: Typed<T>, value: any): T?, string
   end
   record Build
-    object: function(value: any, path: string, names: {string}, strict: boolean): {any: any}?, string
+    object: function(value: any, path: string, names: {string}, mode: Shape.Mode): {any: any}?, string
+    optional: function<A>(mode: Shape.Mode, of: Spec<A>): Spec<A?>
+    list: function<A>(mode: Shape.Mode, of: Spec<A>): Spec<{A}>
+    map: function<A>(mode: Shape.Mode, of: Spec<A>): Spec<{string: A}>
     get: function(t: {any: any}, name: string): any
     step: function(path: string, name: string): string
     failed: function(why: string, path: string): string
@@ -35,7 +43,7 @@ local record Shape
   end
   build: Build
   integer: Spec<integer>
-  record_of: function<T>(name: string, make?: function(strict: boolean): Spec<T>, node?: Node): Typed<T>
+  record_of: function<T>(name: string, make?: function(mode: Mode): Spec<T>, node?: Node): Typed<T>
 end
 return Shape
 ]],

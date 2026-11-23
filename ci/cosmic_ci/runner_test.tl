@@ -1,6 +1,5 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Runner = require("cosmic_ci.runner")
 local Seams = require("cosmic_ci.seams")
 local Sqlite = require("cosmic.sqlite")
@@ -36,7 +35,7 @@ local function test_runner_records_without_aliasing_subject(tmp: string)
   assert(timed.code == 124 and timed.elapsed_ns >= Clock.ms(10) and
       timed.elapsed_ns < Clock.seconds(5), "timeout did not preserve its nanosecond duration")
   assert(Fs.write(candidate .. "/o.db", "candidate state"))
-  local database_exists = Predicate.exists(c.database)
+  local database_exists = assert(Fs.status(c.database)).exists
   assert(database_exists and assert(Fs.read(candidate .. "/o.db")) == "candidate state")
   local bad_candidate: Runner.Context = { database = candidate .. "/bad.db",
     worker = c.worker, run = c.run, attempt = c.attempt, candidate = candidate }
@@ -235,7 +234,7 @@ local function test_phase_rejects_a_candidate_database_before_its_action(tmp: st
     return 0
   end)
   assert(not called and tostring(failure):find("outside candidate checkout", 1, true) ~= nil)
-  assert(not ran.value and not Predicate.exists(context.database), "a refused phase did work")
+  assert(not ran.value and not assert(Fs.status(context.database)).exists, "a refused phase did work")
 end
 
 local function spawn_context(tmp: string): Runner.Context
@@ -307,10 +306,10 @@ local function test_stopping_a_command_ends_its_process_group_and_records_it(tmp
     "echo $$ > " .. tmp .. "/pid; (sleep 30; echo late > " .. tmp .. "/late) & wait" },
     cwd = c.candidate, timeout_ns = hang_guard })
   local waited = Clock.monotonic_ns()
-  while not Predicate.exists(tmp .. "/pid") and Clock.monotonic_ns() - waited < hang_guard do
+  while not assert(Fs.status(tmp .. "/pid")).exists and Clock.monotonic_ns() - waited < hang_guard do
     Clock.sleep_ns(Clock.ms(10))
   end
-  assert(Predicate.exists(tmp .. "/pid"), "the command never started")
+  assert(assert(Fs.status(tmp .. "/pid")).exists, "the command never started")
   local started = Clock.monotonic_ns()
   local outcome = Runner.stop(running)
   assert(outcome.status == "cancelled" and outcome.code == 130 and
@@ -321,7 +320,7 @@ local function test_stopping_a_command_ends_its_process_group_and_records_it(tmp
   assert(#rows == 1 and assert(rows[1]):text(1) == "stuck" and assert(rows[1]):text(2) == "cancelled",
     "a stopped command was not recorded")
   Clock.sleep_ns(Clock.ms(200))
-  assert(not Predicate.exists(tmp .. "/late"), "a stop left the command's group running")
+  assert(not assert(Fs.status(tmp .. "/late")).exists, "a stop left the command's group running")
 end
 
 local function test_stopping_a_command_that_has_ended_keeps_its_outcome(tmp: string)

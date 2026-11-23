@@ -2075,7 +2075,7 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
     ["build.library_record"] = "reads what the binary records of the library for the importer's check of positions, " ..
       "which refuses a build and fills no row",
-    ["build.grammar_mode"] = "names the grammar a build reads (COSMIC_GRAMMAR), which only the new grammar's compile consults",
+    ["build.grammar_mode"] = "names the tool string a compile is keyed by, which only the compile consults",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
     ["build.reads.analyzer"] = "a declaration of what text a module reads, which a test's store follows; no code",
     ["build.reads.receivers"] = "a declaration of what text a module reads, which a test's store follows; no code",

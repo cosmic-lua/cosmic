@@ -19,8 +19,7 @@ local function says(r: Child.Result, text: string): boolean
   return (r.stderr or ""):find(text, 1, true) ~= nil
 end
 
---- A flag an earlier release took at the top level is refused with the command that replaced it, exiting 2 as the
---- removed `migrate` verb does.
+--- A flag an earlier release took at the top level is refused with the command that replaced it, exiting 2.
 local function test_a_retired_top_level_flag_is_refused_with_its_replacement(tmp: string)
   local replacements <const>: {string: {string}} = {
     ["--make"] = { "cosmic build", "cosmic test" },

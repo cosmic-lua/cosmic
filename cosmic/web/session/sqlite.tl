@@ -305,7 +305,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
     end
     if label == "" then label = nil end
     local text, encode_why = Json.encode(apply(base, changes), { max_depth = Session.MAX_DEPTH })
-    if text == nil then return false, "cannot encode the session: " .. encode_why end
+    if text == nil then return false, "cannot encode the session: " .. tostring(encode_why) end
     -- A row without a public id was written by an earlier version running
     -- beside this one after the migration: it gets one at its next save.
     if public_id == nil then

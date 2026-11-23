@@ -36,6 +36,9 @@
  * executable at another is writable executable memory the filter does
  * not see. Nor does it hold against a write through /proc/self/mem. A
  * Landlock ruleset that grants no such file or /proc is what holds them.
+ * Nor does the filter keep a process from /proc/<pid>/mem of another
+ * process of the same user: a Landlock ruleset (whose ptrace check
+ * refuses one outside its domain) or a root of the process's own does.
  *
  * Every table is a list of call names, so a call's number is the
  * architecture's (core/promises_calls.h), and a call an architecture has

@@ -35,31 +35,6 @@ local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
---- Whether a directory is at `path`, as [`path_there`] says whether
---- anything is.
-local function path_directory(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return st.kind == "dir", "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
--- TODO: Child.FOREVER in place of CEILING_NS once
--- ci/cosmic-driver.pin names a release whose Child has it: this file runs
--- standalone on that release. Until then a ceiling no run reaches.
-local CEILING_NS <const> = Clock.minutes(24 * 60)
-
 local record Grader
   --- How many tests and examples passed.
   record Evidence
@@ -193,10 +168,10 @@ end
 --- so what `evidence` finds afterward is this grading's own. A
 --- database that is not there yet has nothing to clear.
 function Grader.reset_evidence(path: string): boolean, string
-  local present, trouble = path_there(path)
+  local present, trouble = Fs.status(path)
   if present == nil then
-    return false, trouble
-  elseif not present then
+    return false, tostring(trouble)
+  elseif not present.exists then
     return true, ""
   end
   local db, otrouble = Sqlite.open(path, { writable = true })
@@ -213,10 +188,9 @@ end
 --- How many tests and examples passed in the runs a build database
 --- records; a doctest is an example.
 function Grader.evidence(path: string): Grader.Evidence?, string
-  local present, trouble = path_there(path)
-  if present ~= true then
-    return nil, if present == nil then trouble else path .. ": no build database" end
-  end
+  local present, trouble = Fs.status(path)
+  if present == nil then return nil, tostring(trouble) end
+  if not present.exists then return nil, path .. ": no build database" end
   local db, otrouble = Sqlite.open(path)
   if db == nil then
     return nil, otrouble
@@ -247,8 +221,8 @@ function Grader.evidence(path: string): Grader.Evidence?, string
 end
 
 local function exists(path: string): boolean
-  local present, _ = path_there(path)
-  return present == true
+  local present, _ = Fs.status(path)
+  return present ~= nil and present.exists
 end
 
 --- Runs one step, its output kept in the arena as check-<n>.out and
@@ -627,11 +601,10 @@ end
 --- as in an object, so `[1,null,3]` is valid JSON here as it is anywhere.
 local function decoded(text: string): Json.Value?, string
   local value, trouble = Json.decode(text, { null_value = Json.null })
-  if value == nil then
-    if trouble == "" then trouble = "no value" end
-    return nil, trouble
-  end
-  return Json.to_value(value)
+  if value == nil then return nil, tostring(trouble) end
+  local checked, why = Json.to_value(value)
+  if checked == nil then return nil, tostring(why) end
+  return checked, ""
 end
 
 Grader.decoded = decoded
@@ -702,9 +675,9 @@ local function serves(g: Grade, args: {string}, log?: string): Served?
   local what = g.name .. " " .. table.concat(args, " ")
   local out_path = g.logs .. "/" .. (log or "check-serve.out")
   local out = assert(Fs.open_write(out_path))
-  -- The server runs until the grade ends it; the ceiling only stops one left behind.
+  -- The server runs until the grade ends it, with no limit of its own.
   local options: Child.Options = { cwd = g.empty, env = {}, stdout = out, stderr = out,
-    stdin = if g.null_stdin then "null" else nil end, timeout_ns = CEILING_NS }
+    stdin = if g.null_stdin then "null" else nil end, timeout_ns = Child.FOREVER }
   local server, trouble = Child.start(argv_of(g, args), options)
   local _, _ = Fs.close(out)
   if server == nil then
@@ -1009,8 +982,8 @@ local function pack(g: Grade)
   local err = refuses(g, { "extract", "evil.tar", "dest-evil" })
   check(g, err:find("../evil.txt", 1, true) ~= nil, "extract evil.tar names the entry ../evil.txt",
     first_line(err))
-  local escaped, _ = path_there(g.empty .. "/evil.txt")
-  if escaped == true then
+  local escaped, _ = Fs.status(g.empty .. "/evil.txt")
+  if escaped ~= nil and escaped.exists then
     fail(g, "extract evil.tar wrote evil.txt outside its destination")
   else
     ok("extract evil.tar wrote nothing outside its destination")
@@ -1377,7 +1350,7 @@ local function jobs_interrupt(g: Grade, w: string): integer
   local args = { "run", "w/term.json" }
   local started = Clock.monotonic_ns()
   local handle, trouble = Child.start(argv_of(g, args), { cwd = g.empty, env = {},
-    stdout = "capture", stderr = "capture", stdin = "null", process_group = false, timeout_ns = CEILING_NS })
+    stdout = "capture", stderr = "capture", stdin = "null", process_group = false, timeout_ns = Child.FOREVER })
   if handle == nil then
     fail(g, label(g, args) .. " did not start: " .. trouble)
     return 0
@@ -2427,10 +2400,10 @@ function Grader.grade(name: string, dir: string, testdata: string,
   local started = Clock.monotonic_ns()
   local project = dir .. "/project"
   local cosmic = dir .. "/bin/cosmic"
-  local is_project, project_trouble = path_directory(project)
-  if is_project ~= true then
+  local is_project, project_trouble = Fs.status(project)
+  if is_project == nil or not is_project.is_dir then
     say("FAIL no project at " .. project ..
-        (if project_trouble ~= "" then ": " .. project_trouble else "" end))
+        (if project_trouble ~= nil then ": " .. tostring(project_trouble) else "" end))
     say("FAIL")
     return 1
   end

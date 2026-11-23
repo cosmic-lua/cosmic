@@ -78,22 +78,6 @@ local Signal = require("cosmic.signal")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
--- TODO: Child.FOREVER in place of CEILING_NS once
--- ci/cosmic-driver.pin names a release whose Child has it: this file runs
--- standalone on that release. Until then a ceiling no run reaches.
-local CEILING_NS <const> = Clock.minutes(24 * 60)
-
 local record Zig
   record Pin
     version: string
@@ -270,7 +254,7 @@ local function standalone(root: string, script: string,
   for _, word in ipairs(words) do
     argv[#argv + 1] = word
   end
-  local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture", timeout_ns = CEILING_NS })
+  local result, trouble = Child.run(argv, { env = env, fds = fds, stdout = "capture", timeout_ns = Child.FOREVER })
   if result == nil then
     return nil, script .. ": " .. trouble
   end
@@ -284,10 +268,11 @@ end
 function Zig.ensure_installed(root: string, cache: string, install: string, pin: Zig.Pin,
                               host: string): string?, string
   local zig = install .. "/zig"
-  local installed, look_trouble = path_there(zig)
-  if installed == nil then
-    return nil, look_trouble
+  local installed_status, look_trouble = Fs.status(zig)
+  if installed_status == nil then
+    return nil, tostring(look_trouble)
   end
+  local installed = installed_status.exists
   if installed then
     return zig, ""
   end
@@ -301,11 +286,11 @@ function Zig.ensure_installed(root: string, cache: string, install: string, pin:
     if why == "" then why = "build/zig_fetch.tl failed" end
     return nil, why
   end
-  installed, look_trouble = path_there(zig)
-  if installed == nil then
-    return nil, look_trouble
+  local placed, placed_trouble = Fs.status(zig)
+  if placed == nil then
+    return nil, tostring(placed_trouble)
   end
-  if not installed then
+  if not placed.exists then
     return nil, "could not install zig into " .. install
   end
   return zig, ""
@@ -387,8 +372,8 @@ function Zig.pinned_program(root: string, cache: string): string?, string
   local install, trouble = Zig.pinned_install(root, cache)
   if install == nil then return nil, trouble end
   local zig = install.path .. "/zig"
-  local there, _ = path_there(zig)
-  if there ~= true then return nil, zig .. " is not there" end
+  local there, _ = Fs.status(zig)
+  if there == nil or not there.exists then return nil, zig .. " is not there" end
   return zig, ""
 end
 
@@ -432,10 +417,11 @@ end
 -- cache-same-contents-hit and build-root-path, not yet sent upstream).
 local function patched_lib(root: string, install: string): string?, string
   local dir = root .. "/patch/zig-lib"
-  local present, present_trouble = path_there(dir)
-  if present == nil then
-    return nil, present_trouble
+  local present_status, present_trouble = Fs.status(dir)
+  if present_status == nil then
+    return nil, tostring(present_trouble)
   end
+  local present = present_status.exists
   if not present then
     return nil, ""
   end
@@ -459,10 +445,11 @@ local function patched_lib(root: string, install: string): string?, string
     return nil, ""
   end
   local out = install .. "/lib-" .. Zig.lib_key(records)
-  local made, made_trouble = path_there(out)
-  if made == nil then
-    return nil, made_trouble
+  local made_status, made_trouble = Fs.status(out)
+  if made_status == nil then
+    return nil, tostring(made_trouble)
   end
+  local made = made_status.exists
   if made then
     return out, ""
   end
@@ -745,7 +732,7 @@ function Zig.run(argv: {string}, env?: {string:string}): integer
   local g <close> = opened
   local signals: Signals = { pending = 0 }
   local function supervise(): Child.Result?, string
-    local h, trouble = Child.start(argv, { process_group = false, env = env, timeout_ns = CEILING_NS })
+    local h, trouble = Child.start(argv, { process_group = false, env = env, timeout_ns = Child.FOREVER })
     if h == nil then
       return nil, trouble
     end

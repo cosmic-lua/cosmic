@@ -1,4 +1,4 @@
---- `cosmic compile --grammar new` (build/compile.tl, build/compile_grammar.tl): files in the new checker's
+--- `cosmic compile` (build/compile.tl, build/compile_grammar.tl): files in the new checker's
 --- grammar are lexed, parsed, scoped, lowered, checked and written as Lua, and the Lua is written despite type
 --- errors, as for Teal. The grammar is named, never guessed.
 
@@ -22,15 +22,9 @@ local type Kinder = function(any): string
 --- The directory of the test's files, which a run takes as `--root`.
 local where: mut {string} = {}
 
---- One run of `cosmic compile` with `words`, in the new grammar unless a word says otherwise.
+--- One run of `cosmic compile` with `words`.
 local function run(words: {string}): Ran
   local argv: mut {string} = { "compile", "--root", where[1] or "" }
-  local named = false
-  for _, word in ipairs(words) do named = named or word == "--grammar" end
-  if not named then
-    argv[#argv + 1] = "--grammar"
-    argv[#argv + 1] = "new"
-  end
   for _, word in ipairs(words) do argv[#argv + 1] = word end
   local ran: Ran = { code = -1, out = "", err = "" }
   ran.code = compile.run(argv, {
@@ -143,25 +137,15 @@ local function test_a_form_the_grammar_cuts_is_a_syntax_error(tmp: string)
   assert(ran.err:find("cut.tl:1:", 1, true) and ran.err:find("(nil_union)", 1, true), ran.err)
 end
 
---- The grammar is the new one, named or not: the fork's is refused pointing to the project guide, and a text in the fork's forms is a
---- syntax error.
-local function test_the_grammar_is_new_and_teal_is_refused(tmp: string)
+--- A text in the fork's forms is a syntax error, and one in the grammar's compiles.
+local function test_a_text_in_the_forks_forms_is_a_syntax_error(tmp: string)
   local new_only = file(tmp, "new.tl", "for i = 1, 2 do\n  if i == 1 then continue end\nend\nreturn 1\n")
   local teal_only = file(tmp, "teal.tl", "local x: string | nil = nil\nreturn x\n")
-  local as_teal = run({ "--grammar", "teal", new_only })
-  assert(as_teal.code == 2, as_teal.err)
-  assert(as_teal.err:find("the fork's grammar is gone", 1, true) and as_teal.err:find("doc/guides/project.md", 1, true), as_teal.err)
   local as_new = run({ teal_only })
   assert(as_new.code == 2, as_new.err)
   assert(as_new.err:find("teal.tl:1:", 1, true), as_new.err)
   local fine = run({ new_only })
   assert(fine.code == 0, fine.err)
-end
-
-local function test_a_grammar_that_is_neither_is_refused(tmp: string)
-  local ran = run({ "--grammar", "lua", file(tmp, "x.tl", "return 1\n") })
-  assert(ran.code == 2 and ran.out == "", ran.out)
-  assert(ran.err:find("--grammar names new, not lua", 1, true), ran.err)
 end
 
 --- With no declaration file named, a module of the binary's own is the one it carries, as a standalone run types it: the

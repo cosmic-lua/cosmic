@@ -231,7 +231,7 @@ end
 --- @return Types.Response The response
 function Response.json(value: Json.Value, opts?: Types.ResponseOptions): Types.Response
   local text, why = Json.encode(value)
-  if text == nil then error("web: json: " .. unprefixed(why), 2) end
+  if text == nil then error("web: json: " .. unprefixed(tostring(why)), 2) end
   return finish({ status = 200, headers = { ["Content-Type"] = "application/json",
     ["X-Content-Type-Options"] = "nosniff" }, body = text }, opts)
 end
@@ -352,7 +352,7 @@ function Response.problem(status: integer, detail?: string, extra?: {string: Jso
   body["status"] = status
   if detail ~= nil then body["detail"] = detail end
   local text, why = Json.encode(body)
-  if text == nil then error("web: problem: " .. unprefixed(why), 2) end
+  if text == nil then error("web: problem: " .. unprefixed(tostring(why)), 2) end
   return { status = status, headers = { ["Content-Type"] = "application/problem+json",
     ["X-Content-Type-Options"] = "nosniff" }, body = text }
 end

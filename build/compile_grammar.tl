@@ -1,4 +1,4 @@
---- The new checker's grammar for `cosmic compile` (`--grammar new`, [`build/compile.tl`]): files written
+--- The new checker's grammar for `cosmic compile` ([`build/compile.tl`]): files written
 --- in it, lexed ([`lang.lexer`]), parsed ([`lang.parser`]), scoped ([`lang.scopes`]), lowered
 --- ([`lang.declarations`]), checked ([`lang.check`]) and written as Lua ([`lang.codegen`]), the way
 --- [`build/tree_checks.tl`] and [`lang.check_programs`] drive them, but for the files a command line

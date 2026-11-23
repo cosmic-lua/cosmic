@@ -23,6 +23,7 @@ local Address = require("cosmic.relay.address")
 local Grant = require("cosmic.relay.grant")
 local Wire = require("cosmic.internal.relay_wire")
 local String = require("cosmic.string")
+local Url = require("cosmic.url")
 local sys = require("cosmic.sys")
 
 local lower <const> = Wire.lower
@@ -43,9 +44,10 @@ local record relay_config
     no_proxy: mut {string}
     --- The numeric addresses `host` was resolved to, once, by the caller
     --- (the sandbox's relay is told them by its starter): connected to in
-    --- their order, as a name's
-    --- answers are, and `host` is resolved never. Nil to resolve `host`
-    --- for each connection through it ([`cosmic.internal.relay_server`]).
+    --- their order, as a name's answers are, and `host` is resolved never.
+    --- Nil only in what [`relay_config.upstream`] reads from an
+    --- environment, before its starter resolves it: a relay refuses an
+    --- upstream without them ([`relay_config.upstream_problem`]).
     addresses?: {string}
   end
 
@@ -277,14 +279,6 @@ function relay_config.host_addresses(): {string}?, string
   return relay_config.parse_addresses(trie, inet6), ""
 end
 
-local function percent_decoded(text: string): string
-  return (text:gsub("%%(%x%x)", function(hex: string): string
-    local byte = tonumber(hex, 16)
-    if byte == nil then return "%" .. hex end
-    return string.char(byte)
-  end))
-end
-
 --- The upstream a caller's environment names, and nil when it names none:
 --- `https_proxy` (or `HTTPS_PROXY`) as `http://[user:password@]host[:port]`
 --- (the scheme and the port, 80, may be left out) and `no_proxy` (or
@@ -330,7 +324,11 @@ function relay_config.upstream(env: {string:string}): relay_config.Upstream?, st
   local upstream: relay_config.Upstream = { host = lower(host), port = port, no_proxy = {} }
   if userinfo ~= nil and userinfo ~= "" then
     local user, password = userinfo:match("^([^:]*):?(.*)$") -- untyped: call
-    upstream.authorization = "Basic " .. Codec.base64(percent_decoded(user) .. ":" .. percent_decoded(password)) -- checked: field_fixed
+    local name, name_why = Url.unescape(user)
+    if name == nil then return nil, "https_proxy's user: " .. tostring(name_why) end
+    local secret, secret_why = Url.unescape(password)
+    if secret == nil then return nil, "https_proxy's password: " .. tostring(secret_why) end
+    upstream.authorization = "Basic " .. Codec.base64(name .. ":" .. secret) -- checked: field_fixed
   end
   for entry in ((env.no_proxy or env["NO_PROXY"] or "") .. ","):gmatch("([^,]*),") do -- checked: map_field -- untyped: call
     local trimmed = String.trim(entry)
@@ -385,36 +383,54 @@ local function strings(value: Json.Value?, name: string): mut {string}?, string
   return out, ""
 end
 
---- The [`Upstream`] `value` holds, or nil and why. No reason repeats a
---- value: `authorization` is a credential.
+--- What makes `up` no upstream a relay may connect through, naming the
+--- field (`port is not a port ...`), or nil. Both the relay's spec
+--- ([`cosmic.internal.relay_server`]'s `start`) and a decoded config are
+--- held to it. No reason repeats a value: `authorization` is a credential.
+function relay_config.upstream_problem(up: relay_config.Upstream): string?
+  if up.host == "" or up.host:find("[%c%s]") ~= nil then
+    return "host is not a host name or address"
+  end
+  if up.port < 1 or up.port > 65535 then
+    return "port is not a port from 1 to 65535"
+  end
+  local authorization = up.authorization
+  if authorization ~= nil and authorization:find("%c") ~= nil then
+    return "authorization is not a header value with no control bytes"
+  end
+  local addresses = up.addresses
+  if addresses == nil then return "addresses is not given" end
+  if #addresses == 0 then return "addresses holds no address" end
+  for i, address in ipairs(addresses) do
+    if Address.parse(address) == nil then
+      return "addresses[" .. tostring(i) .. "] is not a numeric address"
+    end
+  end
+  return nil
+end
+
+--- The [`Upstream`] `value` holds, or nil and why ([`relay_config.upstream_problem`]).
 local function upstream_of(raw: Json.Value?): relay_config.Upstream?, string
   local value, _ = Json.to_object(raw)
   if value == nil then return nil, "upstream is not an object" end
   local host, port, authorization = value["host"], value["port"], value["authorization"]
-  if not host is string or host == "" or host:find("[%c%s]") ~= nil then
-    return nil, "upstream.host is not a host name or address"
-  end
-  if not port is integer or port < 1 or port > 65535 then
-    return nil, "upstream.port is not a port from 1 to 65535"
-  end
-  if authorization ~= nil and (not authorization is string or authorization:find("%c") ~= nil) then
+  if not host is string then return nil, "upstream.host is not a host name or address" end
+  if not port is integer then return nil, "upstream.port is not a port from 1 to 65535" end
+  if authorization ~= nil and not authorization is string then
     return nil, "upstream.authorization is not a header value with no control bytes"
   end
   local skipped, skipped_why = strings(value["no_proxy"], "upstream.no_proxy")
   if skipped == nil then return nil, skipped_why end
-  local addresses, addresses_why = strings(value["addresses"], "upstream.addresses")
-  if addresses == nil then
-    if value["addresses"] == nil then return nil, "upstream.addresses is not given" end
-    return nil, addresses_why
-  end
-  if #addresses == 0 then return nil, "upstream.addresses holds no address" end
-  for i, address in ipairs(addresses) do
-    if Address.parse(address) == nil then
-      return nil, "upstream.addresses[" .. tostring(i) .. "] is not a numeric address"
-    end
+  local addresses: {string}? = nil
+  if value["addresses"] ~= nil then
+    local listed, addresses_why = strings(value["addresses"], "upstream.addresses")
+    if listed == nil then return nil, addresses_why end
+    addresses = listed
   end
   local up: relay_config.Upstream = { host = host, port = port, no_proxy = skipped, addresses = addresses }
   if authorization is string then up.authorization = authorization end -- checked: field_fixed
+  local problem = relay_config.upstream_problem(up)
+  if problem ~= nil then return nil, "upstream." .. problem end
   return up, ""
 end
 
@@ -424,9 +440,9 @@ end
 --- @return string Why it is no config, "" otherwise
 function relay_config.decode(text: string): relay_config.Config?, string
   local decoded, why = Json.decode_object(text)
-  if decoded == nil then return nil, why end
+  if decoded == nil then return nil, tostring(why) end
   local value, invalid = Json.to_object(decoded)
-  if value == nil then return nil, invalid end
+  if value == nil then return nil, tostring(invalid) end
   local grants, grants_why = strings(value["grants"], "grants")
   if grants == nil then return nil, grants_why end
   local own, own_why = strings(value["own_addresses"], "own_addresses")

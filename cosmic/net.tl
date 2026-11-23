@@ -61,6 +61,7 @@
 
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Loopback = require("cosmic.internal.loopback")
 local Poll = require("cosmic.poll")
 local errors = require("cosmic.internal.errors")
 local Resolv = require("cosmic.internal.relay_resolv")
@@ -588,15 +589,7 @@ function Net.is_loopback(address: Net.Address | string): boolean
     host = address.host or ""
   end
   host = host:match("^::[Ff][Ff][Ff][Ff]:(%d+%.%d+%.%d+%.%d+)$") or host
-  if host == "::1" then return true end
-  local a, b, c = host:match("^127%.(%d+)%.(%d+)%.(%d+)$")
-  if a == nil or b == nil or c == nil then return false end
-  for _, octet in ipairs({ a, b, c }) do
-    if #octet > 3 or (#octet > 1 and octet:sub(1, 1) == "0") or assert(math.tointeger(octet)) > 255 then
-      return false
-    end
-  end
-  return true
+  return host == "::1" or Loopback.ipv4(host)
 end
 
 --- What a failed call says: its own words for a deadline or a signal,

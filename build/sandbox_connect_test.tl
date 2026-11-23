@@ -469,4 +469,7 @@ local function test_a_userinfo_that_cannot_be_used_is_refused_and_never_echoed()
   refused("socks5h://u:" .. ("p"):rep(256) .. "@127.0.0.1:1080", "the password is longer than 255 bytes")
   refused("socks5h://" .. ("u"):rep(256) .. ":" .. secret .. "@127.0.0.1:1080", "the username is longer than 255 bytes")
   refused("socks5h://u:%41" .. ("p"):rep(255) .. "@127.0.0.1:1080", "the password is longer than 255 bytes")
+  -- A '%' that escapes no byte.
+  refused("socks5h://u:" .. secret .. "%4@127.0.0.1:1080", "the token of ALL_PROXY: url: '%' at byte")
+  refused("socks5h://u%g1:" .. secret .. "@127.0.0.1:1080", "the user of ALL_PROXY: url: '%' at byte")
 end

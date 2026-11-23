@@ -1639,7 +1639,7 @@ local class Client
       local whole: mut {string: Json.Value} = {}
       if text ~= "null" and text ~= "" then
         local decoded, wrong = Json.decode_object(text)
-        if decoded == nil then return failed("tailscale: serve-config: " .. wrong) end
+        if decoded == nil then return failed("tailscale: serve-config: " .. tostring(wrong)) end
         for name, value in pairs(decoded) do whole[name] = value end
       end
       local foreground: mut {string: Json.Value} = {}
@@ -1662,7 +1662,7 @@ local class Client
       foreground[session] = config
       whole["Foreground"] = foreground
       local body, unencodable = Json.encode(whole)
-      if body == nil then return failed("tailscale: serve-config: " .. unencodable) end
+      if body == nil then return failed("tailscale: serve-config: " .. tostring(unencodable)) end
       local etag = got.headers["etag"]
       if etag == nil then
         return failed("tailscale: serve-config: the daemon's reply holds no ETag")

@@ -11,22 +11,6 @@ local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 local record Local
   --- The calls into the host that a test stands another in for: the new checker holds a library's functions
   --- fixed, so [`Local.calls`] hands out this record, which the run reads each call from. This file runs
@@ -48,7 +32,7 @@ end
 
 local current: Local.Calls = {
   child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
-    return Child.run(argv, options or { timeout_ns = CEILING_NS })
+    return Child.run(argv, options or { timeout_ns = Child.FOREVER })
   end,
   env_all = Env.all,
   fs_put = function(fd: integer, data: string): boolean, string
@@ -152,9 +136,7 @@ local function successful(result: Child.Result, program: string)
 end
 
 local function present(path: string): boolean
-  local exists, why = path_there(path)
-  assert(exists ~= nil, why)
-  return exists
+  return assert(Fs.status(path)).exists
 end
 
 --- Resolve the existing prefix before appending missing components.
@@ -232,7 +214,7 @@ local function execute(argv: {string}, program: string): integer
   local seed = fallback_value(env, "COSMIC_ZIG_CACHE", cache .. "/zig-project")
   local git = assert(Proc.find("git"))
   local cksum = assert(Proc.find("cksum"))
-  local sum = assert(current.child_run({ cksum }, { timeout_ns = CEILING_NS, input = root, stdout = "capture", stderr = "capture" }))
+  local sum = assert(current.child_run({ cksum }, { timeout_ns = Child.FOREVER, input = root, stdout = "capture", stderr = "capture" }))
   successful(sum, "cksum")
   local key = assert((sum.stdout or ""):match("^(%d+) %d+\n$"), "cksum returned an invalid checksum")
   -- TODO: prune state for checkouts that no longer exist, once each state
@@ -329,7 +311,7 @@ local function execute(argv: {string}, program: string): integer
       end
     end
     local answer, why = current.child_run(words, { cwd = "/", env = child_env, fds = fds,
-      credentials = credentials, input = input, stdout = "capture", stderr = "capture", timeout_ns = timeout_ns or CEILING_NS })
+      credentials = credentials, input = input, stdout = "capture", stderr = "capture", timeout_ns = timeout_ns or Child.FOREVER })
     return (assert(answer, why))
   end
   local function probe(code: string, values?: {string:string}, input?: string): Child.Result
@@ -437,7 +419,7 @@ local function execute(argv: {string}, program: string): integer
     local args = { git, "-C", root }
     for _, word in ipairs(words) do args[#args + 1] = word end
     local environment = values or caller_env
-    local result = privileged(args, { timeout_ns = CEILING_NS, env = environment, input = input, stdout = "capture", stderr = "capture" })
+    local result = privileged(args, { timeout_ns = Child.FOREVER, env = environment, input = input, stdout = "capture", stderr = "capture" })
     successful(result, "git")
     return ((result.stdout or ""):gsub("\n$", ""))
   end
@@ -476,7 +458,7 @@ local function execute(argv: {string}, program: string): integer
       owned_root(candidate)
       if present(candidate) then
         local removed_worktree = privileged({ git, "-C", root, "worktree", "remove", "--force", candidate },
-          { timeout_ns = CEILING_NS, stdout = "null", stderr = "null" })
+          { timeout_ns = Child.FOREVER, stdout = "null", stderr = "null" })
         if not removed_worktree.ok then assert(Fs.remove_tree(candidate)) end
         git_run({ "worktree", "prune" })
       end
@@ -510,7 +492,7 @@ local function execute(argv: {string}, program: string): integer
       end)
       if not cleared then
         local dropped = privileged({ git, "-C", root, "worktree", "remove", "--force", candidate },
-          { timeout_ns = CEILING_NS, stdout = "null", stderr = "null" })
+          { timeout_ns = Child.FOREVER, stdout = "null", stderr = "null" })
         if not dropped.ok then
           local _, _ = Fs.remove_tree(candidate)
         end
@@ -529,7 +511,7 @@ local function execute(argv: {string}, program: string): integer
     local log <close>: Opened = { fd = assert(fd, path .. ": " .. tostring(open_why)) }
     local start = Clock.monotonic_ns()
     local result, why = current.child_run({ cosmic, "cosmic_ci/driver.tl", "platform", phase, "success" },
-      { timeout_ns = CEILING_NS, cwd = project, env = driver_env, credentials = credentials, stdout = log.fd, stderr = log.fd })
+      { timeout_ns = Child.FOREVER, cwd = project, env = driver_env, credentials = credentials, stdout = log.fd, stderr = log.fd })
     local closed, close_why = log:close()
     assert(result, why)
     assert(closed, close_why)

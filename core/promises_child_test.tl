@@ -189,19 +189,15 @@ local function filters(tmp: string, probe: string, sandbox?: raw_process.Sandbox
   return math.tointeger(said:match("Seccomp_filters:\t(%d+)")) or error(said)
 end
 
---- A filter beside a pledge: both hold, and the stricter answer stands.
---- Counted from the filters this worker already inherits, which a
---- container's runtime may have installed.
-local function test_the_filter_stacks_with_a_pledge(tmp: string)
+--- The filter stacks on those the process already runs under: a child has
+--- one more than this worker inherits, which a container's runtime may
+--- have installed.
+local function test_the_filter_stacks_on_an_inherited_one(tmp: string)
   local probe = assert(stand_in.build(tmp .. "/stand-in"))
   under(tmp, {}, "status-field Seccomp", probe) -- skips where the kernel gives no filter
   local inherited = assert(filters(tmp, probe, nil))
-  local both = filters(tmp, probe, { promises = {}, pledge = {} })
-  if both == nil then
-    Test.skip("the kernel gives no seccomp filter beside a pledge")
-    return
-  end
-  assert(both == inherited + 2, "filters: " .. tostring(inherited) .. " inherited, " .. tostring(both) .. " under both")
+  local held = assert(filters(tmp, probe, { promises = {} }))
+  assert(held == inherited + 1, "filters: " .. tostring(inherited) .. " inherited, " .. tostring(held) .. " held")
 end
 
 --- No grants, no Landlock domain, so no scope: the filter keeps its signal

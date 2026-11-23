@@ -145,7 +145,7 @@ local function arguments(argv: {string}): verb.Request?, string
   if file == "-" then request.file = nil end
   if path ~= nil then
     local query, why = Json.query(path)
-    if query == nil then return nil, plain(why) end
+    if query == nil then return nil, plain(tostring(why)) end
     request.query = query
     for _, segment in ipairs(query.segments) do
       if segment.descendant or segment.kind == "wildcard" then request.singular = false end
@@ -277,13 +277,13 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     return bare.refused
   end
   local document, decode_trouble = Json.decode(text, { null_value = Json.null })
-  if decode_trouble ~= "" then
-    complain((request.file or "standard input") .. ": " .. decode_trouble)
+  if document == nil then
+    complain((request.file or "standard input") .. ": " .. tostring(decode_trouble))
     return bare.refused
   end
   local selected, select_trouble = Json.select(document, request.query)
   if selected == nil then
-    complain(plain(select_trouble))
+    complain(plain(tostring(select_trouble)))
     return bare.refused
   end
   local matches: {Json.Match} = selected
@@ -299,7 +299,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       if as_text and leaf is string then
         line = leaf
       elseif as_text then
-        line, why = Json.encode_any(leaf)
+        local encoded, refused = Json.encode_any(leaf)
+        line = encoded
+        if encoded == nil then why = tostring(refused) end
       else
         line, why = json_query.flat_line(item.steps, leaf)
       end
@@ -349,10 +351,10 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         steps[i] = step
       end
       local _, missing = Json.get(document, steps)
-      if missing == "" then
+      if missing == nil then
         error("json: Json.select found nothing where Json.get finds a value")
       end
-      complain(plain(missing))
+      complain(plain(tostring(missing)))
     end
     return bare.failed
   end
@@ -377,7 +379,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local encoded, encode_trouble = Json.encode_any(value, { pretty = not request.compact })
   if encoded == nil then
-    complain(place .. ": " .. plain(encode_trouble))
+    complain(place .. ": " .. plain(tostring(encode_trouble)))
     return bare.failed
   end
   return written(to.out(encoded .. "\n"))

@@ -1,22 +1,6 @@
---- The tests of [`build.grammar_mode`]: the one grammar a run compiles with, and the tool string every compile key carries.
+--- The tests of [`build.grammar_mode`]: the tool string every compile key carries.
 local GrammarMode = require("build.grammar_mode")
 local importer = require("build.importer")
-
-local function test_an_unset_or_empty_variable_is_the_new_grammar()
-  assert(GrammarMode.refusal_of(nil) == nil and GrammarMode.refusal_of("") == nil and GrammarMode.refusal_of("new") == nil)
-end
-
-local function test_the_forks_grammar_is_refused_naming_the_command_that_leaves_it()
-  local why = GrammarMode.refusal_of("teal")
-  assert(why ~= nil and why:find("COSMIC_GRAMMAR=teal", 1, true) ~= nil and why:find("doc/guides/project.md", 1, true) ~= nil, why)
-end
-
-local function test_a_word_that_is_none_is_refused()
-  for _, word in ipairs({ "New", "tl", "fork", " new", "new " }) do
-    local why = GrammarMode.refusal_of(word)
-    assert(why ~= nil and why:find("COSMIC_GRAMMAR=" .. word, 1, true) ~= nil, word .. ": " .. tostring(why))
-  end
-end
 
 -- The strings the keys of compiled rows, shared compiles and verdicts are made of, for a tool, and the checked variants.
 local function test_a_compile_is_keyed_by_the_tool_and_whether_it_wraps_facts()

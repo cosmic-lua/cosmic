@@ -5,10 +5,10 @@
 --- only so that cosmic.sandbox.seatbelt, which cosmic.sandbox requires, can require
 --- this.
 
-local Codec = require("cosmic.codec")
 local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Loopback = require("cosmic.internal.loopback")
 local Proc = require("cosmic.proc")
 local Grant = require("cosmic.relay.grant")
 local RelayConfig = require("cosmic.internal.relay_config")
@@ -221,19 +221,6 @@ local function env_name_ok(name: string): boolean
   return name ~= "" and not name:find("=", 1, true) and not name:find("\0", 1, true)
 end
 
---- Whether `address` is of 127/8 as four decimal numbers, none with a
---- leading zero.
-local function loopback_ok(address: string): boolean
-  local a, b, c = address:match("^127%.(%d+)%.(%d+)%.(%d+)$")
-  if a == nil then return false end
-  for _, part in ipairs({ a, b, c }) do -- checked: array_of_optional
-    if #part > 1 and part:sub(1, 1) == "0" then return false end -- untyped: call
-    local octet = tonumber(part)
-    if octet == nil or octet > 255 then return false end
-  end
-  return true
-end
-
 local PROFILES <const>: {string} = { "cosmic", "proc", "system" }
 
 local function listed(name: string, names: {string}): boolean
@@ -332,7 +319,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, address in ipairs(p.loopback or {}) do
-    if not loopback_ok(address) then
+    if not Loopback.ipv4(address) then
       return at({ "loopback", i }, "\"" .. address .. "\" is not an address of 127/8")
     end
   end
@@ -447,12 +434,6 @@ local function sorted_set<T is Key>(...: {T}): {T}
   end
   table.sort(out, function(x: T, y: T): boolean return tostring(x) < tostring(y) end)
   return out
-end
-
---- The SHA-256 of `value`, in lowercase hex. cosmic/policy.tl's `encode`
---- keeps a copy, which must answer the same digest.
-local function digest_of(value: string): string
-  return Codec.hex(Hash.sha256(value))
 end
 
 --- Why `held` and `incoming`, two values for the limit `name` (either nil
@@ -719,7 +700,7 @@ function rules.merge(...: rules.Policy): rules.Policy?, string
   end
   if has_file and not has_proc then isolate = sorted_set(isolate, { implied }) end
   for name, value in pairs(set_env) do
-    if digests[name] ~= nil and digests[name] ~= digest_of(value) then
+    if digests[name] ~= nil and digests[name] ~= Hash.hex_sha256(value) then
       return refuse(path_of({ "set_env_digests", name }) .. ": not the digest of set_env's value")
     end
     digests[name] = nil
@@ -746,6 +727,30 @@ function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
     user = p.user, group = p.group, database = p.database, profiles = p.profiles,
   }
   return result
+end
+
+--- The most open files a process under a policy may hold unless its
+--- `open_files` says.
+local DEFAULT_OPEN_FILES <const> = 1024
+
+--- The rlimits `limits` hold a process to, by the names spawn and
+--- restriction take: `nofile` its `open_files`, or 1024 -- lowered to this
+--- process's own hard limit, since a default is no reason to fail -- `core`
+--- 0, so no core is dumped, and `fsize` and `cpu` where it gives them.
+--- `processes` is the caller's to count.
+function rules.rlimits(limits?: rules.Limits): mut {string:integer}
+  local given = limits or {}
+  local open_files = given.open_files
+  if open_files == nil then
+    open_files = DEFAULT_OPEN_FILES
+    local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
+    if held ~= nil and held.hard < open_files then open_files = held.hard end
+  end
+  local rlimits: mut {string:integer} = { nofile = open_files, core = 0 }
+  local file_bytes, cpu_seconds = given.file_bytes, given.cpu_seconds
+  if file_bytes ~= nil then rlimits["fsize"] = file_bytes end
+  if cpu_seconds ~= nil then rlimits["cpu"] = cpu_seconds end
+  return rlimits
 end
 
 return rules
