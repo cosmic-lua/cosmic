@@ -1410,12 +1410,28 @@ local function lay_out_teal(ctx: Fix)
     memo = opened
     if memo ~= nil then kept = laid.begin(memo) end
   end
-  local unlaid: mut {string} = {}
+  -- Each file's text, read once: formatted first in copies of the process where many are not known laid out.
+  local read: mut {string: string} = {}
+  local unread: mut {string: string} = {}
+  local pairs_of: mut {{string}} = {}
   for _, file in ipairs(files) do
     local source, read_trouble = Fs.read(file)
     if source == nil then
-      local said = tostring(read_trouble)
-      failures[#failures + 1] = said
+      unread[file] = tostring(read_trouble)
+    else
+      read[file] = source
+      pairs_of[#pairs_of + 1] = { file, source }
+    end
+  end
+  if kept ~= nil then
+    local _ = laid.fan(kept, pairs_of)
+  end
+  local unlaid: mut {string} = {}
+  for _, file in ipairs(files) do
+    local source = read[file]
+    local read_trouble = unread[file]
+    if source == nil then
+      failures[#failures + 1] = read_trouble or file .. ": not read"
     else
       local chunk, refusal = SyntaxNode.parse(source, file)
       if chunk == nil then

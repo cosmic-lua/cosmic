@@ -1,9 +1,11 @@
 --- What `cosmic fix` keeps of a Teal file it found laid out ([`build.fix.laid`]): an answer is held for the same
 --- dialect and text and the same code alone, and the code is the formatter's whole closure.
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local check_memo = require("build.check_memo")
+local fanout = require("build.compile_fanout")
 local laid = require("build.fix.laid")
 
 Test.policy{}
@@ -94,4 +96,31 @@ local function test_a_whole_run_drops_what_it_did_not_use()
   assert(not held(third, "tl", "b = 1\n"), "an answer no run used was kept")
   laid.finish(third, false)
   assert(check_memo.get(db, "laid", check_memo.key("salt", "tl", "a = 1\n")) == "U")
+end
+
+--- A fan formats in copies of the process the files the memo does not hold, and keeps those found laid out alone:
+--- the run's own format of each is then a look-up, and a file not laid out is left for the run to format.
+local function test_a_fan_keeps_the_files_its_copies_found_laid_out()
+  if Proc.cpu_count() < 2 then
+    Test.skip("this host has one processor, for which no copy is forked")
+  end
+  local least = fanout.least
+  fanout.least = 2
+  local kept = begun()
+  local files: mut {{string}} = {}
+  for index = 1, 8 do
+    files[#files + 1] = { "a" .. tostring(index) .. ".tl", "local x" .. tostring(index) .. " = 1\n" }
+  end
+  files[#files + 1] = { "unlaid.tl", "local   y=1\n" }
+  files[#files + 1] = { "refused.tl", "local = \n" }
+  local answered = laid.fan(kept, files)
+  fanout.least = least
+  assert(answered == #files, "the copies answered " .. tostring(answered))
+  for index = 1, 8 do
+    assert(held(kept, "tl", "local x" .. tostring(index) .. " = 1\n"), "a file laid out was not kept")
+  end
+  assert(not held(kept, "tl", "local   y=1\n") and not held(kept, "tl", "local = \n"), "a file not laid out was kept")
+  -- What the memo holds already is not formatted again.
+  assert(laid.fan(kept, { assert(files[1]), assert(files[2]), assert(files[3]) }) == 0,
+    "a file the memo holds was formatted again")
 end
