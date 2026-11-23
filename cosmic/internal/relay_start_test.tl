@@ -1,0 +1,31 @@
+--- The relay's policy on each platform, and the upstream a numeric host
+--- names, which the start tells the relay without a lookup.
+
+local RelayStart = require("cosmic.internal.relay_start")
+local type Config = require("cosmic.internal.relay_config")
+
+local DIGEST <const> = string.rep("0", 64)
+
+local function test_the_relays_policy_differs_by_platform_only_in_what_holds_it()
+  local linux = RelayStart.policy("/tmp/relay.db", DIGEST)
+  local macos = RelayStart.policy("/tmp/relay.db", DIGEST, true)
+  for _, policy in ipairs({ linux, macos }) do
+    local database = assert(policy.database)
+    assert(database.path == "/tmp/relay.db" and database.sha256 == DIGEST)
+    for _, grant in ipairs(policy.grants or {}) do
+      assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)
+    end
+    assert(#(policy.connect or {}) == 0 and #(policy.promises or {}) == 0)
+  end
+  assert(table.concat(assert(linux.isolate), ",") == "proc" and linux.profiles == nil)
+  assert(table.concat(assert(macos.profiles), ",") == "system" and macos.isolate == nil)
+end
+
+local function test_a_numeric_upstream_is_its_own_address_in_canonical_text()
+  for host, want in pairs({ ["192.0.2.7"] = "192.0.2.7", ["2001:DB8:0:0:0:0:0:1"] = "2001:db8::1",
+      ["::ffff:192.0.2.7"] = "::ffff:c000:207" }) do
+    local up: Config.Upstream = { host = host, port = 3128, no_proxy = {} }
+    local addresses = assert(RelayStart.resolved_upstream(up))
+    assert(#addresses == 1 and addresses[1] == want, host .. ": " .. tostring(addresses[1]))
+  end
+end

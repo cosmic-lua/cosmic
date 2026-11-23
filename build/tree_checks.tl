@@ -966,7 +966,7 @@ function tree_checks.stand_ins(db: Sqlite.Handle, cases?: {{string}}): {string}
       local found, lookup_trouble = Doc.lookup(looked, query)
       local first = "nothing"
       if found == nil then
-        first = "nothing (" .. lookup_trouble .. ")"
+        first = "nothing (" .. tostring(lookup_trouble) .. ")"
       else
         -- A raw binding of the same name may come first; what stands in
         -- for it must come right after.
@@ -1010,7 +1010,7 @@ function tree_checks.queries(db: Sqlite.Handle, wanted?: {string}): {string}
   for _, query in ipairs(wanted or queries_expected()) do
     local found, lookup_trouble = Doc.lookup(looked, query)
     if found == nil then
-      out[#out + 1] = "`cosmic docs " .. query .. "`: " .. lookup_trouble
+      out[#out + 1] = "`cosmic docs " .. query .. "`: " .. tostring(lookup_trouble)
     elseif #found == 0 then
       out[#out + 1] = "`cosmic docs " .. query .. "` answers nothing, though a " ..
         "compile's failure points its reader there"

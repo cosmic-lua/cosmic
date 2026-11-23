@@ -640,7 +640,7 @@ end
 --- with no write.
 local function test_the_relays_policy_grants_reads_alone(_tmp: string)
   SeatbeltFixture.macos_only()
-  local policy = RelayStart.seatbelt_policy("/tmp/relay.db", string.rep("0", 64))
+  local policy = RelayStart.policy("/tmp/relay.db", string.rep("0", 64), true)
   assert(assert(policy.database).path == "/tmp/relay.db" and assert(policy.profiles)[1] == "system")
   for _, grant in ipairs(policy.grants or {}) do
     assert(grant.letters == "r", grant.path .. " is granted " .. grant.letters)

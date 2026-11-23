@@ -2723,7 +2723,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
     local looked = assert(docs.view({ db }, { public }))
     for _, query in ipairs(queries) do
       local found, trouble = Doc.lookup(looked, query)
-      out[#out + 1] = query .. ": " .. (if found ~= nil then listed(found) else "nil " .. trouble end)
+      out[#out + 1] = query .. ": " .. (if found ~= nil then listed(found) else "nil " .. tostring(trouble) end)
     end
     return out
   end
@@ -3001,12 +3001,14 @@ local function test_a_view_of_a_pure_store_raises_naming_store_text()
   local db = database({}, {})
   assert(db:exec("DROP TABLE docs"))
   assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('pure_store', X'31')", {}))
-  local ok, raised = pcall(Doc.view, { db })
+  local ok, raised = pcall(function()
+    local _, _ = Doc.view({ db })
+  end)
   assert(not ok and tostring(raised):find("store_text = true", 1, true) ~= nil, tostring(raised))
   -- A database that lacks the table and is no test's store is a trouble to report, not a raise.
   assert(Sqlite.run(db, "DELETE FROM meta WHERE key = 'pure_store'", {}))
   local seen, trouble = Doc.view({ db })
-  assert(seen == nil and trouble:find("docs", 1, true) ~= nil, trouble)
+  assert(seen == nil and tostring(trouble):find("docs", 1, true) ~= nil, trouble)
   assert(db:close())
 end
 
@@ -3174,10 +3176,11 @@ local function test_a_programs_view_finds_a_member_and_answers_for_the_program_a
       "cosmic/fs.tl", "5", "", "Fs.basename" },
   }, {}, nil, { "pages", "cosmic.fs" })
   local seen = assert(Doc.program({ db }, "prog"))
-  local row = assert(Doc.member(seen, "pages", "add"))
+  local row, row_trouble = Doc.member(seen, "pages", "add")
+  assert(row is Doc.Entry, tostring(row_trouble))
   assert(row.source_symbol == "Pages.add" and Doc.shown(row.text) == "Adds an entry; see `Pages.list`.", row.text)
   local none, trouble = Doc.member(seen, "pages", "remove")
-  assert(none == nil and trouble == "", trouble)
+  assert(none == false and trouble == nil, tostring(trouble))
   -- The standard library's module is in the database and is not the program's to answer for.
   assert(#assert(Doc.lookup(seen, "Fs.basename")) == 0, "a program's view answered for the standard library")
   assert(#assert(Doc.lookup(view({ db }), "Fs.basename")) == 1)

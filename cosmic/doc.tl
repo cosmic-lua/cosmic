@@ -13,6 +13,7 @@
 --- its qualifier offers, and a search ranks first the functions whose
 --- documentation names its first word as what they stand in for.
 
+local Failure = require("cosmic.failure")
 local Json = require("cosmic.json")
 local Removed = require("cosmic.removed")
 local Sqlite = require("cosmic.sqlite")
@@ -970,10 +971,17 @@ local function has_docs(db: Sqlite.Handle): boolean?, string
   return #rows > 0, ""
 end
 
---- Whether `db` holds documentation at all: what a caller asks of a database before it lists it among a view's,
---- one that holds none answering nothing. Nil and why when it cannot be read.
-function Doc.documented(db: Sqlite.Handle): boolean?, string
+-- Doc.documented, its failure in words.
+local function documented_text(db: Sqlite.Handle): boolean?, string
   return has_docs(db)
+end
+
+--- Whether `db` holds documentation at all: what a caller asks of a database before it lists it among a view's,
+--- one that holds none answering nothing. Nil and a [`Failure`] when it cannot be read.
+function Doc.documented(db: Sqlite.Handle): (boolean) | (nil, Failure)
+  local value, why = documented_text(db)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- Whether `db` holds `links`: a database built before it existed has
@@ -1532,14 +1540,8 @@ local function effective_counts(view: Doc.View, entries: {Doc.Entry}): boolean, 
   return true, ""
 end
 
---- Resolves module ownership once for a docs command or direct caller.
---- Membership comes from `modules`, even when the owning database has
---- no documentation for that module, and from `decls` -- [`cosmic.sys`]
---- is only a declaration -- where it does: a database that copied a
---- declaration without its documentation must not hide the one that
---- documents it.
---- @param public which databases, by index, are public sources
-function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, string
+-- Doc.view, its failure in words.
+local function view_text(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, string
   local scope: mut {integer: boolean} = {}
   for index, flag in ipairs(public or {}) do
     scope[index] = flag
@@ -1559,6 +1561,19 @@ function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, st
   end
   return { databases = databases, public = scope, owners = owners,
     use_counts = {}, link_counts = {}, value_records = {}, public_modules = {}, commands = {} }, ""
+end
+
+--- Resolves module ownership once for a docs command or direct caller.
+--- Membership comes from `modules`, even when the owning database has
+--- no documentation for that module, and from `decls` -- [`cosmic.sys`]
+--- is only a declaration -- where it does: a database that copied a
+--- declaration without its documentation must not hide the one that
+--- documents it.
+--- @param public which databases, by index, are public sources
+function Doc.view(databases: {Sqlite.Handle}, public?: {boolean}): (Doc.View) | (nil, Failure)
+  local value, why = view_text(databases, public)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The text of `value` as an SQL string literal.
@@ -1710,21 +1725,9 @@ local function scope_to_program(db: Sqlite.Handle, pages?: string): Sqlite.Handl
   return opened, ""
 end
 
---- A view of a program's own documentation, for the program to answer its users from: `databases` are its
---- store's, each a public source, so only the modules any module may require answer. The standard library's
---- answer nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
---- the tool carries, which is a guide's row in a database that documents the standard library without the
---- guide's module. A test's store, which declares `store_text`, holds its tree's public guides as modules, so
---- there they answer as they do in the built program. So the built
---- program answers from what `cosmic build` put in it, and the same program run from its source by the tool
---- answers from the project's last build, which the tool's store holds beside its own. A database that
---- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
---- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and why when a database cannot be read;
---- raises on a test's store that withholds the documentation, naming `store_text`. A `cmd/<name>/main.tl` run
---- from its source answers as it would built ([`scope_to_program`]), `pages` the module its commands' pages are
---- read from ([`Flags.Documented`]), which a build carries for being named.
-function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command},
-                     pages?: string): Doc.View?, string
+-- Doc.program, its failure in words.
+local function program_text(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command},
+                            pages?: string): Doc.View?, string
   local documented: mut {Sqlite.Handle} = {}
   local public: mut {boolean} = {}
   for _, db in ipairs(databases) do
@@ -1743,7 +1746,7 @@ function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Do
       refuse_pure(db)
     end
   end
-  local view, trouble = Doc.view(documented, public)
+  local view, trouble = view_text(documented, public)
   if view == nil then
     return nil, trouble
   end
@@ -1783,11 +1786,28 @@ function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Do
     value_records = {}, public_modules = {}, commands = commands or {}, program = program }, ""
 end
 
---- The text of the guide `name` of `view`'s documentation, `doc/guides/<name>.md`, as a reader is shown it
---- ([`Doc.shown`]): what follows its title. A guide under `doc/guides/internal/`, or one the view does not answer
---- for (the tool's, in [`Doc.program`]'s view), is none. Nil and "" where there is none; nil and why when a
---- database cannot be read, so a caller tells the two apart by the second.
-function Doc.guide(view: Doc.View, name: string): string?, string
+--- A view of a program's own documentation, for the program to answer its users from: `databases` are its
+--- store's, each a public source, so only the modules any module may require answer. The standard library's
+--- answer nothing, a program's users being asked about the program: neither a `cosmic.*` module nor a guide
+--- the tool carries, which is a guide's row in a database that documents the standard library without the
+--- guide's module. A test's store, which declares `store_text`, holds its tree's public guides as modules, so
+--- there they answer as they do in the built program. So the built
+--- program answers from what `cosmic build` put in it, and the same program run from its source by the tool
+--- answers from the project's last build, which the tool's store holds beside its own. A database that
+--- holds no documentation is left out. `program` is what its user types to run it, which the hints of a page
+--- name, and `commands` are its commands, as [`Doc.Command`] says. Nil and a [`Failure`] when a database cannot be read;
+--- raises on a test's store that withholds the documentation, naming `store_text`. A `cmd/<name>/main.tl` run
+--- from its source answers as it would built ([`scope_to_program`]), `pages` the module its commands' pages are
+--- read from ([`Flags.Documented`]), which a build carries for being named.
+function Doc.program(databases: {Sqlite.Handle}, program: string, commands?: {Doc.Command},
+                     pages?: string): (Doc.View) | (nil, Failure)
+  local value, why = program_text(databases, program, commands, pages)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Doc.guide, its failure in words.
+local function guide_text(view: Doc.View, name: string): string?, string
   local module = "doc.guides." .. name
   local owner = view.owners[module]
   if owner == nil or not symbols.is_public_guide(module) then
@@ -1803,6 +1823,19 @@ function Doc.guide(view: Doc.View, name: string): string?, string
     return nil, ""
   end
   return Doc.shown(row:text(1)), ""
+end
+
+--- The text of the guide `name` of `view`'s documentation, `doc/guides/<name>.md`, as a reader is shown it
+--- ([`Doc.shown`]): what follows its title. A guide under `doc/guides/internal/`, or one the view does not answer
+--- for (the tool's, in [`Doc.program`]'s view), is none. False where there is none; nil and a [`Failure`]
+--- when a database cannot be read.
+function Doc.guide(view: Doc.View, name: string): (string | false) | (nil, Failure)
+  local value, why = guide_text(view, name)
+  if value == nil then
+    if why == "" then return false end
+    return nil, Failure.new(why)
+  end
+  return value
 end
 
 --- What a reader types to ask `view`'s documentation: the tool's `cosmic docs`, or the program's own.
@@ -2278,11 +2311,8 @@ local function lookup_names(view: Doc.View, query: string, as_respelled?: boolea
   return lookup(found, false, 0), ""
 end
 
---- What `query` names, as [`lookup_names`] answers, and ahead of it the row of the code of the checker it is, when it is
---- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
---- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone. A program's
---- own view ([`Doc.program`]) answers no code.
-function Doc.lookup(view: Doc.View, query: string): Doc.Lookup?, string
+-- Doc.lookup, its failure in words.
+local function lookup_text(view: Doc.View, query: string): Doc.Lookup?, string
   local rule, rule_trouble = coded(view, query)
   if rule == nil then
     return nil, rule_trouble
@@ -2301,6 +2331,16 @@ function Doc.lookup(view: Doc.View, query: string): Doc.Lookup?, string
   ruled.verb = names.verb
   ruled.modules = if names.verb ~= nil then names.modules + #rule else 0 end
   return ruled, ""
+end
+
+--- What `query` names, as [`lookup_names`] answers, and ahead of it the row of the code of the checker it is, when it is
+--- one (`not_assignable`): the rule behind the code, then the symbols that share its name (the enum member of [`Codes.Code`]),
+--- which stay reachable. A query that only searches (nothing is named exactly) answers the code's row alone. A program's
+--- own view ([`Doc.program`]) answers no code.
+function Doc.lookup(view: Doc.View, query: string): (Doc.Lookup) | (nil, Failure)
+  local value, why = lookup_text(view, query)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The first sentence of `documented`'s first paragraph, on one line:
@@ -2325,12 +2365,8 @@ local function first_sentence(documented: string): string
   return paragraph
 end
 
---- Every module `view` holds, by name, with the first sentence of its
---- documentation ("" for one it does not document) -- no test or
---- example, which a reader never calls: what `cosmic docs` lists when
---- asked nothing. Each `closed` is "": the list `cosmic docs` prints
---- judges it ([`marked`]), which no other reader of the index pays for.
-function Doc.index(view: Doc.View): {Doc.Summary}?, string
+-- Doc.index, its failure in words.
+local function index_text(view: Doc.View): {Doc.Summary}?, string
   local found, trouble = across(view, modules_of, entry_module)
   if found == nil then
     return nil, trouble
@@ -2356,13 +2392,19 @@ function Doc.index(view: Doc.View): {Doc.Summary}?, string
   return out, ""
 end
 
---- Every one of `names` that names a symbol exactly, in one query per
---- database rather than one lookup per name -- built for a caller
---- that needs several known symbols in one command, such as `cosmic
---- help` listing every verb. `#names == 0` finds nothing without
---- querying. A name absent from the result was not found; this never
---- fails for that, only for real trouble reading a database.
-function Doc.named_all(view: Doc.View, names: {string}): {Doc.Entry}?, string
+--- Every module `view` holds, by name, with the first sentence of its
+--- documentation ("" for one it does not document) -- no test or
+--- example, which a reader never calls: what `cosmic docs` lists when
+--- asked nothing. Each `closed` is "": the list `cosmic docs` prints
+--- judges it ([`marked`]), which no other reader of the index pays for.
+function Doc.index(view: Doc.View): ({Doc.Summary}) | (nil, Failure)
+  local value, why = index_text(view)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Doc.named_all, its failure in words.
+local function named_all_text(view: Doc.View, names: {string}): {Doc.Entry}?, string
   if #names == 0 then
     return {}, ""
   end
@@ -2380,15 +2422,20 @@ function Doc.named_all(view: Doc.View, names: {string}): {Doc.Entry}?, string
   return found, ""
 end
 
---- What `query` names exactly, by the rule [`Doc.lookup`] answers an
---- exact query with: the public modules a bare lowercase name ends
---- (only those, when there are any), else every row `named` finds,
---- else the module the index lists under that whole name, else the
---- member of a type an alias stands for ([`Sqlite.Handle.close`], whose
---- row is the aliased record's), else a module's member written in
---- full ([`cosmic.fs.read`]). It neither searches nor counts uses, so it
---- is cheap to ask once per name.
-function Doc.exact(view: Doc.View, query: string): {Doc.Entry}?, string
+--- Every one of `names` that names a symbol exactly, in one query per
+--- database rather than one lookup per name -- built for a caller
+--- that needs several known symbols in one command, such as `cosmic
+--- help` listing every verb. `#names == 0` finds nothing without
+--- querying. A name absent from the result was not found; this never
+--- fails for that, only for real trouble reading a database.
+function Doc.named_all(view: Doc.View, names: {string}): ({Doc.Entry}) | (nil, Failure)
+  local value, why = named_all_text(view, names)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Doc.exact, its failure in words.
+local function exact_text(view: Doc.View, query: string): {Doc.Entry}?, string
   if query:match("^%l[%w_]*$") ~= nil then
     local modules, modules_trouble = across(view,
       function(db: Sqlite.Handle, _: boolean): {Doc.Entry}?, string
@@ -2422,6 +2469,20 @@ function Doc.exact(view: Doc.View, query: string): {Doc.Entry}?, string
     end
   end
   return Members.in_full(view, query)
+end
+
+--- What `query` names exactly, by the rule [`Doc.lookup`] answers an
+--- exact query with: the public modules a bare lowercase name ends
+--- (only those, when there are any), else every row `named` finds,
+--- else the module the index lists under that whole name, else the
+--- member of a type an alias stands for ([`Sqlite.Handle.close`], whose
+--- row is the aliased record's), else a module's member written in
+--- full ([`cosmic.fs.read`]). It neither searches nor counts uses, so it
+--- is cheap to ask once per name.
+function Doc.exact(view: Doc.View, query: string): ({Doc.Entry}) | (nil, Failure)
+  local value, why = exact_text(view, query)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The rows of `module` whose symbol is `name`, as the symbol column
@@ -2590,12 +2651,8 @@ local function member_uses(db: Sqlite.Handle, public: boolean, module: string, s
   return out, ""
 end
 
---- Every place across `databases` that refers to what `query` names,
---- in file and line order: one per line for each thing it names there.
---- A module's member, written in full ([`cosmic.cli.order`]) or from the
---- module's last name (`Cli.order`), is found as [`Doc.lookup`] finds
---- it, and its uses and links are those of that module's member alone.
-function Doc.uses(view: Doc.View, query: string): {Doc.Use}?, string
+-- Doc.uses, its failure in words.
+local function uses_text(view: Doc.View, query: string): {Doc.Use}?, string
   local found, trouble = across(view,
     function(db: Sqlite.Handle, public: boolean): {Doc.Use}?, string
       return uses_of(db, public, query)
@@ -2648,6 +2705,17 @@ function Doc.uses(view: Doc.View, query: string): {Doc.Use}?, string
     return a.anchor < b.anchor
   end)
   return out, ""
+end
+
+--- Every place across `databases` that refers to what `query` names,
+--- in file and line order: one per line for each thing it names there.
+--- A module's member, written in full ([`cosmic.cli.order`]) or from the
+--- module's last name (`Cli.order`), is found as [`Doc.lookup`] finds
+--- it, and its uses and links are those of that module's member alone.
+function Doc.uses(view: Doc.View, query: string): ({Doc.Use}) | (nil, Failure)
+  local value, why = uses_text(view, query)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The declaring record or enum of a member's source symbol:
@@ -2956,11 +3024,8 @@ local function heading(entry: Doc.Entry): string
   return entry.module .. " " .. entry.source_symbol .. " (" .. entry.file .. at .. ")"
 end
 
---- One entry, as `cosmic docs` prints it: where it is, its signature,
---- its documentation indented under that, and how many places use it.
---- A module's row lists the symbols it declares instead of a signature.
---- Nil and why when a database cannot be read.
-function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
+-- Doc.render, its failure in words.
+local function render_text(view: Doc.View, entry: Doc.Entry): {string}?, string
   local first_line = heading(entry)
   local lines: mut {string} = { first_line }
   if entry.kind == "example" then
@@ -3219,6 +3284,16 @@ function Doc.render(view: Doc.View, entry: Doc.Entry): {string}?, string
   return lines, ""
 end
 
+--- One entry, as `cosmic docs` prints it: where it is, its signature,
+--- its documentation indented under that, and how many places use it.
+--- A module's row lists the symbols it declares instead of a signature.
+--- Nil and a [`Failure`] when a database cannot be read.
+function Doc.render(view: Doc.View, entry: Doc.Entry): ({string}) | (nil, Failure)
+  local value, why = render_text(view, entry)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 --- How many entries a search shows whole, when nothing is named
 --- exactly; the rest it lists a line each. A search ("read whole
 --- file") touches dozens of entries, each a page with its examples.
@@ -3263,7 +3338,7 @@ local function page(view: Doc.View, found: Doc.Lookup,
     if index > 1 then
       lines[#lines + 1] = ""
     end
-    local rendered, trouble = Doc.render(view, (assert(found[index], "index is within the lookup")))
+    local rendered, trouble = render_text(view, (assert(found[index], "index is within the lookup")))
     if rendered == nil then
       return nil, trouble
     end
@@ -3370,7 +3445,7 @@ end
 --- guides for `cosmic`. Nil and why when a database cannot be read; a mark that cannot be judged
 --- is left off.
 local function modules_asked(view: Doc.View, words: {string}): {Doc.Summary}?, string
-  local index, trouble = Doc.index(view)
+  local index, trouble = index_text(view)
   if index == nil then
     return nil, trouble
   end
@@ -3389,17 +3464,8 @@ local function modules_asked(view: Doc.View, words: {string}): {Doc.Summary}?, s
   return library, ""
 end
 
---- What `cosmic docs <words...>` prints, short of its summary:
---- - no words: every module ([`Doc.index`]);
---- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
----   guides, which no search for the word could list in a page;
---- - several words, each a qualified name ([`Fs.read`] [`Fs.write`]):
----   each looked up in turn, as it would be alone;
---- - else the words together, as one query to [`Doc.lookup`]: a
----   symbol, a module or words to search for. A search names at most
----   [`SHOWN_WHOLE`] entries whole.
---- Nil and why when a database cannot be read.
-function Doc.answer(view: Doc.View, words: {string}): Doc.Answer?, string
+-- Doc.answer, its failure in words.
+local function answer_text(view: Doc.View, words: {string}): Doc.Answer?, string
   local query = table.concat(words, " ")
   local asked = asked_of(view, words)
   if asked == nil then
@@ -3423,7 +3489,7 @@ function Doc.answer(view: Doc.View, words: {string}): Doc.Answer?, string
   local naming, standing, related = 0, 0, 0
   local missed: mut {string} = {}
   for at, asking in ipairs(asked) do
-    local found, trouble = Doc.lookup(view, asking)
+    local found, trouble = lookup_text(view, asking)
     if found == nil then
       return nil, trouble
     end
@@ -3462,27 +3528,24 @@ function Doc.answer(view: Doc.View, words: {string}): Doc.Answer?, string
   return { lines = lines, found = #missed == 0, said = table.concat(said, ", ") }, ""
 end
 
---- `cosmic docs --json <words...>`: a JSON object a line for what the page
---- of [`Doc.answer`] shows, every entry and not the first few, in its order:
---- - an entry [`Doc.lookup`] finds for each query [`Doc.asked`] names:
----   `query`, `exact` (whether the query names the entry, and it does not
----   stand in for a name it did), `module`, `symbol` (as the page names it:
----   [`Fs.read`], `doc.guides.x#heading`; "" for a module), `kind`, `signature`
----   and `text`, with `file` and `line` where it has them (a guide's
----   section or a code entry has no line, and the key is absent), and `verb`
----   (the command `cosmic <query>`, which the page points to) on the last
----   module entry of a query that names one, and `respelled` (the query as
----   it was searched for) where a misspelled word of it was taken for the
----   nearest the documentation holds;
---- - no words, or `cosmic`, name no query: each module the page lists, as
----   `kind` "module", with its `text` the first sentence, and `closed`
----   ([`Doc.Summary`]) where not every module may require it.
---- A query that finds nothing has no line. Each object carries `stale`, true,
---- where `stale` is set: the lookup answers from the last build, the tree not
---- building as it stands. Nil and why when a database
---- cannot be read; `found` is false when a query found nothing, and `said`
---- is empty.
-function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answer?, string
+--- What `cosmic docs <words...>` prints, short of its summary:
+--- - no words: every module ([`Doc.index`]);
+--- - `cosmic` (or `cosmic.`) alone: the standard library's modules and
+---   guides, which no search for the word could list in a page;
+--- - several words, each a qualified name ([`Fs.read`] [`Fs.write`]):
+---   each looked up in turn, as it would be alone;
+--- - else the words together, as one query to [`Doc.lookup`]: a
+---   symbol, a module or words to search for. A search names at most
+---   [`SHOWN_WHOLE`] entries whole.
+--- Nil and a [`Failure`] when a database cannot be read.
+function Doc.answer(view: Doc.View, words: {string}): (Doc.Answer) | (nil, Failure)
+  local value, why = answer_text(view, words)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Doc.records, its failure in words.
+local function records_text(view: Doc.View, words: {string}, stale?: boolean): Doc.Answer?, string
   local lines: mut {string} = {}
   local all = true
   local asked = asked_of(view, words)
@@ -3507,7 +3570,7 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
     return { lines = lines, found = true, said = "" }, ""
   end
   for _, asking in ipairs(asked) do
-    local found, trouble = Doc.lookup(view, asking)
+    local found, trouble = lookup_text(view, asking)
     if found == nil then
       return nil, trouble
     end
@@ -3549,11 +3612,34 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
   return { lines = lines, found = all, said = "" }, ""
 end
 
---- The row that documents `module`'s member `name`: a field of the record the module returns, or a function it
---- offers; else, where the module's own row does not say what it returns (a module with no doc comment of its
---- own has none), the field or function of that name its file declares, the least nested first. Nil and ""
---- where the view holds no such member; nil and why when a database cannot be read.
-function Doc.member(view: Doc.View, module: string, name: string): Doc.Entry?, string
+--- `cosmic docs --json <words...>`: a JSON object a line for what the page
+--- of [`Doc.answer`] shows, every entry and not the first few, in its order:
+--- - an entry [`Doc.lookup`] finds for each query [`Doc.asked`] names:
+---   `query`, `exact` (whether the query names the entry, and it does not
+---   stand in for a name it did), `module`, `symbol` (as the page names it:
+---   [`Fs.read`], `doc.guides.x#heading`; "" for a module), `kind`, `signature`
+---   and `text`, with `file` and `line` where it has them (a guide's
+---   section or a code entry has no line, and the key is absent), and `verb`
+---   (the command `cosmic <query>`, which the page points to) on the last
+---   module entry of a query that names one, and `respelled` (the query as
+---   it was searched for) where a misspelled word of it was taken for the
+---   nearest the documentation holds;
+--- - no words, or `cosmic`, name no query: each module the page lists, as
+---   `kind` "module", with its `text` the first sentence, and `closed`
+---   ([`Doc.Summary`]) where not every module may require it.
+--- A query that finds nothing has no line. Each object carries `stale`, true,
+--- where `stale` is set: the lookup answers from the last build, the tree not
+--- building as it stands. Nil and a [`Failure`] when a database
+--- cannot be read; `found` is false when a query found nothing, and `said`
+--- is empty.
+function Doc.records(view: Doc.View, words: {string}, stale?: boolean): (Doc.Answer) | (nil, Failure)
+  local value, why = records_text(view, words, stale)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Doc.member, its failure in words.
+local function member_text(view: Doc.View, module: string, name: string): Doc.Entry?, string
   local found, trouble = member_of(view, module, name)
   if found == nil then
     return nil, trouble
@@ -3577,6 +3663,19 @@ function Doc.member(view: Doc.View, module: string, name: string): Doc.Entry?, s
     return nil, declared_trouble
   end
   return declared[1], ""
+end
+
+--- The row that documents `module`'s member `name`: a field of the record the module returns, or a function it
+--- offers; else, where the module's own row does not say what it returns (a module with no doc comment of its
+--- own has none), the field or function of that name its file declares, the least nested first. False
+--- where the view holds no such member; nil and a [`Failure`] when a database cannot be read.
+function Doc.member(view: Doc.View, module: string, name: string): (Doc.Entry | false) | (nil, Failure)
+  local value, why = member_text(view, module, name)
+  if value == nil then
+    if why == "" then return false end
+    return nil, Failure.new(why)
+  end
+  return value
 end
 
 --- `comment`, a doc comment, as a reader is shown it: a link as its code span alone.
