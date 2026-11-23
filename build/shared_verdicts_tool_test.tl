@@ -632,7 +632,7 @@ end
 --- its modification time not.
 local function touch(path: string)
   local data = assert(Fs.read(path))
-  assert(Clock.sleep_ns(10000000))
+  assert(Clock.sleep(10000000))
   assert(Fs.write(path, data))
 end
 

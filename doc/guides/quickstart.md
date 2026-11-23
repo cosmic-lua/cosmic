@@ -225,7 +225,7 @@ local Clock = require("cosmic.clock")
 local relaunch = assert(Proc.relaunch())
 local argv = { table.unpack(relaunch.argv) }
 argv[#argv + 1] = "-e"
-argv[#argv + 1] = "require('cosmic.clock').sleep_ns(500000000) return 3"
+argv[#argv + 1] = "local _, _ = require('cosmic.clock').sleep(500000000) return 3"
 local env = Env.all()
 for name, value in pairs(relaunch.env) do env[name] = value end
 local sleeper <close> = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds }))

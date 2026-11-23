@@ -612,7 +612,7 @@ local function test_in_a_run_a_waiting_read_ends_when_its_task_is_cancelled()
       answer = why
     end)
     for _ = 1, 3 do
-      assert(Poll.delay(Clock.ms(1)))
+      assert(Clock.sleep(Clock.ms(1)))
       others = others + 1
     end
     reader:cancel()
@@ -638,7 +638,7 @@ local function test_in_a_run_a_read_on_a_connection_closed_under_it_ends()
       assert(data == nil, "the closed connection answered " .. tostring(data))
       answer = why
     end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     assert(first:close())
     local second_client <close> = assert(Net.connect(server.address, { timeout_ns = Clock.seconds(5) }))
     local second = assert(server:accept())

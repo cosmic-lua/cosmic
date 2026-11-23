@@ -673,7 +673,8 @@ function Dev.supervise(opts?: Dev.SuperviseOptions): boolean, string
             "; waiting for a change")
       end
     else
-      local _, _ = Clock.sleep_ns(interval_ns)
+      local slept, trouble = Clock.sleep(interval_ns)
+      if not slept and trouble.kind == "cancelled" then break end
     end
     local now, _ = scan(roots, ignored)
     if now ~= nil then

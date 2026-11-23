@@ -115,7 +115,7 @@ local function reap(running: Running, seconds: number): Ended
       timed_out = true
       break
     end
-    local _, _ = Clock.sleep_ns(Clock.ms(20))
+    local _, _ = Clock.sleep(Clock.ms(20))
     status = assert(process.waitpid(running.pid, true))
   end
   local got, _ = Fs.read(running.output)
@@ -358,7 +358,7 @@ local function reach_listener(port: integer, seconds: number): boolean
       local _, _ = conn:close()
       return true
     end
-    local _, _ = Clock.sleep_ns(Clock.ms(100))
+    local _, _ = Clock.sleep(Clock.ms(100))
   end
   return false
 end
@@ -369,7 +369,7 @@ local function listens(tmp: string, text: string, port: integer): string
   local running = start(tmp, text, {}, { "/usr/bin/nc", "-n", "-l", "127.0.0.1", tostring(port) })
   if running.pid == nil then return "NOSTART(" .. brief(running.why) .. ")" end
   local reached = reach_listener(port, 1.5)
-  local _, _ = Clock.sleep_ns(Clock.ms(300))
+  local _, _ = Clock.sleep(Clock.ms(300))
   local ended = reap(running, 0.01)
   return (if reached then "connectable" else "not connectable" end) .. ", child read " .. brief(ended.text) ..
     " (" .. (if ended.timed_out then "ended by the test" else ("code " .. tostring(ended.code)) end) .. ")"
@@ -557,7 +557,7 @@ end
 --- What Seatbelt denied lately for the programs these tests start, as the
 --- system's log names it: operation and name of each refusal.
 local function denials(): string
-  local _, _ = Clock.sleep_ns(Clock.seconds(1.5))
+  local _, _ = Clock.sleep(Clock.seconds(1.5))
   local result = Child.run({ "/usr/bin/log", "show", "--last", "1m", "--style", "compact",
     "--predicate", "eventMessage CONTAINS \"Sandbox:\" AND eventMessage CONTAINS \"deny(\"" },
     { stdout = "capture", stderr = "capture", stdin = "null", timeout_ns = Clock.seconds(6) })

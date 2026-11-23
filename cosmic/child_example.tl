@@ -71,7 +71,7 @@ function Example.supervisor()
   for _, name in ipairs({ "build", "upload" }) do
     local argv = { table.unpack(again.argv) }
     argv[#argv + 1] = "-e"
-    argv[#argv + 1] = "require('cosmic.clock').sleep_ns(60 * 1000000000)"
+    argv[#argv + 1] = "local _, _ = require('cosmic.clock').sleep(60 * 1000000000)"
     local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, env = again.env, fds = again.fds }))
     running[#running + 1] = h
     names[h] = name
@@ -127,7 +127,7 @@ function Example.release()
     else
       local taken = guard:take()
       if taken ~= 0 then assert(h:stop(taken)) end
-      Clock.sleep_ns(Clock.ms(10))
+      local _, _ = Clock.sleep(Clock.ms(10))
     end
   end
   local finished = assert(result)

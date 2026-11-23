@@ -12,7 +12,9 @@
 --- [`span`] times a stretch of code by name, and [`report`] lists the names
 --- by the time spent in each, to find where a program spends it.
 
+local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
+local Waits = require("cosmic.internal.waits")
 
 --- What the spans of one name have added up to.
 local record Total
@@ -127,6 +129,9 @@ function Clock.cpu_ns(): integer
   return reading
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release with Clock.sleep, move ci/, build/perf.tl and eval/check/grade.tl
+-- to it and delete this, which they call on the pinned release.
+
 --- Sleeps for `nanoseconds`, as `sleep` or `nanosleep` does, resuming
 --- the wait when a signal interrupts it, so the whole time passes.
 --- Answers `true` and "" once it has, or `false` and why when the
@@ -137,6 +142,30 @@ function Clock.sleep_ns(nanoseconds: integer): boolean, string
     return false, trouble
   end
   return true, ""
+end
+
+--- Waits `ns` nanoseconds. In a task of [`Poll.run`] only that task waits, and the others run; anywhere else the
+--- process sleeps, resuming the sleep when a signal interrupts it, so the whole time passes. A task the run is
+--- killing, or one under a C call it cannot yield across (a `table.sort` comparator), sleeps the process too.
+--- Answers true once the time has passed, or false and a Failure: of kind "cancelled" where the task was cancelled
+--- first, or the system's reason where it refused the sleep. Raises when `ns` is negative.
+---
+---     assert(Clock.sleep(Clock.ms(250)))
+--- @param ns integer The nanoseconds to wait
+--- @return true Once they have passed
+function Clock.sleep(ns: integer): (true) | (false, Failure)
+  if math.type(ns) ~= "integer" or ns < 0 then
+    error("clock: Clock.sleep takes a whole number of nanoseconds, 0 or more", 2)
+  end
+  local parks, delay = Waits.parks, Waits.delay
+  if parks ~= nil and delay ~= nil and parks() then
+    return delay(ns)
+  end
+  local ok, trouble = sys.nanosleep(ns)
+  if not ok then
+    return false, Failure.new("clock: " .. trouble)
+  end
+  return true
 end
 
 --- `n` units of `unit_ns` nanoseconds each, for the constructors below;

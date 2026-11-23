@@ -103,13 +103,13 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
       local target, _ = sys.readlink("/proc/" .. tostring(child.pid) .. "/fd/" .. tostring(fd))
       if target == real then opened = true end
     end
-    if not opened then Poll.run(function() assert(Poll.delay(Clock.ms(10))) end) end
+    if not opened then Poll.run(function() assert(Clock.sleep(Clock.ms(10))) end) end
   end
   if not opened then
     local stopped = assert(child:wait(Clock.seconds(5)))
     error("the command never opened the database: " .. (stopped.stderr or ""))
   end
-  Poll.run(function() assert(Poll.delay(Clock.ms(20))) end)
+  Poll.run(function() assert(Clock.sleep(Clock.ms(20))) end)
   local before = Clock.monotonic_ns()
   assert(child:stop())
   local result = assert(child:wait(Clock.seconds(5)))

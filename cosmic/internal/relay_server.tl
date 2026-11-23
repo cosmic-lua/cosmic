@@ -1198,14 +1198,14 @@ local function accept_loop(run: Running, listener: Net.Listener, protocol: strin
   while not run.stopping do
     if run.open >= run.limits.connections + REFUSING or
         (run.token_digest ~= nil and run.pending >= run.limits.pre_auth) then
-      local ok, _ = Poll.delay(Clock.ms(20))
+      local ok, _ = Clock.sleep(Clock.ms(20))
       if not ok then return end
     else
       local conn, why = listener:accept()
       if conn == nil then
         if run.stopping or why == Poll.CANCELLED then return end
         run.log("accept failed: " .. why)
-        local ok, _ = Poll.delay(Clock.ms(50))
+        local ok, _ = Clock.sleep(Clock.ms(50))
         if not ok then return end
       else
         run.next_id = run.next_id + 1

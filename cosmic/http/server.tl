@@ -1013,7 +1013,7 @@ end
 --- Every handler runs in the task of its connection, and the server
 --- serves the next only while one waits on the run: a read of
 --- `req.body`, a [`cosmic.net`] wait, [`Http.get`] to another server,
---- [`Poll.delay`]. A handler that blocks the thread -- a
+--- [`Clock.sleep`]. A handler that blocks the thread -- a
 --- [`cosmic.sqlite`] query, a long computation -- stalls every
 --- connection until it returns.
 function Server.serve(spec: Server.ServeSpec): boolean, string

@@ -161,7 +161,7 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   local path = info_database(tmp)
   local stamp = directory .. "/.verified-" .. Fs.basename(copy)
   -- A stamp is written only once a second has passed since the entry changed.
-  local _, _ = Clock.sleep_ns(Clock.ms(1100))
+  local _, _ = Clock.sleep(Clock.ms(1100))
   assert(not assert(Fs.status(stamp)).exists, "a stamp before any start")
   local first = run({ copy, "--database", path })
   assert(first.ok, "exit " .. tostring(first.code) .. ": " .. tostring(first.stderr))
@@ -170,7 +170,7 @@ local function test_a_core_a_stamp_vouches_for_is_not_hashed_again_until_it_is_w
   assert(second.ok, "exit " .. tostring(second.code) .. ": " .. tostring(second.stderr))
   -- Written in place, a second or more after the stamp: the same inode and
   -- size, other times. The last byte is no part of what the core runs.
-  local _, _ = Clock.sleep_ns(Clock.ms(1100))
+  local _, _ = Clock.sleep(Clock.ms(1100))
   local fd = assert(sys.open(copy, sys.O_RDWR))
   local last = assert(sys.lseek(fd, -1, sys.SEEK_END))
   local old = assert(sys.read(fd, 1))

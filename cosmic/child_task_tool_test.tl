@@ -101,7 +101,7 @@ end
 
 --- A chunk's statement that sleeps `ms` milliseconds.
 local function sleep(ms: integer): string
-  return 'require("cosmic.clock").sleep_ns(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
+  return 'local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
 end
 
 --- Runs `main` as a task beside one that ticks every 5 ms until `main`
@@ -114,7 +114,7 @@ local function ticking(main: function()): integer
     local done = false
     local ticker = Poll.spawn(function()
       while not done do
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
         ticks = ticks + 1
       end
     end)
@@ -180,10 +180,10 @@ local function test_a_wait_in_a_task_is_woken_by_its_exit_watch()
       waited = assert(h:wait())
     end)
     -- The waiter runs first: it finds the child running, and waits.
-    assert(Poll.delay(Clock.ms(1)))
+    assert(Clock.sleep(Clock.ms(1)))
     assert(assert(h.stdin_stream):close())
     assert(Poll.readable(exited, Clock.seconds(30)))
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     -- A wait that ended has closed the pipe's other end.
     early = waited ~= nil
     if not early then assert(sys.write(pipe_ends.writer, "x")) end
@@ -298,7 +298,7 @@ local function test_a_cancelled_task_s_wait_answers_cancelled(tmp: string)
       end)
       local by = Clock.monotonic_ns() + Clock.seconds(30)
       while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
-        assert(Poll.delay(Clock.ms(5)))
+        assert(Clock.sleep(Clock.ms(5)))
       end
       local started = Clock.monotonic_ns()
       waiter:cancel()
@@ -332,7 +332,7 @@ end
 local function reported_pid(report: string): integer
   local by = Clock.monotonic_ns() + Clock.seconds(30)
   while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
-    assert(Poll.delay(Clock.ms(5)))
+    assert(Clock.sleep(Clock.ms(5)))
   end
   local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
   assert(Fs.remove(report))
@@ -357,7 +357,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
       local ticks: integer = 0
       local ticker = Poll.spawn(function()
         while not done do
-          assert(Poll.delay(Clock.ms(5)))
+          assert(Clock.sleep(Clock.ms(5)))
           ticks = ticks + 1
         end
       end)
@@ -380,7 +380,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
       end)
       killed_pid = reported_pid(report)
       victim:cancel()
-      assert(Poll.delay(Clock.ms(50)))
+      assert(Clock.sleep(Clock.ms(50)))
       victim:kill()
       local _, why = victim:join()
       killed_answer = if why ~= nil then why.message else nil end
@@ -406,7 +406,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     local h = assert(module.start(lua(holding_term(report))))
     local by = Clock.monotonic_ns() + Clock.seconds(30)
     while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
-      Clock.sleep_ns(Clock.ms(5))
+      local _, _ = Clock.sleep(Clock.ms(5))
     end
     local pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
     assert(Fs.remove(report))
@@ -419,7 +419,7 @@ local function test_a_child_that_holds_sigterm_is_ended_within_the_deadline(tmp:
     local closing = assert(module.start(lua(holding_term(report))))
     by = Clock.monotonic_ns() + Clock.seconds(30)
     while not assert(Fs.status(report)).exists and Clock.monotonic_ns() < by do
-      Clock.sleep_ns(Clock.ms(5))
+      local _, _ = Clock.sleep(Clock.ms(5))
     end
     local closing_pid = assert(math.tointeger(tonumber((assert(Fs.read(report))))))
     assert(Fs.remove(report))
@@ -483,7 +483,7 @@ local function test_a_run_killed_in_its_cleanup_ends_its_child_and_guard(tmp: st
     end)
     pid = reported_pid(report)
     victim:cancel()
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     victim:kill()
     local _, why = victim:join()
     answer = if why ~= nil then why.message else nil end
@@ -544,7 +544,7 @@ local function test_wait_any_in_a_task_ends_at_the_first_exit()
       assert(none == nil)
       cancelled = why
     end)
-    assert(Poll.delay(Clock.ms(20)))
+    assert(Clock.sleep(Clock.ms(20)))
     waiter:cancel()
     assert(waiter:join(Clock.seconds(5)))
   end)
@@ -583,7 +583,7 @@ Poll.run(function()
     local argv: mut {string} = {}
     for _, word in ipairs(relaunch.argv) do argv[#argv + 1] = word end
     argv[#argv + 1] = "-e"
-    argv[#argv + 1] = 'require("cosmic.clock").sleep_ns(require("cosmic.clock").seconds(100000))'
+    argv[#argv + 1] = 'local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").seconds(100000))'
     local env: mut {string:string} = Env.all()
     for name, value in pairs(relaunch.env) do env[name] = value end
     local r, why = Child.run(argv, { timeout_ns = Child.FOREVER, env = env, fds = relaunch.fds })
@@ -591,11 +591,11 @@ Poll.run(function()
   end)
   local ticker = Poll.spawn(function()
     while held.answer == "" do
-      assert(Poll.delay(Clock.ms(5)))
+      assert(Clock.sleep(Clock.ms(5)))
       held.ticks = held.ticks + 1
     end
   end)
-  assert(Poll.delay(Clock.ms(200)))
+  assert(Clock.sleep(Clock.ms(200)))
   local sent = Clock.monotonic_ns()
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   assert(runner:join(Clock.seconds(30)))
@@ -629,7 +629,7 @@ local function test_a_write_whose_stream_closes_meanwhile_writes_nothing_else(tm
     local writer = Poll.spawn(function()
       wrote, why = stream:write(string.rep("x", 1 << 20))
     end)
-    assert(Poll.delay(Clock.ms(50)))
+    assert(Clock.sleep(Clock.ms(50)))
     assert(stream:close())
     local fd = assert(Fs.open_write(victim))
     assert(writer:join(Clock.seconds(5)))
@@ -658,7 +658,7 @@ local function exited_unreaped(h: Child.Handle)
     local stat, _ = Fs.read(stat_path)
     if stat == nil or stat:match("^%d+ %b() Z") ~= nil then return end
     assert(Clock.monotonic_ns() < by, "the child did not exit")
-    assert(Poll.delay(Clock.ms(10)))
+    assert(Clock.sleep(Clock.ms(10)))
   end
 end
 

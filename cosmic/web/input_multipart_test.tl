@@ -549,7 +549,7 @@ end
 local function killed_while_waiting(fn: function(req: Web.Request), first: string)
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     fn(req)
-    local _, _ = Poll.delay(Clock.seconds(30))
+    local _, _ = Clock.sleep(Clock.seconds(30))
     return Web.empty()
   end) } }
   local at: integer = 0
@@ -557,7 +557,7 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
     read = function(_self: Stream.Reader, _max?: integer): string?, string
       at = at + 1
       if at == 1 then return first, "" end
-      local _, _ = Poll.delay(Clock.seconds(30))
+      local _, _ = Clock.sleep(Clock.seconds(30))
       return nil, "gone"
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
@@ -566,7 +566,7 @@ local function killed_while_waiting(fn: function(req: Web.Request), first: strin
     headers = { host = "x", ["content-type"] = FORM_TYPE }, body = body }
   Poll.run(function()
     local task = Poll.spawn(function() app.handle(raw) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     task:kill()
   end)
 end
@@ -587,14 +587,14 @@ local function test_a_task_killed_in_the_handler_after_the_read_leaves_no_files(
   local app = Web.app{ routes = { Web.post("/x", function(req: Web.Request): Web.Response
     local m = assert(Input.multipart(req, { dir = tmp }).value)
     assert(#assert(Fs.list(tmp)) == 1 and m.files["f"] ~= nil)
-    local _, _ = Poll.delay(Clock.seconds(30))
+    local _, _ = Clock.sleep(Clock.seconds(30))
     return Web.empty()
   end) } }
   local raw: Server.Request = { method = "POST", target = "/x", path = "/x", query = "", version = "HTTP/1.1",
     headers = { host = "x", ["content-type"] = FORM_TYPE }, body = Stream.from_string(text), length = #text }
   Poll.run(function()
     local task = Poll.spawn(function() app.handle(raw) end)
-    assert(Poll.delay(0))
+    assert(Clock.sleep(0))
     task:kill()
   end)
   assert(#assert(Fs.list(tmp)) == 0, "the app closes a request's bodies when its task is killed")

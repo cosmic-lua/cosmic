@@ -125,7 +125,7 @@ local function run(name: string, request: resolv.Request): {raw_socket.Resolved}
     if left ~= nil and left <= timer_ns then wait_ns = left end
     if in_task then
       if #fds == 0 then
-        local waited, because = Poll.delay(wait_ns)
+        local waited, because = Clock.sleep(wait_ns)
         if not waited then return nil, because.message end
       else
         local answers, because = Poll.ready(fds, events, wait_ns)

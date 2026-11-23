@@ -132,7 +132,7 @@ end
   local deadline = Clock.monotonic_ns() + Clock.seconds(30)
   local said, _ = Fs.read(ready)
   while said ~= "ready" and Clock.monotonic_ns() < deadline do
-    Clock.sleep_ns(Clock.ms(10))
+    local _, _ = Clock.sleep(Clock.ms(10))
     said, _ = Fs.read(ready)
   end
   local log, _ = Fs.read(diagnostic)
@@ -152,7 +152,7 @@ end
       (stopped_log or "<none>"))
   local gone_by = Clock.monotonic_ns() + Clock.seconds(1)
   while sys.kill(descendant, 0) and Clock.monotonic_ns() < gone_by do
-    Clock.sleep_ns(Clock.ms(10))
+    local _, _ = Clock.sleep(Clock.ms(10))
   end
   assert(not sys.kill(descendant, 0))
 end
@@ -176,7 +176,7 @@ return function(): integer
   local relaunch = assert(Proc.relaunch())
   local argv = { table.unpack(relaunch.argv) }
   argv[#argv + 1] = "-e"
-  argv[#argv + 1] = "require('cosmic.sys').close(0) require('cosmic.clock').sleep_ns(5000000000)"
+  argv[#argv + 1] = "require('cosmic.sys').close(0) local _, _ = require('cosmic.clock').sleep(5000000000)"
   local h = assert(Child.start(argv, { timeout_ns = Child.FOREVER, stdin = "stream", env = relaunch.env, fds = relaunch.fds }))
   local stdin = assert(h.stdin_stream)
   local chunk = string.rep("x", 1 << 20)
@@ -259,8 +259,8 @@ end
 return function(argv: {string}): integer
   do
     local guard = assert(Signal.guard())
-    local timed = this("require('cosmic.clock').sleep_ns(30000000000)")
-    local untimed = this("require('cosmic.clock').sleep_ns(30000000000)")
+    local timed = this("local _, _ = require('cosmic.clock').sleep(30000000000)")
+    local untimed = this("local _, _ = require('cosmic.clock').sleep(30000000000)")
     local done = this("return 3")
     -- Until `done` has exited, its status unclaimed: on its exit watch,
     -- or, for a child with none (a Linux without pidfd_open, or Darwin's
@@ -278,7 +278,7 @@ return function(argv: {string}): integer
         local stat, _ = Fs.read(stat_path)
         if stat == nil or stat:match("^%d+ %b() Z") ~= nil then break end
         assert(Clock.monotonic_ns() < by, "the child did not exit")
-        local _, _ = Clock.sleep_ns(Clock.ms(10))
+        local _, _ = Clock.sleep(Clock.ms(10))
       end
     end
     assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -342,7 +342,7 @@ return function(argv: {string}): integer
   local options: Child.Options = { env = relaunch.env, fds = relaunch.fds, timeout_ns = Clock.seconds(30) }
   local r, why = Child.run(this("local sys = require('cosmic.sys') " ..
     "assert(sys.kill(" .. tostring(sys.getpid()) .. ", sys.SIGTERM)) " ..
-    "require('cosmic.clock').sleep_ns(30000000000)"), options)
+    "local _, _ = require('cosmic.clock').sleep(30000000000)"), options)
   answers[#answers + 1] = tostring(r == nil) .. " " .. why
   answers[#answers + 1] = tostring(guard:cancelled())
   local after = assert(Child.run(this("return 4"), options))

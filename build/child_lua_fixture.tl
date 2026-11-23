@@ -55,7 +55,7 @@ end
 
 --- A chunk's statement that sleeps `ms` milliseconds.
 function child_lua_fixture.sleeping(ms: integer): string
-  return 'require("cosmic.clock").sleep_ns(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
+  return 'local _, _ = require("cosmic.clock").sleep(require("cosmic.clock").ms(' .. tostring(ms) .. ')) '
 end
 
 --- The pid, in this process's pid namespace, of the process that `pid`

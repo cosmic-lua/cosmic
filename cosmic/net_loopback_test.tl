@@ -83,7 +83,7 @@ local function test_in_a_task_the_body_runs_in_the_callers_run()
   local beside: boolean = false
   Poll.run(function()
     local other = Poll.spawn(function()
-      assert(Poll.delay(0))
+      assert(Clock.sleep(0))
       beside = true
     end)
     Net.with_loopback(answering, function(port: integer)
@@ -212,11 +212,11 @@ local function test_a_caller_killed_in_its_body_still_ends_the_server()
         local client <close> = dial(port)
         assert(Stream.lines(client):read() == "held")
         reached = true
-        local _, _ = Poll.delay(Poll.MOST_NS)
+        local _, _ = Clock.sleep(Poll.MOST_NS)
         returned = true
       end)
     end)
-    while not reached do assert(Poll.delay(0)) end
+    while not reached do assert(Clock.sleep(0)) end
     caller:kill()
     local ended, _ = caller:join()
     assert(not ended, "the caller was not killed")

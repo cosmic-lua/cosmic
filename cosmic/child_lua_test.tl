@@ -127,7 +127,7 @@ local function test_timeout_kills_the_process_group_and_reaps_child(tmp: string)
       nil, { timeout_ns = Child.FOREVER, stdout = fd, stderr = fd })))
     local deadline = Clock.monotonic_ns() + Clock.seconds(10)
     while assert(Fs.stat(path)).size == 0 and Clock.monotonic_ns() < deadline do
-      Clock.sleep_ns(Clock.ms(10))
+      local _, _ = Clock.sleep(Clock.ms(10))
     end
     assert(assert(Fs.stat(path)).size > 0, "child did not report readiness")
     -- The descendant's pid as the child saw it, and as this process
@@ -153,7 +153,7 @@ local function test_non_group_timeout_returns_graceful_term_status(tmp: string)
       'end return 19', { ready }, { timeout_ns = Child.FOREVER, process_group = false })))
   local deadline = Clock.monotonic_ns() + Clock.seconds(10)
   while not path_exists(ready) and Clock.monotonic_ns() < deadline do
-    Clock.sleep_ns(Clock.ms(10))
+    local _, _ = Clock.sleep(Clock.ms(10))
   end
   assert(path_exists(ready), "child did not report readiness")
   local r = assert(h:wait(0))
@@ -356,7 +356,7 @@ local function test_a_streamed_output_holds_the_child_at_its_limit()
   local deadline = Clock.monotonic_ns() + Clock.ms(300)
   while Clock.monotonic_ns() < deadline do
     assert(not assert(h:try_wait()).finished, "the child ran past its reader")
-    Clock.sleep_ns(Clock.ms(10))
+    local _, _ = Clock.sleep(Clock.ms(10))
   end
   assert(read_all(assert(h.stdout_stream)) == string.rep("0123456789abcdef", 64 * chunks))
   assert(assert(h:wait(Clock.seconds(5))).ok)
@@ -466,7 +466,7 @@ local function test_a_wait_holds_a_streamed_output_to_its_limit()
       '{ timeout_ns = -1, process_group = false }) require("cosmic.sys").exit(0)', nil,
     { timeout_ns = Child.FOREVER, stdout = "stream", capture_limit = 1024, process_group = false })))
   assert(assert(h:wait(Clock.seconds(5))).ok)
-  Clock.sleep_ns(Clock.ms(100))
+  local _, _ = Clock.sleep(Clock.ms(100))
   assert(assert(h:try_wait()).finished)
   local queued = 0
   for _, stream in ipairs(h._streams or {}) do queued = queued + stream.size end
@@ -506,7 +506,7 @@ local function test_try_wait_services_a_chatty_child()
   local deadline = Clock.monotonic_ns() + Clock.seconds(10)
   local polled = assert(h:try_wait())
   while not polled.finished and Clock.monotonic_ns() < deadline do
-    Clock.sleep_ns(Clock.ms(1))
+    local _, _ = Clock.sleep(Clock.ms(1))
     polled = assert(h:try_wait())
   end
   assert(polled.finished, "a full pipe stalled the child")
@@ -697,7 +697,7 @@ end
 local function test_a_child_that_exited_past_its_start_timeout_is_not_timed_out()
   local h <close> = assert(Child.start(lua(sleep(200) .. "return 4", nil,
     { timeout_ns = Clock.ms(50) })))
-  local _, _ = Clock.sleep_ns(Clock.seconds(1))
+  local _, _ = Clock.sleep(Clock.seconds(1))
   local r = assert(h:wait())
   assert(r.code == 4 and not r.timed_out, tostring(r.code))
 end
@@ -708,7 +708,7 @@ local function test_try_wait_ends_a_child_past_its_start_timeout()
   local h <close> = assert(Child.start(lua(sleep(30000), nil, { timeout_ns = Clock.ms(300) })))
   local look = assert(h:try_wait())
   assert(not look.finished)
-  local _, _ = Clock.sleep_ns(Clock.ms(350))
+  local _, _ = Clock.sleep(Clock.ms(350))
   look = assert(h:try_wait())
   assert(look.finished and assert(look.result).timed_out, "try_wait left the child past its deadline")
 end

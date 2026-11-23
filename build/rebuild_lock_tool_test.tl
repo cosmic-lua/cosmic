@@ -89,7 +89,7 @@ local function test_a_named_holder_says_how_long_it_has_held_the_lock(tmp: strin
   project(root, 0)
   assert(support.build_dir(root))
   local file = support.build_dir(root) .. "/rebuild.lock.pid"
-  local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep_ns(60000000000))' },
+  local started = this_program.program({ "-e", 'assert(require("cosmic.clock").sleep(60000000000))' },
     { timeout_ns = Child.FOREVER, cwd = root, env = this_program.environment(), process_group = true })
   local sleeper <close> = assert(Child.start(started.argv, started.options))
   local now = Clock.now_ns() // Clock.seconds(1)

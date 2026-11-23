@@ -39,6 +39,7 @@ local Clock = require("cosmic.clock")
 local errors = require("cosmic.internal.errors")
 local Failure = require("cosmic.failure")
 local sys = require("cosmic.sys")
+local Waits = require("cosmic.internal.waits")
 
 local record Poll
   --- A function running under [`Poll.run`] beside the others, answered by
@@ -793,6 +794,10 @@ function Poll.ready(fds: {integer}, events: {integer}, timeout_ns?: integer): ({
   return had
 end
 
+-- TODO: once ci/cosmic-driver.pin names a release with Clock.sleep, move eval/check/grade.tl and
+-- eval/check/testdata/relay_api_test.tl to it and make this
+-- internal: Clock.sleep calls it in a task.
+
 --- Waits `ns` nanoseconds while the other tasks run: true once
 --- they have passed, false and a Failure of kind "cancelled" once the task is
 --- cancelled first.
@@ -1030,6 +1035,13 @@ function Poll.closing(fd: integer)
   answer_waits(fd, sys.POLLNVAL)
 end
 
+--- The task of a running loop the caller runs in, or nil.
+local function own_task(): State?
+  local loop = ongoing.loop
+  if loop == nil or loop.closing == true then return nil end
+  return loop.tasks[coroutine.running()] -- checked: field_unknown -- untyped: call
+end
+
 --- Whether the caller is a task of a running [`Poll.run`], whose waits
 --- let the other tasks run: what a module asks that must act
 --- differently there -- refuse a call that cannot run in a task, or
@@ -1037,8 +1049,22 @@ end
 --- too, in a `<close>` handler of a task being killed, where waits
 --- raise: a wait there fails at once rather than hold the thread.
 function Poll.in_task(): boolean
-  local loop = ongoing.loop
-  return loop ~= nil and loop.closing ~= true and loop.tasks[coroutine.running()] ~= nil -- checked: field_unknown -- untyped: call
+  return own_task() ~= nil
+end
+
+Waits.parks = function(): boolean
+  local task = own_task()
+  return task ~= nil and not task.killed and coroutine.isyieldable()
+end
+
+Waits.delay = function(ns: integer): (true) | (false, Failure)
+  local left = ns
+  while left > Poll.MOST_NS do
+    local waited, why = Poll.delay(Poll.MOST_NS)
+    if not waited then return false, why end
+    left = left - Poll.MOST_NS
+  end
+  return Poll.delay(left)
 end
 
 --- Starts `main` as the first task and runs the loop until every task

@@ -981,7 +981,7 @@ local stand_ins_expected: {{string}} = {
   { "tar -x", "Archive.extract" },
   { "unzip", "Archive.extract" },
   { "sha256sum", "Hash.hex_sha256" },
-  { "sleep", "Clock.sleep_ns" },
+  { "sleep", "Clock.sleep" },
   { "getentropy", "Rand.entropy" },
   { "getenv", "Env.get" },
   { "urandom", "Rand.entropy" },
