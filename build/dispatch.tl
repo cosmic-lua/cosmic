@@ -137,6 +137,11 @@ end
 --- written by hand is.
 local help_width <const> = 70
 
+--- The columns a line of the index may reach. A usage too wide to
+--- leave room for its summary takes a line of its own, with the summary
+--- under it.
+local index_width <const> = 80
+
 --- What `cosmic help fix` says of how it lays a file out, after the
 --- options: the design of the formatter, which no other verb's help
 --- needs.
@@ -275,7 +280,7 @@ local function index_help(): string
       group = group_of[verb], typed = typed[verb] }
   end
   local index = assert(Flags.dispatch({ "--help" }, 1, commands, "cosmic", {
-    groups = titles, order = order, usages = true,
+    groups = titles, order = order, usages = true, width = index_width,
     before = table.concat({
       "cosmic -- a runtime for self-contained command-line software",
       "",
