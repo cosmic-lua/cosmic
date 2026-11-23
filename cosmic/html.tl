@@ -39,8 +39,8 @@
 local type raw_html = require("cosmic.internal.html")
 
 -- The raw JSON reader and writer, not [`cosmic.json`]: that module's types
--- reach [`cosmic.stream`] and [`cosmic.string`], which every template that
--- imports this module would then load to type-check.
+-- reach [`cosmic.stream`], which every template that imports this module
+-- would then load to type-check.
 
 local Failure = require("cosmic.failure")
 local Url = require("cosmic.url")
@@ -190,8 +190,9 @@ end
 --- [`Url.encode_query`] takes and [`Url.decode_query`] answers (a
 --- [`Url.Query`]'s `pairs`), and differs from that encoding only in
 --- writing a space `%20`, as a URL in a page does, not `+`. Raises,
---- blaming its caller, for a pair whose name or value is not a string,
---- which only a caller past the checker can pass.
+--- blaming its caller, for a [`Url.Pair`] whose name or value is not a
+--- string, which only a caller past the checker can pass. Like
+--- `ipairs`, it reads `list` up to its first hole.
 ---
 ---     Html.raw_url_part(Html.url_query({ { name = "q", value = "a b" }, { name = "t", value = "x&y" } })) -- "q=a%20b&t=x%26y"
 function Html.url_query(list: {Url.Pair}): Html.SafeUrlPart
@@ -200,7 +201,7 @@ function Html.url_query(list: {Url.Pair}): Html.SafeUrlPart
     entries[i] = { pair.name, pair.value }
   end
   local part, why = raw.url_query(entries)
-  if part == nil then error(why, 2) end
+  if part == nil then error(why .. " (a Url.Pair's name and value)", 2) end
   return part
 end
 

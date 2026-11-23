@@ -412,7 +412,8 @@ local function test_url_query_raises_for_a_pair_that_is_not_two_strings()
   local ok, why = pcall(function()
     local _ = attempt_query(untyped({ { name = "a", value = "b" }, { name = "c" } }))
   end)
-  assert(not ok and tostring(why):find("html: pair 2 is not two strings", 1, true) ~= nil, tostring(why))
+  assert(not ok and tostring(why):find("html: pair 2 is not two strings (a Url.Pair's name and value)", 1, true) ~= nil,
+    tostring(why))
 end
 
 local function test_raw_url_part_holds_to_its_type()
