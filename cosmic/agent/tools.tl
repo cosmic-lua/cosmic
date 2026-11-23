@@ -826,8 +826,10 @@ Tools.list = {
         "make it and run again. A snippet reaches cosmic.* alone, and its locals end with it.",
       "From a snippet, `require(\"cosmic.agent.host\").sql(query)` answers the sql tool's query as a list of rows, " ..
         "each an object of its columns: read sessions.db and act on it in one snippet.",
-      "From a snippet, Host.servers() names the MCP servers you were given, Host.tools(server) lists a server's " ..
-        "tools and Host.mcp(server, tool, arguments) calls one (cosmic.agent.host): call several in one snippet.",
+      "From a snippet, `require(\"mcp.<server>\")` answers the MCP server's tools as typed functions: each takes " ..
+        "a record of the tool's arguments and answers a record of its output, or a Host.Result {text, content, " ..
+        "structured}, or nil and a Failure. print(Host.declaration(server)) shows the types (cosmic.agent.host). " ..
+        "Call several tools in one snippet.",
     },
     description = "Check and run a snippet of Teal, the typed Lua of cosmic, in a worker process kept for the " ..
       "session, under the same sandbox as bash. The snippet may require cosmic.* modules (cosmic.fs, cosmic.json, " ..

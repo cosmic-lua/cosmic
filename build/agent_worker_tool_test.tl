@@ -216,6 +216,76 @@ return assert(again[1])["n"]
 end
 
 --- Outside a worker no agent answers a call.
+local function test_a_snippet_calls_an_mcp_servers_tools_as_typed_functions()
+  local dir = assert(Fs.mkdtemp("agent-worker-mcp-module-"))
+  local script = dir .. "/server.tl"
+  assert(Fs.write(script, [=[
+local Failure = require("cosmic.failure")
+local Json = require("cosmic.json")
+local Mcp = require("cosmic.mcp")
+local Server = require("cosmic.mcp.server")
+return function(_: {string}): integer
+  local server = Server.new{
+    info = { name = "adder", version = "1" },
+    tools = { {
+      tool = { name = "twice", description = "Twice n.", inputSchema = Mcp.object_schema({ n = { type = "integer" } }, { "n" }) },
+      call = function(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+        local n = assert(math.tointeger(args["n"]))
+        if n < 0 then return Mcp.result({ "n is negative" }, true) end
+        return Mcp.result({ tostring(n * 2) })
+      end,
+    }, {
+      tool = {
+        name = "sum-up", description = "The sum of values.",
+        inputSchema = Mcp.object_schema({ values = { type = "array", items = { type = "integer" } } }),
+        outputSchema = Mcp.object_schema({ sum = { type = "integer" }, note = { type = { "string", "null" } } },
+          { "sum" }),
+      },
+      call = function(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+        local sum = 0
+        for _, v in ipairs(Json.array_of(args["values"]) or {}) do sum = sum + assert(math.tointeger(v)) end
+        return Mcp.structured({ sum = sum, note = Json.null })
+      end,
+    } },
+  }
+  assert(server:serve_stdio())
+  return 0
+end
+]=]))
+  local started = this_program.program({ "--standalone", script }, { env = this_program.environment(), timeout_ns = -1 })
+  local config = assert(Json.encode({ servers = { adder = { command = Json.array(started.argv), sandbox = "off" } } }))
+  assert(Fs.write(dir .. "/mcp.json", config))
+  local set = AgentMcp.new(assert(AgentMcp.load(dir .. "/mcp.json")), dir)
+  local w = set_of_worker()
+  local context: Tools.Context = { cwd = dir, worker = w, mcp = set }
+  local code = [[
+local adder = require("mcp.adder")
+print(assert(adder.twice({ n = 21 })).text)
+local _, why = adder.twice({ n = -1 })
+print(tostring(why))
+local summed = assert(adder.sum_up({ values = { 1, 2, 3 } }))
+print(summed.sum, summed.note == nil)
+print(assert(adder.sum_up()).sum)
+print(assert(adder.sum_up({ values = {} })).sum)
+]]
+  local ran = Tools.run("run", { code = code }, context)
+  assert(not ran.is_error, ran.text)
+  assert(ran.text:find("42\nmcp: adder.twice: n is negative\n6\ttrue\n0\n0\n", 1, true) ~= nil, ran.text)
+  -- A wrong argument is the checker's to refuse, in the same worker, the module kept.
+  local wrong = Tools.run("run", { code = "local adder = require(\"mcp.adder\")\nadder.twice({ n = \"x\" })\n" }, context)
+  assert(wrong.is_error and wrong.text:find("run.tl:2:", 1, true) ~= nil, wrong.text)
+  local missing = Tools.run("run", { code = "local adder = require(\"mcp.adder\")\nadder.twice({})\n" }, context)
+  assert(missing.is_error and missing.text:find("run.tl:2:", 1, true) ~= nil, missing.text)
+  local declared = Tools.run("run", { code = "return assert(require(\"cosmic.agent.host\").declaration(\"adder\"))" }, context)
+  assert(declared.text:find("record TwiceInput", 1, true) ~= nil and declared.text:find("sum_up: function(arguments?: " ..
+      "SumUpInput): (SumUpOutput) | (nil, Failure)", 1, true) ~= nil, declared.text)
+  local unknown = Tools.run("run", { code = "local nope = require(\"mcp.nope\")\nprint(nope)\n" }, context)
+  assert(unknown.is_error and unknown.text:find("require(\"mcp.nope\"): host: mcp.tools: no MCP server \"nope\"", 1,
+    true) ~= nil, unknown.text)
+  AgentMcp.close(set)
+  Worker.close(w)
+end
+
 local function test_a_call_outside_a_worker_fails()
   local rows, why = Host.sql("SELECT 1")
   assert(rows == nil and tostring(why):find("no agent answers here", 1, true) ~= nil, tostring(why))
