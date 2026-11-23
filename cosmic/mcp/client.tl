@@ -39,6 +39,7 @@ local Json = require("cosmic.json")
 local Poll = require("cosmic.poll")
 local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
+local McpOAuth = require("cosmic.mcp.oauth")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
 local wire = require("cosmic.mcp.wire")
@@ -55,6 +56,12 @@ local record McpClient
     info?: Mcp.Implementation
     --- Asks the person, as [`Options.elicit`] says.
     elicit?: Elicit
+    --- Where given, a request the server answers 401 or 403 signs in,
+    --- refreshes or steps up as [`cosmic.mcp.oauth`] says, and is sent
+    --- again: once after a 401 and once after a 403. `headers` may not
+    --- then name `Authorization`, and the URL must be https, or http on
+    --- a loopback address.
+    oauth?: McpOAuth.Options
   end
 
   --- Asks the person what a server's `elicitation/create` asks, and
@@ -1096,10 +1103,21 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
     if OWN_HEADERS[lower] == true or lower:sub(1, 10) == "mcp-param-" then
       error("mcp: http: opts.headers may not name " .. name .. ", which the protocol sets", 2)
     end
+    if opts.oauth ~= nil and lower == "authorization" then
+      error("mcp: http: opts.headers may not name Authorization with opts.oauth, which sets it", 2)
+    end
   end
-  local send = function(req: Request): (wire.Message) | (nil, Failure)
+  local oauth = opts.oauth
+  local auth = if oauth ~= nil then McpOAuth.new(url, oauth) else nil end
+  -- `refusal` takes the status and challenge of an answer that refused the token, for `send` to sign in by: one
+  -- table for each request, so requests in flight at once do not take each other's.
+  local once = function(req: Request, refusal: mut {integer: string}): (wire.Message) | (nil, Failure)
     local headers: mut {string: string} = {}
     for k, v in pairs(opts.headers or {}) do headers[k] = v end
+    if auth ~= nil then
+      local authorization = auth.authorization()
+      if authorization ~= nil then headers["Authorization"] = authorization end
+    end
     headers["Content-Type"] = "application/json"
     headers["Accept"] = "application/json, text/event-stream"
     headers["MCP-Protocol-Version"] = Mcp.VERSION
@@ -1116,6 +1134,10 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
       body = body, follow = false })
     if opened == nil then return nil, trouble_of(req, tostring(owhy)) end
     local response <close> = opened
+    if auth ~= nil and (response.status == 401 or response.status == 403) then
+      refusal[response.status] = response.headers["www-authenticate"] or ""
+      return nil, Failure.new("mcp: " .. req.method .. ": HTTP " .. tostring(response.status))
+    end
     local kind = ((response.headers["content-type"] or ""):match("^%s*([^;%s]+)") or ""):lower()
     if kind == "text/event-stream" and response.status // 100 == 2 then
       -- Read as it comes, so each notice of progress is given as it is sent.
@@ -1151,6 +1173,21 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
       return nil, Failure.new("mcp: the server answered " .. req.method .. " with no result")
     end
     return message
+  end
+  local send = function(req: Request): (wire.Message) | (nil, Failure)
+    -- A 401 signs in, and a 403 after it may step up: each once, so a server that refuses every token ends.
+    local answered: mut {integer: boolean} = {}
+    while true do
+      local refusal: mut {integer: string} = {}
+      local said, why = once(req, refusal)
+      if said ~= nil then return said end
+      if auth == nil then return nil, why end
+      local status, header = next(refusal)
+      if status == nil or header == nil or answered[status] == true then return nil, why end
+      answered[status] = true
+      local ok, awhy = auth.challenged(status, if header ~= "" then header else nil end)
+      if not ok then return nil, awhy end
+    end
   end
   return session(send, { info = opts.info, elicit = opts.elicit }, true,
     function(): (true) | (false, Failure) return true end)
