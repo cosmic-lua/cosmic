@@ -17,6 +17,7 @@
 --- request GitHub refuses or one that gets no answer fails the job.
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
+local Plural = require("cosmic_ci.plural")
 local GithubApi = require("cosmic_ci.github_api")
 local Report = require("cosmic_ci.report")
 local Shape = require("cosmic.shape")
@@ -94,11 +95,11 @@ function PrereleaseFollow.follow(c: PrereleaseFollow.Context): string
   end
   local newest = newest_full(runs)
   if newest ~= nil and c.now - newest < c.window then
-    return "a full run of main started " .. tostring((c.now - newest) // 60) .. " minutes ago: none is started"
+    return "a full run of main started " .. Plural.count((c.now - newest) // 60, "minute") .. " ago: none is started"
   end
   local reply = assert(GithubApi.request(c.client, "POST", base .. "/workflows/ci.yml/dispatches", { ref = "main" }))
   assert(reply.status == 204, "dispatching ci.yml on main answered " .. tostring(reply.status) .. ": " .. reply.body)
-  return "no full run of main in the last " .. tostring(c.window // 3600) .. " hours: one is started"
+  return "no full run of main in the last " .. Plural.count(c.window // 3600, "hour") .. ": one is started"
 end
 
 --- The context the job's environment `env` gives.
