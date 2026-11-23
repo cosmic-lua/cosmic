@@ -323,7 +323,7 @@ local record McpServer
     --- The `iss` a token must hold: an authorization server's issuer.
     issuer: string
     --- The authorization server's signing keys ([`Jose.keys`] of its JWKS).
-    keys: {Jose.Key}
+    keys: {Jose.Jwk}
     --- How far the issuer's clock may be from this one, in seconds (60).
     leeway?: integer
     --- The header's `typ` a token must have ("at+jwt", as RFC 9068

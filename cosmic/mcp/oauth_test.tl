@@ -8,11 +8,11 @@ local Http = require("cosmic.http")
 local HttpServer = require("cosmic.http.server")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
+local Key = require("cosmic.key")
 local Mcp = require("cosmic.mcp")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Server = require("cosmic.mcp.server")
-local Sign = require("cosmic.sign")
 local Test = require("cosmic.test")
 
 Test.policy{ loopback = { "127.0.0.1" } }
@@ -20,13 +20,14 @@ Test.policy{ loopback = { "127.0.0.1" } }
 local WAIT <const> = Clock.seconds(20)
 local ISSUER <const> = "https://auth.example.com"
 
-local signer = Jose.signer("ES256", Sign.p256_secret(), "k")
+local signer = Key.generate("p256")
+local published = assert(Jose.key(Jose.jwk(signer.public, "k")))
 
 --- An access token from the issuer for `audience`, granting `scope`, of `typ` "at+jwt" unless `typ` says otherwise.
 local function token(audience: string, scope: string, issuer?: string, typ?: string, life?: integer): string
   local now = Clock.now_ns() // 1000000000
   return Jose.sign(signer, { iss = issuer or ISSUER, sub = "ada", aud = audience, scope = scope, exp = now + (life or 300),
-    iat = now }, { typ = typ or "at+jwt" })
+    iat = now }, { typ = typ or "at+jwt", kid = "k" })
 end
 
 local function instance(): Server.Instance
@@ -78,7 +79,7 @@ local function test_a_resource_server_points_at_its_metadata_and_takes_only_its_
       local base = "http://127.0.0.1:" .. tostring(assert(addresses[1]).port)
       local resource = base .. "/mcp"
       handle = instance():handler{ oauth = { resource = resource, authorization_servers = { ISSUER },
-        scopes = { "files:read" }, verify = Server.jwt{ issuer = ISSUER, keys = { signer.key } } } }
+        scopes = { "files:read" }, verify = Server.jwt{ issuer = ISSUER, keys = { published } } } }
       -- The metadata, at the well-known path with the endpoint's path after it.
       local meta = assert(Http.request("GET", base .. "/.well-known/oauth-protected-resource/mcp", { timeout_ns = WAIT }))
       local decoded, dwhy = Json.decode(meta.body)
@@ -121,7 +122,7 @@ local function test_a_resource_server_points_at_its_metadata_and_takes_only_its_
 end
 
 local function test_a_resource_server_that_does_not_hold_raises()
-  local verify = Server.jwt{ issuer = ISSUER, keys = { signer.key } }
+  local verify = Server.jwt{ issuer = ISSUER, keys = { published } }
   local function raises(oauth: Server.OAuth, says: string)
     Test.raises(function() instance():handler{ oauth = oauth } end, says)
   end
