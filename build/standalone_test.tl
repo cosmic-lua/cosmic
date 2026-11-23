@@ -4,6 +4,7 @@
 --- `standalone_tool_test.tl`.
 
 local Test = require("cosmic.test")
+local Store = require("cosmic.store")
 local standalone = require("build.standalone")
 -- The new checker types a file against the declarations the tool carries, which only a worker that holds the tool's database
 -- ("cosmic") has.
@@ -60,6 +61,38 @@ return Script
 ]]))
   local entry = assert(standalone.entry(record_chunk()))
   assert(entry({ "a" }) == 1)
+end
+
+--- The modules `name` requires as its top level runs, read from the source the store holds: a line at the margin that
+--- binds a `require` of a literal name (`local X = require("m")`, or a field of it). A `local type` require loads nothing.
+local function loaded_at_top(name: string): {string}
+  local source = assert(Store.source(name))
+  local out: mut {string} = {}
+  for line in source:gmatch("[^\n]+") do
+    if line:match("^local type ") == nil then
+      local required = line:match("^local [%w_, ]+= require%(\"([%w_.]+)\"%)")
+      if required ~= nil then out[#out + 1] = required end
+    end
+  end
+  return out
+end
+
+--- A file this binary compiled cleanly before runs from the cache, so loading [`build.standalone`] loads no checker
+--- ([`build.pipeline`], about a hundred modules): it costs a cached run more than the rest of it. (A process that lists
+--- what it loaded cannot run here: `package.loaded` is a view, and a standalone file may not read `package`.)
+-- TODO: hold a cached run of `cosmic --standalone` to loading no checker by what the process loaded, not by the lines of
+-- the sources, once a test can start a process that lists what it loaded without loading the checker first (`-e` does).
+local function test_loading_standalone_loads_no_checker()
+  local seen: mut {string:boolean} = {}
+  local stack: mut {string} = { "build.standalone" }
+  while #stack > 0 do
+    local name = assert(table.remove(stack))
+    if seen[name] == nil then
+      seen[name] = true
+      assert(name ~= "build.pipeline", "build.standalone loads the checker as it loads")
+      for _, required in ipairs(loaded_at_top(name)) do stack[#stack + 1] = required end
+    end
+  end
 end
 
 --- The refusals a file alone meets, in the checker's words: the place, the code and what to write instead.
