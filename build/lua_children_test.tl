@@ -18,7 +18,9 @@ local Test = require("cosmic.test")
 local stand_in = require("build.stand_in")
 local test_child = require("build.test_child")
 local test_inputs = require("build.test_inputs")
-local _ = require("build.standalone") -- the checker `-e` types its chunk with: loaded here, as a child's is
+-- The checker `-e` types its chunk with: loaded here, as a child's is. build.standalone loads it only to compile.
+local _ = require("build.standalone")
+local _pipeline = require("build.pipeline")
 local confine = require("build.confine")
 local Clock = require("cosmic.clock")
 
