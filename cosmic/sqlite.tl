@@ -125,14 +125,13 @@ end
 -- A row is one table with a metatable, so reading a result allocates
 -- the row and nothing per cell. It holds each cell as two slots, the
 -- cell's kind then its value (`false` for NULL, which a table cannot
--- hold as nil). A text row, whose cells are all text, holds only each
--- value, one slot a column, and has accessors of its own. Only the
+-- hold as nil). A text row is one whose every cell is text. Only the
 -- accessors below look inside. A stored row has the accessors of
 -- [`Sqlite.Row`] but is not declared to implement it: a record that has an
 -- array part takes no interface, so the rows are cast where they are made.
 -- TODO: once the grammar lets a record carry an array part and an interface, or a stored row is a class, delete
--- the casts in [`cells_of`] and [`texts_of`] (and their entries in build/contract_rules.tl's casts) and list
--- [`Sqlite.Row`] on [`Stored`] and [`TextStored`].
+-- the cast in [`cells_of`] (and its entry in build/contract_rules.tl's casts) and list
+-- [`Sqlite.Row`] on [`Stored`].
 local record Stored is {any}
   count: function(Stored): integer
   kind: function(Stored, integer): Kind
@@ -256,90 +255,14 @@ function Stored.value(self: Stored, index: integer): raw_sqlite.Value
   return {}
 end
 
---- A row of [`text_rows`]: one slot a column, each its bytes.
-local record TextStored is {any}
-  count: function(TextStored): integer
-  kind: function(TextStored, integer): Kind
-  is_null: function(TextStored, integer): boolean
-  integer: function(TextStored, integer): integer
-  number: function(TextStored, integer): number
-  text: function(TextStored, integer): string
-  blob: function(TextStored, integer): string
-  bytes: function(TextStored, integer): string
-  texts: function(TextStored): {string}
-  value: function(TextStored, integer): raw_sqlite.Value
-end
-
-local text_stored_mt: metatable<TextStored> = { __index = TextStored } -- checked: literal_missing
-
---- The bytes of column `index` of `row`, which `name` reads. Raises,
---- blaming the caller of the accessor that called this, unless `index`
---- is a position the row has a column at.
-local function text_at(row: TextStored, index: integer, name: string): string
-  local held = row[index]
-  if held is string then return held end
-  local count = #row
-  error("sqlite: row:" .. name .. "(" .. tostring(index) .. "): the row has " .. tostring(count) ..
-      (if count == 1 then " column" else " columns" end), 3)
-end
-
-function TextStored.count(self: TextStored): integer
-  return #self
-end
-
-function TextStored.kind(self: TextStored, index: integer): Kind
-  local _ = text_at(self, index, "kind")
-  return "text"
-end
-
-function TextStored.is_null(self: TextStored, index: integer): boolean
-  local _ = text_at(self, index, "is_null")
-  return false
-end
-
-function TextStored.integer(self: TextStored, index: integer): integer
-  local _ = text_at(self, index, "integer")
-  error(mismatch("integer", index, "text", "an integer"), 2)
-end
-
-function TextStored.number(self: TextStored, index: integer): number
-  local _ = text_at(self, index, "number")
-  error(mismatch("number", index, "text", "a number or an integer"), 2)
-end
-
-function TextStored.text(self: TextStored, index: integer): string
-  return text_at(self, index, "text")
-end
-
-function TextStored.blob(self: TextStored, index: integer): string
-  local _ = text_at(self, index, "blob")
-  error(mismatch("blob", index, "text", "a blob"), 2)
-end
-
-function TextStored.bytes(self: TextStored, index: integer): string
-  return text_at(self, index, "bytes")
-end
-
-function TextStored.texts(self: TextStored): {string}
-  local out: mut {string} = {}
-  for index = 1, #self do
-    local held = self[index]
-    if held is string then out[#out + 1] = held end
-  end
-  return out
-end
-
-function TextStored.value(self: TextStored, index: integer): raw_sqlite.Value
-  return { text = text_at(self, index, "value") }
-end
-
 --- The row `statement` was just stepped to, as typed cells in column
---- order. Its columns are asked after each step: a schema change
---- re-prepares the statement, and its columns with it.
-local function cells_of(statement: raw_sqlite.Statement): Row
+--- order, or, `as_text`, as the bytes of each column, each a "text" cell.
+--- Its columns are asked after each step: a schema change re-prepares the
+--- statement, and its columns with it.
+local function cells_of(statement: raw_sqlite.Statement, as_text?: boolean): Row
   local row: Stored = setmetatable({}, stored_mt) -- checked: setmetatable_call -- untyped: call
   for index = 0, statement:columns() - 1 do
-    local kind = statement:kind(index)
+    local kind = if as_text == true then "text" else statement:kind(index) end
     local at = 2 * index + 1
     if kind == "integer" then
       row[at], row[at + 1] = "integer", statement:integer(index) -- checked: view_written*2
@@ -354,14 +277,10 @@ local function cells_of(statement: raw_sqlite.Statement): Row
   return row as Row -- checked: cast_refused
 end
 
---- The row `statement` was just stepped to, as the bytes of each column
---- in order, each a "text" cell. Asked after each step, as [`cells_of`] is.
+--- The row `statement` was just stepped to, every column a "text" cell of
+--- its bytes, as [`Sqlite.text_rows`] answers it.
 local function texts_of(statement: raw_sqlite.Statement): Row
-  local row: TextStored = setmetatable({}, text_stored_mt) -- checked: setmetatable_call -- untyped: call
-  for index = 0, statement:columns() - 1 do
-    row[index + 1] = statement:bytes(index) -- checked: view_written
-  end
-  return row as Row -- checked: cast_refused
+  return cells_of(statement, true)
 end
 
 --- Steps `statement` once and gives `project` the row it stands on: the
