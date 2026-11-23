@@ -55,3 +55,40 @@ local function test_a_raised_failure_reads_as_its_text()
   end)
   assert(not ok and tostring(raised) == "here: refused", tostring(raised))
 end
+
+--- Each constructor gives its kind, so a caller acts on the cause without
+--- reading the words.
+local function test_each_constructor_gives_its_kind()
+  assert(Failure.new("x").kind == "other")
+  assert(Failure.at("x", 1).kind == "parse")
+  assert(Failure.system(sys.ENOENT).kind == "system")
+  assert(Failure.coded("busy", 5).kind == "library")
+  assert(Failure.coded("busy", 5, 5, false).kind == "library")
+  local stopped = Failure.coded("interrupted", 9, 9, true)
+  assert(stopped.kind == "cancelled" and stopped.code == 9 and stopped.extended_code == 9)
+end
+
+local function test_a_timeout_and_a_cancel_say_what_they_are()
+  local late = Failure.timeout()
+  assert(late.kind == "timeout" and late.errno == 0 and tostring(late) == "timed out", tostring(late))
+  assert(tostring(Failure.timeout("connect", "db.sock")) == "db.sock: connect")
+  local stopped = Failure.cancelled()
+  assert(stopped.kind == "cancelled" and tostring(stopped) == "cancelled", tostring(stopped))
+  assert(tostring(Failure.cancelled("lookup")) == "lookup")
+end
+
+--- A caller's `match` over the kind covers every one, so a kind added
+--- later is a checker error at each place that must handle it.
+local function test_a_match_over_the_kind_is_exhaustive()
+  local function retry(why: Failure): boolean
+    match why.kind do
+    | "timeout" then return true
+    | "cancelled" then return false
+    | "other" then return false
+    | "system" then return false
+    | "parse" then return false
+    | "library" then return false
+    end
+  end
+  assert(retry(Failure.timeout()) and not retry(Failure.cancelled()))
+end

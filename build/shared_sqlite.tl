@@ -49,7 +49,7 @@ local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
       if mode ~= "wal" then return false, "journal mode is " .. mode .. ", not wal" end
       return true, ""
     end
-    if why.cancelled == true or (why.code ~= Sqlite.BUSY and why.code ~= Sqlite.LOCKED) then
+    if why.kind == "cancelled" or (why.code ~= Sqlite.BUSY and why.code ~= Sqlite.LOCKED) then
       return false, tostring(why)
     end
     local now, now_trouble = sys.clock_gettime(sys.CLOCK_MONOTONIC)
