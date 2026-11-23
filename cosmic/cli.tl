@@ -1172,67 +1172,92 @@ local record Cli
   --- - This terminal is put back as it was when the program ends.
   sandbox: string
   --- `cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> ...`: a
-  --- small coding agent, after pi: Claude, with tools to read, write and
-  --- edit files, run commands, in the foreground or as background jobs,
-  --- and query what it has kept, every tool held to a sandbox. A first
-  --- session, in the directory to work in, with `ANTHROPIC_API_KEY` set
-  --- (or another credential, `cosmic docs cosmic.agent.auth`):
+  --- small coding agent, after pi. It is Claude, with tools that read,
+  --- write and edit files, run commands in the foreground or as background
+  --- jobs, and query what the agent has kept. Every tool is held to a
+  --- sandbox.
+  ---
+  --- To start, go to the directory to work in and set `ANTHROPIC_API_KEY`
+  --- (for other credentials, see `cosmic docs cosmic.agent.auth`):
   ---
   ---     cosmic agent ask 'what does this repository do?'
   ---     cosmic agent chat                      a conversation, a prompt a line
   ---     cosmic agent sessions                  what was kept, newest first
   ---     cosmic agent ask --continue 'and now?' go on with the newest session
   ---
-  --- `ask [prompt...]` runs one prompt to the end: the words, else all of
-  --- standard input. `chat` takes a prompt a line until `/exit`; a line
-  --- typed at a terminal while the model works steers it, and `/later
-  --- <prompt>` waits for the turn to end. `resume` finishes the turn a
-  --- run left unfinished. `rpc` runs one session for another program:
-  --- commands as JSON lines on standard input, events on standard output
-  --- (`ask --json` prints the events too). `sessions` lists the newest sessions here, `prompt` prints the
-  --- system prompt the model reads, and `policy` the sandbox the tools
-  --- would run under here, path by path; `policy clear-home` empties the
-  --- commands' kept home.
+  --- Commands:
   ---
-  --- Each event is one JSON object on a line, printed once what it tells
-  --- of is kept: `{"type":"session","id":7}` (rpc adds `unfinished`),
-  --- `message` (a message joined the conversation, as the API takes it),
-  --- `tool` (a call starts: `name`, `input`), `result` (it ended:
-  --- `name`, `is_error`), `request` (a request ended: its model, status,
-  --- ms, tokens and cost), `end` (the turn ended: `ok`, and `error` when
-  --- it is false) and `error` (a command was refused). rpc's commands
-  --- are `{"type":"prompt","text":"..."}`, which runs a turn; `steer`,
-  --- which goes to the model after the tool running and skips the calls
-  --- after it; `follow_up`, which runs after the turn; `abort`, which
-  --- stops the turn at its next step; and `resume`. Between turns, steer
-  --- and follow_up run as prompts.
+  --- - `ask [prompt...]` runs one prompt to the end. The prompt is the
+  ---   words, else all of standard input.
+  --- - `chat` takes one prompt a line until `/exit`. A line typed at a
+  ---   terminal while the model works steers it. `/later <prompt>` waits
+  ---   for the turn to end. A failed turn does not end the chat.
+  --- - `resume` finishes the turn that a run left unfinished.
+  --- - `rpc` runs one session for another program. It reads commands as
+  ---   JSON lines on standard input and writes events on standard output.
+  ---   A failed turn does not end the session.
+  --- - `sessions` lists the newest sessions in this directory.
+  --- - `prompt` prints the system prompt that the model reads.
+  --- - `policy` prints, path by path, the sandbox that the tools would run
+  ---   under here. `policy clear-home` empties the commands' kept home.
   ---
-  --- `--model opus|sonnet` picks the latest of each
-  --- (opus by default), `--effort low|medium|high|xhigh|max` how hard it
-  --- thinks (medium). `--continue` goes on with the newest session in the
-  --- directory, `--session <id>` with any.
+  --- Model and session:
   ---
-  --- The tools run in a sandbox (`cosmic docs cosmic.agent.policy`): the
-  --- working directory is theirs to read and change, the host's programs
-  --- run, a home of their own outlives each command, and nothing else is
-  --- there, the network included. `--sandbox read` changes nothing,
-  --- `--sandbox off` runs them with your user's rights and environment,
-  --- your API key included, `--network` lets
-  --- bash reach the network, and `--grant path[:rwxc]` adds a path. The
-  --- model's words go to standard output, and each tool call to standard
-  --- error.
+  --- - `--model opus|sonnet` picks the latest of each (default opus).
+  --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
+  ---   (default medium).
+  --- - `--continue` goes on with the newest session in the directory.
+  ---   `--session <id>` goes on with any session.
   ---
-  --- Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
-  --- (or `~/.local/share/cosmic/agent`), before it is shown: each message,
-  --- each tool's whole output, each request with its usage and cost
-  --- (`cosmic docs cosmic.agent.sessions`). The model reads it with its
-  --- sql tool, and a run that ends mid-turn loses nothing: `cosmic agent
-  --- resume` takes the turn up again (`cosmic docs cosmic.agent`). A
-  --- program runs the loop itself with [`cosmic.agent`]. It prints no
-  --- summary. Exits 0 when it did what was asked, 1 when an ask or resume
-  --- turn failed (chat and rpc go on past one) or
-  --- the sessions database could not be opened, 2 for a command line it
-  --- refuses or a session it cannot start
+  --- Events and rpc commands:
+  ---
+  --- `rpc` and `ask --json` print events. Each event is one JSON object on
+  --- a line, printed once what it tells of is kept:
+  ---
+  --- - `{"type":"session","id":7}` names the session. rpc adds
+  ---   `unfinished`.
+  --- - `message`: a message joined the conversation, in the form the API
+  ---   takes.
+  --- - `tool`: a call starts (`name`, `input`).
+  --- - `result`: a call ended (`name`, `is_error`).
+  --- - `request`: a request ended (its model, status, ms, tokens and cost).
+  --- - `end`: the turn ended (`ok`, and `error` when `ok` is false).
+  --- - `error`: a command was refused.
+  ---
+  --- The rpc commands are:
+  ---
+  --- - `{"type":"prompt","text":"..."}` runs a turn.
+  --- - `steer` goes to the model after the running tool, and skips the
+  ---   calls after it.
+  --- - `follow_up` runs after the turn.
+  --- - `abort` stops the turn at its next step.
+  --- - `resume` finishes an unfinished turn.
+  ---
+  --- Between turns, `steer` and `follow_up` run as prompts.
+  ---
+  --- The sandbox (`cosmic docs cosmic.agent.policy`):
+  ---
+  --- - The tools can read and change the working directory and run the
+  ---   host's programs. They have a home of their own, which outlives each
+  ---   command. They reach nothing else, not even the network.
+  --- - `--sandbox read` lets them change nothing.
+  --- - `--sandbox off` runs them with your user's rights and environment,
+  ---   your API key included.
+  --- - `--network` lets bash reach the network.
+  --- - `--grant path[:rwxc]` adds a path.
+  ---
+  --- Output and sessions:
+  ---
+  --- - The model's words go to standard output, and each tool call to
+  ---   standard error.
+  --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
+  ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
+  ---   message, each tool's whole output, and each request with its usage
+  ---   and cost (`cosmic docs cosmic.agent.sessions`). The model reads it
+  ---   with its sql tool.
+  --- - A run that ends mid-turn loses nothing: `cosmic agent resume` takes
+  ---   the turn up again (`cosmic docs cosmic.agent`).
+  --- - A program runs the loop itself with [`cosmic.agent`].
   agent: string
   --- `cosmic help [verb | exit]`: with no word, the guides to start
   --- from, an index of every verb, one line each, and where to read

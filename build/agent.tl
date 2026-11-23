@@ -773,7 +773,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "ask, chat, resume, rpc, sessions, prompt or policy, and its options",
-  exits = "`agent` prints the model's words or its events, and nothing after; it exits 1 when an ask or resume turn failed or the sessions database could not be opened, 2 when it refuses its command line or cannot start a session.",
+  exits = "`agent` prints the model's words or its events, and nothing after; it exits 0 when it did what was asked, 1 when an ask or resume turn failed or the sessions database could not be opened, 2 when it refuses its command line or cannot start a session.",
   passthrough = "its output is the model's words, so its exit status is the verdict (build/agent_test.tl)",
 }
 
