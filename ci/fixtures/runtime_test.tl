@@ -503,10 +503,12 @@ end
 
 -- Startup stamps a cache entry it hashed once a second has passed since the
 -- entry last changed; while the stamp holds, no one hashes the entry again.
--- A write moves the entry's times, so a core damaged in place no longer
--- matches its stamp: the launcher hashes it and repairs it before it runs,
--- on every host, including where the kernel would refuse a damaged signed
--- core before startup could speak.
+-- A write gives the entry new times, so a damaged core no longer matches
+-- its stamp. On Linux the warm start runs the entry because its stamp
+-- exists. Startup finds the stamp stale, hashes the entry, removes it and
+-- its stamp, and exits 2. The next start extracts it again. Elsewhere the
+-- launcher hashes the entry and repairs it before it runs, including where
+-- the kernel would refuse a damaged signed core before startup could speak.
 local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   Fixture.builds_beneath(tmp .. "/build")
   local fixture_dir = Fixture.placed("runtime")
@@ -543,9 +545,34 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   local bytes = Fixture.read(core)
   local last = string.char(assert(bytes:byte(#bytes)) ~ 0xff)
   Fixture.write(core, bytes:sub(1, #bytes - 1) .. last, 0x140)
-  local repaired = Fixture.run("stamp-damaged", { program, "help" }, work,
-    diagnostics, values)
-  Fixture.contains(repaired.err, "digest differs; repairing")
+  if host_uname(work, diagnostics, "-s", "sysname") == "Linux" then
+    local refused = Fixture.call("stamp-damaged", { program, "help" }, work,
+      diagnostics, values)
+    assert(refused.result.code == 2,
+      "damaged warm core: exit " .. tostring(refused.result.code))
+    Fixture.contains(refused.err,
+      "digest differs from the manifest; removed it: run again")
+    assert(assert(Fs.status(core)).exists == false,
+      "a refused warm core was not removed")
+    assert(assert(Fs.status(stamp)).exists == false,
+      "a refused warm core's stamp was not removed")
+    Fixture.run("stamp-extracted", { program, "help" }, work, diagnostics,
+      values)
+    assert(Fixture.read(core) == bytes, "extraction did not restore the core")
+    -- With no stamp the warm start is not taken: the launcher hashes the
+    -- entry and repairs it, as it does where there is no warm start.
+    if assert(Fs.status(stamp)).exists == true then
+      assert(Fs.remove(stamp))
+    end
+    Fixture.write(core, bytes:sub(1, #bytes - 1) .. last, 0x140)
+    local repaired = Fixture.run("unstamped-damaged", { program, "help" },
+      work, diagnostics, values)
+    Fixture.contains(repaired.err, "digest differs; repairing")
+  else
+    local repaired = Fixture.run("stamp-damaged", { program, "help" }, work,
+      diagnostics, values)
+    Fixture.contains(repaired.err, "digest differs; repairing")
+  end
   assert(Fixture.read(core) == bytes, "repair did not restore the core")
 end
 
