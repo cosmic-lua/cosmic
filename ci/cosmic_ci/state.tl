@@ -1,5 +1,4 @@
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 
 local record State
@@ -60,7 +59,7 @@ CREATE TABLE IF NOT EXISTS suite_runs (
 
 function State.canonical_directory(path: string): string
   local absolute = assert(Fs.absolute(path))
-  local directory = Predicate.is_dir(absolute)
+  local directory = assert(Fs.status(absolute)).is_dir
   assert(directory, "directory does not exist: " .. path)
   return absolute
 end

@@ -65,17 +65,6 @@ local Log = require("cosmic.log")
 local sys = require("cosmic.sys")
 local String = require("cosmic.string")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local record Patch
   --- One record, parsed: `note` is its `note:` line's value, and
   --- `find_at` and `replace_at` are where in the record's text the find
@@ -268,10 +257,11 @@ local function read_inputs(root: string, name: string): Inputs?, string
     return nil, trouble
   end
   local dir = root .. "/patch/" .. name
-  local present, present_trouble = path_there(dir)
-  if present == nil then
-    return nil, present_trouble
+  local present_status, present_trouble = Fs.status(dir)
+  if present_status == nil then
+    return nil, tostring(present_trouble)
   end
+  local present = present_status.exists
   if not present then
     return inputs, ""
   end
@@ -467,10 +457,11 @@ function Patch.prepare(root: string, name: string, cache: string): string?, stri
     return nil, patch_trouble
   end
   local dir = cache .. "/" .. name .. "-" .. key_of(tree)
-  local present, present_trouble = path_there(dir)
-  if present == nil then
-    return nil, present_trouble
+  local present_status, present_trouble = Fs.status(dir)
+  if present_status == nil then
+    return nil, tostring(present_trouble)
   end
+  local present = present_status.exists
   if present then
     return dir, ""
   end
@@ -497,8 +488,8 @@ function Patch.prepare(root: string, name: string, cache: string): string?, stri
   local moved, move_trouble = Fs.rename(payload, dir)
   if not moved then
     -- Another build may have won the race; its tree is the same bytes.
-    local raced, _ = path_there(dir)
-    if raced == true then
+    local raced, _ = Fs.status(dir)
+    if raced ~= nil and raced.exists then
       return dir, ""
     end
     return nil, tostring(move_trouble)
@@ -570,8 +561,8 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   local moved, move_trouble = Fs.rename(payload, out)
   if not moved then
     -- Another build may have won the race; its library is the same bytes.
-    local raced, _ = path_there(out)
-    if raced == true then
+    local raced, _ = Fs.status(out)
+    if raced ~= nil and raced.exists then
       return true, ""
     end
     return false, tostring(move_trouble)
@@ -588,8 +579,8 @@ function Patch.names(root: string): {string}?, string
   end
   local names: mut {string} = {}
   for _, name in ipairs(entries) do
-    local pinned, _ = path_there(root .. "/vendor/" .. name .. "/PIN")
-    if pinned == true then
+    local pinned, _ = Fs.status(root .. "/vendor/" .. name .. "/PIN")
+    if pinned ~= nil and pinned.exists then
       names[#names + 1] = name
     end
   end

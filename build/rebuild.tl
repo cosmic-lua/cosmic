@@ -188,8 +188,6 @@ local function project(root: string, verb: string, start: boolean, carried?: str
     end
     return true, ""
   end
-  local grammar_trouble = GrammarMode.refusal()
-  if grammar_trouble ~= nil then return false, grammar_trouble end
   local started = Clock.monotonic_ns()
   local opening, open_trouble = opened_for(root, start, verb)
   if opening == nil then return false, open_trouble end

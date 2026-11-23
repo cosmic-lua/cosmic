@@ -1,7 +1,6 @@
 local Compiles = require("cosmic_ci.compiles")
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
-local Predicate = require("cosmic_ci.fs_predicate")
 
 --- The current supported compile format, independent of candidate imports.
 local function cache(path: string, used: {integer})
@@ -40,11 +39,11 @@ local function test_trim_uses_seconds_and_publishes_only_complete_outputs(tmp: s
   local code, out, err = trimmed({ "1000", restored },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   assert(code == 0 and err == "", out .. err)
-  assert(Predicate.absent(path .. "-wal") and Predicate.absent(path .. "-shm"))
+  assert(not assert(Fs.status(path .. "-wal")).exists and not assert(Fs.status(path .. "-shm")).exists)
   assert(keys(path) == "k2,k3")
   local output = assert(Fs.read(tmp .. "/output"))
   assert(output == "digest=2269c56821c2698f2d587c7bc30d964a6f7b44d9e434a8b63628bea32b772056\nfresh=1\n", output)
-  assert(Predicate.absent(restored))
+  assert(not assert(Fs.status(restored)).exists)
 end
 
 local function test_missing_cache_stays_missing_and_snapshot_is_cleaned(tmp: string)
@@ -53,8 +52,8 @@ local function test_missing_cache_stays_missing_and_snapshot_is_cleaned(tmp: str
   local code, out, err = trimmed({ "5", restored },
     { COSMIC_BUILD_CACHE = tmp .. "/missing/cache.db", GITHUB_OUTPUT = tmp .. "/output" })
   assert(code == 0 and err == "", out .. err)
-  assert(Predicate.absent(tmp .. "/missing") and Predicate.absent(restored))
-  assert(Predicate.absent(tmp .. "/output"))
+  assert(not assert(Fs.status(tmp .. "/missing")).exists and not assert(Fs.status(restored)).exists)
+  assert(not assert(Fs.status(tmp .. "/output")).exists)
   code, out, err = trimmed({ "5" }, {})
   assert(code == 0 and err == "" and out:find("nothing to trim", 1, true) ~= nil)
 end
@@ -67,8 +66,8 @@ local function test_unreadable_active_cache_is_retained_and_never_saved(tmp: str
   local code, _, err = trimmed({ "5", restored },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   assert(code == 0 and err ~= "", err)
-  assert(assert(Fs.read(path)) == bytes and Predicate.absent(restored))
-  assert(Predicate.absent(tmp .. "/output"))
+  assert(assert(Fs.read(path)) == bytes and not assert(Fs.status(restored)).exists)
+  assert(not assert(Fs.status(tmp .. "/output")).exists)
 end
 
 local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplete(tmp: string)
@@ -81,7 +80,7 @@ local function test_unknown_format_is_retained_and_fresh_comparison_is_incomplet
   local code, _, err = trimmed({ "5", tmp .. "/absent.db" },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
   assert(code == 0 and err ~= "")
-  assert(Predicate.absent(tmp .. "/output"))
+  assert(not assert(Fs.status(tmp .. "/output")).exists)
   db = assert(Sqlite.open(path))
   local future = assert(Sqlite.text_rows(db, "SELECT key FROM compiled_v99"))
   assert(assert(future[1]):text(1) == "future")
@@ -127,5 +126,5 @@ local function test_only_retired_siblings_are_removed(tmp: string)
   local code, out, err = trimmed({ "5" }, { COSMIC_BUILD_CACHE = path })
   assert(code == 0 and err == "", out .. err)
   assert(out:find("set aside", 1, true))
-  assert(Predicate.absent(path .. ".corrupt-123") and Predicate.absent(path .. ".corrupt-123-wal"))
+  assert(not assert(Fs.status(path .. ".corrupt-123")).exists and not assert(Fs.status(path .. ".corrupt-123-wal")).exists)
 end

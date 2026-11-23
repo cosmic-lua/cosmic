@@ -196,7 +196,7 @@ allow({ "build.seed.compile", "build.seed.program" }, "the two things the bridge
 allow({ "build.plans.full_keys" }, "the keys made of nothing kept, which build/dependency_keys_test.tl holds " ..
     "the keys `dependency_keys` keeps to, edit by edit")
 allow({
-  "build.syntax_receivers.blind", "build.syntax_rewrite.find_all", "build.doctest.blocks", "build.grammar_mode.refusal_of",
+  "build.syntax_receivers.blind", "build.syntax_rewrite.find_all", "build.doctest.blocks",
   "build.plural_sites.lines", "build.coverage.syntax_lines.executable", "build.withheld.package_fields",
   "build.syntax_contracts.rules", "build.syntax_receivers.known",
 }, "tested directly: a reader whose callers outside its module take it through a composed reader (`references`, `rewrite`, " ..

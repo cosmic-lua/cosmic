@@ -41,7 +41,6 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Plural = require("cosmic_ci.plural")
-local Predicate = require("cosmic_ci.fs_predicate")
 
 --- A list of names, kept where it can be added to as the plan is made.
 local record Names
@@ -252,9 +251,9 @@ function ZigPrune.plan(caches: {ZigPrune.Cache}): ZigPrune.Plan?, string
           -- made) is a file, `c/<digest>`, rather than a directory.
           if outputs[manifest.output] == nil then
             local configuration = cache.path .. "/c/" .. assert(manifest.output:match("/(.*)$"))
-            local there, there_trouble = Predicate.there(configuration)
-            if there == nil then return nil, configuration .. ": " .. there_trouble end
-            if there then
+            local status, look_trouble = Fs.status(configuration)
+            if status == nil then return nil, tostring(look_trouble) end
+            if status.exists then
               manifest.output = "c" .. manifest.output
               outputs[manifest.output] = configuration
             end
@@ -397,8 +396,8 @@ function ZigPrune.command(env: {string:string}): ZigPrune.Command
   local seed = env["COSMIC_ZIG_CACHE_SEED"] or ""
   local shared = env["COSMIC_ZIG_GLOBAL_CACHE"] or ""
   local project = if seed ~= "" then seed .. "/zig-cache" else "" end
-  if project == "" or shared == "" or not Predicate.is_dir(project .. "/h") or
-      not Predicate.is_dir(shared .. "/h") then
+  if project == "" or shared == "" or not assert(Fs.status(project .. "/h")).is_dir or
+      not assert(Fs.status(shared .. "/h")).is_dir then
     return { code = 0, out = "zig-prune: no zig caches at '" .. project .. "' and '" .. shared ..
         "'; nothing to prune\n", err = "" }
   end

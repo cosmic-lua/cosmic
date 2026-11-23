@@ -9,6 +9,7 @@ local Codec = require("cosmic.codec")
 local FieldPath = require("cosmic.internal.field_path")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
+local Loopback = require("cosmic.internal.loopback")
 local Proc = require("cosmic.proc")
 local Grant = require("cosmic.relay.grant")
 local RelayConfig = require("cosmic.internal.relay_config")
@@ -221,19 +222,6 @@ local function env_name_ok(name: string): boolean
   return name ~= "" and not name:find("=", 1, true) and not name:find("\0", 1, true)
 end
 
---- Whether `address` is of 127/8 as four decimal numbers, none with a
---- leading zero.
-local function loopback_ok(address: string): boolean
-  local a, b, c = address:match("^127%.(%d+)%.(%d+)%.(%d+)$")
-  if a == nil then return false end
-  for _, part in ipairs({ a, b, c }) do -- checked: array_of_optional
-    if #part > 1 and part:sub(1, 1) == "0" then return false end -- untyped: call
-    local octet = tonumber(part)
-    if octet == nil or octet > 255 then return false end
-  end
-  return true
-end
-
 local PROFILES <const>: {string} = { "cosmic", "proc", "system" }
 
 local function listed(name: string, names: {string}): boolean
@@ -332,7 +320,7 @@ local function invalid(p: rules.Policy, exact: boolean): string
     end
   end
   for i, address in ipairs(p.loopback or {}) do
-    if not loopback_ok(address) then
+    if not Loopback.ipv4(address) then
       return at({ "loopback", i }, "\"" .. address .. "\" is not an address of 127/8")
     end
   end

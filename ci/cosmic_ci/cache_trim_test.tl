@@ -1,9 +1,9 @@
 local CacheTrim = require("cosmic_ci.cache_trim")
 local Child = require("cosmic.child")
 local Compiles = require("cosmic_ci.compiles")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local Seams = require("cosmic_ci.seams")
 local Signal = require("cosmic.signal")
@@ -127,29 +127,29 @@ local function test_invalid_or_incomplete_reports_never_publish_save_keys(tmp: s
   for i, value in ipairs(cases) do
     local output = tmp .. "/output" .. tostring(i)
     local _, err = mocked(request, { GITHUB_OUTPUT = output }, text_of(value))
-    assert(err ~= "" and Predicate.absent(output), err)
+    assert(err ~= "" and not assert(Fs.status(output)).exists, err)
   end
   for _, text in ipairs({ "not JSON", '{"version":1', '[]', '{}' }) do
     local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/invalid" }, text)
-    assert(err ~= "" and Predicate.absent(tmp .. "/invalid"))
+    assert(err ~= "" and not assert(Fs.status(tmp .. "/invalid")).exists)
   end
   local good = text_of(encoded(path))
   for _, code in ipairs({ 1, 2 }) do
     local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/failed" }, good, code)
-    assert(err ~= "" and Predicate.absent(tmp .. "/failed"))
+    assert(err ~= "" and not assert(Fs.status(tmp .. "/failed")).exists)
   end
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/truncated" }, good, 0, true)
-  assert(err:find("truncated", 1, true) ~= nil and Predicate.absent(tmp .. "/truncated"))
+  assert(err:find("truncated", 1, true) ~= nil and not assert(Fs.status(tmp .. "/truncated")).exists)
 end
 
 local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: string)
   local path, restored = tmp .. "/cache.db", tmp .. "/restored.db"
   assert(Fs.write(restored, "owned"))
   local seams = Seams.calls()
-  local original = seams.fs_exists
-  seams.fs_exists = function(name: string): boolean?, string
+  local original = seams.fs_status
+  seams.fs_status = function(name: string): (Fs.Status) | (nil, Failure)
     if name == restored or name == tmp .. "/output" then
-      return nil, "injected inaccessible path"
+      return nil, Failure.new("injected inaccessible path")
     end
     return original(name)
   end
@@ -157,9 +157,9 @@ local function test_snapshot_cleanup_and_output_errors_remain_best_effort(tmp: s
     whole = false, restored = restored }
   local payload = text_of(encoded(path))
   local tried = trying(request, { GITHUB_OUTPUT = tmp .. "/output" }, payload)
-  seams.fs_exists = original
+  seams.fs_status = original
   assert(tried.ok and tried.err:find("injected inaccessible path", 1, true) ~= nil, tried.err)
-  assert(assert(Fs.read(restored)) == "owned" and Predicate.absent(tmp .. "/output"))
+  assert(assert(Fs.read(restored)) == "owned" and not assert(Fs.status(tmp .. "/output")).exists)
   request.restored = nil
   local append = seams.fs_append
   seams.fs_append = function(name: string, _text: string, _mode?: integer): boolean, string
@@ -189,31 +189,31 @@ local function test_fresh_counts_require_a_complete_compile_comparison(tmp: stri
   local value = encoded(path)
   value.digest, value.fresh = nil, "1"
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, text_of(value))
-  assert(err:find("unexpected fresh count", 1, true) ~= nil and Predicate.absent(tmp .. "/output"))
+  assert(err:find("unexpected fresh count", 1, true) ~= nil and not assert(Fs.status(tmp .. "/output")).exists)
   request.family = "verdicts"
   value.digest = Json.quote(string.rep("a", 64))
   _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, text_of(value))
-  assert(err:find("unexpected fresh count", 1, true) ~= nil and Predicate.absent(tmp .. "/output"))
+  assert(err:find("unexpected fresh count", 1, true) ~= nil and not assert(Fs.status(tmp .. "/output")).exists)
 end
 
 local function test_snapshot_identity_failures_retain_snapshot_and_save_nothing(tmp: string)
   local path, restored = tmp .. "/cache.db", tmp .. "/restored.db"
   assert(Fs.write(restored, "owned"))
   local seams = Seams.calls()
-  local absolute, exists = seams.fs_absolute, seams.fs_exists
+  local absolute, status = seams.fs_absolute, seams.fs_status
   seams.fs_absolute = function(name: string): string?, string
     if name == path then return nil, "injected identity failure" end
     return absolute(name)
   end
-  seams.fs_exists = function(name: string): boolean?, string
-    if name == path then return nil, "injected identity failure" end
-    return exists(name)
+  seams.fs_status = function(name: string): (Fs.Status) | (nil, Failure)
+    if name == path then return nil, Failure.new("injected identity failure") end
+    return status(name)
   end
   local command = guarded({ "5", restored },
     { COSMIC_BUILD_CACHE = path, GITHUB_OUTPUT = tmp .. "/output" })
-  seams.fs_absolute, seams.fs_exists = absolute, exists
+  seams.fs_absolute, seams.fs_status = absolute, status
   assert(command.code == 0 and command.err:find("snapshot retained", 1, true) ~= nil, command.err)
-  assert(assert(Fs.read(restored)) == "owned" and Predicate.absent(tmp .. "/output"))
+  assert(assert(Fs.read(restored)) == "owned" and not assert(Fs.status(tmp .. "/output")).exists)
 end
 
 local function test_failed_launch_cleans_snapshot_without_publishing(tmp: string)
@@ -231,9 +231,9 @@ local function test_failed_launch_cleans_snapshot_without_publishing(tmp: string
   seams.child_run = original
   assert(command.code == 0 and command.err:find("injected start failure", 1, true) ~= nil, command.err)
   for _, suffix in ipairs({ "", "-wal", "-shm" }) do
-    assert(Predicate.absent(restored .. suffix))
+    assert(not assert(Fs.status(restored .. suffix)).exists)
   end
-  assert(Predicate.absent(tmp .. "/output"))
+  assert(not assert(Fs.status(tmp .. "/output")).exists)
 end
 
 local function test_a_guard_failure_cleans_snapshot_without_raising(tmp: string)
@@ -248,7 +248,7 @@ local function test_a_guard_failure_cleans_snapshot_without_raising(tmp: string)
     { COSMIC_BUILD_CACHE = tmp .. "/cache.db", GITHUB_OUTPUT = tmp .. "/output" })
   seams.signal_guard = original
   assert(command.code == 0 and command.err:find("injected guard failure", 1, true) ~= nil, command.err)
-  assert(Predicate.absent(restored) and Predicate.absent(tmp .. "/output"))
+  assert(not assert(Fs.status(restored)).exists and not assert(Fs.status(tmp .. "/output")).exists)
 end
 
 local function test_report_file_order_must_match_the_whole_requested_set(tmp: string)
@@ -257,7 +257,7 @@ local function test_report_file_order_must_match_the_whole_requested_set(tmp: st
   local value = encoded(a)
   value.files = { file_json(b, "trimmed", 1), file_json(a, "trimmed", 1) }
   local _, err = mocked(request, { GITHUB_OUTPUT = tmp .. "/output" }, text_of(value))
-  assert(err:find("another file set", 1, true) ~= nil and Predicate.absent(tmp .. "/output"))
+  assert(err:find("another file set", 1, true) ~= nil and not assert(Fs.status(tmp .. "/output")).exists)
 end
 
 local function test_save_outputs_append_without_replacing_or_reading(tmp: string)
@@ -278,7 +278,7 @@ local function test_save_outputs_append_without_replacing_or_reading(tmp: string
   local calls: Count = { value = 0 }
   seams.fs_append = function(name: string, text: string, mode?: integer): boolean, string
     calls.value = calls.value + 1
-    assert(Predicate.exists(restored) == false, "snapshot cleanup followed publication")
+    assert(assert(Fs.status(restored)).exists == false, "snapshot cleanup followed publication")
     assert(name == link and text == "digest=" .. string.rep("a", 64) .. "\nfresh=2\n")
     return append(name, text, mode)
   end

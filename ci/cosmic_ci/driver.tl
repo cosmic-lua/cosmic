@@ -9,7 +9,6 @@ local Fuzz = require("cosmic_ci.fuzz")
 local HostId = require("cosmic_ci.host_id")
 local Images = require("cosmic_ci.images")
 local Islands = require("cosmic_ci.islands")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
@@ -50,7 +49,7 @@ end
 local function summarize(_argv: {string}): integer
   local db_path = Context.database()
   local lines: mut {string} = { "## Cosmic CI operations\n\n" }
-  local database_exists = Predicate.exists(db_path)
+  local database_exists = assert(Fs.status(db_path)).exists
   if not database_exists then
     lines[#lines + 1] =
       "Operation database unavailable: no operation ran (the self-check failed first).\n"

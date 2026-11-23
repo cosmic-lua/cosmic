@@ -31,7 +31,6 @@ local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Plural = require("cosmic_ci.plural")
 local String = require("cosmic.string")
 
@@ -94,8 +93,8 @@ function Islands.files(root: string): {string}?, string
   local known: mut {string:boolean} = {}
   for _, path in ipairs(listed) do
     known[path] = true
-    local there, _ = Predicate.there(root .. "/" .. path)
-    if there ~= true then
+    local status, _ = Fs.status(root .. "/" .. path)
+    if status == nil or not status.exists then
       return nil, "ci/bootstrap-files.txt lists " .. path .. ", which is not in the checkout: remove the stale entry"
     end
   end

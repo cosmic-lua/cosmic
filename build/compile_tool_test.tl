@@ -98,17 +98,10 @@ local function test_a_run_from_another_directory_with_root_gives_the_same(tmp: s
   assert(without.code == 2 and without.err:find("pass --root", 1, true) ~= nil, without.err)
 end
 
---- The grammar is the new one, by default and by name; the fork's, which `--grammar teal` names, is refused, naming
---- the verb that rewrites a project to the new one.
-local function test_the_grammar_flag_reads_the_new_grammar(tmp: string)
+--- A file in the grammar compiles: `continue` is written as Lua's `goto`.
+local function test_a_file_in_the_grammar_compiles(tmp: string)
   assert(Fs.write(tmp .. "/n.tl", "for i = 1, 2 do\n  if i == 1 then continue end\nend\nlocal n = 7\n"))
-  local new = tool_fixture.cosmic(tmp, { "compile", "--grammar", "new", "n.tl" })
+  local new = tool_fixture.cosmic(tmp, { "compile", "n.tl" })
   assert(new.code == 0, new.err)
   assert(new.out:find("goto continue", 1, true) and new.out:find("local n = 7", 1, true), new.out)
-  local default = tool_fixture.cosmic(tmp, { "compile", "n.tl" })
-  assert(default.code == 0 and default.out == new.out, default.err)
-  local teal = tool_fixture.cosmic(tmp, { "compile", "--grammar", "teal", "n.tl" })
-  assert(teal.code == 2 and teal.out == "", teal.err)
-  assert(teal.err:find("--grammar teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says",
-    1, true) ~= nil, teal.err)
 end

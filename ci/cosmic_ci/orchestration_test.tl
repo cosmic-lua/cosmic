@@ -2,7 +2,6 @@ local BuildPaths = require("cosmic_ci.build_paths")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Hash = require("cosmic.hash")
 local CiWorkflow = require("cosmic_ci.ci_workflow")
 local Proc = require("cosmic.proc")
@@ -129,7 +128,7 @@ end
 --- explicitly and passes it as Fixture.call's extra env instead.
 local function context(candidate: string, runner_temp: string,
                        extra?: {string:string}): {string:string}
-  if Predicate.exists(candidate .. "/AGENTS.md") == true then build_resolver(candidate) end
+  if assert(Fs.status(candidate .. "/AGENTS.md")).exists == true then build_resolver(candidate) end
   local env: mut {string:string} = {
     GITHUB_WORKSPACE = candidate,
     GITHUB_RUN_ID = "run",
@@ -265,7 +264,7 @@ local function test_attest_records_the_digest_it_ran(tmp: string)
   assert(outcome.result.ok, "attest answered " .. tostring(outcome.result.ok) .. ": " .. Fixture.read(outcome.err))
   local manifest = assert(assert(Fs.read(product .. "/executed-cosmic.sha256")), "no digest attested")
   assert(manifest:match("^%x+  cosmic\n$") ~= nil, manifest)
-  assert(Predicate.exists(product .. "/expected-platforms") ~= true and Predicate.exists(product .. "/portable-share") ~= true,
+  assert(assert(Fs.status(product .. "/expected-platforms")).exists ~= true and assert(Fs.status(product .. "/portable-share")).exists ~= true,
     "attest wrote more than the digest")
 end
 
@@ -343,9 +342,9 @@ chmod 755 o/bin/cosmic
   -- (COSMIC_ZIG_CACHE) and the global one (COSMIC_ZIG_GLOBAL_CACHE).
   assert(assert(Fs.read(fake .. "/o/zig-cache-named")) == seed .. "/zig-cache",
     "the project cache was not used where it was restored")
-  assert(not Predicate.is_dir(fake .. "/o/zig-cache"), "project cache was copied into o/")
-  assert(not Predicate.is_dir(fake .. "/o/zig-global"), "global cache was copied into o/")
-  assert(Predicate.exists(fake .. "/o/poison") == false)
+  assert(not assert(Fs.status(fake .. "/o/zig-cache")).is_dir, "project cache was copied into o/")
+  assert(not assert(Fs.status(fake .. "/o/zig-global")).is_dir, "global cache was copied into o/")
+  assert(assert(Fs.status(fake .. "/o/poison")).exists == false)
   assert(#assert(Fs.list(tmp .. "/temporary")) == 0,
     "snapshot inspection directory was retained")
 end
@@ -377,7 +376,7 @@ exit 9
   local copy = assert(Fs.absolute(fake)) .. "/o/zig-cache"
   assert(assert(Fs.read(copy .. "/o/entry")) == "compiled", "the project cache was not copied into o/")
   assert(assert(Fs.read(copy .. "/named")) == copy, "the build did not use the copy")
-  assert(Predicate.exists(from .. "/named") == false, "the build wrote the cache it copied")
+  assert(assert(Fs.status(from .. "/named")).exists == false, "the build wrote the cache it copied")
 end
 
 --- Where COSMIC_CI_REQUIRE_SANDBOX=1 (ci.yml's Linux legs), the sandbox
@@ -617,7 +616,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   local named = tmp .. "/named/cache.db"
   -- Left open while it is copied, so its row is in the WAL alone.
   local named_db = cache_at(named)
-  assert(Predicate.exists(named .. "-wal") == true, "the cache's row is not in its WAL")
+  assert(assert(Fs.status(named .. "-wal")).exists == true, "the cache's row is not in its WAL")
   assert(Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named }, tmp .. "/one.db"))
   assert(seeded_from(tmp .. "/one.db") == named)
   local again, again_trouble = Orchestration.seed_compiles({ COSMIC_BUILD_CACHE = named },
@@ -651,7 +650,7 @@ local function test_the_self_rebuild_seed_copies_the_legs_compiles(tmp: string)
   assert(not under_file and under_file_trouble:find("cache.db: not a directory", 1, true) ~= nil,
     under_file_trouble)
   for _, name in ipairs({ "three", "four", "five", "six", "seven", "eight" }) do
-    assert(Predicate.exists(tmp .. "/" .. name .. ".db") ~= true, name)
+    assert(assert(Fs.status(tmp .. "/" .. name .. ".db")).exists ~= true, name)
   end
 end
 
@@ -1870,7 +1869,7 @@ local function test_a_fixture_project_made_again_has_no_build_left(tmp: string)
   assert(Fs.write(placed .. "/file", "earlier"))
   assert(Orchestration.fixture_project(driver, tmp .. "/work") == project)
   assert(assert(Fs.read(project .. "/fixtures/a_test.tl")) == "\n")
-  assert(Predicate.exists(placed) ~= true, "the earlier fixture's placement was kept")
+  assert(assert(Fs.status(placed)).exists ~= true, "the earlier fixture's placement was kept")
 end
 
 --- The fixture project holds the driver namespace's JSON data beside its
@@ -1963,7 +1962,7 @@ end
 
 local function pid_of(path: string): integer
   local waited = Clock.monotonic_ns()
-  while not Predicate.exists(path) and Clock.monotonic_ns() - waited < lane_hang_guard do
+  while not assert(Fs.status(path)).exists and Clock.monotonic_ns() - waited < lane_hang_guard do
     Clock.sleep_ns(Clock.ms(10))
   end
   return assert(math.tointeger(tonumber((assert(Fs.read(path)):gsub("%s", "")))))
@@ -1986,7 +1985,7 @@ local function test_a_failing_group_stops_the_other_lane_and_starts_nothing_afte
     assert(status == 7, "the failing group's status was not returned: " .. tostring(status))
     assert(Clock.monotonic_ns() - started < Clock.seconds(10), "the hung group was waited out")
     assert(gone(pid_of(dir .. "/hung.pid")), "the other lane's group was left running")
-    assert(not Predicate.exists(dir .. "/after.ran") and
+    assert(not assert(Fs.status(dir .. "/after.ran")).exists and
         not table.concat(rig.events, " "):find("start:after", 1, true),
       "a group started after a failure")
     local hung = if high_fails then "first" else "high" end

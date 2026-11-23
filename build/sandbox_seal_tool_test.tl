@@ -38,14 +38,10 @@ end
 --- root caller's child runs as must reach the database sealed beneath
 --- TMPDIR. Skips the test, where the host refused the sandbox the start
 --- asked for.
-local function cosmic(dir: string, words: {string}, grammar?: string): Ran
+local function cosmic(dir: string, words: {string}): Ran
   searchable.open(dir)
-  local env = this_program.environment()
-  if grammar ~= nil then
-    env["COSMIC_GRAMMAR"] = grammar
-  end
   local started = this_program.program(words, {
-    cwd = dir, env = env, stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
+    cwd = dir, env = this_program.environment(), stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(120),
   })
   local result = assert(Child.run(started.argv, started.options))
   local ran: Ran = { code = result.code or -1, out = result.stdout or "", err = result.stderr or "" }
@@ -99,7 +95,7 @@ local function test_closure_runs_a_script_on_the_modules_it_requires(tmp: string
 end
 
 --- A script in the new grammar (`mut`) is compiled by the new checker, and the modules it requires are read from its syntax
---- tree: the closure is sealed from them. The fork's grammar, which `COSMIC_GRAMMAR=teal` names, is gone.
+--- tree: the closure is sealed from them.
 local NEW_SCRIPT <const> = [[
 local Json = require("cosmic.json")
 local words: mut {string} = {}
@@ -120,12 +116,9 @@ local function test_closure_takes_the_requires_of_a_script_in_the_new_grammar_fr
   assert(Fs.write(tmp .. "/new.tl", NEW_SCRIPT))
   searchable.share(tmp .. "/new.tl")
   local program = (assert(Proc.executable()))
-  local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "new")
+  local ran = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" })
   assert(ran.code == 3 and ran.out == 'json\t{"a":1}\nprobed\ttrue\nmain\tx\n', tostring(ran.code) .. ": " .. ran.out .. ran.err)
   assert(#left_over() == 0, table.concat(left_over(), " "))
-  local forked = cosmic(tmp, { "sandbox", "--closure", "--", program, "new.tl", "x" }, "teal")
-  assert(forked.code == 125 and forked.err:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
-      "rewrite a project to the new grammar by hand, as doc/guides/project.md says", 1, true) ~= nil, tostring(forked.code) .. ": " .. forked.err)
 end
 
 --- The core's own modules ([`cosmic.sys`]) are no database's, and a require

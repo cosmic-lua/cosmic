@@ -1,6 +1,5 @@
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local Process = require("cosmic_ci.process")
@@ -528,7 +527,7 @@ local function test_runtime_warm_core_stamp_and_repair(tmp: string)
   -- A cold launch that runs past a second may stamp the core it just
   -- published; whether it does depends on the host's speed, not on the
   -- launcher. What it may never do is stamp something the entry is not.
-  if Predicate.exists(stamp) == true then
+  if assert(Fs.status(stamp)).exists == true then
     local cold = assert(sys.lstat(core))
     local prefix = string.format("%d|%d|%d|", cold.size, cold.ino, cold.mtime)
     assert(String.starts_with(Fixture.read(stamp), prefix),

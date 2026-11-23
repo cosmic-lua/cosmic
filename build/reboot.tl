@@ -418,10 +418,6 @@ local function into(handle: work.Handle, argv: {string}, settle: boolean): strin
   -- when it re-enters the command.
   -- The tool carries Lua the new checker wrote, in this process ([`importer.compile_tree`]), and says so in the tool
   -- string it records.
-  local grammar_trouble = GrammarMode.refusal()
-  if grammar_trouble ~= nil then
-    return closing(handle, grammar_trouble), false
-  end
   local result, compile_trouble = importer.compile_tree(handle,
     function(recorded: identity.Identities): string, string
       learned.compiler = recorded.compiler

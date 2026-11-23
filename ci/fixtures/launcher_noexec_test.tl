@@ -1,6 +1,5 @@
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 local LauncherFixture = require("cosmic_ci.launcher_fixture")
@@ -74,7 +73,7 @@ local function test_launcher_noexec_refuses_the_decoder_stub(tmp: string)
     local answer = run(ctx, "noexec-stub-launch", cache, { PORTABLE_PAYLOAD_MARKER = marker })
     assert(answer.result.code == 126 and not answer.result.timed_out,
       "noexec launch did not stop at 126")
-    assert(Predicate.exists(marker) == false, "the payload ran")
+    assert(assert(Fs.status(marker)).exists == false, "the payload ran")
     assert(#assert(Fs.list(cache)) == 0, "a noexec launch left something in the cache")
     local diagnostic = Fixture.small(answer.err, 4096)
     local refused =

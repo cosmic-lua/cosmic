@@ -34,7 +34,6 @@ local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
 local Plural = require("cosmic_ci.plural")
 local Maps = require("cosmic_ci.maps")
-local Predicate = require("cosmic_ci.fs_predicate")
 local ZigPrune = require("cosmic_ci.zig_prune")
 local sys = require("cosmic.sys")
 
@@ -180,13 +179,13 @@ end
 --- since a cache left so costs only time.
 function ZigRestat.command(project: string, shared: string?, root: string,
                            lib?: string): ZigPrune.Command
-  if not Predicate.is_dir(project .. "/h") then
+  if not assert(Fs.status(project .. "/h")).is_dir then
     return { code = 0, out = "zig-restat: no zig cache at '" .. project .. "'; nothing to restat\n", err = "" }
   end
   local caches: mut {ZigPrune.Cache} = { { path = project, prefix = 2 } }
   local roots: mut {integer:string} = { [0] = root, [4] = root }
   if lib ~= nil then roots[1] = lib end
-  if shared ~= nil and Predicate.is_dir(shared .. "/h") then
+  if shared ~= nil and assert(Fs.status(shared .. "/h")).is_dir then
     caches[#caches + 1] = { path = shared, prefix = 3 }
     roots[3] = shared
   end
@@ -206,7 +205,9 @@ end
 --- only where `project` holds manifests to restat, and leaving the files
 --- under the lib directory where zig cannot say.
 function ZigRestat.run(root: string, project: string, shared: string?): ZigPrune.Command
-  if not Predicate.is_dir(project .. "/h") then return ZigRestat.command(project, shared, root) end
+  if not assert(Fs.status(project .. "/h")).is_dir then
+    return ZigRestat.command(project, shared, root)
+  end
   local env = Maps.with(Env.all(), { COSMIC_ZIG_CACHE = project })
   if shared ~= nil then env = Maps.with(env, { COSMIC_ZIG_GLOBAL_CACHE = shared }) end
   local lib: string? = nil

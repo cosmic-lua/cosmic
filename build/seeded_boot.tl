@@ -76,17 +76,6 @@ local Http = require("cosmic.http")
 local Proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 
---- Whether anything is at `path`, false where it or a parent is missing,
---- nil and why where it cannot be looked at. This file runs on the
---- bootstrap release too, whose cosmic.fs has no status call yet, so it
---- asks [`sys.stat`], which both have.
-local function path_there(path: string): boolean?, string
-  local st, why, errno = sys.stat(path)
-  if st ~= nil then return true, "" end
-  if errno == sys.ENOENT or errno == sys.ENOTDIR then return false, "" end
-  return nil, path .. ": " .. why
-end
-
 local record SeededBoot
   --- What a boot asks of the network and which releases it tries.
   record Plan
@@ -254,8 +243,8 @@ function SeededBoot.cached(cache: string, digest: string): string?, string
     local _, _ = Fs.remove(path)
     return nil, "a link stood there"
   end
-  local there, _ = path_there(path)
-  if there ~= true then return nil, "it is not there" end
+  local there, _ = Fs.status(path)
+  if there == nil or not there.exists then return nil, "it is not there" end
   local got, trouble = Hash.hex_file("sha256", path)
   if got == nil then return nil, trouble end
   if got == digest then return path, "" end

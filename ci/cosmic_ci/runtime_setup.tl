@@ -1,5 +1,4 @@
 local Fs = require("cosmic.fs")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Fixture = require("cosmic_ci.fixture")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
@@ -69,7 +68,7 @@ function RuntimeSetup.closure(root: string, entry: string, stood_for?: {string:s
         if name ~= "cosmic" and name:sub(1, 7) ~= "cosmic." then
           local base = name:gsub("%.", "/")
           for _, candidate in ipairs({ base .. ".tl", base .. "/init.tl" }) do
-            if Predicate.exists(root .. "/" .. candidate) then
+            if assert(Fs.status(root .. "/" .. candidate)).exists then
               visit(candidate)
               break
             end
@@ -106,7 +105,7 @@ end
 
 function RuntimeSetup.build(root: string, prebuilt: string, writer: string,
                             database: string, out: string, tmp: string): string
-  local output_exists = Predicate.exists(out)
+  local output_exists = assert(Fs.status(out)).exists
   assert(not output_exists, "runtime fixture output already exists: " .. out)
 
   local diagnostics = tmp .. "/logs"

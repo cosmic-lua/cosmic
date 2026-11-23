@@ -13,7 +13,6 @@ local Fs = require("cosmic.fs")
 local Local = require("run_local")
 local Maps = require("cosmic_ci.maps")
 local Hash = require("cosmic.hash")
-local Predicate = require("cosmic_ci.fs_predicate")
 local Proc = require("cosmic.proc")
 local Signal = require("cosmic.signal")
 local Test = require("cosmic.test")
@@ -144,9 +143,9 @@ local function test_snapshot_keeps_working_changes_and_the_real_index(tmp: strin
   local candidate = assert(Fs.absolute(assert(env["COSMIC_CI_LOCAL"]) .. "/candidate"))
   assert(assert(Fs.read(candidate .. "/tracked")) == "working\n")
   assert(assert(Fs.read(candidate .. "/untracked")) == "new\n")
-  assert(Predicate.exists(candidate .. "/ignored") == false)
+  assert(assert(Fs.status(candidate .. "/ignored")).exists == false)
   assert(assert(Fs.read(root .. "/.git/index")) == index and git(root, { "stash", "list" }) == stash)
-  assert(Predicate.exists(root .. "/ci/o") == false, "source CI database was created")
+  assert(assert(Fs.status(root .. "/ci/o")).exists == false, "source CI database was created")
   local environment = assert(Fs.read(assert(env["TRACE"]) .. ".env"))
   assert(environment:find(candidate, 1, true) and environment:find(assert(env["COSMIC_ZIG_CACHE"]), 1, true) and
       environment:find(assert(env["COSMIC_ZIG_GLOBAL_CACHE"]), 1, true), "spaced paths or cache inputs changed")
@@ -181,8 +180,8 @@ local function test_named_rerun_refreshes_ci_but_keeps_candidate(tmp: string)
   assert(invoke(root, env, { "fixtures" }) == 0)
   assert(assert(Fs.read(assert(state) .. "/candidate/tracked")) == "old\n")
   assert(assert(Fs.read(assert(state) .. "/ci/cosmic_ci/driver.tl")) == "edited fixture\n")
-  assert(Predicate.exists(assert(state) .. "/ci/o") == false)
-  assert(Predicate.exists(assert(state) .. "/ci/obsolete") == false)
+  assert(assert(Fs.status(assert(state) .. "/ci/o")).exists == false)
+  assert(assert(Fs.status(assert(state) .. "/ci/obsolete")).exists == false)
   assert(assert(Fs.read(assert(env["TRACE"]))) == "build\nfixtures\n")
 end
 
@@ -200,7 +199,7 @@ local function test_a_fresh_candidate_clears_the_build_directory_of_the_last(tmp
   assert(invoke(root, env, { "fixtures" }) == 0)
   assert(assert(Fs.read(trees .. "/candidate/build.db")) == "built\n", "a named phase cleared what its candidate built")
   assert(invoke(root, env, { "build" }) == 0)
-  assert(Predicate.exists(trees .. "/candidate") == false, "a fresh candidate kept the last one's build directory")
+  assert(assert(Fs.status(trees .. "/candidate")).exists == false, "a fresh candidate kept the last one's build directory")
   assert(assert(Fs.read(trees .. "/ci/build.db")) == "built\n", "a fresh candidate cleared another project's build directory")
 end
 
@@ -221,8 +220,8 @@ return Paths
   local tried = trying(root, env, { "build" })
   assert(tried.ok and tried.code == 2 and tried.diagnostic:find("candidate build directory", 1, true) ~= nil,
     tried.diagnostic .. tried.raised)
-  assert(Predicate.exists(assert(env["COSMIC_CI_LOCAL"]) .. "/candidate") == false, "the candidate was kept")
-  assert(Predicate.exists(assert(env["TRACE"])) == false, "a phase ran")
+  assert(assert(Fs.status(assert(env["COSMIC_CI_LOCAL"]) .. "/candidate")).exists == false, "the candidate was kept")
+  assert(assert(Fs.status(assert(env["TRACE"]))).exists == false, "a phase ran")
 end
 
 local function test_default_phases_keep_the_workflow_order(tmp: string)
@@ -309,7 +308,7 @@ local function test_root_account_refusal_creates_no_state(tmp: string)
   local root, env = checkout(tmp)
   for _, name in ipairs({ "root", "cosmic-user-that-does-not-exist-95672" }) do
     assert(invoke(root, Maps.with(env, { COSMIC_CI_LOCAL_USER = name }), { "build" }, 0) == 2)
-    assert(Predicate.exists(assert(env["COSMIC_CI_LOCAL"])) == false and Predicate.exists(assert(env["TRACE"])) == false)
+    assert(assert(Fs.status(assert(env["COSMIC_CI_LOCAL"]))).exists == false and assert(Fs.status(assert(env["TRACE"]))).exists == false)
   end
 end
 
@@ -328,7 +327,7 @@ local function test_credential_setup_refusal_precedes_state_and_phase(tmp: strin
   seams.proc_user, seams.child_run = user, run
   assert(tried.ok, tried.raised)
   assert(tried.code == 2 and tried.diagnostic:find("injected credential refusal", 1, true) ~= nil)
-  assert(Predicate.exists(assert(env["COSMIC_CI_LOCAL"])) == false and Predicate.exists(assert(env["TRACE"])) == false)
+  assert(assert(Fs.status(assert(env["COSMIC_CI_LOCAL"]))).exists == false and assert(Fs.status(assert(env["TRACE"]))).exists == false)
 end
 
 local function test_snapshot_error_cleans_private_index_and_keeps_old_candidate(tmp: string)
@@ -348,16 +347,16 @@ end
 local function test_missing_candidate_and_invalid_phase_are_refused(tmp: string)
   local root, env = checkout(tmp)
   assert(invoke(root, env, { "fixtures" }) == 2)
-  assert(Predicate.exists(assert(env["TRACE"])) == false)
+  assert(assert(Fs.status(assert(env["TRACE"]))).exists == false)
   assert(invoke(root, env, { "../escape" }) == 2)
-  assert(Predicate.exists(tmp .. "/escape.log") == false)
+  assert(assert(Fs.status(tmp .. "/escape.log")).exists == false)
 end
 
 local function test_state_ancestor_alias_cannot_place_state_inside_checkout(tmp: string)
   local root, env = checkout(tmp)
   assert(Fs.symlink(root, tmp .. "/checkout-alias"))
   assert(invoke(root, Maps.with(env, { COSMIC_CI_LOCAL = tmp .. "/checkout-alias/state" }), { "build" }) == 2)
-  assert(Predicate.exists(root .. "/state") == false and Predicate.exists(assert(env["TRACE"])) == false)
+  assert(assert(Fs.status(root .. "/state")).exists == false and assert(Fs.status(assert(env["TRACE"]))).exists == false)
 end
 
 local function test_phase_log_symlink_target_is_unchanged(tmp: string)
@@ -449,9 +448,9 @@ local function test_root_probe_grants_a_copy_without_mutating_cached_relaunch(tm
   local after = assert(Fs.stat(assert(launched.argv[1])))
   assert(after.ino == original.ino and after.mode == original.mode and
       Hash.hex_sha256((assert(Fs.read(assert(launched.argv[1]))))) == digest)
-  assert(scratch.value ~= "" and Predicate.exists(scratch.value) == false and sys.fstat(handed.value) == nil,
+  assert(scratch.value ~= "" and assert(Fs.status(scratch.value)).exists == false and sys.fstat(handed.value) == nil,
     "refusal leaked the runtime scratch or descriptor")
-  assert(Predicate.exists(assert(env["COSMIC_CI_LOCAL"])) == false and Predicate.exists(assert(env["TRACE"])) == false)
+  assert(assert(Fs.status(assert(env["COSMIC_CI_LOCAL"]))).exists == false and assert(Fs.status(assert(env["TRACE"]))).exists == false)
 end
 
 local function test_runtime_copy_failure_cleans_up_before_any_credential_child(tmp: string)
@@ -474,7 +473,7 @@ local function test_runtime_copy_failure_cleans_up_before_any_credential_child(t
   seams.proc_user, seams.sys_pread, seams.sys_mkdtemp = user, pread, mkdtemp
   assert(tried.ok, tried.raised)
   assert(tried.code == 2 and tried.diagnostic:find("injected runtime read failure", 1, true) ~= nil)
-  assert(scratch.value ~= "" and Predicate.exists(scratch.value) == false and Predicate.exists(assert(env["COSMIC_CI_LOCAL"])) == false)
+  assert(scratch.value ~= "" and assert(Fs.status(scratch.value)).exists == false and assert(Fs.status(assert(env["COSMIC_CI_LOCAL"]))).exists == false)
 end
 
 local function test_ordinary_runner_creates_no_runtime_handoff(tmp: string)
@@ -512,8 +511,8 @@ local function test_cancelled_credential_probe_removes_its_runtime_grant(tmp: st
     seams.proc_user, seams.child_run = user, run
     local signal = assert(outer:release())
     assert(tried.ok, tried.raised)
-    assert(tried.code == 2 and signal == sys.SIGTERM and scratch.value ~= "" and Predicate.exists(scratch.value) == false)
-    assert(Predicate.exists(assert(env["COSMIC_CI_LOCAL"])) == false)
+    assert(tried.code == 2 and signal == sys.SIGTERM and scratch.value ~= "" and assert(Fs.status(scratch.value)).exists == false)
+    assert(assert(Fs.status(assert(env["COSMIC_CI_LOCAL"]))).exists == false)
   end)
   local _, _ = outer:close()
   if not ran then error(raised, 0) end
@@ -524,7 +523,7 @@ local function descriptors(): string
   local out: mut {string} = {}
   -- /dev/fd where there is no /proc (macOS, the BSDs).
   local directory = "/proc/self/fd"
-  if Predicate.is_dir(directory) ~= true then directory = "/dev/fd" end
+  if assert(Fs.status(directory)).is_dir ~= true then directory = "/dev/fd" end
   for _, number in ipairs((assert(Fs.list(directory)))) do
     local target, _ = Fs.readlink(directory .. "/" .. number)
     out[#out + 1] = number .. "=" .. (target or "?")
@@ -602,7 +601,7 @@ local function test_a_successful_credentialed_run_removes_its_runtime_copy(tmp: 
   seams.proc_user, seams.child_run, seams.sys_mkdtemp = user, run, mkdtemp
   assert(tried.ok, tried.raised)
   assert(tried.code == 0 and credentialed.runs > 0, "the run did not end well: " .. tried.diagnostic)
-  assert(scratch.value ~= "" and Predicate.exists(scratch.value) == false, "the runtime copy was left in /tmp")
+  assert(scratch.value ~= "" and assert(Fs.status(scratch.value)).exists == false, "the runtime copy was left in /tmp")
   local after = descriptors()
   assert(after == before, "the runtime descriptor stayed open:\n" .. before .. "\n--\n" .. after)
 end

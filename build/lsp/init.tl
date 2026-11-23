@@ -35,7 +35,6 @@ local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local GrammarMode = require("build.grammar_mode")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -116,13 +115,6 @@ local function listen_address(word: string): Net.Address?
   return Net.tcp(host, number)
 end
 
---- Whether `address` is reached only from this host.
-local function loopback(address: Net.Address): boolean
-  if address.kind == "unix" then return true end
-  local host = address.host or ""
-  return host:match("^127%.") ~= nil or host == "::1"
-end
-
 --- Where `address` listens, as a person reads it.
 local function named(address: Net.Address): string
   if address.kind == "unix" then return address.path or "" end
@@ -192,7 +184,7 @@ local function listen(root: string, listeners: {Net.Address}): integer
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       for _, address in ipairs(addresses) do
         bare.err("cosmic: lsp: listening at " .. named(address))
-        if not loopback(address) then
+        if not Net.is_loopback(address) then
           bare.err("cosmic: lsp: warning: " .. named(address) .. " is reached from beyond this " ..
               "host, and any client there reads the files below the root it names, unasked " ..
               "who it is")
@@ -313,12 +305,6 @@ local function run(argv: {string}): integer
   if parsed.set["--stdio"] == true and #listeners > 0 then
     complain("--stdio serves one editor, and takes no --listen or --socket; " .. usage)
     return bare.refused
-  end
-  -- A checker that is none is refused, as `docs` and `uses` refuse it.
-  local mode_trouble = GrammarMode.refusal()
-  if mode_trouble ~= nil then
-    complain(mode_trouble)
-    return bare.failed
   end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then

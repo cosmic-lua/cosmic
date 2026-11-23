@@ -22,7 +22,7 @@ end)
 --- The modules of the verbs ([`build.verb_list`]) and what only they read: `-e` loads the checker it
 --- checks its chunk with, and none of these.
 local verbs <const>: {string} = {
-  "build.test", "build.fix", "build.embed", "build.databases", "build.lsp", "build.migrate", "build.sql",
+  "build.test", "build.fix", "build.embed", "build.databases", "build.lsp", "build.sql",
   "build.cache", "build.json", "build.hash", "build.codec", "build.archive", "build.fetch", "build.time",
   "build.rand", "build.compile", "build.docs", "build.todos", "build.bom", "build.refresh", "build.release",
   "build.sandbox", "build.verb_list", "cosmic.cli", "cosmic.flags",
