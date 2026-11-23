@@ -7,7 +7,8 @@ local function test_only_the_dotted_decimal_spelling_of_127_8_is_loopback()
     assert(Loopback.ipv4(host), host)
   end
   for _, host in ipairs({ "localhost", "::1", "127.0.0.01", "127.0.0.256", "127.1", "0177.0.0.1", "128.0.0.1",
-      "127.0.0.1:8080", "127.0.0.1.example", "*", "", "127.0.0.0001" }) do
+      "127.0.0.1:8080", "127.0.0.1.example", "*", "", "127.0.0.0001",
+      "127.0.0.1 ", " 127.0.0.1", "127.0.0.1\n", "127.0.0.99999999999999999999" }) do
     assert(not Loopback.ipv4(host), host)
   end
 end

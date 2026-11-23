@@ -9,6 +9,7 @@
 
 local cache_names = require("build.cache_names")
 local host_names = require("build.host_names")
+-- A leaf that requires nothing, so it adds no module to what this one reaches.
 local Loopback = require("cosmic.internal.loopback")
 
 local record policy_rules

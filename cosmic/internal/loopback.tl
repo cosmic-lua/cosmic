@@ -1,6 +1,7 @@
 --- The one spelling of a loopback IPv4 address that cosmic takes as one:
---- [`cosmic.net`]'s `is_loopback`, a sandbox policy's `loopback` list
---- and a test policy's `network` list all read a host with it. It
+--- [`cosmic.net`]'s `is_loopback`, the `loopback` list of a sandbox
+--- policy and of a test policy, and an OIDC provider's http URL all read
+--- a host with it. It
 --- requires nothing, so the build's policy rules can require it.
 ---
 ---     local Loopback = require("cosmic.internal.loopback")

@@ -116,13 +116,6 @@ local function listen_address(word: string): Net.Address?
   return Net.tcp(host, number)
 end
 
---- Whether `address` is reached only from this host.
-local function loopback(address: Net.Address): boolean
-  if address.kind == "unix" then return true end
-  local host = address.host or ""
-  return host:match("^127%.") ~= nil or host == "::1"
-end
-
 --- Where `address` listens, as a person reads it.
 local function named(address: Net.Address): string
   if address.kind == "unix" then return address.path or "" end
@@ -192,7 +185,7 @@ local function listen(root: string, listeners: {Net.Address}): integer
     on_ready = function(addresses: {Net.Address}, _server: Net.Server)
       for _, address in ipairs(addresses) do
         bare.err("cosmic: lsp: listening at " .. named(address))
-        if not loopback(address) then
+        if not Net.is_loopback(address) then
           bare.err("cosmic: lsp: warning: " .. named(address) .. " is reached from beyond this " ..
               "host, and any client there reads the files below the root it names, unasked " ..
               "who it is")
