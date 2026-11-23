@@ -535,7 +535,10 @@ local function test_a_caught_signal_interrupts_every_storage()
     corpus:add(601, query)
     assert(corpus:count() == 601)
     assert(guard:take() == sys.SIGTERM)
-    assert(guard:release() == sys.SIGTERM)
+    do
+      local got, _ = guard:release()
+      assert(got == sys.SIGTERM)
+    end
     local again = assert(corpus:search(query, 5))
     assert(again.ids[1] == 601 and #again.ids == #exact.ids, storage)
     assert(#assert(corpus:search(query, 5, { candidates = 50 })).ids == 5)

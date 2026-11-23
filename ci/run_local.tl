@@ -46,7 +46,11 @@ local current: Local.Calls = {
     return text, ""
   end,
   proc_user = Proc.user,
-  signal_guard = Signal.guard,
+  signal_guard = function(): Signal.Guard?, string
+    local guard, why = Signal.guard()
+    if guard == nil then return nil, tostring(why) end
+    return guard, ""
+  end,
   sys_getuid = sys.getuid,
   sys_mkdtemp = sys.mkdtemp,
   sys_pread = sys.pread,

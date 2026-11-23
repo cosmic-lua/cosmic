@@ -113,7 +113,11 @@ local current: Seams.Calls = {
     return text, ""
   end,
   proc_user = Proc.user,
-  signal_guard = Signal.guard,
+  signal_guard = function(): Signal.Guard?, string
+    local guard, why = Signal.guard()
+    if guard == nil then return nil, tostring(why) end
+    return guard, ""
+  end,
   stream_tee = Stream.tee,
   sys_getuid = sys.getuid,
   sys_mkdtemp = sys.mkdtemp,

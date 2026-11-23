@@ -542,7 +542,10 @@ local function sigterm_stops_the_server_and_it_drains_at(path: string?)
   assert(ok and why == nil, why)
   assert(answer == "slow", answer)
   assert(outer:cancelled() == sys.SIGTERM)
-  assert(outer:release() == sys.SIGTERM)
+  do
+    local got, _ = outer:release()
+    assert(got == sys.SIGTERM)
+  end
 end
 
 local function test_sigterm_stops_the_server_and_it_drains()
@@ -582,7 +585,10 @@ local function a_second_signal_ends_the_grace_at(path: string?)
   })
   local _, _ = assert(stuck, "the server was ready").conn:close()
   assert(stuck_why == "", stuck_why)
-  assert(outer:release() == sys.SIGTERM)
+  do
+    local got, _ = outer:release()
+    assert(got == sys.SIGTERM)
+  end
 end
 
 local function test_a_second_signal_ends_the_grace()
@@ -683,7 +689,10 @@ local function on_stop_runs_once_at_sigterm_at(path: string?)
     end,
   })
   assert(calls == 1, tostring(calls))
-  assert(outer:release() == sys.SIGTERM)
+  do
+    local got, _ = outer:release()
+    assert(got == sys.SIGTERM)
+  end
 end
 
 local function test_on_stop_runs_once_at_sigterm()
@@ -803,7 +812,10 @@ local function a_second_signal_cancels_on_stops_wait_at(path: string?)
     end,
   })
   assert(waited == Poll.CANCELLED, waited)
-  assert(outer:release() == sys.SIGTERM)
+  do
+    local got, _ = outer:release()
+    assert(got == sys.SIGTERM)
+  end
 end
 
 local function test_a_second_signal_cancels_on_stops_wait()

@@ -133,7 +133,7 @@ local function test_a_captured_cancellation_stops_the_wal_retry(tmp: string)
   local db, trouble = shared_sqlite.open(path, prepare, Clock.seconds(2))
   local waited = Clock.monotonic_ns() - started
   local signal = guard:take()
-  guard:release()
+  local _, _ = guard:release()
   assert(holder:exec("COMMIT"))
   assert(holder:close())
   assert(db == nil and trouble ~= "", trouble)

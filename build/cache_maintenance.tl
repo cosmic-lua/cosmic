@@ -489,7 +489,7 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
   local report: maintenance.Report = { version = 1, files = {}, warnings = {} }
   local guard, guard_why = Signal.guard()
   if guard == nil then
-    report.warnings[1] = guard_why
+    report.warnings[1] = guard_why.message
     return { report = report, complete = false }
   end
   local held <close> = guard
@@ -530,7 +530,7 @@ function maintenance.run(options: maintenance.Options): maintenance.Result
   local signal, release_why = held:release()
   if signal == nil or signal ~= 0 then
     report.digest, report.fresh = nil, nil
-    report.warnings[#report.warnings + 1] = if signal == nil then release_why else "cache maintenance interrupted" end
+    report.warnings[#report.warnings + 1] = if signal == nil then release_why.message else "cache maintenance interrupted" end
     complete = false
   end
   if not complete then report.digest, report.fresh = nil, nil end

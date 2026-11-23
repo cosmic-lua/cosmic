@@ -4334,7 +4334,7 @@ function Child.run(argv: {string}, opts: Options): Result?, string
     error("child: a \"stream\" is read or written while the child runs: use Child.start", 2)
   end
   local held, guard_trouble = Signal.guard()
-  if held == nil then return refuse("signal guard: " .. guard_trouble) end
+  if held == nil then return refuse("signal guard: " .. tostring(guard_trouble)) end
   -- Closed after the child is ended, as the run is left: the child is
   -- ended before the guard gives back the signals.
   local guard <close>: Guard = held
@@ -4353,7 +4353,7 @@ function Child.run(argv: {string}, opts: Options): Result?, string
   end
   -- Closing re-delivers a caught signal, after the cleanup above.
   local restored, restore_trouble = guard:close()
-  if not restored then return refuse("signal restore: " .. restore_trouble) end
+  if not restored then return refuse("signal restore: " .. tostring(restore_trouble)) end
   local cancellation = guard:cancelled()
   if cancellation ~= 0 then
     -- TODO: test a signal caught after a clean wait, once Child.run lets a test act between its wait and this read of the guard: a child that exits first is seen exited before the guard, so no test reaches this branch with `wait_trouble` empty.

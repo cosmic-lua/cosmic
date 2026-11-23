@@ -131,7 +131,10 @@ local function test_a_source_failure_does_not_replace_sticky_guard_cancellation(
   local g = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   local chunk, cancellation = reader:read()
-  assert(g:release() == sys.SIGTERM)
+  do
+    local released, _ = g:release()
+    assert(released == sys.SIGTERM)
+  end
   assert(chunk == nil and cancellation == "child: cancelled by signal " .. tostring(sys.SIGTERM))
   -- `output` starts the child with the one stream.
   local pipe = Array.at(assert(h._streams), 1)

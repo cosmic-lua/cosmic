@@ -97,7 +97,8 @@ local guard = assert(Signal.guard())
 assert(Fs.put(1, "ready"))
 while guard:cancelled() == 0 do Clock.sleep_ns(Clock.ms(1)) end
 assert(Fs.put(1, "last"))
-assert(guard:release() ~= 0)]])
+local released, _ = guard:release()
+assert(released ~= 0)]])
   assert(assert(h.stdout_stream):read() == "ready")
   local guard = assert(Signal.guard())
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
@@ -116,7 +117,10 @@ assert(guard:release() ~= 0)]])
   assert(finish(h, options(out)) == 4 and out:result() == "last")
   local again, why = reader:read()
   assert(again == nil and why == old)
-  assert(guard:release() == sys.SIGTERM)
+  do
+    local released, _ = guard:release()
+    assert(released == sys.SIGTERM)
+  end
   assert(assert(h:wait()).ok)
 end
 
@@ -202,7 +206,10 @@ local function test_a_new_signal_wakes_a_parked_drain_without_taking_it()
     assert(got_value ~= nil and got_value.kind == "interrupted" and got_value.bytes == 0)
     assert(guard:take() == sys.SIGTERM)
   end)
-  assert(guard:release() == sys.SIGTERM)
+  do
+    local released, _ = guard:release()
+    assert(released == sys.SIGTERM)
+  end
 end
 
 local function test_closing_the_captured_guard_under_another_ends_the_wait()
@@ -214,11 +221,17 @@ local function test_closing_the_captured_guard_under_another_ends_the_wait()
     local task = Poll.spawn(function() got = h:drain(options(Stream.collect())) end)
     assert(Poll.delay(0))
     local inner = assert(Signal.guard())
-    assert(outer:release() == 0)
+    do
+      local released, _ = outer:release()
+      assert(released == 0)
+    end
     assert(task:join())
     local got_value = got
     assert(got_value ~= nil and got_value.kind == "failed" and got_value.reason == "child: the guard is closed")
-    assert(inner:release() == 0)
+    do
+      local released, _ = inner:release()
+      assert(released == 0)
+    end
   end)
   assert(h:drain(options(Stream.collect(), nil, 0)).kind == "timeout")
 end
