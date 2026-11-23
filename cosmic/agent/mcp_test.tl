@@ -7,8 +7,8 @@ local type Failure = require("cosmic.failure")
 local Poll = require("cosmic.poll")
 local Test = require("cosmic.test")
 
---- A server that never answers.
-Test.policy{ grants = { { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" } } }
+--- A server that never answers, and one that ends saying why: the system's programs.
+Test.policy{ profiles = { "system" } }
 
 --- The servers of the config `text`, or why there are none, as a test reads it.
 local function loaded(tmp: string, text: string): ({AgentMcp.Server}) | (nil, Failure)
@@ -119,5 +119,20 @@ local function test_a_call_cut_off_ends_its_server(tmp: string)
   assert(started, "the server ran, a call out to it")
   assert(said:find("cancelled", 1, true) ~= nil, said)
   assert(set.handles["s"] == nil and set.sessions["s"] == nil and set.busy["s"] == nil, "the server cut off was ended")
+  AgentMcp.close(set)
+end
+
+--- It writes more than a pipe holds before it ends, which only a read while the call is out lets it.
+local function test_a_server_that_ends_unanswered_tells_the_end_of_its_standard_error(tmp: string)
+  local script = "read line; i=0; while [ $i -lt 8000 ]; do echo noise $i >&2; i=$((i+1)); done; " ..
+    "echo 'boom: no token in NOTES_TOKEN' >&2; exit 3"
+  local set = AgentMcp.new(assert(loaded(tmp, '{"servers": {"s": {"command": ["/bin/sh", "-c", ' ..
+      Json.quote(script) .. '], "sandbox": "off"}}}')), tmp)
+  local _, why = AgentMcp.tools(set, "s")
+  local said = tostring(why)
+  assert(said:find("the end of its standard error: ...", 1, true) ~= nil, said)
+  assert(said:find("boom: no token in NOTES_TOKEN\n", 1, true) ~= nil, said)
+  assert(#said < 1400, "only the end is told: " .. tostring(#said))
+  assert(set.handles["s"] == nil and set.tails["s"] == nil, "the server was ended and its tail let go")
   AgentMcp.close(set)
 end
