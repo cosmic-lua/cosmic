@@ -50,9 +50,11 @@
 
   # A newer manual run supersedes a branch's. Main's pushes run one at a
   # time and to the end, so their saves land in commit order and each
-  # completed run can publish a prerelease; the scheduled run and a manual
-  # one take groups of their own, so no push cancels them or is cancelled
-  # by them.
+  # completed run can publish a prerelease (the relay, relay.yml, saves
+  # apart, and a push that main moved past leaves linux-x86_64's saves to
+  # it: "ask whether main moved past this commit"); the scheduled run
+  # and a manual one take groups of their own, so no push cancels them or
+  # is cancelled by them.
   concurrency: {
     group: "${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event_name || 'run' }}-${{ github.ref }}",
     "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
@@ -288,15 +290,13 @@
             "restore-keys": "compiles-${{ matrix.leg }}-\n",
           },
         },
-        # Main's push of the commit the merge queue just passed takes the
-        # compiles and parses that run's boot and suite made of this very
-        # tree, and saves them at once: main's own save comes only as its
-        # run ends, 4 to 20 minutes later, and a pull request or queue
-        # entry that starts sooner boots on an older commit's, which takes
-        # nothing where a commit between moved the compiler or the
-        # analyzer. A row stands only under its key, so these decide how
-        # much is compiled again, never what a compile says; neither step
-        # fails the leg.
+        # Main's push of the commit the merge queue just passed boots on
+        # the compiles and parses that run's boot and suite made of this
+        # very tree. The relay (relay.yml) saves them for the next runs,
+        # a minute after the merge: this run waits on main's run before it
+        # and would save them minutes later. A row stands only under its
+        # key, so these decide how much is compiled again, never what a
+        # compile says; neither step fails the leg.
         {
           name: "download the merge queue's compiles and parses",
           id: "queue-compiles",
@@ -320,21 +320,10 @@
           shell: "sh",
           run: "test -s \"$RUNNER_TEMP/queue-compiles/cache.db\" && rm -rf \"$RUNNER_TEMP/build-cache\" && mv \"$RUNNER_TEMP/queue-compiles\" \"$RUNNER_TEMP/build-cache\"",
         },
-        {
-          name: "save the merge queue's compiles and parses",
-          id: "queue-compiles-save",
-          if: "env.COSMIC_CI_SAVES == 'true' && steps.queue-compiles-taken.outcome == 'success'",
-          "continue-on-error": true,
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {
-            path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.leg }}-queue-${{ github.sha }}",
-          },
-        },
         # What the tree checks found in each file (build/check_memo.tl's
         # shared rows, in the cache directory and apart from the compiles),
-        # for the format check: main's newest, which its push took from the
-        # queue's check of the commit (cosmic_ci/checks_seal.tl).
+        # for the format check: main's newest, which the relay (relay.yml)
+        # took from the queue's check of the commit (cosmic_ci/checks_seal.tl).
         {
           name: "restore the tree checks' memo",
           if: "matrix.leg == 'linux-x86_64' && matrix.part != 'suite' && github.event_name != 'push' && github.event.schedule != '41 3 * * 1-6'",
@@ -559,8 +548,19 @@
           if: "always() && steps.driver.outcome == 'success' && (env.COSMIC_CI_SAVES == 'true' || github.event_name == 'merge_group')",
           run: "cosmic-driver cosmic_ci/driver.tl verdicts-trim ${{ job.status == 'success' && steps.names.outputs.since || 'whole' }}",
         },
-        # Read by main's push of this commit ("find the merge queue's run
-        # of this commit"), minutes after the queue merges it.
+        # The cache the verdicts belong in, named by this host, for the
+        # relay (relay.yml), which runs on a host of its own.
+        {
+          name: "name the cache the merge queue's verdicts belong in",
+          id: "verdicts-named",
+          if: "github.event_name == 'merge_group' && job.status == 'success' && steps.release-suite.outcome == 'success' && steps.verdicts-trim.outputs.digest != ''",
+          "continue-on-error": true,
+          env: {VERDICTS: "${{ steps.host-id.outputs.verdicts }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-name \"${{ runner.temp }}/verdicts\"",
+        },
+        # Read by the relay (relay.yml) and main's push of this commit
+        # ("find the merge queue's run of this commit"), once the queue
+        # merges it.
         {
           name: "upload the merge queue's verdicts",
           if: "github.event_name == 'merge_group' && job.status == 'success' && steps.release-suite.outcome == 'success' && steps.verdicts-trim.outputs.digest != ''",
@@ -568,7 +568,7 @@
           uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f", # v7
           with: {
             name: "queue-verdicts-${{ matrix.leg }}",
-            path: "${{ runner.temp }}/verdicts/*.db",
+            path: "${{ runner.temp }}/verdicts/*.db\n${{ runner.temp }}/verdicts/cache-key",
             "if-no-files-found": "ignore",
             "retention-days": 1,
           },
@@ -588,8 +588,8 @@
             "retention-days": 1,
           },
         },
-        # Read by main's push of this commit, as the verdicts are: the rows
-        # this run used, in one file of no write-ahead log.
+        # Read by the relay (relay.yml), as the verdicts are: the rows this
+        # run used, in one file of no write-ahead log.
         {
           name: "seal the merge queue's tree checks memo",
           id: "checks-seal",
@@ -608,31 +608,6 @@
             "if-no-files-found": "ignore",
             "retention-days": 1,
           },
-        },
-        # Main's push runs no format check: it keeps the memo of the
-        # queue's check of this very commit, for the next PRs and queue
-        # entries.
-        {
-          name: "download the merge queue's tree checks memo",
-          id: "queue-checks",
-          if: "steps.queue-run.outputs.run != ''",
-          "continue-on-error": true,
-          uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", # v8
-          with: {
-            name: "queue-checks-${{ matrix.leg }}",
-            path: "${{ runner.temp }}/cache/cosmic/build",
-            "run-id": "${{ steps.queue-run.outputs.run }}",
-            "github-token": "${{ github.token }}",
-          },
-        },
-        # A file that is no memo, or holds no row, is not saved: it would be
-        # the newest, and the next runs would check from cold.
-        {
-          name: "hold the merge queue's tree checks memo to a memo",
-          id: "queue-checks-held",
-          if: "steps.queue-checks.outcome == 'success'",
-          "continue-on-error": true,
-          run: "cosmic-driver cosmic_ci/driver.tl checks-seal \"${{ runner.temp }}/cache/cosmic/build/checks.db\"",
         },
         {
           name: "summarize worker operations",
@@ -678,6 +653,19 @@
           shell: "sh",
           run: "docker rm -f cosmic-leg || :",
         },
+        # Main's push of a commit main has moved past leaves its verdicts
+        # and compiles to the newer commit's relay (relay.yml), saved a
+        # minute after that merge: a save of this run's, made later, would
+        # be the newest and lack them. Where GitHub does not say, it saves.
+        {
+          name: "ask whether main moved past this commit",
+          id: "main-newest",
+          if: "always() && steps.queue-run.outcome != 'skipped' && steps.driver.outcome == 'success'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {SHA: "${{ github.sha }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl main-newest",
+        },
         # Before checkout's post step, whose git refuses the repository at
         # another path, and before the saves, whose paths actions/cache
         # names relative to the workspace (driver.tl place-tree).
@@ -694,7 +682,7 @@
         # would answer no other run.
         {
           name: "save test verdicts",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -702,25 +690,16 @@
           },
         },
         # Main's alone, where the native build and suite passed: a run that
-        # stopped short would leave the next only what it reached.
+        # stopped short would leave the next only what it reached. Where it
+        # booted on the queue's, under the name the relay saves them by,
+        # which a save the relay made already leaves as it is.
         {
           name: "save compiles and parses",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.queue-compiles-save.outcome != 'success' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.leg }}-${{ steps.compiles-trim.outputs.digest }}",
-          },
-        },
-        # Apart from the compiles, whose save takes their whole directory.
-        {
-          name: "save the tree checks' memo",
-          if: "env.COSMIC_CI_SAVES == 'true' && steps.queue-checks-held.outcome == 'success'",
-          "continue-on-error": true,
-          uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
-          with: {
-            path: "${{ runner.temp }}/cache/cosmic/build/checks.db",
-            key: "checks-${{ matrix.leg }}-${{ github.sha }}",
+            key: "${{ steps.queue-compiles-taken.outcome == 'success' && format('compiles-{0}-queue-{1}', matrix.leg, github.sha) || format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest) }}",
           },
         },
         # Once per vendor part and leg, not per core change, which the

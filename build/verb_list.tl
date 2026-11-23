@@ -51,6 +51,7 @@ verb_list.entries = {
   { name = "refresh", load = function(): verb_spec.Spec return require("build.refresh").spec end },
   { name = "release", load = function(): verb_spec.Spec return require("build.release").spec end },
   { name = "sandbox", load = function(): verb_spec.Spec return require("build.sandbox").spec end },
+  { name = "agent", load = function(): verb_spec.Spec return require("build.agent").spec end },
 }
 
 --- Every verb's spec, in help's order.

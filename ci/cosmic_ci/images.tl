@@ -11,11 +11,6 @@ local Proc = require("cosmic.proc")
 local Seams = require("cosmic_ci.seams")
 local StepEnv = require("cosmic_ci.step_env")
 
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 local record Images
   --- How a command came out: 0 and "", or docker's failing status and why.
   record Outcome
@@ -119,9 +114,9 @@ local function docker(env: {string:string}, words: {string},
   local cwd = required(env, "GITHUB_WORKSPACE")
   local options: Child.Options
   if capture == true then
-    options = { timeout_ns = CEILING_NS, cwd = cwd, env = docker_environment(env), input = input, stdout = "capture" }
+    options = { timeout_ns = Child.FOREVER, cwd = cwd, env = docker_environment(env), input = input, stdout = "capture" }
   else
-    options = { timeout_ns = CEILING_NS, cwd = cwd, env = docker_environment(env), input = input }
+    options = { timeout_ns = Child.FOREVER, cwd = cwd, env = docker_environment(env), input = input }
   end
   -- Named by the words before its first option, which hold no secret.
   local label = "docker"

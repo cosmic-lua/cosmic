@@ -44,8 +44,8 @@
 ---   what the host says of itself; only for a module that declares
 ---   `cpu_features`, the processor's features a core chooses code by
 ---   ([`host_cpu`]); and, only for a module that declares `system`, what
----   the host has installed ([`system_identity`]): its packages and the
----   system it says it is;
+---   the host has installed ([`system_identity`]): its packages, the
+---   system it says it is, and a walk of its paths where it names none;
 --- - the module's graph key ([`build.positions`]' `graph_key`), over its
 ---   import graph's kinds and sources, the standard library's included;
 --- - the compiler's identity ([`build.identity`]'s `Identities`), as the
@@ -883,7 +883,8 @@ end
 --- key could hold by what it holds: a directory is refused before any
 --- key is made ([`test_inputs.resolve`]). What the system's own
 --- directories hold, which a module that declares `system` is given, is
---- keyed by the package database and a walk of them ([`system_identity`]).
+--- keyed by the package database and a walk of them, or the name the
+--- host gives them ([`system_identity`]).
 local function host(digests: declared_key.Digests, path: string): string
   return once(digests, "h\0" .. path, function(): string
     local _, answer = entry(digests, path, true)
@@ -1233,7 +1234,14 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- Xcode and its command line tools, whose shims /usr/bin's git, make
 --- and cc are, and /opt/homebrew and /usr/local -- as CI's macOS leg
 --- names its runner image there. Only [`system_identity`] reads it, so
---- only a module given the system's paths is keyed by it.
+--- only a module given the system's paths is keyed by it. Set, it
+--- stands in for the walk of those paths: a CI runner's image name
+--- says what a fresh VM's disk holds, which a walk would read entry by
+--- entry on every run (a walk is remembered in the checkout's working
+--- database, which a fresh checkout does not have). A Linux runner
+--- outside a container may set it as the macOS leg does
+--- ("$ImageOS $ImageVersion"). A name of blanks alone, as that gives
+--- where neither is set, names nothing, and the paths are walked.
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
 --- What a key holds of the host's kernel ([`host_kernel`]), as `from`'s
@@ -1514,7 +1522,8 @@ end
 --- it says it is (/etc/os-release; on macOS, the system volume's
 --- SystemVersion.plist, `darwin_system`); what it names of itself
 --- besides (`system_variable`); and, with `walk`, which a run holding
---- such a module asks for once, what the system's paths hold beneath
+--- such a module asks for once, and only where that name is unset or
+--- empty, what the system's paths hold beneath
 --- them but /etc ([`walk_system`], remembered by [`remembered_walk`]),
 --- which a package database does not say: a file under /usr or /lib
 --- changed by hand or by a tool other than the package manager, a
@@ -1558,7 +1567,10 @@ function declared_key.system_identity(digests: declared_key.Digests,
   end
   local system_id = from.system_id or sys.getenv(system_variable) or ""
   lines[#lines + 1] = "system " .. system_id
-  if walk == true then
+  -- TODO: key a container's own /usr where COSMIC_SYSTEM_ID names the
+  -- runner image beneath it, once a leg can tell the two apart: today
+  -- the name stands in for whatever disk the tests see.
+  if walk == true and system_id:match("%S") == nil then
     lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
       packages)
   end

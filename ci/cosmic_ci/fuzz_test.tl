@@ -11,11 +11,6 @@ local sys = require("cosmic.sys")
 local Stream = require("cosmic.stream")
 local Test = require("cosmic.test")
 
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 -- These tests start this program (the pinned driver's own cosmic, or a copy of it
 -- as the bootstrap), which a worker on a sealed database does not have whole.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
@@ -353,7 +348,7 @@ local function driver_project(tmp: string): string, string, string
   local here = assert(Fs.absolute("."))
   local project = tmp .. "/driver-project"
   assert(Fs.mkdirs(project))
-  assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project }, { timeout_ns = CEILING_NS })).ok)
+  assert(assert(Child.run({ "/bin/cp", "-R", here .. "/cosmic_ci", project }, { timeout_ns = Child.FOREVER })).ok)
   return assert(Proc.executable()), project .. "/cosmic_ci/driver.tl", project
 end
 
@@ -367,14 +362,14 @@ local function test_driver_commands_read_the_environment(tmp: string)
   local env = Maps.with(Env.all(), { GITHUB_WORKSPACE = root, RUNNER_TEMP = temp,
     GITHUB_STEP_SUMMARY = summary, FUZZ_SEED = "11", FUZZ_ITERS = "2" })
   local fuzz = assert(Child.run({ executable, script, "fuzz" },
-    { timeout_ns = CEILING_NS, cwd = project, env = env, stdout = "capture", stderr = "capture" }))
+    { timeout_ns = Child.FOREVER, cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(fuzz.code == 1, (fuzz.stdout or "") .. (fuzz.stderr or ""))
   assert((fuzz.stdout or ""):find("env: 11 2 0 1200 ", 1, true), fuzz.stdout)
   local text = read(summary)
   assert(text:sub(1, #Fuzz.header("11", "2")) == Fuzz.header("11", "2"))
   assert(text:find("fuzz-inputs-11 artifact", 1, true), text)
   local cancelled = assert(Child.run({ executable, script, "fuzz-cancelled" },
-    { timeout_ns = CEILING_NS, cwd = project, env = env, stdout = "capture", stderr = "capture" }))
+    { timeout_ns = Child.FOREVER, cwd = project, env = env, stdout = "capture", stderr = "capture" }))
   assert(cancelled.ok, (cancelled.stdout or "") .. (cancelled.stderr or ""))
   local said = Fuzz.cancelled_summary(Fuzz.tail(temp .. "/fuzz.out"), Fuzz.scan(pieces(read(temp .. "/fuzz.out"), 65536)))
   assert(read(summary) == text .. said)
@@ -383,7 +378,7 @@ local function test_driver_commands_read_the_environment(tmp: string)
   assert(cancelled.stdout == said, cancelled.stdout)
   assert(Fs.remove(temp .. "/fuzz.out"))
   assert(assert(Child.run({ executable, script, "fuzz-cancelled" },
-    { timeout_ns = CEILING_NS, cwd = project, env = env, stdout = "null", stderr = "null" })).ok,
+    { timeout_ns = Child.FOREVER, cwd = project, env = env, stdout = "null", stderr = "null" })).ok,
     "fuzz-cancelled refused a run that kept no output")
 end
 
@@ -411,7 +406,7 @@ local function start_fuzz(tmp: string, body: {string},
     GITHUB_STEP_SUMMARY = tmp .. "/summary.md" }), extra or {})
   local log_fd = assert(Fs.open_write(tmp .. "/log"))
   local handle, trouble = Child.start({ executable, script, "fuzz" },
-    { timeout_ns = CEILING_NS, cwd = project, env = env, stdout = log_fd, stderr = "null" })
+    { timeout_ns = Child.FOREVER, cwd = project, env = env, stdout = log_fd, stderr = "null" })
   assert(Fs.close(log_fd))
   assert(handle, trouble)
   return handle, temp, tmp .. "/log"

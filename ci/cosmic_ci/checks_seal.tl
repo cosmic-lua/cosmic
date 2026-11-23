@@ -1,11 +1,11 @@
 --- The memo of the tree checks the merge queue's format check made, sealed
---- for main's push of the same commit, which keeps it for the next pull
---- requests and queue entries (ci.yml's platform leg). The memo is the
+--- for the relay of the same commit (relay.yml), which keeps it for the
+--- next pull requests and queue entries. The memo is the
 --- shared rows of the candidate's build/check_memo.tl (its table
 --- `check_memo_v1`), in `checks.db` of the cache directory. A run of the
 --- format check writes them in write-ahead mode and exits with them still
 --- in the `-wal` file beside it, which neither the artifact nor the cache
---- carries; so the queue seals the file before its upload, and main's push
+--- carries; so the queue seals the file before its upload, and the relay
 --- holds the file it downloaded to the same before its save.
 ---
 --- To seal is to drop the rows the run did not make or take (stamped before

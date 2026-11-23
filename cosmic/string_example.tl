@@ -53,6 +53,13 @@ function Example.contains()
   assert(not String.contains(output, "FAIL"))
 end
 
+--- A preview kept to 4 bytes, which ends before the é it cannot hold whole.
+function Example.cut()
+  local preview = String.cut("caf\195\169 au lait", 4)
+  print(preview)
+  assert(preview == "caf")
+end
+
 --- A count in a message, with the right plural.
 function Example.counted()
   local message = String.counted(1, "entry", "entries") .. ", " ..

@@ -112,6 +112,12 @@ allowed["build.compile_fanout.meminfo"] = "text a test gives in place of the hos
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
+  "runs the loop reads; the loop keeps each request's cost through billed"
+allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
+  "price; the loop keeps it with each request, and a test holds it to each case"
+allowed["cosmic.agent.auth.now_ns"] = "the clock a test stands in for, so an exchanged token is held to its expiry " ..
+  "without waiting for it"
 allowed["cosmic.acme.auto"] = "public API: a certificate from an ACME CA kept current for a server, " ..
   "which a program passes to Web.serve's `acme`; the tree's own servers take theirs from tailscaled"
 allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel tells a request from the " ..

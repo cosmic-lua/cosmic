@@ -13,11 +13,6 @@ local Signal = require("cosmic.signal")
 local Stream = require("cosmic.stream")
 local sys = require("cosmic.sys")
 
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 --- A started child, as far as the fuzz run supervises it: the calls of a [`Child.Handle`] it makes, as functions a
 --- test can fake. A `<close>` variable holding it calls `close` and reports no trouble, as one holding the handle does.
 local class Started
@@ -72,7 +67,7 @@ end
 
 --- [`Child.start`], its handle offered as [`Seams.Started`].
 local function start(argv: {string}, options?: Child.Options): Seams.Started?, string
-  local handle, why = Child.start(argv, options or { timeout_ns = CEILING_NS })
+  local handle, why = Child.start(argv, options or { timeout_ns = Child.FOREVER })
   if handle == nil then return nil, why end
   return new_started({
     stop = function(signal?: integer): boolean, string return handle:stop(signal) end,
@@ -86,7 +81,7 @@ end
 
 local current: Seams.Calls = {
   child_run = function(argv: {string}, options?: Child.Options): Child.Result?, string
-    return Child.run(argv, options or { timeout_ns = CEILING_NS })
+    return Child.run(argv, options or { timeout_ns = Child.FOREVER })
   end,
   child_start = start,
   env_all = Env.all,
