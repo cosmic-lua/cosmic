@@ -1,11 +1,11 @@
 --- Checks a decoded value against a declared shape, and hands it back as
 --- a typed record. What `cosmic.json` decodes, or a loaded chunk returns,
 --- is `any`, and reading a field from it costs a cast that nothing checks.
---- `into` walks the value against a [`Spec`] once, and answers a new value
+--- `into` walks the value against a [`Spec`] once, and returns a new value
 --- holding what the spec names and nothing else, so every read after it is
---- an ordinary typed read. A `Spec<T>` is the shape of a `T`: the functions
---- that build one give it the type of the check they make, so what `into`
---- answers is a `T` and no annotation stands between the two.
+--- an ordinary typed read. A `Spec<T>` is the shape of a `T`. The functions
+--- that build one give it the type of the check they make, so `into`
+--- returns a `T`, with no annotation between the two.
 ---
 --- A record's spec is made by [`record_of`], which the build reads off the
 --- record's own declaration, so a field added to the record is checked
@@ -26,8 +26,10 @@
 ---
 ---     local server, err = decode_into(text, SERVER.spec)
 ---
---- A field that is one of several shapes has none to check: a union of more than one type is refused when the module is
---- built. Write it as a tagged record, a `kind` enum and an optional field for each kind, and test `kind` after `into`:
+--- A field that is one of several shapes has no shape to check: a union of
+--- more than one type is refused when the module is built. Write it as a
+--- tagged record, with a `kind` enum and an optional field for each kind,
+--- and test `kind` after `into`:
 ---
 ---     local record Event
 ---       enum Kind
@@ -41,27 +43,28 @@
 ---
 --- An array holds every index from 1, so a list that may have a missing
 --- element is not a `{T}`: `list(optional(x))` does not compile
---- (`array_of_optional`), and [`sparse_list`] answers `{integer: T}`.
+--- (`array_of_optional`), and [`sparse_list`] returns `{integer: T}`.
 ---
---- A record's check is generated, not walked: the build writes, for each record
---- [`record_of`] names, a Teal function that builds the record field by field from
---- the checks of its fields' types, so the checker types it as any other code and
---- a hand-written one must answer a `T` or fail to compile.
+--- A record's check is generated, not walked. For each record that
+--- [`record_of`] names, the build writes a Teal function that builds the record
+--- field by field, from the checks of its fields' types. So the checker types
+--- it as any other code, and a hand-written one must return a `T` or fail to
+--- compile.
 ---
 --- The rules, fixed here:
 ---
---- - The answer is a copy. A record keeps only the fields its spec
+--- - The result is a copy. A record keeps only the fields its spec
 ---   names, so a key the payload grew is dropped rather than refused
 ---   ([`Typed.strict`] refuses it instead), and the value handed in is
 ---   never written to.
 --- - JSON is the decoder in mind. A missing key and [`Json.null`], which
 ---   `Json.decode(text, { null_value = Json.null })` puts where the text
 ---   says `null`, are the same thing: `optional` admits either and
----   answers nil. A list answers a JSON array ([`Json.is_array`]), so an
+---   returns nil. A list returns a JSON array ([`Json.is_array`]), so an
 ---   empty one encodes as `[]`, and a map or record refuses one.
 --- - Nothing is converted, with one exception: `integer` takes a float
 ---   with no fraction, like the `8080.0` another language's encoder
----   writes, and answers the integer. `number` refuses `"1"`.
+---   writes, and returns the integer. `number` refuses `"1"`.
 --- - A failure names the first value that does not fit by its path from
 ---   the root `$`, list indices counted from 0 as the JSON document
 ---   counts them: `$.rows[1].id: want string, got integer`. A key that
@@ -71,7 +74,7 @@
 ---   `Envelope: $.rows[1].id: missing`. A record's
 ---   fields and a map's keys are checked in byte order, and a list's
 ---   elements in index order, so the same value
----   always reports the same failure. Only the first is answered: a
+---   always reports the same failure. Only the first is returned: a
 ---   config file whose author wants every mistake sees them one at a
 ---   time, re-running after each fix.
 --- - `into` never raises on a value, whatever it holds.

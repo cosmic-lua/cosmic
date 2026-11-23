@@ -21,7 +21,7 @@
 ---
 --- `{ integer = n }`, `{ number = x }`, `{ text = s }` and `{ blob = b }`
 --- bind those types; `{}` binds NULL. A [`Sqlite.Row`] is not a list:
---- `row:text(2)`, `row:integer(2)`, `row:number(2)` and `row:blob(2)` answer
+--- `row:text(2)`, `row:integer(2)`, `row:number(2)` and `row:blob(2)` return
 --- column 2 when it holds that type, and raise when it does not;
 --- [`Sqlite.map`] turns each row into a record of such reads.
 ---
@@ -38,7 +38,7 @@
 --- line comments too, as `cosmic.json` does given `hash_comments`: a
 --- text in YAML's flow style reads the same through either.
 ---
---- Every handle answers the SQL functions, virtual tables and
+--- Every handle has the SQL functions, virtual tables and
 --- collations [the SQL guide](doc/guides/sql.md) lists, and only those:
 --- SQLite's own, its math and percentile functions, cosmic's, and the
 --- extensions from SQLite's `ext/misc/` the core is built with

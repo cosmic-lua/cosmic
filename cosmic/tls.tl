@@ -16,7 +16,7 @@
 ---       handle = function(_: Server.Request): Server.Reply return { status = 200 } end,
 ---     })
 ---
---- A source is a function that answers the pairs, so where they come
+--- A source is a function that returns the pairs, so where they come
 --- from is the caller's: [`Tls.static`] for pairs in hand,
 --- [`cosmic.tailscale.Client.certs`] for the machine's `ts.net`
 --- name, an ACME client for any other. A source is called in a task of

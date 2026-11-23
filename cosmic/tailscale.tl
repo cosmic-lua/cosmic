@@ -14,7 +14,7 @@
 ---
 --- [`Tailscale.connect`] finds the daemon but keeps no connection open:
 --- each call is one HTTP request to it, so a daemon that is down or
---- restarts fails that call, never the client. Every answer is checked against the
+--- restarts fails that call, never the client. Every response is checked against the
 --- shape this module declares and handed back as a record with
 --- snake_case fields, so a reply the daemon changed fails with the path
 --- of the field that does not fit rather than as a nil read far away.
@@ -32,7 +32,7 @@
 --- Linux the socket is open to every local user, and a request that
 --- changes something, or asks for a certificate, needs root or the
 --- daemon's operator (`tailscale set --operator=$USER`); the daemon
---- answers 403 otherwise, and the call fails with its message.
+--- responds with 403 otherwise, and the call fails with its message.
 ---
 --- On macOS the app's daemon listens at a port of 127.0.0.1 and takes a
 --- request only with its same-user proof, a token in a file of the app's

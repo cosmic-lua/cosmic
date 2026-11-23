@@ -16,7 +16,7 @@
 --- written as the one quiet NaN, `f97e00`, its payload not kept.
 ---
 --- Decoding takes bytes from anyone: what is not CBOR, or nests past
---- `max_depth`, answers nil and a reason, and nothing raises but a
+--- `max_depth`, returns nil and a reason, and nothing raises but a
 --- failure to allocate. Each item is a Lua table, a hundred bytes or
 --- more, so bound the length of what is decoded where memory counts. A map that
 --- holds a key twice is refused, as RFC 8949 section 5.6 lets a decoder

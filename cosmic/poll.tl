@@ -13,15 +13,15 @@
 --- [`Poll.run`] runs its function as the first task, and returns once every
 --- task has ended. A task waits by calling `wait` (`readable` and
 --- `writable` are calls to it), `delay` or a Task's `join`, each of which
---- answers true once what it waits for happens, or false and a
+--- returns true once what it waits for happens, or false and a
 --- [`Failure`] of kind "timeout" once its `timeout_ns` passes first, or of
 --- kind "cancelled" once the task is cancelled; `ready` waits on
---- several descriptors at once, and answers what each had, as
+--- several descriptors at once, and returns what each had, as
 --- [`sys.poll`] does, or nil and the same Failures; a Task's `kill`
 --- ends one outright, for a task that goes on after its waits fail.
 --- `wait` is the one that goes on where there is no task to wait in --
 --- outside a run, in a coroutine of its own, in a finalizer -- holding
---- the thread in [`sys.poll`] until it answers, so a module waits with
+--- the thread in [`sys.poll`] until it returns, so a module waits with
 --- one call wherever it runs; the others raise there. In a `<close>`
 --- handler of a task the run ends, `wait` raises too. Nothing else
 --- here waits: a call that blocks the thread (a blocking read, a

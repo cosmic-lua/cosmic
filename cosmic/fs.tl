@@ -4,27 +4,27 @@
 --- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
 --- [`Fs.mkdtemp`], [`Fs.absolute`], [`Fs.readlink`], [`Fs.open_read`],
 --- [`Fs.open_write`], [`Fs.take`], [`Fs.create`], [`Fs.walk`],
---- [`Fs.walk_following`], [`Fs.scratch`] and [`Fs.relative`] answer
+--- [`Fs.walk_following`], [`Fs.scratch`] and [`Fs.relative`] return
 --- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
 --- that names the path (none for `take`, which reads a descriptor) and
 --- the errno (0 for `relative`, which reads nothing). Other fallible calls
 --- that produce a value still return `T | nil, string`: a value and `""`
 --- on success, or nil and an error. A predicate uses the same contract, with false
---- as a valid answer. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
+--- as a valid result. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
 --- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],
 --- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.put`],
---- [`Fs.fsync`] and [`Fs.close`] only have an effect and answer
+--- [`Fs.fsync`] and [`Fs.close`] only have an effect, and return
 --- `(true) | (false, Failure)`; one on a descriptor names no path.
 ---
 --- A descriptor from [`Fs.open_read`] or [`Fs.open_write`] is a plain
 --- integer, closed with [`Fs.close`], so a `<close>` variable cannot hold
 --- it. One holds a value whose type has a [`__close`] metamethod, written
 --- `local h <close> = assert(Child.start(argv, { timeout_ns = Child.FOREVER }))`: `assert` narrows the
---- `T | nil` an opener answers, which `<close>` refuses, to `T`.
+--- `T | nil` an opener returns, which `<close>` refuses, to `T`.
 ---
 --- `basename`, `dirname`, `within` and `relative` work on a path's
 --- text alone and read nothing. The first three cannot fail, so each
---- answers a plain value; `relative` answers nil and a Failure, with
+--- returns a plain value. `relative` returns nil and a Failure, with
 --- errno 0, when the path is not within the directory.
 ---
 --- The syscall table itself is [`cosmic.sys`]. A call this module does not

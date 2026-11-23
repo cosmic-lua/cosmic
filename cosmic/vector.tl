@@ -3,7 +3,7 @@
 ---
 --- A vector is a string of little-endian 32-bit floats, which is what the
 --- SQL vector functions store and read. A [`Vector.Corpus`] holds many in
---- one buffer, each with an integer id (a rowid), and answers the k
+--- one buffer, each with an integer id (a rowid), and returns the k
 --- nearest to a query without a SQLite row in the way.
 ---
 ---     local corpus = Vector.corpus(3)
@@ -60,8 +60,8 @@
 --- (milliseconds at thousands of dimensions; one centroid pass while
 --- k-means seeds), without taking the signal (the guard's holder still
 --- sees it) and without changing the corpus. That is the shape every
---- interrupted operation in the tree answers, as [`cosmic.http`] and
---- [`cosmic.net`] do; they have no partial answer to give instead.
+--- interrupted operation in the tree returns, as [`cosmic.http`] and
+--- [`cosmic.net`] do; they have no partial result to give instead.
 --- Out of memory and a wrong argument still raise. Without a guard open
 --- nothing interrupts them.
 
