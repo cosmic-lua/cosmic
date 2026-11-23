@@ -666,8 +666,8 @@ local function typed_by<T>(name: string, spec: Shape.Spec<T>): Shape.Typed<T>
     return self
   end
   return {
-    name = name, spec = spec, make = function(_strict: boolean): Shape.Spec<T> return spec end,
-    node = Nodes.record({}), into = into, decode_into = decode_into, strict = strict,
+    name = name, spec = spec, make = function(_mode: Shape.Mode): Shape.Spec<T> return spec end,
+    node = Nodes.record({}), into = into, decode_into = decode_into, strict = strict, lenient = strict,
   }
 end
 

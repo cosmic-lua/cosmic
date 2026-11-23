@@ -83,8 +83,9 @@ local record Gen
   holding: mut {Types.Decl: boolean}
   --- A number for each local the code names, so that no name is declared twice in it.
   mut count: integer
-  --- The local that holds whether the record being written refuses a key it does not name.
-  mut strict: string
+  --- The local that holds the [`Shape.Mode`] of the record being written: whether it refuses a key it does not name, or
+  --- passes over a value that does not fit where it can.
+  mut mode: string
 end
 
 --- The next number for a local.
@@ -109,7 +110,7 @@ end
 --- The most fields a record may have: its check names two locals for each field, and a Lua function holds 200.
 local MOST_FIELDS <const> = 90
 
---- The check of the record `decl` at `path`, as a function of whether a key it does not name is refused, over the checks
+--- The check of the record `decl` at `path`, as a function of its [`Shape.Mode`], over the checks
 --- of its fields, and the node that describes its fields. Where the record has a field of a type the generator cannot
 --- spell, nil and why.
 local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: string): Written?, string -- checked: not_assigned
@@ -139,8 +140,8 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
   table.sort(fields, function(x: Types.Field, y: Types.Field): boolean return x.name < y.name end)
   local S = g.shape
   local own = "sh_s" .. tostring(fresh(g))
-  local outer = g.strict
-  g.strict = own
+  local outer = g.mode
+  g.mode = own
   local checks: mut {string} = {}
   local reads: mut {string} = {}
   local names: mut {string} = {}
@@ -151,7 +152,7 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     local written, why = gen_spec(g, field.type, path .. "." .. field.name)
     if written == nil then
       g.holding[decl] = nil
-      g.strict = outer
+      g.mode = outer
       return nil, why
     end
     -- A field written `f?: T` is omittable whatever `T` is, and a field of `any` may be nil, as `any` holds nil: the store
@@ -159,7 +160,7 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     local nilable = field.omittable == true or field.type == g.store.any
     local inner, node = written.spec, written.node
     if nilable and field.type.tag ~= "union" then
-      inner = S .. ".optional(" .. inner .. ")"
+      inner = S .. ".build.optional(" .. own .. ", " .. inner .. ")"
       node = optional_node(node)
     end
     local step = ("%s.build.step(sh_path, %q)"):format(S, field.name)
@@ -173,17 +174,17 @@ local function gen_record(g: Gen, t_of_decl: Type, decl: Types.Decl, path: strin
     nodes[#nodes + 1] = ("[%q] = %s"):format(field.name, node)
   end
   g.holding[decl] = nil
-  g.strict = outer
-  local check = ("(function(%s: boolean): %s.Spec<%s> %sreturn { check = function(sh_value: any, sh_path: string): %s?, string " ..
+  g.mode = outer
+  local check = ("(function(%s: %s.Mode): %s.Spec<%s> %sreturn { check = function(sh_value: any, sh_path: string): %s?, string " ..
     "local sh_t, sh_why = %s.build.object(sh_value, sh_path, { %s }, %s) if sh_t == nil then return nil, sh_why end %s " ..
-    "return { %s }, \"\" end } end)"):format(own, S, spelled, table.concat(checks), spelled, S,
+    "return { %s }, \"\" end } end)"):format(own, S, S, spelled, table.concat(checks), spelled, S,
       table.concat(names, ", "), own, table.concat(reads, " "), table.concat(built, ", "))
   return { spec = check, node = ('{ kind = "record", optional = false, fields = { %s } }'):format(table.concat(nodes, ", ")) }, ""
 end
 
 --- The Teal expression, over the `shape` alias, that is the spec of `t`, and the node that describes it, or nil and why
---- `t` has none. `path` names where `t` is, for the message. The local that holds whether a record refuses a key it does
---- not name is `strict`.
+--- `t` has none. `path` names where `t` is, for the message. The local that holds the record's [`Shape.Mode`] is
+--- `g.mode`.
 gen_spec = function(g: Gen, t: Type, path: string): Written?, string
   local S = g.shape
   if t.atom == true then
@@ -195,7 +196,7 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
   elseif t.tag == "array" then
     local inner, why = gen_spec(g, t.element, path .. "[]")
     if inner == nil then return nil, why end
-    return { spec = S .. ".list(" .. inner.spec .. ")",
+    return { spec = S .. ".build.list(" .. g.mode .. ", " .. inner.spec .. ")",
       node = ('{ kind = "list", optional = false, of = %s }'):format(inner.node) }, ""
   elseif t.tag == "map" then
     local key = t.key
@@ -204,7 +205,7 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
     end
     local inner, why = gen_spec(g, t.value, path .. "{}")
     if inner == nil then return nil, why end
-    return { spec = S .. ".map(" .. inner.spec .. ")",
+    return { spec = S .. ".build.map(" .. g.mode .. ", " .. inner.spec .. ")",
       node = ('{ kind = "map", optional = false, of = %s }'):format(inner.node) }, ""
   elseif t.tag == "union" then
     if #t.members > 1 then
@@ -212,7 +213,7 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
     end
     local inner, why = gen_spec(g, assert(t.members[1]), path)
     if inner == nil then return nil, why end
-    return { spec = S .. ".optional(" .. inner.spec .. ")", node = optional_node(inner.node) }, ""
+    return { spec = S .. ".build.optional(" .. g.mode .. ", " .. inner.spec .. ")", node = optional_node(inner.node) }, ""
   elseif t.tag == "named" then
     local decl = t.decl
     local body = decl.body
@@ -240,7 +241,7 @@ gen_spec = function(g: Gen, t: Type, path: string): Written?, string
     elseif decl.kind == "record" then
       local written, why = gen_record(g, t, decl, path)
       if written == nil then return nil, why end
-      return { spec = written.spec .. "(" .. g.strict .. ")", node = written.node }, ""
+      return { spec = written.spec .. "(" .. g.mode .. ")", node = written.node }, ""
     elseif decl.kind == "userdata" then
       return nil, path .. ": a userdata record has no shape"
     elseif decl.kind == "alias" then
@@ -436,7 +437,7 @@ function ShapeSpecs.splices(build: Driver.Build, module: string, file: string, s
         refusal = ("%s(%q): it is %s"):format(where, literal.value, what) }
     end
     local g: Gen = {
-      shape = shape, store = build.program.store, holding = {}, count = 0, strict = "",
+      shape = shape, store = build.program.store, holding = {}, count = 0, mode = "",
       names = {
         program = build.program, module = module, aliases = aliases, target = at.decl, spelled = target.spelled,
         visible = RecordCalls.visible(outcome, Node.base(hit.node).first),
