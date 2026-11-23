@@ -431,7 +431,8 @@ local function fixture(binary: string, root: string): Fixture
 local S = require("cosmic.store")
 local E = require("cosmic.env")
 local root = assert(E.get("COSMIC_TREE"))
-if S.source("build.paths") ~= nil then
+local paths, _ = S.source("build.paths")
+if paths ~= nil then
   print(require("build.paths").required(root))
 else
   print(root .. "/o")

@@ -46,6 +46,7 @@ local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local testing = require("cosmic.internal.testing")
+local raw_compress = require("cosmic.internal.compress")
 local type raw_socket = require("cosmic.internal.socket")
 local type raw_process = require("cosmic.internal.process")
 local Clock = require("cosmic.clock")
@@ -372,13 +373,10 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
   local answered = false
   for after = 0, 100 do
     testing.fail_allocations(after)
-    local made: Compress.Stream?
-    local trouble = ""
-    local ok, _ = pcall(function()
-      local got, refusal = Compress.inflater("raw")
-      made = got
-      if got == nil then trouble = tostring(refusal) end
-    end)
+    -- The core's own inflater, which answers the refusal in words:
+    -- Compress.inflater's Failure is a Lua table, and no Lua allocation
+    -- is granted until allow_allocations.
+    local ok, made, trouble = pcall(raw_compress.inflater, "raw")
     local refused = testing.allow_allocations()
     if ok and made == nil then
       assert(trouble == "compress: out of memory", tostring(trouble))
@@ -506,9 +504,13 @@ local function test_one_byte_updates_do_not_allocate_a_slice_each()
       return Compress.zstd_encoder()
     end,
       decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.zstd_decoder() end },
-    { name = "xz", encoder = function(): (Compress.Stream) | (nil, Failure) return Compress.xz_encoder() end,
+    { name = "xz", encoder = function(): (Compress.Stream) | (nil, Failure)
+      return Compress.xz_encoder()
+    end,
       decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.xz_decoder() end },
-    { name = "bz2", encoder = function(): (Compress.Stream) | (nil, Failure) return Compress.bz2_encoder() end,
+    { name = "bz2", encoder = function(): (Compress.Stream) | (nil, Failure)
+      return Compress.bz2_encoder()
+    end,
       decoder = Compress.bz2_decoder },
   }
   local count = 2000
