@@ -311,9 +311,15 @@ function Compress.decode(format: Compress.Format, data: string, opts?: Compress.
 end
 
 -- TODO: once ci/cosmic-driver.pin names a release with Compress.decoder,
--- move ci/fixtures to Compress.decoder, Compress.encoder and
--- Compress.encode, and delete these three, which ci/ calls on the
--- pinned release.
+-- move ci/fixtures and eval/check/grade.tl to Compress.decoder,
+-- Compress.encoder, Compress.encode and Compress.decode, and delete these
+-- four, which those files call on the pinned release.
+
+--- [`Compress.decode`] of `format` with `max_bytes`, for
+--- eval/check/grade.tl.
+function Compress.inflate(format: Compress.Format, data: string, max_bytes?: integer): (string) | (nil, Failure)
+  return Compress.decode(format, data, { max_bytes = max_bytes })
+end
 
 --- [`Compress.decoder`] of "zstd" with `max_window`, for ci/.
 function Compress.zstd_decoder(max_window?: integer): (Compress.Stream) | (nil, Failure)

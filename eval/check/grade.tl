@@ -1671,7 +1671,7 @@ local function mirror_requests(g: Grade, site: Site)
   if zipped ~= nil then
     has(g, zipped, "GET /big.txt accepting gzip", "Content-Encoding", "gzip")
     has(g, zipped, "GET /big.txt accepting gzip", "Content-Length", tostring(#zipped.body))
-    local plain, trouble = Compress.decode("gzip", zipped.body)
+    local plain, trouble = Compress.inflate("gzip", zipped.body)
     check(g, plain == big, "GET /big.txt accepting gzip inflates to the file",
       if plain ~= nil then tostring(#plain) .. " bytes" else tostring(trouble) end)
   end
