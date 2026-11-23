@@ -17,7 +17,10 @@
 local CompileGrammar = require("build.compile_grammar")
 local MainLocals = require("build.main_locals")
 local Pipeline = require("build.pipeline")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local fanout = require("build.compile_fanout")
 local String = require("cosmic.string")
 local logger = require("build.logger")
 local TreeProgram = require("build.tree_program")
@@ -75,6 +78,10 @@ local record Answers
   --- By file, the locals of the main chunk of a module's Lua that are more than `MAIN_LOCALS_LIMIT`.
   locals: {string: integer}
 end
+
+--- What one copy of [`asked`]'s fan holds beyond the process it was forked from, as [`fanout.copies`] counts it: the
+--- syntax and the declarations of the modules it lowers.
+local copy_bytes <const> = 1024 * 1024 * 1024
 
 --- What the pipeline answers for the staged modules of `rows`, and the lines that say why it could not.
 local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {PipelineCheck.Row}): Answers, {string}
@@ -171,8 +178,76 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
     end
   end
   -- The modules in the order they require one another, each forgotten once it is answered: the syntax of the whole tree is
-  -- not held at once.
-  local out = TreeProgram.stream(build, index, names, true, judge)
+  -- not held at once. Where they are many, every so many of them in each of the copies of the process.
+  local out: mut {string} = {}
+  local met: mut {string: boolean} = {}
+  local function refused(line: string)
+    if met[line] ~= true then
+      met[line] = true
+      out[#out + 1] = line
+    end
+  end
+  local left: {string} = names
+  local copies = fanout.copies(#names, Proc.cpu_count(), copy_bytes)
+  local dir: string? = nil
+  if copies > 0 then
+    local made, _ = Fs.mkdtemp("cosmic-pipeline-")
+    dir = made
+  end
+  if dir ~= nil then
+    local ran = fanout.run(copies, function(copy: integer)
+      local mine: mut {string} = {}
+      for at = copy, #names, copies do
+        mine[#mine + 1] = assert(names[at], "an index within the list is a module")
+      end
+      local lines = TreeProgram.stream(build, index, mine, true, judge)
+      local kept: mut {{string}} = {}
+      for _, row in ipairs(rows) do
+        local answer = answers[row.key]
+        if answer ~= nil then
+          local file = row.file
+          local held = main_locals[file]
+          local fields = { "A", row.key, answer, file, if over[file] == true then "O" else "" end, other[file] or "",
+            if held ~= nil then tostring(held) else "" end }
+          kept[#kept + 1] = fields
+        end
+      end
+      for _, line in ipairs(lines) do kept[#kept + 1] = { "P", line } end
+      assert(Fs.write(dir .. "/" .. tostring(copy), check_memo.encode(kept)))
+    end)
+    local missed: mut {string} = {}
+    for copy = 1, copies do
+      local text: string? = nil
+      if ran.ended[copy] == true then
+        local read, _ = Fs.read(dir .. "/" .. tostring(copy))
+        text = read
+      end
+      if text == nil then
+        for at = copy, #names, copies do
+          missed[#missed + 1] = assert(names[at], "an index within the list is a module")
+        end
+      else
+        for _, fields in ipairs(check_memo.decode(text)) do
+          local kind, key, answer, file = fields[1], fields[2], fields[3], fields[4]
+          if kind == "A" and key ~= nil and answer ~= nil and file ~= nil and answer ~= "-" then
+            answers[key] = answer
+            over[file] = fields[5] == "O"
+            local code = fields[6]
+            if code ~= nil and code ~= "" then other[file] = code end
+            local held = math.tointeger(tonumber(fields[7] or ""))
+            if held ~= nil then main_locals[file] = held end
+          elseif kind == "P" and key ~= nil then
+            refused(key)
+          end
+        end
+      end
+    end
+    local _, _ = Fs.remove_tree(dir)
+    left = missed
+  end
+  if #left > 0 then
+    for _, line in ipairs(TreeProgram.stream(build, index, left, true, judge)) do refused(line) end
+  end
   return { over = over, other = other, answers = answers, locals = main_locals }, out
 end
 

@@ -1635,8 +1635,8 @@ local function test_the_checks_find_the_same_in_copies_of_the_process(dir: strin
     fanout.meminfo = "MemAvailable: 67108864 kB\n"
     local memo = assert(Sqlite.memory())
     local found = table.concat(tree_checks.declared(root, memo), "\n") .. "\n--\n" ..
-        table.concat(tree_checks.checked(root, memo), "\n") .. "\n--\n" ..
-        table.concat(tree_checks.untyped(root, memo), "\n")
+      table.concat(tree_checks.checked(root, memo), "\n") .. "\n--\n" ..
+      table.concat(tree_checks.untyped(root, memo), "\n")
     local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo"))
     local rows = support.nth(count, 1):integer(1)
     assert(memo:close())
@@ -1648,7 +1648,7 @@ local function test_the_checks_find_the_same_in_copies_of_the_process(dir: strin
   assert(alone:find("build/f6.tl:2:", 1, true) ~= nil and alone:find("build/open.tl: 1 error of call", 1, true) ~= nil, alone)
   assert(copied == alone, "the copies found otherwise:\n" .. copied .. "\n\nthan the process:\n" .. alone)
   assert(copied_rows == alone_rows, "the copies kept " .. tostring(copied_rows) .. " answers, the process " ..
-    tostring(alone_rows))
+      tostring(alone_rows))
 end
 
 --- A tree with the headers of the bindings of C declares them from the headers (as the build derives them), so a call of one is

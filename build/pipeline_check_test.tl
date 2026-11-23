@@ -1,6 +1,8 @@
 --- Tests of [`build.pipeline_check`], the pipeline held against the checks of the tree. A module over the limit on the locals of its
 --- main chunk is refused with its file and count, from the pipeline and from the memo alike.
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local fanout = require("build.compile_fanout")
 local PipelineCheck = require("build.pipeline_check")
 local Sqlite = require("cosmic.sqlite")
 local Test = require("cosmic.test")
@@ -72,5 +74,49 @@ local function test_a_module_the_tree_refuses_and_the_pipeline_accepts_is_told(t
   local text = table.concat(told, "\n")
   assert(text:find("fine.tl: the tree checks refuse it for an error no marker holds, and the pipeline accepts it", 1, true) ~= nil,
     text)
+  assert(work.close(handle))
+end
+
+--- Copies of the process ([`build.compile_fanout`]) answer what the process answers alone: the same lines, and the same
+--- answers kept in the memo.
+local function test_copies_of_the_process_answer_as_the_process_does(tmp: string)
+  if Proc.cpu_count() < 2 then
+    Test.skip("this host has one processor, for which no copy is forked")
+  end
+  local root = tmp .. "/project"
+  assert(Fs.mkdirs(root))
+  local rows: mut {PipelineCheck.Row} = {}
+  for index = 1, 6 do
+    local name = "m" .. tostring(index)
+    assert(Fs.write(root .. "/" .. name .. ".tl", locals_module(176 + index)))
+    rows[#rows + 1] = { file = name .. ".tl", module = name, dialect = "tl", key = "k" .. name }
+  end
+  local handle = assert(work.open(root))
+  assert(work.stage(handle, { own = false }))
+  assert(importer.derive(handle))
+  local least, meminfo = fanout.least, fanout.meminfo
+  local function compare(copied: boolean): string, string
+    fanout.least = if copied then 1 else 1000000 end
+    fanout.meminfo = "MemAvailable: 67108864 kB\n"
+    local memo = assert(Sqlite.memory())
+    local lines = PipelineCheck.compare(root, handle.db, memo, #rows, function(index: integer): PipelineCheck.Row
+      return assert(rows[index])
+    end, {}, {})
+    local kept: mut {string} = {}
+    local found = assert(Sqlite.text_rows(memo,
+      "SELECT key || '=' || value FROM check_memo WHERE kind = 'pipeline' ORDER BY key"))
+    for _, row in ipairs(found) do
+      kept[#kept + 1] = row:text(1)
+    end
+    assert(memo:close())
+    return table.concat(lines, "\n"), table.concat(kept, "\n")
+  end
+  local alone, alone_kept = compare(false)
+  local copied, copied_kept = compare(true)
+  fanout.least, fanout.meminfo = least, meminfo
+  assert(alone:find("m6.tl: the main chunk of its Lua holds 182 locals", 1, true) ~= nil and
+      alone:find("m4.tl", 1, true) == nil, alone)
+  assert(copied == alone, "the copies told:\n" .. copied .. "\nthe process:\n" .. alone)
+  assert(copied_kept == alone_kept, "the copies kept:\n" .. copied_kept .. "\nthe process:\n" .. alone_kept)
   assert(work.close(handle))
 end
