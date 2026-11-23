@@ -52,6 +52,11 @@ the checkout is the working directory, on main. use cosmic for the work:
   `TZ=America/Los_Angeles date +%F`.
 - open at most 3 draft pull requests, the most severe findings first.
   each one fixes one finding, with a test that fails before the fix.
+- before you start a fix, list the review's own open pull requests:
+  `gh pr list --repo cosmic-lua/cosmic --state open --author app/cosmic-buddy --search 'head:weekly-review/' --limit 100 --json number,title,headRefName`.
+  read the diff (`gh pr diff <number>`) of any whose title is near your
+  finding. where one already fixes it, by what its diff changes and not by
+  its title, skip the finding and name that pull request in your answer.
 - start each fix from main on its own branch,
   `git switch -c weekly-review/<date>-<name> origin/main`, where `<name>`
   is a few words in lower case joined by `-`. commit with
