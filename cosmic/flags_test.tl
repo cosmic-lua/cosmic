@@ -161,6 +161,106 @@ local function test_a_spec_may_describe_its_options()
   assert(why == "-q takes no value", why)
 end
 
+local function test_an_alias_is_read_as_its_option()
+  local described: {string:boolean | Flags.Option} = {
+    ["--raw"] = { about = "as text", aliases = { "-r" } },
+    ["--count"] = { value = "n", aliases = { "-n" } },
+    ["-k"] = { about = "keys" },
+  }
+  local got = assert(Flags.parse({ "-r", "-n", "3" }, 1, described))
+  assert(got.set["--raw"] == true and got.set["-r"] == nil and got.values["--count"] == "3")
+  assert(got.given[1] == "--raw" and got.given[2] == "--count")
+  got = assert(Flags.parse({ "-rkn4" }, 1, described))
+  assert(got.set["--raw"] == true and got.set["-k"] == true and got.values["--count"] == "4")
+  local _, why = Flags.parse({ "-n" }, 1, described)
+  assert(why == "-n needs a value", why)
+  _, why = Flags.parse({ "--rwa" }, 1, described)
+  assert(why == "no such option: --rwa; did you mean --raw?", why)
+  Test.raises(function()
+    Flags.parse({}, 1, { ["--a"] = { aliases = { "--b" } }, ["--b"] = false })
+  end)
+  Test.raises(function() Flags.parse({}, 1, { ["--a"] = { aliases = { "b" } } }) end)
+  Test.raises(function()
+    Flags.parse({}, 1, { ["--host"] = { value = "h", aliases = { "-h" } } })
+  end)
+  local one = assert(Flags.parse({ "-1" }, 1, { ["--one"] = { aliases = { "-1" } } }))
+  assert(one.set["--one"] == true and #one.words == 0)
+  local rows = Flags.help({ spec = { ["--count"] = { value = "n", aliases = { "--num", "-n" } } }, usage = "" }, "t")
+  assert(rows:find("\n  -n, --count, --num <n>", 1, true) ~= nil, rows)
+end
+
+local function test_choices_and_whole_numbers_are_checked()
+  local described: {string:boolean | Flags.Option} = {
+    ["--level"] = { value = "level", choices = { "L", "M", "Q", "H" } },
+    ["-n"] = { value = "n", integer = { min = 1, max = 100 } },
+    ["--seed"] = { value = "n", integer = {} },
+    ["--at-least"] = { value = "n", integer = { min = 0 } },
+  }
+  local got = assert(Flags.parse({ "--level", "Q", "-n", "7", "--seed=-3" }, 1, described))
+  assert(got.values["--level"] == "Q" and got.integers["-n"] == 7 and got.values["-n"] == "7")
+  assert(got.integers["--seed"] == -3)
+  for _, case in ipairs({
+      { line = { "--level", "Z" }, why = "--level takes L, M, Q or H, not Z" },
+      { line = { "-n", "0" }, why = "-n takes a whole number from 1 to 100, not 0" },
+      { line = { "-n101" }, why = "-n takes a whole number from 1 to 100, not 101" },
+      { line = { "-n", "1.5" }, why = "-n takes a whole number from 1 to 100, not 1.5" },
+      { line = { "-n", "0x10" }, why = "-n takes a whole number from 1 to 100, not 0x10" },
+      { line = { "--seed", "abc" }, why = "--seed takes a whole number, not abc" },
+      { line = { "--at-least", "-1" }, why = "--at-least takes a whole number, at least 0, not -1" },
+  }) do
+    local _, why = Flags.parse(case.line, 1, described)
+    assert(why == case.why, why)
+  end
+  Test.raises(function() Flags.parse({}, 1, { ["--a"] = { choices = { "x" } } }) end)
+  Test.raises(function() Flags.parse({}, 1, { ["--a"] = { value = "v", choices = {} } }) end)
+  Test.raises(function()
+    Flags.parse({}, 1, { ["--a"] = { value = "v", choices = { "1" }, integer = {} } })
+  end)
+  Test.raises(function()
+    Flags.parse({}, 1, { ["--a"] = { value = "v", integer = { min = 9, max = 1 } } })
+  end)
+  local _, empty = Flags.parse({ "-n", "" }, 1, described)
+  assert(empty == "-n takes a whole number from 1 to 100, not \"\"", empty)
+end
+
+local function test_a_default_stands_where_the_line_gives_none()
+  local described: {string:boolean | Flags.Option} = {
+    ["-n"] = { value = "n", integer = { min = 1 }, default = "1" },
+    ["--level"] = { value = "level", choices = { "L", "M" }, default = "M" },
+  }
+  local got = assert(Flags.parse({}, 1, described))
+  assert(got.values["-n"] == "1" and got.integers["-n"] == 1 and got.values["--level"] == "M")
+  assert(#got.given == 0 and got.all["-n"] == nil)
+  got = assert(Flags.parse({ "-n", "5" }, 1, described))
+  assert(got.integers["-n"] == 5 and #got.given == 1)
+  Test.raises(function()
+    Flags.parse({}, 1, { ["-n"] = { value = "n", integer = { min = 1 }, default = "0" } })
+  end)
+  Test.raises(function()
+    Flags.parse({}, 1, { ["--a"] = { value = "v", choices = { "x" }, default = "y" } })
+  end)
+  Test.raises(function()
+    Flags.parse({}, 1, { ["--a"] = { value = "v", required = true, default = "y" } })
+  end)
+end
+
+local function test_help_shows_aliases_choices_bounds_and_defaults()
+  local described: {string:boolean | Flags.Option} = {
+    ["--raw"] = { about = "as text", aliases = { "-r" } },
+    ["--level"] = { value = "level", about = "error correction", choices = { "L", "M" }, default = "M" },
+    ["-n"] = { value = "n", about = "how many", integer = { min = 1, max = 9 }, default = "1" },
+  }
+  local help = Flags.help({ spec = described, usage = "" }, "tool")
+  assert(help == table.concat({
+    "usage: tool",
+    "",
+    "options:",
+    "  --level <level>  error correction (L or M; default: M)",
+    "  -n <n>           how many (a whole number from 1 to 9; default: 1)",
+    "  -r, --raw        as text",
+  }, "\n"), help)
+end
+
 local function test_help_lists_each_option_sorted_beside_what_it_does()
   local described: {string:boolean | Flags.Option} = {
     ["--verbose"] = { about = "say more" },
