@@ -2328,7 +2328,7 @@ end
 --- alias (`type Box = raw.Box`) or by extending it, are listed on the
 --- public type's page with their notes, and each answers to its own
 --- dotted name. A same-module alias (`type Config = Config`) lists the
---- record's fields.
+--- record's fields, and one of a class (`type Lid = Lid`) its methods too.
 local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
   local db = built(dir, {
     ["cosmic/internal/raw.tl"] = source(
@@ -2360,11 +2360,25 @@ local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
       "  depth: integer",
       "end",
       "",
+      "local class Lid",
+      "  --- How tight it is.",
+      "  tight: integer",
+      "  --- Opens it by `n` turns.",
+      "  function open(self, n: integer): boolean",
+      "    return n > self.tight",
+      "  end",
+      "  function _peek(self): integer",
+      "    return self.tight",
+      "  end",
+      "end",
+      "",
       "local record Thing",
       "  --- A box.",
       "  type Box = raw.Box",
       "  --- Settings.",
       "  type Config = Config",
+      "  --- A lid.",
+      "  type Lid = Lid",
       "  --- Named settings.",
       "  record Named is raw.Base",
       "    --- Its own.",
@@ -2384,6 +2398,12 @@ local function test_a_public_type_lists_what_it_takes_from_another(dir: string)
   assert(not box:find("_hidden", 1, true), box)
   local config = page("Thing.Config")
   assert(config:find("  fields:\n    depth: integer -- The depth.", 1, true), config)
+  local lid = page("Thing.Lid")
+  assert(lid:find("  fields:\n    tight: integer -- How tight it is.\n\n  methods:\n" ..
+      "    open(n: integer): boolean -- Opens it by `n` turns.", 1, true), lid)
+  assert(not lid:find("_peek", 1, true), lid)
+  local open = assert(Doc.lookup(looked, "Thing.Lid.open"))
+  assert(#open == 1, tostring(#open))
   local named = page("Thing.Named")
   assert(named:find("    own: string -- Its own.", 1, true), named)
   assert(named:find("  inherited fields:\n    label: string -- The label.", 1, true), named)
