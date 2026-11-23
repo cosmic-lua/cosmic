@@ -164,7 +164,7 @@ local function test_a_block_with_no_codes_is_refused_rather_than_decoded_forever
     local out, trouble = dec:update(bytes)
     assert(out == nil and trouble == "compress: corrupt compressed data", format .. ": " .. tostring(out and #out))
     local one_shot, why = Compress.inflate(format, bytes)
-    assert(one_shot == nil and why ~= nil, format)
+    assert(one_shot == nil and tostring(why):find("^compress: ") ~= nil, format)
   end
 end
 
@@ -470,7 +470,7 @@ local function test_finish_refuses_while_output_is_pending()
   end
 end
 
-local function test_every_success_carries_an_empty_error()
+local function test_every_success_carries_no_failure()
   local constructors: {function(): (Compress.Stream) | (nil, Failure)} = {
     function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("gzip") end,
     function(): (Compress.Stream) | (nil, Failure) return Compress.deflater("gzip") end,

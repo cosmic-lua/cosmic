@@ -30,8 +30,9 @@ local record Compress
   --- One incremental transform, a chunk at a time: a
   --- [`Stream.Transform`], so [`Stream.transform`],
   --- [`Stream.transform_writer`] and [`Stream.run`] drive it. Every
-  --- call that can fail answers `value, ""` on success and
-  --- `nil, error` on failure, like the constructors.
+  --- method that can fail answers `value, ""` on success and
+  --- `nil, error` on failure; the constructors answer the stream, or
+  --- nil and a [`Failure`].
   ---
   --- `update(chunk, max_bytes?)` feeds `chunk` and returns output,
   --- possibly "". A decoder returns at most `max_bytes` bytes per
@@ -269,8 +270,8 @@ end
 --- and Lua's accounting does not see it: a caller that holds many
 --- encoders, or uses presets 8 and 9 in a server, should hold each
 --- `<close>`. Presets are not capped below 9, as the `xz` command's are
---- not; an allocation the machine refuses answers nil and a [`Failure`], "compress:
---- out of memory" (from the constructor) or, from `update` or
+--- not; an allocation the machine refuses answers nil and a [`Failure`]
+--- whose message is "compress: out of memory" (from the constructor) or, from `update` or
 --- `finish`, finishes the stream and answers the same. Only a single
 --- thread is used. [`Compress.xz_decoder`] reads what this writes at
 --- its default memory limit through preset 9.
