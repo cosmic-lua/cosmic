@@ -117,6 +117,15 @@ allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which 
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.mcp.MISSING_CAPABILITY"] = "public API: the protocol's code for a request that needs a capability the " ..
+  "client did not declare, which a client tests a failure's code against"
+allowed["cosmic.mcp.text"] = "public API: a text block of a tool's result or a prompt's message, which a server builds"
+allowed["cosmic.mcp.image"] = "public API: an image block of a tool's result, its bytes in base64, which a server builds"
+allowed["cosmic.mcp.audio"] = "public API: an audio block of a tool's result, its bytes in base64, which a server builds"
+allowed["cosmic.mcp.link"] = "public API: a block that links a resource from a tool's result, which a server builds"
+allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's contents, which a server builds"
+allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
+
 allowed["cosmic.failure.timeout"] = "public API: the failure of a wait that ran past its time limit, which " ..
   "a module answers in place of the words Poll.TIMEOUT as each moves to (T) | (nil, Failure)"
 allowed["cosmic.failure.cancelled"] = "public API: the failure of a wait stopped from outside, which a module " ..
