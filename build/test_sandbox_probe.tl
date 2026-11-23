@@ -202,7 +202,7 @@ local function noexec_works(): boolean, string
   local made, made_trouble = Fs.mkdirs(directory .. "/noexec")
   if not made then
     local _, _ = Fs.remove_tree(directory)
-    return false, made_trouble
+    return false, tostring(made_trouble)
   end
   local grants = policy.grants or {}
   grants[#grants + 1] = { path = noexec_place, from = directory .. "/noexec", letters = "rwc" } -- checked: view_written

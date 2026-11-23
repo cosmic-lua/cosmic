@@ -176,7 +176,7 @@ local function test_extraction_stays_inside_its_destination(tmp: string)
     -- archive of several hostile entries almost never makes one.
     requires = { "built", "extracted", "linked" },
     check = function(input: string): boolean, string
-      Fs.remove_tree(case)
+      local _, _ = Fs.remove_tree(case)
       local outside = case .. "/outside"
       local dest = case .. "/dest"
       assert(Fs.mkdirs(outside))
@@ -443,7 +443,7 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
     gen = gen_extraction,
     requires = { "both wrote", "both refused" },
     check = function(input: string): boolean, string
-      Fs.remove_tree(case)
+      local _, _ = Fs.remove_tree(case)
       local outside = case .. "/outside"
       assert(Fs.mkdirs(outside))
       local fields = Fuzz.unpack(input)
@@ -581,7 +581,7 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
     requires = { "extracted", "refused by entry limit", "refused by total limit" },
     shares = { ["refused by entry limit"] = 0.15, ["refused by total limit"] = 0.04 },
     check = function(input: string): boolean, string
-      Fs.remove_tree(case)
+      local _, _ = Fs.remove_tree(case)
       assert(Fs.mkdirs(case))
       local fields = Fuzz.unpack(input)
       if #fields < 5 then return true, "" end

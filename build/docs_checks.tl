@@ -46,7 +46,7 @@ function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle?, st
   end
   if not removed then
     local _, _ = db:close()
-    return nil, remove_trouble
+    return nil, tostring(remove_trouble)
   end
   return db, ""
 end

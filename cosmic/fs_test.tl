@@ -63,20 +63,17 @@ end
 
 local function test_remove_tolerates_absence_but_reports_other_errors(tmp: string)
   local missing = tmp .. "/missing"
-  local gone, gone_trouble = Fs.remove(missing)
-  assert(gone and gone_trouble == "")
+  assert(Fs.remove(missing))
 
   local file = tmp .. "/file"
   assert(Fs.write(file, "contents"))
-  local below_file, below_file_trouble = Fs.remove(file .. "/child")
-  assert(below_file and below_file_trouble == "")
-  local removed, removed_trouble = Fs.remove(file)
-  assert(removed and removed_trouble == "")
+  assert(Fs.remove(file .. "/child"))
+  assert(Fs.remove(file))
   assert(Fs.exists(file) == false)
 
   local too_long = tmp .. "/" .. string.rep("x", 300)
   local failed, trouble = Fs.remove(too_long)
-  assert(not failed and trouble:find(too_long, 1, true) ~= nil)
+  assert(not failed and trouble.path == too_long)
 end
 
 local function test_write_leaves_the_old_fixed_neighbor_untouched(tmp: string)
@@ -384,6 +381,15 @@ local function test_mkdirs_with_a_trailing_slash_makes_every_parent()
   assert(Fs.is_dir(root .. "/a/b/c") == true)
 end
 
+--- A link to nothing is something at the path: mkdirs says it exists,
+--- not that nothing is there.
+local function test_mkdirs_on_a_dangling_link_says_it_exists(tmp: string)
+  local link = tmp .. "/dangling"
+  assert(Fs.symlink(tmp .. "/nowhere", link))
+  local made, why = Fs.mkdirs(link)
+  assert(not made and why.errno == sys.EEXIST and why.path == link)
+end
+
 local function test_symlink_and_readlink_round_trip(tmp: string)
   local target = tmp .. "/target"
   local link = tmp .. "/link"
@@ -619,7 +625,7 @@ end
 
 local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_not_follow_a_link(tmp: string)
   assert(Fs.write(tmp .. "/file", "x"))
-  assert(Fs.remove_tree(tmp .. "/file/sub"), "beneath a file is nothing there")
+  assert(Fs.remove_tree(tmp .. "/file/sub"))
   assert(assert(Fs.read(tmp .. "/file")) == "x")
   local outside = tmp .. "/outside"
   assert(Fs.mkdirs(outside .. "/inner"))
@@ -632,8 +638,8 @@ local function test_remove_tree_under_a_file_is_gone_and_a_trailing_slash_does_n
   assert(Fs.remove_tree(tmp .. "/link///"))
   assert(assert(Fs.read(outside .. "/inner/keep")) == "kept")
   local refused, why = Fs.remove_tree("/")
-  assert(not refused and why:find("Invalid argument", 1, true) ~= nil, why)
-  local also = Fs.remove_tree("///")
+  assert(not refused and why.errno == sys.EINVAL and why.path == "/")
+  local also, _ = Fs.remove_tree("///")
   assert(not also)
 end
 
@@ -652,7 +658,7 @@ local function test_remove_tree_deeper_than_its_bound_fails_and_leaves_the_tree(
   end
   assert(sys.chdir(here))
   local removed, why = Fs.remove_tree(deep)
-  assert(not removed and why ~= "", "a tree past the bound was removed")
+  assert(not removed and why.path == deep, "a tree past the bound was removed")
   assert(Fs.exists(deep) == true, "what failed to go is left")
   -- What is left is taken from the bottom for the test's own directory
   -- to be removable.

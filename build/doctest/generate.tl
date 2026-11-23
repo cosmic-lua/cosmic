@@ -389,7 +389,7 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
     out[#out + 1] = '    local made, trouble = __doctest_fs.mkdirs(tmp .. "/" .. dir)'
     out[#out + 1] = "    if not made then"
     out[#out + 1] =
-      '      error("doctest: could not create " .. tmp .. "/" .. dir .. ": " .. trouble)'
+      '      error("doctest: could not create " .. tostring(trouble))'
     out[#out + 1] = "    end"
     out[#out + 1] = "  end"
     out[#out + 1] =

@@ -1827,7 +1827,7 @@ local function sweep_new(directory: string, kept: {string:Was}, depth: integer):
     local was = kept[path]
     if was == nil then
       local gone, trouble = Fs.remove_tree(path)
-      if not gone then return false, path .. ": " .. trouble end
+      if not gone then return false, tostring(trouble) end
     elseif kind == "dir" then
       -- Its mode first, which a test may have changed, and which may be what keeps it from being listed.
       local there, _ = sys.lstat(path)
@@ -2208,7 +2208,8 @@ function worker.run(argv: {string}): integer
     -- one of the tmpfs it has, as the runner would have made it ([`build.test_key`]'s
     -- `scratch`), `tmp` a link to `real`.
     local scratch = Fs.dirname(tmp)
-    local made_scratch, scratch_trouble = Fs.mkdirs(scratch .. "/real")
+    local made_real, real_trouble = Fs.mkdirs(scratch .. "/real")
+    local made_scratch, scratch_trouble = made_real, if made_real then "" else tostring(real_trouble) end
     -- 0700, as the runner's own is.
     if made_scratch then made_scratch, scratch_trouble = sys.chmod(scratch, 0x1c0) end
     if made_scratch then made_scratch, scratch_trouble = Fs.symlink("real", tmp) end

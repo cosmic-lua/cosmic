@@ -3,6 +3,7 @@ local support = require("build.test_support_fixture")
 local Fs = require("cosmic.fs")
 local Patch = require("build.patch")
 local sys = require("cosmic.sys")
+local type Failure = require("cosmic.failure")
 
 --- A checkout at `root` with one vendored tree, `lib`, holding `files`,
 --- and the patch records `records` for it (none when nil).
@@ -335,7 +336,7 @@ local function darwin_flush_case(tmp: string, empty: boolean, fail: boolean)
     if fail then return false, "injected full flush failure", sys.EBADF end
     return true, "", 0
   end
-  fs.rename = function(from: string, to: string): boolean, string
+  fs.rename = function(from: string, to: string): (true) | (false, Failure)
     assert(flushes == 1 and not fail, "payload published without a successful full flush")
     renamed = true
     return real_rename(from, to)
@@ -410,7 +411,7 @@ local function test_prepare_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Fs.mkdirs(cache))
   local before = support.descriptors()
   local real_rename = Fs.rename
-  Fs.rename = function(_from: string, _to: string): boolean, string -- checked: field_fixed
+  Fs.rename = function(_from: string, _to: string): (true) | (false, Failure) -- checked: field_fixed
     error("the rename raised")
   end
   local ok, trouble = pcall(Patch.prepare, dir .. "/root", "lib", cache)
@@ -429,7 +430,7 @@ local function test_zig_lib_cleans_its_scratch_when_a_step_raises(dir: string)
   assert(Fs.mkdirs(cache))
   local before = support.descriptors()
   local real_rename = Fs.rename
-  Fs.rename = function(_from: string, _to: string): boolean, string -- checked: field_fixed
+  Fs.rename = function(_from: string, _to: string): (true) | (false, Failure) -- checked: field_fixed
     error("the rename raised")
   end
   local ok, trouble = pcall(Patch.zig_lib, dir .. "/root", dir .. "/lib", cache .. "/out")

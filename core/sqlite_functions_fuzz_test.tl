@@ -473,7 +473,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       local fields = Fuzz.unpack(input)
       local rows_n, damage = assert(math.tointeger(unpacked(fields, 1))), unpacked(fields, 2)
       local pick, bytes = assert(math.tointeger(unpacked(fields, 3))), unpacked(fields, 4)
-      Fs.remove(path)
+      local _, _ = Fs.remove(path)
       local db = assert(Sqlite.open(path, { writable = true, create = true }))
       assert(db:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1); BEGIN"))
       for i = 1, rows_n do

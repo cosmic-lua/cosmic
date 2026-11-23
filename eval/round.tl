@@ -454,7 +454,7 @@ local function run(argv: {string}, program: string): integer
   -- Fs.absolute resolves a path that is there.
   local made, mtrouble = Fs.mkdirs(out)
   if not made then
-    complain(mtrouble)
+    complain(tostring(mtrouble))
     return 2
   end
   local absolute_out, otrouble = Fs.absolute(out)

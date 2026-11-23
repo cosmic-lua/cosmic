@@ -875,7 +875,7 @@ local function withdraw(name: string, bin: string, out: string?, held: mut {stri
     if gone and key ~= nil then held[key] = nil end
     say(if gone
       then "removed " .. place .. ": " .. why .. ", and an earlier build's executable must not stand for it"
-      else "could not remove " .. place .. " (" .. why .. "): " .. trouble end)
+      else "could not remove " .. place .. " (" .. why .. "): " .. tostring(trouble) end)
   end
   drop(bin .. "/" .. name)
   if out ~= nil then drop(out .. "/" .. name, out .. "\t" .. name) end
@@ -1043,7 +1043,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
   local made_dir, mkdir_trouble = Fs.mkdirs(bin)
   if not made_dir then
     tidy()
-    return nil, answer(mkdir_trouble)
+    return nil, answer(tostring(mkdir_trouble))
   end
   local names: mut {string} = {}
   --- Gives up on the program `name` and those after it, whose builds failed, and answers `trouble`.
@@ -1082,7 +1082,7 @@ local function build_tree(root: string, host?: boolean, under?: {string},
     if out ~= nil then
       local made_out, out_trouble = Fs.mkdirs(out)
       if not made_out then
-        return failed(name, "--out " .. out .. " cannot be created: " .. out_trouble)
+        return failed(name, "--out " .. out .. " cannot be created: " .. tostring(out_trouble))
       end
       local copied, copy_trouble = Fs.write(out .. "/" .. name, program, 0x1ed)
       if not copied then
@@ -1186,7 +1186,9 @@ function embed.tree_tool(root: string, out?: string): string?, string
     local program, read_trouble = Fs.read(tool)
     if program == nil then return nil, tostring(read_trouble) end
     local made, made_trouble = Fs.mkdirs(out)
-    if not made then return nil, "--out " .. out .. " cannot be created: " .. made_trouble end
+    if not made then
+      return nil, "--out " .. out .. " cannot be created: " .. tostring(made_trouble)
+    end
     local copied, copy_trouble = Fs.write(out .. "/cosmic", program, 0x1ed)
     if not copied then return nil, tostring(copy_trouble) end
   end

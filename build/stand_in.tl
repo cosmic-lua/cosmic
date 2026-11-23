@@ -316,7 +316,7 @@ end
 --- keyed by.
 function stand_in.build(dir: string): string?, string
   local made, trouble = Fs.mkdirs(dir)
-  if not made then return nil, trouble end
+  if not made then return nil, tostring(trouble) end
   local core, core_trouble = artifact.trusted_core()
   if core == nil then return nil, "building the stand-in: " .. core_trouble end
   local bytes, database_trouble = database(dir .. "/probe.db")

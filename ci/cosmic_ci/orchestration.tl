@@ -2003,7 +2003,9 @@ local function phase_fixtures(p: PlatformContext): integer
     -- The compiles its sharing cases share, made afresh for each run.
     local shared = work .. "/fixed-point-compiles"
     s = step(c, "fixed-point compiles", function(): boolean, string
-      return Fs.remove_tree(shared)
+      local removed, why = Fs.remove_tree(shared)
+      if not removed then return false, tostring(why) end
+      return true, ""
     end)
     if s ~= 0 then return s end
     -- The leg's compiles, which the other cases' edited stages take back

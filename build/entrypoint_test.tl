@@ -40,8 +40,10 @@ Test.policy{
 local function checkout(tmp: string): string, string
   -- Physical, as the stand-ins' `pwd -P` print it.
   local root = assert(Fs.absolute(tmp)) .. "/a tree"
-  assert(Fs.mkdirs(root .. "/bin") and Fs.mkdirs(root .. "/build") and Fs.mkdirs(root .. "/sub/dir") and
-      Fs.mkdirs(root .. "/ci"))
+  assert(Fs.mkdirs(root .. "/bin"))
+  assert(Fs.mkdirs(root .. "/build"))
+  assert(Fs.mkdirs(root .. "/sub/dir"))
+  assert(Fs.mkdirs(root .. "/ci"))
   for _, name in ipairs({ "cosmic", "cosmic-bootstrap" }) do
     assert(Fs.write(root .. "/bin/" .. name, (assert(Fs.read("bin/" .. name))), 0x1ed))
   end

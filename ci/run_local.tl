@@ -454,7 +454,7 @@ local function execute(argv: {string}, program: string): integer
       end)
       local removed, why = Fs.remove_tree(index_dir)
       if not worked then error(raised) end
-      assert(removed, why)
+      assert(removed, tostring(why))
       local snapshot = taken.commit
       owned_root(candidate)
       if present(candidate) then

@@ -319,7 +319,7 @@ function verb.run(argv: {string}, streams?: verb.Io): integer
   if directory ~= nil then
     local ok, why = Fs.mkdirs(directory)
     if not ok then
-      complain(said(directory, why) .. ": name a directory this run can create")
+      complain(said(directory, tostring(why)) .. ": name a directory this run can create")
       return bare.refused
     end
   end

@@ -82,7 +82,7 @@ local function write_fixture(case: string, content: string): string?, string
   local root = assert(Fs.mkdtemp("cosmic-doctest-test-" .. case .. "-"))
   local made, trouble = Fs.mkdirs(root .. "/doc/guides")
   if not made then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local ok, write_trouble = Fs.write(root .. "/doc/guides/fixture.md", content)
   if not ok then

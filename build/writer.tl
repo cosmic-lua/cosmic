@@ -1194,7 +1194,8 @@ function writer.write_result(handle: work.Handle, out: string,
   local ok, trouble = Sqlite.run(db, "VACUUM out INTO ?1", { text(out .. ".building") })
   local _, _ = db:exec("DETACH out")
   if ok then
-    ok, trouble = Fs.rename(out .. ".building", out)
+    local rename_ok, rename_why = Fs.rename(out .. ".building", out)
+    ok, trouble = rename_ok, if rename_ok then "" else tostring(rename_why) end
   end
   if took then
     rebuild_lock.release()
@@ -1440,7 +1441,9 @@ function writer.carried(whole: string, out: string,
     if not vacuumed then
       return false, vacuum_trouble
     end
-    return Fs.rename(out .. ".building", out)
+    local moved, move_why = Fs.rename(out .. ".building", out)
+    if not moved then return false, tostring(move_why) end
+    return true, ""
   end
   local db, open_trouble = Sqlite.memory()
   if db == nil then

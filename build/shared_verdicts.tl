@@ -297,7 +297,7 @@ end
 --- in write-ahead mode ([`shared_sqlite.open`]).
 function shared_verdicts.open(path: string): shared_verdicts.Cache?, string
   local made, made_trouble = Fs.mkdirs(Fs.dirname(path))
-  if not made then return nil, made_trouble end
+  if not made then return nil, tostring(made_trouble) end
   local db, trouble = shared_sqlite.open(path, prepare)
   if db == nil then return nil, trouble end
   return { db = db, path = path }, ""

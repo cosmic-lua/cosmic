@@ -1264,7 +1264,8 @@ function test_key.scratch(): string?, string
     local _, _ = Fs.remove_tree(made)
     return nil, tostring(absolute_trouble)
   end
-  local ok, why = Fs.mkdirs(scratch .. "/real")
+  local made_real, made_why = Fs.mkdirs(scratch .. "/real")
+  local ok, why = made_real, if made_real then "" else tostring(made_why) end
   if ok then ok, why = Fs.symlink("real", scratch .. "/tmp") end
   if not ok then
     local _, _ = Fs.remove_tree(scratch)
@@ -1341,7 +1342,7 @@ local function sweep_stores(rec: Recording)
     if named[entry] ~= true and not entry:match("%.mismatch%.db$") then
       local gone, trouble = Fs.remove(directory .. "/" .. entry)
       if not gone then
-        log:complain("test: " .. directory .. "/" .. entry .. ": " .. trouble)
+        log:complain("test: " .. tostring(trouble))
         return
       end
     end
@@ -1387,7 +1388,7 @@ local function store_at(rec: Recording, address: string, names: {string},
   local there, _ = sys.stat(path)
   if there == nil then
     local made, trouble = Fs.mkdirs(directory)
-    if not made then return nil, directory .. ": " .. trouble end
+    if not made then return nil, tostring(trouble) end
     local started = Clock.monotonic_ns()
     local extraction, extraction_trouble = extraction_for(rec)
     if extraction == nil then return nil, extraction_trouble end
@@ -1638,7 +1639,7 @@ function test_key.drop_sealing(rec: Recording)
   if sealing == nil then return end
   rec.sealing, rec.sealed = nil, {}
   local gone, trouble = Fs.remove_tree(sealing.directory)
-  if not gone then log:complain("test: " .. sealing.directory .. ": " .. trouble) end
+  if not gone then log:complain("test: " .. tostring(trouble)) end
 end
 
 --- The meta rows a sealed database of a worker holds, as `read` answers
@@ -1773,7 +1774,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
   local moved, move_trouble = Fs.rename(aside, out)
   if not moved then
     local _, _ = Fs.remove(aside)
-    return false, move_trouble
+    return false, tostring(move_trouble)
   end
   return true, ""
 end
@@ -1833,7 +1834,8 @@ local function mismatched(rec: Recording, address: string, path: string, digest:
   local aside = mismatch_path(rec, address)
   local saved, trouble: boolean, string = false, ""
   if move then
-    saved, trouble = Fs.rename(path, aside)
+    local rename_ok, rename_why = Fs.rename(path, aside)
+    saved, trouble = rename_ok, if rename_ok then "" else tostring(rename_why) end
   else
     local data, read_trouble = Fs.read(path)
     if data == nil then
@@ -2009,7 +2011,7 @@ local function policy_of(rec: Recording, job: Job): Sandbox.Policy?, string
   local policy = test_policy.worker(assert(job.plan), effective) -- checked: nil_not_allowed
   if effective.noexec_ready == true then -- checked: nil_not_allowed
     local made, made_trouble = Fs.mkdirs(assert(job.scratch) .. "/noexec")
-    if not made then return nil, "its private noexec scratch: " .. made_trouble end
+    if not made then return nil, "its private noexec scratch: " .. tostring(made_trouble) end
   end
   return policy, ""
 end
@@ -2757,8 +2759,8 @@ function test_key.prepare(rec: Recording, job: Job, forks?: {string}): Prepared
       -- is left of it once the worker ends.
       local gone, gone_trouble = Fs.remove_tree(scratch)
       if not gone then
-        return cannot("could not remove its unused directory " .. scratch .. ": " ..
-            gone_trouble, false, nil)
+        return cannot("could not remove its unused directory: " ..
+            tostring(gone_trouble), false, nil)
       end
       job.scratch, job.tmp, job.own_scratch = nil, nil, true
     end

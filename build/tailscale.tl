@@ -156,7 +156,11 @@ local standard: verb.Io = {
     if not wrote then return false, tostring(why) end
     return true, ""
   end,
-  rename = function(from: string, to: string): boolean, string return Fs.rename(from, to) end,
+  rename = function(from: string, to: string): boolean, string
+    local moved, why = Fs.rename(from, to)
+    if not moved then return false, tostring(why) end
+    return true, ""
+  end,
   open = function(path: string): verb.Opened?, string
     local st, why = Fs.stat(path)
     if st == nil then return nil, tostring(why) end

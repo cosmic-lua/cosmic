@@ -114,8 +114,9 @@ local function write_fixture(case: string, files: {string:string}): string?, str
   end
   for filename, source in pairs(all) do
     local parent = filename:match("^(.+)/[^/]+$")
-    if parent ~= nil and not Fs.mkdirs(root .. "/" .. parent) then
-      return nil, root .. "/" .. parent .. ": could not create fixture directory"
+    if parent ~= nil then
+      local made, why = Fs.mkdirs(root .. "/" .. parent)
+      if not made then return nil, tostring(why) end
     end
     local ok, written_trouble = Fs.write(root .. "/" .. filename, source)
     if not ok then

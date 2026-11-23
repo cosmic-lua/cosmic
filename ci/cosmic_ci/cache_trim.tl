@@ -177,7 +177,10 @@ local function remove_snapshot(path: string): string
       failures[#failures + 1] = name .. ": " .. trouble
     elseif exists then
       local ok, why = Fs.remove(name)
-      if not ok then failures[#failures + 1] = name .. ": " .. why end
+      if not ok then
+        local said = tostring(why)
+        failures[#failures + 1] = said
+      end
     end
   end
   return table.concat(failures, "\n")

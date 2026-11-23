@@ -124,7 +124,7 @@ function Arena.lay(eval: string, task: string, binary: string, dir: string): str
   local made_parent = (if physical == "/" then "" else physical end) .. rest
   local made, mtrouble = Fs.mkdirs(made_parent)
   if not made then
-    return nil, mtrouble
+    return nil, tostring(mtrouble)
   end
   -- Again, now the parent is there: a `..` in what did not exist yet is
   -- resolved only now.

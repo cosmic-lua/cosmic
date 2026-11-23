@@ -304,7 +304,10 @@ local function release_cosmic(tag: string, work: string): string?, string
   end
   local made, mode_trouble = Fs.chmod(part, 0x1ed)
   local placed, place_trouble = false, mode_trouble
-  if made then placed, place_trouble = Fs.rename(part, path) end
+  if made then
+    local rename_ok, rename_why = Fs.rename(part, path)
+    placed, place_trouble = rename_ok, if rename_ok then "" else tostring(rename_why) end
+  end
   if not placed then
     local _, _ = Fs.remove(part)
     return nil, place_trouble
@@ -364,7 +367,9 @@ local function place(from: string, to: string): boolean, string
   if not written then return false, tostring(write_trouble) end
   local made, mode_trouble = Fs.chmod(aside, 0x1ed)
   if not made then return false, mode_trouble end
-  return Fs.rename(aside, to)
+  local moved, move_why = Fs.rename(aside, to)
+  if not moved then return false, tostring(move_why) end
+  return true, ""
 end
 
 --- Installs the patched trees `manifest` names under `output`'s `vendor/`,
@@ -380,7 +385,7 @@ local function install_vendor(manifest: string, output: string): boolean, string
     local to = output .. "/vendor/" .. name
     local _, _ = Fs.remove_tree(to)
     local made, make_trouble = Fs.mkdirs(output .. "/vendor")
-    if not made then return false, make_trouble end
+    if not made then return false, tostring(make_trouble) end
     local copied, copy_trouble = Fs.copy_tree(from, to)
     if not copied then return false, to .. ": " .. copy_trouble end
   end
@@ -426,7 +431,7 @@ local function boot(root: string, output: string, manifest: string, core: string
   if not installed then return false, install_trouble end
   local directory = output .. "/core/" .. target
   local made, make_trouble = Fs.mkdirs(directory)
-  if not made then return false, make_trouble end
+  if not made then return false, tostring(make_trouble) end
   local own = directory .. "/cosmic-core"
   local placed, place_trouble = place(core, own)
   if not placed then return false, place_trouble end

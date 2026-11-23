@@ -1409,7 +1409,7 @@ local function prune_extracted(src: source.View, directory: string)
     if #entry == 64 and entry:find("^[0-9a-f]+$") ~= nil and named[entry] == nil then
       local removed, trouble = Fs.remove_tree(directory .. "/" .. entry)
       if not removed then
-        src.err("cosmic: lsp: removing the source of a binary no longer in use: " .. trouble)
+        src.err("cosmic: lsp: removing the source of a binary no longer in use: " .. tostring(trouble))
       end
     end
   end
@@ -1436,9 +1436,10 @@ function source.extracted(src: source.View, placed: source.Placed): string?
   local path = root .. "/" .. hash .. "/" .. file
   local there, _ = Fs.read(path)
   if there ~= nil and Hash.hex_sha256(there) == hash then return path end
-  local made, trouble = Fs.mkdirs(Fs.dirname(path))
+  local made, made_why = Fs.mkdirs(Fs.dirname(path))
   local text = placed.text()
   if text == nil then return nil end
+  local trouble = if made then "" else tostring(made_why) end
   if made then
     local wrote_ok, wrote_why = Fs.write(path, text, 0x124)
     made, trouble = wrote_ok, if wrote_ok then "" else tostring(wrote_why) end

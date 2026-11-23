@@ -872,7 +872,7 @@ end
 --- named by its contents, so its path is the same from every checkout.
 local function patch(root: string, project: string): string?, string
   local made, make_trouble = Fs.mkdirs(project .. "/cosmic-vendor")
-  if not made then return nil, make_trouble end
+  if not made then return nil, tostring(make_trouble) end
   local directory, directory_trouble = Fs.absolute(project)
   if directory == nil then return nil, tostring(directory_trouble) end
   local result, trouble = standalone(root, "build/patch.tl",
@@ -1047,7 +1047,7 @@ function Zig.with_lock(output: string, environment: {string:string},
   local out = output
   local made, made_trouble = Fs.mkdirs(out)
   if not made then
-    log:complain(out .. ": " .. made_trouble)
+    log:complain(out .. ": " .. tostring(made_trouble))
     return 1
   end
   local path = out .. lock_name

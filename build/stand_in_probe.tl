@@ -241,7 +241,7 @@ local verbs: {string:function(string, string): integer?} = {
   end,
   mkdirs = function(path: string): integer?
     local ok, trouble = Fs.mkdirs(path)
-    if not ok then return failed(path, trouble) end
+    if not ok then return failed(path, tostring(trouble)) end
     return nil
   end,
   ["grep-count"] = function(path: string, text: string): integer?

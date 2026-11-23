@@ -528,7 +528,7 @@ local function apply(db: Sqlite.Handle, dataset: refresh.Dataset, source: refres
   local unpack_into = scratch .. "/" .. dataset.name
   local made_dir, dir_trouble = Fs.mkdirs(unpack_into)
   if not made_dir then
-    return nil, dir_trouble
+    return nil, tostring(dir_trouble)
   end
   local release, read_trouble = dataset.read(source.path, unpack_into)
   if release == nil then
