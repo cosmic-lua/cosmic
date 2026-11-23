@@ -137,6 +137,11 @@ local function test_cut_never_splits_a_character()
   assert(utf8.len(String.cut(text, 8)) ~= nil)
 end
 
+local function test_cut_backs_up_past_a_stray_continuation_byte()
+  assert(String.cut("ab\128c", 2) == "a")
+  assert(String.cut("\128\128\128", 2) == "")
+end
+
 local function test_cut_refuses_a_negative_count()
   local ok, err = pcall(String.cut, "abc", -1)
   assert(not ok and tostring(err):find("cut%(%-1%)") ~= nil, tostring(err))

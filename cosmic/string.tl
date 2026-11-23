@@ -108,8 +108,9 @@ end
 --- At most `most` bytes of `text`, UTF-8, cut where no character is
 --- split: a label, a subject or a preview kept to a store's limit stays
 --- valid UTF-8. The cut backs up past the continuation bytes (0x80 to
---- 0xBF) after it, so it may keep fewer than `most`. A negative `most`
---- raises.
+--- 0xBF) after it, so it may keep fewer than `most`, and in text that
+--- is not UTF-8 it may drop the byte before a stray one. A negative
+--- `most` raises.
 --- @param text string The UTF-8 text to cut
 --- @param most integer The most bytes to keep, 0 or more
 --- @return string The text, or its start up to a character's end
