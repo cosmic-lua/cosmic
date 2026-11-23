@@ -280,7 +280,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local function getenv(name: string): string
     local env = to.env
     if env ~= nil then return env[name] or "" end
-    return Env.get_or(name, "")
+    return Env.get(name) or ""
   end
 
   local flags, trouble = Flags.parse(argv, 2, spec)

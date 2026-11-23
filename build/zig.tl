@@ -1159,7 +1159,7 @@ function Zig.enter(argv: {string}, script: string): integer
     end
     if lib ~= nil then environment["ZIG_LIB_DIR"] = lib end
   end
-  local resolved = Zig.resolve(zig, Env.get_or("PATH", "/usr/bin:/bin"))
+  local resolved = Zig.resolve(zig, Env.get("PATH") or "/usr/bin:/bin")
   if resolved.kind ~= "resolved" then
     local status = if resolved.kind == "not_executable" then 126 else 127 end
     log:complain(zig .. ": " .. (if status == 127 then "not found" else "permission denied" end))

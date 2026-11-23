@@ -149,7 +149,7 @@ return function(): integer
     log:complain("NOTES_TOKEN is not set; make a long random one and set it")
     return 2
   end
-  local origins = String.split(Env.get_or("NOTES_ORIGINS", ""), ",")
+  local origins = String.split(Env.get("NOTES_ORIGINS") or "", ",")
   if #origins == 1 and origins[1] == "" then origins = {} end
   local app = Web.app{ routes = { Api.mount{ token = token, origins = origins } } }
   local ok, trouble = Web.serve(app, { listeners = { Net.tcp("127.0.0.1", 8080) } })

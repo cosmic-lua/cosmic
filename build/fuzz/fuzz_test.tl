@@ -207,7 +207,7 @@ end
 -- call, set FUZZ_ITERS above the cap here.
 local function test_max_iters_caps_the_count_but_not_a_named_one()
   local function holds(_input: string): boolean, string return true, "" end
-  local asked = math.tointeger(tonumber(Env.get_or("FUZZ_ITERS", "64"))) or 64
+  local asked = math.tointeger(tonumber(Env.get("FUZZ_ITERS") or "64")) or 64
   local capped = Fuzz.run({ name = "capped", max_iters = 5, gen = any_bytes, check = holds })
   assert(capped == math.min(asked, 5), "ran " .. tostring(capped))
   local named = Fuzz.run({ name = "named", iters = 9, max_iters = 5, gen = any_bytes, check = holds })

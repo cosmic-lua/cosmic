@@ -1865,7 +1865,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     end
     return false
   end
-  local walked, walk_trouble = Fs.walk_following(root, skip)
+  local walked, walk_trouble = Fs.walk(root, { follow = true, skip = skip })
   if walked == nil then
     return nil, tostring(walk_trouble)
   end
@@ -2281,7 +2281,7 @@ end
 --- to another (as a system zoneinfo's aliases are) is read as the zone
 --- it leads to, under its own name.
 function work.read_zoneinfo(dir: string): {string:string}?, string
-  local names, trouble = Fs.walk_following(dir)
+  local names, trouble = Fs.walk(dir, { follow = true })
   if names == nil then
     return nil, tostring(trouble)
   end

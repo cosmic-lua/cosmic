@@ -752,7 +752,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
       end
       local seen: mut {Seen} = {}
       local odd: mut {string} = {}
-      local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
+      local listed, walk_why = Fs.walk(given, { skip = function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
           seen[#seen + 1] = { relative = relative, kind = kind }
         elseif kind ~= "file" and odd[1] == nil then
@@ -761,7 +761,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
           odd[1] = relative
         end
         return false
-      end)
+      end })
       if listed == nil then return nil, fail(bare.refused, tostring(walk_why)) end
       local stray = odd[1]
       if stray ~= nil then

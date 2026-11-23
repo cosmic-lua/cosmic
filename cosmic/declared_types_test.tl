@@ -214,10 +214,10 @@ local function test_an_archive_extracts_and_a_walk_lists_as_declared(tmp: string
     local whole = (assert(load("return 1.0")))() as integer -- checked: cast_refused
     assert(#assert(Archive.extract(tmp .. "/a.tar", tmp .. "/float", { strip_components = whole })) == 2)
     assert(#assert(Fs.walk(tmp .. "/out")) >= 2)
-    assert(#assert(Fs.walk_following(tmp .. "/out")) >= 2)
-    assert(#assert(Fs.walk(tmp .. "/out", function(_: string, name: string): boolean
+    assert(#assert(Fs.walk(tmp .. "/out", { follow = true })) >= 2)
+    assert(#assert(Fs.walk(tmp .. "/out", { skip = function(_: string, name: string): boolean
       return name == "other"
-    end)) >= 1)
+    end })) >= 1)
   end)
 end
 
