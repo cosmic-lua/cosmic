@@ -218,7 +218,7 @@ PRAGMA user_version = 1;
 --- The id of the last reply kept for session `id`, which the next
 --- request names for its cache diagnosis; nil where there is none.
 function Sessions.last_reply(db: Sqlite.Handle, id: integer): string?
-  local rows, _ = Sqlite.rows(db, [[SELECT reply ->> '$.id' AS reply_id FROM requests
+  local rows, _ = db:rows([[SELECT reply ->> '$.id' AS reply_id FROM requests
     WHERE session = ?1 AND status = 200 AND json_valid(reply) ORDER BY id DESC LIMIT 1]], { { integer = id } })
   local row = (rows or {})[1]
   if row == nil or row:is_null(1) then return nil end
@@ -227,7 +227,7 @@ end
 
 --- The database's `user_version`, or nil and why.
 local function version_of(db: Sqlite.Handle): integer?, string
-  local rows, why = Sqlite.rows(db, "PRAGMA user_version")
+  local rows, why = db:rows("PRAGMA user_version")
   local row = if rows ~= nil then rows[1] else nil end
   if row == nil then return nil, tostring(why) end
   return row:integer(1), ""
@@ -272,19 +272,24 @@ function Sessions.open(path: string): Sqlite.Handle?, string
   -- IMMEDIATE: another run that opened it at once waits for the lock,
   -- then finds the schema made.
   local begun, begin_why = db:exec("BEGIN IMMEDIATE")
-  if not begun then return refused(begin_why) end
+  if not begun then return refused(tostring(begin_why)) end
   local function schema(): boolean, string
     local at, at_why = version_of(db)
     if at == nil then return false, at_why end
     if at == VERSION then return true, "" end
-    local rows, count_why = Sqlite.rows(db, "SELECT count(*) FROM sqlite_master")
+    local rows, count_why = db:rows("SELECT count(*) FROM sqlite_master")
     local count = if rows ~= nil then rows[1] else nil end
     if count == nil then return false, tostring(count_why) end
     if at ~= 0 or count:integer(1) ~= 0 then return false, "it is another program's database" end
-    return db:exec(SCHEMA)
+    local made, made_why = db:exec(SCHEMA)
+    if not made then return false, tostring(made_why) end
+    return true, ""
   end
   local ok, ok_why = schema()
-  if ok then ok, ok_why = db:exec("COMMIT") end
+  if ok then
+    local committed, commit_why = db:exec("COMMIT")
+    if not committed then ok, ok_why = false, tostring(commit_why) end
+  end
   if not ok then
     local _, _ = db:exec("ROLLBACK")
     return refused(ok_why)
@@ -295,7 +300,7 @@ end
 --- A new session in `cwd` with `model`, begun at `seconds` (Unix time):
 --- its id, or nil and why.
 function Sessions.start(db: Sqlite.Handle, cwd: string, model: string, seconds: integer): integer?, string
-  local ok, why = Sqlite.run(db, "INSERT INTO sessions (cwd, started, model) VALUES (?1, ?2, ?3)",
+  local ok, why = db:run("INSERT INTO sessions (cwd, started, model) VALUES (?1, ?2, ?3)",
     { { text = cwd }, { integer = seconds }, { text = model } })
   if not ok then return nil, tostring(why) end
   return db:last_insert_rowid(), ""
@@ -306,12 +311,12 @@ end
 function Sessions.add(db: Sqlite.Handle, id: integer, message: Json.Value, model: string): boolean, string
   local text, why = Json.encode(message)
   if text == nil then return false, tostring(why) end
-  local transacted, transact_why = Sqlite.transact(db, function(): (true) | (false, Failure)
-    local ok, run_why = Sqlite.run(db, [[INSERT INTO messages (session, seq, message)
+  local transacted, transact_why = db:transact(function(): (true) | (false, Failure)
+    local ok, run_why = db:run([[INSERT INTO messages (session, seq, message)
       SELECT ?1, coalesce(max(seq), 0) + 1, ?2 FROM messages WHERE session = ?1]],
       { { integer = id }, { text = text } })
     if not ok then return false, run_why end
-    return Sqlite.run(db, "UPDATE sessions SET model = ?2 WHERE id = ?1", { { integer = id }, { text = model } })
+    return db:run("UPDATE sessions SET model = ?2 WHERE id = ?1", { { integer = id }, { text = model } })
   end)
   if not transacted then return false, tostring(transact_why) end
   return true, ""
@@ -320,7 +325,7 @@ end
 --- The newest session in `cwd` that holds a message, or nil where it
 --- has none (why is "" then).
 function Sessions.latest(db: Sqlite.Handle, cwd: string): integer?, string
-  local rows, why = Sqlite.rows(db, [[SELECT id FROM sessions s WHERE cwd = ?1
+  local rows, why = db:rows([[SELECT id FROM sessions s WHERE cwd = ?1
     AND EXISTS (SELECT 1 FROM messages m WHERE m.session = s.id) ORDER BY id DESC LIMIT 1]], { { text = cwd } })
   if rows == nil then return nil, tostring(why) end
   local row = rows[1]
@@ -331,12 +336,12 @@ end
 --- Session `id`, its messages in order: or nil and why, where there is
 --- no such session.
 function Sessions.load(db: Sqlite.Handle, id: integer): Sessions.Loaded?, string
-  local found, why = Sqlite.rows(db, "SELECT model, restarts, ended FROM sessions WHERE id = ?1",
+  local found, why = db:rows("SELECT model, restarts, ended FROM sessions WHERE id = ?1",
     { { integer = id } })
   if found == nil then return nil, tostring(why) end
   local row = found[1]
   if row == nil then return nil, "no session " .. tostring(id) end
-  local texts, rows_why = Sqlite.map(db, "SELECT message FROM messages WHERE session = ?1 ORDER BY seq",
+  local texts, rows_why = db:map("SELECT message FROM messages WHERE session = ?1 ORDER BY seq",
     { { integer = id } }, function(r: Sqlite.Row): string return r:text(1) end)
   if texts == nil then return nil, tostring(rows_why) end
   local out: mut {Json.Value} = {}
@@ -352,7 +357,7 @@ end
 --- or nil and why.
 function Sessions.output(db: Sqlite.Handle, id: integer, o: Sessions.Output): integer?, string
   local call: Sqlite.Value = if o.call ~= nil then { text = o.call } else {} end
-  local ok, why = Sqlite.run(db, [[INSERT INTO outputs (session, tool, input, text, is_error, call)
+  local ok, why = db:run([[INSERT INTO outputs (session, tool, input, text, is_error, call)
     VALUES (?1, ?2, ?3, ?4, ?5, ?6)]], { { integer = id }, { text = o.tool }, { text = o.input }, { text = o.text },
       { integer = if o.is_error then 1 else 0 end }, call })
   if not ok then return nil, tostring(why) end
@@ -362,7 +367,7 @@ end
 --- Keeps `text` as what the model read of output `id`, where that is
 --- less than the whole.
 function Sessions.shown(db: Sqlite.Handle, id: integer, text: string): boolean, string
-  local answered, answer_why = Sqlite.run(db, "UPDATE outputs SET shown = ?2 WHERE id = ?1", { { integer = id }, { text = text } })
+  local answered, answer_why = db:run("UPDATE outputs SET shown = ?2 WHERE id = ?1", { { integer = id }, { text = text } })
   if not answered then return false, tostring(answer_why) end
   return answered, ""
 end
@@ -370,7 +375,7 @@ end
 --- What answered the tool call `call` in session `id`, as the model
 --- read it: nil where nothing did (why is "" then).
 function Sessions.answer(db: Sqlite.Handle, id: integer, call: string): Sessions.Answer?, string
-  local found, why = Sqlite.map(db, [[SELECT coalesce(shown, text), is_error FROM outputs
+  local found, why = db:map([[SELECT coalesce(shown, text), is_error FROM outputs
     WHERE session = ?1 AND call = ?2 ORDER BY id DESC LIMIT 1]], { { integer = id }, { text = call } },
     function(r: Sqlite.Row): Sessions.Answer
       return { text = r:text(1), is_error = r:integer(2) ~= 0 }
@@ -393,15 +398,15 @@ end
 --- request's id, or nil and why.
 function Sessions.request(db: Sqlite.Handle, id: integer, r: Sessions.Request): integer?, string
   local made: integer? = nil
-  local ok, why = Sqlite.transact(db, function(): (true) | (false, Failure)
-    local kept, kept_why = Sqlite.run(db, "INSERT OR IGNORE INTO systems (digest, text) VALUES (digest('sha256', ?1), ?1)",
+  local ok, why = db:transact(function(): (true) | (false, Failure)
+    local kept, kept_why = db:run("INSERT OR IGNORE INTO systems (digest, text) VALUES (digest('sha256', ?1), ?1)",
       { { text = r.system } })
     if not kept then return false, kept_why end
-    local shaped, shaped_why = Sqlite.run(db, "INSERT OR IGNORE INTO shapes (digest, body) VALUES (digest('sha256', ?1), ?1)",
+    local shaped, shaped_why = db:run("INSERT OR IGNORE INTO shapes (digest, body) VALUES (digest('sha256', ?1), ?1)",
       { { text = r.shape } })
     if not shaped then return false, shaped_why end
     local cost: Sqlite.Value = if r.cost ~= nil then { number = r.cost } else {} end
-    local run, run_why = Sqlite.run(db, [[INSERT INTO requests (session, seq, started, ms, model, effort, max_tokens,
+    local run, run_why = db:run([[INSERT INTO requests (session, seq, started, ms, model, effort, max_tokens,
         betas, system, status, error, served, stop_reason, request_id, headers, input_tokens, output_tokens,
         cache_read, cache_write_5m, cache_write_1h, cost, reply, shape, build, request_headers, first_ms)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, id, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
@@ -423,7 +428,7 @@ end
 --- Keeps how often session `id`'s last turn was started again, and
 --- whether it ended for good.
 function Sessions.mark(db: Sqlite.Handle, id: integer, restarts: integer, ended: boolean): boolean, string
-  local answered, answer_why = Sqlite.run(db, "UPDATE sessions SET restarts = ?2, ended = ?3 WHERE id = ?1",
+  local answered, answer_why = db:run("UPDATE sessions SET restarts = ?2, ended = ?3 WHERE id = ?1",
     { { integer = id }, { integer = restarts }, { integer = if ended then 1 else 0 end } })
   if not answered then return false, tostring(answer_why) end
   return answered, ""
@@ -439,7 +444,7 @@ end
 
 --- The newest `n` sessions in `cwd`, newest first.
 function Sessions.list(db: Sqlite.Handle, cwd: string, n: integer): {Sessions.Summary}?, string
-  local answered, answer_why = Sqlite.map(db, [[SELECT s.id, datetime(s.started, 'unixepoch', 'localtime'), s.model,
+  local answered, answer_why = db:map([[SELECT s.id, datetime(s.started, 'unixepoch', 'localtime'), s.model,
       (SELECT count(*) FROM messages m WHERE m.session = s.id),
       coalesce((SELECT message FROM messages m WHERE m.session = s.id AND m.seq = 1), '{}'),
       coalesce((SELECT sum(cost) FROM requests r WHERE r.session = s.id), 0.0),

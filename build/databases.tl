@@ -38,14 +38,14 @@ local function describe(path: string): integer?, string
   if db == nil then
     return nil, tostring(open_trouble)
   end
-  local sizes, size_trouble = Sqlite.text_rows(db,
+  local sizes, size_trouble = db:text_rows(
     "SELECT name, count(*), sum(pgsize), sum(payload) FROM dbstat " ..
       "GROUP BY name ORDER BY sum(pgsize) DESC, name")
   if sizes == nil then
     local _, _ = db:close()
     return nil, tostring(size_trouble)
   end
-  local tables, table_trouble = Sqlite.text_rows(db,
+  local tables, table_trouble = db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table'")
   if tables == nil then
     local _, _ = db:close()
@@ -63,7 +63,7 @@ local function describe(path: string): integer?, string
     local name, pages, bytes, payload = row:text(1), row:text(2), row:text(3), row:text(4)
     local rows = ""
     if is_table[name] == true then
-      local counted, count_trouble = Sqlite.text_rows(db,
+      local counted, count_trouble = db:text_rows(
         "SELECT count(*) FROM " .. quoted(name))
       if counted == nil then
         local _, _ = db:close()
@@ -89,7 +89,7 @@ local function builds(path: string): boolean, string
   if db == nil then
     return false, tostring(open_trouble)
   end
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT run, ms, files, read, compiled, cached, verdict FROM builds " ..
       "ORDER BY run DESC LIMIT 5")
   local _, _ = db:close()
@@ -116,7 +116,7 @@ local function slowest(path: string, about: function(string): boolean): boolean,
   if db == nil then
     return false, tostring(open_trouble)
   end
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT path, test, elapsed_ns FROM runs ORDER BY elapsed_ns DESC")
   local _, _ = db:close()
   if rows == nil then
@@ -176,7 +176,7 @@ local function module_files(root: string, working: boolean): {string:string}?, s
       if db == nil then
         return nil, tostring(open_trouble)
       end
-      local rows, trouble = Sqlite.text_rows(db, source.sql)
+      local rows, trouble = db:text_rows(source.sql)
       local _, _ = db:close()
       if rows == nil then
         return nil, path .. ": " .. tostring(trouble)
@@ -195,7 +195,7 @@ local function describe_under(path: string, about: function(string): boolean): i
   if db == nil then
     return nil, tostring(open_trouble)
   end
-  local tables, table_trouble = Sqlite.text_rows(db,
+  local tables, table_trouble = db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
   if tables == nil then
     local _, _ = db:close()
@@ -206,7 +206,7 @@ local function describe_under(path: string, about: function(string): boolean): i
   local kept = 0
   for _, row in ipairs(tables) do
     local name = row:text(1)
-    local columns, column_trouble = Sqlite.text_rows(db,
+    local columns, column_trouble = db:text_rows(
       "SELECT name FROM pragma_table_info(?1)", { { text = name } })
     if columns == nil then
       local _, _ = db:close()
@@ -219,7 +219,7 @@ local function describe_under(path: string, about: function(string): boolean): i
       if chosen == nil and has[candidate] == true then chosen = candidate end
     end
     if chosen ~= nil then
-      local values, value_trouble = Sqlite.text_rows(db,
+      local values, value_trouble = db:text_rows(
         "SELECT " .. quoted(chosen) .. " FROM " .. quoted(name))
       if values == nil then
         local _, _ = db:close()

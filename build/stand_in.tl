@@ -262,7 +262,7 @@ local function database(path: string): string?, string
     local ok, failure = db:exec(statement)
     if not ok then
       local _, _ = db:close()
-      return nil, failure
+      return nil, tostring(failure)
     end
   end
   local basis = Store.meta("runtime_basis")
@@ -270,7 +270,7 @@ local function database(path: string): string?, string
     local _, _ = db:close()
     return nil, "the running binary names no runtime basis"
   end
-  local made, trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
+  local made, trouble = db:transact(function(): (true) | (false, Failure)
     for _, module in ipairs(modules) do
       local bytecode, bytecode_trouble = Store.bytecode(module.name)
       if bytecode == nil then
@@ -280,12 +280,12 @@ local function database(path: string): string?, string
       -- A module's kind is all the runtime reads of a row but its
       -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
       -- the binary's own, and the main, under no such name, does not.
-      local ok, insert_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, " ..
+      local ok, insert_trouble = db:run("INSERT INTO modules (path, file, kind, " ..
           "source_hash, key, bytecode, tests, source) VALUES (?1, '', ?2, x'', x'', ?3, '', x'')",
         { text(name), text(if name == main_module then "main" else "module" end), bind.blob(bytecode) })
       if not ok then return false, Failure.new(name .. ": " .. tostring(insert_trouble)) end
       for _, required in ipairs(module.requires) do
-        local edge, edge_trouble = Sqlite.run(db,
+        local edge, edge_trouble = db:run(
           "INSERT INTO imports (path, requires) VALUES (?1, ?2)", { text(name), text(required) })
         if not edge then return false, edge_trouble end
       end
@@ -294,7 +294,7 @@ local function database(path: string): string?, string
       { key = "main", value = main_module }, { key = "runtime_basis", value = basis },
     }
     for _, row in ipairs(meta) do
-      local ok, meta_trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+      local ok, meta_trouble = db:run("INSERT INTO meta (key, value) VALUES (?1, ?2)",
         { text(row.key), text(row.value) })
       if not ok then return false, meta_trouble end
     end

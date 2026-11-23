@@ -52,7 +52,7 @@ local text = bind.text
 --- What `test_inputs` holds, by source hash: each [`Test.policy`]
 --- declaration, as the [`Test.Needs`] it stands for.
 local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Declared}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
   if rows == nil then
     return nil, tostring(trouble)
@@ -111,7 +111,7 @@ end
 --- Every name a table keyed by source hash lists, in order, by hash.
 local function names_by_hash(db: Sqlite.Handle,
                              table_name: string): {string:mut {string}}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT source_hash, name FROM " .. table_name ..
       " ORDER BY source_hash, ordinal")
   if rows == nil then
@@ -144,7 +144,7 @@ local function embedded_edges(name: string): mut {string}?, string
   if own == nil then
     return nil, "this binary carries no database"
   end
-  local rows, trouble = Sqlite.text_rows(own,
+  local rows, trouble = own:text_rows(
     "SELECT requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
     { text(name) })
   if rows == nil then
@@ -182,7 +182,7 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, s
     return nil, requires_trouble
   end
   local dependencies: mut {string:Dependency} = {}
-  local rows, rows_trouble = Sqlite.text_rows(db,
+  local rows, rows_trouble = db:text_rows(
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
       "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC")
   if rows == nil then
@@ -399,9 +399,9 @@ end
 --- and each node's fragment digest by slot, or nil where it kept none. Both
 --- are written together and replaced together, in one transaction.
 local function kept_graph(db: Sqlite.Handle, tool: string): {string:KeptKeys}?, {string:string}?
-  local modules, _ = Sqlite.text_rows(db,
+  local modules, _ = db:text_rows(
     "SELECT path, file, key, graph FROM key_memo WHERE tool = ?1", { text(tool) })
-  local slots, _ = Sqlite.text_rows(db,
+  local slots, _ = db:text_rows(
     "SELECT slot, digest FROM key_frags WHERE tool = ?1", { text(tool) })
   if modules == nil or slots == nil or #modules == 0 or #slots == 0 then return nil, nil end
   local keys: mut {string:KeptKeys} = {}
@@ -573,7 +573,7 @@ end
 --- row (what each source hash imports), and each module's own path,
 --- file, kind and source hash. Nil where the database will not say.
 local function keys_fingerprint(db: Sqlite.Handle, modules: {Module}, tool: string): string?
-  local rows, _ = Sqlite.text_rows(db,
+  local rows, _ = db:text_rows(
     "SELECT coalesce((SELECT lower(hex(sha256(group_concat(path || char(1) || kind || char(1) || " ..
       "source_hash, char(10) ORDER BY path, kind, source_hash)))) FROM inputs WHERE kind <> 'vendor'), ''), " ..
       "coalesce((SELECT lower(hex(sha256(group_concat(source_hash || char(1) || ordinal || char(1) || " ..
@@ -597,7 +597,7 @@ local kept_fingerprints <const> = 4
 --- (path, key, graph, tab-separated), where they name exactly `modules`.
 local function remembered_keys(db: Sqlite.Handle, fingerprint: string,
                                modules: {Module}): {string:Keys}?
-  local rows, _ = Sqlite.text_rows(db, "SELECT body FROM keys_memo WHERE fp = ?1", { text(fingerprint) })
+  local rows, _ = db:text_rows("SELECT body FROM keys_memo WHERE fp = ?1", { text(fingerprint) })
   if rows == nil then return nil end
   local row = rows[1]
   if row == nil then return nil end
@@ -624,10 +624,10 @@ local function keep_keys(db: Sqlite.Handle, fingerprint: string, modules: {Modul
     if one == nil then return end
     lines[#lines + 1] = m.path .. "\t" .. one.key .. "\t" .. one.graph .. "\n"
   end
-  local kept, _ = Sqlite.run(db, "INSERT OR REPLACE INTO keys_memo (fp, body) VALUES (?1, ?2)",
+  local kept, _ = db:run("INSERT OR REPLACE INTO keys_memo (fp, body) VALUES (?1, ?2)",
     { text(fingerprint), text(table.concat(lines)) })
   if not kept then return end
-  local _, _ = Sqlite.run(db, "DELETE FROM keys_memo WHERE id <= (SELECT max(id) FROM keys_memo) - ?1",
+  local _, _ = db:run("DELETE FROM keys_memo WHERE id <= (SELECT max(id) FROM keys_memo) - ?1",
     { { integer = kept_fingerprints } })
 end
 
@@ -676,7 +676,7 @@ end
 --- Every module the derived tree holds ([`build.importer.derive`]), with what
 --- its parse found.
 function plans.collect(db: Sqlite.Handle): {Module}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT i.path, i.file, i.kind, i.origin, i.source, i.source_hash, " ..
       "p.has_return, s.source_hash IS NOT NULL, " ..
       -- Only cosmic's own build reads a stub, of a standard-library module.
@@ -812,7 +812,7 @@ end
 --- cache included, so the refusal is made before any module is compiled, and does not depend on that order. A
 --- caller may refuse the modules that declare them and not the tree, each refusal naming its file.
 function plans.global_refusals(db: Sqlite.Handle): {plans.GlobalRefusal}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT i.file, g.line, g.column FROM inputs i JOIN globals g " ..
       "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
       "ORDER BY i.file, g.line, g.column")
@@ -832,12 +832,12 @@ end
 --- same key left.
 function plans.keep_references(db: Sqlite.Handle, key: string,
                                references: {SyntaxReceivers.Reference}): boolean, string
-  local ok, why = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
+  local ok, why = db:run("DELETE FROM typed_refs WHERE key = ?1", { text(key) })
   if not ok then
     return false, tostring(why)
   end
   for ordinal, entry in ipairs(references) do
-    ok, why = Sqlite.run(db,
+    ok, why = db:run(
       "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5)",
       { text(key), { integer = ordinal }, text(entry.module), text(entry.member),

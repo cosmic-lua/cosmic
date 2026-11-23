@@ -50,12 +50,12 @@ local function projection(rows: {Row}): Sqlite.Handle
   for _, item in ipairs(rows) do
     if seen[item.module] ~= true then
       seen[item.module] = true
-      assert(Sqlite.run(db,
+      assert(db:run(
         "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
           "VALUES (?1, ?2, 'module', '', '', '', '', '')",
         { { text = item.module }, { text = item.module:gsub("%.", "/") .. ".tl" } }))
     end
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, signature, text, file, line) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
       { { text = item.module }, { text = item.symbol }, { text = item.source_symbol },
@@ -219,7 +219,7 @@ end
 --- A module the index lists must answer `cosmic docs <module>`.
 local function test_a_module_the_index_lists_must_resolve()
   local db = projection(clean())
-  assert(Sqlite.run(db,
+  assert(db:run(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.ghost', 'cosmic/ghost.tl', 'module', '', '', '', '', '')"))
   assert(db:exec("INSERT INTO public_modules (path) VALUES ('cosmic.ghost')"))

@@ -45,7 +45,7 @@ end
 local function agree(db: Sqlite.Handle, corpus: Vector.Corpus, q: string, metric: Vector.Metric,
                      order: string, score: function(number): number)
   local param: Sqlite.Value = { blob = q }
-  local expected = assert(Sqlite.map(db,
+  local expected = assert(db:map(
     "SELECT id, " .. order .. " FROM chunks ORDER BY 2, id LIMIT 7", { param },
     function(r: Sqlite.Row): {number}
       return { r:integer(1), r:number(2) }
@@ -68,7 +68,7 @@ local function test_search_agrees_with_the_sql_functions()
   for id = 1, 300 do
     local v = Vector.pack(VectorFixture.random_vector(next_number, dims))
     corpus:add(id, v)
-    assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2)", { { integer = id }, { blob = v } }))
+    assert(db:run("INSERT INTO chunks VALUES (?1, ?2)", { { integer = id }, { blob = v } }))
   end
   assert(corpus:count() == 300)
   local q = Vector.pack(VectorFixture.random_vector(next_number, dims))
@@ -300,7 +300,7 @@ local function test_normalize_agrees_with_sql_l2_normalize()
   for _, numbers in ipairs({ { 1e-30, 1e-30 }, { 3e30, 4e30 }, { 0.0, 0.0 } }) do
     local v = Vector.pack(numbers)
     local param: Sqlite.Value = { blob = v }
-    local rows = assert(Sqlite.map(db, "SELECT l2_normalize(?1)", { param },
+    local rows = assert(db:map("SELECT l2_normalize(?1)", { param },
       function(r: Sqlite.Row): string
         return r:blob(1)
       end))

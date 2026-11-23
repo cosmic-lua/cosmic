@@ -49,13 +49,13 @@ local function database(rows: {{string}}, uses: {{string}},
     for _, row in ipairs(uses) do members[support.nth(row, 3)] = true end
   end
   for module in pairs(members) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO modules (path, file, kind, source_hash, key, source, " ..
         "bytecode, tests) VALUES (?1, ?2, 'module', '', '', '', '', '')",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
   for _, row in ipairs(rows) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO docs (module, symbol, source_symbol, exported, kind, " ..
         "signature, text, file, line) " ..
         "VALUES (?1, ?2, ?9, ?8, ?3, ?4, ?5, ?6, ?7)",
@@ -64,7 +64,7 @@ local function database(rows: {{string}}, uses: {{string}},
         { integer = if row[8] == "private" then 0 else 1 end }, { text = row[9] or row[2] } }))
   end
   for _, row in ipairs(uses) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO uses (module, symbol, from_module, from_file, line) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5)",
       { { text = row[1] }, { text = row[2] }, { text = row[3] }, { text = row[4] },
@@ -72,7 +72,7 @@ local function database(rows: {{string}}, uses: {{string}},
   end
   if public ~= nil then
     for _, module in ipairs(public) do
-      assert(Sqlite.run(db, "INSERT INTO public_modules (path) VALUES (?1)", { { text = module } }))
+      assert(db:run("INSERT INTO public_modules (path) VALUES (?1)", { { text = module } }))
     end
   else
     -- As cosmic's own projection records it: the library, by name.
@@ -1125,7 +1125,7 @@ local function test_records_load_as_a_table_sql_can_filter(dir: string)
   local handle = assert(Sqlite.memory())
   assert(dataset.load_text(handle, "docs", "ndjson",
     table.concat(records.lines, "\n") .. "\n"))
-  local q = assert(Sqlite.query(handle,
+  local q = assert(handle:query(
     "SELECT symbol, line FROM docs WHERE kind = 'function' ORDER BY symbol"))
   local seen: mut {string} = {}
   for row in q:each() do
@@ -1480,7 +1480,7 @@ end
 local function paired(dir: string, files: {string: string}): {string: string}
   local db = built(dir, files)
   local out: mut {string: string} = {}
-  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT file, module FROM examples")))) do
+  for _, row in ipairs((assert(db:text_rows("SELECT file, module FROM examples")))) do
     out[row:text(1)] = row:text(2)
   end
   return out
@@ -1536,7 +1536,7 @@ local function test_examples_list_by_file_then_line()
       "public", "Fs.read" },
   }, {})
   for _, row in ipairs({ { "cosmic/fs_tls_example.tl", "1" }, { "cosmic/fs_example.tl", "5" } }) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO examples (module, name, text, file, line, source) " ..
         "VALUES ('cosmic.fs', 'read', 'A sentinel read.', ?1, ?2, " ..
         "'function Example.read() Fs.read(\"x\") end')",
@@ -1924,7 +1924,7 @@ local function test_a_public_source_answers_only_for_the_standard_library(dir: s
 
   -- A module's own row, whose source spelling is empty, is among what
   -- its name matches.
-  local own = assert(Sqlite.text_rows(db, "SELECT d.kind FROM docs d WHERE " ..
+  local own = assert(db:text_rows("SELECT d.kind FROM docs d WHERE " ..
       symbols.named_where("d"), { { text = "cosmic.fs" } }))
   assert(#own == 1 and own[1]:text(1) == "module", tostring(#own))
   local public = assert(docs.view({ db }, { true }))
@@ -2710,7 +2710,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
       "",
       "return Box"),
   }))
-  local plan = assert(Sqlite.text_rows(db, "EXPLAIN QUERY PLAN SELECT d.symbol FROM docs d WHERE " ..
+  local plan = assert(db:text_rows("EXPLAIN QUERY PLAN SELECT d.symbol FROM docs d WHERE " ..
       symbols.named_where("d"), { { text = "grow" } }))
   local steps: mut {string} = {}
   for _, row in ipairs(plan) do steps[#steps + 1] = row:text(row:count()) end
@@ -2733,7 +2733,7 @@ local function test_a_lookup_answers_alike_with_the_indexes_or_without(dir: stri
   local page = assert(Doc.lookup(public, "cosmic.fs"))
   assert(page.exact and #page == 1 and support.nth(page, 1).kind == "module", listed(page))
   local indexed_public, indexed_private = every(true), every(false)
-  local names = assert(Sqlite.text_rows(db,
+  local names = assert(db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'docs' AND sql IS NOT NULL"))
   local present: mut {string: boolean} = {}
   for _, row in ipairs(names) do present[row:text(1)] = true end
@@ -2777,7 +2777,7 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   local boot_hash = Store.meta("boot_hash")
   local own_writer = "the tree's writer"
   if boot_hash ~= nil then own_writer = Store.meta("writer") or ("boot " .. boot_hash) end
-  assert(Sqlite.run(projection,
+  assert(projection:run(
     "INSERT INTO meta (key, value) VALUES ('written_by', ?1), ('writer', ?1), ('compiled_by', ?2)",
     { { text = own_writer }, { text = rebuild.compiled_by() } }))
   local known: docs.Known = { directory = directory, own_tree = false }
@@ -2788,10 +2788,10 @@ local function test_a_projection_other_code_wrote_is_left_out(dir: string)
   end
   assert(read() == 2, "a projection this tool's code wrote is left out")
   for _, key in ipairs({ "written_by", "compiled_by" }) do
-    assert(Sqlite.run(projection, "UPDATE meta SET value = 'another ' || value WHERE key = ?1",
+    assert(projection:run("UPDATE meta SET value = 'another ' || value WHERE key = ?1",
       { { text = key } }))
     assert(read() == 1, "a projection whose " .. key .. " is another tool's is read")
-    assert(Sqlite.run(projection, "UPDATE meta SET value = substr(value, 9) WHERE key = ?1",
+    assert(projection:run("UPDATE meta SET value = substr(value, 9) WHERE key = ?1",
       { { text = key } }))
   end
   assert(read() == 2, "a projection this tool's code wrote is left out")
@@ -3000,13 +3000,13 @@ end
 local function test_a_view_of_a_pure_store_raises_naming_store_text()
   local db = database({}, {})
   assert(db:exec("DROP TABLE docs"))
-  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('pure_store', X'31')", {}))
+  assert(db:run("INSERT INTO meta (key, value) VALUES ('pure_store', X'31')", {}))
   local ok, raised = pcall(function()
     local _, _ = Doc.view({ db })
   end)
   assert(not ok and tostring(raised):find("store_text = true", 1, true) ~= nil, tostring(raised))
   -- A database that lacks the table and is no test's store is a trouble to report, not a raise.
-  assert(Sqlite.run(db, "DELETE FROM meta WHERE key = 'pure_store'", {}))
+  assert(db:run("DELETE FROM meta WHERE key = 'pure_store'", {}))
   local seen, trouble = Doc.view({ db })
   assert(seen == nil and tostring(trouble):find("docs", 1, true) ~= nil, trouble)
   assert(db:close())
@@ -3131,7 +3131,7 @@ end
 local function listing(module: string, written: string, words: {string: integer}): Sqlite.Handle
   local db = database({ { module, "f", "function", "", written, "x.tl", "1" } }, {})
   for word, rows in pairs(words) do
-    assert(Sqlite.run(db, "INSERT INTO docs_words (word, rows) VALUES (?1, ?2)", { { text = word }, { integer = rows } }))
+    assert(db:run("INSERT INTO docs_words (word, rows) VALUES (?1, ?2)", { { text = word }, { integer = rows } }))
   end
   return db
 end

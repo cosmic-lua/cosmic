@@ -122,14 +122,14 @@ end
 --- the reading of Teal's requiring cosmic.string.
 local function program_modules(): Sqlite.Handle
   local db = assert(Sqlite.memory())
-  assert(Sqlite.run(db, "CREATE TABLE modules (path TEXT, file TEXT)"))
-  assert(Sqlite.run(db, "CREATE TABLE imports (path TEXT, requires TEXT)"))
+  assert(db:run("CREATE TABLE modules (path TEXT, file TEXT)"))
+  assert(db:run("CREATE TABLE imports (path TEXT, requires TEXT)"))
   for _, module in ipairs({ "build.syntax_node", "build.syntax_links", "build.syntax_analyzer",
       "build.flow", "build.c", "build.fix.near", "build.fix.laid", "build.logger", "build.tree", "cosmic.flags",
       "cosmic.cli", "cosmic.template",
       "cosmic.string", "cosmic.child", "cosmic.net", "cosmic.internal.connection", "cosmic.sandbox", "cosmic.fs",
       "build.c_rules" }) do
-    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2)",
+    assert(db:run("INSERT INTO modules VALUES (?1, ?2)",
       { { text = module }, { text = module:gsub("%.", "/") .. ".tl" } }))
   end
   -- The C rules run clang through cosmic.child, whose own requires check no file; cosmic.fs is also the reader's.
@@ -137,7 +137,7 @@ local function program_modules(): Sqlite.Handle
       "('cosmic.child', 'cosmic.net')", "('cosmic.net', 'cosmic.internal.connection')",
       "('cosmic.child', 'cosmic.sandbox')", "('cosmic.child', 'cosmic.fs')", "('build.syntax_node', 'cosmic.fs')",
       "('build.c', 'build.c_rules')" }) do
-    assert(Sqlite.run(db, "INSERT INTO imports VALUES " .. edge))
+    assert(db:run("INSERT INTO imports VALUES " .. edge))
   end
   return db
 end
@@ -232,7 +232,8 @@ local function test_changed_lays_out_only_the_paths_named(tmp: string)
   local unknown_widened = unknown.widened
   assert(unknown_widened ~= nil and unknown_widened:find("not among the program's modules", 1, true) ~= nil,
     tostring(unknown_widened))
-  assert(db:close() and empty:close())
+  assert(db:close())
+  assert(empty:close())
 end
 
 --- Over the program's own modules, the C rules' modules check C files alone, and what reads Teal checks every file:

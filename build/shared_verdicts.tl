@@ -248,7 +248,7 @@ end
 --- Whether `db`'s table of this format has its `parts` column, which a
 --- file from a binary without it lacks.
 local function has_parts(db: Sqlite.Handle): boolean?, string
-  local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM pragma_table_info('" ..
+  local rows, trouble = db:text_rows("SELECT 1 FROM pragma_table_info('" ..
       declared .. "') WHERE name = 'parts'")
   if rows == nil then return nil, tostring(trouble) end
   return #rows > 0, ""
@@ -263,7 +263,7 @@ end
 --- sharing the file still writes its own and ages its rows out, and none
 --- of this one's reads them.
 local function prepare(db: Sqlite.Handle): boolean, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('" .. declared ..
       "', '" .. stores .. "')")
   if rows == nil then return false, tostring(trouble) end
@@ -273,24 +273,28 @@ local function prepare(db: Sqlite.Handle): boolean, string
     if named then return true, "" end
   end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
-  if not begun then return false, begin_trouble end
+  if not begun then return false, tostring(begin_trouble) end
   local function steps(): boolean, string
     for _, statement in ipairs(schema) do
       local ok, statement_trouble = db:exec(statement)
-      if not ok then return false, statement_trouble end
+      if not ok then return false, tostring(statement_trouble) end
     end
     -- Another run may have added it since the look above.
     local named, named_trouble = has_parts(db)
     if named == nil then return false, named_trouble end
     if named then return true, "" end
-    return db:exec("ALTER TABLE " .. declared .. " ADD COLUMN parts TEXT NOT NULL DEFAULT ''")
+    local done, done_why = db:exec("ALTER TABLE " .. declared .. " ADD COLUMN parts TEXT NOT NULL DEFAULT ''")
+    if not done then return false, tostring(done_why) end
+    return true, ""
   end
   local ok, step_trouble = steps()
   if not ok then
     local _, _ = db:exec("ROLLBACK")
     return false, step_trouble
   end
-  return db:exec("COMMIT")
+  local done, done_why = db:exec("COMMIT")
+  if not done then return false, tostring(done_why) end
+  return true, ""
 end
 
 --- Opens the cache at `path`, making it and its directory when missing,
@@ -311,7 +315,7 @@ end
 --- `key` ([`build.declared_key`]), or nil: the key is the whole check.
 function shared_verdicts.declared(cache: shared_verdicts.Cache,
                                   key: string): shared_verdicts.Found?, string
-  local rows, trouble = Sqlite.text_rows(cache.db,
+  local rows, trouble = cache.db:text_rows(
     "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
     { text(key) })
   if rows == nil then return nil, tostring(trouble) end
@@ -325,7 +329,7 @@ end
 --- that had it kept it (`settle`), or nil.
 function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
                                       address: string): string?, string
-  local rows, trouble = Sqlite.text_rows(cache.db,
+  local rows, trouble = cache.db:text_rows(
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
   if rows == nil then return nil, tostring(trouble) end
   if rows[1] == nil then return nil, "" end
@@ -339,7 +343,7 @@ end
 --- harness that moved), which `unmatched` says.
 function shared_verdicts.census(cache: shared_verdicts.Cache,
                                 tests: {string:boolean}): shared_verdicts.Census?, string
-  local rows, trouble = Sqlite.text_rows(cache.db,
+  local rows, trouble = cache.db:text_rows(
     "SELECT test, COUNT(*) FROM " .. declared .. " GROUP BY test")
   if rows == nil then return nil, tostring(trouble) end
   local out: shared_verdicts.Census = { rows = 0, of_tests = 0 }
@@ -379,7 +383,7 @@ end
 --- name, the most first: what a run found in the cache before it
 --- stood on or kept anything (`cosmic test --census`).
 function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held}?, string
-  local rows, trouble = Sqlite.text_rows(cache.db, "SELECT parts, COUNT(*) FROM " ..
+  local rows, trouble = cache.db:text_rows("SELECT parts, COUNT(*) FROM " ..
       declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
   if rows == nil then return nil, tostring(trouble) end
   local out: mut {shared_verdicts.Held} = {}
@@ -412,7 +416,7 @@ end
 --- row rather than leaving a mark (the failing share's own job fails CI).
 function shared_verdicts.hosts_like(cache: shared_verdicts.Cache, rest: string,
                                     own: string): {string}?, string
-  local rows, trouble = Sqlite.text_rows(cache.db, "SELECT DISTINCT parts FROM " .. declared ..
+  local rows, trouble = cache.db:text_rows("SELECT DISTINCT parts FROM " .. declared ..
       " WHERE parts LIKE '%host identity %'")
   if rows == nil then return nil, tostring(trouble) end
   local seen: mut {string:boolean} = {}
@@ -474,18 +478,18 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
   local db = cache.db
   local parts = owed.parts or ""
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
-  if not begun then return false, begin_trouble end
+  if not begun then return false, tostring(begin_trouble) end
   local function steps(): boolean, string
     local tables: {string} = { declared }
     for _, key in ipairs(owed.failed) do
       for _, name in ipairs(tables) do
-        local ok, trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE key = ?1", { text(key) })
+        local ok, trouble = db:run("DELETE FROM " .. name .. " WHERE key = ?1", { text(key) })
         if not ok then return false, tostring(trouble) end
       end
     end
     local known: mut {string:string} = {}
     for _, kept in ipairs(owed.kept) do
-      local ok, trouble = Sqlite.run(db,
+      local ok, trouble = db:run(
         "INSERT OR REPLACE INTO " .. declared .. " (key, test, hits, elapsed_ns, used_ns, " ..
           "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
         { text(kept.key), text(kept.test), text(packed(kept.hits, known)),
@@ -494,7 +498,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     end
     for _, key in ipairs(owed.used) do
       for _, name in ipairs(tables) do
-        local ok, trouble = Sqlite.run(db, "UPDATE " .. name .. " SET used_ns = ?1, " ..
+        local ok, trouble = db:run("UPDATE " .. name .. " SET used_ns = ?1, " ..
             "parts = CASE WHEN parts = '' THEN ?3 ELSE parts END WHERE key = ?2",
           { { integer = now_ns }, text(key), text(parts) })
         if not ok then return false, tostring(trouble) end
@@ -510,7 +514,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for _, address in ipairs(addresses) do
       -- `addresses` holds the keys of `stored`, which nothing changes here.
       local digest = assert(stored[address], "an address listed from the keys of stored has a digest")
-      local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
+      local ok, trouble = db:run("INSERT OR REPLACE INTO " .. stores ..
           " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
         { text(address), text(digest), { integer = now_ns } })
       if not ok then return false, tostring(trouble) end
@@ -518,10 +522,10 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     local bounds: {Bound} = { { name = declared, key = "key" }, { name = stores, key = "address" } }
     for _, bound in ipairs(bounds) do
       local name, key = bound.name, bound.key
-      local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
+      local aged, age_trouble = db:run("DELETE FROM " .. name .. " WHERE used_ns < ?1",
         { { integer = now_ns - kept_ns } })
       if not aged then return false, tostring(age_trouble) end
-      local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
+      local bounded, bound_trouble = db:run("DELETE FROM " .. name ..
           " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
           "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(shared_verdicts.rows_kept(cache.path)) .. ")")
       if not bounded then return false, tostring(bound_trouble) end
@@ -533,7 +537,9 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     local _, _ = db:exec("ROLLBACK")
     return false, trouble
   end
-  return db:exec("COMMIT")
+  local done, done_why = db:exec("COMMIT")
+  if not done then return false, tostring(done_why) end
+  return true, ""
 end
 
 return shared_verdicts

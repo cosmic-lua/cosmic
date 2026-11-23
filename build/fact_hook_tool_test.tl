@@ -18,7 +18,7 @@ local build_paths = require("build.paths")
 --- deflated: the file's own bytes show none of it.
 local function carries(path: string, needle: string): boolean
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT count(*) FROM modules WHERE instr(chunk(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
   assert(db:close())
   return assert(rows[1]):text(1) ~= "0"
@@ -106,7 +106,7 @@ end
 --- The rows of `type_violations` the project's last checked run kept.
 local function violations(root: string): Sqlite.Rows
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT kind, site, target, declared, actual, count FROM type_violations ORDER BY site"))
   assert(db:close())
   return rows

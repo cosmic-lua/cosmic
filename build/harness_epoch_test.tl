@@ -120,18 +120,18 @@ local function harness_copy(): Sqlite.Handle, test_key.Harness
   local copy = assert(Sqlite.memory())
   assert(copy:exec("CREATE TABLE modules (path TEXT, kind TEXT, source_hash BLOB, " ..
       "bytecode BLOB); CREATE TABLE imports (path TEXT, requires TEXT)"))
-  local rows = assert(Sqlite.rows(db, "SELECT path, kind, source_hash, bytecode FROM modules " ..
+  local rows = assert(db:rows("SELECT path, kind, source_hash, bytecode FROM modules " ..
       "WHERE kind IN ('module', 'main')"))
   for _, row in ipairs(rows) do
-    assert(Sqlite.run(copy, "INSERT INTO modules VALUES (?1, ?2, ?3, ?4)",
+    assert(copy:run("INSERT INTO modules VALUES (?1, ?2, ?3, ?4)",
       { { text = row:text(1) }, { text = row:text(2) }, { blob = row:blob(3) },
         { blob = row:blob(4) } }))
   end
-  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path, requires FROM imports")))) do
-    assert(Sqlite.run(copy, "INSERT INTO imports VALUES (?1, ?2)",
+  for _, row in ipairs((assert(db:text_rows("SELECT path, requires FROM imports")))) do
+    assert(copy:run("INSERT INTO imports VALUES (?1, ?2)",
       { { text = row:text(1) }, { text = row:text(2) } }))
   end
-  db:close()
+  local _, _ = db:close()
   return copy, found
 end
 
@@ -145,12 +145,12 @@ end
 --- with the bytecode of `name` swapped for `bytecode`, as the tree
 --- stores it, and put back.
 local function edited_bytecode(copy: Sqlite.Handle, name: string, bytecode: string): test_key.Harness
-  local was = support.nth(assert(Sqlite.rows(copy, "SELECT bytecode FROM modules WHERE path = ?1",
+  local was = support.nth(assert(copy:rows("SELECT bytecode FROM modules WHERE path = ?1",
     { { text = name } })), 1):blob(1)
-  assert(Sqlite.run(copy, "UPDATE modules SET bytecode = deflate(?1) WHERE path = ?2",
+  assert(copy:run("UPDATE modules SET bytecode = deflate(?1) WHERE path = ?2",
     { { blob = bytecode }, { text = name } }))
   local found, trouble = test_key.harness(copy)
-  assert(Sqlite.run(copy, "UPDATE modules SET bytecode = ?1 WHERE path = ?2",
+  assert(copy:run("UPDATE modules SET bytecode = ?1 WHERE path = ?2",
     { { blob = was }, { text = name } }))
   assert(found ~= nil, trouble)
   return found
@@ -158,10 +158,10 @@ end
 
 --- The digests the harness holds of `copy` with the source hash of `name` changed, and put back.
 local function edited_source(copy: Sqlite.Handle, name: string): test_key.Harness
-  assert(Sqlite.run(copy, "UPDATE modules SET source_hash = source_hash || X'00' WHERE path = ?1",
+  assert(copy:run("UPDATE modules SET source_hash = source_hash || X'00' WHERE path = ?1",
     { { text = name } }))
   local found, trouble = test_key.harness(copy)
-  assert(Sqlite.run(copy, "UPDATE modules SET source_hash = substr(source_hash, 1, " ..
+  assert(copy:run("UPDATE modules SET source_hash = substr(source_hash, 1, " ..
       "length(source_hash) - 1) WHERE path = ?1", { { text = name } }))
   assert(found ~= nil, trouble)
   return found
@@ -203,7 +203,7 @@ local function test_an_edit_to_a_harness_module_that_changes_what_it_does_moves_
         "a constant of " .. name .. " moved nothing")
     end
   end
-  copy:close()
+  local _, _ = copy:close()
 end
 
 --- A comment, a blank line, a line number or a local's name is in no bytecode the core runs, so an
@@ -230,7 +230,7 @@ local function test_an_edit_to_a_harness_module_that_changes_nothing_it_runs_mov
   local resourced = edited_source(copy, "build.test_key")
   assert(resourced.digest == whole.digest and moved_between(whole, resourced) == "",
     "a module's source hash moved the harness's digest")
-  copy:close()
+  local _, _ = copy:close()
 end
 
 --- The code that makes a key is held, and the runner around it is not: an
@@ -251,7 +251,7 @@ local function test_an_edit_outside_the_harness_moves_no_digest()
     local sourced = edited_source(copy, runner)
     assert(sourced.digest == whole.digest, "an edit to " .. runner .. "'s source moved the digest")
   end
-  copy:close()
+  local _, _ = copy:close()
 end
 
 --- A `retired` of the bare counts "1" to `n`, as build/harness_epoch.tl's
@@ -346,7 +346,7 @@ local function test_the_harness_holds_what_it_runs_requires()
   named["build.harness_epoch"] = true
   local by_value = assert(test_key.value_imports(db))
   local tree: mut {string:boolean} = {}
-  for _, row in ipairs((assert(Sqlite.text_rows(db, "SELECT path FROM modules")))) do
+  for _, row in ipairs((assert(db:text_rows("SELECT path FROM modules")))) do
     tree[row:text(1)] = true
   end
   local missing: mut {string} = {}
@@ -358,7 +358,7 @@ local function test_the_harness_holds_what_it_runs_requires()
       end
     end
   end
-  db:close()
+  local _, _ = db:close()
   assert(#missing == 0, "the harness runs what its digest does not hold -- name each " ..
       "in build/test_key.tl's `harness_own`, or build/test_worker.tl's `worker.loads` where " ..
       "a worker loads it: " .. table.concat(missing, ", "))
@@ -387,7 +387,7 @@ local function test_what_is_split_off_a_module_of_the_harness_is_held()
   local found, trouble = test_key.harness(db)
   assert(found ~= nil, trouble)
   local by_value = assert(test_key.value_imports(db))
-  db:close()
+  local _, _ = db:close()
   local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
   assert(named["cosmic.sandbox.policy"] == true, "cosmic.sandbox.policy is not held")
@@ -429,7 +429,7 @@ end
 local function test_the_harness_names_its_library()
   local db = assert(Sqlite.open(projection))
   local found, trouble = test_key.harness(db)
-  db:close()
+  local _, _ = db:close()
   assert(found ~= nil, trouble)
   local held: mut {string:boolean} = {}
   local unnamed: mut {string} = {}
@@ -470,15 +470,15 @@ local function test_value_imports_follows_every_spelling_of_a_require()
     '  "cosmic.env")',
     'return a, b',
   }, "\n"), true)
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
+  assert(db:run("INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
   for _, wanted in ipairs({ "cosmic.fs", "cosmic.env", "cosmic.child" }) do
-    assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.x', ?1)", { { text = wanted } }))
+    assert(db:run("INSERT INTO imports VALUES ('build.x', ?1)", { { text = wanted } }))
   end
   -- An importer the table holds no bytecode of is followed as it is.
-  assert(Sqlite.run(db, "INSERT INTO imports VALUES ('build.y', 'cosmic.time')"))
+  assert(db:run("INSERT INTO imports VALUES ('build.y', 'cosmic.time')"))
   local by_value = assert(test_key.value_imports(db))
-  db:close()
+  local _, _ = db:close()
   local kept: mut {string:boolean} = {}
   for _, name in ipairs(by_value["build.x"] or {}) do kept[name] = true end
   assert(kept["cosmic.fs"] == true and kept["cosmic.env"] == true, "a require's spelling dropped its edge")
@@ -493,17 +493,17 @@ local function test_type_only_imports_is_what_value_imports_drops()
   assert(db:exec("CREATE TABLE modules (path TEXT, kind TEXT, bytecode BLOB); " ..
       "CREATE TABLE imports (path TEXT, requires TEXT)"))
   local compiled = dumped('local a = require"cosmic.fs" return a', true)
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
+  assert(db:run("INSERT INTO modules VALUES ('build.x', 'module', deflate(?1))",
     { { blob = compiled } }))
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('build.t_test', 'test', deflate(?1))",
+  assert(db:run("INSERT INTO modules VALUES ('build.t_test', 'test', deflate(?1))",
     { { blob = compiled } }))
   for _, row in ipairs({ { "build.x", "cosmic.fs" }, { "build.x", "cosmic.child" },
       { "build.y", "cosmic.time" }, { "build.t_test", "cosmic.child" } }) do
-    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?1, ?2)",
+    assert(db:run("INSERT INTO imports VALUES (?1, ?2)",
       { { text = row[1] }, { text = row[2] } }))
   end
   local erased = assert(test_key.type_only_imports(db))
-  db:close()
+  local _, _ = db:close()
   local edges = assert(erased["build.x"], "a type-only edge was kept")
   assert(edges["cosmic.child"] == true, "a type-only edge was kept")
   assert(edges["cosmic.fs"] ~= true, "a value edge was dropped")

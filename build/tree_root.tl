@@ -80,7 +80,7 @@ local function staged(root: string, path: string): boolean?, string
   local file = build_paths.resolve(root).working
   local db, open_trouble = Sqlite.open(file)
   if db == nil then return nil, tostring(open_trouble) end
-  local rows, trouble = Sqlite.rows(db, "SELECT 1 FROM (SELECT path FROM files UNION ALL " ..
+  local rows, trouble = db:rows("SELECT 1 FROM (SELECT path FROM files UNION ALL " ..
       "SELECT path FROM tool) WHERE path = ?1 OR " ..
       "substr(path, 1, length(?2)) = ?2 LIMIT 1", { { text = path }, { text = path .. "/" } })
   local _, _ = db:close()

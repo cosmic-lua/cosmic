@@ -17,11 +17,11 @@ local function dumped(tmp: string, name: string, columns: {string}, rows: {{stri
     defs[i] = column .. " TEXT"
     marks[i] = "?"
   end
-  assert(Sqlite.run(db, "CREATE TABLE t (" .. table.concat(defs, ", ") .. ")"))
+  assert(db:run("CREATE TABLE t (" .. table.concat(defs, ", ") .. ")"))
   for _, row in ipairs(rows) do
     local params: mut {Sqlite.Value} = {}
     for i, field in ipairs(row) do params[i] = { text = field } end
-    assert(Sqlite.run(db, "INSERT INTO t VALUES (" .. table.concat(marks, ", ") .. ")", params))
+    assert(db:run("INSERT INTO t VALUES (" .. table.concat(marks, ", ") .. ")", params))
   end
   assert(db:close())
   return parses_fixture.dump(path, "SELECT * FROM t ORDER BY rowid")
@@ -138,7 +138,7 @@ local function test_non_null_cells_dump_as_text_rows_answers_them(tmp: string)
   local sql = "SELECT 1, 1.5, 1.0e+300, 30000000000.0, -0.0, 'a b', x'61', x'', 'q\"', 9223372036854775807, 0.1"
   local path = tmp .. "/kinds.db"
   local db = assert(Sqlite.open(path, { writable = true, create = true }))
-  local texts = assert(Sqlite.text_rows(db, sql))
+  local texts = assert(db:text_rows(sql))
   assert(db:close())
   local want = assert(texts[1]):texts()
   local fields: mut {string} = {}
@@ -157,7 +157,7 @@ end
 
 local function test_the_parse_table_rows_keep_their_header_lines(tmp: string)
   local db = assert(Sqlite.open(tmp .. "/parses.db", { writable = true, create = true }))
-  for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
+  for _, statement in ipairs(analysis_schema.statements) do assert(db:run(statement)) end
   local text = parses_fixture.rows(db)
   assert(db:close())
   assert(text:find("^[%w_]+ 0\n") ~= nil, text)

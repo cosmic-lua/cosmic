@@ -646,22 +646,22 @@ function Passkeys.sqlite_store(db: Sqlite.Handle, opts?: Passkeys.StoreOptions):
     CREATE TABLE IF NOT EXISTS %s_spent (challenge BLOB PRIMARY KEY, lapses INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS %s_spent_lapses ON %s_spent (lapses);
   ]]):format(name, name, name, name, name, name))
-  if not made then return nil, "passkeys: " .. why end
+  if not made then return nil, "passkeys: " .. tostring(why) end
   local store: Passkeys.Store = {
     find = function(_: Passkeys.Store, id: string): Webauthn.Credential?, string
-      local found, wrong = Sqlite.map(db, ("SELECT %s FROM %s WHERE id = ?1"):format(COLUMNS, name),
+      local found, wrong = db:map(("SELECT %s FROM %s WHERE id = ?1"):format(COLUMNS, name),
         { { blob = id } }, credential_of)
       if found == nil then return nil, "passkeys: " .. tostring(wrong) end
       return found[1], ""
     end,
     list = function(_: Passkeys.Store, user_handle: string): {Webauthn.Credential}?, string
-      local found, wrong = Sqlite.map(db, ("SELECT %s FROM %s WHERE user_handle = ?1 ORDER BY rowid"):format(
+      local found, wrong = db:map(("SELECT %s FROM %s WHERE user_handle = ?1 ORDER BY rowid"):format(
         COLUMNS, name), { { blob = user_handle } }, credential_of)
       if found == nil then return nil, "passkeys: " .. tostring(wrong) end
       return found, ""
     end,
     add = function(_: Passkeys.Store, c: Webauthn.Credential): boolean, string
-      local ok, wrong = Sqlite.run(db, ("INSERT INTO %s (%s) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) " ..
+      local ok, wrong = db:run(("INSERT INTO %s (%s) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) " ..
         "ON CONFLICT (id) DO NOTHING"):format(name, COLUMNS), {
           { blob = c.id }, { blob = c.user_handle }, { blob = c.public_key }, { integer = c.alg },
           { integer = c.sign_count }, flag(c.backup_eligible), flag(c.backed_up),
@@ -671,21 +671,21 @@ function Passkeys.sqlite_store(db: Sqlite.Handle, opts?: Passkeys.StoreOptions):
       return db:changes() == 1, ""
     end,
     update = function(_: Passkeys.Store, c: Webauthn.Credential): boolean, string
-      local ok, wrong = Sqlite.run(db, ("UPDATE %s SET sign_count = ?2, backed_up = ?3 WHERE id = ?1"):format(name),
+      local ok, wrong = db:run(("UPDATE %s SET sign_count = ?2, backed_up = ?3 WHERE id = ?1"):format(name),
         { { blob = c.id }, { integer = c.sign_count }, flag(c.backed_up) })
       if not ok then return false, "passkeys: " .. tostring(wrong) end
       return db:changes() == 1, ""
     end,
     spend = function(_: Passkeys.Store, challenge: string, lapses: integer, now: integer): boolean, string
-      local swept, unswept = Sqlite.run(db, ("DELETE FROM %s_spent WHERE lapses <= ?1"):format(name), { { integer = now } })
+      local swept, unswept = db:run(("DELETE FROM %s_spent WHERE lapses <= ?1"):format(name), { { integer = now } })
       if not swept then return false, "passkeys: " .. tostring(unswept) end
-      local ok, wrong = Sqlite.run(db, ("INSERT INTO %s_spent (challenge, lapses) VALUES (?1, ?2) " ..
+      local ok, wrong = db:run(("INSERT INTO %s_spent (challenge, lapses) VALUES (?1, ?2) " ..
         "ON CONFLICT (challenge) DO NOTHING"):format(name), { { blob = challenge }, { integer = lapses } })
       if not ok then return false, "passkeys: " .. tostring(wrong) end
       return db:changes() == 1, ""
     end,
     remove = function(_: Passkeys.Store, id: string): boolean, string
-      local ok, wrong = Sqlite.run(db, ("DELETE FROM %s WHERE id = ?1"):format(name), { { blob = id } })
+      local ok, wrong = db:run(("DELETE FROM %s WHERE id = ?1"):format(name), { { blob = id } })
       if not ok then return false, "passkeys: " .. tostring(wrong) end
       return db:changes() == 1, ""
     end,

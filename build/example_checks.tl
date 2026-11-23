@@ -269,7 +269,7 @@ end
 --- be one too long to carry.
 --- @param root the tree, whose example files are read for that
 local function examples(db: Sqlite.Handle, options: Pipeline.Options, root: string): mut {string}
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT file, line, name, source FROM examples WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY file, line")
   if rows == nil then

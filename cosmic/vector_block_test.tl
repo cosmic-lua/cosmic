@@ -41,7 +41,7 @@ local function refused(db: Sqlite.Handle, sql: string, words: string, values?: {
 end
 
 local function count_of(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): integer
-  local rows = assert(Sqlite.rows(db, sql, values))
+  local rows = assert(db:rows(sql, values))
   return assert(rows[1]):integer(1)
 end
 
@@ -67,7 +67,7 @@ local record Hit
 end
 
 local function hits_of(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): {Hit}
-  local rows = assert(Sqlite.rows(db, sql, values))
+  local rows = assert(db:rows(sql, values))
   local out: mut {Hit} = {}
   for _, row in ipairs(rows) do
     local none = row:kind(2) == "null"
@@ -87,7 +87,7 @@ local function dataset(db: Sqlite.Handle, n: integer, dims: integer, size: integ
   for i = 1, n do
     local v = pack_random_vector(next_number, dims)
     vectors[#vectors + 1] = v
-    assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2, ?3, ?4)",
+    assert(db:run("INSERT INTO chunks VALUES (?1, ?2, ?3, ?4)",
       { { integer = i }, { integer = 4 + 3 * i }, { text = if i % 3 == 0 then "a" else "b" end }, { blob = v } }))
   end
   assert(db:exec(([[
@@ -209,7 +209,7 @@ local function test_ties_go_to_the_lower_id_across_blocks()
   assert(db:exec("CREATE TABLE r (seq INTEGER PRIMARY KEY, id INTEGER, v BLOB)"))
   local same = Vector.pack({ 1, 2, 3 })
   for seq, id in ipairs({ 9, 5, 3, 1 }) do
-    assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2, ?3)",
+    assert(db:run("INSERT INTO r VALUES (?1, ?2, ?3)",
       { { integer = seq }, { integer = id }, { blob = same } }))
   end
   assert(db:exec([[
@@ -278,11 +278,11 @@ local function test_nulls_and_empty_blocks()
   local query = Vector.pack({ 1, 2 })
   local block = Vector.pack({ 1, 2 })
   assert(db:exec("CREATE TABLE r (id INTEGER, v BLOB)"))
-  assert(Sqlite.run(db, "INSERT INTO r VALUES (1, ?1), (2, NULL), (3, ?1)",
+  assert(db:run("INSERT INTO r VALUES (1, ?1), (2, NULL), (3, ?1)",
     { { blob = block } }))
   assert(count_of(db, "SELECT vector_block(id, v) IS NULL FROM r WHERE id = 99") == 1)
   assert(count_of(db, "SELECT vector_block(id, v) IS NULL FROM r WHERE id = 2") == 1)
-  local rows = assert(Sqlite.rows(db, "SELECT vector_block(id, v) FROM r"))
+  local rows = assert(db:rows("SELECT vector_block(id, v) FROM r"))
   local packed = assert(rows[1]):blob(1)
   local found = hits_of(db, "SELECT id, distance FROM vector_block_search(?1, ?2, 5, 'l2')",
     { { blob = packed }, { blob = query } })
@@ -328,7 +328,7 @@ local function test_malformed_blocks_are_refused()
       { { blob = blob }, { blob = query }, { integer = k or 2 } })
   end
   for _, storage in ipairs(storages) do
-    local rows = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+    local rows = assert(db:rows(("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
     local good = assert(rows[1]):blob(1)
     local info = assert(read_block(db, good))
     assert(info.dims == 2 and info.storage == storage and info:count() == 3, storage)
@@ -445,7 +445,7 @@ local function test_a_block_may_not_pass_sqlites_length_limit()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE r (id INTEGER, v BLOB)"))
   for i = 1, 30 do
-    assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2)", { { integer = i }, { blob = Vector.pack({ i, 1, 2 }) } }))
+    assert(db:run("INSERT INTO r VALUES (?1, ?2)", { { integer = i }, { blob = Vector.pack({ i, 1, 2 }) } }))
   end
   assert(count_of(db, "SELECT length(vector_block(id, v)) FROM r") == 16 + 30 * 8 + 30 * 4 + 30 * 12)
   db:limit("length", 300)
@@ -458,7 +458,7 @@ end
 --- The layout is fixed, so a block made by one build is read by another.
 local function test_the_layout_is_the_documented_one()
   local db = assert(Sqlite.memory())
-  local rows = assert(Sqlite.rows(db, [[
+  local rows = assert(db:rows([[
     SELECT vector_block(id, v) FROM (SELECT 7 AS id, vector('[3, 4]') AS v UNION ALL SELECT -1, vector('[0, 0]'))
   ]]))
   local block = assert(rows[1]):blob(1)
@@ -506,7 +506,7 @@ local function test_load_blocks_makes_the_corpus_load_makes()
     -- More blocks add to it, and its bits keep working for a first pass.
     local more = assert(Vector.load_blocks(db, "SELECT vectors FROM blocks WHERE tenant = 'a'"))
     assert(more:count() == 66)
-    local extra = assert(assert(Sqlite.rows(db, "SELECT vectors FROM blocks WHERE tenant = 'b' LIMIT 1"))[1]):blob(1)
+    local extra = assert(assert(db:rows("SELECT vectors FROM blocks WHERE tenant = 'b' LIMIT 1"))[1]):blob(1)
     local held = assert(read_block(db, extra)):count()
     more:add_block(extra)
     assert(more:count() == 66 + held)
@@ -528,7 +528,7 @@ local function test_load_blocks_converts_between_storages()
     assert(through.storage == into and through:count() == 90)
     -- f32 blocks hold the numbers `add` was given: the same corpus.
     local direct = Vector.corpus(dims, { storage = into })
-    local order = assert(Sqlite.rows(db, "SELECT id, embedding FROM chunks ORDER BY tenant, seq"))
+    local order = assert(db:rows("SELECT id, embedding FROM chunks ORDER BY tenant, seq"))
     for _, row in ipairs(order) do direct:add(row:integer(1), row:blob(2)) end
     for _, metric in ipairs(metrics) do
       local want = assert(direct:search(query, 15, { metric = metric }))
@@ -592,7 +592,7 @@ local function test_load_blocks_refuses_what_is_not_a_block()
   assert(f32:count() == 2)
   -- A refused block adds nothing to a corpus that already holds rows.
   local f16 = assert(Vector.load_blocks(db, "SELECT b FROM blocks WHERE n = 1", nil, { storage = "f16" }))
-  local big = assert(assert(Sqlite.rows(db, "SELECT b FROM blocks WHERE n = 3"))[1]):blob(1)
+  local big = assert(assert(db:rows("SELECT b FROM blocks WHERE n = 3"))[1]):blob(1)
   local raised, err = pcall(f16.add_block, f16, big)
   assert(not raised and tostring(err):find("under 65520", 1, true) ~= nil, tostring(err))
   assert(f16:count() == 1)
@@ -631,7 +631,7 @@ local function test_a_view_may_search_blocks()
       SELECT h.id AS id, h.distance AS distance FROM packed, vector_block_search(packed.vectors, vector('[1,0]'), 2, 'cosine') AS h;
   ]]))
   assert(count_of(db, "PRAGMA trusted_schema") == 0)
-  local rows = assert(Sqlite.rows(db, "SELECT id FROM nearest ORDER BY distance, id"))
+  local rows = assert(db:rows("SELECT id FROM nearest ORDER BY distance, id"))
   assert(#rows == 2 and assert(rows[1]):integer(1) == 1 and assert(rows[2]):integer(1) == 3)
   local _, _ = db:close()
 end
@@ -642,9 +642,9 @@ local function test_widest_vectors_pack()
   local db = assert(Sqlite.memory())
   local wide = pack_random_vector(stream(4), 16000)
   assert(db:exec("CREATE TABLE r (id INTEGER, v BLOB)"))
-  assert(Sqlite.run(db, "INSERT INTO r VALUES (1, ?1), (2, ?2)", { { blob = wide }, { blob = pack_random_vector(stream(5), 16000) } }))
+  assert(db:run("INSERT INTO r VALUES (1, ?1), (2, ?2)", { { blob = wide }, { blob = pack_random_vector(stream(5), 16000) } }))
   for _, storage in ipairs(storages) do
-    local rows = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+    local rows = assert(db:rows(("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
     local block = assert(rows[1]):blob(1)
     local found = hits_of(db, "SELECT id, distance FROM vector_block_search(?1, ?2, 2, 'cosine')",
       { { blob = block }, { blob = wide } })
@@ -664,7 +664,7 @@ local function test_a_block_a_corpus_would_refuse_loads_nowhere()
   local query = Vector.pack({ 1, 2 })
   local data_at = 56
   for _, storage in ipairs(storages) do
-    local rows = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+    local rows = assert(db:rows(("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
     local good = assert(rows[1]):blob(1)
     local function with(at: integer, bytes: string): string
       return good:sub(1, at) .. bytes .. good:sub(at + #bytes + 1)
@@ -739,7 +739,7 @@ local function test_a_corpus_from_blocks_takes_a_first_pass()
     end
     local packed = Vector.pack(numbers)
     vectors[#vectors + 1] = packed
-    assert(Sqlite.run(db, "INSERT INTO chunks VALUES (?1, ?2, ?3)",
+    assert(db:run("INSERT INTO chunks VALUES (?1, ?2, ?3)",
       { { integer = i }, { integer = 1000 + i }, { blob = packed } }))
   end
   local queries: mut {string} = {}
@@ -783,7 +783,7 @@ local function test_cosine_rows_that_round_past_one_rank_by_id()
     for d = 1, dims do
       numbers[d] = assert(base[d]) * scale
     end
-    assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2, ?3)",
+    assert(db:run("INSERT INTO r VALUES (?1, ?2, ?3)",
       { { integer = i }, { integer = 1000 - i }, { blob = Vector.pack(numbers) } }))
   end
   assert(db:exec("CREATE TABLE blocks AS SELECT vector_block(id, v) AS vectors FROM r GROUP BY (seq - 1) / 25"))
@@ -811,7 +811,7 @@ local function test_a_block_of_exactly_the_length_limit_is_made()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE r (id INTEGER, v BLOB)"))
   for i = 1, 30 do
-    assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2)", { { integer = i }, { blob = Vector.pack({ i, 1, 2 }) } }))
+    assert(db:run("INSERT INTO r VALUES (?1, ?2)", { { integer = i }, { blob = Vector.pack({ i, 1, 2 }) } }))
   end
   local exact = 16 + 30 * 8 + 30 * 4 + 30 * 12
   db:limit("length", exact)
@@ -827,10 +827,10 @@ local function test_the_arguments_read_back()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE r (id INTEGER, v BLOB)"))
   assert(db:exec("INSERT INTO r VALUES (1, x'0000803f00000040'), (2, x'0000404000008040'), (3, x'0000a0400000c040')"))
-  local rows = assert(Sqlite.rows(db, "SELECT vector_block(id, v) FROM r"))
+  local rows = assert(db:rows("SELECT vector_block(id, v) FROM r"))
   local block = assert(rows[1]):blob(1)
   local function count(where: string): integer
-    return #assert(Sqlite.rows(db,
+    return #assert(db:rows(
       "SELECT id FROM vector_block_search(?1, ?2, 3, 'l2') " .. where,
       { { blob = block }, { blob = Vector.pack({ 1, 2 }) } }))
   end
@@ -884,17 +884,17 @@ local function test_the_function_joins_after_the_tables_that_supply_it()
     CREATE TABLE m (name TEXT);
     INSERT INTO m VALUES ('l2');
   ]]))
-  local rows = assert(Sqlite.rows(db,
+  local rows = assert(db:rows(
     "SELECT h.rowid, h.id FROM b, vector_block_search(b.vectors, vector('[1,0]'), 3, 'l2') AS h ORDER BY 1"))
   assert(#rows == 3 and assert(rows[1]):integer(1) == 0 and assert(rows[3]):integer(1) == 2)
   assert(assert(rows[1]):integer(2) == 1 and assert(rows[2]):integer(2) == 3)
   refused(db, "SELECT h.id FROM vector_block_search(b.vectors, vector('[1,0]'), 3, 'l2') AS h CROSS JOIN b",
     "no query solution")
-  local none = assert(Sqlite.rows(db, [[
+  local none = assert(db:rows([[
     SELECT h.id FROM b CROSS JOIN vector_block_search(b.vectors, vector('[1,0]'), 3, m.name) AS h CROSS JOIN m
   ]]))
   assert(#none == 0)
-  local some = assert(Sqlite.rows(db, [[
+  local some = assert(db:rows([[
     SELECT h.id FROM b, m, vector_block_search(b.vectors, vector('[1,0]'), 3, m.name) AS h
   ]]))
   assert(#some == 3)
@@ -910,7 +910,7 @@ local function test_load_blocks_computes_the_lengths_itself()
   assert(db:exec("INSERT INTO r VALUES (1, x'0000803f00000040'), (2, x'0000404000008040'), (3, x'0000a0400000c040')"))
   local query = Vector.pack({ 1, 2 })
   for _, storage in ipairs(storages) do
-    local rows = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+    local rows = assert(db:rows(("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
     local good = assert(rows[1]):blob(1)
     -- The inverse lengths start after the header and the three ids.
     local lie = good:sub(1, 40) .. string.pack("<fff", 100, 0.5, 7) .. good:sub(53)

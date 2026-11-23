@@ -460,11 +460,11 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   declared[#declared + 1] = json_column
   marks[#marks + 1] = "?" .. tostring((width + 1))
   local insert = "INSERT INTO " .. quoted(name) .. " VALUES (" .. table.concat(marks, ", ") .. ")"
-  local ok, trouble = Sqlite.transact(handle, function(): (true) | (false, Failure)
+  local ok, trouble = handle:transact(function(): (true) | (false, Failure)
     local created, why = handle:exec("CREATE TABLE " .. quoted(name) ..
         " (" .. table.concat(declared, ", ") .. ")")
     if not created then
-      return false, Failure.new(why)
+      return false, Failure.new(tostring(why))
     end
     for number, row in ipairs(rows) do
       local values: mut {Sqlite.Value} = {}
@@ -484,7 +484,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
         return false, Failure.new("row " .. tostring(number) .. ": " .. tostring(bad))
       end
       values[#values + 1] = { text = text }
-      local inserted, insert_bad = Sqlite.run(handle, insert, values)
+      local inserted, insert_bad = handle:run(insert, values)
       if not inserted then
         return false, Failure.new("row " .. tostring(number) .. ": " .. tostring(insert_bad))
       end

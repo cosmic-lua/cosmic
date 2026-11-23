@@ -197,7 +197,7 @@ end
 
 --- The rows `sql` finds in `db`.
 local function rows_of(db: Sqlite.Handle, sql: string): {Sqlite.Row}
-  local rows, trouble = Sqlite.text_rows(db, sql)
+  local rows, trouble = db:text_rows(sql)
   assert(rows ~= nil, trouble)
   return rows
 end
@@ -228,12 +228,12 @@ local function test_a_row_per_code_is_written_to_the_catalog_with_its_rule_why_a
   assert(warning:text(1):find("^warning %(unread%) of lang.warnings\nrule: names are used\n") ~= nil)
   local early = first(rows_of(db, "SELECT text FROM catalog WHERE symbol = 'shadows'"))
   assert(early:text(1):find("^scope error of lang.scopes\n") ~= nil)
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_the_words_of_a_rule_are_found_by_the_full_text_index()
   local db = written()
-  local found = assert(Sqlite.text_rows(db,
+  local found = assert(db:text_rows(
     "SELECT c.symbol FROM catalog_fts JOIN catalog c ON c.id = catalog_fts.rowid " ..
       "WHERE catalog_fts MATCH '\"array\" \"dense\"' AND c.kind = 'code' ORDER BY c.symbol"))
   local symbols: mut {string} = {}
@@ -241,7 +241,7 @@ local function test_the_words_of_a_rule_are_found_by_the_full_text_index()
     symbols[#symbols + 1] = row:text(1)
   end
   assert(joined(symbols):find("array_of_optional", 1, true) ~= nil, joined(symbols))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_the_guidance_of_an_uncaught_error_is_never_a_code_row_whatever_words_the_message_shares()
@@ -254,5 +254,5 @@ local function test_the_guidance_of_an_uncaught_error_is_never_a_code_row_whatev
   }) do
     assert(Errors.guidance_in(db, message) == nil, message)
   end
-  db:close()
+  local _, _ = db:close()
 end

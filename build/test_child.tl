@@ -62,14 +62,14 @@ local function store_of(module: string, path: string): boolean, string
     local ok, failure = db:exec(statement)
     if not ok then
       local _, _ = db:close()
-      return false, failure
+      return false, tostring(failure)
     end
   end
-  local made, trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
-    local row, row_trouble = Sqlite.run(db, "INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, " ..
+  local made, trouble = db:transact(function(): (true) | (false, Failure)
+    local row, row_trouble = db:run("INSERT INTO modules (path, file, kind, source_hash, key, bytecode, tests, " ..
         "source) VALUES (?1, '', 'module', x'', x'', ?2, '', x'')", { bind.text(module), bind.blob(bytecode) })
     if not row then return false, row_trouble end
-    local meta, meta_trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('runtime_basis', ?1)",
+    local meta, meta_trouble = db:run("INSERT INTO meta (key, value) VALUES ('runtime_basis', ?1)",
       { bind.text(basis) })
     if not meta then return false, meta_trouble end
     return true

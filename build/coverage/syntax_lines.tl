@@ -59,7 +59,7 @@ end
 function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source: string,
                                  name: string): {integer: boolean}?, string
   local key = source_hash
-  local cached, select_trouble = Sqlite.text_rows(db,
+  local cached, select_trouble = db:text_rows(
     "SELECT lines FROM executable WHERE source_hash = ?1", { text(key) })
   if cached == nil then
     return nil, tostring(select_trouble)
@@ -85,7 +85,7 @@ function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source:
   for i, line in ipairs(numbers) do
     joined[i] = tostring(line)
   end
-  local inserted, insert_trouble = Sqlite.run(db,
+  local inserted, insert_trouble = db:run(
     "INSERT OR IGNORE INTO executable (source_hash, lines) VALUES (?1, ?2)",
     { text(key), text(table.concat(joined, " ")) })
   if not inserted then

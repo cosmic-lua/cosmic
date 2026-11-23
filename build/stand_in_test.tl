@@ -421,7 +421,7 @@ local function test_the_stand_in_s_main_loads_as_a_built_program_s(tmp: string)
   assert(Fs.write(path, parts.database))
   local db = assert(Sqlite.open(path))
   local function one(sql: string): string
-    local rows = assert(Sqlite.text_rows(db, sql))
+    local rows = assert(db:text_rows(sql))
     return rows[1] and rows[1]:text(1) or ""
   end
   assert(one("SELECT value FROM meta WHERE key = 'main'") == "stand_in.main")

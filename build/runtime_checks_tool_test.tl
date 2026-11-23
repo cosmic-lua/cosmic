@@ -19,7 +19,7 @@ Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx
 --- deflated: the file's own bytes show none of it.
 local function carries(path: string, needle: string): boolean
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT count(*) FROM modules WHERE instr(chunk(bytecode), CAST(?1 AS BLOB)) > 0", { { text = needle } }))
   assert(db:close())
   return assert(rows[1]):text(1) ~= "0"
@@ -102,7 +102,7 @@ end
 --- The rows of `type_violations` the project's last checked run kept.
 local function violations(root: string): Sqlite.Rows
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT kind, site, target, declared, actual, count FROM type_violations ORDER BY site"))
   assert(db:close())
   return rows
@@ -197,7 +197,7 @@ local function test_a_checked_run_counts_the_tests_that_met_a_violation(tmp: str
   assert(checked.ok, text)
   assert(text:find("run-time types: 1 test met one (", 1, true), text)
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(Sqlite.text_rows(db, "SELECT test, kind, count FROM type_violation_tests"))
+  local rows = assert(db:text_rows("SELECT test, kind, count FROM type_violation_tests"))
   assert(db:close())
   assert(#rows == 1, tostring(#rows) .. " rows")
   local row = assert(rows[1]):texts()

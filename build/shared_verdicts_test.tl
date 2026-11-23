@@ -136,7 +136,7 @@ local function test_a_verdict_is_kept_by_its_key_alone(tmp: string)
   assert(db:exec("CREATE TABLE verdicts_v4 (key TEXT PRIMARY KEY)"))
   assert(db:close())
   cache = assert(shared_verdicts.open(path))
-  local tables = assert(Sqlite.text_rows(cache.db,
+  local tables = assert(cache.db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"))
   assert(#tables == 3 and tables[1]:text(1) == "declared_v1" and Array.at(tables, 2):text(1) == "stores_v1" and
       Array.at(tables, 3):text(1) == "verdicts_v4", "an earlier format's table was dropped: " .. tostring(#tables))
@@ -257,7 +257,7 @@ local function rows_after(tmp: string, name: string, count: integer): integer
   local now = Clock.now_ns()
   run("portable", 4189, now - 1000)
   run("native", count, now)
-  local counted = assert(Sqlite.text_rows(cache.db, "SELECT count(*) FROM declared_v1"))
+  local counted = assert(cache.db:text_rows("SELECT count(*) FROM declared_v1"))
   shared_verdicts.close(cache)
   return math.tointeger(tonumber(assert(counted[1]):text(1))) or -1
 end

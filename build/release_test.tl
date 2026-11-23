@@ -11,7 +11,6 @@ local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Shape = require("cosmic.shape")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local pinned_launcher = require("build.pinned_launcher")
@@ -509,7 +508,7 @@ end
 local function presenting(label: string): string
   local databases = Store.databases()
   local own = assert(databases[#databases])
-  local rows = assert(Sqlite.text_rows(own,
+  local rows = assert(own:text_rows(
     "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
   local der = assert(Codec.unhex(assert(rows[1]):text(1)))
   local function message(kind: integer, body: string): string

@@ -45,7 +45,7 @@ end
 --- schema, as another tool's would be: its path.
 local function of_another_schema(tmp: string): string
   local made = assert(work.open(tmp))
-  assert(Sqlite.run(made.db, "UPDATE meta SET value = 'another' WHERE key = 'schema'"))
+  assert(made.db:run("UPDATE meta SET value = 'another' WHERE key = 'schema'"))
   local path = made.dir .. "/build.db"
   assert(work.close(made))
   return path
@@ -103,9 +103,9 @@ local function test_a_build_waits_for_the_lock_before_removing_a_file_of_another
   local held = assert(Sqlite.open(path, { writable = true }))
   assert(held:exec("BEGIN IMMEDIATE"))
   local child, said = waiting(tmp, 'local work = require("build.work") ' ..
-      'local Sqlite = require("cosmic.sqlite") local Fs = require("cosmic.fs") ' ..
+      'local Fs = require("cosmic.fs") ' ..
       'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')) ' ..
-      'local rows = assert(Sqlite.text_rows(handle.db, "SELECT value FROM meta WHERE key = \'schema\'")) ' ..
+      'local rows = assert(handle.db:text_rows("SELECT value FROM meta WHERE key = \'schema\'")) ' ..
       'assert(Fs.put(1, assert(rows[1]):text(1))) assert(work.close(handle))')
   local during, _ = Fs.stat(path)
   assert(held:exec("ROLLBACK"))
@@ -119,7 +119,7 @@ local function test_a_build_waits_for_the_lock_before_removing_a_file_of_another
   -- By its schema, not its inode, which a file made at once after the
   -- old one is removed may be given again.
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
+  local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = 'schema'"))
   assert(db:close())
   assert(assert(rows[1]):text(1) == schema, "the file was not made again")
 end
@@ -146,7 +146,7 @@ local function test_two_builds_waiting_on_a_file_of_another_schema_remove_it_onc
   assert(first_result.ok, first_said .. (first_result.stderr or ""))
   assert(second_result.ok, second_said .. (second_result.stderr or ""))
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'run'"))
+  local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = 'run'"))
   assert(db:close())
   local runs = assert(rows[1]):text(1)
   assert(runs == "2", "the file the first build made was removed: its runs are " .. runs)
@@ -162,7 +162,7 @@ local function opening_script(tmp: string): string
     'local path = handle.dir .. "/build.db" assert(work.close(handle)) ' ..
     'if not assert(Fs.status(path)).exists then assert(Fs.put(1, "gone")) return end ' ..
     'local db = assert(Sqlite.open(path)) ' ..
-    'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'schema\'")) ' ..
+    'local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = \'schema\'")) ' ..
     'assert(db:close()) assert(Fs.put(1, assert(rows[1]):text(1)))'
 end
 
@@ -193,7 +193,7 @@ end
 local function test_a_build_makes_again_a_fresh_file_another_tool_stamped_while_it_waited(tmp: string)
   local path = build_paths.under((assert(build_paths.prepare(tmp)))).working
   local other = assert(Sqlite.open(path, { writable = true }))
-  assert(Sqlite.text_rows(other, "PRAGMA journal_mode = WAL"))
+  assert(other:text_rows("PRAGMA journal_mode = WAL"))
   assert(other:exec("BEGIN IMMEDIATE"))
   assert(other:exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value BLOB NOT NULL) WITHOUT ROWID"))
   assert(other:exec("INSERT INTO meta (key, value) VALUES ('schema', 'another')"))
@@ -252,7 +252,7 @@ local function test_a_build_handed_the_rebuild_lock_makes_a_file_of_another_sche
   assert(schema ~= "" and schema ~= "another" and schema ~= "gone",
     "the file was not made again: " .. schema)
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'schema'"))
+  local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = 'schema'"))
   assert(db:close())
   assert(assert(rows[1]):text(1) == schema, "the file at the path is not the one made again")
 end
@@ -268,7 +268,7 @@ local function test_a_build_whose_file_is_replaced_while_it_waits_to_log_opens_t
   assert(work.close(made))
   -- In rollback mode, which a build switches out of under the write lock.
   local rollback = assert(Sqlite.open(path, { writable = true }))
-  local mode = assert(Sqlite.text_rows(rollback, "PRAGMA journal_mode = DELETE"))
+  local mode = assert(rollback:text_rows("PRAGMA journal_mode = DELETE"))
   assert(assert(mode[1]):text(1) == "delete")
   assert(rollback:close())
   local bytes = assert(Fs.read(path))
@@ -279,7 +279,7 @@ local function test_a_build_whose_file_is_replaced_while_it_waits_to_log_opens_t
       'local handle = assert(work.open(' .. string.format("%q", tmp) .. ')) ' ..
       'local path = handle.dir .. "/build.db" assert(work.close(handle)) ' ..
       'local db = assert(Sqlite.open(path)) ' ..
-      'local rows = assert(Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = \'run\'")) ' ..
+      'local rows = assert(db:text_rows("SELECT value FROM meta WHERE key = \'run\'")) ' ..
       'assert(db:close()) assert(Fs.put(1, assert(rows[1]):text(1)))')
   -- Another file, at another inode, at the path.
   assert(Fs.remove(path))

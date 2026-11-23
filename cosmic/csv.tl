@@ -593,7 +593,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   local scratch = "temp." .. identifier("cosmic_csv_load_" .. tostring(counts))
   local ok, trouble = handle:exec("SAVEPOINT cosmic_csv_load")
   if not ok then
-    return refuse(trouble, nil, nil, path)
+    return refuse(tostring(trouble), nil, nil, path)
   end
   local function undone(why: string): nil, Failure
     local _, _ = handle:exec("ROLLBACK TO cosmic_csv_load; RELEASE cosmic_csv_load")
@@ -606,12 +606,12 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   end
   ok, trouble = handle:exec("CREATE VIRTUAL TABLE " .. scratch .. " USING csv(" .. parameter .. ")")
   if not ok then
-    return undone(trouble)
+    return undone(tostring(trouble))
   end
   -- SQLite's CSV table, as patch/sqlite-ext/ has it, reads a blank line
   -- as a row of NULLs, a field a record lacks as NULL, and an empty
   -- field as ''. The header is the first record past any blank lines.
-  local first, why = Sqlite.text_rows(handle, "SELECT rowid, * FROM " .. scratch ..
+  local first, why = handle:text_rows("SELECT rowid, * FROM " .. scratch ..
       " WHERE c0 IS NOT NULL LIMIT 1")
   if first == nil then
     return undone(tostring(why))
@@ -656,7 +656,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
     kept = kept .. " AND rowid <= (SELECT max(rowid) FROM " .. scratch .. " WHERE c0 IS NOT NULL)"
   else
     kept = kept .. " AND c0 IS NOT NULL"
-    local short, failed = Sqlite.text_rows(handle, "SELECT rowid FROM " .. scratch .. " WHERE " .. kept ..
+    local short, failed = handle:text_rows("SELECT rowid FROM " .. scratch .. " WHERE " .. kept ..
         " AND " .. identifier("c" .. tostring((#names - 1))) .. " IS NULL LIMIT 1")
     if short == nil then
       return undone(tostring(failed))
@@ -667,12 +667,12 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   end
   ok, trouble = handle:exec("CREATE TABLE main." .. identifier(name) .. " (" .. table.concat(declared, ", ") .. ")")
   if not ok then
-    return undone(trouble)
+    return undone(tostring(trouble))
   end
   ok, trouble = handle:exec("INSERT INTO main." .. identifier(name) .. " SELECT " .. table.concat(cells, ", ") ..
       " FROM " .. scratch .. " WHERE " .. kept)
   if not ok then
-    return undone(trouble)
+    return undone(tostring(trouble))
   end
   local copied = handle:changes()
   if json ~= nil then
@@ -695,12 +695,12 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
     ok, trouble = handle:exec("ALTER TABLE main." .. identifier(name) .. " ADD COLUMN " .. identifier(json) ..
         " AS (json_object(" .. table.concat(members, ", ") .. ") || '') VIRTUAL")
     if not ok then
-      return undone(trouble)
+      return undone(tostring(trouble))
     end
   end
   ok, trouble = handle:exec("DROP TABLE " .. scratch .. "; RELEASE cosmic_csv_load")
   if not ok then
-    return undone(trouble)
+    return undone(tostring(trouble))
   end
   return { count = copied, keys = keys, columns = names }
 end

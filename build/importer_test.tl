@@ -261,7 +261,7 @@ local function test_self_compile_consumes_cache_after_identity_selection()
         selected.value = true
         assert(trace.finished == 0 and trace.offered == 2,
           "identity selected before derivation completed")
-        local rows = assert(Sqlite.text_rows(handle.db,
+        local rows = assert(handle.db:text_rows(
           "SELECT value FROM meta WHERE key = 'compiler'"))
         assert(support.nth(rows, 1):text(1) == recorded.compiler, "selection ran before recording identities")
         if phase == "select" then return nil, "selection refused" end
@@ -438,7 +438,7 @@ local function tree_trouble(dir: string, files: {string: string}): string
     assert(db:exec(statement))
   end
   for path, text in pairs(files) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO files (path, size, mtime_ns, ino, dev, sha256, data) " ..
         "VALUES (?1, length(CAST(?2 AS BLOB)), 0, 0, 0, lower(hex(sha256(?2))), ?2)",
       { { text = path }, { text = text } }))
@@ -652,7 +652,7 @@ end
 --- as rows of text.
 local function asked_of(root: string, sql: string): {{string}}
   local handle = assert(work.open(root))
-  local rows = assert(Sqlite.text_rows(handle.db, sql))
+  local rows = assert(handle.db:text_rows(sql))
   work.close(handle)
   local out: mut {{string}} = {}
   for _, row in ipairs(rows) do out[#out + 1] = row:texts() end
@@ -714,7 +714,7 @@ local function test_a_cached_compile_is_marked_seen_only_once_it_is_old()
   assert(importer_fixture.compile_fixture(root))
   assert(seen_of() == made, "a run that used a recent compile wrote its row again")
   local handle = assert(work.open(root))
-  assert(Sqlite.run(handle.db, "UPDATE compiled SET seen = seen - 50"))
+  assert(handle.db:run("UPDATE compiled SET seen = seen - 50"))
   work.close(handle)
   assert(importer_fixture.compile_fixture(root))
   assert(seen_of() ~= made - 50, "an old compile used by a run kept its old mark")
@@ -738,7 +738,7 @@ local function test_a_standing_compile_used_many_runs_later_is_marked_not_compil
   end
   local made = seen_of()
   local handle = assert(work.open(root))
-  assert(Sqlite.run(handle.db, "UPDATE meta SET value = value + 40 WHERE key = 'run'"))
+  assert(handle.db:run("UPDATE meta SET value = value + 40 WHERE key = 'run'"))
   work.close(handle)
   local result = assert(importer_fixture.compile_fixture(root))
   assert(result.compiled == 0 and result.cached == 1, "a standing compile was made again")
@@ -775,13 +775,13 @@ local function test_a_build_asked_for_again_is_the_one_before_only_while_nothing
   assert(compile_again(root).compiled == 0, "the build after an edit was not handed back")
 
   local handle = assert(work.open(root))
-  assert(Sqlite.run(handle.db, "DELETE FROM plan WHERE path = 'y'"))
+  assert(handle.db:run("DELETE FROM plan WHERE path = 'y'"))
   work.close(handle)
   local replanned = compile_again(root)
   assert(replanned.compiled == 0 and replanned.cached == 2 and replanned.modules ~= edited.modules,
     "a plan another run replaced was served")
   local handle_after = assert(work.open(root))
-  local planned = assert(Sqlite.text_rows(handle_after.db, "SELECT count(*) FROM plan"))
+  local planned = assert(handle_after.db:text_rows("SELECT count(*) FROM plan"))
   work.close(handle_after)
   assert(assert(planned[1]):text(1) == "2", "the plan was not written again")
 
@@ -1054,7 +1054,7 @@ local function test_compiler_identity_follows_the_new_checkers_declarations()
     assert(importer.derive(handle))
     local found = assert(identity.record_identities(handle.db))
     local fingerprint = assert(identity.record_fingerprint(handle.db, handle.root))
-    local rows = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM files WHERE path GLOB 'lang/*'"))
+    local rows = assert(handle.db:text_rows("SELECT count(*) FROM files WHERE path GLOB 'lang/*'"))
     work.close(handle)
     return { found.compiler, found.runtime_basis, fingerprint.image, fingerprint.boot }, assert(rows[1]):text(1) == "0"
   end
@@ -1140,7 +1140,7 @@ local function test_boot_hash_leaves_out_tests()
   assert(boot_hash_of(root) ~= original, "the module beside the tests did not move it")
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = true }))
-  local rows = assert(Sqlite.text_rows(handle.db,
+  local rows = assert(handle.db:text_rows(
     "SELECT (SELECT count(*) FROM tool WHERE path GLOB '*_test.tl'), " ..
       "(SELECT count(*) FROM files WHERE path = 'cosmic/added_test.tl')"))
   work.close(handle)
@@ -1226,7 +1226,7 @@ local function test_uses_of_a_record_field_follow_the_value_s_type()
   local result = compiled_clean(handle)
   assert(writer.write_result(handle, handle.dir .. "/cosmic.db", result))
   local shipped = assert(Sqlite.open(handle.dir .. "/cosmic.db"))
-  local rows = assert(Sqlite.text_rows(shipped,
+  local rows = assert(shipped:text_rows(
     "SELECT module, symbol, line FROM uses WHERE from_module = 'main' " ..
       "ORDER BY line, module, symbol"))
   local got: mut {string} = {}
@@ -1447,11 +1447,11 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
   local function derived_with(boot_hash: string, plant: boolean, analyzer?: string): integer
     local handle = assert(work.open(root))
     assert(work.stage(handle, { own = true }))
-    assert(Sqlite.run(handle.db,
+    assert(handle.db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', ?1)",
       { { text = boot_hash } }))
     if analyzer ~= nil then
-      assert(Sqlite.run(handle.db,
+      assert(handle.db:run(
         "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
         { { text = analyzer } }))
     end
@@ -1459,14 +1459,14 @@ local function test_a_changed_analyzer_forgets_what_it_derived()
       -- Under the real source's hash, so only the analyzer sweep, and
       -- not the ordinary collection of rows no input refers to, can
       -- remove it.
-      assert(Sqlite.run(handle.db,
+      assert(handle.db:run(
         "INSERT OR REPLACE INTO docs (source_hash, ordinal, symbol, source_symbol, " ..
           "exported, kind, signature, text, line) SELECT source_hash, 99, " ..
           "'Planted', 'Planted', 0, 'record', '', '', 1 " ..
           "FROM inputs WHERE path = 'cosmic.thing'"))
     end
     assert(importer.derive(handle))
-    local rows = assert(Sqlite.text_rows(handle.db,
+    local rows = assert(handle.db:text_rows(
       "SELECT count(*) FROM docs WHERE symbol = 'Planted'"))
     work.close(handle)
     return math.tointeger(tonumber(support.nth(rows, 1):text(1))) or -1
@@ -1497,20 +1497,20 @@ local function test_places_follow_the_source_they_were_read_from()
   local function derived(analyzer?: string, plant?: boolean): string
     local handle = assert(work.open(root))
     assert(work.stage(handle, { own = true }))
-    assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', 'tool-one')"))
+    assert(handle.db:run("INSERT OR REPLACE INTO meta (key, value) VALUES ('boot_hash', 'tool-one')"))
     if analyzer ~= nil then
-      assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
+      assert(handle.db:run("INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer', ?1)",
         { { text = analyzer } }))
     end
     if plant == true then
       -- Under the real source's hash, so only the analyzer sweep can remove it.
-      assert(Sqlite.run(handle.db, "INSERT OR REPLACE INTO places (source_hash, ordinal, symbol, kind, line, column, " ..
+      assert(handle.db:run("INSERT OR REPLACE INTO places (source_hash, ordinal, symbol, kind, line, column, " ..
           "length, plain) SELECT source_hash, 99, 'Planted', 'type', 1, 1, 1, 0 FROM inputs WHERE path = 'cosmic.thing'"))
     end
     assert(importer.derive(handle))
-    local rows = assert(Sqlite.text_rows(handle.db, "SELECT symbol || ' ' || line || ':' || column FROM places " ..
+    local rows = assert(handle.db:text_rows("SELECT symbol || ' ' || line || ':' || column FROM places " ..
         "WHERE source_hash IN (SELECT source_hash FROM inputs WHERE path = 'cosmic.thing') ORDER BY ordinal"))
-    local every = assert(Sqlite.text_rows(handle.db, "SELECT count(*) FROM places"))
+    local every = assert(handle.db:text_rows("SELECT count(*) FROM places"))
     local out: mut {string} = {}
     for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
     work.close(handle)
@@ -1549,12 +1549,12 @@ local function test_own_tree_staging_skips_the_ci_driver_tree()
 
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = true }))
-  local staged = assert(Sqlite.text_rows(handle.db,
+  local staged = assert(handle.db:text_rows(
     "SELECT path FROM files WHERE path GLOB 'ci/*'"))
   assert(#staged == 0, "staging recorded a file under ci/: " .. tostring(staged[1]))
 
   assert(importer.derive(handle))
-  local inputs = assert(Sqlite.text_rows(handle.db,
+  local inputs = assert(handle.db:text_rows(
     "SELECT file FROM inputs WHERE file GLOB 'ci/*'"))
   assert(#inputs == 0, "derived inputs included a module under ci/: " ..
       tostring(inputs[1]))
@@ -1574,7 +1574,7 @@ local function refusals_of_project(case: string, files: {string:string}): import
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
   local result, trouble = importer.compile(handle, "importer-test")
-  local kept = assert(Sqlite.text_rows(handle.db, "SELECT key FROM compiled"))
+  local kept = assert(handle.db:text_rows("SELECT key FROM compiled"))
   work.close(handle)
   return assert(result, trouble), #kept
 end
@@ -1790,10 +1790,10 @@ local function test_generated_syscall_docs_carry_header_lines()
   work.close(handle)
 
   local out = assert(Sqlite.open(root .. "/out.db"))
-  local rows = assert(Sqlite.text_rows(out,
+  local rows = assert(out:text_rows(
     "SELECT symbol, file, line, text FROM docs WHERE module = 'cosmic.sys' " ..
       "AND symbol IN ('read', 'O_RDONLY') ORDER BY symbol"))
-  local examples = assert(Sqlite.text_rows(out,
+  local examples = assert(out:text_rows(
     "SELECT name FROM examples WHERE module = 'cosmic.sys'"))
   assert(out:close())
   assert(#examples == 1 and examples[1]:text(1) == "read", tostring(#examples))
@@ -2387,7 +2387,7 @@ local function compiled_with_references(case: string): work.Handle
 end
 
 local function count_of(db: Sqlite.Handle, sql: string): integer
-  local rows = assert(Sqlite.text_rows(db, sql))
+  local rows = assert(db:text_rows(sql))
   return math.tointeger(tonumber(support.nth(rows, 1):text(1))) or -1
 end
 
@@ -2399,7 +2399,7 @@ local function test_a_compile_sweeps_the_uses_of_a_vanished_compile()
   local live = count_of(handle.db,
     "SELECT count(*) FROM typed_refs WHERE key IN (SELECT key FROM compiled)")
   assert(live > 0, "the fixture kept no record-field uses")
-  assert(Sqlite.run(handle.db,
+  assert(handle.db:run(
     "INSERT INTO typed_refs (key, ordinal, module, member, line) " ..
       "VALUES ('no-such-compile', 1, 'shapes', 'Box.width', 3)"))
   local again = compiled_clean(handle)
@@ -2418,7 +2418,7 @@ end
 --- whole tree some 300 ms.
 local function test_the_reference_sweep_reads_compiled_once()
   local handle = compiled_with_references("reference-prune-plan")
-  local plan = assert(Sqlite.text_rows(handle.db,
+  local plan = assert(handle.db:text_rows(
     "EXPLAIN QUERY PLAN " .. importer.prune_references))
   work.close(handle)
   local details: mut {string} = {}

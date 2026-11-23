@@ -24,7 +24,7 @@ end
 --- @param values the statement's parameters
 --- @return the refusal
 function vector_fixture.refusal(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): string
-  local rows, trouble = Sqlite.rows(db, sql, values)
+  local rows, trouble = db:rows(sql, values)
   assert(rows == nil, sql)
   return tostring(trouble)
 end

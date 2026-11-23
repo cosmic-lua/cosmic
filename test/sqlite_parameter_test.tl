@@ -9,7 +9,7 @@ end
 
 local function test_rows_preserve_sqlite_values()
   local db = assert(Sqlite.memory())
-  local rows = assert(Sqlite.rows(db,
+  local rows = assert(db:rows(
     "SELECT NULL, '', CAST('' AS BLOB), 9007199254740993, 1.25, " ..
       "CAST(x'610062' AS TEXT), x'610062'"))
   local row = first_row(rows)
@@ -40,12 +40,12 @@ local function test_mismatched_parameters_do_not_execute()
   }
   for _, case in ipairs(mismatched) do
     local values = case.values
-    local ok, why = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values)
+    local ok, why = db:run("INSERT INTO items VALUES (?1, ?2)", values)
     assert(not ok and why.message == case.says and why.code == Sqlite.RANGE, tostring(why))
-    local rows, failure = Sqlite.text_rows(db, "SELECT ?1, ?2", values)
+    local rows, failure = db:text_rows("SELECT ?1, ?2", values)
     assert(rows == nil and failure.message == case.says and failure.code == Sqlite.RANGE, tostring(failure))
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
+  local rows = assert(db:text_rows("SELECT count(*) FROM items"))
   assert(first_row(rows):text(1) == "0")
   assert(db:close())
 end
@@ -66,10 +66,10 @@ local function test_malformed_values_raise_and_do_not_execute()
   for _, case in ipairs(malformed) do
     local values = case.values
     local calls: {function()} = {
-      function() local _, _ = Sqlite.run(db, "INSERT INTO items VALUES (?1, ?2)", values) end,
-      function() local _, _ = Sqlite.rows(db, "SELECT ?1, ?2", values) end,
-      function() local _, _ = Sqlite.text_rows(db, "SELECT ?1, ?2", values) end,
-      function() local _, _ = Sqlite.query(db, "SELECT ?1, ?2", values) end,
+      function() local _, _ = db:run("INSERT INTO items VALUES (?1, ?2)", values) end,
+      function() local _, _ = db:rows("SELECT ?1, ?2", values) end,
+      function() local _, _ = db:text_rows("SELECT ?1, ?2", values) end,
+      function() local _, _ = db:query("SELECT ?1, ?2", values) end,
     }
     for _, call in ipairs(calls) do
       local ok, why: boolean, any = pcall(call)
@@ -79,7 +79,7 @@ local function test_malformed_values_raise_and_do_not_execute()
         "blames the caller: " .. tostring(why))
     end
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM items"))
+  local rows = assert(db:text_rows("SELECT count(*) FROM items"))
   assert(first_row(rows):text(1) == "0")
   assert(db:close())
 end
@@ -87,16 +87,16 @@ end
 local function test_complete_parameters_and_explicit_null()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE items (a, b)"))
-  assert(Sqlite.run(db, "INSERT INTO items VALUES (?, ?)", { { integer = 7 }, {} }))
-  local rows = assert(Sqlite.text_rows(db, "SELECT a, b IS NULL FROM items"))
+  assert(db:run("INSERT INTO items VALUES (?, ?)", { { integer = 7 }, {} }))
+  local rows = assert(db:text_rows("SELECT a, b IS NULL FROM items"))
   assert(first_row(rows):text(1) == "7" and first_row(rows):text(2) == "1")
-  rows = assert(Sqlite.text_rows(db, "SELECT :value, :value, ?3", { { text = "twice" }, {}, { blob = "bytes" } }))
+  rows = assert(db:text_rows("SELECT :value, :value, ?3", { { text = "twice" }, {}, { blob = "bytes" } }))
   assert(first_row(rows):text(1) == "twice" and first_row(rows):text(2) == "twice" and first_row(rows):text(3) == "bytes")
-  rows = assert(Sqlite.text_rows(db, "SELECT :value, :value", { { number = 1.5 } }))
+  rows = assert(db:text_rows("SELECT :value, :value", { { number = 1.5 } }))
   assert(first_row(rows):text(1) == "1.5" and first_row(rows):text(2) == "1.5")
-  local past, _ = Sqlite.text_rows(db, "SELECT ?3", { { integer = 3 } })
+  local past, _ = db:text_rows("SELECT ?3", { { integer = 3 } })
   assert(past == nil)
-  local extra, _ = Sqlite.text_rows(db, "SELECT 1", { {} })
+  local extra, _ = db:text_rows("SELECT 1", { {} })
   assert(extra == nil)
   assert(db:close())
 end
@@ -117,18 +117,18 @@ local function test_lists_bind_as_arrays_for_carray()
     { value = { integers = {} }, text = "" },
   }
   for _, case in ipairs(cases) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { case.value }))
+    local rows = assert(db:text_rows("SELECT value FROM carray(?1)", { case.value }))
     local got: mut {string} = {}
     for _, row in ipairs(rows) do got[#got + 1] = row:text(1) end
     assert(table.concat(got, " ") == case.text, table.concat(got, " "))
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT 2 IN carray(?1), 5 IN carray(?1), quote(?1)",
+  local rows = assert(db:text_rows("SELECT 2 IN carray(?1), 5 IN carray(?1), quote(?1)",
     { { integers = { 1, 2, 3 } } }))
   assert(table.concat(first_row(rows):texts(), " ") == "1 0 NULL", table.concat(first_row(rows):texts(), " "))
-  local listed = assert(Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { { texts = { "x", "y" } } }))
+  local listed = assert(db:text_rows("SELECT value FROM carray(?1)", { { texts = { "x", "y" } } }))
   assert(#listed == 2)
   local ok, why: boolean, any = pcall(function()
-    local _, _ = Sqlite.text_rows(db, "SELECT value FROM carray(?1)", { { texts = { "x\0" } } })
+    local _, _ = db:text_rows("SELECT value FROM carray(?1)", { { texts = { "x\0" } } })
   end)
   assert(not ok and tostring(why):find("holds a NUL", 1, true) ~= nil, tostring(why))
   assert(db:close())
@@ -140,7 +140,7 @@ local function test_carray_reads_no_array_sql_names()
   local db = assert(Sqlite.memory())
   local values: {Sqlite.Value} = { { integer = 4096 }, { integers = { 1 } } }
   for _, value in ipairs(values) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM carray(?1, 3, 'int64')", { value }))
+    local rows = assert(db:text_rows("SELECT count(*) FROM carray(?1, 3, 'int64')", { value }))
     assert(first_row(rows):text(1) == "0", first_row(rows):text(1))
   end
   assert(db:close())

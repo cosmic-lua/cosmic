@@ -406,7 +406,7 @@ end
 --- file and line order: a row with no blame for `head` has `commit` ""
 --- and `blamed` false.
 local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
-  local answered, answer_why = Sqlite.map(db,
+  local answered, answer_why = db:map(
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
       "b.author_time, b.summary, b.boundary, t.id FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
@@ -448,7 +448,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
   if head == "" then
     return true, ""
   end
-  local heads, trouble = Sqlite.text_rows(db,
+  local heads, trouble = db:text_rows(
     "SELECT DISTINCT head FROM blames WHERE head != ?1 AND head != ''",
     { { text = head } })
   if heads == nil then
@@ -470,14 +470,14 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
       -- A commit blame now passes over, or no longer does, may be the
       -- one any line is blamed on.
       local ignore_moved = touched[IGNORED_REVS] == true
-      local kept, rows_trouble = Sqlite.text_rows(db,
+      local kept, rows_trouble = db:text_rows(
         "SELECT DISTINCT path FROM blames WHERE head = ?1", { { text = old } })
       if kept == nil then
         return false, tostring(rows_trouble)
       end
       for _, each in ipairs(kept) do
         if not ignore_moved and touched[each:text(1)] ~= true then
-          local ok, move_trouble = Sqlite.run(db,
+          local ok, move_trouble = db:run(
             "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
             { { text = head }, { text = old }, { text = each:text(1) } })
           if not ok then
@@ -495,7 +495,7 @@ end
 --- stands on any more. Returns how many files it blamed.
 local function blame_rows(db: Sqlite.Handle, root: string, head: string,
                           rows: {Row}, run_git: GitRunner?): integer?, string
-  local pruned, prune_trouble = Sqlite.run(db,
+  local pruned, prune_trouble = db:run(
     "DELETE FROM blames WHERE head != ?1 OR NOT EXISTS (SELECT 1 FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
       "UNION SELECT path, sha256 FROM scanned) f " ..
@@ -538,7 +538,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       todo.author_time = if known ~= nil then known.author_time else 0 end
       todo.summary = if known ~= nil then known.summary else "" end
       todo.boundary = if known ~= nil then known.boundary else false end
-      local ok, trouble = Sqlite.run(db,
+      local ok, trouble = db:run(
         "INSERT OR REPLACE INTO blames (path, line, sha256, head, commit_id, " ..
           "author_time, summary, boundary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         { { text = file }, { integer = todo.line }, { text = row.sha256 },
@@ -609,7 +609,7 @@ end
 --- comment. Read apart here, since a row is the bytes' alone and says
 --- nothing of the file's name.
 local function misses_of(db: Sqlite.Handle): {Miss}?, string
-  local answered, answer_why = Sqlite.map(db,
+  local answered, answer_why = db:map(
     "SELECT f.path, m.line, m.spelling FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
       "UNION SELECT path, sha256 FROM scanned) f " ..
@@ -712,7 +712,7 @@ end
 --- and every one required, when it does not (as [`cosmic.sys`] does not).
 function todos.search(db: Sqlite.Handle, query: string): {integer:integer}?, string
   local sql = "SELECT rowid FROM todos_fts WHERE todos_fts MATCH ?1 ORDER BY rank"
-  local first, _ = Sqlite.text_rows(db, sql, { { text = query } })
+  local first, _ = db:text_rows(sql, { { text = query } })
   local rows: Sqlite.Rows = {}
   if first ~= nil then
     rows = first
@@ -721,7 +721,7 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer}?, str
     if words == "" then
       return {}, ""
     end
-    local retried, trouble = Sqlite.text_rows(db, sql, { { text = words } })
+    local retried, trouble = db:text_rows(sql, { { text = words } })
     if retried == nil then
       return nil, tostring(trouble)
     end

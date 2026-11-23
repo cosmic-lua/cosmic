@@ -17,7 +17,7 @@ local function stamped(): Sqlite.Handle
   assert(db:exec("INSERT INTO decls (path, source) VALUES ('a.d', deflate('declared'))"))
   assert(db:exec("INSERT INTO meta (key, value) VALUES ('compiled_by', 'a compiler'), ('runtime_basis', 'a basis')"))
   local content = assert(Stamp.content(db))
-  assert(Sqlite.run(db, "INSERT INTO meta (key, value) VALUES ('stamp_of', ?1), ('stamp_coded', 'the code')",
+  assert(db:run("INSERT INTO meta (key, value) VALUES ('stamp_of', ?1), ('stamp_coded', 'the code')",
     { { text = content } }))
   return db
 end

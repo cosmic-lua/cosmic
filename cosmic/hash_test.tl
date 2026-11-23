@@ -302,11 +302,11 @@ local function test_hmac_takes_a_key_of_any_length()
   for _, case in ipairs(cases) do
     local label = case.algorithm .. " with a " .. tostring(#case.key) .. "-byte key"
     assert(Codec.hex(Hash.hmac(case.algorithm, case.key, case.message)) == case.mac, label)
-    local rows = assert(Sqlite.text_rows(db, "SELECT lower(hex(hmac(?1, ?2, ?3)))",
+    local rows = assert(db:text_rows("SELECT lower(hex(hmac(?1, ?2, ?3)))",
       { { text = case.algorithm }, { blob = case.key }, { text = case.message } }))
     assert(Array.at(rows, 1):text(1) == case.mac, "SQL, " .. label)
   end
-  db:close()
+  local _, _ = db:close()
 end
 
 --- Bytes `first` through `last`, one of each in order.
@@ -367,24 +367,24 @@ end
 local function test_sql_knows_the_same_digests()
   local db = assert(Sqlite.memory())
   for _, v in ipairs(vectors) do
-    local rows = assert(Sqlite.text_rows(db,
+    local rows = assert(db:text_rows(
       "SELECT lower(hex(digest(?1, ?2)))", { { text = v.algorithm }, { text = v.message } }))
     assert(Array.at(rows, 1):text(1) == v.digest, v.algorithm)
   end
   for _, v in ipairs(macs) do
-    local rows = assert(Sqlite.text_rows(db,
+    local rows = assert(db:text_rows(
       "SELECT lower(hex(hmac(?1, 'key', ?2)))", { { text = v.algorithm }, { text = fox } }))
     assert(Array.at(rows, 1):text(1) == v.mac, v.algorithm)
   end
-  local same = assert(Sqlite.text_rows(db, "SELECT sha256('abc') = digest('sha256', 'abc')"))
+  local same = assert(db:text_rows("SELECT sha256('abc') = digest('sha256', 'abc')"))
   assert(Array.at(same, 1):text(1) == "1")
-  local nulls = assert(Sqlite.text_rows(db,
+  local nulls = assert(db:text_rows(
     "SELECT digest(NULL, 'abc') IS NULL, hmac('sha256', NULL, 'abc') IS NULL"))
   assert(Array.at(nulls, 1):text(1) == "1" and Array.at(nulls, 1):text(2) == "1")
-  local rows, trouble = Sqlite.text_rows(db, "SELECT digest('sha0', 'abc')")
+  local rows, trouble = db:text_rows("SELECT digest('sha0', 'abc')")
   assert(rows == nil)
   assert(tostring(trouble):find("no such digest algorithm", 1, true) ~= nil, trouble)
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_hasher_matches_digest_for_chunked_input()

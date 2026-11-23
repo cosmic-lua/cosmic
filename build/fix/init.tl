@@ -670,7 +670,7 @@ local function file_check_sources(databases: {Sqlite.Handle}, checks: {string}):
   local out: mut {string: boolean} = {}
   local found: mut {string: boolean} = {}
   for _, db in ipairs(databases) do
-    local rows, _ = Sqlite.text_rows(db, query)
+    local rows, _ = db:text_rows(query)
     for _, row in ipairs(rows or {}) do
       found[row:text(1)] = true
       out[row:text(2)] = true
@@ -1961,7 +1961,10 @@ local function run_tree_checks(ctx: Fix)
         findings[#findings + 1] = line
       end
       local closed, close_trouble = db:close()
-      if not closed then findings[#findings + 1] = "tree checks: " .. close_trouble end
+      if not closed then
+        local said = "tree checks: " .. tostring(close_trouble)
+        findings[#findings + 1] = said
+      end
     end
   elseif assert(ctx.standing).own then
     hold_named_markers(root, picked.files, findings)

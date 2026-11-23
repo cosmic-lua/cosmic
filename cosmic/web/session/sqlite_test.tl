@@ -33,7 +33,7 @@ local function create(store: Session.Store, values: mut {string: Json.Value}, ex
 end
 
 local function count(db: Sqlite.Handle): integer
-  local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions"))
+  local rows = assert(db:rows("SELECT count(*) FROM web_sessions"))
   local row = assert(rows[1], "a count query answers one row")
   return row:integer(1)
 end
@@ -42,11 +42,11 @@ local function test_a_new_session_gets_a_256_bit_id_and_the_table_holds_only_its
   local store, db = open()
   local id = create(store, { user = "ada" })
   assert(#id == 43 and Codec.unbase64url(id) ~= nil and #assert(Codec.unbase64url(id)) == 32)
-  local rows = assert(Sqlite.rows(db, "SELECT id_hash, data FROM web_sessions"))
+  local rows = assert(db:rows("SELECT id_hash, data FROM web_sessions"))
   assert(#rows == 1 and rows[1]:blob(1) == Hash.sha256(id))
   local rows_1 = assert(rows[1], "expected rows[1]")
   assert(rows_1:text(2):find("ada", 1, true))
-  local seen = assert(Sqlite.rows(db, "SELECT count(*) FROM web_sessions WHERE id_hash = ?1 OR data = ?2",
+  local seen = assert(db:rows("SELECT count(*) FROM web_sessions WHERE id_hash = ?1 OR data = ?2",
     { { blob = id }, { text = id } }))
   local seen_1 = assert(seen[1], "expected seen[1]")
   assert(seen_1:integer(1) == 0, "the id itself is nowhere in the table")
@@ -204,7 +204,7 @@ local function test_a_table_name_that_is_not_an_identifier_is_refused_and_a_name
   assert(not ok and tostring(why):find("identifier", 1, true) ~= nil)
   local store = assert(SessionSqlite.store(db, { table = "my_sessions" }))
   local id = assert(store:save("", fresh({}), changed({ a = 1 }), 100, "session"))
-  local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM my_sessions"))
+  local rows = assert(db:rows("SELECT count(*) FROM my_sessions"))
   local rows_1 = assert(rows[1], "expected rows[1]")
   assert(rows_1:integer(1) == 1 and store:load(id, 200, "session") ~= nil)
 end
@@ -292,7 +292,7 @@ local function test_list_puts_the_session_seen_last_first_and_one_never_seen_by_
   note(store, assert(ids[1]), 700, "10.0.0.1")
   local order: mut {string} = {}
   for _, info in ipairs((assert(SessionSqlite.list(store, 800)))) do
-    local rows = assert(Sqlite.rows(db, "SELECT data FROM web_sessions WHERE public_id = ?1", { { text = info.id } }))
+    local rows = assert(db:rows("SELECT data FROM web_sessions WHERE public_id = ?1", { { text = info.id } }))
     order[#order + 1] = assert(rows[1]):text(1)
   end
   assert(table.concat(order, " ") == '{"n":1} {"n":3} {"n":2}', table.concat(order, " "))
@@ -347,7 +347,7 @@ CREATE INDEX web_sessions_expires ON web_sessions (expires);
 CREATE INDEX web_sessions_subject ON web_sessions (subject) WHERE subject IS NOT NULL;]]))
   local tokens = { Codec.base64url(("a"):rep(32)), Codec.base64url(("b"):rep(32)) }
   for _, token in ipairs(tokens) do
-    assert(Sqlite.run(db, "INSERT INTO web_sessions VALUES (?1, '{\"user\":\"ada\"}', 'ada', 100, 100, 1000)",
+    assert(db:run("INSERT INTO web_sessions VALUES (?1, '{\"user\":\"ada\"}', 'ada', 100, 100, 1000)",
       { { blob = Hash.sha256(token) } }))
   end
   local store = assert(SessionSqlite.store(db))
@@ -356,7 +356,7 @@ CREATE INDEX web_sessions_subject ON web_sessions (subject) WHERE subject IS NOT
   end
   local listed = assert(SessionSqlite.list(store, 500))
   assert(#listed == 2 and #assert(listed[1]).id == 16 and assert(listed[1]).id ~= assert(listed[2]).id)
-  local indexed = assert(Sqlite.rows(db,
+  local indexed = assert(db:rows(
     "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'web_sessions_public_id' AND sql LIKE '%UNIQUE%'"))
   assert(assert(indexed[1]):integer(1) == 1, "the public ids are unique")
   assert(SessionSqlite.store(db), "a second open finds nothing to do")
@@ -367,7 +367,7 @@ end
 
 --- How many rows the connection has written since it opened.
 local function writes_of(db: Sqlite.Handle): integer
-  local rows = assert(Sqlite.rows(db, "SELECT total_changes()"))
+  local rows = assert(db:rows("SELECT total_changes()"))
   return assert(rows[1], "a count answers a row"):integer(1)
 end
 
@@ -446,7 +446,7 @@ end
 local function test_a_row_an_earlier_version_wrote_after_the_migration_gets_an_id_at_its_next_save()
   local store, db = open()
   local token = Codec.base64url(("c"):rep(32))
-  assert(Sqlite.run(db, "INSERT INTO web_sessions (id_hash, data, created, touched, expires) VALUES (?1, '{}', 100, 100, 1000)",
+  assert(db:run("INSERT INTO web_sessions (id_hash, data, created, touched, expires) VALUES (?1, '{}', 100, 100, 1000)",
     { { blob = Hash.sha256(token) } }))
   assert(#assert(SessionSqlite.list(store, 500)) == 0 and SessionSqlite.info(store, token, 500) == nil,
     "a row with no public id is not listed, and does not break the list")

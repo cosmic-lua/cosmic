@@ -89,7 +89,7 @@ local function test_entries_become_rows_once_each_in_order()
     { kind = "key", name = "a", value = string.rep("\7", 32) },
     { kind = "serial", name = "b", value = "\1" },
   }))
-  local rows = assert(Sqlite.text_rows(db, "SELECT kind, hex(name), hex(value) FROM ca_revoked ORDER BY rowid"))
+  local rows = assert(db:text_rows("SELECT kind, hex(name), hex(value) FROM ca_revoked ORDER BY rowid"))
   assert(db:close())
   assert(#rows == 2, tostring(#rows))
   assert(assert(rows[1]):text(1) == "key" and assert(rows[2]):text(1) == "serial")

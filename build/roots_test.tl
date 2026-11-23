@@ -44,7 +44,7 @@ local function filled(tmp: string, pem: string): Sqlite.Rows?, string
     assert(db:close())
     return nil, trouble
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT label, hex(der) FROM ca_roots ORDER BY rowid"))
+  local rows = assert(db:text_rows("SELECT label, hex(der) FROM ca_roots ORDER BY rowid"))
   assert(db:close())
   return rows, ""
 end
@@ -94,7 +94,7 @@ local function test_fill_writes_one_row_per_distinct_certificate(tmp: string)
       "B\n=\n" .. block("\7") .. "\n" .. "A again\n=\n" .. block("\5\6") .. "\n"))
   local db = database()
   assert(roots.fill(db, tmp, "main."))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT hex(sha256), label, hex(der) FROM ca_roots ORDER BY rowid"))
   assert(db:close())
   assert(#rows == 2, "a certificate listed twice is one root")
@@ -126,7 +126,7 @@ local function test_the_tree_s_bundle_becomes_a_row_per_certificate()
   local _, blocks = text:gsub("\nCKA_TRUST_SERVER_AUTH CK_TRUST CKT_NSS_TRUSTED_DELEGATOR\n", "")
   local db = database()
   assert(roots.fill(db, root, "main."))
-  local counted = assert(Sqlite.text_rows(db,
+  local counted = assert(db:text_rows(
     "SELECT count(*), count(*) FILTER (WHERE label = ''), " ..
       "count(*) FILTER (WHERE sha256 <> sha256(der)) FROM ca_roots"))
   assert(db:close())
@@ -252,7 +252,7 @@ local function test_a_distrust_date_is_carried_in_the_row(tmp: string)
   })))
   local db = database()
   assert(roots.fill(db, tmp, "main."))
-  local rows = assert(Sqlite.text_rows(db, "SELECT label, distrust_after FROM ca_roots ORDER BY label"))
+  local rows = assert(db:text_rows("SELECT label, distrust_after FROM ca_roots ORDER BY label"))
   assert(db:close())
   assert(#rows == 2)
   local dated, plain = assert(rows[1]), assert(rows[2])

@@ -85,7 +85,7 @@ local function spoof_database(argv: {string}): integer
     runtime_context = "legacy-spoof",
   }
   for key, value in pairs(values) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
       { text(key), text(value) }))
   end
@@ -104,7 +104,7 @@ local function verify_verdicts(argv: {string}): integer
   assert(database ~= nil and counter ~= nil,
     "usage: probe.tl verify-verdicts DATABASE COUNTER")
   local db = assert(Sqlite.open(database))
-  local keys = assert(Sqlite.text_rows(db,
+  local keys = assert(db:text_rows(
     "SELECT key FROM verdicts ORDER BY key"))
   assert(db:close())
   local content = assert(Fs.read(counter))

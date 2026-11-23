@@ -13,12 +13,12 @@ end
 
 -- The one number a query answers.
 local function number_of(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): number
-  local rows = assert(Sqlite.rows(db, sql, values))
+  local rows = assert(db:rows(sql, values))
   return assert(rows[1]):number(1)
 end
 
 local function text_of(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): string
-  local rows = assert(Sqlite.rows(db, sql, values))
+  local rows = assert(db:rows(sql, values))
   return assert(rows[1]):text(1)
 end
 
@@ -50,13 +50,13 @@ local function test_distances_match_hand_computed_answers()
   end
   assert(close_to(number_of(db, "SELECT inner_product(?1, ?2)",
     { { blob = blob_of(long) }, { blob = blob_of(ones) } }), 231))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_text_and_blob_forms_agree()
   local db = assert(Sqlite.memory())
   local packed = blob_of({ 1, 2.5, -3 })
-  local rows = assert(Sqlite.rows(db, "SELECT vector('[1, 2.5, -3]')"))
+  local rows = assert(db:rows("SELECT vector('[1, 2.5, -3]')"))
   assert(assert(rows[1]):blob(1) == packed)
   assert(text_of(db, "SELECT vector_text(?1)", { { blob = packed } }) == "[1,2.5,-3]")
   assert(text_of(db, "SELECT vector_text(vector(' [ 0.1 ] '))") == "[0.100000001]")
@@ -65,7 +65,7 @@ local function test_text_and_blob_forms_agree()
   assert(VectorFixture.refusal(db, "SELECT vector(x'')"):find("at least 1 dimension", 1, true) ~= nil)
   assert(close_to(number_of(db, "SELECT l2_distance(?1, '[1, 2.5, -3]')",
     { { blob = packed } }), 0))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_normalize_and_subvector()
@@ -86,7 +86,7 @@ local function test_normalize_and_subvector()
   assert(VectorFixture.refusal(db, "SELECT subvector('[1,2,3]', 4, 2)"):find("at least 1 dimension", 1, true) ~= nil)
   assert(VectorFixture.refusal(db, "SELECT subvector('[1,2,3]', 0, 1)"):find("at least 1 dimension", 1, true) ~= nil)
   assert(VectorFixture.refusal(db, "SELECT subvector('[1,2,3]', 1, 0)"):find("at least 1 dimension", 1, true) ~= nil)
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_normalize_does_not_underflow_or_overflow_in_float()
@@ -96,7 +96,7 @@ local function test_normalize_does_not_underflow_or_overflow_in_float()
     "SELECT l2_distance(l2_normalize('[3e-30, 4e-30]'), '[0.6, 0.8]')"), 0))
   assert(close_to(number_of(db,
     "SELECT l2_distance(l2_normalize('[3e30, 4e30]'), '[0.6, 0.8]')"), 0))
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_binary_quantize_and_bit_distances()
@@ -115,7 +115,7 @@ local function test_binary_quantize_and_bit_distances()
   assert(number_of(db, "SELECT hamming_distance(binary_quantize('[1,1,1,1,1,1,1,1,1]'), x'ffff')") == 7)
   assert(VectorFixture.refusal(db, "SELECT hamming_distance(x'00', x'0000')"):find("different lengths", 1, true) ~= nil)
   assert(VectorFixture.refusal(db, "SELECT hamming_distance('a', 'b')"):find("is a blob", 1, true) ~= nil)
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_refuses_what_is_not_a_vector()
@@ -139,10 +139,10 @@ local function test_refuses_what_is_not_a_vector()
   assert(VectorFixture.refusal(db, "SELECT vector(?1)", { { blob = nan } }):find("finite numbers", 1, true) ~= nil)
   -- A zeroblob is a vector of zeros, read without being held in memory.
   assert(number_of(db, "SELECT vector_dims(zeroblob(12))") == 3)
-  local rows = assert(Sqlite.rows(db,
+  local rows = assert(db:rows(
     "SELECT l2_distance(NULL, '[1]') IS NULL, cosine_distance('[0,0]', '[1,1]') IS NULL"))
   assert(assert(rows[1]):integer(1) == 1 and assert(rows[1]):integer(2) == 1)
-  db:close()
+  local _, _ = db:close()
 end
 
 -- A toy embedding, so a search runs with no model: each word lands on
@@ -187,7 +187,7 @@ local function corpus(): Sqlite.Handle
     CREATE VIRTUAL TABLE chunks_fts USING fts5(body, content='chunks', content_rowid='id');
   ]]))
   for i, d in ipairs(docs) do
-    assert(Sqlite.run(db,
+    assert(db:run(
       "INSERT INTO chunks VALUES (?1, ?2, ?3, l2_normalize(?4))",
       { { integer = i }, { text = d.body }, { text = d.topic }, { blob = embed(d.body) } }))
   end
@@ -196,7 +196,7 @@ local function corpus(): Sqlite.Handle
 end
 
 local function ids(db: Sqlite.Handle, sql: string, values: {Sqlite.Value}): {integer}
-  local found = assert(Sqlite.map(db, sql, values, function(r: Sqlite.Row): integer
+  local found = assert(db:map(sql, values, function(r: Sqlite.Row): integer
     return r:integer(1)
   end))
   return found
@@ -225,7 +225,7 @@ local function test_searches_by_meaning_with_a_filter()
   local by_dot = ids(db,
     "SELECT id FROM chunks ORDER BY inner_product(embedding, l2_normalize(?1)) DESC LIMIT 2", { query })
   assert(by_dot[1] == nearest[1] and by_dot[2] == nearest[2])
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_binary_first_pass_then_rerank()
@@ -244,7 +244,7 @@ local function test_binary_first_pass_then_rerank()
     ORDER BY cosine_distance(c.embedding, ?1) NULLS LAST LIMIT 1
   ]], { query })
   assert(reranked[1] == 6, "the chunk with all three words wins the rerank")
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_hybrid_search_blends_keywords_and_meaning()
@@ -280,7 +280,7 @@ local function test_hybrid_search_blends_keywords_and_meaning()
     GROUP BY id ORDER BY sum(score) DESC LIMIT 1
   ]], { meaning, keywords })
   assert(blended[1] == 4, "Mars is second in both lists, ahead of each list's first")
-  db:close()
+  local _, _ = db:close()
 end
 
 -- A blob sits at a different offset in its page as the columns before it
@@ -293,10 +293,10 @@ local function test_a_blob_at_any_offset_in_a_row_reads_the_same()
   assert(db:exec("CREATE TABLE odd (id INTEGER PRIMARY KEY, pad BLOB, v BLOB)"))
   local packed = blob_of({ 1, 2.5, -3, 4, 5, 6, 7, 8, 9, 10 })
   for pad = 0, 3 do
-    assert(Sqlite.run(db, "INSERT INTO odd VALUES (?1, ?2, ?3)",
+    assert(db:run("INSERT INTO odd VALUES (?1, ?2, ?3)",
       { { integer = pad }, { blob = string.rep("x", pad) }, { blob = packed } }))
   end
-  local rows = assert(Sqlite.map(db,
+  local rows = assert(db:map(
     "SELECT l2_distance(v, ?1), vector_text(v), vector(v) = ?1 FROM odd ORDER BY id",
     { { blob = packed } }, function(r: Sqlite.Row): string
       return string.format("%g %s %d", r:number(1), r:text(2), r:integer(3))
@@ -305,7 +305,7 @@ local function test_a_blob_at_any_offset_in_a_row_reads_the_same()
   for _, row in ipairs(rows) do
     assert(row == "0 [1,2.5,-3,4,5,6,7,8,9,10] 1", row)
   end
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_a_view_in_an_untrusted_file_may_use_them()
@@ -318,7 +318,7 @@ local function test_a_view_in_an_untrusted_file_may_use_them()
     CREATE INDEX chunks_bits ON chunks (binary_quantize(embedding));
   ]]))
   assert(number_of(db, "SELECT id FROM near_sun") == 1)
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_a_text_with_a_nul_is_no_vector()
@@ -327,7 +327,7 @@ local function test_a_text_with_a_nul_is_no_vector()
   local text: Sqlite.Value = { text = "[1]\0junk" }
   assert(VectorFixture.refusal(db, "SELECT vector(?1)", { text }):find("NUL", 1, true) ~= nil)
   assert(VectorFixture.refusal(db, "SELECT vector_dims(?1)", { text }):find("NUL", 1, true) ~= nil)
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_the_sign_of_zero_survives_vector_text()
@@ -336,7 +336,7 @@ local function test_the_sign_of_zero_survives_vector_text()
   local written = text_of(db, "SELECT vector_text(?1)", { blob })
   assert(written == "[-0,1]", written)
   assert(text_of(db, "SELECT hex(vector(vector_text(?1)))", { blob }) == "000000800000803F")
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_distances_of_huge_or_tiny_vectors_stay_finite()
@@ -359,7 +359,7 @@ local function test_distances_of_huge_or_tiny_vectors_stay_finite()
   local zeros: Sqlite.Value = { blob = blob_of({ 0, 0 }) }
   local v: Sqlite.Value = { blob = blob_of({ 1e-30, 0 }) }
   assert(text_of(db, "SELECT typeof(cosine_distance(?1, ?2))", { v, zeros }) == "null")
-  db:close()
+  local _, _ = db:close()
 end
 
 local function test_distances_do_not_underflow_to_zero_in_float()
@@ -385,5 +385,5 @@ local function test_distances_do_not_underflow_to_zero_in_float()
   assert(number_of(db, "SELECT l2_distance(?1, ?1)", { zeros }) == 0)
   local other: Sqlite.Value = { blob = blob_of({ 0, 1e-30 }) }
   assert(number_of(db, "SELECT inner_product(?1, ?2)", { tiny, other }) == 0)
-  db:close()
+  local _, _ = db:close()
 end

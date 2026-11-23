@@ -44,7 +44,6 @@
 local Proc = require("cosmic.proc")
 local rules = require("cosmic.sandbox.policy")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local sys = require("cosmic.sys")
@@ -318,7 +317,6 @@ end
 local executable_path <const> = Proc.executable
 local store_paths <const> = Store.paths
 local store_databases <const> = Store.databases
-local text_rows <const> = Sqlite.text_rows
 local stat <const> = sys.stat
 local seatbelt_resolve <const> = Seatbelt.resolve
 local seatbelt_compile <const> = Seatbelt.compile
@@ -418,7 +416,7 @@ end
 --- file has its header at no offset a path tells).
 local function store_unheld(): string
   for _, db in ipairs(store_databases()) do
-    local rows, why = text_rows(db, "SELECT count(*) FROM sqlite_schema")
+    local rows, why = db:text_rows("SELECT count(*) FROM sqlite_schema")
     if rows == nil then return "the store cannot be read: " .. tostring(why) end
   end
   for _, path in ipairs(store_paths()) do

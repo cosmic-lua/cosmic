@@ -11,8 +11,6 @@
 local Sqlite = require("cosmic.sqlite")
 local sys = require("cosmic.sys")
 
-local text_rows <const> = Sqlite.text_rows
-
 local record shared_sqlite
 end
 
@@ -43,7 +41,7 @@ local function to_wal(db: Sqlite.Handle, wait_ns: integer): boolean, string
   if started == nil then return false, clock_trouble end
   local deadline = started + wait_ns
   while true do
-    local rows, why = text_rows(db, "PRAGMA journal_mode = WAL")
+    local rows, why = db:text_rows("PRAGMA journal_mode = WAL")
     if rows ~= nil then
       local mode = if rows[1] ~= nil then rows[1]:text(1) else "" end
       if mode ~= "wal" then return false, "journal mode is " .. mode .. ", not wal" end
@@ -80,7 +78,7 @@ function shared_sqlite.open(path: string, prepare: function(Sqlite.Handle): (boo
   local journal, journal_trouble = to_wal(db, wait_ns)
   if not journal then return fail(journal_trouble) end
   local timed, time_trouble = db:exec("PRAGMA busy_timeout = " .. tostring(-(-wait_ns // MS)))
-  if not timed then return fail(time_trouble) end
+  if not timed then return fail(tostring(time_trouble)) end
   local prepared, prepare_trouble = prepare(db)
   if not prepared then return fail(prepare_trouble) end
   return db, ""

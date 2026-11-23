@@ -610,10 +610,10 @@ local function test_a_refused_call_points_to_the_worked_example_when_the_docs_ho
   for _, statement in ipairs(schema.create("")) do
     assert(db:exec(statement))
   end
-  assert(Sqlite.run(db,
+  assert(db:run(
     "INSERT INTO modules (path, file, kind, source_hash, key, source, bytecode, tests) " ..
       "VALUES ('cosmic.fs', 'cosmic/fs.tl', 'module', '', '', '', '', '')"))
-  assert(Sqlite.run(db,
+  assert(db:run(
     "INSERT INTO examples (module, name, text, file, line, source) " ..
       "VALUES ('cosmic.fs', 'generics_functions_returns', 'Calls.', 'cosmic/fs.tl', 9, 'local x = 1')"))
   assert(db:exec("INSERT INTO examples_fts(examples_fts) VALUES ('rebuild')"))

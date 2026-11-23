@@ -563,7 +563,7 @@ local function test_deflate_and_inflate_leave_nothing_whenever_an_allocation_fai
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = AllocationFixture.under_every_failure(function()
-    local rows = assert(Sqlite.rows(db, "SELECT inflate(deflate(?1))",
+    local rows = assert(db:rows("SELECT inflate(deflate(?1))",
       { { text = text } }))
     local row = assert(rows[1], "the query answers a row")
     assert(row:blob(1) == text)
@@ -587,7 +587,7 @@ local function test_vector_functions_leave_nothing_whenever_an_allocation_fails(
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
   local ended = AllocationFixture.under_every_failure(function()
-    local rows = assert(Sqlite.rows(db, [[
+    local rows = assert(db:rows([[
       SELECT vector_text(l2_normalize(subvector('[3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]', 1, 2))),
              cosine_distance('[1, 2, 3]', '[3, 2, 1]'),
              hamming_distance(binary_quantize('[1, -1, 2]'), binary_quantize('[1, 1, 2]')),
@@ -691,12 +691,12 @@ end
 local function block_rows(db: Sqlite.Handle): {Vector.Storage: string}
   assert(db:exec("CREATE TABLE r (id INTEGER PRIMARY KEY, v BLOB)"))
   for i = 1, 40 do
-    assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2)",
+    assert(db:run("INSERT INTO r VALUES (?1, ?2)",
       { { integer = 100 + i }, { blob = corpus_vector(i) } }))
   end
   local made: mut {Vector.Storage: string} = {}
   for _, storage in ipairs(corpus_storages) do
-    local rows = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+    local rows = assert(db:rows(("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
     made[storage] = assert(rows[1]):blob(1)
   end
   return made
@@ -721,14 +721,14 @@ local function test_blocks_leave_nothing_whenever_an_allocation_fails()
           vector('[' || (value % 7 - 3) || ',' || (value % 5 - 2) || ',' || (value % 3 - 1) || ',1]')
         FROM generate_series(1, 40)
       ]]))
-      local rows = assert(Sqlite.rows(db, ([[
+      local rows = assert(db:rows(([[
         SELECT h.id, h.distance
         FROM (SELECT vector_block(id, v, '%s') AS b FROM r) AS p,
              vector_block_search(p.b, ?1, 3, 'cosine') AS h
         ORDER BY h.distance, h.id
       ]]):format(storage), { { blob = query } }))
       assert(#rows == 3)
-      local more = assert(Sqlite.rows(db, ([[
+      local more = assert(db:rows(([[
         SELECT id FROM vector_block_search((SELECT vector_block(id, v, '%s') FROM r), ?1, 5, 'l2')
       ]]):format(storage), { { blob = query } }))
       assert(#more == 5)
@@ -1201,7 +1201,7 @@ local function test_prepared_statements_keep_the_busy_handlers_owner_under_alloc
   end)
   assert(ended > 0)
   assert_c_heap(bytes, blocks, "a prepared statement's busy handler")
-  assert(db:close(), "a refused operation left a prepared statement open")
+  assert(db:close())
 end
 
 --- Existing-only open shares the normal handle guard, on success and
@@ -1292,7 +1292,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   end
   for _, sql in ipairs({ "SELECT ?1", "SELECT 1; SELECT * FROM missing" }) do
     local ended = AllocationFixture.under_every_failure(function()
-      local prepared = db:prepare_result(sql)
+      local prepared = db.connection:prepare_result(sql)
       if prepared.statement ~= nil then -- checked: compare_disjoint
         local statement = prepared.statement
         assert(statement:bind_values_result({ { text = "hello" } }).code == Sqlite.OK)
@@ -1312,7 +1312,7 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
     { texts = { "a", "bb" } }, { blobs = { "\0", "" } } }
   for _, list in ipairs(lists) do
     local ended = AllocationFixture.under_every_failure(function()
-      local statement = assert(db:prepare_result("SELECT count(*) FROM carray(?1)").statement)
+      local statement = assert(db.connection:prepare_result("SELECT count(*) FROM carray(?1)").statement)
       assert(statement:bind_values_result({ list }).code == Sqlite.OK)
       assert(statement:step_result() == "row")
       statement:finalize()

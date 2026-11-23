@@ -796,7 +796,8 @@ local function test_the_members_of_a_binary_module_are_read_from_the_rows_the_to
   }, { bare })
   assert(has(items(before, 2), { "rowonly", "write", "close" }) == "write,close", before.err)
   assert(before.tally.member_rows == 0 and before.tally.member_declarations == 1)
-  assert(db:close() and bare:close())
+  assert(db:close())
+  assert(bare:close())
 end
 
 --- An interface that lists one another module declares, or one with type arguments, is completed from the rows of each.

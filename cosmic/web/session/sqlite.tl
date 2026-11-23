@@ -136,7 +136,7 @@ end
 
 --- Deletes up to `limit` rows that expired at or before `now`.
 local function delete_expired(store: Backing, now: integer, limit: integer): integer?, string
-  local ok, why = Sqlite.run(store.db, ("DELETE FROM %s WHERE id_hash IN (SELECT id_hash FROM %s WHERE expires <= ?1 LIMIT ?2)"):
+  local ok, why = store.db:run(("DELETE FROM %s WHERE id_hash IN (SELECT id_hash FROM %s WHERE expires <= ?1 LIMIT ?2)"):
       format(store.table, store.table), { { integer = now }, { integer = limit } })
   if not ok then return nil, "sessions: " .. tostring(why) end
   return store.db:changes(), ""
@@ -163,32 +163,32 @@ end
 --- @return string Why none, or ""
 function SessionSqlite.destroy_subject(store: Session.Store, subject: string): integer?, string
   local b = backing(store)
-  local ok, why = Sqlite.run(b.db, ("DELETE FROM %s WHERE subject = ?1"):format(b.table),
+  local ok, why = b.db:run(("DELETE FROM %s WHERE subject = ?1"):format(b.table),
     { { text = subject } })
   if not ok then return nil, "sessions: " .. tostring(why) end
   return b.db:changes(), ""
 end
 
 --- Runs `work` in a transaction that begins IMMEDIATE and commits when it
---- answers true, as [`Sqlite.transact`] does, which begins deferred and has no
+--- answers true, as [`Sqlite.Handle.transact`] does, which begins deferred and has no
 --- option for this. When `work` answers false or raises, it rolls back.
---- TODO: once Sqlite.transact takes a begin mode, use it.
+--- TODO: once Sqlite.Handle.transact takes a begin mode, use it.
 local function immediate(db: Sqlite.Handle, work: function(): boolean, string): boolean, string
-  local began, begin_why = Sqlite.run(db, "BEGIN IMMEDIATE")
+  local began, begin_why = db:run("BEGIN IMMEDIATE")
   if not began then return false, tostring(begin_why) end
   local ran, ok, why = pcall(work)
   if not ran then
-    local _, _ = Sqlite.run(db, "ROLLBACK")
+    local _, _ = db:run("ROLLBACK")
     error(ok, 0)
   end
   if not ok then
-    local _, _ = Sqlite.run(db, "ROLLBACK")
+    local _, _ = db:run("ROLLBACK")
     assert(why, "session: a transaction that answers false says why")
     return false, why
   end
-  local committed, commit_why = Sqlite.run(db, "COMMIT")
+  local committed, commit_why = db:run("COMMIT")
   if not committed then
-    local _, _ = Sqlite.run(db, "ROLLBACK")
+    local _, _ = db:run("ROLLBACK")
     return false, tostring(commit_why)
   end
   return true, ""
@@ -214,7 +214,7 @@ local COLUMNS <const> = "data, created, expires, subject, label, seen_at, seen_f
 --- The row for `token` that has not expired, or nil.
 local function find(store: Backing, token: string, now: integer): Sqlite.Row?, string
   if not is_id(token) then return nil, "" end
-  local rows, why = Sqlite.rows(store.db,
+  local rows, why = store.db:rows(
     ("SELECT %s FROM %s WHERE id_hash = ?1 AND expires > ?2"):
       format(COLUMNS, store.table), { hash_of(token), { integer = now } })
   if rows == nil then return nil, "sessions: " .. tostring(why) end
@@ -314,7 +314,7 @@ local function save_session(self: Session.Store, previous: string, data: Session
       public_id = fresh
     end
     if row ~= nil and changes.regenerated ~= true then
-      local answered, answer_why = Sqlite.run(store.db,
+      local answered, answer_why = store.db:run(
         ("UPDATE %s SET data = ?2, subject = ?3, touched = ?4, expires = ?5, label = ?6, public_id = ?7 " ..
           "WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous), { text = text }, text_value(subject), { integer = now }, { integer = data.expires },
@@ -326,13 +326,13 @@ local function save_session(self: Session.Store, previous: string, data: Session
     if id == nil then return false, id_why end
     minted[1] = id
     if row ~= nil then
-      local gone, gone_why = Sqlite.run(store.db, ("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
+      local gone, gone_why = store.db:run(("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
         { hash_of(previous) })
       if not gone then return false, tostring(gone_why) end
     end
     -- A regenerated session keeps its public id, label and last-seen: it
     -- is the same session under a new credential.
-    local answered, answer_why = Sqlite.run(store.db,
+    local answered, answer_why = store.db:run(
       ("INSERT INTO %s (id_hash, data, subject, created, touched, expires, label, seen_at, seen_from, public_id) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"):format(store.table),
       { hash_of(id), { text = text }, text_value(subject), { integer = created }, { integer = now },
@@ -354,7 +354,7 @@ end
 local function destroy_session(self: Session.Store, token: string): boolean, string
   local store = backing(self)
   if not is_id(token) then return true, "" end
-  local ok, why = Sqlite.run(store.db, ("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
+  local ok, why = store.db:run(("DELETE FROM %s WHERE id_hash = ?1"):format(store.table),
     { hash_of(token) })
   if not ok then return false, "sessions: " .. tostring(why) end
   return true, ""
@@ -368,7 +368,7 @@ local function seen_session(self: Session.Store, token: string, data: Session.Da
   if last ~= nil and now - last < interval then return end
   -- The guard keeps two requests that loaded the same old note from both
   -- writing; a failure costs the note, not the request.
-  local _, _ = Sqlite.run(store.db,
+  local _, _ = store.db:run(
     ("UPDATE %s SET seen_at = ?2, seen_from = ?3 WHERE id_hash = ?1 AND (seen_at IS NULL OR seen_at <= ?4)"):
       format(store.table), { hash_of(token), { integer = now }, { text = from }, { integer = now - interval } })
 end
@@ -408,7 +408,7 @@ function SessionSqlite.list(store: Session.Store, now: integer, opts?: SessionSq
   local limit = o.limit or 100
   if limit < 1 then error("session: limit is a number of sessions, at least 1", 2) end
   params[#params + 1] = { integer = limit }
-  local rows, why = Sqlite.rows(b.db,
+  local rows, why = b.db:rows(
     ("SELECT %s FROM %s WHERE %s ORDER BY coalesce(seen_at, created) DESC, created DESC, public_id LIMIT ?%d"):
       format(INFO_COLUMNS, b.table, where, #params), params)
   if rows == nil then return nil, "sessions: " .. tostring(why) end
@@ -428,7 +428,7 @@ end
 function SessionSqlite.info(store: Session.Store, token: string, now: integer): SessionSqlite.Info?, string
   local b = backing(store)
   if not is_id(token) then return nil, "" end
-  local rows, why = Sqlite.rows(b.db, ("SELECT %s FROM %s WHERE id_hash = ?1 AND expires > ?2 AND public_id IS NOT NULL"):
+  local rows, why = b.db:rows(("SELECT %s FROM %s WHERE id_hash = ?1 AND expires > ?2 AND public_id IS NOT NULL"):
       format(INFO_COLUMNS, b.table), { hash_of(token), { integer = now } })
   if rows == nil then return nil, "sessions: " .. tostring(why) end
   local row = rows[1]
@@ -457,7 +457,7 @@ end
 function SessionSqlite.destroy_id(store: Session.Store, id: string, subject?: string): integer?, string
   local b = backing(store)
   local sql, params = scoped(("DELETE FROM %s WHERE public_id = ?1"):format(b.table), { { text = id } }, subject)
-  local ok, why = Sqlite.run(b.db, sql, params)
+  local ok, why = b.db:run(sql, params)
   if not ok then return nil, "sessions: " .. tostring(why) end
   return b.db:changes(), ""
 end
@@ -479,7 +479,7 @@ function SessionSqlite.label(store: Session.Store, id: string, text: string, sub
   end
   local sql, params = scoped(("UPDATE %s SET label = ?2 WHERE public_id = ?1"):format(b.table),
     { { text = id }, text_value(if text == "" then nil else text end) }, subject)
-  local ok, why = Sqlite.run(b.db, sql, params)
+  local ok, why = b.db:run(sql, params)
   if not ok then return nil, "sessions: " .. tostring(why) end
   return b.db:changes(), ""
 end
@@ -512,8 +512,8 @@ CREATE TABLE IF NOT EXISTS %s (
 CREATE INDEX IF NOT EXISTS %s_expires ON %s (expires);
 CREATE INDEX IF NOT EXISTS %s_subject ON %s (subject) WHERE subject IS NOT NULL;]]):
         format(name, name, name, name, name))
-    if not ok then return false, why end
-    local columns, columns_why = Sqlite.rows(db, ("PRAGMA table_info(%s)"):format(name))
+    if not ok then return false, tostring(why) end
+    local columns, columns_why = db:rows(("PRAGMA table_info(%s)"):format(name))
     if columns == nil then return false, tostring(columns_why) end
     local have: mut {string: boolean} = {}
     for _, column in ipairs(columns) do have[column:text(2)] = true end
@@ -521,19 +521,21 @@ CREATE INDEX IF NOT EXISTS %s_subject ON %s (subject) WHERE subject IS NOT NULL;
       local column, kind = assert(added[1]), assert(added[2])
       if have[column] == nil then
         local altered, alter_why = db:exec(("ALTER TABLE %s ADD COLUMN %s %s"):format(name, column, kind))
-        if not altered then return false, alter_why end
+        if not altered then return false, tostring(alter_why) end
       end
     end
-    local bare, bare_why = Sqlite.rows(db, ("SELECT id_hash FROM %s WHERE public_id IS NULL"):format(name))
+    local bare, bare_why = db:rows(("SELECT id_hash FROM %s WHERE public_id IS NULL"):format(name))
     if bare == nil then return false, tostring(bare_why) end
     for _, row in ipairs(bare) do
       local public_id, public_why = new_public_id()
       if public_id == nil then return false, public_why end
-      local set, set_why = Sqlite.run(db, ("UPDATE %s SET public_id = ?2 WHERE id_hash = ?1"):format(name),
+      local set, set_why = db:run(("UPDATE %s SET public_id = ?2 WHERE id_hash = ?1"):format(name),
         { { blob = row:blob(1) }, { text = public_id } })
       if not set then return false, tostring(set_why) end
     end
-    return db:exec(("CREATE UNIQUE INDEX IF NOT EXISTS %s_public_id ON %s (public_id)"):format(name, name))
+    local done, done_why = db:exec(("CREATE UNIQUE INDEX IF NOT EXISTS %s_public_id ON %s (public_id)"):format(name, name))
+    if not done then return false, tostring(done_why) end
+    return true, ""
   end)
 end
 
@@ -556,10 +558,10 @@ function SessionSqlite.store(db: Sqlite.Handle, opts?: SessionSqlite.Options): S
   end
   if o.configure ~= false then
     -- The mode answers a row; a memory database stays as it is.
-    local rows, mode_why = Sqlite.rows(db, "PRAGMA journal_mode=WAL")
+    local rows, mode_why = db:rows("PRAGMA journal_mode=WAL")
     if rows == nil then return nil, "sessions: " .. tostring(mode_why) end
     local ok, why = db:exec("PRAGMA synchronous=NORMAL")
-    if not ok then return nil, "sessions: " .. why end
+    if not ok then return nil, "sessions: " .. tostring(why) end
     db:busy_timeout(Clock.ms(250))
   end
   local seen_interval = o.seen_interval

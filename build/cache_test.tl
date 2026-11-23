@@ -16,7 +16,7 @@ local function database(path: string, schema: {string}): Sqlite.Handle
 end
 
 local function compiled(db: Sqlite.Handle, key: string, stamp: integer)
-  assert(Sqlite.run(db, "INSERT INTO compiled_v2 VALUES (?1, x'00ff', x'61', x'', 'digest', 2, ?2)",
+  assert(db:run("INSERT INTO compiled_v2 VALUES (?1, x'00ff', x'61', x'', 'digest', 2, ?2)",
     { { text = key }, { integer = stamp } }))
 end
 
@@ -28,7 +28,7 @@ end
 
 local function count(path: string, name: string): integer
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.rows(db, "SELECT count(*) FROM " .. name))
+  local rows = assert(db:rows("SELECT count(*) FROM " .. name))
   assert(db:close())
   return support.nth(rows, 1):integer(1)
 end
@@ -294,16 +294,20 @@ local function test_failed_delete_rolls_back_earlier_tables(tmp: string)
   compiled(db, "old", 1)
   assert(db:exec("INSERT INTO parsed_v1 VALUES ('a','s',0,'',x'','d',0,1)"))
   assert(db:close())
-  local original = Sqlite.run
-  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): (true) | (false, Failure) -- checked: field_fixed
-    if sql:find('DELETE FROM "parsed_v1"', 1, true) then
-      return false, Failure.new("injected delete failure")
-    end
-    return original(handle, sql, values)
+  -- A trigger of the connection alone refuses the delete, so the file's
+  -- schema is the one the trim knows.
+  local original = Sqlite.open
+  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure) -- checked: field_fixed
+    local opened, why = original(name, options)
+    if opened == nil then return nil, why end
+    if name ~= path then return opened end
+    assert(opened:exec('CREATE TEMP TRIGGER refuse BEFORE DELETE ON main."parsed_v1" ' ..
+        "BEGIN SELECT RAISE(ABORT, 'injected delete failure'); END"))
+    return opened
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  Sqlite.run = original -- checked: field_fixed
-  assert(ok)
+  Sqlite.open = original -- checked: field_fixed
+  assert(ok, tostring(result))
   assert(not result.complete and result.report.digest == nil)
   assert(support.nth(result.report.files, 1).removed == 0 and support.nth(result.report.files, 1).kept == 2)
   assert(count(path, "compiled_v2") == 1 and count(path, "parsed_v1") == 1)
@@ -319,7 +323,7 @@ local function test_declared_format_without_parts_is_supported_without_migration
   local result = trim(path, "verdicts", 5)
   assert(result.complete and support.nth(result.report.files, 1).removed == 1)
   db = assert(Sqlite.open(path))
-  assert(#assert(Sqlite.text_rows(db, "PRAGMA table_info(declared_v1)")) == 6)
+  assert(#assert(db:text_rows("PRAGMA table_info(declared_v1)")) == 6)
   assert(db:close())
 end
 
@@ -360,17 +364,17 @@ end
 local function test_busy_checkpoint_row_suppresses_save_digest(tmp: string)
   local path = tmp .. "/verdicts.db"
   local db = database(path, formats.verdicts)
+  assert(db:exec("PRAGMA journal_mode = WAL"))
+  assert(db:exec("PRAGMA user_version = 1"))
+  -- A reader on the log's frames keeps a checkpoint from truncating it.
+  local reader = assert(Sqlite.open(path))
+  assert(reader:exec("BEGIN"))
+  assert(#assert(reader:rows("SELECT count(*) FROM sqlite_schema")) == 1)
+  local result = maintenance.run({ family = "verdicts", paths = { path }, whole = true, lock_wait_ns = 0 })
+  assert(reader:exec("COMMIT"))
+  assert(reader:close())
   assert(db:close())
-  local original = Sqlite.rows
-  Sqlite.rows = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): (Sqlite.Rows) | (nil, Failure) -- checked: field_fixed
-    if sql == "PRAGMA wal_checkpoint(TRUNCATE)" then
-      return original(handle, "SELECT 1, 3, 2")
-    end
-    return original(handle, sql, values)
-  end
-  local ok, result = pcall(function(): maintenance.Result return trim(path, "verdicts") end)
-  Sqlite.rows = original -- checked: field_fixed
-  assert(ok and not result.complete and result.report.digest == nil)
+  assert(not result.complete and result.report.digest == nil)
   assert(support.nth(result.report.files, 1).reason:find("checkpoint", 1, true))
 end
 
@@ -392,18 +396,17 @@ local function test_vacuum_failure_reports_already_committed_row_counts(tmp: str
   compiled(db, "old", 1)
   compiled(db, "new", 5)
   assert(db:close())
-  local original = Sqlite.run
-  Sqlite.run = function(handle: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): (true) | (false, Failure) -- checked: field_fixed
-    local ok, why = original(handle, sql, values)
-    if ok and sql:find('DELETE FROM "compiled_v2"', 1, true) ~= nil then
-      -- VACUUM needs its temporary attached database; COMMIT needs none.
-      local _ = handle:limit("attached", 0)
-    end
-    if not ok then return false, why end
-    return true
+  -- VACUUM needs its temporary attached database; the trim before it
+  -- attaches none.
+  local original = Sqlite.open
+  Sqlite.open = function(name: string, options?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure) -- checked: field_fixed
+    local opened, why = original(name, options)
+    if opened == nil then return nil, why end
+    local _ = opened:limit("attached", 0)
+    return opened
   end
   local ok, result = pcall(function(): maintenance.Result return trim(path, "compiles", 5) end)
-  Sqlite.run = original -- checked: field_fixed
+  Sqlite.open = original -- checked: field_fixed
   assert(ok and not result.complete and result.report.digest == nil)
   assert(support.nth(result.report.files, 1).kept == 1 and support.nth(result.report.files, 1).removed == 1)
   assert(count(path, "compiled_v2") == 1, "the delete committed before compaction failed")

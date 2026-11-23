@@ -76,7 +76,7 @@ local insert_derived =
 --- The doc guides with no current `derived` row, each extracted into
 --- the test module it is.
 local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
-  local guides, trouble = Sqlite.text_rows(db,
+  local guides, trouble = db:text_rows(
     "SELECT path, data, sha256 FROM files " ..
       "WHERE ((path GLOB 'doc/guides/*.md' AND path NOT GLOB 'doc/guides/*/*') OR " ..
       "(path GLOB 'doc/guides/internal/*.md' AND path NOT GLOB 'doc/guides/internal/*/*') OR " ..
@@ -100,7 +100,7 @@ local function derive_doc_guides(db: Sqlite.Handle, refusal: derivation.Refusal)
       refusal.refused = true
       return false, file .. ": " .. extract_trouble
     end
-    local ok, insert_trouble = Sqlite.run(db, insert_derived,
+    local ok, insert_trouble = db:run(insert_derived,
       { text(file), text(import_path_of_doc(file)), text("test"),
         text("doctest"), text(from_hash), text(source) })
     if not ok then
@@ -128,7 +128,7 @@ end
 --- `forget_stale_analysis`): [`cosmic.template`] is in its closure. The module is written in the new checker's grammar
 --- ([`cosmic.template`]'s `Options`).
 local function derive_templates(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
-  local templates, trouble = Sqlite.text_rows(db,
+  local templates, trouble = db:text_rows(
     "SELECT path, CAST(data AS TEXT), sha256 FROM files " ..
       "WHERE path GLOB '*.tmpl' " .. analysis_schema.outside_apart("path") .. " " ..
       "AND path NOT IN (SELECT file FROM derived) ORDER BY path")
@@ -142,7 +142,7 @@ local function derive_templates(db: Sqlite.Handle, refusal: derivation.Refusal):
       refusal.refused = true
       return false, compile_trouble
     end
-    local ok, insert_trouble = Sqlite.run(db, insert_derived,
+    local ok, insert_trouble = db:run(insert_derived,
       { text(file), text(import_path_of_template(file)), text("module"),
         text("template"), text(from_hash), text(source) })
     if not ok then
@@ -159,7 +159,7 @@ end
 local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
   for _, target in ipairs(gen_syscalls.targets) do
     local file = target.target.header
-    local headers, trouble = Sqlite.text_rows(db,
+    local headers, trouble = db:text_rows(
       "SELECT data, sha256 FROM files WHERE path = ? " ..
         "AND path NOT IN (SELECT file FROM derived)", { text(file) })
     if headers == nil then
@@ -173,7 +173,7 @@ local function derive_syscalls(db: Sqlite.Handle, refusal: derivation.Refusal): 
         refusal.refused = true
         return false, file .. ": " .. generate_trouble
       end
-      local ok, insert_trouble = Sqlite.run(db, insert_derived,
+      local ok, insert_trouble = db:run(insert_derived,
         { text(file), text(target.path),
           text(analysis_schema.kind_of(target.path:gsub("%.", "/") .. ".d.tl", source)),
           text("syscalls"), text(from_hash), text(source) })
@@ -191,7 +191,7 @@ end
 --- a declaration beside a source is a pair, which the build refuses in
 --- its own words ([`build.driver`]'s `pairing`).
 local function duplicate_import_paths(db: Sqlite.Handle, refusal: derivation.Refusal): boolean, string
-  local doubled, trouble = Sqlite.text_rows(db,
+  local doubled, trouble = db:text_rows(
     "SELECT path, group_concat(file, ' and ') FROM (SELECT path, file, kind FROM inputs ORDER BY file) " ..
       "GROUP BY path, " .. analysis_schema.not_declaration("kind") .. " HAVING count(*) > 1 ORDER BY path")
   if doubled == nil then
@@ -208,7 +208,7 @@ end
 --- Every source no parse has seen, in hash order: the one parse each
 --- needs ([`build.parse_derive`]'s `derive`).
 function derivation.fresh(db: Sqlite.Handle): {derivation.Fresh}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT source_hash, min(file), source, max(origin <> 'tree') FROM inputs " ..
       "WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
@@ -240,7 +240,7 @@ end
 function derivation.table_widths(db: Sqlite.Handle): {string:integer}?, string
   local widths: mut {string:integer} = {}
   for _, name in ipairs(packed_tables) do
-    local rows, trouble = Sqlite.text_rows(db,
+    local rows, trouble = db:text_rows(
       "SELECT count(*) FROM pragma_table_info(?1)", { text(name) })
     if rows == nil then return nil, tostring(trouble) end
     local counted = rows[1]
@@ -269,7 +269,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
   local requires: mut {string:mut {string}} = {}
   local pieces: mut {string:mut {string}} = {}
   local unpackable: mut {string:boolean} = {}
-  local names, trouble = Sqlite.text_rows(db,
+  local names, trouble = db:text_rows(
     "SELECT source_hash, name FROM requires " .. chosen .. " ORDER BY source_hash, ordinal", list)
   if names == nil then return nil, tostring(trouble) end
   for _, row in ipairs(names) do
@@ -278,7 +278,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
     table.insert(of, row:text(2))
   end
   for _, name in ipairs(packed_tables) do
-    local rows, rows_trouble = Sqlite.rows(db,
+    local rows, rows_trouble = db:rows(
       "SELECT * FROM " .. name .. " " .. chosen .. " ORDER BY 1, 2", list)
     if rows == nil then return nil, tostring(rows_trouble) end
     local by_hash: mut {string:mut {string}} = {}
@@ -311,7 +311,7 @@ function derivation.packed_parses(db: Sqlite.Handle,
       table.insert(of, table.concat(by_hash[hash] or {}))
     end
   end
-  local present, present_trouble = Sqlite.text_rows(db,
+  local present, present_trouble = db:text_rows(
     "SELECT source_hash FROM parsed WHERE source_hash IN (SELECT value FROM json_each(?1))", list)
   if present == nil then return nil, tostring(present_trouble) end
   local out: mut {string:derivation.Parse} = {}
@@ -381,10 +381,10 @@ end
 function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string},
                               rows: {string:{{Sqlite.Value}}}): boolean, string
   local begun, begin_trouble = db:exec("SAVEPOINT shared_parse")
-  if not begun then return false, begin_trouble end
+  if not begun then return false, tostring(begin_trouble) end
   local function steps(): boolean, string
     for ordinal, name in ipairs(requires) do
-      local ok, why = Sqlite.run(db,
+      local ok, why = db:run(
         "INSERT INTO requires (source_hash, ordinal, name) VALUES (?1, ?2, ?3)",
         { text(hash), { integer = ordinal }, text(name) })
       if not ok then return false, tostring(why) end
@@ -399,7 +399,7 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
           marks[#marks + 1] = "?" .. tostring((index + 1))
           values[#values + 1] = cell
         end
-        local ok, why = Sqlite.run(db, "INSERT INTO " .. name .. " VALUES (" ..
+        local ok, why = db:run("INSERT INTO " .. name .. " VALUES (" ..
             table.concat(marks, ", ") .. ")", values)
         if not ok then return false, tostring(why) end
       end
@@ -412,12 +412,14 @@ function derivation.put_parse(db: Sqlite.Handle, hash: string, requires: {string
     local _, _ = db:exec("RELEASE shared_parse")
     return false, trouble
   end
-  return db:exec("RELEASE shared_parse")
+  local released, release_trouble = db:exec("RELEASE shared_parse")
+  if not released then return false, tostring(release_trouble) end
+  return true, ""
 end
 
 --- Every source the tables hold no parse of, in hash order.
 function derivation.unparsed(db: Sqlite.Handle): {Source}?, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT source_hash, max(origin <> 'tree') FROM inputs WHERE kind <> 'vendor' " ..
       "AND source_hash NOT IN (SELECT source_hash FROM parsed) " ..
       "GROUP BY source_hash ORDER BY source_hash")

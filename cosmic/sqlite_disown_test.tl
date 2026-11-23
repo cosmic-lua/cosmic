@@ -29,11 +29,13 @@ local function test_a_handle_opened_before_is_refused_and_one_opened_after_is_no
       refused(function() local _, _ = before:prepare("SELECT 1") end) and
       refused(function() local _, _ = statement:step() end)
     -- Its close answers and closes nothing, once and again.
-    local closed = before:close() and before:close()
+    local closed_once, _ = before:close()
+    local closed_again, _ = before:close()
+    local closed = closed_once and closed_again
     local after, _ = Sqlite.open(path)
     local read = false
     if after ~= nil then
-      local rows, _ = Sqlite.text_rows(after, "SELECT n FROM t")
+      local rows, _ = after:text_rows("SELECT n FROM t")
       local first = if rows ~= nil then rows[1] else nil end
       read = first ~= nil and first:text(1) == "7"
     end
@@ -44,7 +46,7 @@ local function test_a_handle_opened_before_is_refused_and_one_opened_after_is_no
   -- The process's own are as they were: the copy closed none of them.
   assert(statement:step())
   assert(before:exec("INSERT INTO t VALUES (8)"))
-  local rows = assert(Sqlite.text_rows(before, "SELECT count(*) FROM t"))
+  local rows = assert(before:text_rows("SELECT count(*) FROM t"))
   assert(assert(rows[1]):text(1) == "2")
   statement:finalize()
   assert(before:close())
@@ -61,14 +63,15 @@ local function test_a_process_that_disowns_is_refused_what_it_opened_before(tmp:
   assert(refused(function() local _, _ = before:exec("SELECT 1") end))
   assert(refused(function() local _, _ = statement:step() end))
   statement:finalize()
-  assert(before:close() and before:close())
+  assert(before:close())
+  assert(before:close())
   local after = assert(Sqlite.open(path, { writable = true }))
   assert(after:exec("INSERT INTO t VALUES (1)"))
   -- Disowned again, the one opened between the two is refused as the first is.
   Sqlite.disown()
   assert(refused(function() local _, _ = after:exec("SELECT 1") end))
   local last = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(last, "SELECT n FROM t"))
+  local rows = assert(last:text_rows("SELECT n FROM t"))
   assert(assert(rows[1]):text(1) == "1")
   assert(last:close())
 end
@@ -84,7 +87,7 @@ local function mid_write(path: string, held: mut {string:Sqlite.Handle}): intege
   assert(db:exec("BEGIN"))
   local rows <const> = 2000
   for n = 1, rows do
-    assert(Sqlite.run(db, "INSERT INTO t VALUES (?1, ?2)", { { integer = n }, { text = string.rep("p", 1000) } }))
+    assert(db:run("INSERT INTO t VALUES (?1, ?2)", { { integer = n }, { text = string.rep("p", 1000) } }))
   end
   held["db"] = db
   return rows
@@ -102,7 +105,7 @@ local function test_a_copy_that_closes_or_drops_a_disowned_connection_leaves_its
     if pid == 0 then
       Sqlite.disown()
       if way == "close" then
-        local closed = assert(held["db"]):close()
+        local closed, _ = assert(held["db"]):close()
         if not closed then sys.exit(1) end
       end
       held["db"] = nil
@@ -114,9 +117,9 @@ local function test_a_copy_that_closes_or_drops_a_disowned_connection_leaves_its
     assert(status.code == 0, "the copy of case " .. tostring(case) .. " ended badly")
     local db = assert(held["db"])
     assert(db:exec("COMMIT"))
-    local counted = assert(Sqlite.text_rows(db, "SELECT count(*) FROM t"))
+    local counted = assert(db:text_rows("SELECT count(*) FROM t"))
     assert(assert(counted[1]):text(1) == tostring(rows), way .. ": rows are missing: " .. assert(counted[1]):text(1))
-    local whole = assert(Sqlite.text_rows(db, "PRAGMA integrity_check"))
+    local whole = assert(db:text_rows("PRAGMA integrity_check"))
     assert(assert(whole[1]):text(1) == "ok", way .. ": " .. assert(whole[1]):text(1))
     assert(db:close())
   end

@@ -74,8 +74,8 @@ local function test_a_withheld_source_is_said_so_and_not_taken_for_absent(tmp: s
     extra = { name = "main", bytecode = program, source = "", requires = { "cosmic.store", "cosmic.sqlite",
       "build.importer", "build.pipeline" } } }))
   local db = assert(Sqlite.open(path, { writable = true }))
-  assert(Sqlite.run(db, "UPDATE modules SET source = X'' WHERE path IN ('cosmic.json', 'build.bind')"))
-  assert(Sqlite.run(db, "INSERT INTO decls (path, source) VALUES ('cosmic.decl_only', X'')"))
+  assert(db:run("UPDATE modules SET source = X'' WHERE path IN ('cosmic.json', 'build.bind')"))
+  assert(db:run("INSERT INTO decls (path, source) VALUES ('cosmic.decl_only', X'')"))
   assert(db:close())
 
   searchable.open(tmp)

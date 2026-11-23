@@ -151,8 +151,8 @@ local function test_an_internal_module_is_absent_from_the_public_docs(dir: strin
       "function fs.read() end",
       "return fs"),
   })
-  local all = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs ORDER BY module"))
-  local public = assert(Sqlite.text_rows(db, "SELECT DISTINCT module FROM docs WHERE " ..
+  local all = assert(db:text_rows("SELECT DISTINCT module FROM docs ORDER BY module"))
+  local public = assert(db:text_rows("SELECT DISTINCT module FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module"))
   assert(#all == 2 and all[1]:text(1) == "cosmic.fs" and support.nth(all, 2):text(1) == "cosmic.internal.shared",
     tostring(#all) .. " modules")
@@ -1373,10 +1373,10 @@ local function test_a_memo_answers_the_declaration_check_until_a_module_a_file_r
   local plain = table.concat(tree_checks.declared(root), "\n")
   assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
   assert(table.concat(tree_checks.declared(root, memo), "\n") == plain)
-  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'declared'"))
+  local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'declared'"))
   assert(support.nth(count, 1):integer(1) == 5, "the four files and the code")
   -- Plant another answer under every key: a run that finds it did not lower.
-  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
+  assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.declared(root, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (key_type): do it", 1, true) ~= nil and not hit:find("float_key", 1, true), hit)
   -- A module far below changed: the files that require it, through others, are lowered again; one that does not is not.
@@ -1398,7 +1398,7 @@ local function test_a_comment_in_a_module_misses_its_own_answer_and_no_other_fil
   local memo = assert(Sqlite.memory())
   local plain = table.concat(tree_checks.declared(root, memo), "\n")
   assert(plain:find("build/top.tl:2:", 1, true), plain)
-  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
+  assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'declared'", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
   -- A comment, a doc comment and blank lines in the module far below: only its own file is lowered again.
   assert(Fs.write(root .. "/build/base.tl", source("-- a comment", "local record Base", "  --- the count", "  n: integer -- here", "end", "", "", "return Base")))
   local commented = table.concat(tree_checks.declared(root, memo), "\n")
@@ -1428,7 +1428,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_declaration_che
   local plain = table.concat(tree_checks.declared(root, memo), "\n")
   assert(plain:find("(float_key)", 1, true), plain)
   for _, path in ipairs(salted) do
-    assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
+    assert(memo:run("UPDATE check_memo SET value = ?1", { { text = "N\nE\tkey_type\t7\t9\tplanted\tdo it" } }))
     local hit = table.concat(tree_checks.declared(root, memo), "\n")
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
@@ -1500,9 +1500,9 @@ local function test_a_memo_answers_the_body_check_until_a_module_a_file_requires
   local memo = assert(Sqlite.memory())
   local plain = table.concat(tree_checks.checked(root, memo), "\n")
   assert(plain:find("build/top.tl:2:", 1, true) and plain:find("build/alone.tl:1:", 1, true), plain)
-  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'checked'"))
+  local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'checked'"))
   assert(support.nth(count, 1):integer(1) == 3, "the three files: " .. tostring(support.nth(count, 1):integer(1)))
-  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
+  assert(memo:run("UPDATE check_memo SET value = ?1 WHERE kind = 'checked'", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
   local hit = table.concat(tree_checks.checked(root, memo), "\n")
   assert(hit:find("build/top.tl:7:9: planted (nil_not_allowed): do it", 1, true) ~= nil and not hit:find("not_assignable", 1, true), hit)
   assert(Fs.write(root .. "/build/base.tl", source("local record Base", "  n: integer", "  m: integer", "end", "return Base")))
@@ -1528,7 +1528,7 @@ local function test_a_change_to_the_code_or_the_declarations_the_body_check_read
   local plain = table.concat(tree_checks.checked(root, memo), "\n")
   assert(plain:find("(not_assignable)", 1, true), plain)
   for _, path in ipairs(salted) do
-    assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
+    assert(memo:run("UPDATE check_memo SET value = ?1", { { text = "N\nE\tnil_not_allowed\t7\t9\tplanted\tdo it" } }))
     local hit = table.concat(tree_checks.checked(root, memo), "\n")
     assert(hit:find("planted", 1, true), path .. " moved the key by itself: " .. hit)
     assert(Fs.write(root .. "/" .. path, "-- two " .. path .. "\n"))
@@ -1551,11 +1551,11 @@ local function test_a_memo_answers_the_scope_check_for_a_file_that_has_not_chang
   local plain = table.concat(tree_checks.scoped(root), "\n")
   assert(plain:find("(unknown_variable)", 1, true), plain)
   assert(table.concat(tree_checks.scoped(root, memo), "\n") == plain)
-  local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo WHERE kind = 'scoped'"))
+  local count = assert(memo:rows("SELECT count(*) FROM check_memo WHERE kind = 'scoped'"))
   assert(support.nth(count, 1):integer(1) == 2, "the two files")
   -- Plant another answer under the key: a run that finds it did not scope.
   local planted = "C\t\nE\tshadows\t7\t9\tplanted\tdo it"
-  assert(Sqlite.run(memo, "UPDATE check_memo SET value = ?1", { { text = planted } }))
+  assert(memo:run("UPDATE check_memo SET value = ?1", { { text = planted } }))
   local hit = table.concat(tree_checks.scoped(root, memo), "\n")
   assert(hit:find("build/bad.tl:7:9: planted (shadows): do it", 1, true) ~= nil and not hit:find("unknown_variable", 1, true), hit)
   -- The code that scopes changed: the salt moves, the file is scoped again.
@@ -1694,7 +1694,7 @@ local function test_the_checks_find_the_same_in_copies_of_the_process(dir: strin
     local found = table.concat(tree_checks.declared(root, memo), "\n") .. "\n--\n" ..
       table.concat(tree_checks.checked(root, memo), "\n") .. "\n--\n" ..
       table.concat(tree_checks.untyped(root, memo), "\n")
-    local count = assert(Sqlite.rows(memo, "SELECT count(*) FROM check_memo"))
+    local count = assert(memo:rows("SELECT count(*) FROM check_memo"))
     local rows = support.nth(count, 1):integer(1)
     assert(memo:close())
     return found, rows

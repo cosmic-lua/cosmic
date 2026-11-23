@@ -35,7 +35,7 @@ end
 --- The one value `sql` yields over `values`, as SQLite's text, or nil
 --- and the statement's error.
 local function value(sql: string, values: {Sqlite.Value}): string?, string
-  local rows, trouble = Sqlite.text_rows(handle, sql, values)
+  local rows, trouble = handle:text_rows(sql, values)
   if rows == nil then return nil, tostring(trouble) end
   assert(#rows == 1, sql .. ": " .. tostring(#rows) .. " rows")
   return first_row(rows):text(1), ""
@@ -150,7 +150,7 @@ local function test_decimal_is_total_and_canonical(tmp: string)
         Fuzz.label("not a number")
       else
         Fuzz.label("read")
-        local rows, trouble = Sqlite.text_rows(handle,
+        local rows, trouble = handle:text_rows(
           "SELECT decimal(decimal(?1)), decimal_cmp(?1, ?1)", one)
         if rows == nil then
           return false, "decimal read " .. number .. " once only: " .. tostring(trouble)
@@ -214,7 +214,7 @@ local function test_text_decoders_are_total_and_round_trip(tmp: string)
           return false, name .. " failed its statement on text"
         end
       end
-      local rows, trouble = Sqlite.text_rows(handle, "SELECT uuid_blob(?1) IS NULL, " ..
+      local rows, trouble = handle:text_rows("SELECT uuid_blob(?1) IS NULL, " ..
           "hex(uuid_blob(uuid_str(?1))) = hex(uuid_blob(?1))", { { text = uuid } })
       if rows == nil then return false, "uuid_blob failed its statement: " .. tostring(trouble) end
       local decoded = first_row(rows)
@@ -252,7 +252,7 @@ local function test_ieee754_is_total_and_round_trips(tmp: string)
     end,
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
-      local rows, trouble = Sqlite.text_rows(handle,
+      local rows, trouble = handle:text_rows(
         "SELECT typeof(ieee754_from_blob(?1)), " ..
           "hex(ieee754_to_blob(ieee754_from_blob(?1))) = hex(?1), " ..
           "hex(ieee754_to_blob(ieee754(ieee754_mantissa(?1), ieee754_exponent(?1)))) = hex(?1), " ..
@@ -351,7 +351,7 @@ local function test_totype_reads_text_exactly(tmp: string)
     check = function(input: string): boolean, string
       local fields = Fuzz.unpack(input)
       local shape, text = unpacked(fields, 1), unpacked(fields, 2)
-      local rows, trouble = Sqlite.text_rows(handle,
+      local rows, trouble = handle:text_rows(
         "SELECT typeof(toreal(?1)), toreal(?1) = CAST(?1 AS REAL), toreal(?1) - toreal(?1) = 0.0, " ..
           "typeof(tointeger(?1)), tointeger(?1), " ..
           "typeof(tointeger(?2)), typeof(toreal(?2))",
@@ -419,7 +419,7 @@ local function test_uint_orders_consistently(tmp: string)
       -- Leading zeros on each run of digits leave a word equal to itself.
       local padded = (a:gsub("(%d+)", "00%1"))
       local function cmp(x: string, y: string): integer
-        local rows = assert(Sqlite.text_rows(handle,
+        local rows = assert(handle:text_rows(
           "SELECT ?1 < ?2 COLLATE uint, ?1 = ?2 COLLATE uint, ?2 < ?1 COLLATE uint",
           { { text = x }, { text = y } }))
         local answer = first_row(rows)
@@ -478,11 +478,11 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       assert(db:exec("CREATE VIRTUAL TABLE b USING rtree_i32(id, x0, x1, y0, y1); BEGIN"))
       for i = 1, rows_n do
         local x, y = (i * 7919) % 2000 - 1000, (i * 104729) % 2000 - 1000
-        assert(Sqlite.run(db, "INSERT INTO b VALUES (?1, ?2, ?2 + 9, ?3, ?3 + 9)",
+        assert(db:run("INSERT INTO b VALUES (?1, ?2, ?2 + 9, ?3, ?3 + 9)",
           { { integer = i }, { integer = x }, { integer = y } }))
       end
       assert(db:exec("COMMIT"))
-      local nodes = assert(Sqlite.rows(db, "SELECT nodeno, data FROM b_node ORDER BY nodeno"))
+      local nodes = assert(db:rows("SELECT nodeno, data FROM b_node ORDER BY nodeno"))
       local root = first_row(nodes):blob(2)
       if string.unpack(">I2", root) > 0 then Fuzz.label("a tree of more than one level") end
       local at = nodes[pick % #nodes + 1]
@@ -534,13 +534,13 @@ local function test_rtree_survives_damaged_trees(tmp: string)
             j = j + 1
             local child = if spread == 1 then 2 + j * (1 << 32) else j * 0xF1DE83E19937733D end
             if child >= 2 then
-              assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')", { { integer = child } }))
+              assert(db:run("INSERT INTO b_node VALUES (?1, x'00000000')", { { integer = child } }))
               parts[#parts + 1] = string.pack(">i8", child) .. string.rep("\0", 16)
             end
           end
         else
           for i = 1, padding do
-            assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, x'00000000')",
+            assert(db:run("INSERT INTO b_node VALUES (?1, x'00000000')",
               { { integer = #nodes + 100 + i } }))
           end
           parts[1] = string.rep(string.pack(">i8", 1) .. string.rep("\0", 16), cells)
@@ -551,7 +551,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
       elseif damage == "below" then
         local below = -(pick % 2)
         local cell = string.pack(">i8", below) .. string.rep("\0", 16)
-        assert(Sqlite.run(db, "INSERT INTO b_node VALUES (?1, ?2)",
+        assert(db:run("INSERT INTO b_node VALUES (?1, ?2)",
           { { integer = below }, { blob = string.pack(">I2>I2", 0, 2) .. cell .. cell } }))
         local cells = math.max(string.unpack(">I2", root, 3), 2)
         sql, values = "UPDATE b_node SET data = ?1 WHERE nodeno = 1",
@@ -561,8 +561,8 @@ local function test_rtree_survives_damaged_trees(tmp: string)
           "UPDATE b_rowid SET nodeno = ?1 WHERE rowid = ?2" end,
           { { integer = pick % 7 - 2 }, { integer = pick % rows_n + 1 } }
       end
-      assert(Sqlite.run(db, sql, values))
-      db:close()
+      assert(db:run(sql, values))
+      local _, _ = db:close()
       local start = Clock.monotonic_ns()
       local reopened = assert(Sqlite.open(path, { writable = true }))
       local refused, reported = false, false
@@ -570,7 +570,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
           "SELECT count(*) FROM b", "SELECT rtreecheck('b')", "PRAGMA quick_check",
           "INSERT INTO b VALUES (100000, 1, 2, 1, 2)", "DELETE FROM b WHERE id = 1",
           "UPDATE b SET x1 = x1 + 1 WHERE id = 2" }) do
-        local rows, trouble = Sqlite.text_rows(reopened, q)
+        local rows, trouble = reopened:text_rows(q)
         if rows == nil then
           refused = true
           if trouble.message == "" then return false, q .. " failed without saying why" end
@@ -578,7 +578,7 @@ local function test_rtree_survives_damaged_trees(tmp: string)
           reported = true
         end
       end
-      reopened:close()
+      local _, _ = reopened:close()
       local spent = (Clock.monotonic_ns() - start) // 1000000
       if spent > 5000 then
         return false, damage .. " damage took " .. tostring(spent) .. " ms to read and check"
@@ -649,7 +649,7 @@ local function test_carray_reads_back_a_bound_list(tmp: string)
       else
         list = { blobs = strings }
       end
-      local rows, trouble = Sqlite.rows(handle, "SELECT value FROM carray(?1)", { list })
+      local rows, trouble = handle:rows("SELECT value FROM carray(?1)", { list })
       if rows == nil then return false, "carray failed its statement: " .. tostring(trouble) end
       if #rows ~= #fields - 1 then
         return false, "carray read " .. tostring(#rows) .. " of " .. tostring((#fields - 1)) .. " " .. kind

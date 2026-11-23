@@ -7,7 +7,6 @@ local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local String = require("cosmic.string")
 local Test = require("cosmic.test")
@@ -34,7 +33,7 @@ end
 local function carried_root(label: string): string
   local databases = Store.databases()
   -- The binary carries at least one database; the newest is last.
-  local rows = assert(Sqlite.text_rows(Array.at(databases, #databases),
+  local rows = assert(Array.at(databases, #databases):text_rows(
     "SELECT hex(der) FROM ca_roots WHERE label = ?1", { { text = label } }))
   assert(#rows == 1, label .. " is not among the binary's CA roots")
   return (assert(Codec.unhex(rows[1]:text(1))))
@@ -69,7 +68,7 @@ end
 --- and say why.
 local function test_check_certificate_reads_what_the_binary_trusts()
   local databases = Store.databases()
-  local roots = assert(Sqlite.rows(Array.at(databases, #databases), "SELECT der, label FROM ca_roots"))
+  local roots = assert(Array.at(databases, #databases):rows("SELECT der, label FROM ca_roots"))
   assert(#roots > 0)
   for _, row in ipairs(roots) do
     local ok, why = Http.check_certificate(row:blob(1))
@@ -217,7 +216,7 @@ local function test_minimal_roots_are_carried()
     assert(hex:match("^%x+$") ~= nil and #hex == 64 and hex == hex:lower(), hex)
     assert(seen[hex] == nil, hex .. " is listed twice")
     seen[hex] = true
-    local rows = assert(Sqlite.text_rows(own,
+    local rows = assert(own:text_rows(
       "SELECT label FROM ca_roots WHERE sha256 = unhex(?1)", { { text = hex } }))
     assert(#rows == 1, hex .. " is not among the binary's CA roots")
   end

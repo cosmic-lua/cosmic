@@ -79,7 +79,7 @@ local function test_a_copy_is_refused_a_connection_the_process_opened(tmp: strin
     local said = assert(Fs.read(tmp .. "/said-" .. tostring(copy)))
     assert(said:find("disowned its connections", 1, true), said)
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM t"))
+  local rows = assert(db:text_rows("SELECT count(*) FROM t"))
   assert(assert(rows[1]):text(1) == "0")
   assert(db:close())
 end

@@ -20,12 +20,12 @@ local paths: {string} = {
 --- file can be.
 local function test_the_view_and_teal_kinds_of_a_path_agree(_: string)
   local db = assert(Sqlite.memory())
-  assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
-  for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
+  assert(db:run("CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
+  for _, statement in ipairs(analysis_schema.statements) do assert(db:run(statement)) end
   for _, path in ipairs(paths) do
-    assert(Sqlite.run(db, "INSERT INTO files (path, sha256, data) VALUES (?1, 'h', '')", { { text = path } }))
+    assert(db:run("INSERT INTO files (path, sha256, data) VALUES (?1, 'h', '')", { { text = path } }))
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT file, kind FROM inputs"))
+  local rows = assert(db:text_rows("SELECT file, kind FROM inputs"))
   assert(#rows == #paths, "the view reads " .. tostring(#rows) .. " of " .. tostring(#paths) .. " files")
   local seen: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
@@ -82,13 +82,13 @@ local function test_a_declaration_is_a_binding_only_given_the_line_on_a_line_of_
     { path = "b/unknown_kind.d.tl", text = "--- @kind module\nlocal record R end\n", kind = "decl" },
   }
   local db = assert(Sqlite.memory())
-  assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
-  for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
+  assert(db:run("CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
+  for _, statement in ipairs(analysis_schema.statements) do assert(db:run(statement)) end
   for _, case in ipairs(cases) do
-    assert(Sqlite.run(db, "INSERT INTO files (path, sha256, data) VALUES (?1, 'h', ?2)",
+    assert(db:run("INSERT INTO files (path, sha256, data) VALUES (?1, 'h', ?2)",
       { { text = case.path }, { text = case.text } }))
   end
-  local rows = assert(Sqlite.text_rows(db, "SELECT file, kind FROM inputs"))
+  local rows = assert(db:text_rows("SELECT file, kind FROM inputs"))
   local said: mut {string: string} = {}
   for _, row in ipairs(rows) do said[row:text(1)] = row:text(2) end
   for _, case in ipairs(cases) do
@@ -125,16 +125,16 @@ end
 --- kind a row of `inputs` has (a derived row's kind is given, so `vendor` and a kind that is none are in it too).
 local function test_the_declaration_predicate_selects_what_the_comparisons_did(_: string)
   local db = assert(Sqlite.memory())
-  assert(Sqlite.run(db, "CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
-  for _, statement in ipairs(analysis_schema.statements) do assert(Sqlite.run(db, statement)) end
+  assert(db:run("CREATE TABLE files (path TEXT PRIMARY KEY, sha256 TEXT, data BLOB) WITHOUT ROWID"))
+  for _, statement in ipairs(analysis_schema.statements) do assert(db:run(statement)) end
   local kinds = { "decl", "module", "main", "test", "example", "vendor", "binding", "language", "" }
   for index, kind in ipairs(kinds) do
-    assert(Sqlite.run(db, "INSERT INTO derived (file, path, kind, origin, from_hash, source, source_hash) " ..
+    assert(db:run("INSERT INTO derived (file, path, kind, origin, from_hash, source, source_hash) " ..
         "VALUES (?1, ?2, ?3, 'fixture', 'h', '', 'h')", { { text = "f" .. tostring(index) }, { text = "m" .. tostring(index) },
           { text = kind } }))
   end
   local function selected(where: string): string
-    local rows = assert(Sqlite.text_rows(db, "SELECT path FROM inputs WHERE " .. where .. " ORDER BY path"))
+    local rows = assert(db:text_rows("SELECT path FROM inputs WHERE " .. where .. " ORDER BY path"))
     local out: mut {string} = {}
     for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
     return table.concat(out, " ")
@@ -195,7 +195,7 @@ local function test_the_sql_and_teal_static_assets_agree(_: string)
     else
       assert(asset.program == case[2] and asset.path == case[3], path .. ": " .. asset.program .. " " .. asset.path)
     end
-    local rows = assert(Sqlite.text_rows(db, "SELECT " .. analysis_schema.static_files("?1"), { { text = path } }))
+    local rows = assert(db:text_rows("SELECT " .. analysis_schema.static_files("?1"), { { text = path } }))
     local expected = if asset ~= nil then "1" else "0" end
     assert(assert(rows[1]):text(1) == expected, path .. ": the SQL says otherwise")
   end

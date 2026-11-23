@@ -281,14 +281,14 @@ function near.known(databases: {Sqlite.Handle}): {near.Known}?, string
   local out: mut {near.Known} = {}
   local owner: mut {string: integer} = {}
   for index, db in ipairs(databases) do
-    local tables, tables_trouble = Sqlite.text_rows(db,
+    local tables, tables_trouble = db:text_rows(
       "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'docs'")
     if tables == nil then
       return nil, tostring(tables_trouble)
     end
     local rows: Sqlite.Rows = {}
     if #tables > 0 then
-      local found, trouble = Sqlite.text_rows(db,
+      local found, trouble = db:text_rows(
         "SELECT module, symbol, source_symbol, signature, text, kind FROM docs " ..
           "WHERE exported = 1 AND symbol <> '' ORDER BY module, id")
       if found == nil then

@@ -154,7 +154,7 @@ function laid.finish(kept: laid.Kept, whole: boolean)
   if whole then
     check_memo.finish(kept.memo, KIND)
   else
-    local _, _ = Sqlite.run(kept.memo, "COMMIT")
+    local _, _ = kept.memo:run("COMMIT")
   end
 end
 

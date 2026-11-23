@@ -809,24 +809,24 @@ end
 local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   if not wait then
     db:busy_timeout(0)
-    local tried = db:exec_result("BEGIN IMMEDIATE")
+    local tried, tried_why = db:exec("BEGIN IMMEDIATE")
     db:busy_timeout(wait_ns)
-    if tried.code == Sqlite.OK then
+    if tried then
       mark_holder(path)
       return "done", ""
     end
-    if tried.code == Sqlite.BUSY then return "busy", "" end
-    return nil, tried.reason
+    if tried_why.code == Sqlite.BUSY then return "busy", "" end
+    return nil, tried_why.message
   end
   db:busy_timeout(notice_ns)
-  local begun = db:exec_result("BEGIN IMMEDIATE")
-  if begun.cancelled == true then
+  local begun, begun_why = db:exec("BEGIN IMMEDIATE")
+  if not begun and begun_why.kind == "cancelled" then
     db:busy_timeout(wait_ns)
     return nil, "interrupted while waiting for the write lock"
   end
-  if begun.code ~= Sqlite.BUSY then
+  if begun or begun_why.code ~= Sqlite.BUSY then
     db:busy_timeout(wait_ns)
-    if begun.code ~= Sqlite.OK then return nil, begun.reason end
+    if not begun then return nil, begun_why.message end
     mark_holder(path)
     return "done", ""
   end
@@ -835,15 +835,15 @@ local function begin_waiting(db: Sqlite.Handle, path: string, wait: boolean, doi
   while true do
     local step = math.max(math.min(reminder_ns, wait_ns - (Clock.monotonic_ns() - started_ns)), 0)
     db:busy_timeout(step)
-    local waited = db:exec_result("BEGIN IMMEDIATE")
+    local waited, waited_why = db:exec("BEGIN IMMEDIATE")
     local waited_ns = Clock.monotonic_ns() - started_ns
-    if waited.cancelled == true then
+    if not waited and waited_why.kind == "cancelled" then
       db:busy_timeout(wait_ns)
       return nil, "interrupted while waiting for the write lock"
     end
-    if waited.code ~= Sqlite.BUSY or waited_ns >= wait_ns then
+    if waited or waited_why.code ~= Sqlite.BUSY or waited_ns >= wait_ns then
       db:busy_timeout(wait_ns)
-      if waited.code ~= Sqlite.OK then return nil, waited.reason end
+      if not waited then return nil, waited_why.message end
       mark_holder(path)
       return "done", ""
     end
@@ -868,7 +868,7 @@ end
 --- did. Unless `wait`, it waits for no other run, answering "busy".
 local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: string): Took?, string
   while true do
-    local rows, why = Sqlite.text_rows(db, "PRAGMA journal_mode = WAL")
+    local rows, why = db:text_rows("PRAGMA journal_mode = WAL")
     if rows ~= nil then return "done", "" end
     if why.kind == "cancelled" then return nil, "interrupted while waiting for the write lock" end
     if why.code ~= Sqlite.BUSY and why.code ~= Sqlite.LOCKED then
@@ -878,14 +878,14 @@ local function to_wal(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     if begun == nil then return nil, begin_trouble end
     if begun == "busy" then return "busy", "" end
     local rolled_back, roll_trouble = db:exec("ROLLBACK")
-    if not rolled_back then return nil, roll_trouble end
+    if not rolled_back then return nil, tostring(roll_trouble) end
   end
 end
 
 --- Whether the `SELECT count(*)` in `counting` counted none. It answers
 --- one row; a database that answers none is in trouble.
 local function counted_none(db: Sqlite.Handle, counting: string): boolean?, string
-  local counted, trouble = Sqlite.text_rows(db, counting)
+  local counted, trouble = db:text_rows(counting)
   if counted == nil then
     return nil, tostring(trouble)
   end
@@ -917,7 +917,7 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     -- shows as a duplicate column, and the table is read again before that is taken for a failure. The index the
     -- file may hold of the old layout, which nothing reads, goes.
     for _, name in ipairs({ "fact_wraps", "parameter_checks" }) do
-      local columns, columns_trouble = Sqlite.text_rows(db, "PRAGMA table_info(compiled)")
+      local columns, columns_trouble = db:text_rows("PRAGMA table_info(compiled)")
       if columns == nil then return nil, tostring(columns_trouble) end
       local present = #columns == 0
       for _, column in ipairs(columns) do
@@ -926,18 +926,18 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
       if not present then
         local added, add_trouble = db:exec("ALTER TABLE compiled ADD COLUMN " .. name .. " INTEGER NOT NULL DEFAULT 0")
         if not added then
-          local again, again_trouble = Sqlite.text_rows(db, "PRAGMA table_info(compiled)")
+          local again, again_trouble = db:text_rows("PRAGMA table_info(compiled)")
           if again == nil then return nil, tostring(again_trouble) end
           local now_present = false
           for _, column in ipairs(again) do
             if column:text(2) == name then now_present = true end
           end
-          if not now_present then return nil, add_trouble end
+          if not now_present then return nil, tostring(add_trouble) end
         end
       end
     end
     local dropped, drop_trouble = db:exec("DROP INDEX IF EXISTS compiled_by_seen")
-    if not dropped then return nil, drop_trouble end
+    if not dropped then return nil, tostring(drop_trouble) end
     -- A table an older tool made, of each compile's bytecode deflated, which no projection carries. Left
     -- where another run holds the database: it is dead weight and no more, and the next open takes it out.
     local _, _ = db:exec("DROP TABLE IF EXISTS deflated_bytecode")
@@ -948,7 +948,7 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
     for _, statement in ipairs(work.schema) do
       local name = statement:match("^CREATE VIEW IF NOT EXISTS (%S+) AS")
       if name ~= nil then
-        local stored, stored_trouble = Sqlite.text_rows(db,
+        local stored, stored_trouble = db:text_rows(
           "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?1", { text(name) })
         if stored == nil then return nil, tostring(stored_trouble) end
         local now = (statement:gsub("^CREATE VIEW IF NOT EXISTS ", "CREATE VIEW ", 1))
@@ -960,7 +960,7 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
           local remade, remade_trouble = db:exec("DROP VIEW " .. name .. "; " .. statement .. "; COMMIT")
           if not remade then
             local _, _ = db:exec("ROLLBACK")
-            return nil, remade_trouble
+            return nil, tostring(remade_trouble)
           end
         end
       end
@@ -977,12 +977,12 @@ local function create(db: Sqlite.Handle, path: string, wait: boolean, doing?: st
       if fresh then
         local _, _ = db:exec("ROLLBACK")
       end
-      return nil, trouble
+      return nil, tostring(trouble)
     end
   end
   if fresh then
     local committed, commit_trouble = db:exec("COMMIT")
-    if not committed then return nil, commit_trouble end
+    if not committed then return nil, tostring(commit_trouble) end
   end
   return "done", ""
 end
@@ -997,11 +997,11 @@ end
 --- The schema `db` records in `meta`, or nil where it records none: a
 --- fresh file, or one whose run never stamped it.
 local function schema_of(db: Sqlite.Handle): string?, string
-  local tables, table_trouble = Sqlite.text_rows(db,
+  local tables, table_trouble = db:text_rows(
     "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
   if tables == nil then return nil, tostring(table_trouble) end
   if assert(tables[1]):text(1) == "0" then return nil, "" end
-  local versions, version_trouble = Sqlite.text_rows(db,
+  local versions, version_trouble = db:text_rows(
     "SELECT value FROM meta WHERE key = 'schema'")
   if versions == nil then return nil, tostring(version_trouble) end
   local row = versions[1]
@@ -1094,7 +1094,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   local encoded, encode_trouble = db:exec("PRAGMA encoding = 'UTF-8'")
   if not encoded then
     local _, _ = db:close()
-    return nil, path .. ": " .. encode_trouble
+    return nil, path .. ": " .. tostring(encode_trouble)
   end
   -- After the encoding: on a fresh file the switch is the first write,
   -- which fixes the encoding.
@@ -1212,7 +1212,7 @@ local function opened(root: string, dir: string?, wait: boolean,
   -- Old rows have no change time: retain their content caches, but read
   -- their files once before trusting metadata again.
   for _, table_name in ipairs({ "files", "tool", "scanned", "linked" }) do
-    local columns, trouble = Sqlite.text_rows(db, "PRAGMA table_info(" .. table_name .. ")")
+    local columns, trouble = db:text_rows("PRAGMA table_info(" .. table_name .. ")")
     if columns == nil then
       local _, _ = db:close()
       return nil, tostring(trouble)
@@ -1225,25 +1225,25 @@ local function opened(root: string, dir: string?, wait: boolean,
       local added, why = db:exec("ALTER TABLE " .. table_name .. " ADD COLUMN ctime_ns INTEGER")
       if not added then
         local _, _ = db:close()
-        return nil, why
+        return nil, tostring(why)
       end
     end
   end
-  local stamp, stamp_trouble = Sqlite.run(db,
+  local stamp, stamp_trouble = db:run(
     "INSERT INTO meta (key, value) VALUES ('schema', ?1) " ..
       "ON CONFLICT (key) DO NOTHING", { text(version) })
   if not stamp then
     local _, _ = db:close()
     return nil, path .. ": " .. tostring(stamp_trouble)
   end
-  local counted, count_trouble = Sqlite.run(db,
+  local counted, count_trouble = db:run(
     "INSERT INTO meta (key, value) VALUES ('run', 1) " ..
       "ON CONFLICT (key) DO UPDATE SET value = value + 1")
   if not counted then
     local _, _ = db:close()
     return nil, path .. ": " .. tostring(count_trouble)
   end
-  local runs, run_trouble = Sqlite.text_rows(db,
+  local runs, run_trouble = db:text_rows(
     "SELECT value FROM meta WHERE key = 'run'")
   if runs == nil then
     local _, _ = db:close()
@@ -1379,7 +1379,7 @@ end
 --- file in rollback mode has no log, and nothing is done.
 local function checkpoint(db: Sqlite.Handle)
   db:busy_timeout(notice_ns)
-  local _, _ = Sqlite.text_rows(db, "PRAGMA wal_checkpoint(TRUNCATE)")
+  local _, _ = db:text_rows("PRAGMA wal_checkpoint(TRUNCATE)")
   db:busy_timeout(wait_ns)
 end
 
@@ -1400,7 +1400,7 @@ function work.commit(handle: work.Handle): boolean, string
     if rolled_back then
       handle.inside = false
     end
-    return false, trouble
+    return false, tostring(trouble)
   end
   handle.inside = false
   checkpoint(handle.db)
@@ -1415,7 +1415,7 @@ function work.rollback(handle: work.Handle): boolean, string
   end
   local rolled_back, trouble = handle.db:exec("ROLLBACK")
   if not rolled_back then
-    return false, trouble
+    return false, tostring(trouble)
   end
   handle.inside = false
   return true, ""
@@ -1424,11 +1424,11 @@ end
 --- Opens another transaction on the run, for a phase that comes after
 --- the projection: the test runner's records, written together.
 function work.begin(handle: work.Handle): boolean, string
-  local begun = handle.db:exec_result("BEGIN IMMEDIATE")
-  if begun.cancelled == true then
+  local begun, begun_why = handle.db:exec("BEGIN IMMEDIATE")
+  if not begun and begun_why.kind == "cancelled" then
     return false, "interrupted while waiting for " .. handle.dir .. "/build.db"
   end
-  if begun.code ~= Sqlite.OK then return false, begun.reason end
+  if not begun then return false, begun_why.message end
   handle.inside = true
   mark_holder(build_paths.under(handle.dir).working)
   return true, ""
@@ -1466,7 +1466,7 @@ local function known_in(db: Sqlite.Handle,
   local statement, trouble = db:prepare(
     "SELECT path, size, mtime_ns, ino, dev, mtime_ns IS NULL, ctime_ns, ctime_ns IS NULL FROM " .. table_name)
   if statement == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string:Known} = {}
   while true do
@@ -1683,7 +1683,7 @@ end
 local function forget(db: Sqlite.Handle, table_name: string,
                       known: {string:Known}): boolean, string
   for path in pairs(known) do
-    local ok, why = Sqlite.run(db,
+    local ok, why = db:run(
       "DELETE FROM " .. table_name .. " WHERE path = ?1", { text(path) })
     if not ok then
       return false, path .. ": " .. tostring(why)
@@ -1886,7 +1886,7 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     local statement, trouble = db:prepare((assert(puts[name], "every name listed has its put")))
     if statement == nil then
       finish(put)
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     put[name] = statement
   end
@@ -2003,14 +2003,14 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
     local cleared, trouble = db:exec("DELETE FROM tool_discovery")
     if not cleared then
       finish(put)
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     local discovery_put, prepare_trouble = db:prepare(
       "INSERT INTO tool_discovery (path, size, mtime_ns, ctime_ns, ino, dev) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
     if discovery_put == nil then
       finish(put)
-      return nil, prepare_trouble
+      return nil, tostring(prepare_trouble)
     end
     for path, st in pairs(discovery) do
       local mtime_ns = Clock.seconds(st.mtime) + st.mtime_ns
@@ -2061,14 +2061,14 @@ function work.stage(handle: work.Handle, standing: tree.Standing): work.Staged?,
         "(SELECT sha256 FROM files UNION SELECT sha256 FROM tool " ..
         "UNION SELECT sha256 FROM scanned)")
     if not pruned then
-      return nil, prune_trouble
+      return nil, tostring(prune_trouble)
     end
   end
   local by, by_trouble = running_tool(db)
   if by == nil then
     return nil, by_trouble
   end
-  local recorded, record_trouble = Sqlite.run(db,
+  local recorded, record_trouble = db:run(
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('staged_by', ?1)", { text(by) })
   if not recorded then
     return nil, tostring(record_trouble)
@@ -2090,7 +2090,7 @@ end
 --- what its parses and compiles keyed, may mean other than this code
 --- takes it to. Nil and why where the read fails.
 function work.other_code(db: Sqlite.Handle): string?, string
-  local rows, trouble = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'staged_by'")
+  local rows, trouble = db:text_rows("SELECT value FROM meta WHERE key = 'staged_by'")
   if rows == nil then
     return nil, tostring(trouble)
   end
@@ -2143,14 +2143,14 @@ local function links_finder(db: Sqlite.Handle): string?, string
     if fingerprint == nil then
       return nil, trouble
     end
-    local ok, record_trouble = Sqlite.run(db,
+    local ok, record_trouble = db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('links_boot', ?1)", { text(fingerprint) })
     if not ok then
       return nil, tostring(record_trouble)
     end
     return fingerprint, ""
   end
-  local last, last_trouble = Sqlite.text_rows(db,
+  local last, last_trouble = db:text_rows(
     "SELECT key, value FROM meta WHERE key IN ('links_boot', 'links_by')")
   if last == nil then
     return nil, tostring(last_trouble)
@@ -2180,7 +2180,7 @@ local function links_finder(db: Sqlite.Handle): string?, string
     parts[#parts + 1] = name .. "\n" .. (source or "")
   end
   local finder = Hash.hex_sha256(table.concat(parts, "\n\0\n"))
-  local ok, trouble = Sqlite.run(db,
+  local ok, trouble = db:run(
     "INSERT OR REPLACE INTO meta (key, value) VALUES ('links_boot', ?1)", { text(boot_hash) })
   if not ok then
     return nil, tostring(trouble)
@@ -2200,7 +2200,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
   if finder == nil then
     return false, finder_trouble
   end
-  local last, last_trouble = Sqlite.text_rows(db,
+  local last, last_trouble = db:text_rows(
     "SELECT value FROM meta WHERE key = 'links_by'")
   if last == nil then
     return false, tostring(last_trouble)
@@ -2209,16 +2209,16 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     for _, statement in ipairs({ "DELETE FROM linked_found", "DELETE FROM linked_texts" }) do
       local ok, trouble = db:exec(statement)
       if not ok then
-        return false, trouble
+        return false, tostring(trouble)
       end
     end
-    local ok, trouble = Sqlite.run(db,
+    local ok, trouble = db:run(
       "INSERT OR REPLACE INTO meta (key, value) VALUES ('links_by', ?1)", { text(finder) })
     if not ok then
       return false, tostring(trouble)
     end
   end
-  local unread, unread_trouble = Sqlite.text_rows(db,
+  local unread, unread_trouble = db:text_rows(
     "SELECT path, kind, sha256 FROM linked l WHERE NOT EXISTS (SELECT 1 FROM linked_texts t " ..
       "WHERE t.sha256 = l.sha256 AND t.kind = l.kind) ORDER BY path")
   if unread == nil then
@@ -2236,7 +2236,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
       local now_hash = Hash.hex_sha256(data)
       if now_hash ~= sha256 then
         sha256 = now_hash
-        local ok, trouble = Sqlite.run(db,
+        local ok, trouble = db:run(
           "UPDATE linked SET sha256 = ?2, mtime_ns = NULL WHERE path = ?1",
           { text(path), text(sha256) })
         if not ok then
@@ -2244,7 +2244,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
         end
       end
     end
-    local fresh, fresh_trouble = Sqlite.text_rows(db,
+    local fresh, fresh_trouble = db:text_rows(
       "INSERT OR IGNORE INTO linked_texts (sha256, kind) VALUES (?1, ?2) RETURNING 1",
       { text(sha256), text(kind) })
     if fresh == nil then
@@ -2253,7 +2253,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
     if #fresh > 0 then
       for ordinal, entry in ipairs(link_files.found(kind, data)) do
         local link = entry.link
-        local ok, trouble = Sqlite.run(db,
+        local ok, trouble = db:run(
           "INSERT INTO linked_found (sha256, kind, ordinal, line, column, form, text, " ..
             "target, own) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
           { text(sha256), text(kind), { integer = ordinal }, { integer = link.line },
@@ -2270,7 +2270,7 @@ find_links = function(handle: work.Handle, texts: {string:string}): boolean, str
         "(SELECT 1 FROM linked l WHERE l.sha256 = " .. name .. ".sha256 AND l.kind = " ..
         name .. ".kind)")
     if not ok then
-      return false, trouble
+      return false, tostring(trouble)
     end
   end
   return true, ""
@@ -2308,7 +2308,7 @@ function work.zoneinfo_of(db: Sqlite.Handle): {string:string}?, string
   if absent then
     return zones, ""
   end
-  local rows, rows_trouble = Sqlite.rows(db, "SELECT name, data FROM zoneinfo")
+  local rows, rows_trouble = db:rows("SELECT name, data FROM zoneinfo")
   if rows == nil then
     return nil, tostring(rows_trouble)
   end
@@ -2325,7 +2325,7 @@ end
 function work.write_zones(db: Sqlite.Handle, zones: {string:string}): boolean, string
   local cleared, trouble = db:exec("DELETE FROM zoneinfo")
   if not cleared then
-    return false, trouble
+    return false, tostring(trouble)
   end
   local names: mut {string} = {}
   for name in pairs(zones) do
@@ -2333,7 +2333,7 @@ function work.write_zones(db: Sqlite.Handle, zones: {string:string}): boolean, s
   end
   table.sort(names)
   for _, name in ipairs(names) do
-    local ok, why = Sqlite.run(db,
+    local ok, why = db:run(
       "INSERT INTO zoneinfo (name, data) VALUES (?1, ?2)",
       { text(name), { blob = zones[name] } })
     if not ok then
@@ -2401,7 +2401,7 @@ function work.web_assets_of(db: Sqlite.Handle): {work.WebAsset}?, string
   if absent then
     return assets, ""
   end
-  local rows, rows_trouble = Sqlite.rows(db,
+  local rows, rows_trouble = db:rows(
     "SELECT name, data, sha256, sha384, version FROM web_assets ORDER BY name")
   if rows == nil then
     return nil, tostring(rows_trouble)
@@ -2417,10 +2417,10 @@ end
 function work.put_web_assets(handle: work.Handle, assets: {work.WebAsset}): boolean, string
   local cleared, trouble = handle.db:exec("DELETE FROM web_assets")
   if not cleared then
-    return false, trouble
+    return false, tostring(trouble)
   end
   for _, asset in ipairs(assets) do
-    local ok, why = Sqlite.run(handle.db,
+    local ok, why = handle.db:run(
       "INSERT INTO web_assets (name, data, sha256, sha384, version) " ..
         "VALUES (?1, ?2, ?3, ?4, ?5)",
       { text(asset.name), { blob = asset.data }, text(asset.sha256), text(asset.sha384),
@@ -2436,7 +2436,7 @@ end
 function work.record(handle: work.Handle, ms: integer, staged: work.Staged,
                      compiled: integer, cached: integer,
                      verdict: string): boolean, string
-  local answered, answer_why = Sqlite.run(handle.db,
+  local answered, answer_why = handle.db:run(
     "INSERT OR REPLACE INTO builds (run, ms, files, read, compiled, cached, " ..
       "verdict) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     { integer(handle.run), integer(ms), integer(staged.files),
@@ -2453,7 +2453,9 @@ function work.close(handle: work.Handle): boolean, string
     local _, _ = handle.db:close()
     return false, trouble
   end
-  return handle.db:close()
+  local done, done_why = handle.db:close()
+  if not done then return false, tostring(done_why) end
+  return true, ""
 end
 
 --- Closes the database, discarding whatever a still-open transaction did.
@@ -2465,7 +2467,7 @@ function work.abort(handle: work.Handle): boolean, string
     return false, trouble
   end
   if not closed then
-    return false, close_trouble
+    return false, tostring(close_trouble)
   end
   return true, ""
 end

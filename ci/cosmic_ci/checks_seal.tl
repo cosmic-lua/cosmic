@@ -64,11 +64,11 @@ function ChecksSeal.seal(path: string, since_s?: integer): ChecksSeal.Said
   if rows == 0 then return refused("no row the run used") end
   for _, sql in ipairs({ "VACUUM", "PRAGMA wal_checkpoint(TRUNCATE)", "PRAGMA journal_mode = DELETE" }) do
     local ok, why = db:exec(sql)
-    if not ok then return refused(sql .. ": " .. why) end
+    if not ok then return refused(sql .. ": " .. tostring(why)) end
   end
   local closed, close_trouble = db:close()
   if not closed then
-    return { code = 1, out = "", err = "checks-seal: " .. path .. ": " .. close_trouble .. "\n" }
+    return { code = 1, out = "", err = "checks-seal: " .. path .. ": " .. tostring(close_trouble) .. "\n" }
   end
   local stat, _ = Fs.stat(path)
   local bytes = if stat ~= nil then stat.size else 0 end

@@ -157,12 +157,12 @@ end
 --- this too.
 function onecrl.put(db: Sqlite.Handle, qualifier: string, found: {onecrl.Entry}): boolean, string
   -- SQLite orders and dedupes them: the new checker types no `table.sort` call.
-  local made, made_trouble = Sqlite.run(db, "CREATE TEMP TABLE onecrl_put (kind TEXT, name BLOB, value BLOB)", {})
+  local made, made_trouble = db:run("CREATE TEMP TABLE onecrl_put (kind TEXT, name BLOB, value BLOB)", {})
   if not made then
     return false, tostring(made_trouble)
   end
   for _, one in ipairs(found) do
-    local put, put_trouble = Sqlite.run(db,
+    local put, put_trouble = db:run(
       "INSERT INTO temp.onecrl_put (kind, name, value) VALUES (?1, ?2, ?3)",
       { bind.text(one.kind), bind.blob(one.name), bind.blob(one.value) })
     if not put then
@@ -174,7 +174,7 @@ function onecrl.put(db: Sqlite.Handle, qualifier: string, found: {onecrl.Entry})
         "FROM temp.onecrl_put ORDER BY kind, name, value",
       "DROP TABLE temp.onecrl_put",
   }) do
-    local done, trouble = Sqlite.run(db, sql, {})
+    local done, trouble = db:run(sql, {})
     if not done then
       return false, tostring(trouble)
     end

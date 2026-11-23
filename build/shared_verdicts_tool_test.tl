@@ -291,7 +291,7 @@ Test.policy { grants = { { path = "suite/data.db", letters = "r" } } }
 
 local function test_reads_a_database()
   local db = assert(Sqlite.open("suite/data.db"))
-  local rows = assert(Sqlite.text_rows(db, "SELECT v FROM t"))
+  local rows = assert(db:text_rows("SELECT v FROM t"))
   assert(db:close())
   local row = assert(rows[1])
   assert(row:text(1) == "one", row:text(1))
@@ -548,7 +548,7 @@ local function test_a_row_whose_key_this_checkout_does_not_reach_does_not_stand(
   assert(first:find("4 ran, 0 stood", 1, true), first)
   skip_unless_shared(first)
   local db = assert(Sqlite.open(cache, { writable = true }))
-  local tables = assert(Sqlite.text_rows(db,
+  local tables = assert(db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   assert(#tables == 1, "one table")
   assert(db:exec("UPDATE " .. tables[1]:text(1) .. " SET key = 'another runtime ' || key"))
@@ -608,7 +608,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   assert(Fs.mkdirs(tmp .. "/other"))
   local db = assert(Sqlite.open(other, { writable = true }))
   local probe = assert(shared_verdicts.open(tmp .. "/probe/verdicts.db"))
-  local named = assert(Sqlite.text_rows(probe.db,
+  local named = assert(probe.db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name LIKE 'declared%'"))
   shared_verdicts.close(probe)
   assert(db:exec("CREATE TABLE " .. Array.at(named, 1):text(1) .. " (x TEXT)"))
@@ -623,7 +623,7 @@ local function test_a_cache_of_another_shape_is_done_without(tmp: string)
   assert(db:exec("CREATE TABLE healthy (value TEXT)"))
   assert(db:exec("INSERT INTO healthy VALUES ('still usable')"))
   local reader = assert(Sqlite.open(other))
-  assert(Array.at(assert(Sqlite.text_rows(reader, "SELECT value FROM healthy")), 1):text(1) == "still usable")
+  assert(Array.at(assert(reader:text_rows("SELECT value FROM healthy")), 1):text(1) == "still usable")
   assert(reader:close())
   assert(db:close())
 end
@@ -840,12 +840,12 @@ local function seeded_as_another_host(tmp: string, extra: {string:string},
   local identity, rest = probe:match("host identity (%x+), host rest (%x+)")
   assert(identity ~= nil and rest ~= nil, probe)
   local db = assert(Sqlite.open(cache, { writable = true }))
-  local rows = assert(Sqlite.text_rows(db, "SELECT DISTINCT parts FROM declared_v1"))
+  local rows = assert(db:text_rows("SELECT DISTINCT parts FROM declared_v1"))
   assert(#rows == 1, "one set of parts")
   local named = shared_verdicts.host_of(assert(rows[1]):text(1))
   assert(named.identity ~= nil and named.identity ~= identity, "host a is host b")
   assert(named.rest ~= nil and named.rest ~= rest, "the hosts' ids differ in their rest")
-  assert(Sqlite.run(db, "UPDATE declared_v1 SET parts = replace(parts, ?1, ?2)",
+  assert(db:run("UPDATE declared_v1 SET parts = replace(parts, ?1, ?2)",
     { { text = "host rest " .. named.rest }, { text = "host rest " .. rest } }))
   assert(db:close())
   return { env = varied(probing, {}, { COSMIC_VERDICT_CACHE = cache }), cache = cache, root = root }
@@ -868,7 +868,7 @@ local function test_a_gathering_run_stands_on_the_rows_of_a_host_of_other_featur
   -- The rows stay under host a's key and the run that ran them here
   -- under host b's: the gathering run made none of its own.
   local db = assert(Sqlite.open(held.cache))
-  local rows = assert(Sqlite.text_rows(db, "SELECT COUNT(*) FROM declared_v1"))
+  local rows = assert(db:text_rows("SELECT COUNT(*) FROM declared_v1"))
   assert(db:close())
   assert(assert(rows[1]):text(1) == "8", "the gathering run made rows of this host's key")
 end

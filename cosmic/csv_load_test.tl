@@ -9,7 +9,7 @@ local Test = require("cosmic.test")
 --- `sql`'s rows on `handle` as text: each row's cells joined by `|`, the
 --- rows by `;`.
 local function quoted(handle: Sqlite.Handle, sql: string): string
-  local rows = assert(Sqlite.text_rows(handle, sql))
+  local rows = assert(handle:text_rows(sql))
   local out: mut {string} = {}
   for index, row in ipairs(rows) do
     out[index] = table.concat(row:texts(), "|")
@@ -84,7 +84,7 @@ end
 local function test_a_csv_table_is_only_made_in_temp()
   local db = assert(Sqlite.memory())
   local ok, why = db:exec("CREATE VIRTUAL TABLE main.x USING csv(data='a,b')")
-  assert(not ok and why:find("must be in the temp schema", 1, true) ~= nil, why)
+  assert(not ok and tostring(why):find("must be in the temp schema", 1, true) ~= nil, why)
   assert(db:exec("CREATE VIRTUAL TABLE temp.x USING csv(data='a,b')"))
   assert(db:close())
 end
@@ -96,7 +96,7 @@ local function test_a_csv_table_refuses_a_malformed_record()
   assert(db:exec([[CREATE VIRTUAL TABLE temp.x USING csv(data='a,b
 "q"z,1
 ')]]))
-  local rows, why = Sqlite.text_rows(db, "SELECT * FROM temp.x")
+  local rows, why = db:text_rows("SELECT * FROM temp.x")
   assert(rows == nil and tostring(why):find("line 2: unescaped \" character", 1, true) ~= nil, why)
   assert(db:close())
 end

@@ -137,14 +137,14 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
   local cost = (4000 + 40000 + 20000 + 10000 + 8000) / 1e6
   local first = assert(seen[1])
   assert(#seen == 2 and first.seq == 2 and math.abs(assert(first.cost) - cost) < 1e-12)
-  local rows = assert(Sqlite.rows(db, [[SELECT seq, served, stop_reason, context, cache_write_1h, status,
+  local rows = assert(db:rows([[SELECT seq, served, stop_reason, context, cache_write_1h, status,
     (SELECT text FROM systems WHERE id = system), reply IS NOT NULL, error FROM requests ORDER BY id]]))
   local one, two = assert(rows[1]), assert(rows[2])
   assert(one:integer(1) == 2 and one:text(2) == "claude-opus-5-5" and one:text(3) == "end_turn")
   assert(one:integer(4) == 104000 and one:integer(5) == 1000 and one:integer(6) == 200 and one:text(7) == "")
   assert(one:integer(8) == 1 and one:is_null(9))
   assert(two:is_null(1) and two:integer(6) == 500 and two:text(9) == "HTTP 500: down")
-  local headers = assert(Sqlite.rows(db, "SELECT headers, request_id FROM requests WHERE status = 200"))
+  local headers = assert(db:rows("SELECT headers, request_id FROM requests WHERE status = 200"))
   assert(assert(headers[1]):text(1) == '{"anthropic-ratelimit-tokens-remaining":"9","request-id":"req_1","server":"x"}',
     assert(headers[1]):text(1))
   assert(assert(headers[1]):text(2) == "req_1")
@@ -156,7 +156,7 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
   local named = assert(Json.encode(diagnosed))
   assert(named == '{"previous_message_id":"msg_1"}', named)
   assert(again:find('{"content":"what came before","type":"compaction"}', 1, true) ~= nil, again)
-  local missed = assert(assert(Sqlite.rows(db, "SELECT cache_miss, cache_missed FROM requests ORDER BY id"))[1])
+  local missed = assert(assert(db:rows("SELECT cache_miss, cache_missed FROM requests ORDER BY id"))[1])
   assert(missed:text(1) == "system_changed" and missed:integer(2) == 10)
   -- A reply the API will not diagnose against: the request goes again naming none.
   local s2, a2 = kept({ "400 diagnostics.previous_message_id: not found", text_reply("ok") })
@@ -165,13 +165,13 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
   assert(#a2.sent == 2 and said_whole(a2, 1):find('"previous_message_id":"msg_gone"', 1, true) ~= nil)
   assert(said_whole(a2, 2):find('"previous_message_id":null', 1, true) ~= nil, said_whole(a2, 2))
   -- The headers sent, less the key; and how soon the reply began.
-  local asked = assert(Sqlite.rows(db, "SELECT request_headers, first_ms, build FROM requests WHERE status = 200"))
+  local asked = assert(db:rows("SELECT request_headers, first_ms, build FROM requests WHERE status = 200"))
   local sent_headers = assert(asked[1]):text(1)
   assert(sent_headers:find("anthropic-version", 1, true) ~= nil and sent_headers:find("x-api-key", 1, true) == nil and
       sent_headers:find('"k"', 1, true) == nil, sent_headers)
   assert(not assert(asked[1]):is_null(2))
   -- The whole body sent is its shape, its system prompt and the messages before its reply.
-  local shapes = assert(Sqlite.rows(db, [[SELECT count(DISTINCT shape), count(*), (SELECT count(*) FROM shapes),
+  local shapes = assert(db:rows([[SELECT count(DISTINCT shape), count(*), (SELECT count(*) FROM shapes),
     (SELECT body FROM shapes) FROM requests]]))
   local shaped = assert(shapes[1])
   assert(shaped:integer(1) == 1 and shaped:integer(2) == 2 and shaped:integer(3) == 1, shaped:text(4))
@@ -192,7 +192,7 @@ local function test_each_request_is_kept_with_its_usage_and_cost()
     { type = "fallback_message", model = "claude-sonnet-5-5", cache_creation_input_tokens = 1000000 } } }
   assert(Agent.billed("claude-sonnet-5-5", hour) == 4, tostring(Agent.billed("claude-sonnet-5-5", hour)))
   assert(Agent.billed("claude-sonnet-5-5", { iterations = { { model = "another", output_tokens = 1 } } }) == nil)
-  local systems = assert(Sqlite.rows(db, "SELECT count(*) FROM systems"))
+  local systems = assert(db:rows("SELECT count(*) FROM systems"))
   assert(assert(systems[1]):integer(1) == 1)
 end
 

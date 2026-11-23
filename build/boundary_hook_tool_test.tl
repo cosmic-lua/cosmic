@@ -84,7 +84,7 @@ end
 --- The rows of `type_violations` the project's last checked run kept.
 local function violations(root: string): Sqlite.Rows
   local db = assert(Sqlite.open(assert(build_paths.directory(root)) .. "/build.db"))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT kind, site, target, declared, actual, count FROM type_violations ORDER BY site"))
   assert(db:close())
   return rows

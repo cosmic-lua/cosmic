@@ -213,7 +213,7 @@ end
 local function build_verdicts(path: string): string
   local db, open_trouble = Sqlite.open(path)
   if db == nil then return "unreadable: " .. tostring(open_trouble) end
-  local rows, trouble = Sqlite.text_rows(db, "SELECT verdict FROM builds ORDER BY run")
+  local rows, trouble = db:text_rows("SELECT verdict FROM builds ORDER BY run")
   local _, _ = db:close()
   if rows == nil then return "unreadable: " .. tostring(trouble) end
   local verdicts = ""
@@ -308,7 +308,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
         assert(writer.write_result(b, alternate, result))
         assert(work.close(b))
         local db = assert(Sqlite.open(alternate))
-        local rows = assert(Sqlite.text_rows(db,
+        local rows = assert(db:text_rows(
           "SELECT inflate(source) FROM modules WHERE path = 'main'"))
         -- The one module `main` is stored once.
         assert(Array.at(rows, 1):text(1) == 'print("replacement")\n')
@@ -327,10 +327,10 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       assert(result.ok, text)
       assert(text:find("original\n", 1, true), text)
       local db = assert(Sqlite.open(support.build_dir(root) .. "/cosmic.db"))
-      local rows = assert(Sqlite.text_rows(db,
+      local rows = assert(db:text_rows(
         "SELECT inflate(source) FROM modules WHERE path = 'main'"))
       assert(Array.at(rows, 1):text(1) == original, "published another run's source")
-      local signed = assert(Sqlite.text_rows(db,
+      local signed = assert(db:text_rows(
         "SELECT value FROM meta WHERE key = 'projected'"))
       assert(Array.at(signed, 1):text(1) == first_signature, "published another run's signature")
       assert(db:close())
@@ -425,7 +425,7 @@ end
 --- How many builds the working database of `root` records.
 local function builds_of(root: string): integer
   local db = assert(Sqlite.open(build_paths.resolve(root).working))
-  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM builds"))
+  local rows = assert(db:text_rows("SELECT count(*) FROM builds"))
   assert(db:close())
   return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
 end
@@ -631,7 +631,7 @@ end
 --- How many rows of blame the working database of `root` keeps.
 local function blames_of(root: string): integer
   local db = assert(Sqlite.open(build_paths.resolve(root).working))
-  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM blames"))
+  local rows = assert(db:text_rows("SELECT count(*) FROM blames"))
   assert(db:close())
   return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
 end
@@ -648,7 +648,7 @@ local function test_todos_in_an_unchecked_tree_writes_nothing(tmp: string)
   assert(Fs.write(root .. "/kept.tl", "-- TODO: indexed by the last stage\n"))
   own_tree(root)
   local db = assert(Sqlite.open(build_paths.resolve(root).working, { writable = true }))
-  assert(Sqlite.run(db, "INSERT INTO blames (path, line, sha256, head, commit_id, author_time, " ..
+  assert(db:run("INSERT INTO blames (path, line, sha256, head, commit_id, author_time, " ..
       "summary, boundary) VALUES ('kept.tl', 1, 'x', 'an earlier head', 'c', 0, 's', 0)"))
   assert(db:close())
   local seen: reboot.Seen = { tool = build_paths.resolve(root).tool, environment = {}, meta = { built_from = assert(tree.built_from(root)) } }

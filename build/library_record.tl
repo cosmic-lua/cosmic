@@ -3,7 +3,6 @@
 --- of its own so that [`build.positions`] reads no database, and so that the compiler's identity
 --- ([`build.identity`]'s `compiler_roots`) holds neither; the code the checker's readers hash does hold it.
 
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local symbols = require("cosmic.internal.symbols")
 local type positions = require("build.positions")
@@ -21,11 +20,11 @@ function library_record.read(): positions.Library?
   local kept: mut {string: boolean} = {}
   local recorded = false
   for _, db in ipairs(Store.databases()) do
-    local rows, _ = Sqlite.text_rows(db, "SELECT path FROM public_modules")
+    local rows, _ = db:text_rows("SELECT path FROM public_modules")
     if rows ~= nil and #rows > 0 then
       recorded = true
       for _, row in ipairs(rows) do public[row:text(1)] = true end
-      local left, _ = Sqlite.text_rows(db, "SELECT path FROM modules WHERE " .. symbols.library_modules("path") ..
+      local left, _ = db:text_rows("SELECT path FROM modules WHERE " .. symbols.library_modules("path") ..
           " AND path NOT IN (SELECT path FROM public_modules)")
       for _, row in ipairs(left or {}) do kept[row:text(1)] = true end
     end

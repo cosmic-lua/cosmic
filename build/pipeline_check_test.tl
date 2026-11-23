@@ -52,7 +52,7 @@ local function test_a_module_over_the_limit_on_main_locals_is_refused_with_its_f
   local second = compare()
   assert(told(second) == told(first), told(second))
   -- An entry that says no count is asked again, and the count is not 0.
-  assert(Sqlite.run(memo, "UPDATE check_memo SET value = 'N M x' WHERE kind = 'pipeline' AND value LIKE '% M %'"))
+  assert(memo:run("UPDATE check_memo SET value = 'N M x' WHERE kind = 'pipeline' AND value LIKE '% M %'"))
   local third = compare()
   assert(told(third) == told(first), told(third))
   assert(work.close(handle))
@@ -103,7 +103,7 @@ local function test_copies_of_the_process_answer_as_the_process_does(tmp: string
       return assert(rows[index])
     end, {}, {})
     local kept: mut {string} = {}
-    local found = assert(Sqlite.text_rows(memo,
+    local found = assert(memo:text_rows(
       "SELECT key || '=' || value FROM check_memo WHERE kind = 'pipeline' ORDER BY key"))
     for _, row in ipairs(found) do
       kept[#kept + 1] = row:text(1)

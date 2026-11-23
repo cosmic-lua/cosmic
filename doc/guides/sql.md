@@ -35,7 +35,7 @@ not run what its author chose:
 local Sqlite = require("cosmic.sqlite")
 
 local db = assert(Sqlite.memory())
-local rows = assert(Sqlite.text_rows(db, [[
+local rows = assert(db:text_rows([[
   SELECT sqrt(16), median(value), decimal_add('0.1', '0.2'), 'v1.2' REGEXP '^v[0-9.]+$'
   FROM generate_series(1, 4)]]))
 print(table.concat(assert(rows[1]):texts(), " "))
@@ -329,7 +329,7 @@ constraint. `statement:rewind()` rewinds it and keeps the bindings: bind
 the fixed columns once, then rebind only the changing column and rewind
 per row. Both return `true, ""`, or `false` and the previous step's
 failure. To bind every column afresh for each row, see [a prepared statement in a loop](#a-prepared-statement-in-a-loop),
-which uses `bind_values_result` or a values table per row with [`Sqlite.run`].
+which uses `bind_values_result` or a values table per row with [`Sqlite.Handle.run`].
 
 ```teal
 local Sqlite = require("cosmic.sqlite")
@@ -344,7 +344,7 @@ for n = 1, 3 do
   assert(insert:rewind())
 end
 insert:finalize()
-local rows = assert(Sqlite.text_rows(db, "SELECT count(*), sum(n) FROM t"))
+local rows = assert(db:text_rows("SELECT count(*), sum(n) FROM t"))
 print(table.concat(assert(rows[1]):texts(), " "))
 ```
 
@@ -569,7 +569,7 @@ core.
 local Sqlite = require("cosmic.sqlite")
 
 local db = assert(Sqlite.memory())
-local rows = assert(Sqlite.text_rows(db, [[
+local rows = assert(db:text_rows([[
   SELECT group_concat(value, ','), sha1('abc'), uuid_str(uuid_blob('{A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11}')),
     decimal_mul('1.10', '3')
   FROM generate_series(0, 20, 10)]]))
@@ -681,7 +681,7 @@ local _, _ = old:close()
 local db = assert(Sqlite.open(dir .. "/new.db", { writable = true, create = true }))
 assert(db:exec("ATTACH '" .. dir .. "/old.db' AS old"))
 assert(db:exec("create table t2 as select * from old.t"))
-print(assert(assert(Sqlite.rows(db, "select count(*) from t2"))[1]):integer(1))
+print(assert(assert(db:rows("select count(*) from t2"))[1]):integer(1))
 ```
 
 ```output
@@ -694,7 +694,7 @@ program, as above.
 ## a prepared statement in a loop
 
 [`Statement.reset()`] rewinds a statement and clears every binding, so bind again inside the loop with
-`bind_values_result(values)`. For one-off rows, [`Sqlite.run`] with a values table per row prepares, binds and steps in one
+`bind_values_result(values)`. For one-off rows, [`Sqlite.Handle.run`] with a values table per row prepares, binds and steps in one
 call. To keep the bindings across rows, [`Statement:rewind()`] ([prepared statements](#prepared-statements)) rewinds
 without clearing them.
 
@@ -712,8 +712,8 @@ for id, body in ipairs({ "a", "b", "c" }) do
 end
 insert:finalize()
 
-assert(Sqlite.run(db, "insert into t values (?1, ?2)", { { integer = 4 }, { text = "d" } }))
-print(assert(assert(Sqlite.rows(db, "select count(*) from t"))[1]):integer(1))
+assert(db:run("insert into t values (?1, ?2)", { { integer = 4 }, { text = "d" } }))
+print(assert(assert(db:rows("select count(*) from t"))[1]):integer(1))
 ```
 
 ```output
@@ -729,8 +729,8 @@ print(assert(assert(Sqlite.rows(db, "select count(*) from t"))[1]):integer(1))
 [`cosmic.vector`]: ../../cosmic/vector.tl
 [`cosmic/sqlite_example.tl`]: ../../cosmic/sqlite_example.tl
 [`Signal.guard`]: ../../cosmic/signal.tl
+[`Sqlite.Handle.run`]: ../../cosmic/sqlite.tl
 [`Sqlite.open`]: ../../cosmic/sqlite.tl
-[`Sqlite.run`]: ../../cosmic/sqlite.tl
 [`Statement.reset()`]: ../../cosmic/internal/sqlite.d.tl
 [`Statement:rewind()`]: ../../cosmic/internal/sqlite.d.tl
 [`Vector.load_blocks`]: ../../cosmic/vector.tl

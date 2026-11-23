@@ -14,7 +14,6 @@ local Array = require("cosmic.array")
 local Env = require("cosmic.env")
 local Globals = require("cosmic.internal.globals")
 local Proc = require("cosmic.proc")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local Test = require("cosmic.test")
 local confine = require("build.confine")
@@ -43,7 +42,7 @@ local function absent(name: string)
   assert(bytecode == nil, name .. ": its bytecode is in the program")
   assert(#assert(Store.requires(name)) == 0, name .. ": its imports are in the program")
   for _, db in ipairs(Store.databases()) do
-    local rows = assert(Sqlite.text_rows(db,
+    local rows = assert(db:text_rows(
       "SELECT count(*) FROM modules WHERE path = ?1", { { text = name } }))
     assert(Array.at(rows, 1):text(1) == "0", name .. ": a database holds its row")
   end

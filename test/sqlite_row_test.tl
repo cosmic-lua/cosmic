@@ -19,7 +19,7 @@ end
 --- a blob that holds a NUL, and NULL.
 local function typed(): Sqlite.Row
   local db = assert(Sqlite.memory())
-  local rows = assert(Sqlite.rows(db, "SELECT 7, 1.5, 'seven', x'6100ff', NULL"))
+  local rows = assert(db:rows("SELECT 7, 1.5, 'seven', x'6100ff', NULL"))
   assert(db:close())
   assert(#rows == 1)
   return first_row(rows)
@@ -83,7 +83,7 @@ local function test_a_column_the_row_lacks_raises_with_its_width()
     local seen = Test.raises(function() row:text(at) end)
     assert(seen:find("the row has 5 columns", 1, true), seen)
   end
-  local one = first_row((assert(Sqlite.rows(assert(Sqlite.memory()), "SELECT 1"))))
+  local one = first_row((assert(assert(Sqlite.memory()):rows("SELECT 1"))))
   assert(Test.raises(function() one:integer(2) end):find("the row has 1 column", 1, true))
   assert(Test.raises(function() row:kind(6) end):find("row:kind(6)", 1, true))
   assert(Test.raises(function() row:is_null(0) end):find("row:is_null(0)", 1, true))
@@ -91,7 +91,7 @@ end
 
 local function test_number_keeps_the_sign_of_a_negative_zero()
   local db = assert(Sqlite.memory())
-  local row = first_row((assert(Sqlite.rows(db, "SELECT -0.0, 9007199254740993"))))
+  local row = first_row((assert(db:rows("SELECT -0.0, 9007199254740993"))))
   assert(row:number(1) == 0 and 1 / row:number(1) < 0)
   assert(row:number(2) == 9007199254740992.0)
   assert(db:close())
@@ -119,8 +119,8 @@ local function test_value_binds_a_column_back_as_it_was_read()
   for index = 1, row:count() do bound[index] = row:value(index) end
   assert(bound_at(bound, 1).integer == 7 and bound_at(bound, 2).number == 1.5 and bound_at(bound, 3).text == "seven")
   assert(bound_at(bound, 4).blob == "a\0\255" and bound_at(bound, 5).integer == nil and bound_at(bound, 5).text == nil and bound_at(bound, 5).blob == nil)
-  assert(Sqlite.run(db, "INSERT INTO copy VALUES (?1, ?2, ?3, ?4, ?5)", bound))
-  local back = first_row((assert(Sqlite.rows(db, "SELECT * FROM copy"))))
+  assert(db:run("INSERT INTO copy VALUES (?1, ?2, ?3, ?4, ?5)", bound))
+  local back = first_row((assert(db:rows("SELECT * FROM copy"))))
   for index = 1, 5 do assert(back:kind(index) == row:kind(index)) end
   assert(back:blob(4) == "a\0\255" and back:text(3) == "seven")
   assert(db:close())
@@ -128,7 +128,7 @@ end
 
 local function test_texts_lists_the_columns_of_a_row_of_text()
   local db = assert(Sqlite.memory())
-  local texts = first_row((assert(Sqlite.text_rows(db, "SELECT 'a', 'b'")))):texts()
+  local texts = first_row((assert(db:text_rows("SELECT 'a', 'b'")))):texts()
   assert(#texts == 2 and texts[1] == "a" and texts[2] == "b")
   local row = typed()
   assert(Test.raises(function() row:texts() end):find("column 1 is an integer, not text", 1, true))
@@ -139,7 +139,7 @@ end
 --- for every column, NULL as "" and numbers as SQLite spells them.
 local function test_text_rows_answer_text_for_every_column()
   local db = assert(Sqlite.memory())
-  local row = first_row((assert(Sqlite.text_rows(db, "SELECT 7, 1.5, 'seven', x'6100ff', NULL, ''"))))
+  local row = first_row((assert(db:text_rows("SELECT 7, 1.5, 'seven', x'6100ff', NULL, ''"))))
   assert(row:count() == 6)
   assert(row:text(1) == "7" and row:text(2) == "1.5" and row:text(3) == "seven")
   assert(row:text(4) == "a\0\255" and row:text(5) == "" and row:text(6) == "")
@@ -158,7 +158,7 @@ end
 local function test_a_zero_column_row_has_no_columns()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (a)"))
-  local rows = assert(Sqlite.rows(db, "SELECT 1 WHERE 0"))
+  local rows = assert(db:rows("SELECT 1 WHERE 0"))
   assert(#rows == 0)
   assert(Test.raises(function() typed():text(0) end):find("the row has 5 columns", 1, true))
   assert(db:close())
@@ -174,7 +174,7 @@ local function test_map_builds_a_record_per_row()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (name TEXT, n INTEGER, note TEXT); " ..
       "INSERT INTO t VALUES ('a', 1, NULL), ('b', 2, 'two'), ('c', 3, 'three')"))
-  local found = assert(Sqlite.map(db, "SELECT name, n, note FROM t WHERE n > ?1 ORDER BY n",
+  local found = assert(db:map("SELECT name, n, note FROM t WHERE n > ?1 ORDER BY n",
     { { integer = 1 } }, function(r: Sqlite.Row): Entry
       return { name = r:text(1), n = r:integer(2), note = not r:is_null(3) and r:text(3) or nil } -- checked: and_ternary
     end))
@@ -186,7 +186,7 @@ end
 
 local function test_map_without_values_and_with_nil_values()
   local db = assert(Sqlite.memory())
-  local ones = assert(Sqlite.map(db, "SELECT 1 UNION ALL SELECT 2", nil, function(r: Sqlite.Row): integer
+  local ones = assert(db:map("SELECT 1 UNION ALL SELECT 2", nil, function(r: Sqlite.Row): integer
     return r:integer(1)
   end))
   assert(#ones == 2 and ones[1] == 1 and ones[2] == 2)
@@ -196,7 +196,7 @@ end
 local function test_map_answers_an_empty_list_for_no_rows()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (n INTEGER)"))
-  local found, trouble = Sqlite.map(db, "SELECT n FROM t", nil, function(r: Sqlite.Row): integer
+  local found, trouble = db:map("SELECT n FROM t", nil, function(r: Sqlite.Row): integer
     return r:integer(1)
   end)
   assert(found ~= nil and #found == 0 and trouble == nil)
@@ -210,27 +210,27 @@ local function test_map_answers_nil_and_why_when_the_statement_fails()
     called.value = called.value + 1
     return r:integer(1)
   end
-  local found, trouble = Sqlite.map(db, "SELECT * FROM missing", nil, project)
+  local found, trouble = db:map("SELECT * FROM missing", nil, project)
   assert(found == nil and tostring(trouble):find("missing", 1, true) ~= nil, trouble)
   -- A step that fails after a row was read gives no rows at all.
-  found, trouble = Sqlite.map(db, "SELECT abs(n) FROM (SELECT 1 AS n UNION ALL " ..
+  found, trouble = db:map("SELECT abs(n) FROM (SELECT 1 AS n UNION ALL " ..
       "SELECT -9223372036854775807 - 1)", nil, project)
   assert(found == nil and trouble ~= nil, trouble)
   assert(called.value == 1)
-  found, trouble = Sqlite.map(db, "SELECT ?1", { { integer = 1 }, { integer = 2 } }, project)
+  found, trouble = db:map("SELECT ?1", { { integer = 1 }, { integer = 2 } }, project)
   assert(found == nil and trouble ~= nil)
-  assert(db:close(), "a failed map leaves no statement open")
+  assert(db:close()) -- a failed map leaves no statement open
 end
 
 local function test_map_finalizes_the_statement_when_the_projection_raises()
   local db = assert(Sqlite.memory())
   local seen = Test.raises(function()
-    local _, _ = Sqlite.map(db, "SELECT 'text'", nil, function(r: Sqlite.Row): integer
+    local _, _ = db:map("SELECT 'text'", nil, function(r: Sqlite.Row): integer
       return r:integer(1)
     end)
   end)
   assert(seen:find("column 1 is text, not an integer", 1, true), seen)
-  assert(db:close(), "a raising projection leaves no statement open")
+  assert(db:close()) -- a raising projection leaves no statement open
 end
 
 local function test_map_refuses_a_projection_that_answers_nothing()
@@ -240,7 +240,7 @@ local function test_map_refuses_a_projection_that_answers_nothing()
       return nil
     end
     local project = nothing as function(Sqlite.Row): integer -- cast: a projection that breaks its contract -- checked: cast_refused
-    local _, _ = Sqlite.map(db, "SELECT 1", nil, project)
+    local _, _ = db:map("SELECT 1", nil, project)
   end)
   assert(seen:find("project answered nil", 1, true), seen)
   assert(db:close())
@@ -248,7 +248,7 @@ end
 
 local function test_a_query_and_its_each_give_rows_the_same_accessors()
   local db = assert(Sqlite.memory())
-  local q <close> = assert(Sqlite.query(db, "SELECT 5, 'x', NULL"))
+  local q <close> = assert(db:query("SELECT 5, 'x', NULL"))
   local row = assert(q:read())
   assert(row:integer(1) == 5 and row:text(2) == "x" and row:is_null(3) and row:count() == 3)
   local nothing, why = q:read()

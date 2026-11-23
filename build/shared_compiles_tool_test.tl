@@ -120,7 +120,7 @@ end
 --- Every row `sql` answers of the database at `path`, a line each.
 local function dump(path: string, sql: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, sql))
+  local rows = assert(db:text_rows(sql))
   assert(db:close())
   local lines: mut {string} = {}
   for _, row in ipairs(rows) do lines[#lines + 1] = table.concat(row:texts(), "\t") end
@@ -233,16 +233,16 @@ local function test_a_damaged_row_is_compiled_again_and_replaced(tmp: string)
   built(tmp .. "/first", env, "(3 compiled, 0 cached;")
   local keys: mut {string:string} = {}
   local db = assert(Sqlite.open(support.build_dir(tmp .. "/first") .. "/cosmic.db"))
-  local rows = assert(Sqlite.text_rows(db, "SELECT path, CAST(key AS TEXT) FROM modules"))
+  local rows = assert(db:text_rows("SELECT path, CAST(key AS TEXT) FROM modules"))
   for _, row in ipairs(rows) do
     keys[row:text(1)] = shared_compiles.key(row:text(2), false, false)
   end
   assert(db:close())
   local cache = assert(Sqlite.open(path, { writable = true }))
   -- `b`'s Lua becomes no stream at all, and `c`'s becomes `a`'s.
-  assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = x'deadbeef' WHERE key = ?1",
+  assert(cache:run("UPDATE compiled_v2 SET lua = x'deadbeef' WHERE key = ?1",
     { { text = keys["b"] } }))
-  assert(Sqlite.run(cache, "UPDATE compiled_v2 SET lua = (SELECT lua FROM compiled_v2 " ..
+  assert(cache:run("UPDATE compiled_v2 SET lua = (SELECT lua FROM compiled_v2 " ..
       "WHERE key = ?2) WHERE key = ?1", { { text = keys["c"] }, { text = keys["a"] } }))
   assert(cache:close())
   checkout(tmp .. "/second")
@@ -377,7 +377,7 @@ return 0
   end
   local cache, trouble = shared_compiles.open(path)
   assert(cache ~= nil, trouble)
-  local rows = assert(Sqlite.text_rows(cache.db, "PRAGMA journal_mode"))
+  local rows = assert(cache.db:text_rows("PRAGMA journal_mode"))
   assert(support.nth(rows, 1):text(1) == "wal", support.nth(rows, 1):text(1))
   shared_compiles.close(cache)
   local result, wait_trouble = handle:wait(Clock.seconds(10))

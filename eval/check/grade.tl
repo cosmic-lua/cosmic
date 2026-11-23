@@ -180,8 +180,8 @@ function Grader.reset_evidence(path: string): boolean, string
   end
   local done, etrouble = db:exec("delete from runs")
   local closed, close_trouble = db:close()
-  if not done then return false, etrouble end
-  if not closed then return false, close_trouble end
+  if not done then return false, tostring(etrouble) end
+  if not closed then return false, tostring(close_trouble) end
   return true, ""
 end
 

@@ -127,7 +127,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/pure.db", names, basis, nil, "greet_test"))
   assert(closure_store.write(tmp .. "/whole.db", tmp .. "/full.db", names, basis))
   local function count(db: Sqlite.Handle, query: string): string
-    return support.nth(assert(Sqlite.text_rows(db, query)), 1):text(1)
+    return support.nth(assert(db:text_rows(query)), 1):text(1)
   end
   local full = assert(Sqlite.open(tmp .. "/full.db"))
   assert(count(full, "SELECT count(*) FROM docs") ~= "0", "the plain store has no docs, so this shows nothing")
@@ -135,7 +135,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   local pure = assert(Sqlite.open(tmp .. "/pure.db"))
   for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places", "docs_fts", "examples_fts",
       "catalog_fts" }) do
-    local rows, why = Sqlite.text_rows(pure, "SELECT count(*) FROM " .. table_name)
+    local rows, why = pure:text_rows("SELECT count(*) FROM " .. table_name)
     assert(rows == nil and tostring(why):find("no such table", 1, true) ~= nil,
       table_name .. " is in the pure store, where a query of it answers nothing and does not fail")
   end
@@ -146,7 +146,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   assert(count(pure, "SELECT count(*) FROM modules") == "2")
   assert(count(pure, "SELECT count(*) FROM imports") == "1", "the edges a require follows are kept")
   local function bytecode(db: Sqlite.Handle, path: string): string
-    local rows = assert(Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules WHERE path = ?1", { { text = path } }))
+    local rows = assert(db:rows("SELECT chunk(bytecode) FROM modules WHERE path = ?1", { { text = path } }))
     return support.nth(rows, 1):blob(1)
   end
   local imported = bytecode(full, "greet")
@@ -227,7 +227,7 @@ local function texted(root: string, out: string, edits: Edits)
   assert(work.close(handle))
   local whole = assert(Sqlite.open(out, { writable = true }))
   for name, text in pairs(stubs) do
-    assert(Sqlite.run(whole, "INSERT OR REPLACE INTO stubs (path, source) VALUES (?1, deflate(?2))",
+    assert(whole:run("INSERT OR REPLACE INTO stubs (path, source) VALUES (?1, deflate(?2))",
       { { text = name }, { text = text } }))
   end
   assert(whole:close())
@@ -255,20 +255,20 @@ local function test_a_pure_store_keeps_the_stubs_of_the_modules_its_test_names(t
   local _, path = texted_store(tmp .. "/a", tmp, "kept", none, true)
   local db = assert(Sqlite.open(path))
   local function count(query: string): string
-    return support.nth(assert(Sqlite.text_rows(db, query)), 1):text(1)
+    return support.nth(assert(db:text_rows(query)), 1):text(1)
   end
   assert(count("SELECT group_concat(path, ' ') FROM (SELECT path FROM stubs ORDER BY path)") == "greet leaf",
     "the stubs kept were not the named module's and the one it requires")
   assert(count("SELECT count(*) FROM modules WHERE length(source) > 0 OR length(source_hash) > 0") == "0",
     "the pure store holds a module's source")
   for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places" }) do
-    local rows, why = Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name)
+    local rows, why = db:text_rows("SELECT count(*) FROM " .. table_name)
     assert(rows == nil and tostring(why):find("no such table", 1, true) ~= nil, table_name .. " is in the pure store")
   end
   assert(db:close())
   local _, bare = texted_store(tmp .. "/b", tmp, "bare", none, false)
   local unnamed = assert(Sqlite.open(bare))
-  local rows = assert(Sqlite.text_rows(unnamed, "SELECT count(*) FROM stubs"))
+  local rows = assert(unnamed:text_rows("SELECT count(*) FROM stubs"))
   assert(support.nth(rows, 1):text(1) == "0", "a test that names no module kept a stub")
   assert(unnamed:close())
 end
@@ -400,7 +400,7 @@ end
 local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_declares(tmp: string)
   local plain, store = walk_store(tmp .. "/a", tmp, "plain", {})
   local function sourced(db: Sqlite.Handle, path: string): boolean
-    local rows = assert(Sqlite.text_rows(db, "SELECT length(source) FROM modules WHERE path = ?1", { { text = path } }))
+    local rows = assert(db:text_rows("SELECT length(source) FROM modules WHERE path = ?1", { { text = path } }))
     return support.nth(rows, 1):text(1) ~= "0"
   end
   assert(sourced(store, "build.pipeline") and sourced(store, "build.helper"), "the walk's sources are kept")
@@ -408,7 +408,7 @@ local function test_a_pure_store_keeps_the_sources_of_the_walks_its_closure_decl
   -- A module the walk reaches by a type alone is no part of the closure: its source is kept, its code is not, so
   -- requiring it finds a chunk that does not load and not a module that runs.
   assert(sourced(store, "build.typed"), "a module the walk reaches by a type alone keeps no source")
-  local code = assert(Sqlite.text_rows(store, "SELECT length(bytecode) FROM modules WHERE path = 'build.typed'"))
+  local code = assert(store:text_rows("SELECT length(bytecode) FROM modules WHERE path = 'build.typed'"))
   assert(support.nth(code, 1):text(1) == "0", "a module outside the closure keeps its code")
   assert(not sourced(store, "walk_test"), "the test's own source is not kept")
   assert(store:close())

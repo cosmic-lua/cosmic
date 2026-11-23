@@ -437,7 +437,7 @@ local function coverage_of(lines: integer): Sqlite.Handle, {string:{integer:bool
     numbers[line] = tostring(line)
     if line % 2 == 1 then hit[line] = true end
   end
-  assert(Sqlite.run(db, "INSERT INTO executable (source_hash, lines) VALUES ('h', ?1)",
+  assert(db:run("INSERT INTO executable (source_hash, lines) VALUES ('h', ?1)",
     { { text = table.concat(numbers, " ") } }))
   return db, { ["build.lib"] = hit }
 end
@@ -459,7 +459,7 @@ local function test_a_modules_coverage_counts_the_rows_written_and_those_hit()
   assert(db:exec("INSERT INTO coverage (ran_at_ns, path, line, hit) VALUES (7, 'core/a.c', 1, 1), (6, 'build.lib', 1, 1)"))
   local hit, lines = write_module(db, hits, 7)
   assert(hit == 5 and lines == 9, tostring(hit) .. " of " .. tostring(lines))
-  local rows = assert(assert(Sqlite.text_rows(db,
+  local rows = assert(assert(db:text_rows(
     "SELECT count(*), sum(hit), group_concat(line, ' ') FROM coverage WHERE ran_at_ns = 7 AND path = 'build.lib' AND hit = 1"))[1]):texts()
   assert(rows[1] == "5" and rows[2] == "5" and rows[3] == "1 3 5 7 9", table.concat(rows, "|"))
   assert(db:close())
@@ -479,7 +479,8 @@ local function test_four_times_a_modules_lines_cost_about_four_times_to_write()
     local _, _ = write_module(large, large_hits, run)
   end, 10)
   assert(ok, "four times the lines " .. why)
-  assert(small:close() and large:close())
+  assert(small:close())
+  assert(large:close())
 end
 
 --- A test's row holds the modules of its load, then those of its test, each in the order of their paths, whatever
@@ -698,7 +699,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     { "build.host_requires", "build.host_names" },
   }
   for _, row in ipairs(imports) do
-    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
+    assert(db:run("INSERT INTO imports VALUES (?, ?)", { { text = row[1] }, { text = row[2] } }))
   end
   local others = { "build.test_sandbox", "build.test_policy",
     "build.caches", "build.zig_caches",
@@ -713,8 +714,8 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
     named_in[support.nth(row, 1)] = (named_in[support.nth(row, 1)] or "") .. " " .. support.nth(row, 2)
   end
   local function set(name: string, source: string, bytecode: string)
-    assert(Sqlite.run(db, "DELETE FROM modules WHERE path = ?", { { text = name } }))
-    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
+    assert(db:run("DELETE FROM modules WHERE path = ?", { { text = name } }))
+    assert(db:run("INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
       { text = if name == "cmd.cosmic.main" then "main" else "module" end },
       { blob = Hash.hex_sha256(source) },
       { blob = dumped("return " .. string.format("%q", bytecode .. (named_in[name] or "")), false) } }))
@@ -818,7 +819,7 @@ local function test_the_harness_holds_what_a_worker_runs_and_what_keys_it()
   assert(db:exec("DELETE FROM modules WHERE path = 'cosmic.sqlite'"))
   none, why = test_key.harness(db)
   assert(none == nil and why:find("cosmic.sqlite", 1, true) ~= nil, why)
-  db:close()
+  local _, _ = db:close()
 end
 
 --- The key's code is walked over the requires each module makes by
@@ -838,7 +839,7 @@ local function test_the_harness_walks_the_key_code_by_value()
   }
   local function add(name: string)
     local source = sources[name] or "return 1\n"
-    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
+    assert(db:run("INSERT INTO modules VALUES (?, ?, ?, deflate(?))", { { text = name },
       { text = if name == "cmd.cosmic.main" then "main" else "module" end },
       { blob = Hash.hex_sha256(source) },
       { blob = dumped(source, true) } }))
@@ -855,11 +856,11 @@ local function test_the_harness_walks_the_key_code_by_value()
       { "build.declared_key", "build.artifact" },
       { "build.shared_verdicts", "cosmic.sqlite" },
       { "cosmic.child", "cosmic.time" } }) do
-    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?, ?)",
+    assert(db:run("INSERT INTO imports VALUES (?, ?)",
       { { text = row[1] }, { text = row[2] } }))
   end
   local found = assert(test_key.harness(db))
-  db:close()
+  local _, _ = db:close()
   local named: mut {string:boolean} = {}
   for _, name in ipairs(found.names) do named[name] = true end
   assert(named["build.artifact"] == true and named["cosmic.sqlite"] == true and named["cosmic.child"] == true)
@@ -877,11 +878,11 @@ local function test_coverage_is_kept_for_the_newest_ten_runs_only()
         ", 'a', 1, 1), (" .. tostring(run) .. ", 'a', 2, 0)"))
   end
   assert(test.prune_history(db, 100))
-  local kept = assert(assert(Sqlite.text_rows(db,
+  local kept = assert(assert(db:text_rows(
     "SELECT min(ran_at_ns), max(ran_at_ns), count(DISTINCT ran_at_ns), count(*) FROM coverage"))[1]):texts()
   assert(kept[1] == "4" and kept[2] == "13" and kept[3] == "10" and kept[4] == "20",
     "coverage kept: " .. table.concat(kept, " "))
-  local runs = assert(assert(Sqlite.text_rows(db, "SELECT count(*), min(ran_at_ns) FROM test_runs"))[1]):texts()
+  local runs = assert(assert(db:text_rows("SELECT count(*), min(ran_at_ns) FROM test_runs"))[1]):texts()
   assert(runs[1] == "10" and runs[2] == "4", "test_runs kept: " .. table.concat(runs, " "))
   assert(db:close())
 end

@@ -187,7 +187,7 @@ local function merged(into: string, from: string): integer?, string
     local attached, trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS queue", { { text = from } })
     if not attached then return nil, tostring(trouble) end
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
-    if not begun then return nil, begin_trouble end
+    if not begun then return nil, tostring(begin_trouble) end
     local function within(): integer?, string
       local made, made_trouble = Sqlite.text_rows(db, "SELECT name, sql FROM queue.sqlite_schema " ..
           "WHERE type IN ('table', 'index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' " ..
@@ -201,7 +201,7 @@ local function merged(into: string, from: string): integer?, string
           return nil, row:text(1) .. " is made by no single CREATE TABLE or CREATE INDEX"
         end
         local ok, why = db:exec(sql)
-        if not ok then return nil, "making " .. row:text(1) .. ": " .. why end
+        if not ok then return nil, "making " .. row:text(1) .. ": " .. tostring(why) end
       end
       local tables, tables_trouble = column(db, "SELECT name FROM queue.sqlite_schema " ..
           "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -231,7 +231,7 @@ local function merged(into: string, from: string): integer?, string
       return nil, why
     end
     local committed, commit_trouble = db:exec("COMMIT")
-    if not committed then return nil, commit_trouble end
+    if not committed then return nil, tostring(commit_trouble) end
     return taken, ""
   end
   local taken, why = steps()

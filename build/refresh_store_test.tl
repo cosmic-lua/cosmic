@@ -67,7 +67,7 @@ local function carried(path: string): Sqlite.Handle
 end
 
 local function rows(db: Sqlite.Handle, sql: string): Sqlite.Rows
-  return (assert(Sqlite.text_rows(db, sql)))
+  return (assert(db:text_rows(sql)))
 end
 
 --- The first row `sql` selects from `db`, which the case knows is there.
@@ -79,7 +79,7 @@ end
 --- labels and certificates, in its order.
 local function carried_pem(path: string): string
   local db = carried(path)
-  local found = assert(Sqlite.rows(db, "SELECT label, der FROM ca_roots ORDER BY rowid"))
+  local found = assert(db:rows("SELECT label, der FROM ca_roots ORDER BY rowid"))
   assert(db:close())
   local parts: mut {string} = {}
   for _, row in ipairs(found) do
@@ -376,7 +376,7 @@ local function test_a_root_s_distrust_date_refuses_what_it_issued_after(tmp: str
   local file = tmp .. "/dated.txt"
   assert(Fs.write(file, isrg_dated((assert(Fs.read(bundle))))))
   local db = carried(program(tmp))
-  local isrg = assert(assert(Sqlite.rows(db, "SELECT der FROM ca_roots WHERE label = 'ISRG Root X1'"))[1]):blob(1)
+  local isrg = assert(assert(db:rows("SELECT der FROM ca_roots WHERE label = 'ISRG Root X1'"))[1]):blob(1)
   assert(db:close())
   local path = presenter(tmp, { isrg, (assert(Codec.unhex(R11))) })
   local before = presented(path)
@@ -426,7 +426,7 @@ end
 --- R11 under ISRG Root X1, which the unrefreshed program trusts.
 local function test_a_certificate_onecrl_revokes_is_refused(tmp: string)
   local db = carried(program(tmp))
-  local isrg = assert(assert(Sqlite.rows(db, "SELECT der FROM ca_roots WHERE label = 'ISRG Root X1'"))[1]):blob(1)
+  local isrg = assert(assert(db:rows("SELECT der FROM ca_roots WHERE label = 'ISRG Root X1'"))[1]):blob(1)
   assert(db:close())
   local path = presenter(tmp, { isrg, (assert(Codec.unhex(R11))) })
   local before = presented(path)

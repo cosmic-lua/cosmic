@@ -41,11 +41,11 @@ local function attach(tmp: string)
     assert(db:exec(statement))
   end
   local function module(name: string, bytecode: string)
-    assert(Sqlite.run(db, "INSERT INTO modules VALUES (?1, ?2, 'module', X'00', X'0102', deflate(?3), '', X'')",
+    assert(db:run("INSERT INTO modules VALUES (?1, ?2, 'module', X'00', X'0102', deflate(?3), '', X'')",
       { text(name), text(name .. ".tl"), { blob = bytecode } }))
   end
   local function requires(name: string, other: string)
-    assert(Sqlite.run(db, "INSERT INTO imports VALUES (?1, ?2)", { text(name), text(other) }))
+    assert(db:run("INSERT INTO imports VALUES (?1, ?2)", { text(name), text(other) }))
   end
   module("fixture.app", "calls fixture.lib")
   module("fixture.lib", "calls fixture.leaf")
@@ -120,7 +120,7 @@ end
 
 local function modules_of(path: string): string
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT path FROM modules ORDER BY path"))
+  local rows = assert(db:text_rows("SELECT path FROM modules ORDER BY path"))
   assert(db:close())
   local names: mut {string} = {}
   for _, row in ipairs(rows) do
@@ -131,7 +131,7 @@ end
 
 local function count_of(path: string, table_name: string): integer
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name))
+  local rows = assert(db:text_rows("SELECT count(*) FROM " .. table_name))
   assert(db:close())
   return math.tointeger(Array.at(rows, 1):text(1)) as integer -- checked: cast_refused
 end
@@ -157,7 +157,7 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
   assert(modules_of(path) == "fixture.leaf fixture.lib")
   assert(count_of(path, "imports") == 1)
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT key, value FROM meta ORDER BY key"))
+  local rows = assert(db:text_rows("SELECT key, value FROM meta ORDER BY key"))
   assert(db:close())
   local meta: mut {string:string} = {}
   for _, row in ipairs(rows) do
@@ -166,7 +166,7 @@ local function test_seal_holds_exactly_the_named_modules(tmp: string)
   assert(meta.main == "fixture.lib") -- checked: map_field
   assert(meta.runtime_basis ~= nil and meta.runtime_basis == Store.meta("runtime_basis")) -- checked: map_field*2
   assert(count_of(path, "zoneinfo") == 0 and count_of(path, "ca_roots") == 0)
-  local keys = assert(Sqlite.text_rows(assert(Sqlite.open(path)), "SELECT hex(key) FROM modules"))
+  local keys = assert(assert(Sqlite.open(path)):text_rows("SELECT hex(key) FROM modules"))
   assert(Array.at(keys, 1):text(1) == "", "a module's compile key is not carried")
 end
 
@@ -183,7 +183,7 @@ local function test_seal_takes_a_reserved_name_from_the_binary(tmp: string)
   local path = tmp .. "/binary.db"
   assert(Store.seal({ "cosmic.codec" }, path))
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, "SELECT chunk(bytecode) FROM modules"))
+  local rows = assert(db:text_rows("SELECT chunk(bytecode) FROM modules"))
   assert(db:close())
   assert(Array.at(rows, 1):text(1) == assert(Store.bytecode("cosmic.codec")), "the binary's own bytecode")
 end
@@ -199,7 +199,7 @@ local function test_seal_stores_bytecode_as_it_is_loaded(tmp: string)
   local path = tmp .. "/stored.db"
   assert(Store.seal({ "cosmic.codec" }, path, { extra = extra, unchecked_bytecode = true }))
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.rows(db,
+  local rows = assert(db:rows(
     "SELECT path, bytecode, chunk(bytecode) FROM modules ORDER BY path"))
   assert(db:close())
   assert(#rows == 2)
@@ -231,7 +231,7 @@ local function test_seal_carries_the_web_assets_only_for_cosmic_web_htmx(tmp: st
   assert(Store.seal({ "cosmic.web.htmx" }, path))
   assert(count_of(path, "web_assets") == 2 and count_of(path, "zoneinfo") == 0)
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT name, sha256, sha384, version FROM web_assets ORDER BY name"))
   assert(db:close())
   assert(Array.at(rows, 2):text(1) == "htmx.min.js")
@@ -280,7 +280,7 @@ local function test_seal_carries_an_extra_module_as_the_main(tmp: string)
   assert(modules_of(path) == "fixture.leaf main")
   assert(count_of(path, "imports") == 1, "its edge to a name left out is no row")
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db,
+  local rows = assert(db:text_rows(
     "SELECT kind, chunk(bytecode) = ?1, inflate(source) FROM modules WHERE path = 'main' " ..
       "UNION ALL SELECT value, '', '' FROM meta WHERE key = 'main'", { { blob = extra.bytecode } }))
   assert(db:close())
@@ -344,7 +344,7 @@ local function test_seal_digest_ignores_tests_and_drops_dangling_edges(tmp: stri
       "bytecode BLOB NOT NULL, tests TEXT NOT NULL, source BLOB NOT NULL)"))
   assert(db:exec("CREATE TABLE imports (path TEXT NOT NULL, requires TEXT NOT NULL, " ..
       "PRIMARY KEY (path, requires)) WITHOUT ROWID"))
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.leaf', 'fixture.leaf.tl', " ..
+  assert(db:run("INSERT INTO modules VALUES ('fixture.leaf', 'fixture.leaf.tl', " ..
       "'module', X'00', X'0102', deflate(CAST('nothing' AS BLOB)), 'fixture/leaf_test.tl', X'')"))
   assert(db:close())
   assert(Store.attach(path, { unchecked_bytecode = true }))
@@ -361,9 +361,9 @@ local function test_seal_carries_the_checkers_edges(tmp: string)
   assert(Store.seal({ "cosmic.time" }, path))
   local query = "SELECT requires FROM decl_imports WHERE path = 'cosmic.time' ORDER BY requires"
   local databases = Store.databases()
-  local want = assert(Sqlite.text_rows(Array.at(databases, #databases), query))
+  local want = assert(Array.at(databases, #databases):text_rows(query))
   local sealed = assert(Sqlite.open(path))
-  local got = assert(Sqlite.text_rows(sealed, query))
+  local got = assert(sealed:text_rows(query))
   assert(sealed:close())
   assert(#want > 1, "cosmic.time requires nothing")
   assert(#got == #want, "the sealed database holds " .. tostring(#got) .. " edges, not " .. tostring(#want))
@@ -387,8 +387,8 @@ local function test_seal_schema_is_the_builds(tmp: string)
   for _, name in ipairs({ "meta", "modules", "imports", "decl_imports", "decls", "zoneinfo",
       "ca_roots", "ca_revoked", "web_assets" }) do
     local query = "SELECT name, type, \"notnull\", pk FROM pragma_table_info('" .. name .. "')"
-    local want = assert(Sqlite.text_rows(reference, query))
-    local got = assert(Sqlite.text_rows(sealed, query))
+    local want = assert(reference:text_rows(query))
+    local got = assert(sealed:text_rows(query))
     assert(#want > 0, name .. " is not a table of the schema")
     assert(#want == #got, name .. ": columns differ")
     for index, row in ipairs(want) do
@@ -396,8 +396,8 @@ local function test_seal_schema_is_the_builds(tmp: string)
     end
   end
   for _, pragma in ipairs({ "page_size", "auto_vacuum" }) do
-    assert(Array.at(assert(Sqlite.text_rows(reference, "SELECT * FROM pragma_" .. pragma)), 1):text(1) ==
-        Array.at(assert(Sqlite.text_rows(sealed, "SELECT * FROM pragma_" .. pragma)), 1):text(1), pragma)
+    assert(Array.at(assert(reference:text_rows("SELECT * FROM pragma_" .. pragma)), 1):text(1) ==
+        Array.at(assert(sealed:text_rows("SELECT * FROM pragma_" .. pragma)), 1):text(1), pragma)
   end
   assert(sealed:close())
   assert(reference:close())

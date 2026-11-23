@@ -30,7 +30,7 @@ local function read(name: string): standard_text.Standard?
   local databases = Store.databases()
   local binary = databases[#databases]
   if binary ~= nil then
-    local rows, _ = Sqlite.text_rows(binary,
+    local rows, _ = binary:text_rows(
       "SELECT inflate(source) FROM stubs WHERE path = ?1 " ..
         "AND path NOT IN (SELECT path FROM decls)", { { text = name } })
     local row: Sqlite.Row? = nil

@@ -43,7 +43,7 @@ end
 --- is quoted, `"\N"`. An empty text is quoted, `""`, when it is the only field
 --- of a row, so a row of one empty text is not no rows, and a row of one NULL
 --- is neither. Every other cell is written as its text, as
---- [`Sqlite.text_rows`] answers it, with no mark of its type: the integer 1
+--- [`Sqlite.Handle.text_rows`] answers it, with no mark of its type: the integer 1
 --- and the text '1' dump alike, as a blob and the text of the same bytes do.
 ---
 --- The rows are read in one pass, so a query with no ORDER BY that answers in
@@ -74,7 +74,7 @@ end
 function parses_fixture.rows(db: Sqlite.Handle): string
   local out: mut {{string}} = {}
   for _, name in ipairs(analysis_schema.tables) do
-    local rows = assert(Sqlite.text_rows(db, "SELECT * FROM " .. name .. " ORDER BY 1, 2"))
+    local rows = assert(db:text_rows("SELECT * FROM " .. name .. " ORDER BY 1, 2"))
     out[#out + 1] = { name .. " " .. tostring(#rows) }
     for _, row in ipairs(rows) do out[#out + 1] = row:texts() end
   end

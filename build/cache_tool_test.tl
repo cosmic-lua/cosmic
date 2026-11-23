@@ -51,7 +51,7 @@ local function test_busy_cache_cancellation_is_prompt_and_preserves_file(tmp: st
   assert(result.timed_out, "the live writer must block maintenance")
   assert(assert(Fs.status(path)).exists)
   db = assert(Sqlite.open(path))
-  local untouched = assert(Sqlite.text_rows(db, "SELECT value FROM untouched"))
+  local untouched = assert(db:text_rows("SELECT value FROM untouched"))
   assert(#untouched == 1, "the table holds its one row")
   assert(Array.at(untouched, 1):text(1) == "keep")
   assert(db:close())
@@ -63,7 +63,7 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
   assert(db:exec("PRAGMA journal_mode=WAL; CREATE TABLE keep (value TEXT); INSERT INTO keep VALUES ('first')"))
   local script = 'local Sqlite = require("cosmic.sqlite") local Fs = require("cosmic.fs") ' ..
     'local db = assert(Sqlite.open(' .. string.format("%q", path) .. ')) ' ..
-    'assert(db:exec("BEGIN")) assert(Sqlite.rows(db,"SELECT * FROM keep")) ' ..
+    'assert(db:exec("BEGIN")) assert(db:rows("SELECT * FROM keep")) ' ..
     'assert(Fs.put(1,"r")) assert(Fs.take(0,1)) assert(db:exec("ROLLBACK")) assert(db:close())'
   local reader_start = this_program.program({ "-e", script }, { timeout_ns = Child.FOREVER, cwd = tmp,
     stdin = "stream", stdout = "stream", stderr = "capture" })
@@ -77,7 +77,7 @@ local function test_long_lived_reader_prevents_a_save_ready_wal_snapshot(tmp: st
   assert(assert(Fs.status(path .. "-wal")).exists, "maintenance must never unlink a live WAL")
   assert(assert(reader.stdin_stream):close())
   assert(assert(reader:wait(Clock.seconds(5))).code == 0)
-  assert(#assert(Sqlite.rows(db, "SELECT * FROM keep")) == 2)
+  assert(#assert(db:rows("SELECT * FROM keep")) == 2)
   assert(db:close())
 end
 

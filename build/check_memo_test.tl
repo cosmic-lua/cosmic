@@ -63,9 +63,9 @@ local function test_a_row_one_checkout_wrote_stands_in_another_of_the_same_code(
   check_memo.finish(first, "c")
   -- Neither written there, nor taken where the file holds one.
   local file = assert(Sqlite.open(path, { writable = true }))
-  local written = assert(assert(Sqlite.text_rows(file, "SELECT count(*) FROM check_memo_v1 WHERE kind = 'c'"))[1])
+  local written = assert(assert(file:text_rows("SELECT count(*) FROM check_memo_v1 WHERE kind = 'c'"))[1])
   assert(written:text(1) == "0", "a row whose key names its checkout was written to the shared file")
-  assert(Sqlite.run(file, "INSERT INTO check_memo_v1 (code, kind, key, value, used_ns) VALUES ('a', 'c', 'two', 'x', 1)"))
+  assert(file:run("INSERT INTO check_memo_v1 (code, kind, key, value, used_ns) VALUES ('a', 'c', 'two', 'x', 1)"))
   assert(file:close())
   local second = assert(Sqlite.memory())
   assert(check_memo.prepare(second, "k"))
@@ -96,7 +96,7 @@ local function test_a_row_one_checkout_wrote_stands_in_another_of_the_same_code(
   assert(check_memo.get(back, "k", "one") == "1", "another code's write replaced the row")
   check_memo.finish(back, "k")
   assert(not check_memo.share(nil))
-  assert(first:close() and second:close() and third:close() and other:close() and back:close())
+  for _, db in ipairs({ first, second, third, other, back }) do assert(db:close()) end
 end
 
 --- A row a checkout answers from its own memo is not written to the shared file: the tool that made it may have been
@@ -118,7 +118,8 @@ local function test_a_row_answered_by_the_checkouts_own_memo_is_not_shared(tmp: 
   assert(check_memo.get(fresh, "k", "two") == "2")
   check_memo.finish(fresh, "k")
   assert(not check_memo.share(nil))
-  assert(own:close() and fresh:close())
+  assert(own:close())
+  assert(fresh:close())
 end
 
 --- One run of a checkout that shares its rows through `path` at the time `now`, keeping `kept_bytes`: the keys of

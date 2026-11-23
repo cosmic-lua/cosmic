@@ -27,7 +27,7 @@ local function open_database()
 end
 
 local function close_database()
-  assert(held["db"]):close()
+  local _, _ = assert(held["db"]):close()
   held["db"] = nil
 end
 
@@ -79,7 +79,7 @@ local record Answer
 end
 
 local function ask(sql: string, values: {Sqlite.Value}): Answer
-  local rows, why = Sqlite.rows(assert(held["db"], "no database open"), sql, values)
+  local rows, why = assert(held["db"], "no database open"):rows(sql, values)
   if rows == nil then
     return { kind = "error", bytes = "", number = 0, why = tostring(why) }
   end
@@ -1424,7 +1424,7 @@ local function check_blocks(input: string): boolean, string
     end
     if added then
       kept = kept + 1
-      assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2, ?3)",
+      assert(db:run("INSERT INTO r VALUES (?1, ?2, ?3)",
         { { integer = kept }, { integer = id }, { blob = Vector.pack(numbers) } }))
     else
       Fuzz.label("f16 refused")
@@ -1434,7 +1434,7 @@ local function check_blocks(input: string): boolean, string
   assert(db:exec(("CREATE TABLE b AS SELECT vector_block(id, v, '%s') AS blk FROM r GROUP BY (seq - 1) / %d")
       :format(storage, size)))
   local asked = Vector.pack(query)
-  local rows, why = Sqlite.rows(db, [[
+  local rows, why = db:rows([[
     SELECT h.id, h.distance FROM b, vector_block_search(b.blk, ?1, ?2, ?3) AS h
     ORDER BY h.distance NULLS LAST, h.id LIMIT ?2
   ]], { { blob = asked }, { integer = k }, { text = metric } })
@@ -1552,12 +1552,12 @@ local function check_hostile(input: string): boolean, string
       edits[#edits + 1] = { to_int(place), to_int(assert(byte)) }
     else
       rows = rows + 1
-      assert(Sqlite.run(db, "INSERT INTO r VALUES (?1, ?2)",
+      assert(db:run("INSERT INTO r VALUES (?1, ?2)",
         { { integer = rows }, { blob = Vector.pack(numbers_of(field)) } }))
     end
   end
   if rows == 0 then return true, "" end
-  local made = assert(Sqlite.rows(db, ("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
+  local made = assert(db:rows(("SELECT vector_block(id, v, '%s') FROM r"):format(storage)))
   local block = assert(made[1]):blob(1)
   for _, edit in ipairs(edits) do
     local at = assert(edit[1]) % #block
@@ -1579,7 +1579,7 @@ local function check_hostile(input: string): boolean, string
     block_dims, block_count = string.unpack("<I4I4", block, 9)
   end
   local query = Vector.pack(numbers_of(string.rep("1,", block_dims - 1) .. "1"))
-  local found, why = Sqlite.rows(db, "SELECT id, distance FROM vector_block_search(?1, ?2, 3, 'cosine')",
+  local found, why = db:rows("SELECT id, distance FROM vector_block_search(?1, ?2, 3, 'cosine')",
     { { blob = block }, { blob = query } })
   -- In the block's own storage, as load_blocks makes it: another widens
   -- an int8 block, which reads no sums.

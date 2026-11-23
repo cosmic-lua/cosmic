@@ -74,8 +74,8 @@ end
 
 local function rows_of(path: string, sql: string): Sqlite.Rows
   local db = assert(Sqlite.open(path))
-  local rows = assert(Sqlite.text_rows(db, sql))
-  db:close()
+  local rows = assert(db:text_rows(sql))
+  local _, _ = db:close()
   return rows
 end
 
@@ -145,11 +145,11 @@ local function test_the_carried_database_holds_what_a_program_needs(tmp: string)
   assert(support.nth(about_build, 1):text(1) == "0", "guidance about the build is not")
   local databases = Store.databases()
   local own = assert(databases[#databases], "this program has a database")
-  local carried = assert(Sqlite.text_rows(own, "SELECT count(*) FROM zoneinfo"))
+  local carried = assert(own:text_rows("SELECT count(*) FROM zoneinfo"))
   local zones = rows_of(path, "SELECT count(*), sum(name = 'America/New_York') FROM zoneinfo")
   assert(support.nth(zones, 1):text(1) == support.nth(carried, 1):text(1) and count_of(support.nth(zones, 1):text(1)) > 500 and support.nth(zones, 1):text(2) == "1",
     "every zone the binary carries is in")
-  local assets = assert(Sqlite.text_rows(own,
+  local assets = assert(own:text_rows(
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets"))
   local web = rows_of(path,
     "SELECT group_concat(name || ' ' || version || ' ' || sha256, ',' ORDER BY name) FROM web_assets")
@@ -922,14 +922,13 @@ end
 
 local static_main = [[
 local Assets = require("cosmic.web.assets")
-local Sqlite = require("cosmic.sqlite")
 local StaticFiles = require("cosmic.web.static")
 local Store = require("cosmic.store")
 local Web = require("cosmic.web")
 
 return function(): integer
   for _, handle in ipairs(Store.databases()) do
-    local rows, _ = Sqlite.text_rows(handle,
+    local rows, _ = handle:text_rows(
       "SELECT path, type, length(data), gzip IS NOT NULL, zstd IS NOT NULL FROM payload ORDER BY path")
     if rows ~= nil and #rows > 0 then
       for _, row in ipairs(rows) do print("payload", table.concat(row:texts(), "\t")) end
@@ -1104,7 +1103,6 @@ end
 --- trusted, as far as a canned first flight takes a handshake.
 local roots_source <const> = [[
 local Http = require("cosmic.http")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 
 local function message(kind: integer, body: string): string
@@ -1113,7 +1111,7 @@ end
 
 return function(): integer
   local databases = Store.databases()
-  local found = assert(Sqlite.rows(assert(databases[#databases]),
+  local found = assert(assert(databases[#databases]):rows(
     "SELECT der FROM ca_roots WHERE label = 'Telia RSA TLS Root CA v3'"))
   local der = assert(found[1]):blob(1)
   local hello = message(2, "\3\3" .. string.rep("B", 32) .. "\0" .. "\192\47" .. "\0")
@@ -1850,12 +1848,12 @@ local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_
     local db = assert(Sqlite.open(projection))
     local view = assert(Doc.program({ db }, "spam"))
     local scoped = assert(view.databases[1])
-    local modules = assert(Sqlite.text_rows(scoped, "SELECT group_concat(DISTINCT module) FROM examples"))
+    local modules = assert(scoped:text_rows("SELECT group_concat(DISTINCT module) FROM examples"))
     assert(support.nth(modules, 1):text(1) == "shared", "the examples of what it documents alone")
-    local indexed = assert(Sqlite.text_rows(scoped,
+    local indexed = assert(scoped:text_rows(
       "SELECT count(*) FROM examples_fts WHERE examples_fts MATCH 'eggs'"))
     assert(support.nth(indexed, 1):text(1) == "0", "the index holds no other program's example")
-    local cataloged = assert(Sqlite.text_rows(scoped,
+    local cataloged = assert(scoped:text_rows(
       "SELECT count(*) FROM catalog_fts JOIN catalog c ON c.id = catalog_fts.rowid WHERE catalog_fts MATCH 'hens' " ..
         "AND c.module = 'eggs'"))
     assert(support.nth(cataloged, 1):text(1) == "0", "the catalog holds no other program's row")
@@ -1866,7 +1864,7 @@ local function test_a_program_run_from_its_source_holds_the_examples_of_what_it_
     assert(Errors.guidance_in(db, "the till ran out of receipts") ~= nil, "the module it names as its pages does")
     source_run.main = nil
     assert(Errors.guidance_in(db, "the hens refused their coop") ~= nil, "every program's answers another run")
-    db:close()
+    local _, _ = db:close()
   end)
   source_run.main, source_run.projection, source_run.pages = main, built, pages
   assert(ok, tostring(err))

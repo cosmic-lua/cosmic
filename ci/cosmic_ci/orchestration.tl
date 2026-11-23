@@ -1873,7 +1873,7 @@ function Orchestration.seed_compiles(env: {string:string},
   local quoted = (destination:gsub("'", "''"))
   local copied, copy_trouble = db:exec("VACUUM INTO '" .. quoted .. "'")
   local _, _ = db:close()
-  if not copied then return false, source .. ": " .. copy_trouble end
+  if not copied then return false, source .. ": " .. tostring(copy_trouble) end
   return true, ""
 end
 

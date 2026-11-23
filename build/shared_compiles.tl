@@ -264,7 +264,7 @@ end
 --- earlier format's table of either kind, in one transaction. A file
 --- that has them all is only read.
 local function prepare(db: Sqlite.Handle): boolean, string
-  local rows, trouble = Sqlite.text_rows(db,
+  local rows, trouble = db:text_rows(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND " ..
       "(name GLOB 'compiled_v*' OR name GLOB 'parsed_v*')")
   if rows == nil then return false, tostring(trouble) end
@@ -283,7 +283,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
   end
   if current == #formats and #stale == 0 then return true, "" end
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
-  if not begun then return false, begin_trouble end
+  if not begun then return false, tostring(begin_trouble) end
   local statements: mut {string} = {}
   for _, name in ipairs(stale) do statements[#statements + 1] = "DROP TABLE IF EXISTS " .. name end
   for _, statement in ipairs(schema) do statements[#statements + 1] = statement end
@@ -291,10 +291,12 @@ local function prepare(db: Sqlite.Handle): boolean, string
     local ok, statement_trouble = db:exec(statement)
     if not ok then
       local _, _ = db:exec("ROLLBACK")
-      return false, statement_trouble
+      return false, tostring(statement_trouble)
     end
   end
-  return db:exec("COMMIT")
+  local done, done_why = db:exec("COMMIT")
+  if not done then return false, tostring(done_why) end
+  return true, ""
 end
 
 --- Opens the cache at `path`, making it and its directory when missing.
@@ -350,7 +352,7 @@ end
 --- deleted, so a compile made here takes its place.
 function shared_compiles.look(cache: shared_compiles.Cache,
                               key: string): importer.Shared.Compile?, string
-  local rows, trouble = Sqlite.rows(cache.db,
+  local rows, trouble = cache.db:rows(
     "SELECT lua, bytecode, refs, digest FROM " .. compiled .. " WHERE key = ?1", { text(key) })
   if rows == nil then return nil, tostring(trouble) end
   local row = rows[1]
@@ -377,7 +379,7 @@ function shared_compiles.look(cache: shared_compiles.Cache,
     -- Only the row read, by its digest: a good one a build writes under
     -- the key meanwhile stays. Best effort: a busy file leaves it for the
     -- next build that looks, and the cache stays on.
-    local _, _ = Sqlite.run(cache.db,
+    local _, _ = cache.db:run(
       "DELETE FROM " .. compiled .. " WHERE key = ?1 AND digest IS ?2",
       { text(key), if stored ~= nil then text(stored) else {} end })
     return nil, ""
@@ -390,7 +392,7 @@ end
 --- false where there is none or the cache cannot answer, so a build that
 --- asks before it compiles compiles.
 local function known(cache: shared_compiles.Cache, key: string): boolean
-  local rows, _ = Sqlite.rows(cache.db, "SELECT 1 FROM " .. compiled .. " WHERE key = ?1", { text(key) })
+  local rows, _ = cache.db:rows("SELECT 1 FROM " .. compiled .. " WHERE key = ?1", { text(key) })
   return rows ~= nil and rows[1] ~= nil
 end
 
@@ -403,7 +405,7 @@ end
 --- the most lately used first.
 function shared_compiles.analyzers(cache: shared_compiles.Cache,
                                    hashes: {string}): {string}?, string
-  local rows, trouble = Sqlite.text_rows(cache.db,
+  local rows, trouble = cache.db:text_rows(
     "SELECT analyzer FROM " .. parsed .. " WHERE source_hash IN " ..
       "(SELECT value FROM json_each(?1)) GROUP BY analyzer " ..
       "HAVING count(DISTINCT source_hash) = ?2 ORDER BY max(used_ns) DESC, analyzer",
@@ -421,7 +423,7 @@ end
 --- source's requires are the same whether its lines are mapped or not.
 function shared_compiles.requires(cache: shared_compiles.Cache, analyzer: string,
                                   hashes: {string}): {string:{string}}?, string
-  local rows, trouble = Sqlite.text_rows(cache.db,
+  local rows, trouble = cache.db:text_rows(
     "SELECT source_hash, requires FROM " .. parsed .. " WHERE analyzer = ?1 " ..
       "AND source_hash IN (SELECT value FROM json_each(?2))",
     { text(analyzer), text(json_list(hashes)) })
@@ -441,7 +443,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
                                     key: shared_compiles.ParseKey): importer.Shared.Parse?, string
   local where: mut {Sqlite.Value} = { text(key.analyzer), text(key.source_hash),
     { integer = if key.mapped then 1 else 0 end } }
-  local rows, trouble = Sqlite.rows(cache.db,
+  local rows, trouble = cache.db:rows(
     "SELECT requires, rows, digest FROM " .. parsed ..
       " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3", where)
   if rows == nil then return nil, tostring(trouble) end
@@ -460,7 +462,7 @@ function shared_compiles.look_parse(cache: shared_compiles.Cache,
       stored ~= parse_digest(key, requires, inflated) then
     local digest: Sqlite.Value = if stored ~= nil then text(stored) else {} end
     where[#where + 1] = digest
-    local _, _ = Sqlite.run(cache.db, "DELETE FROM " .. parsed ..
+    local _, _ = cache.db:run("DELETE FROM " .. parsed ..
         " WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND digest IS ?4", where)
     return nil, ""
   end
@@ -472,11 +474,11 @@ end
 --- lately used past `bound_bytes`.
 local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): boolean, string
   for _, name in ipairs({ compiled, parsed }) do
-    local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
+    local aged, age_trouble = db:run("DELETE FROM " .. name .. " WHERE used_ns < ?1",
       { { integer = now_ns - kept_ns } })
     if not aged then return false, tostring(age_trouble) end
   end
-  local over, trouble = Sqlite.text_rows(db,
+  local over, trouble = db:text_rows(
     "SELECT tab, id FROM (SELECT tab, id, SUM(size) OVER (ORDER BY used_ns DESC, tab, id) " ..
       "AS total FROM (SELECT 'c' AS tab, rowid AS id, size, used_ns FROM " .. compiled ..
       " UNION ALL SELECT 'p', rowid, size, used_ns FROM " .. parsed .. ")) WHERE total > ?1",
@@ -497,7 +499,7 @@ local function evict(db: Sqlite.Handle, now_ns: integer, bound_bytes: integer): 
   end
   local function drop(name: string, list: {string}): boolean, string
     if #list == 0 then return true, "" end
-    local answered, answer_why = Sqlite.run(db, "DELETE FROM " .. name ..
+    local answered, answer_why = db:run("DELETE FROM " .. name ..
         " WHERE rowid IN (SELECT value FROM json_each(?1))",
       { text("[" .. table.concat(list, ",") .. "]") })
     if not answered then return false, tostring(answer_why) end
@@ -528,23 +530,23 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
   end
   local db = cache.db
   local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
-  if not begun then return false, begin_trouble end
+  if not begun then return false, tostring(begin_trouble) end
   local function steps(): boolean, string
     for _, kept in ipairs(owed.kept) do
       local refs = packed(kept.references, kept.fact_wraps, kept.parameter_checks)
-      local ok, trouble = Sqlite.run(db,
+      local ok, trouble = db:run(
         "INSERT OR IGNORE INTO " .. compiled .. " (key, lua, bytecode, refs, digest, size, " ..
           "used_ns) VALUES (?1, deflate(?2), deflate(?3), deflate(?4), ?5, 0, ?6)",
         { text(kept.key), { blob = kept.lua }, { blob = kept.bytecode }, { blob = refs },
           text(digest_of(kept.lua, kept.bytecode, refs)), { integer = now_ns } })
       if not ok then return false, tostring(trouble) end
-      ok, trouble = Sqlite.run(db, "UPDATE " .. compiled ..
+      ok, trouble = db:run("UPDATE " .. compiled ..
           " SET size = length(key) + length(lua) + length(bytecode) + length(refs) " ..
           "WHERE key = ?1 AND size = 0", { text(kept.key) })
       if not ok then return false, tostring(trouble) end
     end
     for _, key in ipairs(owed.used) do
-      local ok, trouble = Sqlite.run(db, "UPDATE " .. compiled .. " SET used_ns = ?1 WHERE key = ?2",
+      local ok, trouble = db:run("UPDATE " .. compiled .. " SET used_ns = ?1 WHERE key = ?2",
         { { integer = now_ns }, text(key) })
       if not ok then return false, tostring(trouble) end
     end
@@ -555,19 +557,19 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
       local mapped_value: Sqlite.Value = { integer = if key.mapped then 1 else 0 end }
       local where: {Sqlite.Value} = { analyzer_value, source_value, mapped_value }
       local requires = packed_requires(one.made.requires)
-      local ok, trouble = Sqlite.run(db,
+      local ok, trouble = db:run(
         "INSERT OR REPLACE INTO " .. parsed .. " (analyzer, source_hash, mapped, requires, rows, " ..
           "digest, size, used_ns) VALUES (?1, ?2, ?3, ?4, deflate(?5), ?6, 0, ?7)",
         { analyzer_value, source_value, mapped_value, text(requires), { blob = one.made.rows },
           text(parse_digest(key, requires, one.made.rows)), { integer = now_ns } })
       if not ok then return false, tostring(trouble) end
-      ok, trouble = Sqlite.run(db, "UPDATE " .. parsed ..
+      ok, trouble = db:run("UPDATE " .. parsed ..
           " SET size = length(analyzer) + length(source_hash) + length(requires) + length(rows) " ..
           "WHERE analyzer = ?1 AND source_hash = ?2 AND mapped = ?3 AND size = 0", where)
       if not ok then return false, tostring(trouble) end
     end
     for _, key in ipairs(parses_used) do
-      local ok, trouble = Sqlite.run(db, "UPDATE " .. parsed .. " SET used_ns = ?1 " ..
+      local ok, trouble = db:run("UPDATE " .. parsed .. " SET used_ns = ?1 " ..
           "WHERE analyzer = ?2 AND source_hash = ?3 AND mapped = ?4",
         { { integer = now_ns }, text(key.analyzer), text(key.source_hash),
           { integer = if key.mapped then 1 else 0 end } })
@@ -581,7 +583,9 @@ function shared_compiles.settle(cache: shared_compiles.Cache, owed: shared_compi
     local _, _ = db:exec("ROLLBACK")
     return false, trouble
   end
-  return db:exec("COMMIT")
+  local done, done_why = db:exec("COMMIT")
+  if not done then return false, tostring(done_why) end
+  return true, ""
 end
 
 --- What a copy that compiles cosmic's own tree holds at its most, with room to spare: 1.1 GB measured, as the build

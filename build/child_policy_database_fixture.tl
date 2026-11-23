@@ -135,10 +135,10 @@ local function attach(tmp: string)
     assert(db:exec(statement))
   end
   local chunk = assert(load(MAIN, "=fixture.main"))
-  assert(Sqlite.run(db, "INSERT INTO modules VALUES ('fixture.main', 'fixture.main.tl', 'main', " ..
+  assert(db:run("INSERT INTO modules VALUES ('fixture.main', 'fixture.main.tl', 'main', " ..
       "X'00', X'', deflate(?1), '', X'')", { { blob = string.dump(chunk, true) } })) -- checked: not_assignable
   for _, name in ipairs({ "cosmic.fs", "cosmic.proc", "cosmic.store", "cosmic.child" }) do
-    assert(Sqlite.run(db, "INSERT INTO imports VALUES ('fixture.main', ?1)", { text(name) }))
+    assert(db:run("INSERT INTO imports VALUES ('fixture.main', ?1)", { text(name) }))
   end
   assert(db:close())
   assert(Store.attach(path, { unchecked_bytecode = true }))

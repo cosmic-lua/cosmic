@@ -3,7 +3,6 @@
 --- says the tool is rebuilding names them.
 
 local Hash = require("cosmic.hash")
-local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
 local plural = require("build.plural")
 local work = require("build.work")
@@ -21,7 +20,7 @@ end
 --- read. Where the binary holds a module without its source ([`Store.withheld`]),
 --- the reason instead.
 function stale_reason.of(handle: work.Handle): string
-  local rows, _ = Sqlite.text_rows(handle.db,
+  local rows, _ = handle.db:text_rows(
     "SELECT path, source_hash FROM inputs WHERE (origin = 'tree' " ..
       "AND kind IN ('module', 'main')) OR origin = 'vendor' ORDER BY path")
   if rows == nil then

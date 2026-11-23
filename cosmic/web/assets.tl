@@ -280,7 +280,7 @@ end
 --- skipped.
 local function payload_query(sql: string, values: {Sqlite.Value}): Sqlite.Rows?
   for _, handle in ipairs(Store.databases()) do
-    local rows, _ = Sqlite.text_rows(handle, sql, values)
+    local rows, _ = handle:text_rows(sql, values)
     if rows ~= nil and #rows > 0 then return rows end
   end
   return nil
