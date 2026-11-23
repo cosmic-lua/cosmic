@@ -30,6 +30,8 @@
 local type tree_standing = require("build.tree")
 local build_paths = require("build.paths")
 local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
+local fanout = require("build.compile_fanout")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
@@ -2474,6 +2476,111 @@ local function streamed(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bo
   end)
 end
 
+--- What one copy of a fan of the checks holds beyond the process it was forked from, as [`fanout.copies`] counts it:
+--- the syntax and the declarations of the modules it lowers.
+local check_copy_bytes <const> = 1024 * 1024 * 1024
+
+--- What [`fanned`] answers: the memo text `judge` gave each file of the rows, by file, and the problems the
+--- build met, once each in the order first met.
+local record Fanned
+  texts: {string: string}
+  problems: {string}
+end
+
+--- Gives each row of `rows` the memo text `judge` makes of its module's result, as [`streamed`] asks `build` for them, in
+--- copies of the process ([`build.compile_fanout`]) where the rows are many: each copy streams every so many of the modules
+--- and leaves its texts, its problems and its time in a file. The rows of a copy that did not end well, and every row where
+--- no copy runs, are judged in the process. A row `judge` gives no text has none. The build's timing gets each copy's
+--- time added.
+local function fanned(build: Driver.Build, tree: Tree, rows: {DeclareFile}, bodies: boolean, spliced: boolean,
+                      judge: function(row: DeclareFile, result: Driver.Outcome?): string?): Fanned
+  local texts: mut {string: string} = {}
+  local problems: mut {string} = {}
+  local met: mut {string: boolean} = {}
+  local function problem(text: string)
+    if met[text] ~= true then
+      met[text] = true
+      problems[#problems + 1] = text
+    end
+  end
+  local modules: mut {string} = {}
+  local seen_module: mut {string: boolean} = {}
+  for _, row in ipairs(rows) do
+    if seen_module[row.module] ~= true then
+      seen_module[row.module] = true
+      modules[#modules + 1] = row.module
+    end
+  end
+  local left: mut {DeclareFile} = {}
+  local copies = fanout.copies(#modules, Proc.cpu_count(), check_copy_bytes)
+  local dir: string? = nil
+  if copies > 0 then
+    local made, _ = Fs.mkdtemp("cosmic-checks-")
+    dir = made
+  end
+  if dir == nil then
+    for _, row in ipairs(rows) do left[#left + 1] = row end
+  else
+    local copy_of: mut {string: integer} = {}
+    for index, module in ipairs(modules) do
+      copy_of[module] = (index - 1) % copies + 1
+    end
+    local ran = fanout.run(copies, function(copy: integer)
+      local mine: mut {DeclareFile} = {}
+      for _, row in ipairs(rows) do
+        if copy_of[row.module] == copy then mine[#mine + 1] = row end
+      end
+      local out: mut {{string}} = {}
+      streamed(build, tree, mine, bodies, spliced, function(row: DeclareFile, result: Driver.Outcome?)
+        local text = judge(row, result)
+        if text ~= nil then out[#out + 1] = { "A", row.file, text } end
+      end)
+      for _, text in ipairs(build.problems) do out[#out + 1] = { "P", text } end
+      local t = build.timing
+      local times = { "T", tostring(t.prepare), tostring(t.lower), tostring(t.check) }
+      out[#out + 1] = times
+      assert(Fs.write(dir .. "/" .. tostring(copy), check_memo.encode(out)))
+    end)
+    local start = build.timing
+    local prepare, lower, check = start.prepare, start.lower, start.check
+    for copy = 1, copies do
+      local text: string? = nil
+      if ran.ended[copy] == true then
+        local read, _ = Fs.read(dir .. "/" .. tostring(copy))
+        text = read
+      end
+      if text == nil then
+        for _, row in ipairs(rows) do
+          if copy_of[row.module] == copy then left[#left + 1] = row end
+        end
+      else
+        for _, fields in ipairs(check_memo.decode(text)) do
+          local kind, a, b, c = fields[1], fields[2], fields[3], fields[4]
+          if kind == "A" and a ~= nil and b ~= nil then
+            texts[a] = b
+          elseif kind == "P" and a ~= nil then
+            problem(a)
+          elseif kind == "T" then
+            prepare = prepare + (math.tointeger(tonumber(a)) or 0) - start.prepare
+            lower = lower + (math.tointeger(tonumber(b)) or 0) - start.lower
+            check = check + (math.tointeger(tonumber(c)) or 0) - start.check
+          end
+        end
+      end
+    end
+    start.prepare, start.lower, start.check = prepare, lower, check
+    local _, _ = Fs.remove_tree(dir)
+  end
+  if #left > 0 then
+    streamed(build, tree, left, bodies, spliced, function(row: DeclareFile, result: Driver.Outcome?)
+      local text = judge(row, result)
+      if text ~= nil then texts[row.file] = text end
+    end)
+  end
+  for _, text in ipairs(build.problems) do problem(text) end
+  return { texts = texts, problems = problems }
+end
+
 --- The errors of `list` as a check lists them.
 local function findings_of(list: {Driver.Problem}): {Finding}
   local out: mut {Finding} = {}
@@ -2486,7 +2593,7 @@ end
 --- The files of `tree` whose answer `memo` does not hold, with the answers it does.
 local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
                              read: function(text: string, file: string): DeclareOutcome?
-): {string: DeclareOutcome}, {DeclareFile}
+): mut {string: DeclareOutcome}, {DeclareFile}
   local outcomes: mut {string: DeclareOutcome} = {}
   local missed: mut {DeclareFile} = {}
   for _, row in ipairs(tree.rows) do
@@ -2499,6 +2606,21 @@ local function kept_outcomes(memo: Sqlite.Handle?, kind: string, tree: Tree,
     end
   end
   return outcomes, missed
+end
+
+--- Takes what a fan ([`fanned`]) answered for each row of `rows` into `outcomes`, and into `memo` under `kind`, each text
+--- read as `read` reads a memo's; one that does not read leaves its file unjudged.
+local function kept_fanned(fan: Fanned, rows: {DeclareFile}, outcomes: mut {string: DeclareOutcome}, memo: Sqlite.Handle?,
+                           kind: string, read: function(text: string, file: string): DeclareOutcome?)
+  for _, row in ipairs(rows) do
+    local text = fan.texts[row.file]
+    if text ~= nil then
+      outcomes[row.file] = read(text, row.file) or { errors = {}, unjudged = true }
+      if memo ~= nil then
+        check_memo.put(memo, kind, row.key, text)
+      end
+    end
+  end
 end
 
 --- The lines that list the errors no marker holds ([`build.ceilings.marked`]): the errors of each code of each file are held to the
@@ -2546,16 +2668,14 @@ function tree_checks.declared(root: string, memo?: Sqlite.Handle, marking?: Ceil
   local outcomes, missed = kept_outcomes(memo, "declared", tree, kept_declarations)
   if #missed > 0 then
     local build = tree_build(root, tree)
-    streamed(build, tree, missed, false, false, function(row: DeclareFile, result: Driver.Outcome?)
+    local fan = fanned(build, tree, missed, false, false, function(_row: DeclareFile, result: Driver.Outcome?): string?
       local outcome: DeclareOutcome = { errors = {}, unjudged = true }
       if result ~= nil and not result.broken then
         outcome = { errors = findings_of(result.declared) } -- checked: view_as_mut
       end
-      outcomes[row.file] = outcome -- checked: view_written
-      if memo ~= nil then
-        check_memo.put(memo, "declared", row.key, check_memo.encode(kept_rows(outcome)))
-      end
+      return check_memo.encode(kept_rows(outcome))
     end)
+    kept_fanned(fan, missed, outcomes, memo, "declared", kept_declarations)
   end
   if memo ~= nil then
     check_memo.finish(memo, "declared")
@@ -2597,17 +2717,15 @@ function tree_checks.checked(root: string, memo?: Sqlite.Handle, phases?: {strin
   local problems: {string} = {}
   if #missed > 0 then
     local build = tree_build(root, tree)
-    streamed(build, tree, missed, true, true, function(row: DeclareFile, result: Driver.Outcome?)
+    local fan = fanned(build, tree, missed, true, true, function(row: DeclareFile, result: Driver.Outcome?): string?
       local outcome: DeclareOutcome = { errors = {}, unjudged = true }
       if result ~= nil and row.dialect == "tl" and not result.broken then
         outcome = { errors = findings_of(result.bodies) } -- checked: view_as_mut
       end
-      outcomes[row.file] = outcome -- checked: view_written
-      if memo ~= nil then
-        check_memo.put(memo, "checked", row.key, check_memo.encode(kept_rows(outcome)))
-      end
+      return check_memo.encode(kept_rows(outcome))
     end)
-    problems = build.problems
+    kept_fanned(fan, missed, outcomes, memo, "checked", kept_checks)
+    problems = fan.problems
     if phases ~= nil then
       phases.check = build.timing.check -- checked: map_field
       phases.prepare = build.timing.prepare -- checked: map_field
@@ -2982,52 +3100,52 @@ function tree_checks.untyped(root: string, memo?: Sqlite.Handle, marking?: Ceili
   local found: mut {string: integer} = {}
   -- The line of each of those calls, by file, for the markers.
   local at: mut {string: {integer}} = {}
+  -- Takes the count and the lines a memo's text holds for `row`, false where it holds none.
+  local function take(row: DeclareFile, text: string): boolean
+    local kept = check_memo.decode(text)[1]
+    local count = if kept ~= nil then math.tointeger(tonumber(kept[1])) else nil end
+    if kept == nil or count == nil then
+      return false
+    end
+    local lines: mut {integer} = {}
+    for i = 2, #kept do
+      lines[#lines + 1] = math.tointeger(tonumber(kept[i])) or 0
+    end
+    found[row.file] = count
+    at[row.file] = lines
+    return true
+  end
   local missed: mut {DeclareFile} = {}
   for _, row in ipairs(tree.rows) do
     if row.dialect ~= "tl" or not SyntaxContracts.applies(row.file) then
       -- Not held to the discipline: nothing is counted of it.
     else
-      local count: integer? = nil
-      if memo ~= nil then
-        local text = check_memo.get(memo, "untyped", row.key)
-        if text ~= nil then
-          local kept = check_memo.decode(text)[1]
-          if kept ~= nil then
-            count = math.tointeger(tonumber(kept[1]))
-            local lines: mut {integer} = {}
-            for i = 2, #kept do
-              lines[#lines + 1] = math.tointeger(tonumber(kept[i])) or 0
-            end
-            at[row.file] = lines
-          end
-        end
-      end
-      if count ~= nil then
-        found[row.file] = count
-      else
+      local text = if memo ~= nil then check_memo.get(memo, "untyped", row.key) else nil end
+      if text == nil or not take(row, text) then
         missed[#missed + 1] = row
       end
     end
   end
   if #missed > 0 then
     local build = tree_build(root, tree, true)
-    streamed(build, tree, missed, true, true, function(row: DeclareFile, result: Driver.Outcome?)
+    local fan = fanned(build, tree, missed, true, true, function(_row: DeclareFile, result: Driver.Outcome?): string?
       local subject: Report.Subject? = nil
       if result ~= nil then subject = Report.of(build.program, result) end
       if subject == nil then
         -- A module the checker kept no report of is refused elsewhere ([`checked`]).
-        return
+        return nil
       end
       local read = SyntaxContracts.check(subject, nil, SyntaxContracts.declared_in(tree.index))
-      local count = read.untyped
-      found[row.file] = count
-      at[row.file] = read.untyped_lines
-      if memo ~= nil then
-        local kept: mut {string} = { tostring(count) }
-        for _, line in ipairs(read.untyped_lines) do kept[#kept + 1] = tostring(line) end
-        check_memo.put(memo, "untyped", row.key, check_memo.encode({ kept }))
-      end
+      local kept: mut {string} = { tostring(read.untyped) }
+      for _, line in ipairs(read.untyped_lines) do kept[#kept + 1] = tostring(line) end
+      return check_memo.encode({ kept })
     end)
+    for _, row in ipairs(missed) do
+      local text = fan.texts[row.file]
+      if text ~= nil and take(row, text) and memo ~= nil then
+        check_memo.put(memo, "untyped", row.key, text)
+      end
+    end
   end
   if memo ~= nil then
     check_memo.finish(memo, "untyped")
