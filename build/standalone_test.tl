@@ -143,3 +143,38 @@ local function test_the_requires_of_a_file_are_read_by_the_checker_that_compiles
   local broken, broken_trouble = standalone.requires("b.tl", "local x = (\n")
   assert(broken == nil and broken_trouble:find("b.tl:", 1, true) == 1, tostring(broken_trouble))
 end
+
+--- What a file run reads to tell whether a file runs alone: its requires by their tokens, and only the literal forms.
+local function test_the_requires_a_file_run_reads_are_the_literal_ones()
+  local read = assert(standalone.literal_requires(
+    'local Fs = require("cosmic.fs")\nlocal type J = require "cosmic.json"\n' ..
+      '-- require("in.a.comment")\nlocal s = "require(\\"in.a.string\\")"\nlocal t = x.require("a.field")\n'))
+  assert(#read == 2 and read[1] == "cosmic.fs" and read[2] == "cosmic.json", table.concat(read, ","))
+  assert(standalone.literal_requires('local name = "m"\nlocal M = require(name)\n') == nil)
+  assert(standalone.literal_requires('local ok = pcall(require, "m")\n') == nil)
+  assert(standalone.literal_requires('local M = require("m" .. "n")\n') == nil)
+  assert(standalone.literal_requires('local s = "unterminated\n') == nil)
+end
+
+--- A file runs alone where it requires only what the binary carries and is no program's main and no test.
+local function test_a_file_runs_alone_where_it_needs_only_the_standard_library()
+  local carried = 'local Fs = require("cosmic.fs")\nlocal Json = require("cosmic.json")\nreturn Fs, Json\n'
+  assert(standalone.runs_alone("script.tl", carried))
+  assert(standalone.runs_alone("/home/u/tools/script.tl", carried))
+  assert(not standalone.runs_alone("script.tl", 'local M = require("lib.m")\nreturn M\n'))
+  assert(not standalone.runs_alone("script.tl", 'local M = require(arg[1])\nreturn M\n'))
+  assert(not standalone.runs_alone("cmd/hi/main.tl", carried))
+  assert(not standalone.runs_alone("/p/cmd/hi/main.tl", carried))
+  assert(not standalone.runs_alone("script_test.tl", carried))
+  assert(standalone.runs_alone("cmd/hi/other.tl", carried))
+end
+
+--- What a file returns is held to a declaration, as its tree holds it: a table no declaration describes is refused, as
+--- `cosmic fix` refuses it. A chunk of `-e` returns its exit code, which nothing describes.
+local function test_a_file_returns_what_a_declaration_describes(tmp: string)
+  local undeclared = "local function helper(): integer\n  return 1\nend\nreturn { main = helper }\n"
+  local refused, trouble = compile(tmp, "u.tl", undeclared)
+  assert(refused == nil and trouble:find("(export_not_declared)", 1, true) ~= nil, tostring(trouble))
+  local chunk = standalone.compile("-e", "return 3\n", { XDG_CACHE_HOME = tmp .. "/cache" }, true)
+  assert(chunk ~= nil and chunk() == 3)
+end

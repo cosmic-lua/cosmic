@@ -26,10 +26,13 @@ local function test_a_file_finds_its_words_in_arg_at_its_top_level(tmp: string)
 end
 
 --- Runs `file` in `root` as this program, with no compile cache shared
---- across trees, so each case compiles what it holds.
+--- across trees, so each case compiles what it holds. The cases are of a
+--- run that builds the tree, which COSMIC_STANDALONE=0 makes of a file
+--- that requires only `cosmic.*` modules too.
 local function run_in(root: string, file: string): Child.Result
   local env = this_program.environment()
   env.COSMIC_BUILD_CACHE = "0" -- checked: map_field
+  env["COSMIC_STANDALONE"] = "0"
   local started = this_program.program({ file }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))
@@ -152,10 +155,11 @@ local function test_each_broken_file_of_one_source_is_told(tmp: string)
     tostring(result.stdout) .. stderr)
 end
 
---- Runs `file` in `root` as this program.
+--- Runs `file` in `root` as this program, building the tree as [`run_in`] does.
 local function run_new_in(root: string, file: string): Child.Result
   local env = this_program.environment()
   env["COSMIC_BUILD_CACHE"] = "0"
+  env["COSMIC_STANDALONE"] = "0"
   local started = this_program.program({ file }, { cwd = root, env = env,
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(60) })
   return (assert(Child.run(started.argv, started.options)))

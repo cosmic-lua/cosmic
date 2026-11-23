@@ -61,6 +61,14 @@ local function start_test(root: string, output: string): Child.Handle
   return h
 end
 
+--- The environment of a file run that builds its tree, as these do: COSMIC_STANDALONE=0, since the files they
+--- run require nothing and would run alone ([`build.standalone`]'s `runs_alone`).
+local function tree_run_environment(): {string:string}
+  local env = this_program.environment()
+  env["COSMIC_STANDALONE"] = "0"
+  return env
+end
+
 --- Waits up to 20 s for `holds` to answer true, checking every 20 ms,
 --- and answers true once it has.
 local function await(what: string, holds: function(): boolean): boolean
@@ -173,7 +181,7 @@ local function test_a_write_of_the_projection_waits_for_the_lock(tmp: string)
   local output = tmp .. "/run.out"
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "hello.tl" }, { timeout_ns = Child.FOREVER,
-    cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
+    cwd = root, env = tree_run_environment(), stdout = fd, stderr = fd,
     process_group = true,
   })
   local h = assert(Child.start(started.argv, started.options))
@@ -231,7 +239,7 @@ local function test_a_build_commits_its_row_before_it_waits_to_publish(tmp: stri
   local output = tmp .. "/run.out"
   local fd = assert(Fs.open_write(output))
   local started = this_program.program({ "hello.tl" }, { timeout_ns = Child.FOREVER,
-    cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
+    cwd = root, env = tree_run_environment(), stdout = fd, stderr = fd,
     process_group = true,
   })
   local h = assert(Child.start(started.argv, started.options))
@@ -271,7 +279,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
     local output = root .. "/a.out"
     local fd = assert(Fs.open_write(output))
     local started = this_program.program({ "main.tl" }, { timeout_ns = Child.FOREVER,
-      cwd = root, env = this_program.environment(), stdout = fd, stderr = fd,
+      cwd = root, env = tree_run_environment(), stdout = fd, stderr = fd,
       process_group = true,
     })
     local a = assert(Child.start(started.argv, started.options))
@@ -308,7 +316,7 @@ local function test_a_waiting_projection_keeps_its_compiled_snapshot(tmp: string
       else
         assert(Fs.write(root .. "/main.tl", 'local broken: string = 42\nprint(broken)\n'))
         local command = this_program.program({ "main.tl" }, { timeout_ns = Child.FOREVER,
-          cwd = root, env = this_program.environment(), stdout = "capture", stderr = "capture",
+          cwd = root, env = tree_run_environment(), stdout = "capture", stderr = "capture",
         })
         local failed = assert(Child.run(command.argv, command.options))
         assert(not failed.ok, (failed.stdout or "") .. (failed.stderr or ""))
