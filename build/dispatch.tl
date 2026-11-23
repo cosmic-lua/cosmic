@@ -75,7 +75,7 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
     end
     local lines: mut {string} = {}
     if found == nil then
-      lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": " .. trouble .. ")"
+      lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": " .. tostring(trouble) .. ")"
     elseif text == nil then
       lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
     else

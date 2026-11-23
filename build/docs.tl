@@ -214,7 +214,7 @@ end
 function docs.view(databases: {Sqlite.Handle}, public?: {boolean}): Doc.View?, string
   local view, trouble = Doc.view(databases, public)
   if view == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   view.commands = verbs()
   view.marks = closed_in
@@ -268,7 +268,7 @@ local function run(argv: {string}): integer
   if parsed.set["--json"] == true then
     local records, records_trouble = Doc.records(view, parsed.words, stale ~= "")
     if records == nil then
-      log:complain("docs: " .. records_trouble)
+      log:complain("docs: " .. tostring(records_trouble))
       return 1
     end
     for _, line in ipairs(records.lines) do
@@ -280,7 +280,7 @@ local function run(argv: {string}): integer
   end
   local answer, trouble = Doc.answer(view, parsed.words)
   if answer == nil then
-    log:complain("docs: " .. trouble)
+    log:complain("docs: " .. tostring(trouble))
     return 1
   end
   for _, line in ipairs(answer.lines) do
@@ -329,7 +329,7 @@ local function run_uses(argv: {string}): integer
   end
   local found, trouble = Doc.uses(view, query)
   if found == nil then
-    log:complain("uses: " .. trouble)
+    log:complain("uses: " .. tostring(trouble))
     return 1
   end
   local words: mut {string} = {}

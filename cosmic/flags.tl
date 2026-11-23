@@ -968,7 +968,7 @@ local function documentation(program: string, commands: {string:Flags.Command},
   local library = require("cosmic.doc")
   local view, trouble = library.program(require("cosmic.store").databases(), program, nil, documented.pages)
   if view == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local pages = documented.pages
   if pages == nil then
@@ -977,10 +977,10 @@ local function documentation(program: string, commands: {string:Flags.Command},
   local described: mut {Doc.Command} = {}
   for _, name in ipairs(sorted(keys(commands))) do
     local row, row_trouble = library.member(view, pages, name)
-    if row == nil and row_trouble ~= "" then
-      return nil, row_trouble
+    if row == nil then
+      return nil, tostring(row_trouble)
     end
-    if row ~= nil then
+    if row is Doc.Entry then
       local command = assert(commands[name], "a name of commands names a command")
       local spec = command.spec
       local options = if spec ~= nil and next(spec) ~= nil then
@@ -1024,10 +1024,10 @@ local function command_help(program: string, name: string, commands: {string:Fla
   end
   local library = require("cosmic.doc")
   local row, row_trouble = library.member(view, pages, name)
-  if row == nil and row_trouble ~= "" then
-    return nil, row_trouble
+  if row == nil then
+    return nil, tostring(row_trouble)
   end
-  local comment = if row ~= nil then library.shown(row.text) else "" end
+  local comment = if row is Doc.Entry then library.shown(row.text) else "" end
   return if comment ~= "" then help .. "\n\n" .. comment else help end, ""
 end
 
@@ -1052,10 +1052,12 @@ local function topic_page(program: string, name: string, topic: Flags.Topic, com
   end
   local text, text_trouble = require("cosmic.doc").guide(view, guide)
   if text == nil then
-    return nil, if text_trouble ~= "" then text_trouble else
-      "the topic " .. name .. "'s guide, doc/guides/" .. guide .. ".md, is not in the documentation" end
+    return nil, tostring(text_trouble)
   end
-  return Flags.topic_help({ about = topic.about, text = text, see = topic.see }, name), ""
+  if text is string then
+    return Flags.topic_help({ about = topic.about, text = text, see = topic.see }, name), ""
+  end
+  return nil, "the topic " .. name .. "'s guide, doc/guides/" .. guide .. ".md, is not in the documentation"
 end
 
 --- The help of the `docs` command [`Flags.dispatch`] answers itself.
@@ -1082,7 +1084,7 @@ local function docs_answer(argv: {string}, from: integer, program: string, comma
   end
   local answer, answer_trouble = require("cosmic.doc").answer(view, parsed.words)
   if answer == nil then
-    return nil, "docs: " .. answer_trouble
+    return nil, "docs: " .. tostring(answer_trouble)
   end
   if not answer.found then
     return nil, "docs: " .. answer.said
