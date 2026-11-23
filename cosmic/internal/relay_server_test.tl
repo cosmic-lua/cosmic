@@ -1157,6 +1157,7 @@ local function test_a_connect_goes_through_the_upstream_proxy_which_resolves(tmp
     local through = proxy("200")
     local up: Relay.Upstream = {
       host = "127.0.0.1", port = through.server.port, authorization = "Basic dTpw", no_proxy = { "direct.test" },
+      addresses = { "127.0.0.1" },
     }
     local grants = { "api.test:443", "direct.test:9", "a.localhost:443", "ip6-localhost:443",
       "localhost.localdomain:443" }
@@ -1204,7 +1205,7 @@ end
 local function test_a_numeric_upstream_is_reached_with_no_lookup(tmp: string)
   Poll.run(function()
     local through = proxy("200")
-    local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
+    local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {}, addresses = { "127.0.0.1" } }
     local rig = start(tmp, { grants = { "api.test:443" }, upstream = up })
     local conn, head = connect_to(rig, "api.test:443")
     assert(status_line(head) == "HTTP/1.1 200 Connection established", head)
@@ -1218,7 +1219,7 @@ end
 local function test_the_upstreams_own_address_needs_no_grant_and_is_the_programs_to_ask_for_only_if_granted(tmp: string)
   Poll.run(function()
     local through = proxy("200")
-    local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
+    local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {}, addresses = { "127.0.0.1" } }
     local rig = start(tmp, { grants = { "api.test:443", "localhost:443" }, upstream = up })
     local conn, head = connect_to(rig, "api.test:443")
     assert(status_line(head):find("^HTTP/1.1 200 "), head)
@@ -1281,7 +1282,7 @@ local function test_an_upstream_that_refuses_is_told_to_the_program(tmp: string)
       local upstream_status, upstream_says = case[1], case[2]
       assert(upstream_status and upstream_says, "a case is a status and what it says")
       local through = proxy(upstream_status)
-      local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {} }
+      local up: Relay.Upstream = { host = "127.0.0.1", port = through.server.port, no_proxy = {}, addresses = { "127.0.0.1" } }
       local rig = start(tmp, { grants = { "api.test:443", "127.0.0.1:" .. tostring(through.server.port) }, upstream = up })
       local conn, head = connect_to(rig, "api.test:443")
       local line = status_line(head)
@@ -1302,6 +1303,7 @@ local function test_no_proxy_names_the_hosts_reached_directly(tmp: string)
     local up: Relay.Upstream = {
       host = "127.0.0.1", port = through.server.port,
       no_proxy = { "direct.test", ".sub.test", "svc.test:" .. tostring(server.port), "other.test:1" },
+      addresses = { "127.0.0.1" },
     }
     local rig = start(tmp, { grants = { "127.0.0.1:" .. tostring(through.server.port), "127.0.0.1:" .. tostring(server.port),
       "svc.test:" .. tostring(server.port), "other.test:" .. tostring(server.port) }, upstream = up })
@@ -1418,10 +1420,19 @@ local function test_a_spec_that_is_no_spec_raises()
       { spec = { http = listener, grants = {}, connect = connect, token = "a\nb" }, says = "spec.token must be a string" },
       { spec = { http = listener, grants = {}, connect = connect, limits = { pre_auth = 0 } }, says = "limits.pre_auth must be an integer from 1" },
       { spec = { http = listener, grants = {}, connect = connect, own_addresses = { "nope" } }, says = "not numeric" },
-      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "", port = 80, no_proxy = {} } }, says = "upstream.host" },
-      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 0, no_proxy = {} } }, says = "upstream.port" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "", port = 80, no_proxy = {}, addresses = { "192.0.2.1" } } },
+        says = "upstream.host" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 0, no_proxy = {}, addresses = { "192.0.2.1" } } },
+        says = "upstream.port" },
       { spec = { http = listener, grants = {}, connect = connect,
-        upstream = { host = "p", port = 80, authorization = "x\r\nHost: y", no_proxy = {} } }, says = "upstream.authorization" },
+        upstream = { host = "p", port = 80, authorization = "x\r\nHost: y", no_proxy = {}, addresses = { "192.0.2.1" } } },
+        says = "upstream.authorization" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 80, no_proxy = {} } },
+        says = "upstream.addresses is not given" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 80, no_proxy = {}, addresses = {} } },
+        says = "upstream.addresses holds no address" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 80, no_proxy = {}, addresses = { "p" } } },
+        says = "upstream.addresses[1] is not a numeric address" },
     }
     for _, case in ipairs(cases) do
       local started, why = pcall(Relay.start, case.spec)

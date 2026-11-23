@@ -52,8 +52,7 @@
 --- Behind an upstream proxy ([`Relay.Upstream`], from [`relay_config.upstream`]),
 --- steps 2 and 5 are the same and steps 3 and 4 connect to the upstream
 --- instead -- at the addresses its starter resolved once
---- ([`Relay.Upstream.addresses`]), or its host resolved for the
---- connection where it gave none, its answers checked and connected
+--- ([`Relay.Upstream.addresses`]), which a spec must give, connected
 --- through the `connect` -- and ask it to CONNECT: the upstream resolves the
 --- name, so the address checks do not apply to what it reaches, which the
 --- relay says once, at its start. The upstream's own address is the one the
@@ -685,7 +684,8 @@ local function address_of(run: Running, name: string, kind: Wire.Kind, port: int
     return { addresses = { name } }
   end
   local answers: mut {Address.Answer} = {}
-  local resolved_once = if trusted == true then assert(run.spec.upstream).addresses else nil end
+  -- An upstream without addresses is refused at start ([`checked_upstream`]), so its host is never resolved here.
+  local resolved_once = if trusted == true then assert(assert(run.spec.upstream).addresses) else nil end
   if resolved_once ~= nil then
     -- The upstream's addresses, which its starter resolved: no lookup.
     for i, address in ipairs(resolved_once) do
@@ -1244,28 +1244,11 @@ local function accept_loop(run: Running, listener: Net.Listener, protocol: strin
   end
 end
 
---- Raises, naming the field, where `up` is no usable upstream.
+--- Raises, naming the field, where `up` is no usable upstream ([`Config.upstream_problem`]).
 local function checked_upstream(up: Relay.Upstream)
-  if up.host == "" or up.host:find("[%c%s]") ~= nil then
-    error("relay: spec.upstream.host must be a host name or address", 3)
-  end
-  if up.port < 1 or up.port > 65535 then
-    error("relay: spec.upstream.port must be a port from 1 to 65535", 3)
-  end
-  local authorization = up.authorization
-  if authorization ~= nil and authorization:find("[%c]") ~= nil then
-    error("relay: spec.upstream.authorization must be a header value with no control bytes", 3)
-  end
-  local addresses = up.addresses
-  if addresses ~= nil then
-    if #addresses == 0 then
-      error("relay: spec.upstream.addresses must be a list of one numeric address or more", 3)
-    end
-    for _, address in ipairs(addresses) do
-      if Address.parse(address) == nil then
-        error("relay: spec.upstream.addresses must hold numeric addresses", 3)
-      end
-    end
+  local problem = Config.upstream_problem(up)
+  if problem ~= nil then
+    error("relay: spec.upstream." .. problem, 3)
   end
 end
 
