@@ -68,7 +68,7 @@ local Agent = require("cosmic.agent")
 local AgentMcp = require("cosmic.agent.mcp")
 local Auth = require("cosmic.agent.auth")
 local Child = require("cosmic.child")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.agent")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Flags = require("cosmic.flags")
@@ -129,7 +129,7 @@ local record verb
   end
 end
 
-local spec = assert(assert(Cli.verbs["agent"]).spec)
+local spec = assert(Verb.spec)
 
 local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]"
 

@@ -37,7 +37,7 @@
 --- is built from the data alone, so no build directory is read.
 
 local build_paths = require("build.paths")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.sql")
 local Clock = require("cosmic.clock")
 local Csv = require("cosmic.csv")
 local Flags = require("cosmic.flags")
@@ -111,7 +111,7 @@ end
 
 --- The options `cosmic sql` takes: each names a database, and at most
 --- one may be given.
-local spec = Cli.verbs.sql.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 --- The database a command line names under `root`, the working
 --- directory: `--db <path>`, `--build` (its build directory's

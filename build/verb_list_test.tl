@@ -83,6 +83,17 @@ local function test_the_list_holds_the_grouped_verbs_that_are_not_code_or_help()
       table.concat(want, " "))
 end
 
+--- `commands` loads every verb's command and no other: what dispatch reads a verb's line with is the one help
+--- shows.
+local function test_commands_loads_each_verb_s_own_command()
+  local count = 0
+  for name, loader in pairs(verb_list.commands) do
+    count = count + 1
+    assert(loader() == Cli.verbs[name], name .. ": `commands` loads another command than Cli.verbs holds")
+  end
+  assert(count == #Cli.order, "commands has " .. tostring(count) .. " verbs, Cli.order " .. tostring(#Cli.order))
+end
+
 local function test_the_groups_name_every_verb_once_and_nothing_else()
   local seen: mut {string:integer} = {}
   for _, group in ipairs(Cli.groups) do

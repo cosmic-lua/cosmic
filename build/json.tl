@@ -25,7 +25,7 @@
 --- key whose value is `null`, and a path through one fails for what it
 --- is (the document is read with `null_value = Json.null`).
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.json")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
@@ -70,7 +70,7 @@ local record verb
   end
 end
 
-local spec = Cli.verbs.json.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic json [--flat | --exists | --keys | --shape | --compact | -r] [--] [<path>] [<file>|-]" ..
   "; a file whose name begins with $ is written ./name, or follows --"

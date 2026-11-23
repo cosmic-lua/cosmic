@@ -82,7 +82,7 @@
 
 local bare = require("build.bare")
 local Signal = require("cosmic.signal")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.fetch")
 local Codec = require("cosmic.codec")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
@@ -123,7 +123,7 @@ local record verb
   refusal: function(why: string, protocols: {string}?): string
 end
 
-local spec = Cli.verbs.fetch.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic fetch <url[#sha256=<hex>]> [-o <file>] [--sha256 <hex>] [--sha512 <hex>] " ..
   "[--allow-downgrade] [--head [--json]] [--roots <set>] [--cacert <file>] [--pin <pin>]"

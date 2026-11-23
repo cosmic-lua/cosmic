@@ -44,7 +44,7 @@
 --- repository) only `node_modules/` is.
 
 local build_paths = require("build.paths")
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.fix")
 local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local identity = require("build.identity")
@@ -1202,7 +1202,7 @@ end
 --- Reads the command line and the working directory into `ctx`.
 --- @return integer | nil The exit code when either is refused, else nil
 local function read_command(ctx: Fix): integer?
-  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Cli.verbs.fix.spec)) -- checked: map_field
+  local parsed, parse_trouble = Flags.parse(ctx.argv, 2, assert(Verb.spec))
   if parsed == nil then
     log:complain("fix: " .. parse_trouble)
     return 2

@@ -49,13 +49,13 @@ end
 local page_width <const> = 80
 
 --- The full text of each verb's `cosmic help <verb>`, generated from
---- [`cosmic.cli`]'s own fields ([`cosmic.cli.Cli.run`],
---- [`cosmic.cli.Cli.test`], ...) so this wording is never a second,
+--- the overview of the verb's own module ([`cosmic.cli.run`],
+--- [`cosmic.cli.test`], ...) so this wording is never a second,
 --- hand-kept copy of what `cosmic docs build` (or any verb
 --- [`cosmic.cli.order`] names) already answers.
 --- Falls back to naming the lookup that failed, rather than silently
---- dropping a verb from its own help, if [`cosmic.cli`]'s own database
---- row is ever missing.
+--- dropping a verb from its own help, if a verb module's database row
+--- is ever missing.
 --- @param verbs the verbs to print
 --- @return each verb's text, by verb
 local function verb_help(verbs: {string}, binary_only?: boolean): {string: string}
@@ -75,21 +75,21 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
   local out: mut {string: string} = {}
   if view == nil then
     for _, verb in ipairs(verbs) do
-      out[verb] = "(cosmic.cli: " .. view_trouble .. ")\n"
+      out[verb] = "(cosmic.cli." .. verb .. ": " .. view_trouble .. ")\n"
     end
     return out
   end
   local names: mut {string} = {}
   for _, verb in ipairs(verbs) do
-    names[#names + 1] = "Cli." .. verb
+    names[#names + 1] = "cosmic.cli." .. verb
   end
   local found, trouble = require("cosmic.doc").named_all(view, names)
   for _, verb in ipairs(verbs) do
-    local symbol = "Cli." .. verb
+    local module = "cosmic.cli." .. verb
     local text: string? = nil
     if found ~= nil then
       for _, entry in ipairs(found) do
-        if entry.symbol == symbol then
+        if entry.module == module and entry.symbol == "" then
           text = link_text.unlinked(entry.text)
           break
         end
@@ -97,9 +97,9 @@ local function verb_help(verbs: {string}, binary_only?: boolean): {string: strin
     end
     local lines: mut {string} = {}
     if found == nil then
-      lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": " .. tostring(trouble) .. ")"
+      lines[#lines + 1] = "(" .. module .. ": " .. tostring(trouble) .. ")"
     elseif text == nil then
-      lines[#lines + 1] = "(cosmic.cli " .. symbol .. ": not found)"
+      lines[#lines + 1] = "(" .. module .. ": not found)"
     else
       local command = Cli.verbs[verb]
       if command ~= nil then
@@ -970,7 +970,6 @@ function Dispatch.main(argv: {string}): integer
       return code
     end
   end
-  local Cli = require("cosmic.cli")
   local Env = require("cosmic.env")
   local Flags = require("cosmic.flags")
   local Fs = require("cosmic.fs")
@@ -983,11 +982,14 @@ function Dispatch.main(argv: {string}): integer
   -- ([`line_refusal`]), so their refusals are one rule's; until the verbs take what it read, a line is parsed
   -- twice, to the same result. It waits on two things. Most verbs offer `run(argv, io?)` to their tests, which
   -- would each hand over a parsed line instead; and a verb that says more of its usage than one line (`time`,
-  -- `sql`: a line a subcommand) needs its subcommands in cosmic.cli first, as `rand` has them. A
+  -- `sql`: a line a subcommand) needs its subcommands in its cosmic/cli/<verb>.tl first, as `rand` has them. A
   -- `fresh` verb and `todos` keep reading their own lines whatever is done: they rebuild a stale tool first.
   -- `-e`, `--standalone` and `--version` stay outside Flags.dispatch on purpose: they load neither cosmic.flags
   -- nor cosmic.cli (build/dispatch_tool_test.tl holds `-e` to it), being what runs when the tree cannot build.
-  local command = Cli.verbs[verb]
+
+  -- The verb's own module of cosmic.cli alone: [`cosmic.cli`] loads every verb's.
+  local load_command = require("build.verb_list").commands[verb]
+  local command = if chosen ~= nil and load_command ~= nil then load_command() else nil end
   local options = if chosen ~= nil and command ~= nil then command.spec or {} else {} end -- checked: literal_needs_type
   -- The words of a program a verb runs are not the verb's to read.
   local own = argv
@@ -1116,7 +1118,7 @@ function Dispatch.main(argv: {string}): integer
       local untyped: mut {string:boolean} = { run = true }
       for _, name in pairs(as_option) do untyped[name] = true end
       local typed: mut {string} = {}
-      for _, known in ipairs(Cli.order) do
+      for _, known in ipairs(require("cosmic.cli").order) do
         if untyped[known] == nil then typed[#typed + 1] = known end
       end
       log:complain("no such verb or file: " .. verb .. meant(verb, typed) .. "; see `cosmic help`")

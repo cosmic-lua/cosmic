@@ -699,8 +699,7 @@ end
 --- The records the tree's doc anchors are known to be, as
 --- `<module> <record>`: each must still be taken for one, so a change
 --- to what counts as an anchor cannot leave the check vacuous.
-local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
-  "cosmic.entrypoint Entrypoint", "cosmic.errno Errno" }
+local anchors_expected: {string} = { "cosmic.layout Layout", "cosmic.entrypoint Entrypoint", "cosmic.errno Errno" }
 
 --- Every pair of doc anchors in `db` that share a bare name, as
 --- `<file>:<line>: <module> <symbol> and <module> <symbol>: ...`,
@@ -718,7 +717,7 @@ local anchors_expected: {string} = { "cosmic.cli Cli", "cosmic.layout Layout",
 ---
 --- A doc anchor is a record of a public `cosmic/` module that exists to
 --- be looked up, not passed around: every field of it is a documented
---- `string` (`test: string` in [`cosmic.cli`]'s `Cli`), and no function
+--- `string` (`tests: string` in [`cosmic.layout`]'s `Layout`), and no function
 --- or method in the public catalog takes or returns it. [`cosmic.shape`]'s
 --- `Failure` has only strings too, but `failures` hands it out, so its
 --- fields are an API's, not anchors.
@@ -1755,7 +1754,7 @@ end
 --- module's own doc), and why each stays.
 local doc_exempt: mut {string: string} = {}
 
-doc_exempt["cosmic.cli Cli.todos todo"] = "`cosmic todos` lists the tree's " ..
+doc_exempt["cosmic.cli.todos (module) todo"] = "`cosmic todos` lists the tree's " ..
   "`TODO:` comments: the marker is the verb's subject"
 
 --- The rules a public doc is held to: a name, the Lua pattern that

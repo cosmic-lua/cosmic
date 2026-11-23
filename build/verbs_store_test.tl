@@ -96,28 +96,28 @@ local function test_help_lists_each_option_a_verb_parses(tmp: string)
   -- `cosmic docs` asked nothing lists the modules there are.
   local index = verbs_fixture.expect(tmp, "docs", { "docs" }, 0).stdout
   assert(index:find("\ncosmic.fs  ", 1, true), index)
-  -- It shows the options under the verb's field too.
-  local docs = verbs_fixture.expect(tmp, "docs", { "docs", "Cli.test" }, 0).stdout
+  -- It shows the options under the verb's module too.
+  local docs = verbs_fixture.expect(tmp, "docs", { "docs", "cosmic.cli.test" }, 0).stdout
   assert(docs:find("\n  options:\n", 1, true) and docs:find("\n    --jobs <n> ", 1, true) and
       docs:find("\n    --all ", 1, true), docs)
   -- And a search finds a verb by what one of its options does, though
   -- no doc comment says it: "launcher" is only in `build --host`'s.
   local found = verbs_fixture.expect(tmp, "docs", { "docs", "native", "launcher" }, 0).stdout
-  assert(found:find("Cli.build", 1, true), found)
+  assert(found:find("cosmic.cli.build", 1, true), found)
   -- Its words may be split between the prose and the options.
   local split = verbs_fixture.expect(tmp, "docs", { "docs", "timeout", "processor" }, 0).stdout
-  assert(split:find("Cli.test", 1, true), split)
+  assert(split:find("cosmic.cli.test", 1, true), split)
   -- A word joined by "_" is those words in a row, as FTS5 reads it, and
   -- the verb's own name counts, as it does in the index.
   local joined = verbs_fixture.expect(tmp, "docs", { "docs", "COSMIC_TEST_TIMEOUT" }, 0).stdout
-  assert(joined:find("Cli.test", 1, true), joined)
+  assert(joined:find("cosmic.cli.test", 1, true), joined)
   -- Where the variable is declared (cosmic.env) it answers too, first.
   assert(joined:find("Env.Name.COSMIC_TEST_TIMEOUT", 1, true), joined)
   local named = verbs_fixture.expect(tmp, "docs", { "docs", "cli", "launcher" }, 0).stdout
-  assert(named:find("Cli.build", 1, true), named)
+  assert(named:find("cosmic.cli.build", 1, true), named)
   -- A word neither holds finds no verb.
   local none = verbs_fixture.expect(tmp, "docs", { "docs", "launcher", "zzzqqq" }, 1).stdout
-  assert(not none:find("Cli.build", 1, true), none)
+  assert(not none:find("cosmic.cli.build", 1, true), none)
 end
 
 local function test_help_of_a_verb_is_that_verb_alone(tmp: string)

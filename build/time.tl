@@ -46,7 +46,7 @@
 --- 1mo) is refused, [`cosmic.time`]'s rule; `--clamp` takes the month's last
 --- day instead (February 28 or 29).
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.time")
 local Failure = require("cosmic.failure")
 local Flags = require("cosmic.flags")
 local Json = require("cosmic.json")
@@ -81,7 +81,7 @@ end
 
 local NS <const> = 1000000000
 
-local spec = Cli.verbs.time.spec or {} -- checked: literal_needs_type, map_field
+local spec = Verb.spec or {}
 
 local usage = "cosmic time now [--zone Z] [--format F] [--json] | " ..
   "convert <time> [--from Z] [--to Z] [--format F] [--json] [--disambiguate H] | " ..

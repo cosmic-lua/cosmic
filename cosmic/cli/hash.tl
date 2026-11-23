@@ -1,0 +1,75 @@
+--- `cosmic hash [options] [file|-]...`: prints the digest of each file,
+--- or of standard input for `-` or no file. The line is
+--- `<hex>  <name>`, as `sha256sum` prints it, on every platform. Each
+--- input, a file or standard input, is read a chunk at a time, so its
+--- size does not change the memory used. `--json` prints an array of
+--- `{path, algorithm, digest}` instead of the lines.
+---
+--- The algorithm options are those [`cosmic.hash`] has: `--sha256` (the
+--- default), `--sha512`, `--sha384`, `--sha224`, `--sha1`, `--md5`,
+--- `--sha3-224`, `--sha3-256`, `--sha3-384` and `--sha3-512`.
+---
+--- Names are written as GNU writes them. A name with a backslash, a newline
+--- or a carriage return starts its line with `\` and has `\\`, `\n` and `\r` in
+--- it; all three read back. To hash a file named `-`, give it as `./-`.
+---
+--- `--check <sums>` (`-` for standard input) verifies a sums file in
+--- that format: text and `*` binary markers, escaped names, and blank
+--- and `#` lines skipped. The digest size follows the algorithm option,
+--- so name the algorithm for a file that is not SHA-256. Each file
+--- prints `name: OK`, `name: FAILED`, or `name: FAILED open or read`,
+--- with its name escaped as above. `--quiet` prints only the failures.
+---
+--- - BSD lines (`SHA256 (file) = hex`) and one-space separators are
+---   malformed. A malformed line makes the exit 2, even when every
+---   entry is OK. (GNU only warns, without `--strict`.)
+--- - A CRLF sums file leaves the CR in each name.
+--- - Each listed path is opened as given. A path that is not a regular
+---   file is `FAILED open or read`. A sums file you do not trust can
+---   still make it read any regular file you can read.
+---
+--- `--hmac <key>` makes each digest an HMAC under the key.
+--- `--hmac-file <path>` reads the key from a file: its bytes exactly, a
+--- trailing newline too, with a warning (write the file with
+--- `printf %s`). Use the file: a key on the command line shows in `ps`
+--- and in the shell's history. Every algorithm has an HMAC, which also
+--- streams. `--json` names it `hmac-sha256` and so on, and `--check`
+--- verifies HMACs when it is given a key.
+---
+--- `cosmic hash` prints no summary: its output is data. It exits 0 when
+--- all is well, and 1 when a check failed or a listed file could not be
+--- read. It exits 2, with `cosmic: hash: ...` on standard error, for a command
+--- line, a file to hash, a sums file (a malformed line too) or a write to
+--- standard output that it cannot use.
+--- @public
+
+local Flags = require("cosmic.flags")
+
+local command: Flags.Command = {
+  about = "digest files, or check a sums file",
+  usage = "[file...]",
+  examples = {
+    { line = "notes.txt", about = "the SHA-256 of a file" },
+    { line = "--sha512 notes.txt", about = "another algorithm" },
+    { line = "--check SHA256SUMS", about = "verify a sums file" },
+  },
+  spec = {
+    ["--md5"] = { about = "digest with MD5" },
+    ["--sha1"] = { about = "digest with SHA-1" },
+    ["--sha224"] = { about = "digest with SHA-224" },
+    ["--sha256"] = { about = "digest with SHA-256 (the default)" },
+    ["--sha384"] = { about = "digest with SHA-384" },
+    ["--sha512"] = { about = "digest with SHA-512" },
+    ["--sha3-224"] = { about = "digest with SHA3-224" },
+    ["--sha3-256"] = { about = "digest with SHA3-256" },
+    ["--sha3-384"] = { about = "digest with SHA3-384" },
+    ["--sha3-512"] = { about = "digest with SHA3-512" },
+    ["--json"] = { about = "print an array of {path, algorithm, digest}" },
+    ["--check"] = { value = "sums", about = "verify a sums file, or - for standard input" },
+    ["--quiet"] = { about = "with --check, print only the failures" },
+    ["--hmac"] = { value = "key", about = "make each digest an HMAC under key (visible in ps)" },
+    ["--hmac-file"] = { value = "path", about = "make each digest an HMAC under the bytes of a file" },
+  },
+}
+
+return command

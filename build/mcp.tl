@@ -18,7 +18,7 @@
 --- that is an error, 2 a command line it refuses or a write that failed. Complaints go to standard error as
 --- `cosmic: mcp: ...`. Its `spec` (build/verb_spec.tl) is `bare`.
 
-local Cli = require("cosmic.cli")
+local Verb = require("cosmic.cli.mcp")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
 local Failure = require("cosmic.failure")
@@ -47,7 +47,7 @@ local record verb
   end
 end
 
-local spec = assert(assert(Cli.verbs["mcp"]).spec)
+local spec = assert(Verb.spec)
 
 local usage = "cosmic mcp <discover|tools|resources|templates|prompts|call <tool> [json]|read <uri>|" ..
   "prompt <name> [json]> [--url URL [--token-env NAME]] [--timeout seconds] [-- program args...]"
