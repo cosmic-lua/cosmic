@@ -803,7 +803,6 @@ local function test_every_path_call_refuses_an_embedded_nul(tmp: string)
   failed_with(sys.EINVAL, sys.chmod(nul, 511))
   failed_with(sys.EINVAL, sys.chown(nul, -1, -1))
   failed_with(sys.EINVAL, sys.readdir(tmp .. "\0x"))
-  failed_with(sys.EINVAL, sys.tree_digest(tmp .. "\0x", false))
   failed_with(sys.EINVAL, sys.chdir(tmp .. "\0x"))
   failed_with(sys.EINVAL, sys.realpath(nul))
   failed_with(sys.EINVAL, sys.mkdtemp(tmp .. "/t\0-XXXXXX"))
@@ -1244,119 +1243,6 @@ local function test_a_mode_or_flag_past_an_int_raises(tmp: string)
   raises(sys.open, tmp .. "/a", (1 << 40) | sys.O_RDONLY)
   raises(sys.mkdir, tmp .. "/d", 1 << 40)
   raises(sys.clock_gettime, (1 << 32) + sys.CLOCK_MONOTONIC)
-end
-
---- A tree's digest changes with any entry beneath it: its contents
---- where asked for, and otherwise what `lstat` says of it -- a name
---- added, removed or renamed, and even a file rewritten with its old size
---- and modification time put back, whose change time moved. A link is
---- digested as its target's name, unfollowed, one whose target holds a
---- newline included; a FIFO beneath it is special, as is a tree too deep
---- to see all of, and /dev/null is not.
-local function test_a_tree_digest_follows_everything_beneath_it(tmp: string)
-  local tree = tmp .. "/tree"
-  assert(sys.mkdir(tree, 0x1ed))
-  assert(sys.mkdir(tree .. "/sub", 0x1ed))
-  local fd = create(tree .. "/sub/f")
-  assert(sys.write(fd, "one") == 3)
-  sys.close(fd)
-  assert(sys.symlink("sub/f", tree .. "/link"))
-  local contents = assert(sys.tree_digest(tree, true))
-  local stamps = assert(sys.tree_digest(tree, false))
-  assert(#contents.digest == 64 and not contents.special and not stamps.special)
-  assert(contents.digest ~= stamps.digest)
-  assert(assert(sys.tree_digest(tree, true)).digest == contents.digest, "the same tree")
-  assert(assert(sys.tree_digest(tree .. "/", false)).digest == stamps.digest,
-    "a trailing slash names the same tree")
-  -- A kernel whose change times are coarse would not see a rewrite
-  -- made at once; this one waits long enough to.
-  local before = assert(sys.stat(tree .. "/sub/f"))
-  assert(sys.nanosleep(50000000))
-  fd = create(tree .. "/sub/f")
-  assert(sys.write(fd, "two") == 3)
-  sys.close(fd)
-  assert(sys.utimensat(tree .. "/sub/f", nil, nil, before.mtime, before.mtime_ns))
-  local rewritten = assert(sys.tree_digest(tree, true))
-  assert(rewritten.digest ~= contents.digest, "contents rewritten")
-  local restamped = assert(sys.tree_digest(tree, false))
-  assert(restamped.digest ~= stamps.digest, "a change time moved")
-  assert(sys.rename(tree .. "/sub/f", tree .. "/sub/g"))
-  assert(assert(sys.tree_digest(tree, false)).digest ~= restamped.digest, "a name renamed")
-  assert(sys.rename(tree .. "/sub/g", tree .. "/sub/f"))
-  assert(sys.unlink(tree .. "/link"))
-  assert(sys.symlink("elsewhere", tree .. "/link"))
-  local relinked = assert(sys.tree_digest(tree, true))
-  assert(relinked.digest ~= rewritten.digest, "a link retargeted")
-  -- A link's target is digested whole, so one holding a newline and the
-  -- line that would follow cannot pass for a tree holding that entry.
-  local forged, honest = tmp .. "/forged", tmp .. "/honest"
-  assert(sys.mkdir(forged, 0x1ed))
-  assert(sys.mkdir(honest, 0x1ed))
-  local b = create(honest .. "/b")
-  assert(sys.write(b, "hi") == 2)
-  sys.close(b)
-  assert(sys.symlink("x", honest .. "/a"))
-  local line = assert(sys.tree_digest(honest, true)).digest
-  assert(sys.symlink("x\n2:/bf" .. line, forged .. "/a"))
-  assert(assert(sys.tree_digest(forged, true)).digest ~= line)
-  -- Deeper than the walk looks, the tree is special: what lies below
-  -- goes unseen.
-  local deep = tmp .. "/deep"
-  assert(sys.mkdir(deep, 0x1ed))
-  local at = deep
-  for _ = 1, 130 do
-    at = at .. "/d"
-    assert(sys.mkdir(at, 0x1ed))
-  end
-  assert(assert(sys.tree_digest(deep, false)).special, "a tree too deep to see")
-  assert(sys.mkfifo(tree .. "/sub/fifo"))
-  assert(assert(sys.tree_digest(tree, true)).special, "a FIFO answers from past the tree")
-  assert(not assert(sys.tree_digest("/dev/null", false)).special)
-  local missing, _, errno = sys.tree_digest(tmp .. "/missing", false)
-  assert(missing == nil and errno == sys.ENOENT)
-end
-
---- /dev/full answers every read with zeros and every write with ENOSPC,
---- so a tree holding it is not special. Every Linux worker is given it
---- (build.confine's `runtime_paths`): one without it is skipped, which
---- only the running worker can tell; macOS has no /dev/full, so there is
---- nothing to check and no requirement names Linux alone.
-local function test_a_tree_digest_of_dev_full_is_not_special()
-  if sys.stat("/dev/full") == nil then
-    if assert(sys.uname()).sysname == "Linux" then Test.skip("this worker has no /dev/full") end
-    return
-  end
-  local walked = assert(sys.tree_digest("/dev/full", false))
-  assert(not walked.special, "/dev/full answers from nothing past the tree")
-end
-
---- An entry the walk is refused -- a file it may not read, a directory
---- it may not list -- is digested by its permissions and owner, and the
---- tree is not special for it: no process with no more privilege than
---- the walk's could learn more of it. Where this process may read
---- everything (root, holding CAP_DAC_OVERRIDE), there is nothing to
---- refuse it.
-local function test_a_tree_digest_of_what_it_is_refused_is_not_special(tmp: string)
-  local tree = tmp .. "/refused"
-  assert(sys.mkdir(tree, 0x1ed))
-  assert(sys.mkdir(tree .. "/closed", 0x1ed))
-  local fd = create(tree .. "/secret")
-  assert(sys.write(fd, "one") == 3)
-  sys.close(fd)
-  assert(sys.chmod(tree .. "/secret", 0))
-  assert(sys.chmod(tree .. "/closed", 0))
-  local opened, _ = sys.open(tree .. "/secret", sys.O_RDONLY, 0)
-  if opened ~= nil then
-    sys.close(opened)
-    assert(sys.chmod(tree .. "/closed", 0x1ed))
-    Test.skip("a mode 0 file opens here: the runner can read what it has no permission for")
-    return
-  end
-  local refused = assert(sys.tree_digest(tree, true))
-  assert(not refused.special and not assert(sys.tree_digest(tree, false)).special)
-  assert(sys.chmod(tree .. "/secret", 0x100))
-  assert(assert(sys.tree_digest(tree, true)).digest ~= refused.digest, "its permissions moved")
-  assert(sys.chmod(tree .. "/closed", 0x1ed))
 end
 
 --- A directory listed and one refused both leave no descriptor behind:

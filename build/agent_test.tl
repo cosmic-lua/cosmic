@@ -13,10 +13,13 @@ local agent = require("build.agent")
 local agent_fixture = require("build.agent_fixture")
 
 -- The host programs the tests start, each where hosts keep it: named,
--- not the whole system, so the key holds them alone.
+-- not the whole system, so the key holds them alone. /bin/sh is the
+-- shell the bash tool falls back to on a host with no bash (Alpine's
+-- busybox, which its sleep, seq, head and tr link to as well).
 Test.policy{
   grants = {
     { path = "/bin/bash", letters = "r" }, { path = "/usr/bin/bash", letters = "r" },
+    { path = "/bin/sh", letters = "r" },
     { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" },
   },
   env = { "PATH", "TMPDIR" },
