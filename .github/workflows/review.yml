@@ -9,7 +9,7 @@
   # ruleset, so it can push branches and open pull requests but not land
   # them.
   #
-  # The agent is pi (.github/scripts/review.sh), not the Claude Code
+  # The agent is pi (ci/cosmic_ci/review.tl), not the Claude Code
   # action: subscriber API credits pay for the Claude API and the Agent
   # SDK but not for Claude Code, and the action's calls count as Claude
   # Code. pi calls the API directly.
@@ -20,7 +20,7 @@
   # puts in the subject, and this workflow (`job_workflow_ref`); its id,
   # the organization's and the service account's are repository
   # variables. The agent can read the current token file and the whilpbot
-  # token, and could mint GitHub OIDC tokens (review.sh says why), and pi
+  # token, and could mint GitHub OIDC tokens (review.tl says why), and pi
   # has no budget flag: the cosmic workspace's spend limit is the cap,
   # with this job's timeout.
   "on": {
@@ -70,9 +70,12 @@
           with: {"node-version": "22"},
         },
 
+        {uses: "./.github/actions/cosmic-driver"},
+
         {
           name: "run the weekly review",
-          run: "sh .github/scripts/review.sh",
+          "working-directory": "ci",
+          run: "cosmic-driver cosmic_ci/driver.tl review",
           env: {
             ANTHROPIC_FEDERATION_RULE_ID: "${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}",
             ANTHROPIC_ORGANIZATION_ID: "${{ vars.ANTHROPIC_ORGANIZATION_ID }}",
