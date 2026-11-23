@@ -441,124 +441,10 @@ local function with_tree_hint(trouble: string, root: Root): string
     "project's root"
 end
 
---- Runs a file. The file is a module: it is required once its tree is
---- built, with its arguments (below) set in the global `arg` before its
---- top level runs, and if what it returns is a function, that function is
---- called with one argument: an array of the arguments after the
---- file's own path on the command line, indexed from 1 like any
---- ordinary Lua array, so `#argv` and `ipairs(argv)` see exactly
---- those and nothing before them. The file's own path is there too,
---- at `argv[0]`, the way C, Lua and every shell give a program its
---- own name -- but nothing ordinary reaches it, since no length or
---- loop starts before 1; a caller that wants its own name reads
---- `argv[0]` directly. A record whose `main` field is a function is
---- called the same way, through that field. What the function returns
---- is the exit code as a built program's is -- see build/exit_status.tl: nil
---- is 0, and anything but a whole number from 0 to 255, or text naming
---- one, exits 2. No function at all is 0.
---- @param file the path named on the command line
---- @param argv the whole command line, `file` at slot 1; the file sees only
----   what follows it, as its own `argv`
-local function run(file: string, argv: {string}): integer
+--- Runs the module `name`, the file `file` of the tree `tree_root`, from the projection `database` a build of the tree
+--- wrote, with `argv` as the run's command line, the file at slot 1.
+local function run_projected(file: string, argv: {string}, tree_root: Root, name: string, database: string): integer
   local Store = require("cosmic.store")
-  local Clock = require("cosmic.clock")
-  local clock = require("build.clock")
-  local importer = require("build.importer")
-  local shared_compiles = require("build.shared_compiles")
-  local reboot = require("build.reboot")
-  local tree = require("build.tree")
-  local build_paths = require("build.paths")
-  local work = require("build.work")
-  local writer = require("build.writer")
-  local tree_root, trouble = root_of(file)
-  if tree_root == nil then
-    log:complain(trouble)
-    return 1
-  end
-  local root = tree_root.dir
-  local name, why = module_of(root, file)
-  if name == nil then
-    log:complain(why)
-    return 1
-  end
-
-  local started = Clock.monotonic_ns()
-  local standing, standing_trouble = tree.standing(root)
-  if standing == nil then
-    log:complain(standing_trouble)
-    return 1
-  end
-  -- In a project, a tool older than the checkout it was built from
-  -- rebuilds from that checkout and re-enters this command line first
-  -- ([`reboot.checkout_exit`]); cosmic's own tree is checked below.
-  if not standing.own then
-    local code = reboot.checkout_exit(argv, root)
-    if code ~= nil then
-      return code
-    end
-  end
-  local handle, open_trouble = work.open(root, nil, "running " .. file)
-  if handle == nil then
-    log:complain(open_trouble)
-    return 1
-  end
-  local staged, stage_trouble = work.stage(handle, standing)
-  if staged == nil then
-    local _, _ = work.close(handle)
-    log:complain(stage_trouble)
-    return 1
-  end
-
-  -- A stale tool refuses, or rebuilds itself or has zig boot the core
-  -- and re-enters this command line ([`reboot.guard`]).
-  if standing.own then
-    local code = reboot.guard(handle, root, argv)
-    if code ~= nil then
-      return code
-    end
-  end
-
-  -- The compiler this binary is, as the build that made it recorded
-  -- ([`importer.own_tool`]).
-  local tool = importer.own_tool()
-
-  local database = build_paths.under(handle.dir).projection
-
-  local outcome: importer.Outcome = { refused = false }
-  local result, compile_trouble = importer.compile_for(handle, tool, name, shared_compiles.for_build(), outcome)
-  if result == nil then
-    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
-    local hinted = with_tree_hint(with_standalone_hint(compile_trouble, file, name), tree_root)
-    local _, _ = work.close(handle)
-    log:complain(require("build.error_render").annotated(hinted, function(named: string): string?
-      local text, _ = require("cosmic.fs").read(root .. "/" .. named)
-      return text
-    end))
-    return if outcome.refused then exit_status.uncompiled else 1 end
-  end
-  local written, write_trouble =
-    writer.write_recorded(handle, database, result, started, staged)
-  local _, _ = work.close(handle)
-  if not written then
-    log:complain(write_trouble)
-    return 1
-  end
-
-  -- A file [`importer.compile`] refused (one whose top-level `return`
-  -- collides with the tail generated for its tests) is left out of the
-  -- database. The file asked for compiled, so this only warns.
-  for _, line in ipairs(result.refused) do
-    log:complain("warning: " .. line)
-  end
-  -- A broken file the file run does not reach is left out of the database
-  -- too, the run going on without it ([`importer.compile_for`]).
-  -- TODO: keep a left-out module's last good rows in the projection, once
-  -- the writer can carry a module's rows from the projection it replaces:
-  -- until a whole build, `cosmic docs` and `uses` miss it and what requires it.
-  for _, line in ipairs(result.left_out) do
-    log:complain("warning: " .. line)
-  end
-
   -- TODO: attach this run's published projection before its writer releases
   -- the publication lock, once writer exposes a stable-consumption callback:
   -- another successful build can replace the path before this attach.
@@ -595,6 +481,140 @@ local function run(file: string, argv: {string}): integer
     return exit_status.of(file, entry(arguments))
   end
   return 0
+end
+
+--- Runs a file. The file is a module: it is required once its tree is
+--- built, with its arguments (below) set in the global `arg` before its
+--- top level runs, and if what it returns is a function, that function is
+--- called with one argument: an array of the arguments after the
+--- file's own path on the command line, indexed from 1 like any
+--- ordinary Lua array, so `#argv` and `ipairs(argv)` see exactly
+--- those and nothing before them. The file's own path is there too,
+--- at `argv[0]`, the way C, Lua and every shell give a program its
+--- own name -- but nothing ordinary reaches it, since no length or
+--- loop starts before 1; a caller that wants its own name reads
+--- `argv[0]` directly. A record whose `main` field is a function is
+--- called the same way, through that field. What the function returns
+--- is the exit code as a built program's is -- see build/exit_status.tl: nil
+--- is 0, and anything but a whole number from 0 to 255, or text naming
+--- one, exits 2. No function at all is 0.
+--- @param file the path named on the command line
+--- @param argv the whole command line, `file` at slot 1; the file sees only
+---   what follows it, as its own `argv`
+local function run(file: string, argv: {string}): integer
+  local Clock = require("cosmic.clock")
+  local clock = require("build.clock")
+  local type importer = require("build.importer")
+  local Store = require("cosmic.store")
+  local tree = require("build.tree")
+  local build_paths = require("build.paths")
+  local work = require("build.work")
+  local tree_root, trouble = root_of(file)
+  if tree_root == nil then
+    log:complain(trouble)
+    return 1
+  end
+  local root = tree_root.dir
+  local name, why = module_of(root, file)
+  if name == nil then
+    log:complain(why)
+    return 1
+  end
+
+  local started = Clock.monotonic_ns()
+  local standing, standing_trouble = tree.standing(root)
+  if standing == nil then
+    log:complain(standing_trouble)
+    return 1
+  end
+  -- In a project, a tool older than the checkout it was built from
+  -- rebuilds from that checkout and re-enters this command line first
+  -- ([`reboot.checkout_exit`]); cosmic's own tree is checked below. A release is built from none.
+  if not standing.own and Store.meta("built_from") ~= nil then
+    local code = require("build.reboot").checkout_exit(argv, root)
+    if code ~= nil then
+      return code
+    end
+  end
+  local handle, open_trouble = work.open(root, nil, "running " .. file)
+  if handle == nil then
+    log:complain(open_trouble)
+    return 1
+  end
+  local staged, stage_trouble = work.stage(handle, standing)
+  if staged == nil then
+    local _, _ = work.close(handle)
+    log:complain(stage_trouble)
+    return 1
+  end
+
+  -- A stale tool refuses, or rebuilds itself or has zig boot the core
+  -- and re-enters this command line ([`reboot.guard`]).
+  if standing.own then
+    local code = require("build.reboot").guard(handle, root, argv)
+    if code ~= nil then
+      return code
+    end
+  end
+
+  -- The compiler this binary is, as the build that made it recorded ([`run_stamp.own_tool`]).
+  local run_stamp = require("build.run_stamp")
+  local tool = run_stamp.own_tool()
+
+  local database = build_paths.under(handle.dir).projection
+
+  -- Nothing the build reads has moved since the last good run of this module: the projection that run left is the
+  -- one a build would write again ([`build.run_stamp`]).
+  local stamp_key = run_stamp.key(handle.db, root, standing.own, tool, name)
+  if stamp_key ~= nil and run_stamp.holds(handle.dir, stamp_key, name, database) then
+    local _, _ = work.close(handle)
+    return run_projected(file, argv, tree_root, name, database)
+  end
+
+  local outcome: importer.Outcome = { refused = false }
+  local result, compile_trouble = require("build.importer").compile_for(handle, tool, name,
+    require("build.shared_compiles").for_build(), outcome)
+  if result == nil then
+    local _, _ = work.record(handle, clock.elapsed_ms(started), staged, 0, 0, "FAIL")
+    local hinted = with_tree_hint(with_standalone_hint(compile_trouble, file, name), tree_root)
+    local _, _ = work.close(handle)
+    log:complain(require("build.error_render").annotated(hinted, function(named: string): string?
+      local text, _ = require("cosmic.fs").read(root .. "/" .. named)
+      return text
+    end))
+    return if outcome.refused then exit_status.uncompiled else 1 end
+  end
+  local writer = require("build.writer")
+  local written, write_trouble = writer.write_recorded(handle, database, result, started, staged)
+  -- Keyed again over the plan this build made, the one the next run's stage finds, and the links the write signed
+  -- ([`build.run_stamp`]).
+  local signed = writer.signed()
+  local made_key = if written and signed.signature ~= "" and #result.refused == 0 and #result.left_out == 0 then
+    run_stamp.key(handle.db, root, standing.own, tool, name, signed.links) else nil end
+  local _, _ = work.close(handle)
+  if not written then
+    log:complain(write_trouble)
+    return 1
+  end
+  if made_key ~= nil then
+    run_stamp.mark(handle.dir, made_key, name, signed.signature)
+  end
+
+  -- A file [`importer.compile`] refused (one whose top-level `return`
+  -- collides with the tail generated for its tests) is left out of the
+  -- database. The file asked for compiled, so this only warns.
+  for _, line in ipairs(result.refused) do
+    log:complain("warning: " .. line)
+  end
+  -- A broken file the file run does not reach is left out of the database
+  -- too, the run going on without it ([`importer.compile_for`]).
+  -- TODO: keep a left-out module's last good rows in the projection, once
+  -- the writer can carry a module's rows from the projection it replaces:
+  -- until a whole build, `cosmic docs` and `uses` miss it and what requires it.
+  for _, line in ipairs(result.left_out) do
+    log:complain("warning: " .. line)
+  end
+  return run_projected(file, argv, tree_root, name, database)
 end
 
 --- Runs `file` as `--standalone` does where a tree run of it would build nothing the file needs

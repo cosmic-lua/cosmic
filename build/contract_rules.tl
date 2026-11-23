@@ -46,7 +46,7 @@ local casts: {string: string} = {
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
   ["build/standalone.tl:standalone.run"] =
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
-  ["build/dispatch.tl:run"] =
+  ["build/dispatch.tl:run_projected"] =
     "_G is a record and rawset takes a map; the write is of a name the record does not declare",
   ["cosmic/time.tl:make_zone"] =
     "Teal's metatable record has no __metatable, which Lua reads; rawset takes a map",

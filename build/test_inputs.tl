@@ -154,7 +154,7 @@ test_inputs.standalone_loads = {
 --- one of them but `lua_loads` and `standalone_loads` where it declares
 --- `lua`. Neither way reads it before its chunk or
 --- file runs, and [`build.dispatch`] reaches it only through
---- build.importer ([`importer.own_tool`]), a reader itself: so a closure
+--- build.run_stamp ([`run_stamp.own_tool`]), a reader itself: so a closure
 --- that lets a process reach that read holds a reader the search finds, and
 --- an edit to the compiler, which moves its identity, runs a test that
 --- only runs Lua in a child no more than one that runs none.

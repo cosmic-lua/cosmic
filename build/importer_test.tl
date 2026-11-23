@@ -1987,8 +1987,6 @@ local function test_the_compiler_modules_are_closed_under_require()
     ["build.positions"] = "fails a whole build before any key is looked up, and stores nothing",
     ["build.library_record"] = "reads what the binary records of the library for that check of positions, which fails a " ..
       "whole build before any key is looked up, and stores nothing",
-    ["build.grammar_mode"] = "makes the tool string a compile key holds of the compiler's identity " ..
-      "(`importer.own_tool`): what it decides is in every key, and no compile stores it",
     ["build.pipeline"] = "the compile with the new checker, keyed by the code that reads it " ..
       "(`code_identity.coded`) and not by the compiler's identity, which a default run keeps",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
@@ -2080,7 +2078,6 @@ local function test_the_writer_modules_are_closed_under_require()
     ["build.importer"] = "coordinates semantic operations and cache transport, and renders diagnostics",
     ["build.library_record"] = "reads what the binary records of the library for the importer's check of positions, " ..
       "which refuses a build and fills no row",
-    ["build.grammar_mode"] = "names the tool string a compile is keyed by, which only the compile consults",
     ["build.code_walk"] = "names which modules the identities of the code that reads hash, and which a test's store keeps",
     ["build.code_identity"] = "names the code that reads, which only the compile's key holds",
     ["build.error_catalog"] = "writes the catalog of the checker's codes, held by the compile's key through the code that reads",

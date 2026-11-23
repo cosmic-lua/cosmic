@@ -66,6 +66,8 @@ local function tree_of(tmp: string, name: string, files: {string:string}): strin
   return root
 end
 
+--- A module that returns a word, for a file run to print.
+local LIB_ONE <const> = 'local record Lib\n  word: string\nend\nlocal lib: Lib = { word = "one" }\nreturn lib\n'
 local SYNTAX_ERROR <const> = "local function f(...x: string) end\nreturn f\n"
 local TYPE_ERROR <const> = "local n: integer = \"s\"\nreturn n\n"
 
@@ -392,4 +394,71 @@ local function test_script_is_nil_outside_a_file_run(tmp: string)
     assert(result.code == 0 and result.stdout == "true\n", table.concat(words, " ") .. ": " .. tostring(result.stdout) ..
         tostring(result.stderr))
   end
+end
+
+--- How many builds of the tree at `root` its working database records ([`work.record`]): a run that builds the tree
+--- records one, and one that runs the last build's projection records none.
+local function builds_of(root: string): integer
+  local Sqlite = require("cosmic.sqlite")
+  local layout = require("build.paths").resolve(root, this_program.environment())
+  local db = assert(Sqlite.open(layout.working))
+  local rows = assert(Sqlite.text_rows(db, "SELECT count(*) FROM builds"))
+  local _, _ = db:close()
+  return assert(math.tointeger(tonumber(assert(rows[1]):text(1))))
+end
+
+--- A run of a tree nothing in has moved since its last good run runs the projection that run wrote, building nothing;
+--- an edit to a module the file requires builds the tree again, and the run says what the edit says.
+local function test_an_unchanged_tree_runs_its_last_build(tmp: string)
+  local root = tree_of(tmp, "unchanged", { ["lib.tl"] = LIB_ONE,
+    ["main.tl"] = 'local lib = require("lib")\nprint(lib.word)\n' })
+  local first = run_in(root, "main.tl")
+  assert(first.code == 0 and first.stdout == "one\n", tostring(first.stdout) .. tostring(first.stderr))
+  local built = builds_of(root)
+  local second = run_in(root, "main.tl")
+  assert(second.code == 0 and second.stdout == "one\n", tostring(second.stdout) .. tostring(second.stderr))
+  assert(builds_of(root) == built, "a run of an unchanged tree built it")
+  assert(Fs.write(root .. "/lib.tl", (LIB_ONE:gsub('"one"', '"two"'))))
+  local edited = run_in(root, "main.tl")
+  assert(edited.code == 0 and edited.stdout == "two\n", tostring(edited.stdout) .. tostring(edited.stderr))
+  assert(builds_of(root) == built + 1, "a run of an edited tree did not build it")
+end
+
+--- A run that left a broken sibling out builds the tree on every run, so each says the warning again.
+local function test_a_left_out_sibling_is_told_on_every_run(tmp: string)
+  local root = tree_of(tmp, "left", { ["good.tl"] = 'print("ok")\n', ["bad.tl"] = TYPE_ERROR })
+  for _ = 1, 2 do
+    local result = run_in(root, "good.tl")
+    local said = tostring(result.stdout) .. tostring(result.stderr)
+    assert(result.code == 0 and result.stdout == "ok\n", said)
+    assert((result.stderr or ""):find("warning: bad.tl is left out of this run", 1, true) ~= nil, said)
+  end
+end
+
+--- A tree whose projection is gone since its last good run builds it again.
+local function test_a_run_whose_projection_is_gone_builds_again(tmp: string)
+  local root = tree_of(tmp, "gone", { ["lib.tl"] = LIB_ONE, ["main.tl"] = 'local lib = require("lib")\nprint(lib.word)\n' })
+  local first = run_in(root, "main.tl")
+  assert(first.code == 0 and first.stdout == "one\n", tostring(first.stdout) .. tostring(first.stderr))
+  local built = builds_of(root)
+  assert(Fs.remove(require("build.paths").resolve(root, this_program.environment()).projection))
+  local again = run_in(root, "main.tl")
+  assert(again.code == 0 and again.stdout == "one\n", tostring(again.stdout) .. tostring(again.stderr))
+  assert(builds_of(root) == built + 1, "a run whose projection was gone did not build the tree")
+end
+
+--- A link of a file the stage does not hold, answered by the disk, is read again on every run: a directory it names
+--- made since the last good run builds the tree again.
+local function test_a_link_answered_by_the_disk_builds_again_when_the_disk_moves(tmp: string)
+  local root = tree_of(tmp, "linked", { ["lib.tl"] = LIB_ONE, ["main.tl"] = 'local lib = require("lib")\nprint(lib.word)\n',
+    ["README.md"] = "# linked\n\nSee [the data](data/).\n" })
+  local first = run_in(root, "main.tl")
+  assert(first.code == 0 and first.stdout == "one\n", tostring(first.stdout) .. tostring(first.stderr))
+  local built = builds_of(root)
+  local same = run_in(root, "main.tl")
+  assert(same.code == 0 and builds_of(root) == built, "a run of an unchanged tree built it: " .. tostring(same.stderr))
+  assert(Fs.mkdirs(root .. "/data"))
+  local moved = run_in(root, "main.tl")
+  assert(moved.code == 0 and moved.stdout == "one\n", tostring(moved.stdout) .. tostring(moved.stderr))
+  assert(builds_of(root) == built + 1, "a run after the disk moved under a link did not build the tree")
 end
