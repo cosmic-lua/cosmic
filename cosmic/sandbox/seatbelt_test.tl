@@ -3,6 +3,7 @@ local PolicyJson = require("cosmic.policy")
 local Sandbox = require("cosmic.sandbox")
 local Seatbelt = require("cosmic.sandbox.seatbelt")
 local rules = require("cosmic.sandbox.policy")
+local sys = require("cosmic.sys")
 
 local BASE <const> = [[(version 1)
 (deny default)
@@ -23,7 +24,8 @@ local function test_empty_policy_denies_every_file_network_and_process_fork()
   local held = 0
   for _, _ in pairs(out.parameters) do held = held + 1 end
   assert(out.parameters["ROOT"] == "/" and held == 1)
-  assert(out.rlimits["nofile"] == 1024 and out.rlimits["core"] == 0)
+  local held_files = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  assert(out.rlimits["nofile"] == math.min(1024, held_files.hard) and out.rlimits["core"] == 0)
   assert((assert(Seatbelt.compile({}))).text == BASE)
 end
 
@@ -331,4 +333,16 @@ local function test_a_terminal_grants_its_slave_and_dev_tty_by_parameter_and_not
   assert(not out.text:find("ttys004", 1, true), out.text)
   local refused, why = Seatbelt.compile({}, { paths = {}, terminal = "ttys004" })
   assert(refused == nil and why:find("terminal needs an absolute canonical path", 1, true) ~= nil, why)
+end
+
+--- A policy's limits are its processes' rlimits: 1024 open files unless
+--- it says (never above this process's own hard limit), no core dump, and
+--- file size and CPU time only where it gives them.
+local function test_a_policys_limits_are_its_rlimits()
+  local held = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  local default = rules.rlimits(nil)
+  assert(default["nofile"] == math.min(1024, held.hard) and default["core"] == 0, tostring(default["nofile"]))
+  assert(default["fsize"] == nil and default["cpu"] == nil)
+  local given = rules.rlimits({ open_files = 64, file_bytes = 4096, cpu_seconds = 5 })
+  assert(given["nofile"] == 64 and given["core"] == 0 and given["fsize"] == 4096 and given["cpu"] == 5)
 end

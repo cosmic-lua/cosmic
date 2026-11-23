@@ -130,7 +130,7 @@ end
 --- either case and with or without the colons Mozilla's bundle prints.
 local function test_roots_by_digest_trust_only_those()
   local outside = carried_root(OUTSIDE)
-  local hex = Codec.hex(Hash.sha256(outside))
+  local hex = Hash.hex_sha256(outside)
   local colons = hex:upper():gsub("(%x%x)", "%1:"):sub(1, -2)
   assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = { hex } }) == "trusted")
   assert(verdict(outside, { timeout_ns = Clock.seconds(60), roots = { colons } }) == "trusted")
