@@ -1,7 +1,7 @@
 # SQL functions
 
 Every SQLite handle cosmic opens, through [`cosmic.sqlite`] or [`cosmic.store`],
-answers the SQL functions, table-valued functions, virtual tables and
+has the SQL functions, table-valued functions, virtual tables and
 collations listed here, with no extension to load, and no others.
 
 To try one from the shell, `cosmic sql --db <file> '<statement>'` runs a
@@ -29,7 +29,7 @@ not run what its author chose:
   table or an R*Tree, and a view may still read an R*Tree.
   `PRAGMA trusted_schema = 1` on a [`cosmic.sqlite`] handle allows these
   again, for a file the caller trusts; a [`cosmic.store`] handle, which
-  answers queries alone, refuses it.
+  permits only queries, refuses it.
 
 ```teal
 local Sqlite = require("cosmic.sqlite")
@@ -107,7 +107,7 @@ SQLite's [core functions](https://sqlite.org/lang_corefunc.html).
 - `unlikely(X)`: X, hinted as usually false.
 - `upper(X)`: X in upper case, for ASCII letters.
 - `zeroblob(N)`: a blob of N zero bytes.
-- `match(X, Y)`: the `X MATCH Y` operator, which a full-text table answers.
+- `match(X, Y)`: the `X MATCH Y` operator, which a full-text table implements.
 - `->`: the JSON operator `X -> PATH`, the JSON at PATH.
 - `->>`: the JSON operator `X ->> PATH`, the SQL value at PATH.
 
@@ -157,7 +157,7 @@ SQLite's [window functions](https://sqlite.org/windowfunctions.html).
 ## math
 
 SQLite's [math functions](https://sqlite.org/lang_mathfunc.html). Each
-answers NULL for an argument outside its domain, such as `sqrt(-1)`.
+returns NULL for an argument outside its domain, such as `sqrt(-1)`.
 
 - `acos(X)`: arccosine, in radians.
 - `acosh(X)`: inverse hyperbolic cosine.
@@ -270,7 +270,7 @@ content table, reports the database malformed. Write the upsert as
 ## R*Tree
 
 SQLite's [R*Tree](https://sqlite.org/rtree.html): an index of boxes, from
-one dimension (a range) to five, that answers which boxes overlap or lie
+one dimension (a range) to five, that finds which boxes overlap or lie
 within another.
 
 - `rtree`: the virtual table, `CREATE VIRTUAL TABLE t USING rtree(id,
@@ -388,13 +388,13 @@ print(table.concat(assert(rows[1]):texts(), " "))
   makes, nor anything `VACUUM` touches; a virtual table has no row. The
   schema table is named `sqlite_master`, and a `WITHOUT ROWID` table's key
   is named as the table.
-- `pragma_*`: each [PRAGMA](https://sqlite.org/pragma.html) that answers
+- `pragma_*`: each [PRAGMA](https://sqlite.org/pragma.html) that returns
   rows is a table-valued function of its own name, such as
   `pragma_table_info('t')`.
 
 ## cosmic's functions
 
-cosmic's own functions. Each answers NULL for a NULL argument.
+cosmic's own functions. Each returns NULL for a NULL argument.
 
 - `sha256(X)`: the 32-byte SHA-256 digest of a text or blob.
 - `digest(A, X)`: the digest of X under the algorithm A names (a
@@ -410,7 +410,7 @@ cosmic's own functions. Each answers NULL for a NULL argument.
 Functions for embeddings, under [pgvector](https://github.com/pgvector/pgvector)'s
 names. A vector is a blob of little-endian 32-bit floats, what an
 embedding API's base64 `float32` decodes to, or wherever one is read, a
-text such as `'[1, 2.5, -3]'`, of 1 to 16000 finite numbers. Each answers
+text such as `'[1, 2.5, -3]'`, of 1 to 16000 finite numbers. Each returns
 NULL for a NULL argument, and refuses vectors of different dimensions.
 Unlike cosmic's other functions
 they are innocuous, so a view, a generated column or an expression index
@@ -418,7 +418,7 @@ in a database file may use them.
 
 - `vector(X)`: X as a blob of floats, so a text is parsed once. It
   refuses a blob that holds a NaN or an infinity; the distance functions
-  do not look, to keep a scan fast, and answer NaN for such a vector.
+  do not look, to keep a scan fast, and return NaN for such a vector.
 - `vector_text(X)`: X as text, `[1,2.5,-3]`.
 - `vector_dims(X)`: the number of dimensions.
 - `l2_distance(A, B)`: the Euclidean distance.
@@ -457,7 +457,7 @@ in a database file may use them.
   `cosine_distance` clamps it, and rows at the same distance then rank by
   id) and with the per-row functions to the rounding of a float sum; an
   `'int8'` block's are those of the quantized numbers. A NULL BLOCK,
-  QUERY or K answers no rows. QUERY must have the block's dimensions and
+  QUERY or K returns no rows. QUERY must have the block's dimensions and
   hold finite numbers, K is an integer from 1, and a block is checked
   before any of it is read ([layout](#packed-rows)). The arguments are
   hidden columns named `block`, `query`, `k` and `metric`, so a table that
@@ -466,7 +466,7 @@ in a database file may use them.
   the default's name when it was left out); `block` and `query` read NULL.
   A NULL METRIC is an error. List the tables that supply the arguments
   before the function: a comma join does, and a `CROSS JOIN` the other way
-  round has no plan for the block ("no query solution") and answers no rows
+  round has no plan for the block ("no query solution") and returns no rows
   for a metric.
 
 A search is an `ORDER BY` over every row a `WHERE` keeps, so a filter
@@ -508,7 +508,7 @@ A table with a row per vector reads a page per row (above), however few
 bytes the scan wants. A block holds many vectors in one row, so a scan
 reads one row for a few dozen and the arithmetic is what remains.
 `vector_block` packs the rows of a group, `vector_block_search` joins the
-blocks and answers each one's nearest rows, and an `ORDER BY` with a
+blocks and returns each one's nearest rows, and an `ORDER BY` with a
 `LIMIT` over them is the global nearest. A `WHERE` on the table of
 blocks drops whole blocks, so filter on columns the block table keeps
 (a tenant, a range of ids) and group by them.

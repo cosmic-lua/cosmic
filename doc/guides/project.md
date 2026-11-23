@@ -357,10 +357,10 @@ their own, `commands.tl`, as the fields of the record it returns, each a
 help top` should know. The program hands them on by name, and says which
 module documents them: `Flags.dispatch(argv, 1, { words = Commands.words,
 top = Commands.top }, "tally", { pages = "commands" })`. Then `tally help
-top` ends with the comment on the `top` field, and the program answers
+top` ends with the comment on the `top` field, and the program responds to
 `tally docs <words>` too: a name it documents, or a search of its doc
 comments and its guides (`doc/guides/*.md`), a misspelled word put right,
-as `cosmic docs` answers for the standard library. `groups`, beside
+as `cosmic docs` does for the standard library. `groups`, beside
 `pages`, orders the sections of the program's help.
 
 `cosmic build` puts into each program the modules its main requires,
@@ -370,12 +370,12 @@ names by a string as its `pages` (`{ pages = "commands" }`), and no other: one
 program does not carry another's main or what only that one requires. It puts
 in the documentation of those of them that any module may require, of those
 under the program's own `cmd/<name>/`, and of its pages module, so the built
-file answers alone; a
+file serves its documentation alone; a
 module under `internal/`, or one a directory other than its own keeps to
 itself, stays out of it. It carries the guides under `doc/guides/`, and a
 guide under `cmd/<name>/doc/guides/` in place of the one of the same name.
 Run from its source (`cosmic cmd/tally/main.tl docs`), the program
-answers from the project's last build, for what it would carry built and
+takes its documentation from the project's last build, for what it would carry built and
 no other program. A test that asks for a command's help or for `docs`
 reads the documentation of the modules it requires, and says so with
 `Test.policy { store_text = true }`.
@@ -630,7 +630,7 @@ store.query  The words a search matches in a note.
 
 ## discarding a failure on purpose
 
-A call that answers `nil, why` or `false, why` must be handled: `cosmic
+A call that returns `nil, why` or `false, why` must be handled: `cosmic
 fix` reports a result whose failure is ignored. When the failure cannot
 matter, discard both results on purpose with `local _, _ = call()`. The
 usual case is a best-effort cleanup in a path that is already failing,
