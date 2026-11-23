@@ -1,0 +1,14 @@
+file: src/lvm.c
+note: The pending finalizers run before the arguments' frame is made, above them: they lie below L->top, where GCTM pushes the finalizer. A finalizer may grow the stack, so 'ra' is kept as an offset across it; the stack's move sets the frame's trap, which updates 'base' at the next instruction (patch/lua/31-finalizers-at-c-calls-run-call.txt).
+--- find
+        savepc(ci);  /* in case of errors */
+        if ((newci = luaD_precall(L, ra, nresults)) == NULL)
+--- replace
+        savepc(ci);  /* in case of errors */
+        if (l_unlikely(G(L)->tobefnz != NULL) && runsfinalizers(s2v(ra))) {
+          ptrdiff_t f = savestack(L, ra);
+          luaC_runfinalizers(L);
+          ra = restorestack(L, f);
+        }
+        if ((newci = luaD_precall(L, ra, nresults)) == NULL)
+--- end

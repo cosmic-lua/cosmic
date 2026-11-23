@@ -1,0 +1,18 @@
+file: src/lapi.c
+note: lua_setinert names the light C function at 'idx' one whose calls run no pending finalizer (patch/lua/26-finalizers-at-c-calls-inert-gc.txt), and leaves any other value as it is: a call of a C closure runs them. It answers 0 only when the list is full.
+--- find
+LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud) {
+--- replace
+LUA_API int lua_setinert (lua_State *L, int idx) {
+  const TValue *o;
+  int done;
+  lua_lock(L);
+  o = index2value(L, idx);
+  done = !ttislcf(o) || luaC_setinert(fvalue(o));
+  lua_unlock(L);
+  return done;
+}
+
+
+LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud) {
+--- end

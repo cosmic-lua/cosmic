@@ -585,6 +585,56 @@ static void install_load (lua_State *L) {
   lua_setglobal(L, "load");
 }
 
+/* lua_setinert, of patch/lua/26-finalizers-at-c-calls-inert-gc.txt: declared
+ * here, as the core's C is read against the unpatched tree. */
+LUA_API int lua_setinert (lua_State *L, int idx);
+
+/* Names to the VM each C function of the standard library the checker
+ * counts as running no code of the program (lang/check.tl's
+ * [`Tests.inert_callee`] and [`Tests.quiet_callee`]), so a Lua function's
+ * call of one runs no pending finalizer, which a call of any other C
+ * function does (patch/lua/31-finalizers-at-c-calls-run-call.txt). Every
+ * function of `string`, `math` and `utf8`; `table.concat` and
+ * `table.unpack`; and the base functions below. False when the VM's
+ * list is full, which a new function of one of those libraries could
+ * make it. */
+bool cosmic_surface_set_inert (lua_State *L, int idx) {
+  return lua_setinert(L, idx) != 0;
+}
+
+static bool mark_inert (lua_State *L) {
+  static const char *const base[] = {
+    "assert", "type", "tostring", "tonumber", "select", "rawlen",
+  };
+  static const char *const libraries[] = {
+    LUA_STRLIBNAME, LUA_MATHLIBNAME, LUA_UTF8LIBNAME,
+  };
+  static const char *const table[] = {"concat", "unpack"};
+  bool full = false;
+  for (size_t i = 0; i < sizeof base / sizeof base[0]; i++) {
+    lua_getglobal(L, base[i]);
+    full |= !lua_setinert(L, -1);
+    lua_pop(L, 1);
+  }
+  for (size_t i = 0; i < sizeof libraries / sizeof libraries[0]; i++) {
+    lua_getglobal(L, libraries[i]);
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+      full |= !lua_setinert(L, -1);
+      lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+  }
+  lua_getglobal(L, LUA_TABLIBNAME);
+  for (size_t i = 0; i < sizeof table / sizeof table[0]; i++) {
+    lua_getfield(L, -1, table[i]);
+    full |= !lua_setinert(L, -1);
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
+  return !full;
+}
+
 lua_State *cosmic_surface_open (const char *logical_executable) {
   lua_State *L = luaL_newstate();
   if (L == NULL) {
@@ -606,6 +656,10 @@ lua_State *cosmic_surface_open (const char *logical_executable) {
   open_library(L, LUA_STRLIBNAME, luaopen_string, 1);
   open_library(L, LUA_MATHLIBNAME, luaopen_math, 1);
   open_library(L, LUA_UTF8LIBNAME, luaopen_utf8, 1);
+  if (!mark_inert(L)) {
+    cosmic_surface_close(L);
+    return NULL;
+  }
 
   /* The native coverage collector hooks lines in C and is exposed only
    * through the store searcher's trust-gated internal module. */
