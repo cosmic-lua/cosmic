@@ -116,6 +116,7 @@ module never sees the class itself.
 ```teal file=counts.tl
 --- How many times each word appears in some text.
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 
 local record Counts
@@ -132,7 +133,7 @@ local record Counts
   end
 
   new: function(): Counts.Tally
-  open: function(path: string): Counts.Tally?, string
+  open: function(path: string): (Counts.Tally) | (nil, Failure)
 end
 
 --- Each word seen, and how many times.
@@ -167,23 +168,26 @@ function Counts.new(): Counts.Tally
 end
 
 --- Counts the words in the file at `path`, or nil and why it could not be
---- read. A constructor that can fail returns `Counts.Tally?, string`.
-function Counts.open(path: string): Counts.Tally?, string
+--- read. A constructor that can fail returns `(Counts.Tally) | (nil, Failure)`.
+function Counts.open(path: string): (Counts.Tally) | (nil, Failure)
   local text, why = Fs.read(path)
   if text == nil then
-    return nil, tostring(why)
+    return nil, why
   end
   local made: Seen = { words = {} }
   made:add(text)
-  return made, ""
+  return made
 end
 
 return Counts
 ```
 
 `Counts.open` shows the usual shape of a constructor that can fail: it
-returns `Counts.Tally?, string`, and the class value may be returned
-straight from it.
+returns `(Counts.Tally) | (nil, Failure)`, the value alone or nil and a
+[`cosmic.failure`] that says why, and the class value may be returned
+straight from it. A caller that cannot go on without it writes
+`assert(Counts.open(path))`; one that can tests the failure's `kind` or
+`errno`.
 
 A record declared inside another, like `Entry` here, is `Counts.Entry`
 to every module; `record Counts.Entry` written outside the record's body
@@ -635,17 +639,18 @@ such as a `ROLLBACK` after a statement fails, where the first error is
 the one to report.
 
 ```teal
+local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
-local function add(db: Sqlite.Handle, body: string): boolean, string
-  local began, trouble = db:exec("BEGIN")
+local function add(db: Sqlite.Handle, body: string): (true) | (false, Failure)
+  local began, trouble = Sqlite.run(db, "BEGIN")
   if not began then return false, trouble end
   local ok, why = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = body } })
   if not ok then
-    local _, _ = db:exec("ROLLBACK")
-    return false, why.message
+    local _, _ = Sqlite.run(db, "ROLLBACK")
+    return false, why
   end
-  return db:exec("COMMIT")
+  return Sqlite.run(db, "COMMIT")
 end
 
 local db = assert(Sqlite.memory())
@@ -681,6 +686,7 @@ The checker holds a project outside the tree to every rule with no ceiling, so e
 cast and no `any` is a fix.
 
 [`cosmic.child`]: ../../cosmic/child.tl
+[`cosmic.failure`]: ../../cosmic/failure.tl
 [`cosmic.flags`]: ../../cosmic/flags.tl
 [`cosmic.log`]: ../../cosmic/log.tl
 [`cosmic.template`]: ../../cosmic/template/init.tl
