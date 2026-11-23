@@ -111,7 +111,7 @@ local function walked(reader: Archive.Reader): {string:Archive.Entry}
   return by
 end
 
-local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_time(tmp: string)
+local function test_open_of_a_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_time(tmp: string)
   local path = tmp .. "/a.tar"
   make_tar(path)
   local bytes = assert(Fs.read(path))
@@ -125,39 +125,39 @@ local function test_open_stream_reads_a_plain_tar_from_a_stream_one_byte_at_a_ti
     end,
     close = function(_self: Stream.Reader): boolean, string return true, "" end,
   }
-  local by = walked((assert(Archive.open_stream(source))))
+  local by = walked((assert(Archive.open(source))))
   local short, link = by["adir/short.txt"], by["adir/link"]
   assert(short ~= nil and short.size == 11)
   assert(link ~= nil and link.linkpath == "short.txt")
 end
 
-local function test_open_stream_reads_gzip_xz_bzip2_and_zstd_tars()
+local function test_open_of_a_stream_reads_gzip_xz_bzip2_and_zstd_tars()
   -- The zstd tar again behind a skippable frame, as a parallel zstd
   -- (pzstd) begins its output.
   local skipped = "\80\42\77\24\4\0\0\0skip" .. assert(Codec.unbase64(TAR_ZST_B64))
   for _, b64 in ipairs({ TAR_GZ_B64, TAR_XZ_B64, TAR_BZ2_B64, TAR_ZST_B64, Codec.base64(skipped) }) do
     local bytes = assert(Codec.unbase64(b64))
-    local by = walked((assert(Archive.open_stream(Stream.from_string(bytes)))))
+    local by = walked((assert(Archive.open(Stream.from_string(bytes)))))
     local n = 0
     for _ in pairs(by) do n = n + 1 end
     assert(n > 0)
   end
 end
 
-local function test_open_stream_refuses_a_zip_and_an_unrecognized_stream(tmp: string)
+local function test_open_of_a_stream_refuses_a_zip_and_an_unrecognized_stream(tmp: string)
   local path = tmp .. "/a.zip"
   make_zip(path)
-  local r, why = Archive.open_stream(Stream.from_string((assert(Fs.read(path)))))
+  local r, why = Archive.open(Stream.from_string((assert(Fs.read(path)))))
   assert(r == nil and tostring(why):find("zip", 1, true) ~= nil, why)
-  r, why = Archive.open_stream(Stream.from_string("just some text"))
+  r, why = Archive.open(Stream.from_string("just some text"))
   assert(r == nil and tostring(why):find("not a recognized archive format", 1, true) ~= nil, why)
-  r, why = Archive.open_stream(Stream.from_string(""))
+  r, why = Archive.open(Stream.from_string(""))
   assert(r == nil and tostring(why):find("not a recognized archive format", 1, true) ~= nil, why)
 end
 
-local function test_open_stream_fails_on_a_truncated_gzip_stream()
+local function test_open_of_a_stream_fails_on_a_truncated_gzip_stream()
   local bytes = assert(Codec.unbase64(TAR_GZ_B64))
-  local r = assert(Archive.open_stream(Stream.from_string(bytes:sub(1, #bytes - 30))))
+  local r = assert(Archive.open(Stream.from_string(bytes:sub(1, #bytes - 30))))
   local failed = false
   while true do
     local e, why = r:next()
@@ -178,7 +178,7 @@ local function test_a_gzip_block_with_no_codes_fails_next_rather_than_spinning(t
   assert(Fs.write(path, bytes))
   local readers: {Archive.Reader} = {
     assert(Archive.open(path)),
-    (assert(Archive.open_stream(Stream.from_string(bytes)))),
+    (assert(Archive.open(Stream.from_string(bytes)))),
   }
   for i, r in ipairs(readers) do
     local e, why = r:next()
@@ -805,7 +805,7 @@ local function test_extract_counts_the_bytes_it_writes_not_the_size_a_header_rec
     sent = sent + asked
     return string.rep("x", asked), ""
   end)
-  local written, why = Archive.extract_reader(reader, tmp .. "/out", { max_entry_bytes = 1000 })
+  local written, why = Archive.extract(reader, tmp .. "/out", { max_entry_bytes = 1000 })
   assert(written == nil, "extracted a body that outgrew its header")
   assert(tostring(why):find("grows is larger than max_entry_bytes (1000 bytes)", 1, true), why)
   -- A body that answers whatever it is asked is never asked for more than
@@ -841,7 +841,7 @@ local function test_extract_a_body_that_fails_to_read_leaves_no_file(tmp: string
     if reads == 1 then return "12345", "" end
     return nil, "disk on fire"
   end)
-  local written, why = Archive.extract_reader(reader, tmp .. "/out", {})
+  local written, why = Archive.extract(reader, tmp .. "/out", {})
   assert(written == nil and tostring(why) == "disk on fire", tostring(why))
   assert(reads == 2)
   -- Neither the file nor the temporary it was staged in.
@@ -901,23 +901,23 @@ local function test_extract_counts_only_the_files_it_writes(tmp: string)
   assert(none == nil and tostring(why):find("max_bytes (0 bytes)", 1, true) ~= nil, why)
 end
 
-local function test_extract_limits_reach_extract_reader_and_can_be_lifted(tmp: string)
+local function test_extract_limits_reach_a_reader_and_can_be_lifted(tmp: string)
   local float = assert(load("return ...")) as function(number): integer -- checked: cast_refused
   local sink = Stream.collect()
   local tw = Tar.writer(sink)
   assert(tw:add_file("a", string.rep("a", 2000)))
   assert(tw:close())
   local function open(): Archive.Reader
-    return (assert(Archive.open_stream(Stream.from_string(sink:result()))))
+    return (assert(Archive.open(Stream.from_string(sink:result()))))
   end
-  local written, why = Archive.extract_reader(open(), tmp .. "/o1", { max_entry_bytes = 1999 })
+  local written, why = Archive.extract(open(), tmp .. "/o1", { max_entry_bytes = 1999 })
   assert(written == nil and tostring(why):find("max_entry_bytes (1999 bytes)", 1, true) ~= nil, why)
-  written, why = Archive.extract_reader(open(), tmp .. "/o2", { max_bytes = 1999 })
+  written, why = Archive.extract(open(), tmp .. "/o2", { max_bytes = 1999 })
   assert(written == nil and tostring(why):find("max_bytes (1999 bytes)", 1, true) ~= nil, why)
   holds_only(tmp .. "/o2", {})
   -- The limit of a whole number held as a float, and the largest one.
-  assert(Archive.extract_reader(open(), tmp .. "/o3", { max_bytes = float(2000.0) }))
-  assert(Archive.extract_reader(open(), tmp .. "/o4", { max_bytes = math.maxinteger,
+  assert(Archive.extract(open(), tmp .. "/o3", { max_bytes = float(2000.0) }))
+  assert(Archive.extract(open(), tmp .. "/o4", { max_bytes = math.maxinteger,
     max_entry_bytes = math.maxinteger }))
   assert(assert(Fs.read(tmp .. "/o4/a")) == string.rep("a", 2000))
 end
@@ -947,7 +947,7 @@ local function test_extract_byte_limits_that_are_not_whole_numbers_of_bytes_rais
   end
   local reader = assert(Archive.open(archive))
   local ok, why = pcall(function(): boolean
-    local _, _ = Archive.extract_reader(reader, tmp .. "/o", { max_bytes = -1 })
+    local _, _ = Archive.extract(reader, tmp .. "/o", { max_bytes = -1 })
     return true
   end)
   assert(not ok and tostring(why):find("archive_test:%d+: archive: max_bytes is negative") ~= nil, tostring(why))
@@ -1051,25 +1051,25 @@ local function test_extract_walks_a_zip_and_a_tar_to_the_same_tree(tmp: string)
   end
 end
 
-local function test_extract_reader_unpacks_a_stream_as_extract_unpacks_the_file(tmp: string)
+local function test_extract_of_a_reader_unpacks_a_stream_as_extract_unpacks_the_file(tmp: string)
   local path = tmp .. "/a.tar"
   make_tar(path)
   local want = assert(Archive.extract(path, tmp .. "/file", { links = "create" }))
-  local reader = assert(Archive.open_stream(Stream.from_string((assert(Fs.read(path))))))
-  local got = assert(Archive.extract_reader(reader, tmp .. "/stream", { links = "create" }))
+  local reader = assert(Archive.open(Stream.from_string((assert(Fs.read(path))))))
+  local got = assert(Archive.extract(reader, tmp .. "/stream", { links = "create" }))
   assert(table.concat(got, ",") == table.concat(want, ","), table.concat(got, ","))
   assert(assert(Fs.read(tmp .. "/stream/adir/short.txt")) == "hello there")
   assert(link_of(tmp .. "/stream/adir/link") == "short.txt")
   assert(assert(Fs.read(tmp .. "/stream/bin/tool")) == "#!/bin/sh\necho hi\n")
 end
 
-local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string)
+local function test_extract_of_a_reader_closes_the_reader_when_it_refuses(tmp: string)
   local sink = Stream.collect()
   local tw = Tar.writer(sink)
   assert(tw:add_file("ok", "1"))
   assert(tw:add_file("../out", "2"))
   assert(tw:close())
-  local inner = assert(Archive.open_stream(Stream.from_string(sink:result())))
+  local inner = assert(Archive.open(Stream.from_string(sink:result())))
   local closes: integer = 0
   local counting: Archive.Reader = { -- checked: literal_shape
     next = function(_self: Archive.Reader): Archive.Entry?, string return inner:next() end,
@@ -1078,11 +1078,11 @@ local function test_extract_reader_closes_the_reader_when_it_refuses(tmp: string
       return inner:close()
     end,
   }
-  local written, why = Archive.extract_reader(counting, tmp .. "/dest")
+  local written, why = Archive.extract(counting, tmp .. "/dest")
   assert(written == nil and tostring(why):find("unsafe entry path", 1, true) ~= nil, why)
   assert(closes == 1, "closed " .. tostring(closes) .. " times")
   Test.raises(function()
-    local _, _ = Archive.extract_reader(counting, tmp .. "/dest", { max_entries = -1 })
+    local _, _ = Archive.extract(counting, tmp .. "/dest", { max_entries = -1 })
   end)
 end
 
@@ -1095,7 +1095,7 @@ local function test_extract_resolve_in_lets_a_link_target_pass_through_the_real_
   -- Staged apart, `held` is nowhere: refused, unless the real
   -- destination it will be moved into holds it.
   local function unpack(stage: string, opts: Archive.ExtractOptions): {string}?, string
-    local written, why = Archive.extract_reader((assert(Archive.open_stream(Stream.from_string(bytes)))), stage,
+    local written, why = Archive.extract((assert(Archive.open(Stream.from_string(bytes)))), stage,
       opts)
     if written == nil then return nil, tostring(why) end
     return written, ""
@@ -1120,7 +1120,7 @@ local function test_extract_argument_errors_name_the_callers_line(tmp: string)
     return true
   end)
   local _, second = pcall(function(): boolean
-    local _, _ = Archive.extract_reader({} as Archive.Reader, tmp .. "/o2", { strip_components = -1 }) -- checked: cast_refused, literal_needs_type
+    local _, _ = Archive.extract({} as Archive.Reader, tmp .. "/o2", { strip_components = -1 }) -- checked: cast_refused, literal_needs_type
     return true
   end)
   for _, why in ipairs({ tostring(first), tostring(second) }) do
@@ -1168,14 +1168,14 @@ local function test_a_tar_reader_and_a_zip_reader_are_archive_readers(tmp: strin
   pack(Zip.writer(zip_bytes))
   local tar_reader: Archive.Reader = Tar.reader(Stream.from_string(tar_bytes:result()))
   local zip_reader: Archive.Reader = assert(Zip.open_string(zip_bytes:result()))
-  local listed_tar = assert(Archive.list_reader(tar_reader))
-  local listed_zip = assert(Archive.list_reader(zip_reader))
+  local listed_tar = assert(Archive.list(tar_reader))
+  local listed_zip = assert(Archive.list(zip_reader))
   assert(#listed_tar == 4 and #listed_zip == 4)
   local dest = tmp .. "/out"
-  local written = assert(Archive.extract_reader(Tar.reader(Stream.from_string(tar_bytes:result())),
+  local written = assert(Archive.extract(Tar.reader(Stream.from_string(tar_bytes:result())),
     dest .. "-tar", { links = "create" }))
   assert(#written == 4, table.concat(written, ","))
-  written = assert(Archive.extract_reader(assert(Zip.open_string(zip_bytes:result())),
+  written = assert(Archive.extract(assert(Zip.open_string(zip_bytes:result())),
     dest .. "-zip", { links = "create" }))
   assert(#written == 4, table.concat(written, ","))
   for _, kind in ipairs({ "tar", "zip" }) do
@@ -1188,7 +1188,7 @@ local record CloseCount
   mut count: integer
 end
 
-local function test_list_reader_lists_a_reader_to_its_end_and_closes_it()
+local function test_list_of_a_reader_lists_a_reader_to_its_end_and_closes_it()
   local sink = Stream.collect()
   local tw = Tar.writer(sink)
   assert(tw:add_file("a", "one"))
@@ -1204,8 +1204,8 @@ local function test_list_reader_lists_a_reader_to_its_end_and_closes_it()
     }
   end
   local closes: CloseCount = { count = 0 }
-  local entries = assert(Archive.list_reader(counting(
-    assert(Archive.open_stream(Stream.from_string(sink:result()))), closes)))
+  local entries = assert(Archive.list(counting(
+    assert(Archive.open(Stream.from_string(sink:result()))), closes)))
   assert(#entries == 2 and entries[1].path == "a" and entries[2].path == "b")
   assert(closes.count == 1, "closed " .. tostring(closes.count) .. " times")
   local body, why = entries[1]:open()
@@ -1213,8 +1213,8 @@ local function test_list_reader_lists_a_reader_to_its_end_and_closes_it()
   -- A failure partway closes it too, and is the answer.
   closes = { count = 0 }
   local cut = sink:result():sub(1, 700)
-  local listed, trouble = Archive.list_reader(counting(
-    assert(Archive.open_stream(Stream.from_string(cut))), closes))
+  local listed, trouble = Archive.list(counting(
+    assert(Archive.open(Stream.from_string(cut))), closes))
   assert(listed == nil and trouble.message ~= "", tostring(trouble))
   assert(closes.count == 1, "closed " .. tostring(closes.count) .. " times")
 end

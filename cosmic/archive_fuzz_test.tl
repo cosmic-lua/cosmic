@@ -350,13 +350,13 @@ local function chunked(bytes: string): Stream.Reader
   return r
 end
 
---- `open_stream` answers as `open` does for the same bytes, however the
+--- `open` of a stream answers as `open` of a path does for the same bytes, however the
 --- stream splits them: the same entries and the same end, a tar or a
 --- compressed tar alike, and a zip refused rather than misread.
-local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: string)
+local function test_open_of_a_stream_answers_as_open_does_for_the_same_bytes(tmp: string)
   local file = tmp .. "/input"
   Fuzz.run({
-    name = "archive open_stream parity",
+    name = "archive stream and path parity",
     dir = tmp,
     requires = { "walked" },
     gen = function(src: Fuzz.Source): string
@@ -384,10 +384,10 @@ local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: str
     end,
     check = function(input: string): boolean, string
       assert(Fs.write(file, input))
-      local streamed, why = Archive.open_stream(chunked(input))
+      local streamed, why = Archive.open(chunked(input))
       local zip = input:sub(1, 4) == "PK\3\4" or input:sub(1, 4) == "PK\5\6"
       if zip then
-        if streamed ~= nil then return false, "open_stream took a zip" end
+        if streamed ~= nil then return false, "open of a stream took a zip" end
         if tostring(why):find("zip", 1, true) == nil then
           return false, "zip refusal: " .. tostring(why)
         end
@@ -395,7 +395,7 @@ local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: str
       end
       local opened, _ = Archive.open(file)
       if (opened == nil) ~= (streamed == nil) then
-        return false, "open " .. (if opened == nil then "refused" else "took" end) .. " what open_stream " .. (if streamed == nil then "refused" else "took" end)
+        return false, "open " .. (if opened == nil then "refused" else "took" end) .. " what open of a stream " .. (if streamed == nil then "refused" else "took" end)
       end
       if opened == nil or streamed == nil then return true, "" end
       local from_file, from_stream = walk_summary(opened), walk_summary(streamed)
@@ -440,7 +440,7 @@ end
 -- TODO: fuzz the verb's staged extraction too (`resolve_in` and the
 -- move into a destination that already holds files) against a direct
 -- extract into the same destination; only its unit tests reach it now.
-local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tmp: string)
+local function test_extract_of_a_reader_answers_as_extract_does_for_the_same_bytes(tmp: string)
   local tmp_absolute, _ = Fs.absolute(tmp)
   local base = tmp_absolute or tmp
   local case = base .. "/case"
@@ -465,9 +465,9 @@ local function test_extract_reader_answers_as_extract_does_for_the_same_bytes(tm
         strip_components = if fields[3] == "1" then 1 else nil end,
       }
       local from_file, file_why = Archive.extract(file, case .. "/by-file", opts)
-      local reader, _ = Archive.open_stream(chunked(archive))
+      local reader, _ = Archive.open(chunked(archive))
       if reader == nil then return false, "open_stream refused what open took" end
-      local from_stream, stream_why = Archive.extract_reader(reader, case .. "/by-stream", opts)
+      local from_stream, stream_why = Archive.extract(reader, case .. "/by-stream", opts)
       if (from_file == nil) ~= (from_stream == nil) then
         return false, "file: " .. tostring(file_why) .. "\nstream: " .. tostring(stream_why)
       end
@@ -667,13 +667,13 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       -- Entries that state no size: only the bytes read tell.
       local opened, _ = Archive.open(file)
       if opened == nil then return false, "open refused what extract took" end
-      written, trouble = Archive.extract_reader(understating(opened), case .. "/understated", opts)
+      written, trouble = Archive.extract(understating(opened), case .. "/understated", opts)
       ok, why = check_dest(case .. "/understated", written, (if trouble ~= nil then tostring(trouble) else "" end), either)
       if not ok then return false, "understating its sizes: " .. why end
       if fields[1] == "zip" then return true, "" end
-      local reader, _ = Archive.open_stream(chunked(archive))
+      local reader, _ = Archive.open(chunked(archive))
       if reader == nil then return false, "open_stream refused what open took" end
-      written, trouble = Archive.extract_reader(reader, case .. "/by-stream", opts)
+      written, trouble = Archive.extract(reader, case .. "/by-stream", opts)
       return check_dest(case .. "/by-stream", written, (if trouble ~= nil then tostring(trouble) else "" end), { refusal })
     end,
   })
