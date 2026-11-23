@@ -1088,6 +1088,24 @@ local function to_object_text(value: any): {string: Json.Value}?, string
   return Check.members(value, m, "", 1, { [("%p"):format(t)] = true }, {}, {})
 end
 
+--- `v` as an object where it is one, nil where it is not: a scalar, [`Json.null`] or an array. It looks at `v`
+--- alone, not at its members, which as a [`Json.Value`]'s are values already, so a walk over a value narrows each
+--- level at no cost; [`Json.to_object`] is for a value of any type. A table with no keys is an object unless
+--- [`Json.is_array`] marks it.
+function Json.object_of(v: Json.Value): {string: Json.Value}?
+  local t = table_of(v)
+  if t == nil or raw.is_array(t) or Json.layout(t) ~= "object" then return nil end
+  return members_of(v)
+end
+
+--- `v` as an array where it is one, nil where it is not, as [`Json.object_of`] tells an object.
+function Json.array_of(v: Json.Value): {Json.Value}?
+  local t = table_of(v)
+  if t == nil then return nil end
+  if not raw.is_array(t) and Json.layout(t) ~= "array" then return nil end
+  return items_of(v)
+end
+
 --- `value` as an object, a map of [`Json.Value`]: [`Json.to_value`]
 --- for what must be an object. nil and a [`Failure`] when it is not one -- an
 --- array, a scalar, a nil -- or when a part of it is none, as [`to_value`]

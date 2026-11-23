@@ -32,13 +32,18 @@
 --- server is; a client's `initialize`, from an earlier revision, is
 --- refused naming the version spoken.
 ---
---- A tool's handler is given its arguments as the client sent them: the
---- server does not check them against the tool's `inputSchema`, so the
---- handler checks each one it reads (with `is`, or [`cosmic.shape`]). A
---- tool that runs and fails answers its failure, which the client is
---- sent as a result with `isError`, for the model to read; a handler that
---- raises is answered as an internal error, its words withheld from the
---- client and given to [`McpServer.Spec.on_error`].
+--- A tool's handler is given its arguments once they hold to the tool's
+--- `inputSchema` ([`cosmic.jsonschema`], compiled by [`McpServer.new`],
+--- which raises for a schema it cannot check); arguments that do not are
+--- answered as a result with `isError` that says where they fail, and the
+--- handler is not called. A tool that runs and fails answers its failure,
+--- which the client is sent as a result with `isError`, for the model to
+--- read; a handler that raises is answered as an internal error, its words
+--- withheld from the client and given to [`McpServer.Spec.on_error`]. A
+--- tool with an `outputSchema` answers `structuredContent` that holds to it
+--- ([`Mcp.structured`]) in each result that is not an error; one that does
+--- not is answered as an internal error too, so a client never reads a
+--- structure the tool did not promise.
 ---
 --- Security: over HTTP every request passes `authorize`, which the
 --- handler's spec must state ([`McpServer.bearer`] checks a token,
@@ -63,6 +68,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
+local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
 local Net = require("cosmic.net")
 local Sandbox = require("cosmic.sandbox")
@@ -89,9 +95,9 @@ local record McpServer
   record ToolSpec
     --- The tool, as `tools/list` lists it.
     tool: Mcp.Tool
-    --- Runs the tool on `arguments`, as the client sent them. A failure
-    --- answered is sent as a result with `isError`, its words for the
-    --- model to read.
+    --- Runs the tool on `arguments`, as the client sent them once they hold
+    --- to the tool's `inputSchema`. A failure answered is sent as a result
+    --- with `isError`, its words for the model to read.
     call: function(arguments: {string: Json.Value}, call: Call): (Mcp.ToolResult) | (nil, Failure)
   end
 
@@ -256,6 +262,10 @@ local record State
   by_tool: {string: McpServer.ToolSpec}
   --- The header mirrors of each tool, by its name.
   mirrors: {string: {Mcp.Mirror}}
+  --- Each tool's `inputSchema`, compiled, by its name.
+  inputs: {string: JsonSchema.Schema}
+  --- Each tool's `outputSchema`, compiled, by its name: only the tools that have one.
+  outputs: {string: JsonSchema.Schema}
   resources: {McpServer.ResourceSpec}
   by_uri: {string: McpServer.ResourceSpec}
   templates: {Mcp.ResourceTemplate}
@@ -284,6 +294,8 @@ end
 local function state_of(spec: McpServer.Spec): State
   local by_tool: mut {string: McpServer.ToolSpec} = {}
   local mirrors: mut {string: {Mcp.Mirror}} = {}
+  local inputs: mut {string: JsonSchema.Schema} = {}
+  local outputs: mut {string: JsonSchema.Schema} = {}
   for _, t in ipairs(spec.tools or {}) do
     local name = t.tool.name
     if #name < 1 or #name > 128 or name:find(TOOL_NAME) == nil then
@@ -295,8 +307,20 @@ local function state_of(spec: McpServer.Spec): State
     end
     local found, why = Mcp.mirrors(t.tool.inputSchema)
     if found == nil then refuse("tool " .. name .. ": " .. tostring(why)) end
+    local input, iwhy = JsonSchema.compile(t.tool.inputSchema)
+    if input == nil then refuse("tool " .. name .. ": inputSchema: " .. tostring(iwhy)) end
+    local out = t.tool.outputSchema
+    if out ~= nil then
+      if out["type"] ~= "object" then
+        refuse("tool " .. name .. ": outputSchema must have \"type\": \"object\"")
+      end
+      local output, owhy = JsonSchema.compile(out)
+      if output == nil then refuse("tool " .. name .. ": outputSchema: " .. tostring(owhy)) end
+      outputs[name] = output
+    end
     by_tool[name] = t
     mirrors[name] = found
+    inputs[name] = input
   end
   local by_uri: mut {string: McpServer.ResourceSpec} = {}
   for _, r in ipairs(spec.resources or {}) do
@@ -317,7 +341,7 @@ local function state_of(spec: McpServer.Spec): State
   local ttl_ms = spec.ttl_ms or 0
   if ttl_ms < 0 then refuse("ttl_ms must not be negative") end
   return {
-    spec = spec, tools = spec.tools or {}, by_tool = by_tool, mirrors = mirrors,
+    spec = spec, tools = spec.tools or {}, by_tool = by_tool, mirrors = mirrors, inputs = inputs, outputs = outputs,
     resources = spec.resources or {}, by_uri = by_uri, templates = spec.templates or {},
     prompts = spec.prompts or {}, by_prompt = by_prompt, page_size = page_size, ttl_ms = ttl_ms,
     cache_scope = spec.cache_scope or "private",
@@ -523,6 +547,10 @@ local function call_tool(self: State, params: any, call: McpServer.Call): (Json.
     end
     arguments = a
   end
+  local held, unheld = assert(self.inputs[p.name]):check(arguments)
+  if not held then
+    return result(self, wire.tool_result(Mcp.result({ "the arguments do not hold to the tool's inputSchema: " .. tostring(unheld) }, true)))
+  end
   local answered: Mcp.ToolResult? = nil
   local failure: Failure? = nil
   local ok, trouble = traced(function()
@@ -536,6 +564,19 @@ local function call_tool(self: State, params: any, call: McpServer.Call): (Json.
   local done = answered
   if done == nil then
     done = Mcp.result({ if failure ~= nil then tostring(failure) else "the tool failed" end }, true)
+  end
+  local output = self.outputs[p.name]
+  if output ~= nil and done.isError ~= true then
+    local structured = done.structuredContent
+    if structured == nil then
+      report(self, "tool " .. p.name, "its result has no structuredContent, though the tool has an outputSchema")
+      return nil, raised
+    end
+    local fits, unfit = output:check(structured)
+    if not fits then
+      report(self, "tool " .. p.name, "its structuredContent does not hold to its outputSchema: " .. tostring(unfit))
+      return nil, raised
+    end
   end
   return result(self, wire.tool_result(done))
 end
