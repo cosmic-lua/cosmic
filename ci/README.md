@@ -405,12 +405,13 @@ are where CI answers for everything. A branch's push runs nothing.
 - **the merge queue** (`merge_group`) runs linux-x86_64's leg alone, as
   two jobs at once, each booting the tree: `linux-x86_64` (part `suite`)
   runs the native suite and its boundary and probes the sandbox;
-  `linux-x86_64-format` (part `format`) checks the bootstrap's scripts,
-  checks the tree's format over the paths the commit changed since main,
-  as a pull request does, and checks the pinned CI driver where those
-  reach what its tests read (`ci/`, `.github/`). One after the other in
-  one job they took some 15 minutes; an entry now takes the longer of
-  the two. Main moves only through the queue, so its check of what
+  `linux-x86_64-format` (part `format`) checks the bootstrap's scripts
+  and the tree's format over the paths the commit changed since main,
+  as a pull request does. Beside them `linux-x86_64-driver` (the
+  `driver` job) boots nothing and checks the pinned CI driver where
+  those paths reach what its tests read (`ci/`, `.github/`). One after
+  the other in one job the two legs' parts took some 15 minutes; an
+  entry now takes the longest of the three jobs. Main moves only through the queue, so its check of what
   changed holds main's whole tree. Nothing else: no assemble, regressions, portable
   suite or product, and no checked or narrowing job, which read as passed
   in the gate, as on a pull request.
@@ -471,7 +472,7 @@ No other markers, products or verdicts pass between
 runs. That costs main's run its wall clock, which no one waits on, rather
 than runner minutes. The queue, which every change waits on, is the one
 exception: its leg is two jobs (above), each the time of a boot and its
-part.
+part, beside the pinned driver's check, which boots nothing.
 
 `COSMIC_CI_SAVES` is `true` only for a push to main and the scheduled runs,
 the only runs that save a cache, and is decided in the top-level `env`. The
