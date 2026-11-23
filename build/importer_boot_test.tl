@@ -12,7 +12,7 @@ local Test = require("cosmic.test")
 local analysis_schema = require("build.analysis_schema")
 local identity = require("build.identity")
 local importer = require("build.importer")
-local pipeline = require("build.pipeline")
+local code_identity = require("build.code_identity")
 local work = require("build.work")
 local writer = require("build.writer")
 local support = require("build.test_support_fixture")
@@ -236,7 +236,7 @@ local function test_the_code_that_reads_leaves_out_what_build_pipeline_names_for
     local handle = assert(work.open(root))
     assert(work.stage(handle, { own = true }))
     assert(importer.derive(handle))
-    local name = assert(pipeline.coded_of("a tool", handle.db))
+    local name = assert(code_identity.coded_of("a tool", handle.db))
     work.close(handle)
     return name
   end

@@ -1,7 +1,9 @@
 --- `cosmic agent`: a small coding agent, after pi. Claude, through the
 --- Messages API, with tools to read, write and edit files, run commands
---- (in the foreground or as background jobs) and query what it has kept,
---- held to a sandbox. [`cosmic.agent`] runs the loop; this reads the
+--- (in the foreground or as background jobs), check and run snippets of
+--- Teal, and query what it has kept, held to a sandbox. `cosmic agent
+--- worker` is the process that runs the snippets ([`build.agent_worker`]);
+--- the agent starts it. [`cosmic.agent`] runs the loop; this reads the
 --- command line, opens the sessions database and writes what the model
 --- says.
 ---
@@ -64,6 +66,7 @@ local Flags = require("cosmic.flags")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Jobs = require("cosmic.agent.jobs")
+local Worker = require("cosmic.agent.worker")
 local Json = require("cosmic.json")
 local Number = require("cosmic.number")
 local Poll = require("cosmic.poll")
@@ -131,7 +134,7 @@ local ASK_OPTIONS <const>: mut {string: boolean} = { ["--json"] = true }
 for k, v in pairs(SESSION_OPTIONS) do ASK_OPTIONS[k] = v end
 local TAKES <const>: {string: {string: boolean}} = {
   ask = ASK_OPTIONS, chat = SESSION_OPTIONS, resume = SESSION_OPTIONS, rpc = SESSION_OPTIONS, sessions = {},
-  prompt = {}, policy = SANDBOX_OPTIONS,
+  prompt = {}, policy = SANDBOX_OPTIONS, worker = {},
 }
 
 local EFFORTS <const>: {string: boolean} = { low = true, medium = true, high = true, xhigh = true, max = true }
@@ -353,15 +356,17 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   end
   local s = Agent.session({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
     send = r.io.send, system = Prompt.build(here, Prompt.contexts(here)), policy = policy, jobs = Jobs.new(),
-    build = build() }, held)
+    worker = Worker.new(), build = build() }, held)
   s.db, s.id, s.restarts, s.ended = db, id, restarts, ended
   local settled, settle_why = Agent.settle(s)
   if not settled then return nil, settle_why end
   return s, ""
 end
 
---- Ends the background jobs of `s`, each output not kept yet kept.
+--- Ends the worker of `s` and its background jobs, each output not kept yet kept.
 local function end_jobs(s: Agent.Session)
+  local worker = s.config.worker
+  if worker ~= nil then Worker.close(worker) end
   local set = s.config.jobs
   if set == nil then return end
   Jobs.close(set, function(job: Jobs.Job, output: string)
@@ -724,8 +729,15 @@ local function policy(r: Run, got: Flags.Parsed): integer
   return bare.ok
 end
 
+--- `cosmic agent worker`: the process the `run` tool sends its snippets to ([`build.agent_worker`]), required here
+--- alone, since it brings the checker.
+local function worker(_r: Run, _got: Flags.Parsed): integer
+  return require("build.agent_worker").main()
+end
+
 local SUBCOMMANDS <const>: {string: function(Run, Flags.Parsed): integer} = {
   ask = ask, chat = chat, resume = resume, rpc = rpc, sessions = sessions, prompt = prompt, policy = policy,
+  worker = worker,
 }
 
 --- `cosmic agent <subcommand> ...`: runs it and returns the exit code:

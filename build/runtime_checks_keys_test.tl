@@ -7,7 +7,7 @@
 local Fs = require("cosmic.fs")
 local Test = require("cosmic.test")
 local importer = require("build.importer")
-local pipeline = require("build.pipeline")
+local code_identity = require("build.code_identity")
 local shared_compiles = require("build.shared_compiles")
 local work = require("build.work")
 
@@ -95,7 +95,7 @@ local function test_no_cache_entry_is_shared_between_the_two(tmp: string)
   local second = lib(checked)
   assert(checks_in(second), "a checked compile carries no check")
   assert(first.key ~= second.key, "one key for a module with and without checks")
-  assert(checked.tool == importer.checked_tool(pipeline.coded("keys-test"), true) and plain.tool == pipeline.coded("keys-test"))
+  assert(checked.tool == importer.checked_tool(code_identity.coded("keys-test"), true) and plain.tool == code_identity.coded("keys-test"))
 
   -- Each kind then stands on the entry of its own.
   local plain_again = compile(tmp .. "/plain-again", cache, false)

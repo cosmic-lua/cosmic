@@ -1174,8 +1174,8 @@ local record Cli
   --- `cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> ...`: a
   --- small coding agent, after pi. It is Claude, with tools that read,
   --- write and edit files, run commands in the foreground or as background
-  --- jobs, and query what the agent has kept. Every tool is held to a
-  --- sandbox.
+  --- jobs, check and run snippets of Teal in a worker kept for the session,
+  --- and query what the agent has kept. Every tool is held to a sandbox.
   ---
   --- To start, go to the directory to work in and set `ANTHROPIC_API_KEY`
   --- (for other credentials, see `cosmic docs cosmic.agent.auth`):
@@ -1200,6 +1200,8 @@ local record Cli
   --- - `prompt` prints the system prompt that the model reads.
   --- - `policy` prints, path by path, the sandbox that the tools would run
   ---   under here. `policy clear-home` empties the commands' kept home.
+  --- - `worker` is the worker's process, which runs the snippets. The agent
+  ---   starts it.
   ---
   --- Model and session:
   ---

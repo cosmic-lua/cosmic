@@ -1,12 +1,13 @@
 --- @public
---- The tools of `cosmic agent`: pi's four, read, write, edit and bash, and
---- sql, over the sessions and outputs it keeps. Each is a definition the model reads (its name, description
+--- The tools of `cosmic agent`: pi's four, read, write, edit and bash; run,
+--- which checks and runs a snippet of Teal; and sql, over the sessions and
+--- outputs it keeps. Each is a definition the model reads (its name, description
 --- and input schema), a line for the system prompt, and a function that
 --- does it. A tool never raises: what goes wrong is its result, marked
 --- as an error, for the model to read and act on.
 ---
---- The model has pi's four tools, one for background jobs, and one
---- over what is kept:
+--- The model has pi's four tools, one for snippets of Teal, one for
+--- background jobs, and one over what is kept:
 ---
 ---     read   path, offset?, limit?
 ---       a file's lines, at most 2000 lines or 50KB; offset (from 1) and
@@ -17,6 +18,12 @@
 ---       the whole as an output when it cuts; no timeout unless the model
 ---       gives one, in seconds; background: true starts it as a job and
 ---       answers at once, with the job's id
+---     run    code, timeout?
+---       checks and runs a snippet of Teal in the session's worker
+---       (`cosmic docs cosmic.agent.worker`), under the same sandbox:
+---       what it printed, its last 8KB, and the JSON of what it
+---       returned; a refused snippet's answer is the checker's lines;
+---       120 seconds unless the model says, after which the worker ends
 ---     jobs   id?, wait?, kill?
 ---       no id: each job, its state, seconds run and command; with id:
 ---       its state and its output since the last read, the last 2000
@@ -65,6 +72,7 @@ local Policy = require("cosmic.agent.policy")
 local Sandbox = require("cosmic.sandbox")
 local Sqlite = require("cosmic.sqlite")
 local String = require("cosmic.string")
+local Worker = require("cosmic.agent.worker")
 
 local record Tools
   --- A JSON object.
@@ -94,6 +102,8 @@ local record Tools
     policy?: Sandbox.Policy
     --- The background jobs of this run (cosmic.agent.jobs); nil for none.
     jobs?: Jobs.Set
+    --- The worker run sends its snippets to (cosmic.agent.worker); nil for none.
+    worker?: Worker.Set
     --- Whether the user stopped the turn, which ends a wait.
     stopped?: function(): boolean
   end
@@ -405,6 +415,62 @@ local function bash(input: Tools.Object, context: Tools.Context): Tools.Result
   return r
 end
 
+--- The most bytes of a snippet's output run gives the model: a snippet prints what it needs, so less than bash gives.
+local RUN_BYTES <const> = 8 * 1024
+--- How long a snippet may run, in seconds, unless the model says.
+local RUN_SECONDS <const> = 120
+
+--- The last RUN_BYTES of `text`, from a line's start where one is near, and whether that is less than all of it.
+local function run_tail(text: string): string, boolean
+  if #text <= RUN_BYTES then return text, false end
+  local from = #text - RUN_BYTES + 1
+  local nl = text:find("\n", from, true)
+  if nl ~= nil and nl < #text then from = nl + 1 end
+  while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
+  return text:sub(from), true
+end
+
+local function run(input: Tools.Object, context: Tools.Context): Tools.Result
+  local code, why = text_of(input, "code")
+  if code == nil then return fail(why) end
+  local seconds, seconds_why = count(input, "timeout")
+  if seconds_why ~= "" then return fail(seconds_why) end
+  local set = context.worker
+  if set == nil then return fail("No worker runs snippets here") end
+  local answer, run_why = Worker.run(set, code, { cwd = context.cwd, policy = context.policy,
+    seconds = seconds or RUN_SECONDS, stopped = context.stopped })
+  if answer == nil then return fail(tostring(run_why)) end
+  local refused, _ = Json.to_array(answer["refused"])
+  if refused ~= nil then
+    local told: mut {string} = {}
+    for _, line in ipairs(refused) do told[#told + 1] = tostring(line) end
+    return fail("The checker refused the snippet, so it did not run:\n" .. table.concat(told, "\n"))
+  end
+  local trouble = answer["error"]
+  local output = answer["output"]
+  local said = if output is string then output else "" end
+  local text, cut = run_tail(said)
+  if cut or answer["cut"] == true then
+    text = "[Output truncated to its last part; the whole is kept in sessions.db.]\n" .. text
+  end
+  local value = answer["value"]
+  if value ~= nil then
+    local encoded, _ = Json.encode(value)
+    local shown = encoded or "?"
+    if #shown > RUN_BYTES then
+      shown = String.cut(shown, RUN_BYTES) .. " ... (" .. String.counted(#shown, "byte") .. "; the whole is kept in sessions.db)"
+      said = said .. "\nReturned: " .. (encoded or "?")
+      cut = true
+    end
+    text = text .. (if text == "" or text:sub(-1) == "\n" then "" else "\n" end) .. "Returned: " .. shown
+  end
+  if text == "" then text = "(no output)" end
+  local r = if answer["ok"] == true then ok(text) else
+    fail(text .. (if text:sub(-1) == "\n" then "" else "\n" end) .. "Error: " .. tostring(trouble)) end
+  if cut then r.raw = said end
+  return r
+end
+
 --- How `job` stands: running, or how it ended.
 local function state(job: Jobs.Job): string
   local r = job.result
@@ -606,6 +672,28 @@ Tools.list = {
           "(optional): for servers, watchers and long builds. Read it with jobs." },
     }, { "command" }),
     run = bash,
+  },
+  {
+    name = "run",
+    snippet = "Check and run a snippet of Teal against cosmic's standard library, in a worker kept for the session",
+    guidelines = {
+      "Use run for work of several steps (reading and changing many files, parsing JSON, SQLite, running " ..
+        "programs with cosmic.child): one snippet in place of many tool calls. Print only what you need.",
+      "A snippet is type-checked before it runs, as `cosmic -e` checks a chunk; a refusal gives the fix: " ..
+        "make it and run again. A snippet reaches cosmic.* alone, and its locals end with it.",
+    },
+    description = "Check and run a snippet of Teal, the typed Lua of cosmic, in a worker process kept for the " ..
+      "session, under the same sandbox as bash. The snippet may require cosmic.* modules (cosmic.fs, cosmic.json, " ..
+      "cosmic.sqlite, cosmic.child, cosmic.http, ...). It is checked first, in milliseconds; one the checker refuses " ..
+      "does not run, and the answer is the checker's lines, each with its fix. Returns what it printed (its last " ..
+      tostring(RUN_BYTES // 1024) .. "KB) and the JSON of what it returned. Timeout in seconds, " ..
+      tostring(RUN_SECONDS) .. " unless given, counted from when the snippet is sent (a first run starts the worker " ..
+      "too), and 0 for none; a snippet that runs past it ends the worker, and the next run starts another.",
+    schema = schema({
+      code = string_field("The snippet of Teal, as the body of a file: `local Fs = require(\"cosmic.fs\")` ..."),
+      timeout = integer_field("Timeout in seconds (optional, " .. tostring(RUN_SECONDS) .. " by default)"),
+    }, { "code" }),
+    run = run,
   },
   {
     name = "jobs",

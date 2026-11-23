@@ -71,6 +71,7 @@ local Json = require("cosmic.json")
 local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
 local Net = require("cosmic.net")
+local Poll = require("cosmic.poll")
 local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
@@ -89,6 +90,22 @@ local record McpServer
     --- The HTTP request this came in, nil over stdio: its headers say
     --- what `authorize` let in.
     http?: HttpServer.Request
+    --- Tells the client how far the request has come, where it asked to
+    --- be told (a `progressToken` in its `_meta`) over a transport that
+    --- carries a notice before the answer: [`McpServer.Instance.serve_stdio`],
+    --- or an HTTP request that accepts `text/event-stream`. `progress`
+    --- must grow with each call; a call that does not grow it, one with
+    --- a value that is not finite, and one after the request is answered
+    --- or cancelled, send nothing, and a `message` past 4 KiB is left
+    --- out. Over HTTP a notice the client has not read when the next
+    --- comes is replaced by it. Elsewhere it does nothing.
+    progress: function(progress: number, total?: number, message?: string)
+    --- Whether the client has cancelled the request: over stdio with
+    --- `notifications/cancelled`, over HTTP by closing the response's
+    --- stream. The handler's task is cancelled then too, so each wait in
+    --- it (a child's, a socket's) fails with [`Poll.CANCELLED`]; what the
+    --- handler answers after is not sent.
+    cancelled: function(): boolean
   end
 
   --- A tool, and what calls it.
@@ -209,7 +226,12 @@ local record McpServer
     answer: function(Instance, text: string, http?: HttpServer.Request): Answer
     --- Serves the protocol over stdio: a message a line from `input`
     --- (stdin), and each answer a line to `output` (stdout), until
-    --- `input` ends, when it answers true. A line longer than
+    --- `input` ends and the requests in flight are answered, when it
+    --- answers true. Each request runs in a task of its own, up to 32 at
+    --- once, so an answer may come before one to an earlier request, a
+    --- notice of progress goes out as the handler makes it, and
+    --- `notifications/cancelled` cancels the request it names. Called
+    --- outside a [`Poll.run`], it runs one of its own. A line longer than
     --- [`Mcp.MAX_MESSAGE_BYTES`], or a failure to read or write, ends it
     --- with false and why. Write nothing else to stdout meanwhile: it is
     --- the protocol's alone, and a log goes to stderr.
@@ -222,6 +244,11 @@ local record McpServer
     --- no JSON, and 400 for headers that disagree with the body
     --- (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and each
     --- `Mcp-Param-` a tool's schema names). A notification is answered 202.
+    --- A request with a `progressToken` from a client whose `Accept` names
+    --- `text/event-stream` is answered as an event stream: each notice of
+    --- progress an event, then the answer. A client that closes it
+    --- cancels the request, which the server finds at the next event it
+    --- writes, a comment every 5 seconds where there is nothing else.
     ---
     ---     local Net = require("cosmic.net")
     ---     local Http = require("cosmic.http.server")
@@ -406,6 +433,8 @@ local record Meta
   version: string
   capabilities: {string: Json.Value}
   client?: Mcp.Implementation
+  --- The `progressToken`, a string or an integer, where the request has one.
+  progress_token?: Json.Value
 end
 
 --- The `_meta` of `params`, or why the request is refused: a required
@@ -442,7 +471,10 @@ local function meta_of(params: any): (Meta) | (nil, Refusal)
   if raw_client ~= nil then
     client = wire.implementation_of(raw_client)
   end
-  return { version = version, capabilities = capabilities, client = client }
+  local token = meta["progressToken"]
+  local progress_token: Json.Value? = nil
+  if token is string or math.type(token) == "integer" then progress_token = token end
+  return { version = version, capabilities = capabilities, client = client, progress_token = progress_token }
 end
 
 --- `fields` made a result: its `resultType`, and the server's name in
@@ -558,7 +590,7 @@ local function call_tool(self: State, params: any, call: McpServer.Call): (Json.
     answered, failure = value, failed
   end)
   if not ok then
-    report(self, "tool " .. p.name, trouble)
+    if not call.cancelled() then report(self, "tool " .. p.name, trouble) end
     return nil, raised
   end
   local done = answered
@@ -619,7 +651,7 @@ local function read_resource(self: State, params: any, call: McpServer.Call): (J
     end
   end)
   if not ok then
-    report(self, "resource " .. uri, trouble)
+    if not call.cancelled() then report(self, "resource " .. uri, trouble) end
     return nil, raised
   end
   local got = contents
@@ -665,7 +697,7 @@ local function get_prompt(self: State, params: any, call: McpServer.Call): (Json
     answered, failure = value, failed
   end)
   if not ok then
-    report(self, "prompt " .. p.name, trouble)
+    if not call.cancelled() then report(self, "prompt " .. p.name, trouble) end
     return nil, raised
   end
   local done = answered
@@ -707,8 +739,45 @@ local function offers(self: State, method: string): boolean
   return false
 end
 
+--- One request as it runs: what its client asked to be told of it, and whether the client cancelled it.
+local record Flight
+  --- Where a notice of it goes, a message's text; nil where the transport sends nothing before the answer.
+  mut emit?: function(text: string)
+  --- The `progressToken` its `_meta` names.
+  mut token?: Json.Value
+  --- The last progress sent.
+  mut last?: number
+  --- Answered or cancelled: no notice of it is sent after.
+  mut done: boolean
+  mut cancelled: boolean
+end
+
+--- Whether `n` is a number JSON can hold: not NaN, not infinite.
+local function finite(n: number): boolean
+  return n == n and n ~= math.huge and n ~= -math.huge
+end
+
+--- The longest `message` a notice of progress carries; a longer one is left out.
+local MAX_PROGRESS_MESSAGE <const> = 4096
+
+--- [`McpServer.Call.progress`] for `flight`.
+local function progress_of(flight: Flight): function(progress: number, total?: number, message?: string)
+  return function(progress: number, total?: number, message?: string)
+    local token, emit, last = flight.token, flight.emit, flight.last
+    if token == nil or emit == nil or flight.done or not finite(progress) then return end
+    if last ~= nil and progress <= last then return end
+    flight.last = progress
+    local params: mut {string: Json.Value} = { progressToken = token, progress = progress }
+    if total ~= nil and finite(total) then params["total"] = total end
+    if message ~= nil and #message <= MAX_PROGRESS_MESSAGE and utf8.len(message) ~= nil then
+      params["message"] = message
+    end
+    emit(wire.notification("notifications/progress", params))
+  end
+end
+
 --- The answer to the request of `method` with `params`.
-local function dispatch(self: State, method: string, params: any, http?: HttpServer.Request): (Json.Value) | (nil, Refusal)
+local function dispatch(self: State, method: string, params: any, flight: Flight, http?: HttpServer.Request): (Json.Value) | (nil, Refusal)
   if method == "initialize" then
     local legacy, _ = LEGACY:into(params)
     local requested = if legacy ~= nil then legacy.protocolVersion or "" else "" end
@@ -721,7 +790,9 @@ local function dispatch(self: State, method: string, params: any, http?: HttpSer
   end
   local meta, wrong = meta_of(params)
   if meta == nil then return nil, wrong end
-  local call: McpServer.Call = { client = meta.client, capabilities = meta.capabilities, http = http }
+  flight.token = meta.progress_token
+  local call: McpServer.Call = { client = meta.client, capabilities = meta.capabilities, http = http,
+    progress = progress_of(flight), cancelled = function(): boolean return flight.cancelled end }
   if method == "server/discover" then return discover(self) end
   if method == "tools/list" and #self.tools > 0 then return list_tools(self, params) end
   if method == "tools/call" and #self.tools > 0 then return call_tool(self, params, call) end
@@ -737,7 +808,7 @@ local function dispatch(self: State, method: string, params: any, http?: HttpSer
 end
 
 --- The answer to the message `message`, from HTTP's `http` where given.
-local function answer_message(self: State, message: wire.Message, http?: HttpServer.Request): McpServer.Answer
+local function answer_message(self: State, message: wire.Message, http?: HttpServer.Request, flight?: Flight): McpServer.Answer
   local method = message.method
   if method == nil then
     return { body = wire.error(message.id, Mcp.INVALID_REQUEST, "a client sends requests and notifications, not responses"),
@@ -746,11 +817,13 @@ local function answer_message(self: State, message: wire.Message, http?: HttpSer
   local id = message.id
   if id == nil then
     -- A notification: this revision has the client send none but
-    -- notifications/cancelled, and a request here is answered before the
-    -- next is read, so there is nothing to cancel.
+    -- notifications/cancelled, which serve_stdio reads before it gets
+    -- here, and over HTTP a client cancels by closing the stream.
     return { body = nil, status = 202 }
   end
-  local answered, refused_with = dispatch(self, method, message.params, http)
+  local running: Flight = flight or { done = false, cancelled = false }
+  local answered, refused_with = dispatch(self, method, message.params, running, http)
+  running.done = true
   if answered == nil then
     return { body = wire.error(id, refused_with.code, refused_with.message, refused_with.data), status = status_of(refused_with.code) }
   end
@@ -773,25 +846,201 @@ local function answer(self: State, text: string, http?: HttpServer.Request): Mcp
   return answer_message(self, message, http)
 end
 
---- Serves the protocol over stdio.
-local function serve_stdio(self: State, input?: Stream.Reader, output?: Stream.Writer): (true) | (false, Failure)
-  local reader = input or Stream.from_fd(0)
-  local writer = output or Stream.to_fd(1)
-  local lines = Stream.lines(reader, Mcp.MAX_MESSAGE_BYTES)
-  while true do
-    local line, trouble = lines:read()
-    if line == nil then
-      if trouble ~= "" then return false, Failure.new("mcp: " .. trouble) end
-      return true
+--- The most requests a stdio server runs at once; a line past them is read once one of them ends.
+local MAX_IN_FLIGHT <const> = 32
+
+--- A Reader of the descriptor `fd` whose read, in a task, first waits for it to be readable, so the run's other
+--- tasks go on while it waits; a read of a descriptor in blocking mode would hold them all.
+local class WaitingReader is Stream.Reader
+  inner: Stream.Reader
+  fd: integer
+
+  function read(self, max_bytes?: integer): string?, string
+    if Poll.in_task() then
+      local ok, why = Poll.readable(self.fd)
+      if not ok then return nil, why.message end
     end
-    if line:find("%S") ~= nil then
-      local said = answer(self, line)
-      if said.body ~= nil then
-        local ok, wtrouble = writer:write(said.body .. "\n")
-        if not ok then return false, Failure.new("mcp: " .. wtrouble) end
-      end
+    return self.inner:read(max_bytes)
+  end
+
+  function close(self): boolean, string return self.inner:close() end
+end
+
+--- A request a stdio server is running.
+local record Entry
+  message: wire.Message
+  --- Its id, as the message holds it.
+  key: string
+  flight: Flight
+  --- Its task, once it runs: nil while it waits for a place.
+  mut task?: Poll.Task
+end
+
+--- The params of `notifications/cancelled`.
+local record CancelParams
+  requestId: any
+  reason?: string
+end
+
+local CANCEL_PARAMS <const>: Shape.Typed<CancelParams> = Shape.record_of("CancelParams")
+
+--- A request's id as [`wire.Message`] holds it, JSON's text of it, from the `requestId` that names it; nil for one
+--- that is not a string or an integer.
+local function id_text(id: any): string?
+  if id is string then return Json.quote(id) end
+  if math.type(id) == "integer" then return tostring(id) end
+  return nil
+end
+
+--- The most lines read ahead of the requests they start; past it, reading waits.
+local MAX_INBOX <const> = 64
+
+--- The most requests that wait for one of the [`MAX_IN_FLIGHT`] to end; one more is refused at once.
+local MAX_PENDING <const> = 1024
+
+--- Serves `lines`, writing to `writer`, in a task: each request in a task of its own, so a notice of progress goes
+--- out as it is made, and `notifications/cancelled` ends the request it names. The lines are read in a task of
+--- their own, so a cancel is read while every request runs, and a failed write ends the server at once.
+local function serve_lines(self: State, lines: Stream.Lines, writer: Stream.Writer): (true) | (false, Failure)
+  local running: mut {string: Entry} = {}
+  local pending: mut {Entry} = {}
+  local count = 0
+  local wake = Poll.notifier()
+  local failure: Failure? = nil
+  local inbox: mut {string} = {}
+  local ended = false
+  local read_trouble = ""
+  -- One line is written at a time, whole: shielded, so a request cancelled mid-write does not tear its line.
+  local writing = false
+  local turn = Poll.notifier()
+  local function send(text: string)
+    while writing do
+      local ok, _ = turn:wait()
+      if not ok then return end
+    end
+    if failure ~= nil then return end
+    writing = true
+    local ok, why = true, ""
+    Poll.shielded(function()
+      ok, why = writer:write(text .. "\n")
+    end)
+    writing = false
+    turn:notify_one()
+    if not ok then
+      failure = Failure.new("mcp: " .. why)
+      wake:notify_all()
     end
   end
+  local function start(entry: Entry)
+    count = count + 1
+    entry.task = Poll.spawn(function()
+      local said = answer_message(self, entry.message, nil, entry.flight)
+      if running[entry.key] == entry then running[entry.key] = nil end
+      count = count - 1
+      if not entry.flight.cancelled and said.body ~= nil then send(said.body) end
+      -- The loop starts the next one waiting.
+      wake:notify_all()
+    end)
+  end
+  local function launch()
+    while count < MAX_IN_FLIGHT and #pending > 0 do
+      local waiting = assert(table.remove(pending, 1))
+      if not waiting.flight.cancelled then start(waiting) end
+    end
+  end
+  local function cancel(params: any)
+    local p, _ = CANCEL_PARAMS:into(params)
+    if p == nil then return end
+    local key = id_text(p.requestId)
+    if key == nil then return end
+    local entry = running[key]
+    if entry == nil then return end
+    running[key] = nil
+    entry.flight.cancelled = true
+    entry.flight.done = true
+    local task = entry.task
+    if task ~= nil then task:cancel() end
+  end
+  local function handle(line: string)
+    if line:find("%S") == nil then return end
+    local message, why = wire.message(line)
+    if message == nil then
+      send(wire.error(nil, why.code or Mcp.INVALID_REQUEST, why.message))
+    elseif message.method == "notifications/cancelled" and message.id == nil then
+      cancel(message.params)
+    elseif message.method ~= nil and message.id ~= nil then
+      if #pending >= MAX_PENDING then
+        send(wire.error(message.id, Mcp.INTERNAL_ERROR, "the server is running too many requests: try again"))
+        return
+      end
+      local entry: Entry = { message = message, key = message.id, flight = { emit = send, done = false, cancelled = false } }
+      running[entry.key] = entry
+      pending[#pending + 1] = entry
+      launch()
+    else
+      local said = answer_message(self, message)
+      if said.body ~= nil then send(said.body) end
+    end
+  end
+  local reader = Poll.spawn(function()
+    while true do
+      while #inbox >= MAX_INBOX and failure == nil do
+        local ok, _ = wake:wait()
+        if not ok then return end
+      end
+      local line, trouble = lines:read()
+      if line == nil then
+        ended, read_trouble = true, trouble
+        wake:notify_all()
+        return
+      end
+      inbox[#inbox + 1] = line
+      wake:notify_all()
+    end
+  end)
+  while failure == nil do
+    launch()
+    if #inbox > 0 then
+      handle(assert(table.remove(inbox, 1)))
+      wake:notify_all()
+    elseif ended and count == 0 and #pending == 0 then
+      break
+    else
+      local ok, why = wake:wait()
+      if not ok then failure = Failure.new("mcp: " .. tostring(why)) end
+    end
+  end
+  local failed = failure
+  if failed ~= nil then
+    reader:cancel()
+    for _, entry in pairs(running) do
+      entry.flight.cancelled = true
+      local task = entry.task
+      if task ~= nil then task:cancel() end
+    end
+    return false, failed
+  end
+  if read_trouble ~= "" and read_trouble ~= Poll.CANCELLED then
+    return false, Failure.new("mcp: " .. read_trouble)
+  end
+  return true
+end
+
+--- Serves the protocol over stdio, in a run of its own where it is called outside one.
+local function serve_stdio(self: State, input?: Stream.Reader, output?: Stream.Writer): (true) | (false, Failure)
+  local stdin: WaitingReader = { inner = Stream.from_fd(0), fd = 0, skip = nil }
+  local reader: Stream.Reader = input or stdin
+  local writer = output or Stream.to_fd(1)
+  local lines = Stream.lines(reader, Mcp.MAX_MESSAGE_BYTES)
+  if Poll.in_task() then return serve_lines(self, lines, writer) end
+  local served: Failure? = nil
+  local ok = false
+  Poll.run(function()
+    local done, why = serve_lines(self, lines, writer)
+    ok, served = done, why
+  end)
+  if not ok then return false, served or Failure.new("mcp: the server ended") end
+  return true
 end
 
 -- Streamable HTTP.
@@ -918,6 +1167,85 @@ local function allowed_origin(origin: string, allowed: {string}): boolean
   return false
 end
 
+--- How long an event stream goes with nothing to say before it says a comment, so a client gone is found at the
+--- comment's write and its request cancelled.
+local KEEPALIVE_NS <const> = 5 * 1000000000
+
+--- The body of a request answered as an event stream: its latest notice of progress, then its answer, then the
+--- end. A notice not yet read when the next comes is dropped for it, so a client that reads slowly holds the server
+--- to one notice, not all of them. Closed before the answer (the client gone, the server stopping), it cancels the
+--- request.
+local class EventReader is Stream.Reader
+  notifier: Poll.Notifier
+  flight: Flight
+  mut latest?: string
+  mut answer?: string
+  mut task?: Poll.Task
+  mut finished: boolean
+
+  function read(self, _max_bytes?: integer): string?, string
+    while true do
+      local latest, final = self.latest, self.answer
+      if latest ~= nil then
+        self.latest = nil
+        return "event: message\ndata: " .. latest .. "\n\n", ""
+      end
+      if final ~= nil then
+        self.answer = nil
+        self.finished = true
+        return "event: message\ndata: " .. final .. "\n\n", ""
+      end
+      if self.finished then return nil, "" end
+      local ok, why = self.notifier:wait(KEEPALIVE_NS)
+      if not ok then
+        if why.kind ~= "timeout" then return nil, why.message end
+        return ": working\n\n", ""
+      end
+    end
+  end
+
+  function close(self): boolean, string
+    if not self.finished then
+      self.finished = true
+      self.flight.cancelled = true
+      self.flight.done = true
+      local task = self.task
+      if task ~= nil then task:cancel() end
+    end
+    return true, ""
+  end
+end
+
+--- `message` answered as an event stream, its handler in a task of its own.
+local function streamed(self: State, message: wire.Message, req: HttpServer.Request): HttpServer.Reply
+  local notifier = Poll.notifier()
+  local flight: Flight = { done = false, cancelled = false }
+  local body: EventReader = { notifier = notifier, flight = flight, finished = false, latest = nil, answer = nil, task = nil, skip = nil }
+  flight.emit = function(text: string)
+    body.latest = text
+    notifier:notify_all()
+  end
+  body.task = Poll.spawn(function()
+    local said = answer_message(self, message, req, flight)
+    if flight.cancelled then return end
+    -- An answer always comes: a request with none (a notification) is not streamed.
+    body.answer = said.body or wire.error(message.id, Mcp.INTERNAL_ERROR, raised.message)
+    notifier:notify_all()
+  end)
+  return { status = 200, headers = { ["Content-Type"] = "text/event-stream", ["Cache-Control"] = "no-cache, no-transform" },
+    body = body }
+end
+
+--- Whether `accept` names `want` itself, not by a wildcard: a client that asks for an event stream says so.
+local function names(accept: string?, want: string): boolean
+  if accept == nil then return false end
+  for item in accept:gmatch("[^,]+") do
+    local kind = item:match("^%s*([^;%s]+)")
+    if kind ~= nil and kind:lower() == want then return true end
+  end
+  return false
+end
+
 --- The handler [`McpServer.Instance.handler`] answers.
 local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServer.Request): HttpServer.Reply
   local path = spec.path or "/mcp"
@@ -961,6 +1289,11 @@ local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServ
             body = wire.error(message.id, Mcp.HEADER_MISMATCH, wrong) }
         end
       end
+    end
+    if message.method ~= nil and message.id ~= nil and names(req.headers["accept"], "text/event-stream") and
+        Poll.in_task() then
+      local meta, _ = meta_of(message.params)
+      if meta ~= nil and meta.progress_token ~= nil then return streamed(self, message, req) end
     end
     local said = answer_message(self, message, req)
     if said.body == nil then return { status = said.status } end
