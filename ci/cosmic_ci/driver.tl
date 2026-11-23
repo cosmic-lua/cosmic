@@ -16,6 +16,7 @@ local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
+local Review = require("cosmic_ci.review")
 local State = require("cosmic_ci.state")
 local SuiteOutput = require("cosmic_ci.suite_output")
 local QueueVerdicts = require("cosmic_ci.queue_verdicts")
@@ -146,6 +147,8 @@ local commands: {string:Command} = {
     usage = "", handler = Images.build_command },
   ["image-publish"] = { about = "join one image's architectures under one tag",
     usage = "", handler = Images.publish_command },
+  review = { about = "run the weekly review's agent, for review.yml",
+    usage = "", handler = Review.command },
   report = { about = "print CI's recent runs' times and suites, from GitHub's API",
     usage = "[options]", spec = Report.spec(), options = Report.command },
 }
