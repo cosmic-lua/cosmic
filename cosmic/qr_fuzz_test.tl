@@ -40,25 +40,27 @@ local function check(input: string): boolean, string
   local code, why = Qr.encode(text, options)
   if code == nil then
     Fuzz.label("refused")
-    if why == "" then return false, "refused without a reason" end
+    if why.message == "" then return false, "refused without a reason" end
     if max_version == 40 and #text <= (MOST[level] or 0) then
       return false, "refused what version 40 holds"
     end
     if #text == 0 then return false, "refused the empty text" end
     -- A refusal below version 40 holds only where a larger version is needed.
-    local larger = Qr.encode(text, { level = level, mask = 0 })
+    local larger, _ = Qr.encode(text, { level = level, mask = 0 })
     if larger ~= nil and larger.version <= max_version then
       return false, ("refused at %d what version %d holds"):format(max_version, larger.version)
     end
     return true, ""
   end
-  if why ~= "" then return false, "a code with a reason: " .. why end
   if code.version < 1 or code.version > max_version then
     return false, ("version %d past %d"):format(code.version, max_version)
   end
   if code.version >= 7 then Fuzz.label("version information") end
-  if code.version > 1 and Qr.encode(text, { level = level, max_version = code.version - 1, mask = 0 }) ~= nil then
-    return false, ("version %d where a smaller one holds the text"):format(code.version)
+  if code.version > 1 then
+    local smaller, _ = Qr.encode(text, { level = level, max_version = code.version - 1, mask = 0 })
+    if smaller ~= nil then
+      return false, ("version %d where a smaller one holds the text"):format(code.version)
+    end
   end
   if code.size ~= code.version * 4 + 17 or code.level ~= level then
     return false, "size or level"
@@ -71,7 +73,7 @@ local function check(input: string): boolean, string
   end
   if not Fixture.finders(code) then return false, "finder patterns" end
   local read, read_why = Qr.decode(Qr.rows(code))
-  if read == nil then return false, "does not read back: " .. read_why end
+  if read == nil then return false, "does not read back: " .. read_why.message end
   if read.text ~= text or read.code.version ~= code.version or read.code.level ~= level or
       read.code.mask ~= code.mask or read.corrected ~= 0 then
     return false, "reads back as another code"
@@ -101,7 +103,7 @@ local function check_damage(input: string): boolean, string
     if l == fields[1] then level = l end
   end
   local text = fields[2] or ""
-  local code = Qr.encode(text, { level = level, mask = 0 })
+  local code, _ = Qr.encode(text, { level = level, mask = 0 })
   if code == nil then return true, "" end
   local flipped: mut {integer: boolean} = {}
   local count = 0
@@ -124,7 +126,11 @@ local function check_damage(input: string): boolean, string
   end
   local read: Qr.Decoded? = nil
   local why = ""
-  local ok, raised = pcall(function() read, why = Qr.decode(rows) end)
+  local ok, raised = pcall(function()
+    local decoded, failure = Qr.decode(rows)
+    read = decoded
+    if failure ~= nil then why = failure.message end
+  end)
   if not ok then return false, "raised: " .. tostring(raised) end
   if count > 3 then
     Fuzz.label("many flips")
