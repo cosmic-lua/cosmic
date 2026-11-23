@@ -645,7 +645,7 @@ function Vendor.run(argv: {string}, program: string): integer
     if cache == nil then
       local made, trouble = Fs.cache_dir("vendor")
       if made == nil then
-        return "", trouble
+        return "", tostring(trouble)
       end
       held["cache"] = made
       cache = made

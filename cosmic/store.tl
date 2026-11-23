@@ -759,7 +759,7 @@ function Store.seal(names: {string}, path?: string,
       -- through this.
       local dir, dir_trouble = Fs.cache_dir("sandbox")
       if dir == nil then
-        return nil, dir_trouble
+        return nil, tostring(dir_trouble)
       end
       target = dir .. "/" .. digest .. ".db"
     end

@@ -380,13 +380,15 @@ function c.worker_zig(root: string, variables: {string:string}, sandboxed: boole
       local cache_real: string? = nil
       if cache ~= nil then cache_real, _ = Fs.absolute(cache) end
       if real == nil or cache_real == nil or real:sub(1, #cache_real + 1) ~= cache_real .. "/" then
-        return nil, "COSMIC_ZIG names " .. named .. ", outside the zig cache (" .. (cache or trouble) ..
+        return nil, "COSMIC_ZIG names " .. named .. ", outside the zig cache (" .. (cache or tostring(trouble)) ..
           ") a sandboxed worker is given"
       end
     end
     return "COSMIC_ZIG " .. named, ""
   end
-  if cache == nil then return nil, "there is no zig cache (" .. trouble .. "); " .. install_it end
+  if cache == nil then
+    return nil, "there is no zig cache (" .. tostring(trouble) .. "); " .. install_it
+  end
   local zig, why = Zig.pinned_program(root, cache)
   if zig == nil then
     return nil, "the pinned zig bin/zig.pin names is not installed (" .. why .. "); " .. install_it

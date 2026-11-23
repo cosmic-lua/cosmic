@@ -95,7 +95,7 @@ function Project.directory(root: string, environment?: {string:string}):
       { environment = environment, make = false })
     if selected == nil then
       return { directory = "", none = "no build directory for " .. canonical .. ": " ..
-          home_trouble .. "; set COSMIC_BUILD_HOME to an absolute directory" }, ""
+          tostring(home_trouble) .. "; set COSMIC_BUILD_HOME to an absolute directory" }, ""
     end
     home = selected
   elseif given:sub(1, 1) ~= "/" then

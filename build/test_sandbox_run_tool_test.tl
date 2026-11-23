@@ -147,7 +147,7 @@ end
   env["COSMIC_SANDBOX"] = nil
   -- The program's cores stay where they are; only the caches move.
   if env["COSMIC_PORTABLE_CACHE"] == nil then
-    local cores = Fs.cache_dir("cores", { make = false })
+    local cores, _ = Fs.cache_dir("cores", { make = false })
     if cores ~= nil then env["COSMIC_PORTABLE_CACHE"] = cores end
   end
   env["XDG_CACHE_HOME"] = xdg

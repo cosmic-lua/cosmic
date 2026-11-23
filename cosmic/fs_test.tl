@@ -251,7 +251,7 @@ end
 local function test_cache_dir_has_no_shared_fallback()
   for _, environment in ipairs({ {}, { HOME = "" }, { XDG_CACHE_HOME = "rel", HOME = "also/rel" } }) do -- checked: literal_needs_type
     local dir, trouble = Fs.cache_dir("tool", { environment = environment })
-    assert(dir == nil and trouble:find("no cache directory", 1, true) ~= nil, tostring(dir))
+    assert(dir == nil and tostring(trouble):find("no cache directory", 1, true) ~= nil, tostring(dir))
   end
 end
 
@@ -277,11 +277,12 @@ local function test_cache_dir_without_make_makes_and_checks_nothing(tmp: string)
   assert(assert(Fs.cache_dir("tool", { environment = environment })) == named)
   assert(Fs.is_dir(named) == true, "the default did not make it")
   assert(sys.chmod(named, 0x1ff))
-  assert(Fs.cache_dir("tool", { environment = environment }) == nil)
-  assert(Fs.cache_dir("tool", { environment = environment, make = false }) == named,
+  local refused, _ = Fs.cache_dir("tool", { environment = environment })
+  assert(refused == nil)
+  assert(assert(Fs.cache_dir("tool", { environment = environment, make = false })) == named,
     "the name alone looked at the directory")
   local none, trouble = Fs.cache_dir("tool", { environment = {}, make = false })
-  assert(none == nil and trouble:find("no cache directory", 1, true) ~= nil, tostring(none))
+  assert(none == nil and tostring(trouble):find("no cache directory", 1, true) ~= nil, tostring(none))
 end
 
 local function test_cache_dir_refuses_one_others_can_write_to(tmp: string)
@@ -289,10 +290,10 @@ local function test_cache_dir_refuses_one_others_can_write_to(tmp: string)
   assert(Fs.cache_dir("tool", { environment = environment }))
   assert(sys.chmod(tmp .. "/cosmic/tool", 0x1ff))
   local dir, trouble = Fs.cache_dir("tool", { environment = environment })
-  assert(dir == nil and trouble:find("writable by its group or others", 1, true) ~= nil, trouble)
+  assert(dir == nil and tostring(trouble):find("writable by its group or others", 1, true) ~= nil, tostring(trouble))
   assert(sys.chmod(tmp .. "/cosmic", 0x1f8))
   dir, trouble = Fs.cache_dir("other", { environment = environment })
-  assert(dir == nil and trouble == tmp .. "/cosmic: writable by its group or others", trouble)
+  assert(dir == nil and tostring(trouble) == tmp .. "/cosmic: writable by its group or others", tostring(trouble))
   assert(Fs.write(tmp .. "/plain", ""))
   dir, trouble = Fs.cache_dir("tool", { environment = { XDG_CACHE_HOME = tmp .. "/plain" } })
   assert(dir == nil, tostring(dir))
@@ -319,7 +320,7 @@ local function test_mkdirs_gives_the_mode_at_mkdir_less_the_umask(tmp: string)
   local before = sys.umask(0x12)
   local made, why = Fs.mkdirs(tmp .. "/open/inner", 0x1ff)
   sys.umask(before)
-  assert(made, why)
+  assert(made, tostring(why))
   for _, path in ipairs({ tmp .. "/open", tmp .. "/open/inner" }) do
     assert(assert(Fs.stat(path)).mode & 0x1ff == 0x1ed, path)
   end
@@ -330,7 +331,7 @@ local function test_program_cache_dir_refuses_one_others_can_write_to(tmp: strin
   local dir = assert(Fs.program_cache_dir("prog", { environment = environment }))
   assert(sys.chmod(dir, 0x1fd))
   local none, why = Fs.program_cache_dir("prog", { environment = environment })
-  assert(none == nil and why == dir .. ": writable by its group or others", why)
+  assert(none == nil and tostring(why) == dir .. ": writable by its group or others", tostring(why))
 end
 
 local function test_data_dir_is_made_private_under_xdg_or_home(tmp: string)
@@ -344,7 +345,7 @@ local function test_data_dir_is_made_private_under_xdg_or_home(tmp: string)
   local unset: {{string:string}} = { {}, { XDG_DATA_HOME = "rel", HOME = "also/rel" } }
   for _, environment in ipairs(unset) do
     local none, trouble = Fs.data_dir("prog", { environment = environment, make = false })
-    assert(none == nil and trouble:find("no data directory", 1, true) ~= nil, tostring(none))
+    assert(none == nil and tostring(trouble):find("no data directory", 1, true) ~= nil, tostring(none))
   end
 end
 
@@ -352,13 +353,13 @@ local function test_data_dir_refuses_one_others_can_write_to_and_names_that_are_
   local environment = { XDG_DATA_HOME = tmp }
   local named = assert(Fs.data_dir("prog", { environment = environment, make = false }))
   assert(Fs.exists(named) == false, "the name alone made a directory")
-  assert(Fs.data_dir("prog", { environment = environment }) == named)
+  assert(assert(Fs.data_dir("prog", { environment = environment })) == named)
   assert(sys.chmod(named, 0x1ff))
   local dir, trouble = Fs.data_dir("prog", { environment = environment })
-  assert(dir == nil and trouble == named .. ": writable by its group or others", trouble)
+  assert(dir == nil and tostring(trouble) == named .. ": writable by its group or others", tostring(trouble))
   for _, name in ipairs({ "", ".", "..", "a/b" }) do
     local none, why = Fs.data_dir(name, { environment = environment })
-    assert(none == nil and why:find("is not the name of one directory", 1, true) ~= nil, name)
+    assert(none == nil and tostring(why):find("is not the name of one directory", 1, true) ~= nil, name)
   end
 end
 
@@ -371,7 +372,7 @@ local function test_program_cache_dir_is_outside_cosmics_own(tmp: string)
   dir = assert(Fs.program_cache_dir("prog", { environment = { HOME = tmp .. "/home" }, make = false }))
   assert(dir == tmp .. "/home/.cache/prog", dir)
   local none, trouble = Fs.program_cache_dir("a/b", { environment = environment })
-  assert(none == nil and trouble:find("is not the name of one directory", 1, true) ~= nil, tostring(none))
+  assert(none == nil and tostring(trouble):find("is not the name of one directory", 1, true) ~= nil, tostring(none))
 end
 
 local function test_mkdirs_with_a_trailing_slash_makes_every_parent()

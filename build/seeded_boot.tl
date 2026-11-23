@@ -291,7 +291,7 @@ local function release_cosmic(tag: string, work: string): string?, string
   local digest = (text or ""):match("^(%x+)%s+cosmic\n")
   if digest == nil or #digest ~= 64 then return nil, "its SHA256SUMS names no cosmic" end
   local cache, cache_trouble = Fs.cache_dir("bootstrap")
-  if cache == nil then return nil, cache_trouble end
+  if cache == nil then return nil, tostring(cache_trouble) end
   local kept, _ = SeededBoot.cached(cache, digest)
   if kept ~= nil then return kept, "" end
   local path = cache .. "/cosmic-" .. digest
