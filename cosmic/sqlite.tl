@@ -645,8 +645,9 @@ local function prepared(handle: Sqlite.Handle, sql: string,
 end
 
 --- Runs a statement that yields no rows: it answers `true`, or `false`
---- and why, with SQLite's codes ([`Failure`]'s `code`, `extended_code`
---- and `cancelled`: a busy wait the handle's guard stopped).
+--- and why, with SQLite's codes ([`Failure`]'s `code` and
+--- `extended_code`, and its kind "cancelled" for a busy wait the handle's
+--- guard stopped).
 ---
 --- `values` is a dense list indexed by SQLite's parameter index, through
 --- its highest index. Repeated named parameters share an index, and a

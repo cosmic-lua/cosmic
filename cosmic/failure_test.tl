@@ -92,3 +92,14 @@ local function test_a_match_over_the_kind_is_exhaustive()
   end
   assert(retry(Failure.timeout()) and not retry(Failure.cancelled()))
 end
+
+--- A system call that timed out is a timeout by its kind, its errno kept.
+local function test_a_system_timeout_is_a_timeout()
+  local errno = 0
+  for n = 1, 200 do
+    if sys.errno_name(n) == "ETIMEDOUT" then errno = n end
+  end
+  assert(errno ~= 0, "no ETIMEDOUT")
+  local late = Failure.system(errno)
+  assert(late.kind == "timeout" and late.errno == errno)
+end

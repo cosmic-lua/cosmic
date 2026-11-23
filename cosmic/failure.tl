@@ -24,18 +24,20 @@ local sys = require("cosmic.sys")
 local class Failure
   --- What kind of failure it is, for a caller that acts on the cause
   --- rather than the words: `if why.kind == "timeout" then retry() end`.
-  --- Each constructor gives one kind.
+  --- Each constructor says which kind it gives.
   enum Kind
     --- Nothing more is known than the words ([`Failure.new`]).
     "other"
-    --- A system call failed; `errno` says why ([`Failure.system`]).
+    --- A system call failed; `errno` says why ([`Failure.system`], but
+    --- for `ETIMEDOUT`).
     "system"
     --- A text was refused at a place; `line` says where ([`Failure.at`]).
     "parse"
     --- A library answered its own code; `code` holds it
     --- ([`Failure.coded`]).
     "library"
-    --- A wait ran past its time limit ([`Failure.timeout`]).
+    --- A wait ran past its time limit ([`Failure.timeout`], or
+    --- [`Failure.system`] of `ETIMEDOUT`).
     "timeout"
     --- A wait was stopped from outside before it ended: a cancelled task
     --- of [`Poll.run`], or a signal the caller's [`Signal.guard`] holds
@@ -102,10 +104,13 @@ end
 
 --- The failure a system call answered with `errno`, about `path` when one
 --- is given: its message is the errno's, the same words on every OS
---- ([`sys.errno_message`]).
+--- ([`sys.errno_message`]). Its kind is "timeout" for `ETIMEDOUT`, so a
+--- caller tells a timeout by its kind wherever it came from, else
+--- "system".
 function Failure.system(errno: integer, path?: string): Failure
-  return { kind = "system", message = sys.errno_message(errno), path = path, errno = errno, line = nil, column = nil, code = nil,
-    extended_code = nil }
+  local kind: Failure.Kind = if sys.errno_name(errno) == "ETIMEDOUT" then "timeout" else "system" end
+  return { kind = kind, message = sys.errno_message(errno), path = path, errno = errno, line = nil, column = nil,
+    code = nil, extended_code = nil }
 end
 
 --- A failure of `message` that a library answered with its own `code`,
