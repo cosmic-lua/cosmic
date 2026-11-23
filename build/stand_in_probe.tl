@@ -194,9 +194,12 @@ local verbs: {string:function(string, string): integer?} = {
     return SIGNAL_MISSED -- checked: unreachable
   end,
   trap = function(status: string): integer?
-    local opened, trouble = probe.guard, ""
-    if opened == nil then opened, trouble = Signal.guard() end
-    if opened == nil then return failed("trap", trouble) end
+    local opened = probe.guard
+    if opened == nil then
+      local guarded, trouble = Signal.guard()
+      if guarded == nil then return failed("trap", trouble.message) end
+      opened = guarded
+    end
     probe.guard, probe.trapped, probe.ignoring = opened, number(status) or 2, status == "-"
     return nil
   end,

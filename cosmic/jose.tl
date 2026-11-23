@@ -1,7 +1,7 @@
 --- JSON Web Keys, signatures and tokens: the keys a server publishes
 --- (RFC 7517), the compact signatures made with them (RFC 7515) and the
 --- tokens those sign (RFC 7519), as an OpenID Connect provider's ID token
---- is one. Three algorithms are here, each over [`cosmic.sign`]: ES256
+--- is one. Three algorithms are here, each over [`cosmic.key`]: ES256
 --- (ECDSA over P-256 with SHA-256), RS256 (RSA PKCS #1 v1.5 with
 --- SHA-256) and EdDSA over Ed25519 (RFC 8037).
 ---
@@ -20,17 +20,18 @@
 --- key or a token takes bytes from anyone: what is not a key or a token
 --- is refused with a reason, and nothing raises.
 ---
---- [`Jose.signer`] and [`Jose.sign`] make tokens, under a key whose
---- public half [`Jose.Signer.jwk`] is, for a test that stands in for a
---- provider or a client that proves itself with a signed assertion.
+--- [`Jose.sign`] makes tokens under a [`Key.Secret`] of [`cosmic.key`],
+--- and [`Jose.jwk`] spells its public key as a JWK, for a test that
+--- stands in for a provider or a client that proves itself with a signed
+--- assertion.
 --- @public
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Der = require("cosmic.internal.der")
 local Failure = require("cosmic.failure")
-local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
 
 local record Jose
   --- A signature algorithm, as RFC 7518 and RFC 8037 name it.
@@ -44,23 +45,16 @@ local record Jose
   end
 
   --- A public key that checks signatures, from a JSON Web Key.
-  record Key
-    --- "EC", "RSA" or "OKP".
-    kty: string
+  record Jwk
     --- The algorithm the key signs with.
     alg: Alg
     --- The key's id, when its JWK names one.
     kid?: string
     --- The key's `use`, when its JWK names one: "sig" for a signing key.
     use?: string
-    --- The key as [`cosmic.sign`] takes it: the 65-byte uncompressed
-    --- point of an ES256 key, the DER RSAPublicKey of an RS256 key, the
-    --- 32 bytes of an Ed25519 key.
-    public: string
-    --- The members RFC 7638 takes a thumbprint over, base64url as the
-    --- JWK has them: `crv`, `kty`, `x` and `y` for EC, `e`, `kty` and
-    --- `n` for RSA, `crv`, `kty` and `x` for OKP.
-    jwk: {string: string}
+    --- The key itself, which checks signatures and spells its thumbprint
+    --- ([`Key.Public.thumbprint`]).
+    public: Key.Public
   end
 
   --- A compact JWS, decoded: what [`Jose.decode`] and [`Jose.verify`]
@@ -124,24 +118,15 @@ local record Jose
     --- takes any.
     typ?: string
   end
-
-  --- A key that signs: what [`Jose.signer`] makes.
-  record Signer
-    --- The algorithm it signs with.
-    alg: Alg
-    --- The id [`Jose.sign`] names in the header, when given.
-    kid?: string
-    --- The public half, as [`Jose.key`] reads it.
-    key: Key
-    --- The public half as a JWK, with `alg`, `use` and `kid`.
-    jwk: {string: Json.Value}
-    --- The signature of `message`, as the JWS form of [`alg`] has it.
-    sign: function(message: string): string
-  end
 end
 
--- TODO: take PS256 once cosmic.sign verifies RSASSA-PSS, which some
+-- TODO: take PS256 once cosmic.key verifies RSASSA-PSS, which some
 -- providers sign ID tokens with when asked.
+
+--- The algorithm of [`cosmic.key`] of a key of the JOSE algorithm `alg`.
+local function key_alg(alg: Jose.Alg): Key.Alg
+  return if alg == "ES256" then "p256" elseif alg == "RS256" then "rsa" else "ed25519" end
+end
 
 --- The algorithms taken where the caller names none.
 local ALL: {Jose.Alg} = { "ES256", "RS256", "EdDSA" }
@@ -149,30 +134,6 @@ local ALL: {Jose.Alg} = { "ES256", "RS256", "EdDSA" }
 --- The longest token taken, in bytes: far past any ID token, and short
 --- enough that a token sent to waste time is refused before it is read.
 local MAX_TOKEN <const> = 64 * 1024
-
--- DER, as much of it as an RSAPublicKey needs.
-
-local function der_length(n: integer): string
-  if n < 0x80 then return string.char(n) end
-  local bytes: mut {string} = {}
-  while n > 0 do
-    table.insert(bytes, 1, string.char(n & 0xff))
-    n = n >> 8
-  end
-  return string.char(0x80 | #bytes) .. table.concat(bytes)
-end
-
-local function der(tag: integer, content: string): string
-  return string.char(tag) .. der_length(#content) .. content
-end
-
---- The DER INTEGER of the unsigned big-endian `bytes`.
-local function der_unsigned(bytes: string): string
-  local first = bytes:find("[^\0]")
-  local trimmed = if first == nil then "\0" else bytes:sub(first) end
-  if (trimmed:byte(1) or 0) >= 0x80 then trimmed = "\0" .. trimmed end
-  return der(0x02, trimmed)
-end
 
 --- The member `name` of `object` when it is a string.
 local function text(object: {string: Json.Value}, name: string): string?
@@ -196,13 +157,12 @@ local function known(name: string): boolean
 end
 
 -- Jose.key, its failure in words.
-local function key_text(jwk: {string: Json.Value}): Jose.Key?, string
+local function key_text(jwk: {string: Json.Value}): Jose.Jwk?, string
   local kty = text(jwk, "kty")
   if kty == nil then return nil, "jose: the key has no kty" end
   if jwk["d"] ~= nil then return nil, "jose: the key is a private key" end
   local alg: Jose.Alg
   local public: string
-  local members: {string: string}
   if kty == "EC" then
     if text(jwk, "crv") ~= "P-256" then return nil, "jose: an EC key must be on P-256" end
     local x, why = bytes(jwk, "x")
@@ -211,7 +171,6 @@ local function key_text(jwk: {string: Json.Value}): Jose.Key?, string
     if y == nil then return nil, trouble end
     if #x ~= 32 or #y ~= 32 then return nil, "jose: a P-256 key's x and y are 32 bytes each" end
     alg, public = "ES256", "\4" .. x .. y
-    members = { crv = "P-256", kty = "EC", x = assert(text(jwk, "x")), y = assert(text(jwk, "y")) }
   elseif kty == "RSA" then
     local n, why = bytes(jwk, "n")
     if n == nil then return nil, why end
@@ -228,15 +187,13 @@ local function key_text(jwk: {string: Json.Value}): Jose.Key?, string
     if #e > 8 or (#e == 1 and last < 3) or last & 1 == 0 then
       return nil, "jose: the RSA key's exponent is out of range"
     end
-    alg, public = "RS256", der(0x30, der_unsigned(n) .. der_unsigned(e))
-    members = { e = assert(text(jwk, "e")), kty = "RSA", n = assert(text(jwk, "n")) }
+    alg, public = "RS256", Der.sequence(Der.unsigned(n), Der.unsigned(e))
   elseif kty == "OKP" then
     if text(jwk, "crv") ~= "Ed25519" then return nil, "jose: an OKP key must be on Ed25519" end
     local x, why = bytes(jwk, "x")
     if x == nil then return nil, why end
     if #x ~= 32 then return nil, "jose: an Ed25519 key is 32 bytes" end
     alg, public = "EdDSA", x
-    members = { crv = "Ed25519", kty = "OKP", x = assert(text(jwk, "x")) }
   else
     return nil, ("jose: a key of type %q is not taken"):format(kty)
   end
@@ -249,14 +206,9 @@ local function key_text(jwk: {string: Json.Value}): Jose.Key?, string
   if named ~= nil and named ~= alg then
     return nil, ("jose: a %s key cannot sign with %s"):format(kty, named)
   end
-  return {
-    kty = kty,
-    alg = alg,
-    kid = text(jwk, "kid"),
-    use = text(jwk, "use"),
-    public = public,
-    jwk = members,
-  }, ""
+  -- The checks above are those Key.public makes, so it takes the bytes.
+  local key = assert(Key.public(key_alg(alg), public))
+  return { alg = alg, kid = text(jwk, "kid"), use = text(jwk, "use"), public = key }, ""
 end
 
 --- The key `jwk` holds, a JSON Web Key's members: an EC key on P-256, an
@@ -270,19 +222,19 @@ end
 --- only from a provider the app trusts, over https.
 ---
 ---     local key = assert(Jose.key(Json.decode_object(text)))
-function Jose.key(jwk: {string: Json.Value}): (Jose.Key) | (nil, Failure)
+function Jose.key(jwk: {string: Json.Value}): (Jose.Jwk) | (nil, Failure)
   local value, why = key_text(jwk)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
 
 -- Jose.keys, its failure in words.
-local function keys_text(set: {string: Json.Value}): {Jose.Key}?, string
+local function keys_text(set: {string: Json.Value}): {Jose.Jwk}?, string
   local listed = set["keys"]
   if listed == nil then return nil, "jose: the key set has no keys" end
   local items, why = Json.to_array(listed)
   if items == nil then return nil, "jose: the key set's keys: " .. tostring(why) end
-  local out: mut {Jose.Key} = {}
+  local out: mut {Jose.Jwk} = {}
   for _, item in ipairs(items) do
     local object, _ = Json.to_object(item)
     if object ~= nil then
@@ -300,7 +252,7 @@ end
 --- `set` holds no `keys` array.
 ---
 ---     local keys = assert(Jose.keys(assert(Json.decode_object(body))))
-function Jose.keys(set: {string: Json.Value}): ({Jose.Key}) | (nil, Failure)
+function Jose.keys(set: {string: Json.Value}): ({Jose.Jwk}) | (nil, Failure)
   local value, why = keys_text(set)
   if value == nil then return nil, Failure.new(why) end
   return value
@@ -346,14 +298,12 @@ function Jose.decode(token: string): (Jose.Jws) | (nil, Failure)
 end
 
 --- Whether `signature` is one of `message` under `key`.
-local function checks(key: Jose.Key, message: string, signature: string): boolean
-  if key.alg == "ES256" then return Sign.p256_verify(key.public, message, signature) end
-  if key.alg == "RS256" then return Sign.rsa_verify(key.public, message, signature) end
-  return Sign.ed25519_verify(key.public, message, signature)
+local function checks(key: Jose.Jwk, message: string, signature: string): boolean
+  return key.public:verify(message, signature)
 end
 
 -- Jose.verify, its failure in words.
-local function verify_text(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions): Jose.Jws?, string
+local function verify_text(token: string, keys: {Jose.Jwk}, opts?: Jose.VerifyOptions): Jose.Jws?, string
   local jws, why = decode_text(token)
   if jws == nil then return nil, why end
   local allowed = (opts or {}).algs or ALL
@@ -392,11 +342,11 @@ end
 --- whose algorithm is not allowed (`none` and the HMAC ones never are),
 --- whose header has `crit` members, or that no key checks. An ES256
 --- token has two spellings that verify, its signature's S and n - S
---- ([`Sign.p256_verify`]), so a list of tokens used or revoked is kept
+--- ([`cosmic.key`]'s P-256 verify), so a list of tokens used or revoked is kept
 --- by a claim (`jti`, or `sub` and `iat`), never by the token's text.
 ---
 ---     local jws = assert(Jose.verify(token, keys, { algs = { "ES256" } }))
-function Jose.verify(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions): (Jose.Jws) | (nil, Failure)
+function Jose.verify(token: string, keys: {Jose.Jwk}, opts?: Jose.VerifyOptions): (Jose.Jws) | (nil, Failure)
   local value, why = verify_text(token, keys, opts)
   if value == nil then return nil, Failure.new(why) end
   return value
@@ -427,7 +377,7 @@ local function same_type(got: string, want: string): boolean
 end
 
 -- Jose.verify_jwt, its failure in words.
-local function verify_jwt_text(token: string, keys: {Jose.Key}, opts: Jose.JwtOptions): Jose.Claims?, string
+local function verify_jwt_text(token: string, keys: {Jose.Jwk}, opts: Jose.JwtOptions): Jose.Claims?, string
   local jws, why = verify_text(token, keys, { algs = opts.algs })
   if jws == nil then return nil, why end
   local want_typ = opts.typ
@@ -497,101 +447,46 @@ end
 ---     local claims = assert(Jose.verify_jwt(token, keys, {
 ---       issuer = "https://accounts.example.com", audience = "my-client-id",
 ---     }))
-function Jose.verify_jwt(token: string, keys: {Jose.Key}, opts: Jose.JwtOptions): (Jose.Claims) | (nil, Failure)
+function Jose.verify_jwt(token: string, keys: {Jose.Jwk}, opts: Jose.JwtOptions): (Jose.Claims) | (nil, Failure)
   local value, why = verify_jwt_text(token, keys, opts)
   if value == nil then return nil, Failure.new(why) end
   return value
 end
 
---- The RFC 7638 thumbprint of `key`: the base64url SHA-256 of its
---- required members, sorted, as JSON with no space.
+--- The JOSE algorithm of a key of [`cosmic.key`]'s algorithm `alg`.
+local function jose_alg(alg: Key.Alg): Jose.Alg
+  if alg == "x25519" then error("jose: an X25519 key signs nothing", 3) end
+  return if alg == "p256" then "ES256" elseif alg == "rsa" then "RS256" else "EdDSA" end
+end
+
+--- The JSON Web Key of `key`, as a provider publishes it in a key set:
+--- [`Key.Public.jwk`]'s members, with `alg`, `use` of "sig" and, when
+--- given, `kid`. [`Jose.key`] reads it back. Raises on an X25519 key.
 ---
----     local id = Jose.thumbprint(key)
-function Jose.thumbprint(key: Jose.Key): string
-  local names: mut {string} = {}
-  for name in pairs(key.jwk) do names[#names + 1] = name end
-  table.sort(names)
-  local parts: mut {string} = {}
-  for i, name in ipairs(names) do
-    parts[i] = Json.quote(name) .. ":" .. Json.quote(assert(key.jwk[name]))
-  end
-  return Codec.base64url(Hash.sha256("{" .. table.concat(parts, ",") .. "}"))
-end
-
---- The unsigned big-endian bytes of the DER INTEGER at `at` of `text_`,
---- leading zeros dropped, and where the next element starts. It reads
---- [`Sign.rsa_public`]'s own output, so it trusts the tags and lengths.
-local function der_integer(text_: string, at: integer): string, integer
-  local len = text_:byte(at + 1) or 0
-  local start = at + 2
-  if len >= 0x80 then
-    local count = len & 0x7f
-    len = 0
-    for i = 1, count do len = (len << 8) | (text_:byte(at + 1 + i) or 0) end
-    start = at + 2 + count
-  end
-  local value = text_:sub(start, start + len - 1)
-  local first = value:find("[^\0]") or (#value + 1)
-  return value:sub(first), start + len
-end
-
---- Where the content of the SEQUENCE that starts `text_` starts.
-local function der_inside(text_: string): integer
-  local len = text_:byte(2) or 0
-  if len >= 0x80 then return 3 + (len & 0x7f) end
-  return 3
-end
-
---- A key that signs with `alg`: ES256 under a [`Sign.p256_secret`],
---- RS256 under a [`Sign.rsa_secret`], EdDSA under an Ed25519 seed.
---- `kid` is named in the header of each token it signs and in its JWK.
---- Raises on a secret [`cosmic.sign`] refuses: the secret is the
---- caller's own, not bytes from anyone.
----
----     local signer = Jose.signer("ES256", Sign.p256_secret(), "key-1")
-function Jose.signer(alg: Jose.Alg, secret: string, kid?: string): Jose.Signer
-  local jwk: mut {string: Json.Value}
-  local sign: function(message: string): string
-  if alg == "ES256" then
-    local public = Sign.p256_public(secret)
-    jwk = {
-      kty = "EC",
-      crv = "P-256",
-      x = Codec.base64url(public:sub(2, 33)),
-      y = Codec.base64url(public:sub(34, 65)),
-    }
-    sign = function(message: string): string return Sign.p256(secret, message) end
-  elseif alg == "RS256" then
-    local public = Sign.rsa_public(secret)
-    local n, after = der_integer(public, der_inside(public))
-    local e, _ = der_integer(public, after)
-    jwk = { kty = "RSA", n = Codec.base64url(n), e = Codec.base64url(e) }
-    sign = function(message: string): string return Sign.rsa(secret, message) end
-  elseif alg == "EdDSA" then
-    jwk = { kty = "OKP", crv = "Ed25519", x = Codec.base64url(Sign.ed25519_public(secret)) }
-    sign = function(message: string): string return Sign.ed25519(secret, message) end
-  else
-    error(("jose: the algorithm %q is not one a key signs with here"):format(tostring(alg)), 2)
-  end
-  jwk["alg"] = alg
+---     local key = Key.generate("p256")
+---     local set = { keys = Json.array({ Jose.jwk(key.public, "2026-11") }) }
+function Jose.jwk(key: Key.Public, kid?: string): {string: Json.Value}
+  local jwk: mut {string: Json.Value} = {}
+  for name, value in pairs(key:jwk()) do jwk[name] = value end
+  jwk["alg"] = jose_alg(key.alg)
   jwk["use"] = "sig"
   if kid ~= nil then jwk["kid"] = kid end
-  return { alg = alg, kid = kid, key = assert(Jose.key(jwk)), jwk = jwk, sign = sign }
+  return jwk
 end
 
---- The compact JWS of `payload` under `signer`, with a header of `alg`,
---- the signer's `kid` and the members of `header` (`typ`, say). Raises on
---- a payload or a header that is not JSON.
+--- The compact JWS of `payload` under `key`, with a header of the key's
+--- `alg` (ES256, RS256 or EdDSA) and the members of `header` (`kid` and
+--- `typ`, say). Raises on an X25519 key, and on a payload or a header
+--- that is not JSON.
 ---
----     local token = Jose.sign(signer, { iss = "https://example.com", sub = "ada" })
-function Jose.sign(signer: Jose.Signer, payload: {string: Json.Value}, header?: {string: Json.Value}): string
+---     local key = Key.generate("p256")
+---     local token = Jose.sign(key, { iss = "https://example.com", sub = "ada" }, { kid = "2026-11" })
+function Jose.sign(key: Key.Secret, payload: {string: Json.Value}, header?: {string: Json.Value}): string
   local head: mut {string: Json.Value} = {}
   for name, value in pairs(header or {}) do head[name] = value end
-  head["alg"] = signer.alg
-  local kid = signer.kid
-  if kid ~= nil then head["kid"] = kid end
+  head["alg"] = jose_alg(key.alg)
   local input = Codec.base64url((assert(Json.encode(head)))) .. "." .. Codec.base64url((assert(Json.encode(payload))))
-  return input .. "." .. Codec.base64url(signer.sign(input))
+  return input .. "." .. Codec.base64url(key:sign(input))
 end
 
 return Jose

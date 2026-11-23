@@ -375,7 +375,7 @@ end
 --- binary that carries no source for one of them, or no record of what
 --- they import, can only be named whole. What a parse runs is these
 --- modules and the Lua and declarations of the basis, and nothing else of
---- the compiler's identity or of the code that checks ([`build.pipeline`]'s
+--- the compiler's identity or of the code that checks ([`build.code_identity`]'s
 --- `coded`): an edit to build.plans, build.tree or the checker (lang/check.tl,
 --- build.driver, build.pipeline) compiles again and parses nothing again. An
 --- edit to the lexer, the parser or a reader of the syntax tree parses
@@ -1158,8 +1158,22 @@ end
 --- What a compile with the new checker reads ([`build.pipeline`]): the options, and the program, made when the first module
 --- that no cache answers needs it.
 local record Reading
+  root: string
+  own: boolean
   mut options: Pipeline.Options?
   mut built: Pipeline.Built?
+end
+
+--- The options `reading` is made over, made when the first module that no cache answers needs them. Nil and why where
+--- they cannot be. The checker ([`build.pipeline`]) is required where it is called, never at this module's top level: a
+--- compile whose every module a cache answers loads none of its hundred modules.
+local function options_of(reading: Reading): Pipeline.Options?, string
+  local options = reading.options
+  if options ~= nil then return options, "" end
+  local made, trouble = require("build.pipeline").options(reading.root, reading.own)
+  if made == nil then return nil, trouble end
+  reading.options = made
+  return made, ""
 end
 
 --- The databases a hint looks the name of a refused module up in, found
@@ -1426,18 +1440,14 @@ local function compile_derived(handle: work.Handle, tool: string,
   end
   -- What the new checker's compile is made over ([`build.pipeline`]), read once the first module needs it. A module is
   -- keyed by its text, which holds its markers.
-  local reading: Reading = { options = nil, built = nil }
-  local pipeline = require("build.pipeline")
-  local made_options, options_trouble = pipeline.options(handle.root, standing.own)
-  if made_options == nil then
-    return nil, options_trouble
-  end
-  reading.options = made_options
+  local reading: Reading = { root = handle.root, own = standing.own, options = nil, built = nil }
   local result: importer.Result = {
     modules = {}, tool = tool, main = nil, refused = refusals, own_refused = own_refused,
     refusal_roots = roots_by_file,
     left_out = left, compiled = 0, cached = 0, shared = 0, parses = parses, fact_wraps = 0, parameter_checks = 0,
-    catalog = pipeline.catalog,
+    catalog = function(catalog_db: Sqlite.Handle, schema: string): integer?, string
+      return require("build.error_catalog").insert(catalog_db, schema)
+    end,
   }
   local db = handle.db
   local progress: Progress = { failure = "" }
@@ -1518,8 +1528,13 @@ local function compile_derived(handle: work.Handle, tool: string,
       end
       -- The tree is read before the copies are made, so each holds it: the first module the loop compiles would read it
       -- anyway. One that cannot be read is the loop's to say, and nothing is made at once.
+      local due_options: Pipeline.Options? = nil
       if #due > 0 then
-        local made_built, _ = pipeline.build(handle.db, assert(reading.options))
+        local made_options, _ = options_of(reading)
+        due_options = made_options
+      end
+      if due_options ~= nil then
+        local made_built, _ = require("build.pipeline").build(handle.db, due_options)
         if made_built ~= nil then
           reading.built = made_built
           -- What a copy makes of each module it says at once, in a file every copy and this process read as they go, a
@@ -1629,10 +1644,10 @@ local function compile_derived(handle: work.Handle, tool: string,
               return nil
             end
             -- No hints: what a copy is refused it does not keep, and the build says it with them.
-            local made, make_trouble = pipeline.generate(m, made_built, checks, judged)
+            local made, make_trouble = require("build.pipeline").generate(m, made_built, checks, judged)
             -- A copy lowers the modules its own require, most of them another copy's to compile, which nothing here
             -- would retire: it forgets each but those it has yet to compile, and holds what the build does alone.
-            pipeline.forget(made_built, rest)
+            require("build.pipeline").forget(made_built, rest)
             if made == nil then say(m, make_trouble) else say(m) end
             if made == nil or made.refused then return nil end
             return { lua = made.lua, bytecode = made.bytecode, references = made.references,
@@ -1743,7 +1758,7 @@ local function compile_derived(handle: work.Handle, tool: string,
           checked = false
           own_trouble = refusal
         elseif checked and examined ~= nil then
-          own_trouble = pipeline.examine(m, examined, judged, hints)
+          own_trouble = require("build.pipeline").examine(m, examined, judged, hints)
         end
         if own_trouble ~= "" then
           if checked then
@@ -1804,8 +1819,13 @@ local function compile_derived(handle: work.Handle, tool: string,
           local generated: plans.Generated? = nil
           -- Read the tree once, when the first module that is not cached asks.
           if reading.built == nil then
-            local tree_refusal: pipeline.Refusal = { refused = false }
-            local made_built, built_trouble = pipeline.build(handle.db, assert(reading.options), tree_refusal)
+            local options, options_trouble = options_of(reading)
+            if options == nil then
+              progress.failure = options_trouble
+              break
+            end
+            local tree_refusal: Pipeline.Refusal = { refused = false }
+            local made_built, built_trouble = require("build.pipeline").build(handle.db, options, tree_refusal)
             if made_built == nil then
               if tree_refusal.refused and outcome ~= nil then outcome.refused = true end
               progress.failure = built_trouble
@@ -1817,11 +1837,11 @@ local function compile_derived(handle: work.Handle, tool: string,
           local taken = if fanned ~= nil then fanned.look(m) else nil end
           if taken ~= nil then
             -- A copy of this process made it: the build has written the module, as if it had made it here.
-            pipeline.took(m, assert(reading.built))
+            require("build.pipeline").took(m, assert(reading.built))
             made_generated = { lua = taken.lua, bytecode = taken.bytecode, references = taken.references, refused = false,
               fact_wraps = taken.fact_wraps, parameter_checks = taken.parameter_checks }
           else
-            made_generated, generate_trouble = pipeline.generate(m, assert(reading.built), checks, judged, hints)
+            made_generated, generate_trouble = require("build.pipeline").generate(m, assert(reading.built), checks, judged, hints)
           end
           if made_generated == nil then
             if lenient then
@@ -1891,11 +1911,15 @@ local function compile_derived(handle: work.Handle, tool: string,
     for _, one in ipairs(mended) do
       local examined = reading.built
       if examined == nil then
-        local made_built, _ = pipeline.build(handle.db, assert(reading.options))
-        reading.built = made_built
-        examined = made_built
+        -- Options that cannot be made leave the file not checked, its line kept, as a tree that cannot be read does.
+        local options, _ = options_of(reading)
+        if options ~= nil then
+          local made_built, _ = require("build.pipeline").build(handle.db, options)
+          reading.built = made_built
+          examined = made_built
+        end
       end
-      local required, _ = pipeline.requires(one.file, one.text)
+      local required, _ = require("build.pipeline").requires(one.file, one.text)
       local sound = examined ~= nil and required ~= nil
       for _, name in ipairs(required or {}) do
         if failed[name] == true and (examined == nil or examined.standing[name] ~= true) then
@@ -1907,7 +1931,7 @@ local function compile_derived(handle: work.Handle, tool: string,
           path = one.path, file = one.file, kind = one.kind, source = one.text, source_hash = "", requires = {}, tests = {},
           inputs = nil,
         }
-        local more = pipeline.examine(module, examined, judged, hints, one.text)
+        local more = require("build.pipeline").examine(module, examined, judged, hints, one.text)
         local head = one.file .. ": the compiler refused it\n"
         if more:sub(1, #head) == head then
           more = more:sub(#head + 1)
@@ -1971,13 +1995,13 @@ local function prepare_compile(handle: work.Handle, tool: string,
     tool = selected
     -- What it is made by is the code that reads: the checker and the readers. A boot runs the tree's own, which the
     -- tool it stands in for does not carry yet, so the tree says what it is; a rebuild runs the tool's.
-    local pipeline = require("build.pipeline")
+    local code_identity = require("build.code_identity")
     if Store.meta("boot_hash") == nil then
-      local coded, coded_trouble = pipeline.coded_of(tool, handle.db)
+      local coded, coded_trouble = code_identity.coded_of(tool, handle.db)
       if coded == nil then return nil, coded_trouble end
       tool = coded
     else
-      tool = pipeline.coded(tool)
+      tool = code_identity.coded(tool)
     end
   end
   return compile_derived(handle, tool, parses, unjudged, shared, checks, target, broken, outcome)
@@ -2059,7 +2083,7 @@ end
 --- made, or one no run has used lately, is dropped.
 ---
 --- The tree is read, checked and written by the new checker ([`build.pipeline`]) in this process: `tool` is the one
---- [`build.grammar_mode`] chose, and the keys hold the code that reads as well ([`build.pipeline`]'s `coded`).
+--- [`build.grammar_mode`] chose, and the keys hold the code that reads as well ([`code_identity.coded`]).
 --- @param handle the working database the tree is staged in
 --- @param tool the identity of the compiler doing the compiling, which
 ---   every key carries
@@ -2087,8 +2111,7 @@ function importer.compile(handle: work.Handle, tool: string, unjudged?: boolean,
                           shared?: importer.Shared, checks?: boolean, again?: boolean,
                           outcome?: importer.Outcome): importer.Result?, string
   -- What it is made by is the code that reads: the checker and the readers.
-  local pipeline = require("build.pipeline")
-  tool = pipeline.coded(tool)
+  tool = require("build.code_identity").coded(tool)
   if checks == true then
     tool = importer.checked_tool(tool, true)
   end
@@ -2149,7 +2172,7 @@ end
 -- stops a file run whatever the file reaches.
 function importer.compile_for(handle: work.Handle, tool: string, target: string,
                               shared?: importer.Shared, outcome?: importer.Outcome): importer.Result?, string
-  return consuming_compile(handle, require("build.pipeline").coded(tool), false, shared, nil, false, target, outcome)
+  return consuming_compile(handle, require("build.code_identity").coded(tool), false, shared, nil, false, target, outcome)
 end
 
 --- Compiles a self-build after deriving its sources and recording its

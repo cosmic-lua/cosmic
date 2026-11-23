@@ -25,7 +25,7 @@
 
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
-local Pipeline = require("build.pipeline")
+local code_identity = require("build.code_identity")
 local Stamp = require("build.stamp")
 local importer = require("build.importer")
 local test_key = require("build.test_key")
@@ -46,8 +46,8 @@ end
 --- the hash of its source. Nil where `db` does not carry this module or
 --- cannot be read.
 -- TODO: name the stamping code by the modules that work a stamp out and no
--- others, once test_key.harness, importer.analyzer_identity and
--- Pipeline.code_of live in modules that require only what they run: today
+-- others, once test_key.harness and importer.analyzer_identity
+-- live in modules that require only what they run: today
 -- [`code_of`] holds all that this module requires, each by its source, so a
 -- comment anywhere in it has the rebuilt tool write its database again.
 local function code_of(db: Sqlite.Handle): string?
@@ -115,7 +115,7 @@ local function worked(db: Sqlite.Handle): mut {string:string}
   local reading: Reading = { withheld = false }
   local function source(name: string): string? return source_of(db, reading, name) end
   local function requires(name: string): {string} return requires_of(db, name) end
-  out["stamp_coded"] = Pipeline.code_of(source, requires)
+  out["stamp_coded"] = code_identity.code_of(source, requires)
   local basis_rows, _ = Sqlite.text_rows(db, "SELECT value FROM meta WHERE key = 'runtime_basis'")
   local basis_row = if basis_rows ~= nil then basis_rows[1] else nil end
   -- Given the code, it raises for nothing: a source held without its text is marked in `reading`.

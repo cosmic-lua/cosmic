@@ -231,7 +231,7 @@ local status = Zig.with_lock(%q, {}, function(_: {string:string}): integer
   error("entered a held lock")
 end)
 local signal = guard:take()
-guard:release()
+local _, _ = guard:release()
 assert(status == 1 and signal == sys.SIGTERM)
 print("cancelled")
 local _, _ = Fs.take(Fs.stdin, 1)

@@ -270,7 +270,7 @@ function TermRelay.run(argv: {string}, opts: Child.Options, terminal?: Terminal)
   -- Held before the program starts, and closed after it has ended, so a
   -- signal that comes between never finds it unguarded.
   local opened, guard_why = Signal.guard()
-  if opened == nil then return nil, "terminal: " .. guard_why end
+  if opened == nil then return nil, "terminal: " .. tostring(guard_why) end
   local guard <close> = opened
   local started, start_why = Child.start_on_pty(argv, opts, pty)
   if started == nil then return nil, start_why end

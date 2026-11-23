@@ -8,7 +8,8 @@ local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
-local Sign = require("cosmic.sign")
+-- The raw signing operations on bytes, which the fixtures build keys of.
+local Sign = require("cosmic.internal.sign")
 local Test = require("cosmic.test")
 local Webauthn = require("cosmic.webauthn")
 

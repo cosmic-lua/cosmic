@@ -119,14 +119,14 @@ end
 --- more itself; then it matches what a boot writes. A database that
 --- records neither identity is unsettled too. What it was compiled by
 --- is the tool string the new checker keys its compiles by, over the code of the checker the binary carries
---- ([`build.pipeline`]'s `coded`).
+--- ([`code_identity.coded`]).
 local function unsettled(seen?: reboot.Seen): boolean
   local written_by = meta_of("written_by", seen)
   local compiled_by = meta_of("compiled_by", seen)
   local carried = meta_of("compiler", seen)
   return written_by == nil or written_by ~= meta_of("writer", seen) or
     compiled_by == nil or carried == nil or not stamped(seen) or
-    compiled_by ~= require("build.pipeline").coded(GrammarMode.tool(carried))
+    compiled_by ~= require("build.code_identity").coded(GrammarMode.tool(carried))
 end
 
 --- The command that renews a tool that carries every core, or, with

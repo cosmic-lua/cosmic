@@ -9,8 +9,8 @@ local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
+local Key = require("cosmic.key")
 local Json = require("cosmic.json")
-local Sign = require("cosmic.sign")
 local acme_fixture = require("build.acme_fixture")
 local rsa_fixture = require("build.rsa_fixture")
 
@@ -19,12 +19,11 @@ local type Server = acme_fixture.Server
 local new_server = acme_fixture.new_server
 local no_pause = acme_fixture.no_pause
 local read_csr = acme_fixture.read_csr
-local rsa_public = acme_fixture.rsa_public
 
-local function client_of(server: Server, key?: Acme.Key): Acme.Client
+local function client_of(server: Server, key?: Key.Secret): Acme.Client
   return Acme.client({
     directory = BASE .. "/directory",
-    key = key or Acme.p256_key(Sign.p256_secret()),
+    key = key or Key.generate("p256"),
     request = server.request,
     pause = no_pause,
   })
@@ -36,7 +35,7 @@ local function test_issue_answers_the_chain_after_an_http_01_challenge()
   assert(client:account({ contact = { "mailto:ops@example.com" }, terms_agreed = true }) == BASE .. "/acct/1")
   local presented: mut {string: string} = {}
   local cleaned = 0
-  local certificate_key = Acme.p256_key(Sign.p256_secret())
+  local certificate_key = Key.generate("p256")
   local chain, why = client:issue({ "example.com", "www.example.com" }, {
     key = certificate_key,
     present = function(c: Acme.Challenge): boolean, string
@@ -56,7 +55,7 @@ local function test_issue_answers_the_chain_after_an_http_01_challenge()
   assert(csr.verified, "the request's signature verifies under its own key")
   assert(csr.common_name == "example.com")
   assert(#csr.names == 2 and csr.names[1] == "example.com" and csr.names[2] == "www.example.com")
-  local x = assert(Codec.unbase64url(assert(certificate_key.jwk["x"])))
+  local x = assert(Codec.unbase64url(assert(certificate_key.public:jwk()["x"])))
   assert(csr.public:sub(2, 33) == x, "the request carries the certificate key, not the account key")
 end
 
@@ -65,7 +64,7 @@ local function test_issue_answers_a_dns_01_challenge_for_a_wildcard()
   local client = client_of(server)
   local records: mut {string: string} = {}
   local chain, why = client:issue({ "*.example.com" }, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     challenge = "dns-01",
     present = function(c: Acme.Challenge): boolean, string
       assert(c.type == "dns-01" and c.domain == "example.com")
@@ -82,7 +81,7 @@ end
 local function test_a_wildcard_has_no_http_01_challenge()
   local server = new_server()
   local chain, why = client_of(server):issue({ "*.example.com" }, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
   })
   assert(chain == nil and why == "acme: the server offers no http-01 challenge for example.com", why)
@@ -93,7 +92,7 @@ local function test_an_invalid_challenge_stops_the_issue_and_says_so()
   server.settle = "invalid"
   local cleaned = false
   local chain, why = client_of(server):issue({ "example.com" }, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
     cleanup = function(_c: Acme.Challenge) cleaned = true end,
   })
@@ -104,7 +103,7 @@ end
 local function test_a_present_that_fails_stops_the_issue()
   local server = new_server()
   local chain, why = client_of(server):issue({ "example.com" }, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     present = function(_c: Acme.Challenge): boolean, string return false, "no web server" end,
   })
   assert(chain == nil and why == "acme: present: no web server", why)
@@ -133,7 +132,7 @@ end
 
 local function test_an_account_url_given_skips_the_lookup()
   local server = new_server()
-  local key = Acme.p256_key(Sign.p256_secret())
+  local key = Key.generate("p256")
   assert(client_of(server, key):account() == BASE .. "/acct/1")
   local before = #server.log
   local again = Acme.client({
@@ -161,7 +160,7 @@ local function test_a_wait_that_runs_out_says_what_is_still_pending()
   local server = new_server()
   server.polls_left = 1000
   local client = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request, pause = no_pause, wait = { timeout_ns = 1, interval_ns = 1 },
   })
   assert(client:account())
@@ -174,7 +173,7 @@ end
 
 local function test_a_transport_failure_names_the_step()
   local client = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    directory = BASE .. "/directory", key = Key.generate("p256"),
     request = function(_m: string, _u: string, _o: Http.Options): Http.Body?, string
       return nil, "connection refused"
     end,
@@ -184,17 +183,17 @@ local function test_a_transport_failure_names_the_step()
 end
 
 local function test_the_thumbprint_is_the_digest_of_the_canonical_jwk()
-  local key = Acme.p256_key(Sign.p256_secret())
+  local key = Key.generate("p256")
   local jwk: mut {string: Json.Value} = {}
-  for k, v in pairs(key.jwk) do jwk[k] = v end
+  for k, v in pairs(key.public:jwk()) do jwk[k] = v end
   local encoded = assert(Json.encode(jwk))
   local canonical = assert(Json.canonical(encoded))
   assert(canonical:sub(1, 22) == '{"crv":"P-256","kty":"', canonical)
-  assert(Acme.thumbprint(key) == Codec.base64url(Hash.sha256(canonical)))
+  assert(key.public:thumbprint() == Codec.base64url(Hash.sha256(canonical)))
 end
 
 local function test_a_csr_with_many_names_takes_long_lengths()
-  local key = Acme.p256_key(Sign.p256_secret())
+  local key = Key.generate("p256")
   local names: mut {string} = {}
   for i = 1, 40 do names[i] = "host-" .. tostring(i) .. ".example.com" end
   names[1] = string.rep("a", 63) .. ".example.com"
@@ -204,7 +203,7 @@ local function test_a_csr_with_many_names_takes_long_lengths()
 end
 
 local function test_a_csr_refuses_no_names_and_a_name_that_is_no_dns_name()
-  local key = Acme.p256_key(Sign.p256_secret())
+  local key = Key.generate("p256")
   local csr, why = Acme.csr(key, {})
   assert(csr == nil and why == "acme: a certificate request needs a name", why)
   for _, name in ipairs({ "", "a b.example", "example.com\0", "*.", "x/y", "bad..com", ".example.com",
@@ -214,55 +213,22 @@ local function test_a_csr_refuses_no_names_and_a_name_that_is_no_dns_name()
   end
 end
 
-local function test_a_p256_key_signs_jws_as_es256()
-  local secret = Sign.p256_secret()
-  local key = Acme.p256_key(secret)
-  local public = Sign.p256_public(secret)
-  assert(key.alg == "ES256" and key.jwk["kty"] == "EC" and key.jwk["crv"] == "P-256")
-  assert(assert(Codec.unbase64url(assert(key.jwk["y"]))) == public:sub(34, 65))
-  assert(Sign.p256_verify(public, "m", key.sign("m")))
-end
-
-local function test_an_rsa_key_signs_jws_as_rs256()
-  local secret = rsa_fixture.FIRST
-  local key = Acme.rsa_key(secret)
-  local public = Sign.rsa_public(secret)
-  assert(key.alg == "RS256" and key.jwk["kty"] == "RSA" and key.jwk["e"] == "AQAB")
-  local n = assert(Codec.unbase64url(assert(key.jwk["n"])))
-  assert(#n == 256 and (n:byte(1) or 0) >= 0x80, "n is the 2048-bit modulus, with no zero in front")
-  assert(rsa_public(n, "\1\0\1") == public)
-  assert(Sign.rsa_verify(public, "m", key.sign("m")))
-  assert(key.x509_sign("m") == key.sign("m"))
-end
-
---- RFC 7638 section 3.1: the thumbprint of its RSA key, from the members
---- `e`, `kty` and `n` in that order.
-local function test_an_rsa_thumbprint_matches_rfc_7638()
-  local key: Acme.Key = {
-    alg = "RS256",
-    jwk = {
-      e = "AQAB",
-      kty = "RSA",
-      n = "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4" ..
-        "n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0z" ..
-        "gdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csF" ..
-        "Cur-kEgU8awapJzKnqDKgw",
-    },
-    spki = "",
-    signature_algorithm = "",
-    sign = function(_message: string): string return "" end,
-    x509_sign = function(_message: string): string return "" end,
-  }
-  assert(Acme.thumbprint(key) == "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs", Acme.thumbprint(key))
+local function test_an_ed25519_key_is_refused_as_account_and_as_certificate_key()
+  local key = Key.generate("ed25519")
+  local made, why = pcall(Acme.client, { directory = BASE .. "/directory", key = key })
+  assert(not made and tostring(why):find("acme: opts.key is a P-256 or RSA key, not ed25519", 1, true) ~= nil,
+    tostring(why))
+  local csr, trouble = Acme.csr(key, { "example.com" })
+  assert(csr == nil and trouble:find("acme: a certificate's key is P-256 or RSA, not ed25519", 1, true) ~= nil, trouble)
 end
 
 local function test_issue_takes_rsa_account_and_certificate_keys()
   local server = new_server()
-  local client = client_of(server, Acme.rsa_key(rsa_fixture.FIRST))
+  local client = client_of(server, assert(Key.secret("rsa", rsa_fixture.FIRST)))
   assert(client:account({ terms_agreed = true }) == BASE .. "/acct/1")
   local secret = rsa_fixture.SECOND
   local chain, why = client:issue({ "example.com" }, {
-    key = Acme.rsa_key(secret),
+    key = assert(Key.secret("rsa", secret)),
     present = function(c: Acme.Challenge): boolean, string
       assert(c.key_authorization == c.token .. "." .. client.thumbprint)
       return true, ""
@@ -271,7 +237,7 @@ local function test_issue_takes_rsa_account_and_certificate_keys()
   assert(chain ~= nil, why)
   local csr = read_csr(server.csr)
   assert(csr.verified, "the request's RSA signature verifies under its own key")
-  assert(csr.public == Sign.rsa_public(secret), "the request carries the certificate key")
+  assert(csr.public == assert(Key.secret("rsa", secret)).public.bytes, "the request carries the certificate key")
   assert(#csr.names == 1 and csr.names[1] == "example.com")
 end
 
@@ -279,16 +245,11 @@ local function test_an_rsa_certificate_key_may_sign_for_a_p256_account()
   local server = new_server()
   local client = client_of(server)
   local chain, why = client:issue({ "example.com" }, {
-    key = Acme.rsa_key(rsa_fixture.FIRST),
+    key = assert(Key.secret("rsa", rsa_fixture.FIRST)),
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
   })
   assert(chain ~= nil, why)
   assert(read_csr(server.csr).verified)
-end
-
-local function test_an_rsa_key_raises_on_a_bad_secret()
-  local made, why = pcall(Acme.rsa_key, "not a key")
-  assert(not made and tostring(why):find("sign: not an RSA secret", 1, true) ~= nil, tostring(why))
 end
 
 local function test_a_finalize_that_is_still_processing_is_waited_out()
@@ -296,14 +257,14 @@ local function test_a_finalize_that_is_still_processing_is_waited_out()
   server.finalize_slowly = true
   local slept: mut {integer} = {}
   local client = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()), request = server.request,
+    directory = BASE .. "/directory", key = Key.generate("p256"), request = server.request,
     pause = function(ns: integer): boolean, string
       table.insert(slept, ns)
       return true, ""
     end,
   })
   local chain, why = client:issue({ "example.com" }, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
   })
   assert(chain ~= nil, why)
@@ -313,7 +274,7 @@ end
 
 local function test_the_account_payload_says_what_the_caller_agreed_to()
   local server = new_server()
-  local key = Acme.p256_key(Sign.p256_secret())
+  local key = Key.generate("p256")
   local missing, why = client_of(server, key):account({ only_existing = true })
   assert(missing == nil and why == "acme: newAccount: accountDoesNotExist (HTTP 400): no account for this key", why)
   assert(client_of(server, key):account({ contact = { "mailto:a@example.com" }, terms_agreed = true }))
@@ -325,7 +286,7 @@ local function test_the_account_payload_says_what_the_caller_agreed_to()
 end
 
 local function test_the_certificate_key_must_not_be_the_account_key()
-  local key = Acme.p256_key(Sign.p256_secret())
+  local key = Key.generate("p256")
   local chain, why = client_of(new_server(), key):issue({ "example.com" }, {
     key = key,
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
@@ -337,7 +298,7 @@ local function test_a_body_that_is_no_pem_certificate_is_refused()
   local server = new_server()
   server.chain = "<html>oops</html>"
   local chain, why = client_of(server):issue({ "example.com" }, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     present = function(_c: Acme.Challenge): boolean, string return true, "" end,
   })
   assert(chain == nil and why == "acme: certificate: the server sent no PEM certificate", why)
@@ -348,7 +309,7 @@ local function test_a_token_that_is_not_base64url_is_never_presented()
   server.token_prefix = "../"
   local presented = false
   local chain, why = client_of(server):issue({ "example.com" }, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     present = function(_c: Acme.Challenge): boolean, string
       presented = true
       return true, ""
@@ -364,7 +325,7 @@ local function test_a_429_is_waited_out_by_its_retry_after_and_sent_again()
   server.rate_retry_after = "7"
   local paused: mut {integer} = {}
   local client = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request,
     pause = function(ns: integer): boolean, string
       paused[#paused + 1] = ns
@@ -398,7 +359,7 @@ local function test_a_429_past_the_most_it_waits_fails_saying_how_long()
   zero.rate_retry_after = "1"
   local paused = false
   local refused, said = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    directory = BASE .. "/directory", key = Key.generate("p256"),
     request = zero.request, rate_limit_wait_ns = 0,
     pause = function(_ns: integer): boolean, string
       paused = true
@@ -421,7 +382,7 @@ local function test_a_429_asking_for_no_wait_counts_a_tenth_of_a_second_each()
   server.rate_retry_after = "0"
   local paused = 0
   local url, why = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request, rate_limit_wait_ns = Clock.seconds(1),
     pause = function(ns: integer): boolean, string
       assert(ns == Clock.ms(100), tostring(ns))
@@ -440,7 +401,7 @@ local function test_a_429_with_an_http_date_waits_until_then()
   server.rate_retry_after = "Sun, 06 Nov 1994 08:49:37 GMT"
   local waited: mut {integer} = {}
   local client = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request,
     pause = function(ns: integer): boolean, string
       waited[#waited + 1] = ns
@@ -456,7 +417,7 @@ local function test_a_pause_that_fails_ends_the_request()
   server.rate_limited = 1
   server.rate_retry_after = "2"
   local url, why = Acme.client({
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()),
+    directory = BASE .. "/directory", key = Key.generate("p256"),
     request = server.request,
     pause = function(_ns: integer): boolean, string return false, "cancelled" end,
   }):account({ terms_agreed = true })
@@ -465,7 +426,7 @@ end
 
 local function test_a_bad_rate_limit_wait_raises()
   local ok, why = pcall(Acme.client, {
-    directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()), rate_limit_wait_ns = -1,
+    directory = BASE .. "/directory", key = Key.generate("p256"), rate_limit_wait_ns = -1,
   })
   assert(not ok and tostring(why):find("rate_limit_wait_ns", 1, true) ~= nil, tostring(why))
 end
@@ -478,7 +439,7 @@ end
 local function issue_counted(server: Server, names: {string}, challenge?: Acme.ChallengeType): string?, string, integer
   local counted: Counted = { presented = 0 }
   local chain, why = client_of(server):issue(names, {
-    key = Acme.p256_key(Sign.p256_secret()),
+    key = Key.generate("p256"),
     challenge = challenge,
     present = function(_c: Acme.Challenge): boolean, string
       counted.presented = counted.presented + 1
@@ -537,7 +498,7 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
     local server = new_server()
     local followed = false
     local client = Acme.client({
-      directory = BASE .. "/directory", key = Acme.p256_key(Sign.p256_secret()), pause = no_pause,
+      directory = BASE .. "/directory", key = Key.generate("p256"), pause = no_pause,
       request = function(method: string, url: string, o: Http.Options): Http.Body?, string
         assert(url:sub(1, 8) == "https://", "sent to " .. url)
         if o.follow ~= false then followed = true end
@@ -556,7 +517,7 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
       end,
     })
     local chain, why = client:issue({ "example.com" }, {
-      key = Acme.p256_key(Sign.p256_secret()),
+      key = Key.generate("p256"),
       present = function(_c: Acme.Challenge): boolean, string return true, "" end,
     })
     assert(chain == nil and why == expected, why)
@@ -564,7 +525,7 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
   end
   local server = new_server()
   local plain = Acme.client({
-    directory = "http://acme.test/directory", key = Acme.p256_key(Sign.p256_secret()), request = server.request,
+    directory = "http://acme.test/directory", key = Key.generate("p256"), request = server.request,
   })
   local url, why = plain:account()
   assert(url == nil and why == "acme: directory: \"http://acme.test/directory\" is not an https URL", why)
@@ -572,7 +533,7 @@ local function test_every_url_is_https_and_no_redirect_is_followed()
 end
 
 local function test_a_chain_not_for_the_key_and_the_names_asked_for_is_refused()
-  local other = Acme.p256_key(Sign.p256_secret())
+  local other = Key.generate("p256")
   local cases: {{string}} = {
     { "key", "acme: the issued certificate is not for the certificate's key" },
     { "fewer", "acme: the issued certificate names \"example.com\", not the names asked for, " ..
@@ -586,7 +547,7 @@ local function test_a_chain_not_for_the_key_and_the_names_asked_for_is_refused()
   for _, case in ipairs(cases) do
     local kind, expected = assert(case[1]), assert(case[2])
     local server = new_server()
-    if kind == "key" then server.leaf_spki = other.spki end
+    if kind == "key" then server.leaf_spki = other.public:spki() end
     if kind == "fewer" then server.leaf_names = { "example.com" } end
     if kind == "more" then
       server.leaf_names = { "www.example.com", "example.com", "evil.example" }

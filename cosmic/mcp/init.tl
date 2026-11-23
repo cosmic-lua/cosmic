@@ -181,6 +181,17 @@ local record Mcp
     isError?: boolean
   end
 
+  --- How far a request has come, as a server tells a client that asked
+  --- (`notifications/progress`).
+  record Progress
+    --- How much is done: more with each notice, whether or not `total` is known.
+    progress: number
+    --- How much there is to do, where the server knows.
+    total?: number
+    --- What is happening, for a person to read.
+    message?: string
+  end
+
   --- A resource a server offers to be read by its URI.
   record Resource
     --- The URI it is read by.
@@ -377,6 +388,20 @@ function Mcp.result(content: {string | Mcp.Content}, failed?: boolean): Mcp.Tool
     blocks[#blocks + 1] = block
   end
   return { content = blocks, isError = if failed == true then true else nil end }
+end
+
+--- A tool's result of `value`, as its `structuredContent` and as one
+--- text block of its JSON, which a client that reads only the content
+--- reads too; `text`, where given, is that block instead. Raises for a
+--- value JSON cannot say.
+function Mcp.structured(value: {string: Json.Value}, text?: string): Mcp.ToolResult
+  local shown = text
+  if shown == nil then
+    local encoded, why = Json.encode(value)
+    if encoded == nil then error("mcp: structuredContent: " .. tostring(why), 2) end
+    shown = encoded
+  end
+  return { content = { Mcp.text(shown) }, structuredContent = value }
 end
 
 --- The JSON Schema of an object whose properties are `properties` and

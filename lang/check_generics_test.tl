@@ -749,7 +749,7 @@ local function test_a_builtin_bound_is_the_type_of_no_value()
   end
 end
 
---- A declaration may take the name of a bound, as [`Acme.Key`] does; where it is in scope the name is the declaration's,
+--- A declaration may take the name of a bound, as [`cosmic.key`]'s record does; where it is in scope the name is the declaration's,
 --- in a type and after `is` alike.
 local function test_a_declaration_named_for_a_bound_takes_the_name_where_it_is_in_scope()
   stands("local record Key\n  x: integer\nend\nlocal k: Key = { x = 1 }\nprint(k.x)\n", "1")

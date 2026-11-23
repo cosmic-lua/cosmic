@@ -53,7 +53,6 @@ local Hash = require("cosmic.hash")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
-local Sign = require("cosmic.sign")
 
 local record Webauthn
   --- Whether the user must be verified by the authenticator (a PIN, a
@@ -402,7 +401,7 @@ end
 
 --- A credential's public key, and its COSE algorithm.
 local record Public
-  key: Jose.Key
+  key: Jose.Jwk
   alg: integer
 end
 
@@ -463,13 +462,12 @@ end
 
 --- Whether `signature`, as WebAuthn spells one of `alg` (DER for
 --- ES256), is one of `message` under `key`.
-local function checks(key: Jose.Key, alg: integer, message: string, signature: string): boolean
+local function checks(key: Jose.Jwk, alg: integer, message: string, signature: string): boolean
   if alg == -7 then
     local raw = raw_ecdsa(signature)
-    return raw ~= nil and Sign.p256_verify(key.public, message, raw)
+    return raw ~= nil and key.public:verify(message, raw)
   end
-  if alg == -8 then return Sign.ed25519_verify(key.public, message, signature) end
-  return Sign.rsa_verify(key.public, message, signature)
+  return key.public:verify(message, signature)
 end
 
 --- The strings of the array member `name` of `object`.

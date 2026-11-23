@@ -104,10 +104,10 @@ local function own_compiler(): string
 end
 
 --- The compiler identity that a build records as the projection's [`compiled_by`]
---- ([`writer.other_code`]): the compiler's and the code that reads ([`build.pipeline`]'s `coded`), so that a
+--- ([`writer.other_code`]): the compiler's and the code that reads ([`code_identity.coded`]), so that a
 --- projection an older checker wrote is told apart from one this process would write.
 function rebuild.compiled_by(): string
-  return require("build.pipeline").coded(GrammarMode.tool(own_compiler()))
+  return require("build.code_identity").coded(GrammarMode.tool(own_compiler()))
 end
 
 --- Whether `root` looks like a project that has not been built: Teal at

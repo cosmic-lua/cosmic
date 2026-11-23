@@ -33,7 +33,7 @@ function Example.url_part()
   print("/users/" .. segment) -- /users/a%20b%2Fc%3F
   assert(segment == "a%20b%2Fc%3F")
   assert(Html.raw_url_part(Html.url_part("..")) == "%252E%252E")
-  local query = (assert(Html.url_query({ { "q", "fish & chips" }, { "page", "2" } })))
+  local query = Html.url_query({ { name = "q", value = "fish & chips" }, { name = "page", value = "2" } })
   assert(Html.raw_url_part(query) == "q=fish%20%26%20chips&page=2")
 end
 

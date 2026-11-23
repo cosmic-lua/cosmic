@@ -7,7 +7,13 @@ local Codec = require("cosmic.codec")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
 local Rand = require("cosmic.rand")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
+local Test = require("cosmic.test")
+
+--- The key that checks what `key` signs, as a provider publishes it.
+local function verifier(key: Key.Secret, kid?: string): Jose.Jwk
+  return assert(Jose.key(Jose.jwk(key.public, kid)))
+end
 
 --- RFC 7515 appendix A.3's ES256 key and token.
 local ES_X <const> = "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU"
@@ -38,7 +44,7 @@ local RSA_JWK: {string: Json.Value} = {
 
 local function test_es256_example_verifies()
   local key = assert(Jose.key(ES256_JWK))
-  assert(key.alg == "ES256" and #key.public == 65)
+  assert(key.alg == "ES256" and #key.public.bytes == 65)
   local jws = assert(Jose.verify(ES256_TOKEN, { key }))
   assert(jws.alg == "ES256")
   assert(jws.payload:find('"iss":"joe"', 1, true) ~= nil)
@@ -53,9 +59,9 @@ end
 local function test_thumbprint_examples()
   local key = assert(Jose.key(RSA_JWK))
   assert(key.kid == "2011-04-29")
-  assert(Jose.thumbprint(key) == "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs")
+  assert(key.public:thumbprint() == "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs")
   -- RFC 8037 appendix A.3.
-  assert(Jose.thumbprint((assert(Jose.key(ED25519_JWK)))) == "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k")
+  assert(assert(Jose.key(ED25519_JWK)).public:thumbprint() == "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k")
 end
 
 local function test_a_changed_byte_is_refused()
@@ -94,37 +100,36 @@ end
 --- algorithm.
 local function test_a_key_checks_only_its_own_algorithm()
   local seed = assert(Rand.entropy(32))
-  local ed = Jose.signer("EdDSA", seed)
-  local es = Jose.signer("ES256", Sign.p256_secret())
+  local ed = assert(Key.secret("ed25519", seed))
+  local es = Key.generate("p256")
   local token = Jose.sign(ed, { sub = "ada" })
-  local jws, why = Jose.verify(token, { es.key })
+  local jws, why = Jose.verify(token, { verifier(es) })
   assert(jws == nil and tostring(why):find("no key signs with EdDSA", 1, true) ~= nil, why)
-  assert(Jose.verify(token, { es.key, ed.key }))
+  assert(Jose.verify(token, { verifier(es), verifier(ed) }))
 end
 
 local function test_crit_is_refused()
-  local signer = Jose.signer("ES256", Sign.p256_secret())
+  local signer = Key.generate("p256")
   local token = Jose.sign(signer, { sub = "ada" }, { crit = Json.array({ "exp" }), exp = 1 })
-  local jws, why = Jose.verify(token, { signer.key })
+  local jws, why = Jose.verify(token, { verifier(signer) })
   assert(jws == nil and tostring(why):find("crit", 1, true) ~= nil, why)
 end
 
 local function test_kid_picks_the_key()
-  local one = Jose.signer("ES256", Sign.p256_secret(), "one")
-  local two = Jose.signer("ES256", Sign.p256_secret(), "two")
-  local token = Jose.sign(two, { sub = "ada" })
-  assert(Jose.verify(token, { one.key, two.key }))
-  local jws, why = Jose.verify(token, { one.key })
+  local one, two = Key.generate("p256"), Key.generate("p256")
+  local token = Jose.sign(two, { sub = "ada" }, { kid = "two" })
+  assert(Jose.verify(token, { verifier(one, "one"), verifier(two, "two") }))
+  local jws, why = Jose.verify(token, { verifier(one, "one") })
   assert(jws == nil and tostring(why):find('id "two"', 1, true) ~= nil, why)
 end
 
 local function test_rs256_signs_and_verifies()
-  local signer = Jose.signer("RS256", Sign.rsa_secret(), "r")
-  local token = Jose.sign(signer, { sub = "ada" })
-  local key = assert(Jose.key(signer.jwk))
-  assert(key.alg == "RS256")
+  local signer = Key.generate("rsa")
+  local token = Jose.sign(signer, { sub = "ada" }, { kid = "r" })
+  local key = assert(Jose.key(Jose.jwk(signer.public, "r")))
+  assert(key.alg == "RS256" and key.kid == "r" and key.use == "sig")
   assert(Jose.verify(token, { key }))
-  assert(Jose.thumbprint(key) == Jose.thumbprint(signer.key))
+  assert(key.public:thumbprint() == signer.public:thumbprint())
 end
 
 local function test_keys_refused_by_jwk()
@@ -176,7 +181,7 @@ end
 
 --- A provider's signer, and a token of its claims less `drop` with
 --- `with` laid over.
-local signer = Jose.signer("ES256", Sign.p256_secret(), "k")
+local signer = Key.generate("p256")
 local NOW <const> = 1700000000
 local function token(with: {string: Json.Value}, drop?: string): string
   local claims: mut {string: Json.Value} = {
@@ -188,21 +193,21 @@ local function token(with: {string: Json.Value}, drop?: string): string
   }
   for name, value in pairs(with) do claims[name] = value end
   if drop ~= nil then claims[drop] = nil end
-  return Jose.sign(signer, claims)
+  return Jose.sign(signer, claims, { kid = "k" })
 end
 local OPTS: Jose.JwtOptions = { issuer = "https://id.example.com", audience = "client", now = NOW }
 
 local function test_verify_jwt_takes_a_good_token()
-  local claims = assert(Jose.verify_jwt(token({}), { signer.key }, OPTS))
+  local claims = assert(Jose.verify_jwt(token({}), { verifier(signer, "k") }, OPTS))
   assert(claims.sub == "ada" and claims.aud[1] == "client" and claims.exp == NOW + 300 and claims.iat == NOW)
-  local many = assert(Jose.verify_jwt(token({ aud = Json.array({ "other", "client" }) }), { signer.key }, OPTS))
+  local many = assert(Jose.verify_jwt(token({ aud = Json.array({ "other", "client" }) }), { verifier(signer, "k") }, OPTS))
   assert(#many.aud == 2)
-  assert(Jose.verify_jwt(token({ exp = NOW + 0.5 }), { signer.key }, OPTS))
+  assert(Jose.verify_jwt(token({ exp = NOW + 0.5 }), { verifier(signer, "k") }, OPTS))
 end
 
 local function test_verify_jwt_refuses()
   local function refused(t: string, says: string, opts?: Jose.JwtOptions)
-    local claims, why = Jose.verify_jwt(t, { signer.key }, opts or OPTS)
+    local claims, why = Jose.verify_jwt(t, { verifier(signer, "k") }, opts or OPTS)
     assert(claims == nil and tostring(why):find(says, 1, true) ~= nil, why)
   end
   refused(token({ iss = "https://evil.example.com" }), "issuer")
@@ -229,10 +234,10 @@ end
 
 --- A token is taken within the leeway of its times, either side.
 local function test_verify_jwt_takes_the_leeway()
-  assert(Jose.verify_jwt(token({ exp = NOW - 30 }), { signer.key }, OPTS))
-  assert(Jose.verify_jwt(token({ nbf = NOW + 30 }), { signer.key }, OPTS))
-  assert(Jose.verify_jwt(token({ iat = NOW + 30 }), { signer.key }, OPTS))
-  assert(Jose.verify_jwt(token({ exp = NOW + 1 }), { signer.key },
+  assert(Jose.verify_jwt(token({ exp = NOW - 30 }), { verifier(signer, "k") }, OPTS))
+  assert(Jose.verify_jwt(token({ nbf = NOW + 30 }), { verifier(signer, "k") }, OPTS))
+  assert(Jose.verify_jwt(token({ iat = NOW + 30 }), { verifier(signer, "k") }, OPTS))
+  assert(Jose.verify_jwt(token({ exp = NOW + 1 }), { verifier(signer, "k") },
     { issuer = OPTS.issuer, audience = "client", now = NOW, leeway = 0 }))
 end
 
@@ -240,16 +245,29 @@ end
 --- signed and its claims hold.
 local function test_a_long_token_is_refused()
   local long = token({ pad = ("x"):rep(64 * 1024) })
-  local claims, why = Jose.verify_jwt(long, { signer.key }, OPTS)
+  local claims, why = Jose.verify_jwt(long, { verifier(signer, "k") }, OPTS)
   assert(claims == nil and tostring(why):find("too long", 1, true) ~= nil, why)
 end
 
 local function test_verify_jwt_compares_typ_loosely()
   local t = Jose.sign(signer, { iss = "x", sub = "s", aud = "c", exp = NOW + 10 }, { typ = "application/AT+JWT" })
-  assert(Jose.verify_jwt(t, { signer.key }, { issuer = "x", audience = "c", now = NOW, typ = "at+jwt" }))
+  assert(Jose.verify_jwt(t, { verifier(signer, "k") }, { issuer = "x", audience = "c", now = NOW, typ = "at+jwt" }))
 end
 
 local function test_verify_jwt_without_exp_when_asked()
-  assert(Jose.verify_jwt(token({}, "exp"), { signer.key },
+  assert(Jose.verify_jwt(token({}, "exp"), { verifier(signer, "k") },
     { issuer = OPTS.issuer, audience = "client", now = NOW, require_exp = false }))
+end
+
+local function test_a_published_jwk_names_its_alg_use_and_kid()
+  local jwk = Jose.jwk(Key.generate("ed25519").public, "k9")
+  assert(jwk["alg"] == "EdDSA" and jwk["use"] == "sig" and jwk["kid"] == "k9" and jwk["kty"] == "OKP")
+  assert(Jose.jwk(Key.generate("p256").public)["alg"] == "ES256")
+  assert(Jose.jwk(Key.generate("p256").public)["kid"] == nil)
+end
+
+local function test_an_x25519_key_signs_no_token_and_is_published_as_no_jwk()
+  local key = Key.generate("x25519")
+  Test.raises(function() Jose.sign(key, { sub = "ada" }) end, "jose: an X25519 key signs nothing")
+  Test.raises(function() Jose.jwk(key.public) end, "jose: an X25519 key signs nothing")
 end

@@ -2,7 +2,7 @@ web Web framework and auth: cosmic/web/** (app, request, session, csrf, cors, oi
 net HTTP, TLS, ACME and networking in Lua and C: cosmic/http/**, cosmic/internal/connection.tl, cosmic/net.tl, cosmic/tls.tl, cosmic/acme.tl, cosmic/mdns.tl, cosmic/dns*, cosmic/url.tl, core/http.c, core/tls.c, core/socket*
 sandbox Sandbox, relay and Tailscale: cosmic/sandbox/**, cosmic/child.tl, cosmic/policy.tl, cosmic/internal/relay*, cosmic/tailscale.tl, core/promises.c, core/syscalls*.c, landlock/seccomp/seatbelt code
 ccore C core and parsers: core/*.c (json, xml, html, protobuf, sqlite, compress, unzstd, store, surface, bigint, portable, archive), patch/lua/**, vendor patches, build.zig flags
-crypto Crypto and secret storage: core/sign.c, core/crypto*, cosmic/cipher.tl, cosmic/sign.tl, cosmic/srp.tl, cosmic/hash*, cosmic/secret*, key handling, RNG, constant-time code
+crypto Crypto and secret storage: core/sign.c, core/crypto*, cosmic/cipher.tl, cosmic/key.tl, cosmic/srp.tl, cosmic/hash*, cosmic/secret*, key handling, RNG, constant-time code
 supply Build, CI and supply chain: build/**, bin/**, ci/**, .github/**, vendor PIN files, release and bootstrap flows
 stdlib The rest of the standard library: cosmic/*.tl and cosmic/** not named above (fs, json, sqlite, store, time, xml, csv, archive, tar, codec, stream, proc, env), cmd/**, eval/**
 checker The Teal checker, lexer and codegen as a boundary: lang/** (what checked code is promised and whether codegen keeps it)

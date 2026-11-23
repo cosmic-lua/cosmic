@@ -266,7 +266,7 @@ local record Stream
 
   --- The entries of a tar or a zip, one at a time: what
   --- [`cosmic.tar`]'s and [`cosmic.zip`]'s readers are, and what
-  --- [`Archive.open`] and [`Archive.open_stream`] answer.
+  --- [`Archive.open`] answers.
   interface ArchiveReader
     --- The next entry, nil and "" at the end, or nil and an error. For
     --- a compressed tar, the end also runs the decompressor to the end

@@ -749,7 +749,10 @@ local function test_a_run_inside_a_guard_runs()
   local r = assert(Child.run(lua("return 5")))
   assert(r.code == 5, tostring(r.code))
   assert(guard:cancelled() == 0)
-  assert(guard:release() == 0)
+  do
+    local released, _ = guard:release()
+    assert(released == 0)
+  end
 end
 
 --- A timeout is nanoseconds: the child is ended about when it says, not

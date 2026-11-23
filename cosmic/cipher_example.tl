@@ -37,31 +37,6 @@ function Example.open()
   assert(Cipher.open("chacha20-poly1305", key, nonce, sealed, "invoice 7") == "pay bob 10")
 end
 
---- Two parties agreeing on a key over a channel anyone can read. Each
---- makes a private key, sends its public key, and computes the same
---- secret from its own private key and the other's public key. Both
---- derive the message key from the secret and the two public keys with
---- [`Hash.hkdf`], and one seals what the other opens.
-function Example.x25519()
-  local alice = assert(Rand.entropy(32))
-  local bob = assert(Rand.entropy(32))
-  local alice_public = Cipher.x25519_public(alice)
-  local bob_public = Cipher.x25519_public(bob)
-
-  local alice_secret = assert(Cipher.x25519(alice, bob_public))
-  local bob_secret = assert(Cipher.x25519(bob, alice_public))
-  assert(Hash.equal(alice_secret, bob_secret))
-
-  local context = "example message key" .. alice_public .. bob_public
-  local alice_key = Hash.hkdf("sha256", alice_secret, "", context, Cipher.key_length)
-  local bob_key = Hash.hkdf("sha256", bob_secret, "", context, Cipher.key_length)
-  local nonce = assert(Rand.entropy(Cipher.nonce_length))
-  local sealed = Cipher.seal("chacha20-poly1305", alice_key, nonce, "hello, bob")
-  local message = assert(Cipher.open("chacha20-poly1305", bob_key, nonce, sealed))
-  print(message)
-  assert(message == "hello, bob")
-end
-
 --- A session's two ends, each sealing under its own key, both derived
 --- from one shared secret. Neither end handles a nonce. A message opens
 --- once, in its turn, and one that fails does not disturb the next.

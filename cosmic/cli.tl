@@ -124,65 +124,74 @@ local record Cli
   ---     end
   ---
   --- `cosmic test tally_test.tl` runs that file's tests, and `cosmic test
-  --- tally_test.tl:test_words` that one. A selector narrows the run to
-  --- the modules it names: a file, a module name (`tally_test`), or a
-  --- directory; `<file or module>:<name>` to the one test of that name,
-  --- `test_*` or an example's, and one no test there has is refused.
-  --- Each test runs in a process of its own, and fails if it runs past
-  --- its timeout (`--timeout`; a module's `Test.policy { timeout = n }`
-  --- lengthens it); what a failing test printed is shown beneath it, and
-  --- `--show-output` shows a passing test's too.
+  --- tally_test.tl:test_words` runs that one test. A selector narrows the
+  --- run to the modules it names: a file, a module name (`tally_test`) or a
+  --- directory. `<file or module>:<name>` narrows it to the one test of that
+  --- name, a `test_*` or an example's, and a name that no test there has is
+  --- refused.
   ---
-  --- Each run reports its line coverage and passes whatever it is. `--min
-  --- PCT` and `--min-file PCT` hold a whole run to a floor, for the tree and
-  --- for each file, and fail it (status 1) naming what fell short.
+  --- Each test runs in a process of its own. It fails when it runs past its
+  --- timeout (`--timeout`; a module's `Test.policy { timeout = n }` makes it
+  --- longer). What a failing test printed is shown beneath it, and
+  --- `--show-output` shows what a passing test printed too.
   ---
-  --- Where the kernel can (Linux), each test runs sandboxed, given its
-  --- module's import closure and what the module declares with
-  --- [`Test.policy`] (`cosmic docs cosmic.test`), and nothing else of the
-  --- tree or the host: a test that starts a host program, /bin/sh or
-  --- `sleep`, grants it by its absolute path. A failure that met what its
-  --- sandbox left out at an absolute path -- a program it started, a
-  --- file it read -- says so beneath it, naming what to declare, as does
-  --- one that read a file of the tree by a relative path without granting it.
+  --- Each run reports its line coverage, and coverage alone never fails a
+  --- run. `--min PCT` and `--min-file PCT` hold a whole run to a floor, for
+  --- the tree and for each file. A run below the floor fails (status 1) and
+  --- names what fell short. Each run writes its line coverage to the
+  --- `coverage` table of build.db, which `cosmic sql --build` reads.
   ---
-  --- A test whose verdict still stands is not run again: one this
-  --- checkout reached, in its build directory's build.db, or one any checkout of the same
-  --- content did, which every sandboxed run shares through
-  --- $XDG_CACHE_HOME/cosmic/verdicts (~/.cache/cosmic/verdicts):
-  --- COSMIC_VERDICT_CACHE names another file, and COSMIC_VERDICT_CACHE=0
-  --- turns off that shared cache alone: a verdict of this checkout still
-  --- stands, and only `--all` runs its test again.
-  ---
-  --- An edit to a test file, a comment included, runs its tests again; a
-  --- comment in a module it imports runs them again only where the test is
-  --- given that module's text, as one is that declares `store_text` or
-  --- `store`, starts the program or runs unsandboxed: doc/testing.md ("the
-  --- pure store") names every case.
-  ---
-  --- A test function is given a fresh directory (`<scratch>/tmp`); TMPDIR is
+  --- A test function is given a fresh directory, `<scratch>/tmp`. TMPDIR is
   --- its scratch directory, `<scratch>`, so [`Fs.mkdtemp`] makes a sibling of
-  --- it. The scratch directory is removed after a pass, and kept after a
-  --- failure unsandboxed. Each run writes its line coverage to the `coverage`
-  --- table of build.db, which `cosmic sql --build` reads.
+  --- it. The scratch directory is removed after a pass. After a failure of
+  --- an unsandboxed test, it is kept.
   ---
-  --- A run whose workers are not sandboxed
-  --- (COSMIC_TEST_SANDBOX=0, or macOS) shares only through a file
-  --- COSMIC_VERDICT_CACHE names.
+  --- The sandbox:
   ---
-  --- A module is not compiled again either, nor a source parsed, where
-  --- any checkout compiled or parsed the same, through
-  --- $XDG_CACHE_HOME/cosmic/build (~/.cache/cosmic/build):
-  --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0
-  --- turns it off.
+  --- Where the kernel can sandbox (Linux), each test runs sandboxed. It
+  --- is given its module's import closure and what the module declares
+  --- with [`Test.policy`]
+  --- (`cosmic docs cosmic.test`), and nothing else of the tree or the host.
+  --- A test that starts a host program, such as /bin/sh or `sleep`, grants
+  --- it by its absolute path. When a test fails because its sandbox left out
+  --- something at an absolute path (a program it started, a file it read),
+  --- the report beneath it says so and names what to declare. It does the
+  --- same for a test that read a file of the tree by a relative path without
+  --- a grant.
   ---
-  --- The tree is the working directory, unless no build of it has
-  --- written its projection (cosmic.db in its build directory, as `run`
-  --- names it) and an ancestor below the home directory has one whose build
-  --- staged the working directory: then it is that ancestor, named on
-  --- stderr, and paths are read from the working directory.
-  --- COSMIC_TREE=<dir> names the tree outright, `.` for the working
-  --- directory
+  --- What runs again:
+  ---
+  --- A test whose verdict still stands is not run again. A verdict stands
+  --- when this checkout reached it (in its build directory's build.db), or
+  --- when any checkout of the same content did. Every sandboxed run shares
+  --- verdicts through `$XDG_CACHE_HOME/cosmic/verdicts`
+  --- (`~/.cache/cosmic/verdicts`). COSMIC_VERDICT_CACHE names another file,
+  --- and COSMIC_VERDICT_CACHE=0 turns off only that shared cache: a verdict
+  --- of this checkout still stands, and only `--all` runs its test again. A
+  --- run whose workers are not sandboxed (COSMIC_TEST_SANDBOX=0, or macOS)
+  --- shares verdicts only through a file that COSMIC_VERDICT_CACHE names.
+  ---
+  --- An edit to a test file, including to a comment, runs its tests again. A
+  --- comment in a module that the test imports runs them again only when
+  --- the test is given that module's text: a test that declares
+  --- `store_text` or `store`, starts the program, or runs unsandboxed.
+  --- doc/testing.md ("the pure store") lists every case.
+  ---
+  --- A module is not compiled again, and a source is not parsed again, when
+  --- any checkout compiled or parsed the same text. They are shared through
+  --- `$XDG_CACHE_HOME/cosmic/build` (`~/.cache/cosmic/build`).
+  --- COSMIC_BUILD_CACHE names another file, and COSMIC_BUILD_CACHE=0 turns
+  --- the cache off.
+  ---
+  --- The tree:
+  ---
+  --- The tree is the working directory, with one exception. When no build
+  --- of the working directory has written its projection (cosmic.db in its
+  --- build directory, as `run` names it), and an ancestor below the home
+  --- directory has one whose build staged the working directory, the tree
+  --- is that ancestor. Then the tree is named on stderr, and paths are read
+  --- from the working directory. COSMIC_TREE=<dir> names the tree outright,
+  --- with `.` for the working directory.
   test: string
   --- `cosmic fix [options] [path...]`: rewrites every Teal source in
   --- the working directory structurally, then writes it back out as
@@ -293,159 +302,216 @@ local record Cli
   --- it refuses
   lsp: string
   --- `cosmic sql [--db <path> | --build | --store] [--to csv|ndjson] <statement>`: runs
-  --- one SQL statement read-only -- SQLite itself refuses a write --
-  --- against the projection in the build directory, or the binary's own
-  --- database when there is none, or the one database an option names.
-  --- The build directory is the working directory's only, never a
-  --- project's above it. Nothing is built or staged: the projection is
-  --- what the last run that builds wrote (`cosmic test`, `build`, `fix`,
-  --- `docs`, `uses`, or running a file, `cosmic <file.tl>`), and the
-  --- working database `--build` reads what the last run that stages left
-  --- (those, `todos` and `lsp`), so run one first to ask of the tree as it
-  --- stands. A statement opening with `.` (`.tables`) is the sqlite3
-  --- shell's, not SQL: `SELECT name FROM sqlite_schema WHERE type='table'`
-  --- names the tables, and, of the build directory's databases, `cosmic
-  --- db` says what each holds. One opening with an SQL comment `--` is read
-  --- as an option unless `--` comes before it. `cosmic sql --from
-  --- <file> ['<statement>']` asks it of a data file instead, to count,
-  --- filter, join and sum where `cosmic json` only looks up (`cosmic sql
-  --- --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP
-  --- BY type'`): each `--from` is loaded as a table of an in-memory
-  --- database, named for the file's stem (`--from name=file` names it,
-  --- and `-` reads standard input), read as JSON, as JSON Lines for
-  --- `.jsonl` and `.ndjson`, as CSV for `.csv` and as TSV for `.tsv` and
-  --- `.tab`; `--as json|ndjson|csv|tsv` overrides the extension, and
-  --- standard input needs it. `--as`, `--at '<path>'` and `--raw` apply
-  --- to the `--from` before them, and `--at` reads the rows from the
-  --- array at a path, a JSONPath query naming one value as `cosmic json`
-  --- reads it (`--at '$.data.rows'`, indices from 0; a CSV or TSV has
-  --- no path). A CSV or TSV (RFC 4180, quotes and all) has a header
-  --- line naming the columns, in that order, and a row per record; a record with more
-  --- or fewer fields than the header is refused, naming its line, and a
-  --- blank line is skipped, except in a one-column file, where one before
-  --- the last record is an empty cell (blank lines at the end are dropped, so a final empty cell is written `""` to be kept). Its
-  --- cells are typed by one rule: a cell that is plainly a number (an
+  --- one SQL statement, read-only (SQLite itself refuses a write). By
+  --- default it runs against the projection in the build directory, or the
+  --- binary's own database when there is none. An option names another
+  --- database. The build directory is the working directory's only, never
+  --- that of a project above it.
+  ---
+  --- Nothing is built or staged. The projection is what the last run that
+  --- builds wrote: `cosmic test`, `build`, `fix`, `docs`, `uses`, or running
+  --- a file (`cosmic <file.tl>`). The working database that `--build` reads
+  --- is what the last run that stages left: those runs, `todos` and `lsp`.
+  --- So run one of them first to ask about the tree as it is now.
+  ---
+  --- - A statement that starts with `.` (`.tables`) is a sqlite3 shell
+  ---   command, not SQL. `SELECT name FROM sqlite_schema WHERE type='table'`
+  ---   lists the tables, and `cosmic db` says what each database of the
+  ---   build directory holds.
+  --- - A statement that starts with an SQL comment, `--`, is read as an
+  ---   option unless `--` comes before it.
+  ---
+  --- Data files:
+  ---
+  --- `cosmic sql --from <file> ['<statement>']` asks the question of a data
+  --- file instead. Use it to count, filter, join and sum, where `cosmic json`
+  --- only looks values up:
+  ---
+  ---     cosmic sql --from accounts.json 'SELECT type, sum(balance) FROM accounts GROUP BY type'
+  ---
+  --- Each `--from` is loaded as a table of an in-memory database, named for
+  --- the file's stem. `--from name=file` gives the name, and `-` reads
+  --- standard input.
+  ---
+  --- - The file is read as JSON; as JSON Lines for `.jsonl` and `.ndjson`;
+  ---   as CSV for `.csv`; as TSV for `.tsv` and `.tab`. `--as
+  ---   json|ndjson|csv|tsv` overrides the extension, and standard input
+  ---   needs it.
+  --- - `--as`, `--at '<path>'` and `--raw` apply to the `--from` before
+  ---   them. `--at` reads the rows from the array at a path: a JSONPath
+  ---   query that names one value, as `cosmic json` reads it
+  ---   (`--at '$.data.rows'`, indices from 0). A CSV or TSV has no path.
+  --- - With no statement, it prints each table's row count, its columns
+  ---   with the types stored, and a sample row.
+  --- - A missing column or table is answered with the ones there are.
+  ---
+  --- A CSV or TSV file (RFC 4180, with quotes) has a header line that names
+  --- the columns, in order, and one row per record. A record with more or
+  --- fewer fields than the header is refused, and its line is named. A
+  --- blank line is skipped, except in a one-column file, where a blank line
+  --- before the last record is an empty cell. Blank lines at the end are
+  --- dropped, so write a final empty cell as `""` to keep it.
+  ---
+  --- Cells are typed by one rule. A cell that is plainly a number (an
   --- optional `-`, digits, an optional fraction or exponent; no `+`, no
-  --- leading zero, no spaces) is an integer or a real, an empty cell is
-  --- NULL, and anything else, `007` and ZIP codes included, is text;
-  --- `--raw` keeps every cell text, the empty one `''`. An array of
-  --- objects is a table of them, with a column per key, an array of
-  --- scalars a `value` column, and any other value one row; a nested
-  --- object or array is JSON text for `json_extract`, a boolean is 0 or
-  --- 1, `_json` is the whole row, and a key that would collide (`A` with
-  --- `a`, or `_json`, `rowid`) is renamed `_2`. `SELECT *` answers the
-  --- file's columns and then `_json` last; name the columns (`SELECT a, b`)
-  --- to get only the file's. With no statement it prints each table's row
-  --- count, columns with the types stored, and a sample row.
-  --- A missing column or table is answered with the ones there are.
-  --- Exit codes as below, 1 for a file it cannot read or load. The rows
-  --- are TSV: the first line names the columns (a statement without any
-  --- prints none); each row after is one line of
-  --- tab-separated cells: NULL as \N, a blob as X'<hex>',
-  --- and in text a backslash, tab, newline or return as \\, \t, \n or
-  --- \r and any other control byte as \xHH; the summary goes to
-  --- stderr. `--to` writes the rows as CSV or NDJSON instead. `--to csv`
-  --- quotes as RFC 4180 does, each record ended by LF: a header of the column names first, NULL an empty
-  --- field and '' a quoted empty one (so a one-column NULL is a blank
-  --- line, which a CSV reader may drop), a blob's bytes as they are,
-  --- and a field that begins with a byte order mark quoted, so a reader
-  --- keeps it.
-  --- `--to ndjson` writes a JSON object per row, its members the columns
-  --- in order, a repeated name given `_2`; a result of one column named
-  --- `_json`, as `--from` gives each row, is written as that object's
-  --- text, which holds the row's members with its keys in byte order.
-  --- A blob, an infinity, text or a name that is not UTF-8, or a `_json`
-  --- that is not one, fails the statement, naming the row. `--to` takes
-  --- a statement, not the description no statement gives.
-  --- Exits 0 when the
-  --- statement ran, rows or none; 1 when the
-  --- database or the statement failed, a write among them; 2 for a
-  --- command line it cannot read.
+  --- leading zero, no spaces) is an integer or a real. An empty cell is
+  --- NULL. Anything else, including `007` and ZIP codes, is text. `--raw` keeps
+  --- every cell as text, and an empty cell as `''`.
+  ---
+  --- JSON becomes rows like this:
+  ---
+  --- - An array of objects is a table of them, with a column for each key.
+  --- - An array of scalars is a `value` column.
+  --- - Any other value is one row.
+  --- - A nested object or array is JSON text, for `json_extract`. A boolean
+  ---   is 0 or 1.
+  --- - `_json` is the whole row.
+  --- - A key that would collide (`A` with `a`, or `_json`, `rowid`) is
+  ---   renamed with `_2`.
+  ---
+  --- `SELECT *` returns the file's columns, then `_json` last. Name the
+  --- columns (`SELECT a, b`) to get only the file's.
+  ---
+  --- Output:
+  ---
+  --- The rows are TSV. The first line names the columns (a statement that
+  --- returns no columns prints none). Each row after it is one line of
+  --- cells separated by tabs: NULL is \N, and a blob is X'<hex>'. In text, a
+  --- backslash, tab, newline or carriage return is \\, \t, \n or \r, and
+  --- any other control byte is \xHH. The summary goes to stderr.
+  ---
+  --- `--to` writes the rows as CSV or NDJSON instead. It needs a statement,
+  --- not the description that no statement gives.
+  ---
+  --- - `--to csv` quotes as RFC 4180 does, and ends each record with LF.
+  ---   A header of the column names comes first. NULL is an empty field and
+  ---   '' is a quoted empty field, so a one-column NULL is a blank line,
+  ---   which a CSV reader may drop. A blob's bytes are written as they are.
+  ---   A field that begins with a byte order mark is quoted, so a reader
+  ---   keeps it.
+  --- - `--to ndjson` writes one JSON object per row, with the columns as
+  ---   its members, in order. A repeated name gets `_2`. A result of one
+  ---   column named `_json`, as `--from` gives for each row, is written as
+  ---   that object's text, which holds the row's members with its keys in
+  ---   byte order. A blob, an infinity, text or a name that is not UTF-8,
+  ---   or a `_json` that is not an object's text on one line fails the statement, and the row
+  ---   is named.
+  ---
+  --- It exits 0 when the statement ran, with rows or none. It exits 1 when
+  --- the database or the statement failed (a write too), or when a `--from`
+  --- file cannot be read or loaded. It exits 2 for a command line it cannot
+  --- read.
   sql: string
-  --- `cosmic json [options] [path] [file|-]`: the answer to a quick
-  --- question about a JSON file -- is there a key `x` in this export,
-  --- what is under `users[0]` -- with no script to write. It reads the
-  --- file, or standard input when the file is `-` or absent, and prints
-  --- the value at the path as JSON, indented, or on one line with
-  --- `--compact`; a string prints as its text with `-r`. A path is a
-  --- JSONPath query (RFC 9535), in the subset [`Json.query`] reads, and
-  --- goes in single quotes, as a shell would expand its `$` and `[0]`:
-  --- `cosmic json '$.users[0].name' export.json`. `$` is the document and
-  --- comes first, then `.key` (a key that is a word), `["a key"]` (any
-  --- key, in a JSON string) or `['a key']`, and `[0]`, counted from 0, or
-  --- `[-1]` from the end. A key holding `'` is written `["it's"]`, whose
-  --- `'` inside a shell's single quotes is `'\''`:
-  --- `cosmic json '$["it'\''s"]'`. `*` (`.*` or `[*]`) is every member of
-  --- an object or element of an array, and `..key`, `..[n]` or `..*`
-  --- that selector at any depth, the current level included (`$..id`,
-  --- `$.users[*].name`): such a query prints each match as a
-  --- `path = value` line, the value as compact JSON
-  --- (`$.users[0].name = "ann"`), in the order RFC 9535 gives (arrays by
-  --- index, keys in byte order), a value reached twice once; with `-r`,
-  --- the raw values alone, one to a line (a string prints as its text,
-  --- so one with a newline in it spans lines; without `-r`, or with
-  --- `--flat`, every line is one JSON value); with `--exists`, nothing,
-  --- and 0 when at least one matches. Filters, slices and unions are
-  --- refused by name: this is a lookup, not a query language. `--flat`
-  --- prints every leaf under the path (the whole document with none) as
-  --- such lines, an empty object or array as `{}` or `[]`; the path of
-  --- each line is one this command reads back, in that shorthand form
-  --- (`$.users[1].email`, `$["a key"][0]`), so `cosmic json --flat
-  --- export.json | grep -i email` finds a leaf and its path pastes back
-  --- into `cosmic json '$.users[1].email' export.json`. With one word, it
-  --- is the path when it begins with `$`, else the file; a file named
-  --- `$x.json` is `./$x.json`, and after `--` the words are `[path] file`
-  --- whatever
-  --- they begin with. The value is printed as [`Json.encode`] writes it,
-  --- not echoed byte for byte: `1e2` prints as `100.0` and a big integer
-  --- loses precision. `--exists` prints nothing and only answers by its
-  --- exit status; `--keys` lists an object's keys, sorted, one per line,
-  --- or an array's length; `--shape` prints a summary of the value's
-  --- shape (`{ids: [2 x number], ok: boolean}`), and neither takes a
-  --- query of `*` or `..`, which can match many values. Only a lookup:
-  --- no filter, no transform; to count or sum, use `cosmic sql --from`.
-  --- Exits 0 when the path is found (a query of many: when something
-  --- matches), 1 when it is not, with a message on standard error naming
-  --- by its JSON Pointer the first place not there (`no value at pointer
-  --- "/users/4"`; a query of many that matches nothing: `<query>: no
-  --- match`; a `null` value is found), 2 for a command line or a path it
-  --- cannot read, or a file that is missing or not JSON. It prints no
-  --- summary: its output is the data a pipe reads
+  --- `cosmic json [options] [path] [file|-]`: answers a quick question about
+  --- a JSON file, with no script to write: is there a key `x` in this
+  --- export, what is under `users[0]`. It reads the file, or standard input
+  --- when the file is `-` or absent. It prints the value at the path as
+  --- indented JSON, or on one line with `--compact`. With `-r`, a string
+  --- prints as its text.
+  ---
+  --- Paths:
+  ---
+  --- A path is a JSONPath query (RFC 9535), in the subset that
+  --- [`Json.query`] reads. Put it in single quotes, because a shell expands
+  --- `$` and `[0]`: `cosmic json '$.users[0].name' export.json`.
+  ---
+  --- - `$` is the document, and comes first.
+  --- - `.key` is a key that is a word. `["a key"]` (a JSON string) or
+  ---   `['a key']` is any key.
+  --- - `[0]` is an index counted from 0, and `[-1]` counts from the end.
+  --- - A key that holds `'` is written `["it's"]`. Inside a shell's single
+  ---   quotes, its `'` is `'\''`: `cosmic json '$["it'\''s"]'`.
+  --- - `*` (`.*` or `[*]`) is every member of an object or every element of
+  ---   an array. `..key`, `..[n]` and `..*` match that selector at any
+  ---   depth, the current level too (`$..id`, `$.users[*].name`).
+  --- - Filters, slices and unions are refused by name: this is a lookup,
+  ---   not a query language. To count or sum, use `cosmic sql --from`.
+  ---
+  --- A query that can match many values prints each match as a
+  --- `path = value` line, with the value as compact JSON
+  --- (`$.users[0].name = "ann"`). The order is the one RFC 9535 gives
+  --- (arrays by index, keys in byte order), and a value reached twice
+  --- prints once. With `-r`, it prints only the raw values, one to a line;
+  --- a string prints as its text, so a string with a newline spans lines.
+  --- Without `-r`, or with `--flat`, every line is one JSON value.
+  ---
+  --- With one word, the word is the path when it begins with `$`, and the
+  --- file otherwise. Give a file named `$x.json` as `./$x.json`. After `--`,
+  --- the words are `[path] file`, whatever they begin with.
+  ---
+  --- The value is printed as [`Json.encode`] writes it, not copied byte for
+  --- byte: `1e2` prints as `100.0`, and a big integer loses precision.
+  ---
+  --- Other outputs:
+  ---
+  --- - `--exists` prints nothing, and answers only by its exit status: 0
+  ---   when the path is found, or when at least one value of a many-value
+  ---   query matches.
+  --- - `--keys` lists an object's keys, sorted, one per line, or prints an
+  ---   array's length.
+  --- - `--shape` prints a summary of the value's shape
+  ---   (`{ids: [2 x number], ok: boolean}`).
+  --- - `--keys` and `--shape` do not take a query with `*` or `..`, which
+  ---   can match many values.
+  --- - `--flat` prints every leaf under the path (the whole document when
+  ---   there is no path) as `path = value` lines, and an empty object or
+  ---   array as `{}` or `[]`. Each path is in a shorthand form that this
+  ---   command reads back (`$.users[1].email`, `$["a key"][0]`). So
+  ---   `cosmic json --flat export.json | grep -i email` finds a leaf, and
+  ---   you can paste its path into `cosmic json '$.users[1].email' export.json`.
+  ---
+  --- It prints no summary: its output is the data that a pipe reads. It
+  --- exits 0 when the path is found (for a many-value query, when something
+  --- matches). It exits 1 when the path is not found, with a message on
+  --- standard error. The message names, by its JSON Pointer, the first place
+  --- that is not there (`no value at pointer "/users/4"`); for a many-value
+  --- query that matches nothing, it is `<query>: no match`. A `null` value
+  --- is found. It exits 2 for a command line or a path it cannot read, or a
+  --- file that is missing or not JSON.
   json: string
-  --- `cosmic hash [options] [file|-]...`: the digest of each file, or of
-  --- standard input for `-` or no file, printed as `sha256sum` prints
-  --- it, `<hex>  <name>`, the same on every platform. The algorithm is
-  --- `--sha256` (the default), `--sha512`, `--sha384`, `--sha224`,
-  --- `--sha1`, `--md5`, or `--sha3-224`, `--sha3-256`, `--sha3-384`,
-  --- `--sha3-512`: those [`cosmic.hash`] has. Every file streams in a
-  --- chunk at a time, so its size does not matter to memory. A name with
-  --- a backslash or a newline is written as GNU writes it: the line
-  --- begins `\` and the name has `\\`, `\n` and `\r` (all three read back). A file named `-` is
-  --- `./-`. `--json` prints an array of `{path, algorithm, digest}`
-  --- instead. `--check <sums>` (or `-` for standard input) verifies a
-  --- sums file in that format, with the text and `*` binary markers,
-  --- escaped names, and blank and `#` lines skipped; the digest sizes
-  --- follow the algorithm option, so name it for a non-SHA-256 file.
-  --- Each file prints `name: OK`, `name: FAILED`, or `name: FAILED open
-  --- or read`, its name escaped as above; `--quiet` prints only the
-  --- failures. BSD `SHA256 (file) = hex` lines and one-space separators
-  --- are refused as malformed, and a malformed line makes the exit 2
-  --- even when every entry is OK (GNU only warns, without `--strict`);
-  --- a CRLF sums file leaves the CR in each name. The listed paths are
-  --- opened as given, so `--check` refuses a path that is not a regular
-  --- file (`FAILED open or read`), and a sums file you do not trust can
-  --- still make it read any regular file you can. `--hmac <key>` makes
-  --- each digest an HMAC under the key, and `--hmac-file <path>` reads
-  --- the key from a file (its bytes exactly, a trailing newline
-  --- included, with a warning: write it with `printf %s`). Prefer the file: a key on the
-  --- command line shows in `ps` and the shell's history. Every
-  --- algorithm has an HMAC, and it streams too; `--json` names it
-  --- `hmac-sha256` and the like, and `--check` verifies HMACs when
-  --- given a key. It prints no summary: its output is data. Exits 0
-  --- when all is well, 1 when a check failed or a listed file could not
-  --- be read, 2 for a command line, a file to hash, a sums file (a
-  --- malformed line among them) or a write to standard output it cannot
-  --- use, with `cosmic: hash: ...` on standard error
+  --- `cosmic hash [options] [file|-]...`: prints the digest of each file,
+  --- or of standard input for `-` or no file. The line is
+  --- `<hex>  <name>`, as `sha256sum` prints it, on every platform. Each
+  --- input, a file or standard input, is read a chunk at a time, so its
+  --- size does not change the memory used. `--json` prints an array of
+  --- `{path, algorithm, digest}` instead of the lines.
+  ---
+  --- The algorithm options are those [`cosmic.hash`] has: `--sha256` (the
+  --- default), `--sha512`, `--sha384`, `--sha224`, `--sha1`, `--md5`,
+  --- `--sha3-224`, `--sha3-256`, `--sha3-384` and `--sha3-512`.
+  ---
+  --- Names are written as GNU writes them. A name with a backslash, a newline
+  --- or a carriage return starts its line with `\` and has `\\`, `\n` and `\r` in
+  --- it; all three read back. To hash a file named `-`, give it as `./-`.
+  ---
+  --- `--check <sums>` (`-` for standard input) verifies a sums file in
+  --- that format: text and `*` binary markers, escaped names, and blank
+  --- and `#` lines skipped. The digest size follows the algorithm option,
+  --- so name the algorithm for a file that is not SHA-256. Each file
+  --- prints `name: OK`, `name: FAILED`, or `name: FAILED open or read`,
+  --- with its name escaped as above. `--quiet` prints only the failures.
+  ---
+  --- - BSD lines (`SHA256 (file) = hex`) and one-space separators are
+  ---   malformed. A malformed line makes the exit 2, even when every
+  ---   entry is OK. (GNU only warns, without `--strict`.)
+  --- - A CRLF sums file leaves the CR in each name.
+  --- - Each listed path is opened as given. A path that is not a regular
+  ---   file is `FAILED open or read`. A sums file you do not trust can
+  ---   still make it read any regular file you can read.
+  ---
+  --- `--hmac <key>` makes each digest an HMAC under the key.
+  --- `--hmac-file <path>` reads the key from a file: its bytes exactly, a
+  --- trailing newline too, with a warning (write the file with
+  --- `printf %s`). Use the file: a key on the command line shows in `ps`
+  --- and in the shell's history. Every algorithm has an HMAC, which also
+  --- streams. `--json` names it `hmac-sha256` and so on, and `--check`
+  --- verifies HMACs when it is given a key.
+  ---
+  --- `cosmic hash` prints no summary: its output is data. It exits 0 when
+  --- all is well, and 1 when a check failed or a listed file could not be
+  --- read. It exits 2, with `cosmic: hash: ...` on standard error, for a command
+  --- line, a file to hash, a sums file (a malformed line too) or a write to
+  --- standard output that it cannot use.
   hash: string
   --- `cosmic compile [--errors] [--root dir] [-o dir] file.tl...`: the Lua
   --- source of each `.tl` file, one text per file, written by this binary's
@@ -522,83 +588,106 @@ local record Cli
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
   archive: string
-  --- `cosmic rand <uuid|token|int|pick|shuffle|normal|gamma> [options]`: an
-  --- id, a token, a number, a shuffled list or a normal or gamma draw,
+  --- `cosmic rand <uuid|token|int|pick|shuffle|normal|gamma> [options]`: prints
+  --- an id, a token, a number, a shuffled list, or a normal or gamma draw,
   --- with no script to write.
-  --- `uuid [--v4|--v7] [-n N]` prints N UUIDs (default one, version 4);
-  --- version 7 (RFC 9562) leads with the millisecond clock, then a
-  --- 12-bit counter (the RFC's method 3, section 6.2: the clock's
-  --- fraction of the millisecond, bumped by one where a draw would not
-  --- sort after the last), then entropy, so one run's values sort as
-  --- drawn; a clock that steps far back leaves them ahead of real time
-  --- for the rest of the run. `-n` is at most 10000000 (a refusal past
-  --- it, exit 2); ten million UUIDs take about 40 seconds, ten million
-  --- integers about 15. `token
-  --- [--bytes N] [--hex|--base64url]` prints N random bytes (default
-  --- 32, at most 1048576) as base64url without padding, or as hex.
-  --- `int [-n N] <lo> <hi>` prints N integers (default one) uniform over
-  --- lo..hi inclusive, drawn by rejection so no value is likelier;
-  --- bounds may be negative (`int -5 5`), and lo above hi is refused.
-  --- `pick [-n N] [file|-]` prints N distinct lines, and `shuffle
-  --- [file|-]` all of them, in an order drawn by Fisher-Yates; a line
-  --- ends at a newline, a carriage return before it is dropped (CRLF
-  --- input reads as LF), and an empty input has none. Asking `pick` for
-  --- more lines than there are is refused, exit 2, with nothing
-  --- printed. `normal [-n N] [--mean M] [--stddev SD]` prints N draws
-  --- (default one) from the normal distribution, mean 0 and standard
-  --- deviation 1 unless given (SD may be 0, not negative); `gamma
-  --- [-n N] --shape K [--scale T]` prints N draws from the gamma
-  --- distribution of shape K, required, and scale T (default 1; the
-  --- mean is K * T), both above 0. A parameter is a finite decimal
-  --- number (`-5`, `.5`, `1e-3`); `inf`, `nan`, hexadecimal and a value
-  --- too large for a double are refused, exit 2. Each value prints on a
-  --- line as `%.17g`, which reads back as the same double; a gamma draw
-  --- can print 0 for a tiny shape, and a draw can print inf where it
-  --- overflows. Everything secret-grade -- uuid, token, and the rest
-  --- without `--seed` -- comes from the operating system's entropy
-  --- source ([`Rand.entropy`]), never from a seeded generator. `--seed
-  --- N` (int, pick, shuffle, normal, gamma) draws from `Rand.new(N)`
-  --- instead, so a test or a script can replay it (a float draw agrees
-  --- across targets only as far as their `log` and `pow` do): that
-  --- output is NOT secret, and
-  --- `--seed` is refused with uuid and token. Its standard output is
-  --- data, and it prints no summary. Exits 0 when it printed,
-  --- 1 when the entropy source failed, 2 for a command line, a file or a
-  --- request it refuses, or a failed write to standard output
+  ---
+  --- - `uuid [--v4|--v7] [-n N]` prints N UUIDs (default one, version 4).
+  ---   Version 7 (RFC 9562) starts with the millisecond clock, then a 12-bit
+  ---   counter, then entropy, so one run's values sort in the order they
+  ---   were drawn. The counter is the RFC's method 3 (section 6.2): the
+  ---   clock's fraction of the millisecond, increased by one where a draw
+  ---   would not sort after the last. A clock that steps far back leaves
+  ---   the values ahead of real time for the rest of the run.
+  --- - `token [--bytes N] [--hex|--base64url]` prints N random bytes
+  ---   (default 32, at most 1048576) as base64url without padding, or as hex.
+  --- - `int [-n N] <lo> <hi>` prints N integers (default one), uniform over
+  ---   lo..hi inclusive. It draws by rejection, so no value is more likely
+  ---   than another. The bounds may be negative (`int -5 5`); lo above hi is
+  ---   refused.
+  --- - `pick [-n N] [file|-]` prints N distinct lines, and
+  ---   `shuffle [file|-]` prints all of them, in an order drawn by
+  ---   Fisher-Yates. A line ends at a newline, and a carriage return before
+  ---   the newline is dropped (CRLF input reads as LF). An empty input has
+  ---   no lines. Asking `pick` for more lines than there are is refused
+  ---   (exit 2), and nothing is printed.
+  --- - `normal [-n N] [--mean M] [--stddev SD]` prints N draws (default one)
+  ---   from the normal distribution: mean 0 and standard deviation 1 unless
+  ---   given. SD may be 0, but not negative.
+  --- - `gamma [-n N] --shape K [--scale T]` prints N draws from the gamma
+  ---   distribution of shape K, which is required, and scale T (default 1).
+  ---   The mean is K * T, and both must be above 0.
+  ---
+  --- `-n` is at most 10000000; more is refused (exit 2). Ten million UUIDs
+  --- take about 40 seconds, and ten million integers about 15.
+  ---
+  --- A parameter is a finite decimal number (`-5`, `.5`, `1e-3`). `inf`,
+  --- `nan`, hexadecimal and a value too large for a double are refused
+  --- (exit 2). Each float prints on a line as `%.17g`, which reads back as
+  --- the same double. A gamma draw can print 0 for a tiny shape, and a draw
+  --- can print inf where it overflows.
+  ---
+  --- Randomness:
+  ---
+  --- Everything secret-grade comes from the operating system's entropy
+  --- source ([`Rand.entropy`]), never from a seeded generator: uuid, token,
+  --- and the other commands without `--seed`. `--seed N` (int, pick,
+  --- shuffle, normal, gamma) draws from `Rand.new(N)` instead, so a test or
+  --- a script can replay it. A float draw agrees across targets only as far
+  --- as their `log` and `pow` do. Seeded output is NOT secret, and `--seed`
+  --- is refused with uuid and token.
+  ---
+  --- Its standard output is data, and it prints no summary. It exits 0 when
+  --- it printed, and 1 when the entropy source failed. It exits 2 for a
+  --- command line, a file or a request that it refuses, or a failed write
+  --- to standard output.
   rand: string
-  --- `cosmic qr [options] [text...]`: the QR code of a text, to show an
-  --- address to a phone with nothing installed. The text is the words,
-  --- joined by spaces, or, with none, standard input less one newline at
-  --- its end. It prints the code for the terminal in half blocks (`▀`,
-  --- `▄`, `█`), two rows of modules a line, with the standard's quiet
-  --- zone of four modules (`--quiet N`, 0 to 16). As it is, the blocks
-  --- show the light modules, for light text on a dark ground, the common
-  --- terminal; `--invert` draws the dark modules instead, for a light
-  --- ground or paper. A reader needs dark modules on light, so if a phone
-  --- does not take it, try the other. `--ascii` draws each module as `##`
-  --- or two spaces, a line a row, for a font with no block characters.
-  --- `--svg <file|->` writes an SVG image to the file, or prints it,
-  --- 8 pixels a module (`--scale N`, 1 to 1000) with a `viewBox`, so it
-  --- shows at a size and scales without blurring; `--title T` names what it
-  --- shows for a screen reader. `--level L|M|Q|H` is the error correction
-  --- (default M: 15% of the code can be lost), and `--max-version N`
-  --- refuses a text that needs a code of more than N (1 to 40, default
-  --- 40) to keep it small enough to scan. Examples:
-  --- `cosmic qr https://example.com/` prints a code,
-  --- `echo https://example.com/ | cosmic qr --invert` one for a light
-  --- terminal, and `cosmic qr --svg code.svg --level H https://example.com/`
-  --- writes an image. A text that starts with `-` follows `--`
-  --- (`cosmic qr -- -x`). `--read [file|-]` reads a code back: the text
-  --- or SVG that `cosmic qr` drew, either way round and with any quiet
-  --- zone, from the file or standard input, mending what its level
-  --- allows, and prints what it holds and a newline (`cosmic qr hello |
-  --- cosmic qr --read` prints `hello`). It reads those drawings, not
-  --- photos or other programs' images. A program draws and reads its own
-  --- with [`cosmic.qr`]. Its standard output is the code, or the text
-  --- read, and it prints no summary. Exits 0 when it printed or wrote, 1
+  --- `cosmic qr [options] [text...]`: prints the QR code of a text, to show
+  --- an address to a phone with nothing installed. The text is the words,
+  --- joined by spaces. With no words, it is standard input, less one newline
+  --- at its end. A text that starts with `-` goes after `--`
+  --- (`cosmic qr -- -x`).
+  ---
+  ---     cosmic qr https://example.com/
+  ---     echo https://example.com/ | cosmic qr --invert
+  ---     cosmic qr --svg code.svg --level H https://example.com/
+  ---
+  --- Drawing:
+  ---
+  --- - It prints the code for the terminal in half blocks (`▀`, `▄`, `█`),
+  ---   two rows of modules on each line, with the standard's quiet zone of
+  ---   four modules (`--quiet N`, 0 to 16).
+  --- - By default the blocks show the light modules, for light text on a
+  ---   dark background, which is the common terminal. `--invert` draws the
+  ---   dark modules instead, for a light background or paper. A reader
+  ---   needs dark modules on light, so if a phone does not read the code,
+  ---   try the other one.
+  --- - `--ascii` draws each module as `##` or two spaces, one line for each
+  ---   row, for a font with no block characters.
+  --- - `--svg <file|->` writes an SVG image to the file, or prints it. It is
+  ---   8 pixels for each module (`--scale N`, 1 to 1000), with a `viewBox`,
+  ---   so it shows at a size and scales without blur. `--title T` says what
+  ---   it shows, for a screen reader.
+  --- - `--level L|M|Q|H` is the error correction (default M: 15% of the code
+  ---   can be lost). `--max-version N` refuses a text that needs a code
+  ---   larger than version N (1 to 40, default 40), to keep the code small
+  ---   enough to scan.
+  ---
+  --- Reading:
+  ---
+  --- `--read [file|-]` reads a code back from the file or standard input,
+  --- and prints what it holds and a newline (`cosmic qr hello | cosmic qr
+  --- --read` prints `hello`). It reads the text or SVG that `cosmic qr`
+  --- drew, either way round and with any quiet zone, and mends what its
+  --- level allows. It reads those drawings only, not photos or other
+  --- programs' images. A program draws and reads its own codes with
+  --- [`cosmic.qr`].
+  ---
+  --- Its standard output is the code, or the text that it read, and it
+  --- prints no summary. It exits 0 when it printed or wrote. It exits 1
   --- when the text is too large for a code of the allowed versions at the
-  --- level or a drawing holds no code it can read, 2 for a command line
-  --- or an input it refuses, or a failed write
+  --- level, or when a drawing holds no code that it can read. It exits 2
+  --- for a command line or an input that it refuses, or a failed write.
   qr: string
   --- `cosmic acme <key|issue> ...`: a TLS certificate from an ACME
   --- certificate authority (RFC 8555) such as Let's Encrypt. `key
@@ -717,45 +806,67 @@ local record Cli
   --- input or a write it cannot honor
   codec: string
   --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]
-  --- [--roots set] [--cacert file] [--pin pin]`: one
-  --- GET, a small curl. With no `-o` the body goes to standard output, so
-  --- `cosmic fetch <url> | cosmic json '$.items'` reads it; with `-o` it is
-  --- written to a temporary file beside the target and renamed into place
-  --- only once it is all in and matches `--sha256`, `--sha512` or the digest
-  --- the URL's fragment carries (`<url>#sha256=<hex>`, or `#sha256sum=`,
-  --- `#sha512=`, `#sha512sum=`; the fragment is never sent or printed, and
-  --- an unrecognized one is dropped, but one that looks like a
-  --- checksum this verb does not check, such as `sha1=` or `SHA256=`, is exit 2; a bad digest, or a flag and fragment
-  --- for one algorithm that differ, exits 2 before any request; for
-  --- different algorithms both must match), so a failed digest
-  --- leaves nothing at the target. `--sha256` with standard output holds
-  --- the whole body in memory and writes it only once the digest
-  --- matches, since bytes already on a pipe cannot be taken back; on a
-  --- mismatch it exits 1 and names both digests. A status outside 2xx
-  --- fails (exit 1, the status on standard error), as `curl -f` does,
-  --- and nothing turns that off, so an error page never reaches a pipe;
-  --- `--head` prints `HTTP <status>` and the headers, names lowercased
-  --- and sorted, or with `--json` an object of `status`, `url` and
-  --- `headers`, and then fails on a non-2xx too. Redirects are followed,
-  --- up to 10, as [`cosmic.http`] follows them, but from an https URL a
-  --- redirect to http is refused (exit 1), unlike curl's default;
-  --- `--allow-downgrade` follows it, best with `--sha256`. Header
-  --- values print with control bytes as `\xNN`, and a URL's userinfo prints as
-  --- `***`. Streaming to standard output can leave partial bytes sent before a
-  --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
-  --- verified: there is no option that turns it off. `--roots` chooses
-  --- the CA roots to verify against, as [`Http.Options`]'s `roots` does
-  --- (`minimal`, `none`, or digests joined by commas); `--cacert` trusts
-  --- a file's certificates besides them; `--pin` holds the server's key
-  --- to a public key pin ([`Http.public_key_pin`]); a value of the wrong
-  --- shape, or a `--cacert` file it cannot read, exits 2 before any
-  --- request. GET only, by
-  --- design: for a header, a body or another method write the script
-  --- with [`cosmic.http`]. It prints no summary: its output is the body
-  --- a pipe reads. Exits 0 when the body was delivered, 1 when
-  --- the fetch failed (no connection, a bad status, a digest that does
-  --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
-  --- a write to standard output it cannot use
+  --- [--roots set] [--cacert file] [--pin pin]`: makes one GET, like a small
+  --- curl. GET is the only method, by design: for a header, a body or
+  --- another method, write a script with [`cosmic.http`].
+  ---
+  --- Without `-o`, the body goes to standard output, so
+  --- `cosmic fetch <url> | cosmic json '$.items'` reads it. With `-o`, the
+  --- body is written to a temporary file beside the target. The file is
+  --- renamed into place only when the whole body is in and its digest
+  --- matches. So a failed digest leaves nothing at the target.
+  ---
+  --- Digests:
+  ---
+  --- - `--sha256` or `--sha512` gives the digest. The URL's fragment can
+  ---   also carry it: `<url>#sha256=<hex>`, or `#sha256sum=`, `#sha512=`,
+  ---   `#sha512sum=`. The fragment is never sent or printed.
+  --- - An unknown fragment is dropped. A fragment that looks like a
+  ---   checksum this verb does not check, such as `sha1=` or `SHA256=`,
+  ---   exits 2.
+  --- - A bad digest, or an option and a fragment for one algorithm that
+  ---   differ, exits 2 before any request. For different algorithms, both
+  ---   must match.
+  --- - A digest (`--sha256`, `--sha512` or a fragment) with standard output
+  ---   holds the whole body in memory, with no limit, and writes it only
+  ---   when the digest matches, because bytes already on a pipe cannot be
+  ---   taken back. On a mismatch it exits 1 and names both digests.
+  --- - Without a digest, streaming to standard output can leave partial
+  ---   bytes sent before a failure (exit 1).
+  ---
+  --- Status and redirects:
+  ---
+  --- - A status outside 2xx fails (exit 1, with the status on standard
+  ---   error), as `curl -f` does. Nothing turns this off, so an error page
+  ---   never reaches a pipe.
+  --- - `--head` prints `HTTP <status>` and the headers, with names
+  ---   lowercased and sorted. With `--json` it prints an object of `status`,
+  ---   `url` and `headers`. It also fails on a status outside 2xx.
+  --- - Redirects are followed, up to 10, as [`cosmic.http`] follows them.
+  ---   From an https URL, a redirect to http is refused (exit 1), unlike
+  ---   curl's default. `--allow-downgrade` follows it; use it with
+  ---   `--sha256`.
+  --- - Header values print with control bytes as `\xNN`, and a URL's
+  ---   userinfo prints as `***`.
+  ---
+  --- Certificates:
+  ---
+  --- Certificates are always verified: no option turns this off.
+  ---
+  --- - `--roots` chooses the CA roots to verify against, as
+  ---   [`Http.Options`]'s `roots` does: `minimal`, `none`, or digests
+  ---   joined by commas.
+  --- - `--cacert` also trusts a file's certificates.
+  --- - `--pin` holds the server's key to a public key pin
+  ---   ([`Http.public_key_pin`]).
+  --- - A value of the wrong shape, or a `--cacert` file it cannot read,
+  ---   exits 2 before any request.
+  ---
+  --- It prints no summary: its output is the body that a pipe reads. It
+  --- exits 0 when the body was delivered. It exits 1 when the fetch failed:
+  --- no connection, a bad status, a digest that does not match, a body that
+  --- broke off, or an `-o` write that failed. It exits 2 for a command line,
+  --- a URL or a write to standard output that it cannot use.
   fetch: string
   --- `cosmic docs [q...]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
@@ -863,226 +974,292 @@ local record Cli
   --- binary it reads is never written
   refresh: string
   --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file | --launcher file] [--json]`:
-  --- finds cosmic's own releases, the `YYYYMMDD-<commit>` (earlier,
-  --- `next-<commit>`) prereleases of cosmic-lua/cosmic on GitHub, picks
-  --- one and verifies it. Releases are found by their tags and main's
-  --- history, newest commit first, as the API's list of releases serves
-  --- only 1000 and not by time; a `--commit` reads only the releases of
-  --- the tags whose commit starts with its prefix, refusing a prefix
-  --- that names more than 10. With no criterion it
-  --- picks the release of the latest commit on main that has one;
-  --- `--commit` the one whose commit starts with the hex (7 to 40
-  --- digits), `--until` the latest whose release was published at or
-  --- before an RFC 3339 time, or by the end of a date in UTC; both may be
-  --- given. A release is verified first: its SHA256SUMS names one
-  --- digest for cosmic and its source.json the same commit and digest.
-  --- With nothing more it prints the release as the three lines of
-  --- ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
-  --- object, downloading no binary. `--list` prints the matches instead,
-  --- latest commit first, up to `-n` (20, a request each): the time each
-  --- was published and its commit, or with `--json` an array, verifying
-  --- none. `-o` writes the
-  --- binary to a file, and `--cache` where bin/cosmic-bootstrap caches
-  --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
-  --- printing that path; either renames it into place only once its
-  --- sha256 is the release's digest. `--pin` writes the three pin lines
-  --- to a file once the binary's bytes are verified. `--launcher`
-  --- sets a project up to run on the release: it writes the pin as
-  --- `<file>.pin` and, at the file, a shell script that runs the
-  --- release that pin names with the arguments given, a project's
-  --- bin/cosmic. The script downloads the release once, runs it only
-  --- once its sha256 is the pin's and caches it where `--cache`
-  --- does; COSMIC_TOOL=<path> makes it run another cosmic instead,
-  --- such as one `cosmic build` printed in a checkout of cosmic, and
-  --- `--pin <file>.pin` moves the pin from then on. GH_TOKEN goes with
-  --- the API's requests when set, and every redirect must stay on https.
-  --- It prints no summary. Exits 0 when it did what was asked, 1 when it
-  --- could not (no connection, no matching release, a release that fails
-  --- verification, a write that failed), 2 for a command line it refused
+  --- finds cosmic's own releases, picks one and verifies it. The releases
+  --- are the `YYYYMMDD-<commit>` prereleases of cosmic-lua/cosmic on GitHub
+  --- (older ones are `next-<commit>`).
+  ---
+  --- Finding a release:
+  ---
+  --- Releases are found by their tags and main's history, newest commit
+  --- first, because the API's list of releases serves only 1000, and not by
+  --- time.
+  ---
+  --- - With no criterion, it picks the release of the latest commit on main
+  ---   that has one.
+  --- - `--commit` picks the release whose commit starts with the hex (7 to
+  ---   40 digits). It reads only the releases of the tags whose commit
+  ---   starts with that prefix, and refuses a prefix that matches more than
+  ---   10.
+  --- - `--until` picks the latest release published at or before an RFC
+  ---   3339 time, or by the end of a date in UTC.
+  --- - `--commit` and `--until` may be given together.
+  ---
+  --- A release is verified first: its SHA256SUMS must give one digest for
+  --- cosmic, and its source.json the same commit and digest.
+  ---
+  --- What it does with the release:
+  ---
+  --- - With nothing more, it prints the release as the three lines of
+  ---   ci/cosmic-driver.pin (commit, URL, sha256), or as an object with
+  ---   `--json`. It downloads no binary.
+  --- - `--list` prints the matches instead, latest commit first, up to `-n`
+  ---   (default 20, one request each): the time each was published and its
+  ---   commit, or an array with `--json`. It verifies none of them.
+  --- - `-o` writes the binary to a file. `--cache` writes it where
+  ---   bin/cosmic-bootstrap caches the pin's binary
+  ---   (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`), and prints that
+  ---   path. Each renames the file into place only when its sha256 is the
+  ---   release's digest.
+  --- - `--pin` writes the three pin lines to a file after the binary's bytes
+  ---   are verified.
+  --- - `--launcher` sets up a project to run on the release. It writes the
+  ---   pin as `<file>.pin`, and at the file a shell script, a project's
+  ---   bin/cosmic, that runs the release the pin names with the arguments
+  ---   given. The script downloads the release once, runs it only when its
+  ---   sha256 is the pin's, and caches it where `--cache` does.
+  ---   COSMIC_TOOL=<path> makes the script run another cosmic instead, such
+  ---   as one that `cosmic build` printed in a checkout of cosmic. To move
+  ---   the pin later, run `cosmic release --pin <file>.pin` alone.
+  ---
+  --- GH_TOKEN goes with the API's requests when it is set, and every
+  --- redirect must stay on https.
+  ---
+  --- It prints no summary. It exits 0 when it did what was asked. It exits
+  --- 1 when it could not: no connection, no matching release, a release
+  --- that fails verification, or a write that failed. It exits 2 for a
+  --- command line that it refused.
   release: string
-  --- `cosmic sandbox [options] [--] program [args...]`: runs a program held
-  --- to nothing at all but what the options grant, and everything it
-  --- starts with it: the paths it reads, runs, writes and creates, the
-  --- system calls it makes, the environment it sees, the resources it
-  --- spends. What is not granted does not work; and a policy that this
-  --- host cannot meet is not run in part: the start fails, naming what is
-  --- missing. The program is the first word that is no option, or the
-  --- word after `--`; everything after it is its own arguments, an
-  --- option-looking word among them. It is found on the PATH, and its
-  --- own file and loader must be granted to run: `--system` grants what a
-  --- host's programs need to start, `--cosmic` this program's own file.
+  --- `cosmic sandbox [options] [--] program [args...]`: runs a program, and
+  --- everything it starts, held to what the options grant and nothing more:
+  --- the paths it reads, runs, writes and creates, the system calls it makes,
+  --- the environment it sees and the resources it spends. What is not granted
+  --- does not work. When this host cannot enforce the whole policy, nothing
+  --- runs: the start fails and names what is missing.
+  ---
+  --- The program is the first word that is not an option, or the word after
+  --- `--`. Every word after the program is its own argument, also a word
+  --- that looks like an option. The program is found on the PATH. Its own
+  --- file and its loader must be granted for it to run: `--system` grants
+  --- what a host's programs need to start, and `--cosmic` grants this
+  --- program's own file.
   ---
   ---     cosmic sandbox --system --read . -- ls -l
   ---     cosmic sandbox --system --read . --promise fork -- sh -c 'ls | wc -l'
   ---     cosmic sandbox --system --path rwxc:. --tmp --promise fork \
   ---       --isolate file -- make
   ---
+  --- Each option is one field of the policy, and each number is a whole
+  --- number. `cosmic docs cosmic.sandbox` lists the policy's fields.
+  ---
+  --- Paths:
+  ---
+  --- - `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`.
+  ---   `--path` gives the letters itself, from `rwxcu` in that order, each
+  ---   once (`rwxc:.`).
+  --- - A path is relative to the working directory, and must exist. `--cwd`
+  ---   names the working directory, as if you ran `cd` there first; without
+  ---   it, the directory is this process's own.
+  --- - Paths and `--set-env` values must be UTF-8, because they are written
+  ---   as JSON.
+  ---
+  --- Running cosmic in a sandbox:
+  ---
   --- `--cosmic` grants this program's file, which then runs as its core
-  --- directly, past its launcher: it needs no shell, cache or promise to
-  --- start, nor `--system` unless what it runs does. Where this process is
-  --- root, the program's user runs a copy of the core every user may run,
-  --- made once in /run/cosmic-sandbox-cores:
+  --- directly, past its launcher. It needs no shell, cache or promise to
+  --- start, and no `--system` unless what it runs needs one. When this
+  --- process is root, the program's user runs a copy of the core that every
+  --- user may run, made once in /run/cosmic-sandbox-cores.
   ---
   ---     cosmic sandbox --cosmic --read . -- cosmic run.tl IN OUT
   ---
-  --- A file it runs is run as `--standalone` (COSMIC_STANDALONE=1), so a
-  --- grant to read it is enough and no build directory is written, which
-  --- another run's user would own; it may then require `cosmic.*` modules
-  --- only. `--set-env COSMIC_STANDALONE=0` builds the tree around it
-  --- instead, which finds its own modules and needs a grant to write its
-  --- build directory.
+  --- A file that it runs is run as `--standalone` (COSMIC_STANDALONE=1). So
+  --- a grant to read the file is enough, and no build directory is written
+  --- (another run's user would own it). The file may then require only
+  --- `cosmic.*` modules. `--set-env COSMIC_STANDALONE=0` builds the tree
+  --- around the file instead: that finds the tree's own modules, and needs a
+  --- grant to write the build directory.
+  ---
+  --- A sealed database of modules:
   ---
   --- `--database`, `--modules` and `--closure` run this program on a
-  --- database that holds the modules it may load and no more: a `require`
-  --- of any other fails, and none of this program's own file is read or
-  --- granted. `--cosmic` adds nothing beside `--database` or `--modules`
-  --- and is refused beside `--closure`; `--system` fails the start where
-  --- this program is installed under a directory it grants. The program is
-  --- this program (`cosmic`), or nothing, which is the same; what follows
-  --- it is the main's arguments.
+  --- database that holds the modules it may load and no others. A `require`
+  --- of any other module fails, and no part of this program's own file is
+  --- read or granted. The program is this program (`cosmic`) or nothing,
+  --- which is the same, and the words after it are the main's arguments.
   ---
-  --- `--database PATH` runs a file [`Store.seal`] wrote, its main what runs.
-  --- `--modules a,b,...` seals exactly the names given, from this
-  --- program's own store, and follows no requires: the first is the main
-  --- (a module returning a function that gets the arguments and returns
-  --- the status) and the rest are what it may load. `--closure` runs a
-  --- script, given as the program's first argument: it is compiled here,
-  --- as a file run is, and sealed as the main with the `cosmic.*` modules
-  --- it requires by a literal name, and theirs in turn:
+  --- - `--database PATH` runs a file that [`Store.seal`] wrote. Its main is
+  ---   what runs.
+  --- - `--modules a,b,...` seals exactly the names given, from this
+  ---   program's own store, and follows no requires. The first name is the
+  ---   main: a module that returns a function, which gets the arguments and
+  ---   returns the status. The other names are what the main may load.
+  --- - `--closure` runs a script, given as the program's first argument. It
+  ---   compiles the script here, as a file run does, and seals it as the
+  ---   main with the `cosmic.*` modules that it requires by a literal name,
+  ---   and the modules that those require.
   ---
   ---     cosmic sandbox --closure -- cosmic run.tl IN OUT
   ---
-  --- A `pcall(require, "<name>")` is followed as a `require` is, so a name
-  --- no store holds is refused for it too; a name
-  --- computed at run time is refused when the script is compiled. A
-  --- `require` of a module outside this program's store
-  --- (a project module beside the script) is refused before anything
-  --- starts. The database is written in a directory of the run's own, that
-  --- the program's user can search, and removed when the run ends. The
-  --- three options are exclusive, since each names the database. A
-  --- command line these refuse, a module no store holds or a `--database`
-  --- that is not there exits 2; a script that cannot be read or compiled
-  --- exits 125, as a seal that cannot be written does.
+  --- For `--closure`, a `pcall(require, "<name>")` is followed as a
+  --- `require` is, so a name that no store holds is refused there too. A
+  --- name computed at run time is refused when the script is compiled. A
+  --- `require` of a module outside this program's store (a project module
+  --- beside the script) is refused before anything starts.
   ---
-  --- `--read`, `--run` and `--write` grant a path as `r`, `rx` and `rwc`;
-  --- `--path` names the letters itself, of `rwxcu` in that order (`rwxc:.`),
-  --- each once. A path is relative to the working directory, which
-  --- `--cwd` names (as though `cd` there first; it is this process's own
-  --- without one), and must exist, and paths and `--set-env` values must be UTF-8, as they are
-  --- written as JSON. `cosmic docs cosmic.sandbox` names the policy's
-  --- fields. `--connect` names a host and port the relay that
-  --- the start runs connects the program to: on Linux in the program's own
-  --- network, and on macOS on the host's loopback, behind a token drawn for
-  --- the run that the proxy variables carry.
-  --- The program is told of the relay by the proxy variables (`HTTPS_PROXY`,
-  --- `ALL_PROXY` and the rest), so a program that honours them reaches
-  --- exactly the hosts granted, a name resolved by the relay and never by
-  --- the program; one that ignores them reaches nothing. The relay writes
-  --- one line to this process's standard error for each connection it
-  --- allows or refuses, a refusal naming the option that would allow it
-  --- (`not granted: --connect api.github.com:443`), and where this
-  --- process's `https_proxy` is set the relay connects through it, saying
-  --- so once, as it starts.
+  --- The three options exclude each other, because each one names the
+  --- database. `--cosmic` adds nothing beside `--database` or `--modules`,
+  --- and is refused beside `--closure`. `--system` fails the start when
+  --- this program is installed under a directory that `--system` grants.
+  --- The database is written in a directory of the run's own, which the
+  --- program's user can search, and is removed when the run ends. A command
+  --- line that these options refuse, a module that no store holds, or a
+  --- `--database` file that is not there exits 2. A script that cannot be
+  --- read or compiled exits 125, as a seal that cannot be written does.
   ---
-  --- `cosmic sandbox connect HOST PORT`, as the first word after `sandbox`,
-  --- is no sandbox but the relay's client, for a program that takes a
-  --- command to reach a host through, ssh's ProxyCommand: run inside a
-  --- sandbox with `--connect`, it asks the relay (`ALL_PROXY`, which it
-  --- needs to be the relay's) for HOST and PORT, copies its standard input
-  --- and output to the connection, and exits 1 saying what the relay's
-  --- reply means when it refuses. ssh runs it as a program of its own, so
-  --- the sandbox also needs `--system` (ssh, its libraries and a shell for
-  --- the ProxyCommand), `--promise fork` and `--cosmic` for this program, and
-  --- `--env PATH` for the shell to find `cosmic` by (or the ProxyCommand
-  --- names it by its absolute path):
+  --- The network:
+  ---
+  --- `--connect HOST:PORT` grants a host and port, and may be repeated.
+  --- A relay that the start runs connects the program to it: on Linux, in the program's own
+  --- network; on macOS, on the host's loopback, behind a token drawn for the
+  --- run. The proxy variables (`HTTPS_PROXY`, `ALL_PROXY` and the others)
+  --- tell the program about the relay, and carry the token. So a program
+  --- that uses them reaches exactly the granted hosts, and the relay
+  --- resolves the names it grants, never the program. A program that ignores them
+  --- reaches nothing.
+  ---
+  --- The relay writes one line to this process's standard error for each
+  --- connection that it allows or refuses. A refusal names the option that
+  --- would allow it (`not granted: --connect api.github.com:443`). When this
+  --- process's `https_proxy` is set, the relay connects through it, and says
+  --- so once, when it starts.
+  ---
+  --- `cosmic sandbox connect HOST PORT`, with `connect` as the first word
+  --- after `sandbox`, is not a sandbox. It is the relay's client, for a
+  --- program that takes a command to reach a host through, such as ssh's
+  --- ProxyCommand. Inside a sandbox with `--connect`, it asks the relay
+  --- (`ALL_PROXY` must name the relay) for HOST and PORT, and copies its
+  --- standard input and output to the connection. When the relay refuses,
+  --- it exits 1 and says what the relay's reply means. ssh runs it as a
+  --- program of its own, so the sandbox also needs `--system` (for ssh, its
+  --- libraries and a shell for the ProxyCommand), `--promise fork`,
+  --- `--cosmic` for this program, and `--env PATH` so that the shell finds
+  --- `cosmic` (or the ProxyCommand gives its absolute path):
   ---
   ---     cosmic sandbox --system --cosmic --env PATH --promise fork --read ~/.ssh \
   ---       --connect github.com:22 -- ssh -o ProxyCommand='cosmic sandbox connect %h %p' git@github.com
   ---
-  --- A program that is itself named `connect` runs after `--`, as in
+  --- To run a program that is named `connect`, put it after `--`:
   --- `cosmic sandbox -- connect`.
-  --- `--user` names the user and group the program runs as, by number
-  --- (the group is the user's number unless given): only a caller that is
-  --- root chooses one, the same every run, in place of a fresh one of its
-  --- own each run; any other caller may name only itself.
-  --- Each option is one field of the policy, and a number is a whole one. The
-  --- program's standard streams are this program's own, and it gets no
-  --- other descriptor but those `--fd` names -- but each of them that is a
-  --- terminal is given the program as a terminal of its own, a pty (a
-  --- pipe or a file is the program's as it is): what it writes reaches
-  --- the terminal as text and
-  --- the sequences a screen is drawn with (colors, cursor movement, erasing,
-  --- the alternate screen) and no title, clipboard or other control
-  --- sequence, its queries are answered here, the window's size and
-  --- SIGINT and SIGTERM are passed on, and this terminal is put back as it
-  --- was when the program ends. Linux only. Nothing is printed when it
-  --- starts. Exits with the program's status (128 and the signal's number when a
-  --- signal ended it, 124 when `--timeout` did), 2 for a command line it
-  --- refuses, 125 when the start failed, and 126 or 127 for a program that
-  --- cannot be run or is not there
+  ---
+  --- The user, the streams and the terminal:
+  ---
+  --- `--user` gives the user and group that the program runs as, by number.
+  --- The group is the user's number unless you give one. Only a root caller
+  --- chooses a user, and gets the same one each run, instead of a fresh one
+  --- of its own for each run. Any other caller may name only itself.
+  ---
+  --- The program's standard streams are this program's own. It gets no
+  --- other descriptor except those that `--fd` names. Each standard
+  --- stream that is a terminal is given to the program as a terminal of
+  --- its own, a pty (a pipe or a file is given as it is):
+  ---
+  --- - What the program writes reaches the terminal as text and as the
+  ---   sequences that draw a screen (colors, cursor movement, erasing, the
+  ---   alternate screen). A title, clipboard or other control sequence does
+  ---   not reach it.
+  --- - Its queries are answered here.
+  --- - The window's size, SIGINT and SIGTERM are passed on.
+  --- - This terminal is put back as it was when the program ends.
   sandbox: string
   --- `cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy> ...`: a
-  --- small coding agent, after pi: Claude, with tools to read, write and
-  --- edit files, run commands, in the foreground or as background jobs,
-  --- and query what it has kept, every tool held to a sandbox. A first
-  --- session, in the directory to work in, with `ANTHROPIC_API_KEY` set
-  --- (or another credential, `cosmic docs cosmic.agent.auth`):
+  --- small coding agent, after pi. It is Claude, with tools that read,
+  --- write and edit files, run commands in the foreground or as background
+  --- jobs, check and run snippets of Teal in a worker kept for the session,
+  --- and query what the agent has kept. Every tool is held to a sandbox.
+  ---
+  --- To start, go to the directory to work in and set `ANTHROPIC_API_KEY`
+  --- (for other credentials, see `cosmic docs cosmic.agent.auth`):
   ---
   ---     cosmic agent ask 'what does this repository do?'
   ---     cosmic agent chat                      a conversation, a prompt a line
   ---     cosmic agent sessions                  what was kept, newest first
   ---     cosmic agent ask --continue 'and now?' go on with the newest session
   ---
-  --- `ask [prompt...]` runs one prompt to the end: the words, else all of
-  --- standard input. `chat` takes a prompt a line until `/exit`; a line
-  --- typed at a terminal while the model works steers it, and `/later
-  --- <prompt>` waits for the turn to end. `resume` finishes the turn a
-  --- run left unfinished. `rpc` runs one session for another program:
-  --- commands as JSON lines on standard input, events on standard output
-  --- (`ask --json` prints the events too). `sessions` lists the newest sessions here, `prompt` prints the
-  --- system prompt the model reads, and `policy` the sandbox the tools
-  --- would run under here, path by path; `policy clear-home` empties the
-  --- commands' kept home.
+  --- Commands:
   ---
-  --- Each event is one JSON object on a line, printed once what it tells
-  --- of is kept: `{"type":"session","id":7}` (rpc adds `unfinished`),
-  --- `message` (a message joined the conversation, as the API takes it),
-  --- `tool` (a call starts: `name`, `input`), `result` (it ended:
-  --- `name`, `is_error`), `request` (a request ended: its model, status,
-  --- ms, tokens and cost), `end` (the turn ended: `ok`, and `error` when
-  --- it is false) and `error` (a command was refused). rpc's commands
-  --- are `{"type":"prompt","text":"..."}`, which runs a turn; `steer`,
-  --- which goes to the model after the tool running and skips the calls
-  --- after it; `follow_up`, which runs after the turn; `abort`, which
-  --- stops the turn at its next step; and `resume`. Between turns, steer
-  --- and follow_up run as prompts.
+  --- - `ask [prompt...]` runs one prompt to the end. The prompt is the
+  ---   words, else all of standard input.
+  --- - `chat` takes one prompt a line until `/exit`. A line typed at a
+  ---   terminal while the model works steers it. `/later <prompt>` waits
+  ---   for the turn to end. A failed turn does not end the chat.
+  --- - `resume` finishes the turn that a run left unfinished.
+  --- - `rpc` runs one session for another program. It reads commands as
+  ---   JSON lines on standard input and writes events on standard output.
+  ---   A failed turn does not end the session.
+  --- - `sessions` lists the newest sessions in this directory.
+  --- - `prompt` prints the system prompt that the model reads.
+  --- - `policy` prints, path by path, the sandbox that the tools would run
+  ---   under here. `policy clear-home` empties the commands' kept home.
+  --- - `worker` is the worker's process, which runs the snippets. The agent
+  ---   starts it.
   ---
-  --- `--model opus|sonnet` picks the latest of each
-  --- (opus by default), `--effort low|medium|high|xhigh|max` how hard it
-  --- thinks (medium). `--continue` goes on with the newest session in the
-  --- directory, `--session <id>` with any.
+  --- Model and session:
   ---
-  --- The tools run in a sandbox (`cosmic docs cosmic.agent.policy`): the
-  --- working directory is theirs to read and change, the host's programs
-  --- run, a home of their own outlives each command, and nothing else is
-  --- there, the network included. `--sandbox read` changes nothing,
-  --- `--sandbox off` runs them with your user's rights and environment,
-  --- your API key included, `--network` lets
-  --- bash reach the network, and `--grant path[:rwxc]` adds a path. The
-  --- model's words go to standard output, and each tool call to standard
-  --- error.
+  --- - `--model opus|sonnet` picks the latest of each (default opus).
+  --- - `--effort low|medium|high|xhigh|max` sets how hard it thinks
+  ---   (default medium).
+  --- - `--continue` goes on with the newest session in the directory.
+  ---   `--session <id>` goes on with any session.
   ---
-  --- Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
-  --- (or `~/.local/share/cosmic/agent`), before it is shown: each message,
-  --- each tool's whole output, each request with its usage and cost
-  --- (`cosmic docs cosmic.agent.sessions`). The model reads it with its
-  --- sql tool, and a run that ends mid-turn loses nothing: `cosmic agent
-  --- resume` takes the turn up again (`cosmic docs cosmic.agent`). A
-  --- program runs the loop itself with [`cosmic.agent`]. It prints no
-  --- summary. Exits 0 when it did what was asked, 1 when an ask or resume
-  --- turn failed (chat and rpc go on past one) or
-  --- the sessions database could not be opened, 2 for a command line it
-  --- refuses or a session it cannot start
+  --- Events and rpc commands:
+  ---
+  --- `rpc` and `ask --json` print events. Each event is one JSON object on
+  --- a line, printed once what it tells of is kept:
+  ---
+  --- - `{"type":"session","id":7}` names the session. rpc adds
+  ---   `unfinished`.
+  --- - `message`: a message joined the conversation, in the form the API
+  ---   takes.
+  --- - `tool`: a call starts (`name`, `input`).
+  --- - `result`: a call ended (`name`, `is_error`).
+  --- - `request`: a request ended (its model, status, ms, tokens and cost).
+  --- - `end`: the turn ended (`ok`, and `error` when `ok` is false).
+  --- - `error`: a command was refused.
+  ---
+  --- The rpc commands are:
+  ---
+  --- - `{"type":"prompt","text":"..."}` runs a turn.
+  --- - `steer` goes to the model after the running tool, and skips the
+  ---   calls after it.
+  --- - `follow_up` runs after the turn.
+  --- - `abort` stops the turn at its next step.
+  --- - `resume` finishes an unfinished turn.
+  ---
+  --- Between turns, `steer` and `follow_up` run as prompts.
+  ---
+  --- The sandbox (`cosmic docs cosmic.agent.policy`):
+  ---
+  --- - The tools can read and change the working directory and run the
+  ---   host's programs. They have a home of their own, which outlives each
+  ---   command. They reach nothing else, not even the network.
+  --- - `--sandbox read` lets them change nothing.
+  --- - `--sandbox off` runs them with your user's rights and environment,
+  ---   your API key included.
+  --- - `--network` lets bash reach the network.
+  --- - `--grant path[:rwxc]` adds a path.
+  ---
+  --- Output and sessions:
+  ---
+  --- - The model's words go to standard output, and each tool call to
+  ---   standard error.
+  --- - Everything is kept in sessions.db, in `$XDG_DATA_HOME/cosmic/agent`
+  ---   (or `~/.local/share/cosmic/agent`), before it is shown: each
+  ---   message, each tool's whole output, and each request with its usage
+  ---   and cost (`cosmic docs cosmic.agent.sessions`). The model reads it
+  ---   with its sql tool.
+  --- - A run that ends mid-turn loses nothing: `cosmic agent resume` takes
+  ---   the turn up again (`cosmic docs cosmic.agent`).
+  --- - A program runs the loop itself with [`cosmic.agent`].
   agent: string
   --- `cosmic help [verb | exit]`: with no word, the guides to start
   --- from, an index of every verb, one line each, and where to read

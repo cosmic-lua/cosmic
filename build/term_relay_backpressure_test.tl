@@ -75,7 +75,10 @@ local function test_a_signal_is_served_while_the_terminal_takes_no_output()
   assert(not result.timed_out, "the relay never served the signal")
   assert(result.signal == sys.SIGTERM, "the program was ended by " .. tostring(result.signal))
   assert(took < BOUND_MS, tostring(took) .. " ms")
-  assert(outer:release() == sys.SIGTERM, "the relay's guard caught the signal")
+  do
+    local released, _ = outer:release()
+    assert(released == sys.SIGTERM, "the relay's guard caught the signal")
+  end
   assert(same(caller.before, (assert(sys.tcgetattr(caller.slave)))), "the termios was not restored")
   assert(blocking(caller.slave), "the terminal was left non-blocking")
   finish(caller)

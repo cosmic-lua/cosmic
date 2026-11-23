@@ -610,7 +610,10 @@ local function test_a_caught_signal_interrupts_a_search_over_blocks()
   assert(sys.kill(sys.getpid(), sys.SIGTERM))
   refused(db, SEARCH:format(""), "interrupted", { { blob = query }, { integer = 3 }, { text = "l2" } })
   assert(guard:take() == sys.SIGTERM)
-  assert(guard:release() == sys.SIGTERM)
+  do
+    local got, _ = guard:release()
+    assert(got == sys.SIGTERM)
+  end
   local after = packed_hits(db, query, 3, "l2")
   assert(#after == 3 and assert(after[1]).id == assert(before[1]).id)
   local _, _ = db:close()

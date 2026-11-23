@@ -9,6 +9,7 @@
 local Acme = require("cosmic.acme")
 local Clock = require("cosmic.clock")
 local Fs = require("cosmic.fs")
+local Key = require("cosmic.key")
 local Http = require("cosmic.http")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -17,7 +18,6 @@ local Stream = require("cosmic.stream")
 local Tls = require("cosmic.tls")
 local sys = require("cosmic.sys")
 local Server = require("cosmic.http.server")
-local Sign = require("cosmic.sign")
 local Test = require("cosmic.test")
 local acme_fixture = require("build.acme_fixture")
 
@@ -62,7 +62,7 @@ local function auto_of(dir: string, ca: FakeCa, names?: {string}): Acme.Auto
   return Acme.auto({
     names = names or { "localhost" }, dir = dir, terms_agreed = true,
     directory = BASE .. "/directory", request = ca.request, pause = acme_fixture.no_pause,
-    key = assert(Acme.read_key(fixture("a.key"))),
+    key = assert(Key.read(fixture("a.key"))),
   })
 end
 
@@ -204,6 +204,8 @@ local function test_auto_refuses_options_out_of_shape()
   assert(not ok and tostring(why):find("names", 1, true) ~= nil, tostring(why))
   ok, why = pcall(Acme.auto, { names = { "a.test" }, dir = "", terms_agreed = true })
   assert(not ok and tostring(why):find("dir", 1, true) ~= nil, tostring(why))
+  ok, why = pcall(Acme.auto, { names = { "a.test" }, dir = "d", terms_agreed = true, key = Key.generate("ed25519") })
+  assert(not ok and tostring(why):find("opts.key is a P-256 or RSA key, not ed25519", 1, true) ~= nil, tostring(why))
 end
 
 local function test_clear_without_tls_is_refused()
@@ -280,7 +282,20 @@ local function test_a_signal_during_the_first_load_is_a_clean_stop()
   }
   assert(ok, why)
   assert(stopped and not ready, tostring(stopped) .. " " .. tostring(ready))
-  assert(outer:release() == sys.SIGTERM)
+  do
+    local got, _ = outer:release()
+    assert(got == sys.SIGTERM)
+  end
+end
+
+--- An Ed25519 account key there is refused as no account: Let's Encrypt
+--- takes none.
+local function test_an_ed25519_account_key_there_is_refused(tmp: string)
+  local dir = tmp .. "/acme"
+  assert(Fs.mkdirs(dir, 0x1c0))
+  assert(Fs.write(dir .. "/account.pem", Key.generate("ed25519"):pem(), 0x180))
+  local loaded, why = auto_of(dir, fake_ca(free_port())).certs:load()
+  assert(not loaded and tostring(why):find("an account key is P-256 or RSA, not ed25519", 1, true) ~= nil, why)
 end
 
 --- An account key there, made by another process however lately, is
@@ -288,13 +303,13 @@ end
 local function test_an_account_key_there_is_the_account_and_kept(tmp: string)
   local dir = tmp .. "/acme"
   assert(Fs.mkdirs(dir, 0x1c0))
-  local account = Acme.p256_key(Sign.p256_secret())
-  assert(Fs.write(dir .. "/account.pem", assert(account.pem), 0x180))
+  local account = Key.generate("p256")
+  assert(Fs.write(dir .. "/account.pem", account:pem(), 0x180))
   local ca = fake_ca(free_port())
   ca.check = function(_domain: string, _token: string): string return "valid" end
   local loaded, why = auto_of(dir, ca).certs:load()
   assert(loaded, why)
-  assert(assert(Fs.read(dir .. "/account.pem")) == account.pem, "the account key was written over")
+  assert(assert(Fs.read(dir .. "/account.pem")) == account:pem(), "the account key was written over")
   local seen = assert(ca.account)
-  assert(seen["x"] == account.jwk["x"] and seen["y"] == account.jwk["y"], "another account was made")
+  assert(seen["x"] == account.public:jwk()["x"] and seen["y"] == account.public:jwk()["y"], "another account was made")
 end

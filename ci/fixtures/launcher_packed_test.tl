@@ -362,27 +362,3 @@ local function test_the_first_exec_of_a_staged_stub_is_timed_on_macos(tmp: strin
     local _, _ = Fs.put(Fs.stderr, line .. "\n")
   end
 end
-
--- The CPU check is the launcher's first act, ahead of the cache and any stub.
-local function test_the_cpu_check_comes_before_any_stub(tmp: string)
-  local ctx = packed(tmp)
-  local flags: string
-  local label: string
-  if ctx.target == "x86_64-linux-musl" then
-    flags = "processor\t: 0\nflags\t\t: fpu sse4_2 avx xsave abm\n"
-    label = "this CPU lacks avx2"
-  elseif ctx.target == "aarch64-linux-musl" then
-    flags = "processor\t: 0\nFeatures\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid\n"
-    label = "this CPU lacks asimddp"
-  else
-    Test.skip("only the Linux launchers check the CPU")
-    return
-  end
-  local cpuinfo = ctx.work .. "/cpuinfo"
-  Fixture.write(cpuinfo, flags)
-  local cache = ctx.work .. "/old-cpu-cache"
-  local answer = run(ctx, "old-cpu", cache, { COSMIC_PORTABLE_TEST_CPUINFO = cpuinfo })
-  assert(not answer.result.ok and answer.result.code == 126, "an old CPU was not refused with 126")
-  Fixture.contains(answer.err, label)
-  assert(sys.lstat(cache) == nil, "a refused launch made the cache")
-end

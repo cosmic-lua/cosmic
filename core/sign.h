@@ -6,7 +6,7 @@
 
 #include "lua.h"
 
-/* Opens the table that backs the [`cosmic.sign`] wrapper, registered
+/* Opens the table that backs [`cosmic.key`], registered
  * under the raw [`cosmic.internal.sign`] name. */
 int cosmic_open_sign (lua_State *L);
 

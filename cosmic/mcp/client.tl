@@ -36,6 +36,8 @@ local Child = require("cosmic.child")
 local Failure = require("cosmic.failure")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
+local Poll = require("cosmic.poll")
+local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
@@ -59,6 +61,15 @@ local record McpClient
     info?: Mcp.Implementation
   end
 
+  --- How one call of a tool goes.
+  record CallOptions
+    --- Given each notice of the call's progress as it comes, in order:
+    --- the call asks the server for them (a `progressToken`). A server
+    --- may send none. Over HTTP the answer then comes as an event stream,
+    --- read as it arrives.
+    on_progress?: function(progress: Mcp.Progress)
+  end
+
   --- Where a client's requests go. Each call is one request (a list,
   --- one per page), answered before it returns. A session over stdio
   --- is one task's: two tasks calling it at once read each other's
@@ -74,10 +85,16 @@ local record McpClient
     --- whose schema names an `x-mcp-header` the transport refuses is
     --- left out, as the protocol has a client do.
     tools: function(Session): ({Mcp.Tool}) | (nil, Failure)
-    --- Calls the tool `name` with `arguments`. A tool that ran and
+    --- Calls the tool `name` with `arguments`, as `opts` says. A tool that ran and
     --- failed is a result with `isError`; a call the server refused is
-    --- a failure.
-    call: function(Session, name: string, arguments?: {string: Json.Value}): (Mcp.ToolResult) | (nil, Failure)
+    --- a failure. Where [`Session.tools`] listed the tool with an
+    --- `outputSchema` this client can check, a result that is not an
+    --- error and whose `structuredContent` does not hold to it is a
+    --- failure too.
+    --- A task that calls it and is cancelled cancels the call: over
+    --- stdio the session sends `notifications/cancelled`, and over HTTP
+    --- the request's connection closes, which the server reads as one.
+    call: function(Session, name: string, arguments?: {string: Json.Value}, opts?: CallOptions): (Mcp.ToolResult) | (nil, Failure)
     --- Every resource the server lists.
     resources: function(Session): ({Mcp.Resource}) | (nil, Failure)
     --- Every family of resources the server lists.
@@ -117,6 +134,10 @@ local record Request
   name?: string
   --- The `Mcp-Param-` headers, name to value, before encoding.
   mirrored?: {string: string}
+  --- Given each notice of progress whose token is the request's id.
+  on_progress?: function(Mcp.Progress)
+  --- The last progress given: one that does not grow it is not given.
+  mut last_progress?: number
 end
 
 --- Sends one request and answers its response, which holds a result,
@@ -132,6 +153,8 @@ local record State
   mut next_id: integer
   --- What each tool listed mirrors into headers, by its name.
   mut mirrors: {string: {Mcp.Mirror}}
+  --- The `outputSchema` of each tool listed with one this client can check, compiled, by its name.
+  mut outputs: {string: JsonSchema.Schema}
   --- Ends the transport.
   finish: function(): (true) | (false, Failure)
   mut closed: boolean
@@ -148,26 +171,30 @@ end
 
 --- The params of a request of `fields` and the `_meta` every request
 --- carries.
-local function params_of(self: State, fields: {string: Json.Value}): {string: Json.Value}
+local function params_of(self: State, fields: {string: Json.Value}, token?: integer): {string: Json.Value}
   local out: mut {string: Json.Value} = {}
   for k, v in pairs(fields) do out[k] = v end
   local capabilities: {string: Json.Value} = {}
-  out["_meta"] = {
+  local meta: mut {string: Json.Value} = {
     [META_VERSION] = Mcp.VERSION,
     [META_CLIENT] = wire.implementation(self.info),
     [META_CAPABILITIES] = capabilities,
   }
+  if token ~= nil then meta["progressToken"] = token end
+  out["_meta"] = meta
   return out
 end
 
 --- Sends `method` with `fields`, and answers the result once it is a
 --- final one.
 local function ask(self: State, method: string, fields: {string: Json.Value}, name?: string,
-                   mirrored?: {string: string}): (wire.Message) | (nil, Failure)
+                   mirrored?: {string: string}, on_progress?: function(Mcp.Progress)): (wire.Message) | (nil, Failure)
   if self.closed then return nil, Failure.new("mcp: the session is closed") end
   self.next_id = self.next_id + 1
-  local req: Request = { id = tostring(self.next_id), method = method, params = params_of(self, fields), name = name,
-    mirrored = mirrored }
+  -- The request's id is its progress token: unique among the requests in flight, as the token must be.
+  local token = if on_progress ~= nil then self.next_id else nil end
+  local req: Request = { id = tostring(self.next_id), method = method, params = params_of(self, fields, token),
+    name = name, mirrored = mirrored, on_progress = on_progress }
   local response, why = self.send(req)
   if response == nil then return nil, why end
   local complete, kind = wire.complete(response.result)
@@ -223,6 +250,7 @@ end
 local function tools(self: State): ({Mcp.Tool}) | (nil, Failure)
   local out: mut {Mcp.Tool} = {}
   local fresh: mut {string: {Mcp.Mirror}} = {}
+  local outputs: mut {string: JsonSchema.Schema} = {}
   local ok, why = follow(self, "tools/list", function(result: any): Step
     local page, bad = wire.tools(result)
     if page == nil then return stopped(bad) end
@@ -233,6 +261,13 @@ local function tools(self: State): ({Mcp.Tool}) | (nil, Failure)
       -- Over HTTP a tool whose headers cannot be sent is left out, as
       -- the protocol says; over stdio there are no headers to send.
       if mirrors ~= nil then fresh[tool.name] = mirrors end
+      -- A schema that uses what cosmic.jsonschema does not check is
+      -- left unchecked, not refused: the tool is the server's to say.
+      local promised = tool.outputSchema
+      if promised ~= nil then
+        local schema, _ = JsonSchema.compile(promised)
+        if schema ~= nil then outputs[tool.name] = schema end
+      end
       if mirrors ~= nil or not self.http then out[#out + 1] = tool end
     end
     if #out > MAX_ITEMS then return stopped(too_many("tools/list")) end
@@ -242,10 +277,31 @@ local function tools(self: State): ({Mcp.Tool}) | (nil, Failure)
   -- The headers of the tools as they are now: one listed before and
   -- gone or changed since sends what it sends now, or nothing.
   self.mirrors = fresh
+  self.outputs = outputs
   return out
 end
 
-local function call(self: State, name: string, arguments?: {string: Json.Value}): (Mcp.ToolResult) | (nil, Failure)
+--- `answer` as a result of the tool `name`: a failure where it is not one, or is not an error and its
+--- `structuredContent` does not hold to the tool's `outputSchema` as listed.
+local function checked(self: State, name: string, answer: any): (Mcp.ToolResult) | (nil, Failure)
+  local r, why = wire.tool_result_of(answer)
+  if r == nil then return nil, why end
+  local schema = self.outputs[name]
+  if schema == nil or r.isError == true then return r end
+  local structured = r.structuredContent
+  if structured == nil then
+    return nil, Failure.new("mcp: tool " .. Json.quote(name) .. " answered no structuredContent, though it lists an outputSchema")
+  end
+  local fits, unfit = schema:check(structured)
+  if not fits then
+    return nil, Failure.new("mcp: tool " .. Json.quote(name) .. " answered structuredContent that does not hold to its outputSchema: " .. tostring(unfit))
+  end
+  return r
+end
+
+local function call(self: State, name: string, arguments?: {string: Json.Value},
+                    opts?: McpClient.CallOptions): (Mcp.ToolResult) | (nil, Failure)
+  local on_progress = if opts ~= nil then opts.on_progress else nil end
   local args: {string: Json.Value} = arguments or {}
   local fields: {string: Json.Value} = { name = name, arguments = args }
   local function mirrored(): ({string: string}) | (nil, Failure)
@@ -259,8 +315,8 @@ local function call(self: State, name: string, arguments?: {string: Json.Value})
   end
   local headers, why = mirrored()
   if headers == nil then return nil, why end
-  local response, failed = ask(self, "tools/call", fields, name, headers)
-  if response ~= nil then return wire.tool_result_of(response.result) end
+  local response, failed = ask(self, "tools/call", fields, name, headers, on_progress)
+  if response ~= nil then return checked(self, name, response.result) end
   if not (self.http and failed.code == Mcp.HEADER_MISMATCH) then return nil, failed end
   -- The tool's schema may have changed since it was listed: list again,
   -- and send the headers it names now.
@@ -268,9 +324,9 @@ local function call(self: State, name: string, arguments?: {string: Json.Value})
   if listed == nil then return nil, lwhy end
   local again, awhy = mirrored()
   if again == nil then return nil, awhy end
-  local retried, rwhy = ask(self, "tools/call", fields, name, again)
+  local retried, rwhy = ask(self, "tools/call", fields, name, again, on_progress)
   if retried == nil then return nil, rwhy end
-  return wire.tool_result_of(retried.result)
+  return checked(self, name, retried.result)
 end
 
 local function resources(self: State): ({Mcp.Resource}) | (nil, Failure)
@@ -338,8 +394,8 @@ local class Running is McpClient.Session
 
   function discover(self): (Mcp.Discovery) | (nil, Failure) return discover(self.state) end
   function tools(self): ({Mcp.Tool}) | (nil, Failure) return tools(self.state) end
-  function call(self, name: string, arguments?: {string: Json.Value}): (Mcp.ToolResult) | (nil, Failure)
-    return call(self.state, name, arguments)
+  function call(self, name: string, arguments?: {string: Json.Value}, opts?: McpClient.CallOptions): (Mcp.ToolResult) | (nil, Failure)
+    return call(self.state, name, arguments, opts)
   end
   function resources(self): ({Mcp.Resource}) | (nil, Failure) return resources(self.state) end
   function templates(self): ({Mcp.ResourceTemplate}) | (nil, Failure)
@@ -363,10 +419,24 @@ end
 local function session(send: Send, info?: Mcp.Implementation, http: boolean,
                        finish: function(): (true) | (false, Failure)): McpClient.Session
   local running: Running = {
-    state = { send = send, info = info or DEFAULT_INFO, http = http, next_id = 0, mirrors = {}, finish = finish,
+    state = { send = send, info = info or DEFAULT_INFO, http = http, next_id = 0, mirrors = {}, outputs = {}, finish = finish,
       closed = false },
   }
   return running
+end
+
+--- Gives `req`'s `on_progress` the progress `message` tells of, where it is a notice of progress of `req`.
+local function heard(req: Request, message: wire.Message)
+  local on_progress = req.on_progress
+  if on_progress == nil or message.method ~= "notifications/progress" or message.id ~= nil then
+    return
+  end
+  local progress, token = wire.progress_of(message.params)
+  if progress == nil or token ~= req.id then return end
+  local last = req.last_progress
+  if last ~= nil and progress.progress <= last then return end
+  req.last_progress = progress.progress
+  on_progress(progress)
 end
 
 -- stdio.
@@ -381,6 +451,15 @@ local function stdio_send(lines: Stream.Lines, writer: Stream.Writer): Send
     while true do
       local line, trouble = lines:read()
       if line == nil then
+        if trouble == Poll.CANCELLED then
+          -- The caller's task is cancelled: tell the server, which has no stream of this request to see close.
+          Poll.shielded(function()
+            local cancelled: {string: Json.Value} = { requestId = assert(math.tointeger(tonumber(req.id))),
+              reason = "the caller cancelled" }
+            local _, _ = writer:write(wire.notification("notifications/cancelled", cancelled) .. "\n")
+          end)
+          return nil, Failure.new("mcp: " .. req.method .. " was cancelled")
+        end
         if trouble ~= "" then
           return nil, Failure.new("mcp: reading from the server: " .. trouble)
         end
@@ -391,6 +470,7 @@ local function stdio_send(lines: Stream.Lines, writer: Stream.Writer): Send
         if message == nil then
           return nil, Failure.new("mcp: the server wrote a line that is not a message: " .. bad.message)
         end
+        heard(req, message)
         if message.method == nil and message.id == req.id then
           local err = message.error
           if err ~= nil then return nil, refused(err) end
@@ -503,6 +583,75 @@ local function response_in(messages: {string}, id: string, lenient: boolean): (w
   return false
 end
 
+--- Reads an event stream as it comes: each event's data once the event is whole. Each chunk is looked at once,
+--- and what is held joined only when an event ends, so a stream sent a byte at a time costs no more than one sent
+--- whole.
+local class EventSplitter
+  --- The chunks since the last whole event, their line ends made LF.
+  mut parts: mut {string}
+  mut size: integer
+  --- The last byte held, so a blank line split between two chunks is found.
+  mut last: string
+  --- A CR that ended the last chunk, which may be the first half of a CRLF.
+  mut cr: boolean
+
+  --- The data of each event `chunk` completes, or nil where an event is longer than a message may be.
+  function feed(self, chunk: string): {string}?
+    local c = if self.cr then "\r" .. chunk else chunk end
+    self.cr = c:sub(-1) == "\r"
+    if self.cr then c = c:sub(1, -2) end
+    c = c:gsub("\r\n", "\n"):gsub("\r", "\n")
+    if c == "" then return {} end
+    if (self.last .. c):find("\n\n", 1, true) == nil then
+      self.parts[#self.parts + 1] = c
+      self.size = self.size + #c
+      self.last = c:sub(-1)
+      if self.size > Mcp.MAX_MESSAGE_BYTES then return nil end
+      return {}
+    end
+    self.parts[#self.parts + 1] = c
+    local text = table.concat(self.parts)
+    local last = 0
+    local at = 1
+    while true do
+      local found = text:find("\n\n", at, true)
+      if found == nil then break end
+      last = found + 1
+      at = found + 1
+    end
+    local rest = text:sub(last + 1)
+    self.parts = { rest }
+    self.size = #rest
+    self.last = if rest ~= "" then rest:sub(-1) else "\n" end
+    if self.size > Mcp.MAX_MESSAGE_BYTES then return nil end
+    return events(text:sub(1, last))
+  end
+end
+
+--- The response to `req` read from `response`, an event stream, giving `req`'s `on_progress` each notice of its
+--- progress as it comes.
+local function streamed_response(response: Http.Response, req: Request): (wire.Message | false) | (nil, Failure)
+  local splitter: EventSplitter = { parts = {}, size = 0, last = "", cr = false }
+  while true do
+    local chunk, trouble = response:read()
+    if chunk == nil then
+      if trouble ~= "" then return nil, Failure.new("mcp: " .. req.method .. ": " .. trouble) end
+      return false
+    end
+    local datas = splitter:feed(chunk)
+    if datas == nil then
+      return nil, Failure.new("mcp: " .. req.method .. ": an event is longer than a message may be")
+    end
+    for _, text in ipairs(datas) do
+      local message, _ = wire.message(text)
+      if message ~= nil then
+        heard(req, message)
+        if message.method == nil and message.id == req.id then return message end
+      end
+    end
+  end
+end
+
 --- The response message to `id` in `got`, or nil and why there is none.
 local function http_response(got: Http.Body, id: string, method: string): (wire.Message) | (nil, Failure)
   local kind = ((got.headers["content-type"] or ""):match("^%s*([^;%s]+)") or ""):lower()
@@ -548,13 +697,36 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
     for header, value in pairs(req.mirrored or {}) do
       headers["Mcp-Param-" .. header] = Mcp.header_text(value)
     end
-    local got, why = Http.request("POST", url, {
-      timeout_ns = opts.timeout_ns, headers = headers, body = wire.request(req.id, req.method, req.params),
-      follow = false, max_bytes = Mcp.MAX_MESSAGE_BYTES,
-    })
-    if got == nil then return nil, Failure.new("mcp: " .. req.method .. ": " .. why) end
-    local message, bad = http_response(got, req.id, req.method)
-    if message == nil then return nil, bad end
+    local body = wire.request(req.id, req.method, req.params)
+    local got: Http.Body
+    local message: wire.Message
+    local opened, owhy = Http.open(url, { method = "POST", timeout_ns = opts.timeout_ns, headers = headers,
+      body = body, follow = false })
+    if opened == nil then return nil, Failure.new("mcp: " .. req.method .. ": " .. owhy) end
+    local response <close> = opened
+    local kind = ((response.headers["content-type"] or ""):match("^%s*([^;%s]+)") or ""):lower()
+    if kind == "text/event-stream" and response.status // 100 == 2 then
+      -- Read as it comes, so each notice of progress is given as it is sent.
+      local found, bad = streamed_response(response, req)
+      if found == nil then return nil, bad end
+      if not found is wire.Message then
+        return nil, Failure.new("mcp: " .. req.method .. ": the server answered with no response to the request")
+      end
+      got = { status = response.status, headers = response.headers, body = "" }
+      message = found
+    else
+      local text, rwhy = Stream.read_up_to(response, Mcp.MAX_MESSAGE_BYTES + 1)
+      if text == nil then
+        return nil, Failure.new("mcp: " .. req.method .. ": " .. tostring(rwhy))
+      end
+      if #text > Mcp.MAX_MESSAGE_BYTES then
+        return nil, Failure.new("mcp: " .. req.method .. ": the answer is longer than a message may be")
+      end
+      got = { status = response.status, headers = response.headers, body = text }
+      local found, bad = http_response(got, req.id, req.method)
+      if found == nil then return nil, bad end
+      message = found
+    end
     local err = message.error
     if err ~= nil then
       local failure = refused(err)

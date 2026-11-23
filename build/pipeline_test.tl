@@ -9,6 +9,7 @@ local Fs = require("cosmic.fs")
 local Lexer = require("lang.lexer")
 local Parser = require("lang.parser")
 local Pipeline = require("build.pipeline")
+local code_identity = require("build.code_identity")
 local Programs = require("lang.check_programs")
 local Scopes = require("lang.scopes")
 local Sqlite = require("cosmic.sqlite")
@@ -421,16 +422,16 @@ local function test_the_code_that_reads_is_named_from_the_staged_tree(tmp: strin
   write("build/other.tl", "return 2\n")
   local handle = assert(work.open(root))
   assert(work.stage(handle, { own = false }))
-  local unparsed, why = Pipeline.coded_of("tool", handle.db)
+  local unparsed, why = code_identity.coded_of("tool", handle.db)
   assert(unparsed == nil and why:find("is not parsed yet", 1, true) ~= nil, tostring(why))
   assert(importer.derive(handle))
-  local first = assert(Pipeline.coded_of("tool", handle.db))
-  assert(#first == 64 and Pipeline.coded_of("another tool", handle.db) ~= first, "the tool is no part of the identity")
+  local first = assert(code_identity.coded_of("tool", handle.db))
+  assert(#first == 64 and code_identity.coded_of("another tool", handle.db) ~= first, "the tool is no part of the identity")
   local function again(path: string, text: string): string
     write(path, text)
     assert(work.stage(handle, { own = false }))
     assert(importer.derive(handle))
-    return (assert(Pipeline.coded_of("tool", handle.db)))
+    return (assert(code_identity.coded_of("tool", handle.db)))
   end
   -- a module the pipeline does not reach moves nothing; one it reaches, directly or not, moves it
   assert(again("build/other.tl", "return 3\n") == first, "a module the pipeline does not reach moved the identity")
@@ -901,4 +902,67 @@ local function test_a_program_refused_for_its_types_is_refused_with_the_checkers
     assert(why:find("^m.tl: the compiler refused it\nm.tl:%d+:%d+: .+ %([%w_]+%): ") ~= nil, why)
     assert(why:find(wanted, 1, true) ~= nil, "expected " .. wanted .. " in:\n" .. why)
   end
+end
+
+--- The options of [`options`] with one more module of the library, `cosmic.box`, for a kept checker to lower once.
+local function boxed(): Pipeline.Options
+  local texts: mut {string: string} = {}
+  for name, text in pairs(STANDARD) do texts[name] = text end
+  texts["cosmic.box"] = "local record Box\n  n: integer\n  make: function(n: integer): Box\nend\n" ..
+    "Box.make = function(n: integer): Box\n  return { n = n, make = Box.make }\nend\nreturn Box\n"
+  local made = options()
+  return { globals = made.globals, types = made.types, standard = Driver.stubs(texts), project = made.project }
+end
+
+--- A kept checker ([`Pipeline.kept_alone`]) answers each text as [`Pipeline.checked_alone`] answers it alone, whatever it
+--- checked before: what one text declares, refuses or returns says nothing of the next.
+local function test_a_kept_checker_answers_each_text_as_it_is_answered_alone()
+  local texts: {string} = {
+    "local function twice(n: integer): integer\n  return n * 2\nend\nreturn twice(21)\n",
+    "local n: string = 1\nreturn n\n",
+    "local Box = require(\"cosmic.box\")\nreturn Box.make(4).n\n",
+    "local unused = 1\nreturn 2\n",
+    "local function twice(n: string): string\n  return n .. n\nend\nreturn twice(\"a\")\n",
+    "return twice(1)\n",
+    "local Box = require(\"cosmic.box\")\nreturn Box.make(\"x\").n\n",
+    "local x = require(\"lone\")\nreturn x\n",
+    "local x = = 1\n",
+    "global counted: integer = 3\nreturn counted\n",
+    "return counted\n",
+    "local Box = require(\"cosmic.box\")\nreturn Box.make(5).n + 1\n",
+    "local Shape = require(\"cosmic.shape\")\nlocal record Wrap\n  n: integer\nend\nlocal spec = Shape.record_of(\"Wrap\")\n" ..
+      "return spec.kind\n",
+    "return 1\n",
+    "local Shape = require(\"cosmic.shape\")\nlocal spec = Shape.record_of(\"Nothing\")\nreturn spec.kind\n",
+    "local Shape = require(\"cosmic.shape\")\nlocal record Wrap\n  n: integer\nend\nlocal spec = Shape.record_of(\"Wrap\")\n" ..
+      "return spec.kind\n",
+  }
+  local kept = Pipeline.kept_alone("snippet.tl", boxed())
+  for round = 1, 2 do
+    for i, text in ipairs(texts) do
+      local single = Pipeline.checked_alone("snippet.tl", text, boxed())
+      local made = kept:check(text)
+      local where = tostring(round) .. "." .. tostring(i) .. ": " .. table.concat(made.lines, "\n") .. "\nalone:\n" ..
+        table.concat(single.lines, "\n")
+      assert((made.code == nil) == (single.code == nil), where)
+      assert(table.concat(made.lines, "\n") == table.concat(single.lines, "\n"), where)
+      assert(made.code == single.code, where)
+    end
+  end
+end
+
+--- What a kept checker lowered of the library stays lowered: a text that requires only what an earlier one did lowers its
+--- own module and no other.
+local function test_a_kept_checker_lowers_the_library_once()
+  local kept = Pipeline.kept_alone("snippet.tl", boxed())
+  assert(kept:lowerings() == 0)
+  local first = kept:check("local Box = require(\"cosmic.box\")\nreturn Box.make(1).n\n")
+  assert(first.code ~= nil, table.concat(first.lines, "\n"))
+  local lowered = kept:lowerings()
+  assert(lowered >= 2, "the text and cosmic.box")
+  local text = "local Box = require(\"cosmic.box\")\nreturn Box.make(2).n * 10\n"
+  local second = kept:check(text)
+  assert(second.code ~= nil and second.code == Pipeline.checked_alone("snippet.tl", text, boxed()).code,
+    table.concat(second.lines, "\n"))
+  assert(kept:lowerings() == lowered + 1, "the text alone, not cosmic.box: " .. tostring(kept:lowerings() - lowered))
 end

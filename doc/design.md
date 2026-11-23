@@ -106,10 +106,9 @@ That is Intel Haswell (2013) or AMD Excavator (2015) or newer mainstream
 cores, but not Atom-class or AVX-less Pentium and Celeron parts, which
 are still sold without AVX2. It buys wide vectors and fused multiply-add
 in the numeric kernels (the vector search above all) with no runtime
-dispatch, one core and one set of bytes to verify. The launcher reads
-the CPU's flags before extracting anything and refuses a CPU without
-them by naming what is missing, rather than letting the core die with
-SIGILL.
+dispatch, one core and one set of bytes to verify. On an older CPU the
+core dies with SIGILL: the launcher does not read the CPU's flags, which
+would cost every start to name what only a CPU from before 2013 lacks.
 
 The aarch64 Linux core is built for Armv8.2-A with the dot-product and
 half-precision floating-point extensions (and what Armv8.1-A brought:
@@ -122,9 +121,8 @@ boards from before 2017. It buys `sdot` for the integer kernels, native
 half-precision arithmetic and single-instruction atomics with no runtime
 dispatch. The model is the generic Armv8 one with those features added,
 so the code is not scheduled for one chip, and the optional cryptographic
-extensions stay off. The launcher reads the `Features` line of
-`/proc/cpuinfo` and refuses a CPU without them, as it does on x86_64. The
-aarch64 macOS core stays at Apple M1, the oldest Apple silicon Mac.
+extensions stay off. An older CPU stops the core with SIGILL, as on
+x86_64. The aarch64 macOS core stays at Apple M1, the oldest Apple silicon Mac.
 The host tools the build runs stay at each architecture's baseline, since
 their bytes key the build's caches across runners.
 
@@ -1214,10 +1212,10 @@ entropy and DRBG modules. [`cosmic.hash`] is the Teal face of it, the
 raw [`cosmic.internal.hash`] table's `digest`, `hmac` and streaming
 hasher the bindings, and every SQLite
 handle knows the same functions, so a query hashes in place. the
-crypto subtree serves authenticated encryption (ChaCha20-Poly1305) and X25519 key
-agreement the same way: [`cosmic.cipher`] over the raw
-[`cosmic.internal.cipher`] table, each key in a PSA key slot for one
-computation. the TLS
+crypto subtree serves authenticated encryption (ChaCha20-Poly1305) the
+same way: [`cosmic.cipher`] over the raw [`cosmic.internal.cipher`]
+table, each key in a PSA key slot for one computation; [`cosmic.key`]
+agrees on X25519 secrets over the same table. the TLS
 1.2 and 1.3 client under [`cosmic.http`] (curl over c-ares and mbedtls)
 comes from the same library and the same configuration: one header,
 [`core/mbedtls_cosmic_config.h`], which every file that includes an
@@ -1233,7 +1231,7 @@ trust the default.
 
 mbedtls's PSA driver carries no Ed25519, so signatures come from
 Monocypher 4, vendored as its two portable C files: the curve, and RFC
-8032's SHA-512 over it. [`cosmic.sign`] is the Teal face of it and the
+8032's SHA-512 over it. [`cosmic.key`] is the Teal face of it and the
 raw [`cosmic.internal.sign`] table the bindings. Only Ed25519 is bound:
 Monocypher's own `crypto_eddsa_*` signs with BLAKE2b, which no Ed25519
 implementation verifies.
@@ -1516,7 +1514,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
-[`cosmic.sign`]: ../cosmic/sign.tl
+[`cosmic.key`]: ../cosmic/key.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h

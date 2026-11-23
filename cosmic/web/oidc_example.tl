@@ -6,10 +6,10 @@ local Clock = require("cosmic.clock")
 local Http = require("cosmic.http")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
+local Key = require("cosmic.key")
 local Secret = require("cosmic.web.secret")
 local Session = require("cosmic.web.session")
 local SessionCookie = require("cosmic.web.session.cookie")
-local Sign = require("cosmic.sign")
 local Url = require("cosmic.url")
 local Web = require("cosmic.web")
 
@@ -22,7 +22,7 @@ end
 function Example.oidc()
   local issuer = "https://id.example.com"
   local nonce: mut {string: string} = {}
-  local signer = Jose.signer("ES256", Sign.p256_secret(), "k")
+  local signer = Key.generate("p256")
   local function provider(method: string, url: string, _: Http.Options): Http.Body?, string
     local body: Json.Value
     if url == issuer .. "/.well-known/openid-configuration" then
@@ -31,12 +31,12 @@ function Example.oidc()
         token_endpoint = issuer .. "/token", jwks_uri = issuer .. "/jwks",
       }
     elseif url == issuer .. "/jwks" then
-      body = { keys = Json.array({ signer.jwk }) }
+      body = { keys = Json.array({ Jose.jwk(signer.public, "k") }) }
     elseif url == issuer .. "/token" and method == "POST" then
       body = { id_token = Jose.sign(signer, {
         iss = issuer, sub = "ada", aud = "my-app", nonce = nonce["value"] or "",
         exp = Clock.now_ns() // 1000000000 + 300, name = "Ada",
-      }) }
+      }, { kid = "k" }) }
     else
       return nil, "no such URL"
     end
