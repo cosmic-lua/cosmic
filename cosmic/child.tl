@@ -3287,12 +3287,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     relay = if relayed then merged.connect else nil end }, ""
 end
 
---- Whether this host holds a policy's child by Seatbelt, which is how
---- macOS holds one, and Linux's Landlock and seccomp are not there.
-local function holds_by_seatbelt(): boolean
-  local names, _ = sys.uname()
-  return names ~= nil and names.sysname == "Darwin"
-end
+local holds_by_seatbelt <const> = Rules.on_macos
 
 --- Whether a program of `merged` may be started on macOS as the policy
 --- says: "" or why not ([`Seatbelt.credentials_unmet`], told this process's
@@ -3395,12 +3390,6 @@ local function held_by_seatbelt(argv: {string}, opts: Options, policy: Rules.Pol
   if files == nil then return nil, loader_trouble end
   local missing = ungranted(files, merged.grants or {}, opts.cwd)
   if missing ~= "" then return nil, "sandbox: " .. missing end
-  local parameters = if profile.tmp ~= nil then 1 else 0 end
-  for _, _ in pairs(profile.parameters) do parameters = parameters + 1 end
-  if parameters > raw.SEATBELT_PARAMETER_MAX then
-    return nil, "sandbox: grants: the paths the profile holds, " .. tostring(parameters) .. ", are past the " ..
-      "most a start takes, " .. tostring(raw.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead"
-  end
   local env: mut {string:string} = {}
   for _, name in ipairs(merged.env or {}) do
     local value = sys.getenv(name)

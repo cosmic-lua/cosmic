@@ -459,6 +459,11 @@ local function test_counts_per_namespace_is_linux_5_17_on()
   end
 end
 
+local function test_on_macos_is_whether_the_kernel_is_darwin()
+  local names = assert(sys.uname())
+  assert(Sandbox.on_macos() == (names.sysname == "Darwin"), names.sysname)
+end
+
 --- A Stat with the mode and kind a reach is judged on, and its owner and
 --- group, 0 unless given.
 local function described(mode: integer, kind: string, uid?: integer, gid?: integer): sys.Stat

@@ -118,14 +118,6 @@ local function same(a: {integer}, b: {integer}): boolean
   return true
 end
 
---- Whether `bytes` begins with `prefix`.
-local function begins(bytes: {integer}, prefix: {integer}): boolean
-  for i = 1, #prefix do
-    if bytes[i] ~= prefix[i] then return false end
-  end
-  return true
-end
-
 --- Every refused prefix, in the order a refusal names its class: the
 --- first to hold an address wins, which makes `::` and `::1` unspecified
 --- and loopback rather than IPv4-compatible, and a metadata address the
@@ -277,10 +269,7 @@ function relay_address.own_addresses(own: {string}): {{integer}}
   for _, text in ipairs(own) do
     local bytes = relay_address.parse(text)
     if bytes == nil then error("own address \"" .. tostring(text) .. "\" is not numeric", 2) end
-    if #bytes == 16 and begins(bytes, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff }) then
-      bytes = { table.unpack(bytes, 13, 16) }
-    end
-    out[#out + 1] = bytes
+    out[#out + 1] = Grant.unmapped(bytes)
   end
   return out
 end

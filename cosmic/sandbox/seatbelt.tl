@@ -7,6 +7,7 @@
 --- [`Sandbox.restrict`] to the running process.
 --- @public
 
+local process = require("cosmic.internal.process")
 local rules = require("cosmic.sandbox.policy")
 local sys = require("cosmic.sys")
 
@@ -167,7 +168,8 @@ end
 --- the parameter [`Seatbelt.Profile`]'s `tmp` names, which the caller sets.
 --- A policy's `connect` is reached through the network relay alone, at
 --- [`Seatbelt.Options.relay_port`] of the host's loopback.
---- Nil and why for an invalid policy, missing path or unsupported field.
+--- Nil and why for an invalid policy, missing path or unsupported field,
+--- or for more parameters than a start takes (`SEATBELT_PARAMETER_MAX`).
 ---
 --- The returned rlimits must be applied separately. This is preparation
 --- only: on macOS [`Child.start`] applies the profile and the limits in a
@@ -334,6 +336,14 @@ function Seatbelt.compile(policy: rules.Policy, options?: Seatbelt.Options): Sea
     text[#text + 1] = '(allow network-outbound (remote ip "*:*"))'
     table.insert(text, '(allow network-inbound (local tcp "localhost:' .. tostring(serves) .. '"))')
     text[#text + 1] = '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))'
+  end
+  -- Child.start passes `tmp` as one more parameter once it makes the
+  -- directory, so it counts against the same limit.
+  local count = if tmp ~= nil then 1 else 0 end
+  for _, _ in pairs(parameters) do count = count + 1 end
+  if count > process.SEATBELT_PARAMETER_MAX then
+    return refuse("grants: the paths the profile holds, " .. tostring(count) .. ", are past the most it takes, " ..
+        tostring(process.SEATBELT_PARAMETER_MAX) .. "; grant a directory above them instead")
   end
   return { text = table.concat(text, "\n") .. "\n", parameters = parameters, rlimits = rules.rlimits(merged.limits),
     tmp = tmp }, ""

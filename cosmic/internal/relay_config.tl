@@ -112,14 +112,7 @@ local RESERVED <const>: {string} = {
 --- The key of an address's bytes: its octets, an IPv4-mapped IPv6 address
 --- as the IPv4 address it carries.
 local function address_key(bytes: {integer}): string
-  if #bytes == 16 then
-    local mapped = bytes[11] == 0xff and bytes[12] == 0xff
-    for i = 1, 10 do
-      if bytes[i] ~= 0 then mapped = false end
-    end
-    if mapped then return table.concat({ bytes[13], bytes[14], bytes[15], bytes[16] }, ".") end
-  end
-  return table.concat(bytes, ".")
+  return table.concat(Grant.unmapped(bytes), ".")
 end
 
 --- The first `connect` target of `connect` that names the address `host`
