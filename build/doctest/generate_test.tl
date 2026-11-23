@@ -275,3 +275,88 @@ local function test_a_shorter_fence_inside_a_longer_one_does_not_close_it()
   local hidden = generate.prose("# t\n\n````text\n```\n<!-- policy: tmp = true -->\n```\n````\n")
   assert(hidden:find("policy:", 1, true) ~= nil, hidden)
 end
+
+--- The policy a doc whose `sh` blocks run `cosmic` declares.
+local cosmic_policy: Block = block("policy", 'profiles = { "cosmic" }', no_mods)
+
+--- A doc runs `cosmic` from a `sh` block only under the `cosmic` profile;
+--- without it, the start is refused at run time with only "Permission
+--- denied", so the generator refuses it first and names the line to add.
+local function test_a_sh_block_needs_the_cosmic_profile()
+  local code, trouble = generate.from_blocks({ block("sh", "cosmic help", no_mods) }, "fixture.md")
+  assert(code == nil and trouble:find('profiles = { "cosmic" }', 1, true) ~= nil, trouble)
+  local quoted = assert(generate.from_blocks({ block("policy", "profiles = { 'cosmic' }", no_mods),
+    block("sh", "cosmic help", no_mods) }, "fixture.md"))
+  assert(quoted:find("__doctest_cosmic", 1, true) ~= nil, quoted)
+end
+
+--- A comment `# exits <n>` after a command is the status it exits with,
+--- so a doc can show a command that fails; every other line exits 0.
+local function test_a_sh_line_says_the_status_it_exits_with()
+  local code = assert(generate.from_blocks({
+    cosmic_policy,
+    block("sh", "cosmic -e 'return 3'  # exits 3\ncosmic help\r", no_mods),
+  }, "fixture.md"))
+  assert(code:find('__doctest_cosmic(tmp, { "-e", "return 3" }, 3)', 1, true) ~= nil, code)
+  assert(code:find('__doctest_cosmic(tmp, { "help" }, 0)', 1, true) ~= nil, code)
+end
+
+--- A `sh` block runs each of its lines as the words after `cosmic`, split
+--- as a shell splits them, and what each prints is the example's output.
+local function test_a_sh_block_runs_each_line_as_cosmic_s_words()
+  local blocks: {Block} = {
+    cosmic_policy,
+    block("sh", "cosmic json -r '$.a b' \"x \\\"y\\\"\" c\\ d\n\n# a comment\ncosmic help", no_mods),
+    block("output", "1", no_mods),
+  }
+  local code, trouble = generate.from_blocks(blocks, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  assert(code:find('__doctest_cosmic(tmp, { "json", "-r", "$.a b", "x \\"y\\"", "c d" }, 0)', 1, true) ~= nil,
+    "got:\n" .. code)
+  assert(code:find('__doctest_cosmic(tmp, { "help" }, 0)', 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("local function test_1(tmp: string)", 1, true) ~= nil, "got:\n" .. code)
+  assert(code:find("local function __doctest_cosmic(", 1, true) ~= nil, "got:\n" .. code)
+end
+
+--- A `sh` block runs `cosmic` with no shell, so it refuses what only a
+--- shell would do with the line, and any command but `cosmic`.
+local function test_a_sh_block_refuses_what_only_a_shell_runs()
+  for _, line in ipairs({ "cosmic json $HOME", "cosmic json a | grep b", "cosmic json > out",
+      "echo hi", "cosmic json 'open", 'cosmic json "$x"', "cosmic json *.json" }) do
+    local code, trouble = generate.from_blocks({ block("sh", line, no_mods) }, "fixture.md")
+    assert(code == nil, line .. ": got:\n" .. tostring(code))
+    assert(trouble:find("^line 2: ") ~= nil, line .. ": " .. trouble)
+  end
+  local code, trouble = generate.from_blocks({ block("sh", "\n# nothing", no_mods) }, "fixture.md")
+  assert(code == nil and trouble:find("runs no command", 1, true) ~= nil, trouble)
+end
+
+--- A `file=` block is the project a `sh` block's commands run in, and
+--- `teal continue` cannot add Teal to one.
+local function test_a_sh_block_takes_files_and_no_continue()
+  local code, trouble = generate.from_blocks({
+    cosmic_policy,
+    block("teal", 'print("hi")', mods(false, "hello.tl", nil)),
+    block("sh", "cosmic hello.tl", no_mods),
+    block("output", "hi", no_mods),
+  }, "fixture.md")
+  assert(code ~= nil, "generate failed: " .. tostring(trouble))
+  local wrote = assert(code:find('__doctest_write(tmp, "hello.tl"', 1, true), code)
+  local ran = assert(code:find('__doctest_cosmic(tmp, { "hello.tl" }, 0)', 1, true), code)
+  assert(wrote < ran, code)
+  local refused, why = generate.from_blocks({
+    block("sh", "cosmic help", no_mods),
+    block("teal", "local x = 1", mods(true, nil, nil)),
+  }, "fixture.md")
+  assert(refused == nil and why:find("cannot continue a sh block", 1, true) ~= nil, why)
+end
+
+--- [`generate.entries`] lists the examples a check compiles alone: a `sh`
+--- block has no Teal to compile.
+local function test_entries_leave_a_sh_block_out()
+  local entries = assert(generate.entries({
+    block("sh", "cosmic help", no_mods),
+    block("teal", "local x = 1", no_mods),
+  }))
+  assert(#entries == 1 and assert(entries[1]).source == "local x = 1")
+end

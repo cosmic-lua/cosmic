@@ -14,6 +14,14 @@ local record FileWrite
   line: integer
 end
 
+--- One command line of a `sh` block.
+local record Command
+  --- The words after `cosmic`.
+  words: {string}
+  --- The status it exits with: 0, or what a trailing `# exits <n>` says.
+  status: integer
+end
+
 local record Example
   files: mut {FileWrite}
   --- Each opening statement (`teal`/`lua`) or `continue` block's own
@@ -30,6 +38,9 @@ local record Example
   mut name: string
   --- The doc line of the block that opens it.
   line: integer
+  --- For an example a `sh` block opens, each of its command lines;
+  --- nil for a Teal or Lua one.
+  commands?: {Command}
 end
 
 local record Item
@@ -73,6 +84,126 @@ local function quote(s: string): string
   return string.format("%q", s)
 end
 
+--- A command line's words, and the text of a `#` comment after them
+--- ("" for none).
+local record Split
+  words: {string}
+  comment: string
+end
+
+--- The characters a shell would read as more than a word outside
+--- quotes: a pipe, a redirect, a variable, a glob, a subshell. A `sh`
+--- block runs `cosmic` alone, with no shell, so it refuses them rather
+--- than run something other than what a reader's shell would.
+local shell_special <const> = "|&;<>()$`*?[]{}~"
+
+--- The words of one command line of a `sh` block, as a POSIX shell
+--- splits them: spaces apart, `'...'` literal, `"..."` with `\` before
+--- `"`, `\`, `$` or a backquote, and `\` before any one character
+--- outside quotes. A `#` that begins a word ends the line.
+--- @return Split | nil nil for an unclosed quote or a character
+---   from `shell_special` outside quotes
+--- @return string why
+local function words_of(line: string): Split?, string
+  local words: mut {string} = {}
+  local word: string? = nil
+  local comment = ""
+  local i = 1
+  while i <= #line do
+    local c = line:sub(i, i)
+    if c == " " or c == "\t" or (c == "\r" and i == #line) then
+      if word ~= nil then
+        words[#words + 1] = word
+        word = nil
+      end
+    elseif c == "#" and word == nil then
+      comment = String.trim(line:sub(i + 1))
+      break
+    elseif c == "'" then
+      local close = line:find("'", i + 1, true)
+      if close == nil then
+        return nil, "a ' is never closed"
+      end
+      word = (word or "") .. line:sub(i + 1, close - 1)
+      i = close
+    elseif c == '"' then
+      local text = ""
+      local j = i + 1
+      local closed = false
+      while j <= #line do
+        local d = line:sub(j, j)
+        if d == '"' then
+          closed = true
+          break
+        elseif d == "\\" and j < #line and ('"\\$`'):find(line:sub(j + 1, j + 1), 1, true) ~= nil then
+          text = text .. line:sub(j + 1, j + 1)
+          j = j + 1
+        elseif d == "$" or d == "`" then
+          return nil, "a " .. d .. " inside \"...\" is the shell's, which a sh block does not run"
+        else
+          text = text .. d
+        end
+        j = j + 1
+      end
+      if not closed then
+        return nil, 'a " is never closed'
+      end
+      word = (word or "") .. text
+      i = j
+    elseif c == "\\" then
+      if i == #line then
+        return nil, "a line ends in \\; write the command on one line"
+      end
+      word = (word or "") .. line:sub(i + 1, i + 1)
+      i = i + 1
+    elseif shell_special:find(c, 1, true) ~= nil then
+      return nil, "a " .. c .. " outside quotes is the shell's, which a sh block does not run; " ..
+        "quote it, or show the line in a text block"
+    else
+      word = (word or "") .. c
+    end
+    i = i + 1
+  end
+  if word ~= nil then
+    words[#words + 1] = word
+  end
+  return { words = words, comment = comment }, ""
+end
+
+--- The commands of a `sh` block: a blank line or a comment is none,
+--- and every other line runs `cosmic`. A comment `# exits <n>` after a
+--- command is the status it exits with, 0 where it has none.
+--- @return {Command} | nil nil for a line [`words_of`] refuses, or one
+---   that runs anything but `cosmic`
+--- @return string why, naming the doc line
+local function commands_of(b: Block): {Command}?, string
+  local commands: mut {Command} = {}
+  local at = b.line
+  for line in String.lines(b.content) do
+    at = at + 1
+    local split, trouble = words_of(line)
+    if split == nil then
+      return nil, "line " .. tostring(at) .. ": " .. trouble
+    end
+    local words = split.words
+    if #words > 0 then
+      if words[1] ~= "cosmic" then
+        return nil, "line " .. tostring(at) .. ": a sh block runs cosmic alone, so each line begins " ..
+          "`cosmic`; show any other command in a text block"
+      end
+      local after: mut {string} = {}
+      for k = 2, #words do after[#after + 1] = assert(words[k]) end
+      local status = math.tointeger(tonumber(split.comment:match("^exits (%d+)$")))
+      local command: Command = { words = after, status = status or 0 }
+      commands[#commands + 1] = command
+    end
+  end
+  if #commands == 0 then
+    return nil, "line " .. tostring(b.line) .. ": a sh block runs no command"
+  end
+  return commands, ""
+end
+
 --- Turns the block sequence into the [`Item`] list `render` walks: one
 --- entry per skip comment or per example, in the order examples become
 --- runnable functions.
@@ -90,6 +221,23 @@ local function to_items(blocks: {Block}): {Item}?, string
       -- The doc's declaration, which [`from_blocks`] writes at the top.
     elseif b.lang == "text" then
       current = nil
+    elseif b.lang == "sh" then
+      local commands, why = commands_of(b)
+      if commands == nil then
+        return nil, why
+      end
+      local example: Example = {
+        files = pending_files,
+        statements = {},
+        has_output = false,
+        output_text = "",
+        name = "",
+        line = b.line,
+        commands = commands,
+      }
+      pending_files = {}
+      items[#items + 1] = { kind = "example", example = example }
+      current = example
     elseif b.lang == "output" then
       if current == nil then
         return nil, "line " .. tostring(b.line) ..
@@ -134,6 +282,10 @@ local function to_items(blocks: {Block}): {Item}?, string
           return nil, "line " .. tostring(b.line) ..
             ": 'teal continue' has no open example to continue"
         end
+        if current.commands ~= nil then
+          return nil, "line " .. tostring(b.line) ..
+            ": 'teal continue' cannot continue a sh block"
+        end
         current.statements[#current.statements + 1] = b.content
       else
         local example: Example = {
@@ -167,7 +319,8 @@ local function to_items(blocks: {Block}): {Item}?, string
   return items, ""
 end
 
---- The examples a doc's blocks make, as [`Entry`] values, skips left out:
+--- The Teal and Lua examples a doc's blocks make, as [`Entry`] values,
+--- skips and `sh` blocks left out:
 --- what [`from_blocks`] turns into functions, without the wrapping, so a
 --- check can hold each to compiling on its own.
 --- @return {generate.Entry} | nil nil on the grammar error [`from_blocks`] names
@@ -180,7 +333,7 @@ function generate.entries(blocks: {Block}): {generate.Entry}?, string
   local out: mut {generate.Entry} = {}
   for _, item in ipairs(items) do
     local example = item.example
-    if item.kind == "example" and example ~= nil then
+    if item.kind == "example" and example ~= nil and example.commands == nil then
       out[#out + 1] = { source = table.concat(example.statements, "\n\n"),
         line = example.line, companions = #example.files > 0,
         output = example.has_output }
@@ -218,6 +371,16 @@ local function emit_example(out: mut {string}, file: string, example: Example)
   end
   for _, statement in ipairs(example.statements) do
     emit_indented(out, statement)
+  end
+  for _, command in ipairs(example.commands or {}) do
+    local quoted: mut {string} = {}
+    for _, word in ipairs(command.words) do quoted[#quoted + 1] = quote(word) end
+    out[#out + 1] = "  do"
+    local call = "    local said = __doctest_cosmic(tmp, { " .. table.concat(quoted, ", ") .. " }, " ..
+      tostring(command.status) .. ")"
+    out[#out + 1] = call
+    out[#out + 1] = '    if said ~= "" then print((said:gsub("\\n$", ""))) end'
+    out[#out + 1] = "  end"
   end
   if example.has_output then
     out[#out + 1] = "  local __doctest_got = __doctest_get()"
@@ -342,9 +505,13 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
 
   local needs_fs = false
   local needs_capture = false
+  local needs_cosmic = false
   for _, item in ipairs(items) do
     local example = item.example
     if item.kind == "example" and example ~= nil then
+      if example.commands ~= nil then
+        needs_cosmic = true
+      end
       if #example.files > 0 then
         needs_fs = true
       end
@@ -352,6 +519,11 @@ function generate.from_blocks(blocks: {Block}, file: string, prose?: string): st
         needs_capture = true
       end
     end
+  end
+
+  if needs_cosmic and (declared == nil or declared.content:find("[\"']cosmic[\"']") == nil) then
+    return nil, "a sh block runs cosmic, which a doc's examples may start only under the cosmic profile: " ..
+      'declare <!-- policy: profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } -->'
   end
 
   local out: mut {string} = {}
@@ -432,6 +604,49 @@ local function __doctest_capture(): function(...: any), function(): string
     return caught.text
   end
   return into, get
+end
+]==]
+    out[#out + 1] = ""
+  end
+
+  if needs_cosmic then
+    out[#out + 1] = [==[
+local __doctest_child = require("cosmic.child")
+local __doctest_clock = require("cosmic.clock")
+local __doctest_env = require("cosmic.env")
+local __doctest_files = require("cosmic.fs")
+local __doctest_proc = require("cosmic.proc")
+
+--- What a `sh` block's line prints on stdout: the `cosmic` running
+--- this test, given `words`, in the example's directory `tmp`. Its build
+--- directory and caches go in a fresh directory beside `tmp`, never
+--- inside it: a build directory inside the project is refused. A run
+--- that does not exit with `status` raises, with what it said on stderr.
+--- The limit is a minute, as a file run builds the tree around it.
+local function __doctest_cosmic(tmp: string, words: {string}, status: integer): string
+  local relaunch = assert(__doctest_proc.relaunch())
+  local home = assert(__doctest_files.mkdtemp("doctest-home-"))
+  local env = __doctest_env.all()
+  for name, value in pairs(relaunch.env) do env[name] = value end
+  env["COSMIC_BUILD_HOME"] = home .. "/build"
+  env["XDG_CACHE_HOME"] = home .. "/cache"
+  local argv = { table.unpack(relaunch.argv) }
+  for _, word in ipairs(words) do argv[#argv + 1] = word end
+  local said, trouble = __doctest_child.run(argv, { env = env, fds = relaunch.fds, cwd = tmp,
+    stdout = "capture", stderr = "capture", timeout_ns = __doctest_clock.seconds(60) })
+  assert(__doctest_files.remove_tree(home))
+  local shown: mut {string} = {}
+  for _, word in ipairs(words) do shown[#shown + 1] = string.format("%q", word) end
+  local line = "cosmic " .. table.concat(shown, " ")
+  if said == nil then
+    error("doctest: " .. line .. " did not start: " .. trouble)
+  elseif said.timed_out then
+    error("doctest: " .. line .. " ran past a minute:\n" .. (said.stderr or ""))
+  elseif said.code ~= status then
+    error("doctest: " .. line .. " exited " .. tostring(said.code) .. ", where the doc says " ..
+      tostring(status) .. ":\n" .. (said.stderr or ""))
+  end
+  return said.stdout or ""
 end
 ]==]
     out[#out + 1] = ""
