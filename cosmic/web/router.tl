@@ -372,13 +372,12 @@ local class Built is Types.Router
       local names: mut {string} = {}
       for key in pairs(query) do names[#names + 1] = key end
       table.sort(names)
-      local entries: mut {{string}} = {}
+      local entries: mut {Url.Pair} = {}
       for _, key in ipairs(names) do
         local value = query[key]
-        if value ~= nil then entries[#entries + 1] = { key, value } end
+        if value ~= nil then entries[#entries + 1] = { name = key, value = value } end
       end
-      local part, why = Html.url_query(entries)
-      if part == nil then return nil, "url_for: " .. why.message end
+      local part = Html.url_query(entries)
       path = path .. (if path:find("?", 1, true) then "&" else "?" end) .. Html.raw_url_part(part)
     end
     return path, ""
