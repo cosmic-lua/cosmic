@@ -434,7 +434,7 @@ local function snapshot(dir: string): string
   return table.concat(lines, "\n")
 end
 
---- `extract_reader` over a stream, however it chunks its bytes, writes
+--- `extract` of a reader over a stream, however it chunks its bytes, writes
 --- what `extract` of the same bytes as a file does, and refuses what it
 --- refuses with the same words: one code path, read two ways.
 -- TODO: fuzz the verb's staged extraction too (`resolve_in` and the
@@ -445,7 +445,7 @@ local function test_extract_of_a_reader_answers_as_extract_does_for_the_same_byt
   local base = tmp_absolute or tmp
   local case = base .. "/case"
   Fuzz.run({
-    name = "archive extract_reader parity",
+    name = "archive extract of a reader parity",
     dir = tmp,
     gen = gen_extraction,
     requires = { "both wrote", "both refused" },
@@ -466,7 +466,7 @@ local function test_extract_of_a_reader_answers_as_extract_does_for_the_same_byt
       }
       local from_file, file_why = Archive.extract(file, case .. "/by-file", opts)
       local reader, _ = Archive.open(chunked(archive))
-      if reader == nil then return false, "open_stream refused what open took" end
+      if reader == nil then return false, "open of a stream refused what open of a path took" end
       local from_stream, stream_why = Archive.extract(reader, case .. "/by-stream", opts)
       if (from_file == nil) ~= (from_stream == nil) then
         return false, "file: " .. tostring(file_why) .. "\nstream: " .. tostring(stream_why)
@@ -672,7 +672,7 @@ local function test_extraction_stays_under_its_byte_limits(tmp: string)
       if not ok then return false, "understating its sizes: " .. why end
       if fields[1] == "zip" then return true, "" end
       local reader, _ = Archive.open(chunked(archive))
-      if reader == nil then return false, "open_stream refused what open took" end
+      if reader == nil then return false, "open of a stream refused what open of a path took" end
       written, trouble = Archive.extract(reader, case .. "/by-stream", opts)
       return check_dest(case .. "/by-stream", written, (if trouble ~= nil then tostring(trouble) else "" end), { refusal })
     end,
