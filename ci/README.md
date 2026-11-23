@@ -492,7 +492,10 @@ GitHub would.
 A newer manual run supersedes a branch's, but every main run finishes and
 main's pushes run
 one at a time, in one concurrency group, so the caches they save land in
-commit order. GitHub keeps one pending run per group and cancels it when a
+commit order. The relay (relay.yml) saves apart, a minute after each
+merge, so linux-x86_64's push of a commit main has moved past saves no
+verdicts or compiles (`driver.tl main-newest`): its save, made later, would
+be the newest and lack the newer commit's. GitHub keeps one pending run per group and cancels it when a
 third arrives, so a commit that lands while main is busy and another run
 waits gets no run. The scheduled runs have a group of their own: pending
 behind a push, the next push would cancel one. A manual run has a group per ref: it saves nothing, so in

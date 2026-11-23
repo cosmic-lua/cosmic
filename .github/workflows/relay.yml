@@ -22,8 +22,9 @@
 
   permissions: {contents: "read"},
 
-  # One relay at a time, so each restores the one before; a newer push
-  # replaces one still waiting, whose rows its own queue run held too.
+  # One relay at a time, so each restores the one before. A newer push
+  # replaces one still waiting, whose rows the newer queue run held too;
+  # main's push of the commit saves them where main has not moved past it.
   concurrency: {group: "relay", "cancel-in-progress": false},
 
   jobs: {
@@ -71,7 +72,7 @@
           id: "verdicts-key",
           if: "steps.queue-download.outcome == 'success'",
           "continue-on-error": true,
-          run: "cosmic-driver cosmic_ci/driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\"",
+          run: "cosmic-driver cosmic_ci/driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" linux-x86_64",
         },
         {
           name: "restore test verdicts",

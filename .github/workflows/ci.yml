@@ -50,9 +50,11 @@
 
   # A newer manual run supersedes a branch's. Main's pushes run one at a
   # time and to the end, so their saves land in commit order and each
-  # completed run can publish a prerelease; the scheduled run and a manual
-  # one take groups of their own, so no push cancels them or is cancelled
-  # by them.
+  # completed run can publish a prerelease (the relay, relay.yml, saves
+  # apart, and a push that main moved past leaves linux-x86_64's saves to
+  # it: "ask whether main moved past this commit"); the scheduled run
+  # and a manual one take groups of their own, so no push cancels them or
+  # is cancelled by them.
   concurrency: {
     group: "${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event_name || 'run' }}-${{ github.ref }}",
     "cancel-in-progress": "${{ github.ref != 'refs/heads/main' }}",
@@ -651,6 +653,19 @@
           shell: "sh",
           run: "docker rm -f cosmic-leg || :",
         },
+        # Main's push of a commit main has moved past leaves its verdicts
+        # and compiles to the newer commit's relay (relay.yml), saved a
+        # minute after that merge: a save of this run's, made later, would
+        # be the newest and lack them. Where GitHub does not say, it saves.
+        {
+          name: "ask whether main moved past this commit",
+          id: "main-newest",
+          if: "always() && steps.queue-run.outcome != 'skipped' && steps.driver.outcome == 'success'",
+          shell: "sh",
+          "continue-on-error": true,
+          env: {SHA: "${{ github.sha }}", GH_TOKEN: "${{ github.token }}"},
+          run: "cosmic-driver cosmic_ci/driver.tl main-newest",
+        },
         # Before checkout's post step, whose git refuses the repository at
         # another path, and before the saves, whose paths actions/cache
         # names relative to the workspace (driver.tl place-tree).
@@ -667,7 +682,7 @@
         # would answer no other run.
         {
           name: "save test verdicts",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",
@@ -675,14 +690,16 @@
           },
         },
         # Main's alone, where the native build and suite passed: a run that
-        # stopped short would leave the next only what it reached.
+        # stopped short would leave the next only what it reached. Where it
+        # booted on the queue's, under the name the relay saves them by,
+        # which a save the relay made already leaves as it is.
         {
           name: "save compiles and parses",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.queue-compiles-taken.outcome != 'success' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/build-cache",
-            key: "compiles-${{ matrix.leg }}-${{ steps.compiles-trim.outputs.digest }}",
+            key: "${{ steps.queue-compiles-taken.outcome == 'success' && format('compiles-{0}-queue-{1}', matrix.leg, github.sha) || format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest) }}",
           },
         },
         # Once per vendor part and leg, not per core change, which the

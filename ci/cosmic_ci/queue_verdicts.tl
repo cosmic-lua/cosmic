@@ -1,5 +1,6 @@
---- The verdicts the merge queue reached for a commit, for main's push of
---- the same commit. Main moves only through the queue, and the commit the
+--- The verdicts the merge queue reached for a commit, for the relay
+--- (relay.yml), which saves them as main's a minute after the merge, and
+--- for main's push of the same commit. Main moves only through the queue, and the commit the
 --- queue tested is the commit main's push runs (ci.yml). The queue's run
 --- saves no cache of its own (a merge_group's cache is scoped to its
 --- ref), so without these main's push ran its whole native suite again
@@ -318,8 +319,11 @@ local KEY_FILE <const> = "cache-key"
 
 --- Whether `key` is the start of a verdict cache's name as `leg-host-id`
 --- writes it (cosmic_ci/host_id.tl): `verdicts-`, the leg and the host's
---- parts, ending in `-`.
-local function is_key(key: string): boolean
+--- parts, ending in `-`; of the leg `leg` where one is named.
+local function is_key(key: string, leg?: string): boolean
+  if leg ~= nil and key:sub(1, #"verdicts-" + #leg + 1) ~= "verdicts-" .. leg .. "-" then
+    return false
+  end
   return #key <= 200 and key:match("^verdicts%-[%w_.%-]+%-$") ~= nil
 end
 
@@ -345,16 +349,16 @@ function QueueVerdicts.name_command(argv: {string}): integer
   return said.code
 end
 
---- `driver.tl verdicts-key DIR`: writes `verdicts=<name>` to the step's
---- outputs, the cache the queue's verdicts in `dir` belong in
---- ([`QueueVerdicts.name`]). Where `dir` names none, or one that is no
---- verdict cache's name, it says so and writes nothing, and the relay
---- saves no verdicts. Always 0.
-function QueueVerdicts.key(dir: string, host: Github.Host): integer
+--- `driver.tl verdicts-key DIR LEG`: writes `verdicts=<name>` to the
+--- step's outputs, the cache of the leg `leg` the queue's verdicts in `dir`
+--- belong in ([`QueueVerdicts.name`]). Where `dir` names none, or one that
+--- is no verdict cache of that leg, it says so and writes nothing, and the
+--- relay saves no verdicts. Always 0.
+function QueueVerdicts.key(dir: string, leg: string, host: Github.Host): integer
   local text, _ = Fs.read(dir .. "/" .. KEY_FILE)
   local key = (text or ""):gsub("\n$", "")
-  if not is_key(key) then
-    host.print("verdicts-key: " .. dir .. " names no verdict cache; no verdicts are relayed")
+  if not is_key(key, leg) then
+    host.print("verdicts-key: " .. dir .. " names no verdict cache of " .. leg .. "; no verdicts are relayed")
     return 0
   end
   host.output("verdicts=" .. key)
@@ -362,9 +366,59 @@ function QueueVerdicts.key(dir: string, host: Github.Host): integer
   return 0
 end
 
+--- `driver.tl verdicts-key DIR LEG`, on the live API's host.
 function QueueVerdicts.key_command(argv: {string}): integer
   local env = Env.all()
-  return QueueVerdicts.key(argv[1] or ".", Github.live(env))
+  return QueueVerdicts.key(argv[1] or ".", argv[2] or "", Github.live(env))
+end
+
+--- What main's branch is read for.
+local record RefRow
+  object?: any
+end
+local REF_ROW <const> = Shape.record_of("RefRow")
+local record ObjectRow
+  sha?: any
+end
+local OBJECT_ROW <const> = Shape.record_of("ObjectRow")
+
+--- `driver.tl main-newest`: writes `newest=false` to the step's outputs
+--- where main in GITHUB_REPOSITORY has moved past SHA, so main's push of
+--- SHA leaves the save of a cache the relay keeps (relay.yml) to the push
+--- of the newer commit: its own, saved later, would be the newest and
+--- lack what the newer commit's relay saved. `newest=true` where main is
+--- SHA; nothing where GitHub does not say, and the push saves as before.
+--- 2 where the step names no commit or repository, else 0.
+function QueueVerdicts.newest(env: {string:string}, host: Github.Host): integer
+  local sha, repository = env["SHA"] or "", env["GITHUB_REPOSITORY"] or ""
+  if not Github.is_commit(sha) or not repository:match("^[%w._-]+/[%w._-]+$") then
+    local _, _ = Fs.put(Fs.stderr, "main-newest: SHA and GITHUB_REPOSITORY must name a commit and a repository\n")
+    return 2
+  end
+  local pages = Github.ask(host, "repos/" .. repository .. "/git/ref/heads/main", false, LOOKUP_SECONDS)
+  local head = ""
+  local ref, _ = REF_ROW:decode_into((pages or {})[1] or "")
+  if ref ~= nil then
+    local object, _ = OBJECT_ROW:into(ref.object)
+    if object ~= nil then
+      local named = object.sha
+      if named is string then head = named end
+    end
+  end
+  if not Github.is_commit(head) then
+    host.print("main-newest: GitHub did not say where main is; this run saves its caches")
+    return 0
+  end
+  host.output("newest=" .. tostring(head == sha))
+  if head ~= sha then
+    host.print("main-newest: main has moved to " .. head .. "; its relay saves the caches")
+  end
+  return 0
+end
+
+function QueueVerdicts.newest_command(_argv: {string}): integer
+  local env = Env.all()
+  return QueueVerdicts.newest(env, Github.live(env))
 end
 
 return QueueVerdicts

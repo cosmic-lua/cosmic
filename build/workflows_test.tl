@@ -1666,11 +1666,26 @@ local function test_mains_push_saves_the_queues_compiles_at_once()
       "steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != ''" and
       upload["continue-on-error"] == true and param(upload, "path") == dir and
       param(upload, "name") == "queue-compiles-${{ matrix.leg }}", "the compiles' upload: " .. tostring(upload["if"]))
-  -- The trim runs in the queue too, so main's own save holds the saves' condition itself.
-  assert(late["if"] == "always() && " .. SAVES .. " && steps.queue-compiles-taken.outcome != 'success' && " ..
+  -- The trim runs in the queue too, so main's own save holds the saves' condition itself. Where it took the queue's
+  -- compiles it saves them under the relay's name, which a relay that saved them leaves as it is, and a push main
+  -- moved past saves none.
+  assert(late["if"] == "always() && " .. SAVES .. " && steps.main-newest.outputs.newest != 'false' && " ..
       "steps.release-suite.outcome == 'success' && steps.compiles-trim.outputs.digest != '' && " ..
       "steps.compiles-restore.outputs.cache-matched-key != format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest)",
     "main's own save of the compiles: " .. tostring(late["if"]))
+  assert(param(late, "key") == "${{ steps.queue-compiles-taken.outcome == 'success' && " ..
+      "format('compiles-{0}-queue-{1}', matrix.leg, github.sha) || " ..
+      "format('compiles-{0}-{1}', matrix.leg, steps.compiles-trim.outputs.digest) }}", "main's own compiles' name")
+  local newest, newest_at = step_with_id(steps, "main-newest")
+  local _, late_at = step_named(steps, "save compiles and parses")
+  local _, verdicts_at = step_named(steps, "save test verdicts")
+  local _, moved_at = step_named(steps, "move the tree back to where it was checked out")
+  assert(newest_at < moved_at and moved_at < late_at and moved_at < verdicts_at and
+      newest["if"] == "always() && steps.queue-run.outcome != 'skipped' && steps.driver.outcome == 'success'" and
+      newest["continue-on-error"] == true and map_of(newest.env)["SHA"] == "${{ github.sha }}" and
+      (newest.run or ""):find("driver.tl main-newest", 1, true) ~= nil, "a push asks otherwise whether main moved")
+  assert((step_named(steps, "save test verdicts")["if"] or ""):find("steps.main-newest.outputs.newest != 'false'", 1, true) ~= nil,
+    "a push main moved past saves its verdicts")
   local relayed = job_of(relay_workflow().jobs, "relay").steps
   local _, relay_find_at = step_with_id(relayed, "queue-run")
   local fetched, fetched_at = step_with_id(relayed, "queue-compiles")
@@ -1699,7 +1714,7 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
     "the relay runs on other events: " .. table.concat(triggers, ", "))
   local concurrency = relay.concurrency or {}
   assert(concurrency["group"] == "relay" and concurrency["cancel-in-progress"] == false,
-    "the relay shares ci.yml's concurrency, or is cancelled")
+    "the relay is not in a group of its own, or is cancelled")
   local job = job_of(relay.jobs, "relay")
   assert(map_of(job.permissions)["actions"] == "read" and map_of(job.permissions)["contents"] == "read",
     "the relay's permissions")
@@ -1717,7 +1732,7 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
       merge_at < save_at, "the verdicts are relayed out of order")
   assert(param(download, "name") == "queue-verdicts-linux-x86_64" and
       param(download, "run-id") == "${{ steps.queue-run.outputs.run }}", "the relay's download of the verdicts")
-  assert((key.run or ""):find("driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\"", 1, true) ~= nil,
+  assert((key.run or ""):find("driver.tl verdicts-key \"${{ runner.temp }}/queue-verdicts\" linux-x86_64", 1, true) ~= nil,
     "the cache's name is read otherwise")
   local named = "${{ steps.verdicts-key.outputs.verdicts }}"
   assert(param(restore, "key") == named and param(restore, "restore-keys") == named .. "\n" and
@@ -1727,7 +1742,8 @@ local function test_the_relay_saves_the_queues_verdicts_under_the_queues_name()
   assert(param(save, "key") == named .. "queue-${{ github.sha }}" and param(save, "path") == "${{ runner.temp }}/verdicts" and
       save["if"] == "steps.verdicts-merged.outcome == 'success'", "the relay saves the verdicts otherwise")
   for _, step in ipairs(steps) do
-    assert(step.id == "driver" or step["continue-on-error"] == true or step.uses ~= nil and step.name == nil,
+    assert(step.id == "driver" or step["continue-on-error"] == true or
+        (step.uses or ""):find("actions/checkout@", 1, true) == 1,
       tostring(step.name) .. " can fail the relay")
   end
   -- The queue names its cache beside the verdicts it uploads.
