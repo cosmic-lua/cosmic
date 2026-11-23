@@ -317,29 +317,6 @@ COSMIC_SYSCALL(chown, 3);
  */
 COSMIC_SYSCALL(readdir, 1);
 
-/* `tree_digest` has no caller in the tree but its tests
- * (core/syscalls_test.tl): it is kept for the TODO above
- * build/declared_key.tl's `walk_system` ("walk in C, as [`sys.tree_digest`]
- * walks by stamps"), which is to digest the system's paths through it
- * rather than an `lstat` of each entry crossing into Lua. */
-
-/*
- * --- What a tree holds, digested: `tree_digest`'s answer.
- * ---@class TreeDigest
- * ---@field digest string the hex sha256 of every entry at and beneath the path, links unfollowed, in name order: each one's contents where asked for, and otherwise what `lstat` says of it -- type and permissions, size, modification and change times, and inode
- * ---@field special boolean whether it holds a socket, a FIFO or a device other than /dev/null, /dev/zero, /dev/full or /dev/urandom, each of which answers from past the tree, or anything the walk could not see: an entry it could not read or list, or one more than 128 directories down -- but for one it was refused (EACCES, EPERM), digested by its permissions and owner, which is all a process with no more privilege than the walk's could learn of it
- */
-
-/*
- * --- Digests a file or directory and everything beneath it, in one walk: a change to any entry, its name, what it is or what it holds changes the digest. An entry that cannot be read is digested as the error it gave.
- * ---@param path string the file or directory, not followed where it is a link
- * ---@param contents boolean digest each file's contents rather than what `lstat` says of it
- * ---@return TreeDigest|nil digest what it holds, or nil when the path itself cannot be read
- * ---@return string error what went wrong, when digest is nil
- * ---@return integer errno the error number, when digest is nil
- */
-COSMIC_SYSCALL(tree_digest, 2);
-
 /*
  * --- Returns the process's current directory.
  * ---@return string|nil path the directory, or nil on failure
