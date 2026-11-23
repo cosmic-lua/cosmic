@@ -52,7 +52,7 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
       local fields = Fuzz.unpack(packed)
       -- Without `null_value`, a null in an array is a hole.
       -- `gen` packs the document and its mode, two fields.
-      local doc = Json.decode(Array.at(fields, 1), { null_value = if fields[2] == "nulls" then Json.null else nil end })
+      local doc, _ = Json.decode(Array.at(fields, 1), { null_value = if fields[2] == "nulls" then Json.null else nil end })
       local leaves: {Json.Match}?
       local err = ""
       local ok, raised = pcall(function() leaves, err = json_query.flatten(doc) end)
@@ -72,13 +72,14 @@ local function test_every_flattened_path_reads_back_and_is_selectable(tmp: strin
         if line:sub(-#tail) ~= tail then return false, line .. " does not end with" .. tail end
         local path = line:sub(1, #line - #tail)
         local steps, why = Json.from_path(path)
-        if steps == nil then return false, path .. " does not read: " .. why end
-        if Json.path(steps) ~= normal then
-          return false, path .. " reads back as " .. tostring((Json.path(steps)))
+        if steps == nil then return false, path .. " does not read: " .. tostring(why) end
+        if assert(Json.path(steps)) ~= normal then
+          return false, path .. " reads back as " .. tostring((assert(Json.path(steps))))
         end
         local value, get_err = Json.get(doc, steps)
-        if get_err ~= "" then return false, path .. ": " .. get_err end
-        local a, b = Json.encode_any(value), Json.encode_any(leaf.value)
+        if get_err ~= nil then return false, path .. ": " .. tostring(get_err) end
+        local a, _ = Json.encode_any(value)
+        local b, _ = Json.encode_any(leaf.value)
         if a ~= b then
           return false, path .. " reads back as " .. tostring(a) .. ", not " .. tostring(b)
         end

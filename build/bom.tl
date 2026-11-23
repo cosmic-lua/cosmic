@@ -518,7 +518,7 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
     end
     components[#components + 1] = component
   end
-  return Json.encode({
+  local written, why = Json.encode({
     bomFormat = "CycloneDX",
     specVersion = "1.6",
     version = 1,
@@ -526,6 +526,8 @@ function bom.cyclonedx(rows: {bom.Row}, subject: string, version: string): strin
       name = subject, version = version } },
     components = Json.array(components),
   }, { pretty = true })
+  if written == nil then return nil, tostring(why) end
+  return written, ""
 end
 
 --- `cosmic bom [--licenses | --json <path>]`: what the running binary's

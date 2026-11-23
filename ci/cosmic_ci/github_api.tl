@@ -300,8 +300,8 @@ function GithubApi.pages(client: GithubApi.Client, path: string, seconds?: integ
     if not succeeded(reply) then return nil, refused("GET", label, reply) end
     local page, trouble = Json.decode(reply.body)
     if not (page is table) then
-      if trouble == "" then trouble = "not an object or an array" end
-      return nil, "GET " .. label .. ": " .. trouble
+      local wrong = if page == nil and tostring(trouble) ~= "" then tostring(trouble) else "not an object or an array" end
+      return nil, "GET " .. label .. ": " .. wrong
     end
     pages[#pages + 1] = reply.body
     local target = next_link(reply.headers["link"])
@@ -334,7 +334,7 @@ function GithubApi.request(client: GithubApi.Client, method: string, path: strin
   local request = request_for(client, method, path, seconds)
   if value ~= nil then
     local body, trouble = Json.encode_any(value)
-    if body == nil then return nil, method .. " " .. path .. ": " .. trouble end
+    if body == nil then return nil, method .. " " .. path .. ": " .. tostring(trouble) end
     request = { method = request.method, url = request.url, headers = { ["Content-Type"] = "application/json" },
       timeout_ns = request.timeout_ns, body = body }
   end
@@ -353,7 +353,9 @@ function GithubApi.object(client: GithubApi.Client, method: string, path: string
   if reply == nil then return nil, why end
   if not succeeded(reply) then return nil, refused(method, path, reply) end
   local object, trouble = Json.decode_object(reply.body)
-  if object == nil then return nil, method .. " " .. path .. ": no JSON object: " .. trouble end
+  if object == nil then
+    return nil, method .. " " .. path .. ": no JSON object: " .. tostring(trouble)
+  end
   return reply.body, ""
 end
 

@@ -1663,7 +1663,8 @@ local function test_a_json_slot_is_the_attribute_value_it_was_given(tmp: string)
       if read ~= Html.raw_json(json) then
         return false, "the attribute reads as " .. string.format("%q", read)
       end
-      if read:find("^%s*j") ~= nil or not Json.check(read) then
+      local is_json, _ = Json.check(read)
+      if read:find("^%s*j") ~= nil or not is_json then
         return false, "the value could be read as code: " .. read
       end
       if value:find("&quot;", 1, true) or value:find("&#39;", 1, true) then Fuzz.label("quoted") end

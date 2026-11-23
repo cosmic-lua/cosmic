@@ -73,7 +73,7 @@ function Github.over(client: GithubApi.Client): Github.Over
     local text, why = GithubApi.get(client, path, seconds)
     if text == nil then return nil, why end
     local page, trouble = Json.decode_object(text)
-    if page == nil then return nil, "GET " .. path .. ": " .. trouble end
+    if page == nil then return nil, "GET " .. path .. ": " .. tostring(trouble) end
     return { text }, ""
   end
   local function delete(path: string, seconds: integer): boolean, string

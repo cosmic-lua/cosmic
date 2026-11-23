@@ -38,6 +38,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local RelayConfig = require("cosmic.internal.relay_config")
 local RelayWire = require("cosmic.internal.relay_wire")
+local Url = require("cosmic.url")
 local sys = require("cosmic.sys")
 local bare = require("build.bare")
 local plural = require("build.plural")
@@ -163,14 +164,6 @@ local record Proxy
   password?: string
 end
 
---- `text` with each `%XX` replaced by its byte.
-local function percent_decoded(text: string): string
-  return (text:gsub("%%(%x%x)", function(hex: string): string
-    -- The pattern matched two hex digits, so `tonumber` reads them.
-    return string.char((assert(tonumber(hex, 16), "two hex digits are an integer")))
-  end))
-end
-
 --- The relay `ALL_PROXY` names, a `socks5h` proxy on 127.0.0.1 (the
 --- sandbox's has the relay's port, and its network holds nothing else), with
 --- the userinfo that is the sandbox's token where it has one, or nil and why
@@ -195,8 +188,11 @@ local function proxy_of(io: sandbox_connect.Io): Proxy?, string
   if user == nil or password == nil or password == "" then
     return nil, "the userinfo of ALL_PROXY is not user:token (the token is the password, percent-encoded)"
   end
-  user = percent_decoded(user)
-  return { port = port, user = if user ~= "" then user else "cosmic" end, password = percent_decoded(password) }, ""
+  local name, name_why = Url.unescape(user)
+  if name == nil then return nil, "the user of ALL_PROXY: " .. tostring(name_why) end
+  local token, token_why = Url.unescape(password)
+  if token == nil then return nil, "the token of ALL_PROXY: " .. tostring(token_why) end
+  return { port = port, user = if name ~= "" then name else "cosmic" end, password = token }, ""
 end
 
 --- Passes standard input to `conn` and `conn` to standard output, `first`

@@ -71,7 +71,8 @@ end
 local function gen_text(src: Fuzz.Source): string
   local kind = src:int(0, 5)
   if kind == 0 then return Fuzz.bytes(src, 64) end
-  local text = Json.encode_any(gen_policy(src)) or "{}"
+  local encoded, _ = Json.encode_any(gen_policy(src))
+  local text = encoded or "{}"
   if kind <= 2 then return Fuzz.mutate(src, text, 3) end
   return text
 end

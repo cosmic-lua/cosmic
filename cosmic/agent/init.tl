@@ -425,7 +425,7 @@ local function call(s: Agent.Session, r: Sessions.Request): {string: Json.Value}
   end
   local body = request_body(s)
   local text, why = Json.encode(body)
-  if text == nil then return failed(why) end
+  if text == nil then return failed(tostring(why)) end
   -- The body less what is kept elsewhere: the messages, the system
   -- prompt, and the diagnostics, which name the reply before (its row's).
   local whole, _ = Json.to_object(body)

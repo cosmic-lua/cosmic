@@ -36,7 +36,7 @@ function Stream.message(read: Stream.Read, delta?: function()): {string: Json.Va
   --- Acts on one event's data: false and why where the stream says it failed.
   local function act(data: string): boolean, string
     local event, bad = Json.decode_object(data, { null_value = Json.null })
-    if event == nil then return false, "a streamed event is not JSON: " .. bad end
+    if event == nil then return false, "a streamed event is not JSON: " .. tostring(bad) end
     local kind = event["type"]
     local at = event["index"]
     local index = if at is integer then at elseif at is number then math.tointeger(at) or -1 else -1 end
@@ -74,7 +74,7 @@ function Stream.message(read: Stream.Read, delta?: function()): {string: Json.Va
       if json ~= nil and block ~= nil and not json:match("^%s*$") then
         local input, input_bad = Json.decode(json, { null_value = Json.null })
         if input == nil then
-          return false, "a tool call's streamed input is not JSON: " .. input_bad
+          return false, "a tool call's streamed input is not JSON: " .. tostring(input_bad)
         end
         block["input"] = input
         partial[index] = nil

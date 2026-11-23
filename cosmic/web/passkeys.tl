@@ -538,7 +538,7 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
     if body == nil then return Response.problem(400, unread) end
     local object, wrong = Json.decode_object(body)
     if object == nil then
-      return Response.problem(400, "the answer is not a JSON object: " .. wrong)
+      return Response.problem(400, "the answer is not a JSON object: " .. tostring(wrong))
     end
     if step == "/register/finish" then return register_finish(req, object) end
     return login_finish(req, object)

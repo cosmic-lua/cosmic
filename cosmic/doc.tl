@@ -3500,7 +3500,7 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then
-        return nil, encode_trouble
+        return nil, tostring(encode_trouble)
       end
       lines[#lines + 1] = line
     end
@@ -3541,7 +3541,7 @@ function Doc.records(view: Doc.View, words: {string}, stale?: boolean): Doc.Answ
       if stale == true then object["stale"] = true end
       local line, encode_trouble = Json.encode(object)
       if line == nil then
-        return nil, encode_trouble
+        return nil, tostring(encode_trouble)
       end
       lines[#lines + 1] = line
     end

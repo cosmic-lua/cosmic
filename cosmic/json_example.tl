@@ -29,21 +29,23 @@ function Example.decode()
   end
   local JOB <const> = Shape.record_of("Job")
   local value, err = Json.decode('{"cmd": ["make", "all"], "timeout": 30}')
-  assert(err == "", err)
+  assert(err == nil, err)
   local job, why = JOB:into(value)
   assert(job ~= nil, why)
   print(job.cmd[1], job.timeout)
   assert(job.cmd[2] == "all" and job.timeout == 30)
-  local _, bad = JOB:into((Json.decode('{"cmd": "make all"}')))
+  local got1, why1 = Json.decode('{"cmd": "make all"}')
+  assert(got1 ~= nil, tostring(why1))
+  local _, bad = JOB:into(got1)
   print(bad)
   assert(bad == 'Job: $.cmd: want list, got string', bad)
 end
 
---- Test the message, not the value: `null` is a document too, and it
---- decodes to nil with an empty message.
+--- Test the value: `null` is a document too, and it decodes to
+--- [`Json.null`], so only a refusal answers nil.
 function Example.decode_failure()
   local value, err = Json.decode("null")
-  assert(value == nil and err == "")
+  assert(rawequal(value, Json.null) and err == nil)
   local bad, why = Json.decode('{"a": 1,}')
   assert(bad == nil)
   print(why)
@@ -76,18 +78,18 @@ end
 --- Keep a document's nulls and empty arrays through a round trip.
 function Example.null_value()
   local text = '{"note": null, "tags": []}'
-  local value = Json.decode(text, { null_value = Json.null })
-  assert(Json.encode_any(value) == text:gsub(" ", ""))
-  local plain = Json.decode_object(text)
+  local value, _ = Json.decode(text, { null_value = Json.null })
+  assert(assert(Json.encode_any(value)) == text:gsub(" ", ""))
+  local plain, _ = Json.decode_object(text)
   assert(plain ~= nil and plain["note"] == nil)
-  assert(Json.encode_any(plain) == '{"tags":[]}')
+  assert(assert(Json.encode_any(plain)) == '{"tags":[]}')
 end
 
 --- An empty table encodes as an object unless it is marked an array.
 function Example.array()
   local empty: {string: string} = {}
-  assert(Json.encode(empty) == "{}")
-  assert(Json.encode(Json.array()) == "[]")
+  assert(assert(Json.encode(empty)) == "{}")
+  assert(assert(Json.encode(Json.array())) == "[]")
 end
 
 --- Explore a document whose shape is not known: [`decode_object`] checks
@@ -140,7 +142,7 @@ end
 function Example.encode_failure()
   local _, why = Json.encode({ users = { { name = "ada", score = 3 }, { name = "bob", score = 0 / 0 } } })
   print(why)
-  assert(why == "json: cannot encode NaN at pointer \"/users/1/score\"")
+  assert(tostring(why) == "json: cannot encode NaN at pointer \"/users/1/score\"")
 end
 
 --- Read a list from outside: [`decode_array`] checks the outermost shape.
@@ -151,7 +153,7 @@ function Example.decode_array()
   assert(#tags == 2 and tags[1] == "lua")
   local _, why = Json.decode_array('{"tags": []}')
   print(why)
-  assert(why == "json: expected a JSON array, got object", why)
+  assert(tostring(why) == "json: expected a JSON array, got object", why)
 end
 
 --- Nesting is bounded: [`max_depth`] is [`Json.default_depth`] unless
@@ -160,7 +162,7 @@ function Example.max_depth()
   local deep = string.rep("[", 100) .. string.rep("]", 100)
   local refused, why = Json.decode(deep)
   print(Json.default_depth, why)
-  assert(refused == nil and why ~= "")
+  assert(refused == nil, why)
   local value, err = Json.decode(deep, { max_depth = Json.depth_limit })
   assert(value ~= nil, err)
   print(Json.depth_limit)
@@ -218,7 +220,7 @@ function Example.text_as_text()
   print(assert(Json.format(text, { pretty = true })))
   local canonical = assert(Json.canonical(text))
   assert(canonical == '{"a":[1,2],"b":1.5}')
-  assert(Json.canonical('{"a": [1.0, 2e0], "b": 15e-1}') == canonical, "the same value, the same text")
+  assert(assert(Json.canonical('{"a": [1.0, 2e0], "b": 15e-1}')) == canonical, "the same value, the same text")
 end
 
 --- One place, three spellings: Lua steps count from 1, a JSON Pointer
@@ -227,15 +229,21 @@ end
 function Example.paths()
   local doc = assert(Json.decode_object('{"users": [{"name": "ada"}, {"name": "bob"}]}'))
   local steps: Json.Steps = { "users", 2, "name" }
-  assert(Json.get(doc, steps) == "bob")
-  assert(Json.pointer(steps) == "/users/1/name")
-  assert(Json.path(steps) == "$['users'][1]['name']")
+  local got2, why2 = Json.get(doc, steps)
+  assert(got2 ~= nil, tostring(why2))
+  assert(got2 == "bob")
+  assert(assert(Json.pointer(steps)) == "/users/1/name")
+  assert(assert(Json.path(steps)) == "$['users'][1]['name']")
   local back = assert(Json.from_pointer(doc, "/users/1/name"))
-  assert(Json.get(doc, back) == "bob")
+  local got3, why3 = Json.get(doc, back)
+  assert(got3 ~= nil, tostring(why3))
+  assert(got3 == "bob")
   local last = assert(Json.from_path("$.users[-1].name"))
-  assert(Json.get(doc, last) == "bob", "a negative index counts from the end")
+  local got4, why4 = Json.get(doc, last)
+  assert(got4 ~= nil, tostring(why4))
+  assert(got4 == "bob", "a negative index counts from the end")
   local names = assert(Json.select(doc, (assert(Json.query("$.users[*].name")))))
-  for _, found in ipairs(names) do print(Json.pointer(found.steps), found.value) end
+  for _, found in ipairs(names) do print(assert(Json.pointer(found.steps)), found.value) end
 end
 
 --- Lay a few settings over configuration read from a file: each
@@ -254,7 +262,9 @@ function Example.set()
   local text = assert(Json.encode(config))
   print(text)
   assert(text == '{"server":{"hosts":["a","b"],"port":8080}}')
-  assert(Json.get(defaults, { "server", "port" }) == 80)
+  local got5, why5 = Json.get(defaults, { "server", "port" })
+  assert(got5 ~= nil, tostring(why5))
+  assert(got5 == 80)
   local _, why = Json.set(defaults, { "client", "port" }, 1)
   print(why)
 end
@@ -267,10 +277,10 @@ function Example.diff()
   local found = assert(Json.decode_object('{"owner": {"name": "bob"}, "tags": ["a", "b"], "id": 7.0}'))
   local want, want_trouble = Json.to_value(expected)
   local got, got_trouble = Json.to_value(found)
-  assert(want ~= nil and got ~= nil, want_trouble .. got_trouble)
+  assert(want ~= nil and got ~= nil, tostring(want_trouble) .. tostring(got_trouble))
   local differences = Json.diff(want, got)
   for _, difference in ipairs(differences) do
-    print(difference.path, Json.encode_any(difference.want) or "nothing", Json.encode_any(difference.got))
+    print(difference.path, if difference.want == nil then "nothing" else assert(Json.encode_any(difference.want)) end, assert(Json.encode_any(difference.got)))
   end
   assert(#differences == 2 and differences[1].path == "/owner/name" and differences[2].path == "/tags/1")
   assert(#Json.diff(want, want) == 0)
@@ -296,7 +306,7 @@ function Example.reader()
     assert(id is integer)
     ids[#ids + 1] = id
   end
-  print(Json.path(r:steps()), #ids)
+  print(assert(Json.path(r:steps())), #ids)
   assert(#ids == 2)
 end
 

@@ -266,7 +266,7 @@ end
 --- cannot be encoded raises.
 function Sse.json(name: string, value: any): Sse.Event
   local text, why = Json.encode_any(value)
-  if text == nil then error("sse: json: " .. why, 2) end
+  if text == nil then error("sse: json: " .. tostring(why), 2) end
   return { event = name, data = text }
 end
 

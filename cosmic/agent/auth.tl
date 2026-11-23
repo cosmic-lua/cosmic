@@ -76,7 +76,7 @@ local function exchange(env: function(string): string?, base: string, send: Auth
   if account ~= nil and account ~= "" then body["service_account_id"] = account end
   if workspace ~= nil and workspace ~= "" then body["workspace_id"] = workspace end
   local text, why = Json.encode(body)
-  if text == nil then return nil, why end
+  if text == nil then return nil, tostring(why) end
   local started = Auth.now_ns()
   local got, send_why = send("POST", base .. "/v1/oauth/token", { headers = { ["content-type"] = "application/json" },
     body = text, timeout_ns = Clock.seconds(60), retry = { attempts = 3, statuses = { 429, 500, 502, 503, 529 } } })
@@ -85,7 +85,7 @@ local function exchange(env: function(string): string?, base: string, send: Auth
     return nil, "federation: HTTP " .. tostring(got.status) .. ": " .. got.body
   end
   local reply, bad = Json.decode_object(got.body)
-  if reply == nil then return nil, "federation: the reply is not JSON: " .. bad end
+  if reply == nil then return nil, "federation: the reply is not JSON: " .. tostring(bad) end
   local token, expires = reply["access_token"], reply["expires_in"]
   if not (token is string) then return nil, "federation: the reply has no access_token" end
   local seconds = if expires is number then math.tointeger(math.floor(expires)) or 3600 else 3600 end
