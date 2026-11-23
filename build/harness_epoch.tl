@@ -87,8 +87,7 @@ harness_epoch.library = {
   ["cosmic.internal.source_run"] = "cosmic.proc requires it for the file a source run runs, which " ..
     "`relaunch` names; cosmic.web.assets for the module it is (`main`), and cosmic.doc for that and the " ..
     "build it attaches (`projection`); a worker is no source run, so it holds none there",
-  ["cosmic.internal.test_policy"] = "cosmic.test translates a policy into its `needs` through it, " ..
-    "and the build's read of one (`build.policy_rules`) through the same terms",
+  ["cosmic.internal.test_policy"] = "cosmic.test translates a policy into its `needs` through it",
   ["cosmic.proc"] = "names this program (`executable`), which a worker whose test does " ..
     "not declare `tool` is held from running; and finds a program a module requires " ..
     "of the host (`find`) and whether a portable artifact can start again " ..

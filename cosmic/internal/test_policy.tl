@@ -1,9 +1,8 @@
 --- The terms of a test module's `policy` ([`Test.policy`]): the fields a
 --- policy has, and what it stands for. [`cosmic.test`] translates the table a
 --- module hands `policy`, and the build ([`build.policy_rules`]) the one it
---- reads from the source, both through [`test_policy.declared`], so the two
---- cannot drift apart. It requires nothing: every worker loads it, and the
---- build's writer reaches no more for it.
+--- reads from the source, both through [`test_policy.declared`]. It requires
+--- nothing, since every worker loads it.
 ---
 ---     local TestPolicy = require("cosmic.internal.test_policy")
 ---     local found = assert(TestPolicy.declared({ profiles = { "system" } }))
