@@ -191,6 +191,16 @@ function Sandbox.merge(...: Sandbox.Policy): Sandbox.Policy?, string
   return rules.merge(...)
 end
 
+--- The rlimits a policy's `limits` hold each of its processes to, by the
+--- names [`Child.start`] and [`Sandbox.restrict`] set them: `nofile` its
+--- `open_files`, or 1024 (this process's own hard limit where that is
+--- lower), `core` 0, and `fsize` and `cpu` where it gives them.
+---
+---     print(Sandbox.rlimits({ cpu_seconds = 5 })["cpu"]) -- 5
+function Sandbox.rlimits(limits?: Sandbox.Limits): mut {string:integer}
+  return rules.rlimits(limits)
+end
+
 --- How deep a chain of `#!` interpreters [`Sandbox.loaders`] follows,
 --- as the kernel does (it follows four).
 local MAX_CHAIN <const> = 4
@@ -302,10 +312,6 @@ function Sandbox.loaders(path: string, cwd?: string): {string}?, string
   end
   return files, ""
 end
-
---- The most open files a restricted process may hold, unless a policy's
---- `open_files` says: what [`Child.start`] gives a child.
-local DEFAULT_OPEN_FILES <const> = 1024
 
 -- What the restriction calls of other modules, taken as it loads, so a
 -- caller that replaces a library table's member does not change it.
@@ -581,11 +587,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
   end
-  local limits = merged.limits or {}
-  local rlimits: {string:integer} = { nofile = limits.open_files or DEFAULT_OPEN_FILES,
-    core = 0 }
-  rlimits.fsize = limits.file_bytes -- checked: map_field
-  rlimits.cpu = limits.cpu_seconds -- checked: map_field
+  local rlimits = rules.rlimits(merged.limits)
   local promises: mut {string} = {}
   for _, promise in ipairs(merged.promises or {}) do promises[#promises + 1] = promise end
   local done, held, failure = raw.restrict_self({ grants = grants, promises = promises,

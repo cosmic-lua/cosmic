@@ -580,3 +580,15 @@ local function test_restrict_refuses_a_database_before_it_holds_anything(tmp: st
   assert(not ok and why:find("^sandbox: restrict: ") ~= nil, why)
   assert(why:find("database", 1, true) and why:find("Child.start", 1, true), why)
 end
+
+--- A policy's limits are its processes' rlimits: 1024 open files unless
+--- it says (never above this process's own hard limit), no core dump, and
+--- file size and CPU time only where it gives them.
+local function test_a_policys_limits_are_its_rlimits()
+  local held = assert(sys.getrlimit(sys.RLIMIT_NOFILE))
+  local default = Sandbox.rlimits(nil)
+  assert(default["nofile"] == math.min(1024, held.hard) and default["core"] == 0, tostring(default["nofile"]))
+  assert(default["fsize"] == nil and default["cpu"] == nil)
+  local given = Sandbox.rlimits({ open_files = 64, file_bytes = 4096, cpu_seconds = 5 })
+  assert(given["nofile"] == 64 and given["core"] == 0 and given["fsize"] == 4096 and given["cpu"] == 5)
+end
