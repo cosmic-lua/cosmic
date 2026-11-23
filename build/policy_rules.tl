@@ -1,8 +1,9 @@
 --- The rules a test module's `policy` declaration ([`cosmic.test`]'s `Policy`) is held to, as the build reads it
 --- without running the module: the data a declaration holds, and the [`Declared`] it stands for. [`cosmic.test`] cannot
 --- be required here -- the writer's identity would then hold it -- so the translation of a policy into a declaration is
---- written twice, and the worker holds the one to the other: a module whose `policy` call was handed anything but what
---- this reads fails to load, and cosmic/test_policy_test.tl holds both to the same cases.
+--- the leaf both require, [`cosmic.internal.test_policy`], and what the build adds is the path and loopback rules, the
+--- caches it knows and the host's requirements. A module whose `policy` call was handed anything but what this reads
+--- fails to load, and cosmic/test_policy_test.tl holds both reads to the same cases.
 ---
 --- Reading the call off a syntax tree is [`build.syntax_analyzer`]'s: it ends
 --- in a [`policy_rules.PolicyData`] and the rules here.
@@ -11,6 +12,8 @@ local cache_names = require("build.cache_names")
 local host_names = require("build.host_names")
 -- A leaf that requires nothing, so it adds no module to what this one reaches.
 local Loopback = require("cosmic.internal.loopback")
+-- A leaf too: the terms of a policy, which cosmic.test shares.
+local TestPolicy = require("cosmic.internal.test_policy")
 
 local record policy_rules
   --- A test module's `policy` declaration ([`cosmic.test`]), read as
@@ -50,36 +53,13 @@ local record policy_rules
     mut timeout?: integer
   end
 
-  --- What a `policy` declaration ([`cosmic.test`]'s `Policy`) holds, as the
-  --- build reads it from the source.
-  record PolicyData
-    profiles?: {string}
-    isolate?: {string}
-    promises?: {string}
-    connect?: {string}
-    loopback?: {string}
-    env?: {string}
-    grants?: {{string:string}}
-    set_env?: {string:string}
-    set_env_digests?: {string:string}
-    limits?: {string:integer}
-    tmp?: boolean
-    cpu_features?: boolean
-    store_text?: boolean
-    user?: integer
-    group?: integer
-    database?: string
-    requires?: {string}
-    timeout?: integer
-  end
-
-  --- What the field `name` of a `policy` declaration takes: a list of string literals ("list"), a table of names to
-  --- string literals ("map"), `true` or `false` ("flag"), a list of tables of string literals ("grants"), a table of
-  --- integers ("limits"), an integer ("id"), whole seconds ("seconds") or a string ("string"); nil for a name that is no field.
-  kind_of: function(name: string): string?
-
-  --- The names of the fields of a `policy` declaration, sorted and joined by ", ".
-  field_list: function(): string
+  --- What a `policy` declaration holds, as the build reads it from the
+  --- source: [`test_policy.Policy`].
+  type PolicyData = TestPolicy.Policy
+  --- A grant of a [`PolicyData`]: [`test_policy.Grant`].
+  type Grant = TestPolicy.Grant
+  --- The limits of a [`PolicyData`]: [`test_policy.Limits`].
+  type Limits = TestPolicy.Limits
 
   --- Why `value` is no entry of the list `field` (`reads` or `host`, the grants of the tree and of the host, `env` or
   --- `network`, the loopback addresses) of a declaration, or "": the path rules, the loopback rule. The message names
@@ -90,11 +70,6 @@ local record policy_rules
   --- why where it is none. `line` is the line the policy starts on.
   declared: function(data: PolicyData, line: integer): Declared?, string
 end
-
---- The most seconds a policy's `timeout` may name, as cosmic/test.tl's
---- `needs_of` holds it, which this module cannot require.
-local MOST_TIMEOUT <const> = 3600
-local TIMEOUT_TAKES <const> = " takes a whole number of seconds from 1 to 3600"
 
 --- The rule a policy's `loopback` is held to, as a refusal names it.
 local LOOPBACK_ONLY <const> = "loopback takes loopback addresses 127.a.b.c only: no test " ..
@@ -160,190 +135,29 @@ function policy_rules.entry_trouble(field: string, value: string): string
   return ""
 end
 
-local fields <const>: {string: string} = {
-  profiles = "list", grants = "grants", isolate = "list", promises = "list",
-  connect = "list", loopback = "list", env = "list", set_env = "map",
-  set_env_digests = "map", tmp = "flag", limits = "limits", user = "id", group = "id",
-  database = "string", requires = "list", timeout = "seconds",
-  cpu_features = "flag",
-  store_text = "flag",
-}
-
-local field_names: mut {string} = {}
-for name in pairs(fields) do
-  field_names[#field_names + 1] = name
-end
-table.sort(field_names)
-
-function policy_rules.kind_of(name: string): string?
-  return fields[name]
+--- Why a host cache's name is none, or "": the caches [`build.cache_names`] knows.
+local function cache_fault(name: string): string
+  if cache_names.names[name] ~= nil then return "" end
+  local known: mut {string} = {}
+  for each in pairs(cache_names.names) do known[#known + 1] = each end
+  table.sort(known)
+  return "no cache " .. name .. "; the caches are " .. table.concat(known, ", ")
 end
 
-function policy_rules.field_list(): string
-  return table.concat(field_names, ", ")
-end
-
---- Why `relative`, the part of a `/parent/` grant after the prefix, names no
---- file of the parent directory a grant may hold, or "": the one rule of
---- cosmic/test.tl's `needs_of`, which this module cannot require.
-local function parent_fault(relative: string): string
-  if relative == "" then return "names no file" end
-  if relative:find("\0", 1, true) then return "holds a NUL" end
-  if relative:find("$", 1, true) then return "holds a $" end
-  if relative:sub(-1) == "/" then return "ends in a \"/\": it names a file, not a directory" end
-  for name in (relative .. "/"):gmatch("([^/]*)/") do
-    if name == "" then return "has an empty name" end
-    if name == "." or name == ".." then return "has a \"" .. name .. "\" name" end
-  end
-  return ""
-end
-
---- The declaration the policy `data` stands for ([`Test.needs_of`] of
---- cosmic.test, whose refusals these are): nil and why where it is none.
+--- The declaration the policy `data` stands for ([`test_policy.declared`],
+--- which [`Test.needs_of`] takes too, with the caches and the host's
+--- requirements the build knows): nil and why where it is none.
 function policy_rules.declared(data: policy_rules.PolicyData, line: integer): policy_rules.Declared?, string
-  local parents: mut {string} = {}
-  local out: policy_rules.Declared = {
-    line = line, reads = {}, host = {}, env = {}, network = {},
-    tool = false, lua = false, nests = false, noexec = false, store = false,
-    system = false, cpu_features = data.cpu_features == true, store_text = data.store_text == true, caches = {}, requires = {},
-    parent = parents,
-  }
-  local not_yet = " is not yet taken: a worker is held to, and a key made of, what a " ..
-    "policy's paths, profiles and variables say, and nothing holds a test to this"
-  local bin, cosmic, proc = false, false, false
-  for _, profile in ipairs(data.profiles or {}) do
-    if profile == "system" then
-      out.system = true
-    elseif profile == "cosmic" then
-      cosmic = true
-    elseif profile == "proc" then
-      proc = true
-    else
-      return nil, "profiles: no profile " .. profile .. "; the profiles are cosmic, proc, system"
-    end
-  end
-  for i, grant in ipairs(data.grants or {}) do
-    local at = "grants[" .. tostring(i) .. "]"
-    local path, letters = grant.path, grant.letters -- checked: map_field*2
-    if path == nil or path == "" then return nil, at .. ".path takes a path" end
-    if letters == nil or letters == "" or letters:find("^r?w?x?c?u?$") == nil then -- untyped: call
-      return nil, at .. ".letters takes letters of rwxcu, in that order"
-    end
-    local named = path:match("^/cache/(.*)$") -- untyped: call
-    local above = path:match("^/parent/(.*)$") -- untyped: call
-    if path == "o/cosmic.db" then
-      if letters ~= "r" or grant.from ~= nil then -- checked: map_field
-        return nil, at .. ".path o/cosmic.db is the store, granted " ..
-          "{ path = \"o/cosmic.db\", letters = \"r\" } with no from"
-      end
-      out.store = true
-    elseif path == "o/bin" then
-      if letters ~= "rx" or grant.from ~= nil then -- checked: map_field
-        return nil, at .. ".path o/bin is the directory the program is in, granted " ..
-          "{ path = \"o/bin\", letters = \"rx\" } with no from, beside the profile \"cosmic\""
-      end
-      bin = true
-    elseif path == "/noexec" then
-      if letters ~= "rwc" or grant.from ~= nil then -- checked: map_field
-        return nil, at .. ".path /noexec is the private scratch the harness gives, " ..
-          "granted { path = \"/noexec\", letters = \"rwc\" }: writable, never executable, " ..
-          "with no from"
-      end
-      out.noexec = true
-    elseif named ~= nil then
-      if letters ~= "rwxc" or grant.from ~= nil then -- checked: map_field
-        return nil, at .. ".path /cache/<name> is a host cache, granted " ..
-          "{ path = \"/cache/<name>\", letters = \"rwxc\" } with no from"
-      end
-      if cache_names.names[named] == nil then
-        local known: mut {string} = {}
-        for name in pairs(cache_names.names) do known[#known + 1] = name end
-        table.sort(known)
-        return nil, at .. ".path /cache/" .. named .. ": no cache " .. named ..
-          "; the caches are " .. table.concat(known, ", ")
-      end
-      out.caches[#out.caches + 1] = named -- checked: view_written
-    elseif above ~= nil then
-      if letters ~= "r" or grant.from ~= nil then -- checked: map_field
-        return nil, at .. ".path /parent/<file> is a file of the project root's parent " ..
-          "directory, granted { path = \"/parent/<file>\", letters = \"r\" } with no from"
-      end
-      local fault = parent_fault(above)
-      if fault ~= "" then return nil, at .. ".path /parent/" .. above .. " " .. fault end
-      parents[#parents + 1] = above
-    else
-      if grant.from ~= nil then return nil, at .. ".from" .. not_yet end -- checked: map_field
-      if letters ~= "r" then
-        return nil, at .. ".letters \"" .. letters .. "\"" .. not_yet ..
-          "; a test reads, with \"r\", what it declares"
-      end
-      local list = path:sub(1, 1) == "/" and out.host or out.reads -- checked: and_ternary -- untyped: call
-      list[#list + 1] = path
-    end
-  end
-  for _, promise in ipairs(data.promises or {}) do
-    if promise == "nest" then
-      out.nests = true
-    elseif not (promise == "fork" or promise == "jit" or promise == "fattr") then
-      return nil, "promises: no promise " .. promise .. "; the promises are fattr, fork, jit, nest"
-    end
-  end
-  if #(data.isolate or {}) > 0 then return nil, "isolate" .. not_yet end
-  if next(data.limits or {}) ~= nil then return nil, "limits" .. not_yet end
-  if next(data.set_env or {}) ~= nil then return nil, "set_env" .. not_yet end
-  if next(data.set_env_digests or {}) ~= nil then
-    return nil, "set_env_digests is refused: a digest holds no value to set; " ..
-      "a test names the value in set_env"
-  end
-  if #(data.connect or {}) > 0 then
-    return nil, "connect is refused: no test reaches a host but loopback, whose answer no " ..
-      "key holds; declare the addresses in loopback and start the service in the test"
-  end
-  -- A limit decided for good, as cosmic/test.tl's `needs_of` says.
-  if data.database ~= nil then
-    return nil, "database is refused: the harness chooses the database a worker runs on " ..
-      "(a sealed one of its closure, or the whole program's for `store` and `tool`)"
-  end
-  if data.tmp == false then
-    return nil, "tmp = false" .. not_yet .. "; every test has a temporary directory today"
-  end
-  if data.user ~= nil or data.group ~= nil then
-    return nil, (if data.user ~= nil then "user" else "group" end) .. " is refused: the harness " ..
-      "chooses the user a worker runs as"
-  end
-  for _, name in ipairs(data.env or {}) do
-    if name == "*" then
-      return nil, 'env: a policy names each variable it passes through; no wildcard "*" in a policy'
-    end
-  end
-  if bin and not cosmic then
-    return nil, "grants: .path o/bin is the program's directory, granted only beside " ..
-      "the profile \"cosmic\"; add the profile, or drop the grant"
-  end
-  if proc then out.host[#out.host + 1] = "/proc" end -- checked: view_written
-  out.tool, out.lua = cosmic and bin, cosmic and not bin
-  if out.lua then
-    local beside = if out.store then "o/cosmic.db" elseif out.system then "system" elseif
-      #out.caches > 0 then "/cache/" .. out.caches[1] else nil end
-    if beside ~= nil then
-      return nil, "profiles: \"cosmic\" without the grant of o/bin holds the program to " ..
-        "what the module requires, which is refused beside " .. beside ..
-        "; grant { path = \"o/bin\", letters = \"rx\" } beside the profile to " ..
-        "run the program itself, whose key holds every module it carries"
-    end
-  end
-  out.env = data.env or {}
-  out.network = data.loopback or {}
-  local fine, trouble = host_names.check(data.requires or {},
-    { system = out.system, host = out.host, env = out.env })
-  if not fine then return nil, trouble end
-  out.requires = data.requires or {}
-  local timeout = data.timeout
-  if timeout ~= nil then
-    if timeout < 1 or timeout > MOST_TIMEOUT then return nil, "timeout" .. TIMEOUT_TAKES end
-    out.timeout = timeout
-  end
-  return out, ""
+  local found, trouble = TestPolicy.declared(data, cache_fault)
+  if found == nil then return nil, trouble end
+  local fine, why = host_names.check(found.requires, { system = found.system, host = found.host, env = found.env })
+  if not fine then return nil, why end
+  return {
+    line = line, reads = found.reads, host = found.host, env = found.env, network = found.network,
+    tool = found.tool, lua = found.lua, nests = found.nests, noexec = found.noexec, store = found.store,
+    system = found.system, cpu_features = found.cpu_features, store_text = found.store_text,
+    caches = found.caches, parent = found.parent, requires = found.requires, timeout = found.timeout,
+  }, ""
 end
 
 return policy_rules
