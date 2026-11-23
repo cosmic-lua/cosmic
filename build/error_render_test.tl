@@ -195,10 +195,9 @@ local function test_a_call_or_a_field_the_checker_refused_points_at_the_example_
   local field = ErrorRender.lines(result_of("local o: Opts = { n = 1 }\nprint(o.zzz)\n"), hints)
   assert(#field == 1 and at(field, 1):sub(-#" -- see also: cosmic docs records_interfaces_methods") ==
       " -- see also: cosmic docs records_interfaces_methods", at(field, 1))
-  -- the replacement of a removed member is the answer, and no example is pointed to beside it
-  local removed = ErrorRender.lines(result_of("local Hash = require(\"cosmic.hash\")\nlocal d = Hash.hex(\"x\")\nprint(d)\n",
-    { ["cosmic.hash"] = "local record Hash\n  alive: integer\nend\nreturn Hash\n" }), hints)
-  assert(#removed == 1 and at(removed, 1):find("Hash.hex was removed: ", 1, true) ~= nil, at(removed, 1))
+  -- the replacement of a withheld global's field is the answer, and no example is pointed to beside it
+  local removed = ErrorRender.lines(result_of("print(os.getenv(\"HOME\"))\n"), hints)
+  assert(#removed == 1 and at(removed, 1):find("os.getenv is not available: ", 1, true) ~= nil, at(removed, 1))
   assert(at(removed, 1):find("see also", 1, true) == nil, at(removed, 1))
   -- an example the databases lack is not advertised
   local bare = assert(Sqlite.memory())
