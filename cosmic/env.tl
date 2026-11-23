@@ -104,7 +104,7 @@ end
 --- One variable, or nil when it is not set; this is the os.getenv
 --- operation, C's `getenv`. Any name is read: a program of its own
 --- reads its own variables here, and the tree reads its own through
---- [`Env.read`].
+--- [`Env.read`]. A default goes at the call: `Env.get("PORT") or "8080"`.
 function Env.get(name: string): string?
   return sys.getenv(name)
 end
@@ -113,15 +113,6 @@ end
 --- in [`Env.Name`] is a checker error.
 function Env.read(name: Env.Name): string?
   return sys.getenv(name)
-end
-
---- One variable, or the fallback when it is not set.
-function Env.get_or(name: string, fallback: string): string
-  local value = sys.getenv(name)
-  if value == nil then
-    return fallback
-  end
-  return value
 end
 
 --- Every variable the process has, in a table of the caller's own: it may be changed (a child's environment is built that

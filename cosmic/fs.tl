@@ -480,7 +480,7 @@ local function xdg_base(environment: {string:string}?, variable: string, home_de
     if environment ~= nil then
       return environment[name] or ""
     end
-    return Env.get_or(name, "")
+    return Env.get(name) or ""
   end
   local base = get(variable)
   if base:sub(1, 1) ~= "/" then

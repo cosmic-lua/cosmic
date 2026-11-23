@@ -480,7 +480,7 @@ function Fuzz.cancelled(_argv: {string}): integer
   end
   local text = Fuzz.cancelled_summary(tail, scanned)
   Context.summarize(text)
-  local page = Env.get_or("GITHUB_STEP_SUMMARY", "")
+  local page = Env.get("GITHUB_STEP_SUMMARY") or ""
   if page ~= "" then
     assert(Fs.put(Fs.stdout, text))
   end

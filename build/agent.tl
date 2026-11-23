@@ -324,7 +324,7 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
   local id: integer? = nil
   local given = got.values["--session"]
   if given ~= nil then
-    local n, _ = Number.read_integer(given)
+    local n, _ = Number.integer(given)
     if n == nil then return nil, "--session takes a session's id" end
     id = n
   elseif got.set["--continue"] == true or newest then

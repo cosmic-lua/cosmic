@@ -1,27 +1,34 @@
 local Number = require("cosmic.number")
 
+-- The message of the Failure [`Number.integer`] answers for `text`.
 local function refused(text: string, base?: integer): string
-  local ok, why = pcall(function(): integer
-    local value = Number.integer(text, base)
-    return value
-  end)
-  assert(not ok, ("%q was accepted as %s"):format(text, tostring(why)))
+  local value, why = Number.integer(text, base)
+  assert(value == nil, ("%q was accepted as %s"):format(text, tostring(value)))
+  local failure = assert(why)
+  assert(failure.kind == "parse", failure.kind)
+  return failure.message
+end
+
+-- What [`Number.integer`] raises for `base`, which blames this file.
+local function raised(text: string, base: integer): string
+  local ok, why = pcall(function() local _, _ = Number.integer(text, base) end)
+  assert(not ok, ("base %d was accepted"):format(base))
   return tostring(why)
 end
 
 local function test_integer_reads_decimal_text()
-  assert(Number.integer("0") == 0)
-  assert(Number.integer("7") == 7)
-  assert(Number.integer("8080") == 8080)
-  assert(Number.integer("-12") == -12)
-  assert(Number.integer("007") == 7)
-  assert(math.type(Number.integer("5")) == "integer")
+  assert(assert(Number.integer("0")) == 0)
+  assert(assert(Number.integer("7")) == 7)
+  assert(assert(Number.integer("8080")) == 8080)
+  assert(assert(Number.integer("-12")) == -12)
+  assert(assert(Number.integer("007")) == 7)
+  assert(math.type(assert(Number.integer("5"))) == "integer")
 end
 
 local function test_integer_reads_the_ends_of_the_range()
-  assert(Number.integer("9223372036854775807") == math.maxinteger)
-  assert(Number.integer("-9223372036854775808") == math.mininteger)
-  assert(Number.integer("-9223372036854775807") == math.mininteger + 1)
+  assert(assert(Number.integer("9223372036854775807")) == math.maxinteger)
+  assert(assert(Number.integer("-9223372036854775808")) == math.mininteger)
+  assert(assert(Number.integer("-9223372036854775807")) == math.mininteger + 1)
 end
 
 local function test_integer_refuses_one_past_each_end_of_the_range()
@@ -31,13 +38,13 @@ local function test_integer_refuses_one_past_each_end_of_the_range()
 end
 
 local function test_integer_reads_other_bases_in_either_case()
-  assert(Number.integer("ff", 16) == 255)
-  assert(Number.integer("FF", 16) == 255)
-  assert(Number.integer("0755", 8) == 493)
-  assert(Number.integer("-101", 2) == -5)
-  assert(Number.integer("z", 36) == 35)
-  assert(Number.integer("7fffffffffffffff", 16) == math.maxinteger)
-  assert(Number.integer("-8000000000000000", 16) == math.mininteger)
+  assert(assert(Number.integer("ff", 16)) == 255)
+  assert(assert(Number.integer("FF", 16)) == 255)
+  assert(assert(Number.integer("0755", 8)) == 493)
+  assert(assert(Number.integer("-101", 2)) == -5)
+  assert(assert(Number.integer("z", 36)) == 35)
+  assert(assert(Number.integer("7fffffffffffffff", 16)) == math.maxinteger)
+  assert(assert(Number.integer("-8000000000000000", 16)) == math.mininteger)
 end
 
 local function test_integer_does_not_wrap_in_another_base()
@@ -64,25 +71,24 @@ end
 local function test_integer_names_the_text_and_the_place_in_its_error()
   local why = refused("12x4")
   assert(why:find('"12x4"', 1, true) and why:find('"x" at 3', 1, true), why)
-  assert(why:find("cosmic.number_test:", 1, true), why)
 end
 
 local function test_integer_refuses_a_base_outside_2_to_36()
-  assert(refused("1", 1):find("base 1 is not 2 to 36", 1, true))
-  assert(refused("1", 37):find("base 37 is not 2 to 36", 1, true))
-  assert(refused("1", 0):find("base 0 is not 2 to 36", 1, true))
-  assert(refused("1", -10):find("base -10 is not 2 to 36", 1, true))
-  assert(refused("1", 37):find("cosmic.number_test:", 1, true))
+  assert(raised("1", 1):find("base 1 is not 2 to 36", 1, true))
+  assert(raised("1", 37):find("base 37 is not 2 to 36", 1, true))
+  assert(raised("1", 0):find("base 0 is not 2 to 36", 1, true))
+  assert(raised("1", -10):find("base -10 is not 2 to 36", 1, true))
+  assert(raised("1", 37):find("^cosmic%.number_test:%d+: "))
 end
 
 local function test_integer_agrees_across_the_length_that_tonumber_reads_and_the_one_it_does_not()
   -- 18 decimal digits and 15 hex digits are read by `tonumber`, more by
   -- the digit loop; leading zeros push a small value into the loop.
-  assert(Number.integer("999999999999999999") == 999999999999999999)
-  assert(Number.integer("0000000000000000000000012") == 12)
-  assert(Number.integer("-0000000000000000000000012") == -12)
-  assert(Number.integer("0000000000000000000000fF", 16) == 255)
-  assert(Number.integer("fffffffffffffff", 16) == 0xfffffffffffffff)
+  assert(assert(Number.integer("999999999999999999")) == 999999999999999999)
+  assert(assert(Number.integer("0000000000000000000000012")) == 12)
+  assert(assert(Number.integer("-0000000000000000000000012")) == -12)
+  assert(assert(Number.integer("0000000000000000000000fF", 16)) == 255)
+  assert(assert(Number.integer("fffffffffffffff", 16)) == 0xfffffffffffffff)
   assert(refused("0000000000000000000000x1", 16):find('"x" at 23', 1, true))
   assert(refused("999999999999999999 "):find("is no base 10 digit", 1, true))
 end
@@ -103,34 +109,22 @@ end
 local function test_integer_reads_back_what_every_base_writes()
   for base = 2, 36 do
     for _, value in ipairs({ 0, 1, base - 1, base, 255, 123456789, math.maxinteger // 3, math.maxinteger }) do
-      assert(Number.integer(written(value, base), base) == value, ("%d in base %d"):format(value, base))
-      assert(Number.integer("-" .. written(value, base), base) == -value, ("-%d in base %d"):format(value, base))
+      assert(assert(Number.integer(written(value, base), base)) == value, ("%d in base %d"):format(value, base))
+      assert(assert(Number.integer("-" .. written(value, base), base)) == -value, ("-%d in base %d"):format(value, base))
     end
   end
 end
 
---- What `integer` raises for, `read_integer` answers nil and the same
---- reason for; what it reads, it reads alike.
-local function test_read_integer_answers_nil_and_why_where_integer_raises()
+--- A text it refuses answers a Failure and no value; one it reads
+--- answers the value alone.
+local function test_integer_answers_a_failure_or_the_value()
   for _, text in ipairs({ "", "-", "0x10", "1e2", " 7", "+1", "1.5", "9223372036854775808", "12x4" }) do
-    local value, why = Number.read_integer(text)
-    assert(value == nil, ("%q was read as %s"):format(text, tostring(value)))
-    local raised = refused(text)
-    assert(raised:find(why, 1, true) ~= nil, ("%q: %s is not %s"):format(text, why, raised))
+    refused(text)
   end
   local read: {string:integer} = { ["0"] = 0, ["-12"] = -12, ["9223372036854775807"] = math.maxinteger,
     ["-9223372036854775808"] = math.mininteger }
   for text, want in pairs(read) do
-    local value, why = Number.read_integer(text)
-    assert(value == want and why == "", text)
+    local value, why = Number.integer(text)
+    assert(value == want and why == nil, text)
   end
-  assert(Number.read_integer("ff", 16) == 255)
-  local past, why = Number.read_integer("8", 8)
-  assert(past == nil and why:find("no base 8 digit", 1, true) ~= nil, why)
-end
-
-local function test_read_integer_raises_for_a_base_outside_2_to_36()
-  local ok, why = pcall(function(): integer? return (Number.read_integer("1", 37)) end)
-  assert(not ok and tostring(why):find("base 37 is not 2 to 36", 1, true) ~= nil, tostring(why))
-  assert(tostring(why):find("cosmic.number_test:", 1, true) ~= nil, tostring(why))
 end
