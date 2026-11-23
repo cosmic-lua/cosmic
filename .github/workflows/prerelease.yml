@@ -123,5 +123,49 @@
         },
       ],
     },
+
+    # So a prerelease follows main within hours, and one flaky test does
+    # not cost it: after a green push run, where no full run of main (the
+    # daily or a manual one) started in the last six hours, it starts a
+    # manual run of main; after a full run's first attempt failed, it
+    # re-runs the failed jobs once (cosmic_ci/prerelease_follow.tl). Its
+    # token may start and re-run ci's runs and nothing else; it checks out
+    # only what the pinned driver needs, as `publish` does, and runs no
+    # byte the triggering run made.
+    follow: {
+      permissions: {contents: "read", actions: "write"},
+      if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      steps: [
+        {
+          uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", # v6
+          with: {
+            ref: "${{ github.event.workflow_run.head_sha }}",
+            "sparse-checkout": "/ci/\n/bin/cosmic-bootstrap\n/.github/scripts/cosmic-driver.sh\n/.github/actions/cosmic-driver/\n",
+            "sparse-checkout-cone-mode": false,
+            "persist-credentials": false,
+          },
+        },
+        {
+          name: "bootstrap the pinned CI driver",
+          uses: "./.github/actions/cosmic-driver",
+        },
+        {
+          name: "start a full run, or retry a failed one",
+          "working-directory": "ci",
+          env: {
+            GH_TOKEN: "${{ github.token }}",
+            REPOSITORY: "${{ github.repository }}",
+            EVENT: "${{ github.event.workflow_run.event }}",
+            CONCLUSION: "${{ github.event.workflow_run.conclusion }}",
+            ATTEMPT: "${{ github.event.workflow_run.run_attempt }}",
+            RUN_ID: "${{ github.event.workflow_run.id }}",
+            BRANCH: "${{ github.event.workflow_run.head_branch }}",
+          },
+          run: "cosmic-driver cosmic_ci/driver.tl prerelease-follow",
+        },
+      ],
+    },
   },
 }

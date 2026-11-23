@@ -1910,12 +1910,17 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
   end
   assert(count(platform_legs("push")) == 3 and count(platform_legs("full")) == 4, "the runs' legs")
   -- prerelease.yml publishes four lanes, so only from a run of all four:
-  -- the scheduled and a manual run of main, never a push.
-  local prerelease = assert(Fs.read(DIR .. "/prerelease.yml"))
-  assert(prerelease:find("(github.event.workflow_run.event == 'schedule' || " ..
+  -- the scheduled and a manual run of main, never a push. Its `follow`
+  -- job alone reads a push's run, which publishes nothing.
+  local prerelease = assert(decoded_workflows()[DIR .. "/prerelease.yml"])
+  local publish = job_of(prerelease.jobs, "publish")["if"] or ""
+  assert(publish:find("(github.event.workflow_run.event == 'schedule' || " ..
       "github.event.workflow_run.event == 'workflow_dispatch')", 1, true) ~= nil and
-      prerelease:find("workflow_run.event == 'push'", 1, true) == nil,
+      publish:find("workflow_run.event == 'push'", 1, true) == nil,
     "prerelease.yml publishes from a run of fewer than four legs")
+  local follow = job_of(prerelease.jobs, "follow")
+  assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write",
+    "prerelease.yml's follow job's permissions")
   for name in pairs(jobs) do
     assert(name == "platform" or name == "checked" or name == "narrowing" or name == "driver" or name == "ci",
       "ci.yml has a job " .. name)
