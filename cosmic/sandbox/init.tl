@@ -314,15 +314,8 @@ local store_paths <const> = Store.paths
 local store_databases <const> = Store.databases
 local text_rows <const> = Sqlite.text_rows
 local stat <const> = sys.stat
-local uname <const> = sys.uname
 local seatbelt_resolve <const> = Seatbelt.resolve
 local seatbelt_compile <const> = Seatbelt.compile
-
---- Whether this is macOS, which holds a process by Seatbelt.
-local function darwin(): boolean
-  local names, _ = uname()
-  return names ~= nil and names.sysname == "Darwin"
-end
 
 --- What a failure of [`Sandbox.restrict`] answers: false and `why`.
 local function denied(why: string): boolean, string
@@ -364,7 +357,7 @@ local function not_in_process(merged: Sandbox.Policy): string
         "child can have"
     end
     if grant.letters:find("u", 1, true) then
-      if darwin() then
+      if rules.on_macos() then
         -- TODO: hold a `u` grant on macOS, which Seatbelt.compile writes as
         -- network-outbound to the path, as a child's profile has it, once a
         -- test connects a restricted process to a granted socket and is
@@ -576,7 +569,7 @@ function Sandbox.restrict(policy: Sandbox.Policy, options?: Sandbox.RestrictOpti
   end
   local logged = store_unheld()
   if logged ~= "" then return denied(logged) end
-  if darwin() then return held_by_seatbelt(policy, kept) end
+  if rules.on_macos() then return held_by_seatbelt(policy, kept) end
   local grants: mut {raw_process.Grant} = {}
   for _, grant in ipairs(merged.grants or {}) do
     grants[#grants + 1] = { path = grant.path, access = grant.letters }
@@ -688,6 +681,14 @@ end
 function Sandbox.in_pool(uid_map: string, gid_map: string, id: integer): boolean
   local first, _ = Sandbox.user_id(uid_map, gid_map, 0)
   return first ~= nil and id >= first and id < first + USER_POOL
+end
+
+--- Whether this host is macOS, which holds a sandboxed process by
+--- Seatbelt and has neither Landlock, seccomp nor namespaces.
+---
+---     print(Sandbox.on_macos()) -- false on Linux
+function Sandbox.on_macos(): boolean
+  return rules.on_macos()
 end
 
 --- Whether a kernel, by its release as /proc/sys/kernel/osrelease names

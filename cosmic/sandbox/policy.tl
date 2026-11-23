@@ -508,8 +508,9 @@ function rules.system_paths(host: string): {{string}}
   return LINUX_SYSTEM_PATHS
 end
 
---- Whether this host is macOS.
-local function on_darwin(): boolean
+--- Whether this host is macOS, which holds a process by Seatbelt and
+--- has neither Landlock, seccomp nor namespaces.
+function rules.on_macos(): boolean
   local names, _ = uname()
   return names ~= nil and names.sysname == "Darwin"
 end
@@ -558,7 +559,7 @@ end
 --- answers with no file to grant. As the "system" profile does, it grants
 --- only a path the host has, so a Linux host with no /proc mounted gets none.
 local function proc_profile(): rules.Policy
-  if on_darwin() or not present("/proc") then return {} end
+  if rules.on_macos() or not present("/proc") then return {} end
   return { grants = { { path = "/proc", letters = "r" } } }
 end
 
@@ -567,7 +568,7 @@ end
 function rules.profile(name: string): rules.Policy?, string
   if name == "proc" then return proc_profile(), "" end
   if name == "system" then
-    return rules.system_profile(if on_darwin() then "darwin" else "linux" end, present), ""
+    return rules.system_profile(if rules.on_macos() then "darwin" else "linux" end, present), ""
   end
   if name == "cosmic" then return cosmic_profile() end
   return refuse("unknown profile \"" .. tostring(name) .. "\" (known: " ..
