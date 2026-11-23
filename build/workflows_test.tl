@@ -1143,7 +1143,7 @@ local type Value = string | boolean
 --- there; a comparison of a string with a boolean, which GitHub coerces
 --- to numbers, it refuses.
 local function evaluate(text: string, leg: {string: string}, event: string, ref: string, reuse?: string,
-    named?: {string: Value}): Value
+                        named?: {string: Value}): Value
   local inner = assert(text:match("^%${{ (.*) }}$"), "not an expression: " .. text)
   local tokens: mut {string} = {}
   local at = 1
@@ -1272,7 +1272,7 @@ local function test_a_manual_run_stands_on_verdicts_unless_it_asks_for_every_tes
         local got = evaluate(text, {}, case.event, "refs/heads/main", nil,
           { ["github.event.schedule"] = case.schedule, ["inputs.every_test"] = case.every })
         assert(got == case.want, id .. " on " .. case.event .. " " .. case.schedule ..
-          " every_test=" .. tostring(case.every) .. ": " .. tostring(got))
+            " every_test=" .. tostring(case.every) .. ": " .. tostring(got))
       end
     end
   end

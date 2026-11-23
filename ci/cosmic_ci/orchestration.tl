@@ -95,8 +95,9 @@ local function write(path: string, data: string) assert(Fs.write(path, data)) en
 --- verdicts (ci.yml's "restore test verdicts") and so runs only what its
 --- merge moved from what main's last run reached; main's push of
 --- linux-x86_64 takes the queue's verdicts of its commit too
---- (cosmic_ci/queue_verdicts.tl). A manual run and
---- main's scheduled one are the backstop, running every test.
+--- (cosmic_ci/queue_verdicts.tl). ci.yml gives main's daily scheduled
+--- run and a manual run `push` as well; the weekly run and a manual run
+--- with `every_test` are the backstop, running every test.
 local standing_events: {string:boolean} = { push = true, merge_group = true }
 
 --- Whether a suite in `env` stands on verdicts other runs reached, keyed
