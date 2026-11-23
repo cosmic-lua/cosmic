@@ -736,4 +736,28 @@ function rules.with_connect(p: rules.Policy, connect: {string}): rules.Policy
   return result
 end
 
+--- The most open files a process under a policy may hold unless its
+--- `open_files` says.
+local DEFAULT_OPEN_FILES <const> = 1024
+
+--- The rlimits `limits` hold a process to, by the names spawn and
+--- restriction take: `nofile` its `open_files`, or 1024 -- lowered to this
+--- process's own hard limit, since a default is no reason to fail -- `core`
+--- 0, so no core is dumped, and `fsize` and `cpu` where it gives them.
+--- `processes` is the caller's to count.
+function rules.rlimits(limits?: rules.Limits): mut {string:integer}
+  local given = limits or {}
+  local open_files = given.open_files
+  if open_files == nil then
+    open_files = DEFAULT_OPEN_FILES
+    local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
+    if held ~= nil and held.hard < open_files then open_files = held.hard end
+  end
+  local rlimits: mut {string:integer} = { nofile = open_files, core = 0 }
+  local file_bytes, cpu_seconds = given.file_bytes, given.cpu_seconds
+  if file_bytes ~= nil then rlimits["fsize"] = file_bytes end
+  if cpu_seconds ~= nil then rlimits["cpu"] = cpu_seconds end
+  return rlimits
+end
+
 return rules

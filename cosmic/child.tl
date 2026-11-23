@@ -379,7 +379,8 @@ local record Options
   ---   variable of the policy's), removed after the child is settled; under
   ---   `isolate` file, the sandbox's own /tmp instead.
   --- - `limits` are rlimits on every process of the child: 1024 open
-  ---   files unless `open_files` says, and no core dump; `file_bytes` and
+  ---   files (this process's own hard limit where that is lower) unless
+  ---   `open_files` says, and no core dump; `file_bytes` and
   ---   `cpu_seconds` as given. `processes` (RLIMIT_NPROC) holds the
   ---   whole sandbox: the kernel counts the processes and threads of the
   ---   user namespace the program runs in, so the program itself is
@@ -2237,10 +2238,6 @@ local function descriptor_limit_hint(slots: {integer:integer}): string
     tostring(limits.soft) .. " (hard " .. tostring(limits.hard) .. "): " .. remedy
 end
 
---- How much a start under a policy lets the child hold open unless the
---- policy's `open_files` says.
-local DEFAULT_OPEN_FILES <const> = 1024
-
 --- The unprivileged user and group a root caller's program runs as.
 local record MappedUser
   uid: integer
@@ -3227,16 +3224,7 @@ local function held_to(argv: {string}, opts: Options, policy: Rules.Policy, onli
     for _, word in ipairs(relaunch.argv) do run_argv[#run_argv + 1] = word end -- checked: nil_not_allowed*2
     for i = 2, #argv do run_argv[#run_argv + 1] = argv[i] end -- checked: nil_not_allowed*2
   end
-  local open_files = (merged.limits or {}).open_files
-  if open_files == nil then
-    open_files = DEFAULT_OPEN_FILES
-    local held, _ = sys.getrlimit(sys.RLIMIT_NOFILE)
-    -- A default is no reason to fail where this process's own hard limit is lower.
-    if held ~= nil and held.hard < open_files then open_files = held.hard end
-  end
-  local rlimits: {string:integer} = { nofile = open_files, core = 0 }
-  rlimits.fsize = (merged.limits or {}).file_bytes -- checked: map_field
-  rlimits.cpu = (merged.limits or {}).cpu_seconds -- checked: map_field
+  local rlimits: mut {string:integer} = Rules.rlimits(merged.limits)
   local counted, count_trouble = process_limit(merged, file or isolates(merged, "proc"))
   if counted == nil and count_trouble ~= "" then return nil, "sandbox: " .. count_trouble end
   -- A malformed policy is refused for its own rule even where this root
