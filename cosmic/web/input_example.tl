@@ -50,10 +50,10 @@ end
 --- re-render with `on_invalid`.
 function Example.typed_route()
   local app = Web.app{ routes = {
-    Web.post_typed("/signup", Web.input(Web.NONE, Web.NONE, Web.form_body(SIGNUP)),
+    Web.post("/signup", Web.typed(Web.input(Web.NONE, Web.NONE, Web.form_body(SIGNUP)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, form: Signup): Web.Response
         return Web.text("welcome " .. form.email, { status = 201 })
-      end, {
+      end), {
         on_invalid = function(_req: Web.Request, bad: Web.Invalid): Web.Response
           return Web.text(Input.errors_by_field(bad)["email"] or "", { status = bad.status })
         end,
@@ -76,10 +76,10 @@ local NOTE <const> = Shape.record_of("Note")
 --- error with the JSON Pointer of the value that failed.
 function Example.json_body()
   local app = Web.app{ routes = {
-    Web.post_typed("/notes", Web.input(Web.NONE, Web.NONE, Web.json_body(NOTE)),
+    Web.post("/notes", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NOTE)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, note: Note): Web.Response
         return Web.json({ saved = note.title }, { status = 201 })
-      end),
+      end)),
   } }
   local client = Web.test_client(app)
   local reply = client:post("/notes", { json = { title = "t", tags = { "a", 2 } } })
@@ -167,7 +167,7 @@ local PROFILE <const> = Shape.record_of("Profile")
 function Example.upload()
   local kept: mut {string} = {}
   local app = Web.app{ routes = {
-    Web.post_typed("/profile", Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
+    Web.post("/profile", Web.typed(Web.input(Web.NONE, Web.NONE, Web.multipart_body(PROFILE)),
       function(req: Web.Request, _p: Web.None, _q: Web.None, form: Profile): Web.Response
         local avatars = assert(assert(Input.multipart(req).value).files["avatar"])
         local avatar = assert(avatars[1])
@@ -175,7 +175,7 @@ function Example.upload()
         local appended = assert(Fs.read(avatar.path))
         kept[#kept + 1] = appended
         return Web.text(form.display_name .. ":" .. avatar.filename .. (":%d"):format(avatar.size))
-      end, { input_options = { max_file_bytes = 1024 } }),
+      end), { input_options = { max_file_bytes = 1024 } }),
   } }
   local boundary = "xyz"
   local body = '--xyz\r\nContent-Disposition: form-data; name="display_name"\r\n\r\nAda\r\n' ..
@@ -193,14 +193,14 @@ function Example.methods()
     return Web.text(tostring(q.page))
   end
   local app = Web.app{ routes = {
-    Web.get_typed("/get", Web.input(Web.NONE, PAGE, Web.no_body), show),
-    Web.route_typed({ "GET", "POST" }, "/both", Web.input(Web.NONE, PAGE, Web.no_body), show),
-    Web.put_typed("/put", Web.input(Web.NONE, PAGE, Web.no_body), show),
-    Web.patch_typed("/patch", Web.input(Web.NONE, PAGE, Web.no_body), show),
-    Web.delete_typed("/delete", Web.input(Web.NONE, PAGE, Web.form_body(Shape.record_of("Query"))),
+    Web.get("/get", Web.typed(Web.input(Web.NONE, PAGE, Web.no_body), show)),
+    Web.route({ "GET", "POST" }, "/both", Web.typed(Web.input(Web.NONE, PAGE, Web.no_body), show)),
+    Web.put("/put", Web.typed(Web.input(Web.NONE, PAGE, Web.no_body), show)),
+    Web.patch("/patch", Web.typed(Web.input(Web.NONE, PAGE, Web.no_body), show)),
+    Web.delete("/delete", Web.typed(Web.input(Web.NONE, PAGE, Web.form_body(Shape.record_of("Query"))),
       function(_req: Web.Request, _p: Web.None, q: Query, b: Query): Web.Response
         return Web.text(tostring(q.page) .. tostring(b.page))
-      end),
+      end)),
   } }
   local client = Web.test_client(app)
   assert(client:get("/get?page=3"):text() == "3")

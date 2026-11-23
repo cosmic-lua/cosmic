@@ -1,6 +1,6 @@
 --- Reads what a request carries -- its query, an urlencoded form body, a
 --- JSON body -- and binds it to a [`cosmic.shape`] spec, collecting the
---- error of every field. [`Web.route_typed`] calls these before a handler
+--- error of every field. A typed route ([`Web.typed`]) calls these before a handler
 --- runs; a handler on a plain route calls them itself.
 ---
 ---     local record Signup
@@ -1018,7 +1018,7 @@ end
 --- those, and records of the same nested three deep. A `map`, a list of
 --- records and a spec of another kind cannot be read from text; a path holds only a string, integer,
 --- boolean or `one_of` per name, none optional. A "body" (JSON) carries
---- any spec. [`Web.route_typed`] calls it when a route is registered, so a
+--- any spec. A typed route ([`Web.typed`]) calls it when a route is registered, so a
 --- spec text cannot satisfy fails at startup.
 --- @param spec Shape.Node The spec
 --- @param source string "path", "query", "form" or "body"

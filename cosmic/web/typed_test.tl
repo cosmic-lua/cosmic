@@ -55,11 +55,11 @@ end
 local function test_a_typed_get_is_given_its_path_and_query_as_records()
   local seen: mut {string} = {}
   local app = Web.app{ routes = {
-    Web.get_typed("/items/:id", Web.input(PATH, QUERY, Web.no_body),
+    Web.get("/items/:id", Web.typed(Web.input(PATH, QUERY, Web.no_body),
       function(_req: Web.Request, p: ItemPath, q: Listing, b: Web.None): Web.Response
         table.insert(seen, ("%d|%s|%s|%s"):format(p.id, tostring(q.page), table.concat(q.tag or {}, ","), if next(b) == nil then "empty" else "full" end)) -- checked: overload_none
         return Web.json({ id = p.id })
-      end, { name = "item" }),
+      end), { name = "item" }),
   } }
   local client = Web.test_client(app)
   local reply = client:get("/items/7?page=2&tag=a&tag=b&ignored=1")
@@ -73,10 +73,10 @@ end
 
 local function test_a_json_body_binds_and_a_key_the_record_lacks_is_dropped()
   local app = Web.app{ routes = {
-    Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
+    Web.post("/items", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, b: NewItem): Web.Response
         return Web.json({ title = b.title, qty = b.qty }, { status = 201 })
-      end),
+      end)),
   } }
   local reply = Web.test_client(app):post("/items", { json = { title = "x", qty = 2, admin = true } })
   assert(reply.status == 201 and reply:text() == '{"qty":2,"title":"x"}', reply:text())
@@ -85,11 +85,11 @@ end
 local function test_a_bad_path_value_is_422_before_the_query_or_body_is_read()
   local called: boolean = false
   local app = Web.app{ routes = {
-    Web.put_typed("/items/:id", Web.input(PATH, QUERY, Web.json_body(NEW)),
+    Web.put("/items/:id", Web.typed(Web.input(PATH, QUERY, Web.json_body(NEW)),
       function(_req: Web.Request, _p: ItemPath, _q: Listing, _b: NewItem): Web.Response
         called = true
         return Web.empty()
-      end),
+      end)),
   } }
   local client = Web.test_client(app)
   local reply = client:put("/items/abc?page=x", { json = { title = 1 } })
@@ -108,10 +108,10 @@ end
 
 local function test_a_json_route_answers_a_problem_body_with_every_error_listed()
   local app = Web.app{ routes = {
-    Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
+    Web.post("/items", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
         return Web.empty()
-      end),
+      end)),
   } }
   local client = Web.test_client(app)
   local reply = client:post("/items", { json = { title = "t", qty = "x" } })
@@ -132,10 +132,10 @@ end
 
 local function test_a_form_route_prefers_a_page_and_lists_all_errors_as_json_when_asked()
   local app = Web.app{ routes = {
-    Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.form_body(NEW)),
+    Web.post("/items", Web.typed(Web.input(Web.NONE, Web.NONE, Web.form_body(NEW)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
         return Web.empty()
-      end),
+      end)),
   } }
   local client = Web.test_client(app)
   local reply = client:post("/items", { form = { qty = "two" } })
@@ -152,11 +152,11 @@ local function test_on_invalid_re_renders_in_place_of_the_handler()
   local called: boolean = false
   local seen: Web.Invalid? = nil
   local app = Web.app{ routes = {
-    Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
+    Web.post("/settings", Web.typed(Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Settings): Web.Response
         called = true
         return Web.empty()
-      end, {
+      end), {
         input_options = { secret = { "secret" } },
         on_invalid = function(req: Web.Request, bad: Web.Invalid): Web.Response
           seen = bad
@@ -176,11 +176,11 @@ end
 local function test_a_checkbox_form_binds_and_unknown_names_bind_nothing()
   local got: Settings? = nil
   local app = Web.app{ routes = {
-    Web.post_typed("/settings", Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
+    Web.post("/settings", Web.typed(Web.input(Web.NONE, Web.NONE, Web.form_body(SETTINGS)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, b: Settings): Web.Response
         got = b
         return Web.empty()
-      end),
+      end)),
   } }
   local client = Web.test_client(app)
   assert(client:post("/settings", { form = { name = "Ada", notify = { "0", "1" }, is_admin = "1" } }).status == 204)
@@ -191,10 +191,10 @@ end
 
 local function test_the_wrong_content_type_is_415_and_a_big_body_413_and_bad_json_400()
   local app = Web.app{ routes = {
-    Web.post_typed("/items", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
+    Web.post("/items", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
         return Web.empty()
-      end, { input_options = { max_bytes = 40 } }),
+      end), { input_options = { max_bytes = 40 } }),
   } }
   local client = Web.test_client(app)
   local reply = client:post("/items", { form = { title = "t", qty = "1" } })
@@ -215,14 +215,14 @@ local function test_a_route_records_what_it_binds()
   local function noop(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Web.None): Web.Response
     return Web.empty()
   end
-  local plain = Web.get_typed("/a", Web.input(Web.NONE, Web.NONE, Web.no_body), noop)
+  local plain = Web.get("/a", Web.typed(Web.input(Web.NONE, Web.NONE, Web.no_body), noop))
   local plain_input = assert(plain.input)
   assert(plain_input.body_kind == "none" and plain_input.path == nil and plain_input.body == nil)
   assert(plain_input.max_bytes == 64 * 1024)
-  local big = Web.post_typed("/b", Web.input(Web.NONE, QUERY, Web.form_body(NEW)),
+  local big = Web.post("/b", Web.typed(Web.input(Web.NONE, QUERY, Web.form_body(NEW)),
     function(_req: Web.Request, _p: Web.None, _q: Listing, _b: NewItem): Web.Response
       return Web.empty()
-    end, { input_options = { max_bytes = 1 << 20 } })
+    end), { input_options = { max_bytes = 1 << 20 } })
   local big_input = assert(big.input)
   assert(big_input.body_kind == "form" and big_input.query == Input.described(QUERY.spec) and big_input.body == Input.described(NEW.spec))
   assert(big_input.max_bytes == 1 << 20 and big.methods[1] == "POST")
@@ -238,62 +238,62 @@ local function test_registration_refuses_a_path_that_does_not_match_its_spec()
     return Web.empty()
   end
   local why = Test.raises(function()
-    Web.get_typed("/items/:name", Web.input(PATH, Web.NONE, Web.no_body), function(_req: Web.Request, _p: ItemPath,
-                                                                                   _q: Web.None, _b: Web.None): Web.Response
+    Web.get("/items/:name", Web.typed(Web.input(PATH, Web.NONE, Web.no_body), function(_req: Web.Request, _p: ItemPath,
+                                                                                       _q: Web.None, _b: Web.None): Web.Response
       return Web.empty()
-    end)
+    end))
   end)
   assert(why:find('"name" is not a field of the path spec', 1, true), why)
   why = Test.raises(function()
-    Web.get_typed("/items", Web.input(PATH, Web.NONE, Web.no_body), function(_req: Web.Request, _p: ItemPath,
-                                                                             _q: Web.None, _b: Web.None): Web.Response
+    Web.get("/items", Web.typed(Web.input(PATH, Web.NONE, Web.no_body), function(_req: Web.Request, _p: ItemPath,
+                                                                                 _q: Web.None, _b: Web.None): Web.Response
       return Web.empty()
-    end)
+    end))
   end)
   assert(why:find('"id" is not a parameter of the pattern', 1, true), why)
   why = Test.raises(function()
-    Web.get_typed("/items/:id", Web.input(Web.NONE, Web.NONE, Web.no_body), none_handler)
+    Web.get("/items/:id", Web.typed(Web.input(Web.NONE, Web.NONE, Web.no_body), none_handler))
   end)
   assert(why:find('"id" is not a field', 1, true), why)
-  assert(#Web.get_typed("/static/*rest", Web.input(REST, Web.NONE, Web.no_body),
+  assert(#Web.get("/static/*rest", Web.typed(Web.input(REST, Web.NONE, Web.no_body),
     function(_req: Web.Request, _p: Rest, _q: Web.None, _b: Web.None): Web.Response
       return Web.empty()
-    end).methods == 1)
+    end)).methods == 1)
 end
 
 local function test_registration_refuses_a_body_on_get_and_a_spec_text_cannot_carry()
   local why = Test.raises(function()
-    Web.get_typed("/x", Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
+    Web.get("/x", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
       function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
         return Web.empty()
-      end)
+      end))
   end)
   assert(why:find("GET takes no body", 1, true), why)
   why = Test.raises(function()
-    Web.get_typed("/x", Web.input(Web.NONE, MAPPED, Web.no_body),
+    Web.get("/x", Web.typed(Web.input(Web.NONE, MAPPED, Web.no_body),
       function(_req: Web.Request, _p: Web.None, _q: Mapped, _b: Web.None): Web.Response
         return Web.empty()
-      end)
+      end))
   end)
   assert(why:find("map", 1, true), why)
-  assert(#Web.route_typed({ "POST", "PATCH" }, "/x", Web.input(Web.NONE, Web.NONE, Web.json_body(MAPPED)),
+  assert(#Web.route({ "POST", "PATCH" }, "/x", Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(MAPPED)),
     function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Mapped): Web.Response
       return Web.empty()
-    end).methods == 2, "JSON carries a map")
-  Web.delete_typed("/x", Web.input(Web.NONE, Web.NONE, Web.form_body(NEW)),
+    end)).methods == 2, "JSON carries a map")
+  Web.delete("/x", Web.typed(Web.input(Web.NONE, Web.NONE, Web.form_body(NEW)),
     function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
       return Web.empty()
-    end)
-  Web.patch_typed("/x", Web.input(Web.NONE, Web.NONE, Web.no_body), empty_handler)
+    end))
+  Web.patch("/x", Web.typed(Web.input(Web.NONE, Web.NONE, Web.no_body), empty_handler))
 end
 
 local function test_a_typed_route_sits_in_a_mount_and_is_found_by_name()
   local app = Web.app{ routes = {
     Web.mount("/api", {
-      Web.get_typed("/items/:id", Web.input(PATH, Web.NONE, Web.no_body),
+      Web.get("/items/:id", Web.typed(Web.input(PATH, Web.NONE, Web.no_body),
         function(_req: Web.Request, p: ItemPath, _q: Web.None, _b: Web.None): Web.Response
           return Web.json({ id = p.id })
-        end, { name = "item" }),
+        end), { name = "item" }),
     }, { name = "api" }),
   } }
   local client = Web.test_client(app)

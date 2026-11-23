@@ -15,10 +15,11 @@ end
 --- routes are compiled, naming the pattern.
 --- @param methods string | {string} A method, or several, in capitals
 --- @param pattern string The pattern
---- @param handler Types.Handler Answers a request
+--- @param handler Types.Handles Answers a request: a plain handler, or a typed one ([`Web.typed`]), whose input
+---   the route reads before it runs
 --- @param opts RouteOptions | nil Its name and middleware
 --- @return Types.Route The route
-function Route.route(methods: string | {string}, pattern: string, handler: Types.Handler,
+function Route.route(methods: string | {string}, pattern: string, handler: Types.Handles,
                      opts?: Types.RouteOptions): Types.Route
   local list: mut {string} = {}
   if methods is string then
@@ -26,34 +27,42 @@ function Route.route(methods: string | {string}, pattern: string, handler: Types
   else
     for i, method in ipairs(methods) do list[i] = method end
   end
-  return { methods = list, pattern = pattern, handler = handler,
+  local plain: Types.Handler
+  local input: Types.RouteInput? = nil
+  if handler is Types.TypedHandler then
+    local bound = handler.bind(list, pattern, opts)
+    plain, input = bound.handler, bound.input
+  else
+    plain = handler
+  end
+  return { methods = list, pattern = pattern, handler = plain, input = input,
     name = opts and opts.name or "", middleware = opts and opts.middleware or {} }
 end
 
 --- A route answering GET, and HEAD with the same handler: for a page or a
 --- read. See [`Web.route`] for the patterns.
-function Route.get(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+function Route.get(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   return Route.route("GET", pattern, handler, opts)
 end
 
 --- A route answering POST: for what a form submits and for an action that
 --- creates.
-function Route.post(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+function Route.post(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   return Route.route("POST", pattern, handler, opts)
 end
 
 --- A route answering PUT: it replaces the thing at the URL whole.
-function Route.put(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+function Route.put(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   return Route.route("PUT", pattern, handler, opts)
 end
 
 --- A route answering PATCH: it changes part of the thing at the URL.
-function Route.patch(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+function Route.patch(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   return Route.route("PATCH", pattern, handler, opts)
 end
 
 --- A route answering DELETE: it removes the thing at the URL.
-function Route.delete(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+function Route.delete(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   return Route.route("DELETE", pattern, handler, opts)
 end
 

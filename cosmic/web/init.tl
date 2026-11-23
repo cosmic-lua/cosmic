@@ -32,7 +32,7 @@
 ---   a path is canonical before any middleware sees it, a HEAD is answered
 ---   by the GET, an OPTIONS and a 405 by `Allow`, and
 ---   `app:url_for("item", { id = 7 })` builds a URL back.
---- - A typed route ([`Web.route_typed`], [`Web.post_typed`], ...) names
+--- - A typed route (a route given a [`Web.typed`] handler) names
 ---   [`cosmic.shape`] specs for its path, query and body ([`Web.input`]); its
 ---   handler is given the checked records, and input that fails them is
 ---   answered before it runs (see cosmic.web.input).
@@ -78,6 +78,10 @@ local record Web
   type Response = Types.Response
   --- Answers one request.
   type Handler = Types.Handler
+  --- A handler that reads typed input first: see [`Types.TypedHandler`].
+  type TypedHandler = Types.TypedHandler
+  --- What a route answers with, a plain or a typed handler: see [`Types.Handles`].
+  type Handles = Types.Handles
   --- Wraps a [`Web.Handler`] in another, once, when the app is built.
   type Middleware = Types.Middleware
   --- What an app's `lifespan` returns to clean up.
@@ -181,18 +185,18 @@ local record Web
   add_header: function(res: Types.Response, name: string, value: string)
 
   --- A route answering some methods at a pattern: see [`Route.route`].
-  route: function(methods: string | {string}, pattern: string, handler: Types.Handler,
+  route: function(methods: string | {string}, pattern: string, handler: Types.Handles,
       opts?: Types.RouteOptions): Types.Route
   --- A route answering GET: see [`Route.get`].
-  get: function(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+  get: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   --- A route answering POST: see [`Route.post`].
-  post: function(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+  post: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   --- A route answering PUT: see [`Route.put`].
-  put: function(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+  put: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   --- A route answering PATCH: see [`Route.patch`].
-  patch: function(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+  patch: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   --- A route answering DELETE: see [`Route.delete`].
-  delete: function(pattern: string, handler: Types.Handler, opts?: Types.RouteOptions): Types.Route
+  delete: function(pattern: string, handler: Types.Handles, opts?: Types.RouteOptions): Types.Route
   --- A prefix with routes below it: see [`Route.mount`].
   mount: function(prefix: string, routes: {Types.Route}, opts?: Types.MountOptions): Types.Route
   --- A prefix whose every request goes to one handler: see [`Route.mount_handler`].
@@ -212,24 +216,9 @@ local record Web
   --- The path, query and body specs of a typed route: see [`Typed.input`].
   input: function<P,Q,B>(path: Shape.Typed<P>, query: Shape.Typed<Q>,
       body: Types.Body<B>): Types.Input<P,Q,B>
-  --- A typed route answering some methods: see [`Typed.route_typed`].
-  route_typed: function<P,Q,B>(methods: string | {string}, pattern: string, input: Types.Input<P,Q,B>,
-      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  --- A typed route answering GET: see [`Typed.get_typed`].
-  get_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  --- A typed route answering POST: see [`Typed.post_typed`].
-  post_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  --- A typed route answering PUT: see [`Typed.put_typed`].
-  put_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  --- A typed route answering PATCH: see [`Typed.patch_typed`].
-  patch_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
-  --- A typed route answering DELETE: see [`Typed.delete_typed`].
-  delete_typed: function<P,Q,B>(pattern: string, input: Types.Input<P,Q,B>,
-      fn: function(Types.Request, P, Q, B): Types.Response, opts?: Types.RouteOptions): Types.Route
+  --- A handler that reads typed input before it runs, for a route to take: see [`Typed.typed`].
+  typed: function<P,Q,B>(input: Types.Input<P,Q,B>,
+      fn: function(Types.Request, P, Q, B): Types.Response): Types.TypedHandler
 
   --- Middleware writing one line per request: see [`Stack.access_log`].
   access_log: function(opts?: Stack.AccessLogOptions): Types.Middleware
@@ -334,12 +323,7 @@ Web.json_body = Typed.json_body
 Web.form_body = Typed.form_body
 Web.multipart_body = Typed.multipart_body
 Web.input = Typed.input
-Web.route_typed = Typed.route_typed
-Web.get_typed = Typed.get_typed
-Web.post_typed = Typed.post_typed
-Web.put_typed = Typed.put_typed
-Web.patch_typed = Typed.patch_typed
-Web.delete_typed = Typed.delete_typed
+Web.typed = Typed.typed
 Web.access_log = Stack.access_log
 Web.stderr_sink = Stack.stderr_sink
 Web.app = App.new
