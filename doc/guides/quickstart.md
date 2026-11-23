@@ -299,6 +299,22 @@ computed name is refused when the script is compiled.
 seals exactly those modules (the first its main) from this program's store;
 the three are exclusive. The database a run seals is removed when it ends.
 
+## a coding agent in a sandbox
+
+`cosmic agent ask 'what does this repository do?'` asks Claude about the
+working directory, with `ANTHROPIC_API_KEY` set. The model reads, writes
+and edits files and runs commands there, each held to a sandbox: the
+directory is its to change, the host's programs run, and nothing else
+is there, the network included (`--network` and `--grant path:rw` give
+more; under `--sandbox read` the tools change nothing). `cosmic agent chat` is a
+conversation, a prompt a line; `cosmic agent ask --continue 'and now?'`
+goes on with the last one; `cosmic agent policy` prints what the sandbox
+grants here. Every message, tool output and request is kept in a SQLite
+database before it is shown, so `cosmic agent sessions` lists them and
+`cosmic agent resume` takes up a turn a run left unfinished. `cosmic help
+agent` has the rest, and `cosmic docs cosmic.agent` the loop a program
+runs itself.
+
 ## below cosmic.fs
 
 [`cosmic.fs`] is built on [`cosmic.sys`], the syscall table: one C function
