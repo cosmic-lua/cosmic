@@ -5,7 +5,7 @@
 ---
 --- It exposes the two things a boot needs of the new checker:
 ---
---- - [`Seed.compile`], the compile `cosmic compile --grammar new` makes ([`build.compile_grammar`]). The bridge's first stage runs
+--- - [`Seed.compile`], the compile `cosmic compile` makes ([`build.compile_grammar`]). The bridge's first stage runs
 ---   it over the seed's own files and compares the Lua with what the pinned release wrote, which holds the pin and the
 ---   tree's generator to each other.
 --- - [`Seed.program`], a [`build.driver`] build over the modules of the tree on disk, from which the bridge's searcher answers
@@ -40,7 +40,7 @@ local record Seed
     module: function(name: string): Module?, string
   end
 
-  --- Compiles `sources` together as `cosmic compile --grammar new` does ([`CompileGrammar.compile`]).
+  --- Compiles `sources` together as `cosmic compile` does ([`CompileGrammar.compile`]).
   compile: function(sources: {CompileGrammar.Source}): {CompileGrammar.Compiled}
 
   --- A program over the tree at `root`. `declared` holds the declarations a boot makes in memory (the syscall table's, by

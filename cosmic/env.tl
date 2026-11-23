@@ -14,8 +14,6 @@ local record Env
     "COSMIC_BUILD_CACHE"
     --- Moves the build directory.
     "COSMIC_BUILD_HOME"
-    --- The grammar the tool reads: "new" or nothing.
-    "COSMIC_GRAMMAR"
     --- Set to anything, writes a line of memory use at each mark of a run.
     "COSMIC_MEMPROBE"
     --- Names the zig to run, over the pinned one.

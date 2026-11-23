@@ -498,8 +498,7 @@ local function seal_script(file: string, cwd: string?, held: mut {string}): Seal
   if source == nil then return { why = tostring(read_trouble), refused = false } end
   local code, trouble = standalone.code(file, source)
   if code == nil then return { why = trouble, refused = false } end
-  -- The requires are read by the checker that compiled the file: the new one's syntax tree under COSMIC_GRAMMAR=new, the fork's
-  -- otherwise ([`standalone.requires`]).
+  -- The requires are read by the checker that compiled the file ([`standalone.requires`]).
   local found, roots_trouble = standalone.requires(file, source)
   if found == nil then return { why = roots_trouble, refused = false } end
   -- What the generated Lua names is what the program loads.

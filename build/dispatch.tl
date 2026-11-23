@@ -444,7 +444,6 @@ local function run(file: string, argv: {string}): integer
   local Store = require("cosmic.store")
   local Clock = require("cosmic.clock")
   local clock = require("build.clock")
-  local GrammarMode = require("build.grammar_mode")
   local importer = require("build.importer")
   local shared_compiles = require("build.shared_compiles")
   local reboot = require("build.reboot")
@@ -502,12 +501,6 @@ local function run(file: string, argv: {string}): integer
 
   -- The compiler this binary is, as the build that made it recorded
   -- ([`importer.own_tool`]).
-  local grammar_trouble = GrammarMode.refusal()
-  if grammar_trouble ~= nil then
-    local _, _ = work.close(handle)
-    log:complain(grammar_trouble)
-    return 1
-  end
   local tool = importer.own_tool()
 
   local database = build_paths.under(handle.dir).projection
@@ -977,7 +970,6 @@ function Dispatch.main(argv: {string}): integer
   if verb:sub(1, 1) == "-" then
     local retired = RETIRED_FLAGS[verb]
     if retired ~= nil then
-      -- Told as the removed `migrate` verb is, and exits 2 as it does.
       log:complain("cosmic " .. verb .. " was removed: " .. retired)
       return 2
     end

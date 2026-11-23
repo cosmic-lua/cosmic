@@ -509,7 +509,7 @@ input to the build, never to the runtime. one database holds:
   what it requires. Two rows are no module: `lang.prelude` and
   `lang.stdlib`, the text of [`lang/prelude.d.tl`] and of
   [`lang/stdlib.d.tl`], which are the globals the new checker types a
-  project against (`COSMIC_GRAMMAR=new`, [`build/checker_declarations.tl`]).
+  project against ([`build/checker_declarations.tl`]).
 - **catalog**: the errors a program can meet, one row per literal
   `return nil, ...` or `return false, ...` message under a top-level
   function, naming that function, plus hand-authored rows for the
@@ -1051,7 +1051,7 @@ syntax where that serves and breaks with it where Teal or a Lua idiom costs
 soundness, simplicity or speed (`cosmic docs <code>` gives the rule behind any
 error the checker reports). there is one checker. the fork of tl 0.24.8 that came before it is deleted, with its formatter, its comparison harness and its
 patch records; a project written in the old grammar is rewritten to this one by hand
-([`doc/guides/project.md`]), and `COSMIC_GRAMMAR=teal` is refused, pointing to that guide.
+([`doc/guides/project.md`]).
 
 the pieces are small modules, each deciding one thing and asked by the rest:
 

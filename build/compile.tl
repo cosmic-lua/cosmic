@@ -16,8 +16,7 @@
 --- Unlike `cosmic fix` or a build it does not run [`Shape.record_of`]'s resolution, check contracts or hold a file to the
 --- tree's other rules: it is the checker and the generator and nothing else.
 ---
---- THE GRAMMAR is the new checker's, which `--grammar new` names and the verb takes by
---- default; `--grammar teal` is refused, pointing to the project guide. The files named are the
+--- THE PROGRAM is the files named: they are the
 --- whole program, a `.d.tl` among them declares the globals every file may use and must carry `--- @kind binding` (`--- @kind language`
 --- is only for the build of cosmic's own tree, which this is not), and a `cosmic.*`
 --- module no file named is the module of is then typed `invalid` and reported, since the checker cannot declare the binary's own
@@ -55,7 +54,7 @@ end
 
 local spec = Cli.verbs.compile.spec or {} -- checked: literal_needs_type, map_field
 
-local usage = "cosmic compile [--grammar new] [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
+local usage = "cosmic compile [--errors] [--root <dir>] [-o <dir>] <file.tl>..."
 
 --- What a command line asks for.
 local record Request
@@ -65,8 +64,6 @@ local record Request
   errors: boolean
   --- The directory module names are relative to, nil for the working directory.
   root: string?
-  --- The grammar of every file: "new".
-  grammar: string
 end
 
 --- The name of the file `path`, without its directory.
@@ -83,13 +80,7 @@ local function arguments(argv: {string}): Request?, string
     directory = parsed.values["-o"],
     errors = parsed.set["--errors"] == true,
     root = parsed.values["--root"],
-    grammar = parsed.values["--grammar"] or "new",
   }
-  if request.grammar == "teal" then
-    return nil, "--grammar teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says"
-  elseif request.grammar ~= "new" then
-    return nil, "--grammar names new, not " .. request.grammar
-  end
   if request.root == "" then
     return nil, "--root needs a directory"
   end

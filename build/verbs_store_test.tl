@@ -435,13 +435,10 @@ local function test_a_verb_takes_a_negative_number_as_a_word(tmp: string)
   assert(drawn.code == 0 and drawn.stdout == "-5\n", drawn.stdout .. drawn.stderr)
 end
 
---- A verb whose line is its own to read is not refused by Flags.dispatch first: `migrate` says it was removed
---- whatever it is given, and `todos`, which rebuilds a stale tool before it reads its line, refuses an option
+--- A verb whose line is its own to read is not refused by Flags.dispatch first: `todos`, which rebuilds a stale tool before it reads its line, refuses an option
 --- in its own words, as a `fresh` verb does.
 local function test_a_verb_that_reads_its_own_line_is_not_refused_first(tmp: string)
   verbs_fixture.write_tree(tmp)
-  local removed = verbs_fixture.run(tmp, { "migrate", "--check", "." })
-  assert(removed.code == 2 and removed.stderr:find("cosmic migrate was removed", 1, true) ~= nil, removed.stderr)
   for _, verb in ipairs({ "todos", "bom" }) do
     local refused = verbs_fixture.run(tmp, { verb, "--zzqq" })
     assert(refused.code == 2 and refused.stderr:find("no such option: --zzqq", 1, true) ~= nil and

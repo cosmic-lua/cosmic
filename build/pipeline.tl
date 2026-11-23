@@ -273,7 +273,7 @@ end
 function Pipeline.alone(): Pipeline.Options?, string
   local carried, why = CheckerDeclarations.carried()
   if carried == nil then
-    return nil, "COSMIC_GRAMMAR=new: this tool carries no declarations of the standard library (" .. why ..
+    return nil, "this tool carries no declarations of the standard library (" .. why ..
       "): boot the tree it was built from again (bin/zig build boot)"
   end
   return Pipeline.project(carried), ""

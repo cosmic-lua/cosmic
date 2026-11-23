@@ -1,5 +1,4 @@
---- The program a session of `cosmic lsp` ([`build.lsp.check`]) checks its documents in under the new checker
---- (`COSMIC_GRAMMAR=new`, [`build.grammar_mode`]): one [`Driver.Build`] for the project, kept between checks, in which the
+--- The program a session of `cosmic lsp` ([`build.lsp.check`]) checks its documents in: one [`Driver.Build`] for the project, kept between checks, in which the
 --- document being checked is the module's full source and every other module is the stub it serves its dependents
 --- ([`build.lsp.source`]).
 ---
