@@ -574,7 +574,7 @@ end
 local function test_html_mode_escapes_by_place(tmp: string)
   local page: Page = { title = "<i>&", cls = "a\"b'c", n = 7, url = "javascript:alert(1)",
     h = Html.trust("<b>x</b>"), a = Html.escape_attr("q&r"), u = Html.href("/x"), user = { name = "<u>" },
-    p = assert(Html.url_query({ { "a b", "c&d" }, { "e", ".." } })),
+    p = Html.url_query({ { name = "a b", value = "c&d" }, { name = "e", value = ".." } }),
     items = { { name = "p", n = 1 }, { name = "<q>", n = 2 } } }
   local out = render(tmp, "html-run", HEAD .. [[
 <h1 class="{{.cls}}" title='{{.a}}'>{{.title}} {{.n}} {{.h}}</h1>

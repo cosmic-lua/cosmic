@@ -43,6 +43,7 @@ local type raw_html = require("cosmic.internal.html")
 -- imports this module would then load to type-check.
 
 local Failure = require("cosmic.failure")
+local Url = require("cosmic.url")
 local raw = require("cosmic.internal.html")
 local json = require("cosmic.internal.json")
 
@@ -183,16 +184,23 @@ function Html.url_part(s: string | number): Html.SafeUrlPart
   return raw.url_part(s)
 end
 
---- `entries` as a query string: each `{name, value}` written
---- `name=value` with both halves escaped as by [`Html.url_part`] but for
---- the dot rule, joined by `&`, in order. A name may repeat. Answers
---- `nil` and a Failure for a pair that is not two strings; raises for
---- `entries` that is no sequence.
+--- `list` as a query string: each [`Url.Pair`] written `name=value`
+--- with both halves escaped as by [`Html.url_part`] but for the dot
+--- rule, joined by `&`, in order. A name may repeat. It takes the pairs
+--- [`Url.encode_query`] takes and [`Url.decode_query`] answers (a
+--- [`Url.Query`]'s `pairs`), and differs from that encoding only in
+--- writing a space `%20`, as a URL in a page does, not `+`. Raises,
+--- blaming its caller, for a pair whose name or value is not a string,
+--- which only a caller past the checker can pass.
 ---
----     Html.raw_url_part(assert(Html.url_query({ { "q", "a b" }, { "t", "x&y" } }))) -- "q=a%20b&t=x%26y"
-function Html.url_query(entries: {{string}}): (Html.SafeUrlPart) | (nil, Failure)
+---     Html.raw_url_part(Html.url_query({ { name = "q", value = "a b" }, { name = "t", value = "x&y" } })) -- "q=a%20b&t=x%26y"
+function Html.url_query(list: {Url.Pair}): Html.SafeUrlPart
+  local entries: mut {{string}} = {}
+  for i, pair in ipairs(list) do
+    entries[i] = { pair.name, pair.value }
+  end
   local part, why = raw.url_query(entries)
-  if part == nil then return nil, Failure.new(why) end
+  if part == nil then error(why, 2) end
   return part
 end
 
