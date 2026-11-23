@@ -24,7 +24,8 @@ end
 --- This is the pure store: the source of [`cosmic.stream`], which the test does not name and [`cosmic.zip`] requires, is
 --- withheld, where the full closure store would hold it.
 local function test_the_store_is_the_pure_one()
-  assert(Store.withheld("cosmic.stream") ~= nil, "the source of a module the test does not name is not withheld")
+  local withheld, why = Store.withheld("cosmic.stream")
+  assert(withheld is string, "the source of a module the test does not name is not withheld: " .. tostring(why))
 end
 
 local function test_a_snippet_that_requires_a_module_the_test_requires_is_typed(tmp: string)

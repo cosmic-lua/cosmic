@@ -111,7 +111,7 @@ test_child.register("stored", function(argv: {string}): integer
   local loads, load_trouble = pcall(search, "project.damaged")
   assert(not loads and load_trouble ~= nil, "a damaged chunk was loaded")
   local neither, why = Store.bytecode("project.neither")
-  assert(neither == nil and why:find("project.neither", 1, true) ~= nil, why)
+  assert(neither == nil and tostring(why):find("project.neither", 1, true) ~= nil, why)
   print("stored")
   return 0
 end)

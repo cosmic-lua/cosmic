@@ -35,6 +35,7 @@ local fanout = require("build.compile_fanout")
 local Shape = require("cosmic.shape")
 local Sqlite = require("cosmic.sqlite")
 local Store = require("cosmic.store")
+local store_lookups = require("build.store_lookups")
 local check_memo = require("build.check_memo")
 local CodeWalk = require("build.code_walk")
 -- Declares what text this module reads ([`build.code_walk`]'s `markers`): the docs, uses and places of the projection it checks.
@@ -2206,8 +2207,8 @@ function tree_checks.share_checks(): boolean, string
   local core = Hash.hex_sha256(head)
   local coded: Coded = { code = nil, trouble = "" }
   Store.alone(function()
-    coded.code, coded.trouble = check_memo.code_of({ requires = Store.requires, bytecode = Store.bytecode,
-      holds = Store.holds, core = core })
+    coded.code, coded.trouble = check_memo.code_of({ requires = store_lookups.requires, bytecode = store_lookups.bytecode,
+      holds = store_lookups.holds, core = core })
   end)
   local code = coded.code
   if code == nil then
@@ -3344,7 +3345,7 @@ local text_read_allowed <const>: {string:string} = {
   ["build.perf"] = "a standalone script a release program runs; its SQL is the argument of a `cosmic sql` it starts and times against a project's own store, not a read of the store a test is given, and it cannot require a module of the tree it benchmarks",
   ["build.writer"] = "writes the projection from the working database it is handed, whose tables a test's store never holds",
   ["cosmic.internal.symbols"] = "words a hint of a refusal from the docs and examples of the databases it is handed; in a pure store those tables are absent and it raises ([`cosmic.internal.symbols`]'s `refuse_withheld`)",
-  ["cosmic.doc"] = "answers a caller from the docs, uses, links and examples of the databases it is handed; in a pure store those tables are absent and it raises, naming `store_text`; a standard-library module, which cannot require a module of the build",
+  ["cosmic.doc"] = "answers a caller from the docs, uses, links and examples of the databases it is handed; in a pure store those tables are absent and it raises, naming `store_lookups`; a standard-library module, which cannot require a module of the build",
   ["cosmic.errors"] = "asks the catalog for the guidance on an error; a pure store has no catalog and the lookup raises there ([`Errors.guidance_in`]); a standard-library module, which cannot require a module of the build",
 }
 

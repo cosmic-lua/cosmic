@@ -23,7 +23,7 @@ local function test_attaching_a_uri_is_refused(tmp: string)
   assert(#Store.databases() == before + 1)
   local ok, trouble = Store.attach("file:" .. path .. "?vfs=unix", { unchecked_bytecode = true })
   assert(not ok, "attached a URI")
-  assert(trouble ~= "")
+  assert(tostring(trouble):sub(1, 5) == "file:", tostring(trouble))
   assert(#Store.databases() == before + 1)
 end
 
@@ -103,7 +103,10 @@ local function test_alone_searches_only_the_binarys_own_database()
   local nested: boolean = true
   Store.alone(function()
     inside = #Store.databases()
-    attached = pcall(Store.attach, "/nonexistent/cosmic.db", { unchecked_bytecode = true }) -- checked: alternatives_as_value
+    local attach_ran, _ = pcall(function()
+      local _, _ = Store.attach("/nonexistent/cosmic.db", { unchecked_bytecode = true })
+    end)
+    attached = attach_ran
     nested = pcall(Store.alone, function() end) -- checked: alternatives_as_value
   end)
   assert(inside == 1, tostring(inside))
@@ -126,7 +129,8 @@ end
 --- [`Store.holds`] tells a module the binary has a row of from a name it has none of, which [`Store.source`] answers
 --- with a nil and a message in both cases.
 local function test_holds_tells_a_held_module_from_an_absent_one()
-  assert(Store.holds("cosmic.store") == true)
+  local holds, why = Store.holds("cosmic.store")
+  assert(holds == true, tostring(why))
   local held, trouble = Store.holds("cosmic.no_such_module")
-  assert(held == false and trouble == "", trouble)
+  assert(held == false and trouble == nil, tostring(trouble))
 end

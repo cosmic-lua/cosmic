@@ -37,8 +37,10 @@ end
 
 --- Every way a worker reads the program for `name`, which finds it in none.
 local function absent(name: string)
-  assert(Store.source(name) == nil, name .. ": its source is in the program")
-  assert(Store.bytecode(name) == nil, name .. ": its bytecode is in the program")
+  local source, _ = Store.source(name)
+  assert(source == nil, name .. ": its source is in the program")
+  local bytecode, _ = Store.bytecode(name)
+  assert(bytecode == nil, name .. ": its bytecode is in the program")
   assert(#assert(Store.requires(name)) == 0, name .. ": its imports are in the program")
   for _, db in ipairs(Store.databases()) do
     local rows = assert(Sqlite.text_rows(db,
@@ -58,7 +60,8 @@ end
 local function test_a_module_outside_the_closure_is_not_in_the_program()
   skip_unless_sealed()
   for _, name in ipairs(outside) do absent(name) end
-  assert(Store.bytecode("cosmic.store") ~= nil, "a module of the closure is not")
+  local inside, _ = Store.bytecode("cosmic.store")
+  assert(inside ~= nil, "a module of the closure is not")
   -- A `require` of a name made at run time, from a chunk of Lua: the parser refuses it in a typed file.
   local function dynamic_require(name: string): any
     local chunk = assert(load("return require((...))", "=dynamic_require", "t", Globals.table()))

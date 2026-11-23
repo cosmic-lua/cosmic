@@ -16,6 +16,7 @@
 
 local type raw_store = require("cosmic.internal.store")
 local Array = require("cosmic.array")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Sqlite = require("cosmic.sqlite")
@@ -98,24 +99,24 @@ end
 --- refuses [`Store.attach`] used as a value: that is a gate on checked code,
 --- not a boundary against code that is not checked, which can call this
 --- itself.
-function Store.attach(path: string, opts?: Store.AttachOptions): boolean, string
+function Store.attach(path: string, opts?: Store.AttachOptions): (true) | (false, Failure)
   if opts == nil or opts.unchecked_bytecode ~= true then
     error("store: attach: the database's bytecode is loaded unchecked; " ..
         "pass unchecked_bytecode = true in the options to say so", 2)
   end
   local ok, trouble = store.attach(path)
-  if not ok then
-    return false, path .. ": " .. trouble
-  end
-  return true, ""
+  if not ok then return false, Failure.new(path .. ": " .. trouble) end
+  return true
 end
 
 --- One module's compiled bytes, as `string.dump` wrote them, for a caller
---- that must load the chunk in an environment of its own; nil and why for
+--- that must load the chunk in an environment of its own; nil and a Failure for
 --- none. A database stores them as they are, or deflated where an older
 --- build wrote it, and this answers them inflated.
-function Store.bytecode(name: string): string?, string
-  return store.bytecode(name)
+function Store.bytecode(name: string): (string) | (nil, Failure)
+  local value, why = store.bytecode(name)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- One entry of the meta table, which is where a build records what it
@@ -140,55 +141,59 @@ end
 --- One module's Teal source, or a declaration's, from the binary's own
 --- database and no other: what a checker building another tree needs
 --- to type a `require` of this one's modules. Stored deflated, it is
---- inflated here; nil beside why when there is no such row, the row
+--- inflated here; nil and a Failure when there is no such row, the row
 --- carries no source ([`Store.withheld`]) or it will not inflate.
-function Store.source(name: string): string?, string
-  return store.source(name)
+function Store.source(name: string): (string) | (nil, Failure)
+  local value, why = store.source(name)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The reason [`Store.source`] gave no text for `name` when the binary's
---- database holds its row without the source (a test's pure store); nil for
---- a name it holds a source of or no row of. It tells a module that is present
---- but withheld from one that is absent, which [`Store.source`] alone answers
---- with a nil in both cases. The second answer is why the query failed, or
---- "" when it ran or there is no database.
-function Store.withheld(name: string): string?, string
+--- database holds its row without the source (a test's pure store);
+--- `false` for a name it holds a source of or no row of, and where there
+--- is no database. It tells a module that is present but withheld from one
+--- that is absent, which [`Store.source`] alone answers with a failure in
+--- both cases. Nil and a Failure when the query failed.
+function Store.withheld(name: string): (string | false) | (nil, Failure)
   local databases = store.databases()
   local binary = databases[#databases]
-  if binary == nil then return nil, "" end -- a boot carries none, so holds nothing withheld
+  if binary == nil then return false end -- a boot carries none, so holds nothing withheld
   local rows, trouble = Sqlite.text_rows(binary,
     "SELECT 1 FROM decls WHERE path = ?1 AND length(source) = 0 UNION ALL " ..
       "SELECT 1 FROM modules WHERE path = ?1 AND length(source) = 0",
     { { text = name } })
-  if rows == nil then return nil, "withheld: " .. trouble end
-  if #rows == 0 then return nil, "" end
+  if rows == nil then return nil, Failure.new("withheld: " .. tostring(trouble)) end
+  if #rows == 0 then return false end
   local source, why = store.source(name)
-  if source ~= nil then return nil, "" end
-  return why, ""
+  if source ~= nil then return false end
+  return why
 end
 
 --- Whether the binary's database holds a module or a declaration named
 --- `name`, with its source or without it: false for a name it has no row
 --- of, which is the one case [`Store.source`] answers because the name is
---- absent. Nil and why where there is no database (a boot carries none)
---- or the query failed, else "".
-function Store.holds(name: string): boolean?, string
+--- absent. Nil and a Failure where there is no database (a boot carries
+--- none) or the query failed.
+function Store.holds(name: string): (boolean) | (nil, Failure)
   local databases = store.databases()
   local binary = databases[#databases]
-  if binary == nil then return nil, "holds: the binary carries no database" end
+  if binary == nil then return nil, Failure.new("holds: the binary carries no database") end
   local rows, trouble = Sqlite.text_rows(binary,
     "SELECT 1 FROM decls WHERE path = ?1 UNION ALL SELECT 1 FROM modules WHERE path = ?1", { { text = name } })
-  if rows == nil then return nil, "holds: " .. trouble end
-  return #rows > 0, ""
+  if rows == nil then return nil, Failure.new("holds: " .. tostring(trouble)) end
+  return #rows > 0
 end
 
 --- The names the binary's own `imports` table records the module
 --- `name` requiring, sorted: none for a name it holds no row of. Nil
---- and why when the query failed.
+--- and a Failure when the query failed.
 --- This walks the binary's module graph without a handle on every
 --- module's rows (`databases`).
-function Store.requires(name: string): {string}?, string
-  return store.requires(name)
+function Store.requires(name: string): ({string}) | (nil, Failure)
+  local value, why = store.requires(name)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- Every database `require` searches, in search order: a project's
@@ -201,37 +206,39 @@ end
 
 --- One time zone's TZif file (RFC 8536), by IANA name, from the copy
 --- of the tz database the binary's own database carries: the only zone
---- rules [`cosmic.time`] reads. Nil and why when it carries no such zone
+--- rules [`cosmic.time`] reads. Nil and a Failure when it carries no such zone
 --- or the query failed; [`zone_names`] tells the two apart.
-function Store.zoneinfo(name: string): string?, string
-  return store.zoneinfo(name)
+function Store.zoneinfo(name: string): (string) | (nil, Failure)
+  local value, why = store.zoneinfo(name)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- One file of the browser-side libraries the binary carries for
 --- [`cosmic.web`] to serve (`htmx.min.js`, `htmx-ext-sse.min.js`), with its
---- hashes and version, from the binary's own database. Nil and why when it
+--- hashes and version, from the binary's own database. Nil and a Failure when it
 --- carries no such file or the query failed.
-function Store.web_asset(name: string): Store.WebAsset?, string
+function Store.web_asset(name: string): (Store.WebAsset) | (nil, Failure)
   local databases = store.databases()
   -- The binary's own database is always the last of them.
   local rows, trouble = Sqlite.rows(Array.at(databases, #databases),
     "SELECT data, sha256, sha384, version FROM web_assets WHERE name = ?1",
     { { text = name } })
-  if rows == nil then
-    return nil, trouble
-  end
+  if rows == nil then return nil, Failure.new(tostring(trouble)) end
   local row = rows[1]
   if row == nil then
-    return nil, "the binary carries no web asset " .. name
+    return nil, Failure.new("the binary carries no web asset " .. name)
   end
   return { data = row:bytes(1),
-    sha256 = row:text(2), sha384 = row:text(3), version = row:text(4) }, ""
+    sha256 = row:text(2), sha384 = row:text(3), version = row:text(4) }
 end
 
 --- Every time zone name the binary's own database carries, as a set,
---- or nil and why when the query failed.
-function Store.zone_names(): {string:boolean}?, string
-  return store.zone_names()
+--- or nil and a Failure when the query failed.
+function Store.zone_names(): ({string:boolean}) | (nil, Failure)
+  local names, why = store.zone_names()
+  if names == nil then return nil, Failure.new(why) end
+  return names
 end
 
 --- The paths of the files the runtime holds open for the store, and no
@@ -650,7 +657,7 @@ end
 --- the trust any program the user can read runs with, raw bindings
 --- included: seal only what the user chose to run. Raises when `names`
 --- is empty, names a module no searched database holds,
---- or `opts.main` is not among them; otherwise nil and why for a failure
+--- or `opts.main` is not among them; otherwise nil and a Failure for a failure
 --- to write, when the store records no `runtime_basis`, or when this process
 --- has no core digest to record (one run from source, with no core of its
 --- own).
@@ -658,7 +665,7 @@ end
 ---     local names = Store.closure({ "cosmic.json" })
 ---     local digest = assert(Store.seal(names, "json.db"))
 function Store.seal(names: {string}, path?: string,
-                    opts?: Store.SealOptions): string?, string
+                    opts?: Store.SealOptions): (string) | (nil, Failure)
   local script = if opts ~= nil then opts.extra else nil end
   if #names == 0 and script == nil then
     error("store: seal: names is a non-empty list of module names", 2)
@@ -704,13 +711,13 @@ function Store.seal(names: {string}, path?: string,
   end
   local basis = Store.meta("runtime_basis")
   if basis == nil or basis == "" then
-    return nil, "the store records no runtime basis"
+    return nil, Failure.new("the store records no runtime basis")
   end
   -- The core's digest is what the core started on this file checks
   -- (`core_sha256`): the database is for the core that sealed it.
   local core = Store.meta("host_image")
   if core == nil or core == "" then
-    return nil, "this process has no core digest to record"
+    return nil, Failure.new("this process has no core digest to record")
   end
   local identity: mut {MetaRow} = {
     { key = "core_sha256", value = core }, { key = "runtime_basis", value = basis } }
@@ -725,9 +732,7 @@ function Store.seal(names: {string}, path?: string,
     table.insert(identity, 1, { key = "image_hash", value = image })
   end
   local made_scratch, scratch_trouble = Fs.mkdtemp("seal-")
-  if made_scratch == nil then
-    return nil, tostring(scratch_trouble)
-  end
+  if made_scratch == nil then return nil, scratch_trouble end
   local scratch: string = made_scratch
   local function build(): string?, string
     local written, write_trouble = write_database(sorted, scratch .. "/building.db",
@@ -771,10 +776,8 @@ function Store.seal(names: {string}, path?: string,
   end
   local digest, trouble = build()
   local _, _ = Fs.remove_tree(scratch)
-  if digest == nil then
-    return nil, trouble
-  end
-  return digest, ""
+  if digest == nil then return nil, Failure.new(trouble) end
+  return digest
 end
 
 return Store

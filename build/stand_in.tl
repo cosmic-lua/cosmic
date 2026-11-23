@@ -230,7 +230,7 @@ local function carried(): {Carried}?, string
     if seen[name] ~= true and not raw then
       seen[name] = true
       local requires, trouble = Store.requires(name)
-      if requires == nil then return nil, name .. ": " .. trouble end
+      if requires == nil then return nil, name .. ": " .. tostring(trouble) end
       order[#order + 1] = { name = name, requires = requires }
       for _, required in ipairs(requires) do pending[#pending + 1] = required end
     end
@@ -272,7 +272,7 @@ local function database(path: string): string?, string
   local made, trouble = Sqlite.transact(db, function(): boolean, string
     for _, module in ipairs(modules) do
       local bytecode, bytecode_trouble = Store.bytecode(module.name)
-      if bytecode == nil then return false, module.name .. ": " .. bytecode_trouble end
+      if bytecode == nil then return false, module.name .. ": " .. tostring(bytecode_trouble) end
       local name = if module.name == probe_module then main_module else module.name end
       -- A module's kind is all the runtime reads of a row but its
       -- bytecode: `cosmic.*` modules of kind "module" load trusted, as
