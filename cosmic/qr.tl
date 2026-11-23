@@ -22,7 +22,7 @@
 ---
 --- The most a code holds is 2953 bytes at level L, 2331 at M, 1663 at Q
 --- and 1273 at H (version 40). More than that, or more than a version a
---- caller allows, is refused with nil and why. A mask outside 0 to 7, a
+--- caller allows, is refused with nil and a Failure. A mask outside 0 to 7, a
 --- version outside 1 to 40 or a quiet zone or scale out of range is the
 --- caller's mistake, and raises.
 ---
@@ -40,6 +40,7 @@
 --- byte segment at the same level, without raising the level, and with
 --- the same mask or none named.
 
+local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 
 local record Qr
@@ -178,7 +179,7 @@ end
 local function shape(level: Qr.Level): Shape
   local ecc, blocks, format = ECC_PER_BLOCK[level], BLOCKS[level], FORMAT_LEVEL[level]
   if ecc == nil or blocks == nil or format == nil then
-    error("qr: the level is L, M, Q or H, not " .. tostring(level), 3)
+    error("qr: the level is L, M, Q or H, not " .. tostring(level), 4)
   end
   return { level = level, ecc = ecc, blocks = blocks, format = format }
 end
@@ -500,18 +501,17 @@ local function interleave(data: Bytes, version: integer, s: Shape): Bytes
   return all
 end
 
---- The QR code of `text`'s bytes and "", or nil and why where no
---- allowed version holds them at the level.
-function Qr.encode(text: string, options?: Qr.Options): Qr.Code?, string
+-- Qr.encode, its failure in words.
+local function encode_text(text: string, options?: Qr.Options): Qr.Code?, string
   local level: Qr.Level = options and options.level or "M"
   local s = shape(level)
   local mask = options and options.mask
   if mask ~= nil and (math.type(mask) ~= "integer" or mask < 0 or mask > 7) then
-    error("qr: a mask is 0 to 7, not " .. tostring(mask), 2)
+    error("qr: a mask is 0 to 7, not " .. tostring(mask), 3)
   end
   local max_version = options and options.max_version or 40
   if math.type(max_version) ~= "integer" or max_version < 1 or max_version > 40 then
-    error("qr: a version is 1 to 40, not " .. tostring(max_version), 2)
+    error("qr: a version is 1 to 40, not " .. tostring(max_version), 3)
   end
   local version = 0
   for v = 1, max_version do
@@ -565,6 +565,14 @@ function Qr.encode(text: string, options?: Qr.Options): Qr.Code?, string
   apply_mask(g, mask)
   format_bits(g, s, mask)
   return { version = version, size = size, level = level, mask = mask, modules = g.dark }, ""
+end
+
+--- The QR code of `text`'s bytes, or nil and a Failure where no
+--- allowed version holds them at the level.
+function Qr.encode(text: string, options?: Qr.Options): (Qr.Code) | (nil, Failure)
+  local value, why = encode_text(text, options)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- Whether the module at `x`, `y` of `code` (from the top left, at 0)
@@ -1056,15 +1064,8 @@ local function trimmed(rows: {{boolean}}, flip: boolean): integer?, {integer: bo
   return side, dark, ""
 end
 
---- Reads a code from its modules, `rows[y][x]` true where dark, from the
---- top left at 1: a quiet zone around it is skipped, as light, and a
---- code drawn light on dark is read too. It mends what the code's error
---- correction can. Nil and why where the modules are no code, or more
---- of it is lost than its level mends.
----
----     local code = assert(Qr.encode("hello"))
----     print(assert(Qr.decode(Qr.rows(code))).text)  -- hello
-function Qr.decode(rows: {{boolean}}): Qr.Decoded?, string
+-- Qr.decode, its failure in words.
+local function decode_text(rows: {{boolean}}): Qr.Decoded?, string
   local side, dark, why = trimmed(rows, false)
   local found: Qr.Decoded? = nil
   if side ~= nil then found, why = decode_modules(side, dark) end
@@ -1077,6 +1078,20 @@ function Qr.decode(rows: {{boolean}}): Qr.Decoded?, string
     why = flipped_why
   end
   return nil, why
+end
+
+--- Reads a code from its modules, `rows[y][x]` true where dark, from the
+--- top left at 1: a quiet zone around it is skipped, as light, and a
+--- code drawn light on dark is read too. It mends what the code's error
+--- correction can. Nil and a Failure where the modules are no code,
+--- or more of it is lost than its level mends.
+---
+---     local code = assert(Qr.encode("hello"))
+---     print(assert(Qr.decode(Qr.rows(code))).text)  -- hello
+function Qr.decode(rows: {{boolean}}): (Qr.Decoded) | (nil, Failure)
+  local value, why = decode_text(rows)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- `code`'s modules as rows, `rows[y][x]` true where dark, from the top
@@ -1210,23 +1225,14 @@ local function svg_rows(svg: string): {{boolean}}?, string
   return rows, ""
 end
 
---- Reads the code in `drawing`: an SVG [`Qr.svg`] drew, or text
---- [`Qr.text`] drew, half blocks or ASCII, inverted, in colour or
---- neither, with any quiet zone, indented or not. It reads those
---- drawings, not images: an SVG from another program, or a photo, is
---- refused. Nil and why where it is neither, or
---- [`Qr.decode`] cannot read the code.
----
----     local code = assert(Qr.encode("https://example.com/"))
----     print(assert(Qr.read(Qr.text(code))).text)  -- https://example.com/
----     print(assert(Qr.read(Qr.svg(code))).text)   -- https://example.com/
-function Qr.read(drawing: string): Qr.Decoded?, string
+-- Qr.read, its failure in words.
+local function read_text(drawing: string): Qr.Decoded?, string
   local rows: {{boolean}}?
   local why: string
   if drawing:find("<svg", 1, true) ~= nil then
     rows, why = svg_rows(drawing)
     if rows == nil then return nil, why end
-    return Qr.decode(rows)
+    return decode_text(rows)
   end
   rows, why = text_ink(drawing)
   if rows == nil then return nil, why end
@@ -1241,7 +1247,23 @@ function Qr.read(drawing: string): Qr.Decoded?, string
     end
     rows = flipped
   end
-  return Qr.decode(rows)
+  return decode_text(rows)
+end
+
+--- Reads the code in `drawing`: an SVG [`Qr.svg`] drew, or text
+--- [`Qr.text`] drew, half blocks or ASCII, inverted, in colour or
+--- neither, with any quiet zone, indented or not. It reads those
+--- drawings, not images: an SVG from another program, or a photo, is
+--- refused. Nil and a Failure where it is neither, or
+--- [`Qr.decode`] cannot read the code.
+---
+---     local code = assert(Qr.encode("https://example.com/"))
+---     print(assert(Qr.read(Qr.text(code))).text)  -- https://example.com/
+---     print(assert(Qr.read(Qr.svg(code))).text)   -- https://example.com/
+function Qr.read(drawing: string): (Qr.Decoded) | (nil, Failure)
+  local value, why = read_text(drawing)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 return Qr
