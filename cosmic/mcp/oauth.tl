@@ -58,6 +58,7 @@ local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Rand = require("cosmic.rand")
 local Url = require("cosmic.url")
+local wire = require("cosmic.mcp.wire")
 
 local record McpOAuth
   --- What a sign-in got for one endpoint.
@@ -167,70 +168,6 @@ local function origin_of(parts: Url.Parts): string
   local host = if parts.host:find(":", 1, true) ~= nil and parts.host:sub(1, 1) ~= "[" then
     "[" .. parts.host .. "]" else parts.host end
   return parts.scheme .. "://" .. host .. (if parts.port ~= nil then ":" .. tostring(parts.port) else "" end)
-end
-
---- What a `WWW-Authenticate: Bearer` challenge says.
-local record Challenge
-  --- Where the server's protected resource metadata is.
-  resource_metadata?: string
-  --- The scopes to ask for.
-  scope?: {string}
-  --- Why: `invalid_token`, `insufficient_scope`.
-  error?: string
-end
-
---- The parameters of a `Bearer` challenge in `header`, or nil where it has none.
-local function challenge_of(header: string): Challenge?
-  -- The scheme starts the header or follows a comma: not the word inside another challenge's value.
-  local lower = header:lower()
-  local at: integer? = nil
-  if lower:find("^%s*bearer%f[%s]") ~= nil then
-    at = assert(lower:find("bearer", 1, true))
-  else
-    local found = lower:find(",%s*bearer%f[%s]")
-    if found ~= nil then at = assert(lower:find("bearer", found, true)) end
-  end
-  if at == nil then return nil end
-  local params: mut {string: string} = {}
-  local i = at + 6
-  while i <= #header do
-    local s, e, name = header:find("^[%s,]*([%w_%-]+)%s*=%s*", i)
-    if s == nil or e == nil or name == nil then break end
-    i = e + 1
-    local value: string
-    if header:sub(i, i) == '"' then
-      local out: mut {string} = {}
-      i = i + 1
-      while i <= #header do
-        local c = header:sub(i, i)
-        if c == "\\" then
-          out[#out + 1] = header:sub(i + 1, i + 1)
-          i = i + 2
-        elseif c == '"' then
-          i = i + 1
-          break
-        else
-          out[#out + 1] = c
-          i = i + 1
-        end
-      end
-      value = table.concat(out)
-    else
-      local token = header:match("^[^%s,]*", i) or ""
-      i = i + #token
-      value = token
-    end
-    local key = name:lower()
-    if params[key] == nil then params[key] = value end
-  end
-  local scope: {string}? = nil
-  local said = params["scope"]
-  if said ~= nil then
-    local list: mut {string} = {}
-    for each in said:gmatch("%S+") do list[#list + 1] = each end
-    scope = list
-  end
-  return { resource_metadata = params["resource_metadata"], scope = scope, error = params["error"] }
 end
 
 --- What a GET of a metadata document found: the document, or none there (a 4xx: many servers answer 401 or 403
@@ -630,7 +567,7 @@ function McpOAuth.new(resource: string, opts: McpOAuth.Options): McpOAuth.Auth
   end
 
   local function answer(status: integer, header?: string): (true) | (false, Failure)
-    local said = if header ~= nil then challenge_of(header) else nil end
+    local said = if header ~= nil then wire.challenge(header) else nil end
     if said == nil then
       return false, Failure.new("mcp: oauth: the server answered HTTP " .. tostring(status) .. " with no Bearer challenge")
     end
