@@ -14,7 +14,9 @@
 --- the request's `id` and one of: `refused`, the checker's lines, for a snippet that did not run; `ok` true,
 --- `output` (what it wrote to standard output and standard error together, its last 64KB as UTF-8, `cut` true where
 --- more was written) and `value` (the JSON of what it returned, where it returned one, at most 64KB); `ok` false with `output` and `error`,
---- for one that raised; or `error` alone, for a request it could not read. A snippet sets no global, which the checker
+--- for one that raised; or `error` alone, for a request it could not read. Before its answer, a snippet may call the
+--- agent ([`cosmic.agent.host`]): a line `{"id":1,"call":"sql","args":{...}}`, which [`Worker.Options.serve`] answers
+--- in the agent and the reply goes back on the worker's input, `{"reply":...}` or `{"failed":"..."}`. A snippet sets no global, which the checker
 --- refuses; what it keeps for the next it writes to a file. Its standard input is /dev/null.
 ---
 --- Under a policy the worker is held as bash is, with two changes: it is granted this program's own file (read and
@@ -43,7 +45,14 @@ local record Worker
     seconds?: integer
     --- Whether the user stopped the turn, which ends the worker as a timeout does.
     stopped?: function(): boolean
+    --- The agent's reply to a call the snippet makes ([`cosmic.agent.host`]), or why it has none; nil to serve no
+    --- call. It runs in the agent, outside the sandbox: it checks what it is given as a tool checks its input.
+    serve?: Worker.Serve
   end
+
+  --- What answers a snippet's call `name` with `args`.
+  --- `over` is true once the snippet's time ran out or the user stopped the turn: a long call tests it, and stops.
+  type Serve = function(name: string, args: Json.Value, over: function(): boolean): (Json.Value) | (nil, Failure)
 
   --- The worker of a session: none until the first snippet.
   record Set
@@ -123,6 +132,40 @@ local function started(set: Worker.Set, opts: Worker.Options): (Stream.Lines) | 
   return lines
 end
 
+--- The worker's answer to the request `id`, read from `lines`, each call it makes before it answered by `serve` and
+--- replied to on `writer`: or why there is none, which ends the worker.
+local function answer_of(lines: Stream.Lines, writer: Stream.Writer, id: integer, serve: Worker.Serve?,
+                         over: function(): boolean): Worker.Answer?, string
+  while true do
+    local line, read_why = lines:read()
+    if line == nil then
+      return nil, "it ended" .. (if read_why ~= "" then ": " .. read_why else "" end)
+    end
+    local message, decode_why = Json.decode_object(line, { null_value = Json.null })
+    if message == nil then return nil, "its answer is no JSON object: " .. tostring(decode_why) end
+    -- A line for another request (one the snippet wrote where the answers go) puts every later one out of step.
+    if message["id"] ~= id then return nil, "it answered another request than this one" end
+    local call = message["call"]
+    if call == nil then return message, "" end
+    local reply: {string: Json.Value}
+    if not (call is string) then
+      reply = { failed = "a call is named by a string" }
+    elseif serve == nil then
+      reply = { failed = "the agent serves no call to this worker" }
+    else
+      local args = message["args"]
+      local value, why = serve(call, if args == nil then Json.null else args end, over)
+      reply = if value == nil then { failed = tostring(why) } else { reply = value } end
+    end
+    local text, encode_why = Json.encode(reply)
+    if text == nil then
+      text = assert(Json.encode({ failed = "the reply is no JSON: " .. tostring(encode_why) }))
+    end
+    local wrote, write_why = writer:write(text .. "\n")
+    if not wrote then return nil, "it ended: " .. write_why end
+  end
+end
+
 --- Checks and runs `code` in the worker of `set`, starting one under `opts` where none runs: the worker's answer, or
 --- why there is none. A snippet that runs past `opts.seconds` ends the worker, and is answered so.
 function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worker.Answer) | (nil, Failure)
@@ -139,15 +182,18 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
     return nil, Failure.new("worker: it ended: " .. write_why)
   end
   local seconds = opts.seconds
-  local line: string? = nil
-  local read_why = ""
+  local answer: Worker.Answer? = nil
+  local trouble = ""
   local timed_out, halted = false, false
   local stopped = opts.stopped
+  local deadline = if seconds ~= nil and seconds > 0 then Clock.monotonic_ns() + Clock.seconds(seconds) else nil end
+  local function over(): boolean
+    return (deadline ~= nil and Clock.monotonic_ns() >= deadline) or (stopped ~= nil and stopped())
+  end
   Poll.within(function()
     local reading = Poll.spawn(function()
-      line, read_why = lines:read()
+      answer, trouble = answer_of(lines, writer, id, opts.serve, over)
     end)
-    local deadline = if seconds ~= nil and seconds > 0 then Clock.monotonic_ns() + Clock.seconds(seconds) else nil end
     while true do
       local slice = STOP_CHECK
       if deadline ~= nil then
@@ -167,7 +213,7 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
       end
     end
   end)
-  local got = line
+  local got = answer
   if timed_out or halted or got == nil then
     Worker.close(set)
     if halted then return nil, Failure.new("stopped by the user; the worker was ended") end
@@ -175,20 +221,9 @@ function Worker.run(set: Worker.Set, code: string, opts: Worker.Options): (Worke
       return nil, Failure.new("the snippet ran past " .. String.counted(seconds or 0, "second") .. "; the worker was ended, " ..
           "and the next run starts a new one")
     end
-    return nil, Failure.new("worker: it ended" .. (if read_why ~= "" then ": " .. read_why else "" end) ..
-        "; the next run starts a new one")
+    return nil, Failure.new("worker: " .. trouble .. "; the next run starts a new one")
   end
-  local answer, decode_why = Json.decode_object(got)
-  if answer == nil then
-    Worker.close(set)
-    return nil, Failure.new("worker: its answer is no JSON object: " .. tostring(decode_why))
-  end
-  -- An answer to another request (a line the snippet wrote where the answers go) puts every later answer out of step.
-  if answer["id"] ~= id then
-    Worker.close(set)
-    return nil, Failure.new("worker: it answered another request than this one; the next run starts a new one")
-  end
-  return answer
+  return got
 end
 
 return Worker

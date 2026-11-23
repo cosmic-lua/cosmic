@@ -22,8 +22,13 @@
 --- says where more was written; "value" is at most 64KB of JSON, and a note where it is more. A snippet sets no
 --- global, which the checker refuses; what it keeps for the next it writes to a file. It ends at the end of standard
 --- input.
+---
+--- While a snippet runs, each call it makes of the agent ([`cosmic.agent.host`]) goes out as a line too, the request's
+--- `id` beside `call` and `args`, and the snippet waits for the next line in: `{"reply":...}`, or `{"failed":"..."}`.
 
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
+local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
 local Pipeline = require("build.pipeline")
 local String = require("cosmic.string")
@@ -61,43 +66,22 @@ local function failed(id: Json.Value, why: string): Answer
   return { id = id, error = why }
 end
 
---- `text` as UTF-8: each byte that begins no whole character is U+FFFD, so that JSON can hold it.
-local function utf8_of(text: string): string
-  if utf8.len(text) ~= nil then return text end
-  local out: mut {string} = {}
-  local at = 1
-  while at <= #text do
-    local b = text:byte(at) or 0
-    local n = if b < 0x80 then 1 elseif b >= 0xC2 and b <= 0xDF then 2 elseif b >= 0xE0 and b <= 0xEF then 3
-      elseif b >= 0xF0 and b <= 0xF4 then 4 else 0 end
-    local piece = if n > 0 then text:sub(at, at + n - 1) else "" end
-    if n > 0 and #piece == n and utf8.len(piece) == 1 then
-      out[#out + 1] = piece
-      at = at + n
-    else
-      out[#out + 1] = "\u{FFFD}"
-      at = at + 1
-    end
-  end
-  return table.concat(out)
-end
-
 --- The last MAX_OUTPUT bytes of `text`, from a character's start, as UTF-8, and whether that is less than all of it.
 local function cut(text: string): string, boolean
-  if #text <= MAX_OUTPUT then return utf8_of(text), false end
+  if #text <= MAX_OUTPUT then return String.as_utf8(text), false end
   local from = #text - MAX_OUTPUT + 1
   while from <= #text and (text:byte(from) or 0) & 0xC0 == 0x80 do from = from + 1 end
-  return utf8_of(text:sub(from)), true
+  return String.as_utf8(text:sub(from)), true
 end
 
 --- What a snippet returned, as an answer holds it: its JSON where that is within MAX_OUTPUT, else its text, cut.
 local function value_of(value: any): Json.Value
   local text, _ = Json.encode_any(value)
   if text ~= nil and #text <= MAX_OUTPUT then
-    local decoded, _ = Json.decode(text)
+    local decoded, _ = Json.decode(text, { null_value = Json.null })
     if decoded ~= nil then return decoded end
   end
-  local shown = utf8_of(tostring(value))
+  local shown = String.as_utf8(tostring(value))
   if text ~= nil and #text > MAX_OUTPUT then
     return "(" .. String.counted(#text, "byte") .. " of JSON, more than an answer holds: write it to a file)"
   end
@@ -105,8 +89,67 @@ local function value_of(value: any): Json.Value
   return most
 end
 
---- The answer to the request `line` holds, checked by `kept` and run within `capture`.
-local function answer_to(kept: Pipeline.Kept, capture: Capture, line: string): Answer
+--- The lines between the worker and the agent: the requests and the replies to calls come in on `input`, a line each,
+--- and the answers and calls go out on `out`.
+local record Channel
+  input: integer
+  out: integer
+  --- What was read of `input` past the last line taken.
+  mut pending: string
+  --- The id of the request whose snippet runs, which each of its calls carries.
+  mut id: Json.Value
+end
+
+--- The most bytes of a call's line: well within the line of 1MB the agent reads.
+local MAX_CALL <const> = 512 * 1024
+
+--- The next line of `channel`'s input, nil at its end.
+local function line_of(channel: Channel): string?
+  while true do
+    local nl = channel.pending:find("\n", 1, true)
+    if nl ~= nil then
+      local line = channel.pending:sub(1, nl - 1)
+      channel.pending = channel.pending:sub(nl + 1)
+      return line
+    end
+    local chunk, _ = Fs.take(channel.input, 65536)
+    if chunk == nil or chunk == "" then return nil end
+    channel.pending = channel.pending .. chunk
+  end
+end
+
+--- How a snippet's calls ([`cosmic.agent.host`]) reach the agent on `channel`: a line `{"id":1,"call":"sql",
+--- "args":{...}}` out, and the reply, `{"reply":...}` or `{"failed":"..."}`, the next line in.
+local function transport_of(channel: Channel): Host.Transport
+  return function(name: string, args: Json.Value): (Json.Value) | (nil, Failure)
+    local text, why = Json.encode({ id = channel.id, call = name, args = args })
+    if text == nil then return nil, Failure.new("host: " .. name .. ": " .. tostring(why)) end
+    if #text > MAX_CALL then
+      return nil, Failure.new("host: " .. name .. ": the call is " .. String.counted(#text, "byte") ..
+          ", more than the " .. String.counted(MAX_CALL, "byte") .. " a call may be")
+    end
+    local sent, _ = Fs.put(channel.out, text .. "\n")
+    if not sent then
+      return nil, Failure.new("host: " .. name .. ": the agent cannot be reached")
+    end
+    local line = line_of(channel)
+    if line == nil then return nil, Failure.new("host: " .. name .. ": the agent ended") end
+    local reply, reply_why = Json.decode_object(line, { null_value = Json.null })
+    if reply == nil then
+      return nil, Failure.new("host: " .. name .. ": the agent's reply is no JSON object: " .. tostring(reply_why))
+    end
+    local trouble = reply["failed"]
+    if trouble ~= nil then
+      return nil, Failure.new("host: " .. name .. ": " .. tostring(trouble))
+    end
+    local value = reply["reply"]
+    if value == nil then return Json.null end
+    return value
+  end
+end
+
+--- The answer to the request `line` holds, checked by `kept` and run within `capture`, its calls sent on `channel`.
+local function answer_to(kept: Pipeline.Kept, capture: Capture, channel: Channel, line: string): Answer
   local request, why = Json.decode_object(line)
   if request == nil then
     return failed(Json.null, "the request is no JSON object: " .. tostring(why))
@@ -115,6 +158,7 @@ local function answer_to(kept: Pipeline.Kept, capture: Capture, line: string): A
   local id: Json.Value = if given == nil then Json.null else given end
   local code = request["code"]
   if not (code is string) then return failed(id, "the request has no code") end
+  channel.id = id
   local made = kept:check(code)
   local lua = made.code
   if lua == nil then return { id = id, refused = Json.array(made.lines) } end
@@ -123,7 +167,7 @@ local function answer_to(kept: Pipeline.Kept, capture: Capture, line: string): A
   local ran: mut {string: Json.Value} = {}
   local done_run = capture:run(function(): Answer
     local done, value = pcall(function(): any return (chunk()) end)
-    if not done then return { ok = false, error = utf8_of(tostring(value)) } end
+    if not done then return { ok = false, error = String.as_utf8(tostring(value)) } end
     if value == nil then return { ok = true } end
     return { ok = true, value = value_of(value) }
   end)
@@ -183,26 +227,20 @@ function worker.main(): integer
   local _, _ = sys.dup2(null, 2)
   local capture = capture_in(dir, null)
   local kept = Pipeline.kept_alone(SNIPPET, options)
-  local pending = ""
+  local channel: Channel = { input = input, out = out, pending = "", id = Json.null }
+  Host.connect(transport_of(channel))
   while true do
-    local nl = pending:find("\n", 1, true)
-    if nl == nil then
-      local chunk, _ = Fs.take(input, 65536)
-      if chunk == nil or chunk == "" then break end
-      pending = pending .. chunk
-    else
-      local line = pending:sub(1, nl - 1)
-      pending = pending:sub(nl + 1)
-      local answer = answer_to(kept, capture, line)
-      local text, encode_why = Json.encode(answer)
-      if text == nil then
-        local id = answer["id"]
-        text = assert(Json.encode(failed(if id == nil then Json.null else id end, tostring(encode_why))))
-      end
-      -- An answer that cannot go out ends the worker, so the agent reads the end, not a wait.
-      local sent, _ = Fs.put(out, text .. "\n")
-      if not sent then break end
+    local line = line_of(channel)
+    if line == nil then break end
+    local answer = answer_to(kept, capture, channel, line)
+    local text, encode_why = Json.encode(answer)
+    if text == nil then
+      local id = answer["id"]
+      text = assert(Json.encode(failed(if id == nil then Json.null else id end, tostring(encode_why))))
     end
+    -- An answer that cannot go out ends the worker, so the agent reads the end, not a wait.
+    local sent, _ = Fs.put(out, text .. "\n")
+    if not sent then break end
   end
   local _, _ = Fs.remove_tree(dir)
   return 0
