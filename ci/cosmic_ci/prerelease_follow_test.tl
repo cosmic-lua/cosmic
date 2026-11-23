@@ -53,10 +53,10 @@ local function test_a_green_push_starts_a_full_run_where_none_is_recent()
     '{"event":"schedule","created_at":"2026-11-22T12:00:00Z"}'))
   local said = PrereleaseFollow.follow(context(client, "push", "success"))
   assert(said:find("one is started", 1, true), said)
-  assert(#calls == 4 and calls[1] == "GET /issues?state=open&creator=github-actions%5Bbot%5D&per_page=100 " and
-      calls[2] == "GET /actions/workflows/ci.yml/runs?branch=main&event=schedule&per_page=5 " and
-      calls[3] == "GET /actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=5 ", table.concat(calls, "|"))
-  assert(calls[4] == 'POST /actions/workflows/ci.yml/dispatches {"ref":"main"}', calls[4])
+  assert(#calls == 4 and calls[1] == "GET /actions/workflows/ci.yml/runs?branch=main&event=schedule&per_page=5 " and
+      calls[2] == "GET /actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=5 ", table.concat(calls, "|"))
+  assert(calls[3] == 'POST /actions/workflows/ci.yml/dispatches {"ref":"main"}', calls[3])
+  assert(calls[4] == "GET /issues?state=open&creator=github-actions%5Bbot%5D&per_page=100 ", calls[4])
 end
 
 --- A full run that started within the window, a daily or a manual one,
@@ -72,7 +72,7 @@ end
 
 --- A pull request's run, a cancelled push and a run of another branch
 --- start nothing and ask nothing.
-local function test_nothing_follows_a_red_push_or_another_branch()
+local function test_nothing_follows_a_cancelled_push_or_another_branch()
   local record Case
     event: string
     conclusion: string
@@ -127,13 +127,14 @@ local function test_a_full_run_exactly_the_window_ago_does_not_count()
 end
 
 --- A red push run opens the issue, naming the run and its commit, where
---- none is open; where one is, it asks nothing more. Another author's
---- issue of that title is not the bot's: the list asks for the bot's.
+--- none is open, and only the bot's issue of that title counts; where
+--- one is, it asks nothing more.
 local function test_a_red_push_opens_the_issue_once()
   local client, calls = fake(runs_text(), nil, '[{"number":7,"title":"something else"}]')
   local said = PrereleaseFollow.follow(context(client, "push", "failure"))
   assert(said == "main is red: an issue is opened", said)
-  assert(#calls == 2, table.concat(calls, "|"))
+  assert(#calls == 2 and calls[1] == "GET /issues?state=open&creator=github-actions%5Bbot%5D&per_page=100 ",
+    table.concat(calls, "|"))
   local opened = assert(calls[2])
   assert(opened:find("^POST /issues {") ~= nil, opened)
   assert(opened:find('"title":"main is red"', 1, true) ~= nil, opened)
@@ -150,17 +151,24 @@ local function test_a_green_push_closes_the_issue()
   local client, calls = fake(runs_text(), nil, '[{"number":9,"title":"main is red"}]')
   local said = PrereleaseFollow.follow(context(client, "push", "success"))
   assert(said:find("issue #9 is closed", 1, true) and said:find("one is started", 1, true), said)
-  local comment = assert(calls[2])
+  assert(assert(calls[3]):find("/dispatches", 1, true) ~= nil, table.concat(calls, "|"))
+  assert(assert(calls[4]):find("^GET /issues") ~= nil, table.concat(calls, "|"))
+  local comment = assert(calls[5])
   assert(comment:find("^POST /issues/9/comments {") ~= nil, comment)
   assert(comment:find("runs/42 of abc123 passed", 1, true) ~= nil, comment)
-  assert(calls[3] == 'PATCH /issues/9 {"state":"closed"}', calls[3])
+  assert(calls[6] == 'PATCH /issues/9 {"state":"closed"}', calls[6])
   assert(#calls == 6, table.concat(calls, "|"))
 end
 
---- A refused issue request fails the command, naming the answer.
+--- A refused issue request fails the command, naming the answer; after
+--- a green push, only once the full run is started.
 local function test_a_refused_issue_fails_the_command()
   local client = fake(runs_text(), 403)
   local ok, why = pcall(PrereleaseFollow.follow, context(client, "push", "failure"))
   assert(not ok, "a refused issue passed")
   assert(tostring(why):find("opening the issue answered 403", 1, true), tostring(why))
+  local green, calls = fake(runs_text(), nil, "not json")
+  local passed, _ = pcall(PrereleaseFollow.follow, context(green, "push", "success"))
+  assert(not passed, "an unreadable issue list passed")
+  assert(calls[3] == 'POST /actions/workflows/ci.yml/dispatches {"ref":"main"}', table.concat(calls, "|"))
 end

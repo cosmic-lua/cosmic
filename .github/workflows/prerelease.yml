@@ -132,7 +132,8 @@
     # re-runs the failed jobs once; after a red push run, it opens the
     # issue "main is red" where none is open, and the next green push run
     # closes it (cosmic_ci/prerelease_follow.tl). Its token's
-    # `actions: write` could cancel or delete runs too; only the
+    # `actions: write` could cancel or delete runs too, and its
+    # `issues: write` edit or close any issue; only the
     # pinned driver, running main's own ci/, holds it. It checks out main's
     # tip (a workflow_run's default), not the triggering commit, so a run
     # of a commit from before this job still has the command, and only
@@ -140,6 +141,8 @@
     # triggering run made.
     follow: {
       permissions: {contents: "read", actions: "write", issues: "write"},
+      # One at a time, so two red runs cannot each open the issue.
+      concurrency: {group: "prerelease-follow", "cancel-in-progress": false},
       if: "github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && ((github.event.workflow_run.event == 'push' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')) || ((github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1))",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 10,
