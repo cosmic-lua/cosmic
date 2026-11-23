@@ -54,7 +54,7 @@ local function test_arithmetic_for_secrets_agrees_with_the_plain_functions(tmp: 
         at = at + 1 + length
       end
       local modulus, a, b = assert(parts[1]), assert(parts[2]), assert(parts[3])
-      local product, sum = Bigint.product(a, b), Bigint.sum(a, b)
+      local product, sum = Bigint.reveal(Bigint.secret_mul(a, b)), Bigint.reveal(Bigint.secret_add(a, b))
       if product ~= wide(Bigint.mul(a, b), #a + #b) then
         return false, "product is not mul's number"
       end
@@ -64,16 +64,16 @@ local function test_arithmetic_for_secrets_agrees_with_the_plain_functions(tmp: 
       if Bigint.compare(modulus, "") == 0 then return true, "" end
       local width = #modulus
       if Bigint.compare(a, modulus) >= 0 then Fuzz.label("operand above the modulus") end
-      if Bigint.reduce(a, modulus) ~= wide(Bigint.mod(a, modulus), width) then
+      if Bigint.reveal(Bigint.secret_mod(a, modulus)) ~= wide(Bigint.mod(a, modulus), width) then
         return false, "reduce is not mod's number"
       end
-      if Bigint.addmod(a, b, modulus) ~= wide(Bigint.mod(Bigint.add(a, b), modulus), width) then
+      if Bigint.reveal(Bigint.secret_addmod(a, b, modulus)) ~= wide(Bigint.mod(Bigint.add(a, b), modulus), width) then
         return false, "addmod is not the sum reduced"
       end
       local left, right = Bigint.mod(a, modulus), Bigint.mod(b, modulus)
       if Bigint.compare(left, right) < 0 then Fuzz.label("wrapped difference") end
       local difference = Bigint.mod(assert(Bigint.sub(Bigint.add(left, modulus), right)), modulus)
-      if Bigint.submod(a, b, modulus) ~= wide(difference, width) then
+      if Bigint.reveal(Bigint.secret_submod(a, b, modulus)) ~= wide(difference, width) then
         return false, "submod is not the difference reduced"
       end
       if assert(modulus:byte(-1)) % 2 == 0 then
@@ -81,10 +81,10 @@ local function test_arithmetic_for_secrets_agrees_with_the_plain_functions(tmp: 
         return true, ""
       end
       Fuzz.label("odd modulus")
-      if Bigint.mulmod(a, b, modulus) ~= wide(Bigint.mod(Bigint.mul(a, b), modulus), width) then
+      if Bigint.reveal(Bigint.secret_mulmod(a, b, modulus)) ~= wide(Bigint.mod(Bigint.mul(a, b), modulus), width) then
         return false, "mulmod is not the product reduced"
       end
-      if Bigint.expmod(a, b, modulus) ~= wide(Bigint.powmod(a, b, modulus), width) then
+      if Bigint.reveal(Bigint.secret_powmod(a, b, modulus)) ~= wide(Bigint.powmod(a, b, modulus), width) then
         return false, "expmod is not powmod's number"
       end
       return true, ""
