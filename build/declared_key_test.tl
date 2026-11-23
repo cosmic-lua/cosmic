@@ -576,7 +576,9 @@ local function test_every_field_of_the_host_sources_moves_the_host(tmp: string)
     uid = set("uid", 2),
     gid = { from = without_status, change = set("gid", 2).change },
     groups = { from = without_status, change = set("groups", { 1 }).change },
-    walked = set("walked", { write("walked2", "w22") }),
+    -- A named system is not walked ([`declared_key.system_identity`]).
+    walked = { from = function(s: declared_key.HostSources) s.system_id = nil end,
+      change = set("walked", { write("walked2", "w22") }).change },
   }
   each_field_moves("HostSources", fields_of("build.declared_key", "HostSources"), make,
     function(s: declared_key.HostSources): any return s end, key, changes, {}) -- checked: any_use
@@ -990,6 +992,32 @@ local function test_a_change_outside_a_package_moves_what_is_installed(tmp: stri
   assert(Fs.write(usr .. "/bin/__pycache__", "x"))
   assert(Fs.remove(usr .. "/bin/__pycache__"))
   assert(installed(true) == before, "a directory's modification time moved it")
+end
+
+--- A host that names what it has installed (COSMIC_SYSTEM_ID, as a CI
+--- runner names its image) is keyed by that name, not walked: a change
+--- beneath the system's paths moves nothing, and another name moves it.
+local function test_a_named_system_is_not_walked(tmp: string)
+  local usr = tmp .. "/usr"
+  assert(Fs.mkdirs(usr .. "/bin"))
+  assert(Fs.write(usr .. "/bin/tool", "one\n"))
+  local function installed(id: string): string, integer
+    local digests = declared_key.digests(tmp)
+    local answer = declared_key.system_identity(digests, {
+      packages = { tmp .. "/no-packages" }, system = { tmp .. "/no-os-release" },
+      walked = { usr }, system_id = id,
+    }, true)
+    return answer, digests.read
+  end
+  local named, read = installed("ubuntu24 20261116.1")
+  assert(read == 0, "a named system was walked")
+  local walked, walks = installed("")
+  assert(walks == 1, "an unnamed system was not walked")
+  assert(named ~= walked)
+  assert(Fs.write(usr .. "/bin/tool", "two, longer\n"))
+  assert(installed("ubuntu24 20261116.1") == named, "a walk moved a named system")
+  assert(installed("") ~= walked, "a change moved no unnamed system")
+  assert(installed("ubuntu24 20261123.1") ~= named, "another name moved nothing")
 end
 
 --- The walk of what is installed leaves out /etc, the host's

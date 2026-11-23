@@ -1233,7 +1233,13 @@ local host_variable <const> = "COSMIC_HOST_ID"
 --- Xcode and its command line tools, whose shims /usr/bin's git, make
 --- and cc are, and /opt/homebrew and /usr/local -- as CI's macOS leg
 --- names its runner image there. Only [`system_identity`] reads it, so
---- only a module given the system's paths is keyed by it.
+--- only a module given the system's paths is keyed by it. Set, it
+--- stands in for the walk of those paths: a CI runner's image name
+--- says what a fresh VM's disk holds, which a walk would read entry by
+--- entry on every run (a walk is remembered in the checkout's working
+--- database, which a fresh checkout does not have), and a Linux runner
+--- outside a container sets it as the macOS leg does
+--- ("$ImageOS $ImageVersion").
 local system_variable <const> = "COSMIC_SYSTEM_ID"
 
 --- What a key holds of the host's kernel ([`host_kernel`]), as `from`'s
@@ -1514,7 +1520,8 @@ end
 --- it says it is (/etc/os-release; on macOS, the system volume's
 --- SystemVersion.plist, `darwin_system`); what it names of itself
 --- besides (`system_variable`); and, with `walk`, which a run holding
---- such a module asks for once, what the system's paths hold beneath
+--- such a module asks for once, and only where that name is unset or
+--- empty, what the system's paths hold beneath
 --- them but /etc ([`walk_system`], remembered by [`remembered_walk`]),
 --- which a package database does not say: a file under /usr or /lib
 --- changed by hand or by a tool other than the package manager, a
@@ -1558,7 +1565,11 @@ function declared_key.system_identity(digests: declared_key.Digests,
   end
   local system_id = from.system_id or sys.getenv(system_variable) or ""
   lines[#lines + 1] = "system " .. system_id
-  if walk == true then
+  -- A host that names what it has installed is keyed by that name, not
+  -- walked: a hosted runner's /usr holds most of a million entries, a
+  -- minute or more of `lstat`s in a fresh checkout, which remembers no
+  -- walk.
+  if walk == true and system_id == "" then
     lines[#lines + 1] = "walked " .. remembered_walk(digests, walked_paths(from.walked or confine.system_paths),
       packages)
   end
