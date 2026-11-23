@@ -58,7 +58,7 @@ local function fields_round_trip(input: string): boolean, string
   local text = Time.format_duration(d)
   Fuzz.label(if sign < 0 then "negative" else "positive" end)
   local back, why = Time.parse_duration(text)
-  if back == nil then return false, text .. " refused: " .. why end
+  if back == nil then return false, text .. " refused: " .. tostring(why) end
   if back.years ~= d.years or back.months ~= d.months or back.days ~= d.days or
       back.ns ~= d.ns then
     return false, text .. " read back as another duration"
@@ -67,17 +67,23 @@ local function fields_round_trip(input: string): boolean, string
 end
 
 local function duration_is_total(input: string): boolean, string
-  local ok, got, why = pcall(Time.parse_duration, input)
-  if not ok then return false, "raised: " .. tostring(got) end
+  local got: Time.Duration?
+  local why = ""
+  local ok, raised = pcall(function()
+    local read, refusal = Time.parse_duration(input)
+    got = read
+    if read == nil then why = tostring(refusal) end
+  end)
+  if not ok then return false, "raised: " .. tostring(raised) end
   if got == nil then
-    if not why is string or why == "" then return false, "refused with no reason" end
+    if why:find("^time: ") == nil then return false, "refused with no reason: " .. why end
     Fuzz.label("refused")
     return true, ""
   end
   Fuzz.label("read")
   local d = got as Time.Duration -- checked: cast_refused
   local again, again_why = Time.parse_duration(Time.format_duration(d))
-  if again == nil then return false, "its own text refused: " .. again_why end
+  if again == nil then return false, "its own text refused: " .. tostring(again_why) end
   if again.years ~= d.years or again.months ~= d.months or again.days ~= d.days or
       again.ns ~= d.ns then
     return false, "its own text read as another duration"

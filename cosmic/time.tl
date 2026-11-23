@@ -31,6 +31,7 @@
 
 local Array = require("cosmic.array")
 local Env = require("cosmic.env")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Number = require("cosmic.number")
 local String = require("cosmic.string")
@@ -219,8 +220,8 @@ local MIN_S <const> = math.mininteger // NS
 local MIN_NS <const> = math.mininteger % NS
 local MAX_S <const> = math.maxinteger // NS
 local MAX_NS <const> = math.maxinteger % NS
---- What a failure of this module answers, nil and `why` under the
---- module's name. Only a public function answers through it: the
+--- A failure's text under the module's name, as a public function's
+--- [`Failure`] carries it. Only the public functions' work answers through it: the
 --- private readers (the parsers, the TZif reader, the zone cache) answer
 --- a bare `why`, so a message that quotes one -- a zone's, the footer's --
 --- is not prefixed twice.
@@ -1168,28 +1169,35 @@ end
 --- IANA's zone `name`, as "America/New_York" or "UTC", from the copy of
 --- the tz database the binary carries. The host's zone files are never
 --- read, so a name gives the same rules on every host, whatever tz
---- release it has or whether it has one at all. Nil and why when
+--- release it has or whether it has one at all. Nil and a [`Failure`] when
 --- `name` is no zone name (absolute, with a `..` part, or with a
 --- character other than letters, digits and `_+-./`) or the binary
 --- carries no such zone. An empty `name` raises. A zone is read once a
 --- process and the same [`Zone`] answered from then on, and a name found
 --- to be no zone is not looked for again.
-function Time.zone(name: string): Time.Zone?, string
+function Time.zone(name: string): (Time.Zone) | (nil, Failure)
   if name == "" then error("time: the zone name is empty", 2) end
   local zone, why = zone_of(name)
-  if zone == nil then return refuse(why) end
-  return zone, ""
+  if zone == nil then return nil, Failure.new("time: " .. why) end
+  return zone
 end
 
---- The zone TZif bytes (RFC 8536) describe, named `name`, or nil and
---- why they are no TZif file cosmic reads. `name` is written by
---- [`format_rfc3339`]'s `zone_name` when it is a zone name RFC 9557 can
---- write.
-function Time.zone_from_tzif(data: string, name: string): Time.Zone?, string
+-- Time.zone_from_tzif, its failure in words.
+local function zone_from_tzif_text(data: string, name: string): Time.Zone?, string
   local rules, why = parse_tzif(data)
   if rules == nil then return refuse(why) end
   rules.named = writable(name)
   return make_zone(name, rules), ""
+end
+
+--- The zone TZif bytes (RFC 8536) describe, named `name`, or nil and
+--- a [`Failure`] when they are no TZif file cosmic reads. `name` is written by
+--- [`format_rfc3339`]'s `zone_name` when it is a zone name RFC 9557 can
+--- write.
+function Time.zone_from_tzif(data: string, name: string): (Time.Zone) | (nil, Failure)
+  local value, why = zone_from_tzif_text(data, name)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The zone name a path names by where it sits, as
@@ -1272,39 +1280,8 @@ end
 local locals: mut {string:Time.Zone} = {}
 local unset_local: mut {Time.Zone} = {}
 
---- The host's own zone, as Java and ICU find it: the host names a zone
---- and the binary's tz database gives its rules, as `zone` does. The
---- host's zone files are never read.
----
---- With `TZ` unset, the zone is the one the /etc/localtime link names by
---- where it points (`.../zoneinfo/Europe/Berlin`), else the one the
---- first line of /etc/timezone names, else UTC. An /etc/localtime that is
---- a copy rather than a link, or is missing, gives UTC unless
---- /etc/timezone says otherwise, and never a failure.
----
---- With `TZ` set:
----
---- - Empty, or `:`, is UTC.
---- - `:Name` is `zone(Name)`, less a `posix/` or `right/` before it.
---- - `:/path` or `/path` is the zone its path names the same way the
----   link does, else the one it links to, as `TZ=:/etc/localtime` does.
---- - `Name` is `zone(Name)` when the binary carries it, else a POSIX TZ
----   string, as `EST5EDT,M3.2.0,M11.1.0` or `<+0330>-3:30`, which names
----   the zone it describes (its `name` is the string). Offsets are west
----   of UTC, as POSIX has them; a rule's time may be negative or past 24
----   hours, as RFC 8536's version 3 allows; and daylight saving time
----   named with no rules takes the United States', `M3.2.0,M11.1.0`, as
----   glibc does.
----
---- Nil and why only for a `TZ` it cannot use: a `:Name` or path naming no
---- zone the binary carries, or a bare `TZ` that is neither a carried zone
---- nor a POSIX TZ string.
----
---- `opts.tz` stands in for `TZ` (nil reads the environment's, unless
---- `opts.unset` reads as though it were unset), `opts.localtime` for
---- /etc/localtime and `opts.timezone` for /etc/timezone. With no options,
---- the answer is read once a process.
-function Time.local_zone(opts?: Time.LocalOptions): Time.Zone?, string
+-- Time.local_zone, its failure in words.
+local function local_zone_text(opts?: Time.LocalOptions): Time.Zone?, string
   local tz: string? = nil
   local localtime, timezone = "/etc/localtime", "/etc/timezone"
   if opts ~= nil then
@@ -1355,6 +1332,44 @@ function Time.local_zone(opts?: Time.LocalOptions): Time.Zone?, string
     if tz == nil then unset_local[1] = zone else locals[tz] = zone end
   end
   return zone, ""
+end
+
+--- The host's own zone, as Java and ICU find it: the host names a zone
+--- and the binary's tz database gives its rules, as `zone` does. The
+--- host's zone files are never read.
+---
+--- With `TZ` unset, the zone is the one the /etc/localtime link names by
+--- where it points (`.../zoneinfo/Europe/Berlin`), else the one the
+--- first line of /etc/timezone names, else UTC. An /etc/localtime that is
+--- a copy rather than a link, or is missing, gives UTC unless
+--- /etc/timezone says otherwise, and never a failure.
+---
+--- With `TZ` set:
+---
+--- - Empty, or `:`, is UTC.
+--- - `:Name` is `zone(Name)`, less a `posix/` or `right/` before it.
+--- - `:/path` or `/path` is the zone its path names the same way the
+---   link does, else the one it links to, as `TZ=:/etc/localtime` does.
+--- - `Name` is `zone(Name)` when the binary carries it, else a POSIX TZ
+---   string, as `EST5EDT,M3.2.0,M11.1.0` or `<+0330>-3:30`, which names
+---   the zone it describes (its `name` is the string). Offsets are west
+---   of UTC, as POSIX has them; a rule's time may be negative or past 24
+---   hours, as RFC 8536's version 3 allows; and daylight saving time
+---   named with no rules takes the United States', `M3.2.0,M11.1.0`, as
+---   glibc does.
+---
+--- Nil and a [`Failure`] only for a `TZ` it cannot use: a `:Name` or path naming no
+--- zone the binary carries, or a bare `TZ` that is neither a carried zone
+--- nor a POSIX TZ string.
+---
+--- `opts.tz` stands in for `TZ` (nil reads the environment's, unless
+--- `opts.unset` reads as though it were unset), `opts.localtime` for
+--- /etc/localtime and `opts.timezone` for /etc/timezone. With no options,
+--- the answer is read once a process.
+function Time.local_zone(opts?: Time.LocalOptions): (Time.Zone) | (nil, Failure)
+  local value, why = local_zone_text(opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- `ns` on the calendar of `zone`, UTC's by default, with the offset,
@@ -1421,8 +1436,18 @@ local function resolve(c: Time.CivilFields, zone: Time.Zone?, how: Time.Disambig
   return chosen, ""
 end
 
+-- Time.from_civil, its failure in words.
+local function from_civil_text(c: Time.CivilFields, zone?: Time.Zone, opts?: Time.AddOptions): integer?, string
+  local how = disambiguation_in(opts)
+  local s, why = resolve(c, zone, how)
+  if s == nil then return refuse(why) end
+  local ns, range_why = instant(s, c.ns)
+  if ns == nil then return refuse(range_why) end
+  return ns, ""
+end
+
 --- The nanoseconds `c` names on the calendar of `zone`, UTC's by
---- default, or nil and which field is out of its range (month 13,
+--- default, or nil and a [`Failure`] naming which field is out of its range (month 13,
 --- February 30, hour 24), or that the moment is outside what an integer
 --- holds. Nothing is normalized: day 32 is refused,
 --- not carried into the next month. For a plain date, [`Time.parse_date`]
@@ -1432,31 +1457,15 @@ end
 --- change; passed twice, the moment whose offset is `c.offset` is taken
 --- whatever the disambiguation, so `from_civil(civil(ns, zone), zone)`
 --- is always `ns`. Raises for a `zone` no function here made.
-function Time.from_civil(c: Time.CivilFields, zone?: Time.Zone, opts?: Time.AddOptions): integer?, string
-  local how = disambiguation_in(opts)
-  local s, why = resolve(c, zone, how)
-  if s == nil then return refuse(why) end
-  local ns, range_why = instant(s, c.ns)
-  if ns == nil then return refuse(range_why) end
-  return ns, ""
+function Time.from_civil(c: Time.CivilFields, zone?: Time.Zone, opts?: Time.AddOptions): (integer) | (nil, Failure)
+  local value, why = from_civil_text(c, zone, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
---- `ns` moved by the calendar part of `duration` on the calendar of
---- `zone`, UTC's by default: the years and months first, keeping the day
---- and the local time of day, then the days, and the local time reached
---- read back as [`from_civil`] reads it, with `opts.disambiguation`, so a
---- day across a change of offset is not 86400 seconds. Then its exact
---- part, `duration.ns`, is added as it is. A local time reached that the
---- zone passes twice is the moment with `ns`'s own offset when one of
---- the two has it, whatever the disambiguation. A missing field is zero.
---- Nil and why when the day the years and months reach is past its
---- month's end and `opts.overflow` is not "clamp", when the local time
---- reached is in a gap or a fold the disambiguation refuses, when a
---- field is past its bound (which only keeps the arithmetic from
---- wrapping), or when the result is outside the range. Raises for a
---- `zone` no function here made.
-function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zone,
-                           opts?: Time.AddOptions): integer?, string
+-- Time.add_calendar, its failure in words.
+local function add_calendar_text(ns: integer, duration: Time.Duration, zone?: Time.Zone,
+                                 opts?: Time.AddOptions): integer?, string
   local years, months, days = duration.years or 0, duration.months or 0, duration.days or 0
   local exact = duration.ns or 0
   local why = outside("years", years, -10000, 10000) or outside("months", months, -120000, 120000) or
@@ -1493,6 +1502,27 @@ function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zon
   local moved_ns, range_why = instant(s, n)
   if moved_ns == nil then return refuse(range_why) end
   return moved_ns, ""
+end
+
+--- `ns` moved by the calendar part of `duration` on the calendar of
+--- `zone`, UTC's by default: the years and months first, keeping the day
+--- and the local time of day, then the days, and the local time reached
+--- read back as [`from_civil`] reads it, with `opts.disambiguation`, so a
+--- day across a change of offset is not 86400 seconds. Then its exact
+--- part, `duration.ns`, is added as it is. A local time reached that the
+--- zone passes twice is the moment with `ns`'s own offset when one of
+--- the two has it, whatever the disambiguation. A missing field is zero.
+--- Nil and a [`Failure`] when the day the years and months reach is past its
+--- month's end and `opts.overflow` is not "clamp", when the local time
+--- reached is in a gap or a fold the disambiguation refuses, when a
+--- field is past its bound (which only keeps the arithmetic from
+--- wrapping), or when the result is outside the range. Raises for a
+--- `zone` no function here made.
+function Time.add_calendar(ns: integer, duration: Time.Duration, zone?: Time.Zone,
+                           opts?: Time.AddOptions): (integer) | (nil, Failure)
+  local value, why = add_calendar_text(ns, duration, zone, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The seconds of `ns` on the calendar of `zone`, UTC's when nil.
@@ -1545,14 +1575,14 @@ function Time.between(from: integer, to: integer, zone?: Time.Zone): Time.Durati
   local months = whole_months(from, to, zone)
   if months * dir < 0 then months = 0 end
   while true do
-    local anchor, _ = Time.add_calendar(from, { months = months }, zone, options)
+    local anchor, _ = add_calendar_text(from, { months = months }, zone, options)
     local first = 0
     if anchor ~= nil then
       first = local_seconds(to, zone) // DAY - local_seconds(anchor, zone) // DAY
       if first * dir < 0 then first = 0 end
     end
     for days = first, 0, -dir do
-      local moved, _ = Time.add_calendar(from, { months = months, days = days }, zone, options)
+      local moved, _ = add_calendar_text(from, { months = months, days = days }, zone, options)
       -- Out of the range is past `to`, or past `from`, for a step toward it.
       if moved ~= nil and (to - moved) * dir >= 0 then
         return {
@@ -1755,6 +1785,13 @@ local function parse(text: string): Time.Zoned?, string
   return { ns = ns, zone = named }, ""
 end
 
+-- Time.parse_rfc3339, its failure in words.
+local function parse_rfc3339_text(text: string): integer?, string
+  local zoned, why = parse(text)
+  if zoned == nil then return refuse(why) end
+  return zoned.ns, ""
+end
+
 --- The nanoseconds an RFC 3339 timestamp names, as
 --- `2026-09-25T04:09:21.5+05:30`: `T` or `t` between date and time, one
 --- to nine digits of fraction, and `Z`, `z` or a numeric offset, where
@@ -1763,23 +1800,30 @@ end
 --- `[+05:30]`, then any elective `[key=value]` tags, which are ignored.
 --- The offset still names the moment, and must be the zone's then, to
 --- the minute, unless it is `Z` or `-00:00`, which say the local offset
---- is unknown. Nil and why for anything else, a leap second, a moment
+--- is unknown. Nil and a [`Failure`] for anything else, a leap second, a moment
 --- outside the range, a zone the binary does not carry, an offset the
 --- zone does not have then, or a critical `[!key=value]` tag.
-function Time.parse_rfc3339(text: string): integer?, string
+function Time.parse_rfc3339(text: string): (integer) | (nil, Failure)
+  local value, why = parse_rfc3339_text(text)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Time.parse_rfc3339_zoned, its failure in words.
+local function parse_rfc3339_zoned_text(text: string): Time.Zoned?, string
   local zoned, why = parse(text)
   if zoned == nil then return refuse(why) end
-  return zoned.ns, ""
+  return zoned, ""
 end
 
 --- [`parse_rfc3339`]'s moment, with the zone the text names: its RFC
 --- 9557 suffix's -- for an offset, `[+05:30]`, a zone always that offset,
 --- named "+05:30" -- else its offset's, a zone named for it the same way
 --- (`+05:30`), or UTC for `Z` and `-00:00`.
-function Time.parse_rfc3339_zoned(text: string): Time.Zoned?, string
-  local zoned, why = parse(text)
-  if zoned == nil then return refuse(why) end
-  return zoned, ""
+function Time.parse_rfc3339_zoned(text: string): (Time.Zoned) | (nil, Failure)
+  local value, why = parse_rfc3339_zoned_text(text)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- `ns`'s date on the calendar of `zone`, UTC's by default,
@@ -1788,18 +1832,8 @@ function Time.format_date(ns: integer, zone?: Time.Zone): string
   return civil_text(Time.civil(ns, zone), "date")
 end
 
---- The first moment of the date `YYYY-MM-DD` names, as `2026-09-25`, on
---- the calendar of `zone`, UTC's by default, as Temporal's `startOfDay`
---- has it: its midnight -- the earlier, where midnight happens twice --
---- or, where the zone's clocks skipped midnight, the moment they
---- moved, which is the first the day has (Toronto's 1919-03-31 began at
---- 00:30-04:00). A day a zone skipped whole begins where the next one
---- does, so [`format_date`] of it can name the next day (Apia's
---- 2011-12-30 answers 2011-12-31's first moment). Nil and why for
---- anything else, a day its month does not have, or a date whose first
---- moment is outside the range, as the range's first, 1677-09-21, in
---- UTC. Raises for a `zone` no function here made.
-function Time.parse_date(text: string, zone?: Time.Zone): integer?, string
+-- Time.parse_date, its failure in words.
+local function parse_date_text(text: string, zone?: Time.Zone): integer?, string
   local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
   local cur <close> = borrow(text)
   date_into(cur, c)
@@ -1814,7 +1848,7 @@ function Time.parse_date(text: string, zone?: Time.Zone): integer?, string
   local rules = rules_for(zone)
   local midnight, midnight_why = seconds_of(c)
   if midnight == nil then return refuse(midnight_why) end
-  local earliest, earliest_why = Time.from_civil(c, zone, { disambiguation = "earlier" })
+  local earliest, earliest_why = from_civil_text(c, zone, { disambiguation = "earlier" })
   -- from_civil answers under the module's name already.
   if earliest == nil then return nil, earliest_why end
   local lo = earliest // NS
@@ -1829,6 +1863,25 @@ function Time.parse_date(text: string, zone?: Time.Zone): integer?, string
   local ns, range_why = instant(hi, 0)
   if ns == nil then return refuse(range_why) end
   return ns, ""
+end
+
+--- The first moment of the date `YYYY-MM-DD` names, as `2026-09-25`, on
+--- the calendar of `zone`, UTC's by default, as Temporal's `startOfDay`
+--- has it: its midnight -- the earlier, where midnight happens twice --
+--- or, where the zone's clocks skipped midnight, the moment they
+--- moved, which is the first the day has (Toronto's 1919-03-31 began at
+--- 00:30-04:00). A day a zone skipped whole begins where the next one
+--- does, so [`format_date`] of it can name the next day (Apia's
+--- 2011-12-30 answers 2011-12-31's first moment). Nil and a [`Failure`] for
+--- anything else, a day its month does not have, or a date whose first
+--- moment is outside the range, as the range's first, 1677-09-21, in
+--- UTC. Raises for a `zone` no function here made.
+function Time.parse_date(text: string, zone?: Time.Zone): (integer) | (nil, Failure)
+  -- A table no function here made raises on behalf of this caller.
+  if zone ~= nil then local _ = rules_for(zone) end
+  local value, why = parse_date_text(text, zone)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 local SHORT_DAYS <const> = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
@@ -1847,19 +1900,8 @@ function Time.format_http(ns: integer): string
     c.year, civil_text(c, "clock"))
 end
 
---- The nanoseconds an HTTP date names, in any of RFC 9110's three forms
---- (section 5.6.7): IMF-fixdate, `Sun, 06 Nov 1994 08:49:37 GMT`; the
---- obsolete RFC 850 form, `Sunday, 06-Nov-94 08:49:37 GMT`; and
---- asctime's, `Sun Nov  6 08:49:37 1994`, whose day is two digits or
---- a space and one. Names are case-sensitive, as the grammar has them.
---- The day name must be one of the seven, in its form's length, but
---- need not be the date's: `Mon, 26 Jul 1997 05:00:00 GMT`, a Saturday,
---- is read as its date says, as recipients commonly do. An RFC 850 year
---- of 69 through 99 is 1969 through 1999 and one of 00 through 68 is
---- 2000 through 2068, as POSIX's `%y`, so the answer does not hang on
---- the clock as RFC 9110's fifty years ahead would. Nil and why for
---- anything else, a leap second, or a moment outside the range.
-function Time.parse_http(text: string): integer?, string
+-- Time.parse_http, its failure in words.
+local function parse_http_text(text: string): integer?, string
   local c: Time.CivilFields = { year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, ns = 0 } -- checked: literal_shape
   local cur <close> = borrow(text)
   local separator = text:sub(4, 4)
@@ -1905,6 +1947,24 @@ function Time.parse_http(text: string): integer?, string
   return ns, ""
 end
 
+--- The nanoseconds an HTTP date names, in any of RFC 9110's three forms
+--- (section 5.6.7): IMF-fixdate, `Sun, 06 Nov 1994 08:49:37 GMT`; the
+--- obsolete RFC 850 form, `Sunday, 06-Nov-94 08:49:37 GMT`; and
+--- asctime's, `Sun Nov  6 08:49:37 1994`, whose day is two digits or
+--- a space and one. Names are case-sensitive, as the grammar has them.
+--- The day name must be one of the seven, in its form's length, but
+--- need not be the date's: `Mon, 26 Jul 1997 05:00:00 GMT`, a Saturday,
+--- is read as its date says, as recipients commonly do. An RFC 850 year
+--- of 69 through 99 is 1969 through 1999 and one of 00 through 68 is
+--- 2000 through 2068, as POSIX's `%y`, so the answer does not hang on
+--- the clock as RFC 9110's fifty years ahead would. Nil and a [`Failure`] for
+--- anything else, a leap second, or a moment outside the range.
+function Time.parse_http(text: string): (integer) | (nil, Failure)
+  local value, why = parse_http_text(text)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 --- The most seconds a duration's exact part holds, so its nanoseconds
 --- still fit an integer.
 local MAX_SPAN_S <const> = math.maxinteger // NS
@@ -1919,15 +1979,8 @@ local record Spelled
   mut seconds: integer
 end
 
---- The duration `text` spells, or nil and why. It is an optional sign
---- and then each of `y`, `mo`, `d`, `h`, `m` and `s` at most once, in
---- that order, after a whole number (the seconds may have a fraction
---- of one to nine digits): `1y2mo3d4h5m6s`, `90m`, `-1d12h`, `+0.5s`.
---- The sign belongs to the whole duration. A number has at most nine
---- digits and the exact part is at most what nanoseconds hold, about
---- 292 years; a calendar part the range of [`add_calendar`] refuses is
---- refused there, not here.
-function Time.parse_duration(text: string): Time.Duration?, string
+-- Time.parse_duration, its failure in words.
+local function parse_duration_text(text: string): Time.Duration?, string
   local at = 1
   local sign = 1
   local first = text:sub(1, 1)
@@ -2001,6 +2054,20 @@ function Time.parse_duration(text: string): Time.Duration?, string
     years = sign * spelled.years, months = sign * spelled.months, days = sign * spelled.days,
     ns = sign * (seconds * NS + fraction),
   }, ""
+end
+
+--- The duration `text` spells, or nil and a [`Failure`]. It is an optional sign
+--- and then each of `y`, `mo`, `d`, `h`, `m` and `s` at most once, in
+--- that order, after a whole number (the seconds may have a fraction
+--- of one to nine digits): `1y2mo3d4h5m6s`, `90m`, `-1d12h`, `+0.5s`.
+--- The sign belongs to the whole duration. A number has at most nine
+--- digits and the exact part is at most what nanoseconds hold, about
+--- 292 years; a calendar part the range of [`add_calendar`] refuses is
+--- refused there, not here.
+function Time.parse_duration(text: string): (Time.Duration) | (nil, Failure)
+  local value, why = parse_duration_text(text)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- `d` as [`parse_duration`] reads it, so the two round trip:

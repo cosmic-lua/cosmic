@@ -47,6 +47,7 @@
 --- day instead (February 28 or 29).
 
 local Cli = require("cosmic.cli")
+local Failure = require("cosmic.failure")
 local Flags = require("cosmic.flags")
 local Json = require("cosmic.json")
 local Clock = require("cosmic.clock")
@@ -73,8 +74,8 @@ local record verb
     err: function(line: string)
     --- The wall clock, in nanoseconds since 1970.
     now: function(): integer
-    --- The host's zone, or nil and why.
-    local_zone: function(): Time.Zone?, string
+    --- The host's zone, or nil and a Failure.
+    local_zone: function(): (Time.Zone) | (nil, Failure)
   end
 end
 
@@ -194,7 +195,7 @@ local function read_input(text: string, zone: Time.Zone?,
   end
   if text:match("^%d%d%d%d%-%d%d%-%d%d$") then
     local ns, why = Time.parse_date(text, zone)
-    if ns == nil then return nil, plain(why) end
+    if ns == nil then return nil, plain(tostring(why)) end
     return { ns = ns }, ""
   end
   local year, month, day, hour, minute, tail = text:match(
@@ -219,23 +220,27 @@ local function read_input(text: string, zone: Time.Zone?,
       end
     end
     local ns, from_why = Time.from_civil(c, zone, { disambiguation = how })
-    if ns == nil then return nil, plain(from_why) end
+    if ns == nil then return nil, plain(tostring(from_why)) end
     return { ns = ns }, ""
   end
   -- Seconds are optional as in the local form: `T12:00Z` is `T12:00:00Z`.
-  local zoned, why: Time.Zoned?, string
+  local zoned: Time.Zoned?
+  local why = ""
   local minutes, rest = text:match("^(%d%d%d%d%-%d%d%-%d%d[Tt]%d%d:%d%d)([Zz+%-].*)$")
   if minutes ~= nil and rest ~= nil then
-    zoned, why = Time.parse_rfc3339_zoned(minutes .. ":00" .. rest)
-    if zoned == nil then
+    local read, refusal = Time.parse_rfc3339_zoned(minutes .. ":00" .. rest)
+    zoned = read
+    if read == nil then
       -- The text parsed had ":00" at bytes 17 to 19: a byte past them is 3 earlier in the user's.
-      why = why:gsub("byte (%d+)", function(n: string): string
+      why = tostring(refusal):gsub("byte (%d+)", function(n: string): string
         local at = math.tointeger(n) or 0
         return "byte " .. tostring((if at >= 17 then at - 3 else at end))
       end)
     end
   else
-    zoned, why = Time.parse_rfc3339_zoned(text)
+    local read, refusal = Time.parse_rfc3339_zoned(text)
+    zoned = read
+    if read == nil then why = tostring(refusal) end
   end
   if zoned == nil then return nil, plain(why) end
   return { ns = zoned.ns, zone = zoned.zone }, ""
@@ -285,7 +290,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     out = bare.out,
     err = bare.err,
     now = Clock.now_ns,
-    local_zone = function(): Time.Zone?, string
+    local_zone = function(): (Time.Zone) | (nil, Failure)
       return Time.local_zone()
     end,
   }
@@ -334,7 +339,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if host[1] == nil then
       local zone, why = to.local_zone()
       if zone == nil then
-        complain("the host's time zone: " .. plain(why) .. "; name one with --zone, --from or --to")
+        complain("the host's time zone: " .. plain(tostring(why)) .. "; name one with --zone, --from or --to")
         return nil
       end
       host[1] = zone
@@ -352,7 +357,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     local zone, why = Time.zone(text)
     if zone == nil then
-      complain(name .. ": " .. plain(why))
+      complain(name .. ": " .. plain(tostring(why)))
       return nil
     end
     return zone
@@ -412,14 +417,14 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   if sub == "add" then
     local duration, why = Time.parse_duration(second_word)
     if duration == nil then
-      complain(("%q: %s"):format(second_word, plain(why)))
+      complain(("%q: %s"):format(second_word, plain(tostring(why))))
       return bare.refused
     end
     local moved, moved_why = Time.add_calendar(first.ns, duration, calendar, {
       overflow = if parsed.set["--clamp"] == true then "clamp" else "reject" end, disambiguation = disambiguation,
     })
     if moved == nil then
-      complain((plain(moved_why):gsub('overflow "clamp" takes its last', "--clamp takes its last")))
+      complain((plain(tostring(moved_why)):gsub('overflow "clamp" takes its last', "--clamp takes its last")))
       return bare.failed
     end
     return print_seen({ ns = moved, zone = calendar })

@@ -151,7 +151,9 @@ local function reference(): integer
     local least = math.maxinteger
     for _ = 1, 3 do
       local started = Clock.monotonic_ns()
-      local _, _, _ = pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
+      local _, _ = pcall(function()
+        local _, _ = Time.zone_from_tzif(data, "Fuzz/Zone")
+      end)
       least = math.min(least, Clock.monotonic_ns() - started)
     end
     reference_ns = 10 * least
@@ -168,17 +170,23 @@ end
 --- it.
 local function total(data: string): boolean, string
   local started = Clock.monotonic_ns()
-  local ok, zone, why = pcall(Time.zone_from_tzif, data, "Fuzz/Zone")
+  local zone: Time.Zone?
+  local why = ""
+  local ok, raised = pcall(function()
+    local read, refusal = Time.zone_from_tzif(data, "Fuzz/Zone")
+    zone = read
+    if read == nil then why = tostring(refusal) end
+  end)
   local elapsed = Clock.monotonic_ns() - started
   if elapsed > NS and elapsed > 20 * reference() then
     return false, ("reading %d bytes took %d ms, a linear read of the largest %d ms"):format(
       #data, elapsed // 1000000, reference() // 1000000)
   end
   if #data > 100000 then Fuzz.label("large") end
-  if not ok then return false, "zone_from_tzif raised: " .. tostring(zone) end
+  if not ok then return false, "zone_from_tzif raised: " .. tostring(raised) end
   if zone == nil then
     Fuzz.label("refused")
-    if why == "" then return false, "refused without a reason" end
+    if why:find("^time: ") == nil then return false, "refused without a reason: " .. why end
     return true, ""
   end
   Fuzz.label("read")
@@ -188,9 +196,13 @@ local function total(data: string): boolean, string
     if c.offset < -89999 or c.offset > 93599 then
       return false, ("civil(%d) has offset %d"):format(ns, c.offset)
     end
-    local from_ok, back = pcall(Time.from_civil, c, zone)
+    local back: integer?
+    local from_ok, from_raised = pcall(function()
+      local read, _ = Time.from_civil(c, zone)
+      back = read
+    end)
     if not from_ok then
-      return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back))
+      return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(from_raised))
     end
     if back == ns then Fuzz.label("round trip") end
     local format_ok, text = pcall(Time.format_rfc3339, ns, zone, { zone_name = true })
@@ -221,7 +233,7 @@ end
 local function reads_back(input: string): boolean, string
   local bytes, times_text, types_text = string.unpack("<s4s4s4", input)
   local zone, why = Time.zone_from_tzif(bytes, "Fuzz/Zone")
-  if zone == nil then return false, "a written file was refused: " .. why end
+  if zone == nil then return false, "a written file was refused: " .. tostring(why) end
   Fuzz.label("read")
   local types: mut {Type} = {}
   for offset, dst, abbreviation in types_text:gmatch("(%S+) (%S+) (%S+)\n") do

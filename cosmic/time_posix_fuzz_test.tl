@@ -41,11 +41,17 @@ local PROBES <const> = { math.mininteger, math.maxinteger, 0, -1, 1790309361 * N
   1772953200 * NS, 1793512800 * NS, -2208988800 * NS, 4107542400 * NS }
 
 local function total(tz: string): boolean, string
-  local ok, zone, why = pcall(Time.local_zone, { tz = tz })
-  if not ok then return false, "local_zone raised: " .. tostring(zone) end
+  local zone: Time.Zone?
+  local why = ""
+  local ok, raised = pcall(function()
+    local read, refusal = Time.local_zone({ tz = tz })
+    zone = read
+    if read == nil then why = tostring(refusal) end
+  end)
+  if not ok then return false, "local_zone raised: " .. tostring(raised) end
   if zone == nil then
     Fuzz.label("refused")
-    if why == "" then return false, "refused without a reason" end
+    if why:find("^time: ") == nil then return false, "refused without a reason: " .. why end
     return true, ""
   end
   Fuzz.label("read")
@@ -53,9 +59,13 @@ local function total(tz: string): boolean, string
     local civil_ok, c = pcall(Time.civil, ns, zone)
     if not civil_ok then return false, ("civil(%d) raised: %s"):format(ns, tostring(c)) end
     if c.dst then Fuzz.label("daylight saving time") end
-    local from_ok, back = pcall(Time.from_civil, c, zone)
+    local back: integer?
+    local from_ok, from_raised = pcall(function()
+      local read, _ = Time.from_civil(c, zone)
+      back = read
+    end)
     if not from_ok then
-      return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(back))
+      return false, ("from_civil of civil(%d) raised: %s"):format(ns, tostring(from_raised))
     end
     if back ~= ns then
       return false, ("%s: civil(%d) read back as %s"):format(tz, ns, tostring(back))
@@ -130,7 +140,7 @@ local function reads_back(input: string): boolean, string
   local tz, std, dst = input:match("^([^\0]*)\0([^\0]*)\0([^\0]*)$")
   if tz == nil then return false, "not an input this property draws" end
   local zone, why = Time.local_zone({ tz = tz })
-  if zone == nil then return false, tz .. " was refused: " .. why end
+  if zone == nil then return false, tz .. " was refused: " .. tostring(why) end
   Fuzz.label("read")
   local offsets = { [math.tointeger(std)] = true, [math.tointeger(dst)] = true } -- checked: literal_shape
   for ns = 1451606400 * NS, 1956528000 * NS, 86400 * NS * 19 + 3 * 3600 * NS + 77 * NS do
