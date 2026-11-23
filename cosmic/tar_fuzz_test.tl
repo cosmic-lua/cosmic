@@ -96,13 +96,14 @@ local function entries_of(input: string, read: boolean): {string}?, string
         if #seen % 2 == 0 and e.size > 0 then
           local first, ftrouble = body:read(e.size)
           if first ~= nil then
-            local rest = Stream.read_all(body)
+            local rest, _ = Stream.read_all(body)
             if rest ~= nil then data = first .. rest end
           elseif ftrouble == "" then
             data = ""
           end
         else
-          data = Stream.read_all(body)
+          local got, _ = Stream.read_all(body)
+          data = got
         end
         if data ~= nil then Fuzz.label("body read") end
         if data ~= nil and e.kind == "file" and #data ~= e.size then
@@ -372,8 +373,13 @@ local function test_what_the_writer_writes_the_reader_reads_back(tmp: string)
         end
         if kind == "file" then
           local r = e:open()
-          local data = r and Stream.read_all(r)
-          if data ~= body then return false, ("%q: the body differs"):format(path) end
+          local data: string? = nil
+          local why = ""
+          if r ~= nil then
+            local got, failure = Stream.read_all(r)
+            data, why = got, if failure ~= nil then tostring(failure) else "" end
+          end
+          if data ~= body then return false, ("%q: the body differs: %s"):format(path, why) end
         elseif kind == "symlink" and e.linkpath ~= body then
           return false, ("%q: wrote target %q, read %q"):format(path, body, e.linkpath)
         end

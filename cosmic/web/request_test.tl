@@ -44,7 +44,7 @@ local function test_the_body_is_read_once_and_put_back()
   local req = assert(seen[1], "expected seen[1]")
   assert(req:bytes() == "héllo" and req:text() == "héllo")
   assert(req:bytes() == "héllo", "a second read returns the kept bytes")
-  assert(Stream.read_all(req.raw.body) == "héllo", "raw.body reads them again")
+  assert(assert(Stream.read_all(req.raw.body)) == "héllo", "raw.body reads them again")
 end
 
 local function test_text_refuses_a_body_that_is_not_utf8()

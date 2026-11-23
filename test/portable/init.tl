@@ -115,7 +115,9 @@ function fixture.core_of(artifact: fixture.Artifact, entry: fixture.Entry): stri
   if entry.codec == 0 then return stored, "" end
   local decoder, trouble = Compress.zstd_decoder(1 << 23)
   if decoder == nil then return nil, tostring(trouble) end
-  return Stream.run(decoder, stored, entry.length)
+  local got, failure = Stream.run(decoder, stored, entry.length)
+  if got == nil then return nil, tostring(failure) end
+  return got, ""
 end
 
 function fixture.change_byte(bytes: string, offset: integer): string?, string

@@ -192,9 +192,9 @@ end
 --- `reader` yields, a chunk at a time; nil and why when it fails.
 local function digest_of(reader: Stream.Reader, algorithm: Algorithm, key: string?): string?, string
   local inner, why = Stream.hashing(algorithm, key)
-  if inner == nil then return nil, why end
+  if inner == nil then return nil, tostring(why) end
   local copied, trouble = Stream.copy(reader, inner)
-  if copied == nil then return nil, trouble end
+  if copied == nil then return nil, tostring(trouble) end
   local raw, finished = inner:digest()
   if raw == nil then return nil, finished end
   return Codec.hex(raw), ""
@@ -294,7 +294,8 @@ local function digest_named(to: verb.Io, request: Request, name: string): string
   if name == "-" then
     reader, why = to.stdin()
   else
-    reader, why = Stream.open(name)
+    local reader_got, why_failure = Stream.open(name)
+    reader, why = reader_got, if reader_got == nil then tostring(why_failure) else "" end
   end
   if reader == nil then return nil, why end
   local digest, trouble = digest_of(reader, request.algorithm, request.key)
@@ -365,7 +366,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     end
     local read, read_why = Stream.read_all(reader)
     if read == nil then
-      complain("standard input: " .. read_why)
+      complain("standard input: " .. tostring(read_why))
       return bare.refused
     end
     text = read

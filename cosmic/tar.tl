@@ -193,7 +193,7 @@ end
 --- including a short read that never reaches a full block.
 local function read_block_or_eof(raw: Stream.Reader): string?, boolean, string
   local block, trouble = Stream.read_up_to(raw, BLOCK)
-  if block == nil then return nil, false, trouble end
+  if block == nil then return nil, false, tostring(trouble) end
   if block == "" then return nil, true, "" end
   if #block < BLOCK then return nil, false, "tar: truncated header block" end
   return block, false, ""
@@ -215,9 +215,9 @@ local function read_special_body(raw: Stream.Reader, size: integer): string?, st
         " is over the " .. tostring(SPECIAL_BODY_LIMIT) .. "-byte limit")
   end
   local data, trouble = Stream.read_exact(raw, size)
-  if data == nil then return nil, trouble end
+  if data == nil then return nil, tostring(trouble) end
   local skipped, strouble = Stream.skip(raw, padding_of(size))
-  if not skipped then return nil, strouble end
+  if not skipped then return nil, tostring(strouble) end
   return data, ""
 end
 
@@ -396,7 +396,9 @@ local class BufferedReader is Stream.Reader
       return true, ""
     end
     self.buf, self.at = "", 1
-    return Stream.skip(self.raw, n - avail)
+    local skipped, why = Stream.skip(self.raw, n - avail)
+    if not skipped then return false, tostring(why) end
+    return true, ""
   end
 
   function close(self): boolean, string
@@ -508,7 +510,9 @@ local class EntryReader is Tar.Reader
     self.pending_skip = 0
     -- The skip's own reason says whether the archive ended early or a
     -- read failed; this says what was being done.
-    if not skipped then return fail(self, "tar: cannot skip to the next entry: " .. dtrouble) end
+    if not skipped then
+      return fail(self, "tar: cannot skip to the next entry: " .. tostring(dtrouble))
+    end
 
     local long_name: string?
     local long_link: string?
@@ -745,12 +749,12 @@ local class EntryWriter is Tar.Writer
       if not ok then return false, trouble end
     else
       local body_sink: BodyWriter = { sink = sink }
-      ok, trouble = Stream.copy_n(data, body_sink, size)
-      if not ok then
+      local copied, copy_trouble = Stream.copy_n(data, body_sink, size)
+      if not copied then
         -- A failed write is the sink's already, said as the Writer said it.
         local usable, failure = sink:usable()
         if not usable then return false, failure end
-        return sink:fail("tar: add_file: " .. trouble)
+        return sink:fail("tar: add_file: " .. tostring(copy_trouble))
       end
     end
     return sink:put(pad_bytes(size))

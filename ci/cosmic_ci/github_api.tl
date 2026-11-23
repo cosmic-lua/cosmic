@@ -213,7 +213,7 @@ function GithubApi.live(env: {string:string}, test?: GithubApi.Live): GithubApi.
     if on_sent ~= nil then on_sent(response:sent()) end
     local status, reply_headers = response.status, response.headers
     close_reader(response)
-    if body == nil then return nil, read_trouble end
+    if body == nil then return nil, tostring(read_trouble) end
     return { status = status, headers = reply_headers, body = body }, ""
   end
 

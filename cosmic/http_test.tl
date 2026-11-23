@@ -7,6 +7,7 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Http = require("cosmic.http")
@@ -1074,13 +1075,13 @@ local function test_download_result_digest_failure_is_not_a_mismatch(tmp: string
   assert(Fs.write(path, "old"))
   local hashing = Stream.hashing
   local reason = "sha512 mismatch: digest engine failed"
-  Stream.hashing = function(algorithm: Hash.Algorithm): Stream.Hashing?, string -- checked: field_fixed
-    local writer, why = hashing(algorithm)
+  Stream.hashing = function(algorithm: Hash.Algorithm, key?: string): (Stream.Hashing) | (nil, Failure) -- checked: field_fixed
+    local writer, why = hashing(algorithm, key)
     if writer == nil then return nil, why end
     writer.digest = function(_self: Stream.Hashing): string?, string -- checked: field_fixed
       return nil, reason
     end
-    return writer, ""
+    return writer
   end
   local result = Http.download_result(url, path, { timeout_ns = Clock.seconds(60), sha256 = Hash.hex_sha256("body"),
     script = { reply("200 OK", "", "body") } })

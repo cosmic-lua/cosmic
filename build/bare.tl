@@ -116,7 +116,9 @@ end
 function bare.stdin_text(message: string): string?, string
   local reader, why = bare.stdin_reader(message)
   if reader == nil then return nil, why end
-  return Stream.read_all(reader)
+  local text, trouble = Stream.read_all(reader)
+  if text == nil then return nil, tostring(trouble) end
+  return text, ""
 end
 
 --- Whether code point `c` is a C1 control or a format character that

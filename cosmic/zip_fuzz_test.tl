@@ -112,7 +112,7 @@ local function walk(input: string): boolean, string
           "body refused" end)
       end
       if body ~= nil then
-        local data = Stream.read_all(body)
+        local data, _ = Stream.read_all(body)
         if data ~= nil then Fuzz.label("body read") end
         if data ~= nil and e.method == 93 then Fuzz.label("zstd body read") end
         if data ~= nil and #data ~= e.size then

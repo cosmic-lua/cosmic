@@ -68,7 +68,9 @@ end
 --- Skips `n` bytes of what `self` hands out, as the reader it wraps does.
 local function dripped_skip(self: Dripped, n: integer): boolean, string
   if self.inner.skip ~= nil then return self.inner:skip(n) end
-  return Stream.skip(self.inner, n)
+  local ok, why = Stream.skip(self.inner, n)
+  if not ok then return false, tostring(why) end
+  return true, ""
 end
 
 --- A Reader over `text` that hands out at most `n` bytes a read.

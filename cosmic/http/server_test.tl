@@ -816,7 +816,7 @@ local function test_a_body_slower_than_body_ns_is_answered_408()
   local read_failed: boolean = false
   serving(function(req: Server.Request): Server.Reply
     local _, why = Stream.read_all(req.body)
-    read_failed = why ~= nil -- checked: compare_disjoint
+    read_failed = why ~= nil
     return { status = 200, body = "never" }
   end, function(address: Net.Address)
     local p <close> = peer(address)

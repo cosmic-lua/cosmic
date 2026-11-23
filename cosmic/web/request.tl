@@ -104,8 +104,8 @@ local class Made is Types.Request
     local data, why = Stream.read_all(self.raw.body)
     if data == nil then
       -- The reader is spent: a second call answers the same failure.
-      self.body_failure = why
-      return nil, why
+      self.body_failure = tostring(why)
+      return nil, tostring(why)
     end
     self.body_text = data
     self.raw.body = Stream.from_string(data)
