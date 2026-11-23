@@ -140,9 +140,10 @@ end
 local function test_a_tool_failure_is_a_result_and_a_raise_is_withheld()
   local troubles: mut {string} = {}
   local server = adder(troubles)
-  local failed = object(decoded(server:answer(request(1, "tools/call", '"name":"add","arguments":{"a":"x"}')).body)["result"])
+  local failed = object(decoded(server:answer(request(1, "tools/call", '"name":"add","arguments":{"a":"x","b":1}')).body)["result"])
   assert(failed["isError"] == true)
-  assert(object(list(failed["content"])[1])["text"] == "a and b must be integers")
+  local said = tostring(object(list(failed["content"])[1])["text"])
+  assert(said:find("do not hold to the tool's inputSchema", 1, true) ~= nil and said:find("/a", 1, true) ~= nil, said)
   local raised = decoded(server:answer(request(2, "tools/call", '"name":"boom"')).body)
   local err = object(raised["error"])
   assert(err["code"] == Mcp.INTERNAL_ERROR)
@@ -181,6 +182,59 @@ local function test_a_spec_that_does_not_hold_raises()
   end, "x-mcp-header")
 end
 
+--- A tool that promises a structure: `answer` is what its handler answers.
+local function measured(answer: Mcp.ToolResult, troubles: mut {string}): Server.Instance
+  return Server.new{ info = { name = "m", version = "1" }, tools = { {
+    tool = {
+      name = "measure",
+      inputSchema = Mcp.object_schema({ word = { type = "string", minLength = 1 } }, { "word" }),
+      outputSchema = Mcp.object_schema({ length = { type = "integer", minimum = 0 } }, { "length" }),
+    },
+    call = function(_: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      return answer
+    end,
+  } }, on_error = function(trouble: string) troubles[#troubles + 1] = trouble end }
+end
+
+local function test_arguments_and_a_structure_are_held_to_their_schemas()
+  local troubles: mut {string} = {}
+  local good = measured(Mcp.structured({ length = 3 }), troubles)
+  local ok = object(decoded(good:answer(request(1, "tools/call", '"name":"measure","arguments":{"word":"abc"}')).body)["result"])
+  assert(ok["isError"] == nil and object(ok["structuredContent"])["length"] == 3)
+  assert(object(list(ok["content"])[1])["text"] == '{"length":3}', "the structure is its text too")
+  local empty = object(decoded(good:answer(request(2, "tools/call", '"name":"measure","arguments":{"word":""}')).body)["result"])
+  local said = tostring(object(list(empty["content"])[1])["text"])
+  assert(empty["isError"] == true and said:find("/word", 1, true) ~= nil and said:find("minLength", 1, true) ~= nil, said)
+  local extra = object(decoded(good:answer(request(3, "tools/call", '"name":"measure","arguments":{"word":"a","x":1}')).body)["result"])
+  assert(extra["isError"] == true)
+  assert(#troubles == 0, table.concat(troubles, "\n"))
+  for i, answer in ipairs({ Mcp.result({ "3" }), Mcp.structured({ length = -1 }), Mcp.structured({ size = 3 }) }) do
+    local bad = measured(answer, troubles)
+    local err = object(decoded(bad:answer(request(i, "tools/call", '"name":"measure","arguments":{"word":"a"}')).body)["error"])
+    assert(err["code"] == Mcp.INTERNAL_ERROR)
+  end
+  assert(#troubles == 3 and troubles[1]:find("no structuredContent", 1, true) ~= nil and
+      troubles[2]:find("/length", 1, true) ~= nil, table.concat(troubles, "\n"))
+  local failed = measured(Mcp.result({ "no" }, true), troubles)
+  local f = object(decoded(failed:answer(request(9, "tools/call", '"name":"measure","arguments":{"word":"a"}')).body)["result"])
+  assert(f["isError"] == true, "an error needs no structure")
+end
+
+local function test_a_schema_it_cannot_check_raises()
+  local call = function(_: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+    return Mcp.result({})
+  end
+  local patterned = Mcp.object_schema({ s = { type = "string", pattern = "^a" } })
+  Test.raises(function()
+    Server.new{ info = { name = "x", version = "1" }, tools = { { tool = { name = "a", inputSchema = patterned }, call = call } } }
+  end, "inputSchema: /properties/s/pattern")
+  local list_out: {string: Json.Value} = { type = "array" }
+  Test.raises(function()
+    Server.new{ info = { name = "x", version = "1" }, tools = { { tool = { name = "a", inputSchema = Mcp.object_schema({}),
+      outputSchema = list_out }, call = call } } }
+  end, "outputSchema must have")
+end
+
 local function test_stdio_answers_a_line_for_each_request()
   local input = Stream.from_string(request(1, "server/discover") .. "\n\n" ..
       '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{}}\n' .. request(2, "tools/list") .. "\n")
@@ -215,7 +269,7 @@ end
 --- is written.
 local class PipeWriter is Stream.Writer
   pipe: Pipe
-  server: Server.Instance
+  mut server: Server.Instance
 
   function write(self, data: string): boolean, string
     for line in data:gmatch("[^\n]+") do
@@ -234,6 +288,35 @@ local function piped(server: Server.Instance): Client.Session
   local reader: PipeReader = { pipe = pipe, skip = nil }
   local writer: PipeWriter = { pipe = pipe, server = server }
   return Client.stdio(reader, writer)
+end
+
+--- A server of the tool `measure`, which answers `answer`, promising `promised` where given.
+local function promising(answer: Mcp.ToolResult, promised?: {string: Json.Value}): Server.Instance
+  return Server.new{ info = { name = "m", version = "1" }, tools = { {
+    tool = { name = "measure", inputSchema = Mcp.object_schema({}), outputSchema = promised },
+    call = function(_: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      return answer
+    end,
+  } } }
+end
+
+--- A client reads a structure a tool did not promise as a failure: here the tool listed is not the one called.
+local function test_a_client_holds_a_structure_to_the_schema_it_listed()
+  local promise = Mcp.object_schema({ length = { type = "integer" } }, { "length" })
+  local pipe: Pipe = { pending = "" }
+  local writer: PipeWriter = { pipe = pipe, server = promising(Mcp.structured({ length = 1 }), promise) }
+  local reader: PipeReader = { pipe = pipe, skip = nil }
+  local session = Client.stdio(reader, writer)
+  assert(session:tools())
+  assert(assert(session:call("measure")).structuredContent ~= nil)
+  writer.server = promising(Mcp.structured({ length = "1" }))
+  local wrong, why = session:call("measure")
+  assert(wrong == nil and tostring(why):find("/length", 1, true) ~= nil, tostring(why))
+  writer.server = promising(Mcp.result({ "1" }))
+  local bare, bwhy = session:call("measure")
+  assert(bare == nil and tostring(bwhy):find("no structuredContent", 1, true) ~= nil, tostring(bwhy))
+  writer.server = promising(Mcp.result({ "no" }, true))
+  assert(assert(session:call("measure")).isError == true, "an error needs no structure")
 end
 
 local function test_the_client_and_the_server_agree_over_stdio()

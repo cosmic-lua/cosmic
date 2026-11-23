@@ -130,6 +130,7 @@ allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's c
 allowed["cosmic.mcp.client.stdio"] = "public API: a session over a reader and a writer the caller holds, a pipe " ..
   "or a socket; the tree's own callers start a server with spawn or reach one with http"
 allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
+allowed["cosmic.mcp.structured"] = "public API: a tool's result whose structuredContent holds to its outputSchema, which a server builds"
 
 allowed["cosmic.compress.zstd_encoder"] = "ci/ calls it on the pinned release, which has no Compress.encoder; " ..
   "goes with the TODO in cosmic/compress.tl"

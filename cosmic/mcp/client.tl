@@ -36,6 +36,7 @@ local Child = require("cosmic.child")
 local Failure = require("cosmic.failure")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
+local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
 local Stream = require("cosmic.stream")
 local String = require("cosmic.string")
@@ -76,7 +77,10 @@ local record McpClient
     tools: function(Session): ({Mcp.Tool}) | (nil, Failure)
     --- Calls the tool `name` with `arguments`. A tool that ran and
     --- failed is a result with `isError`; a call the server refused is
-    --- a failure.
+    --- a failure. Where [`Session.tools`] listed the tool with an
+    --- `outputSchema` this client can check, a result that is not an
+    --- error and whose `structuredContent` does not hold to it is a
+    --- failure too.
     call: function(Session, name: string, arguments?: {string: Json.Value}): (Mcp.ToolResult) | (nil, Failure)
     --- Every resource the server lists.
     resources: function(Session): ({Mcp.Resource}) | (nil, Failure)
@@ -132,6 +136,8 @@ local record State
   mut next_id: integer
   --- What each tool listed mirrors into headers, by its name.
   mut mirrors: {string: {Mcp.Mirror}}
+  --- The `outputSchema` of each tool listed with one this client can check, compiled, by its name.
+  mut outputs: {string: JsonSchema.Schema}
   --- Ends the transport.
   finish: function(): (true) | (false, Failure)
   mut closed: boolean
@@ -223,6 +229,7 @@ end
 local function tools(self: State): ({Mcp.Tool}) | (nil, Failure)
   local out: mut {Mcp.Tool} = {}
   local fresh: mut {string: {Mcp.Mirror}} = {}
+  local outputs: mut {string: JsonSchema.Schema} = {}
   local ok, why = follow(self, "tools/list", function(result: any): Step
     local page, bad = wire.tools(result)
     if page == nil then return stopped(bad) end
@@ -233,6 +240,13 @@ local function tools(self: State): ({Mcp.Tool}) | (nil, Failure)
       -- Over HTTP a tool whose headers cannot be sent is left out, as
       -- the protocol says; over stdio there are no headers to send.
       if mirrors ~= nil then fresh[tool.name] = mirrors end
+      -- A schema that uses what cosmic.jsonschema does not check is
+      -- left unchecked, not refused: the tool is the server's to say.
+      local promised = tool.outputSchema
+      if promised ~= nil then
+        local schema, _ = JsonSchema.compile(promised)
+        if schema ~= nil then outputs[tool.name] = schema end
+      end
       if mirrors ~= nil or not self.http then out[#out + 1] = tool end
     end
     if #out > MAX_ITEMS then return stopped(too_many("tools/list")) end
@@ -242,7 +256,26 @@ local function tools(self: State): ({Mcp.Tool}) | (nil, Failure)
   -- The headers of the tools as they are now: one listed before and
   -- gone or changed since sends what it sends now, or nothing.
   self.mirrors = fresh
+  self.outputs = outputs
   return out
+end
+
+--- `answer` as a result of the tool `name`: a failure where it is not one, or is not an error and its
+--- `structuredContent` does not hold to the tool's `outputSchema` as listed.
+local function checked(self: State, name: string, answer: any): (Mcp.ToolResult) | (nil, Failure)
+  local r, why = wire.tool_result_of(answer)
+  if r == nil then return nil, why end
+  local schema = self.outputs[name]
+  if schema == nil or r.isError == true then return r end
+  local structured = r.structuredContent
+  if structured == nil then
+    return nil, Failure.new("mcp: tool " .. Json.quote(name) .. " answered no structuredContent, though it lists an outputSchema")
+  end
+  local fits, unfit = schema:check(structured)
+  if not fits then
+    return nil, Failure.new("mcp: tool " .. Json.quote(name) .. " answered structuredContent that does not hold to its outputSchema: " .. tostring(unfit))
+  end
+  return r
 end
 
 local function call(self: State, name: string, arguments?: {string: Json.Value}): (Mcp.ToolResult) | (nil, Failure)
@@ -260,7 +293,7 @@ local function call(self: State, name: string, arguments?: {string: Json.Value})
   local headers, why = mirrored()
   if headers == nil then return nil, why end
   local response, failed = ask(self, "tools/call", fields, name, headers)
-  if response ~= nil then return wire.tool_result_of(response.result) end
+  if response ~= nil then return checked(self, name, response.result) end
   if not (self.http and failed.code == Mcp.HEADER_MISMATCH) then return nil, failed end
   -- The tool's schema may have changed since it was listed: list again,
   -- and send the headers it names now.
@@ -270,7 +303,7 @@ local function call(self: State, name: string, arguments?: {string: Json.Value})
   if again == nil then return nil, awhy end
   local retried, rwhy = ask(self, "tools/call", fields, name, again)
   if retried == nil then return nil, rwhy end
-  return wire.tool_result_of(retried.result)
+  return checked(self, name, retried.result)
 end
 
 local function resources(self: State): ({Mcp.Resource}) | (nil, Failure)
@@ -363,7 +396,7 @@ end
 local function session(send: Send, info?: Mcp.Implementation, http: boolean,
                        finish: function(): (true) | (false, Failure)): McpClient.Session
   local running: Running = {
-    state = { send = send, info = info or DEFAULT_INFO, http = http, next_id = 0, mirrors = {}, finish = finish,
+    state = { send = send, info = info or DEFAULT_INFO, http = http, next_id = 0, mirrors = {}, outputs = {}, finish = finish,
       closed = false },
   }
   return running
