@@ -1534,6 +1534,10 @@ local function test_mains_push_repeats_nothing_the_queue_checked()
   local driver = job_of(jobs, "driver")
   assert(driver["if"] == "github.event_name == 'merge_group'" and #needs_of(driver) == 0,
     "the pinned driver's own job runs on other runs, or waits on another job")
+  -- Its unprivileged builder cannot write the default ~/.cache, and it
+  -- has no `zig-cache` to name another.
+  assert(map_of(driver.env)["XDG_CACHE_HOME"] == "${{ runner.temp }}/cache",
+    "the driver's job names no cosmic cache its builder can write")
   local own = driver.steps
   for _, s in ipairs(own) do
     assert((s.run or ""):find("platform boot", 1, true) == nil, "the driver's job boots the tree")
