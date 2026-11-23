@@ -1431,6 +1431,8 @@ local function test_a_spec_that_is_no_spec_raises()
         says = "upstream.addresses is not given" },
       { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 80, no_proxy = {}, addresses = {} } },
         says = "upstream.addresses holds no address" },
+      { spec = { http = listener, grants = {}, connect = connect, upstream = { host = "p", port = 80, no_proxy = {}, addresses = { "p" } } },
+        says = "upstream.addresses[1] is not a numeric address" },
     }
     for _, case in ipairs(cases) do
       local started, why = pcall(Relay.start, case.spec)

@@ -386,9 +386,10 @@ local function strings(value: Json.Value?, name: string): mut {string}?, string
   return out, ""
 end
 
---- What makes `up` no upstream a relay may connect through, naming the field (`port is not a port ...`), or nil. Both the
---- relay's spec ([`cosmic.internal.relay_server`]'s `start`) and a decoded config are held to it. No reason repeats a value:
---- `authorization` is a credential.
+--- What makes `up` no upstream a relay may connect through, naming the
+--- field (`port is not a port ...`), or nil. Both the relay's spec
+--- ([`cosmic.internal.relay_server`]'s `start`) and a decoded config are
+--- held to it. No reason repeats a value: `authorization` is a credential.
 function relay_config.upstream_problem(up: relay_config.Upstream): string?
   if up.host == "" or up.host:find("[%c%s]") ~= nil then
     return "host is not a host name or address"
