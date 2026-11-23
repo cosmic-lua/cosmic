@@ -120,7 +120,7 @@ local function write_all(fd: integer, data: string): boolean, string
     -- answers FD_CLOEXEC alone): until then a full socket (not a pipe) can
     -- hold the whole run for one write.
     local ready, ready_why = Poll.writable(fd)
-    if not ready then return false, ready_why end
+    if not ready then return false, ready_why.message end
     local count, why, errno = sys.write(fd, data:sub(at, at + CHUNK - 1))
     if count ~= nil then
       at = at + count
@@ -139,7 +139,7 @@ local function standard_io(input: integer, output: integer): sandbox_connect.Io
     read = function(): string?, string
       while true do
         local ready, ready_why = Poll.readable(input)
-        if not ready then return nil, ready_why end
+        if not ready then return nil, ready_why.message end
         local data, why, errno = sys.read(input, CHUNK)
         if data ~= nil then return data, "" end
         if errno ~= sys.EAGAIN and errno ~= sys.EINTR then return nil, why end

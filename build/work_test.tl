@@ -832,11 +832,11 @@ local function test_tool_discovery_fast_path_and_unknown_metadata(tmp: string)
   assert(Fs.write(tmp .. "/core/probe.h", "old\n"))
   local handle = assert(work.open(tmp))
   assert(stage_settled(handle, true))
-  local walk, read = Fs.walk_following, Fs.read
-  Fs.walk_following = function(): ({string}) | (nil, Failure) error("listed an unchanged tree") end -- checked: field_fixed
+  local walk, read = Fs.walk, Fs.read
+  Fs.walk = function(): ({string}) | (nil, Failure) error("listed an unchanged tree") end -- checked: field_fixed
   Fs.read = function(): (string) | (nil, Failure) error("read unchanged content") end -- checked: field_fixed
   local ok, answer = pcall(work.tool_moved, handle)
-  Fs.walk_following, Fs.read = walk, read -- checked: field_fixed*2
+  Fs.walk, Fs.read = walk, read -- checked: field_fixed*2
   assert(ok and answer == false, tostring(answer))
   assert(handle.db:exec("UPDATE tool_discovery SET ctime_ns = NULL WHERE path = 'core'"))
   assert(work.tool_moved(handle) == true, "unknown change time must rescan")
@@ -853,14 +853,14 @@ end
 local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp: string)
   assert(Fs.mkdirs(tmp .. "/core"))
   local handle = assert(work.open(tmp))
-  local walk = Fs.walk_following
-  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure) -- checked: field_fixed
-    local files = assert(walk(root, skip))
+  local walk = Fs.walk
+  Fs.walk = function(root: string, opts?: Fs.WalkOptions | function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure) -- checked: field_fixed
+    local files = assert(walk(root, opts))
     assert(Fs.write(root .. "/core/late.h", "new\n"))
     return files
   end
   local ok, staged = pcall(stage_settled, handle, true)
-  Fs.walk_following = walk -- checked: field_fixed
+  Fs.walk = walk -- checked: field_fixed
   assert(ok, tostring(staged))
   assert(work.tool_moved(handle) == true, "metadata must precede the directory listing")
   assert(stage_settled(handle, true))

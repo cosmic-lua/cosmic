@@ -338,7 +338,7 @@ end
 --- The nanoseconds the digits of a fraction of a second spell, one to
 --- nine of them: `5` is 500000000.
 local function fraction_ns(digits: string): integer
-  return Number.integer(digits .. ("0"):rep(9 - #digits))
+  return assert(Number.integer(digits .. ("0"):rep(9 - #digits)))
 end
 
 --- The fraction `ns` nanoseconds past a second writes as: with `digits`

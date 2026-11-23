@@ -24,8 +24,8 @@ local function weight_of(text: string): integer?
   local whole, dot, fraction = text:match("^([01])(%.?)(%d*)$")
   if whole == nil or dot == nil or fraction == nil then return nil end
   if #fraction > 3 or (dot == "" and fraction ~= "") then return nil end
-  local thousandths = Number.integer(whole) * 1000 +
-    (if fraction == "" then 0 else Number.integer(fraction .. ("0"):rep(3 - #fraction)) end)
+  local thousandths = assert(Number.integer(whole)) * 1000 +
+    (if fraction == "" then 0 else assert(Number.integer(fraction .. ("0"):rep(3 - #fraction))) end)
   if thousandths > 1000 then return nil end
   return thousandths
 end

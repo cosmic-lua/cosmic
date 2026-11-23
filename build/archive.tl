@@ -206,9 +206,9 @@ local function with_entries(file: string, to: verb.Io,
     end
     return body(entries)
   end
-  local reader, open_why = Archive.open_stream(replay)
+  local reader, open_why = Archive.open(replay)
   if reader == nil then return fail(bare.refused, trouble_of(file, file, tostring(open_why))) end
-  local entries, list_why = Archive.list_reader(reader)
+  local entries, list_why = Archive.list(reader)
   if entries == nil then return fail(bare.refused, trouble_of(file, file, tostring(list_why))) end
   return body(entries)
 end
@@ -488,7 +488,7 @@ end
 --- staging directory.
 local function extract_streamed(file: string, source: Stream.Reader, dest: string, force: boolean,
                                 wanted: {string}, selected: function(string): boolean, to: verb.Io): Outcome
-  local reader, open_why = Archive.open_stream(source)
+  local reader, open_why = Archive.open(source)
   if reader == nil then return fail(bare.refused, trouble_of(file, file, tostring(open_why))) end
   local inner: Archive.Reader = reader
 
@@ -568,7 +568,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     close = function(_self: Archive.Reader): boolean, string return true, "" end,
   }
 
-  local written, extract_why = Archive.extract_reader(watched, tree, {
+  local written, extract_why = Archive.extract(watched, tree, {
     links = "create",
     filter = selected,
     resolve_in = if dest_exists then dest else nil end,
@@ -752,7 +752,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
       end
       local seen: mut {Seen} = {}
       local odd: mut {string} = {}
-      local listed, walk_why = Fs.walk(given, function(relative: string, _bare: string, kind: Fs.Kind): boolean
+      local listed, walk_why = Fs.walk(given, { skip = function(relative: string, _bare: string, kind: Fs.Kind): boolean
         if kind == "dir" or kind == "link" then
           seen[#seen + 1] = { relative = relative, kind = kind }
         elseif kind ~= "file" and odd[1] == nil then
@@ -761,7 +761,7 @@ local function gather(paths: {string}, skip_file: string?): {Item}?, Outcome
           odd[1] = relative
         end
         return false
-      end)
+      end })
       if listed == nil then return nil, fail(bare.refused, tostring(walk_why)) end
       local stray = odd[1]
       if stray ~= nil then

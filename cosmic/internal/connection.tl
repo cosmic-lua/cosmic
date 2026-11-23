@@ -33,7 +33,9 @@ local function waited(fd: integer, writable: boolean, timeout_ns: integer?): boo
   -- then Stream.from_fd and Stream.to_fd (see the TODO at SocketConn:read
   -- in this file).
   if Poll.in_task() then
-    return Poll.wait(fd, if writable then sys.POLLOUT else sys.POLLIN end, timeout_ns)
+    local ready, why = Poll.wait(fd, if writable then sys.POLLOUT else sys.POLLIN end, timeout_ns)
+    if not ready then return false, why.message end
+    return true, ""
   end
   local ok, trouble, errno = raw.wait(fd, writable, Poll.milliseconds(timeout_ns))
   if ok then return true, "" end

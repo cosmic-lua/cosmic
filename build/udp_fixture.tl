@@ -72,7 +72,7 @@ function udp_fixture.send(bound: udp_fixture.Bound, data: string,
     if ok then return true, "" end
     if errno ~= raw.EAGAIN then return false, why end
     local ready, waiting = Poll.writable(bound.fd)
-    if not ready then return false, waiting end
+    if not ready then return false, waiting.message end
   end
 end
 
@@ -86,7 +86,7 @@ function udp_fixture.receive(bound: udp_fixture.Bound, timeout_ns?: integer): ra
     if packet ~= nil then return packet, "" end
     if errno ~= raw.EAGAIN then return nil, why end
     local ready, waiting = Poll.readable(bound.fd, timeout_ns)
-    if not ready then return nil, waiting end
+    if not ready then return nil, waiting.message end
   end
 end
 

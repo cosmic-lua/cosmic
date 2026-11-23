@@ -383,7 +383,7 @@ local function test_a_cancelled_run_ends_its_child_through_the_run(tmp: string)
       assert(Poll.delay(Clock.ms(50)))
       victim:kill()
       local _, why = victim:join()
-      killed_answer = why
+      killed_answer = if why ~= nil then why.message else nil end
       done = true
       assert(ticker:join())
     end)
@@ -486,7 +486,7 @@ local function test_a_run_killed_in_its_cleanup_ends_its_child_and_guard(tmp: st
     assert(Poll.delay(Clock.ms(50)))
     victim:kill()
     local _, why = victim:join()
-    answer = why
+    answer = if why ~= nil then why.message else nil end
   end)
   assert(answer == Poll.CANCELLED, answer)
   assert(sys.kill(assert(pid), 0) == false, "the killed run left its child running")

@@ -335,9 +335,9 @@ function TreeProgram.derived_of(root: string): {{string}}?, string
       end
     end
   end
-  local listed, walk_trouble = Fs.walk(root, function(relative: string, name: string, kind: Fs.Kind): boolean
+  local listed, walk_trouble = Fs.walk(root, { skip = function(relative: string, name: string, kind: Fs.Kind): boolean
     return kind == "dir" and (name:sub(1, 1) == "." or relative == "vendor" or relative == "o" or relative == "ci/o")
-  end)
+  end })
   if listed == nil then
     return nil, tostring(walk_trouble)
   end

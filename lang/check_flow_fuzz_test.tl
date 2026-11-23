@@ -52,7 +52,7 @@ end
 --- How many programs to draw: `FUZZ_ITERS` where it is set, else `default`, which a test of a few seconds under coverage
 --- allows (each is checked and run).
 local function iterations(default: integer): integer
-  return math.tointeger(tonumber(Env.get_or("FUZZ_ITERS", ""))) or default
+  return math.tointeger(tonumber(Env.get("FUZZ_ITERS") or "")) or default
 end
 
 local function check_source(source: string): boolean, string

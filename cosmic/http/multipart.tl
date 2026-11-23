@@ -248,7 +248,7 @@ local function ext_value(text: string): string?, string
       bad_escape = true
       return ""
     end
-    return string.char(Number.integer(hex, 16))
+    return string.char(assert(Number.integer(hex, 16)))
   end)
   if bad_escape == true then return nil, "multipart: filename* has a bad escape" end
   local lower = charset:lower()

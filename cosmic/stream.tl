@@ -266,7 +266,7 @@ local record Stream
 
   --- The entries of a tar or a zip, one at a time: what
   --- [`cosmic.tar`]'s and [`cosmic.zip`]'s readers are, and what
-  --- [`Archive.open`] and [`Archive.open_stream`] answer.
+  --- [`Archive.open`] answers.
   interface ArchiveReader
     --- The next entry, nil and "" at the end, or nil and an error. For
     --- a compressed tar, the end also runs the decompressor to the end
@@ -450,7 +450,9 @@ local function wait_for(fd: integer, events: integer, opts: Stream.FdOptions,
   if deadline ~= nil then left = math.max(deadline - Clock.monotonic_ns(), 0) end
   local wait = opts.wait
   if wait ~= nil then return wait(fd, events, left) end
-  return Poll.wait(fd, events, left)
+  local ok, why = Poll.wait(fd, events, left)
+  if not ok then return false, why.message end
+  return true, ""
 end
 
 --- Whether a failed wait leaves its stream as it was: a deadline or a
