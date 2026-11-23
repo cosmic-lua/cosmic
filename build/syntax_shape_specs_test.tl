@@ -90,18 +90,18 @@ local function test_each_field_kind_is_read_through_its_own_check()
     "end",
   }, "\n"))
   assert(source ~= nil, why)
-  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R>')
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: Shape.Mode): Shape.Spec<R>')
   has(source, why, "Shape.string")
   has(source, why, "Shape.integer")
   has(source, why, "Shape.number")
   has(source, why, "Shape.boolean")
   -- a field of `any` and a field that may be omitted may be missing
-  has(source, why, "Shape.optional(Shape.any)")
-  has(source, why, "Shape.optional(Shape.string)")
-  has(source, why, "Shape.optional(Shape.integer)")
+  has(source, why, "Shape.build.optional(sh_s1, Shape.any)")
+  has(source, why, "Shape.build.optional(sh_s1, Shape.string)")
+  has(source, why, "Shape.build.optional(sh_s1, Shape.integer)")
   -- arrays, maps, records and enums are read through their own checks
-  has(source, why, "Shape.list((function(sh_s")
-  has(source, why, "Shape.map(Shape.list(Shape.number))")
+  has(source, why, "Shape.build.list(sh_s1, (function(sh_s")
+  has(source, why, "Shape.build.map(sh_s1, Shape.build.list(sh_s1, Shape.number))")
   has(source, why, "Shape.Spec<Inner>")
   has(source, why, "Shape.Spec<Level>")
   has(source, why, 'if sh_v == "debug" then return "debug", "" end if sh_v == "warn" then return "warn", "" end')
@@ -125,10 +125,10 @@ local function test_an_optional_field_of_any_is_an_optional_field()
     "end",
   }, "\n"))
   assert(source ~= nil, why)
-  has(source, why, "local sh_c2 = Shape.optional(Shape.any)")
-  has(source, why, "local sh_c3 = Shape.optional(Shape.any)")
-  has(source, why, "local sh_c4 = Shape.optional(Shape.string)")
-  has(source, why, "local sh_c5 = Shape.optional(Shape.string)")
+  has(source, why, "local sh_c2 = Shape.build.optional(sh_s1, Shape.any)")
+  has(source, why, "local sh_c3 = Shape.build.optional(sh_s1, Shape.any)")
+  has(source, why, "local sh_c4 = Shape.build.optional(sh_s1, Shape.string)")
+  has(source, why, "local sh_c5 = Shape.build.optional(sh_s1, Shape.string)")
 end
 
 local function test_what_is_spliced_is_a_call_the_parser_reads()
@@ -173,7 +173,7 @@ local function test_a_module_the_calling_module_requires_names_its_record()
       "",
     }, "\n"),
   })
-  has(source, why, 'Shape.record_of("shapes.Line", (function(sh_s1: boolean): Shape.Spec<Shapes.Line>')
+  has(source, why, 'Shape.record_of("shapes.Line", (function(sh_s1: Shape.Mode): Shape.Spec<Shapes.Line>')
   has(source, why, "Shape.Spec<Shapes.Point>")
 end
 
@@ -185,8 +185,8 @@ local function test_a_record_of_the_standard_library_is_read_too()
     "return OPTIONS, Json",
     "",
   }, "\n") })
-  has(source, why, 'Shape.record_of("cosmic.json.DecodeOptions", (function(sh_s1: boolean): Shape.Spec<Json.DecodeOptions>')
-  has(source, why, "local sh_c2 = Shape.optional(Shape.integer)")
+  has(source, why, 'Shape.record_of("cosmic.json.DecodeOptions", (function(sh_s1: Shape.Mode): Shape.Spec<Json.DecodeOptions>')
+  has(source, why, "local sh_c2 = Shape.build.optional(sh_s1, Shape.integer)")
 end
 
 local function test_a_nested_own_record_is_named_by_its_path()
@@ -197,7 +197,7 @@ local function test_a_nested_own_record_is_named_by_its_path()
     "  end",
     "end",
   }, "\n"), 'Shape.record_of("Outer.R")')
-  has(source, why, 'Shape.record_of("Outer.R", (function(sh_s1: boolean): Shape.Spec<Outer.R>')
+  has(source, why, 'Shape.record_of("Outer.R", (function(sh_s1: Shape.Mode): Shape.Spec<Outer.R>')
 end
 
 local function test_a_function_field_is_refused_by_name()
@@ -311,8 +311,8 @@ local function test_a_record_in_a_function_is_the_one_its_block_declares()
     "return { first, second }",
     "",
   }, "\n") })
-  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R> local sh_c2 = Shape.string')
-  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R> local sh_c2 = Shape.integer')
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: Shape.Mode): Shape.Spec<R> local sh_c2 = Shape.string')
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: Shape.Mode): Shape.Spec<R> local sh_c2 = Shape.integer')
 end
 
 local function test_a_record_declared_below_the_call_is_not_read()
@@ -339,7 +339,7 @@ end
 
 local function test_a_call_over_several_lines_is_resolved()
   local source, why = of_record("local record R\n  n: integer\nend", 'Shape.record_of(\n  "R"\n)')
-  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R>')
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: Shape.Mode): Shape.Spec<R>')
   has(source, why, "Shape.integer")
 end
 
@@ -356,13 +356,13 @@ local function test_two_calls_on_one_line_are_each_resolved()
     "return both",
     "",
   }, "\n") })
-  has(source, why, 'Shape.record_of("A", (function(sh_s1: boolean): Shape.Spec<A> local sh_c2 = Shape.string')
-  has(source, why, 'Shape.record_of("B", (function(sh_s1: boolean): Shape.Spec<B> local sh_c2 = Shape.integer')
+  has(source, why, 'Shape.record_of("A", (function(sh_s1: Shape.Mode): Shape.Spec<A> local sh_c2 = Shape.string')
+  has(source, why, 'Shape.record_of("B", (function(sh_s1: Shape.Mode): Shape.Spec<B> local sh_c2 = Shape.integer')
 end
 
 local function test_a_comment_after_the_call_does_not_hide_it()
   local source, why = of_record("local record R\n  n: integer\nend", 'Shape.record_of("R") -- the spec of R')
-  has(source, why, 'Shape.record_of("R", (function(sh_s1: boolean): Shape.Spec<R>')
+  has(source, why, 'Shape.record_of("R", (function(sh_s1: Shape.Mode): Shape.Spec<R>')
   has(source, why, "Shape.integer")
 end
 
@@ -392,7 +392,7 @@ local function test_a_record_a_module_re_exports_under_an_alias_is_read_through_
     }, "\n"),
     ["main.tl"] = 'local Shape = require("cosmic.shape")\nlocal type Sb = require("sb")\nreturn Shape.record_of("sb.Policy")\n',
   })
-  has(source, why, 'Shape.record_of("sb.Policy", (function(sh_s1: boolean): Shape.Spec<Sb.Policy>')
+  has(source, why, 'Shape.record_of("sb.Policy", (function(sh_s1: Shape.Mode): Shape.Spec<Sb.Policy>')
 end
 
 local function test_the_splices_are_the_last_first_and_a_refusal_names_its_line()

@@ -15,7 +15,7 @@
 --- ([`lang.warnings`]), each in source order, and the type of every node the checker typed, by the id of the node:
 --- the report that [`build.syntax_receivers`], [`build.syntax_shape_specs`] and [`build.syntax_contracts`] read. A module that is not checked (a library, a stub, a binding) is lowered and has no body errors.
 ---
---- An error about a name cosmic removed (`os`, `Hash.hex`, `Zip.ZipReader`) has the replacement as its fix
+--- An error about a name cosmic removed (`os`, `package.path`) has the replacement as its fix
 --- ([`build.removed_fix`]).
 ---
 --- A caller that is done with a module retires it ([`Driver.Build.retire`]): the program keeps the declarations the next module
@@ -381,15 +381,15 @@ local function problem_of(kind: string, stage: string, code: string, msg: string
     removed = false }
 end
 
---- The problem for an error: its fix is the words of [`cosmic.removed`] where it is about a name cosmic removed
+--- The problem for an error: its fix is the words of [`cosmic.removed`] where it is about a name cosmic withholds
 --- ([`build.removed_fix`]), else the fix the checker wrote.
 local TEMPLATE_CONDITION <const> = "`{{if}}` and `{{with}}` need a value that can be absent: make the field optional, or " ..
   "drop the `{{if}}`"
 
 local function error_of(result: Driver.Outcome, stage: string, code: string, msg: string, fix: string, y: integer, x: integer,
-                        offset: integer, length: integer, types: {string}, argument?: Check.Argument,
+                        offset: integer, length: integer, argument?: Check.Argument,
                         other?: Scopes.Place): Driver.Problem
-  local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length, types)
+  local instead = RemovedFix.fix({ tokens = result.chunk.tokens, scoped = result.scoped }, code, offset, length)
   -- A condition of a template is written by the generator, over a local it names: the checker's fix would tell the template's
   -- author to write a test of that local. What a template can say is whether a value is there.
   local file = result.source.filename
@@ -942,7 +942,7 @@ function Driver.new(options: Driver.Options): Driver.Build
           if code == "require_unknown" then
             msg = msg .. meant(result, e.offset)
           end
-          table.insert(result.bodies, error_of(result, "checked", code, msg, e.fix, e.y, e.x, e.offset, e.length, e.types,
+          table.insert(result.bodies, error_of(result, "checked", code, msg, e.fix, e.y, e.x, e.offset, e.length,
             e.argument, e.other))
         end
         local exempt: {integer: boolean} = {}
@@ -971,12 +971,12 @@ function Driver.new(options: Driver.Options): Driver.Build
       entry.checked = true
       for _, e in ipairs(result.scoped.errors) do
         table.insert(result.scope_errors, error_of(result, "scoped", tostring(e.code), e.msg, e.fix, e.y, e.x,
-          e.offset, e.length, {}, nil, e.other))
+          e.offset, e.length, nil, e.other))
       end
       if lowered ~= nil then
         for _, e in ipairs(build.program:errors(result.module)) do
           table.insert(result.declared, error_of(result, "declared", tostring(e.code), e.msg, e.fix, e.y, e.x,
-            e.offset, e.length, e.types, nil, e.other))
+            e.offset, e.length, nil, e.other))
         end
       end
     end

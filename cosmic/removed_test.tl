@@ -1,39 +1,18 @@
 local Removed = require("cosmic.removed")
-local coverage_hits = require("build.coverage_hits")
 
---- Every module [`Removed.members`] names a member of, required by a
---- literal name so the test's import closure holds each: a `require`
---- of a computed name is refused under `cosmic test`
---- ([`build.test_worker`]).
+--- Every module a replacement quotes, required by a literal name so the
+--- test's import closure holds each: a `require` of a computed name is
+--- refused under `cosmic test` ([`build.test_worker`]).
 local modules <const>: {string:any} = {
-  ["cosmic.archive"] = require("cosmic.archive"), -- checked: any_use
   ["cosmic.child"] = require("cosmic.child"), -- checked: any_use
   ["cosmic.clock"] = require("cosmic.clock"), -- checked: any_use
-  ["cosmic.cli"] = require("cosmic.cli"), -- checked: any_use
-  ["cosmic.codec"] = require("cosmic.codec"), -- checked: any_use
-  ["cosmic.compress"] = require("cosmic.compress"), -- checked: any_use
-  ["cosmic.csv"] = require("cosmic.csv"), -- checked: any_use
-  ["cosmic.coverage"] = require("cosmic.coverage"), -- checked: any_use
   ["cosmic.env"] = require("cosmic.env"), -- checked: any_use
   ["cosmic.errors"] = require("cosmic.errors"), -- checked: any_use
   ["cosmic.fs"] = require("cosmic.fs"), -- checked: any_use
-  ["cosmic.hash"] = require("cosmic.hash"), -- checked: any_use
-  ["cosmic.http"] = require("cosmic.http"), -- checked: any_use
-  ["cosmic.json"] = require("cosmic.json"), -- checked: any_use
-  ["cosmic.net"] = require("cosmic.net"), -- checked: any_use
-  ["cosmic.policy"] = require("cosmic.policy"), -- checked: any_use
   ["cosmic.proc"] = require("cosmic.proc"), -- checked: any_use
-  ["cosmic.sandbox"] = require("cosmic.sandbox"), -- checked: any_use
-  ["cosmic.shape"] = require("cosmic.shape"), -- checked: any_use
-  ["cosmic.signal"] = require("cosmic.signal"), -- checked: any_use
-  ["cosmic.sqlite"] = require("cosmic.sqlite"), -- checked: any_use
   ["cosmic.stream"] = require("cosmic.stream"), -- checked: any_use
   ["cosmic.string"] = require("cosmic.string"), -- checked: any_use
-  ["cosmic.sys"] = require("cosmic.sys"), -- checked: any_use
-  ["cosmic.tar"] = require("cosmic.tar"), -- checked: any_use
-  ["cosmic.test"] = require("cosmic.test"), -- checked: any_use
   ["cosmic.time"] = require("cosmic.time"), -- checked: any_use
-  ["cosmic.zip"] = require("cosmic.zip"), -- checked: any_use
 }
 
 --- Every replacement is for a field of a name the surface removes, so
@@ -81,23 +60,6 @@ local function test_a_field_with_no_replacement_names_where_to_look()
   assert(Removed.message("print") == "print is not available")
 end
 
---- Every removed member names a `cosmic.*` module that loads and no
---- longer has that member, so its replacement is never said for a
---- member that still works.
-local function test_every_removed_member_is_gone_from_its_module()
-  for dotted in pairs(Removed.members) do
-    local module, member = dotted:match("^(cosmic%.[%w_]+)%.([%w_]+)$")
-    assert(module ~= nil and member ~= nil, dotted)
-    local loaded = modules[module]
-    assert(loaded ~= nil, module .. " is not among this test's modules: add it")
-    assert(loaded is {string: any} and loaded[member] == nil, dotted) -- checked: is_on_record
-  end
-end
-
---- Modules an entry quotes that no test can require: private to their
---- directory, so their names are not looked up.
-local unreachable <const>: {string:boolean} = { ["cosmic.http.server"] = true }
-
 --- Every dotted [`Alias.name`] a replacement quotes names a function or
 --- value that the module the same entry's `local Alias =
 --- require("...")` brings in still has, so a rename there cannot leave a
@@ -111,7 +73,7 @@ local unreachable <const>: {string:boolean} = { ["cosmic.http.server"] = true }
 --- nothing.
 local function test_every_quoted_function_exists_in_the_module_it_names()
   local entries: mut {string:string} = {}
-  for _, group in ipairs({ Removed.replacements, Removed.names, Removed.members }) do
+  for _, group in ipairs({ Removed.replacements, Removed.names }) do
     for key, text in pairs(group) do
       entries[key] = text
     end
@@ -123,9 +85,6 @@ local function test_every_quoted_function_exists_in_the_module_it_names()
       aliases[alias] = module
       required = required + 1
     end
-    -- A removed member's entry may say the removed name itself
-    -- ("Net.pair is gone"): the one name of its own module not checked.
-    local gone_module, gone = key:match("^(cosmic%.[%w_.]-)%.([%w_]+)$")
     local checked = 0
     for alias, field in text:gmatch("%f[%w_]([%a_][%w_]*)%.([%a_][%w_]*)") do
       local module = aliases[alias]
@@ -133,188 +92,12 @@ local function test_every_quoted_function_exists_in_the_module_it_names()
         checked = checked + 1
       end
       if module ~= nil and not field:find("^%u") then
-        if not (gone ~= nil and module == gone_module and field:lower() == gone:lower()) then
-          local loaded = modules[module]
-          if loaded == nil and unreachable[module] then -- checked: or_mix
-            -- Unreachable from here; see `unreachable`.
-          else
-            assert(loaded ~= nil, module .. " is not among this test's modules: add it")
-            assert(loaded is {string: any} and loaded[field] ~= nil, -- checked: is_on_record
-              key .. " quotes " .. alias .. "." .. field .. ", which " .. module .. " lacks")
-          end
-        end
+        local loaded = modules[module]
+        assert(loaded ~= nil, module .. " is not among this test's modules: add it")
+        assert(loaded is {string: any} and loaded[field] ~= nil, -- checked: is_on_record
+          key .. " quotes " .. alias .. "." .. field .. ", which " .. module .. " lacks")
       end
     end
     assert(required == 0 or checked > 0, key .. " requires a module and quotes none of its names")
   end
-end
-
---- A program that called a streaming coder is told that `cosmic codec`
---- has them and which whole-string function to use.
-local function test_the_removed_coders_name_the_verb_and_the_whole_string_functions()
-  for _, member in ipairs({ "encoder", "decoder", "Coder", "Name" }) do
-    local instead = Removed.members["cosmic.codec." .. member]
-    assert(instead ~= nil, member)
-    assert(instead:find("`cosmic codec`", 1, true), instead)
-    assert(instead:find("Codec.base64", 1, true), instead)
-  end
-end
-
---- A program that called one of the removed lookups is told the path
---- API that does what it did. `get` and `select` are back, as Json.get
---- and Json.select over Json.Steps and a JSONPath query.
-local function test_the_removed_json_lookups_name_the_path_api()
-  for member, api in pairs({
-      entries = "Json.get", items = "Json.get", parse_path = "Json.from_path", parse_pattern = "Json.query",
-      child_path = "Json.path", Step = "Json.Segment", Located = "Json.Match",
-  }) do
-    local instead = Removed.members["cosmic.json." .. member]
-    assert(instead ~= nil, member)
-    assert(instead:find(api, 1, true), instead)
-    assert(not instead:find("[1]", 1, true), "a 1-based path: " .. instead)
-  end
-  for _, member in ipairs({ "flatten", "flat_line", "describe" }) do
-    local instead = Removed.members["cosmic.json." .. member]
-    assert(instead ~= nil and instead:find("build.json_query", 1, true) ~= nil, member)
-  end
-  assert(Removed.members["cosmic.json.get"] == nil and Removed.members["cosmic.json.select"] == nil)
-end
-
-local function test_the_removed_csv_functions_name_what_to_use_instead()
-  local rows = Removed.members["cosmic.csv.rows"]
-  assert(rows ~= nil and rows:find("Csv.table", 1, true) ~= nil)
-  assert(Removed.members["cosmic.csv.encode"] == nil)
-end
-
---- A program that named the removed codec type is told its interface.
-local function test_the_removed_codec_type_names_the_transform_interface()
-  local instead = Removed.members["cosmic.stream.Codec"]
-  assert(instead ~= nil and instead:find("Stream.Transform", 1, true) ~= nil, instead)
-end
-
---- A program that asked `into` for every failure, or a union, is told
---- that `into` answers the first and what to write for alternatives.
-local function test_the_removed_shape_members_name_into_and_one_of()
-  local failures = Removed.members["cosmic.shape.failures"]
-  assert(failures ~= nil and failures:find("Shape.into", 1, true) ~= nil and failures:find("first", 1, true) ~= nil, failures)
-  local either = Removed.members["cosmic.shape.either"]
-  assert(either ~= nil and either:find("Shape.one_of", 1, true) ~= nil and either:find("Shape.into", 1, true) ~= nil, either)
-  assert(Removed.members["cosmic.shape.Failure"] ~= nil)
-end
-
---- A program that called [`cosmic.test`]'s `needs` or one of its validators is
---- told to declare [`Test.policy`] and let the build refuse a bad one, and one that read the
---- collector's window in place is told the module that has it, which does.
-local function test_the_removed_test_and_coverage_members_say_what_to_do_instead()
-  for _, member in ipairs({ "needs", "fields", "any_host_refusal", "network_trouble",
-      "lua_trouble" }) do
-    local instead = Removed.members["cosmic.test." .. member]
-    assert(instead ~= nil and instead:find("Test.policy", 1, true) ~= nil, member)
-  end
-  for _, member in ipairs({ "snapshot", "native_entries" }) do
-    local instead = Removed.members["cosmic.coverage." .. member]
-    assert(instead ~= nil and instead:find("build.coverage_hits", 1, true) ~= nil, member)
-  end
-  assert(coverage_hits.snapshot ~= nil and coverage_hits.native_entries ~= nil) -- checked: compare_disjoint*2
-end
-
---- Every replaced argument is keyed by a `cosmic.*` module that loads,
---- and by the name of a type, which is capitalized.
-local function test_every_replaced_argument_names_a_module_that_loads()
-  for dotted in pairs(Removed.arguments) do
-    local module, record = dotted:match("^(cosmic%.[%w_]+)%.(%u[%w_]*)$")
-    assert(module ~= nil and record ~= nil, dotted)
-    assert(modules[module] ~= nil, module .. " is not among this test's modules: add it")
-  end
-end
-
---- A program that passed a boolean to [`Sqlite.open`] is told what the
---- old `true` becomes and that `false` is no argument.
-local function test_the_sqlite_options_name_each_old_boolean_call()
-  local instead = Removed.arguments["cosmic.sqlite.OpenOptions"]
-  assert(instead ~= nil and instead:find("{ writable = true }", 1, true) ~= nil and -- checked: or_mix
-      instead:find("nothing for `false`", 1, true), instead)
-end
-
---- A program that made a raw pipe for a child's stdin is told to use
---- `stdin = "stream"` and `h.stdin_stream`, never the `"pipe"` mode.
-local function test_the_removed_raw_pipe_names_the_stdin_stream()
-  for _, member in ipairs({ "pipe", "Pipe", "ignore_sigpipe" }) do
-    local instead = Removed.members["cosmic.sys." .. member]
-    assert(instead ~= nil and instead:find('stdin = "stream"', 1, true) ~= nil and
-        not instead:find('"pipe"', 1, true), member)
-  end
-  local pipe = Removed.members["cosmic.sys.pipe"]
-  assert(pipe ~= nil and pipe:find("h.stdin_stream", 1, true) ~= nil)
-end
-
---- A program that called a removed calendar function or type is told what
---- replaced it: `between` for the two counts, `local_zone` for a TZ string,
---- `Duration` and `AddOptions` for the records.
-local function test_the_removed_time_members_name_their_replacements()
-  for member, want in pairs({ -- checked: cast_refused
-      months_between = "Time.between", days_between = "Time.between",
-      zone_from_posix = "Time.local_zone", Change = "Time.Duration",
-      CivilOptions = "Time.AddOptions", parse_input = "build.time",
-  } as {string:string}) do
-    local instead = Removed.members["cosmic.time." .. member]
-    assert(instead ~= nil and instead:find(want, 1, true) ~= nil, member)
-  end
-end
-
---- A program that called a clock or span helper through [`cosmic.time`] is
---- told to call the same function in [`cosmic.clock`].
-local function test_the_removed_time_clock_aliases_name_the_clock_function()
-  for _, name in ipairs({ "now_ns", "monotonic_ns", "sleep_ns", "ms", "seconds", "minutes",
-      "hours", "ceil" }) do
-    local instead = Removed.members["cosmic.time." .. name]
-    assert(instead ~= nil, name)
-    assert(instead:find("Clock." .. name, 1, true) ~= nil, name)
-    assert(instead:find("cosmic.clock", 1, true) ~= nil, name)
-  end
-end
-
---- A program that read [`cosmic.cli`]'s `options`, `usage` or `summary` is told
---- which field of the verb's record in `Cli.verbs` holds it now.
-local function test_the_removed_cli_maps_name_the_verb_record_field_that_replaced_each()
-  local fields: {string:string} = { options = "spec", usage = "usage", summary = "about" }
-  for member, field in pairs(fields) do
-    local instead = Removed.members["cosmic.cli." .. member]
-    assert(instead ~= nil and instead:find("Cli.verbs[verb]." .. field, 1, true) ~= nil, member)
-  end
-end
-
---- A program that streamed a request body, truncated a descriptor,
---- asked for a cache path or asked whether a path exists is told what
---- to write instead: a whole body through [`Http.request`],
---- [`sys.ftruncate`], `cache_dir` with `make = false`, and
---- [`Fs.status`].
-local function test_the_removed_fs_and_http_members_name_their_replacements()
-  for member, want in pairs({ -- checked: cast_refused
-      ["http.upload"] = "Http.request(\"PUT\", url, { timeout_ns = limit, body = body })",
-      ["http.Upload"] = "Http.request(\"PUT\", url, { timeout_ns = limit, body = body })",
-      ["fs.truncate"] = "sys.ftruncate(fd, length)",
-      ["fs.cache_path"] = "Fs.cache_dir(tool, { environment = environment, make = false })",
-      ["fs.exists"] = "assert(Fs.status(path)).exists",
-      ["fs.is_dir"] = "assert(Fs.status(path)).is_dir",
-  } as {string:string}) do
-    local instead = Removed.members["cosmic." .. member]
-    assert(instead ~= nil and instead:find(want, 1, true) ~= nil, member)
-  end
-end
-
---- A program that made a connected pair, read the arguments the program
---- was started with or named an address's kind type is told what to do
---- instead, and the removed pair's record says it went with it.
-local function test_the_removed_net_and_proc_members_say_what_to_do_instead()
-  local pair = Removed.members["cosmic.net.pair"]
-  assert(pair ~= nil and pair:find("Net.listen(Net.unix(path))", 1, true) ~= nil and -- checked: or_mix
-      pair:find("Net.connect(server.address)", 1, true), tostring(pair))
-  local record = Removed.members["cosmic.net.Pair"]
-  assert(record ~= nil and record:find("Net.pair is gone", 1, true) ~= nil, tostring(record))
-  local kind = Removed.members["cosmic.net.Kind"]
-  assert(kind ~= nil and kind:find("Net.unix", 1, true) ~= nil, tostring(kind))
-  local arguments = Removed.members["cosmic.proc.arguments"]
-  assert(arguments ~= nil and arguments:find("Proc.relaunch()", 1, true) ~= nil and -- checked: or_mix
-      arguments:find("argv", 1, true), tostring(arguments))
 end
