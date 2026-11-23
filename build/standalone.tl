@@ -31,8 +31,8 @@
 --- refused by the checker. The checker is as strict as a tree build's:
 --- a warning is refused along with an error.
 ---
---- `cosmic --standalone --check <file.tl>` types the file as a run does, prints the same refusals and exits 1 on any, 0 when
---- there are none, and never calls the file: a gate on one script that reads neither the tree around it nor its siblings.
+--- `cosmic --standalone --check <file.tl>` types the file as a run does, prints the same refusals and exits 4 on any, 0 when
+--- there are none, 1 when it cannot read the file, and never calls the file: a gate on one script that reads neither the tree around it nor its siblings.
 ---
 --- What the file returns is its entry point, called as `cosmic
 --- <file.tl>` calls one (see `argv`): a function, or a record whose
