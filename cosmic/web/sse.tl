@@ -291,9 +291,9 @@ end
 
 function QueueSource.next(self: QueueSource, timeout_ns?: integer): Sse.Event?, string
   local ev, why = self.queue:receive(timeout_ns)
-  if ev ~= nil then return ev, "" end
-  if self.queue:closed() then return nil, "" end
-  return nil, why
+  if ev == nil then return nil, why.message end
+  if ev == false then return nil, "" end
+  return ev, ""
 end
 
 function QueueSource.close(self: QueueSource)
@@ -532,9 +532,9 @@ end
 
 function Sub.next(self: Sub, timeout_ns?: integer): Sse.Event?, string
   local ev, why = self.queue:receive(timeout_ns)
-  if ev ~= nil then return ev, "" end
-  if self.queue:closed() then return nil, "" end
-  return nil, why
+  if ev == nil then return nil, why.message end
+  if ev == false then return nil, "" end
+  return ev, ""
 end
 
 function Sub.close(self: Sub)
@@ -632,7 +632,7 @@ function State.publish(self: State, name: string, ev: Sse.Event): integer
   local cut: mut {Sub} = {}
   for sub in pairs(topic.subs) do
     local sent, _ = sub.queue:try_send(kept)
-    if sent then
+    if sent == true then
       reached = reached + 1
     else
       cut[#cut + 1] = sub
