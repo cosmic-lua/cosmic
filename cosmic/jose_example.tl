@@ -5,8 +5,7 @@
 local Clock = require("cosmic.clock")
 local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
-local Rand = require("cosmic.rand")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
 
 local record Example
 end
@@ -30,17 +29,17 @@ function Example.key()
   local key = assert(Jose.key({
     kty = "OKP", crv = "Ed25519", x = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
   }))
-  print(key.alg, Jose.thumbprint(key))
+  print(key.alg, key.public:thumbprint())
   assert(key.alg == "EdDSA")
 end
 
 --- A token signed and checked: a provider's half and a client's.
 function Example.verify_jwt()
-  local provider = Jose.signer("ES256", Sign.p256_secret(), "2026-11")
+  local provider = Key.generate("p256")
   local token = Jose.sign(provider, {
     iss = "https://id.example.com", sub = "ada", aud = "my-app", exp = Clock.now_ns() // 1000000000 + 300,
-  }, { typ = "JWT" })
-  local keys = assert(Jose.keys({ keys = Json.array({ provider.jwk }) }))
+  }, { typ = "JWT", kid = "2026-11" })
+  local keys = assert(Jose.keys({ keys = Json.array({ Jose.jwk(provider.public, "2026-11") }) }))
   local claims = assert(Jose.verify_jwt(token, keys, {
     issuer = "https://id.example.com", audience = "my-app",
   }))
@@ -53,9 +52,9 @@ end
 --- A signature over bytes that are not JSON, checked, then decoded
 --- without a check to see what the header says.
 function Example.verify()
-  local signer = Jose.signer("EdDSA", assert(Rand.entropy(32)))
+  local signer = Key.generate("ed25519")
   local token = Jose.sign(signer, { hello = "world" })
-  local jws = assert(Jose.verify(token, { signer.key }, { algs = { "EdDSA" } }))
+  local jws = assert(Jose.verify(token, { assert(Jose.key(Jose.jwk(signer.public))) }, { algs = { "EdDSA" } }))
   print(jws.alg, jws.payload)
   assert(assert(Jose.decode(token)).alg == "EdDSA")
 end

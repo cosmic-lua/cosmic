@@ -3,10 +3,9 @@
 --- output stood in for: the keys it writes, the challenges it answers
 --- and what it refuses.
 
-local Acme = require("cosmic.acme")
 local Codec = require("cosmic.codec")
 local Fs = require("cosmic.fs")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
 local rsa_fixture = require("build.rsa_fixture")
 local acme = require("build.acme")
 local acme_fixture = require("build.acme_fixture")
@@ -88,8 +87,8 @@ end
 --- A world with an account key and a certificate key in files.
 local function keyed(): World
   local world = new_world()
-  world.files["account.pem"] = assert(Acme.p256_key(Sign.p256_secret()).pem)
-  world.files["site.pem"] = assert(Acme.p256_key(Sign.p256_secret()).pem)
+  world.files["account.pem"] = Key.generate("p256"):pem()
+  world.files["site.pem"] = Key.generate("p256"):pem()
   return world
 end
 
@@ -99,16 +98,16 @@ local function test_key_writes_a_p256_key_only_its_owner_reads()
   assert(ran.code == 0 and ran.out == "" and ran.err == "", ran.err)
   local pem = assert(world.files["account.pem"])
   assert(world.modes["account.pem"] == 0x180, "mode 0600")
-  local key = assert(Acme.read_key(pem))
-  assert(key.alg == "ES256")
+  local key = assert(Key.read(pem))
+  assert(key.alg == "p256")
 end
 
 local function test_key_rsa_prints_an_rsa_key_to_standard_output()
   local world = new_world()
   local ran = run(world, { "key", "--rsa", "-" })
   assert(ran.code == 0 and ran.err == "", ran.err)
-  local key = assert(Acme.read_key(ran.out))
-  assert(key.alg == "RS256" and #(assert(key.jwk["n"])) == 342, "a 2048-bit modulus")
+  local key = assert(Key.read(ran.out))
+  assert(key.alg == "rsa" and #(assert(key.public:jwk()["n"])) == 342, "a 2048-bit modulus")
 end
 
 local function test_key_refuses_a_file_that_is_there_and_options_it_does_not_take()
@@ -154,8 +153,8 @@ local function test_issue_answers_http_01_from_the_webroot_and_writes_the_chain(
   local made = assert(world.server.accounts[1])
   assert(made["termsOfServiceAgreed"] == true)
   local csr = acme_fixture.read_csr(world.server.csr)
-  local site = assert(Acme.read_key(assert(world.files["site.pem"])))
-  local x = assert(Codec.unbase64url(assert(site.jwk["x"])))
+  local site = assert(Key.read(assert(world.files["site.pem"])))
+  local x = assert(Codec.unbase64url(assert(site.public:jwk()["x"])))
   assert(csr.verified and csr.public:sub(2, 33) == x, "the request carries the certificate key")
 end
 
@@ -183,6 +182,7 @@ end
 local function test_issue_refuses_a_line_or_a_key_it_cannot_use()
   local world = keyed()
   world.files["broken.pem"] = "not a key"
+  world.files["ed25519.pem"] = Key.generate("ed25519"):pem()
   world.files["other.pem"] = assert(world.files["site.pem"])
   local base = "issue --account account.pem --key site.pem --directory " .. DIRECTORY
   local cases: {{string}} = {
@@ -192,6 +192,8 @@ local function test_issue_refuses_a_line_or_a_key_it_cannot_use()
     { "issue --key site.pem --webroot /w example.com", "--account names a key file" },
     { "issue --account account.pem --key missing.pem --webroot /w example.com", "missing.pem: no such file" },
     { "issue --account broken.pem --key site.pem --webroot /w example.com", "broken.pem: no private key" },
+    { "issue --account ed25519.pem --key site.pem --webroot /w example.com", "ed25519.pem: an Ed25519 key" },
+    { "issue --account account.pem --key ed25519.pem --webroot /w example.com", "ed25519.pem: an Ed25519 key" },
     { "issue --account account.pem --key account.pem --webroot /w example.com", "--key is the account's key" },
     { "issue --account account.pem --key site.pem --staging --directory " .. DIRECTORY .. " --webroot /w x.com",
       "--staging names a directory" },
@@ -214,7 +216,7 @@ end
 
 local function test_an_rsa_certificate_key_is_taken()
   local world = keyed()
-  world.files["rsa.pem"] = assert(Acme.rsa_key(rsa_fixture.FIRST).pem)
+  world.files["rsa.pem"] = assert(Key.secret("rsa", rsa_fixture.FIRST)):pem()
   local ran = run(world, { "issue", "--account", "account.pem", "--key", "rsa.pem", "--directory", DIRECTORY,
     "--webroot", "/w", "example.com" })
   assert(ran.code == 0, ran.err)
@@ -259,7 +261,8 @@ local function test_key_creates_its_file_exclusively(tmp: string)
   local path = tmp .. "/account.pem"
   assert(acme.run({ "acme", "key", path }) == 0)
   local made = assert(Fs.read(path))
-  assert(Acme.read_key(made) ~= nil and (assert(Fs.stat(path)).mode & 0x1ff) == 0x180)
+  assert(Key.read(made))
+  assert((assert(Fs.stat(path)).mode & 0x1ff) == 0x180)
   assert(acme.run({ "acme", "key", path }) == 2)
   assert(assert(Fs.read(path)) == made, "a key there was written over")
   local link = tmp .. "/link.pem"
@@ -290,7 +293,7 @@ end
 local function test_a_chain_for_another_key_is_never_written_over_out()
   local world = keyed()
   world.files["chain.pem"] = "the chain served now"
-  world.server.leaf_spki = Acme.p256_key(Sign.p256_secret()).spki
+  world.server.leaf_spki = Key.generate("p256").public:spki()
   local ran = run(world, { "issue", "--account", "account.pem", "--key", "site.pem", "--directory", DIRECTORY,
     "--webroot", "/w", "--out", "chain.pem", "example.com" })
   assert(ran.code == 1 and ran.err:find("not for the certificate's key", 1, true) ~= nil, ran.err)
