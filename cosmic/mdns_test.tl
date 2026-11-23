@@ -5,6 +5,7 @@
 
 local Clock = require("cosmic.clock")
 local Dns = require("cosmic.dns")
+local Failure = require("cosmic.failure")
 local Mdns = require("cosmic.mdns")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
@@ -219,22 +220,33 @@ local function test_what_is_no_service_type_is_refused_with_the_reason()
   for _, service in ipairs({ "", "http", "_http", "_http._tcp.example", "http._tcp", "_http._sctp", "a.._tcp",
       "_a._b._http._tcp", "printer._http._tcp.local" }) do
     local found, why = Mdns.browse(service, { timeout_ns = 0 })
-    assert(found == nil and why ~= "", service)
+    assert(found == nil and why.message ~= "", service)
   end
 end
 
 local function test_an_option_out_of_range_raises_naming_it()
-  Test.raises(function() Mdns.browse("_http._tcp", { timeout_ns = -1 }) end, "mdns: timeout_ns must be")
-  Test.raises(function() Mdns.browse("_http._tcp", { retry_ns = 0 }) end, "mdns: retry_ns must be")
-  Test.raises(function() Mdns.browse("_http._tcp", { settle_ns = -1 }) end, "mdns: settle_ns must be")
-  Test.raises(function() Mdns.resolve("printer.local", { settle_ns = -1 }) end, "mdns: settle_ns must be")
-  Test.raises(function() Mdns.browse("_http._tcp", { port = 0 }) end, "mdns: port must be")
-  Test.raises(function() Mdns.browse("_http._tcp", { port = 65536 }) end, "mdns: port must be")
-  Test.raises(function() Mdns.browse("_http._tcp", { limit = 0 }) end, "mdns: limit must be")
-  Test.raises(function() Mdns.browse("_http._tcp", { limit = 4097 }) end, "mdns: limit must be")
-  Test.raises(function() Mdns.browse("_http._tcp", { limit = 1 << 61 }) end, "mdns: limit must be")
-  Test.raises(function() Mdns.resolve("printer.local", { limit = 4097 }) end, "mdns: limit must be")
-  Test.raises(function() Mdns.resolve("printer.local", { port = 0 }) end, "mdns: port must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { timeout_ns = -1 }) end, "mdns: timeout_ns must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { retry_ns = 0 }) end, "mdns: retry_ns must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { settle_ns = -1 }) end, "mdns: settle_ns must be")
+  Test.raises(function() local _, _ = Mdns.resolve("printer.local", { settle_ns = -1 }) end, "mdns: settle_ns must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { port = 0 }) end, "mdns: port must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { port = 65536 }) end, "mdns: port must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { limit = 0 }) end, "mdns: limit must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { limit = 4097 }) end, "mdns: limit must be")
+  Test.raises(function() local _, _ = Mdns.browse("_http._tcp", { limit = 1 << 61 }) end, "mdns: limit must be")
+  Test.raises(function() local _, _ = Mdns.resolve("printer.local", { limit = 4097 }) end, "mdns: limit must be")
+  Test.raises(function() local _, _ = Mdns.resolve("printer.local", { port = 0 }) end, "mdns: port must be")
+  -- The caller is blamed, by its file and line, for the options it gave.
+  local blamed: {function()} = {
+    function() local _, _ = Mdns.browse("_http._tcp", { timeout_ns = -1 }) end,
+    function() local _, _ = Mdns.browse("_http._tcp", { port = 0 }) end,
+    function() local _, _ = Mdns.resolve("printer.local", { limit = 4097 }) end,
+    function() local _, _ = Mdns.responder({}, { port = -1 }) end,
+  }
+  for index, call in ipairs(blamed) do
+    local ok, err = pcall(call)
+    assert(not ok and tostring(err):find("^cosmic%.mdns_test:%d+: mdns: ") ~= nil, tostring(index) .. ": " .. tostring(err))
+  end
 end
 
 local function test_records_that_come_before_the_one_they_depend_on_are_asked_for_again()
@@ -606,7 +618,9 @@ local function test_what_found_raises_the_search_raises()
     { service = "_http._tcp", name = "Whole", host = "whole.local", port = 80, ipv4 = { "192.0.2.1" } },
   }, function(opts: Mdns.Options, _: Mdns.Options, _: integer)
     local why = Test.raises(function()
-      Mdns.browse(HTTP, { ...opts, found = function(_: Mdns.Instance) error("no more", 0) end })
+      local _, _ = Mdns.browse(HTTP, { ...opts, found = function(_: Mdns.Instance)
+        error("no more", 0)
+      end })
     end, "no more")
     assert(why == "no more", why)
   end)
@@ -617,7 +631,7 @@ local function test_a_cancelled_tasks_search_ends_at_once_with_cancelled()
     local silent <close> = assert(Net.datagram(Net.udp(LOOPBACK, 0)))
     local started = Clock.monotonic_ns()
     local found: {Mdns.Instance}?
-    local why = "never ran"
+    local why: Failure? = nil
     local search = Poll.spawn(function()
       found, why = Mdns.browse(HTTP, { address = LOOPBACK, port = assert(silent.address.port),
         timeout_ns = Clock.seconds(20) })
@@ -626,7 +640,7 @@ local function test_a_cancelled_tasks_search_ends_at_once_with_cancelled()
     assert(Poll.delay(Clock.ms(50)))
     search:cancel()
     assert(search:join(Clock.seconds(10)))
-    assert(found == nil and why == Poll.CANCELLED, why)
+    assert(found == nil and assert(why).kind == "cancelled", tostring(why))
     assert(Clock.monotonic_ns() - started < Clock.seconds(10))
   end)
 end
@@ -798,13 +812,13 @@ local function test_listening_by_group_fails_where_the_group_cannot_be_joined()
   local port = free_port()
   -- No group at all.
   local unjoined, why = Mdns.browse(HTTP, { listen = "group", address = LOOPBACK, port = port, timeout_ns = 0 })
-  assert(unjoined == nil and why:find(LOOPBACK .. ": ", 1, true) == 1, why)
+  assert(unjoined == nil and why.message:find(LOOPBACK .. ": ", 1, true) == 1, tostring(why))
   assert(is_free(port))
   -- 192.0.2.0/24 is for documentation: no interface has an address of it.
   local group = "239.255.53.2"
   local nowhere, nowhere_why = Mdns.browse(HTTP, { listen = "group", address = group,
     via = { "192.0.2.77" }, port = port, timeout_ns = 0 })
-  assert(nowhere == nil and nowhere_why:find(group .. ": ", 1, true) == 1, nowhere_why)
+  assert(nowhere == nil and nowhere_why.message:find(group .. ": ", 1, true) == 1, tostring(nowhere_why))
   assert(is_free(port))
 end
 
@@ -813,7 +827,7 @@ local function test_listening_by_group_fails_where_the_port_is_held_unshared()
   local port = assert(holder.address.port)
   local found, why = Mdns.browse(HTTP, { listen = "group", address = "239.255.53.5", via = { LOOPBACK },
     port = port, timeout_ns = 0 })
-  assert(found == nil and why:find("0.0.0.0:" .. tostring(port) .. ": ", 1, true) == 1, why)
+  assert(found == nil and why.message:find("0.0.0.0:" .. tostring(port) .. ": ", 1, true) == 1, tostring(why))
 end
 
 --- Listening by "unicast" the search's socket shares its port with none, so the port is free again only
@@ -834,7 +848,7 @@ local function test_the_socket_is_closed_when_found_raises()
     end)
     local free_meanwhile = true
     Test.raises(function()
-      Mdns.browse(HTTP, { address = LOOPBACK, port = assert(device.address.port), timeout_ns = Clock.seconds(10),
+      local _, _ = Mdns.browse(HTTP, { address = LOOPBACK, port = assert(device.address.port), timeout_ns = Clock.seconds(10),
         found = function(_: Mdns.Instance)
           free_meanwhile = is_free(asked_from)
           error("no more", 0)
@@ -850,7 +864,7 @@ end
 local function test_the_socket_is_closed_when_the_search_is_cancelled()
   local port = free_port()
   Poll.run(function()
-    local why = "never ran"
+    local why: Failure? = nil
     local search = Poll.spawn(function()
       local _found: {Mdns.Instance}?
       _found, why = Mdns.browse(HTTP, { listen = "group", address = "239.255.53.7", via = { LOOPBACK },
@@ -860,7 +874,7 @@ local function test_the_socket_is_closed_when_the_search_is_cancelled()
     assert(not is_free(port))
     search:cancel()
     assert(search:join(Clock.seconds(10)))
-    assert(why == Poll.CANCELLED, why)
+    assert(assert(why).kind == "cancelled", tostring(why))
     assert(is_free(port))
   end)
 end
@@ -913,7 +927,7 @@ end
 local function test_a_name_outside_the_local_domain_is_not_resolved()
   for _, name in ipairs({ "printer.example.com", "local", "printer", "", "a..local" }) do
     local addresses, why = Mdns.resolve(name, { timeout_ns = 0 })
-    assert(addresses == nil and why ~= "", name)
+    assert(addresses == nil and why.message ~= "", name)
   end
 end
 
@@ -1335,7 +1349,7 @@ local function test_a_list_that_is_no_list_of_service_types_is_refused_with_the_
   for n = 1, 33 do many[n] = ("_t%d._tcp"):format(n) end
   for at_case, list in ipairs({ none, many, { "_http._tcp", "http" } }) do
     local found, why = Mdns.browse(list, { timeout_ns = 0 })
-    assert(found == nil and why:find("mdns: ", 1, true) == 1, tostring(at_case) .. ": " .. why)
+    assert(found == nil and why.message:find("mdns: ", 1, true) == 1, tostring(at_case) .. ": " .. tostring(why))
   end
   -- Thirty-two are taken: the search is made, with no time to ask in.
   table.remove(many)
@@ -1480,7 +1494,7 @@ local function test_a_cancelled_search_gives_found_what_it_held()
   serving(reply, function(opts: Mdns.Options)
     local told: mut {Mdns.Instance} = {}
     local found: {Mdns.Instance}?
-    local why = "never ran"
+    local why: Failure? = nil
     local search = Poll.spawn(function()
       found, why = Mdns.browse(HTTP, { ...opts, timeout_ns = Clock.seconds(25),
         found = function(instance: Mdns.Instance)
@@ -1490,7 +1504,7 @@ local function test_a_cancelled_search_gives_found_what_it_held()
     while #told == 0 do assert(Poll.delay(Clock.ms(5))) end
     search:cancel()
     assert(search:join(Clock.seconds(10)))
-    assert(found == nil and why == Poll.CANCELLED, why)
+    assert(found == nil and assert(why).kind == "cancelled", tostring(why))
     assert(#told == 2, tostring(#told))
     local first, second = assert(told[1]), assert(told[2])
     assert(first.name == "Whole" and first.ipv4[1] == "192.0.2.1")
@@ -1874,7 +1888,7 @@ local function test_a_responder_publishes_64_instances_and_no_more()
   local over: Mdns.Published = { service = "_http._tcp", name = "Web 65", host = "web65.local", port = 65 }
   many[#many + 1] = over
   local responder, why = Mdns.responder(many, { address = PUBLISHED_AT, port = 0, via = { LOOPBACK } })
-  assert(responder == nil and why:find("mdns: ", 1, true) == 1, why)
+  assert(responder == nil and why.message:find("mdns: ", 1, true) == 1, tostring(why))
 end
 
 local function test_what_a_responder_cannot_publish_is_refused_with_the_reason()
@@ -1913,17 +1927,19 @@ local function test_what_a_responder_cannot_publish_is_refused_with_the_reason()
   local tried = 0
   for what, instances in pairs(cases) do
     local responder, why = Mdns.responder(instances, { address = PUBLISHED_AT, port = 0, via = { LOOPBACK } })
-    assert(responder == nil and why:find("mdns: ", 1, true) == 1, what .. ": " .. why)
-    if what == "a port out of range" then assert(why:find("port", 1, true) ~= nil, why) end
+    assert(responder == nil and why.message:find("mdns: ", 1, true) == 1, what .. ": " .. tostring(why))
+    if what == "a port out of range" then
+      assert(why.message:find("port", 1, true) ~= nil, tostring(why))
+    end
     if what == "records past one answer" then
-      assert(why:find("longer than one answer", 1, true) ~= nil, why)
+      assert(why.message:find("longer than one answer", 1, true) ~= nil, tostring(why))
     end
     tried = tried + 1
   end
   assert(tried == 14, tostring(tried))
-  Test.raises(function() Mdns.responder({ good }, { port = -1 }) end, "mdns: port must be")
-  Test.raises(function() Mdns.responder({ good }, { port = 65536 }) end, "mdns: port must be")
-  Test.raises(function() Mdns.responder({ good }, { address = LOOPBACK }) end, "mdns: address must be")
+  Test.raises(function() local _, _ = Mdns.responder({ good }, { port = -1 }) end, "mdns: port must be")
+  Test.raises(function() local _, _ = Mdns.responder({ good }, { port = 65536 }) end, "mdns: port must be")
+  Test.raises(function() local _, _ = Mdns.responder({ good }, { address = LOOPBACK }) end, "mdns: address must be")
 end
 
 --- The port is free, so the socket is bound and it is the join that fails, with the group first
@@ -1934,12 +1950,12 @@ local function test_a_responder_fails_where_its_group_or_its_port_cannot_be_had(
   local port = free_port()
   -- 192.0.2.0/24 is for documentation: no interface has an address of it.
   local nowhere, why = Mdns.responder(good, { address = PUBLISHED_AT, port = port, via = { "192.0.2.77" } })
-  assert(nowhere == nil and why:find(PUBLISHED_AT .. ": ", 1, true) == 1, why)
+  assert(nowhere == nil and why.message:find(PUBLISHED_AT .. ": ", 1, true) == 1, tostring(why))
   assert(is_free(port))
   local holder <close> = assert(Net.datagram(Net.udp("0.0.0.0", 0)))
   local held = assert(holder.address.port)
   local unbound, unbound_why = Mdns.responder(good, { address = PUBLISHED_AT, port = held, via = { LOOPBACK } })
-  assert(unbound == nil and unbound_why:find("0.0.0.0:" .. tostring(held) .. ": ", 1, true) == 1, unbound_why)
+  assert(unbound == nil and unbound_why.message:find("0.0.0.0:" .. tostring(held) .. ": ", 1, true) == 1, tostring(unbound_why))
 end
 
 local function test_a_cancelled_tasks_responder_ends_with_cancelled_and_a_closed_one_with_true()

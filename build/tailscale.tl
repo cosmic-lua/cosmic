@@ -935,7 +935,7 @@ end
 --- tree, so it is never stale-checked.
 verb.spec = {
   name = "tailscale",
-  guide = "a node of your tailnet",
+  guide = "more quick tools",
   tests = { "build.tailscale_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,

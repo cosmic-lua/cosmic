@@ -83,22 +83,35 @@ local function launch(tmp: string, hooks: boolean, flags?: string): Child.Result
     stdout = "capture", stderr = "capture", timeout_ns = Clock.seconds(30) })))
 end
 
---- Runs the rendered launcher as an aarch64 Linux machine over a cpuinfo whose
---- Features line is `features`, or one that has none. A `uname` ahead of the
---- real one on PATH answers `-sm`, so the check runs on any host.
-local function launch_aarch64(tmp: string, features?: string): Child.Result
+--- Runs the rendered launcher as an aarch64 Linux machine over a cpuinfo whose Features line is `features`, or one
+--- that has none, so the check runs on any host. The machine is named by a /proc/sys/kernel of the test's own
+--- (`ostype` and `arch`), and a `uname` ahead of the real one on PATH refuses `-sm`, which a launch the kernel
+--- answers never runs. With `by_uname`, that directory holds `ostype` alone, as a kernel with no `arch` has it, and
+--- the `uname` answers `-sm` instead.
+local function launch_aarch64(tmp: string, features?: string, by_uname?: boolean): Child.Result
   local script = tmp .. "/launcher"
   assert(Fs.write(script, launcher.render(arm64, true), 0x1ed))
   if not assert(Fs.status(tmp .. "/bin")).exists then assert(Fs.mkdirs(tmp .. "/bin")) end
+  local answer = if by_uname == true then "{ echo 'Linux aarch64'; exit 0; }" else
+    "{ echo 'uname -sm ran' >&2; exit 1; }" end
   assert(Fs.write(tmp .. "/bin/uname", table.concat({
     "#!/bin/sh",
-    "[ \"$*\" = -sm ] && { echo 'Linux aarch64'; exit 0; }",
+    "[ \"$*\" = -sm ] && " .. answer,
     "PATH=/usr/bin:/bin exec uname \"$@\"",
     "",
   }, "\n"), 0x1ed))
+  local kernel = tmp .. "/kernel"
+  if not assert(Fs.status(kernel)).exists then assert(Fs.mkdirs(kernel)) end
+  assert(Fs.write(kernel .. "/ostype", "Linux\n"))
+  if by_uname == true then
+    local _, _ = Fs.remove(kernel .. "/arch")
+  else
+    assert(Fs.write(kernel .. "/arch", "aarch64\n"))
+  end
   local env: mut {string:string} = {
     PATH = tmp .. "/bin:/usr/bin:/bin",
     COSMIC_PORTABLE_CACHE = tmp .. "/cache",
+    COSMIC_PORTABLE_TEST_KERNEL = kernel,
   }
   local cpuinfo = tmp .. "/cpuinfo"
   if features ~= nil then
@@ -163,6 +176,16 @@ local function test_an_aarch64_cpu_below_armv8_2_is_refused_by_name(tmp: string)
   assert((r.stderr or ""):find("cosmic portable: this CPU lacks asimddp asimdhp fphp atomics asimdrdm; " ..
       "the aarch64 core needs Armv8.2-A", 1, true), tostring(r.stderr))
   assert(not assert(Fs.status(tmp .. "/cache")).exists, "a refused launch made the cache")
+end
+
+--- The machine is read of /proc/sys/kernel by the shell's own `read`, with no `uname` run (whose stub fails here);
+--- with no `arch` there, `uname -sm` names it, and the read that failed says nothing.
+local function test_the_kernel_names_the_machine_and_uname_answers_where_it_does_not(tmp: string)
+  local refusal = "cosmic portable: this CPU lacks asimddp asimdhp fphp atomics asimdrdm crc32; the aarch64 core needs"
+  local by_kernel = launch_aarch64(tmp, "fp asimd")
+  assert((by_kernel.stderr or ""):find(refusal, 1, true) == 1, tostring(by_kernel.stderr))
+  local by_uname = launch_aarch64(tmp, "fp asimd", true)
+  assert((by_uname.stderr or ""):find(refusal, 1, true) == 1, tostring(by_uname.stderr))
 end
 
 local function test_an_aarch64_feature_is_matched_whole(tmp: string)
@@ -365,6 +388,9 @@ local function test_a_release_launcher_reads_only_proc_cpuinfo()
   local text = launcher.render(arm, false)
   assert(text:find('portable_cpuinfo=/proc/cpuinfo', 1, true), "release reads /proc/cpuinfo")
   assert(not text:find("TEST_CPUINFO", 1, true), "release carries the test override")
+  assert(text:find("< /proc/sys/kernel/ostype", 1, true) and text:find("< /proc/sys/kernel/arch", 1, true),
+    "release reads /proc/sys/kernel")
+  assert(not text:find("TEST_KERNEL", 1, true), "release carries the kernel's test override")
 end
 
 -- The shell header is a fixed 16384 bytes and the arms and hooks go into it;

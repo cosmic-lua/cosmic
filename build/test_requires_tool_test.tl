@@ -117,8 +117,7 @@ local function test_c() assert(true) end
     extra["COSMIC_TEST_PLATFORM"] = "other"
     local out, code = run(root, extra)
     assert(code == 0, out)
-    assert(out:find("test: N/A  artifact_test test_a: requires portable: portable: this platform has none\n", 1, true), out)
-    assert(out:find("test: N/A  artifact_test test_b: requires portable: ", 1, true), out)
+    assert(out:find("test: N/A  artifact_test: 2 tests, requires portable: portable: this platform has none\n", 1, true), out)
     -- The module that applies runs once and then stands (a held run is keyed
     -- apart, and runs); the other has no verdict to stand on.
     if i <= 2 then
@@ -165,7 +164,7 @@ local function test_an_unknown_requirement_fails_the_build_and_a_linux_one_does_
       'Test.policy { requires = { "nest", "proc" } }\nlocal function test_a() assert(true) end\n'))
   out, code = run(root, { COSMIC_TEST_PLATFORM = "other" })
   assert(code == 0, out)
-  assert(out:find("test: N/A  typo_test test_a: requires nest: ", 1, true), out)
+  assert(out:find("test: N/A  typo_test: 1 test, requires nest: ", 1, true), out)
 end
 
 --- A held run (COSMIC_SANDBOX=must, COSMIC_CI_REQUIRE_SANDBOX=1,
@@ -202,12 +201,12 @@ error("a module with an absent requirement must not load")
     extra["COSMIC_TEST_PROMISES"] = "sandbox,userns"
     out, code = run(root, extra)
     assert(code == 0, out)
-    assert(out:find("test: N/A  linux_test test_a: requires nest: ", 1, true), out)
+    assert(out:find("test: N/A  linux_test: 2 tests, requires nest: ", 1, true), out)
     -- A run that is not held ignores what the leg promised.
     extra["COSMIC_TEST_PROMISES"] = "nest,proc"
     extra["COSMIC_SANDBOX"], extra["COSMIC_CI_REQUIRE_SANDBOX"] = nil, nil
     out, code = run(root, extra)
-    assert(code == 0 and out:find("N/A  linux_test test_a", 1, true) ~= nil, out)
+    assert(code == 0 and out:find("N/A  linux_test: 2 tests", 1, true) ~= nil, out)
   end
 end
 
