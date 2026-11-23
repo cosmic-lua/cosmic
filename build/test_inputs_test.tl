@@ -314,16 +314,16 @@ end
 
 --- What `lua` adds to a closure is no reader of the compiler's identity
 --- (`compiler_sought`): build.dispatch reaches it only through
---- build.importer ([`importer.own_tool`]), so an edit to the compiler
+--- build.run_stamp ([`run_stamp.own_tool`]), so an edit to the compiler
 --- runs a module that declares `lua` no more; a reader of its own
---- closure, build.importer, still keys it, whether it declares `lua` or not.
+--- closure, build.run_stamp, still keys it, whether it declares `lua` or not.
 local function test_what_lua_adds_reads_no_compiler()
   local closure = { "lib.thing_test" }
   for _, name in ipairs(test_inputs.lua_loads) do closure[#closure + 1] = name end
   for _, name in ipairs(test_inputs.standalone_loads) do closure[#closure + 1] = name end
   assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
   assert(not key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
-  closure[#closure + 1] = "build.importer"
+  closure[#closure + 1] = "build.run_stamp"
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, true)))
   assert(key_parts.reads_compiler(test_inputs.compiler_sought(closure, false)))
 end
