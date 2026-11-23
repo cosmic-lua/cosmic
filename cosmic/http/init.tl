@@ -42,6 +42,7 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Innermost = require("cosmic.internal.innermost_guard")
 local Poll = require("cosmic.poll")
@@ -555,7 +556,7 @@ local class DecodingReader is Stream.Reader
 
   --- The codec for the reader's coding, made from `head`, the body's
   --- first bytes.
-  function start(self, head: string): Compress.Stream?, string
+  function start(self, head: string): (Compress.Stream) | (nil, Failure)
     if self.coding == "zstd" then return Compress.zstd_decoder() end
     if self.coding == "deflate" then
       return Compress.inflater(if zlib_header(head) then "zlib" else "raw" end)
@@ -570,7 +571,7 @@ local class DecodingReader is Stream.Reader
       self.head = self.head .. chunk
       if #self.head < 2 and not self.ended then return "", "" end
       local made, trouble = self:start(self.head)
-      if made == nil then return self:fail(trouble) end
+      if made == nil then return self:fail(tostring(trouble)) end
       codec = made
       self.codec = made
       chunk, self.head = self.head, ""

@@ -122,7 +122,7 @@ local function test_gzip_is_sent_to_a_client_that_takes_it_with_its_own_tag()
   assert(plain.headers["vary"] == "Accept-Encoding")
   local zipped = client:get("/static/css/app.css", { headers = { ["Accept-Encoding"] = "br, gzip;q=0.5" } })
   assert(zipped.status == 200 and zipped.headers["content-encoding"] == "gzip")
-  assert(Compress.inflate("gzip", zipped.body) == CSS and #zipped.body < #CSS)
+  assert(assert(Compress.inflate("gzip", zipped.body)) == CSS and #zipped.body < #CSS)
   assert(zipped.headers["vary"] == "Accept-Encoding")
   local plain_headers_etag = assert(plain.headers["etag"], "expected plain.headers[\"etag\"]")
   assert(zipped.headers["etag"] == plain_headers_etag:sub(1, -2) .. '-gzip"')
@@ -191,7 +191,7 @@ local function test_the_coding_follows_the_accept_encoding_q_values()
     if name == "zstd" then
       assert(unzstd(res.body) == CSS)
     elseif name == "gzip" then
-      assert(Compress.inflate("gzip", res.body) == CSS)
+      assert(assert(Compress.inflate("gzip", res.body)) == CSS)
     else
       assert(res.body == CSS)
     end

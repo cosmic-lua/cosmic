@@ -1411,7 +1411,7 @@ end
 local function test_a_compressed_reader_that_fails_midway_is_closed_and_reported()
   local source = Stream.from_string(("not gzip at all, but long enough to read\n"):rep(60))
   local troubles = serving(function(_req: Server.Request): Server.Reply
-    local decoder, _ = assert(Compress.inflater("gzip"))
+    local decoder = assert(Compress.inflater("gzip"))
     return { status = 200, headers = TEXT_TYPE, body = Stream.transform(source, decoder) }
   end, function(address: Net.Address)
     local p = peer(address)

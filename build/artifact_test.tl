@@ -196,7 +196,9 @@ local function test_the_frames_a_release_writes_decode_to_their_cores()
   local frame = assert(Compress.zstd(core, 19))
   local prefix = assert(artifact.prefix("1\t1\trelease\tx86\tLinux\tx86_64\n", { x86 = core }, nil,
     { stubs = { x86 = "STUB" }, compress = function(c: string): string?, string
-      return Compress.zstd(c, 19)
+      local framed, why = Compress.zstd(c, 19)
+      if framed == nil then return nil, tostring(why) end
+      return framed, ""
     end }))
   local entries = manifest_of(prefix)
   local core_entry = assert(entries[2])
@@ -521,7 +523,7 @@ local function test_a_release_frame_is_the_same_every_time_and_names_its_size()
   local core = table.concat(pieces):rep(8)
   local level = artifact.zstd_level()
   local one = assert(Compress.zstd(core, level))
-  assert(Compress.zstd("other work between the two", level) ~= nil)
+  assert(Compress.zstd("other work between the two", level))
   local two = assert(Compress.zstd(core, level))
   assert(one == two, "the same core compressed to two frames")
   assert(one:sub(1, 4) == "\40\181\47\253", "a zstd frame")
