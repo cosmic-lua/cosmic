@@ -111,7 +111,7 @@ local record Declarations
     "alias_cycle"
     -- a type parameter bounded by what is no interface
     "bound_not_interface"
-    -- `Ordered` or `Numeric`, a bound, written as the type of a value
+    -- `Ordered`, `Numeric`, `Key` or `Some`, a bound, written as the type of a value
     "bound_as_type"
     -- two return lists that no position of `true` and `false` tells apart
     "lists_overlap"
@@ -465,14 +465,14 @@ Declarations.catalog = {
   {
     code = "bound_not_interface", rule = "a constraint is interfaces and built-in bounds",
     why = "a type parameter ranges over all types unless it has bounds, and each bound is an interface used with " ..
-      "no arguments, or `Ordered`, `Numeric` or `Key` (several are written `T is A & B`), which the operations of the " ..
+      "no arguments, or `Ordered`, `Numeric`, `Key` or `Some` (several are written `T is A & B`), which the operations of the " ..
       "body are checked against",
-    fix = "bound <parameter> by an interface with no type parameters, by `Ordered`, `Numeric` or `Key`, or leave it " ..
+    fix = "bound <parameter> by an interface with no type parameters, by `Ordered`, `Numeric`, `Key` or `Some`, or leave it " ..
       "unbounded",
   },
   {
     code = "bound_as_type", rule = "a constraint is interfaces and built-in bounds",
-    why = "`Ordered`, `Numeric` and `Key` say what a type parameter's values take part in; a value of `Ordered` could be " ..
+    why = "`Ordered`, `Numeric`, `Key` and `Some` say what a type parameter's values take part in; a value of `Ordered` could be " ..
       "a number or a string, and `<` of the two raises, so none is the type of a value",
     fix = "bound a type parameter by it (`<T is Ordered>`) and declare the value `T`",
   },
@@ -587,7 +587,7 @@ local MAX_ALIAS_NESTING <const> = 200
 
 local PRIMITIVES <const>: {string: Types.Atom_tag} = {
   integer = "integer", number = "number", string = "string", boolean = "boolean", any = "any", never = "never",
-  Ordered = "Ordered", Numeric = "Numeric", Key = "Key",
+  Ordered = "Ordered", Numeric = "Numeric", Key = "Key", Some = "Some",
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
@@ -1287,7 +1287,7 @@ end
 lower_bound = function(ctx: Ctx, p: Ast.TypeParam): {Type}?
   local out: mut {Type} = {}
   for _, constraint in ipairs(p.constraints) do
-    -- `Ordered`, `Numeric` and `Key` are bounds only where written as the bound itself: through an alias they would be
+    -- `Ordered`, `Numeric`, `Key` and `Some` are bounds only where written as the bound itself: through an alias they would be
     -- lowered as a type, and refused there.
     local head = constraint.path[1]
     local primitive: Types.Atom_tag? = nil
@@ -1335,7 +1335,7 @@ end
 
 --- Whether the lists `a` and `b` are told apart at a position: it is `true` in one and `false` in the other, or `nil` in
 --- one and a value that is never nil in the other.
-local function told_apart(a: Types.Alt, b: Types.Alt): boolean
+local function told_apart(a: Types.Alt, b: Types.Alt, present: function(Type): boolean): boolean
   for i, left in ipairs(a.items) do
     local right = b.items[i]
     if right == nil then
@@ -1344,11 +1344,36 @@ local function told_apart(a: Types.Alt, b: Types.Alt): boolean
     local x, y = left.tag, right.tag
     if (x == "true" and y == "false") or (x == "false" and y == "true") then
       return true
-    elseif (x == "nil" and Types.present(right)) or (y == "nil" and Types.present(left)) then
+    elseif (x == "nil" and present(right)) or (y == "nil" and present(left)) then
       return true
     end
   end
   return false
+end
+
+--- The first type parameter with no bound that a list's first value holds, where the other list's first value is
+--- `nil`: the one a `Some` bound would tell the two lists apart by.
+local function unbounded_at_head(a: Types.Alt, b: Types.Alt, bounded: function(Types.Var): boolean): Types.Var?
+  local left, right = a.items[1], b.items[1]
+  if left == nil or right == nil then
+    return nil
+  end
+  local held = if right.tag == "nil" then left elseif left.tag == "nil" then right else nil end
+  if held == nil then
+    return nil
+  end
+  local whole = Types.unfold(held)
+  if (whole.tag == "var") then
+    return if bounded(whole) then nil else whole end
+  elseif (whole.tag == "union") then
+    for _, m in ipairs(whole.members) do
+      local inner = Types.unfold(m)
+      if (inner.tag == "var") and not bounded(inner) then
+        return inner
+      end
+    end
+  end
+  return nil
 end
 
 --- The return list `each`, shown.
@@ -1387,16 +1412,25 @@ local function lower_rets(ctx: Ctx, rets: Ast.Rets, positions: {string: integer}
     end
     alts[#alts + 1] = alt
   end
+  -- A type parameter with a bound is never nil: no bound holds `nil`.
+  local function bounded(v: Types.Var): boolean
+    return variable_bound(ctx, v) ~= nil
+  end
+  local function present(t: Type): boolean
+    return Types.present_where(t, bounded)
+  end
   for i, first in ipairs(alts) do
     for j, second in ipairs(alts) do
-      if j > i and not told_apart(first, second) then
+      if j > i and not told_apart(first, second, present) then
         local one, other = spell_alt(ctx, first), spell_alt(ctx, second)
+        local open = unbounded_at_head(first, second, bounded)
         report_at(ctx, "lists_overlap", rets, "the return lists " .. quoted(one) .. " and " .. quoted(other) ..
             " are told apart by no position that is `true` in one and `false` in the other, or `nil` in one and " ..
             "never nil in the other",
           "make one position `true` in one list and `false` in the other (`(true, R) | (false, E)`), or `nil` in one and " ..
             "a value that is never nil in the other (`(R) | (nil, E)`), so that a `match` or a test can tell which list a " ..
-            "call answered", { one, other })
+            "call answered" .. (if open ~= nil then "; a type parameter may be nil: bound it by `Some` where it is " ..
+                "declared (`<" .. show(ctx, open) .. " is Some>`) to say it never is" else "" end), { one, other })
         break
       end
     end
@@ -3015,7 +3049,8 @@ local function check_use(ctx: Ctx, use: Use): boolean
         -- A built-in bound holds atoms, named types and type parameters: a union, an optional, a collection or a function
         -- made of variables of the code around meets none, whatever they are.
         if Types.builtin_bound(bound) and argument.open > 0 and not (argument.tag == "var") and
-            not (bound.tag == "Key" and Types.keys_a_map(argument)) then
+            not (bound.tag == "Key" and Types.keys_a_map(argument)) and
+            not (bound.tag == "Some" and Types.present(argument)) then
           local shown = Types.display(argument, use.names)
           report_at(ctx, if bound.tag == "Key" then "key_type" else "bound_not_met" end, use.node, quoted(name) ..
               " bounds its type parameter " .. tostring(i) .. " by " .. quoted(bound.tag) .. ", and " .. quoted(shown) ..
@@ -3040,8 +3075,8 @@ local function check_use(ctx: Ctx, use: Use): boolean
             elseif Types.builtin_bound(bound) then
               report_at(ctx, "bound_not_met", use.node, quoted(name) .. " bounds its type parameter " .. tostring(i) .. " by " ..
                   quoted(bound.tag) .. ", and " .. quoted(shown) .. (if bound.tag == "Numeric" then " is not `integer` or " ..
-                      "`number`" else " is not a type whose values are all numbers or all strings, nor a class that declares `__lt` " ..
-                      "and `__le`" end),
+                      "`number`" elseif bound.tag == "Some" then " may be nil" else " is not a type whose values are all " ..
+                      "numbers or all strings, nor a class that declares `__lt` and `__le`" end),
                 "pass " .. Types.bound_meets(bound.tag), { shown })
             else
               local r = ctx.program.judge:refuse(argument, bound)

@@ -3384,6 +3384,14 @@ function Operands.bad_operand(ctx: Ctx, node: Ast.Node, t: Type, op: string, tak
   end
 end
 
+--- Whether no value of `t` is nil ([`Types.present`]), where a type parameter of the code around is never nil once a
+--- bound bounds it: each bound is below `Some`, which holds no `nil`.
+function Operands.present(ctx: Ctx, t: Type): boolean
+  return Types.present_where(t, function(v: Types.Var): boolean
+    return ctx.judge:subtype(v, ctx.store:atom("Some"))
+  end)
+end
+
 --- Whether `t` is a type parameter bounded by `bound` (`Ordered` or `Numeric`), or by one below it.
 function Operands.bounded_by(ctx: Ctx, t: Type, bound: Types.Atom_tag): boolean
   return (t.tag == "var") and ctx.judge:subtype(t, ctx.store:atom(bound))
@@ -5836,7 +5844,7 @@ local record Calls
   --- (`m[k] ~= nil` then `m[k]`): only arrays have element facts, and no array is weak.
   weak_mode: function(args: {Ast.Exp}): string?
   prepare: function(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asserting?: boolean): Prepared
-  asserted: function(alts: {Alt}): Alt?
+  asserted: function(ctx: Ctx, alts: {Alt}): Alt?
   --- Notes that the call `node` runs no code of the program through the standard library: it was given a `string` receiver
   --- or none, and arguments of the types `types` and the `tail` an expanding last one gives, all plain ([`Tests.plain`]).
   note_plain: function(ctx: Ctx, node: Ast.Node, recv: Type?, types: {Type}, tail: Type?, lists: {Alt}?)
@@ -5922,7 +5930,7 @@ function Calls.prepare(ctx: Ctx, args: {Ast.Exp}, wants: {integer: Type}?, asser
     local vals = values_of(ctx, { last }, if wants ~= nil then alone else nil end, nil)
     local several = vals.lists
     if several ~= nil and asserting == true then
-      local passed = Calls.asserted(several)
+      local passed = Calls.asserted(ctx, several)
       if passed ~= nil then
         for _, item in ipairs(passed.items) do
           vals.types[#vals.types + 1] = item
@@ -5961,13 +5969,13 @@ end
 --- The one list of `alts` that `assert` lets pass: the list whose first value is never nil or false, where the first
 --- value of every other list is `nil` or `false` and nothing else, so `assert` raises at each of them. Nil where there
 --- is no such list, more than one, or a list whose first value may be either (a `boolean`, an optional, `any`).
-function Calls.asserted(alts: {Alt}): Alt?
+function Calls.asserted(ctx: Ctx, alts: {Alt}): Alt?
   local passed: Alt? = nil
   for _, alt in ipairs(alts) do
     local first = alt.items[1]
     if first == nil then
       return nil
-    elseif Types.present(first) and not Types.may_be_false(first) then
+    elseif Operands.present(ctx, first) and not Types.may_be_false(first) then
       if passed ~= nil then
         return nil
       end
@@ -6423,6 +6431,7 @@ function Calls.solve(ctx: Ctx, node: Ast.Node, callee: string, c: Fn, args: {Ast
           report(ctx, "bound_unmet", node, msg,
             if bound.tag == "Numeric" then "pass `integer` or `number` values: their arithmetic answers their own type" elseif
               bound.tag == "Key" then "pass " .. Types.bound_meets("Key") .. ": a map is keyed by one of them" elseif
+              bound.tag == "Some" then "pass a value that is never nil: test it against `nil` first, or declare it so" elseif
               held.tag == "named" and held.decl.kind == "class" then Operands.compare_fix(ctx, held) else
               "pass numbers, or strings, of one type: `<` of a number and a string raises, so a union of the two meets no " ..
                 "`Ordered`" end, { show(ctx, held), show(ctx, bound) })
@@ -7863,8 +7872,8 @@ local function tie_locals(ctx: Ctx, s: Ast.Local, vals: Values, errors: integer)
     by_bool = by_bool and first ~= nil and (first.tag == "true" or first.tag == "false")
     -- A list told by `nil` begins with `nil` or with a value that is never nil; a test of its truth tells it only where
     -- that value is never `false` either.
-    local present = first ~= nil and Types.present(first)
-    by_nil = by_nil and first ~= nil and (first.tag == "nil" or present)
+    local held = first ~= nil and Operands.present(ctx, first)
+    by_nil = by_nil and first ~= nil and (first.tag == "nil" or held)
     truth = truth and (first == nil or first.tag == "nil" or not Types.may_be_false(first))
   end
   if not by_bool and not by_nil then
@@ -9653,7 +9662,7 @@ end
 --- is the value the list has at its position, "no" when the list has another value there that the test tells from it
 --- (`false` at a `true`, `nil` at a `true` or `false`, a value that is never nil at a `nil`), and "unclear" when the
 --- test does not tell what the list has there (the position it is, or 0, for the message).
-local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
+local function arm_against(ctx: Ctx, arm: Ast.MatchArm, alt: Alt): string, integer
   local unclear = 0
   for i, p in ipairs(arm.pats) do
     if (p.kind == "PatBool") or (p.kind == "PatNil") then
@@ -9671,7 +9680,7 @@ local function arm_against(arm: Ast.MatchArm, alt: Alt): string, integer
         end
       elseif tag == "nil" then
         verdict = "yes"
-      elseif item ~= nil and Types.present(item) then
+      elseif item ~= nil and Operands.present(ctx, item) then
         verdict = "no"
       end
       if verdict == "no" then
@@ -9811,7 +9820,7 @@ local function match_statement(ctx: Ctx, s: Ast.Match)
     if not unknown then
       local selected = 0
       for k, alt in ipairs(alts) do
-        local verdict, at = arm_against(arm, alt)
+        local verdict, at = arm_against(ctx, arm, alt)
         if verdict == "unclear" then
           explained = true
           taken[k] = true

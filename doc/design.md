@@ -1103,7 +1103,7 @@ first line, no `a and b or c` for a choice (`if ... then ... else ... end` is an
 argument without parentheses. `pcall` and `coroutine.wrap` are typed, and the alternatives of a `pcall` are read with
 `match`. a call that answers several lists (`(true, R) | (false, E)`, `(T) | (nil, E)`) has lists told apart by a
 position that is `true` in one and `false` in the other, or `nil` in one and never nil in the other (an optional, `any`,
-a type variable, or a union with one, may be nil); `match` tells them by `true`, `false` and `nil` patterns, and a test of
+a type variable with no bound, or a union with one, may be nil; a bounded one, `T is Some` among them, never is); `match` tells them by `true`, `false` and `nil` patterns, and a test of
 the first local of `local v, why = f()` narrows the others. such a call is no statement (`failure_ignored`): its values
 are bound, it is matched, or they are discarded on purpose with `local _, _ = f()`; `assert(f())` gives the values of the one list whose first value is never nil or false where every other list's is `nil` or `false`. the failure a library answers is a [`cosmic.failure`]: its message, the path it concerns and its errno, apart, with `tostring` for its text. a type changes only by a guard, `is` of a class or a tagged
 union, a narrowing declaration or a validator ([`cosmic.shape`]); `any` is legal only where untrusted data enters.
@@ -1128,7 +1128,8 @@ or nilable, and below a map
 `{string: V}` that is not `mut`. a
 type parameter is bounded by an interface, by `Ordered` (a number type, a string type, or a class that declares
 `__lt` and `__le`, whose values `<` compares), by
-`Numeric` (`integer` or `number`, whose arithmetic answers its own type) or by `Key` (a type a map is keyed by), or by
+`Numeric` (`integer` or `number`, whose arithmetic answers its own type), by `Key` (a type a map is keyed by), by
+`Some` (a type that is never nil), or by
 several of these (`T is A & B`), each of which its argument meets; it keys a map only where `Key` or an interface
 bounds it. a record is not a map; an
 enum is a set of strings, below an enum or a union of string literal types (`"circle"`, the type of that one string)

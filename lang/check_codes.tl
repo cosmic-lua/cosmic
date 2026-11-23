@@ -423,7 +423,7 @@ Codes.catalog = {
       "body does with a `T` only what the interface declares; a type conforms by having each field of the interface as " ..
       "it declares them (of exactly its type, `mut` and omittable alike), or by listing it. `Ordered` takes a number " ..
       "type or a string type, and `Numeric` `integer` or `number`, for the operators the body applies; `Key` takes " ..
-      "a type a map is keyed by",
+      "a type a map is keyed by, and `Some` a type that is never nil",
     fix = "declare the interface's fields in <type>, or pass a type that has them",
   },
   {

@@ -644,8 +644,8 @@ two values of `N` take `+`, `-`, `*`, `%`, `//` and unary `-`, which answer `N`,
 and `^` answer `number`, as they do for integers.
 
 A type whose values may be a number or a string, such as `integer | string`, is no `Ordered`, because `1 < "a"` raises.
-An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered`, `Numeric` and `Key`
-are bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
+An integer enum is no `Numeric`, because the sum of two members need not be a member. `Ordered`, `Numeric`, `Key` and
+`Some` are bounds only: a value is declared `T`, not `Ordered` (`bound_as_type`).
 
 ```teal
 local function largest<T is Ordered>(xs: {T}, first: T): T
@@ -763,7 +763,7 @@ A map is keyed by `integer`, `string`, `boolean`, an enum, or a record, class, i
 keys a map only where `Key` bounds it, or an interface does: an unbounded `K` may be `number`, a union or a function,
 which no key is (`key_type`). A generic record that keys a map by its parameter bounds it the same way, and a type
 parameter passed on to a bounded one is bounded by it too (`bound_not_met`, `bound_unmet`). A declaration may take the
-name `Key`, `Ordered` or `Numeric`; where it is in scope, the name is the declaration's.
+name `Key`, `Ordered`, `Numeric` or `Some`; where it is in scope, the name is the declaration's.
 
 ```teal
 local function index<K is Key, V>(xs: {V}, key: function(V): K): {K: V}
@@ -857,10 +857,37 @@ print(numbers.value)
 A function that returns a value or a failure declares both lists of
 results: `(T) | (nil, E)`. One position must tell the lists apart: it is
 `true` in one list and `false` in the other, or `nil` in one and never
-nil in the other. An optional, `any` or a type parameter may be nil, and
-so may a union that holds one. So `(integer?) | (nil, string)` is
-refused (`lists_overlap`): a `nil` first value would not say which list
-the call returned.
+nil in the other. An optional, `any` or a type parameter with no bound
+may be nil, and so may a union that holds one. So `(integer?) | (nil,
+string)` is refused (`lists_overlap`): a `nil` first value would not say
+which list the call returned.
+
+A type parameter with a bound is never nil, since no bound holds `nil`.
+`T is Some` says only that: it takes every type that is never nil, and
+gives the body nothing more. A generic function answers `(T) | (nil, E)`
+with it, and `(T | false) | (nil, E)` where "none" is a value. A type
+that may be nil, or a type parameter with no bound, meets no `Some`
+(`bound_unmet`).
+
+```teal
+local function first<T is Some>(xs: {T}): (T) | (nil, string)
+  local x = xs[1]
+  if x == nil then
+    return nil, "empty"
+  end
+  return x
+end
+
+local n, _ = first({ 3, 4 })
+local s, _ = first({ "fig" })
+local empty: {integer} = {}
+local none, why = first(empty)
+print(n, s, none, why)
+```
+
+```output
+3	fig	nil	empty
+```
 
 The caller binds the results to locals and tests the first, the value.
 The test narrows the others. Where the value is nil, the failure is an `E`.
