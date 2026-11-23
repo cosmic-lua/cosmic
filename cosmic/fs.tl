@@ -3,9 +3,11 @@
 --- Every call goes through the syscall table, so one call behaves the
 --- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
 --- [`Fs.mkdtemp`], [`Fs.absolute`], [`Fs.readlink`], [`Fs.open_read`],
---- [`Fs.open_write`] and [`Fs.take`] answer `(T) | (nil, Failure)`: the
---- value alone, or nil and a [`Failure`] that names the path (none for
---- `take`, which reads a descriptor) and the errno. Other fallible calls
+--- [`Fs.open_write`], [`Fs.take`], [`Fs.create`], [`Fs.walk`],
+--- [`Fs.walk_following`], [`Fs.scratch`] and [`Fs.relative`] answer
+--- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
+--- that names the path (none for `take`, which reads a descriptor) and
+--- the errno (0 for `relative`, which reads nothing). Other fallible calls
 --- that produce a value still return `T | nil, string`: a value and `""`
 --- on success, or nil and an error. A predicate uses the same contract, with false
 --- as a valid answer. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
@@ -22,8 +24,8 @@
 ---
 --- `basename`, `dirname`, `within` and `relative` work on a path's
 --- text alone and read nothing. The first three cannot fail, so each
---- answers a plain value; `relative` answers nil and why when the path
---- is not within the directory.
+--- answers a plain value; `relative` answers nil and a Failure, with
+--- errno 0, when the path is not within the directory.
 ---
 --- The syscall table itself is [`cosmic.sys`]. A call this module does not
 --- wrap -- `lstat`, `chdir`, `pread` and others -- is there, and
@@ -257,8 +259,8 @@ end
 --- The file [`Fs.create`] starts, as its own class, so [`Fs.write`] reads
 --- its failure as a value.
 local function staged_file(path: string, mode?: integer): (StagedFile) | (nil, Failure)
-  local temporary, _, errno = sys.open_temporary(path, mode or 0x1a4)
-  if temporary == nil then return nil, Failure.system(errno, path) end
+  local temporary, why, errno = sys.open_temporary(path, mode or 0x1a4)
+  if temporary == nil then return nil, failure_of(errno, why, path) end
   local staged: StagedFile = {
     path = path, temporary = temporary, failed = "", failure = nil, closed = false,
   }
@@ -273,12 +275,13 @@ end
 --- temporary file. The file is always a new one, so it gets `mode`
 --- (default 0644, less the umask) and never keeps an existing file's
 --- mode. Nothing is synced unless `sync` is called, so a crash can
---- still lose the write. [`Stream.create`] is this, as a
---- [`cosmic.stream`] Writer.
-function Fs.create(path: string, mode?: integer): Fs.Staged?, string
+--- still lose the write. It answers nil and a Failure naming `path`
+--- when the temporary file cannot be made. [`Stream.create`] is this,
+--- as a [`cosmic.stream`] Writer.
+function Fs.create(path: string, mode?: integer): (Fs.Staged) | (nil, Failure)
   local staged, why = staged_file(path, mode)
-  if staged == nil then return nil, tostring(why) end
-  return staged, ""
+  if staged == nil then return nil, why end
+  return staged
 end
 
 --- Writes `data` to `path` through a temporary file and a rename, in
@@ -644,7 +647,7 @@ end
 
 --- Both walks: [`Fs.walk`], and with `follow`, [`Fs.walk_following`].
 local function walk(root: string, follow: boolean,
-                    skip?: function(string, string, Fs.Kind): boolean): {string}?, string
+                    skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
   local found: mut {string} = {}
   local pending: mut {Pending} = { { relative = "", above = nil } }
   while #pending > 0 do
@@ -654,9 +657,9 @@ local function walk(root: string, follow: boolean,
     local above = next_one.above
     local inside = true
     if follow then
-      local st, stat_trouble = sys.stat(directory)
+      local st, stat_why, stat_errno = sys.stat(directory)
       if st == nil then
-        return nil, directory .. ": " .. stat_trouble
+        return nil, failure_of(stat_errno, stat_why, directory)
       end
       local key = tostring(st.dev) .. ":" .. tostring(st.ino)
       local up = above
@@ -668,9 +671,9 @@ local function walk(root: string, follow: boolean,
     end
     local entries: {string:Fs.Kind} = {}
     if inside then
-      local listed, trouble = sys.readdir(directory)
+      local listed, list_why, list_errno = sys.readdir(directory)
       if listed == nil then
-        return nil, directory .. ": " .. trouble
+        return nil, failure_of(list_errno, list_why, directory)
       end
       entries = listed
     end
@@ -691,7 +694,7 @@ local function walk(root: string, follow: boolean,
     end
   end
   table.sort(found)
-  return found, ""
+  return found
 end
 
 --- Every file under a root, as `find root -type f` lists them but
@@ -705,7 +708,7 @@ end
 --- `"socket"` and so on), and may refuse a whole directory. The
 --- listing says what each entry is, so nothing here is stat'd.
 function Fs.walk(root: string,
-                 skip?: function(string, string, Fs.Kind): boolean): {string}?, string
+                 skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
   return walk(root, false, skip)
 end
 
@@ -724,7 +727,7 @@ end
 --- before a link is followed, so it is told `"link"` and may refuse
 --- one. Each directory, and each link, is stat'd.
 function Fs.walk_following(root: string,
-                           skip?: function(string, string, Fs.Kind): boolean): {string}?, string
+                           skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure)
   return walk(root, true, skip)
 end
 
@@ -754,14 +757,14 @@ end
 --- is not yet held. It is released before this returns, and the work in
 --- the directory runs outside it. Use one `parent` for one kind of
 --- scratch directory: calls under it sweep each other's.
-function Fs.scratch(parent: string): Fs.Scratch?, string
-  local fd, trouble = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
-  if fd == nil then return nil, parent .. ": " .. trouble end
+function Fs.scratch(parent: string): (Fs.Scratch) | (nil, Failure)
+  local fd, gate_why, gate_errno = sys.open(parent .. "/.scratch-gate", sys.O_RDWR | sys.O_CREAT | sys.O_NOFOLLOW, 0x180)
+  if fd == nil then return nil, failure_of(gate_errno, gate_why, parent) end
   local gate <close>: Descriptor = { fd = fd }
-  local locked, lock_trouble = sys.flock(gate.fd, "exclusive", -1)
-  if not locked then return nil, parent .. ": " .. lock_trouble end
-  local names, list_trouble = Fs.list(parent)
-  if names == nil then return nil, tostring(list_trouble) end
+  local locked, lock_why, lock_errno = sys.flock(gate.fd, "exclusive", -1)
+  if not locked then return nil, failure_of(lock_errno, lock_why, parent) end
+  local names, list_why = Fs.list(parent)
+  if names == nil then return nil, list_why end
   for _, name in ipairs(names) do
     -- A name not of this form is not this function's to sweep, and one
     -- with no owner file has nothing to prove its holder dead.
@@ -779,20 +782,20 @@ function Fs.scratch(parent: string): Fs.Scratch?, string
       end
     end
   end
-  local path, create_trouble = sys.mkdtemp(parent .. "/.scratch.XXXXXX")
-  if path == nil then return nil, parent .. ": " .. create_trouble end
-  local owner, owner_trouble = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
+  local path, create_why, create_errno = sys.mkdtemp(parent .. "/.scratch.XXXXXX")
+  if path == nil then return nil, failure_of(create_errno, create_why, parent) end
+  local owner, owner_why, owner_errno = sys.open(path .. "/owner", sys.O_RDWR | sys.O_CREAT | sys.O_EXCL, 0x180)
   if owner == nil then
     local _, _ = Fs.remove_tree(path)
-    return nil, path .. "/owner: " .. owner_trouble
+    return nil, failure_of(owner_errno, owner_why, path .. "/owner")
   end
   local holding: Fs.Scratch = { path = path, owner = owner }
-  local held, hold_trouble = sys.flock(owner, "exclusive", 0)
+  local held, hold_why, hold_errno = sys.flock(owner, "exclusive", 0)
   if not held then
     local _cleanup <close> = holding
-    return nil, path .. "/owner: " .. hold_trouble
+    return nil, failure_of(hold_errno, hold_why, path .. "/owner")
   end
-  return holding, ""
+  return holding
 end
 
 --- A path with no link and no `..` left in it: `realpath`.
@@ -1079,17 +1082,17 @@ end
 
 --- `path` relative to `directory`, lexically: "." when they are the same,
 --- the rest after the directory's "/" when `path` is within it, and nil
---- with a reason when it is not.
-function Fs.relative(path: string, directory: string): string?, string
+--- and a Failure, with errno 0, when it is not.
+function Fs.relative(path: string, directory: string): (string) | (nil, Failure)
   if not Fs.within(path, directory) then
-    return nil, path .. ": not within " .. directory
+    return nil, Failure.new("not within " .. directory, path)
   end
   local base = unslashed(directory)
   local from = #base + 1
   while path:byte(from) == 47 do from = from + 1 end
   local rest = unslashed(path:sub(from))
-  if rest == "" then return ".", "" end
-  return rest, ""
+  if rest == "" then return "." end
+  return rest
 end
 
 Fs.stdin = 0

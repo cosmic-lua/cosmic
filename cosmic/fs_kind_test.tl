@@ -32,7 +32,7 @@ end
 local function test_fs_kind_is_the_enum()
   local ok, trouble = compiles([[
 local Fs = require("cosmic.fs")
-return Fs.walk(".", function(_: string, _: string, kind: Fs.Kind): boolean
+local _, _ = Fs.walk(".", function(_: string, _: string, kind: Fs.Kind): boolean
   return kind == "directory"
 end)
 ]])
@@ -46,7 +46,7 @@ end
 local function test_an_untyped_skip_is_told_a_kind()
   local ok, trouble = compiles([[
 local Fs = require("cosmic.fs")
-return Fs.walk(".", function(_, _, kind)
+local _, _ = Fs.walk(".", function(_, _, kind)
   return kind == "directory"
 end)
 ]])

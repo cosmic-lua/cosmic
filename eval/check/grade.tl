@@ -410,7 +410,7 @@ local function copy_project(project: string, copy: string): boolean, string
   local files, trouble = Fs.walk(project, function(rel: string): boolean
     return rel == "o"
   end)
-  if files == nil then return false, trouble end
+  if files == nil then return false, tostring(trouble) end
   for _, rel in ipairs(files) do
     local data, rtrouble = Fs.read(project .. "/" .. rel)
     if data == nil then return false, tostring(rtrouble) end
@@ -1727,7 +1727,7 @@ end
 --- relative to it.
 local function holds(path: string, files: {string: string}): boolean, string
   local found, trouble = Fs.walk(path)
-  if found == nil then return false, trouble end
+  if found == nil then return false, tostring(trouble) end
   local seen = 0
   for _, rel in ipairs(found) do
     local data, _ = Fs.read(path .. "/" .. rel)

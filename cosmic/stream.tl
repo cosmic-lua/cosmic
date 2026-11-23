@@ -1210,7 +1210,7 @@ end
 --- This is [`Fs.create`], which says more of the file.
 function Stream.create(path: string, mode?: integer): Stream.FileWriter?, string
   local file, trouble = Fs.create(path, mode)
-  if file == nil then return nil, trouble end
+  if file == nil then return nil, tostring(trouble) end
   -- Teal's interfaces are nominal, and cosmic.fs, a harness module, may
   -- not require this module to say that its Writer is one of ours.
   -- TODO: return the Fs.Staged itself once cosmic.fs may require

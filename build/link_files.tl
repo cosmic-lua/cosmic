@@ -79,7 +79,7 @@ end
 function link_files.walk(dir: string): {string}?, string
   local skip = link_files.skipper(dir)
   local files, trouble = Fs.walk(dir, function(entry: string): boolean return skip(entry) end)
-  if files == nil then return nil, trouble end
+  if files == nil then return nil, tostring(trouble) end
   table.sort(files) -- checked: overload_none -- untyped: call
   return files, ""
 end

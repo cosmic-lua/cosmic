@@ -468,7 +468,7 @@ function Patch.prepare(root: string, name: string, cache: string): string?, stri
     return nil, tostring(made_trouble)
   end
   local owned, own_trouble = Fs.scratch(cache)
-  if owned == nil then return nil, own_trouble end
+  if owned == nil then return nil, tostring(own_trouble) end
   local holding <close> = owned
   local payload = holding.path .. "/payload"
   local written, write_trouble = write_tree(tree, payload)
@@ -514,7 +514,7 @@ function Patch.zig_lib(root: string, lib: string, out: string): boolean, string
   end
   local cache = Fs.dirname(out)
   local owned, own_trouble = Fs.scratch(cache)
-  if owned == nil then return false, own_trouble end
+  if owned == nil then return false, tostring(own_trouble) end
   local holding <close> = owned
   local payload = holding.path .. "/payload"
   local copied, copy_trouble = Fs.copy_tree(lib, payload)

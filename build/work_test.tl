@@ -833,7 +833,7 @@ local function test_tool_discovery_fast_path_and_unknown_metadata(tmp: string)
   local handle = assert(work.open(tmp))
   assert(stage_settled(handle, true))
   local walk, read = Fs.walk_following, Fs.read
-  Fs.walk_following = function(): {string}?, string error("listed an unchanged tree") end -- checked: field_fixed
+  Fs.walk_following = function(): ({string}) | (nil, Failure) error("listed an unchanged tree") end -- checked: field_fixed
   Fs.read = function(): (string) | (nil, Failure) error("read unchanged content") end -- checked: field_fixed
   local ok, answer = pcall(work.tool_moved, handle)
   Fs.walk_following, Fs.read = walk, read -- checked: field_fixed*2
@@ -854,10 +854,10 @@ local function test_tool_discovery_does_not_bless_an_addition_after_listing(tmp:
   assert(Fs.mkdirs(tmp .. "/core"))
   local handle = assert(work.open(tmp))
   local walk = Fs.walk_following
-  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): {string}?, string -- checked: field_fixed
-    local files, trouble = walk(root, skip)
+  Fs.walk_following = function(root: string, skip?: function(string, string, Fs.Kind): boolean): ({string}) | (nil, Failure) -- checked: field_fixed
+    local files = assert(walk(root, skip))
     assert(Fs.write(root .. "/core/late.h", "new\n"))
-    return files, trouble
+    return files
   end
   local ok, staged = pcall(stage_settled, handle, true)
   Fs.walk_following = walk -- checked: field_fixed

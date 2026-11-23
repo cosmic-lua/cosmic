@@ -642,7 +642,7 @@ function Zig.snapshot(root: string): {string:string}?, string
   -- A link is taken for what it leads to, as work.stage takes it.
   local walked, trouble = Fs.walk_following(root, unwatched)
   if walked == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local seen: mut {string:string} = {}
   for _, path in ipairs(walked) do

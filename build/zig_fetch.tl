@@ -301,7 +301,7 @@ function ZigFetch.install(cache: string, install: string, version: string, host:
     return nil, tostring(mtrouble)
   end
   local owned, own_trouble = Fs.scratch(cache)
-  if owned == nil then return nil, own_trouble end
+  if owned == nil then return nil, tostring(own_trouble) end
   local holding <close> = owned
   local work = holding.path .. "/payload"
   local extracted, trouble: string?, string
