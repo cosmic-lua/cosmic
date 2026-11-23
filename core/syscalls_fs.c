@@ -46,14 +46,12 @@
 #endif
 
 #include "check.h"
-#include "crypto.h"
 #include "fail.h"
 #include "fault.h"
 #include "guard.h"
 #include "lauxlib.h"
 #include "process.h"
 #include "portable.h"
-#include "psa/crypto.h"
 #include "store.h"
 #include "syscalls.h"
 
