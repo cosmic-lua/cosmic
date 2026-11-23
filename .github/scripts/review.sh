@@ -33,6 +33,12 @@ mint || { echo "review: could not mint the identity token" >&2; exit 1; }
 refresher=$!
 trap 'pkill -P "$refresher" 2>/dev/null; kill "$refresher" 2>/dev/null || :' EXIT
 
+# Ubuntu 24.04 refuses an unprivileged user namespace, which spawn's
+# sandbox needs, so without this the tests that need the sandbox are
+# skipped (leg-container.sh does the same for the CI legs).
+[ ! -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] ||
+  sudo sysctl -qw kernel.apparmor_restrict_unprivileged_userns=0
+
 # git push as whilpbot, through gh's credential helper and GH_TOKEN.
 gh auth setup-git
 
