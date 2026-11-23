@@ -304,10 +304,9 @@ local function index_help(): string
       "verbs run code, work on a project, do quick jobs at the shell, and",
       "look things up.",
       "",
-      "Start here: `cosmic docs doc.guides.quickstart` tours the standard",
-      "library, and `cosmic docs doc.guides.project` builds a project with",
-      "a module, tests, an example, a record with methods and a program",
-      "with commands.",
+      "Start here: `cosmic docs quickstart` tours the standard library, and",
+      "`cosmic docs project` builds a project with a module, tests, an",
+      "example, a record with methods and a program with commands.",
     }, "\n"),
     after = table.concat({
       "More:",

@@ -8,6 +8,11 @@ defines the target; once something ships, it leaves this file.
 
 ## language and self-check
 
+- give three forms from Teal's own grammar a finding that names the fix,
+  then drop their list from [doc/guides/project.md](guides/project.md):
+  `-a ^ b` compiles as `-(a ^ b)` with no finding; `readonly f: T` gets
+  "write the field's type: `readonly: T`"; `(a: T...)` and `(? T)` get a
+  parse error that does not name `...: T` or `name?: T`.
 - integer enums (`enum E: integer`): [`cosmic.protobuf`]'s `message_of` and
   `enum_of` take only enums of strings, and [`cosmic.shape`] has no validator of
   one. An integer enum nested in a nested record, or in a generic record, has no
@@ -61,7 +66,7 @@ defines the target; once something ships, it leaves this file.
   committed ratchet file. the flags are in place and cover the core's C, which
   every release core and the sanitized core observe into the `coverage` table
   ([`core/coverage.c`]); no CI leg passes one yet. a floor needs a whole run, so a sharded leg (`--shard`) cannot pass one: judge it on a whole run, or on the union of the shards' `coverage` rows. the sensitivity record below
-  gives the number. old's #1781 (`pr.yml`'s `--min 76 --min-file 0`) is the model.
+  gives the number. old's `pr.yml` (`--min 76 --min-file 0`) is the model.
 - add a sensitivity record for coverage gates' host-dependent lines. old's
   `cosmic/coverage/SENSITIVITY.md` is a useful model: establish a floor from CI
   measurements and record why root access, a terminal, a free port, or a
@@ -187,7 +192,7 @@ promises lean on come first:
   `start` in a new entry of cosmic/relay over [`cosmic.internal.relay_start`], taking a
   narrow input (connect grants, the upstream proxy, a log destination) rather
   than a [`Sandbox.Policy`], so that the entry never loads [`cosmic.sandbox`]
-  and the import cycle of #2841 does not return. where it must name a sandbox
+  and the entry and the sandbox do not import each other. where it must name a sandbox
   type, it uses a type-only import (`local type`). no caller outside the tree
   needs it yet.
 - convert the sites that still read a decoded JSON value without a
@@ -260,16 +265,13 @@ promises lean on come first:
   on an `any`, which compiles to a table check, and point at [`cosmic.shape`].
 - record `shape`'s decisions in design.md: the answer is a copy, a null
   stand-in and a list's hole are missing values, and `integer` is the one
-  conversion. old's D28, which chose the opposite on the copy, is not on this
-  tree.
+  conversion.
 - measure `into`'s copy on a large payload (a big NDJSON file) against
   [`Json.decode`] on the same text once the benchmark harness exists.
 - [`cosmic.http`] with a request body written a chunk at a time, once a
-  caller needs one (`cosmic refresh` posting a large artifact, say): the
-  `Http.upload` that was removed with its C `start`, `write` and `finish`
-  (a tested streaming path with a read callback that paused the transfer,
-  `Expect:` suppressed, a given or chunked length), whose C went with it
-  because no test but its own entered it. A 307 or 308 with a streamed body
+  caller needs one (`cosmic refresh` posting a large artifact, say). It
+  needs a streaming path in C: a read callback that pauses the transfer,
+  `Expect:` suppressed, and a given or chunked length. A 307 or 308 with a streamed body
   needs the caller to hand the body over again (a function answering a
   fresh Reader) behind `CURLOPT_SEEKFUNCTION`; curl answers "necessary data
   rewind was not possible" without one.
@@ -342,14 +344,14 @@ promises lean on come first:
   (`SO_PEERCRED`, `getpeereid`), descriptors passed over it
   (`SCM_RIGHTS`), Linux's abstract names, and a socket file's mode.
 
-- [`cosmic.template`] slots in JavaScript and CSS: `<script>` and `<style>`
-  text, `on...` handlers and the `style` attribute are refused now, because
-  escaping for them is a different language's rule (old's #1654 and #1658 were
-  its bugs there). Each needs an escaper made in C with a type of its own, as
-  [`cosmic.html`]'s are, and the context tracker ([`cosmic/template/markup.tl`])
-  to say which one a slot is in. A slot after literal text in a URL
-  (`href="/a/{{.id}}"`) is not on this list: [`Html.url_part`] escapes any one
-  component of a URL, and the template takes it.
+- [`cosmic.template`] slots in JavaScript and CSS: `<script>` and
+  `<style>` text, `on...` handlers and the `style` attribute are refused
+  now, because escaping for them is a different language's rule. Each
+  needs an escaper made in C with a type of its own, as [`cosmic.html`]'s
+  are, and the context tracker ([`cosmic/template/markup.tl`]) to say
+  which one a slot is in. A slot after literal text in a URL
+  (`href="/a/{{.id}}"`) is not on this list: [`Html.url_part`] escapes any
+  one component of a URL, and the template takes it.
 
 - refresh `vendor/htmx` and `vendor/htmx-ext-sse` from npm's `dist-tags` as
   `cosmic refresh` does `cacert`, `onecrl` and `tzdata`, once a bump of a major library
@@ -495,7 +497,7 @@ symbol.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
   chosen by word overlap between the message and the catalog's messages, and
   two shared ordinary words are enough to attach an entry about something
-  else: #2008 reworded two `removed` messages to get out of its way. Match a
+  else. Match a
   catalog row only when the message carries that row's own static text.
 - decide whether README's runnable-looking shell example moves into
   `doc/guides/`, where the doctest extractor enforces it, or remains an

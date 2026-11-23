@@ -88,11 +88,10 @@ worktree's build directory when you delete the worktree.
    it). A boot that fails stops the command: check its exit status, do
    not pipe it away.
 4. Run the tests of what you changed: `bin/cosmic test <their *_test.tl
-   files>`, seconds to half a minute. Before pushing, the full suite,
-   `timeout 2700 bin/cosmic test`: about 8 minutes where few verdicts
-   stand (a fresh worktree), about half a minute where they all do, so
-   a `timeout 30` fails it in the first case. It says `test: running
-   n/m tests` as it goes.
+   files>`. Before pushing, run the full suite,
+   `timeout 2700 bin/cosmic test`: it takes about 8 minutes in a fresh
+   worktree, so a short `timeout` fails it ([`doc/testing.md`] has the
+   timings). It says `test: running n/m tests` as it goes.
 5. Commit, push and open the pull request as [`doc/contributing.md`]
    says.
 
