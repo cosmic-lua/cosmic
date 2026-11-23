@@ -745,7 +745,10 @@ static int session_read (lua_State *L) {
   unsigned char data[16384];
   size_t want = max < (lua_Integer)sizeof data ? (size_t)max : sizeof data;
   int got = mbedtls_ssl_read(&s->ssl, data, want);
-  if (got <= 0) return unfinished(L, s, got, false);
+  /* mbedtls answers 0, and not MBEDTLS_ERR_SSL_CONN_EOF as a handshake
+   * does, where the peer's socket ended with no close_notify. */
+  if (got == 0) got = MBEDTLS_ERR_SSL_CONN_EOF;
+  if (got < 0) return unfinished(L, s, got, false);
   lua_pushlstring(L, (const char *)data, (size_t)got);
   return 1;
 }
