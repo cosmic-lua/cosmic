@@ -25,7 +25,7 @@ function Example.inflate()
   local packed = assert(Compress.deflate("zlib", string.rep("a", 10000)))
   local back, why = Compress.inflate("zlib", packed, 100)
   print(why)
-  assert(back == nil and why ~= "")
+  assert(back == nil and tostring(why):find("larger than 100 bytes", 1, true) ~= nil)
 end
 
 --- A zstd stream written a chunk at a time and read back through a

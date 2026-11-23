@@ -32,6 +32,7 @@ local Bigint = require("cosmic.bigint")
 local Cipher = require("cosmic.cipher")
 local Codec = require("cosmic.codec")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Hash = require("cosmic.hash")
 local Html = require("cosmic.html")
@@ -371,7 +372,13 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
   local answered = false
   for after = 0, 100 do
     testing.fail_allocations(after)
-    local ok, made, trouble = pcall(Compress.inflater, "raw")
+    local made: Compress.Stream?
+    local trouble = ""
+    local ok, _ = pcall(function()
+      local got, refusal = Compress.inflater("raw")
+      made = got
+      if got == nil then trouble = tostring(refusal) end
+    end)
     local refused = testing.allow_allocations()
     if ok and made == nil then
       assert(trouble == "compress: out of memory", tostring(trouble))
@@ -410,7 +417,7 @@ end
 
 local record Decoding
   name: string
-  make: function(): Compress.Stream?, string
+  make: function(): (Compress.Stream) | (nil, Failure)
   input: string
 end
 
@@ -424,16 +431,16 @@ local function test_compress_leaves_nothing_whenever_an_allocation_fails()
   end
   local decodings: {Decoding} = {
     { name = "raw", input = packed("raw"),
-      make = function(): Compress.Stream?, string return Compress.inflater("raw") end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("raw") end },
     { name = "zlib", input = packed("zlib"),
-      make = function(): Compress.Stream?, string return Compress.inflater("zlib") end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("zlib") end },
     { name = "gzip", input = packed("gzip") .. "trailing",
-      make = function(): Compress.Stream?, string return Compress.inflater("gzip") end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.inflater("gzip") end },
     { name = "xz", input = hello_xz .. "trailing",
-      make = function(): Compress.Stream?, string return Compress.xz_decoder() end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.xz_decoder() end },
     { name = "bz2", input = hello_bz2 .. "trailing", make = Compress.bz2_decoder },
     { name = "zstd", input = hello_zst .. "trailing",
-      make = function(): Compress.Stream?, string return Compress.zstd_decoder() end },
+      make = function(): (Compress.Stream) | (nil, Failure) return Compress.zstd_decoder() end },
   }
   collectgarbage("collect")
   local bytes, blocks = testing.c_heap()
@@ -491,17 +498,17 @@ local function test_one_byte_updates_do_not_allocate_a_slice_each()
   local plain = table.concat(noise)
   local record Pair
     name: string
-    encoder: function(): Compress.Stream?, string
-    decoder: function(): Compress.Stream?, string
+    encoder: function(): (Compress.Stream) | (nil, Failure)
+    decoder: function(): (Compress.Stream) | (nil, Failure)
   end
   local codecs: {Pair} = {
-    { name = "zstd", encoder = function(): Compress.Stream?, string
+    { name = "zstd", encoder = function(): (Compress.Stream) | (nil, Failure)
       return Compress.zstd_encoder()
     end,
-      decoder = function(): Compress.Stream?, string return Compress.zstd_decoder() end },
-    { name = "xz", encoder = function(): Compress.Stream?, string return Compress.xz_encoder() end,
-      decoder = function(): Compress.Stream?, string return Compress.xz_decoder() end },
-    { name = "bz2", encoder = function(): Compress.Stream?, string return Compress.bz2_encoder() end,
+      decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.zstd_decoder() end },
+    { name = "xz", encoder = function(): (Compress.Stream) | (nil, Failure) return Compress.xz_encoder() end,
+      decoder = function(): (Compress.Stream) | (nil, Failure) return Compress.xz_decoder() end },
+    { name = "bz2", encoder = function(): (Compress.Stream) | (nil, Failure) return Compress.bz2_encoder() end,
       decoder = Compress.bz2_decoder },
   }
   local count = 2000

@@ -121,7 +121,7 @@ local function build(fields: {string}, outside: string): string?
   if not tw:close() then return nil end
   local archive = out:result()
   if format == "tar.gz" then
-    local enc = Compress.deflater("gzip")
+    local enc, _ = Compress.deflater("gzip")
     if enc == nil then return nil end
     local head = enc:update(archive) as string -- checked: cast_refused
     local tail = enc:finish()
@@ -365,7 +365,7 @@ local function test_open_stream_answers_as_open_does_for_the_same_bytes(tmp: str
         tw:close()
         local sample = out:result()
         if src:int(0, 1) == 1 then
-          local enc = Compress.deflater("gzip")
+          local enc, _ = Compress.deflater("gzip")
           if enc ~= nil then
             local head = enc:update(sample) as string -- checked: cast_refused
             local tail = enc:finish()
@@ -536,7 +536,7 @@ local function build_capped(fields: {string}): string?, {integer}
   if not w:close() then return nil, sizes end
   local archive = out:result()
   if fields[1] == "tar.gz" then
-    local enc = Compress.deflater("gzip")
+    local enc, _ = Compress.deflater("gzip")
     if enc == nil then return nil, sizes end
     local head = enc:update(archive) as string -- checked: cast_refused
     local tail = enc:finish()

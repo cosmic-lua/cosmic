@@ -10,6 +10,7 @@ local Array = require("cosmic.array")
 local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Compress = require("cosmic.compress")
+local Failure = require("cosmic.failure")
 local Stream = require("cosmic.stream")
 local Tar = require("cosmic.tar")
 local Zip = require("cosmic.zip")
@@ -182,7 +183,7 @@ local function open_tar(kind: string, source: Stream.Reader, label: string):
     Archive.Reader?, string
   if kind == "tar" then return Tar.reader(source), "" end
   local codec: Compress.Stream?
-  local ctrouble: string
+  local ctrouble: Failure?
   if kind == "gzip" then
     codec, ctrouble = Compress.inflater("gzip")
   elseif kind == "xz" then
@@ -194,7 +195,7 @@ local function open_tar(kind: string, source: Stream.Reader, label: string):
   end
   if codec == nil then
     local _, _ = source:close()
-    return refuse(label .. ": " .. ctrouble)
+    return refuse(label .. ": " .. tostring(ctrouble))
   end
   local transformed = Stream.transform(source, codec)
   return draining(Tar.reader(transformed), transformed), ""
@@ -318,21 +319,21 @@ function Archive.create(path: string, opts?: Archive.CreateOptions): Archive.Wri
   local deterministic = opts ~= nil and opts.deterministic or false
   local codec: Compress.Stream?
   if format == "tar.gz" then
-    local ctrouble: string
+    local ctrouble: Failure?
     codec, ctrouble = Compress.deflater("gzip")
-    if codec == nil then return refuse(path .. ": " .. ctrouble) end
+    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   elseif format == "tar.xz" then
-    local ctrouble: string
+    local ctrouble: Failure?
     codec, ctrouble = Compress.xz_encoder()
-    if codec == nil then return refuse(path .. ": " .. ctrouble) end
+    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   elseif format == "tar.bz2" then
-    local ctrouble: string
+    local ctrouble: Failure?
     codec, ctrouble = Compress.bz2_encoder()
-    if codec == nil then return refuse(path .. ": " .. ctrouble) end
+    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   elseif format == "tar.zst" then
-    local ctrouble: string
+    local ctrouble: Failure?
     codec, ctrouble = Compress.zstd_encoder()
-    if codec == nil then return refuse(path .. ": " .. ctrouble) end
+    if codec == nil then return refuse(path .. ": " .. tostring(ctrouble)) end
   end
   local file, trouble = Stream.create(path)
   if file == nil then return nil, trouble end

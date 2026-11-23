@@ -80,7 +80,7 @@ local function test_compress_has_the_server_gzip_a_text_reply_that_opts_in_and_o
     local res = assert(client:get("/page", gzip))
     assert(res.headers["content-encoding"] == "gzip", tostring(res.headers["content-encoding"]))
     assert(tostring(res.headers["vary"]):find("Accept-Encoding", 1, true) ~= nil)
-    assert(#res.body < #page and Compress.inflate("gzip", res.body) == page)
+    assert(#res.body < #page and assert(Compress.inflate("gzip", res.body)) == page)
     local kept = assert(client:get("/secret", gzip))
     assert(kept.headers["content-encoding"] == nil and kept.body == page, "no-transform is left as it is")
   end, { compress = true })
