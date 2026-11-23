@@ -233,6 +233,34 @@ local function empty_handler(_req: Web.Request, _p: Web.None, _q: Web.None, _b: 
   return Web.empty()
 end
 
+--- A refusal points at the line that made the route, by any of the route's functions; one typed handler binds to
+--- each route it is given to on its own.
+local function test_a_typed_handler_is_refused_at_the_route_and_binds_each_route_alone()
+  local typed = Web.typed(Web.input(Web.NONE, Web.NONE, Web.json_body(NEW)),
+    function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
+      return Web.empty()
+    end)
+  for _, make in ipairs({
+      function() Web.get("/items", typed) end,
+      function() Web.route({ "POST", "GET" }, "/items", typed) end,
+  }) do
+    local why = Test.raises(make)
+    assert(why:find("^[^\n]*typed_test[^:]*:%d+: web: route /items: GET takes no body") ~= nil, why)
+  end
+  local small = Web.post("/a", typed, { input_options = { max_bytes = 5 } })
+  local default = Web.post("/b", typed)
+  assert(assert(small.input).max_bytes == 5 and assert(default.input).max_bytes == 64 * 1024)
+  assert(small.handler ~= default.handler)
+  local unknown: Types.Body<NewItem> = { kind = "xml", typed = NEW }
+  local why = Test.raises(function()
+    Web.typed(Web.input(Web.NONE, Web.NONE, unknown),
+      function(_req: Web.Request, _p: Web.None, _q: Web.None, _b: NewItem): Web.Response
+        return Web.empty()
+      end)
+  end)
+  assert(why:find("not json, form, multipart or none", 1, true) ~= nil, why)
+end
+
 local function test_registration_refuses_a_path_that_does_not_match_its_spec()
   local function none_handler(_req: Web.Request, _p: Web.None, _q: Web.None, _b: Web.None): Web.Response
     return Web.empty()

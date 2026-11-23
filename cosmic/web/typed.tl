@@ -105,12 +105,12 @@ local function check_path(pattern: string, spec: Shape.Node?)
   for _, name in ipairs(names) do
     seen[name] = true
     if fields[name] ~= true then
-      error(("web: route %s: the parameter %q is not a field of the path spec"):format(pattern, name), 3)
+      error(("web: route %s: the parameter %q is not a field of the path spec"):format(pattern, name), 0)
     end
   end
   for name in pairs(fields) do
     if seen[name] ~= true then
-      error(("web: route %s: the path spec field %q is not a parameter of the pattern"):format(pattern, name), 3)
+      error(("web: route %s: the path spec field %q is not a parameter of the pattern"):format(pattern, name), 0)
     end
   end
 end
@@ -159,8 +159,8 @@ end
 --- The route that takes it raises, naming the pattern, when a path
 --- parameter and a field of the path spec do not match one to one, when a
 --- spec is one its source cannot carry ([`Input.check_spec`]), and when a
---- body is declared for a method that takes none, as GET. This raises when
---- the body is of no kind it knows.
+--- body is declared for a method that takes none, as GET. [`Web.typed`]
+--- itself raises when the body is not json, form, multipart or none.
 --- @param input Types.Input<P,Q,B> The slots, from [`Web.input`]
 --- @param fn function(Types.Request, P, Q, B): Types.Response The handler
 --- @return Types.TypedHandler What a route takes as its handler
@@ -176,7 +176,7 @@ function Typed.typed<P,Q,B>(input: Types.Input<P,Q,B>,
     if kind ~= "none" then
       for _, verb in ipairs(verbs) do
         if BODY_METHODS[verb] ~= true then
-          error(("web: route %s: %s takes no body, so it cannot have a %s body spec"):format(pattern, verb, kind), 2)
+          error(("web: route %s: %s takes no body, so it cannot have a %s body spec"):format(pattern, verb, kind), 0)
         end
       end
     end
