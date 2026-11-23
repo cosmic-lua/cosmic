@@ -503,7 +503,7 @@ end
 --- so it is never stale-checked.
 verb.spec = {
   name = "rand",
-  guide = "a random id, token or number",
+  guide = "more quick tools",
   tests = { "build.rand_test", "build.rand_tool_test" },
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,

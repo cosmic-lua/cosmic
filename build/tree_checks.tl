@@ -1259,7 +1259,8 @@ launcher_allowed["build.c.rules_test"] = "names COSMIC_PORTABLE_CACHE in the env
 launcher_allowed["build.declared_key_test"] = "names COSMIC_PORTABLE_CACHE as a variable of the " ..
   "environment a spec it keys holds, and reads none from its own process"
 launcher_allowed["build.launcher_test"] = "renders the launcher's text with build.launcher and runs " ..
-  "it in a child of its own, with COSMIC_PORTABLE_TEST_CPUINFO named in the child's environment"
+  "it in a child of its own, with COSMIC_PORTABLE_TEST_CPUINFO and COSMIC_PORTABLE_TEST_KERNEL named in the " ..
+  "child's environment"
 launcher_allowed["build.test_sandbox_test"] = "names COSMIC_PORTABLE_CACHE in the environments " ..
   "it hands the sandbox's pure functions, and reads none from its own process"
 launcher_allowed["build.test_worker_test"] = "hands the worker's pure start function a made-up " ..
