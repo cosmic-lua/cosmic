@@ -47,18 +47,18 @@ local function frame_header(frame: string): FrameHeader
 end
 
 local function decode(frame: string): string
-  local decoder = assert(Compress.zstd_decoder())
+  local decoder = assert(Compress.decoder("zstd"))
   return (assert(Stream.run(decoder, frame)))
 end
 
 local function test_zstd_declares_its_size_and_keeps_its_window(_: string)
   local small = string.rep("cosmic ", 200)
-  local frame = assert(Compress.zstd(small, 19))
+  local frame = assert(Compress.encode("zstd", small, { level = 19 }))
   local header = frame_header(frame)
   assert(header.content_size == #small and header.checksum, "a small frame names its size and checksum")
   assert(header.window <= 1 << 23)
   assert(decode(frame) == small)
-  assert(assert(Compress.zstd(small, 19)) == frame, "the same bytes every run")
+  assert(assert(Compress.encode("zstd", small, { level = 19 })) == frame, "the same bytes every run")
 
   -- Past the window the frame is not single-segment, and its window is the fixed one.
   local parts: mut {string} = {}
@@ -66,7 +66,7 @@ local function test_zstd_declares_its_size_and_keeps_its_window(_: string)
     parts[i] = string.format("%07d:", i) .. string.rep(string.char(65 + i % 26), 1016)
   end
   local large = table.concat(parts)
-  local big = assert(Compress.zstd(large, 1))
+  local big = assert(Compress.encode("zstd", large, { level = 1 }))
   local big_header = frame_header(big)
   assert(big_header.content_size == #large and big_header.checksum)
   assert(big_header.window == 1 << 23, "the window is the shared constant: " .. tostring(big_header.window))
@@ -74,7 +74,7 @@ local function test_zstd_declares_its_size_and_keeps_its_window(_: string)
 end
 
 local function test_a_streaming_encoder_names_no_size(_: string)
-  local encoder = assert(Compress.zstd_encoder(19))
+  local encoder = assert(Compress.encoder("zstd", { level = 19 }))
   local streamed = frame_header((assert(Stream.run(encoder, string.rep("cosmic ", 200)))))
   assert(streamed.content_size == nil and streamed.checksum, "a streaming encoder pledges no size")
 end

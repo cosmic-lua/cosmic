@@ -117,10 +117,23 @@ allowed["build.compile_fanout.ended_well"] = "how many copies ended well, which 
 allowed["build.dataset.read"] = "the reader load_text composes and falls back on, tested directly " ..
   "over each format's text, and with load the reference load_text's fuzz property is held to"
 
+allowed["cosmic.mcp.MISSING_CAPABILITY"] = "public API: the protocol's code for a request that needs a capability the " ..
+  "client did not declare, which a client tests a failure's code against"
+allowed["cosmic.mcp.text"] = "public API: a text block of a tool's result or a prompt's message, which a server builds"
+allowed["cosmic.mcp.image"] = "public API: an image block of a tool's result, its bytes in base64, which a server builds"
+allowed["cosmic.mcp.audio"] = "public API: an audio block of a tool's result, its bytes in base64, which a server builds"
+allowed["cosmic.mcp.link"] = "public API: a block that links a resource from a tool's result, which a server builds"
+allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's contents, which a server builds"
+allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
+
 allowed["cosmic.failure.timeout"] = "public API: the failure of a wait that ran past its time limit, which " ..
   "a module answers in place of the words Poll.TIMEOUT as each moves to (T) | (nil, Failure)"
-allowed["cosmic.failure.cancelled"] = "public API: the failure of a wait stopped from outside, which a module " ..
-  "answers in place of the words Poll.CANCELLED as each moves to (T) | (nil, Failure)"
+allowed["cosmic.compress.zstd_encoder"] = "ci/ calls it on the pinned release, which has no Compress.encoder; " ..
+  "goes with the TODO in cosmic/compress.tl"
+allowed["cosmic.compress.zstd_decoder"] = "ci/ calls it on the pinned release, which has no Compress.decoder; " ..
+  "goes with the TODO in cosmic/compress.tl"
+allowed["cosmic.compress.zstd"] = "ci/ calls it on the pinned release, which has no Compress.encode; " ..
+  "goes with the TODO in cosmic/compress.tl"
 allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
   "runs the loop reads; the loop keeps each request's cost through billed"
 allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
@@ -1899,6 +1912,45 @@ local function plural_file(file: string): boolean
       file:match("^ci/cosmic_ci/") ~= nil)
 end
 
+--- The lines [`plurals`] says of `sources` (`{file, source}` pairs), and the `<file>:<noun>` keys found, which an exemption in
+--- `excused` answers to; `read` as [`plurals`] takes it.
+local function plural_lines(sources: {{string}}, excused: {string: string}, read?: {string: tree_checks.Plurals}):
+    mut {string}, {string: boolean}
+  local out: mut {string} = {}
+  local found: mut {string: boolean} = {}
+  for _, row in ipairs(sources) do
+    local file_name, source_text = row[1], row[2]
+    local kept = if read ~= nil and file_name ~= nil then read[file_name] else nil end
+    local sites: {{string}}?
+    local parse_trouble: string?
+    if file_name == nil or source_text == nil then
+      out[#out + 1] = "a source to check for plurals is a file's path and its text"
+      sites = {}
+    elseif kept ~= nil and kept.source == source_text then
+      sites = kept.sites
+    else
+      sites, parse_trouble = plural_sites(source_text, file_name)
+    end
+    if sites == nil then
+      out[#out + 1] = (file_name or "?") .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
+    else
+      for _, site in ipairs(sites) do
+        local line, noun, literal, fix = site[1], site[2], site[3], site[4]
+        if file_name ~= nil and line ~= nil and noun ~= nil and literal ~= nil and fix ~= nil then
+          local key = file_name .. ":" .. noun
+          found[key] = true
+          if excused[key] == nil then
+            out[#out + 1] = file_name .. ":" .. line .. ": `" .. literal ..
+              "` puts the literal plural `" .. noun .. "` after a number, which reads \"1 " ..
+              noun .. "\" -- " .. fix
+          end
+        end
+      end
+    end
+  end
+  return out, found
+end
+
 --- What [`plurals`] finds in `source`, the text of `file` (its path from the tree's root), parsed here so that the checks
 --- need not parse it again; nil for a file they do not read, and for one that cannot be read, which [`plurals`] then says.
 function tree_checks.plurals_in(file: string, source: string): tree_checks.Plurals?
@@ -1941,38 +1993,7 @@ function tree_checks.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {s
   local sources: mut {{string}} = {}
   for _, row in ipairs(rows) do sources[#sources + 1] = { row:text(1), row:text(2) } end
   for _, row in ipairs(extra or {}) do sources[#sources + 1] = row end
-  local out: mut {string} = {}
-  local found: mut {string: boolean} = {}
-  for _, row in ipairs(sources) do
-    local file_name, source_text = row[1], row[2]
-    local kept = if read ~= nil and file_name ~= nil then read[file_name] else nil end
-    local sites: {{string}}?
-    local parse_trouble: string?
-    if file_name == nil or source_text == nil then
-      out[#out + 1] = "a source to check for plurals is a file's path and its text"
-      sites = {}
-    elseif kept ~= nil and kept.source == source_text then
-      sites = kept.sites
-    else
-      sites, parse_trouble = plural_sites(source_text, file_name)
-    end
-    if sites == nil then
-      out[#out + 1] = (file_name or "?") .. ": cannot read it to check its plurals: " .. (parse_trouble or "")
-    else
-      for _, site in ipairs(sites) do
-        local line, noun, literal, fix = site[1], site[2], site[3], site[4]
-        if file_name ~= nil and line ~= nil and noun ~= nil and literal ~= nil and fix ~= nil then
-          local key = file_name .. ":" .. noun
-          found[key] = true
-          if excused[key] == nil then
-            out[#out + 1] = file_name .. ":" .. line .. ": `" .. literal ..
-              "` puts the literal plural `" .. noun .. "` after a number, which reads \"1 " ..
-              noun .. "\" -- " .. fix
-          end
-        end
-      end
-    end
-  end
+  local out, found = plural_lines(sources, excused, read)
   local stale: mut {string} = {}
   for key in pairs(excused) do
     if found[key] ~= true then
@@ -1982,6 +2003,19 @@ function tree_checks.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {s
   end
   table.sort(stale)
   for _, tail in ipairs(stale) do out[#out + 1] = tail end
+  return out
+end
+
+--- [`plurals`] over `sources` alone (`{file, source}` pairs, each file a path from the tree's root), with no word on an
+--- exemption nothing answers to: what a run of `cosmic fix` over some paths holds them to, where the whole tree's check
+--- takes its sources from the projection. A file [`plurals`] does not read is passed over.
+function tree_checks.plurals_of(sources: {{string}}, excused?: {string: string}): {string}
+  local read: mut {{string}} = {}
+  for _, row in ipairs(sources) do
+    local file = row[1]
+    if file ~= nil and plural_file(file) then read[#read + 1] = row end
+  end
+  local out, _ = plural_lines(read, excused or plural_exempt)
   return out
 end
 

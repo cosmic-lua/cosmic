@@ -883,7 +883,7 @@ end
 
 --- `data` as the one zstd frame cosmic.compress writes.
 local function zstd_frame(data: string): string
-  local encoder = assert(Compress.zstd_encoder())
+  local encoder = assert(Compress.encoder("zstd"))
   local frame = assert(Stream.run(encoder, data))
   return frame
 end

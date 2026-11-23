@@ -115,6 +115,21 @@ under its rules. concretely:
 - an example is worth a paragraph of description. in a doc it runs.
 - name the thing, not a pronoun three clauses back.
 - break a chain of dashes, colons and semicolons into sentences.
+- one term for one concept, and one concept for one term. the
+  [glossary](#glossary) sets the terms that drift. a new text uses
+  them, and a change to old text moves it to them.
+
+### glossary
+
+- **returns**: what a function gives back. not "answers", which reads
+  as a reply. "returns nil and a failure", "returns true".
+- **raises**: an error that unwinds the stack. not "throws" or
+  "complains".
+- **fails**: a check, a test or a command that does not pass. a
+  function that returns nil and a Failure "fails"; one that raises
+  "raises".
+- **lists**: gives several items. not "names" for more than one.
+- **is responsible for**: not "answers for".
 
 ## comments
 

@@ -693,10 +693,10 @@ end
 --- A new encoder for `coding`, nil where there is none.
 local function encoder_for(coding: string): Compress.Stream?
   if coding == "zstd" then
-    local encoder, _ = Compress.zstd_encoder()
+    local encoder, _ = Compress.encoder("zstd")
     return encoder
   end
-  local encoder, _ = Compress.deflater("gzip")
+  local encoder, _ = Compress.encoder("gzip")
   return encoder
 end
 

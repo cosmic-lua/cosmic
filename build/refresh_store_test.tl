@@ -105,7 +105,7 @@ local function sdist(path: string, version: string, files: {string:string})
     assert(w:add_file(("tzdata-%s/src/tzdata/%s"):format(version, name), data))
   end
   assert(w:close())
-  assert(Fs.write(path, (assert(Compress.deflate("gzip", out:result())))))
+  assert(Fs.write(path, (assert(Compress.encode("gzip", out:result())))))
 end
 
 --- Every vendored zone, by its path under the sdist's `src/tzdata/`.

@@ -9,7 +9,7 @@ local Fuzz = require("build.fuzz")
 
 --- `plain` through a fresh zstd encoder at `level`, whole.
 local function packed(plain: string, level: integer): string
-  local enc = assert(Compress.zstd_encoder(level))
+  local enc = assert(Compress.encoder("zstd", { level = level }))
   return assert(enc:update(plain)) .. assert(enc:finish())
 end
 
@@ -18,7 +18,7 @@ end
 --- before the failure and why. Raises when an update gives more than
 --- `max_bytes`.
 local function decode(input: string, step: integer, max_bytes: integer): string, string
-  local dec = assert(Compress.zstd_decoder(1 << 23))
+  local dec = assert(Compress.decoder("zstd", { max_window = 1 << 23 }))
   local parts: mut {string} = {}
   local pos = 1
   repeat
@@ -93,7 +93,7 @@ local function test_what_the_encoder_writes_decodes_to_what_went_in()
       local fields = Fuzz.unpack(input)
       local level = math.tointeger(tonumber(fields[1] or "3")) or 3
       if level < 1 or level > 19 then level = 3 end
-      local enc = assert(Compress.zstd_encoder(level))
+      local enc = assert(Compress.encoder("zstd", { level = level }))
       local parts: mut {string} = {}
       for i, field in ipairs(fields) do
         if i > 1 then parts[#parts + 1] = assert(enc:update(field)) end

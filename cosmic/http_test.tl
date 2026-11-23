@@ -1199,13 +1199,13 @@ end
 local function encoded(coding: string, plain: string): string
   local codec: Compress.Stream
   if coding == "zstd" then
-    codec = assert(Compress.zstd_encoder())
+    codec = assert(Compress.encoder("zstd"))
   elseif coding == "zlib" then
-    codec = assert(Compress.deflater("zlib"))
+    codec = assert(Compress.encoder("zlib"))
   elseif coding == "raw" then
-    codec = assert(Compress.deflater("raw"))
+    codec = assert(Compress.encoder("raw"))
   elseif coding == "gzip" then
-    codec = assert(Compress.deflater("gzip"))
+    codec = assert(Compress.encoder("gzip"))
   else
     error("no encoder for " .. coding)
   end

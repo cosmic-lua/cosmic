@@ -113,7 +113,7 @@ end
 function fixture.core_of(artifact: fixture.Artifact, entry: fixture.Entry): string?, string
   local stored = artifact.bytes:sub(entry.offset + 1, entry.offset + entry.stored_length)
   if entry.codec == 0 then return stored, "" end
-  local decoder, trouble = Compress.zstd_decoder(1 << 23)
+  local decoder, trouble = Compress.decoder("zstd", { max_window = 1 << 23 })
   if decoder == nil then return nil, tostring(trouble) end
   local got, failure = Stream.run(decoder, stored, entry.length)
   if got == nil then return nil, tostring(failure) end

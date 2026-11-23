@@ -506,7 +506,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
     end
     return cached
   end
-  local function check(where: string, text: string)
+  local function check(where: string, text: string, module?: string)
     for _, span in ipairs(spans(text)) do
       local problem: string? = nil
       local query = span:match("^cosmic docs (.+)$")
@@ -530,7 +530,10 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
         if chain ~= nil and head ~= nil and records[head] == true and
             (#chain == #span or span:sub(#chain + 1, #chain + 1):match("[%s(]") ~= nil) then
           chain = chain:gsub(":", ".")
-          if not resolves(chain) then
+          -- A name the module itself declares wins, as a link's does: a
+          -- local class's member (`Client.serve` in cosmic.tailscale) is
+          -- not some other module's `client`.
+          if not resolves(chain) and (module == nil or not resolves(module .. "." .. chain)) then
             local removal = gone[chain]
             problem = if removal ~= nil then "names a removed symbol: " .. removal else
               "names no symbol" end
@@ -548,7 +551,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   end
   for _, row in ipairs(texts) do
     check(row:text(4) .. ":" .. row:text(5) .. ": " .. row:text(1) ..
-        (if row:text(2) ~= "" then " " .. row:text(2) else "" end), row:text(3))
+        (if row:text(2) ~= "" then " " .. row:text(2) else "" end), row:text(3), row:text(1))
   end
   for name, text in pairs(help) do
     check("`cosmic help" .. (if name ~= "" then " " .. name else "" end) .. "`", text)

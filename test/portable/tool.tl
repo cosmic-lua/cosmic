@@ -24,7 +24,7 @@ end
 --- fraction of the release's seconds a core and is the same format; the
 --- release level is held by `compress-core` and the product.
 local function compress_core(core: string): string?, string
-  local framed, why = Compress.zstd(core, 3)
+  local framed, why = Compress.encode("zstd", core, { level = 3 })
   if framed == nil then return nil, tostring(why) end
   return framed, ""
 end
@@ -34,7 +34,7 @@ end
 local function compress_release_core(argv: {string}): integer
   local core_path, out = argv[1], argv[2]
   assert(core_path ~= nil and out ~= nil, "usage: tool.tl compress-core CORE OUT")
-  local frame = assert(Compress.zstd(assert(Fs.read(core_path)), artifact.zstd_level()))
+  local frame = assert(Compress.encode("zstd", assert(Fs.read(core_path)), { level = artifact.zstd_level() }))
   assert(Fs.write(out, frame))
   return 0
 end

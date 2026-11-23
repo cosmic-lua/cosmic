@@ -26,7 +26,9 @@
 --- tree's projection with the new checker and holds it to the checks only the whole tree can answer
 --- ([`build.tree_checks`]), and that every public example and user-guide example compiles as shown, alone
 --- ([`build.example_checks`]). A tree that does not build fails, since the checks need its projection, and a note on the
---- standard library fails the run instead of being a note. A run over some paths does none of this.
+--- standard library fails the run instead of being a note. A run over some paths of cosmic's own tree makes the few of
+--- these that cost it seconds -- the exports, the doc references, the plurals of the files named -- and holds their
+--- markers to the merge base; a run in its `ci/` holds the files named to the plurals.
 ---
 --- `--changed` names the paths that changed since the whole tree passed
 --- (`cosmic fix --check --changed $(git diff --name-only main)`): it checks only those, yet answers as a run over the whole
@@ -1745,6 +1747,71 @@ local function hold_named_markers(root: string, files: {string}, findings: mut {
   if held.note ~= "" then log:say("fix: ceilings: " .. held.note) end
 end
 
+--- The plurals of the Teal files `files` ([`tree_checks.plurals_of`]). Each file is named by its path under `root`
+--- with `prefix` in front, which is its path from cosmic's own root; a file outside `root` is passed over.
+local function named_plurals(root: string, prefix: string, files: {string}, findings: mut {string})
+  local texts: mut {{string}} = {}
+  local resolved, _ = Fs.absolute(root)
+  local real_root = resolved or root
+  for _, file in ipairs(files) do
+    -- The real path, with no `..` left, is the name the whole tree's check and its exemptions use.
+    local real, _ = Fs.absolute(file)
+    local named = if real ~= nil then under(real_root, real) else nil end
+    local text, _ = Fs.read(file)
+    if named ~= nil and text ~= nil then
+      texts[#texts + 1] = { prefix .. named, text }
+    end
+  end
+  for _, line in ipairs(tree_checks.plurals_of(texts)) do
+    findings[#findings + 1] = "plurals: " .. line
+  end
+end
+
+--- Whether `root` is the `ci/` of cosmic's own tree, a project of its own whose plurals that tree's check reads
+--- ([`tree_checks.ci_sources`]).
+local function ci_tree(root: string): boolean
+  if Fs.basename(root) ~= "ci" then return false end
+  local standing, _ = tree.standing(Fs.dirname(root))
+  return standing ~= nil and standing.own
+end
+
+--- A run of some paths in cosmic's own tree makes the checks of the tree that cost it a few seconds: the exports
+--- earned, the names the docs and help refer to, and the plurals of the files named. The rest wait for
+--- `cosmic fix --check .` (or `--changed`). Each line is the whole tree's check's, so a line
+--- may name a file that was not named: a new module's name can break a reference in another. A tree that does not build
+--- has no projection, and its refusal is said already.
+local function named_tree_checks(ctx: Fix, findings: mut {string})
+  local picked = assert(ctx.picked)
+  local root = assert(ctx.root)
+  if ctx.unbuilt ~= nil or #picked.files == 0 then return end
+  named_plurals(root, "", picked.files, findings)
+  local db, projection_trouble = tree_checks.projection(root, assert(ctx.standing))
+  if db == nil then
+    findings[#findings + 1] = "tree checks: " .. projection_trouble
+    return
+  end
+  for _, line in ipairs(tree_checks.exports(db)) do
+    findings[#findings + 1] = "exports: " .. line
+  end
+  local paths = build_paths.resolve(root)
+  -- A scratch name of its own: a whole run in the same checkout keeps `docs_check` open for its copies.
+  local carried, carried_trouble = docs_checks.carried(paths.projection, paths.docs_check .. ".named")
+  local help, help_trouble = help_source.texts()
+  if carried == nil then
+    findings[#findings + 1] = "tree checks: " .. carried_trouble
+  elseif help == nil then
+    findings[#findings + 1] = "tree checks: " .. help_trouble
+  else
+    for _, line in ipairs(docs_checks.references(carried, help)) do
+      findings[#findings + 1] = "doc references: " .. line
+    end
+  end
+  if carried ~= nil then
+    local _, _ = carried:close()
+  end
+  local _, _ = db:close()
+end
+
 --- Over the whole of cosmic's own tree, what only the whole tree can
 --- answer ([`build.tree_checks`]), asked of its projection built afresh:
 --- a finding is the tree's, not a file's, so it is counted apart.
@@ -1883,6 +1950,9 @@ local function run_tree_checks(ctx: Fix)
     end
   elseif assert(ctx.standing).own then
     hold_named_markers(root, picked.files, findings)
+    named_tree_checks(ctx, findings)
+  elseif ctx.unbuilt == nil and ci_tree(root) then
+    named_plurals(root, "ci/", picked.files, findings)
   end
 end
 

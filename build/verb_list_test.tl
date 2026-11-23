@@ -111,3 +111,46 @@ local function test_a_spec_prose_stands_by_itself()
     end
   end
 end
+
+--- The words of an example line as a shell splits them: spaces apart,
+--- and a word in single quotes kept whole.
+local function example_words(line: string): {string}
+  local words: mut {string} = {}
+  local rest = line
+  while true do
+    rest = rest:gsub("^%s+", "")
+    if rest == "" then break end
+    local quoted, remaining = rest:match("^'([^']*)'(.*)$")
+    if quoted ~= nil and remaining ~= nil then
+      words[#words + 1] = quoted
+      rest = remaining
+    else
+      local word, tail = rest:match("^(%S+)(.*)$")
+      words[#words + 1] = assert(word)
+      rest = tail or ""
+    end
+  end
+  return words
+end
+
+--- Every verb's help shows at least one example, and each example's
+--- options are ones the verb takes, so an example cannot name an option
+--- that is gone.
+local function test_every_verb_has_examples_its_options_take()
+  local Flags = require("cosmic.flags")
+  for _, verb in ipairs(Cli.order) do
+    local command = assert(Cli.verbs[verb])
+    local examples = command.examples or {}
+    assert(#examples > 0, verb .. ": its help shows no example")
+    for _, example in ipairs(examples) do
+      assert(example.about ~= "", verb .. " " .. example.line .. ": says nothing of what it does")
+      local words = example_words(example.line)
+      -- A file run, `--standalone`, `-e` and `--version` read their own lines, with no spec.
+      local spec = command.spec
+      if spec ~= nil then
+        local parsed, why = Flags.parse(words, 1, spec)
+        assert(parsed ~= nil, verb .. " " .. example.line .. ": " .. why)
+      end
+    end
+  end
+end

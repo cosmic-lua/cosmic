@@ -1,0 +1,184 @@
+--- [`cosmic.mcp.server`]'s Streamable HTTP handler under
+--- [`cosmic.http.server`] on the worker's loopback, asked by
+--- [`cosmic.mcp.client`] and by requests written by hand, in one run.
+
+local Client = require("cosmic.mcp.client")
+local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
+local Http = require("cosmic.http")
+local HttpServer = require("cosmic.http.server")
+local Json = require("cosmic.json")
+local Mcp = require("cosmic.mcp")
+local Net = require("cosmic.net")
+local Server = require("cosmic.mcp.server")
+local Test = require("cosmic.test")
+
+Test.policy{ loopback = { "127.0.0.1" } }
+
+local WAIT <const> = Clock.seconds(20)
+local TOKEN <const> = "0123456789abcdef-token"
+
+local function count_tool(): Server.ToolSpec
+  local schema: {string: Json.Value} = {
+    type = "object",
+    properties = { n = { type = "integer", ["x-mcp-header"] = "N" } },
+  }
+  return {
+    tool = { name = "count", inputSchema = schema },
+    call = function(_: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      return Mcp.result({ "ok" })
+    end,
+  }
+end
+
+local function region_tool(): Server.ToolSpec
+  local schema: {string: Json.Value} = {
+    type = "object",
+    properties = { region = { type = "string", ["x-mcp-header"] = "Region" }, query = { type = "string" } },
+  }
+  return {
+    tool = { name = "where", inputSchema = schema },
+    call = function(args: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      local region = args["region"]
+      local seen = if call.http ~= nil then call.http.headers["mcp-param-region"] or "" else "" end
+      return Mcp.result({ (if region is string then region else "?" end) .. " " .. seen })
+    end,
+  }
+end
+
+local function server(): Server.Instance
+  return Server.new{
+    info = { name = "web", version = "1" },
+    tools = {
+      {
+        tool = { name = "echo", inputSchema = Mcp.object_schema({ text = { type = "string" } }) },
+        call = function(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+          local text = args["text"]
+          return Mcp.result({ if text is string then text else "" end })
+        end,
+      },
+      region_tool(),
+      count_tool(),
+    },
+  }
+end
+
+--- Serves `handle` on loopback and runs `client` with the endpoint's
+--- URL, then stops.
+local function serving(handle: function(HttpServer.Request): HttpServer.Reply, client: function(url: string))
+  assert(HttpServer.serve{
+    listeners = { Net.tcp("127.0.0.1", 0) },
+    handle = handle,
+    on_ready = function(addresses: {Net.Address}, running: Net.Server)
+      local at = assert(addresses[1])
+      client("http://127.0.0.1:" .. tostring(at.port) .. "/mcp")
+      running:stop()
+    end,
+  })
+end
+
+local function test_the_client_calls_tools_over_http_with_its_token()
+  serving(server():handler{ authorize = Server.bearer(TOKEN) }, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT, headers = { Authorization = "Bearer " .. TOKEN } })
+    local d = assert(session:discover())
+    assert(assert(d.supportedVersions[1]) == Mcp.VERSION)
+    local tools = assert(session:tools())
+    assert(#tools == 3)
+    local said = assert(session:call("echo", { text = "héllo\nthere" }))
+    assert(assert(said.content[1]).text == "héllo\nthere")
+    local where = assert(session:call("where", { region = "us-west1", query = "q" }))
+    assert(assert(where.content[1]).text == "us-west1 us-west1", "the argument went in its header too")
+    local odd = assert(session:call("where", { region = " pad " }))
+    assert(assert(odd.content[1]).text == " pad  =?base64?IHBhZCA=?=", assert(odd.content[1]).text)
+    assert(session:close())
+    local stranger = Client.http(url, { timeout_ns = WAIT })
+    local none, why = stranger:tools()
+    assert(none == nil and tostring(why):find("401", 1, true) ~= nil, tostring(why))
+    local wrong = Client.http(url, { timeout_ns = WAIT, headers = { Authorization = "Bearer " .. TOKEN .. "x" } })
+    local refused, _ = wrong:tools()
+    assert(refused == nil)
+    local lower = Client.http(url, { timeout_ns = WAIT, headers = { Authorization = "bearer " .. TOKEN } })
+    local listed, _ = lower:tools()
+    assert(listed ~= nil, "the scheme is read in any case")
+  end)
+end
+
+--- A hand-written POST to `url`.
+local function post(url: string, body: string, headers: {string: string}): Http.Body
+  local all: mut {string: string} = { ["Content-Type"] = "application/json", Accept = "application/json, text/event-stream" }
+  for k, v in pairs(headers) do all[k] = v end
+  local got = assert(Http.request("POST", url, { timeout_ns = WAIT, headers = all, body = body }))
+  return got
+end
+
+local META <const> = '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}'
+
+local function test_the_handler_refuses_what_the_transport_refuses()
+  serving(server():handler{ authorize = Server.anyone, origins = { "https://ok.example" } }, function(url: string)
+    local list = '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{' .. META .. "}}"
+    local good = { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/list" }
+    assert(post(url, list, good).status == 200)
+    local evil: mut {string: string} = { Origin = "https://evil.example" }
+    for k, v in pairs(good) do evil[k] = v end
+    assert(post(url, list, evil).status == 403, "a foreign origin is refused")
+    local ok_origin: mut {string: string} = { Origin = "https://ok.example" }
+    for k, v in pairs(good) do ok_origin[k] = v end
+    assert(post(url, list, ok_origin).status == 200)
+    local no_version = post(url, list, { ["Mcp-Method"] = "tools/list" })
+    assert(no_version.status == 400 and no_version.body:find("-32020", 1, true) ~= nil, no_version.body)
+    local wrong_method = post(url, list, { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/call" })
+    assert(wrong_method.status == 400 and wrong_method.body:find("-32020", 1, true) ~= nil)
+    local call = '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"where","arguments":{"region":"a"},' .. META .. "}}"
+    local no_param = post(url, call, { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/call", ["Mcp-Name"] = "where" })
+    assert(no_param.status == 400 and no_param.body:find("Mcp-Param-Region", 1, true) ~= nil, no_param.body)
+    local wrong_name = post(url, call, { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/call", ["Mcp-Name"] = "echo",
+      ["Mcp-Param-Region"] = "a" })
+    assert(wrong_name.status == 400)
+    local absent = post(url, '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"where","arguments":{},' .. META .. "}}",
+      { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/call", ["Mcp-Name"] = "where", ["Mcp-Param-Region"] = "admin" })
+    assert(absent.status == 400, "a header for an argument the body does not hold is refused")
+    local count = '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"count","arguments":{"n":42},' .. META .. "}}"
+    local function counted(header: string): integer
+      return post(url, count, { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/call", ["Mcp-Name"] = "count",
+        ["Mcp-Param-N"] = header }).status
+    end
+    assert(counted("42") == 200 and counted("42.0") == 200)
+    assert(counted("0x2A") == 400 and counted("4.2e1") == 400 and counted("43") == 400)
+    local missing = post(url, '{"jsonrpc":"2.0","id":3,"method":"no/such","params":{' .. META .. "}}",
+      { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "no/such" })
+    assert(missing.status == 404 and missing.body:find("-32601", 1, true) ~= nil)
+    local note = post(url, '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{}}', {})
+    assert(note.status == 202 and note.body == "")
+    local text = assert(Http.request("POST", url, { timeout_ns = WAIT, headers = { ["Content-Type"] = "text/plain" }, body = list }))
+    assert(text.status == 415)
+    local get = assert(Http.get(url, { timeout_ns = WAIT }))
+    assert(get.status == 405)
+    local elsewhere = assert(Http.request("POST", url:gsub("/mcp$", "/other"), { timeout_ns = WAIT, body = list }))
+    assert(elsewhere.status == 404)
+  end)
+end
+
+--- An answer as an event stream, as a server may send one: the client
+--- reads the response to its request among the events.
+local function test_the_client_reads_a_response_sent_as_events()
+  serving(function(req: HttpServer.Request): HttpServer.Reply
+    local body = '{"jsonrpc":"2.0","id":1,"result":{"resultType":"complete","supportedVersions":["2026-07-28"],' ..
+      '"capabilities":{},"ttlMs":0,"cacheScope":"private"}}'
+    local _ = req
+    return { status = 200, headers = { ["Content-Type"] = "text/event-stream" },
+      body = ": keep-alive\n\ndata: ping\n\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\n" ..
+        "data: " .. body .. "\n\n" }
+  end, function(url: string)
+    local session = Client.http(url, { timeout_ns = WAIT })
+    local d = assert(session:discover())
+    assert(assert(d.supportedVersions[1]) == "2026-07-28" and d.serverInfo == nil)
+  end)
+end
+
+local function test_a_header_the_protocol_sets_cannot_be_given()
+  Test.raises(function()
+    Client.http("http://127.0.0.1:1/mcp", { timeout_ns = WAIT, headers = { ["mcp-method"] = "x" } })
+  end,
+    "the protocol sets")
+  Test.raises(function() server():handler{ authorize = Server.bearer("short") } end, "at least 16 bytes")
+end
