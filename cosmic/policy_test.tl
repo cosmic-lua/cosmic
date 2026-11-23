@@ -224,9 +224,9 @@ end
 local function test_a_database_text_is_held_to_its_shape(tmp: string)
   local path = database_of(tmp, "x")
   refused('{"database":"' .. path .. '"}', "$.database")
-  refused('{"database":{"path":"' .. path .. '"}}', "$.database")
-  -- the shape fails on the first field in byte order, a missing digest before a later field's fault
-  refused('{"database":{"path":"' .. path .. '"},"env":5}', "$.database.sha256: missing")
+  refused('{"database":{"path":"' .. path .. '"}}', "$.database.sha256: missing")
+  -- a missing digest is named only once the whole shape holds, so any other field's fault comes first
+  refused('{"database":{"path":"' .. path .. '"},"env":5}', "$.env")
   refused('{"database":{"path":"rel.db","sha256":"00"}}', "$.database")
   refused('{"database":{"path":"' .. path .. '","sha256":"00","more":1}}', "$.database")
   local ok, trouble = pcall(PolicyJson.encode,
