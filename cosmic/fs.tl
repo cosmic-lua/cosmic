@@ -2,11 +2,12 @@
 ---
 --- Every call goes through the syscall table, so one call behaves the
 --- same on Linux and on macOS. [`Fs.read`], [`Fs.stat`], [`Fs.list`],
---- [`Fs.mkdtemp`], [`Fs.absolute`] and [`Fs.readlink`] answer
---- `(T) | (nil, Failure)`: the value alone, or nil and a [`Failure`]
---- that names the path and the errno. Other fallible calls that produce
---- a value still return `T | nil, string`: a value and `""` on success,
---- or nil and an error. A predicate uses the same contract, with false
+--- [`Fs.mkdtemp`], [`Fs.absolute`], [`Fs.readlink`], [`Fs.open_read`],
+--- [`Fs.open_write`] and [`Fs.take`] answer `(T) | (nil, Failure)`: the
+--- value alone, or nil and a [`Failure`] that names the path (none for
+--- `take`, which reads a descriptor) and the errno. Other fallible calls
+--- that produce a value still return `T | nil, string`: a value and `""`
+--- on success, or nil and an error. A predicate uses the same contract, with false
 --- as a valid answer. [`Fs.write`], [`Fs.mkdirs`], [`Fs.remove`],
 --- [`Fs.remove_tree`], [`Fs.rename`], [`Fs.chmod`], [`Fs.symlink`],
 --- [`Fs.set_mtime`], [`Fs.append`], [`Fs.copy_tree`], [`Fs.put`],
@@ -831,17 +832,17 @@ end
 --- The Lua io module and io.open handles are unavailable. This opens a file
 --- for reading and returns an integer descriptor instead. Most callers want
 --- [`Fs.read`]; use Fs.take and Fs.close when a file must be read in pieces.
-function Fs.open_read(path: string): integer?, string
+function Fs.open_read(path: string): (integer) | (nil, Failure)
   -- TODO: a descriptor a `<close>` variable can hold (a record with
   -- [`__close`] over the fd), here and in open_write, so a file read or
   -- written in pieces is closed on every way out of its block: callers
   -- write `local f <close> = assert(Fs.open_read(path))` and meet an
   -- integer, which `<close>` refuses.
-  local fd, trouble = sys.open(path, sys.O_RDONLY)
+  local fd, why, errno = sys.open(path, sys.O_RDONLY)
   if fd == nil then
-    return nil, path .. ": " .. trouble
+    return nil, failure_of(errno, why, path)
   end
-  return fd, ""
+  return fd
 end
 
 --- Opens a file for writing, creating it and emptying it, and returns an
@@ -850,23 +851,23 @@ end
 --- `mode` is the permission bits of a file this call creates, as an
 --- integer (0x1a4 for 0644, the default), less the process's umask; an
 --- existing file keeps its own.
-function Fs.open_write(path: string, mode?: integer): integer?, string
+function Fs.open_write(path: string, mode?: integer): (integer) | (nil, Failure)
   local flags = sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC
-  local fd, trouble = sys.open(path, flags, mode or 0x1a4)
+  local fd, why, errno = sys.open(path, flags, mode or 0x1a4)
   if fd == nil then
-    return nil, path .. ": " .. trouble
+    return nil, failure_of(errno, why, path)
   end
-  return fd, ""
+  return fd
 end
 
 --- Reads up to `count` bytes from a descriptor. This is the streaming byte
 --- operation in place of io.read; an empty string is the end of the file.
-function Fs.take(fd: integer, count: integer): string?, string
-  local data, trouble = sys.read(fd, count)
+function Fs.take(fd: integer, count: integer): (string) | (nil, Failure)
+  local data, why, errno = sys.read(fd, count)
   if data == nil then
-    return nil, trouble
+    return nil, failure_of(errno, why)
   end
-  return data, ""
+  return data
 end
 
 --- Closes a descriptor returned by Fs.open_read or Fs.open_write; it does not

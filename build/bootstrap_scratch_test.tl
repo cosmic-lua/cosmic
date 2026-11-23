@@ -18,7 +18,7 @@ local sys = require("cosmic.sys")
 local fd = assert(sys.open(%q, sys.O_RDWR | sys.O_CREAT, 0x180))
 assert(sys.flock(fd, "exclusive", 0))
 print("held")
-Fs.take(Fs.stdin, 1)
+local _, _ = Fs.take(Fs.stdin, 1)
 ]]
   local command = this_program.program({ "-e", script:format(path) },
     { timeout_ns = Child.FOREVER, stdin = "stream", stdout = "stream", stderr = "capture" })

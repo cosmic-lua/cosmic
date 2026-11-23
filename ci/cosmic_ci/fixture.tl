@@ -409,7 +409,8 @@ local function preview(path: string): string
   local taken: Taken = {}
   local called, raised = pcall(function()
     local text, trouble = Fs.take(fd, 8192)
-    taken.text, taken.trouble = text, trouble
+    taken.text = text
+    if text == nil then taken.trouble = tostring(trouble) end
   end)
   local closed, close_trouble = Fs.close(fd)
   if not called then error(raised) end

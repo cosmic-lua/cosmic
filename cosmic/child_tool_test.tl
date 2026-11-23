@@ -86,7 +86,7 @@ return function(argv: {string}): integer
   local fd = assert(Fs.open_read((argv[1] or "")))
   assert(fd == 0)
   local result = assert(Child.run(this("local Fs = require('cosmic.fs') " ..
-    "local expected = ... if Fs.take(0, 64) == expected then return 0 end return 1", "stdin's own"),
+    "local expected = ... local got, _ = Fs.take(0, 64) if got == expected then return 0 end return 1", "stdin's own"),
     { timeout_ns = Child.FOREVER, stdin = fd, process_group = false, env = relaunch.env, fds = relaunch.fds }))
   return if result.ok then 0 else 21 end
 end

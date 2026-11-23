@@ -1526,7 +1526,7 @@ local sealed_fill <const>: {string} = {
 function test_key.program_database(file: string,
                                    asked?: function(offset: integer, length: integer)): artifact.Carried?, string
   local fd, open_trouble = Fs.open_read(file)
-  if fd == nil then return nil, open_trouble end
+  if fd == nil then return nil, tostring(open_trouble) end
   local held: integer = fd
   local size_of, stat_trouble = sys.fstat(held)
   if size_of == nil then

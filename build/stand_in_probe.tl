@@ -137,7 +137,7 @@ local verbs: {string:function(string, string): integer?} = {
     end
     while true do
       local chunk, trouble = Fs.take(0, 65536)
-      if chunk == nil then return failed("stdin", trouble) end
+      if chunk == nil then return failed("stdin", tostring(trouble)) end
       if chunk == "" then return nil end
       local stopped = put_all(1, chunk)
       if stopped ~= nil then return stopped end

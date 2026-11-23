@@ -42,7 +42,7 @@ if not db:exec("BEGIN IMMEDIATE") then
 end
 print("held")
 local hold_ns = %d
-if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
+if hold_ns < 0 then local _, _ = Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
 assert(Fs.write(dir .. "/let-go", ""))
 ]]
 
@@ -56,7 +56,7 @@ local taken = require("build.rebuild_lock").take(root, 0)
 print(taken)
 if taken ~= "held" then return end
 local hold_ns = %d
-if hold_ns < 0 then Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
+if hold_ns < 0 then local _, _ = Fs.take(Fs.stdin, 1) else Clock.sleep_ns(hold_ns) end
 assert(Fs.write(dir .. "/let-go", ""))
 ]]
 

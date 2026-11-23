@@ -115,12 +115,12 @@ function Hash.file(algorithm: Hash.Algorithm, path: string): string?, string
   -- Abandoned on every way out that does not finish it.
   local hasher <close> = made
   local fd, open_trouble = Fs.open_read(path)
-  if fd == nil then return nil, open_trouble end
+  if fd == nil then return nil, tostring(open_trouble) end
   while true do
     local piece, read_trouble = Fs.take(fd, chunk_size)
     if piece == nil then
       local _, _ = Fs.close(fd)
-      return nil, path .. ": " .. read_trouble
+      return nil, path .. ": " .. tostring(read_trouble)
     end
     if piece == "" then break end
     hasher:update(piece)

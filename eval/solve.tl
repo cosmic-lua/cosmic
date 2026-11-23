@@ -312,13 +312,13 @@ function Solve.main(argv: {string}): integer
   end
   local fd, otrouble = Fs.open_read(resolved)
   if fd == nil then
-    complain(otrouble)
+    complain(tostring(otrouble))
     return 2
   end
   local head, htrouble = Fs.take(fd, 256)
   local _, _ = Fs.close(fd)
   if head == nil then
-    complain(htrouble)
+    complain(tostring(htrouble))
     return 2
   end
   local program, gtrouble = Solve.program(resolved, head, function(name: string): string?
@@ -372,7 +372,7 @@ function Solve.main(argv: {string}): integer
   for _, name in ipairs({ "transcript.jsonl", "stderr" }) do
     local out, wtrouble = Fs.open_write(arena .. "/" .. name, 0x1a4)
     if out == nil then
-      complain(wtrouble)
+      complain(tostring(wtrouble))
       return 2
     end
     outputs[#outputs + 1] = out

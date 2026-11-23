@@ -68,7 +68,7 @@ function Process.start(label: string, argv: {string}, cwd: string,
   local err_fd, err_trouble = Fs.open_write(err)
   if err_fd == nil then
     local _, _ = Fs.close(out_fd)
-    error(label .. ": " .. err_trouble)
+    error(label .. ": " .. tostring(err_trouble))
   end
   local input_fd: integer? = nil
   if input then
@@ -76,7 +76,7 @@ function Process.start(label: string, argv: {string}, cwd: string,
     if opened == nil then
       local _, _ = Fs.close(out_fd)
       local _, _ = Fs.close(err_fd)
-      error(label .. ": " .. input_trouble)
+      error(label .. ": " .. tostring(input_trouble))
     end
     input_fd = opened
   end

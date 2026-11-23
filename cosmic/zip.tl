@@ -806,7 +806,7 @@ end
 --- rather than loaded whole into memory.
 function Zip.open(path: string): Zip.Reader?, string
   local fd, trouble = Fs.open_read(path)
-  if fd == nil then return nil, trouble end
+  if fd == nil then return nil, tostring(trouble) end
   -- The length of the file `fd` opened, so it is the same file every
   -- read goes to.
   local st, strouble = sys.fstat(fd)
