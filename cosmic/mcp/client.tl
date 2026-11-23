@@ -53,12 +53,28 @@ local record McpClient
     headers?: {string: string}
     --- How this client names itself (`cosmic`).
     info?: Mcp.Implementation
+    --- Asks the person, as [`Options.elicit`] says.
+    elicit?: Elicit
   end
+
+  --- Asks the person what a server's `elicitation/create` asks, and
+  --- answers what they did: show `message` and a form of
+  --- `requestedSchema`'s fields, or `message` and the `url` (a link the
+  --- person chooses to open, never opened for them). What the server asks
+  --- is untrusted: show which server asks, and let the person decline.
+  type Elicit = function(elicitation: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
 
   --- What [`McpClient.stdio`] and [`McpClient.spawn`] take.
   record Options
     --- How this client names itself (`cosmic`).
     info?: Mcp.Implementation
+    --- Where given, the client declares that a server may ask for input
+    --- in a form or at a URL, and a tool call, a prompt's get or a
+    --- resource's read that the server answers with a need for input is
+    --- asked again with each answer this gives. A failure it answers
+    --- fails the call. Where nil, a server that needs input fails the
+    --- call.
+    elicit?: Elicit
   end
 
   --- How one call of a tool goes.
@@ -193,6 +209,8 @@ local record Asking
   on_progress?: function(Mcp.Progress)
   on_notice?: function(wire.Message)
   forever?: boolean
+  --- Whether the server may answer that it needs input: a tool call, a prompt's get, a resource's read.
+  may_ask?: boolean
 end
 
 --- Sends one request and answers its response, which holds a result,
@@ -213,7 +231,11 @@ local record State
   --- Ends the transport.
   finish: function(): (true) | (false, Failure)
   mut closed: boolean
+  elicit?: McpClient.Elicit
 end
+
+--- The most rounds a request that needs input is asked again, so a server that asks for ever ends it.
+local MAX_ROUNDS <const> = 10
 
 --- The failure a server's error response says.
 local function refused(err: wire.Error): Failure
@@ -229,7 +251,12 @@ end
 local function params_of(self: State, fields: {string: Json.Value}, token?: integer): {string: Json.Value}
   local out: mut {string: Json.Value} = {}
   for k, v in pairs(fields) do out[k] = v end
-  local capabilities: {string: Json.Value} = {}
+  local capabilities: mut {string: Json.Value} = {}
+  if self.elicit ~= nil then
+    local form: {string: Json.Value} = {}
+    local url: {string: Json.Value} = {}
+    capabilities["elicitation"] = { form = form, url = url }
+  end
   local meta: mut {string: Json.Value} = {
     [META_VERSION] = Mcp.VERSION,
     [META_CLIENT] = wire.implementation(self.info),
@@ -242,20 +269,60 @@ end
 
 --- Sends `method` with `fields`, and answers the result once it is a
 --- final one.
+--- The answers to what `needs` asks, by key, from the session's `elicit`; or why there are none.
+local function answers(self: State, method: string, needs: wire.Needs): ({string: Json.Value}) | (nil, Failure)
+  local out: mut {string: Json.Value} = {}
+  for key, request in pairs(needs.requests) do
+    local elicit = self.elicit
+    if request.method ~= "elicitation/create" or elicit == nil then
+      return nil, Failure.new("mcp: " .. method .. ": the server asks for " .. request.method ..
+          ", which this client does not give")
+    end
+    local elicitation, bad = wire.elicitation_of(request.params)
+    if elicitation == nil then return nil, bad end
+    local answer, why = elicit(elicitation)
+    if answer == nil then return nil, why end
+    out[key] = wire.elicited(answer)
+  end
+  return out
+end
+
+--- Sends `method` with `fields`, and answers the result once it is a
+--- final one: where the server needs input first, the session's `elicit`
+--- gives it, and the request is sent again with the answers and the
+--- server's state, as a new request.
 local function ask(self: State, method: string, fields: {string: Json.Value}, opts?: Asking): (wire.Message) | (nil, Failure)
   if self.closed then return nil, Failure.new("mcp: the session is closed") end
   local o: Asking = opts or {}
-  self.next_id = self.next_id + 1
-  -- The request's id is its progress token: unique among the requests in flight, as the token must be.
-  local token = if o.on_progress ~= nil then self.next_id else nil end
-  local req: Request = { id = tostring(self.next_id), method = method, params = params_of(self, fields, token),
-    name = o.name, mirrored = o.mirrored, on_progress = o.on_progress, on_notice = o.on_notice,
-    forever = o.forever == true }
-  local response, why = self.send(req)
-  if response == nil then return nil, why end
-  local complete, kind = wire.complete(response.result)
-  if not complete then return nil, kind end
-  return response
+  local sent: {string: Json.Value} = fields
+  for _ = 1, MAX_ROUNDS do
+    self.next_id = self.next_id + 1
+    -- The request's id is its progress token: unique among the requests in flight, as the token must be.
+    local token = if o.on_progress ~= nil then self.next_id else nil end
+    local req: Request = { id = tostring(self.next_id), method = method, params = params_of(self, sent, token),
+      name = o.name, mirrored = o.mirrored, on_progress = o.on_progress, on_notice = o.on_notice,
+      forever = o.forever == true }
+    local response, why = self.send(req)
+    if response == nil then return nil, why end
+    if not (o.may_ask == true and self.elicit ~= nil and wire.needs_input(response.result)) then
+      local complete, kind = wire.complete(response.result)
+      if not complete then return nil, kind end
+      return response
+    end
+    local needs, bad = wire.needs_of(response.result)
+    if needs == nil then return nil, bad end
+    local given, failed = answers(self, method, needs)
+    if given == nil then return nil, failed end
+    -- The retry is the first request and the answers: the state exactly as sent, and none where none was.
+    local again: mut {string: Json.Value} = {}
+    for k, v in pairs(fields) do again[k] = v end
+    if next(given) ~= nil then again["inputResponses"] = given end
+    local state = needs.state
+    if state ~= nil then again["requestState"] = state end
+    sent = again
+  end
+  return nil, Failure.new("mcp: " .. method .. ": the server asked for input more than " ..
+      String.counted(MAX_ROUNDS, "time"))
 end
 
 --- Reads each page of the list `method` answers, `each` taking its
@@ -371,7 +438,7 @@ local function call(self: State, name: string, arguments?: {string: Json.Value},
   end
   local headers, why = mirrored()
   if headers == nil then return nil, why end
-  local response, failed = ask(self, "tools/call", fields, { name = name, mirrored = headers, on_progress = on_progress })
+  local response, failed = ask(self, "tools/call", fields, { name = name, mirrored = headers, on_progress = on_progress, may_ask = true })
   if response ~= nil then return checked(self, name, response.result) end
   if not (self.http and failed.code == Mcp.HEADER_MISMATCH) then return nil, failed end
   -- The tool's schema may have changed since it was listed: list again,
@@ -380,7 +447,7 @@ local function call(self: State, name: string, arguments?: {string: Json.Value},
   if listed == nil then return nil, lwhy end
   local again, awhy = mirrored()
   if again == nil then return nil, awhy end
-  local retried, rwhy = ask(self, "tools/call", fields, { name = name, mirrored = again, on_progress = on_progress })
+  local retried, rwhy = ask(self, "tools/call", fields, { name = name, mirrored = again, on_progress = on_progress, may_ask = true })
   if retried == nil then return nil, rwhy end
   return checked(self, name, retried.result)
 end
@@ -425,7 +492,7 @@ local function prompts(self: State): ({Mcp.Prompt}) | (nil, Failure)
 end
 
 local function read(self: State, uri: string): ({Mcp.ResourceContents}) | (nil, Failure)
-  local response, why = ask(self, "resources/read", { uri = uri }, { name = uri })
+  local response, why = ask(self, "resources/read", { uri = uri }, { name = uri, may_ask = true })
   if response == nil then return nil, why end
   return wire.read(response.result)
 end
@@ -433,7 +500,7 @@ end
 local function prompt(self: State, name: string, arguments?: {string: string}): (Mcp.PromptResult) | (nil, Failure)
   local args: mut {string: Json.Value} = {}
   for k, v in pairs(arguments or {}) do args[k] = v end
-  local response, why = ask(self, "prompts/get", { name = name, arguments = args }, { name = name })
+  local response, why = ask(self, "prompts/get", { name = name, arguments = args }, { name = name, may_ask = true })
   if response == nil then return nil, why end
   return wire.prompt_result_of(response.result)
 end
@@ -534,11 +601,12 @@ local class Running is McpClient.Session
   end
 end
 
-local function session(send: Send, info?: Mcp.Implementation, http: boolean,
+local function session(send: Send, opts?: McpClient.Options, http: boolean,
                        finish: function(): (true) | (false, Failure)): McpClient.Session
+  local o: McpClient.Options = opts or {}
   local running: Running = {
-    state = { send = send, info = info or DEFAULT_INFO, http = http, next_id = 0, mirrors = {}, outputs = {}, finish = finish,
-      closed = false },
+    state = { send = send, info = o.info or DEFAULT_INFO, http = http, next_id = 0, mirrors = {}, outputs = {}, finish = finish,
+      closed = false, elicit = o.elicit },
   }
   return running
 end
@@ -826,8 +894,7 @@ end
 --- Closing the session closes `writer`, which tells the server to end.
 function McpClient.stdio(reader: Stream.Reader, writer: Stream.Writer, opts?: McpClient.Options): McpClient.Session
   local lines = Stream.lines(reader, Mcp.MAX_MESSAGE_BYTES)
-  local info = if opts ~= nil then opts.info else nil end
-  return session(stdio_send(lines, writer), info, false,
+  return session(stdio_send(lines, writer), opts, false,
     function(): (true) | (false, Failure)
       local ok, why = writer:close()
       if not ok then return false, Failure.new("mcp: " .. why) end
@@ -857,8 +924,7 @@ function McpClient.spawn(argv: {string}, opts: Child.Options, client_opts?: McpC
   local reader, writer = handle.stdout_stream, handle.stdin_stream
   if reader == nil or writer == nil then return nil, Failure.new("mcp: the server has no pipes") end
   local lines = Stream.lines(reader, Mcp.MAX_MESSAGE_BYTES)
-  local info = if client_opts ~= nil then client_opts.info else nil end
-  return session(stdio_send(lines, writer), info, false,
+  return session(stdio_send(lines, writer), client_opts, false,
     function(): (true) | (false, Failure)
       local _, _ = writer:close()
       local result, _ = handle:wait(5 * 1000000000)
@@ -1086,7 +1152,8 @@ function McpClient.http(url: string, opts: McpClient.HttpOptions): McpClient.Ses
     end
     return message
   end
-  return session(send, opts.info, true, function(): (true) | (false, Failure) return true end)
+  return session(send, { info = opts.info, elicit = opts.elicit }, true,
+    function(): (true) | (false, Failure) return true end)
 end
 
 return McpClient

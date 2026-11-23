@@ -285,11 +285,11 @@ local class PipeWriter is Stream.Writer
   function abort(self): boolean, string return true, "" end
 end
 
-local function piped(server: Server.Instance): Client.Session
+local function piped(server: Server.Instance, opts?: Client.Options): Client.Session
   local pipe: Pipe = { pending = "" }
   local reader: PipeReader = { pipe = pipe, skip = nil }
   local writer: PipeWriter = { pipe = pipe, server = server }
-  return Client.stdio(reader, writer)
+  return Client.stdio(reader, writer, opts)
 end
 
 --- A server of the tool `measure`, which answers `answer`, promising `promised` where given.
@@ -623,6 +623,81 @@ local function test_over_stdio_a_running_id_is_not_taken_again()
   local said = decoded(output:result():match("[^\n]+"))
   assert(said["id"] == 1 and object(said["error"])["code"] == Mcp.INVALID_REQUEST, output:result())
   assert(#seen == 1, "the first is still the one cancelled")
+end
+
+--- A tool that asks the person for a name, keeps a count over the rounds, and greets them.
+local function greeter(rounds: mut {integer}): Server.Instance
+  return Server.new{
+    info = { name = "greeter", version = "1" },
+    tools = {
+      {
+        tool = { name = "greet", inputSchema = Mcp.object_schema({}) },
+        call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+          local round = (math.tointeger(tonumber(call.state or "0")) or 0) + 1
+          rounds[#rounds + 1] = round
+          call.keep(tostring(round))
+          local answer, why = call.elicit("who", Mcp.elicit_form("Who are you?",
+            Mcp.object_schema({ name = { type = "string", minLength = 1 } }, { "name" })))
+          if answer == nil then return nil, why end
+          if answer.action ~= "accept" then
+            return Mcp.result({ "no name, round " .. tostring(round) })
+          end
+          local name = assert(answer.content)["name"]
+          return Mcp.result({ "hello " .. tostring(name) .. ", round " .. tostring(round) })
+        end,
+      },
+    },
+  }
+end
+
+--- A tool asks for input: the client's `elicit` answers, and the call is asked again with the answer and the
+--- state the handler kept. An answer that does not hold to the form is asked for again; a client that gives no
+--- `elicit` fails the call, and one that declares nothing is never asked.
+local function test_a_tool_asks_the_person_and_the_client_answers()
+  local rounds: mut {integer} = {}
+  local asked: mut {string} = {}
+  local answers: {Mcp.Elicited} = { { action = "accept", content = { name = "" } }, { action = "accept", content = { name = "Ada" } } }
+  local session = piped(greeter(rounds), { elicit = function(e: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+    asked[#asked + 1] = e.mode .. ": " .. e.message
+    return assert(answers[#asked])
+  end })
+  local said = assert(session:call("greet"))
+  assert(assert(said.content[1]).text == "hello Ada, round 3", assert(said.content[1]).text)
+  assert(#asked == 2 and asked[1] == "form: Who are you?", table.concat(asked, "; "))
+  local plain = piped(greeter(rounds))
+  local refused = assert(plain:call("greet"))
+  local text = assert(assert(refused.content[1]).text)
+  assert(text:find("cannot be asked", 1, true) ~= nil and refused.isError == true, text)
+end
+
+--- The state a handler keeps is sealed: changed, or sent for another tool, it is refused.
+local function test_kept_state_is_sealed_to_its_request()
+  local rounds: mut {integer} = {}
+  local server = greeter(rounds)
+  local caps = '"io.modelcontextprotocol/clientCapabilities":{"elicitation":{}}'
+  local first = decoded(server:answer('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet",' ..
+      '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' .. caps .. '}}}').body)
+  local r = object(first["result"])
+  assert(r["resultType"] == "input_required" and object(r["inputRequests"])["who"] ~= nil)
+  local state = r["requestState"]
+  assert(state is string)
+  local function retry(sealed: string, name: string, arguments?: string): {string: Json.Value}
+    return decoded(server:answer('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":' .. Json.quote(name) ..
+        (if arguments ~= nil then ',"arguments":' .. arguments else "" end) ..
+        ',"requestState":' .. Json.quote(sealed) .. ',"inputResponses":{"who":{"action":"decline"}},' ..
+        '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' .. caps .. '}}}').body)
+  end
+  local good = object(retry(state, "greet")["result"])
+  local block = object(list(good["content"])[1])
+  assert(block["text"] == "no name, round 2", tostring(block["text"]))
+  local flipped = state:sub(1, -2) .. (if state:sub(-1) == "A" then "B" else "A" end)
+  local bad = object(retry(flipped, "greet")["error"])
+  assert(bad["code"] == Mcp.INVALID_PARAMS and tostring(bad["message"]):find("requestState", 1, true) ~= nil)
+  local elsewhere = object(retry(state, "other")["error"])
+  assert(elsewhere["code"] == Mcp.INVALID_PARAMS, "a state is for the tool it was kept by")
+  local changed = object(retry(state, "greet", '{"to":"mallory"}')["error"])
+  assert(changed["code"] == Mcp.INVALID_PARAMS, "a state is for the arguments it was kept with")
+  assert(rounds[2] == 2, "the second round read the first round's state")
 end
 
 --- A cancel is read while every place is taken: 33 long calls, then a cancel of each, end at once.

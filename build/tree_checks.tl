@@ -132,6 +132,8 @@ allowed["cosmic.mcp.client.stdio"] = "public API: a session over a reader and a 
   "or a socket; the tree's own callers start a server with spawn or reach one with http"
 allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
 allowed["cosmic.mcp.structured"] = "public API: a tool's result whose structuredContent holds to its outputSchema, which a server builds"
+allowed["cosmic.mcp.elicit_form"] = "public API: a form a tool's handler asks the person to fill in, through call.elicit"
+allowed["cosmic.mcp.elicit_url"] = "public API: a URL a tool's handler asks the person to open, through call.elicit"
 
 allowed["cosmic.compress.zstd_encoder"] = "ci/ calls it on the pinned release, which has no Compress.encoder; " ..
   "goes with the TODO in cosmic/compress.tl"

@@ -103,7 +103,43 @@ local record wire
   record Kind
     resultType?: string
   end
+
+  --- A result that needs input, as it arrives.
+  record InputRequired
+    inputRequests?: any
+    requestState?: string
+  end
+
+  --- One request a server sends a client inside a result that needs input (`input_required`), for the client to
+  --- answer before it asks again: `elicitation/create` here.
+  record InputRequest
+    method: string
+    params: {string: Json.Value}
+  end
+
+  --- What a result that needs input asks: each request by its key, and the state to send back with the answers.
+  record Needs
+    requests: {string: InputRequest}
+    state?: string
+  end
+
+  --- The params of `elicitation/create`, as they arrive.
+  record ElicitParams
+    mode?: string
+    message: string
+    requestedSchema?: any
+    url?: string
+  end
+
+  --- An answer to `elicitation/create`, as it arrives.
+  record ElicitResult
+    action: string
+    content?: any
+  end
 end
+
+--- The most requests one result that needs input may hold.
+local MAX_INPUT_REQUESTS <const> = 16
 
 --- A message's fields, as JSON-RPC names them.
 local record Envelope
@@ -128,6 +164,9 @@ local TOOL_RESULT <const>: Shape.Typed<wire.ToolResult> = Shape.record_of("wire.
 local PROMPT_RESULT <const>: Shape.Typed<wire.PromptResult> = Shape.record_of("wire.PromptResult")
 local INFO <const>: Shape.Typed<wire.Info> = Shape.record_of("wire.Info")
 local KIND <const>: Shape.Typed<wire.Kind> = Shape.record_of("wire.Kind")
+local INPUT_REQUIRED <const>: Shape.Typed<wire.InputRequired> = Shape.record_of("wire.InputRequired")
+local ELICIT_PARAMS <const>: Shape.Typed<wire.ElicitParams> = Shape.record_of("wire.ElicitParams")
+local ELICIT_RESULT <const>: Shape.Typed<wire.ElicitResult> = Shape.record_of("wire.ElicitResult")
 
 --- The message `text` holds, or nil and a failure whose `code` is
 --- JSON-RPC's for it: -32700 for text that is not JSON, -32600 for JSON
@@ -409,6 +448,12 @@ local function bad(what: string): Failure
   return Failure.coded("mcp: the server answered " .. what, Mcp.INTERNAL_ERROR)
 end
 
+--- Whether `result` is one that needs input from the client first (`input_required`).
+function wire.needs_input(result: any): boolean
+  local kind, _ = KIND:into(result)
+  return kind ~= nil and kind.resultType == "input_required"
+end
+
 --- Whether `result` is a final result; nil and why for one that asks
 --- for more ("input_required", which this client never declared a
 --- capability for) or names a kind no revision defines.
@@ -421,6 +466,95 @@ function wire.complete(result: any): (true) | (false, Failure)
     return false, bad("that it needs input from the client, which this client does not give")
   end
   return false, bad("a result of the kind " .. Json.quote(said) .. ", which this client does not know")
+end
+
+--- What the result that needs input, `result`, asks, or nil and why it does not fit: at least one of its requests or
+--- its state, and no more than 16 requests.
+function wire.needs_of(result: any): (wire.Needs) | (nil, Failure)
+  local r, why = INPUT_REQUIRED:into(result)
+  if r == nil then return nil, bad("a result that needs input that does not fit: " .. why) end
+  local requests: mut {string: wire.InputRequest} = {}
+  local count = 0
+  if r.inputRequests ~= nil then
+    local all, awhy = Json.to_object(r.inputRequests)
+    if all == nil or Json.is_array(r.inputRequests) then
+      return nil, bad("inputRequests that are not an object" .. (if all == nil then ": " .. tostring(awhy) else "" end))
+    end
+    for key, value in pairs(all) do
+      count = count + 1
+      if count > MAX_INPUT_REQUESTS then
+        return nil, bad("more than " .. tostring(MAX_INPUT_REQUESTS) .. " inputRequests")
+      end
+      local o = Json.object_of(value)
+      local method = if o ~= nil then o["method"] else nil end
+      local params = if o ~= nil then Json.object_of(o["params"]) else nil end
+      if not method is string or params == nil then
+        return nil, bad("the input request " .. Json.quote(key) .. " with no method or params")
+      end
+      requests[key] = { method = method, params = params }
+    end
+  end
+  if count == 0 and r.requestState == nil then
+    return nil, bad("a result that needs input with neither inputRequests nor requestState")
+  end
+  return { requests = requests, state = r.requestState }
+end
+
+--- The elicitation the params of `elicitation/create` ask for, or nil and why they do not fit.
+function wire.elicitation_of(params: {string: Json.Value}): (Mcp.Elicitation) | (nil, Failure)
+  local p, why = ELICIT_PARAMS:into(params)
+  if p == nil then return nil, bad("elicitation/create params that do not fit: " .. why) end
+  local mode = p.mode or "form"
+  if mode == "form" then
+    local schema, _ = Json.to_object(p.requestedSchema)
+    if schema == nil or p.requestedSchema == nil then
+      return nil, bad("an elicitation/create form with no requestedSchema object")
+    end
+    return { mode = "form", message = p.message, requestedSchema = schema }
+  end
+  if mode == "url" then
+    local url = p.url
+    if url == nil or url:find("^https?://[^%s]+$") == nil then
+      return nil, bad("an elicitation/create url that is not http or https")
+    end
+    return { mode = "url", message = p.message, url = url }
+  end
+  return nil, bad("an elicitation/create of the mode " .. Json.quote(mode) .. ", which this client does not know")
+end
+
+--- `e` as the request `elicitation/create`.
+function wire.elicitation(e: Mcp.Elicitation): wire.InputRequest
+  local params: mut {string: Json.Value} = { mode = e.mode, message = e.message }
+  local schema, url = e.requestedSchema, e.url
+  if schema ~= nil then params["requestedSchema"] = schema end
+  if url ~= nil then params["url"] = url end
+  return { method = "elicitation/create", params = params }
+end
+
+--- `e` as the result of `elicitation/create`.
+function wire.elicited(e: Mcp.Elicited): Json.Value
+  local out: mut {string: Json.Value} = { action = e.action }
+  local given = e.content
+  if given ~= nil and e.action == "accept" then out["content"] = given end
+  return out
+end
+
+local ACTIONS <const>: {string: Mcp.ElicitAction} = { accept = "accept", decline = "decline", cancel = "cancel" }
+
+--- The answer to an elicitation `value` holds, from a client, or nil and why it does not fit.
+function wire.elicited_of(value: any): (Mcp.Elicited) | (nil, Failure)
+  local r, why = ELICIT_RESULT:into(value)
+  if r == nil then return nil, Failure.new("an elicitation answer that does not fit: " .. why) end
+  local action = ACTIONS[r.action]
+  if action == nil then
+    return nil, Failure.new("an elicitation answer of the action " .. Json.quote(r.action))
+  end
+  if r.content == nil then return { action = action } end
+  local fields, cwhy = Json.to_object(r.content)
+  if fields == nil or Json.is_array(r.content) then
+    return nil, Failure.new("an elicitation answer whose content is not an object" .. (if fields == nil then ": " .. tostring(cwhy) else "" end))
+  end
+  return { action = action, content = fields }
 end
 
 --- The tool `value` describes, from a server, or nil and why it is not
