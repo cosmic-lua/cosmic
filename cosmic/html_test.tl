@@ -2,7 +2,6 @@
 --- that matter, that a safe value is opaque at run time and refused by
 --- the type checker in another's place, and that `raw` and `concat`
 --- hold to their types.
-local Failure = require("cosmic.failure")
 local Html = require("cosmic.html")
 local Snippet = require("build.snippet_fixture")
 local String = require("cosmic.string")
@@ -382,39 +381,39 @@ local function test_url_part_refuses_a_value_that_is_not_text()
 end
 
 local function test_url_query_joins_escaped_pairs_in_order()
-  local query = (assert(Html.url_query({ { "q", "a b" }, { "tag", "x&y" }, { "tag", "z=1" } })))
+  local query = Html.url_query({ { name = "q", value = "a b" }, { name = "tag", value = "x&y" }, { name = "tag", value = "z=1" } })
   assert(Html.raw_url_part(query) == "q=a%20b&tag=x%26y&tag=z%3D1")
-  assert(Html.raw_url_part((assert(Html.url_query({})))) == "")
-  assert(Html.raw_url_part((assert(Html.url_query({ { "", "" } })))) == "=")
-  assert(Html.raw_url_part((assert(Html.url_query({ { "a&b=c", "\xc3\xa9" } })))) == "a%26b%3Dc=%C3%A9")
+  assert(Html.raw_url_part(Html.url_query({})) == "")
+  assert(Html.raw_url_part(Html.url_query({ { name = "", value = "" } })) == "=")
+  assert(Html.raw_url_part(Html.url_query({ { name = "a&b=c", value = "\xc3\xa9" } })) == "a%26b%3Dc=%C3%A9")
   -- A dot segment is about a path; in a query a dot is a dot.
-  assert(Html.raw_url_part((assert(Html.url_query({ { ".", ".." } })))) == ".=..")
+  assert(Html.raw_url_part(Html.url_query({ { name = ".", value = ".." } })) == ".=..")
 end
 
-local function test_url_query_names_a_pair_that_is_not_two_strings()
-  local cases: {{any}} = {
-    { { "a" } }, { { "a", "b", "c" } }, { { "a", 1 } }, { { 1, "a" } }, { "ab" }, { {} }, -- checked: any_use*3, arms_differ*2, literal_needs_type
-    { { "a", "b" }, { "c" } }, -- checked: any_use*2
+-- Html.url_query called past its declaration, as a caller the checker
+-- does not see; not a tail call, so a raise blames this file.
+local function attempt_query(given: any): Html.SafeUrlPart
+  local part = (Html.url_query as function(any): Html.SafeUrlPart)(given) -- checked: cast_refused
+  return part
+end
+
+--- A pair whose name or value is not a string, which only a caller past
+--- the checker passes, raises and blames that caller.
+local function test_url_query_raises_for_a_pair_that_is_not_two_strings()
+  local cases: {any} = {
+    untyped({ { name = "a" } }), untyped({ { name = "a", value = 1 } }),
+    untyped({ { name = 1, value = "a" } }),
   }
   for _, given in ipairs(cases) do
-    local part, why = (Html.url_query as function(any): any, Failure)(given) -- checked: cast_refused
-    assert(part == nil and why.message:find("is not two strings", 1, true), tostring(why))
+    local ok, why = pcall(function() local _ = attempt_query(given) end)
+    assert(not ok and tostring(why):find("is not two strings", 1, true) ~= nil, tostring(why))
+    assert(tostring(why):find("^cosmic%.html_test:%d+: ") ~= nil, tostring(why))
   end
-  local part, why = (Html.url_query as function(any): any, Failure)({ { "a", "b" }, { "c" } }) -- checked: cast_refused
-  assert(part == nil and why.message == "html: pair 2 is not two strings", tostring(why))
-end
-
-local function test_url_query_raises_for_a_table_that_is_no_sequence()
-  local holes = table_of({ "a", "b" })
-  holes[3] = { "c", "d" }
-  local extra = table_of({ "a", "b" })
-  extra["note"] = 1
-  local cases: {{any: any}} = { holes, extra } -- declared: key_type
-  for _, given in ipairs(cases) do
-    local ok, why = attempt(Html.url_query, given)
-    assert(not ok and tostring(why):find("pairs is not a sequence", 1, true) ~= nil, tostring(why))
-  end
-  assert(not attempt(Html.url_query, "a=b"))
+  local ok, why = pcall(function()
+    local _ = attempt_query(untyped({ { name = "a", value = "b" }, { name = "c" } }))
+  end)
+  assert(not ok and tostring(why):find("html: pair 2 is not two strings (a Url.Pair's name and value)", 1, true) ~= nil,
+    tostring(why))
 end
 
 local function test_raw_url_part_holds_to_its_type()
