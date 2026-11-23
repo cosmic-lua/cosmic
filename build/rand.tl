@@ -93,11 +93,8 @@ end
 verb.MAX_BYTES = 1048576
 verb.MAX_COUNT = 10000000
 
-local spec = Cli.verbs.rand.spec or {} -- checked: literal_needs_type, map_field
-
-local usage = "cosmic rand uuid [--v4|--v7] [-n N] | token [--bytes N] [--hex|--base64url] | " ..
-  "int [-n N] [--seed S] [--] <lo> <hi> | pick [-n N] [--seed S] [file|-] | shuffle [--seed S] [file|-] | " ..
-  "normal [-n N] [--seed S] [--mean M] [--stddev SD] | gamma [-n N] [--seed S] --shape K [--scale T]"
+--- The subcommands, each with the options it takes, as [`cosmic.cli`] describes them.
+local subcommands = Cli.verbs.rand.subcommands or {} -- checked: literal_needs_type, map_field
 
 --- What a run wants of one draw of numbers: `int(lo, hi)` uniform over
 --- the inclusive range, `normal(mean, stddev)` and `gamma(shape, scale)`
@@ -143,16 +140,13 @@ local record Request
   words: mut {string}
 end
 
---- The options `command` takes, for refusing the rest.
-local allowed: {string:{string:boolean}} = {
-  uuid = { ["--v4"] = true, ["--v7"] = true, ["-n"] = true },
-  token = { ["--bytes"] = true, ["--hex"] = true, ["--base64url"] = true },
-  int = { ["-n"] = true, ["--seed"] = true },
-  pick = { ["-n"] = true, ["--seed"] = true },
-  shuffle = { ["--seed"] = true },
-  normal = { ["-n"] = true, ["--seed"] = true, ["--mean"] = true, ["--stddev"] = true },
-  gamma = { ["-n"] = true, ["--seed"] = true, ["--shape"] = true, ["--scale"] = true },
-}
+--- The usage line of the subcommand `command`, or of `rand` where `command` names none.
+local function usage_of(command?: string): string
+  local described = if command ~= nil then subcommands[command] else nil end
+  local help = if command ~= nil and described ~= nil then Flags.help(described, "cosmic rand " .. command)
+    else Flags.help(assert(Cli.verbs["rand"]), "cosmic rand") end
+  return help:match("^[^\n]*") or ""
+end
 
 --- What `argv` asks for, or nil and why it is refused.
 local function arguments(argv: {string}): Request?, string
@@ -160,19 +154,15 @@ local function arguments(argv: {string}): Request?, string
   if command == nil then
     return nil, "give a subcommand"
   end
-  local allowed_here = allowed[command]
-  if allowed_here == nil then
+  local described = subcommands[command]
+  if described == nil then
     return nil, "no such subcommand: " .. command
   end
-  local parsed, trouble = Flags.parse(argv, 3, spec)
+  local none: {string:boolean | Flags.Option} = {}
+  local parsed, trouble = Flags.parse(argv, 3, described.spec or none)
   if parsed == nil then return nil, trouble end
-  for _, name in ipairs(parsed.given) do
-    if allowed_here[name] ~= true then
-      if name == "--seed" then
-        return nil, "--seed is refused with " .. command .. ": its output is secret, and a seed would make it replayable"
-      end
-      return nil, command .. " takes no " .. name
-    end
+  if parsed.values["--seed"] ~= nil and (command == "uuid" or command == "token") then
+    return nil, "--seed is refused: its output is secret, and a seed would make it replayable"
   end
   local request: Request = { command = command, version = 4, bytes = 32, encoding = "base64url", mean = 0.0, stddev = 1.0, scale = 1.0, words = {} }
   for _, word in ipairs(parsed.words) do
@@ -227,9 +217,6 @@ local function arguments(argv: {string}): Request?, string
         if name == "--shape" then request.shape = value else request.scale = value end
       end
     end
-  end
-  if command == "gamma" and request.shape == nil then
-    return nil, "gamma needs --shape"
   end
   local words = request.words
   if command == "int" then
@@ -290,7 +277,9 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   local complain = bare.complainer("rand", to.err)
   local found, trouble = arguments(argv)
   if found == nil then
-    complain(trouble .. "; " .. usage)
+    local command = argv[2]
+    local named = if command ~= nil and subcommands[command] ~= nil then command .. ": " else "" end
+    complain(named .. trouble .. "; " .. usage_of(command))
     return bare.refused
   end
   local request: Request = found
