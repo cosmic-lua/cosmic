@@ -21,6 +21,7 @@
 --- Nothing here raises on its text: a failure answers `nil` and why,
 --- under the module's name.
 
+local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 
 local record Url
@@ -139,6 +140,11 @@ local function unescape(text: string, offset: integer): string?, string
   return (text:gsub("%%(%x%x)", byte_of_hex)), ""
 end
 
+-- Url.unescape, its failure in words.
+local function unescape_text(text: string): string?, string
+  return unescape(text, 0)
+end
+
 --- The bytes percent-escaped `text` spells: each `%` and two hex digits,
 --- of either case, becomes the byte they name, which may be any byte
 --- (a NUL, a `/`). A `+` is left as it is: reading it as a space is a
@@ -146,27 +152,15 @@ end
 --- answers `nil` and why, naming its byte.
 --- @param text string The escaped text
 --- @return string | nil The bytes it spells
---- @return string Why it was refused, or "" when it was not
-function Url.unescape(text: string): string?, string
-  return unescape(text, 0)
+--- @return Failure | nil Why it was refused
+function Url.unescape(text: string): (string) | (nil, Failure)
+  local value, why = unescape_text(text)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
---- The segments of a URL's `path`, unescaped, for a server to find a
---- file or route by: the path is split on `/` before anything is
---- unescaped, so an escaped `/` (`%2F`) never splits one. An empty
---- segment (from `//` or a trailing `/`) and a `.` are dropped, so "/"
---- answers `{}`. A segment that is `..` (`%2e%2e` included), or that
---- holds a `/` or a NUL once unescaped, answers `nil` and why, as does
---- a path that does not start with `/` or a malformed escape.
----
---- So `root .. "/" .. table.concat(segments, "/")` names a path under
---- `root` that cannot climb out of it by its name -- though a symbolic
---- link inside `root` still can. Hand it the path alone, without the
---- query: a `?` here is part of a segment.
---- @param path string A path, still escaped, starting with "/"
---- @return {string} | nil Its segments, unescaped
---- @return string Why it was refused, or "" when it was not
-function Url.segments(path: string): {string}?, string
+-- Url.segments, its failure in words.
+local function segments_text(path: string): {string}?, string
   if path:sub(1, 1) ~= "/" then
     return refuse("the path does not start with '/'")
   end
@@ -194,6 +188,27 @@ function Url.segments(path: string): {string}?, string
   return out, ""
 end
 
+--- The segments of a URL's `path`, unescaped, for a server to find a
+--- file or route by: the path is split on `/` before anything is
+--- unescaped, so an escaped `/` (`%2F`) never splits one. An empty
+--- segment (from `//` or a trailing `/`) and a `.` are dropped, so "/"
+--- answers `{}`. A segment that is `..` (`%2e%2e` included), or that
+--- holds a `/` or a NUL once unescaped, answers `nil` and why, as does
+--- a path that does not start with `/` or a malformed escape.
+---
+--- So `root .. "/" .. table.concat(segments, "/")` names a path under
+--- `root` that cannot climb out of it by its name -- though a symbolic
+--- link inside `root` still can. Hand it the path alone, without the
+--- query: a `?` here is part of a segment.
+--- @param path string A path, still escaped, starting with "/"
+--- @return {string} | nil Its segments, unescaped
+--- @return Failure | nil Why it was refused
+function Url.segments(path: string): ({string}) | (nil, Failure)
+  local value, why = segments_text(path)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 --- Reads `piece`, which starts at byte `at` of the whole text, as a name
 --- or a value: `+` as a space, then escapes. In `lenient` mode a stray `%`
 --- stays.
@@ -205,25 +220,8 @@ local function decode_piece(piece: string, at: integer, lenient: boolean): strin
   return unescape(piece, at - 1)
 end
 
---- `text` as a query string or an urlencoded form body
---- (`application/x-www-form-urlencoded`, which share a grammar): split on
---- `&` alone (a `;` is data, as an intermediary that splits on `&` would
---- read it), each piece on its first `=`, a `+` read as a space and then
---- each escape unescaped. Pairs keep the order sent, and an empty piece
---- (`a=1&&b=2`) is skipped and not counted. A piece without `=` is a name
---- with the value "", and one that starts with `=` a pair named "".
----
---- Answers `nil` and why when a `%` is not followed by two hex digits
---- (naming its byte in `text`, as [`Url.segments`] does; `lenient` keeps
---- it as a `%` instead), when a decoded name or value is not valid UTF-8
---- (naming the pair; `utf8 = false` allows any bytes), or when the text
---- is past `max_bytes` or holds more than `max_pairs` pairs (1000). A
---- decoded NUL is allowed through, as in [`Url.unescape`].
---- @param text string A query string, without its `?`, or a form body
---- @param opts QueryOptions | nil Limits and leniency
---- @return Query | nil The pairs, in order and by name
---- @return string Why it was refused, or "" when it was not
-function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query?, string
+-- Url.decode_query, its failure in words.
+local function decode_query_text(text: string, opts?: Url.QueryOptions): Url.Query?, string
   local max_pairs = opts and opts.max_pairs or 1000
   local max_bytes = opts and opts.max_bytes
   local lenient = opts ~= nil and opts.lenient == true
@@ -269,6 +267,30 @@ function Url.decode_query(text: string, opts?: Url.QueryOptions): Url.Query?, st
     at = amp + 1
   end
   return { pairs = pairs_, by_name = by_name }, ""
+end
+
+--- `text` as a query string or an urlencoded form body
+--- (`application/x-www-form-urlencoded`, which share a grammar): split on
+--- `&` alone (a `;` is data, as an intermediary that splits on `&` would
+--- read it), each piece on its first `=`, a `+` read as a space and then
+--- each escape unescaped. Pairs keep the order sent, and an empty piece
+--- (`a=1&&b=2`) is skipped and not counted. A piece without `=` is a name
+--- with the value "", and one that starts with `=` a pair named "".
+---
+--- Answers `nil` and why when a `%` is not followed by two hex digits
+--- (naming its byte in `text`, as [`Url.segments`] does; `lenient` keeps
+--- it as a `%` instead), when a decoded name or value is not valid UTF-8
+--- (naming the pair; `utf8 = false` allows any bytes), or when the text
+--- is past `max_bytes` or holds more than `max_pairs` pairs (1000). A
+--- decoded NUL is allowed through, as in [`Url.unescape`].
+--- @param text string A query string, without its `?`, or a form body
+--- @param opts QueryOptions | nil Limits and leniency
+--- @return Query | nil The pairs, in order and by name
+--- @return Failure | nil Why it was refused
+function Url.decode_query(text: string, opts?: Url.QueryOptions): (Url.Query) | (nil, Failure)
+  local value, why = decode_query_text(text, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The first value sent for `name` in `query`, or nil when none was.
@@ -561,22 +583,8 @@ function Url.resolve(base: string, ref: string): string
   return table.concat(out)
 end
 
---- An absolute URL, `scheme://[userinfo@]host[:port][/path][?query][#fragment]`,
---- read into its [`Parts`]: the scheme and host lowercased, an IPv6
---- host taken out of its brackets, the port a number from 0 to 65535,
---- and the user info, path, query and fragment as written, still
---- escaped ([`Url.segments`] reads a path, [`Url.unescape`] a piece).
---- Answers `nil` and why for anything else: a relative reference, a URL
---- without `//` (`mailto:`), one that names no host (`file:///`), more
---- than one `@`, a `\` in the authority (which a browser reads as `/`),
---- a host byte outside RFC 3986's reg-name or an escape in the host (a
---- name not in ASCII goes as its punycode), a malformed port or IPv6 host (one with a zone, as
---- `[fe80::1%25eth0]`, included), or a space or control byte anywhere,
---- which a URL holds only escaped ([`Url.escape`]).
---- @param text string The URL
---- @return Parts | nil Its parts
---- @return string Why it was refused, or "" when it was not
-function Url.parse(text: string): Url.Parts?, string
+-- Url.parse, its failure in words.
+local function parse_text(text: string): Url.Parts?, string
   local unescaped = unescaped_byte(text)
   if unescaped ~= "" then
     return nil, unescaped
@@ -616,6 +624,27 @@ function Url.parse(text: string): Url.Parts?, string
     parts.query = rest:sub(2)
   end
   return parts, ""
+end
+
+--- An absolute URL, `scheme://[userinfo@]host[:port][/path][?query][#fragment]`,
+--- read into its [`Parts`]: the scheme and host lowercased, an IPv6
+--- host taken out of its brackets, the port a number from 0 to 65535,
+--- and the user info, path, query and fragment as written, still
+--- escaped ([`Url.segments`] reads a path, [`Url.unescape`] a piece).
+--- Answers `nil` and why for anything else: a relative reference, a URL
+--- without `//` (`mailto:`), one that names no host (`file:///`), more
+--- than one `@`, a `\` in the authority (which a browser reads as `/`),
+--- a host byte outside RFC 3986's reg-name or an escape in the host (a
+--- name not in ASCII goes as its punycode), a malformed port or IPv6 host (one with a zone, as
+--- `[fe80::1%25eth0]`, included), or a space or control byte anywhere,
+--- which a URL holds only escaped ([`Url.escape`]).
+--- @param text string The URL
+--- @return Parts | nil Its parts
+--- @return Failure | nil Why it was refused
+function Url.parse(text: string): (Url.Parts) | (nil, Failure)
+  local value, why = parse_text(text)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 return Url

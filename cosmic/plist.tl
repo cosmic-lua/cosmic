@@ -66,6 +66,7 @@
 --- larger than the binary it was read from: `max_bytes` bounds what [`Plist.encode`] writes.
 
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Xml = require("cosmic.xml")
 
 local record Plist
@@ -847,7 +848,7 @@ end
 --- The value of an XML property list.
 local function decode_xml(text: string, max_depth: integer): Plist.Value?, string
   local root, trouble = Xml.tree(text)
-  if root == nil then return nil, "plist: " .. trouble end
+  if root == nil then return nil, "plist: " .. tostring(trouble) end
   local r: Reading = { max_depth = max_depth, path = {} }
   if root.name ~= "plist" then
     return nil, "plist: the root element is <" .. root.name .. ">, not <plist>"
@@ -1236,18 +1237,25 @@ function Plist.form(bytes: string): Plist.Form?
   return nil
 end
 
---- The value `bytes` hold, in whichever form they are; nil and why when they are in neither or are refused,
+--- The value `bytes` hold, in whichever form they are; nil and a [`Failure`] when they are in neither or are refused,
 --- as the module's doc lists.
-function Plist.decode(bytes: string, opts?: Plist.DecodeOptions): Plist.Value?, string
+function Plist.decode(bytes: string, opts?: Plist.DecodeOptions): (Plist.Value) | (nil, Failure)
   local max_depth = depth_of(if opts == nil then nil else opts.max_depth end)
   local form = Plist.form(bytes)
-  if form == "binary" then return decode_binary(bytes, max_depth) end
-  if form == "xml" then return decode_xml(bytes, max_depth) end
-  return nil, "plist: neither a binary property list nor XML"
+  local value, why: Plist.Value?, string
+  if form == "binary" then
+    value, why = decode_binary(bytes, max_depth)
+  elseif form == "xml" then
+    value, why = decode_xml(bytes, max_depth)
+  else
+    return nil, Failure.new("plist: neither a binary property list nor XML")
+  end
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- `value` as the bytes of a property list, in the binary form or the one `opts.form` names, laid out as the
---- module's doc says. Nil and why for what no property list holds: a value whose `kind` names a field it
+--- module's doc says. Nil and a [`Failure`] for what no property list holds: a value whose `kind` names a field it
 --- lacks, a string or a key that is not UTF-8, a date that is not a number, a negative UID, a dict that holds
 --- a key twice, an array or a dict that holds itself, nesting deeper than `max_depth`, and a value that takes
 --- more than `max_bytes`. The XML form also refuses what it cannot carry: a string or a key with a control
@@ -1256,7 +1264,7 @@ end
 ---
 --- The binary form writes a table that stands in several places once, as one object. The XML form writes it
 --- at each place.
-function Plist.encode(value: Plist.Value, opts?: Plist.EncodeOptions): string?, string
+function Plist.encode(value: Plist.Value, opts?: Plist.EncodeOptions): (string) | (nil, Failure)
   local w: Writing = {
     sort_keys = opts ~= nil and opts.sort_keys == true,
     max_depth = depth_of(if opts == nil then nil else opts.max_depth end),
@@ -1264,8 +1272,14 @@ function Plist.encode(value: Plist.Value, opts?: Plist.EncodeOptions): string?, 
     max_bytes = (if opts == nil then nil else opts.max_bytes end) or math.maxinteger,
     size = 0,
   }
-  if opts ~= nil and opts.form == "xml" then return encode_xml(w, value) end
-  return encode_binary(w, value)
+  local bytes, why: string?, string
+  if opts ~= nil and opts.form == "xml" then
+    bytes, why = encode_xml(w, value)
+  else
+    bytes, why = encode_binary(w, value)
+  end
+  if bytes == nil then return nil, Failure.new(why) end
+  return bytes
 end
 
 --- A boolean.

@@ -639,7 +639,9 @@ function Input.query(req: Types.Request, opts?: Url.QueryOptions): Types.Parsed<
   if opts == nil then
     q, why = req:query()
   else
-    q, why = Url.decode_query(req.query_string, opts)
+    local found, trouble = Url.decode_query(req.query_string, opts)
+    q, why = found, ""
+    if found == nil then why = tostring(trouble) end
   end
   if q == nil then return { invalid = stop(400, "query", "", "malformed", why) } end
   return { value = q }
@@ -670,7 +672,7 @@ function Input.form(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
   local cached = req:get(Input.FORM)
   if cached ~= nil then return { value = cached } end
   local q, why = Url.decode_query(text)
-  if q == nil then return { invalid = stop(400, "form", "", "malformed", why) } end
+  if q == nil then return { invalid = stop(400, "form", "", "malformed", tostring(why)) } end
   req:set(Input.FORM, q)
   return { value = q }
 end

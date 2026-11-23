@@ -18,10 +18,10 @@ end
 --- An escape reads back in either case; a `%` without two hex digits is
 --- a failure the caller handles, naming its byte.
 function Example.unescape()
-  assert(Url.unescape("caf%C3%a9") == "caf\xc3\xa9")
+  assert(assert(Url.unescape("caf%C3%a9")) == "caf\xc3\xa9")
   local text, why = Url.unescape("100%")
   print(why) -- url: '%' at byte 4 is not followed by two hex digits
-  assert(text == nil and why == "url: '%' at byte 4 is not followed by two hex digits", why)
+  assert(text == nil and tostring(why) == "url: '%' at byte 4 is not followed by two hex digits", why)
 end
 
 --- A server maps a request's path to a file under its root by the

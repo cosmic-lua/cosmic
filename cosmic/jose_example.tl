@@ -47,7 +47,7 @@ function Example.verify_jwt()
   print(claims.sub)
   assert(claims.sub == "ada")
   local refused, why = Jose.verify_jwt(token, keys, { issuer = "https://id.example.com", audience = "other" })
-  assert(refused == nil and why ~= "")
+  assert(refused == nil and tostring(why) ~= "")
 end
 
 --- A signature over bytes that are not JSON, checked, then decoded

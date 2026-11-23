@@ -27,6 +27,7 @@
 --- one that was read.
 
 local Array = require("cosmic.array")
+local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 
 local record Dns
@@ -216,9 +217,8 @@ local function escaped(label: string): string
   return (label:gsub("[%c.\\]", escapes))
 end
 
---- The text of the name whose labels are `labels`, each of any bytes, or nil and why: a label is empty or over
---- 63 bytes, or the name is over 255 bytes on the wire. No labels are the root, `.`.
-function Dns.name(labels: {string}): string?, string
+-- Dns.name, its failure in words.
+local function name_text(labels: {string}): string?, string
   local parts: mut {string} = {}
   local size = 1
   for i, label in ipairs(labels) do
@@ -236,11 +236,16 @@ function Dns.name(labels: {string}): string?, string
   return table.concat(parts, "."), ""
 end
 
---- The labels of the name `name`, each as its bytes with no escape, or nil and why: a label is empty or over 63
---- bytes, the name is over 255 bytes on the wire, or a backslash ends the text or has digits after it that are
---- not the three of a byte's value, `\000` to `\255`. A backslash before a character that is no digit gives that
---- character, and a dot at the end changes nothing. The root, `.` or the empty text, has no labels.
-function Dns.labels(name: string): {string}?, string
+--- The text of the name whose labels are `labels`, each of any bytes, or nil and why: a label is empty or over
+--- 63 bytes, or the name is over 255 bytes on the wire. No labels are the root, `.`.
+function Dns.name(labels: {string}): (string) | (nil, Failure)
+  local value, why = name_text(labels)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Dns.labels, its failure in words.
+local function labels_text(name: string): {string}?, string
   local labels: mut {string} = {}
   if name == "" or name == "." then return labels, "" end
   local pieces: mut {string} = {}
@@ -290,6 +295,16 @@ function Dns.labels(name: string): {string}?, string
   return labels, ""
 end
 
+--- The labels of the name `name`, each as its bytes with no escape, or nil and why: a label is empty or over 63
+--- bytes, the name is over 255 bytes on the wire, or a backslash ends the text or has digits after it that are
+--- not the three of a byte's value, `\000` to `\255`. A backslash before a character that is no digit gives that
+--- character, and a dot at the end changes nothing. The root, `.` or the empty text, has no labels.
+function Dns.labels(name: string): ({string}) | (nil, Failure)
+  local value, why = labels_text(name)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 --- The strings of a TXT record read as the keys and values of DNS-SD (RFC 6763 section 6): each string is a key,
 --- an `=` and a value of any bytes. Keys are in lower case, since their case means nothing. Of a key given twice
 --- the first stands, as the RFC has it. A string with no `=` is a key whose value is "", which a string that ends
@@ -309,7 +324,7 @@ end
 
 --- `name` as it is on the wire, each label after its length and the root's zero last, or nil and why.
 local function wire_name(name: string): string?, string
-  local labels, why = Dns.labels(name)
+  local labels, why = labels_text(name)
   if labels == nil then return nil, why end
   local parts: mut {string} = {}
   for i, label in ipairs(labels) do
@@ -667,11 +682,8 @@ local function read_records(cursor: Cursor, count: integer): {Dns.Record}?, stri
   return out, ""
 end
 
---- The message in the bytes `data`, which may come from anywhere, or nil and why: the bytes end early, the header
---- counts more than they hold, a name is malformed, the data of a record of the internet class is not the shape
---- of its type, or bytes follow the last record. It never raises. Every record has its `rdata`, and the field of
---- its type where the module doc lists one.
-function Dns.decode(data: string): Dns.Message?, string
+-- Dns.decode, its failure in words.
+local function decode_text(data: string): Dns.Message?, string
   if #data < HEADER then return nil, "dns: the message is shorter than a header" end
   local flags = u16(data, 3)
   local questions_count, answers_count, authorities_count, additionals_count =
@@ -723,6 +735,16 @@ function Dns.decode(data: string): Dns.Message?, string
     authorities = authorities,
     additionals = additionals,
   }, ""
+end
+
+--- The message in the bytes `data`, which may come from anywhere, or nil and why: the bytes end early, the header
+--- counts more than they hold, a name is malformed, the data of a record of the internet class is not the shape
+--- of its type, or bytes follow the last record. It never raises. Every record has its `rdata`, and the field of
+--- its type where the module doc lists one.
+function Dns.decode(data: string): (Dns.Message) | (nil, Failure)
+  local value, why = decode_text(data)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- Whether `value` is a number of `bits` bits.
@@ -833,13 +855,8 @@ local record Section
   records: {Dns.Record}
 end
 
---- `message` as bytes, or nil and why: a number does not fit its field, a name is no name, an address is no
---- address of its record's type, a string of a TXT record is over 255 bytes, a record has neither the field of
---- its type nor `rdata`, or the whole is over 65535 bytes. A record of the internet class is written from the
---- field of its type where it has one, whatever its `rdata` says, so a decoded record with a field changed is
---- written as changed; any other record is written from `rdata` as it is. Names are written in full, with no
---- compression.
-function Dns.encode(message: Dns.Message): string?, string
+-- Dns.encode, its failure in words.
+local function encode_text(message: Dns.Message): string?, string
   if not fits(message.id, 16) then return nil, "dns: the id is not 0 to 65535" end
   if not fits(message.opcode, 4) then return nil, "dns: the opcode is not 0 to 15" end
   if not fits(message.rcode, 4) then return nil, "dns: the rcode is not 0 to 15" end
@@ -885,6 +902,18 @@ function Dns.encode(message: Dns.Message): string?, string
     return nil, ("dns: the message is %s, and a message holds 65535"):format(String.counted(#out, "byte"))
   end
   return out, ""
+end
+
+--- `message` as bytes, or nil and why: a number does not fit its field, a name is no name, an address is no
+--- address of its record's type, a string of a TXT record is over 255 bytes, a record has neither the field of
+--- its type nor `rdata`, or the whole is over 65535 bytes. A record of the internet class is written from the
+--- field of its type where it has one, whatever its `rdata` says, so a decoded record with a field changed is
+--- written as changed; any other record is written from `rdata` as it is. Names are written in full, with no
+--- compression.
+function Dns.encode(message: Dns.Message): (string) | (nil, Failure)
+  local value, why = encode_text(message)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The query that asks for the records of type `rtype` and the internet class at `name`, with the identifier

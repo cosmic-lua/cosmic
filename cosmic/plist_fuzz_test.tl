@@ -148,27 +148,29 @@ end
 --- text. Answers that text, or "" where XML refused the value.
 local function written_both_ways(value: Plist.Value): boolean, string, string
   local binary, binary_why = Plist.encode(value)
-  if binary == nil then return false, "what was read is not written: " .. binary_why, "" end
+  if binary == nil then
+    return false, "what was read is not written: " .. tostring(binary_why), ""
+  end
   local again, again_why = Plist.decode(binary)
-  if again == nil then return false, "what was written is not read: " .. again_why, "" end
+  if again == nil then return false, "what was written is not read: " .. tostring(again_why), "" end
   local twice, twice_why = Plist.encode(again)
   if twice ~= binary then
-    return false, "written twice, the binary form differs: " .. twice_why, ""
+    return false, "written twice, the binary form differs: " .. tostring(twice_why), ""
   end
   local text, text_why = Plist.encode(value, { form = "xml" })
   if text == nil then
-    if text_why == "" then return false, "XML refused the value without a reason", "" end
+    if tostring(text_why) == "" then return false, "XML refused the value without a reason", "" end
     Fuzz.label("XML cannot hold it")
     return true, "", ""
   end
   Fuzz.label("XML holds it")
   local from_text, from_why = Plist.decode(text)
   if from_text == nil then
-    return false, "the XML that was written is not read: " .. from_why .. "\n" .. text, ""
+    return false, "the XML that was written is not read: " .. tostring(from_why) .. "\n" .. text, ""
   end
   local text_twice, text_twice_why = Plist.encode(from_text, { form = "xml" })
   if text_twice ~= text then
-    return false, "written twice, the XML form differs: " .. text_twice_why .. "\n" .. text .. "\n" .. (text_twice or ""), ""
+    return false, "written twice, the XML form differs: " .. tostring(text_twice_why) .. "\n" .. text .. "\n" .. (text_twice or ""), ""
   end
   return true, "", text
 end
@@ -187,14 +189,13 @@ local function test_binary_decode_is_total_and_what_it_reads_is_written_back(tmp
     check = function(input: string): boolean, string
       local value, why = Plist.decode(input)
       if value == nil then
-        if why:sub(1, 7) ~= "plist: " then
-          return false, "refused without a reason of the module's: " .. why
+        if tostring(why):sub(1, 7) ~= "plist: " then
+          return false, "refused without a reason of the module's: " .. tostring(why)
         end
         Fuzz.label("refused")
-        if why:find("holds itself", 1, true) ~= nil then Fuzz.label("refused a cycle") end
+        if tostring(why):find("holds itself", 1, true) ~= nil then Fuzz.label("refused a cycle") end
         return true, ""
       end
-      if why ~= "" then return false, "read with a reason: " .. why end
       Fuzz.label("read")
       if value.kind == "array" or value.kind == "dict" then Fuzz.label("read a container") end
       local ok, trouble = written_both_ways(value)
@@ -214,7 +215,7 @@ local function test_xml_decode_is_total_and_what_it_reads_is_written_back(tmp: s
       if kind == 0 then return Fuzz.mutate(src, gen_document(src), 2) end
       if kind <= 2 then
         -- An array of a value, as this module writes it, so that a share of the inputs are whole documents.
-        local text = Plist.encode(Plist.array({ gen_value(src, 3) }), { form = "xml" })
+        local text, _ = Plist.encode(Plist.array({ gen_value(src, 3) }), { form = "xml" })
         if text ~= nil then return Fuzz.mutate(src, text, 1) end
       end
       return gen_document(src)
@@ -222,13 +223,12 @@ local function test_xml_decode_is_total_and_what_it_reads_is_written_back(tmp: s
     check = function(input: string): boolean, string
       local value, why = Plist.decode(input)
       if value == nil then
-        if why:sub(1, 7) ~= "plist: " then
-          return false, "refused without a reason of the module's: " .. why
+        if tostring(why):sub(1, 7) ~= "plist: " then
+          return false, "refused without a reason of the module's: " .. tostring(why)
         end
         Fuzz.label("refused")
         return true, ""
       end
-      if why ~= "" then return false, "read with a reason: " .. why end
       Fuzz.label("read")
       if value.kind == "array" or value.kind == "dict" then Fuzz.label("read a container") end
       local ok, trouble, text = written_both_ways(value)
@@ -239,7 +239,7 @@ local function test_xml_decode_is_total_and_what_it_reads_is_written_back(tmp: s
       local binary = assert(Plist.encode(value))
       local by_binary, by_why = Plist.encode(assert(Plist.decode(binary)), { form = "xml" })
       if by_binary ~= text then
-        return false, "by way of the binary form, the XML differs: " .. by_why
+        return false, "by way of the binary form, the XML differs: " .. tostring(by_why)
       end
       return true, ""
     end,
@@ -255,9 +255,11 @@ local function test_a_written_value_is_read_as_written(tmp: string)
     gen = gen_binary,
     check = function(input: string): boolean, string
       local value, why = Plist.decode(input)
-      if value == nil then return false, "what was written is not read: " .. why end
+      if value == nil then return false, "what was written is not read: " .. tostring(why) end
       local bytes, encode_why = Plist.encode(value)
-      if bytes ~= input then return false, "read and written again, it differs: " .. encode_why end
+      if bytes ~= input then
+        return false, "read and written again, it differs: " .. tostring(encode_why)
+      end
       local ok, trouble = written_both_ways(value)
       return ok, trouble
     end,

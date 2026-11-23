@@ -82,8 +82,8 @@ end
 function Example.encode_sorted()
   local one = Plist.dict({ { key = "b", value = Plist.integer(2) }, { key = "a", value = Plist.integer(1) } })
   local other = Plist.dict({ { key = "a", value = Plist.integer(1) }, { key = "b", value = Plist.integer(2) } })
-  assert(Plist.encode(one) ~= Plist.encode(other))
-  assert(Plist.encode(one, { sort_keys = true }) == Plist.encode(other, { sort_keys = true }))
+  assert(assert(Plist.encode(one)) ~= assert(Plist.encode(other)))
+  assert(assert(Plist.encode(one, { sort_keys = true })) == assert(Plist.encode(other, { sort_keys = true })))
 end
 
 --- Text and bytes are two types, and so are an integer and a real: each is written as what it is, and read
@@ -161,7 +161,7 @@ function Example.max_depth()
   print(why) -- plist: nested deeper than 2 (at 1/1)
   local nested = assert(Plist.decode(xml, { max_depth = 3 }))
   local bytes, encode_why = Plist.encode(nested, { max_depth = 2 })
-  assert(bytes == nil and encode_why == "plist: nested deeper than 2")
+  assert(bytes == nil and tostring(encode_why) == "plist: nested deeper than 2")
 end
 
 --- A file is written back in the form it was read in: [`Plist.form`] says which that is, from the first bytes.

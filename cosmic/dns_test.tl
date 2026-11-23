@@ -23,12 +23,12 @@ end
 
 local function refused(data: string)
   local message, why = Dns.decode(data)
-  assert(message == nil and why ~= "", ("%q was read"):format(data))
+  assert(message == nil and tostring(why) ~= "", ("%q was read"):format(data))
 end
 
 local function unwritable(message: Dns.Message)
   local bytes, why = Dns.encode(message)
-  assert(bytes == nil and why ~= "")
+  assert(bytes == nil and tostring(why) ~= "")
 end
 
 --- The bytes of `message`, which has them.
@@ -81,26 +81,26 @@ local function test_labels_reads_every_escape()
   end
   for _, text in ipairs({ "a..b", ".a", "..", "a\\", "a\\1", "a\\12", "a\\256", "a\\12x" }) do
     local labels, why = Dns.labels(text)
-    assert(labels == nil and why ~= "", text)
+    assert(labels == nil and tostring(why) ~= "", text)
   end
 end
 
 local function test_a_label_holds_63_bytes_and_a_name_255()
   local full = ("a"):rep(63)
-  assert(Dns.name({ full }) == full and #assert(Dns.labels(full)) == 1)
+  assert(assert(Dns.name({ full })) == full and #assert(Dns.labels(full)) == 1)
   local long, long_why = Dns.name({ full .. "a" })
-  assert(long == nil and long_why ~= "")
+  assert(long == nil and tostring(long_why) ~= "")
   local split, split_why = Dns.labels(full .. "a.com")
-  assert(split == nil and split_why ~= "")
+  assert(split == nil and tostring(split_why) ~= "")
   local empty_label, empty_why = Dns.name({ "a", "" })
-  assert(empty_label == nil and empty_why ~= "")
+  assert(empty_label == nil and tostring(empty_why) ~= "")
 
   -- Three labels of 63 bytes and one of 61 are 255 bytes with their lengths and the root's.
   local most = assert(Dns.name({ full, full, full, ("b"):rep(61) }))
   local over, over_why = Dns.name({ full, full, full, ("b"):rep(62) })
-  assert(over == nil and over_why ~= "")
+  assert(over == nil and tostring(over_why) ~= "")
   local over_text, over_text_why = Dns.labels(most .. "b")
-  assert(over_text == nil and over_text_why ~= "")
+  assert(over_text == nil and tostring(over_text_why) ~= "")
 
   local wire = assert(Dns.encode(Dns.query(most, Dns.A, 0)))
   assert(#wire == 12 + 255 + 4)
@@ -148,7 +148,7 @@ local function test_a_multicast_query_is_these_bytes()
   local first, second = assert(back.questions[1]), assert(back.questions[2])
   assert(first.unicast_response and first.class == Dns.IN and first.type == Dns.PTR)
   assert(not second.unicast_response and second.name == "My\\.Printer._ipp._tcp.local" and second.type == Dns.ANY)
-  assert(Dns.encode(back) == wire)
+  assert(assert(Dns.encode(back)) == wire)
 end
 
 --- The names of RFC 1035 section 4.1.4, compressed as it compresses them: F.ISI.ARPA whole, FOO.F.ISI.ARPA as a
@@ -237,7 +237,7 @@ local function every_type(): Dns.Message
 end
 
 local function test_every_type_is_written_from_its_field()
-  assert(Dns.encode(every_type()) == FULL)
+  assert(assert(Dns.encode(every_type())) == FULL)
 end
 
 local function test_every_type_is_read_into_its_field()
@@ -271,13 +271,13 @@ local function test_every_type_is_read_into_its_field()
   assert(soa.serial == 2024010101 and soa.refresh == 7200 and soa.retry == 900 and soa.expire == 1209600)
   assert(soa.minimum == 4294967295)
   assert(assert(message.additionals[1]).address == "198.51.100.7")
-  assert(Dns.encode(message) == FULL)
+  assert(assert(Dns.encode(message)) == FULL)
 end
 
 --- What a compressed message holds is what the same message holds in full, so writing it back gives the full one.
 local function test_a_compressed_response_reads_as_the_full_one()
   local message = assert(Dns.decode(COMPRESSED))
-  assert(Dns.encode(message) == FULL)
+  assert(assert(Dns.encode(message)) == FULL)
   local cname, soa = assert(message.answers[3]), assert(message.authorities[2])
   assert(cname.target == "www.example.com" and cname.rdata == "\x03www\xc0\x0c")
   assert(assert(soa.soa).rname == "host\\.master.example.com")
@@ -391,7 +391,7 @@ local function test_a_record_with_no_field_of_its_type_is_its_rdata()
   assert(first.address == nil and first.target == nil and first.txt == nil)
   assert(second.class == 3 and second.rdata == "\x01a\x00\x12\x34" and second.address == nil)
   assert(assert(third.mx).preference == 5 and assert(third.mx).exchange == ".")
-  assert(Dns.encode(message) == wire)
+  assert(assert(Dns.encode(message)) == wire)
   unwritable({
     ...empty(),
     answers = { { name = "example.com", type = Dns.A, class = Dns.IN, cache_flush = false, ttl = 7 } },
@@ -437,7 +437,7 @@ local function test_the_header_is_its_fields()
   end
   -- The reserved bit is read as nothing.
   local reserved = assert(Dns.decode("\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00\x00"))
-  assert(Dns.encode(reserved) == ("\x00"):rep(12))
+  assert(assert(Dns.encode(reserved)) == ("\x00"):rep(12))
   for _, message in ipairs({ { ...base, id = 65536 }, { ...base, id = -1 }, { ...base, opcode = 16 },
       { ...base, rcode = 16 }, { ...base, rcode = -1 } }) do
     unwritable(message)
@@ -637,7 +637,7 @@ local function test_decode_never_raises()
     local at = 1 + random(#COMPRESSED)
     local changed = COMPRESSED:sub(1, at - 1) .. string.char(random(256)) .. COMPRESSED:sub(at + 1)
     local message, why = Dns.decode(changed)
-    assert((message == nil) ~= (why == ""))
+    assert((message == nil) == (why ~= nil))
     if message ~= nil then
       read = read + 1
       -- What decode gives, encode takes: every name and number in it fits.

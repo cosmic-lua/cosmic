@@ -351,7 +351,7 @@ local function test_url_escape_html_url_part_and_reverse_agree()
     end
     if value ~= "" then
       assert(router:reverse("x", { v = value }) == "/x/" .. part, value)
-      local back = Url.unescape(part)
+      local back, _ = Url.unescape(part)
       assert(back == value or value == "." or value == "..", value)
     end
   end

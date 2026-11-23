@@ -167,12 +167,15 @@ end
 local BOM <const> = "\xEF\xBB\xBF"
 
 local Array = require("cosmic.array")
+local Failure = require("cosmic.failure")
 local Sqlite = require("cosmic.sqlite")
 
---- What a failure of this module answers, nil and `why` under the
---- module's name.
-local function refuse(why: string): nil, string
-  return nil, "csv: " .. why
+--- What a failure of this module answers: nil and a [`Failure`] under
+--- the module's name, at `line` (and `column`) of the text when given,
+--- about `path` when one is.
+local function refuse(why: string, line?: integer, column?: integer, path?: string): nil, Failure
+  if line ~= nil then return nil, Failure.at("csv: " .. why, line, column, path) end
+  return nil, Failure.new("csv: " .. why, path)
 end
 
 --- The delimiter an option names, `,` for nil. Raises, naming the caller of
@@ -191,13 +194,8 @@ local function delimiter_of(named: string?): string
   return named
 end
 
---- Where: "line N, column M".
-local function at(line: integer, column: integer): string
-  return "line " .. tostring(line) .. ", column " .. tostring(column)
-end
-
 --- The records of `text` and the line each began on, or nil and why.
-local function read(text: string, delimiter: string): Scan?, string
+local function read(text: string, delimiter: string): (Scan) | (nil, Failure)
   local records: mut {{string}} = {}
   local lines: mut {integer} = {}
   local size = #text
@@ -230,7 +228,7 @@ local function read(text: string, delimiter: string): Scan?, string
           while true do
             local quote = text:find('"', from, true)
             if quote == nil then
-              return refuse("unclosed quote opened at " .. at(line, opened - line_start + 1))
+              return refuse("unclosed quote opened", line, opened - line_start + 1)
             end
             parts[#parts + 1] = text:sub(from, quote - 1)
             if text:byte(quote + 1) == 34 then
@@ -262,8 +260,8 @@ local function read(text: string, delimiter: string): Scan?, string
             pos = pos + 2
             ended, broke = true, true
           else
-            return refuse("after a closing quote, expected the delimiter or the end of the line at " ..
-                at(line, pos - line_start + 1))
+            return refuse("after a closing quote, expected the delimiter or the end of the line",
+              line, pos - line_start + 1)
           end
         else
           local stop = text:find(class, pos)
@@ -274,7 +272,7 @@ local function read(text: string, delimiter: string): Scan?, string
           else
             local found = text:byte(stop)
             if found == 34 then
-              return refuse("a quote inside an unquoted field at " .. at(line, stop - line_start + 1))
+              return refuse("a quote inside an unquoted field", line, stop - line_start + 1)
             end
             local value = text:sub(pos, stop - 1)
             if found == 10 then
@@ -295,12 +293,12 @@ local function read(text: string, delimiter: string): Scan?, string
       end
     end
   end
-  return { records = records, lines = lines }, ""
+  return { records = records, lines = lines }
 end
 
 --- The records of `text` with the line each began on, blank lines left
 --- out: the one home of that rule, for `parse` and `records`.
-local function located(text: string, delimiter: string): {Csv.Record}?, string
+local function located(text: string, delimiter: string): ({Csv.Record}) | (nil, Failure)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
     return nil, trouble
@@ -312,7 +310,7 @@ local function located(text: string, delimiter: string): {Csv.Record}?, string
       found[#found + 1] = { fields = record, line = Array.at(scan.lines, number) }
     end
   end
-  return found, ""
+  return found
 end
 
 --- The records of `text`: each a list of its fields, all strings. Nil
@@ -323,7 +321,7 @@ end
 --- header. Blank lines are left out of the records. For each record's
 --- line, which counts the lines inside quoted fields, use [`Csv.records`].
 --- Text with no records is `{}`.
-function Csv.parse(text: string, opts?: Csv.Options): {{string}}?, string
+function Csv.parse(text: string, opts?: Csv.Options): ({{string}}) | (nil, Failure)
   local found, trouble = located(text, delimiter_of(opts and opts.delimiter))
   if found == nil then
     return nil, trouble
@@ -332,7 +330,7 @@ function Csv.parse(text: string, opts?: Csv.Options): {{string}}?, string
   for index, record in ipairs(found) do
     records[index] = record.fields
   end
-  return records, ""
+  return records
 end
 
 --- The records of `text` as [`Csv.parse`] reads them, each with the line
@@ -344,7 +342,7 @@ end
 ---
 ---     local found = assert(Csv.records('id,name\n1\n2,Bob\n'))
 ---     assert(#found[2].fields == 1 and found[3].line == 3)
-function Csv.records(text: string, opts?: Csv.Options): {Csv.Record}?, string
+function Csv.records(text: string, opts?: Csv.Options): ({Csv.Record}) | (nil, Failure)
   return located(text, delimiter_of(opts and opts.delimiter))
 end
 
@@ -464,7 +462,7 @@ end
 --- header's, naming the line it began on and both counts; raises for a
 --- delimiter `parse` does. Text with no records has no columns, and a
 --- header alone has columns and no rows.
-function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
+function Csv.table(text: string, opts?: Csv.Options): (Csv.Table) | (nil, Failure)
   local delimiter = delimiter_of(opts and opts.delimiter)
   local scan, trouble = read(text, delimiter)
   if scan == nil then
@@ -478,7 +476,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
   local rows: mut {{string:string}} = {}
   local began: mut {integer} = {}
   if records[first] == nil then
-    return { columns = {}, rows = rows, lines = began }, ""
+    return { columns = {}, rows = rows, lines = began }
   end
   local names = Csv.column_names(records[first])
   local last = #records
@@ -499,8 +497,8 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
         record = { "" }
       end
     elseif #record ~= #names then
-      return refuse(at(began_at, 1) .. ": the record has " .. tostring(#record) ..
-          (if #record == 1 then " field" else " fields" end) .. ", the header " .. tostring(#names))
+      return refuse("the record has " .. tostring(#record) ..
+          (if #record == 1 then " field" else " fields" end) .. ", the header " .. tostring(#names), began_at, 1)
     end
     if #record > 0 then
       local row: mut {string:string} = {}
@@ -512,7 +510,7 @@ function Csv.table(text: string, opts?: Csv.Options): Csv.Table?, string
       began[#began + 1] = began_at
     end
   end
-  return { columns = names, rows = rows, lines = began }, ""
+  return { columns = names, rows = rows, lines = began }
 end
 
 --- `value` as an SQL string literal, its quotes doubled.
@@ -563,7 +561,7 @@ local counts: integer = 0
 --- the UTF-8 byte order mark. A `path` is
 --- read more than once, so it names a regular file that stays as it is
 --- while it loads, not a pipe.
-function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.Loaded?, string
+function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv.Loaded) | (nil, Failure)
   if (source.path == nil) == (source.text == nil) then
     error("csv: load reads a path or a text, one of them", 2)
   end
@@ -595,11 +593,11 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   local scratch = "temp." .. identifier("cosmic_csv_load_" .. tostring(counts))
   local ok, trouble = handle:exec("SAVEPOINT cosmic_csv_load")
   if not ok then
-    return refuse(trouble)
+    return refuse(trouble, nil, nil, path)
   end
-  local function undone(why: string): nil, string
+  local function undone(why: string): nil, Failure
     local _, _ = handle:exec("ROLLBACK TO cosmic_csv_load; RELEASE cosmic_csv_load")
-    return refuse(why)
+    return refuse(why, nil, nil, path)
   end
   if delimiter ~= "," then
     -- SQLite's CSV table reads a quoted one-byte value; a single quote
@@ -704,7 +702,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): Csv.
   if not ok then
     return undone(trouble)
   end
-  return { count = copied, keys = keys, columns = names }, ""
+  return { count = copied, keys = keys, columns = names }
 end
 
 return Csv

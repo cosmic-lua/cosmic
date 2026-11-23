@@ -89,21 +89,23 @@ local function test_what_reads_writes_back_to_the_same_events(tmp: string)
     requires = { "written" },
     shares = { written = 0.05 },
     check = function(text: string): boolean, string
-      local events = Xml.events(text)
+      local events, _ = Xml.events(text)
       if events == nil then return true, "" end
       local written, why = Xml.write(events)
-      if written == nil then return false, "read but not written: " .. why end
+      if written == nil then return false, "read but not written: " .. tostring(why) end
       local again, trouble = Xml.events(written)
-      if again == nil then return false, "written but not read: " .. trouble .. "\n" .. written end
+      if again == nil then
+        return false, "written but not read: " .. tostring(trouble) .. "\n" .. written
+      end
       local before = read(text, #text)
       local after = read(written, #written)
       if before ~= after then return false, "read back otherwise:\n" .. written end
-      local named = Xml.events(text, { namespaces = true })
+      local named, _ = Xml.events(text, { namespaces = true })
       -- Well-formed but not namespace-well-formed (`<a:>`): nothing to write.
       if named == nil then return true, "" end
       local named_written, nwhy = Xml.write(named)
       if named_written == nil then
-        return false, "read with namespaces but not written: " .. nwhy
+        return false, "read with namespaces but not written: " .. tostring(nwhy)
       end
       if read(named_written, #named_written) ~= before then
         return false, "read back otherwise with namespaces:\n" .. named_written

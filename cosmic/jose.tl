@@ -27,6 +27,7 @@
 
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Hash = require("cosmic.hash")
 local Json = require("cosmic.json")
 local Sign = require("cosmic.sign")
@@ -194,18 +195,8 @@ local function known(name: string): boolean
   return name == "ES256" or name == "RS256" or name == "EdDSA"
 end
 
---- The key `jwk` holds, a JSON Web Key's members: an EC key on P-256, an
---- RSA key of 2048 to 4096 bits or an OKP key on Ed25519. Nil and why for
---- any other, for a key whose `alg` is not the one its type signs with,
---- for a private key (one with `d`), which has no place where a public
---- key is asked for, and for an `alg`, `kid` or `use` that is no string.
----
---- A key is believed as its publisher's: an RSA exponent and an Ed25519
---- point are checked for form, not strength, so a key set is fetched
---- only from a provider the app trusts, over https.
----
----     local key = assert(Jose.key(Json.decode_object(text)))
-function Jose.key(jwk: {string: Json.Value}): Jose.Key?, string
+-- Jose.key, its failure in words.
+local function key_text(jwk: {string: Json.Value}): Jose.Key?, string
   local kty = text(jwk, "kty")
   if kty == nil then return nil, "jose: the key has no kty" end
   if jwk["d"] ~= nil then return nil, "jose: the key is a private key" end
@@ -268,14 +259,25 @@ function Jose.key(jwk: {string: Json.Value}): Jose.Key?, string
   }, ""
 end
 
---- The signing keys of the JWK Set `set` (an object with `keys`, as a
---- provider's `jwks_uri` serves it). A key this module does not take, or
---- one whose `use` is not "sig", is left out, since a provider may
---- publish keys of other kinds beside its signing keys. Nil and why when
---- `set` holds no `keys` array.
+--- The key `jwk` holds, a JSON Web Key's members: an EC key on P-256, an
+--- RSA key of 2048 to 4096 bits or an OKP key on Ed25519. Nil and why for
+--- any other, for a key whose `alg` is not the one its type signs with,
+--- for a private key (one with `d`), which has no place where a public
+--- key is asked for, and for an `alg`, `kid` or `use` that is no string.
 ---
----     local keys = assert(Jose.keys(assert(Json.decode_object(body))))
-function Jose.keys(set: {string: Json.Value}): {Jose.Key}?, string
+--- A key is believed as its publisher's: an RSA exponent and an Ed25519
+--- point are checked for form, not strength, so a key set is fetched
+--- only from a provider the app trusts, over https.
+---
+---     local key = assert(Jose.key(Json.decode_object(text)))
+function Jose.key(jwk: {string: Json.Value}): (Jose.Key) | (nil, Failure)
+  local value, why = key_text(jwk)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Jose.keys, its failure in words.
+local function keys_text(set: {string: Json.Value}): {Jose.Key}?, string
   local listed = set["keys"]
   if listed == nil then return nil, "jose: the key set has no keys" end
   local items, why = Json.to_array(listed)
@@ -291,10 +293,21 @@ function Jose.keys(set: {string: Json.Value}): {Jose.Key}?, string
   return out, ""
 end
 
---- The compact JWS `token`, decoded and not checked: nothing in it is
---- yet to be believed. Nil and why for text that is not three base64url
---- parts apart by dots, whose header is no JSON object or names no `alg`.
-function Jose.decode(token: string): Jose.Jws?, string
+--- The signing keys of the JWK Set `set` (an object with `keys`, as a
+--- provider's `jwks_uri` serves it). A key this module does not take, or
+--- one whose `use` is not "sig", is left out, since a provider may
+--- publish keys of other kinds beside its signing keys. Nil and why when
+--- `set` holds no `keys` array.
+---
+---     local keys = assert(Jose.keys(assert(Json.decode_object(body))))
+function Jose.keys(set: {string: Json.Value}): ({Jose.Key}) | (nil, Failure)
+  local value, why = keys_text(set)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Jose.decode, its failure in words.
+local function decode_text(token: string): Jose.Jws?, string
   if #token > MAX_TOKEN then return nil, "jose: the token is too long" end
   local head, body, tail = token:match("^([%w_%-]*)%.([%w_%-]*)%.([%w_%-]*)$")
   if head == nil or body == nil or tail == nil then
@@ -323,6 +336,15 @@ function Jose.decode(token: string): Jose.Jws?, string
   }, ""
 end
 
+--- The compact JWS `token`, decoded and not checked: nothing in it is
+--- yet to be believed. Nil and why for text that is not three base64url
+--- parts apart by dots, whose header is no JSON object or names no `alg`.
+function Jose.decode(token: string): (Jose.Jws) | (nil, Failure)
+  local value, why = decode_text(token)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 --- Whether `signature` is one of `message` under `key`.
 local function checks(key: Jose.Key, message: string, signature: string): boolean
   if key.alg == "ES256" then return Sign.p256_verify(key.public, message, signature) end
@@ -330,19 +352,9 @@ local function checks(key: Jose.Key, message: string, signature: string): boolea
   return Sign.ed25519_verify(key.public, message, signature)
 end
 
---- The token `token`, decoded, when one of `keys` signed it with an
---- algorithm of `opts.algs`. Where the header names a `kid`, only the
---- keys of that id are tried; where it names none, every key of its
---- algorithm is. Nil and why otherwise: a token that does not decode,
---- whose algorithm is not allowed (`none` and the HMAC ones never are),
---- whose header has `crit` members, or that no key checks. An ES256
---- token has two spellings that verify, its signature's S and n - S
---- ([`Sign.p256_verify`]), so a list of tokens used or revoked is kept
---- by a claim (`jti`, or `sub` and `iat`), never by the token's text.
----
----     local jws = assert(Jose.verify(token, keys, { algs = { "ES256" } }))
-function Jose.verify(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions): Jose.Jws?, string
-  local jws, why = Jose.decode(token)
+-- Jose.verify, its failure in words.
+local function verify_text(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions): Jose.Jws?, string
+  local jws, why = decode_text(token)
   if jws == nil then return nil, why end
   local allowed = (opts or {}).algs or ALL
   local alg = jws.alg
@@ -373,6 +385,23 @@ function Jose.verify(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions)
   return nil, "jose: the signature does not check"
 end
 
+--- The token `token`, decoded, when one of `keys` signed it with an
+--- algorithm of `opts.algs`. Where the header names a `kid`, only the
+--- keys of that id are tried; where it names none, every key of its
+--- algorithm is. Nil and why otherwise: a token that does not decode,
+--- whose algorithm is not allowed (`none` and the HMAC ones never are),
+--- whose header has `crit` members, or that no key checks. An ES256
+--- token has two spellings that verify, its signature's S and n - S
+--- ([`Sign.p256_verify`]), so a list of tokens used or revoked is kept
+--- by a claim (`jti`, or `sub` and `iat`), never by the token's text.
+---
+---     local jws = assert(Jose.verify(token, keys, { algs = { "ES256" } }))
+function Jose.verify(token: string, keys: {Jose.Key}, opts?: Jose.VerifyOptions): (Jose.Jws) | (nil, Failure)
+  local value, why = verify_text(token, keys, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
 --- A NumericDate claim `name` of `claims` as whole seconds; nil where it
 --- is absent, false where it is no number.
 local function date(claims: {string: Json.Value}, name: string): (integer | boolean)?
@@ -397,18 +426,9 @@ local function same_type(got: string, want: string): boolean
   return bare(got) == bare(want)
 end
 
---- The claims of the JWT `token`, when one of `keys` signed it as
---- [`Jose.verify`] checks, `iss` is `opts.issuer`, `aud` holds
---- `opts.audience`, and the time is within its `nbf` and `exp` and not
---- before its `iat`, give or take `opts.leeway`. Nil and why otherwise,
---- including for a payload that is no JSON object, a `sub` that is
---- absent or no string, and a date claim that is no number.
----
----     local claims = assert(Jose.verify_jwt(token, keys, {
----       issuer = "https://accounts.example.com", audience = "my-client-id",
----     }))
-function Jose.verify_jwt(token: string, keys: {Jose.Key}, opts: Jose.JwtOptions): Jose.Claims?, string
-  local jws, why = Jose.verify(token, keys, { algs = opts.algs })
+-- Jose.verify_jwt, its failure in words.
+local function verify_jwt_text(token: string, keys: {Jose.Key}, opts: Jose.JwtOptions): Jose.Claims?, string
+  local jws, why = verify_text(token, keys, { algs = opts.algs })
   if jws == nil then return nil, why end
   local want_typ = opts.typ
   if want_typ ~= nil then
@@ -465,6 +485,22 @@ function Jose.verify_jwt(token: string, keys: {Jose.Key}, opts: Jose.JwtOptions)
     nbf = if nbf is integer then nbf else nil end,
     claims = claims,
   }, ""
+end
+
+--- The claims of the JWT `token`, when one of `keys` signed it as
+--- [`Jose.verify`] checks, `iss` is `opts.issuer`, `aud` holds
+--- `opts.audience`, and the time is within its `nbf` and `exp` and not
+--- before its `iat`, give or take `opts.leeway`. Nil and why otherwise,
+--- including for a payload that is no JSON object, a `sub` that is
+--- absent or no string, and a date claim that is no number.
+---
+---     local claims = assert(Jose.verify_jwt(token, keys, {
+---       issuer = "https://accounts.example.com", audience = "my-client-id",
+---     }))
+function Jose.verify_jwt(token: string, keys: {Jose.Key}, opts: Jose.JwtOptions): (Jose.Claims) | (nil, Failure)
+  local value, why = verify_jwt_text(token, keys, opts)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The RFC 7638 thumbprint of `key`: the base64url SHA-256 of its

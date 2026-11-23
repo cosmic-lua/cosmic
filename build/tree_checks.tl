@@ -118,6 +118,9 @@ allowed["cosmic.web.tailnet_funnel"] = "how a public app served through Funnel t
   "internet from one of the tailnet; no app of the tree serves through Funnel"
 allowed["cosmic.failure.path"] = "public API: the path a failure concerns, which a caller reads; the standard " ..
   "library's own calls move to it one module at a time"
+allowed["cosmic.failure.line"] = "public API: the line of a decoder's refusal (Failure.at), which a caller reads " ..
+  "to point at the place, as an editor jumps to it; the stdlib only prints it"
+allowed["cosmic.failure.column"] = "public API: the column of a decoder's refusal (Failure.at), read with `line`"
 allowed["cosmic.defer.run"] = "the function a Defer runs, which its `__close` calls: a field of the class, set by " ..
   "Defer.new, that no caller needs to read"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..

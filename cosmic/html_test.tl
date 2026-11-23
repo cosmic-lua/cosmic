@@ -368,7 +368,7 @@ local function test_url_part_writes_a_whole_dot_segment_with_its_percent_escaped
   for _, text in ipairs({ "...", ".a", "a.", "a..", "..a", " .", "%2e", "%2e%2e", "./", "" }) do
     assert(part_of(text) == Url.escape(text), text)
   end
-  assert(Url.unescape(part_of("..")) == "%2E%2E")
+  assert(assert(Url.unescape(part_of(".."))) == "%2E%2E")
 end
 
 local function test_url_part_refuses_a_value_that_is_not_text()
