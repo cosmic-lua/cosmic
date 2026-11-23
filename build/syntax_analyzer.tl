@@ -20,6 +20,7 @@ local Lexical = require("build.syntax_scopes")
 local Markers = require("build.markers")
 local Node = require("build.syntax_node")
 local PolicyRules = require("build.policy_rules")
+local TestPolicy = require("cosmic.internal.test_policy")
 local Scopes = require("lang.scopes")
 local String = require("cosmic.string")
 local TodoScan = require("build.todo_scan")
@@ -1325,8 +1326,8 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
   local requires: {string}?
   local set_env: {string: string}?
   local set_env_digests: {string: string}?
-  local grants: {{string: string}}?
-  local limits: {string: integer}?
+  local grants: {PolicyRules.Grant}?
+  local limits: PolicyRules.Limits?
   local tmp: boolean?
   local cpu_features: boolean?
   local store_text: boolean?
@@ -1339,11 +1340,11 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
     local field = entry_name(item)
     local takes: string? = nil
     if field ~= nil then
-      takes = PolicyRules.kind_of(field)
+      takes = TestPolicy.kind_of(field)
     end
     if field == nil or takes == nil then
       return nil, (if field ~= nil then ("has no field " .. field) else "has an entry with no name" end) ..
-        "; it has " .. PolicyRules.field_list()
+        "; it has " .. TestPolicy.field_list()
     end
     if seen[field] == true then
       return nil, field .. " is declared twice"
@@ -1383,7 +1384,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
       if (given.kind == "Integer") then
         timeout = given.value
       else
-        why = field .. " takes a whole number of seconds from 1 to 3600"
+        why = TestPolicy.timeout_refused()
       end
     elseif takes == "string" then
       database, why = plain_string(chunk, given, field)
@@ -1406,7 +1407,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
         group = number
       end
     elseif takes == "limits" then
-      local found_limits: mut {string: integer} = {}
+      local found_limits: PolicyRules.Limits = {}
       limits = found_limits
       if not ((given.kind == "Table")) then
         why = "limits takes a table, written out"
@@ -1421,13 +1422,19 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
           if name == nil or number == nil or
               not (name == "open_files" or name == "file_bytes" or name == "cpu_seconds" or name == "processes") then
             why = "limits takes open_files, file_bytes, cpu_seconds and processes, each an integer"
+          elseif name == "open_files" then
+            found_limits.open_files = number
+          elseif name == "file_bytes" then
+            found_limits.file_bytes = number
+          elseif name == "cpu_seconds" then
+            found_limits.cpu_seconds = number
           else
-            found_limits[name] = number
+            found_limits.processes = number
           end
         end
       end
     else
-      local found_grants: mut {{string: string}} = {}
+      local found_grants: mut {PolicyRules.Grant} = {}
       grants = found_grants
       if not ((given.kind == "Table")) then
         why = "grants takes a list of grants"
@@ -1449,7 +1456,7 @@ local function policy_data(chunk: Ast.Chunk, node: Ast.Table): PolicyRules.Polic
               why = at .. " has no field " .. name .. "; it has from, letters, path"
             end
           end
-          found_grants[#found_grants + 1] = grant
+          found_grants[#found_grants + 1] = { path = grant["path"], letters = grant["letters"], from = grant["from"] }
         end
       end
     end
