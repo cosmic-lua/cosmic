@@ -98,7 +98,7 @@ local record Types
   --- by it. No value is in the enums of two forms (`untagged_union` otherwise), and a tag is never `mut`. A form repeats
   --- these fields, since a record lists the fields of an interface alike.
   interface Base
-    --- Whether it is an atom, for the code that treats the thirteen atoms alike without listing their tags.
+    --- Whether it is an atom, for the code that treats the fourteen atoms alike without listing their tags.
     atom: boolean
     --- Its position among the types of its store, from 1, in the order they were made.
     --- Store-local: nothing outside the store keeps one.
@@ -134,13 +134,15 @@ local record Types
     "Ordered"
     "Numeric"
     "Key"
+    "Some"
   end
 
   --- `integer`, `number`, `string`, `boolean`, `true`, `false`, `nil`, `never`, `any`,
-  --- `invalid` (what a type that failed to lower becomes), or one of the three built-in bounds of a type parameter:
+  --- `invalid` (what a type that failed to lower becomes), or one of the four built-in bounds of a type parameter:
   --- `Ordered`, which the types `<` takes two values of are below (a number type, a string type), `Numeric`, which
-  --- the types arithmetic answers its own type for are below (`integer`, `number`), and `Key`, which the types a map
-  --- is keyed by are below ([`Types.keys_a_map`]). The tag is the name. A bound is the type of no value.
+  --- the types arithmetic answers its own type for are below (`integer`, `number`), `Key`, which the types a map
+  --- is keyed by are below ([`Types.keys_a_map`]), and `Some`, which the types that are never nil are below
+  --- ([`Types.present`]). The tag is the name. A bound is the type of no value.
   record Atom is Base
     tag: Atom_tag
     atom: boolean
@@ -521,6 +523,10 @@ local record Types
   --- `nil` at a position ([`lang.declarations`], [`lang.check`]).
   present: function(t: Type): boolean
 
+  --- [`present`], where a type variable for which `bounded` answers true is never nil too: a type parameter with a
+  --- bound takes only types that are never nil, since no bound holds `nil`.
+  present_where: function(t: Type, bounded: function(v: Var): boolean): boolean
+
   --- Whether a value of `t` may be `false`: a member, with each alias unfolded, is `boolean`, `false`, `any`, a type
   --- variable or `invalid`, or an alias whose body is not known yet.
   may_be_false: function(t: Type): boolean
@@ -534,7 +540,7 @@ local record Types
   --- a letter, and `P` and the index from the 27th.
   letter: function(index: integer): string
 
-  --- Whether `t` is `Ordered`, `Numeric` or `Key`, the bounds the language declares.
+  --- Whether `t` is `Ordered`, `Numeric`, `Key` or `Some`, the bounds the language declares.
   builtin_bound: function(t: Type): boolean
 
   --- Whether a map may be keyed by `t`: `integer`, `string`, `boolean`, an enum, or a record, class, interface or
@@ -609,7 +615,7 @@ local type FnSpec = Types.FnSpec
 local type Loader = Types.Loader
 
 local ATOMS <const>: {Atom_tag} = {
-  "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any", "invalid", "Ordered", "Numeric", "Key",
+  "integer", "number", "string", "boolean", "true", "false", "nil", "never", "any", "invalid", "Ordered", "Numeric", "Key", "Some",
 }
 
 local DECL_KINDS <const>: {string: Types.DeclKind} = {
@@ -911,7 +917,7 @@ function Types.kept_names(held: {string}?, names: {string}): {string}
 end
 
 function Types.builtin_bound(t: Type): boolean
-  return t.tag == "Ordered" or t.tag == "Numeric" or t.tag == "Key"
+  return t.tag == "Ordered" or t.tag == "Numeric" or t.tag == "Key" or t.tag == "Some"
 end
 
 function Types.keys_a_map(t: Type): boolean
@@ -1014,6 +1020,8 @@ function Types.bound_meets(tag: string): string
     return "`integer` or `number`"
   elseif tag == "Key" then
     return "`integer`, `string`, `boolean`, an enum, or a record, class, interface or userdata"
+  elseif tag == "Some" then
+    return "a type that is never nil"
   end
   return "a number type, a string type, or a class that declares `__lt` and `__le`"
 end
@@ -1515,7 +1523,7 @@ local function bound_ok(store: Store, bound: Type)
     return
   end
   if not ((bound.tag == "named")) or bound.decl.kind ~= "interface" or #bound.args > 0 then
-    error("types: a type parameter is bounded by an interface and no arguments, or by `Ordered`, `Numeric` or `Key`, not " ..
+    error("types: a type parameter is bounded by an interface and no arguments, or by `Ordered`, `Numeric`, `Key` or `Some`, not " ..
         Types.display(bound), 3)
   end
 end
@@ -1723,6 +1731,32 @@ function Types.present(t: Type): boolean
   return no_member(t, function(tag: string): boolean
     return tag == "nil" or tag == "any" or tag == "var" or tag == "never" or tag == "invalid"
   end, 0)
+end
+
+local function present_within(t: Type, bounded: function(v: Var): boolean, depth: integer): boolean
+  local whole = Types.unfold(t)
+  if (whole.tag == "named") and whole.decl.kind == "alias" then
+    return false
+  elseif depth > MEMBER_DEPTH then
+    return false
+  elseif (whole.tag == "union") then
+    if whole.nilable then
+      return false
+    end
+    for _, m in ipairs(whole.members) do
+      if not present_within(m, bounded, depth + 1) then
+        return false
+      end
+    end
+    return true
+  elseif (whole.tag == "var") then
+    return bounded(whole)
+  end
+  return Types.present(whole)
+end
+
+function Types.present_where(t: Type, bounded: function(v: Var): boolean): boolean
+  return present_within(t, bounded, 0)
 end
 
 function Types.may_be_false(t: Type): boolean
