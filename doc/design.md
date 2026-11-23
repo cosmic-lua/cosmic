@@ -44,17 +44,28 @@ these argues with the principle, not with the reviewer.
    one path outside code may import, and every sibling beside it is
    reachable only from within that directory. no list to maintain,
    none to go stale.
-3. **honest returns.** `T | nil, string` for a value, `boolean,
-   string` for an effect, two slots and nothing in a third, a
-   structured error record when the failure has shape. the one
-   exception is the raw binding table [`cosmic.sys`], whose C calls
-   add the errno in a third slot, and a stand-in a module stores
-   into that table in a binding's place, which answers as the
-   binding does; every other Teal function over it folds its answer
-   back to two. a function a module exports answers one value, a
-   failure pair, or a record: never a bare tuple, whose later slots a
-   caller drops as quietly as a reason. a throw or exit carries a
-   trailing reason and is exceptional by construction.
+3. **honest returns.** `(T) | (nil, Failure)` for a value, `(true) |
+   (false, Failure)` for an effect, two slots and nothing in a third.
+   a [`cosmic.failure`] keeps the words, the path where there is one,
+   the errno where a system call failed, and a `kind` (`other`,
+   `system`, `parse`, `library`, `timeout`, `cancelled`), so a caller
+   acts on the cause and never matches the words. a call that asks
+   whether something is there answers that as a value ([`Fs.status`]'s
+   `exists`, [`Store.holds`]), not as a failure. the stdlib moves to this
+   shape a module at a time; a module not yet moved answers `T?,
+   string` and `boolean, string`, which the checks on callers hold as
+   well. intended: one operation is one function, with no twin beside
+   it that raises or that answers a classified record
+   ([`Proc.find_result`], [`Http.download_result`], `handle:exec_result`
+   go once their modules move). the one exception to the two slots is
+   the raw binding table [`cosmic.sys`], whose C calls add the errno in
+   a third slot, and a stand-in a module stores into that table in a
+   binding's place, which answers as the binding does; every other Teal
+   function over it folds its answer back to two. a function a module
+   exports answers one value, a failure pair, or a record: never a bare
+   tuple, whose later slots a caller drops as quietly as a reason. a
+   throw or exit carries a trailing reason and is exceptional by
+   construction.
 4. **no escape hatch in the type layer.** casts are foreclosed;
    `any` lives only where untrusted data enters and a shape validator
    turns it into a record.
@@ -1559,3 +1570,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.shape`]: ../cosmic/shape.tl
 [`cosmic.web.static`]: ../cosmic/web/static.tl
 [`doc/guides/project.md`]: guides/project.md
+[`Fs.status`]: ../cosmic/fs.tl
+[`Http.download_result`]: ../cosmic/http/init.tl
+[`Proc.find_result`]: ../cosmic/proc.tl
+[`Store.holds`]: ../cosmic/store.tl
