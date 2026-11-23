@@ -442,7 +442,7 @@ end
 function Vendor.feed_timestamp(body: string): string?, string
   local state, trouble = Json.decode_object(body)
   if state == nil then
-    return nil, "is no JSON object: " .. trouble
+    return nil, "is no JSON object: " .. tostring(trouble)
   end
   local timestamp = state["timestamp"]
   if timestamp is integer and timestamp >= 0 then

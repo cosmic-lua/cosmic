@@ -104,7 +104,7 @@ function SessionCookie.store(opts: SessionCookie.Options): Session.Store
                     _changes: Session.Changes, _now: integer, cookie: string): string?, string
       local text, why = Json.encode({ v = VERSION, c = data.created, e = data.expires, d = data.values },
         { max_depth = DEPTH })
-      if text == nil then return nil, "cannot encode the session: " .. why end
+      if text == nil then return nil, "cannot encode the session: " .. tostring(why) end
       local payload = Codec.base64url(text)
       local token = payload .. "." .. Codec.base64url(mac(newest, cookie, payload))
       if #token > max_bytes then

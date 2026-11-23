@@ -31,13 +31,14 @@
 ---     local workflow = assert(Json.decode_object(text, { json5 = true, hash_comments = true }))
 ---     assert(workflow.name == "ci")
 ---
----     local value, err = Json.decode('{"name": "cosmic", "tags": ["lua"]}')
----     if err ~= "" then error(err) end
+---     local value, why = Json.decode('{"name": "cosmic", "tags": ["lua"]}')
+---     if value == nil then error(tostring(why)) end
 ---
---- Every fallible function answers `value, ""` on success and
---- `nil, message` on failure, the message opening `json: `, so test the
---- message, not the value: a document that is just `null` decodes to nil
---- with an empty message.
+--- Every fallible function answers its value alone on success and
+--- `nil` and a [`Failure`] on failure, whose text opens `json: ` and
+--- names the line and column of a refusal at a place in the text. A
+--- value read is never nil: a document that is just `null` decodes to
+--- [`Json.null`].
 ---
 --- A number decodes to an integer when it is written as one and fits
 --- in 64 bits, and to a float otherwise, so `9007199254740993` survives
@@ -128,6 +129,7 @@ local raw = require("cosmic.internal.json")
 
 local type Stream = require("cosmic.stream")
 local Array = require("cosmic.array")
+local Failure = require("cosmic.failure")
 local String = require("cosmic.string")
 
 local record Json
@@ -458,23 +460,32 @@ local function decode_with(text: string, opts: Json.DecodeOptions, record?: inte
   return value_of(value), ""
 end
 
---- Parses JSON text into the value it holds, and "". nil and a message,
---- naming the line and column, when the text is not one JSON value,
---- holds an object with a key twice, or nests past `max_depth`. The
---- value is a [`Json.Value`] (nil for a `null` unless `null_value` is
---- given). To read it as a record of your own, check it with
---- [`cosmic.shape`], whose `Shape.record_of("Job"):into(value)` answers
---- a `Job`, or nil and the path of the first field that does not fit,
---- where `value.cmd as {string}` checks nothing and a wrong field fails
---- later, far from the text. To check only the outermost value, narrow
---- it with `is`, or use [`decode_object`] or [`decode_array`].
-function Json.decode(text: string, opts?: Json.DecodeOptions): Json.Value?, string
+-- Json.decode, its failure in words.
+local function decode_text(text: string, opts?: Json.DecodeOptions): Json.Value?, string
   if opts == nil then
     local value, err = raw.decode(text)
     if err ~= "" then return refuse(err) end
     return value_of(value), ""
   end
   return decode_with(text, opts)
+end
+
+--- Parses JSON text into the value it holds. nil and a [`Failure`],
+--- whose text names the line and column, when the text is not one
+--- JSON value, holds an object with a key twice, or nests past
+--- `max_depth`. The value is a [`Json.Value`]: a `null` inside it is
+--- nil unless `null_value` is given, and a text that is `null` alone is
+--- [`Json.null`], so a value read is never nil. To read it as a record of your own, check it with
+--- [`cosmic.shape`], whose `Shape.record_of("Job"):into(value)` answers
+--- a `Job`, or nil and the path of the first field that does not fit,
+--- where `value.cmd as {string}` checks nothing and a wrong field fails
+--- later, far from the text. To check only the outermost value, narrow
+--- it with `is`, or use [`decode_object`] or [`decode_array`].
+function Json.decode(text: string, opts?: Json.DecodeOptions): (Json.Value) | (nil, Failure)
+  local got, why = decode_text(text, opts)
+  if got == nil and why == "" then return Json.null end
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 --- What JSON calls a decoded value, for a wrong-shape message.
@@ -488,10 +499,9 @@ local function kind(v: any): string
   return type(v)
 end
 
---- The object `text` holds, as a map, and "". nil and a message when
---- the text is not JSON, or its outermost value is not an object.
-function Json.decode_object(text: string, opts?: Json.DecodeOptions): {string: Json.Value}?, string
-  local value, err = Json.decode(text, opts)
+-- Json.decode_object, its failure in words.
+local function decode_object_text(text: string, opts?: Json.DecodeOptions): {string: Json.Value}?, string
+  local value, err = decode_text(text, opts)
   if err ~= "" then
     return nil, err
   end
@@ -502,10 +512,17 @@ function Json.decode_object(text: string, opts?: Json.DecodeOptions): {string: J
   return refuse("expected a JSON object, got " .. kind(value))
 end
 
---- The array `text` holds, as a list, and "". nil and a message when
---- the text is not JSON, or its outermost value is not an array.
-function Json.decode_array(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
-  local value, err = Json.decode(text, opts)
+--- The object `text` holds, as a map. nil and a [`Failure`] when
+--- the text is not JSON, or its outermost value is not an object.
+function Json.decode_object(text: string, opts?: Json.DecodeOptions): ({string: Json.Value}) | (nil, Failure)
+  local got, why = decode_object_text(text, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.decode_array, its failure in words.
+local function decode_array_text(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
+  local value, err = decode_text(text, opts)
   if err ~= "" then
     return nil, err
   end
@@ -516,13 +533,16 @@ function Json.decode_array(text: string, opts?: Json.DecodeOptions): {Json.Value
   return refuse("expected a JSON array, got " .. kind(value))
 end
 
---- Serializes `value` as [`Json.encode`] does, for a value of any type: a
---- record or a class of your own, a value you decoded, a nil (which
---- encodes as `null`). The type checker cannot see inside it, so what JSON
---- cannot say is found when this runs, as the same message, and not where
---- the value is written. Call [`Json.encode`] for a value the checker can
---- see.
-function Json.encode_any(value: any, opts?: Json.EncodeOptions): string?, string
+--- The array `text` holds, as a list. nil and a [`Failure`] when
+--- the text is not JSON, or its outermost value is not an array.
+function Json.decode_array(text: string, opts?: Json.DecodeOptions): ({Json.Value}) | (nil, Failure)
+  local got, why = decode_array_text(text, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.encode_any, its failure in words.
+local function encode_any_text(value: any, opts?: Json.EncodeOptions): string?, string
   local text: string?
   local err: string
   if opts == nil then
@@ -534,7 +554,24 @@ function Json.encode_any(value: any, opts?: Json.EncodeOptions): string?, string
   return text, ""
 end
 
---- Serializes `value` as JSON text, and "". nil and a message when it
+--- Serializes `value` as [`Json.encode`] does, for a value of any type: a
+--- record or a class of your own, a value you decoded, a nil (which
+--- encodes as `null`). The type checker cannot see inside it, so what JSON
+--- cannot say is found when this runs, as the same message, and not where
+--- the value is written. Call [`Json.encode`] for a value the checker can
+--- see.
+function Json.encode_any(value: any, opts?: Json.EncodeOptions): (string) | (nil, Failure)
+  local got, why = encode_any_text(value, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.encode, its failure in words.
+local function encode_text(value: Json.Value, opts?: Json.EncodeOptions): string?, string
+  return encode_any_text(value, opts)
+end
+
+--- Serializes `value` as JSON text. nil and a [`Failure`] when it
 --- holds a function, userdata other than [`Json.null`], NaN or an infinity,
 --- a string that is not UTF-8, a table whose keys are neither all strings
 --- nor all integers from 1 up, an array with a hole, or nesting past
@@ -547,32 +584,25 @@ end
 --- a number, a boolean, [`Json.null`], an array or a map of those. A
 --- record or a class of your own, a value you decoded and a nil are not
 --- one: encode those with [`Json.encode_any`].
-function Json.encode(value: Json.Value, opts?: Json.EncodeOptions): string?, string
-  return Json.encode_any(value, opts)
+function Json.encode(value: Json.Value, opts?: Json.EncodeOptions): (string) | (nil, Failure)
+  local got, why = encode_text(value, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
---- true and "" when `decode(text, opts)` would read the text; else
---- false and the message it would fail with. It builds no value, so it
+--- true when `decode(text, opts)` would read the text; else false and
+--- the [`Failure`] it would fail with. It builds no value, so it
 --- costs a fraction of a decode. `null_value` changes nothing here.
-function Json.check(text: string, opts?: Json.DecodeOptions): boolean, string
+function Json.check(text: string, opts?: Json.DecodeOptions): (true) | (false, Failure)
   local o: Json.DecodeOptions = opts or {}
   local ok, err = raw.check(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
     o.duplicate_keys, o.big_numbers_as_strings)
-  if not ok then return false, "json: " .. err end
-  return true, ""
+  if not ok then return false, Failure.new("json: " .. err) end
+  return true
 end
 
---- The JSON value `text` holds, written again as RFC 8259 text, and "":
---- with no space, or laid out as `encode`'s `pretty` lays a value out.
---- What `decode` would refuse is refused, with its message. Nothing
---- else changes: members keep their order, strings their characters
---- (escaped only where JSON must escape them) and numbers their text,
---- `1.50` and thirty digits too -- but for JSON5's own forms, written as
---- RFC 8259 writes the same number: `+1` as `1`, `.5` as `0.5`, `5.` as
---- `5.0`, `0x1F` as `31`.
---- nil and a message, naming where, for NaN or an infinity, which JSON
---- has no text for.
-function Json.format(text: string, opts?: Json.FormatOptions): string?, string
+-- Json.format, its failure in words.
+local function format_text(text: string, opts?: Json.FormatOptions): string?, string
   local o: Json.FormatOptions = opts or {}
   local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
     o.duplicate_keys, o.pretty, false)
@@ -580,20 +610,24 @@ function Json.format(text: string, opts?: Json.FormatOptions): string?, string
   return out, ""
 end
 
---- The JSON value `text` holds in the canonical form of RFC 8785 (the
---- JSON Canonicalization Scheme), and "": no space, members sorted by
---- their keys' UTF-16 code units, strings escaped only where JSON must,
---- and every number the double it reads as, written as ECMAScript
---- writes one -- so `1.0`, `1` and `1e0` are all `1`. Two texts of one
---- value give the same bytes, for a digest or a signature. An integer
---- past 2^53 becomes the double nearest it, as the scheme says: keep an
---- identifier that large in a string. nil and a message when `decode`
---- would refuse the text, it holds a key twice, or a number is NaN or
---- an infinity, or past a double's range.
----
----     local text = '{"b": [1.0, 2e2], "a": "\\u00e9"}'
----     assert(Json.canonical(text) == '{"a":"\u{e9}","b":[1,200]}')
-function Json.canonical(text: string, opts?: Json.CanonicalOptions): string?, string
+--- The JSON value `text` holds, written again as RFC 8259 text:
+--- with no space, or laid out as `encode`'s `pretty` lays a value out.
+--- What `decode` would refuse is refused, with its message. Nothing
+--- else changes: members keep their order, strings their characters
+--- (escaped only where JSON must escape them) and numbers their text,
+--- `1.50` and thirty digits too -- but for JSON5's own forms, written as
+--- RFC 8259 writes the same number: `+1` as `1`, `.5` as `0.5`, `5.` as
+--- `5.0`, `0x1F` as `31`.
+--- nil and a [`Failure`], naming where, for NaN or an infinity, which JSON
+--- has no text for.
+function Json.format(text: string, opts?: Json.FormatOptions): (string) | (nil, Failure)
+  local got, why = format_text(text, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.canonical, its failure in words.
+local function canonical_text(text: string, opts?: Json.CanonicalOptions): string?, string
   local o: Json.CanonicalOptions = opts or {}
   local out, err = raw.format(text, o.max_depth, o.json5, o.lone_surrogates, o.hash_comments,
     false, false, true)
@@ -601,12 +635,27 @@ function Json.canonical(text: string, opts?: Json.CanonicalOptions): string?, st
   return out, ""
 end
 
---- The values of JSON Lines text (NDJSON): one JSON value to a line,
---- in a marked array, and "". A blank line is skipped, and a line may
---- end in `\r\n`. nil and a message naming the line when one is not
---- JSON. `opts` applies to every line; a `null` line leaves a hole
---- unless `null_value` is given.
-function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
+--- The JSON value `text` holds in the canonical form of RFC 8785 (the
+--- JSON Canonicalization Scheme): no space, members sorted by
+--- their keys' UTF-16 code units, strings escaped only where JSON must,
+--- and every number the double it reads as, written as ECMAScript
+--- writes one -- so `1.0`, `1` and `1e0` are all `1`. Two texts of one
+--- value give the same bytes, for a digest or a signature. An integer
+--- past 2^53 becomes the double nearest it, as the scheme says: keep an
+--- identifier that large in a string. nil and a [`Failure`] when `decode`
+--- would refuse the text, it holds a key twice, or a number is NaN or
+--- an infinity, or past a double's range.
+---
+---     local text = '{"b": [1.0, 2e2], "a": "\\u00e9"}'
+---     assert(Json.canonical(text) == '{"a":"\u{e9}","b":[1,200]}')
+function Json.canonical(text: string, opts?: Json.CanonicalOptions): (string) | (nil, Failure)
+  local got, why = canonical_text(text, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.decode_lines, its failure in words.
+local function decode_lines_text(text: string, opts?: Json.DecodeOptions): {Json.Value}?, string
   local values: mut {integer: Json.Value} = {}
   local number = 0
   local count = 0
@@ -626,6 +675,17 @@ function Json.decode_lines(text: string, opts?: Json.DecodeOptions): {Json.Value
     end
   end
   return raw.array(values), ""
+end
+
+--- The values of JSON Lines text (NDJSON): one JSON value to a line,
+--- in a marked array. A blank line is skipped, and a line may
+--- end in `\r\n`. nil and a [`Failure`] naming the line when one is not
+--- JSON. `opts` applies to every line; a `null` line leaves a hole
+--- unless `null_value` is given.
+function Json.decode_lines(text: string, opts?: Json.DecodeOptions): ({Json.Value}) | (nil, Failure)
+  local got, why = decode_lines_text(text, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 -- TODO: give [`Json.array`] a type parameter (`{T}` in, `{T}` out), so that an array of records or of decoded values is marked
@@ -982,7 +1042,12 @@ function Check.value(v: any, pointer: string, depth: integer, active: mut {strin
   return result, ""
 end
 
---- `value`, a decoded value or any other, as a [`Json.Value`], and "": the
+-- Json.to_value, its failure in words.
+local function to_value_text(value: any): Json.Value?, string
+  return Check.value(value, "", 1, {}, {}, {})
+end
+
+--- `value`, a decoded value or any other, as a [`Json.Value`]: the
 --- way to read what [`Json.decode`] answered as typed data without a cast.
 --- Every part is checked as it is copied -- a string is UTF-8, a number is
 --- finite, a table is an array or an object by [`Json.layout`] -- so what comes
@@ -1005,15 +1070,15 @@ end
 ---
 ---     local decoded = assert(Json.decode('{"tools": ["a", "b"]}'))
 ---     local value = assert(Json.to_value(decoded))
-function Json.to_value(value: any): Json.Value?, string
-  return Check.value(value, "", 1, {}, {}, {})
+function Json.to_value(value: any): (Json.Value) | (nil, Failure)
+  local got, why = to_value_text(value)
+  if got == nil and why == "" then return Json.null end
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
---- `value` as an object, a map of [`Json.Value`], and "": [`Json.to_value`]
---- for what must be an object. nil and a message when it is not one -- an
---- array, a scalar, a nil -- or when a part of it is none, as [`to_value`]
---- says.
-function Json.to_object(value: any): {string: Json.Value}?, string
+-- Json.to_object, its failure in words.
+local function to_object_text(value: any): {string: Json.Value}?, string
   local t = table_of(value)
   if t == nil then return refuse("expected a JSON object, got " .. kind(value)) end
   local m = Json.members(t, true)
@@ -1023,12 +1088,18 @@ function Json.to_object(value: any): {string: Json.Value}?, string
   return Check.members(value, m, "", 1, { [("%p"):format(t)] = true }, {}, {})
 end
 
---- `value` as an array, a list of [`Json.Value`], and "": [`Json.to_value`]
---- for what must be an array. nil and a message when it is not one -- an
---- object, a scalar, a nil -- or when a part of it is none, as [`to_value`]
---- says. A table with no keys is an array only where [`Json.is_array`]
---- marks it, as `decode` does for `[]`.
-function Json.to_array(value: any): {Json.Value}?, string
+--- `value` as an object, a map of [`Json.Value`]: [`Json.to_value`]
+--- for what must be an object. nil and a [`Failure`] when it is not one -- an
+--- array, a scalar, a nil -- or when a part of it is none, as [`to_value`]
+--- says.
+function Json.to_object(value: any): ({string: Json.Value}) | (nil, Failure)
+  local got, why = to_object_text(value)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.to_array, its failure in words.
+local function to_array_text(value: any): {Json.Value}?, string
   local t = table_of(value)
   if t == nil then return refuse("expected a JSON array, got " .. kind(value)) end
   local m = Json.members(t, true)
@@ -1036,6 +1107,17 @@ function Json.to_array(value: any): {Json.Value}?, string
   if why ~= "" then return refuse(why) end
   if m.layout ~= "array" then return refuse("expected a JSON array, got " .. kind(value)) end
   return Check.items(value, m, "", 1, { [("%p"):format(t)] = true }, {}, {})
+end
+
+--- `value` as an array, a list of [`Json.Value`]: [`Json.to_value`]
+--- for what must be an array. nil and a [`Failure`] when it is not one -- an
+--- object, a scalar, a nil -- or when a part of it is none, as [`to_value`]
+--- says. A table with no keys is an array only where [`Json.is_array`]
+--- marks it, as `decode` does for `[]`.
+function Json.to_array(value: any): ({Json.Value}) | (nil, Failure)
+  local got, why = to_array_text(value)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 --- The highest position of the array `t`, holes and all.
@@ -1055,13 +1137,8 @@ local function container(t: {any: any}): string -- declared: key_type
   return layout
 end
 
---- `steps` as a JSON Pointer (RFC 6901), and "": `/users/2/name`, each
---- position counted from 0. nil and a message for a step a pointer
---- cannot say, one counted from the end, or for one that is no step: 0,
---- or a name that is not UTF-8.
----
----     assert(Json.pointer({ "users", 3, "a/b" }) == "/users/2/a~1b")
-function Json.pointer(steps: Json.Steps): string?, string
+-- Json.pointer, its failure in words.
+local function pointer_text(steps: Json.Steps): string?, string
   local parts: mut {string} = {}
   for i, step in ipairs(steps) do
     local bad = bad_step(i, step)
@@ -1075,6 +1152,18 @@ function Json.pointer(steps: Json.Steps): string?, string
     end
   end
   return table.concat(parts), ""
+end
+
+--- `steps` as a JSON Pointer (RFC 6901): `/users/2/name`, each
+--- position counted from 0. nil and a [`Failure`] for a step a pointer
+--- cannot say, one counted from the end, or for one that is no step: 0,
+--- or a name that is not UTF-8.
+---
+---     assert(Json.pointer({ "users", 3, "a/b" }) == "/users/2/a~1b")
+function Json.pointer(steps: Json.Steps): (string) | (nil, Failure)
+  local got, why = pointer_text(steps)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 --- Which kind of JSON value `v` is, for [`Json.diff`]: "array" for one
@@ -1221,19 +1310,8 @@ function Json.diff(want: Json.Value, got: Json.Value): {Json.Difference}
   return out
 end
 
---- The steps the JSON Pointer `text` (RFC 6901) takes through `value`,
---- and "". A pointer does not say whether `/2` is a member named "2" or
---- an array's third element, so it is read against the value: a
---- segment into an array is an index, `0` or a number with no leading
---- zero, and one into an object is a member's name. nil and a message
---- when the text is no pointer -- not empty and not starting with `/`,
---- or holding a `~` that is not `~0` or `~1` -- or names no value in
---- `value`, `-` (past the last element) included.
----
----     local doc = assert(Json.decode('{"users": [{"name": "ada"}]}'))
----     local steps = assert(Json.from_pointer(doc, "/users/0/name"))
----     assert(steps[1] == "users" and steps[2] == 1 and Json.get(doc, steps) == "ada")
-function Json.from_pointer(value: any, text: string): Json.Steps?, string
+-- Json.from_pointer, its failure in words.
+local function from_pointer_text(value: any, text: string): Json.Steps?, string
   local steps: mut {string | integer} = {}
   if text == "" then return steps, "" end
   if text:sub(1, 1) ~= "/" then
@@ -1280,14 +1358,26 @@ function Json.from_pointer(value: any, text: string): Json.Steps?, string
   end
 end
 
---- The value `steps` reach in `value`, and "". A negative position
---- counts from the end. nil and a message naming, by its JSON Pointer,
---- the first step that reaches nothing: a member or element not there,
---- or a step into a value that is not an array or object, or a name
---- into an array, or a position into an object. A member read as nil
---- (a JSON `null` decoded without `null_value`) is not there. The value is
---- a [`Json.Value`]: a value `steps` reach that is none (a function, or a table with mixed keys) is refused.
-function Json.get(value: any, steps: Json.Steps): Json.Value?, string
+--- The steps the JSON Pointer `text` (RFC 6901) takes through `value`.
+--- A pointer does not say whether `/2` is a member named "2" or
+--- an array's third element, so it is read against the value: a
+--- segment into an array is an index, `0` or a number with no leading
+--- zero, and one into an object is a member's name. nil and a [`Failure`]
+--- when the text is no pointer -- not empty and not starting with `/`,
+--- or holding a `~` that is not `~0` or `~1` -- or names no value in
+--- `value`, `-` (past the last element) included.
+---
+---     local doc = assert(Json.decode('{"users": [{"name": "ada"}]}'))
+---     local steps = assert(Json.from_pointer(doc, "/users/0/name"))
+---     assert(steps[1] == "users" and steps[2] == 1 and Json.get(doc, steps) == "ada")
+function Json.from_pointer(value: any, text: string): (Json.Steps) | (nil, Failure)
+  local got, why = from_pointer_text(value, text)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.get, its failure in words.
+local function get_text(value: any, steps: Json.Steps): Json.Value?, string
   local at = value
   local reached = ""
   for i, step in ipairs(steps) do
@@ -1325,6 +1415,20 @@ function Json.get(value: any, steps: Json.Steps): Json.Value?, string
     return refuse(("the value at %s is none JSON can hold"):format(at_pointer(reached)))
   end
   return found, ""
+end
+
+--- The value `steps` reach in `value`. A negative position
+--- counts from the end. nil and a [`Failure`] naming, by its JSON Pointer,
+--- the first step that reaches nothing: a member or element not there,
+--- or a step into a value that is not an array or object, or a name
+--- into an array, or a position into an object. A member read as nil
+--- (a JSON `null` decoded without `null_value`) is not there. The value is
+--- a [`Json.Value`]: a value `steps` reach that is none (a function, or a table with mixed keys) is refused.
+function Json.get(value: any, steps: Json.Steps): (Json.Value) | (nil, Failure)
+  local got, why = get_text(value, steps)
+  if got == nil and why == "" then return Json.null end
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 --- A new object with the members of the object `t`, and `v` as its member
@@ -1434,7 +1538,14 @@ local function too_long(): string
   return ("the path is longer than a value may nest (depth %d)"):format(Json.depth_limit)
 end
 
---- A new value like `value` with `v` where `steps` lead, and "": the way to
+-- Json.set, its failure in words.
+local function set_text(value: any, steps: Json.Steps, v: Json.Value): Json.Value?, string
+  if #steps == 0 then return v, "" end
+  if #steps > Json.depth_limit then return refuse(too_long()) end
+  return changed(value, steps, 1, "", v)
+end
+
+--- A new value like `value` with `v` where `steps` lead: the way to
 --- change a decoded value, which is never changed in place. `value` is left
 --- as it is. Each array and object on the way is copied, that level alone,
 --- and every part off the way is the same table in both, not a copy, so a
@@ -1460,16 +1571,25 @@ end
 ---     local both = assert(Json.set(port, { "tags", 2 }, "b"))
 ---     assert(assert(Json.encode(both)) == '{"server":{"port":8080},"tags":["a","b"]}')
 ---     assert(assert(Json.get(config, { "server", "port" })) == 80)
-function Json.set(value: any, steps: Json.Steps, v: Json.Value): Json.Value?, string
-  if #steps == 0 then return v, "" end
-  if #steps > Json.depth_limit then return refuse(too_long()) end
-  return changed(value, steps, 1, "", v)
+function Json.set(value: any, steps: Json.Steps, v: Json.Value): (Json.Value) | (nil, Failure)
+  local got, why = set_text(value, steps, v)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
---- A new value like `value` without what `steps` lead to, and "": an
+-- Json.remove, its failure in words.
+local function remove_text(value: any, steps: Json.Steps): Json.Value?, string
+  if #steps == 0 then
+    return refuse("remove takes a step or more: the whole value is in nothing it could be removed from")
+  end
+  if #steps > Json.depth_limit then return refuse(too_long()) end
+  return changed(value, steps, 1, "", nil)
+end
+
+--- A new value like `value` without what `steps` lead to: an
 --- object without that member, or an array without that element, each one
 --- after it a position lower. `value` is left as it is, and what is copied
---- and what is shared is as [`Json.set`] says. nil and a message naming the
+--- and what is shared is as [`Json.set`] says. nil and a [`Failure`] naming the
 --- place by its JSON Pointer when nothing is there, as [`Json.get`] refuses
 --- it, and when `steps` is empty: the whole value is in nothing it could be
 --- removed from.
@@ -1478,12 +1598,10 @@ end
 ---     local quiet = assert(Json.remove(config, { "debug" }))
 ---     local fewer = assert(Json.remove(quiet, { "tags", 2 }))
 ---     assert(assert(Json.encode(fewer)) == '{"tags":["a","c"]}')
-function Json.remove(value: any, steps: Json.Steps): Json.Value?, string
-  if #steps == 0 then
-    return refuse("remove takes a step or more: the whole value is in nothing it could be removed from")
-  end
-  if #steps > Json.depth_limit then return refuse(too_long()) end
-  return changed(value, steps, 1, "", nil)
+function Json.remove(value: any, steps: Json.Steps): (Json.Value) | (nil, Failure)
+  local got, why = remove_text(value, steps)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 --- The control characters a normalized path writes by a short escape.
@@ -1505,15 +1623,8 @@ local function normal_name(name: string): string
   end) .. "'"
 end
 
---- `steps` as a JSONPath query (RFC 9535), and "": the normalized path
---- `$['users'][2]['name']`, each position counted from 0, a member's
---- name always in single quotes. A step counted from the end is written
---- `[-1]`, which a query reads as the same element but no normalized
---- path holds. nil and a message for a step that is no step: 0,
---- or a name that is not UTF-8.
----
----     assert(Json.path({ "users", 3, "it's" }) == "$['users'][2]['it\\'s']")
-function Json.path(steps: Json.Steps): string?, string
+-- Json.path, its failure in words.
+local function path_text(steps: Json.Steps): string?, string
   local parts: mut {string} = { "$" }
   for i, step in ipairs(steps) do
     local bad = bad_step(i, step)
@@ -1527,6 +1638,20 @@ function Json.path(steps: Json.Steps): string?, string
     end
   end
   return table.concat(parts), ""
+end
+
+--- `steps` as a JSONPath query (RFC 9535): the normalized path
+--- `$['users'][2]['name']`, each position counted from 0, a member's
+--- name always in single quotes. A step counted from the end is written
+--- `[-1]`, which a query reads as the same element but no normalized
+--- path holds. nil and a [`Failure`] for a step that is no step: 0,
+--- or a name that is not UTF-8.
+---
+---     assert(Json.path({ "users", 3, "it's" }) == "$['users'][2]['it\\'s']")
+function Json.path(steps: Json.Steps): (string) | (nil, Failure)
+  local got, why = path_text(steps)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 --- Why a JSONPath query cannot be read, at byte `at` of it.
@@ -1683,19 +1808,8 @@ local function shorthand(text: string, at: integer): string, integer
   return text:sub(at, i - 1), i
 end
 
---- Reads the JSONPath query `text` (RFC 9535) in the subset cosmic
---- reads: the root `$`, then segments, each a member's name (`.name`,
---- `['name']` or `["name"]`), an element's index (`[2]`, or `[-1]` from
---- the end), or `*` (`.*` or `[*]`) for every member or element, and
---- any of them after `..` for the same at every depth below. Each is
---- read exactly as the RFC's grammar reads it, blank space and string
---- escapes included. Filters (`?`), slices (`1:3`), unions (`[0, 1]`)
---- and functions are refused, naming what was meant, rather than read
---- as anything else. nil and a message naming the byte where it stops being one.
----
----     local q = assert(Json.query("$.users[*]['name']"))
----     assert(#q.segments == 3 and q.segments[2].kind == "wildcard")
-function Json.query(text: string): Json.Query?, string
+-- Json.query, its failure in words.
+local function query_text(text: string): Json.Query?, string
   local _, bad = utf8.len(text)
   if bad ~= nil then return query_error(bad, "a byte that is not UTF-8") end
   if text:sub(1, 1) ~= "$" then return query_error(1, "a query starts with `$`") end
@@ -1737,16 +1851,27 @@ function Json.query(text: string): Json.Query?, string
   return { text = text, segments = segments }, ""
 end
 
---- The steps the JSONPath query `text` names, and "": a singular query,
---- `$` and names and indices alone, as [`Json.query`] reads one, each
---- index counted from 1 (or from the end, when negative). nil and a
---- message when it is no query or can select more than one value
---- (`*`, `..`): [`Json.select`] reads those.
+--- Reads the JSONPath query `text` (RFC 9535) in the subset cosmic
+--- reads: the root `$`, then segments, each a member's name (`.name`,
+--- `['name']` or `["name"]`), an element's index (`[2]`, or `[-1]` from
+--- the end), or `*` (`.*` or `[*]`) for every member or element, and
+--- any of them after `..` for the same at every depth below. Each is
+--- read exactly as the RFC's grammar reads it, blank space and string
+--- escapes included. Filters (`?`), slices (`1:3`), unions (`[0, 1]`)
+--- and functions are refused, naming what was meant, rather than read
+--- as anything else. nil and a [`Failure`] naming the byte where it stops being one.
 ---
----     local steps = assert(Json.from_path("$.users[0]['a key']"))
----     assert(steps[1] == "users" and steps[2] == 1 and steps[3] == "a key")
-function Json.from_path(text: string): Json.Steps?, string
-  local q, err = Json.query(text)
+---     local q = assert(Json.query("$.users[*]['name']"))
+---     assert(#q.segments == 3 and q.segments[2].kind == "wildcard")
+function Json.query(text: string): (Json.Query) | (nil, Failure)
+  local got, why = query_text(text)
+  if got == nil then return nil, Failure.new(why) end
+  return got
+end
+
+-- Json.from_path, its failure in words.
+local function from_path_text(text: string): Json.Steps?, string
+  local q, err = query_text(text)
   if q == nil then return nil, err end
   local steps: mut {string | integer} = {}
   for i, seg in ipairs(q.segments) do
@@ -1766,6 +1891,20 @@ function Json.from_path(text: string): Json.Steps?, string
     steps[i] = step
   end
   return steps, ""
+end
+
+--- The steps the JSONPath query `text` names: a singular query,
+--- `$` and names and indices alone, as [`Json.query`] reads one, each
+--- index counted from 1 (or from the end, when negative). nil and a
+--- [`Failure`] when it is no query or can select more than one value
+--- (`*`, `..`): [`Json.select`] reads those.
+---
+---     local steps = assert(Json.from_path("$.users[0]['a key']"))
+---     assert(steps[1] == "users" and steps[2] == 1 and steps[3] == "a key")
+function Json.from_path(text: string): (Json.Steps) | (nil, Failure)
+  local got, why = from_path_text(text)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 --- The children of the table `t`, in order, each with its step: an
@@ -1855,18 +1994,8 @@ local function descend(seg: Json.Segment, node: Json.Match, out: mut {Json.Match
   return true, ""
 end
 
---- The values `query` selects in `value`, in the order RFC 9535 gives
---- them, each with its steps, and "": a member or element a name or an
---- index does not find selects nothing, and an object's members are
---- taken in byte order of their names, as `encode` writes them. nil and
---- a message for a table with mixed keys on the way, or a descendant
---- segment walking past `max_depth`.
----
----     local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
----     local found = assert(Json.select(doc, assert(Json.query("$..id"))))
----     assert(#found == 2 and found[1].value == 1 and found[2].value == 2)
----     assert(Json.pointer(found[2].steps) == "/b/0/id")
-function Json.select(value: any, query: Json.Query, opts?: Json.SelectOptions): {Json.Match}?, string
+-- Json.select, its failure in words.
+local function select_text(value: any, query: Json.Query, opts?: Json.SelectOptions): {Json.Match}?, string
   local limit = (opts or {}).max_depth or Json.depth_limit
   if math.type(limit) ~= "integer" or limit < 1 or limit > Json.depth_limit then
     error(("json: max_depth must be an integer from 1 to %d"):format(Json.depth_limit), 2)
@@ -1886,6 +2015,23 @@ function Json.select(value: any, query: Json.Query, opts?: Json.SelectOptions): 
     nodes = out
   end
   return nodes, ""
+end
+
+--- The values `query` selects in `value`, in the order RFC 9535 gives
+--- them, each with its steps: a member or element a name or an
+--- index does not find selects nothing, and an object's members are
+--- taken in byte order of their names, as `encode` writes them. nil and
+--- a [`Failure`] for a table with mixed keys on the way, or a descendant
+--- segment walking past `max_depth`.
+---
+---     local doc = assert(Json.decode('{"a": {"id": 1}, "b": [{"id": 2}]}'))
+---     local found = assert(Json.select(doc, assert(Json.query("$..id"))))
+---     assert(#found == 2 and found[1].value == 1 and found[2].value == 2)
+---     assert(Json.pointer(found[2].steps) == "/b/0/id")
+function Json.select(value: any, query: Json.Query, opts?: Json.SelectOptions): ({Json.Match}) | (nil, Failure)
+  local got, why = select_text(value, query, opts)
+  if got == nil then return nil, Failure.new(why) end
+  return got
 end
 
 -- ---- reading a token at a time ------------------------------------
@@ -1928,7 +2074,7 @@ local function fail_at(self: TokenReader, at: integer, what: string): nil, strin
 end
 
 --- Fails at `column` of the line the reader is on, as [`fail_at`] does.
-local function placed(self: TokenReader, column: integer, what: string): nil, string
+local function fail_on_line(self: TokenReader, column: integer, what: string): nil, string
   return stop(self, ("json: %s at line %d, column %d (%s)"):format(what, self.line, column, here(self)))
 end
 
@@ -2285,7 +2431,7 @@ local function string_text(self: TokenReader, column: integer): string?, string
     else
       if self.ended then
         self.at = #self.buf + 1
-        return placed(self, column, "a string the text ends inside")
+        return fail_on_line(self, column, "a string the text ends inside")
       end
       -- What is read so far is kept, but a `\` the chunk ends with,
       -- which waits for the byte it escapes.
@@ -2585,11 +2731,13 @@ local class TokenReader is Json.Reader
         key, err = scalar(self, text, column)
       end
       if err ~= "" then return nil, err end
-      if not (key is string) then return placed(self, column, "a key that is not a string") end
+      if not (key is string) then
+        return fail_on_line(self, column, "a key that is not a string")
+      end
       frame.key = key
       local seen = frame.seen
       if seen ~= nil then
-        if seen[key] == true then return placed(self, column, "duplicate key") end
+        if seen[key] == true then return fail_on_line(self, column, "duplicate key") end
         seen[key] = true
       end
       if self.json5 then pass_lines(self, text, start) end
@@ -2620,7 +2768,7 @@ local class TokenReader is Json.Reader
     local value: Json.Value?
     if token == "boolean" or token == "null" then
       if text ~= "true" and text ~= "false" and text ~= "null" then
-        return placed(self, column, "a word JSON has no literal for")
+        return fail_on_line(self, column, "a word JSON has no literal for")
       end
       token = if text == "null" then "null" else "boolean" end
       value = text == "true"

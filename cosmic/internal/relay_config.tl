@@ -440,9 +440,9 @@ end
 --- @return string Why it is no config, "" otherwise
 function relay_config.decode(text: string): relay_config.Config?, string
   local decoded, why = Json.decode_object(text)
-  if decoded == nil then return nil, why end
+  if decoded == nil then return nil, tostring(why) end
   local value, invalid = Json.to_object(decoded)
-  if value == nil then return nil, invalid end
+  if value == nil then return nil, tostring(invalid) end
   local grants, grants_why = strings(value["grants"], "grants")
   if grants == nil then return nil, grants_why end
   local own, own_why = strings(value["own_addresses"], "own_addresses")

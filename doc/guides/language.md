@@ -366,7 +366,7 @@ local Csv = require("cosmic.csv")
 
 local counters: {string: function(string): integer} = {
   json = function(text: string): integer
-    local list = Json.decode_array(text)
+    local list, _ = Json.decode_array(text)
     if list == nil then return 0 end
     return #list
   end,

@@ -225,5 +225,5 @@ local function test_a_config_that_is_none_is_refused_naming_why()
   says(head .. '{"host":"p.test","port":80,"no_proxy":[],"addresses":["p.test"]}}', "upstream.addresses[1]")
   says('{"grants":["a"],"own_addresses":[],"log":"null","listeners":3}', "listeners is not 1 or 2")
   says('{"grants":["a"],"own_addresses":[],"log":"null","token":7}', "token is not a string")
-  assert(Json.decode_object('{"grants":[]}') ~= nil, "the fixtures are JSON")
+  assert(Json.decode_object('{"grants":[]}'))
 end

@@ -239,7 +239,7 @@ local function list(file: string, as_json: boolean, to: verb.Io): Outcome
         rows[#rows + 1] = row
       end
       local encoded, encode_why = Json.encode(Json.array(rows), { pretty = true })
-      if encoded == nil then return fail(bare.refused, encode_why) end
+      if encoded == nil then return fail(bare.refused, tostring(encode_why)) end
       text = encoded .. "\n"
     else
       local lines: mut {string} = {}

@@ -274,7 +274,7 @@ end
 --- bytes reach htmx as Latin-1.
 local function header_json(what: string, value: any): string?, string
   local text, why = Json.encode_any(value, { ascii = true })
-  if text == nil then return nil, "htmx: " .. what .. ": " .. why end
+  if text == nil then return nil, "htmx: " .. what .. ": " .. tostring(why) end
   return text, ""
 end
 

@@ -12,7 +12,7 @@ local Example = {} -- checked: literal_needs_type
 local function decoded(): Json.Value?
   local text = '{"tag": "v1", "draft": null, "assets": ["lua", "zip"], "author": "someone"}'
   local value, err = Json.decode(text, { null_value = Json.null })
-  assert(err == "", err)
+  assert(err == nil, err)
   return value
 end
 
@@ -33,7 +33,7 @@ function Example.into()
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
   -- The answer holds what the spec names and nothing else.
-  local text = Json.encode_any(release)
+  local text, _ = Json.encode_any(release)
   print(text)
   assert(text == '{"assets":["lua","zip"],"tag":"v1"}', text)
 end
@@ -51,7 +51,7 @@ function Example.record_of()
   assert(release ~= nil, err)
   print(release.tag, #release.assets, release.draft)
   assert(release.tag == "v1" and release.assets[2] == "zip" and release.draft == nil)
-  local wrong = Json.decode('{"tag": "v2", "assets": [1]}')
+  local wrong, _ = Json.decode('{"tag": "v2", "assets": [1]}')
   local _, why = RELEASE:into(wrong)
   print(why)
   assert(why == "Entry: $.assets[0]: want string, got integer", why)
@@ -121,7 +121,9 @@ function Example.strict()
     port: integer?
   end
   local SERVER <const> = Shape.record_of("Server"):strict()
-  local _, err = SERVER:into((Json.decode('{"host": "localhost", "prot": 8080}')))
+  local got1, why1 = Json.decode('{"host": "localhost", "prot": 8080}')
+  assert(got1 ~= nil, tostring(why1))
+  local _, err = SERVER:into(got1)
   print(err)
   assert(err == "Server: $.prot: unknown key", err)
 end
@@ -130,7 +132,9 @@ end
 --- takes an integer and a float alike.
 function Example.map()
   local WEIGHTS <const> = Shape.map(Shape.number)
-  local weights, err = Shape.into(Json.decode('{"lua": 2, "teal": 0.5}'), WEIGHTS)
+  local got2, why2 = Json.decode('{"lua": 2, "teal": 0.5}')
+  assert(got2 ~= nil, tostring(why2))
+  local weights, err = Shape.into(got2, WEIGHTS)
   assert(weights ~= nil, err)
   print(weights["lua"], weights["teal"])
   assert(weights["lua"] == 2 and weights["teal"] == 0.5)
@@ -141,7 +145,9 @@ end
 --- `list(optional(...))` does not compile.
 function Example.sparse_list()
   local SLOTS <const> = Shape.sparse_list(Shape.optional(Shape.integer))
-  local slots, err = Shape.into(Json.decode('[1, null, 3]', { null_value = Json.null }), SLOTS)
+  local got3, why3 = Json.decode('[1, null, 3]', { null_value = Json.null })
+  assert(got3 ~= nil, tostring(why3))
+  local slots, err = Shape.into(got3, SLOTS)
   assert(slots ~= nil, err)
   print(slots[1], slots[2], slots[3])
   assert(slots[1] == 1 and slots[2] == nil and slots[3] == 3)
@@ -157,11 +163,13 @@ function Example.any()
   end
   local TARGET <const> = Shape.record_of("Target")
   local NAMES <const> = Shape.list(Shape.string)
-  local target, err = Shape.into(Json.decode('{"names": ["a", "b"], "retries": 3}'), TARGET.spec)
+  local got4, why4 = Json.decode('{"names": ["a", "b"], "retries": 3}')
+  assert(got4 ~= nil, tostring(why4))
+  local target, err = Shape.into(got4, TARGET.spec)
   assert(target ~= nil, err)
   local names, why = Shape.into(target.names, NAMES)
   assert(names ~= nil and #names == 2, why)
-  local mixed = Json.decode('["a", 3]')
+  local mixed, _ = Json.decode('["a", 3]')
   local _, bad = Shape.into(mixed, NAMES)
   print(bad)
   assert(bad == "$[1]: want string, got integer", bad)

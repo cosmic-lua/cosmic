@@ -637,8 +637,10 @@ end
 --- compare.
 local function value_of(text: string): string?, string
   local value, trouble = Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null })
-  if trouble ~= nil and trouble ~= "" then return nil, trouble end -- checked: compare_disjoint
-  return Json.encode_any(value)
+  if value == nil then return nil, tostring(trouble) end
+  local encoded, why = Json.encode_any(value)
+  if encoded == nil then return nil, tostring(why) end
+  return encoded, ""
 end
 
 --- Whether two lists hold the same strings, in any order.
@@ -775,7 +777,9 @@ end
 --- A node's value, as `cosmic.json` reads it ([`Json.null`] for null), or
 --- nil and why it reads as none.
 function flow.value(node: flow.Node): Json.Value?, string
-  return Json.decode(inline_text(node), { json5 = true, null_value = Json.null })
+  local value, why = Json.decode(inline_text(node), { json5 = true, null_value = Json.null })
+  if value == nil then return nil, tostring(why) end
+  return value, ""
 end
 
 --- The member of `node` down `path`, a key for each object and an index

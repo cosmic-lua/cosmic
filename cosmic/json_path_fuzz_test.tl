@@ -8,6 +8,7 @@
 local Array = require("cosmic.array")
 local Fuzz = require("build.fuzz")
 local Json = require("cosmic.json")
+local type Failure = require("cosmic.failure")
 
 --- Queries to mutate: every form the subset reads, and the forms it
 --- refuses by name.
@@ -33,7 +34,10 @@ end
 --- just past it); it never raises; and a singular one's steps write as
 --- a normalized path that reads back as themselves.
 local function query_holds(input: string): boolean, string
-  local ok, q, err = pcall(Json.query, input)
+  local ok, q, err = pcall(function(): Json.Query?, Failure?
+    local v, why = Json.query(input)
+    return v, why
+  end)
   if not ok then return false, "query raised: " .. tostring(q) end
   if q == nil then
     local column = tostring(err):match("^json: JSONPath byte (%d+): ")
@@ -45,21 +49,25 @@ local function query_holds(input: string): boolean, string
     return true, ""
   end
   Fuzz.label("read")
-  local sok, raised = pcall(Json.from_path, input)
+  local sok, raised = pcall(function() local _, _ = Json.from_path(input) end)
   if not sok then return false, "from_path raised: " .. tostring(raised) end
   local steps, serr = Json.from_path(input)
   if steps == nil then
-    if not serr:match("selects many values") then
+    if not tostring(serr):match("selects many values") then
       return false, "from_path refused: " .. tostring(serr)
     end
     return true, ""
   end
   Fuzz.label("singular")
   local text, perr = Json.path(steps)
-  if text == nil then return false, "a path from_path read cannot be written: " .. perr end
+  if text == nil then
+    return false, "a path from_path read cannot be written: " .. tostring(perr)
+  end
   local back, berr = Json.from_path(text)
-  if back == nil then return false, "a normalized path does not read: " .. text .. ": " .. berr end
-  if Json.path(back) ~= text then
+  if back == nil then
+    return false, "a normalized path does not read: " .. text .. ": " .. tostring(berr)
+  end
+  if assert(Json.path(back)) ~= text then
     return false, "a normalized path reads as other steps: " .. text
   end
   return true, ""
@@ -134,7 +142,9 @@ end
 local function steps_hold(input: string): boolean, string
   local steps, builds = steps_of(input)
   local value = holder(steps, builds, 1)
-  if Json.get(value, steps) ~= "leaf" then return false, "the steps reach another value" end
+  local got1, why1 = Json.get(value, steps)
+  assert(got1 ~= nil, tostring(why1))
+  if got1 ~= "leaf" then return false, "the steps reach another value" end
   local backward = false
   for _, step in ipairs(steps) do
     if not (step is string) and step < 0 then backward = true end
@@ -144,8 +154,8 @@ local function steps_hold(input: string): boolean, string
     -- is, must still reach the leaf.
     local path = assert(Json.path(steps))
     local again, aerr = Json.from_path(path)
-    if again == nil or Json.path(again) ~= path then
-      return false, "from_path read other steps: " .. path .. aerr
+    if again == nil or assert(Json.path(again)) ~= path then
+      return false, "from_path read other steps: " .. path .. tostring(aerr)
     end
     local found = assert(Json.select(value, (assert(Json.query(path)))))
     if #found ~= 1 or found[1].value ~= "leaf" then
@@ -155,22 +165,26 @@ local function steps_hold(input: string): boolean, string
     return true, ""
   end
   local pointer, err = Json.pointer(steps)
-  if pointer == nil then return false, "pointer refused: " .. err end
+  if pointer == nil then return false, "pointer refused: " .. tostring(err) end
   local back, berr = Json.from_pointer(value, pointer)
   if back == nil then
-    return false, "from_pointer refused its own pointer " .. Json.quote(pointer) .. ": " .. berr
+    return false, "from_pointer refused its own pointer " .. Json.quote(pointer) .. ": " .. tostring(berr)
   end
-  if Json.pointer(back) ~= pointer then
+  if assert(Json.pointer(back)) ~= pointer then
     return false, "from_pointer read other steps: " .. pointer
   end
-  if Json.get(value, back) ~= "leaf" then
+  local got2, why2 = Json.get(value, back)
+  assert(got2 ~= nil, tostring(why2))
+  if got2 ~= "leaf" then
     return false, "the steps reach another value: " .. pointer
   end
   local path, perr = Json.path(steps)
-  if path == nil then return false, "path refused: " .. perr end
+  if path == nil then return false, "path refused: " .. tostring(perr) end
   local again, aerr = Json.from_path(path)
-  if again == nil then return false, "from_path refused its own path " .. path .. ": " .. aerr end
-  if Json.path(again) ~= path then return false, "from_path read other steps: " .. path end
+  if again == nil then
+    return false, "from_path refused its own path " .. path .. ": " .. tostring(aerr)
+  end
+  if assert(Json.path(again)) ~= path then return false, "from_path read other steps: " .. path end
   local found = assert(Json.select(value, (assert(Json.query(path)))))
   if #found ~= 1 or found[1].value ~= "leaf" then
     return false, "the query does not select the leaf: " .. path
@@ -185,20 +199,23 @@ local POINTED <const> = assert(Json.decode_object('{"a": [1, {"b": null, "": [tr
   { null_value = Json.null }))
 
 local function pointer_holds(input: string): boolean, string
-  local ok, raised = pcall(function(): Json.Steps?, string
-    return Json.from_pointer(POINTED, input)
+  local ok, raised = pcall(function(): Json.Steps?, Failure?
+    local v, why = Json.from_pointer(POINTED, input)
+    return v, why
   end)
   if not ok then return false, "from_pointer raised: " .. tostring(raised) end
   local steps, err = Json.from_pointer(POINTED, input)
   if steps == nil then
-    if not err:match("^json: ") then
+    if not tostring(err):match("^json: ") then
       return false, "a refusal outside the module: " .. tostring(err)
     end
     Fuzz.label("refused")
     return true, ""
   end
   local _, gerr = Json.get(POINTED, steps)
-  if gerr ~= "" then return false, "a pointer read, its steps reach nothing: " .. gerr end
+  if gerr ~= nil then
+    return false, "a pointer read, its steps reach nothing: " .. tostring(gerr)
+  end
   Fuzz.label("read")
   return true, ""
 end
@@ -325,11 +342,11 @@ local function selection_holds(input: string): boolean, string
   local fields = Fuzz.unpack(input)
   -- [`gen_selection`] packs three fields: the document, "holes" or not, the query.
   local text, holes, query = Array.at(fields, 1), Array.at(fields, 2) == "holes", Array.at(fields, 3)
-  -- A document of `null` alone decodes to nil: test the message.
+  -- A document of `null` alone decodes to Json.null; a refusal answers nil.
   local doc, derr = Json.decode(text, { null_value = if not holes then Json.null else nil end })
-  if derr ~= "" then return false, "a drawn document does not decode: " .. derr end
+  if derr ~= nil then return false, "a drawn document does not decode: " .. tostring(derr) end
   local parsed, qerr = Json.query(query)
-  if parsed == nil then return false, "a drawn query does not read: " .. qerr end
+  if parsed == nil then return false, "a drawn query does not read: " .. tostring(qerr) end
   local q: Json.Query = parsed
   -- `$` selects the document itself: the reference starts from what select answers for it.
   local nodes: {Json.Match} = assert(Json.select(doc, (assert(Json.query("$")))))
@@ -351,7 +368,7 @@ local function selection_holds(input: string): boolean, string
     nodes = out
   end
   local found, err = Json.select(doc, q)
-  if found == nil then return false, "select refused: " .. err end
+  if found == nil then return false, "select refused: " .. tostring(err) end
   local want, got: mut {string}, mut {string} = {}, {}
   for i, n in ipairs(nodes) do want[i] = assert(Json.path(n.steps)) end
   for i, m in ipairs(found) do got[i] = assert(Json.path(m.steps)) end

@@ -277,19 +277,23 @@ local function through_json<T>(r: Recipe, typed: Shape.Typed<T>): boolean, strin
   local spec = typed.node
   local value = gen_value(r, spec, 4, true)
   local text, eerr = Json.encode_any(value)
-  if text == nil then return false, "a strict value did not encode: " .. eerr end
+  if text == nil then return false, "a strict value did not encode: " .. tostring(eerr) end
   local opts: Json.DecodeOptions = {}
   if byte(r, 2) == 0 then opts.null_value = Json.null end
   local decoded, derr = Json.decode(text, opts)
-  if derr ~= "" then return false, "its text did not decode: " .. derr end
+  if derr ~= nil then return false, "its text did not decode: " .. tostring(derr) end
   local out, err = Shape.into(decoded, typed.spec)
   if err ~= "" then return false, ("%s no longer fits: %s"):format(text, err) end
   if not fits(out, spec) then return false, text .. ": the answer is not its shape" end
   local again_text, aerr = Json.encode_any(filled(out))
-  if again_text == nil then return false, text .. ": the answer did not encode: " .. aerr end
+  if again_text == nil then
+    return false, text .. ": the answer did not encode: " .. tostring(aerr)
+  end
   -- Read back as it was first read: under `any` the answer keeps
   -- [`Json.null`], which only the same `null_value` reads back as itself.
-  local again, err2 = Shape.into(Json.decode(again_text, opts), typed.spec)
+  local got1, why1 = Json.decode(again_text, opts)
+  assert(got1 ~= nil, tostring(why1))
+  local again, err2 = Shape.into(got1, typed.spec)
   if err2 ~= "" then return false, again_text .. " does not fit: " .. err2 end
   if not same(out, again) then return false, again_text .. " read back as another answer" end
   return true, ""

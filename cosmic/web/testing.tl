@@ -188,7 +188,7 @@ local function prepare(method: string, path: string, opts: Options): Prepared
     headers["content-type"] = headers["content-type"] or "application/x-www-form-urlencoded"
   elseif json ~= nil then
     local text, why = Json.encode_any(json)
-    if text == nil then error("web: test client: json: " .. why, 3) end
+    if text == nil then error("web: test client: json: " .. tostring(why), 3) end
     body = text
     headers["content-type"] = headers["content-type"] or "application/json"
   elseif raw ~= nil then
@@ -221,7 +221,7 @@ local class Answered is Types.TestResponse
 
   function json(self): Json.Value?, string
     local value, why = Json.decode(self.body)
-    if why ~= "" then return nil, why end
+    if value == nil then return nil, tostring(why) end
     return value, ""
   end
 end

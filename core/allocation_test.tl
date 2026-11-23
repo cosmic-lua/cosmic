@@ -1006,8 +1006,8 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
   local bytes, blocks = testing.c_heap()
   local ended = AllocationFixture.under_every_failure(function()
     local value, trouble = Json.decode(text, { null_value = Json.null })
-    assert(value ~= nil and trouble == "", trouble)
-    assert(Json.encode(value) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
+    assert(value ~= nil and trouble == nil, trouble)
+    assert(assert(Json.encode(value)) == '{"a":{"c":{},"d":[]},"b":[1,2.5,"x\xc3\xa9",true,null]}')
     assert(assert(Json.encode_any(wide, { pretty = true })):sub(1, 1) == "{")
     local lone_value, lone_trouble = Json.decode('["\\ud83d"]', { lone_surrogates = true })
     assert(lone_value ~= nil, lone_trouble)
@@ -1015,10 +1015,10 @@ local function test_json_leaves_nothing_whenever_an_allocation_fails()
     assert(lone[1] == "\u{FFFD}")
     assert(Json.check(text))
     assert(assert(Json.format(text, { pretty = true })):sub(1, 1) == "{")
-    assert(Json.format("{a: [0x1F, .5]}", { json5 = true }) == '{"a":[31,0.5]}')
+    assert(assert(Json.format("{a: [0x1F, .5]}", { json5 = true })) == '{"a":[31,0.5]}')
     assert(assert(Json.canonical((assert(Json.encode_any(wide))))):sub(1, 1) == "{")
     local _, twice = Json.decode(wide_text)
-    assert(twice:match("^json: duplicate key "), twice)
+    assert(tostring(twice):match("^json: duplicate key "), twice)
   end)
   assert(ended > 0, "decoding and encoding allocate")
   assert_c_heap(bytes, blocks, "JSON under refusal")
@@ -1051,7 +1051,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
   testing.fail_at("json_malloc")
   local _, whole = Json.decode("[1]")
   assert(not testing.fail_at(), "decode never reached json_malloc")
-  assert(whole == "json: out of memory", whole)
+  assert(tostring(whole) == "json: out of memory", whole)
   local named: mut {string: boolean} = {}
   for skip = 0, 16 do
     testing.fail_at("json_malloc", skip)
@@ -1061,8 +1061,8 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
       assert(values ~= nil, why)
       break
     end
-    assert(values == nil and why:match("^json: line %d: out of memory$") ~= nil, tostring(why))
-    named[why] = true
+    assert(values == nil and tostring(why):match("^json: line %d: out of memory$") ~= nil, tostring(why))
+    named[tostring(why)] = true
   end
   assert(named["json: line 1: out of memory"] == true and named["json: line 2: out of memory"] == true,
     "each record's refusal names its line")
@@ -1076,7 +1076,7 @@ local function test_json_names_a_record_yyjson_could_not_allocate()
       assert(formatted == '[31]', why)
       break
     end
-    assert(formatted == nil and why == "json: out of memory", tostring(why))
+    assert(formatted == nil and tostring(why) == "json: out of memory", tostring(why))
     last = skip
   end
   assert(last >= 4, "format read the text twice and the number once: " .. tostring(last))

@@ -142,12 +142,16 @@ local function test_value_reads_one_whole_value()
     local ids: mut {integer} = {}
     while r:peek() == "object" do
       local row = known_value(r:value())
-      ids[#ids + 1] = assert(Shape.into(Json.get(row, { "id" }), Shape.integer))
-      assert(Json.is_array((Json.get(row, { "tags" }))), "an array decodes marked, as decode marks one")
+      local got1, why1 = Json.get(row, { "id" })
+      assert(got1 ~= nil, tostring(why1))
+      ids[#ids + 1] = assert(Shape.into(got1, Shape.integer))
+      local got2, why2 = Json.get(row, { "tags" })
+      assert(got2 ~= nil, tostring(why2))
+      assert(Json.is_array(got2), "an array decodes marked, as decode marks one")
     end
     assert(r:peek() == "null" and r:value() == Json.null, "null_value stands in")
     assert(#ids == 2 and ids[1] == 1 and ids[2] == 2)
-    assert(assert(r:next()).kind == "end_array" and Json.pointer(r:steps()) == "/rows")
+    assert(assert(r:next()).kind == "end_array" and assert(Json.pointer(r:steps())) == "/rows")
     assert(assert(r:next()).value == "after" and r:value() == 3)
     assert(assert(r:next()).kind == "end_object")
     local done, err = r:next()
@@ -266,7 +270,7 @@ local function test_paths_spell_keys_as_decode_does()
     local text = ('{"%s": 1, "%s": 2}'):format(key, key)
     local _, by_tokens = tokens(text)
     local _, by_decode = Json.decode(text)
-    assert(by_tokens == by_decode, by_tokens .. " vs " .. by_decode)
+    assert(by_tokens == tostring(by_decode), by_tokens .. " vs " .. tostring(by_decode))
   end
 end
 
@@ -279,7 +283,9 @@ local function test_a_long_token_in_small_chunks_reads_in_linear_time()
   assert(#got[2] == #"string=@/0" + #long)
   local r = Json.reader(ChunkedReader.chunked('[{"a": "' .. long .. '"}]', 3))
   assert(assert(r:next()).kind == "array")
-  assert(Json.get(known_value(r:value()), { "a" }) == long)
+  local got3, why3 = Json.get(known_value(r:value()), { "a" })
+  assert(got3 ~= nil, tostring(why3))
+  assert(got3 == long)
 end
 
 --- A failure inside `value`, under a place too long for a message, is
@@ -294,7 +300,7 @@ local function test_a_value_failure_under_a_long_place_reads_as_decode_names_it(
   end
   local _, err = r:value()
   local _, whole = Json.decode(text)
-  assert(err == whole and err:find('pointer ending "', 1, true) ~= nil, err .. " vs " .. whole)
+  assert(err == tostring(whole) and err:find('pointer ending "', 1, true) ~= nil, err .. " vs " .. tostring(whole))
 end
 
 -- ---- JSON5 and `#` comments ----------------------------------------
@@ -374,7 +380,9 @@ local function test_json5_numbers_and_strings_are_what_decode_reads()
   local texts = { "+1", ".5", "5.", "0x1F", "-0x1f", "+0xA", "Infinity", "-Infinity", "1e5", "'a\\x41'",
     "'\\u00e9\\n'", "\"\\'\"", "'\\0\\v\\b'", "'q\\\n'", "'\u{2028}'" }
   for _, text in ipairs(texts) do
-    local want = known_value(Json.decode(text, { json5 = true }))
+    local got4, why4 = Json.decode(text, { json5 = true })
+    assert(got4 ~= nil, tostring(why4))
+    local want = known_value(got4)
     local got = assert(Json.reader(Stream.from_string(text), JSON5):next())
     assert(got.value == want, ("%q: %s, not %s"):format(text, tostring(got.value), tostring(want)))
     assert(math.type(got.value) == math.type(want))
@@ -398,7 +406,8 @@ local function test_json5_forms_are_refused_without_json5()
       "[1 /*c*/]", "[1]\u{a0}", "[\v1]", "{\"a\": 1,}", "[nan]", "[1] // c" }) do
     local _, err = tokens(text)
     assert(err ~= "", ("%q is read: "):format(text))
-    assert(not Json.check(text), ("decode reads %q"):format(text))
+    local plain, _ = Json.check(text)
+    assert(not plain, ("decode reads %q"):format(text))
   end
   -- The same texts, under json5, are read.
   for _, text in ipairs({ "'a'", "{a: 1}", "[1,]", "[.5]", "[+1]", "[0x1]", "[Infinity]", "[NaN]", "[1 //c\n]",
@@ -416,7 +425,8 @@ local function test_json5_refusals_agree_with_decode()
     "[1 /", "[Infinit]", "{'a'}", "{'a': 1 'b': 2}", "[1\u{200b}]", "['a", "{a\u{a0}b: 1}", "[nul]", "[na]",
     "{\"a\": 1, \"a\": 2}", "[-0x]", "[- 1]", "{a: 1, a: 2}", "{a: 1, 'a': 2}", "[0xFFFFFFFFFFFFFFFFF]" }
   for _, text in ipairs(texts) do
-    assert(not Json.check(text, { json5 = true }), ("decode reads %q"):format(text))
+    local five, _ = Json.check(text, { json5 = true })
+    assert(not five, ("decode reads %q"):format(text))
     for _, size in ipairs({ 1, 3, 100 }) do
       local got, err = tokens(text, size, JSON5)
       assert(err ~= "", ("%q in chunks of %d is read as %s"):format(text, size, table.concat(got, " ")))
@@ -426,7 +436,7 @@ local function test_json5_refusals_agree_with_decode()
   for _, text in ipairs({ "{\\x41:1}", "{a\\x: 1}", "\n\n  [0x]", "['a\\\n\\xZZ']", "[1,\n  {a\\u00zz: 1}]" }) do
     local _, want = Json.decode(text, { json5 = true })
     local _, got = tokens(text, 2, JSON5)
-    assert(got == want, ("%q: %s, not %s"):format(text, got, want))
+    assert(got == tostring(want), ("%q: %s, not %s"):format(text, got, tostring(want)))
   end
 end
 
@@ -450,7 +460,7 @@ local function test_hash_comments_read_as_decode_reads_them()
   assert(block ~= "", "nor /* */")
   local _, glued = tokens("[1#c\n]", nil, { hash_comments = false, json5 = true })
   assert(glued ~= "", "json5 alone reads no # comment")
-  assert(Json.decode("[1,#c\r2]", { hash_comments = true }) ~= nil, "decode ends it at \\r")
+  assert(Json.check("[1,#c\r2]", { hash_comments = true }))
 end
 
 --- A comment, a `\u{2028}` or a `*/` the stream splits mid-way reads as
@@ -495,7 +505,7 @@ local function test_json5_line_ends_count_as_decode_counts_them()
       -- `decode` reads each text to its `x` and fails there: its line and
       -- column are the ones the reader names.
       local _, want = Json.decode(text, { json5 = true, hash_comments = true })
-      local line, column = want:match("at line (%d+), column (%d+)")
+      local line, column = tostring(want):match("at line (%d+), column (%d+)")
       for _, size in ipairs({ 1, 2, 3, 100 }) do
         local _, got = tokens(text, size, BOTH)
         local at = ("at line %s, column %s"):format(line, column)
@@ -519,14 +529,24 @@ end
 --- as `decode` reads it, whatever brackets and quotes its comments hold.
 local function test_value_reads_json5_and_comments()
   local text = "{/* ] */ rows: [ // }\n  {id: 1, 'name': 'a}', tags: [0x1F, .5,],}, # ]\n  {id: 2,},\n ], // \"\n n: 3}"
-  local want = known_value(Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null }))
+  local got5, why5 = Json.decode(text, { json5 = true, hash_comments = true, null_value = Json.null })
+  assert(got5 ~= nil, tostring(why5))
+  local want = known_value(got5)
   for _, size in ipairs({ 1, 2, 5, 1000 }) do
     local r = Json.reader(ChunkedReader.chunked(text, size), { json5 = true, hash_comments = true, null_value = Json.null })
     assert(assert(r:next()).kind == "object" and assert(r:next()).value == "rows")
     assert(r:peek() == "array")
     local rows = known_value(r:value())
-    assert(#assert(Json.to_array(rows)) == 2 and Json.get(rows, { 1, "id" }) == 1 and Json.get(rows, { 1, "name" }) == "a}" and
-        Json.get(rows, { 2, "id" }) == 2 and Json.get(want, { "n" }) == 3)
+    local got6, why6 = Json.get(rows, { 1, "id" })
+    assert(got6 ~= nil, tostring(why6))
+    local got7, why7 = Json.get(rows, { 1, "name" })
+    assert(got7 ~= nil, tostring(why7))
+    local got8, why8 = Json.get(rows, { 2, "id" })
+    assert(got8 ~= nil, tostring(why8))
+    local got9, why9 = Json.get(want, { "n" })
+    assert(got9 ~= nil, tostring(why9))
+    assert(#assert(Json.to_array(rows)) == 2 and got6 == 1 and got7 == "a}" and
+        got8 == 2 and got9 == 3)
     assert(assert(r:next()).value == "n" and r:value() == 3)
     assert(assert(r:next()).kind == "end_object")
     local done, err = r:next()
@@ -653,8 +673,8 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
         "{a:1,%s'b':2}", '{%s/**/"a":1}', "[{%sa:1}]" }) do
       local text = shape:format(space)
       local _, want = Json.decode(text, { json5 = true })
-      assert(want ~= "", ("decode reads %q"):format(text))
-      local line, column = want:match("at line (%d+), column (%d+)")
+      assert(want ~= nil, ("decode reads %q"):format(text))
+      local line, column = tostring(want):match("at line (%d+), column (%d+)")
       for _, size in ipairs({ 1, 2, 3, 100 }) do
         local _, got = tokens(text, size, JSON5)
         assert(got:find(("at line %s, column %s "):format(line, column), 1, true),
@@ -681,7 +701,7 @@ local function test_extended_whitespace_where_an_object_key_starts_is_refused()
     local r = Json.reader(Stream.from_string(text), JSON5)
     local kinds: mut {string} = {}
     while r:peek() ~= nil do kinds[#kinds + 1] = assert(r:next()).kind end
-    assert(#kinds >= 4 and Json.decode(text, { json5 = true }) ~= nil, text)
+    assert(#kinds >= 4 and assert(Json.check(text, { json5 = true })), text)
   end
   -- Whitespace after a comment, or anywhere else, is read.
   for _, text in ipairs({ "{/**/\u{a0}a:1}", "{a:1,// c\n\u{a0}b:2}", "{a\u{a0}:\u{a0}1\u{a0}, 'b':2\u{a0}}",
@@ -704,7 +724,7 @@ local function test_a_truncated_word_is_placed_where_it_starts()
     local _, want = Json.decode(text, { json5 = true })
     for _, size in ipairs({ 1, 100 }) do
       local _, got = tokens(text, size, JSON5)
-      local line, column = want:match("at line (%d+), column (%d+)")
+      local line, column = tostring(want):match("at line (%d+), column (%d+)")
       assert(got:find(("at line %s, column %s"):format(line, column), 1, true),
         ("%q in chunks of %d: %s, decode %s"):format(text, size, got, want))
     end
@@ -734,6 +754,6 @@ local function test_a_token_that_stops_early_inside_a_container()
   for _, text in ipairs({ "[1.5.5, +]", "{a: [0x1.5, 1_0]}", "{a: 1.5.5}" }) do
     local _, want = Json.decode(text, { json5 = true })
     local _, got = tokens(text, 2, JSON5)
-    assert(want:find("expected ',' or", 1, true) ~= nil and got == want, ("%q: %s, decode %s"):format(text, got, want))
+    assert(tostring(want):find("expected ',' or", 1, true) ~= nil and got == tostring(want), ("%q: %s, decode %s"):format(text, got, want))
   end
 end

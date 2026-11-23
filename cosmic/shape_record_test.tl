@@ -98,7 +98,7 @@ end
 --- `into` answers the record's own type: no annotation chooses it.
 local function test_into_answers_the_records_type()
   local value, err = Json.decode(GOOD, { null_value = Json.null })
-  assert(err == "", err)
+  assert(err == nil, err)
   local profile, why = PROFILE:into(value)
   assert(profile ~= nil, why)
   local age: integer = profile.age
@@ -120,12 +120,14 @@ local function test_a_value_that_breaks_the_record_is_refused_by_path()
     assert(profile == nil, "accepted " .. case.json)
     assert(err == case.error, ("wanted %q, got %q"):format(case.error, err))
   end
-  local value = Json.decode(GOOD, { null_value = Json.null })
+  local value, _ = Json.decode(GOOD, { null_value = Json.null })
   local loud = (GOOD:gsub('"level": "info"', '"level": "loud"'))
-  local broken = Json.decode(loud, { null_value = Json.null })
+  local broken, _ = Json.decode(loud, { null_value = Json.null })
   local _, level = PROFILE:into(broken)
   assert(level == 'Profile: $.level: want one of "debug", "info", "warn", got "loud"', level)
-  local _, nested = INNER:into((Json.decode('{"deep": {"k": ["x"]}}')))
+  local got1, why1 = Json.decode('{"deep": {"k": ["x"]}}')
+  assert(got1 ~= nil, tostring(why1))
+  local _, nested = INNER:into(got1)
   assert(nested == 'Profile.Inner: $.deep.k[0]: want integer, got string', nested)
   assert(PROFILE:into(value) ~= nil)
 end

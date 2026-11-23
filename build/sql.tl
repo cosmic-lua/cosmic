@@ -453,7 +453,7 @@ local function ndjson_writer(): Writer
         end
         local encoded, trouble = Json.encode(value)
         if encoded == nil then
-          return nil, "column " .. tostring((index + 1)) .. ": " .. trouble
+          return nil, "column " .. tostring((index + 1)) .. ": " .. tostring(trouble)
         end
         members[#members + 1] = assert(keys[index + 1], "every column has a key") .. ":" .. encoded
       end
@@ -718,12 +718,11 @@ local function read_inputs(parsed: Flags.Parsed): {sql.Input}?, string
         end
         input.format = value
       else
-        local steps, why = Json.from_path(value)
+        local steps, refused = Json.from_path(value)
         if steps == nil then
           local query, _ = Json.query(value)
-          if query ~= nil then
-            why = "--at names one value, and `*` and `..` can match many"
-          end
+          local why = if query ~= nil then "--at names one value, and `*` and `..` can match many"
+            else tostring(refused) end
           return nil, "--at " .. value .. ": " .. (why:gsub("^json: ", ""))
         end
         input.at = steps

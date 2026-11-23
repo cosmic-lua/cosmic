@@ -254,7 +254,7 @@ function Result.encode(fields: {string: Json.Value}): string?, string
     local value = fields[key]
     if value == nil then value = Json.null end
     local text, why = Json.encode(value, { max_depth = Json.depth_limit })
-    if text == nil then return nil, key .. ": " .. why end
+    if text == nil then return nil, key .. ": " .. tostring(why) end
     lines[#lines + 1] = "  " .. (assert(Json.encode(key))) .. ": " .. text
   end
   return "{\n" .. table.concat(lines, ",\n") .. "\n}\n", ""

@@ -601,11 +601,10 @@ end
 --- as in an object, so `[1,null,3]` is valid JSON here as it is anywhere.
 local function decoded(text: string): Json.Value?, string
   local value, trouble = Json.decode(text, { null_value = Json.null })
-  if value == nil then
-    if trouble == "" then trouble = "no value" end
-    return nil, trouble
-  end
-  return Json.to_value(value)
+  if value == nil then return nil, tostring(trouble) end
+  local checked, why = Json.to_value(value)
+  if checked == nil then return nil, tostring(why) end
+  return checked, ""
 end
 
 Grader.decoded = decoded

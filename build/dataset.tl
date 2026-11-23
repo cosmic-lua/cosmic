@@ -154,7 +154,7 @@ local function row_of(element: any): dataset.Row?, string
   end
   local value, why = Json.to_value(element)
   if value == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   return { value = value }, ""
 end
@@ -172,14 +172,14 @@ local function rows_of(value: any): dataset.Rows?, string
   if Json.is_array(value) then
     local found, why = Json.select(value, ELEMENTS)
     if found == nil then
-      return nil, why
+      return nil, tostring(why)
     end
     for index, hit in ipairs(found) do
       local row, _ = row_of(hit.value)
       -- A step that is not the position counted is a hole before it.
       if row == nil or hit.steps[1] ~= index then
         local _, trouble = Json.to_array(value)
-        return nil, trouble
+        return nil, tostring(trouble)
       end
       rows[index] = row -- checked: view_written
     end
@@ -273,12 +273,12 @@ local formats: {string:dataset.Format} = {
         return refuse("the json format has no raw cells: its values are typed by JSON")
       end
       local document, trouble = Json.decode(text, { null_value = Json.null })
-      if trouble ~= "" then
-        return nil, trouble
+      if trouble ~= nil then
+        return nil, tostring(trouble)
       end
       local value, missing = Json.get(document, opts.at or {})
-      if missing ~= "" then
-        return nil, missing
+      if missing ~= nil then
+        return nil, tostring(missing)
       end
       return rows_of(value)
     end,
@@ -295,7 +295,7 @@ local formats: {string:dataset.Format} = {
       end
       local values, trouble = Json.decode_lines(text, { null_value = Json.null })
       if values == nil then
-        return nil, trouble
+        return nil, tostring(trouble)
       end
       return rows_of(values)
     end,
@@ -375,7 +375,7 @@ local function bound(value: Json.Value?): Sqlite.Value?, string
   else
     local text, trouble = Json.encode_any(value)
     if text == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     return { text = text }, ""
   end
@@ -480,7 +480,7 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
       end
       local text, bad = Json.encode_any(row)
       if text == nil then
-        return false, "row " .. tostring(number) .. ": " .. bad
+        return false, "row " .. tostring(number) .. ": " .. tostring(bad)
       end
       values[#values + 1] = { text = text }
       local inserted, insert_bad = Sqlite.run(handle, insert, values)

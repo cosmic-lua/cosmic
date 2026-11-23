@@ -458,7 +458,7 @@ end
 
 local function decode_into<T>(text: string, spec: Shape.Spec<T>, opts?: Json.DecodeOptions): T?, string
   local decoded, trouble = Json.decode(text, opts)
-  if decoded == nil and trouble ~= "" then return nil, trouble end
+  if decoded == nil then return nil, tostring(trouble) end
   return into(decoded, spec)
 end
 
@@ -604,7 +604,7 @@ end
 local function typed_decode_into<T>(self: Shape.Typed<T>, text: string,
                                     opts?: Json.DecodeOptions): T?, string
   local decoded, trouble = Json.decode(text, opts)
-  if decoded == nil and trouble ~= "" then return nil, trouble end
+  if decoded == nil then return nil, tostring(trouble) end
   return typed_into(self, decoded)
 end
 

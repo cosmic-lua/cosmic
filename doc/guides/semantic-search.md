@@ -78,7 +78,7 @@ local function embed_texts(texts: {string}, model: string, key: string): Embedde
   end
   local decoded, bad = Json.decode(reply.body)
   if decoded == nil then
-    return nil, bad
+    return nil, tostring(bad)
   end
   local parsed, mismatch = Shape.into(decoded, REPLY.spec)
   if parsed == nil then

@@ -15,7 +15,7 @@ function Report.of(queue: Queue): string?, string
   local summary: Report.Summary = { count = #queue.items, words = queue:line() }
   local text, why = Json.encode_any(summary)
   if text == nil then
-    return nil, why
+    return nil, tostring(why)
   end
   return text, ""
 end

@@ -154,7 +154,7 @@ local function app_of(p: Provider, extra?: Extra): Web.App
         local who = Web.oidc_identity(req)
         if who == nil then return Web.text("nobody") end
         local groups = who.claims["groups"]
-        local shown = if groups ~= nil then " " .. (Json.encode(groups) or "") else "" end
+        local shown = if groups ~= nil then " " .. assert(Json.encode(groups)) else "" end
         return Web.text(who.subject .. " " .. (who.email or "") .. " " .. (who.name or "") .. shown)
       end),
       Web.get("/admin", function(_: Web.Request): Web.Response

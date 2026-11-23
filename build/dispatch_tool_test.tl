@@ -62,7 +62,7 @@ end
 
 --- The one-liner of the command-line guide takes the library as a file does, by a literal `require`.
 local function test_e_runs_a_chunk_that_requires_the_library(tmp: string)
-  local r = evaluate(tmp, 'local Json = require("cosmic.json") local text = Json.encode({ 1, 2 }) print(text)')
+  local r = evaluate(tmp, 'local Json = require("cosmic.json") print(assert(Json.encode({ 1, 2 })))')
   assert(r.ok and r.stdout == "[1,2]\n", tostring(r.stdout) .. tostring(r.stderr))
 end
 

@@ -116,7 +116,7 @@ local function test_signal_exits_cooperatively_with_an_incomplete_json_report(tm
   local elapsed = Clock.monotonic_ns() - before
   local report = assert(Stream.read_all(output))
   assert(result.code == 1 and not result.timed_out and elapsed < Clock.seconds(2), result.stderr)
-  assert(Json.decode(report) ~= nil and report:find('"state":"failed"', 1, true) ~= nil, report)
+  assert(assert(Json.check(report)) and report:find('"state":"failed"', 1, true) ~= nil, report)
   assert(not report:find('"digest"', 1, true) and not report:find('"fresh"', 1, true), report)
   assert(db:exec("ROLLBACK"))
   assert(db:close())
