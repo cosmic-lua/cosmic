@@ -45,7 +45,6 @@ local Hash = require("cosmic.hash")
 local Store = require("cosmic.store")
 local Compiled = require("cosmic.internal.compiled")
 local Globals = require("cosmic.internal.globals")
-local GrammarMode = require("build.grammar_mode")
 local exit_status = require("build.exit_status")
 local type importer = require("build.importer")
 local log = require("build.logger").log
@@ -85,16 +84,11 @@ end
 --- [`Fs.cache_dir`] finds it), and this process's own otherwise. nil and
 --- every complaint of the checker when the file is not clean. Every check
 --- creates its own program; previous declarations are not shared. The new
---- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. A
---- `COSMIC_GRAMMAR` that names another checker is refused ([`build.grammar_mode`]). With `own`, as `cosmic -e` asks, the file
+--- checker ([`build.pipeline`]) holds the file to no ceiling and takes `cosmic.*` from this binary. With `own`, as `cosmic -e` asks, the file
 --- may also require the tool's own modules, which the checker types from their sources ([`build.standard_text`]'s `own`),
 --- and it is checked each time and kept nowhere.
 function standalone.code(file: string, source: string, variables?: {string:string}, own?: boolean,
                          outcome?: importer.Outcome): string?, string
-  local mode_trouble = GrammarMode.refusal()
-  if mode_trouble ~= nil then
-    return nil, mode_trouble
-  end
   -- A chunk of `-e` is not kept: it is checked against more than a file is, runs once and is written afresh each time.
   local cached: string? = nil
   if own ~= true then cached = cached_path(source, variables) end
@@ -131,10 +125,6 @@ end
 --- The modules `source`, which is `file`'s Teal, requires by a literal name, in the order they stand: read by the syntax tree
 --- of the checker that compiles the file ([`standalone.code`]). nil and why where the file does not parse.
 function standalone.requires(file: string, source: string): {string}?, string
-  local mode_trouble = GrammarMode.refusal()
-  if mode_trouble ~= nil then
-    return nil, mode_trouble
-  end
   return Pipeline.requires(file, source)
 end
 

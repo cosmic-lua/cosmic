@@ -1,4 +1,4 @@
---- A project outside cosmic's tree, built and tested with the new checker (`COSMIC_GRAMMAR=new`) as the tool runs it: its
+--- A project outside cosmic's tree, built and tested as the tool runs it: its
 --- globals are the declarations of the standard library the tool carries ([`build.checker_declarations`]), since the project has
 --- no `checker/` to read them from. The project of testdata/projects/project is written in the grammar and passes; the one of
 --- testdata/projects/fork_only is written in forms the new grammar refuses, and is refused with the new checker's words and fix.
@@ -17,21 +17,20 @@ Test.policy{ profiles = { "cosmic" }, grants = {
 } }
 
 --- A copy of the project `name` of testdata/projects under `tmp`, a tree of its own for a run in `grammar`.
-local function copy_of(tmp: string, name: string, grammar: string): string
-  local root = tmp .. "/" .. name .. "-" .. grammar
+local function copy_of(tmp: string, name: string): string
+  local root = tmp .. "/" .. name
   assert(Fs.copy_tree("testdata/projects/" .. name, root))
   return root
 end
 
---- Runs `cosmic test` in `root` with `grammar` as COSMIC_GRAMMAR, unsandboxed (a sandbox nested in this test's own may be
+--- Runs `cosmic test` in `root`, unsandboxed (a sandbox nested in this test's own may be
 --- refused where the host nests only two deep), and answers what it said.
-local function tested(root: string, tmp: string, grammar: string): Child.Result, string
+local function tested(root: string, tmp: string): Child.Result, string
   local output = tmp .. "/out." .. tostring(Clock.monotonic_ns())
   local fd = assert(Fs.open_write(output))
   local env = this_program.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_BUILD_CACHE"] = "0"
-  env["COSMIC_GRAMMAR"] = grammar
   env["TMPDIR"] = tmp
   local started = this_program.program({ "test" }, {
     cwd = root, env = env, stdout = fd, stderr = fd, process_group = true, timeout_ns = Clock.seconds(120),
@@ -42,18 +41,14 @@ local function tested(root: string, tmp: string, grammar: string): Child.Result,
 end
 
 local function test_a_project_outside_the_tree_is_built_and_tested_with_the_new_checker(tmp: string)
-  local root = copy_of(tmp, "project", "new")
-  local result, text = tested(root, tmp, "new")
+  local root = copy_of(tmp, "project")
+  local result, text = tested(root, tmp)
   assert(result.ok and text:find("test: 3 tests passed in 2 modules", 1, true) ~= nil, text)
-  -- the fork's grammar is gone: the mode that names it is refused, naming the verb that rewrites a project to the new one
-  local forked, forked_text = tested(copy_of(tmp, "project", "teal"), tmp, "teal")
-  assert(not forked.ok and forked_text:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; " ..
-      "rewrite a project to the new grammar by hand, as doc/guides/project.md says", 1, true) ~= nil, forked_text)
 end
 
 local function test_a_project_written_in_forms_the_new_grammar_refuses_is_refused_with_the_fix(tmp: string)
-  local root = copy_of(tmp, "fork_only", "new")
-  local result, text = tested(root, tmp, "new")
+  local root = copy_of(tmp, "fork_only")
+  local result, text = tested(root, tmp)
   assert(not result.ok and result.code == 4, text)
   -- nil for a type that does not hold it: the error says what to write
   assert(text:find("lookup.tl:10:12: nil is given as return value 1, where `Entry` is wanted (nil_not_allowed): give a value, " ..
@@ -88,7 +83,7 @@ local function test_a_project_is_judged_by_the_new_checkers_standard_library(tmp
     ["inc.tl"] = "local function inc(s: string): number\n  return tonumber(s) + 1\nend\nreturn inc\n",
     ["inc_test.tl"] = "local inc = require(\"inc\")\n\nlocal function test_inc()\n  assert(inc(\"1\") == 2)\nend\n",
   }
-  local result, text = tested(project_of(tmp, "inc-new", files), tmp, "new")
+  local result, text = tested(project_of(tmp, "inc-new", files), tmp)
   assert(not result.ok, text)
   assert(text:find("inc.tl:2:", 1, true) ~= nil and text:find("`number?`", 1, true) ~= nil and
       text:find("(nil_not_allowed)", 1, true) ~= nil, text)

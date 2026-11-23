@@ -2529,12 +2529,6 @@ local function read_identities(ctx: Run): integer?
   -- projection carries the ones of whichever binary wrote it.
   local names = test_key.compiler_identity(ctx.own_tree == true)
   ctx.tool, ctx.compiled_by = names.tool, names.compiled_by
-  local grammar_trouble = GrammarMode.refusal()
-  if grammar_trouble ~= nil then
-    local _, _ = work.close(handle)
-    log:complain(grammar_trouble)
-    return 1
-  end
   local runtime, runtime_trouble = test_key.runtime_of()
   if runtime == nil then
     local _, _ = work.close(handle)

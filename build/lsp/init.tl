@@ -35,7 +35,6 @@ local Clock = require("cosmic.clock")
 local Flags = require("cosmic.flags")
 local Env = require("cosmic.env")
 local Fs = require("cosmic.fs")
-local GrammarMode = require("build.grammar_mode")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
 local Stream = require("cosmic.stream")
@@ -306,12 +305,6 @@ local function run(argv: {string}): integer
   if parsed.set["--stdio"] == true and #listeners > 0 then
     complain("--stdio serves one editor, and takes no --listen or --socket; " .. usage)
     return bare.refused
-  end
-  -- A checker that is none is refused, as `docs` and `uses` refuse it.
-  local mode_trouble = GrammarMode.refusal()
-  if mode_trouble ~= nil then
-    complain(mode_trouble)
-    return bare.failed
   end
   local root, root_trouble = Fs.absolute(".")
   if root == nil then

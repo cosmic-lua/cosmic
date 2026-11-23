@@ -657,11 +657,7 @@ assert(add(db, "a"))
 
 The tool reads one grammar, the new checker's. A project written for the fork's checker (`T | nil`, `goto continue`,
 `function R:m()`, `c and a or b`) is refused by the compiler, which names the file, the line and the fix for each form it
-finds, and `COSMIC_GRAMMAR=teal` and `cosmic compile --grammar teal` are refused too.
-
-`cosmic migrate`, the verb that rewrote such a project in place, was removed. It still exists as a word that says so and
-exits 2, so that a script that runs it is told what happened. A project in the old grammar is rewritten to the new one by
-hand. Commit it first, then run `cosmic fix` and `cosmic test` and work through what they report; each finding says what
+finds. A project in the old grammar is rewritten to the new one by hand. Commit it first, then run `cosmic fix` and `cosmic test` and work through what they report; each finding says what
 to write instead. What changed, and what the finding for it asks of the file:
 
 - `T | nil` is `T?` (and `(A | B)?` for a union with nil; a function type in a union is parenthesized). `T...` as a

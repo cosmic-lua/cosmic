@@ -1,6 +1,5 @@
 --- What `cosmic fix` does on a project of its own: whether the tree builds is the new checker's to say, in its words;
---- an `assert(...)` that spills is left alone; a Teal file is laid out by a fix and noted by a check; and the fork's grammar, which
---- `COSMIC_GRAMMAR=teal` names, is refused. It declares `tool` because it starts this program.
+--- an `assert(...)` that spills is left alone; a Teal file is laid out by a fix and noted by a check. It declares `tool` because it starts this program.
 
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
@@ -11,20 +10,13 @@ local Test = require("cosmic.test")
 --- The program itself, which its test starts.
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "o/bin", letters = "rx" } } }
 
---- `cosmic fix`, with `--check` where `check`, in `root`, compiling with the checker `grammar` names, and what it said.
-local function fix_in(root: string, grammar: string, check: boolean): Child.Result, string
+--- `cosmic fix`, with `--check` where `check`, in `root`, and what it said.
+local function fix_new(root: string, check: boolean): Child.Result, string
   local words = if check then { "fix", "--check" } else { "fix" } end
-  local env = this_program.environment()
-  env["COSMIC_GRAMMAR"] = grammar
-  local started = this_program.program(words, { cwd = root, env = env,
+  local started = this_program.program(words, { cwd = root, env = this_program.environment(),
     stdout = "capture", stderr = "stdout", timeout_ns = Clock.seconds(120) })
   local result = assert(Child.run(started.argv, started.options))
   return result, result.stdout or ""
-end
-
---- [`fix_in`] with the new checker.
-local function fix_new(root: string, check: boolean): Child.Result, string
-  return fix_in(root, "new", check)
 end
 
 --- A project the new checker refuses fails the run, `--check` or not, in the checker's words (a code and its fix); fixed,
@@ -130,20 +122,6 @@ local function test_a_declaration_file_is_laid_out_by_a_fix_and_linking_leaves_a
   assert(assert(Fs.read(root .. "/new.tl")) == NEW_LAID, "linking did not leave the file laid out")
   local again, repeated = fix_new(root, true)
   assert(again.ok and repeated:find("not laid out", 1, true) == nil and repeated:find("would fix", 1, true) == nil, repeated)
-end
-
---- `COSMIC_GRAMMAR=teal` names the fork's grammar, which is gone: the run fails saying so and points to the project guide, and
---- reads no file.
-local function test_the_forks_grammar_is_refused_pointing_to_the_guide(tmp: string)
-  local root = tmp .. "/project"
-  assert(Fs.mkdirs(root))
-  assert(Fs.write(root .. "/other.tl", OTHER))
-  assert(Fs.write(root .. "/new.tl", NEW_GRAMMAR))
-  local failed, said = fix_in(root, "teal", true)
-  assert(not failed.ok, said)
-  assert(said:find("COSMIC_GRAMMAR=teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says",
-    1, true) ~= nil, said)
-  assert(assert(Fs.read(root .. "/new.tl")) == NEW_GRAMMAR, "the file was written")
 end
 
 --- A link of a file in the new grammar is checked against the project and a plain span is linked in place, byte for byte

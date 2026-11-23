@@ -1,5 +1,4 @@
---- `cosmic docs`, `uses`, `db` and `sql` in a project written in the new grammar, as the tool runs them with the new checker
---- (`COSMIC_GRAMMAR=new`): a lookup builds the project as it stands before it answers ([`build.rebuild`]), and that build reads the
+--- `cosmic docs`, `uses`, `db` and `sql` in a project written in the new grammar, as the tool runs them: a lookup builds the project as it stands before it answers ([`build.rebuild`]), and that build reads the
 --- sources with the new checker's syntax tree, so a symbol declared with `mut` or `name?: T` is found, and so is a call through
 --- a method. The project is the project of testdata/projects/new_grammar.
 local Child = require("cosmic.child")
@@ -156,16 +155,15 @@ local function test_a_tank_fills()
 end
 ]==]
 
---- `cosmic <args>` in `root` with `grammar` as COSMIC_GRAMMAR, unsandboxed (a sandbox nested in this test's own may be refused
+--- `cosmic <args>` in `root`, unsandboxed (a sandbox nested in this test's own may be refused
 --- where the host nests only two deep): what it exited with, and what it said on standard output and on standard error.
-local function ran(root: string, tmp: string, grammar: string, args: {string}): Child.Result, string, string
+local function ran(root: string, tmp: string, args: {string}): Child.Result, string, string
   local stamp = tostring(Clock.monotonic_ns())
   local out_path, err_path = tmp .. "/out." .. stamp, tmp .. "/err." .. stamp
   local out_fd, err_fd = assert(Fs.open_write(out_path)), assert(Fs.open_write(err_path))
   local env = this_program.environment()
   env["COSMIC_TEST_SANDBOX"] = "0"
   env["COSMIC_BUILD_CACHE"] = "0"
-  env["COSMIC_GRAMMAR"] = grammar
   env["TMPDIR"] = tmp
   local started = this_program.program(args, {
     cwd = root, env = env, stdout = out_fd, stderr = err_fd, process_group = true, timeout_ns = Clock.seconds(120),
@@ -181,7 +179,7 @@ end
 local function started(tmp: string, name: string): string
   local root = tmp .. "/" .. name
   assert(Fs.copy_tree("testdata/projects/new_grammar", root))
-  local result, out, err = ran(root, tmp, "new", { "test" })
+  local result, out, err = ran(root, tmp, { "test" })
   assert(result.ok, out .. err)
   assert(Fs.write(root .. "/shapes.tl", SHAPES))
   assert(Fs.write(root .. "/shapes_test.tl", SHAPES_TEST))
@@ -190,7 +188,7 @@ end
 
 --- `cosmic <args>` in `root` with the new checker, which must exit 0: what it said on standard output, and on standard error.
 local function looked_up(root: string, tmp: string, args: {string}): string, string
-  local result, out, err = ran(root, tmp, "new", args)
+  local result, out, err = ran(root, tmp, args)
   assert(result.ok, table.concat(args, " ") .. ": " .. out .. err)
   return out, err
 end
@@ -274,15 +272,6 @@ local function test_a_call_through_a_class_value_is_a_use_of_the_method_it_calls
       "Tank.top_up\tvessels_test.tl\t5\n", rows)
 end
 
---- A mistyped COSMIC_GRAMMAR is refused by the lookups, as it is by every command that reads it, saying the allowed values.
-local function test_a_lookup_refuses_a_grammar_that_is_none(tmp: string)
-  for _, args in ipairs({ { "docs", "Fs.read" }, { "uses", "Fs.read" } }) do
-    local result, out, err = ran(tmp, tmp, "bogus", args)
-    assert(result.code == 1 and out == "", out .. err)
-    holds(err, "COSMIC_GRAMMAR=bogus: the only grammar is `new` (the default)")
-  end
-end
-
 local function test_db_and_sql_read_the_rows_the_new_checkers_syntax_tree_made(tmp: string)
   local root = started(tmp, "rows")
   -- the lookup makes the rows; `sql` stages nothing, and reads them
@@ -302,17 +291,6 @@ local function test_db_and_sql_read_the_rows_the_new_checkers_syntax_tree_made(t
   local databases, databases_err = looked_up(root, tmp, { "db" })
   holds(databases_err, "db: ")
   assert(databases:find("syntax error", 1, true) == nil, databases)
-end
-
---- The fork's grammar, which `COSMIC_GRAMMAR=teal` names, is gone: a lookup refuses it, pointing to the project guide, and
---- answers nothing.
-local function test_a_lookup_refuses_the_forks_grammar_pointing_to_the_guide(tmp: string)
-  local root = started(tmp, "forked")
-  for _, args in ipairs({ { "docs", "Box" }, { "uses", "Box.grow" } }) do
-    local result, out, err = ran(root, tmp, "teal", args)
-    assert(result.code == 1 and out == "", out .. err)
-    holds(err, "COSMIC_GRAMMAR=teal: the fork's grammar is gone; rewrite a project to the new grammar by hand, as doc/guides/project.md says")
-  end
 end
 
 local function test_a_lookup_answers_from_the_last_build_when_the_new_checker_refuses_a_module(tmp: string)
@@ -352,7 +330,7 @@ end
 local function fixture_project(tmp: string): string
   local root = tmp .. "/fixture"
   assert(Fs.copy_tree("testdata/projects/project", root))
-  local result, out, err = ran(root, tmp, "new", { "test" })
+  local result, out, err = ran(root, tmp, { "test" })
   assert(result.ok, out .. err)
   return root
 end
