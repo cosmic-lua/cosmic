@@ -736,7 +736,7 @@ function Input.json(req: Types.Request, opts?: Types.InputOptions): Types.Parsed
   end
   local value, why = Json.decode(text, { null_value = Json.null, max_depth = 32 })
   if value == nil then
-    return { invalid = stop(400, "body", "", "json", if why ~= "" then why else "the body is not JSON" end) }
+    return { invalid = stop(400, "body", "", "json", tostring(why)) }
   end
   req:set(Input.JSON, value)
   return { value = value }
@@ -1064,7 +1064,7 @@ local function split_failure(message: string): string, string
         j = j + (if message:sub(j, j) == "\\" then 2 else 1 end)
       end
       local key, trouble = Json.decode(message:sub(i + 1, j))
-      if not key is string or trouble ~= "" or message:sub(j + 1, j + 1) ~= "]" then
+      if not key is string or trouble ~= nil or message:sub(j + 1, j + 1) ~= "]" then
         return "", message
       end
       steps[#steps + 1] = key
@@ -1082,7 +1082,7 @@ local function split_failure(message: string): string, string
   end
   if message:sub(i, i + 1) ~= ": " then return "", message end
   local pointer, refused = Json.pointer(steps)
-  if pointer == nil or refused ~= "" then return "", message end
+  if pointer == nil or refused ~= nil then return "", message end
   return pointer, message:sub(i + 2)
 end
 

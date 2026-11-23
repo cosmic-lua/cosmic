@@ -401,7 +401,7 @@ local function policy_of(request: Request, database: string?): Sandbox.Policy?, 
     fields.database = named
   end
   local json, json_why = Json.encode_any(fields)
-  if json == nil then return nil, json_why end
+  if json == nil then return nil, tostring(json_why) end
   return PolicyJson.decode(json)
 end
 

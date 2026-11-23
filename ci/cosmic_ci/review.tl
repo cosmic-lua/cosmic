@@ -123,7 +123,7 @@ local function mint_once(env: {string:string}, host: Review.Host, file: string):
   if response == nil then return false, trouble end
   if response.status ~= 200 then return false, "HTTP " .. tostring(response.status) end
   local answer, unread = Json.decode_object(response.body)
-  if answer == nil then return false, "the answer is no JSON object: " .. unread end
+  if answer == nil then return false, "the answer is no JSON object: " .. tostring(unread) end
   local token = answer["value"]
   if not token is string or token == "" then return false, "the answer names no token" end
   host.say("::add-mask::" .. token)

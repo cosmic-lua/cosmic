@@ -1018,7 +1018,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     if body == nil then return nil, "acme: directory: " .. why end
     if body.status // 100 ~= 2 then return nil, problem(body, "directory") end
     local object, trouble = Json.decode_object(body.body)
-    if object == nil then return nil, "acme: directory: " .. trouble end
+    if object == nil then return nil, "acme: directory: " .. tostring(trouble) end
     local found: mut {string: string} = {}
     for name, value in pairs(object) do
       if value is string then found[name] = value end
@@ -1066,7 +1066,7 @@ function Acme.client(opts: Acme.ClientOptions): Acme.Client
     local encoded = ""
     if payload ~= nil then
       local text, why = Json.encode(payload)
-      if text == nil then return nil, "acme: " .. why end
+      if text == nil then return nil, "acme: " .. tostring(why) end
       encoded = Codec.base64url(text)
     end
     local nonce_retried = false

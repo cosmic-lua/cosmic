@@ -343,7 +343,7 @@ local function test_update_over_itself_keeps_a_long_line()
   local text = "{\n  a: [" .. table.concat(items, ", ") .. "],\n}\n"
   assert(formatted(text) == text)
   local doc = assert(flow.parse(text))
-  doc.root = flow.update(doc.root, (Json.decode(text, { json5 = true })))
+  doc.root = flow.update(doc.root, assert(Json.decode_object(text, { json5 = true })))
   assert(flow.render(doc) == text, flow.render(doc))
 end
 

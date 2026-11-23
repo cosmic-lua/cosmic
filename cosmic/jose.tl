@@ -281,7 +281,7 @@ local function keys_text(set: {string: Json.Value}): {Jose.Key}?, string
   local listed = set["keys"]
   if listed == nil then return nil, "jose: the key set has no keys" end
   local items, why = Json.to_array(listed)
-  if items == nil then return nil, "jose: the key set's keys: " .. why end
+  if items == nil then return nil, "jose: the key set's keys: " .. tostring(why) end
   local out: mut {Jose.Key} = {}
   for _, item in ipairs(items) do
     local object, _ = Json.to_object(item)
@@ -316,7 +316,7 @@ local function decode_text(token: string): Jose.Jws?, string
   local header_text, why = Codec.unbase64url(head)
   if header_text == nil then return nil, "jose: the token's header: " .. why end
   local header, bad = Json.decode_object(header_text)
-  if header == nil then return nil, "jose: the token's header: " .. bad end
+  if header == nil then return nil, "jose: the token's header: " .. tostring(bad) end
   local alg = text(header, "alg")
   if alg == nil then return nil, "jose: the token's header names no alg" end
   if header["kid"] ~= nil and text(header, "kid") == nil then
@@ -438,7 +438,7 @@ local function verify_jwt_text(token: string, keys: {Jose.Key}, opts: Jose.JwtOp
     end
   end
   local claims, bad = Json.decode_object(jws.payload)
-  if claims == nil then return nil, "jose: the token's payload: " .. bad end
+  if claims == nil then return nil, "jose: the token's payload: " .. tostring(bad) end
   local iss = text(claims, "iss")
   if iss ~= opts.issuer then return nil, "jose: the token's issuer is not " .. opts.issuer end
   local aud: mut {string} = {}

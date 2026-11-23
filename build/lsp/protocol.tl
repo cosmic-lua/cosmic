@@ -510,8 +510,8 @@ end
 --- (-32700) or not a message (-32600).
 function protocol.message_of(body: string): protocol.Message?, string
   local decoded, trouble = Json.decode(body)
-  if decoded == nil and trouble ~= "" then
-    return nil, protocol.failure("null", PARSE_ERROR, trouble)
+  if decoded == nil then
+    return nil, protocol.failure("null", PARSE_ERROR, tostring(trouble))
   end
   local message, invalid = Shape.into(decoded, MESSAGE.spec)
   if message == nil then

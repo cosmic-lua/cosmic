@@ -254,10 +254,12 @@ local function holds(input: string): boolean, string
   end
   local decoded, err = Json.decode(text, dopts)
   local values, why = token_values(text, size, opts)
-  if err == "" then
+  if err == nil then
     Fuzz.label("decoded")
-    if flags & 1 == 1 and not Json.check(text) then Fuzz.label("json5") end
-    if flags & 2 == 2 and not Json.check(text, { json5 = flags & 1 == 1 }) then
+    local plain, _ = Json.check(text)
+    local without_hash, _ = Json.check(text, { json5 = flags & 1 == 1 })
+    if flags & 1 == 1 and not plain then Fuzz.label("json5") end
+    if flags & 2 == 2 and not without_hash then
       Fuzz.label("hash")
     end
     if values == nil then return false, "decode read it, the reader refused: " .. why end
@@ -273,11 +275,12 @@ local function holds(input: string): boolean, string
     local ok, why_not = placed_after(text, size, opts)
     if not ok then return false, why_not end
   elseif values ~= nil and #values == 1 then
-    return false, "the reader read one value, decode refused it: " .. err
+    return false, "the reader read one value, decode refused it: " .. tostring(err)
   elseif values == nil then
     Fuzz.label("refused")
     -- Text another combination of the options reads, refused by this one.
-    if Json.check(text, { json5 = true, hash_comments = true }) then
+    local readable, _ = Json.check(text, { json5 = true, hash_comments = true })
+    if readable then
       Fuzz.label("refused_extended")
     end
     -- A refusal that is `decode`'s own, of a token's text, is placed
@@ -287,20 +290,20 @@ local function holds(input: string): boolean, string
       Fuzz.label("placed")
       -- JSON5-specific: without json5 the same text is refused otherwise.
       local _, plain_err = Json.decode(text, { hash_comments = flags & 2 == 2 })
-      if flags & 1 == 1 and plain_err ~= err then
+      if flags & 1 == 1 and tostring(plain_err) ~= tostring(err) then
         Fuzz.label("placed_json5")
       end
-      local want_line, want_column = err:match("^json: invalid JSON at line (%d+), column (%d+): ")
+      local want_line, want_column = tostring(err):match("^json: invalid JSON at line (%d+), column (%d+): ")
       -- Not compared: a second value (`'a'+`), which `decode` refuses
       -- at its start and the reader, reading a stream of values, reads
       -- on into -- it cannot know the text is to be one value, so it
       -- places the second value's own refusal; and a text cut short
       -- (`[Infinityn`), which `decode` places at the end of the text.
-      if err:find("unexpected content after document", 1, true) == nil and
-          err:find("unexpected end of data", 1, true) == nil and
+      if tostring(err):find("unexpected content after document", 1, true) == nil and
+          tostring(err):find("unexpected end of data", 1, true) == nil and
           (want_line ~= at_line or want_column ~= at_column) then
         return false, "refused at " .. at_line .. ":" .. at_column .. ", decode at " ..
-          tostring(want_line) .. ":" .. tostring(want_column) .. ": " .. err
+          tostring(want_line) .. ":" .. tostring(want_column) .. ": " .. tostring(err)
       end
     end
   end

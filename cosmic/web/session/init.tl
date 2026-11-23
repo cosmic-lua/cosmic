@@ -351,7 +351,7 @@ local function set_value(st: State, key: string, value: Json.Value?)
   -- The value sits inside the object of values, one level down.
   local _, why = Json.encode(value, { max_depth = Session.MAX_DEPTH - 1 })
   if why ~= nil and why ~= "" then -- checked: compare_disjoint
-    error("session: cannot keep " .. key .. ": " .. why, 0)
+    error("session: cannot keep " .. key .. ": " .. tostring(why), 0)
   end
   st.data.values[key] = value
   st.changes.set[key] = value
@@ -451,7 +451,7 @@ local function make_handle(st: State): Session.Handle
       end
       local _, why = Json.encode({ kind = kind, text = text })
       if why ~= nil and why ~= "" then -- checked: compare_disjoint
-        error("session: cannot flash that: " .. why, 0)
+        error("session: cannot flash that: " .. tostring(why), 0)
       end
       local list: mut {{string: Json.Value}} = {}
       for _, each in ipairs(flashes_of(st)) do list[#list + 1] = each end

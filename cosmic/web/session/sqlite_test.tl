@@ -72,8 +72,9 @@ local function test_a_null_inside_an_array_or_an_object_loads_back_as_null()
   local saved: mut {string: Json.Value} = { list = { 1, Json.null, 3 }, obj = { a = Json.null, b = 1 },
     nested = { { x = { Json.null } }, { 1, { 2 } } } }
   local got = assert(store:load(create(store, saved), 500, "session"))
-  assert(Json.encode(got.values) == '{"list":[1,null,3],"nested":[{"x":[null]},[1,[2]]],"obj":{"a":null,"b":1}}', Json.encode(got.values))
-  assert(got.values["obj"] ~= nil and Json.get(got.values, { "obj", "a" }) == Json.null)
+  assert(assert(Json.encode(got.values)) == '{"list":[1,null,3],"nested":[{"x":[null]},[1,[2]]],"obj":{"a":null,"b":1}}')
+  local a, _ = Json.get(got.values, { "obj", "a" })
+  assert(got.values["obj"] ~= nil and a == Json.null)
 end
 
 local function test_a_session_past_its_expiry_is_as_good_as_absent()

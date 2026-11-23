@@ -334,7 +334,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       elseif request.json then
         local row, refused = Json.encode({ path = name, algorithm = label, digest = digest }, { pretty = false })
         if row == nil then
-          complain(Json.quote(name) .. ": --json cannot write this path: " .. refused)
+          complain(Json.quote(name) .. ": --json cannot write this path: " .. tostring(refused))
           code = bare.refused
         else
           rows[#rows + 1] = "  " .. row

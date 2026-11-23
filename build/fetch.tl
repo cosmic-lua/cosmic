@@ -400,7 +400,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
         status = response.status, url = bare.redact_url(response.url), headers = response.headers,
       }, { pretty = true })
       if encoded == nil then
-        complain(encode_trouble)
+        complain(tostring(encode_trouble))
         done(response)
         return bare.failed
       end

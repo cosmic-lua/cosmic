@@ -364,7 +364,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
     if as_json then
       local encoded, why = Json.encode(record_of(seen), { pretty = true })
       if encoded == nil then
-        complain(why)
+        complain(tostring(why))
         return bare.refused
       end
       return written(encoded .. "\n")
@@ -458,7 +458,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
       to = record_of({ ns = second.ns, zone = calendar }),
     }, { pretty = true })
     if encoded == nil then
-      complain(why)
+      complain(tostring(why))
       return bare.refused
     end
     return written(encoded .. "\n")

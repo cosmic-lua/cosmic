@@ -817,7 +817,8 @@ local SUITE <const> = Shape.record_of("Suite")
 
 --- Part `at` of the token `item`, which [`Json.get`] answers nil for where it holds `null`.
 local function part(item: any, at: integer): Json.Value?
-  return (Json.get(item, { at }))
+  local value, _ = Json.get(item, { at })
+  return value
 end
 
 --- Part `at` of the token `item`, which a token holds as a string there.
