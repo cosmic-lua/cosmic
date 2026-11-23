@@ -105,6 +105,9 @@ local exempt: {string: string} = {
   ["core/vfs.c:vfs_randomness"] = "SQLite seeds its randomness through the default VFS, never a wrapping one",
   ["core/vfs.c:vfs_sleep"] = forwarded,
   ["core/vfs.c:vfs_last_error"] = forwarded,
+  ["core/promises.c:cosmic_truncation_apply"] = "runs only in a child that `grants` hold with no promises on a " ..
+    "kernel whose Landlock is below ABI 3, which does not handle truncation; core/grants_child_test.tl's truncation " ..
+    "test enters it on such a kernel, and core/promises_test.tl runs the program it installs on every host",
   ["core/compress.c:bz_internal_error"] =
     "libbzip2 calls it only when one of its own internal assertions fails, which no input reaches",
 }
@@ -123,9 +126,6 @@ local exempt_on: {string: {string: string}} = {
     ["core/promises.c:cosmic_promises_apply"] = "Darwin has no seccomp: spawn_program refuses a start with " ..
       "promises, ENOSYS, before any child could install a filter; a Linux run enters it " ..
       "(core/promises_child_test.tl)",
-    ["core/promises.c:cosmic_truncation_apply"] = "Darwin has no Landlock: no child is held by a " ..
-      "ruleset, so none installs the truncation filter; a Linux run enters it " ..
-      "(core/grants_child_test.tl)",
   },
 }
 

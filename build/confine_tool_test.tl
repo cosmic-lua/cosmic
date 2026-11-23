@@ -295,10 +295,10 @@ test_child.register("raw_refusals", function(args: {string}): integer
       error("its own failure")
     end, nil, { tmp })))
   end)
-  local pledge: raw_process.Sandbox = { pledge = {} }
-  print(said("pledged_alone", confine.call(function(...: any): any...
+  local promises: raw_process.Sandbox = { promises = {} }
+  print(said("promises_alone", confine.call(function(...: any): any...
     confine.must_confine({ reads = { probe } })
-    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, pledge)
+    local _, _ = process.spawn(probe, { probe, "exit 0" }, nil, nil, nil, nil, nil, false, nil, promises)
     confine.confine(nil)
   end, nil, { tmp })))
   local grants: raw_process.Sandbox = { grants = {}, promises = {} }
@@ -335,7 +335,7 @@ local function test_a_refused_spawn_fails_the_test_whatever_it_made_of_it(tmp: s
     ran.text)
   local own_sandbox = "^must_confine: .*could not start confined: unveil and offline could not be applied: a sandbox " ..
     "of its own that does not unveil and take the network, which must_confine does not add to %(EINVAL%)$"
-  assert(fixture.field(ran, "pledged_alone"):find(own_sandbox) ~= nil, ran.text)
+  assert(fixture.field(ran, "promises_alone"):find(own_sandbox) ~= nil, ran.text)
   assert(fixture.field(ran, "grants_alone"):find(own_sandbox) ~= nil, ran.text)
   assert(fixture.field(ran, "stale"):find("^must_confine: .*could not start confined: unveil and offline could not be " ..
       "applied: started through a spawn taken while an earlier stand%-in ran %(EINVAL%)$") ~= nil, ran.text)

@@ -122,8 +122,9 @@ local function tried(tmp: string, script: string, sandbox: raw_process.Sandbox):
   return false, how .. (if words ~= "" then ": " .. words:sub(1, 200) else "" end)
 end
 
---- `tried`, for a child that cannot read its own /proc: a ruleset does
---- not reach a /proc of the child's own (core/process.h's `ruleset`).
+--- `tried`, for a child that cannot read its own /proc: a ruleset from
+--- `grants` does not reach the /proc of an unveiled child's own unless
+--- the start is strict (core/process.h's `grants`).
 --- What the child is held to is read from outside instead, from this
 --- process's /proc, while the child waits on its stdin. It must run
 --- under a seccomp filter, one more than this process's own
@@ -173,9 +174,9 @@ local function tried_from_outside(tmp: string, script: string, filters: string?,
 end
 
 --- Tries each part of the sandbox, and all of them together, in `tmp`,
---- a fresh directory of the caller's. The parts are a child held to a
---- Landlock ruleset, a pledge, no network, and an unveiled filesystem
---- (the last two as build.confine's `confine` holds a test's
+--- a fresh directory of the caller's. The parts are a child held to
+--- Landlock `grants`, a `promises` filter, no network, and an unveiled
+--- filesystem (the last two as build.confine's `confine` holds a test's
 --- processes), then all four. For an unveiled child it also tries
 --- whether it is in a pid namespace of its own, and whether its /proc
 --- is that namespace's own procfs or, where the kernel refuses one (a
@@ -199,7 +200,7 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   -- sandbox's init; its own procfs has no /proc/sys.
   local own_pids = "test \"$$\" = 2"
   local own_proc = "test ! -e /proc/sys && test \"$(cat /proc/1/comm)\" = cosmic-init"
-  -- Pledged, it runs under a seccomp filter, one more than this
+  -- Under promises, it runs under a seccomp filter, one more than this
   -- process's own (a container's runtime may have given it some).
   local status, _ = Fs.read("/proc/self/status")
   local filters: string? = nil
@@ -213,16 +214,19 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
       said = if held then "held" else why end }
   end
 
+  -- The system's paths are read and run, `inside` is read, and
   -- /dev/null is written to, as a shell's redirections do.
-  local ruleset, trouble, errno = process.landlock_ruleset(reads, { "/dev/null" })
-  if ruleset == nil then
-    add("landlock", false, false, SandboxProbe.errno_name(errno) .. " (" .. trouble .. ")")
-  else
-    local held, said = tried(root, reads_in .. " && " .. no_out, { ruleset = ruleset })
-    add("landlock", false, held, said)
+  local grants: mut {raw_process.Grant} = {}
+  for _, path in ipairs(reads) do
+    grants[#grants + 1] = { path = path, access = if path == inside then "r" else "rx" end }
   end
-  local held, said = tried(root, reads_in .. " && " .. filtered, { pledge = {} })
-  add("pledge", false, held, said)
+  grants[#grants + 1] = { path = "/dev/null", access = "rw" }
+  -- The shell forks each command it runs.
+  local promises <const> = { "fork" }
+  local held, said = tried(root, reads_in .. " && " .. no_out, { grants = grants })
+  add("landlock", false, held, said)
+  held, said = tried(root, reads_in .. " && " .. filtered, { promises = promises })
+  add("promises", false, held, said)
   held, said = tried(root, lone_loopback, { offline = true })
   add("offline", true, held, said)
   held, said = tried(root, reads_in .. " && " .. unseen,
@@ -240,17 +244,12 @@ function SandboxProbe.run(tmp: string): SandboxProbe.Report
   -- systempaths=unconfined (.github/scripts/leg-container.sh), and
   -- COSMIC_CI_REQUIRE_SANDBOX=1 fails a leg that loses it.
   add("unveiled: a /proc of its own", true, held, said)
-  if ruleset == nil then
-    add("all four", false, false, "no landlock ruleset to hold it to")
-  else
-    -- The ruleset does not reach a /proc of the child's own, so its
-    -- filter and its network are read from outside.
-    held, said = tried_from_outside(root, reads_in .. " && " .. unseen, filters,
-      { ruleset = ruleset, unveil = { reads = reads, writes = {} }, offline = true,
-        pledge = {} })
-    add("all four", false, held, said)
-    local _, _ = sys.close(ruleset)
-  end
+  -- The ruleset does not reach a /proc of the child's own, so its
+  -- filter and its network are read from outside.
+  held, said = tried_from_outside(root, reads_in .. " && " .. unseen, filters,
+    { grants = grants, unveil = { reads = reads, writes = {} }, offline = true,
+      promises = promises })
+  add("all four", false, held, said)
   return { parts = parts, host = host() }
 end
 

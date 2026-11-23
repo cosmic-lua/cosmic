@@ -1095,37 +1095,17 @@ local function test_sandbox_platform_answers_true_on_linux_alone()
   end
 end
 
---- Where the platform has no sandbox, a Landlock ruleset, a hold on what
---- may run and a pledge are each refused, with the errno the platform
---- answers. On Linux, whatever this host refuses of the sandbox, they are
---- the tests of core/syscalls_landlock_test.tl and core/syscalls_pledge_test.tl,
---- which require it: so this returns there, and only the platforms without
---- one answer.
-local function test_a_sandbox_the_platform_lacks_is_refused(tmp: string)
+--- Where the platform has no Landlock, a hold on what may run is refused,
+--- with the errno the platform answers. On Linux, whatever this host
+--- refuses of it, it is core/syscalls_landlock_test.tl's, which requires
+--- it: so this returns there, and only the platforms without one answer.
+local function test_a_hold_on_running_the_platform_lacks_is_refused(tmp: string)
   if assert(sys.uname()).sysname == "Linux" then
     Test.skip("a platform with a sandbox answers this where a test requires one")
   end
-  local probe = probe_in(tmp)
-  local ruleset, trouble, errno = process.landlock_ruleset({ probe }, {})
-  assert(ruleset == nil and (errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM),
-    tostring(trouble))
   local held, hold_trouble, hold_errno = process.landlock_restrict_execute({ tmp })
   assert(not held and (hold_errno == sys.ENOSYS or hold_errno == sys.EOPNOTSUPP or
     hold_errno == sys.EPERM), tostring(hold_trouble))
-  for _, promises in ipairs({ {}, { "unix", "inet" } }) do -- checked: literal_needs_type
-    local pid, why, pledge_errno = process.spawn(probe, { probe }, nil, nil, nil, nil, nil,
-      false, nil, { pledge = promises })
-    assert(pid == nil and pledge_errno == sys.ENOSYS, tostring(why))
-  end
-end
-
---- A promise no one keeps is refused before anything starts, on every
---- platform.
-local function test_a_pledge_no_one_keeps_is_refused_before_a_start(tmp: string)
-  local probe = probe_in(tmp)
-  local refused = pcall(process.spawn, probe, { probe }, nil, nil, nil, nil, nil, -- checked: overload_none
-    false, nil, { pledge = { "fly" } })
-  assert(not refused, "a promise no one keeps is refused")
 end
 
 --- The calls that start and reap a child, and hold this process's
@@ -1140,7 +1120,7 @@ local function test_the_process_calls_are_off_the_public_table()
   local raw: {string: any} = process as {string: any} -- cast: to look a member up by name -- checked: cast_refused
   for _, name in ipairs({ "spawn", "waitpid", "subreaper", "sandbox_inits", "children", "maps_id",
       "may_map_ids", "own_proc", "sandbox_platform", "relaunch", "pipe",
-      "ignore_sigpipe", "landlock_ruleset", "landlock_abi", "exit_watch",
+      "ignore_sigpipe", "landlock_abi", "exit_watch",
       "landlock_restrict_execute", "fork",
       "guard_child_signals", "unguard_child_signals", "child_signal_read", "child_signal_fd" }) do
     assert(public[name] == nil, "cosmic.sys." .. name .. " is public")

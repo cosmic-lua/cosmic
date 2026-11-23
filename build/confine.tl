@@ -305,7 +305,7 @@ end
 ---
 --- A process started with a sandbox of its own that unveils and takes
 --- the network is held to that; one whose own sandbox does not -- a
---- pledge or a ruleset alone -- does not start. Nor does one started,
+--- promises or grants alone -- does not start. Nor does one started,
 --- while the declaration holds, through a spawn taken while an earlier
 --- stand-in ran, which no confinement would hold.
 ---
@@ -749,8 +749,7 @@ end
 --- carries: one with any other (a policy's: grants, promises, strict) is
 --- the core's to read as it stands, and no copy of it is made.
 local plain_fields <const>: {string:boolean} = {
-  ruleset = true, unveil = true, noexec_scratch = true, offline = true, user = true,
-  group = true, pledge = true,
+  unveil = true, noexec_scratch = true, offline = true, user = true, group = true,
 }
 local plain_unveil_fields <const>: {string:boolean} = { reads = true, writes = true, at = true }
 
@@ -790,8 +789,6 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox?
     end
   end
   local plain: raw_process.Sandbox = {}
-  local ruleset = rawget(raw, "ruleset")
-  if ruleset is integer then plain.ruleset = ruleset elseif ruleset ~= nil then return nil end -- checked: field_fixed
   local unveil = rawget(raw, "unveil")
   if unveil is {any:any} then -- declared: key_type
     local reads, writes = raw_strings(rawget(unveil, "reads")), raw_strings(rawget(unveil, "writes"))
@@ -818,12 +815,6 @@ local function plain_sandbox(sandbox: raw_process.Sandbox): raw_process.Sandbox?
   local user, group = rawget(raw, "user"), rawget(raw, "group")
   if user is integer then plain.user = user elseif user ~= nil then return nil end -- checked: field_fixed
   if group is integer then plain.group = group elseif group ~= nil then return nil end -- checked: field_fixed
-  local pledge = rawget(raw, "pledge")
-  if pledge ~= nil then
-    local promises = raw_strings(pledge)
-    if promises == nil then return nil end
-    plain.pledge = promises -- checked: field_fixed
-  end
   return plain
 end
 
@@ -1080,7 +1071,7 @@ local function enter(own?: {string}, sandboxed?: boolean): Leave, {string}
       return pid, trouble, errno
     end
     -- A sandbox of its own that does not both unveil and take the
-    -- network -- a pledge or a ruleset alone -- leaves the process
+    -- network -- promises or grants alone -- leaves the process
     -- reading what its test did not declare: under [`must_confine`] it
     -- does not start, rather than be held to a sandbox it was not given.
     -- One the core would refuse raises there.

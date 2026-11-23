@@ -1,27 +1,21 @@
---- The raw process table's Landlock calls (core/process.h's
---- `landlock_ruleset` and `landlock_restrict_execute`, and `spawn`'s
---- `ruleset`) on a live child, as core/syscalls_test.tl states the rest of
+--- The raw process table's Landlock hold on what may run (core/process.h's
+--- `landlock_restrict_execute`) on a live process, as core/syscalls_test.tl states the rest of
 --- the table. They need a kernel with Landlock, which no other platform
 --- has: where the platform lacks one the refusal is
 --- core/syscalls_test.tl's, and where this Linux host refuses it the tests
 --- are not run (`requires`) or, where only the call can tell, skipped
 --- (Test.skip).
 
-local Net = require("cosmic.net")
 local sys = require("cosmic.sys")
 local Test = require("cosmic.test")
-local unix_socket = require("build.unix_socket")
 local stand_in = require("build.stand_in")
-local Clock = require("cosmic.clock")
 -- Required, so the module whose loader is handed the raw table is of this
 -- test's import closure, and the store has it to hand it from.
 local type _ = require("cosmic.child")
 
---- /proc and loopback, as core/syscalls_test.tl declares them: the child
---- connects to a listener of this process's on loopback.
+--- /proc, as core/syscalls_test.tl declares it.
 Test.policy{
   profiles = { "proc" },
-  loopback = { "127.0.0.1" },
   requires = { "landlock" },
 }
 
@@ -39,117 +33,6 @@ local function create(path: string): integer
   local fd, trouble = sys.open(path, sys.O_CREAT | sys.O_RDWR | sys.O_TRUNC, 420)
   assert(fd ~= nil, trouble)
   return fd
-end
-
---- A child held to a ruleset reads and runs only what it names, and what
---- it starts is held too; the process that made the ruleset is not.
-local function test_a_landlock_ruleset_holds_a_child_to_what_it_names(tmp: string)
-  local inside, outside = tmp .. "/in", tmp .. "/out"
-  assert(sys.mkdir(inside, 0x1c0) and sys.mkdir(outside, 0x1c0))
-  local written = create(inside .. "/f")
-  assert(sys.write(written, "in") == 2)
-  sys.close(written)
-  written = create(outside .. "/f")
-  assert(sys.write(written, "out") == 3)
-  sys.close(written)
-  local probe = probe_in(tmp)
-  local reads: {string} = { inside, probe }
-  local ruleset, trouble, errno = process.landlock_ruleset(reads, {})
-  if ruleset == nil then
-    -- Not built in, turned off, or refused by a filter (a container's
-    -- seccomp profile): what only the call can tell.
-    assert(errno == sys.ENOSYS or errno == sys.EOPNOTSUPP or errno == sys.EPERM, trouble)
-    Test.skip("the kernel gives no Landlock ruleset: " .. tostring(trouble))
-    return
-  end
-  local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe,
-    "cat in/f; print; run " .. probe .. " cat out/f || print refused; " ..
-      "append in/g x || print unwritten" },
-    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
-  sys.close(ruleset)
-  local status = assert(process.waitpid(pid, false))
-  assert(status.code == 0, tostring(status.code))
-  local said = assert(sys.pread(output, 4096, 0))
-  sys.close(output)
-  assert(said:find("^in\n") and said:find("refused\n", 1, true) and
-      said:find("unwritten\n", 1, true), said)
-  assert(not said:find("\nout\n", 1, true), said)
-  local mine = assert(sys.open(outside .. "/f", sys.O_RDONLY))
-  assert(sys.read(mine, 16) == "out")
-  sys.close(mine)
-  -- A directory given to write is written; a ruleset whose descriptor is
-  -- the one just above the child's own -- where the exec status goes --
-  -- still holds it.
-  assert(sys.mkdir(tmp .. "/w", 0x1c0))
-  local writing = assert(process.landlock_ruleset(reads, { tmp .. "/w" }))
-  local report = create(tmp .. "/report")
-  -- A free descriptor from 4 to 10, the child's own ending below it.
-  local free = 10
-  while free > 4 and sys.fstat(free) ~= nil do free = free - 1 end
-  assert(sys.fstat(free) == nil, "no descriptor from 4 to 10 is free")
-  assert(sys.dup2(writing, free))
-  sys.close(writing)
-  local own = tostring(free - 1)
-  local wrote = assert(process.spawn(probe, { probe,
-    "append w/f w && write-fd " .. own .. " w-written; append in/h x || write-fd " .. own .. " held" },
-    nil, tmp, nil, nil, nil, false, { [free - 1] = report }, { ruleset = free }))
-  sys.close(free)
-  assert(assert(process.waitpid(wrote, false)).code == 0)
-  local reported = assert(sys.pread(report, 4096, 0))
-  sys.close(report)
-  assert(reported == "w-written\nheld\n", reported)
-  local fd = assert(sys.open(tmp .. "/w/f", sys.O_RDONLY))
-  assert(sys.read(fd, 16) == "w\n")
-  sys.close(fd)
-  local bad, bad_trouble = process.landlock_ruleset({ tmp .. "/nowhere" }, {})
-  assert(bad == nil and bad_trouble ~= "", "a path that is not there refuses the ruleset")
-end
-
---- Runs a child held to a ruleset of its own program alone, whose `script`
---- connects to the listener `listen` makes at `tmp`/s, and checks it did.
-local function connects_through_a_ruleset(tmp: string, listen: function(string): Net.Listener,
-                                          script: function(Net.Listener, string): string)
-  local probe = probe_in(tmp)
-  local socket = tmp .. "/s"
-  local listener = listen(socket)
-  local ruleset, trouble = process.landlock_ruleset({ probe }, {})
-  if ruleset == nil then
-    assert(listener:close())
-    Test.skip("the kernel gives no Landlock ruleset: " .. tostring(trouble))
-    return
-  end
-  local output = create(tmp .. "/said")
-  local pid = assert(process.spawn(probe, { probe, script(listener, socket) },
-    nil, tmp, nil, output, output, false, nil, { ruleset = ruleset }))
-  sys.close(ruleset)
-  local status = assert(process.waitpid(pid, false))
-  local said = assert(sys.pread(output, 4096, 0))
-  sys.close(output)
-  assert(status.code == 0 and said == "connected\n", said)
-  assert(assert(listener:accept()):close())
-  assert(listener:close())
-end
-
---- A ruleset holds files and not the network, on every kernel: a child
---- held to one reaches a listener of this process's over TCP on
---- loopback, as one held to none does.
-local function test_a_landlock_ruleset_leaves_a_child_its_loopback(tmp: string)
-  connects_through_a_ruleset(tmp, function(_socket: string): Net.Listener
-    return (assert(Net.listen(Net.tcp("127.0.0.1", 0), { timeout_ns = Clock.seconds(5) })))
-  end, function(listener: Net.Listener, _socket: string): string
-    return "connect-tcp 127.0.0.1 " .. tostring(listener.address.port)
-  end)
-end
-
---- The same over a unix socket file.
-local function test_a_landlock_ruleset_leaves_a_child_its_unix_socket(tmp: string)
-  unix_socket.skip_if_refused(tmp)
-  connects_through_a_ruleset(tmp, function(socket: string): Net.Listener
-    return (assert(Net.listen(Net.unix(socket), { timeout_ns = Clock.seconds(5) })))
-  end, function(_listener: Net.Listener, socket: string): string
-    return "connect " .. socket
-  end)
 end
 
 --- A process held to running what is beneath some paths runs a program

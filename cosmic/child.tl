@@ -3814,9 +3814,9 @@ local function start(argv: {string}, opts: Options, pty?: Pty, serves_relay?: in
       extra[number] = fd -- checked: nil_not_allowed
     end
   end
-  -- TODO: offer the rest of spawn's `sandbox` -- a ruleset from
-  -- raw.landlock_ruleset, a pledge -- once a caller wants a child held
-  -- to one: build/sandbox_probe.tl, which reaches the raw table for them.
+  -- TODO: offer spawn's `grants` and `promises` apart from a policy's
+  -- start once a caller wants a child held to one alone:
+  -- build/sandbox_probe.tl, which reaches the raw table for them.
   local sandbox: raw_process.Sandbox? = nil
   local opts_sandbox = opts.sandbox
   if opts_sandbox ~= nil then
