@@ -402,55 +402,72 @@ local record Cli
   --- file cannot be read or loaded. It exits 2 for a command line it cannot
   --- read.
   sql: string
-  --- `cosmic json [options] [path] [file|-]`: the answer to a quick
-  --- question about a JSON file -- is there a key `x` in this export,
-  --- what is under `users[0]` -- with no script to write. It reads the
-  --- file, or standard input when the file is `-` or absent, and prints
-  --- the value at the path as JSON, indented, or on one line with
-  --- `--compact`; a string prints as its text with `-r`. A path is a
-  --- JSONPath query (RFC 9535), in the subset [`Json.query`] reads, and
-  --- goes in single quotes, as a shell would expand its `$` and `[0]`:
-  --- `cosmic json '$.users[0].name' export.json`. `$` is the document and
-  --- comes first, then `.key` (a key that is a word), `["a key"]` (any
-  --- key, in a JSON string) or `['a key']`, and `[0]`, counted from 0, or
-  --- `[-1]` from the end. A key holding `'` is written `["it's"]`, whose
-  --- `'` inside a shell's single quotes is `'\''`:
-  --- `cosmic json '$["it'\''s"]'`. `*` (`.*` or `[*]`) is every member of
-  --- an object or element of an array, and `..key`, `..[n]` or `..*`
-  --- that selector at any depth, the current level included (`$..id`,
-  --- `$.users[*].name`): such a query prints each match as a
-  --- `path = value` line, the value as compact JSON
-  --- (`$.users[0].name = "ann"`), in the order RFC 9535 gives (arrays by
-  --- index, keys in byte order), a value reached twice once; with `-r`,
-  --- the raw values alone, one to a line (a string prints as its text,
-  --- so one with a newline in it spans lines; without `-r`, or with
-  --- `--flat`, every line is one JSON value); with `--exists`, nothing,
-  --- and 0 when at least one matches. Filters, slices and unions are
-  --- refused by name: this is a lookup, not a query language. `--flat`
-  --- prints every leaf under the path (the whole document with none) as
-  --- such lines, an empty object or array as `{}` or `[]`; the path of
-  --- each line is one this command reads back, in that shorthand form
-  --- (`$.users[1].email`, `$["a key"][0]`), so `cosmic json --flat
-  --- export.json | grep -i email` finds a leaf and its path pastes back
-  --- into `cosmic json '$.users[1].email' export.json`. With one word, it
-  --- is the path when it begins with `$`, else the file; a file named
-  --- `$x.json` is `./$x.json`, and after `--` the words are `[path] file`
-  --- whatever
-  --- they begin with. The value is printed as [`Json.encode`] writes it,
-  --- not echoed byte for byte: `1e2` prints as `100.0` and a big integer
-  --- loses precision. `--exists` prints nothing and only answers by its
-  --- exit status; `--keys` lists an object's keys, sorted, one per line,
-  --- or an array's length; `--shape` prints a summary of the value's
-  --- shape (`{ids: [2 x number], ok: boolean}`), and neither takes a
-  --- query of `*` or `..`, which can match many values. Only a lookup:
-  --- no filter, no transform; to count or sum, use `cosmic sql --from`.
-  --- Exits 0 when the path is found (a query of many: when something
-  --- matches), 1 when it is not, with a message on standard error naming
-  --- by its JSON Pointer the first place not there (`no value at pointer
-  --- "/users/4"`; a query of many that matches nothing: `<query>: no
-  --- match`; a `null` value is found), 2 for a command line or a path it
-  --- cannot read, or a file that is missing or not JSON. It prints no
-  --- summary: its output is the data a pipe reads
+  --- `cosmic json [options] [path] [file|-]`: answers a quick question about
+  --- a JSON file, with no script to write: is there a key `x` in this
+  --- export, what is under `users[0]`. It reads the file, or standard input
+  --- when the file is `-` or absent. It prints the value at the path as
+  --- indented JSON, or on one line with `--compact`. With `-r`, a string
+  --- prints as its text.
+  ---
+  --- Paths:
+  ---
+  --- A path is a JSONPath query (RFC 9535), in the subset that
+  --- [`Json.query`] reads. Put it in single quotes, because a shell expands
+  --- `$` and `[0]`: `cosmic json '$.users[0].name' export.json`.
+  ---
+  --- - `$` is the document, and comes first.
+  --- - `.key` is a key that is a word. `["a key"]` (a JSON string) or
+  ---   `['a key']` is any key.
+  --- - `[0]` is an index counted from 0, and `[-1]` counts from the end.
+  --- - A key that holds `'` is written `["it's"]`. Inside a shell's single
+  ---   quotes, its `'` is `'\''`: `cosmic json '$["it'\''s"]'`.
+  --- - `*` (`.*` or `[*]`) is every member of an object or every element of
+  ---   an array. `..key`, `..[n]` and `..*` match that selector at any
+  ---   depth, the current level too (`$..id`, `$.users[*].name`).
+  --- - Filters, slices and unions are refused by name: this is a lookup,
+  ---   not a query language. To count or sum, use `cosmic sql --from`.
+  ---
+  --- A query that can match many values prints each match as a
+  --- `path = value` line, with the value as compact JSON
+  --- (`$.users[0].name = "ann"`). The order is the one RFC 9535 gives
+  --- (arrays by index, keys in byte order), and a value reached twice
+  --- prints once. With `-r`, it prints only the raw values, one to a line;
+  --- a string prints as its text, so a string with a newline spans lines.
+  --- Without `-r`, or with `--flat`, every line is one JSON value.
+  ---
+  --- With one word, the word is the path when it begins with `$`, and the
+  --- file otherwise. Give a file named `$x.json` as `./$x.json`. After `--`,
+  --- the words are `[path] file`, whatever they begin with.
+  ---
+  --- The value is printed as [`Json.encode`] writes it, not copied byte for
+  --- byte: `1e2` prints as `100.0`, and a big integer loses precision.
+  ---
+  --- Other outputs:
+  ---
+  --- - `--exists` prints nothing, and answers only by its exit status: 0
+  ---   when the path is found, or when at least one value of a many-value
+  ---   query matches.
+  --- - `--keys` lists an object's keys, sorted, one per line, or prints an
+  ---   array's length.
+  --- - `--shape` prints a summary of the value's shape
+  ---   (`{ids: [2 x number], ok: boolean}`).
+  --- - `--keys` and `--shape` do not take a query with `*` or `..`, which
+  ---   can match many values.
+  --- - `--flat` prints every leaf under the path (the whole document when
+  ---   there is no path) as `path = value` lines, and an empty object or
+  ---   array as `{}` or `[]`. Each path is in a shorthand form that this
+  ---   command reads back (`$.users[1].email`, `$["a key"][0]`). So
+  ---   `cosmic json --flat export.json | grep -i email` finds a leaf, and
+  ---   you can paste its path into `cosmic json '$.users[1].email' export.json`.
+  ---
+  --- It prints no summary: its output is the data that a pipe reads. It
+  --- exits 0 when the path is found (for a many-value query, when something
+  --- matches). It exits 1 when the path is not found, with a message on
+  --- standard error. The message names, by its JSON Pointer, the first place
+  --- that is not there (`no value at pointer "/users/4"`); for a many-value
+  --- query that matches nothing, it is `<query>: no match`. A `null` value
+  --- is found. It exits 2 for a command line or a path it cannot read, or a
+  --- file that is missing or not JSON.
   json: string
   --- `cosmic hash [options] [file|-]...`: prints the digest of each file,
   --- or of standard input for `-` or no file. The line is
@@ -571,83 +588,106 @@ local record Cli
   --- for a command line, an archive it cannot read or one it refuses
   --- to unpack. See also `cosmic json`
   archive: string
-  --- `cosmic rand <uuid|token|int|pick|shuffle|normal|gamma> [options]`: an
-  --- id, a token, a number, a shuffled list or a normal or gamma draw,
+  --- `cosmic rand <uuid|token|int|pick|shuffle|normal|gamma> [options]`: prints
+  --- an id, a token, a number, a shuffled list, or a normal or gamma draw,
   --- with no script to write.
-  --- `uuid [--v4|--v7] [-n N]` prints N UUIDs (default one, version 4);
-  --- version 7 (RFC 9562) leads with the millisecond clock, then a
-  --- 12-bit counter (the RFC's method 3, section 6.2: the clock's
-  --- fraction of the millisecond, bumped by one where a draw would not
-  --- sort after the last), then entropy, so one run's values sort as
-  --- drawn; a clock that steps far back leaves them ahead of real time
-  --- for the rest of the run. `-n` is at most 10000000 (a refusal past
-  --- it, exit 2); ten million UUIDs take about 40 seconds, ten million
-  --- integers about 15. `token
-  --- [--bytes N] [--hex|--base64url]` prints N random bytes (default
-  --- 32, at most 1048576) as base64url without padding, or as hex.
-  --- `int [-n N] <lo> <hi>` prints N integers (default one) uniform over
-  --- lo..hi inclusive, drawn by rejection so no value is likelier;
-  --- bounds may be negative (`int -5 5`), and lo above hi is refused.
-  --- `pick [-n N] [file|-]` prints N distinct lines, and `shuffle
-  --- [file|-]` all of them, in an order drawn by Fisher-Yates; a line
-  --- ends at a newline, a carriage return before it is dropped (CRLF
-  --- input reads as LF), and an empty input has none. Asking `pick` for
-  --- more lines than there are is refused, exit 2, with nothing
-  --- printed. `normal [-n N] [--mean M] [--stddev SD]` prints N draws
-  --- (default one) from the normal distribution, mean 0 and standard
-  --- deviation 1 unless given (SD may be 0, not negative); `gamma
-  --- [-n N] --shape K [--scale T]` prints N draws from the gamma
-  --- distribution of shape K, required, and scale T (default 1; the
-  --- mean is K * T), both above 0. A parameter is a finite decimal
-  --- number (`-5`, `.5`, `1e-3`); `inf`, `nan`, hexadecimal and a value
-  --- too large for a double are refused, exit 2. Each value prints on a
-  --- line as `%.17g`, which reads back as the same double; a gamma draw
-  --- can print 0 for a tiny shape, and a draw can print inf where it
-  --- overflows. Everything secret-grade -- uuid, token, and the rest
-  --- without `--seed` -- comes from the operating system's entropy
-  --- source ([`Rand.entropy`]), never from a seeded generator. `--seed
-  --- N` (int, pick, shuffle, normal, gamma) draws from `Rand.new(N)`
-  --- instead, so a test or a script can replay it (a float draw agrees
-  --- across targets only as far as their `log` and `pow` do): that
-  --- output is NOT secret, and
-  --- `--seed` is refused with uuid and token. Its standard output is
-  --- data, and it prints no summary. Exits 0 when it printed,
-  --- 1 when the entropy source failed, 2 for a command line, a file or a
-  --- request it refuses, or a failed write to standard output
+  ---
+  --- - `uuid [--v4|--v7] [-n N]` prints N UUIDs (default one, version 4).
+  ---   Version 7 (RFC 9562) starts with the millisecond clock, then a 12-bit
+  ---   counter, then entropy, so one run's values sort in the order they
+  ---   were drawn. The counter is the RFC's method 3 (section 6.2): the
+  ---   clock's fraction of the millisecond, increased by one where a draw
+  ---   would not sort after the last. A clock that steps far back leaves
+  ---   the values ahead of real time for the rest of the run.
+  --- - `token [--bytes N] [--hex|--base64url]` prints N random bytes
+  ---   (default 32, at most 1048576) as base64url without padding, or as hex.
+  --- - `int [-n N] <lo> <hi>` prints N integers (default one), uniform over
+  ---   lo..hi inclusive. It draws by rejection, so no value is more likely
+  ---   than another. The bounds may be negative (`int -5 5`); lo above hi is
+  ---   refused.
+  --- - `pick [-n N] [file|-]` prints N distinct lines, and
+  ---   `shuffle [file|-]` prints all of them, in an order drawn by
+  ---   Fisher-Yates. A line ends at a newline, and a carriage return before
+  ---   the newline is dropped (CRLF input reads as LF). An empty input has
+  ---   no lines. Asking `pick` for more lines than there are is refused
+  ---   (exit 2), and nothing is printed.
+  --- - `normal [-n N] [--mean M] [--stddev SD]` prints N draws (default one)
+  ---   from the normal distribution: mean 0 and standard deviation 1 unless
+  ---   given. SD may be 0, but not negative.
+  --- - `gamma [-n N] --shape K [--scale T]` prints N draws from the gamma
+  ---   distribution of shape K, which is required, and scale T (default 1).
+  ---   The mean is K * T, and both must be above 0.
+  ---
+  --- `-n` is at most 10000000; more is refused (exit 2). Ten million UUIDs
+  --- take about 40 seconds, and ten million integers about 15.
+  ---
+  --- A parameter is a finite decimal number (`-5`, `.5`, `1e-3`). `inf`,
+  --- `nan`, hexadecimal and a value too large for a double are refused
+  --- (exit 2). Each float prints on a line as `%.17g`, which reads back as
+  --- the same double. A gamma draw can print 0 for a tiny shape, and a draw
+  --- can print inf where it overflows.
+  ---
+  --- Randomness:
+  ---
+  --- Everything secret-grade comes from the operating system's entropy
+  --- source ([`Rand.entropy`]), never from a seeded generator: uuid, token,
+  --- and the other commands without `--seed`. `--seed N` (int, pick,
+  --- shuffle, normal, gamma) draws from `Rand.new(N)` instead, so a test or
+  --- a script can replay it. A float draw agrees across targets only as far
+  --- as their `log` and `pow` do. Seeded output is NOT secret, and `--seed`
+  --- is refused with uuid and token.
+  ---
+  --- Its standard output is data, and it prints no summary. It exits 0 when
+  --- it printed, and 1 when the entropy source failed. It exits 2 for a
+  --- command line, a file or a request that it refuses, or a failed write
+  --- to standard output.
   rand: string
-  --- `cosmic qr [options] [text...]`: the QR code of a text, to show an
-  --- address to a phone with nothing installed. The text is the words,
-  --- joined by spaces, or, with none, standard input less one newline at
-  --- its end. It prints the code for the terminal in half blocks (`▀`,
-  --- `▄`, `█`), two rows of modules a line, with the standard's quiet
-  --- zone of four modules (`--quiet N`, 0 to 16). As it is, the blocks
-  --- show the light modules, for light text on a dark ground, the common
-  --- terminal; `--invert` draws the dark modules instead, for a light
-  --- ground or paper. A reader needs dark modules on light, so if a phone
-  --- does not take it, try the other. `--ascii` draws each module as `##`
-  --- or two spaces, a line a row, for a font with no block characters.
-  --- `--svg <file|->` writes an SVG image to the file, or prints it,
-  --- 8 pixels a module (`--scale N`, 1 to 1000) with a `viewBox`, so it
-  --- shows at a size and scales without blurring; `--title T` names what it
-  --- shows for a screen reader. `--level L|M|Q|H` is the error correction
-  --- (default M: 15% of the code can be lost), and `--max-version N`
-  --- refuses a text that needs a code of more than N (1 to 40, default
-  --- 40) to keep it small enough to scan. Examples:
-  --- `cosmic qr https://example.com/` prints a code,
-  --- `echo https://example.com/ | cosmic qr --invert` one for a light
-  --- terminal, and `cosmic qr --svg code.svg --level H https://example.com/`
-  --- writes an image. A text that starts with `-` follows `--`
-  --- (`cosmic qr -- -x`). `--read [file|-]` reads a code back: the text
-  --- or SVG that `cosmic qr` drew, either way round and with any quiet
-  --- zone, from the file or standard input, mending what its level
-  --- allows, and prints what it holds and a newline (`cosmic qr hello |
-  --- cosmic qr --read` prints `hello`). It reads those drawings, not
-  --- photos or other programs' images. A program draws and reads its own
-  --- with [`cosmic.qr`]. Its standard output is the code, or the text
-  --- read, and it prints no summary. Exits 0 when it printed or wrote, 1
+  --- `cosmic qr [options] [text...]`: prints the QR code of a text, to show
+  --- an address to a phone with nothing installed. The text is the words,
+  --- joined by spaces. With no words, it is standard input, less one newline
+  --- at its end. A text that starts with `-` goes after `--`
+  --- (`cosmic qr -- -x`).
+  ---
+  ---     cosmic qr https://example.com/
+  ---     echo https://example.com/ | cosmic qr --invert
+  ---     cosmic qr --svg code.svg --level H https://example.com/
+  ---
+  --- Drawing:
+  ---
+  --- - It prints the code for the terminal in half blocks (`▀`, `▄`, `█`),
+  ---   two rows of modules on each line, with the standard's quiet zone of
+  ---   four modules (`--quiet N`, 0 to 16).
+  --- - By default the blocks show the light modules, for light text on a
+  ---   dark background, which is the common terminal. `--invert` draws the
+  ---   dark modules instead, for a light background or paper. A reader
+  ---   needs dark modules on light, so if a phone does not read the code,
+  ---   try the other one.
+  --- - `--ascii` draws each module as `##` or two spaces, one line for each
+  ---   row, for a font with no block characters.
+  --- - `--svg <file|->` writes an SVG image to the file, or prints it. It is
+  ---   8 pixels for each module (`--scale N`, 1 to 1000), with a `viewBox`,
+  ---   so it shows at a size and scales without blur. `--title T` says what
+  ---   it shows, for a screen reader.
+  --- - `--level L|M|Q|H` is the error correction (default M: 15% of the code
+  ---   can be lost). `--max-version N` refuses a text that needs a code
+  ---   larger than version N (1 to 40, default 40), to keep the code small
+  ---   enough to scan.
+  ---
+  --- Reading:
+  ---
+  --- `--read [file|-]` reads a code back from the file or standard input,
+  --- and prints what it holds and a newline (`cosmic qr hello | cosmic qr
+  --- --read` prints `hello`). It reads the text or SVG that `cosmic qr`
+  --- drew, either way round and with any quiet zone, and mends what its
+  --- level allows. It reads those drawings only, not photos or other
+  --- programs' images. A program draws and reads its own codes with
+  --- [`cosmic.qr`].
+  ---
+  --- Its standard output is the code, or the text that it read, and it
+  --- prints no summary. It exits 0 when it printed or wrote. It exits 1
   --- when the text is too large for a code of the allowed versions at the
-  --- level or a drawing holds no code it can read, 2 for a command line
-  --- or an input it refuses, or a failed write
+  --- level, or when a drawing holds no code that it can read. It exits 2
+  --- for a command line or an input that it refuses, or a failed write.
   qr: string
   --- `cosmic acme <key|issue> ...`: a TLS certificate from an ACME
   --- certificate authority (RFC 8555) such as Let's Encrypt. `key
@@ -766,45 +806,67 @@ local record Cli
   --- input or a write it cannot honor
   codec: string
   --- `cosmic fetch <url[#sha256=hex]> [-o file] [--sha256 hex] [--sha512 hex] [--allow-downgrade] [--head [--json]]
-  --- [--roots set] [--cacert file] [--pin pin]`: one
-  --- GET, a small curl. With no `-o` the body goes to standard output, so
-  --- `cosmic fetch <url> | cosmic json '$.items'` reads it; with `-o` it is
-  --- written to a temporary file beside the target and renamed into place
-  --- only once it is all in and matches `--sha256`, `--sha512` or the digest
-  --- the URL's fragment carries (`<url>#sha256=<hex>`, or `#sha256sum=`,
-  --- `#sha512=`, `#sha512sum=`; the fragment is never sent or printed, and
-  --- an unrecognized one is dropped, but one that looks like a
-  --- checksum this verb does not check, such as `sha1=` or `SHA256=`, is exit 2; a bad digest, or a flag and fragment
-  --- for one algorithm that differ, exits 2 before any request; for
-  --- different algorithms both must match), so a failed digest
-  --- leaves nothing at the target. `--sha256` with standard output holds
-  --- the whole body in memory and writes it only once the digest
-  --- matches, since bytes already on a pipe cannot be taken back; on a
-  --- mismatch it exits 1 and names both digests. A status outside 2xx
-  --- fails (exit 1, the status on standard error), as `curl -f` does,
-  --- and nothing turns that off, so an error page never reaches a pipe;
-  --- `--head` prints `HTTP <status>` and the headers, names lowercased
-  --- and sorted, or with `--json` an object of `status`, `url` and
-  --- `headers`, and then fails on a non-2xx too. Redirects are followed,
-  --- up to 10, as [`cosmic.http`] follows them, but from an https URL a
-  --- redirect to http is refused (exit 1), unlike curl's default;
-  --- `--allow-downgrade` follows it, best with `--sha256`. Header
-  --- values print with control bytes as `\xNN`, and a URL's userinfo prints as
-  --- `***`. Streaming to standard output can leave partial bytes sent before a
-  --- failure (exit 1); a digest there buffers the whole body, uncapped. Certificates are always
-  --- verified: there is no option that turns it off. `--roots` chooses
-  --- the CA roots to verify against, as [`Http.Options`]'s `roots` does
-  --- (`minimal`, `none`, or digests joined by commas); `--cacert` trusts
-  --- a file's certificates besides them; `--pin` holds the server's key
-  --- to a public key pin ([`Http.public_key_pin`]); a value of the wrong
-  --- shape, or a `--cacert` file it cannot read, exits 2 before any
-  --- request. GET only, by
-  --- design: for a header, a body or another method write the script
-  --- with [`cosmic.http`]. It prints no summary: its output is the body
-  --- a pipe reads. Exits 0 when the body was delivered, 1 when
-  --- the fetch failed (no connection, a bad status, a digest that does
-  --- not match, a body that broke off, an `-o` write that failed), 2 for a command line, a URL or
-  --- a write to standard output it cannot use
+  --- [--roots set] [--cacert file] [--pin pin]`: makes one GET, like a small
+  --- curl. GET is the only method, by design: for a header, a body or
+  --- another method, write a script with [`cosmic.http`].
+  ---
+  --- Without `-o`, the body goes to standard output, so
+  --- `cosmic fetch <url> | cosmic json '$.items'` reads it. With `-o`, the
+  --- body is written to a temporary file beside the target. The file is
+  --- renamed into place only when the whole body is in and its digest
+  --- matches. So a failed digest leaves nothing at the target.
+  ---
+  --- Digests:
+  ---
+  --- - `--sha256` or `--sha512` gives the digest. The URL's fragment can
+  ---   also carry it: `<url>#sha256=<hex>`, or `#sha256sum=`, `#sha512=`,
+  ---   `#sha512sum=`. The fragment is never sent or printed.
+  --- - An unknown fragment is dropped. A fragment that looks like a
+  ---   checksum this verb does not check, such as `sha1=` or `SHA256=`,
+  ---   exits 2.
+  --- - A bad digest, or an option and a fragment for one algorithm that
+  ---   differ, exits 2 before any request. For different algorithms, both
+  ---   must match.
+  --- - A digest (`--sha256`, `--sha512` or a fragment) with standard output
+  ---   holds the whole body in memory, with no limit, and writes it only
+  ---   when the digest matches, because bytes already on a pipe cannot be
+  ---   taken back. On a mismatch it exits 1 and names both digests.
+  --- - Without a digest, streaming to standard output can leave partial
+  ---   bytes sent before a failure (exit 1).
+  ---
+  --- Status and redirects:
+  ---
+  --- - A status outside 2xx fails (exit 1, with the status on standard
+  ---   error), as `curl -f` does. Nothing turns this off, so an error page
+  ---   never reaches a pipe.
+  --- - `--head` prints `HTTP <status>` and the headers, with names
+  ---   lowercased and sorted. With `--json` it prints an object of `status`,
+  ---   `url` and `headers`. It also fails on a status outside 2xx.
+  --- - Redirects are followed, up to 10, as [`cosmic.http`] follows them.
+  ---   From an https URL, a redirect to http is refused (exit 1), unlike
+  ---   curl's default. `--allow-downgrade` follows it; use it with
+  ---   `--sha256`.
+  --- - Header values print with control bytes as `\xNN`, and a URL's
+  ---   userinfo prints as `***`.
+  ---
+  --- Certificates:
+  ---
+  --- Certificates are always verified: no option turns this off.
+  ---
+  --- - `--roots` chooses the CA roots to verify against, as
+  ---   [`Http.Options`]'s `roots` does: `minimal`, `none`, or digests
+  ---   joined by commas.
+  --- - `--cacert` also trusts a file's certificates.
+  --- - `--pin` holds the server's key to a public key pin
+  ---   ([`Http.public_key_pin`]).
+  --- - A value of the wrong shape, or a `--cacert` file it cannot read,
+  ---   exits 2 before any request.
+  ---
+  --- It prints no summary: its output is the body that a pipe reads. It
+  --- exits 0 when the body was delivered. It exits 1 when the fetch failed:
+  --- no connection, a bad status, a digest that does not match, a body that
+  --- broke off, or an `-o` write that failed. It exits 2 for a command line,
+  --- a URL or a write to standard output that it cannot use.
   fetch: string
   --- `cosmic docs [q...]`: what the database says about q -- a symbol
   --- (Fs.read, read), a module (cosmic.fs, or fs for its last name),
@@ -912,42 +974,60 @@ local record Cli
   --- binary it reads is never written
   refresh: string
   --- `cosmic release [--commit hex] [--until time] [--list [-n count] | -o file | --cache] [--pin file | --launcher file] [--json]`:
-  --- finds cosmic's own releases, the `YYYYMMDD-<commit>` (earlier,
-  --- `next-<commit>`) prereleases of cosmic-lua/cosmic on GitHub, picks
-  --- one and verifies it. Releases are found by their tags and main's
-  --- history, newest commit first, as the API's list of releases serves
-  --- only 1000 and not by time; a `--commit` reads only the releases of
-  --- the tags whose commit starts with its prefix, refusing a prefix
-  --- that names more than 10. With no criterion it
-  --- picks the release of the latest commit on main that has one;
-  --- `--commit` the one whose commit starts with the hex (7 to 40
-  --- digits), `--until` the latest whose release was published at or
-  --- before an RFC 3339 time, or by the end of a date in UTC; both may be
-  --- given. A release is verified first: its SHA256SUMS names one
-  --- digest for cosmic and its source.json the same commit and digest.
-  --- With nothing more it prints the release as the three lines of
-  --- ci/cosmic-driver.pin (commit, URL, sha256), or with `--json` an
-  --- object, downloading no binary. `--list` prints the matches instead,
-  --- latest commit first, up to `-n` (20, a request each): the time each
-  --- was published and its commit, or with `--json` an array, verifying
-  --- none. `-o` writes the
-  --- binary to a file, and `--cache` where bin/cosmic-bootstrap caches
-  --- the pin's (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`),
-  --- printing that path; either renames it into place only once its
-  --- sha256 is the release's digest. `--pin` writes the three pin lines
-  --- to a file once the binary's bytes are verified. `--launcher`
-  --- sets a project up to run on the release: it writes the pin as
-  --- `<file>.pin` and, at the file, a shell script that runs the
-  --- release that pin names with the arguments given, a project's
-  --- bin/cosmic. The script downloads the release once, runs it only
-  --- once its sha256 is the pin's and caches it where `--cache`
-  --- does; COSMIC_TOOL=<path> makes it run another cosmic instead,
-  --- such as one `cosmic build` printed in a checkout of cosmic, and
-  --- `--pin <file>.pin` moves the pin from then on. GH_TOKEN goes with
-  --- the API's requests when set, and every redirect must stay on https.
-  --- It prints no summary. Exits 0 when it did what was asked, 1 when it
-  --- could not (no connection, no matching release, a release that fails
-  --- verification, a write that failed), 2 for a command line it refused
+  --- finds cosmic's own releases, picks one and verifies it. The releases
+  --- are the `YYYYMMDD-<commit>` prereleases of cosmic-lua/cosmic on GitHub
+  --- (older ones are `next-<commit>`).
+  ---
+  --- Finding a release:
+  ---
+  --- Releases are found by their tags and main's history, newest commit
+  --- first, because the API's list of releases serves only 1000, and not by
+  --- time.
+  ---
+  --- - With no criterion, it picks the release of the latest commit on main
+  ---   that has one.
+  --- - `--commit` picks the release whose commit starts with the hex (7 to
+  ---   40 digits). It reads only the releases of the tags whose commit
+  ---   starts with that prefix, and refuses a prefix that matches more than
+  ---   10.
+  --- - `--until` picks the latest release published at or before an RFC
+  ---   3339 time, or by the end of a date in UTC.
+  --- - `--commit` and `--until` may be given together.
+  ---
+  --- A release is verified first: its SHA256SUMS must give one digest for
+  --- cosmic, and its source.json the same commit and digest.
+  ---
+  --- What it does with the release:
+  ---
+  --- - With nothing more, it prints the release as the three lines of
+  ---   ci/cosmic-driver.pin (commit, URL, sha256), or as an object with
+  ---   `--json`. It downloads no binary.
+  --- - `--list` prints the matches instead, latest commit first, up to `-n`
+  ---   (default 20, one request each): the time each was published and its
+  ---   commit, or an array with `--json`. It verifies none of them.
+  --- - `-o` writes the binary to a file. `--cache` writes it where
+  ---   bin/cosmic-bootstrap caches the pin's binary
+  ---   (`$XDG_CACHE_HOME/cosmic/bootstrap/cosmic-<sha256>`), and prints that
+  ---   path. Each renames the file into place only when its sha256 is the
+  ---   release's digest.
+  --- - `--pin` writes the three pin lines to a file after the binary's bytes
+  ---   are verified.
+  --- - `--launcher` sets up a project to run on the release. It writes the
+  ---   pin as `<file>.pin`, and at the file a shell script, a project's
+  ---   bin/cosmic, that runs the release the pin names with the arguments
+  ---   given. The script downloads the release once, runs it only when its
+  ---   sha256 is the pin's, and caches it where `--cache` does.
+  ---   COSMIC_TOOL=<path> makes the script run another cosmic instead, such
+  ---   as one that `cosmic build` printed in a checkout of cosmic. To move
+  ---   the pin later, run `cosmic release --pin <file>.pin` alone.
+  ---
+  --- GH_TOKEN goes with the API's requests when it is set, and every
+  --- redirect must stay on https.
+  ---
+  --- It prints no summary. It exits 0 when it did what was asked. It exits
+  --- 1 when it could not: no connection, no matching release, a release
+  --- that fails verification, or a write that failed. It exits 2 for a
+  --- command line that it refused.
   release: string
   --- `cosmic sandbox [options] [--] program [args...]`: runs a program, and
   --- everything it starts, held to what the options grant and nothing more:
