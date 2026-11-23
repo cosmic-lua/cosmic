@@ -10,7 +10,7 @@
 ---     local app = Web.app{
 ---       routes = {
 ---         Web.get("/", function(req: Web.Request): Web.Response
----           local who = Web.oidc_identity(req)
+---           local who = Web.who(req).oidc
 ---           if who == nil then return Web.html('<a href="/auth/login">log in</a>') end
 ---           return Web.text("hello " .. (who.name or who.subject))
 ---         end),
@@ -47,7 +47,7 @@
 ---   TLS, set `trusted_proxy`, or every logout from a browser is refused.
 ---
 --- Every other request goes on to the app with the identity the session
---- holds, which [`Web.oidc_identity`] reads and [`Web.require_login`]
+--- holds, which [`Web.who`] reads and [`Web.require_login`]
 --- requires. [`cosmic.web.session`]'s middleware must run outside this
 --- one: the session is where a login is kept.
 ---
@@ -94,6 +94,7 @@ local Jose = require("cosmic.jose")
 local Json = require("cosmic.json")
 local Loopback = require("cosmic.internal.loopback")
 local Rand = require("cosmic.rand")
+local Identities = require("cosmic.web.identity")
 local Request = require("cosmic.web.request")
 local Response = require("cosmic.web.response")
 local Session = require("cosmic.web.session")
@@ -101,33 +102,8 @@ local Types = require("cosmic.web.types")
 local Url = require("cosmic.url")
 
 local record Oidc
-  --- Who logged in, as [`Web.oidc_identity`] answers it.
-  record Identity
-    --- The provider: the ID token's `iss`.
-    issuer: string
-    --- Who they are at the provider: the ID token's `sub`, which the
-    --- provider never gives another person. Key an account by this and
-    --- `issuer`, never by `email`, which a person can change. The login
-    --- binds the session ([`Handle:bind_subject`]) to this alone, so where
-    --- two providers, or passkeys beside one, can name the same text,
-    --- `destroy_subject` with it ends the sessions of each person it names.
-    subject: string
-    --- Their email address, when the provider gave one.
-    email?: string
-    --- Whether the provider has checked that the address is theirs.
-    email_verified: boolean
-    --- Their name, to show.
-    name?: string
-    --- The name they chose to be known by at the provider.
-    preferred_username?: string
-    --- Where their picture is.
-    picture_url?: string
-    --- When they logged in, in seconds since the epoch.
-    logged_in_at: integer
-    --- The claims of the ID token that `keep_claims` names, and the
-    --- ones above, as the token held them.
-    claims: {string: Json.Value}
-  end
+  --- Who logged in: see [`cosmic.web.identity.Oidc`].
+  type Identity = Identities.Oidc
 
   --- What discovery finds of a provider (OpenID Connect Discovery 1.0
   --- section 3), or what an app gives where its provider has none.
@@ -179,7 +155,7 @@ local record Oidc
     --- logout goes through the provider; else it ends the app's session
     --- alone.
     provider_logout?: string
-    --- Claims of the ID token to keep in [`Oidc.Identity.claims`]
+    --- Claims of the ID token to keep in [`cosmic.web.identity.Oidc.claims`]
     --- beside the standard ones (`groups`, say). Each is kept in the
     --- session: under the signed cookie store, all of the session must
     --- fit in its cookie, and a login whose claims do not is a 500.
@@ -214,7 +190,7 @@ local record Verdict
 end
 
 --- The key a request's identity is kept under.
-local IDENTITY: Types.Key<Oidc.Identity> = Request.key("oidc.identity")
+local IDENTITY: Types.Key<Oidc.Identity> = Identities.OIDC
 --- The key the login path is kept under, for [`Oidc.require_login`].
 local LOGIN: Types.Key<string> = Request.key("oidc.login")
 
@@ -782,12 +758,6 @@ function Oidc.middleware(opts: Oidc.Options): Types.Middleware
       return inner(req)
     end
   end
-end
-
---- The identity [`Web.oidc`] found in the request's session, or nil where
---- nobody is logged in (or it does not run).
-function Oidc.identity(req: Types.Request): Oidc.Identity?
-  return req:get(IDENTITY)
 end
 
 --- Middleware that requires a login: a GET or HEAD that would take HTML

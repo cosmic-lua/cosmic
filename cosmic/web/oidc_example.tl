@@ -45,7 +45,7 @@ function Example.oidc()
   local app = Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        local who = assert(Web.oidc_identity(req))
+        local who = assert(Web.who(req).oidc)
         return Web.text("hello " .. (who.name or who.subject))
       end, { middleware = { Web.require_login() } }),
     },

@@ -181,8 +181,6 @@ allowed["cosmic.defer.run"] = "the function a Defer runs, which its `__close` ca
   "Defer.new, that no caller needs to read"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
   "the tree's own clients speak through cosmic.http, so only its tests make one"
-allowed["cosmic.web.client_cert"] = "public API: the client certificate an app reads of a request over mutual TLS; " ..
-  "no app in the tree serves mutual TLS, so only its tests read one"
 allowed["cosmic.web.require_client_cert"] = "public API: middleware admitting the clients of mutual TLS; " ..
   "no app in the tree serves mutual TLS, so only its tests use it"
 allowed["cosmic.hash.file"] = "the raw-digest form of hex_file, which is its only caller outside tests"
@@ -287,7 +285,6 @@ allowed["cosmic.sandbox.restrict"] = "tested directly: it holds the process that
   "design's test phase lands (the TODO at build.confine's forbid_running)"
 allowed["cosmic.web.tailnet"] = "public API: the middleware that finds who a request comes from on the " ..
   "tailnet, which an app names in its own middleware"
-allowed["cosmic.web.tailnet_identity"] = "public API: how a handler reads who the tailnet says asked"
 allowed["cosmic.web.require_cap"] = "public API: the middleware an app puts on a route that needs a " ..
   "capability the tailnet policy grants"
 allowed["cosmic.test.needs_of"] = "tested directly: the worker's translation of a policy, " ..

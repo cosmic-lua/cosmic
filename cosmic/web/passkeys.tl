@@ -54,7 +54,7 @@
 --- ([`Store.spend`]), since a session in a signed cookie cannot forget
 --- it, and an answer to it is refused after. A login is a passkey with no user named first: the
 --- browser offers the passkeys it holds for `rp_id`, and the user handle
---- of the one chosen says who logs in. [`Web.passkey_identity`] answers
+--- of the one chosen says who logs in. [`Web.who`] answers
 --- it, for every request of the session after while the store keeps the
 --- passkey: removing one ([`Store.remove`]) logs out every session it
 --- logged in, at its next request, though the session and what else it
@@ -70,7 +70,7 @@
 local Clock = require("cosmic.clock")
 local Codec = require("cosmic.codec")
 local Json = require("cosmic.json")
-local Request = require("cosmic.web.request")
+local Identities = require("cosmic.web.identity")
 local Response = require("cosmic.web.response")
 local Session = require("cosmic.web.session")
 local Sqlite = require("cosmic.sqlite")
@@ -97,17 +97,8 @@ local record Passkeys
     display_name?: string
   end
 
-  --- Who logged in with a passkey, as [`Web.passkey_identity`] answers it.
-  record Identity
-    --- The user handle of the passkey: [`User.handle`].
-    user_handle: string
-    --- The passkey's credential id, raw bytes.
-    credential_id: string
-    --- Whether the authenticator verified the user (a PIN, a fingerprint).
-    user_verified: boolean
-    --- When they logged in, in seconds since the epoch.
-    logged_in_at: integer
-  end
+  --- Who logged in with a passkey: see [`cosmic.web.identity.Passkey`].
+  type Identity = Identities.Passkey
 
   --- Where passkeys are kept: [`Web.passkey_store`] makes one in SQLite.
   --- Each answers nil (or false) and why when the store itself fails,
@@ -192,7 +183,7 @@ local record Taken
 end
 
 --- The key a request's identity is kept under.
-local IDENTITY: Types.Key<Passkeys.Identity> = Request.key("passkeys.identity")
+local IDENTITY: Types.Key<Passkeys.Identity> = Identities.PASSKEY
 
 --- The session key of who logged in.
 local KEPT <const> = "_passkey"
@@ -589,14 +580,6 @@ function Passkeys.middleware(opts: Passkeys.Options): Types.Middleware
       return inner(req)
     end
   end
-end
-
---- The identity [`Web.passkeys`] found in the request's session, or nil
---- where nobody logged in with a passkey (or it does not run).
---- @param req Types.Request The request
---- @return Passkeys.Identity | nil Who
-function Passkeys.identity(req: Types.Request): Passkeys.Identity?
-  return req:get(IDENTITY)
 end
 
 --- The columns a passkey is kept in, in the order a row is read.

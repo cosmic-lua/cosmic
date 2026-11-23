@@ -156,7 +156,7 @@ local function test_require_client_cert_admits_the_clients_it_accepts()
   local app = Web.app{
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        return Web.text("hello " .. Array.at(assert(Web.client_cert(req)).uris, 1))
+        return Web.text("hello " .. Array.at(assert(Web.who(req).client_cert).uris, 1))
       end),
     },
     middleware = { Web.require_client_cert(function(peer: Tls.Peer): boolean

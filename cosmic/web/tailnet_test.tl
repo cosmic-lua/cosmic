@@ -68,7 +68,7 @@ local function app_of(seen: Seen, opts: Web.TailnetOptions): Web.App
     middleware = { Web.tailnet(opts) },
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        local who = Web.tailnet_identity(req)
+        local who = Web.who(req).tailnet
         if who == nil then return Web.text("nobody") end
         local node = who.node
         return Web.text(who.login_name .. " " .. who.display_name .. " " .. who.source .. " " ..
@@ -206,7 +206,7 @@ local function test_serve_headers_name_who_asked_at_the_apps_own_socket()
     middleware = { Web.tailnet({ whois = stand_in(seen), serve = true, required = false }) },
     routes = {
       Web.get("/", function(req: Web.Request): Web.Response
-        return Web.text(tostring(Web.tailnet_funnel(req)) .. " " .. tostring(Web.tailnet_identity(req) ~= nil))
+        return Web.text(tostring(Web.tailnet_funnel(req)) .. " " .. tostring(Web.who(req).tailnet ~= nil))
       end),
     },
   }
