@@ -16,7 +16,7 @@ function Example.encode()
 
   local small, why = Qr.encode(string.rep("a", 100), { level = "H", max_version = 5 })
   print(small, why)
-  assert(small == nil and why == "qr: the text is 100 bytes, and a version 5 code at level H holds 44")
+  assert(small == nil and why.message == "qr: the text is 100 bytes, and a version 5 code at level H holds 44")
 end
 
 --- UTF-8 goes in as its bytes, which is how phones read it back. Every
@@ -74,7 +74,7 @@ function Example.read()
 
   local none, why = Qr.read("not a code\n")
   print(none, why)
-  assert(none == nil and why ~= "")
+  assert(none == nil and why.message ~= "")
 end
 
 --- Modules as rows of booleans, true where dark: [`Qr.rows`] gives them,
