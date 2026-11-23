@@ -17,7 +17,10 @@
 local CompileGrammar = require("build.compile_grammar")
 local MainLocals = require("build.main_locals")
 local Pipeline = require("build.pipeline")
+local Fs = require("cosmic.fs")
+local Proc = require("cosmic.proc")
 local Sqlite = require("cosmic.sqlite")
+local fanout = require("build.compile_fanout")
 local String = require("cosmic.string")
 local logger = require("build.logger")
 local TreeProgram = require("build.tree_program")
@@ -75,6 +78,10 @@ local record Answers
   --- By file, the locals of the main chunk of a module's Lua that are more than `MAIN_LOCALS_LIMIT`.
   locals: {string: integer}
 end
+
+--- What one copy of [`asked`]'s fan holds beyond the process it was forked from, as [`fanout.copies`] counts it: the
+--- syntax and the declarations of the modules it lowers.
+local copy_bytes <const> = 1024 * 1024 * 1024
 
 --- What the pipeline answers for the staged modules of `rows`, and the lines that say why it could not.
 local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {PipelineCheck.Row}): Answers, {string}
@@ -171,8 +178,94 @@ local function asked(build_db: Sqlite.Handle, options: Pipeline.Options, rows: {
     end
   end
   -- The modules in the order they require one another, each forgotten once it is answered: the syntax of the whole tree is
-  -- not held at once.
-  local out = TreeProgram.stream(build, index, names, true, judge)
+  -- not held at once. Where they are many, every so many of them in each of the copies of the process.
+  local copies = fanout.copies(#names, Proc.cpu_count(), copy_bytes)
+  local dir: string? = nil
+  if copies > 0 then
+    local made, _ = Fs.mkdtemp("cosmic-pipeline-")
+    dir = made
+  end
+  if dir == nil then
+    local out = TreeProgram.stream(build, index, names, true, judge)
+    return { over = over, other = other, answers = answers, locals = main_locals }, out
+  end
+  -- The lines of each module: the stream splices a module, which may refuse it, just before it is judged.
+  local of_module: mut {string: mut {string}} = {}
+  local function told(module: string, line: string)
+    local list = of_module[module] or {}
+    of_module[module] = list
+    list[#list + 1] = line
+  end
+  local function streamed_told(mine: {string})
+    local seen = #build.problems
+    local module_of: mut {string: string} = {}
+    local lines = TreeProgram.stream(build, index, mine, true, function(module: string)
+      for at = seen + 1, #build.problems do
+        module_of[assert(build.problems[at], "an index within the list is a problem")] = module
+      end
+      seen = #build.problems
+      judge(module)
+    end)
+    for _, line in ipairs(lines) do told(module_of[line] or "", line) end
+  end
+  local ran = fanout.run(copies, function(copy: integer)
+    local mine: mut {string} = {}
+    for at = copy, #names, copies do
+      mine[#mine + 1] = assert(names[at], "an index within the list is a module")
+    end
+    streamed_told(mine)
+    local kept: mut {{string}} = {}
+    for _, row in ipairs(rows) do
+      local answer = answers[row.key]
+      if answer ~= nil then
+        local file = row.file
+        local held = main_locals[file]
+        local fields = { "A", row.key, answer, file, if over[file] == true then "O" else "" end, other[file] or "",
+          if held ~= nil then tostring(held) else "" end }
+        kept[#kept + 1] = fields
+      end
+    end
+    for module, list in pairs(of_module) do
+      for _, line in ipairs(list) do kept[#kept + 1] = { "P", module, line } end
+    end
+    assert(Fs.write(dir .. "/" .. tostring(copy), check_memo.encode(kept)))
+  end)
+  local left: mut {string} = {}
+  for copy = 1, copies do
+    local text: string? = nil
+    if ran.ended[copy] == true then
+      local read, _ = Fs.read(dir .. "/" .. tostring(copy))
+      text = read
+    end
+    if text == nil then
+      for at = copy, #names, copies do
+        left[#left + 1] = assert(names[at], "an index within the list is a module")
+      end
+    else
+      for _, fields in ipairs(check_memo.decode(text)) do
+        local kind, key, answer, file = fields[1], fields[2], fields[3], fields[4]
+        if kind == "A" and key ~= nil and answer ~= nil and file ~= nil and answer ~= "-" then
+          answers[key] = answer
+          over[file] = fields[5] == "O"
+          local code = fields[6]
+          if code ~= nil and code ~= "" then other[file] = code end
+          local held = math.tointeger(tonumber(fields[7] or ""))
+          if held ~= nil then main_locals[file] = held end
+        elseif kind == "P" and key ~= nil and answer ~= nil then
+          told(key, answer)
+        end
+      end
+    end
+  end
+  local _, _ = Fs.remove_tree(dir)
+  if #left > 0 then
+    streamed_told(left)
+  end
+  local out: mut {string} = {}
+  for _, module in ipairs(TreeProgram.ordered(index, names)) do
+    for _, line in ipairs(of_module[module] or {}) do out[#out + 1] = line end
+  end
+  for _, line in ipairs(of_module[""] or {}) do out[#out + 1] = line end
   return { over = over, other = other, answers = answers, locals = main_locals }, out
 end
 

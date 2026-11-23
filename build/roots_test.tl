@@ -103,7 +103,7 @@ local function test_fill_writes_one_row_per_distinct_certificate(tmp: string)
   assert(Array.at(rows, 1):text(3) == low, "rows go in in digest order")
   for _, row in ipairs(rows) do
     local der = if row:text(3) == "0506" then "\5\6" else "\7" end
-    assert(row:text(1) == Codec.hex(Hash.sha256(der)):upper(), "a row is keyed by its digest")
+    assert(row:text(1) == Hash.hex_sha256(der):upper(), "a row is keyed by its digest")
     assert(row:text(2) == (if der == "\7" then "B" else "A" end), "the first label a certificate has is kept")
   end
 end

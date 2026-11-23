@@ -19,7 +19,7 @@
 # process group, mask and SIGPIPE given as file actions and attributes,
 # the rest closed by POSIX_SPAWN_CLOEXEC_DEFAULT, exec's errno as
 # posix_spawn's own, and the soft descriptor limit lowered around the
-# call; confine, pledge, unveil, offline and subreaper refused ENOSYS
+# call; grants, promises, unveil, offline and subreaper refused ENOSYS
 # (core/syscalls.c's `spawn_program`).
 core/syscalls_test.tl
 core/syscalls_sigpipe_test.tl

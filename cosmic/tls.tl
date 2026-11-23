@@ -347,7 +347,7 @@ local function peer_of(raw_peer: raw_tls.Peer): Peer
     subject = raw_peer.subject, issuer = raw_peer.issuer, serial = raw_peer.serial,
     names = raw_peer.names, addresses = raw_peer.addresses, uris = raw_peer.uris, emails = raw_peer.emails,
     not_before_ns = raw_peer.not_before * NS, not_after_ns = raw_peer.not_after * NS,
-    verified = raw_peer.verified, der = raw_peer.der, sha256 = Codec.hex(Hash.sha256(raw_peer.der)),
+    verified = raw_peer.verified, der = raw_peer.der, sha256 = Hash.hex_sha256(raw_peer.der),
     pin = "sha256//" .. Codec.base64(Hash.sha256(raw_peer.public_key)),
   }
 end

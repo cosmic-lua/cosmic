@@ -37,6 +37,9 @@ local record fanout
   --- still running after this has hung, and waiting on would hold the
   --- build for good.
   mut patience_ns: integer
+  --- How many copies of every [`fanout.run`] of this process ended well: what a test reads to know that copies did the
+  --- work, where the process doing it alone would answer the same.
+  mut ended_well: integer
 
   --- What [`fanout.run`] answers: whether each copy ended well, by its
   --- number, and how many were ended for running past `patience_ns`.
@@ -49,6 +52,7 @@ end
 fanout.least = 48
 fanout.most = 8
 fanout.patience_ns = 15 * 60 * 1000000000
+fanout.ended_well = 0
 
 --- The most copies COSMIC_COMPILE_COPIES asks for: a count, `0` or `1`
 --- for none, so a build compiles in the one process as it did; `most`
@@ -149,6 +153,7 @@ function fanout.run(copies: integer, work: function(copy: integer), watch?: func
         end
         if status == nil or status.pid == pid then
           ended[copy] = not over and status ~= nil and status.code == 0
+          if ended[copy] == true then fanout.ended_well = fanout.ended_well + 1 end
           pids[copy] = nil
           running = running - 1
         end

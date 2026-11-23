@@ -188,14 +188,6 @@ local function test_a_descriptor_batch_refuses_the_retained_artifact_as_payload(
   refused("a descriptor batch payload", function() socket.sendfds(0, { fd }) end)
 end
 
---- A sandbox's ruleset is a descriptor too, and refused.
-local function test_a_ruleset_that_is_the_artifact_descriptor_is_refused()
-  local fd = artifact_fd_or_skip()
-  refused("spawn's ruleset", function()
-    process.spawn("/nonexistent/program", { "program" }, nil, nil, nil, nil, nil, false, nil, { ruleset = fd })
-  end)
-end
-
 --- The artifact's descriptor is handed on only as [`Proc.relaunch`] hands
 --- it: as the descriptor the child's environment names its artifact's
 --- -- elsewhere in the map, or with no such environment, it is refused

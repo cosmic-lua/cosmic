@@ -28,11 +28,8 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #if defined(__linux__)
-#include <linux/audit.h>
 #include <linux/capability.h>
-#include <linux/filter.h>
 #include <linux/landlock.h>
-#include <linux/seccomp.h>
 #include <linux/sched.h>
 #include <linux/if.h>
 #include <linux/sockios.h>
@@ -770,102 +767,7 @@ static void close_child_descriptors (int from, long limit) {
   (LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_WRITE_FILE |             \
    LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_TRUNCATE |             \
    LANDLOCK_ACCESS_FS_IOCTL_DEV)
-#define LANDLOCK_READ_ACCESS                                                \
-  (LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_READ_FILE |              \
-   LANDLOCK_ACCESS_FS_READ_DIR)
 #endif
-
-/* A ruleset alone does not hold a child's metadata reads -- Landlock
- * checks opening a file or listing a directory, never stat, access,
- * readlink, statfs or chdir, so a confined child still learns whether a
- * path outside the ruleset is there, and its size and times -- nor its
- * reach beyond: a unix socket named by a path, TCP and UDP. A sandbox's
- * `unveil` closes the first and the socket paths, and `offline` the rest.
- * TCP is left unhandled though Landlock can hold it from ABI 4: held
- * there and not below, a child's connection over loopback would pass
- * on one kernel and fail on another, and `offline` holds it on every
- * one.
- * TODO: a strict form, for a sandbox that must hold whole, refusing
- * with EOPNOTSUPP where the kernel's ABI or this build's headers leave
- * out a right the ruleset otherwise handles -- truncate below ABI 3,
- * device ioctls below 5, abstract unix sockets and signals
- * below 6 or without LANDLOCK_SCOPE_SIGNAL -- once a caller holds a
- * child to a ruleset under build.confine's `must_confine`: today it
- * handles what the kernel knows and says nothing of the rest. Truncation,
- * which it handles from ABI 3, is held by `spawn`'s filter instead
- * ([`run_program`]). */
-COSMIC_SYSCALL(landlock_ruleset, 2) {
-  luaL_checktype(L, 1, LUA_TTABLE);
-  luaL_checktype(L, 2, LUA_TTABLE);
-  for (int t = 1; t <= 2; t++) {
-    lua_Integer count = (lua_Integer)lua_rawlen(L, t);
-    for (lua_Integer i = 1; i <= count; i++) {
-      lua_rawgeti(L, t, i);
-      plain_string(L, -1, "path");
-      lua_pop(L, 1);
-    }
-  }
-#if defined(__linux__)
-  long abi = syscall(SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
-  if (abi < 1) return cosmic_fail(L, abi < 0 ? errno : ENOSYS);
-  uint64_t handled = (LANDLOCK_ACCESS_FS_MAKE_SYM << 1) - 1;
-  if (abi >= 2) handled |= LANDLOCK_ACCESS_FS_REFER;
-  if (abi >= 3) handled |= LANDLOCK_ACCESS_FS_TRUNCATE;
-  if (abi >= 5) handled |= LANDLOCK_ACCESS_FS_IOCTL_DEV;
-  struct landlock_ruleset_attr attr;
-  memset(&attr, 0, sizeof attr);
-  attr.handled_access_fs = handled;
-  /* A kernel older than a field takes the struct only up to it. */
-  size_t size = sizeof attr.handled_access_fs;
-#ifdef LANDLOCK_SCOPE_SIGNAL
-  if (abi >= 6) {
-    /* Nor may it reach a process outside it through an abstract unix
-     * socket or a signal. */
-    attr.scoped = LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL;
-    size = offsetof(struct landlock_ruleset_attr, scoped) + sizeof attr.scoped;
-  }
-#endif
-  long made = syscall(SYS_landlock_create_ruleset, &attr, size, 0);
-  if (made < 0) return cosmic_fail(L, errno);
-  int ruleset = (int)made;
-  /* One rule for each path, allowing what its table grants beneath it --
-   * as much of that as a file takes, when it is one. Nothing here can
-   * raise: every entry was checked to be a plain string above. */
-  for (int t = 1; t <= 2; t++) {
-    uint64_t access = t == 1 ? LANDLOCK_READ_ACCESS & handled : handled;
-    lua_Integer count = (lua_Integer)lua_rawlen(L, t);
-    for (lua_Integer i = 1; i <= count; i++) {
-      lua_rawgeti(L, t, i);
-      const char *path = lua_tostring(L, -1);
-      int fd = open(path, O_PATH | O_CLOEXEC);
-      lua_pop(L, 1);
-      struct stat st;
-      int number = 0;
-      if (fd < 0 || fstat(fd, &st) != 0) {
-        number = errno;
-      } else {
-        struct landlock_path_beneath_attr beneath = {
-          .allowed_access = S_ISDIR(st.st_mode) ? access : access & LANDLOCK_FILE_ACCESS,
-          .parent_fd = fd,
-        };
-        if (syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH,
-                    &beneath, 0) != 0) {
-          number = errno;
-        }
-      }
-      if (fd >= 0) close(fd);
-      if (number != 0) {
-        close(ruleset);
-        return cosmic_fail(L, number);
-      }
-    }
-  }
-  lua_pushinteger(L, ruleset);
-  return 1;
-#else
-  return cosmic_fail(L, ENOSYS);
-#endif
-}
 
 COSMIC_SYSCALL(landlock_abi, 0) {
 #if defined(__linux__)
@@ -1023,102 +925,6 @@ COSMIC_SYSCALL(landlock_restrict_execute, 1) {
   return cosmic_fail_effect(L, ENOSYS);
 #endif
 }
-
-#if defined(__linux__)
-#if defined(__x86_64__)
-#define PLEDGE_ARCH AUDIT_ARCH_X86_64
-#elif defined(__aarch64__)
-#define PLEDGE_ARCH AUDIT_ARCH_AARCH64
-#endif
-#endif
-
-/* The most instructions a pledge's filter takes. */
-#define PLEDGE_MAX 96
-
-#if defined(PLEDGE_ARCH)
-/* The calls a pledged child never makes, whatever it promised: each
- * reaches past the process -- into another's memory or descriptors, the
- * mount table, the kernel -- or, like io_uring, makes calls this filter
- * cannot see.
- * TODO: a filter cannot see a path, so /proc/<pid>/mem of a process of
- * the same user is still open to a child pledged but not held to a
- * ruleset; Landlock's own ptrace check closes it, so a sandbox that
- * means to keep a child from other processes takes both. */
-static const int pledge_refused[] = {
-  __NR_ptrace, __NR_process_vm_readv, __NR_process_vm_writev,
-  __NR_mount, __NR_umount2, __NR_pivot_root,
-#ifdef __NR_move_mount
-  __NR_move_mount, __NR_open_tree, __NR_fsopen, __NR_fsmount, __NR_fsconfig, __NR_fspick,
-#endif
-  __NR_bpf, __NR_perf_event_open, __NR_kexec_load,
-#ifdef __NR_kexec_file_load
-  __NR_kexec_file_load,
-#endif
-  __NR_init_module, __NR_finit_module, __NR_delete_module,
-  __NR_add_key, __NR_request_key, __NR_keyctl,
-#ifdef __NR_io_uring_setup
-  __NR_io_uring_setup, __NR_io_uring_enter, __NR_io_uring_register,
-#endif
-  __NR_userfaultfd, __NR_setns, __NR_name_to_handle_at, __NR_open_by_handle_at,
-#ifdef __NR_pidfd_getfd
-  __NR_pidfd_getfd,
-#endif
-#ifdef __NR_process_madvise
-  __NR_process_madvise,
-#endif
-};
-
-/* Every instruction [`pledge_program`] writes: the architecture check and
- * the call's number (4), the x32 check (2), two for each refused call,
- * and the socket block at its largest (1 + 1 + 2 * 3 + 1 + 1). */
-_Static_assert(4 + 2 + 2 * (sizeof pledge_refused / sizeof pledge_refused[0]) + 10 <= PLEDGE_MAX,
-               "PLEDGE_MAX is too small for the pledge filter");
-
-/* The filter a pledge holds a child to: a call of another architecture is
- * the end of it, a call `pledge_refused` names fails with EPERM, and a
- * socket may be of the families promised (`unix`, `inet`) and no other.
- * Answers how many instructions it wrote to `out`. */
-static int pledge_program (struct sock_filter *out, int unix_ok, int inet_ok) {
-  int n = 0;
-  const unsigned refuse = SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA);
-  out[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
-                                           offsetof(struct seccomp_data, arch));
-  out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PLEDGE_ARCH, 1, 0);
-  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
-  out[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
-                                           offsetof(struct seccomp_data, nr));
-#if defined(__x86_64__)
-  out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1);
-  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, refuse);
-#endif
-  for (size_t i = 0; i < sizeof pledge_refused / sizeof pledge_refused[0]; i++) {
-    out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
-                                             (unsigned)pledge_refused[i], 0, 1);
-    out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, refuse);
-  }
-  int families[3];
-  int allowed = 0;
-  if (unix_ok) families[allowed++] = AF_UNIX;
-  if (inet_ok) {
-    families[allowed++] = AF_INET;
-    families[allowed++] = AF_INET6;
-  }
-  /* A socket's family is its first argument: past the check, loaded,
-   * compared with each promised one, and refused when none matches. */
-  unsigned char block = (unsigned char)(1 + 2 * allowed + 1);
-  out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, block);
-  out[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
-                                           offsetof(struct seccomp_data, args[0]));
-  for (int i = 0; i < allowed; i++) {
-    out[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (unsigned)families[i],
-                                             0, 1);
-    out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
-  }
-  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, refuse);
-  out[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
-  return n;
-}
-#endif
 
 /* Whether `name` is absolute with no empty, `.` or `..` component, so it
  * names the same place under another root as under this one. */
@@ -1373,9 +1179,8 @@ static void staged_message (int stage, int number, const char *path, char *messa
   } else if (stage == STAGE_TRUNCATION) {
     snprintf(message, room,
              "seccomp filter: %s: a child a Landlock ruleset holds without promises, where the "
-             "ruleset does not handle truncation (below Landlock ABI 3, or a `ruleset` "
-             "descriptor), is held to a filter that refuses it, which this kernel did not "
-             "install", what);
+             "ruleset does not handle truncation (below Landlock ABI 3), is held to a filter "
+             "that refuses it, which this kernel did not install", what);
   } else if (stage == STAGE_PROC) {
     snprintf(message, room,
              "this sandbox's own /proc was refused (%s): a container's runtime masks parts of "
@@ -1414,7 +1219,7 @@ static void staged_message (int stage, int number, const char *path, char *messa
  * on a host, rather than finding no network at all. 0, or an errno. */
 static int loopback_up (void) {
   /* A unix socket, which any socket's interface ioctls fall through to,
-   * so a parent pledged to no "inet" still starts an offline child. Made
+   * so a parent with no "inet" socket promise still starts an offline child. Made
    * as a pair, which the promises filter allows where it refuses socket():
    * a program that builds sandboxes (`nest`) starts this one's own. */
   int pair[2];
@@ -1854,12 +1659,8 @@ struct spawn_plan {
   int credentials;
   uid_t user;
   gid_t group;
-  /* The Landlock ruleset to restrict the child to, or -1. */
+  /* The Landlock ruleset `grants` made to restrict the child to, or -1. */
   int confine;
-  int pledged;
-#if defined(PLEDGE_ARCH)
-  const struct sock_fprog *pledge;
-#endif
   /* Whether the child is held to the promises filter (core/promises.c),
    * and to which promises: COSMIC_PROMISE_ bits. */
   int promising;
@@ -2048,8 +1849,8 @@ static int enforce_ruleset (int ruleset) {
  * `process_group` says, so the autogroup its writable /proc lets it set
  * (/proc/self/autogroup) is the sandbox's, not its parent's session's --
  * its directory, its descriptors moved from where `pinned` holds them,
- * Landlock's `confined` ruleset and the pledge, the parent's mask, and
- * exec. A failure goes to the parent over `status_fd` as an errno. */
+ * Landlock's `confined` ruleset, the parent's mask, its limits, the
+ * promises filter, and exec. A failure goes to the parent over `status_fd` as an errno. */
 static _Noreturn void run_program (const struct spawn_plan *plan, const int *pinned,
                                    int confined, int status_fd, int own_proc) {
   int top = plan->top;
@@ -2079,28 +1880,12 @@ static _Noreturn void run_program (const struct spawn_plan *plan, const int *pin
   }
   if (!failure && plan->terminal && ioctl(0, TIOCSCTTY, 0) != 0) failure = errno;
   /* Confined last, just before exec: what the child and every process
-   * it starts may reach is the ruleset's, and nothing lets it off.
-   * TODO: let a ruleset that names /proc reach an unveiled child's own
-   * /proc, as it reaches the host's where the child has that
-   * ([`place_proc`]), once `landlock_ruleset` records which paths a
-   * ruleset holds: adding the rule here, in the child, would widen the
-   * caller's ruleset for every later child besides, and a ruleset that
-   * left /proc out would gain it. Until then a child held to a `ruleset`
-   * reads nothing of its own /proc; `grants` are the caller's own, made
-   * for this child alone, and a strict one's get it ([`own_rules`]). */
+   * it starts may reach is the ruleset's, and nothing lets it off. The
+   * ruleset is made from `grants` for this child alone, so a strict
+   * unveiled one is given its own /proc and /tmp here ([`own_rules`]). */
   if (!failure && confined >= 0 && plan->strict && plan->unveiling)
     failure = own_rules(plan, confined, own_proc);
   if (!failure && confined >= 0) failure = enforce_ruleset(confined);
-  /* A pledge last of all: the filter would refuse nothing above, but
-   * it is the one a later step could trip over. */
-  if (!failure && plan->pledged) {
-#if defined(PLEDGE_ARCH)
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) failure = errno;
-    else if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, plan->pledge) != 0) failure = errno;
-#else
-    failure = ENOSYS;
-#endif
-  }
   close_child_descriptors(top + 2, plan->descriptor_limit);
   /* The program starts with the parent's own mask; a signal pending
    * since the start is delivered now, at its default. */
@@ -2647,7 +2432,7 @@ static _Noreturn int spawn_child (void *argument) {
     _exit(127);
   }
   /* The sandbox's own namespaces first: the root the rest resolves in,
-   * and mounting, which Landlock and a pledge would refuse. */
+   * and mounting, which Landlock and the promises filter would refuse. */
   if (plan->unveiling) start_unveiled(plan, pinned, confined, relayed, status_fd);
   if (plan->offline && (failure = go_offline(plan->unmap_root, plan->uid_map, plan->gid_map,
                                               plan->strict, relayed, plan->relay_ports)) != 0) {
@@ -3048,7 +2833,7 @@ _Noreturn void cosmic_trampoline (int argc, char **argv) {
  * pid, or -1 and the errno in `error`. */
 static pid_t spawn_program (const struct spawn_plan *plan, int *error) {
   /* Darwin has neither Landlock nor seccomp. */
-  if (plan->confine >= 0 || plan->pledged || plan->promising) {
+  if (plan->confine >= 0 || plan->promising) {
     *error = ENOSYS;
     return -1;
   }
@@ -3510,12 +3295,7 @@ static uint64_t grant_rights (unsigned letters, long abi) {
  * TODO: a kernel past ABI 9 has rights this does not handle, so a ruleset
  * built here leaves them allowed: add each as the ABI that brings it is
  * met (refusing a start on a newer kernel instead would break every new
- * one).
- * TODO: share this and the scoping below with `landlock_ruleset`, whose
- * rights stop at ABI 5 and whose scoping this build's headers may leave
- * out, once its callers can take a ruleset that refuses unix sockets by
- * path and signals out of the domain: today that would change what they
- * run under. */
+ * one). */
 static uint64_t grants_handled (long abi) {
   uint64_t handled = (LANDLOCK_ACCESS_FS_MAKE_SYM << 1) - 1;
   if (abi >= 2) handled |= LANDLOCK_ACCESS_FS_REFER;
@@ -3618,7 +3398,7 @@ static bool root_shows_no_socket (char *const *resolved, const char *const *at, 
  * process's memory (clone with CLONE_VM) and tells the parent only an
  * errno, so a path that does not exist could not be named from it, and
  * an unveiled child resolves paths in a root of its own. It is handed
- * on as the descriptor `ruleset` takes, restricted by the child in
+ * on as the plan's `confine`, restricted by the child in
  * [`run_program`] before the promises filter, which follows it.
  * TODO: report a grant whose target (the path of its descriptor, read
  * from /proc/self/fd) differs from its name, once `spawn` can answer the
@@ -4351,7 +4131,6 @@ COSMIC_SYSCALL(spawn, 12) {
       return cosmic_fail(L, errno);
   }
   int confine = -1;
-  int pledged = 0, unix_ok = 0, inet_ok = 0;
   int promising = 0;
   unsigned promise_bits = 0;
   struct spawn_rlimit rlimits[SPAWN_RLIMIT_MAX];
@@ -4388,35 +4167,17 @@ COSMIC_SYSCALL(spawn, 12) {
   gid_t drop_gid = 0;
   if (!lua_isnoneornil(L, 10)) {
     luaL_checktype(L, 10, LUA_TTABLE);
-    lua_pushliteral(L, "ruleset");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_isinteger(L, -1))
-        return luaL_argerror(L, 10, "a ruleset must be a descriptor");
-      lua_Integer value = lua_tointeger(L, -1);
-      if (value < 0 || value > INT_MAX)
-        return luaL_argerror(L, 10, "the ruleset's descriptor is out of range");
-      cosmic_argfd(L, 10, value);
-      confine = (int)value;
+    /* Options a caller once had, refused rather than passed over: a child
+     * started without the hold its caller asked for would run unconfined. */
+    static const char *const gone[] = { "ruleset", "pledge" };
+    for (size_t i = 0; i < sizeof gone / sizeof gone[0]; i++) {
+      lua_pushstring(L, gone[i]);
+      int given = lua_rawget(L, 10) != LUA_TNIL;
+      lua_pop(L, 1);
+      if (given)
+        return luaL_argerror(L, 10, "a sandbox's `ruleset` and `pledge` are gone: hold the child "
+                                    "with `grants` and `promises`");
     }
-    lua_pop(L, 1);
-    if (confine >= 0 && fcntl(confine, F_GETFD) < 0) return cosmic_fail(L, errno);
-    lua_pushliteral(L, "pledge");
-    lua_rawget(L, 10);
-    if (!lua_isnil(L, -1)) {
-      if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "a pledge must be a list of promises");
-      pledged = 1;
-      lua_Integer promises = (lua_Integer)lua_rawlen(L, -1);
-      for (lua_Integer i = 1; i <= promises; i++) {
-        lua_rawgeti(L, -1, i);
-        const char *promise = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
-        if (strcmp(promise, "unix") == 0) unix_ok = 1;
-        else if (strcmp(promise, "inet") == 0) inet_ok = 1;
-        else return luaL_argerror(L, 10, "a promise is \"unix\" or \"inet\"");
-        lua_pop(L, 1);
-      }
-    }
-    lua_pop(L, 1);
     lua_pushliteral(L, "promises");
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
@@ -4515,7 +4276,6 @@ COSMIC_SYSCALL(spawn, 12) {
     lua_rawget(L, 10);
     if (!lua_isnil(L, -1)) {
       if (!lua_istable(L, -1)) return luaL_argerror(L, 10, "grants must be a list");
-      if (confine >= 0) return luaL_argerror(L, 10, "grants and a ruleset exclude each other");
       granting = 1;
       grant_count = read_grants(L, lua_gettop(L), 10, grant_paths, grant_letters);
     }
@@ -4785,14 +4545,6 @@ COSMIC_SYSCALL(spawn, 12) {
            child_uid, child_uid);
   snprintf(outer_gid_map, sizeof outer_gid_map, "%lu %lu 1\n%lu %lu 1\n", own_gid, own_gid,
            child_gid, child_gid);
-#if defined(PLEDGE_ARCH)
-  struct sock_filter pledge_filter[PLEDGE_MAX];
-  struct sock_fprog pledge = { 0, pledge_filter };
-  if (pledged) pledge.len = (unsigned short)pledge_program(pledge_filter, unix_ok, inet_ok);
-#else
-  (void)unix_ok;
-  (void)inet_ok;
-#endif
   long descriptor_limit = sysconf(_SC_OPEN_MAX);
   if (descriptor_limit < 0) descriptor_limit = 1024;
 
@@ -5003,18 +4755,8 @@ COSMIC_SYSCALL(spawn, 12) {
    * ruleset to close is the only thing past here that is not the
    * environment's. */
   int grant_error = 0;
-  /* What else holds the child (core/promises.h's COSMIC_HELD_ bits). Only a
-   * ruleset made from `grants` says what it handles: a `ruleset` descriptor
-   * carries no record of it.
-   * TODO: let a child held to a `ruleset` descriptor signal its own
-   * processes under the promises filter, once the descriptor can say
-   * whether its ruleset scopes signals (COSMIC_HELD_SIGNALS); until
-   * then its filter holds the signal calls to the child's starting pid.
-   * TODO: let a child held to a `ruleset` descriptor truncate by path, and
-   * open with O_TRUNC without writing, where the ruleset handles truncation
-   * (ABI 3), once the descriptor can say whether it does
-   * (COSMIC_HELD_TRUNCATE); until then its filter, the promises one or
-   * core/promises.h's `cosmic_truncation_apply`'s, refuses them on every kernel. */
+  /* What else holds the child (core/promises.h's COSMIC_HELD_ bits): what
+   * the ruleset made from `grants` handles ([`grants_ruleset`]). */
   unsigned held = 0;
   char grant_message[PATH_MAX + 512];
   int unix_guard = 0;
@@ -5103,10 +4845,7 @@ COSMIC_SYSCALL(spawn, 12) {
     .status_read = status_read, .status_write = status_write,
     .descriptor_limit = descriptor_limit, .process_group = process_group, .terminal = terminal,
     .credentials = credentials, .user = credential_user, .group = credential_group,
-    .confine = confine, .pledged = pledged,
-#if defined(PLEDGE_ARCH)
-    .pledge = &pledge,
-#endif
+    .confine = confine,
     .promising = promising, .promises = promise_bits, .held = held,
     .rlimit_count = rlimit_count, .rlimits = rlimits,
 #if defined(__APPLE__)
