@@ -600,15 +600,20 @@ local file_check_dirs: {string: string} = {
   ["vendor"] = "the program is built from vendor/",
   ["patch"] = "the program is built from patch/'s records",
   ["bin"] = "bin/ pins zig, whose clang reads each C file",
-  ["core"] = "core/'s headers are read by each C file",
+  ["core"] = "the program runs on core/, whose headers each C file reads",
   ["cmd"] = "the program starts in cmd/",
 }
 
---- Of `file_check_dirs` and `file_check_files`, what a C file alone is checked against: the zig whose clang reads
---- it, the cosmic the C rules run clang through, and core/'s headers. The layout of the other files runs on the VM,
---- which vendor/ and patch/ build, and not on core/'s bindings: a change to one that moves what a layout answers is
---- caught by its tests, by the next run that lays out that file, or by the weekly run over the whole tree.
-local c_check_paths: {string: boolean} = { ["bin"] = true, ["core"] = true, ["ci/cosmic-driver.pin"] = true }
+--- Of the paths `file_check_dirs` and `file_check_files` cover, what only a C file is checked against: core/'s
+--- headers, which each C file reads and the program's own C compiles; the zig whose clang reads each C file, and the
+--- script that fetches it; and the cosmic the C rules run clang through. Any other path of core/ or bin/ is part of
+--- the program that lays out every file.
+local function c_check_path(path: string): boolean
+  if path == "bin/zig" or path == "bin/zig.pin" or path == "ci/cosmic-driver.pin" then
+    return true
+  end
+  return path:match("^core/[^/]+%.h$") ~= nil
+end
 
 --- As `file_check_dirs`, by a file's whole path: this verb, what
 --- builds and writes the program (the image [`identity.record_fingerprint`]
@@ -692,7 +697,7 @@ end
 --- (`file_checks`, read from `databases`, and the like), a file that
 --- did not change can answer otherwise, so it answers `every` itself,
 --- `widened` saying why; as it does for a path outside `root`. Where
---- every such path is part of what checks C files alone (`c_check_paths`,
+--- every such path is part of what checks C files alone ([`c_check_path`],
 --- and what only [`build.c`] requires), it lays out every C file and
 --- only the other files named, `c_widened` saying why.
 --- @param root string The tree's root, the working directory
@@ -729,13 +734,13 @@ function fix.narrowed(root: string, every: fix.Chosen, changed: {string},
       local dir = file_check_dirs[first]
       if dir ~= nil then
         why = dir
-        c_only = c_check_paths[first] == true
+        c_only = c_check_path(path)
       end
     end
     for file, reason in pairs(file_check_files) do
       if inside(file, path) then
         why = why or reason
-        c_only = c_only and c_check_paths[file] == true
+        c_only = c_only and c_check_path(file)
       end
     end
     for file in pairs(checking) do
