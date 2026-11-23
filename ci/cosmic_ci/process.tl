@@ -7,11 +7,6 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Fixture = require("cosmic_ci.fixture")
 
--- TODO: Child.FOREVER in place of CEILING_NS once ci/cosmic-driver.pin
--- names a release whose Child has it: ci/ runs on that release, where a
--- limit must be stated for the tree's checker yet FOREVER is not there.
-local CEILING_NS <const> = 24 * 60 * 60 * 1000000000
-
 -- Bound subprocess waits and the shorter paused-build handshakes separately.
 local child_wait_timeout_ns <const> = Clock.seconds(30)
 -- A paused child reaches its hook after a cold start: a real core
@@ -80,7 +75,7 @@ function Process.start(label: string, argv: {string}, cwd: string,
     end
     input_fd = opened
   end
-  local options: Child.Options = { timeout_ns = CEILING_NS, cwd = cwd, env = values, stdin = input_fd,
+  local options: Child.Options = { timeout_ns = Child.FOREVER, cwd = cwd, env = values, stdin = input_fd,
     stdout = out_fd, stderr = err_fd, process_group = false }
   local handle, trouble = Child.start(argv, options)
   if handle == nil then

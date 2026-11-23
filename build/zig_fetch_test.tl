@@ -172,8 +172,8 @@ local function test_fetch_asks_the_fallback_again_after_a_mismatch(tmp: string)
 end
 
 --- Mirrors are held to a ceiling cut to what is left of the budget;
---- the fallback has a ceiling the budget does not cut, and once the
---- budget is spent it is tried one last time on its own.
+--- the fallback has no ceiling, and once the budget is spent it is
+--- tried one last time on its own.
 local function test_fetch_bounds_mirrors_by_the_budget_and_the_fallback_by_its_own(tmp: string)
   local calls: mut {string} = {}
   local sleeps: mut {integer} = {}
@@ -194,8 +194,7 @@ local function test_fetch_bounds_mirrors_by_the_budget_and_the_fallback_by_its_o
   assert(support.nth(seen, 3).timeout_ns == Clock.seconds(118), tostring(support.nth(seen, 3).timeout_ns))
   assert(support.nth(seen, 1).low_speed_bytes == 64 * 1024)
   for _, i in ipairs({ 2, 4, 5 }) do
-    assert(support.nth(seen, i).timeout_ns == Clock.hours(6),
-      "the fallback's ceiling is not the one a slow link needs")
+    assert(support.nth(seen, i).timeout_ns == Http.FOREVER, "a slow link still installs: the fallback has no ceiling")
     assert(support.nth(seen, i).low_speed_bytes == 1024 and support.nth(seen, i).low_speed_ns == Clock.seconds(60))
   end
   assert(trouble:find("mirrors out of time; every source failed after 5 attempts", 1, true) ~= nil,
