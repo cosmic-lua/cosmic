@@ -774,9 +774,9 @@ local function test_one_shot_deflate_frames_as_its_format_says()
   Test.raises(function() local _, _ = Compress.encode("lz4" as Compress.Format, plain) end) -- checked: cast_refused
 end
 
---- Without a level, the one-shot deflate compresses as a streaming
---- deflater does without one.
-local function test_one_shot_deflate_defaults_to_the_deflater_level()
+--- Without a level, a one-shot zlib encode compresses as a streaming
+--- encoder does without one.
+local function test_one_shot_encode_defaults_to_the_encoder_level()
   local plain = ("the quick brown fox jumps over the lazy dog "):rep(400) ..
     string.rep("0123456789", 300)
   local enc = assert(Compress.encoder("zlib"))
@@ -1388,4 +1388,91 @@ local function test_xz_encoder_presets_out_of_range_raise()
   Test.raises(function() local _, _ = Compress.encoder("xz", { level = -1 }) end)
   Test.raises(function() local _, _ = Compress.encoder("xz", { level = 10 }) end)
   assert((assert(Compress.encoder("xz", { level = 0 }))))
+end
+
+local record Case
+  words: string
+  call: function()
+end
+
+-- The message of what `f` raised, which names the line of this file
+-- that called the public function.
+local function raised_here(f: function()): string
+  local ok, why = pcall(f)
+  assert(not ok, "expected a raise, but the call returned")
+  local text = tostring(why)
+  assert(text:match("^cosmic%.compress_test:%d+: ") ~= nil, text)
+  return text
+end
+
+--- An option the format does not read raises, blaming the caller.
+local function test_an_option_of_another_format_raises()
+  local cases: {Case} = {
+    { words = "extreme is not an option of gzip", call = function()
+      local _, _ = Compress.encode("gzip", "x", { extreme = false })
+    end },
+    { words = "extreme is not an option of zstd", call = function()
+      local _, _ = Compress.encoder("zstd", { extreme = true })
+    end },
+    { words = "max_memory is not an option of gzip", call = function()
+      local _, _ = Compress.decode("gzip", "x", { max_memory = 5 })
+    end },
+    { words = "max_window is not an option of xz", call = function()
+      local _, _ = Compress.decode("xz", "x", { max_window = 5000 })
+    end },
+    { words = "max_window is not an option of bz2", call = function()
+      local _, _ = Compress.decoder("bz2", { max_window = 5000 })
+    end },
+    { words = "max_bytes is an option of Compress.decode, not of a decoder",
+      call = function() local _, _ = Compress.decoder("gzip", { max_bytes = 1 }) end },
+  }
+  for _, case in ipairs(cases) do
+    local text = raised_here(case.call)
+    assert(text:find(case.words, 1, true) ~= nil, text)
+  end
+end
+
+--- A level or a limit out of its range raises in this module's words,
+--- blaming the caller.
+local function test_a_value_out_of_range_raises_from_the_caller()
+  local cases: {Case} = {
+    { words = "gzip level must be 0 to 10, not 11", call = function()
+      local _, _ = Compress.encode("gzip", "x", { level = 11 })
+    end },
+    { words = "zstd level must be 1 to 19, not 0", call = function()
+      local _, _ = Compress.encoder("zstd", { level = 0 })
+    end },
+    { words = "xz level must be 0 to 9, not 10", call = function()
+      local _, _ = Compress.encode("xz", "x", { level = 10 })
+    end },
+    { words = "bz2 level must be 1 to 9, not 0", call = function()
+      local _, _ = Compress.encoder("bz2", { level = 0 })
+    end },
+    { words = "max_memory must be positive", call = function()
+      local _, _ = Compress.decoder("xz", { max_memory = 0 })
+    end },
+    { words = "max_window must be at least 1024", call = function()
+      local _, _ = Compress.decode("zstd", "x", { max_window = 1023 })
+    end },
+    { words = "max_bytes must be at least 0", call = function()
+      local _, _ = Compress.decode("gzip", "x", { max_bytes = -1 })
+    end },
+  }
+  for _, case in ipairs(cases) do
+    local text = raised_here(case.call)
+    assert(text:find(case.words, 1, true) ~= nil, text)
+  end
+end
+
+--- Bytes after the end of the compressed data fail, in every format.
+local function test_decode_refuses_trailing_bytes_in_every_format()
+  local every_format: {Compress.Format} = { "raw", "zlib", "gzip", "zstd", "xz", "bz2" }
+  for _, format in ipairs(every_format) do
+    local packed = assert(Compress.encode(format, "a"))
+    assert(assert(Compress.decode(format, packed)) == "a", format)
+    local out, why = Compress.decode(format, packed .. "zz")
+    assert(out == nil, format)
+    local failure = assert(why)
+    assert(failure.message:find("trailing bytes", 1, true) ~= nil, format .. ": " .. failure.message)
+  end
 end

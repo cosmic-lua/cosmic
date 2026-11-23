@@ -123,23 +123,43 @@ local record Compress
   end
 end
 
---- Raises, blaming the caller of the public function that calls it,
---- on an option `format` does not read.
-local formats <const>: {string: boolean} = { raw = true, zlib = true, gzip = true, zstd = true, xz = true, bz2 = true }
+local record Range
+  low: integer
+  high: integer
+end
+
+-- Each format's lowest and highest level.
+local levels <const>: {string: Range} = {
+  raw = { low = 0, high = 10 }, zlib = { low = 0, high = 10 }, gzip = { low = 0, high = 10 },
+  zstd = { low = 1, high = 19 }, xz = { low = 0, high = 9 }, bz2 = { low = 1, high = 9 },
+}
 
 --- Raises, blaming the caller of the public function that calls it, on
 --- a format that is not one of [`Compress.Format`]'s, which a caller
 --- past the checker can pass.
 local function check_format(format: Compress.Format)
-  if formats[format] ~= true then
+  if levels[format] == nil then
     error("compress: unknown format " .. string.format("%q", format), 4)
   end
 end
 
+--- Raises, blaming the caller of the public function that calls it, on
+--- an option `format` does not read or a value out of its range. The
+--- levels 3 and 4 count the frames from here (and from check_format)
+--- to that caller, so each public function calls these directly.
 local function check_encode(format: Compress.Format, opts?: Compress.EncodeOptions)
   check_format(format)
-  if opts ~= nil and opts.extreme ~= nil and format ~= "xz" then
+  if opts == nil then return end
+  if opts.extreme ~= nil and format ~= "xz" then
     error("compress: extreme is not an option of " .. format, 3)
+  end
+  local level = opts.level
+  if level ~= nil then
+    local range = assert(levels[format])
+    if level < range.low or level > range.high then
+      error(string.format("compress: %s level must be %d to %d, not %d",
+        format, range.low, range.high, level), 3)
+    end
   end
 end
 
@@ -152,6 +172,12 @@ local function check_decode(format: Compress.Format, opts?: Compress.DecodeOptio
   end
   if opts.max_window ~= nil and format ~= "zstd" then
     error("compress: max_window is not an option of " .. format, 3)
+  end
+  if opts.max_memory ~= nil and opts.max_memory <= 0 then
+    error("compress: max_memory must be positive", 3)
+  end
+  if opts.max_window ~= nil and opts.max_window < 1024 then
+    error("compress: max_window must be at least 1024", 3)
   end
 end
 
@@ -197,7 +223,9 @@ end
 ---   encoders, or uses levels 8 and 9 in a server, holds each
 ---   `<close>`. An allocation the machine refuses answers a
 ---   [`Failure`] "compress: out of memory", from here or from `update`
----   or `finish`, which then finishes the stream.
+---   or `finish`, which then finishes the stream. It runs on one
+---   thread, and [`Compress.decoder`] reads what it writes at the
+---   default `max_memory` at every level.
 --- - "bz2": one stream, byte for byte what `bzip2 -c -<level>` writes;
 ---   given nothing, the 14 bytes of an empty stream. It holds about
 ---   262 kB plus eight times the block size (7.5 MB at level 9).

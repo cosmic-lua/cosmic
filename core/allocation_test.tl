@@ -365,10 +365,10 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
   do
     local _stream = assert(Compress.decoder("raw"))
     local held_bytes, held_blocks = testing.c_heap()
-    assert(held_blocks == blocks + 1 and held_bytes > bytes, "an inflater holds its window")
+    assert(held_blocks == blocks + 1 and held_bytes > bytes, "a decoder holds its window")
   end
-  assert_c_heap(bytes, blocks, "a collected inflater")
-  -- Some run grants the userdata and refuses the window: the inflater
+  assert_c_heap(bytes, blocks, "a collected decoder")
+  -- Some run grants the userdata and refuses the window: the decoder
   -- answers that refused C allocation with nil and a message.
   local answered = false
   for after = 0, 100 do
@@ -387,7 +387,7 @@ local function test_the_c_heap_counts_its_blocks_and_refusals()
     if refused == 0 then break end
   end
   assert(answered, "no run refused the window alone")
-  assert_c_heap(bytes, blocks, "a refused inflater")
+  assert_c_heap(bytes, blocks, "a refused decoder")
 end
 
 --- "hello, cosmic!", as `xz -c`, `bzip2 -c` and `zstd -c` write it.
