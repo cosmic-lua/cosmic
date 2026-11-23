@@ -16,6 +16,14 @@
 --- `policy` the sandbox the tools would run under (`policy clear-home`
 --- empties the commands' kept home).
 ---
+--- A snippet of the run tool may call MCP servers through the agent
+--- ([`cosmic.agent.host`]): those of the config `--mcp` names, else of
+--- `~/.config/cosmic/mcp.json` (`$XDG_CONFIG_HOME/cosmic/mcp.json`)
+--- where it is there ([`cosmic.agent.mcp`] holds its form). Each server
+--- runs sandboxed unless its config says not, starts at its first call,
+--- and ends with the session. The tools cannot reach that directory, so
+--- no tool chooses what a later session starts.
+---
 --- The model's words go to standard output, and each tool call to
 --- standard error. `ask --json` and `rpc` print events instead, one JSON
 --- object a line, each after what it tells of is kept:
@@ -57,6 +65,7 @@
 --- (build/verb_spec.tl) is `bare`.
 
 local Agent = require("cosmic.agent")
+local AgentMcp = require("cosmic.agent.mcp")
 local Auth = require("cosmic.agent.auth")
 local Child = require("cosmic.child")
 local Cli = require("cosmic.cli")
@@ -127,7 +136,7 @@ local USAGE <const> = "cosmic agent <ask|chat|resume|rpc|sessions|prompt|policy>
 --- The options each subcommand takes; the rest of the spec is refused.
 local SESSION_OPTIONS <const>: {string: boolean} = {
   ["--model"] = true, ["--effort"] = true, ["--continue"] = true, ["--session"] = true,
-  ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true,
+  ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true, ["--mcp"] = true,
 }
 local SANDBOX_OPTIONS <const>: {string: boolean} = { ["--sandbox"] = true, ["--network"] = true, ["--grant"] = true }
 local ASK_OPTIONS <const>: mut {string: boolean} = { ["--json"] = true }
@@ -276,13 +285,47 @@ local function sandbox_home(r: Run): string?
   return dir .. "/home"
 end
 
---- What no PATH entry may grant: cosmic's data and cache directories.
-local function kept_out(r: Run): {string}
+--- The MCP config read by default: `$XDG_CONFIG_HOME/cosmic/mcp.json`, else `$HOME/.config/cosmic/mcp.json`.
+local function mcp_config(r: Run): string
+  local base = r.io.env("XDG_CONFIG_HOME") or ""
+  if base:sub(1, 1) ~= "/" then base = (r.io.env("HOME") or "") .. "/.config" end
+  return base .. "/cosmic/mcp.json"
+end
+
+--- The MCP servers `got` names: those of `--mcp`'s file, else of the default config where it is there, else none;
+--- or nil and why.
+local function mcp_servers(r: Run, got: Flags.Parsed): {AgentMcp.Server}?, string
+  local given = got.values["--mcp"]
+  local path = given or mcp_config(r)
+  if given == nil then
+    local status, _ = Fs.status(path)
+    if status == nil or not status.exists then return {}, "" end
+  end
+  local servers, why = AgentMcp.load(path)
+  if servers == nil then
+    return nil, (if given ~= nil then "--mcp: " else "" end) .. tostring(why)
+  end
+  return servers, ""
+end
+
+--- What the tools may not reach, which no PATH entry and no grant may give: cosmic's data and cache directories, and
+--- the directories of the MCP config, the default and `named`.
+local function kept_out(r: Run, named?: string): {string}
   local out: mut {string} = {}
   local data, _ = Fs.data_dir("cosmic", { environment = r.environment, make = false })
   if data ~= nil then out[#out + 1] = data end
   local cache, _ = Fs.cache_dir("agent", { environment = r.environment, make = false })
   if cache ~= nil then out[#out + 1] = Fs.dirname(cache) end
+  -- The MCP config, the default and the one --mcp names, where each lies and where its links lead: a tool that wrote
+  -- it would choose what the next session starts, and with what rights.
+  local configs: mut {string} = { mcp_config(r) }
+  if named ~= nil then configs[#configs + 1] = named end
+  for _, config in ipairs(configs) do
+    local absolute = if config:sub(1, 1) == "/" then config else cwd(r) .. "/" .. config end
+    out[#out + 1] = Fs.dirname(absolute)
+    local real, _ = Fs.absolute(absolute)
+    if real ~= nil then out[#out + 1] = Fs.dirname(real) end
+  end
   return out
 end
 
@@ -306,7 +349,7 @@ local function policy_of(r: Run, got: Flags.Parsed, here: string): Sandbox.Polic
     return nil, "--network and --grant hold a sandbox, which --sandbox off has none of"
   end
   return Policy.of(here, { mode = got.values["--sandbox"] or "write", home = sandbox_home(r),
-    path = r.io.env("PATH"), user_home = r.io.env("HOME"), kept_out = kept_out(r),
+    path = r.io.env("PATH"), user_home = r.io.env("HOME"), kept_out = kept_out(r, got.values["--mcp"]),
     network = got.set["--network"] == true, grants = grants })
 end
 
@@ -346,17 +389,19 @@ local function session(r: Run, got: Flags.Parsed, db: Sqlite.Handle, newest: boo
     -- A session goes on with the model it used last, unless one is named.
     if got.values["--model"] == nil then model = loaded.model end
   end
-  -- The policy before a new session's row, so a refused one leaves none.
+  -- The policy and the MCP servers before a new session's row, so a refused one leaves none.
   local policy, policy_why = policy_of(r, got, here)
   if policy == nil and policy_why ~= "" then return nil, policy_why end
+  local servers, servers_why = mcp_servers(r, got)
+  if servers == nil then return nil, servers_why end
   if id == nil then
     local started, why = Sessions.start(db, here, model, Clock.now_ns() // Clock.seconds(1))
     if started == nil then return nil, why end
     id = started
   end
   local s = Agent.session({ model = model, effort = effort, sign = sign, base_url = base, cwd = here,
-    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here)), policy = policy, jobs = Jobs.new(),
-    worker = Worker.new(), build = build() }, held)
+    send = r.io.send, system = Prompt.build(here, Prompt.contexts(here), servers), policy = policy, jobs = Jobs.new(),
+    worker = Worker.new(), mcp = AgentMcp.new(servers, here), build = build() }, held)
   s.db, s.id, s.restarts, s.ended = db, id, restarts, ended
   local settled, settle_why = Agent.settle(s)
   if not settled then return nil, settle_why end
@@ -367,6 +412,8 @@ end
 local function end_jobs(s: Agent.Session)
   local worker = s.config.worker
   if worker ~= nil then Worker.close(worker) end
+  local mcp = s.config.mcp
+  if mcp ~= nil then AgentMcp.close(mcp) end
   local set = s.config.jobs
   if set == nil then return end
   Jobs.close(set, function(job: Jobs.Job, output: string)

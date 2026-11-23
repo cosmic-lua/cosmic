@@ -116,7 +116,9 @@ local record Policy
     --- The user's own home, of which only PATH's own directories are
     --- granted, not what holds them.
     user_home?: string
-    --- Directories no PATH entry may grant: the agent's data and cache.
+    --- Directories no PATH entry and no grant may reach, and the working
+    --- directory may not hold: the agent's data and cache, and its MCP
+    --- config's.
     kept_out?: {string}
   end
 
@@ -305,7 +307,7 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     local held = real or kept
     if held == root or held:sub(1, #root + 1) == root .. "/" or root == "/" then
       return nil, "the working directory " .. root .. " holds " .. held ..
-        ", where the agent keeps its sessions; run it in a project's directory, or with --sandbox off"
+        ", where the agent keeps its sessions or its MCP config; run it in a project's directory, or with --sandbox off"
     end
   end
   local letters = if config.mode == "write" then "rwxc" else "rx" end
@@ -318,7 +320,17 @@ function Policy.of(cwd: string, config: Policy.Config): Sandbox.Policy?, string
     local real, _ = Fs.absolute(path)
     if real ~= nil then grants[#grants + 1] = { path = real, letters = "r" } end
   end
-  for _, g in ipairs(config.grants) do grants[#grants + 1] = g end
+  for _, g in ipairs(config.grants) do
+    for _, kept in ipairs(config.kept_out or {}) do
+      local real, _ = Fs.absolute(kept)
+      local held = real or kept
+      if Fs.within(held, g.path) or Fs.within(g.path, held) then
+        return nil, "--grant " .. g.path .. " reaches " .. held .. ", where the agent keeps its sessions or its MCP " ..
+          "config, which no tool may change"
+      end
+    end
+    grants[#grants + 1] = g
+  end
   local guarded: mut {string} = { root }
   for _, dir in ipairs(program_dirs(config.path or "", config.user_home, guarded, config.kept_out or {})) do
     grants[#grants + 1] = { path = dir, letters = "rx" }

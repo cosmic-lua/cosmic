@@ -1,5 +1,6 @@
 --- `cosmic agent worker` as the run tool drives it ([`cosmic.agent.worker`]): one process that checks and runs one
 --- snippet after another, answering each as its own.
+local AgentMcp = require("cosmic.agent.mcp")
 local Fs = require("cosmic.fs")
 local Host = require("cosmic.agent.host")
 local Json = require("cosmic.json")
@@ -9,6 +10,9 @@ local Tools = require("cosmic.agent.tools")
 local Worker = require("cosmic.agent.worker")
 local agent_worker = require("build.agent_worker")
 local test_child = require("build.test_child")
+local _ = require("build.standalone")
+--- What the MCP server script requires, as its standalone run loads it.
+local type _ = require("cosmic.mcp.server")
 local this_program = require("build.this_program")
 
 Test.policy{ profiles = { "cosmic" }, grants = { { path = "/bin/sh", letters = "r" }, { path = "/bin/sleep", letters = "r" }, { path = "/usr/bin/sleep", letters = "r" } } }
@@ -19,7 +23,7 @@ test_child.register("worker", function(_args: {string}): integer
 end)
 
 --- A set whose worker is this program, as a test starts it.
-local function set(): Worker.Set
+local function set_of_worker(): Worker.Set
   local dir = assert(Fs.mkdtemp("agent-worker-store-"))
   local started = this_program.program(test_child.words(dir, "build.agent_worker_tool_test", "worker"),
     { env = this_program.environment(), timeout_ns = -1 })
@@ -38,7 +42,7 @@ local function run(w: Worker.Set, code: string, seconds?: integer): Worker.Answe
 end
 
 local function test_a_snippet_runs_and_answers_what_it_printed_and_returned()
-  local w = set()
+  local w = set_of_worker()
   local answer = run(w, "print(\"hello\")\nreturn { n = 2 }\n")
   assert(answer["ok"] == true and answer["output"] == "hello\n", shown(answer))
   local value, _ = Json.to_object(answer["value"])
@@ -47,7 +51,7 @@ local function test_a_snippet_runs_and_answers_what_it_printed_and_returned()
 end
 
 local function test_a_refused_snippet_does_not_run_and_the_next_does_in_the_same_worker()
-  local w = set()
+  local w = set_of_worker()
   local refused = run(w, "local Fs = require(\"cosmic.fs\")\nprint(\"ran\")\nFs.reed(\"x\")\n")
   local lines, _ = Json.to_array(refused["refused"])
   assert(lines ~= nil, shown(refused))
@@ -59,7 +63,7 @@ local function test_a_refused_snippet_does_not_run_and_the_next_does_in_the_same
 end
 
 local function test_a_snippet_that_raises_is_answered_with_its_output_and_why()
-  local w = set()
+  local w = set_of_worker()
   local answer = run(w, "print(\"before\")\nerror(\"boom\")\n")
   assert(answer["ok"] == false and answer["output"] == "before\n", shown(answer))
   assert(tostring(answer["error"]):find("boom", 1, true) ~= nil, shown(answer))
@@ -67,7 +71,7 @@ local function test_a_snippet_that_raises_is_answered_with_its_output_and_why()
 end
 
 local function test_a_snippet_past_its_timeout_ends_the_worker_and_the_next_starts_another()
-  local w = set()
+  local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local answer, why = Worker.run(w, "while true do end\n", { cwd = dir, seconds = 1 })
   assert(answer == nil and tostring(why):find("ran past 1 second", 1, true) ~= nil, tostring(why))
@@ -78,7 +82,7 @@ end
 
 --- The run tool shows the model what a snippet printed and returned, and a refusal as an error that ran nothing.
 local function test_the_run_tool_shows_what_a_snippet_printed_returned_and_was_refused_for()
-  local w = set()
+  local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local context: Tools.Context = { cwd = dir, worker = w }
   local ran = Tools.run("run", { code = "print(\"two\")\nreturn 2\n" }, context)
@@ -99,7 +103,7 @@ end
 
 --- A turn the user stops ends the snippet running, and the worker with it.
 local function test_a_stopped_turn_ends_the_snippet_and_the_worker()
-  local w = set()
+  local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local asked = 0
   local answer, why = Worker.run(w, "while true do end\n", { cwd = dir, seconds = 60, stopped = function(): boolean
@@ -112,7 +116,7 @@ end
 
 --- What a snippet prints or returns reaches the model whatever its bytes or size, and the snippet reads no request.
 local function test_an_answer_holds_any_bytes_and_a_large_value_and_the_snippet_reads_no_request()
-  local w = set()
+  local w = set_of_worker()
   local bytes = run(w, "print(\"a\\xffb\")\nreturn \"\\xfe\"\n")
   assert(bytes["ok"] == true and bytes["output"] == "a\u{FFFD}b\n" and bytes["value"] == "\u{FFFD}", shown(bytes))
   local nulls = run(w, "local Json = require(\"cosmic.json\")\nreturn Json.array({ 1, Json.null, 2 })\n")
@@ -149,7 +153,7 @@ end
 
 --- A snippet queries sessions.db through the agent, which answers it read-only, as the sql tool does, row by row.
 local function test_a_snippet_queries_the_sessions_through_the_agent()
-  local w = set()
+  local w = set_of_worker()
   local dir = assert(Fs.mkdtemp("agent-worker-"))
   local db = assert(Sessions.open(dir .. "/sessions.db"))
   local id = assert(Sessions.start(db, "/", "m", 0))
@@ -207,4 +211,67 @@ end
 local function test_a_call_outside_a_worker_fails()
   local rows, why = Host.sql("SELECT 1")
   assert(rows == nil and tostring(why):find("no agent answers here", 1, true) ~= nil, tostring(why))
+end
+
+--- An MCP server of the agent, over stdio: a snippet names it, lists its tools and calls one, through the agent.
+local function test_a_snippet_calls_an_mcp_server_through_the_agent()
+  local dir = assert(Fs.mkdtemp("agent-worker-mcp-"))
+  local script = dir .. "/server.tl"
+  assert(Fs.write(script, [=[
+local Failure = require("cosmic.failure")
+local Json = require("cosmic.json")
+local Mcp = require("cosmic.mcp")
+local Server = require("cosmic.mcp.server")
+return function(_: {string}): integer
+  local server = Server.new{
+    info = { name = "adder", version = "1" },
+    tools = { {
+      tool = { name = "twice", description = "twice n", inputSchema = Mcp.object_schema({ n = { type = "integer" } }, { "n" }) },
+      call = function(args: {string: Json.Value}, _: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+        local n = math.tointeger(args["n"])
+        if n == nil then return nil, Failure.new("n must be an integer") end
+        return Mcp.result({ tostring(n * 2) })
+      end,
+    } },
+  }
+  assert(server:serve_stdio())
+  return 0
+end
+]=]))
+  local started = this_program.program({ "--standalone", script }, { env = this_program.environment(), timeout_ns = -1 })
+  local config = assert(Json.encode({ servers = { adder = { command = Json.array(started.argv), sandbox = "off",
+    description = "adds" } } }))
+  assert(Fs.write(dir .. "/mcp.json", config))
+  local servers = assert(AgentMcp.load(dir .. "/mcp.json"))
+  local set = AgentMcp.new(servers, dir)
+  local w = set_of_worker()
+  local context: Tools.Context = { cwd = dir, worker = w, mcp = set }
+  local code = [[
+local Host = require("cosmic.agent.host")
+local Json = require("cosmic.json")
+local server = assert(assert(Host.servers())[1])
+print(server["name"], server["reached"], server["description"])
+local tool = assert(assert(Host.tools("adder"))[1])
+print(tool["name"], tool["description"])
+local said = assert(Host.mcp("adder", "twice", { n = 21 }))
+local content = assert(Json.to_array(said["content"]))
+print(assert(Json.to_object(content[1]))["text"])
+local failed = assert(Host.mcp("adder", "twice", { n = "x" }))
+print(failed["isError"])
+local _, missing = Host.mcp("nope", "twice", {})
+print(tostring(missing))
+]]
+  local ran = Tools.run("run", { code = code }, context)
+  assert(not ran.is_error, ran.text)
+  assert(ran.text:find("adder\tunsandboxed\tadds\ntwice\ttwice n\n42\n", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("\n42\ntrue\n", 1, true) ~= nil, ran.text)
+  assert(ran.text:find("no MCP server \"nope\" (the servers: adder)", 1, true) ~= nil, ran.text)
+  assert(set.handles["adder"] ~= nil, "the server runs until the session ends")
+  AgentMcp.close(set)
+  assert(set.handles["adder"] == nil)
+  local none = Tools.run("run", { code = "local Host = require(\"cosmic.agent.host\")\n" ..
+      "local _, why = Host.tools(\"adder\")\nreturn tostring(#assert(Host.servers())) .. \" \" .. tostring(why)\n" },
+    { cwd = dir, worker = w })
+  assert(none.text:find("0 host: mcp.tools: no MCP server is configured", 1, true) ~= nil, none.text)
+  Worker.close(w)
 end

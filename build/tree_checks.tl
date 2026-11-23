@@ -119,6 +119,12 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 
 allowed["cosmic.agent.host.call"] = "public API: what a snippet of cosmic agent's run tool calls to reach the agent; " ..
   "snippets, which the tree never holds, are its users"
+allowed["cosmic.agent.host.servers"] = "public API: what a snippet of cosmic agent's run tool calls to name the " ..
+  "MCP servers it may call; snippets, which the tree never holds, are its users"
+allowed["cosmic.agent.host.tools"] = "public API: what a snippet of cosmic agent's run tool calls to list an MCP " ..
+  "server's tools; snippets, which the tree never holds, are its users"
+allowed["cosmic.agent.host.mcp"] = "public API: what a snippet of cosmic agent's run tool calls to call an MCP " ..
+  "server's tool; snippets, which the tree never holds, are its users"
 allowed["cosmic.agent.host.sql"] = "public API: what a snippet of cosmic agent's run tool calls to query sessions.db; " ..
   "snippets, which the tree never holds, are its users"
 allowed["cosmic.mcp.MISSING_CAPABILITY"] = "public API: the protocol's code for a request that needs a capability the " ..
@@ -128,8 +134,6 @@ allowed["cosmic.mcp.image"] = "public API: an image block of a tool's result, it
 allowed["cosmic.mcp.audio"] = "public API: an audio block of a tool's result, its bytes in base64, which a server builds"
 allowed["cosmic.mcp.link"] = "public API: a block that links a resource from a tool's result, which a server builds"
 allowed["cosmic.mcp.embedded"] = "public API: a block that embeds a resource's contents, which a server builds"
-allowed["cosmic.mcp.client.stdio"] = "public API: a session over a reader and a writer the caller holds, a pipe " ..
-  "or a socket; the tree's own callers start a server with spawn or reach one with http"
 allowed["cosmic.mcp.object_schema"] = "public API: the JSON Schema of a tool's arguments, which a server declares its tools with"
 allowed["cosmic.mcp.structured"] = "public API: a tool's result whose structuredContent holds to its outputSchema, which a server builds"
 allowed["cosmic.mcp.elicit_form"] = "public API: a form a tool's handler asks the person to fill in, through call.elicit"
