@@ -1,7 +1,7 @@
 --- `place-tree`, which moves CI's checkout to a path the commit and the
 --- leg choose: the same two choose the same path, so a re-run meets it
 --- again, and another leg, or another commit, chooses another -- but on
---- a gating run of a leg keyed by declarations, whose keys hold the
+--- a run that stands on verdicts, of a leg keyed by declarations, whose keys hold the
 --- path, the leg alone chooses it. The path is always one directory
 --- beside the workspace, so actions/cache's paths relative to the
 --- workspace resolve through it. The names are checked against vectors
@@ -182,8 +182,9 @@ end
 
 --- A gating run (a push, the merge queue) of a leg keyed by declared
 --- inputs, whose keys hold the tree's path, names one path for every
---- commit, the leg's own; its scheduled or a manual run, and every run
---- of any other leg, names one by the commit.
+--- commit, the leg's own; a run whose COSMIC_CI_EVENT is neither (the
+--- weekly run, a manual run with `every_test`), and every run of any
+--- other leg, names one by the commit.
 local function test_a_gating_run_keyed_by_declarations_names_the_legs_path()
   local other = "0" .. SHA:sub(2)
   for _, event in ipairs({ "push", "merge_group" }) do
@@ -345,12 +346,33 @@ local function test_a_gating_run_keyed_by_declarations_moves_the_tree_to_the_leg
   local root, workspace = checkout()
   local before = layout(root)
   local out = place(workspace, "", "macos-aarch64", "1")
-  assert(assert(out[1]):find(", a gating run keyed by the path)", 1, true), out[1])
+  assert(assert(out[1]):find(", a run that stands on verdicts keyed by the path)", 1, true), out[1])
   assert(assert(Fs.readlink(workspace)) == name("0" .. SHA:sub(2), "macos-aarch64", "push", "1"),
     layout(root))
   place(workspace, "--restore", "macos-aarch64", "1")
   assert(layout(root) == before, layout(root))
   assert(Fs.remove_tree(root))
+end
+
+--- The daily scheduled run and a manual run stand on verdicts (ci.yml
+--- gives them COSMIC_CI_EVENT `push`), so a leg keyed by declarations
+--- keeps the leg's own path there, as on a push; the weekly run and a
+--- manual run with `every_test` keep their own event and a path chosen by
+--- the commit.
+local function test_a_run_that_stands_on_verdicts_keeps_the_legs_path_whatever_its_event()
+  local function named(github_event: string, ci_event: string): string
+    return assert(PlaceTree.name({ GITHUB_SHA = SHA, COSMIC_WORKER = "macos-aarch64",
+      GITHUB_EVENT_NAME = github_event, COSMIC_CI_EVENT = ci_event, COSMIC_CI_DECLARED_KEYS = "1" })).name
+  end
+  local leg = name("0" .. SHA:sub(2), "macos-aarch64", "push", "1")
+  local by_commit = name(SHA, "macos-aarch64", "schedule", "1")
+  assert(leg ~= by_commit, leg)
+  assert(named("schedule", "push") == leg, "the daily run")
+  assert(named("workflow_dispatch", "push") == leg, "a manual run")
+  assert(named("schedule", "schedule") == by_commit, "the weekly run")
+  assert(named("workflow_dispatch", "workflow_dispatch") == name(SHA, "macos-aarch64", "workflow_dispatch", "1"),
+    "a manual run of every test")
+  assert(named("workflow_dispatch", "workflow_dispatch") ~= leg, "a manual run of every test")
 end
 
 local function test_a_move_that_ran_already_moves_nothing()

@@ -676,12 +676,12 @@
         },
         # Whatever failed (a failing verdict takes a passing one out),
         # where the rows differ from the entry restored. Not the macOS
-        # leg's scheduled runs: its keys hold the tree's path, which such a
-        # run chooses by the commit (driver.tl place-tree), so its rows
-        # would answer no other run.
+        # leg's weekly run: its keys hold the tree's path, which that run
+        # chooses by the commit (driver.tl place-tree), so its rows would
+        # answer no other run.
         {
           name: "save test verdicts",
-          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.verdicts-trim.outputs.digest != '' && !(github.event_name == 'schedule' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
+          if: "always() && env.COSMIC_CI_SAVES == 'true' && steps.main-newest.outputs.newest != 'false' && steps.verdicts-trim.outputs.digest != '' && !(github.event.schedule == '41 3 * * 0' && env.COSMIC_CI_DECLARED_KEYS == '1') && steps.verdicts-restore.outputs.cache-matched-key != format('{0}{1}', steps.host-id.outputs.verdicts, steps.verdicts-trim.outputs.digest)",
           uses: "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25", # v5.1.0
           with: {
             path: "${{ runner.temp }}/verdicts",

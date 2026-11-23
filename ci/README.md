@@ -433,9 +433,11 @@ are where CI answers for everything. A branch's push runs nothing.
   verdicts main's pushes left, as a push does (`COSMIC_CI_EVENT`); Sunday's,
   the weekly run, stands on none, runs the fixed-point regression, and
   builds zig's caches cold. A manual run with `every_test` stands on none
-  either, and one with `fixed_point` runs that regression too. macOS keys its verdicts by the tree's path, which a
-  scheduled run chooses by the commit, so its leg runs every test each
-  day and saves none.
+  either, and one with `fixed_point` runs that regression too. macOS
+  keys its verdicts by the tree's path, which stays the leg's own in a
+  run that stands on verdicts and moves with the commit in the weekly run
+  (`driver.tl place-tree`), so its daily run saves verdicts and its
+  weekly run, which saves none, catches a test that turns on the path.
 
 Each job is a plain sequence of steps on one runner: none is split into
 shares, and none waits on another but the gate. Three things are relayed
