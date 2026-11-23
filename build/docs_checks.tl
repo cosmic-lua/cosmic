@@ -33,13 +33,21 @@ end
 --- The database a release binary carries of the projection at `whole`
 --- ([`build.writer`]'s `carried`): the only rows a public source has,
 --- read without a query of the rest. Made at `scratch`, opened, and
---- unlinked, so nothing is left behind.
-function docs_checks.carried(whole: string, scratch: string): Sqlite.Handle?, string
+--- unlinked, so nothing is left behind; with `kept`, left at `scratch` for
+--- another process to open too, for the caller to remove once it is done.
+function docs_checks.carried(whole: string, scratch: string, kept?: boolean): Sqlite.Handle?, string
   local made, made_trouble = writer.carried(whole, scratch)
   if not made then
     return nil, made_trouble
   end
   local db, open_trouble = Sqlite.open(scratch)
+  if kept == true then
+    if db == nil then
+      local _, _ = Fs.remove(scratch)
+      return nil, open_trouble
+    end
+    return db, ""
+  end
   local removed, remove_trouble = Fs.remove(scratch)
   if db == nil then
     return nil, open_trouble
