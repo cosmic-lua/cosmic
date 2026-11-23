@@ -9,6 +9,12 @@
 ---     if rows == nil then error(tostring(why)) end
 ---     for _, row in ipairs(rows) do print(row["tool"], row["n"]) end
 ---
+--- The MCP servers the agent was given ([`cosmic.agent.mcp`]) are reached the same way: [`Host.servers`] names
+--- them, [`Host.tools`] lists a server's tools, and [`Host.mcp`] calls one.
+---
+---     local result = assert(Host.mcp("notes", "search", { query = "teal" }))
+---     print(require("cosmic.json").encode(result["content"]))
+---
 --- Outside a worker no agent answers, and each call fails so.
 
 local Failure = require("cosmic.failure")
@@ -61,6 +67,50 @@ function Host.sql(query: string): ({Host.Row}) | (nil, Failure)
     rows[#rows + 1] = row
   end
   return rows
+end
+
+--- The agent's answer to `name` with `args` as a list of objects, or why there is none.
+local function objects(name: string, args: Json.Value): ({{string: Json.Value}}) | (nil, Failure)
+  local answer, why = Host.call(name, args)
+  if answer == nil then return nil, why end
+  local list, list_why = Json.to_array(answer)
+  if list == nil then
+    return nil, Failure.new("host: " .. name .. ": the agent's reply is no list: " .. tostring(list_why))
+  end
+  local out: mut {{string: Json.Value}} = {}
+  for _, item in ipairs(list) do
+    local object, object_why = Json.to_object(item)
+    if object == nil then
+      return nil, Failure.new("host: " .. name .. ": an item of the agent's reply is no object: " .. tostring(object_why))
+    end
+    out[#out + 1] = object
+  end
+  return out
+end
+
+--- The MCP servers the agent was given: each one's `name`, `reached` ("sandboxed", "unsandboxed" or "http") and
+--- `description` where the config gives one. None where it was given none.
+function Host.servers(): ({{string: Json.Value}}) | (nil, Failure)
+  return objects("mcp.servers", Json.null)
+end
+
+--- The tools the MCP server `server` offers, as it lists them: each one's `name`, `description`, `inputSchema` and
+--- more. The first call to a server starts it.
+function Host.tools(server: string): ({{string: Json.Value}}) | (nil, Failure)
+  return objects("mcp.tools", { server = server })
+end
+
+--- What the tool `tool` of the MCP server `server` answered `arguments`: its `content` (a list of blocks, a text one
+--- `{type = "text", text = ...}`), its `structuredContent` where it gives one, and `isError` true where the tool ran
+--- and failed. A call the server refused, or one that got no answer, is a failure. The agent answers at most 512KB.
+function Host.mcp(server: string, tool: string, arguments?: {string: Json.Value}): ({string: Json.Value}) | (nil, Failure)
+  local answer, why = Host.call("mcp.call", { server = server, tool = tool, arguments = arguments or {} })
+  if answer == nil then return nil, why end
+  local result, result_why = Json.to_object(answer)
+  if result == nil then
+    return nil, Failure.new("host: mcp.call: the agent's reply is no object: " .. tostring(result_why))
+  end
+  return result
 end
 
 return Host

@@ -1860,6 +1860,7 @@ local module: Module = {
         ["--sandbox"] = { value = "mode", about = "write (the default), read or off: what the tools may change" },
         ["--network"] = { about = "let bash reach the network" },
         ["--grant"] = { value = "path[:rwxc]", about = "let the tools reach this path too, read alone unless letters say more" },
+        ["--mcp"] = { value = "file", about = "ask, chat, resume, rpc: the MCP servers snippets may call (default ~/.config/cosmic/mcp.json; see cosmic.agent.mcp)" },
       },
     },
     sandbox = {

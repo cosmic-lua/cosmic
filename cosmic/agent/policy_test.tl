@@ -239,3 +239,18 @@ local function test_background_jobs_run_until_read_killed_or_the_session_ends()
   assert(#handed == 1 and handed[1] == "4:unread\n" and job.result ~= nil, table.concat(handed, ","))
   assert(not assert(Fs.status(job.file)).exists)
 end
+
+--- A grant that reaches what is kept out, or holds it, is refused: no tool may change the sessions or the MCP config.
+local function test_a_grant_over_what_is_kept_out_is_refused()
+  local dir, kept = scratch(), scratch()
+  local config = kept .. "/cosmic"
+  assert(Fs.mkdirs(config, 0x1c0))
+  for _, path in ipairs({ config, kept, config .. "/mcp.json" }) do
+    local p, why = Policy.of(dir, { mode = "write", network = false, grants = { { path = path, letters = "rw" } },
+      kept_out = { config } })
+    assert(p == nil and why:find("which no tool may change", 1, true) ~= nil, path .. ": " .. why)
+  end
+  local beside = scratch()
+  assert(Policy.of(dir, { mode = "write", network = false, grants = { { path = beside, letters = "r" } },
+    kept_out = { config } }))
+end

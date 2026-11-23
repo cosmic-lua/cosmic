@@ -61,6 +61,7 @@
 --- in a session of its own (setsid) leaves the job, and kill does not
 --- reach it.
 
+local AgentMcp = require("cosmic.agent.mcp")
 local Child = require("cosmic.child")
 local Clock = require("cosmic.clock")
 local Env = require("cosmic.env")
@@ -105,6 +106,8 @@ local record Tools
     jobs?: Jobs.Set
     --- The worker run sends its snippets to (cosmic.agent.worker); nil for none.
     worker?: Worker.Set
+    --- The MCP servers a snippet may call (cosmic.agent.mcp); nil for none.
+    mcp?: AgentMcp.Set
     --- Whether the user stopped the turn, which ends a wait.
     stopped?: function(): boolean
   end
@@ -667,19 +670,57 @@ end
 --- What answers the calls a snippet of `context` makes of the agent: sql alone, as the sql tool runs it.
 local function served(context: Tools.Context): Worker.Serve
   return function(name: string, args: Json.Value, over: function(): boolean): (Json.Value) | (nil, Failure)
-    if name ~= "sql" then
-      return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
-          ": it serves sql")
-    end
     local fields, _ = Json.to_object(args)
-    local query = if fields ~= nil then fields["query"] else nil end
-    if not (query is string) then return nil, Failure.new("the call has no query") end
-    local reader, open_why = reader_of(context)
-    if reader == nil then return nil, Failure.new(open_why) end
-    local rows, why = objects_of(reader, query, context.session, over)
-    local _, _ = reader:close()
-    if rows == nil then return nil, why end
-    return rows
+    local given: {string: Json.Value} = fields or {}
+    if name == "sql" then
+      local query = given["query"]
+      if not (query is string) then return nil, Failure.new("the call has no query") end
+      local reader, open_why = reader_of(context)
+      if reader == nil then return nil, Failure.new(open_why) end
+      local rows, why = objects_of(reader, query, context.session, over)
+      local _, _ = reader:close()
+      if rows == nil then return nil, why end
+      return rows
+    end
+    if name ~= "mcp.servers" and name ~= "mcp.tools" and name ~= "mcp.call" then
+      return nil, Failure.new("the agent serves no call " .. Json.quote(String.as_utf8(name)) ..
+          ": it serves sql, mcp.servers, mcp.tools and mcp.call")
+    end
+    local set = context.mcp
+    if name == "mcp.servers" then
+      if set == nil then return Json.array({}) end
+      return AgentMcp.listed(set)
+    end
+    if set == nil then
+      return nil, Failure.new("no MCP server is configured: see `cosmic help agent`")
+    end
+    local server = given["server"]
+    if not (server is string) then return nil, Failure.new("the call names no server") end
+    local answer: Json.Value
+    if name == "mcp.tools" then
+      local tools, why = AgentMcp.tools(set, server)
+      if tools == nil then return nil, why end
+      answer = tools
+    else
+      local tool = given["tool"]
+      if not (tool is string) then return nil, Failure.new("the call names no tool") end
+      local stated = given["arguments"]
+      local none: {string: Json.Value} = {}
+      local arguments, _ = Json.to_object(if stated == nil then none else stated end)
+      if arguments == nil then return nil, Failure.new("the call's arguments are no object") end
+      local result, why = AgentMcp.call(set, server, tool, arguments)
+      if result == nil then return nil, why end
+      answer = result
+    end
+    local text, encode_why = Json.encode(answer)
+    if text == nil then
+      return nil, Failure.new("the answer is no JSON: " .. tostring(encode_why))
+    end
+    if #text > MAX_REPLY then
+      return nil, Failure.new("the answer is " .. String.counted(#text, "byte") .. " of JSON, more than the " ..
+          String.counted(MAX_REPLY, "byte") .. " a reply holds")
+    end
+    return answer
   end
 end
 
@@ -781,6 +822,8 @@ Tools.list = {
         "make it and run again. A snippet reaches cosmic.* alone, and its locals end with it.",
       "From a snippet, `require(\"cosmic.agent.host\").sql(query)` answers the sql tool's query as a list of rows, " ..
         "each an object of its columns: read sessions.db and act on it in one snippet.",
+      "From a snippet, Host.servers() names the MCP servers you were given, Host.tools(server) lists a server's " ..
+        "tools and Host.mcp(server, tool, arguments) calls one (cosmic.agent.host): call several in one snippet.",
     },
     description = "Check and run a snippet of Teal, the typed Lua of cosmic, in a worker process kept for the " ..
       "session, under the same sandbox as bash. The snippet may require cosmic.* modules (cosmic.fs, cosmic.json, " ..
