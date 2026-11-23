@@ -534,35 +534,6 @@ local function row_reach(row: Row, column: integer): integer
   return reach
 end
 
---- The column what `rows` do starts at, counted from the end of the
---- indent, for lines that stay within `wrap` columns: the widest head
---- when `wrap` is nil or every row's line fits there. Otherwise the
---- widest head of a row whose line fits alone, so a head too wide for
---- that takes a line of its own; 0 where none fits. A row with nothing
---- said beside its head moves no column.
-local function row_column(rows: {Row}, wrap?: integer): integer
-  local widest = row_width(rows)
-  if wrap == nil then
-    return widest
-  end
-  local fits = true
-  for _, row in ipairs(rows) do
-    local about = row.about
-    if about ~= nil and about ~= "" and row_reach(row, widest) > wrap then fits = false end
-  end
-  if fits then
-    return widest
-  end
-  local column = 0
-  for _, row in ipairs(rows) do
-    local about = row.about
-    if about ~= nil and about ~= "" and row_reach(row, columns(row.head)) <= wrap then
-      column = math.max(column, columns(row.head))
-    end
-  end
-  return column
-end
-
 --- `text`'s words, in lines of at most `room` columns where a word
 --- allows: a word wider than that has a line of its own.
 local function wrapped(text: string, room: integer): {string}
@@ -613,6 +584,51 @@ local function row_lines(rows: {Row}, column: integer, wrap?: integer): {string}
     end
   end
   return lines
+end
+
+--- The column what `rows` do starts at, counted from the end of the
+--- indent, for lines that stay within `wrap` columns: the widest head
+--- when `wrap` is nil or every row's line fits there. Otherwise the
+--- widest head of a row whose line fits alone, so a head too wide for
+--- that takes a line of its own; 0 where none fits. A column that lays
+--- `rows` out in fewer lines wins over that one: another row's head
+--- width, or 0. So one wide head with a short line does not push every
+--- other row's line past the edge. A row with nothing said beside its
+--- head moves no column.
+local function row_column(rows: {Row}, wrap?: integer): integer
+  local widest = row_width(rows)
+  if wrap == nil then
+    return widest
+  end
+  local fits = true
+  for _, row in ipairs(rows) do
+    local about = row.about
+    if about ~= nil and about ~= "" and row_reach(row, widest) > wrap then fits = false end
+  end
+  if fits then
+    return widest
+  end
+  local column = 0
+  for _, row in ipairs(rows) do
+    local about = row.about
+    if about ~= nil and about ~= "" and row_reach(row, columns(row.head)) <= wrap then
+      column = math.max(column, columns(row.head))
+    end
+  end
+  local fewest = #row_lines(rows, column, wrap)
+  local candidates: mut {integer} = { 0 }
+  for _, row in ipairs(rows) do
+    if row.about ~= nil and row.about ~= "" then candidates[#candidates + 1] = columns(row.head) end
+  end
+  for _, candidate in ipairs(candidates) do
+    if 2 + candidate + 2 < wrap then
+      local count = #row_lines(rows, candidate, wrap)
+      if count < fewest then
+        column, fewest = candidate, count
+      end
+    end
+  end
+  return column
 end
 
 --- `rows` as [`row_lines`] lays them out within `wrap` columns, or in

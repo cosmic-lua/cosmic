@@ -269,9 +269,10 @@ adds reaches them only once the pin moves, and it can only move after
 the change merges and a prerelease that holds it is published. main
 publishes one, `<YYYYMMDD>-<commit>`, from its daily scheduled run and
 from a manual run of `ci` on main, not from each merge
-([`.github/workflows/prerelease.yml`], [`ci/README.md`]): the newest is
-up to a day behind main, and it may name a later commit than the
-merge's own.
+([`.github/workflows/prerelease.yml`], [`ci/README.md`]). a green push
+starts a manual run where none started in the last six hours, so the
+newest is some hours behind main, and it may name a later commit than
+the merge's own.
 
 [`bin/zig`], [`bin/vendor`] and [`bin/verify-codesign`] each run their
 Teal ([`build/zig.tl`], ...) through [`bin/cosmic-bootstrap`], which

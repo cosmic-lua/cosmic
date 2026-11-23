@@ -179,7 +179,7 @@ local function read_back(to: verb.Io, complain: function(line: string), file: st
   end
   local read, read_why = Qr.read(drawing)
   if read == nil then
-    complain((read_why:gsub("^qr: ", "")))
+    complain((read_why.message:gsub("^qr: ", "")))
     return bare.failed
   end
   return bare.written(complain, to.out(read.text .. "\n"))
@@ -217,7 +217,7 @@ function verb.run(argv: {string}, io?: verb.Io): integer
   end
   local code, why = Qr.encode(text, { level = request.level, max_version = request.max_version })
   if code == nil then
-    complain((why:gsub("^qr: ", "")))
+    complain((why.message:gsub("^qr: ", "")))
     return bare.failed
   end
   local svg = request.svg

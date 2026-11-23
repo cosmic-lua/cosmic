@@ -3,6 +3,7 @@
 --- carries, and what it refuses.
 
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Fixture = require("build.qr_fixture")
 local Qr = require("cosmic.qr")
@@ -152,8 +153,8 @@ local function holds_what_the_standard_says(level: Qr.Level)
     assert(code.version == version, name)
     local none, why = Qr.encode(string.rep("a", n + 1), { level = level, mask = 0, max_version = version })
     assert(none == nil, name)
-    assert(why == ("qr: the text is %d bytes, and a version %d code at level %s holds %d"):format(n + 1, version,
-      level, n), why)
+    assert(why.message == ("qr: the text is %d bytes, and a version %d code at level %s holds %d"):format(n + 1, version,
+      level, n), tostring(why))
   end
 end
 
@@ -173,14 +174,15 @@ end
 local function test_a_maximum_version_refuses_what_needs_a_larger_one()
   assert(assert(Qr.encode(string.rep("y", 213), { max_version = 10 })).version == 10)
   local none, why = Qr.encode(string.rep("z", 214), { max_version = 10 })
-  assert(none == nil and why == "qr: the text is 214 bytes, and a version 10 code at level M holds 213", why)
+  assert(none == nil and why.message == "qr: the text is 214 bytes, and a version 10 code at level M holds 213", why)
 end
 
 local function test_options_that_are_the_callers_mistake_raise()
   local bad: {Qr.Options} = { { mask = 8 }, { mask = -1 }, { max_version = 0 }, { max_version = 41 } }
   for _, options in ipairs(bad) do
-    local ok, err = pcall(Qr.encode, "x", options)
-    assert(not ok and tostring(err):find("qr: ", 1, true) ~= nil, tostring(err))
+    local ok, err = pcall(function() local _, _ = Qr.encode("x", options) end)
+    -- The caller is blamed: the message names this file, not cosmic/qr.tl.
+    assert(not ok and tostring(err):find("^cosmic%.qr_test:%d+: qr: ") ~= nil, tostring(err))
   end
 end
 
@@ -378,7 +380,7 @@ end
 
 local function reads_as(v: Vector, name: string)
   local read, why = Qr.decode(vector_rows(v))
-  assert(read ~= nil, ("%s: %s"):format(name, why))
+  assert(read ~= nil, ("%s: %s"):format(name, tostring(why)))
   assert(read.text == v.text, name)
   assert(read.code.version == v.version and read.code.level == v.level and read.code.mask == v.drawn, name)
   assert(read.corrected == 0, name)
@@ -435,25 +437,28 @@ local function test_every_drawing_reads_back_at_each_level_and_mask()
     for mask = 0, 7 do
       local text = ("level %s, mask %d: https://example.com/?q=%d"):format(level, mask, mask)
       local code = assert(Qr.encode(text, { level = level, mask = mask }))
-      local function holds(how: string, read: Qr.Decoded?, why: string)
-        assert(read ~= nil, ("%s%d %s: %s"):format(level, mask, how, why))
+      local function holds(how: string, read: Qr.Decoded?, why?: Failure)
+        assert(read ~= nil, ("%s%d %s: %s"):format(level, mask, how, tostring(why)))
         assert(read.text == text and read.code.level == level and read.code.mask == mask, how)
       end
       for _, quiet in ipairs({ 4, 1, 0 }) do
-        holds(("rows, quiet %d"):format(quiet), Qr.decode(Qr.rows(code, quiet)))
+        local read, why = Qr.decode(Qr.rows(code, quiet))
+        holds(("rows, quiet %d"):format(quiet), read, why)
       end
       -- A grid of light on dark reads too.
-      holds("light on dark", Qr.decode(damaged(Qr.rows(code), function(_: integer, _: integer): boolean
+      local dark_read, dark_why = Qr.decode(damaged(Qr.rows(code), function(_: integer, _: integer): boolean
         return true
-      end)))
+      end))
+      holds("light on dark", dark_read, dark_why)
       local index = turn % #drawings + 1
       turn = turn + 1
       local d = assert(drawings[index])
       if d.svg then
-        holds(("svg, quiet %d"):format(d.quiet), Qr.read(Qr.svg(code, { quiet = d.quiet })))
+        local read, why = Qr.read(Qr.svg(code, { quiet = d.quiet }))
+        holds(("svg, quiet %d"):format(d.quiet), read, why)
       else
-        holds(("text, quiet %d, invert %s, ascii %s"):format(d.quiet, d.invert, d.ascii),
-          Qr.read(Qr.text(code, { quiet = d.quiet, invert = d.invert, ascii = d.ascii })))
+        local read, why = Qr.read(Qr.text(code, { quiet = d.quiet, invert = d.invert, ascii = d.ascii }))
+        holds(("text, quiet %d, invert %s, ascii %s"):format(d.quiet, d.invert, d.ascii), read, why)
       end
     end
   end
@@ -486,7 +491,7 @@ local function test_text_copied_indented_or_with_no_break_spaces_still_reads()
     for _, indent in ipairs({ " ", "  ", "   ", "    " }) do
       local indented = drawn:gsub("[^\n]+", function(line: string): string return indent .. line end)
       local read, why = Qr.read(indented)
-      assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, indent %d: %s"):format(n, #indent, why))
+      assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, indent %d: %s"):format(n, #indent, tostring(why)))
     end
     -- A tab before each line, and spaces after it.
     local tabbed = drawn:gsub("[^\n]+", function(line: string): string
@@ -494,10 +499,10 @@ local function test_text_copied_indented_or_with_no_break_spaces_still_reads()
     end)
     local read_tabbed, tabbed_why = Qr.read(tabbed)
     assert(read_tabbed ~= nil and read_tabbed.text == "https://example.com/", ("drawing %d, tabbed: %s"):format(n,
-      tabbed_why))
+      tostring(tabbed_why)))
     -- Spaces a copy turned into no-break spaces.
     local read, why = Qr.read((drawn:gsub(" ", "\u{a0}")))
-    assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, no-break spaces: %s"):format(n, why))
+    assert(read ~= nil and read.text == "https://example.com/", ("drawing %d, no-break spaces: %s"):format(n, tostring(why)))
   end
 end
 
@@ -535,7 +540,7 @@ local function test_damage_within_the_level_is_mended_and_past_it_refused()
   local mended = assert(Qr.decode(damaged(rows, square(7))))
   assert(mended.text == "damaged" and mended.corrected == 8, mended.corrected)
   local none, why = Qr.decode(damaged(rows, square(9)))
-  assert(none == nil and why == "qr: block 1 of the version 1 code at level H has more errors than it can mend", why)
+  assert(none == nil and why.message == "qr: block 1 of the version 1 code at level H has more errors than it can mend", why)
   -- The format information beside the top left finder lost to light.
   local function first_copy(x: integer, y: integer): boolean
     return ((y == 9 and x <= 9 and x ~= 7) or (x == 9 and y <= 8 and y ~= 7)) and assert(rows[y])[x] == true
@@ -575,16 +580,16 @@ local function test_what_is_no_code_is_refused_with_why()
   }
   for _, case in ipairs(cases) do
     local read, why = Qr.read(case[1] or "")
-    assert(read == nil and why == case[2], why)
+    assert(read == nil and why.message == case[2], tostring(why))
   end
   local none, why = Qr.decode({ { false, false }, { false, false } })
-  assert(none == nil and why == "qr: no module is dark", why)
+  assert(none == nil and why.message == "qr: no module is dark", tostring(why))
   local wide, wide_why = Qr.decode({ { true, true, true } })
-  assert(wide == nil and wide_why == "qr: the dark modules span 3 by 1, not a square", wide_why)
+  assert(wide == nil and wide_why.message == "qr: the dark modules span 3 by 1, not a square", tostring(wide_why))
   -- The format information blanked in both copies leaves no level to read by.
   local blank, blank_why = Qr.decode(damaged(Qr.rows(code, 0), function(x: integer, y: integer): boolean
     return ((y == 9 and (x <= 9 or x >= 14)) or (x == 9 and (y <= 9 or y >= 15))) and
       assert(Qr.rows(code, 0)[y])[x] == true
   end))
-  assert(blank == nil and blank_why == "qr: the format information is unreadable", blank_why)
+  assert(blank == nil and blank_why.message == "qr: the format information is unreadable", tostring(blank_why))
 end

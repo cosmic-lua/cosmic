@@ -1,7 +1,7 @@
 --- Fenced code blocks out of a markdown doc, in document order. This
 --- is the whole of what [`build.doctest`] reads from the markdown itself;
 --- everything the grammar in doc/writing.md means by a block's tag
---- (`teal`, `lua`, `output`, `text`, and the `continue`/`file=`/
+--- (`teal`, `lua`, `sh`, `output`, `text`, and the `continue`/`file=`/
 --- `skip=` modifiers on `teal`/`lua`) is decided here, once, so
 --- [`build.doctest.generate`] never re-parses a tag string.
 ---
@@ -25,7 +25,7 @@ local record Modifiers
 end
 
 local record Block
-  --- `"text"`, `"output"`, `"teal"`, `"lua"`, or `"policy"`.
+  --- `"text"`, `"output"`, `"teal"`, `"lua"`, `"sh"`, or `"policy"`.
   lang: string
   modifiers: Modifiers
   --- The block's body, its lines joined by `"\n"`, with neither fence
@@ -45,6 +45,7 @@ local valid_langs: {string:boolean} = {
   output = true,
   teal = true,
   lua = true,
+  sh = true,
 }
 
 local record Tag
@@ -68,7 +69,7 @@ local function parse_tag(info: string): Tag?, string
   if valid_langs[lang] ~= true then
     return nil, "unknown fenced block tag '" .. lang .. "'"
   end
-  if (lang == "text" or lang == "output") and #words > 1 then
+  if (lang == "text" or lang == "output" or lang == "sh") and #words > 1 then
     return nil, "a " .. lang .. " block takes no modifiers"
   end
   local modifiers: Modifiers = { continue = false, file = nil, skip = nil }

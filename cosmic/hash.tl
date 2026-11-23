@@ -22,6 +22,7 @@
 --- for anything an attacker can choose the input of.
 
 local Codec = require("cosmic.codec")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 
 -- The raw module behind every function here lives under the reserved
@@ -98,18 +99,8 @@ end
 --- How many bytes [`Hash.file`] reads at once.
 local chunk_size = 1 << 20
 
---- The raw digest of the file at `path` under an algorithm, and "": the
---- bytes [`Hash.digest`] gives over its whole contents, read a chunk at a
---- time so that a file of any size takes the same memory. nil and a message
---- naming the path when it cannot be opened or read, or the digest cannot
---- finish. Raises on an unknown algorithm, as `digest` does. [`Hash.hex_file`]
---- spells the digest as `sha256sum` does.
----
----     local dir = assert(Fs.mkdtemp("hash-"))
----     assert(Fs.write(dir .. "/a.txt", "cosmic"))
----     assert(Hash.file("sha256", dir .. "/a.txt") == Hash.sha256("cosmic"))
----     assert(Fs.remove_tree(dir))
-function Hash.file(algorithm: Hash.Algorithm, path: string): string?, string
+-- Hash.file, its failure in words.
+local function file_text(algorithm: Hash.Algorithm, path: string): string?, string
   local made, trouble = raw.hasher(algorithm)
   if made == nil then return nil, trouble end
   -- Abandoned on every way out that does not finish it.
@@ -132,22 +123,58 @@ function Hash.file(algorithm: Hash.Algorithm, path: string): string?, string
   return digest, ""
 end
 
---- The hexadecimal digest of the file at `path` under an algorithm, as
---- `sha256sum` prints it, and "": [`Hash.file`] spelled by
---- [`Codec.hex`]. It fails and raises as [`Hash.file`] does.
-function Hash.hex_file(algorithm: Hash.Algorithm, path: string): string?, string
-  local digest, trouble = Hash.file(algorithm, path)
+--- The raw digest of the file at `path` under an algorithm: the
+--- bytes [`Hash.digest`] gives over its whole contents, read a chunk at a
+--- time so that a file of any size takes the same memory. Nil and a Failure
+--- naming the path when it cannot be opened or read, or the digest cannot
+--- finish. Raises on an unknown algorithm, as `digest` does. [`Hash.hex_file`]
+--- spells the digest as `sha256sum` does.
+---
+---     local dir = assert(Fs.mkdtemp("hash-"))
+---     assert(Fs.write(dir .. "/a.txt", "cosmic"))
+---     assert(Hash.file("sha256", dir .. "/a.txt") == Hash.sha256("cosmic"))
+---     assert(Fs.remove_tree(dir))
+function Hash.file(algorithm: Hash.Algorithm, path: string): (string) | (nil, Failure)
+  local value, why = file_text(algorithm, path)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Hash.hex_file, its failure in words.
+local function hex_file_text(algorithm: Hash.Algorithm, path: string): string?, string
+  local digest, trouble = file_text(algorithm, path)
   if digest == nil then return nil, trouble end
   return Codec.hex(digest), ""
+end
+
+--- The hexadecimal digest of the file at `path` under an algorithm, as
+--- `sha256sum` prints it: [`Hash.file`] spelled by
+--- [`Codec.hex`]. It fails and raises as [`Hash.file`] does.
+function Hash.hex_file(algorithm: Hash.Algorithm, path: string): (string) | (nil, Failure)
+  local value, why = hex_file_text(algorithm, path)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Hash.hasher, its failure in words.
+local function hasher_text(algorithm: Hash.Algorithm): Hash.Hasher?, string
+  return raw.hasher(algorithm)
 end
 
 --- An incremental hasher over an algorithm, for data that arrives in
 --- chunks rather than all at once; its raw digest equals
 --- `Hash.digest(algorithm, ...)` over the whole of what was fed to it.
---- Answers `hasher, ""`, or `nil, error` when the digest cannot start.
+--- Answers the hasher, or nil and a Failure when the digest cannot start.
 --- Raises on an unknown algorithm, as `digest` and `hmac` do.
-function Hash.hasher(algorithm: Hash.Algorithm): Hash.Hasher?, string
-  return raw.hasher(algorithm)
+function Hash.hasher(algorithm: Hash.Algorithm): (Hash.Hasher) | (nil, Failure)
+  local value, why = hasher_text(algorithm)
+  if value == nil then return nil, Failure.new(why) end
+  return value
+end
+
+-- Hash.hmac_hasher, its failure in words.
+local function hmac_hasher_text(algorithm: Hash.Algorithm, key: string): Hash.Hasher?, string
+  return raw.hmac_hasher(algorithm, key)
 end
 
 --- An incremental HMAC (RFC 2104) under `key` over an algorithm, for a
@@ -155,11 +182,13 @@ end
 --- `Hash.hmac(algorithm, key, ...)` over the whole of what was fed to
 --- it, for a key of any length. It is a [`Hash.Hasher`]: `update` and
 --- `digest` as a digest's, `digest` answering the code and finishing it,
---- a `<close>` abandoning an unfinished one. Answers `mac, ""`, or
---- `nil, error` when the digest cannot start. Raises on an unknown
+--- a `<close>` abandoning an unfinished one. Answers the mac, or nil and
+--- a Failure when the digest cannot start. Raises on an unknown
 --- algorithm.
-function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): Hash.Hasher?, string
-  return raw.hmac_hasher(algorithm, key)
+function Hash.hmac_hasher(algorithm: Hash.Algorithm, key: string): (Hash.Hasher) | (nil, Failure)
+  local value, why = hmac_hasher_text(algorithm, key)
+  if value == nil then return nil, Failure.new(why) end
+  return value
 end
 
 --- The raw SipHash tag of `data` under a 16-byte `key`: SipHash-2-4's

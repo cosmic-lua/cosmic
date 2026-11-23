@@ -427,7 +427,7 @@ local tzdata: refresh.Dataset = {
   read = function(path: string, scratch: string): refresh.Release?, string
     local entries, trouble = Archive.list(path)
     if entries == nil then
-      return nil, path .. ": " .. trouble
+      return nil, path .. ": " .. tostring(trouble)
     end
     -- The sdist's one top directory names its version.
     local version: string? = nil
@@ -457,7 +457,7 @@ local tzdata: refresh.Dataset = {
       end,
     })
     if extracted == nil then
-      return nil, path .. ": " .. extract_trouble
+      return nil, path .. ": " .. tostring(extract_trouble)
     end
     local zones: mut {string:string} = {}
     local count = 0

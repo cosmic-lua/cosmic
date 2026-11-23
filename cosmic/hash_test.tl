@@ -180,7 +180,7 @@ local function test_many_unfinished_incremental_hmacs_can_be_live_at_once()
   local live: mut {Hash.Hasher} = {}
   for i = 1, 100 do
     local mac, trouble = Hash.hmac_hasher("sha256", "key" .. tostring(i))
-    assert(mac ~= nil, "hasher " .. tostring(i) .. ": " .. trouble)
+    assert(mac ~= nil, "hasher " .. tostring(i) .. ": " .. tostring(trouble))
     mac:update("message " .. tostring(i))
     live[i] = mac
   end
@@ -195,7 +195,7 @@ local function test_incremental_hmac_is_finished_by_digest()
   assert(mac:digest() == Hash.hmac("sha256", "key", "abc"))
   Test.raises(function() mac:update("more") end)
   Test.raises(function() mac:digest() end)
-  Test.raises(function() Hash.hmac_hasher("nonesuch" as Hash.Algorithm, "key") end) -- checked: cast_refused
+  Test.raises(function() local _, _ = Hash.hmac_hasher("nonesuch" as Hash.Algorithm, "key") end) -- checked: cast_refused
   do local _abandoned <close> = assert(Hash.hmac_hasher("sha256", "key")) end
 end
 
@@ -215,15 +215,19 @@ local function test_incremental_hmac_throws_naming_the_finished_hasher()
   assert(tostring(why):find("hash: the hasher is finished", 1, true), tostring(why))
 end
 
+local function hmac_of(algorithm: Hash.Algorithm, key: string)
+  local _, _ = Hash.hmac_hasher(algorithm, key)
+end
+
 local function test_incremental_hmac_raises_on_an_unknown_algorithm()
-  local ok, trouble = pcall(Hash.hmac_hasher, "sha0" as Hash.Algorithm, "key") -- checked: cast_refused
+  local ok, trouble = pcall(hmac_of, "sha0" as Hash.Algorithm, "key") -- checked: cast_refused
   assert(not ok)
   assert(tostring(trouble):find("hash: no such digest algorithm", 1, true), tostring(trouble))
 end
 
 local function test_incremental_hmac_answers_an_empty_error()
   local mac, trouble = Hash.hmac_hasher("sha256", "key")
-  assert(mac ~= nil and trouble == "", trouble)
+  assert(mac ~= nil and trouble == nil, trouble)
   mac:update(fox)
   local code, dtrouble = mac:digest()
   assert(code == Hash.hmac("sha256", "key", fox) and dtrouble == "", dtrouble)
@@ -419,7 +423,7 @@ local function test_hasher_throws_after_digest()
 end
 
 local function test_hasher_raises_on_an_unknown_algorithm()
-  local ok, trouble = pcall(Hash.hasher, "sha0" as Hash.Algorithm) -- checked: cast_refused
+  local ok, trouble = pcall(function() local _, _ = Hash.hasher("sha0" as Hash.Algorithm) end) -- checked: cast_refused
   assert(not ok)
   assert(tostring(trouble):find("hash: no such digest algorithm", 1, true) ~= nil,
     tostring(trouble))
@@ -427,7 +431,7 @@ end
 
 local function test_hasher_and_digest_carry_an_empty_error()
   local hasher, trouble = Hash.hasher("sha256")
-  assert(hasher ~= nil and trouble == "", trouble)
+  assert(hasher ~= nil and trouble == nil, trouble)
   hasher:update("abc")
   local digest, dtrouble = hasher:digest()
   assert(digest == Hash.digest("sha256", "abc") and dtrouble == "", dtrouble)
@@ -527,26 +531,26 @@ local function test_file_digests_what_is_larger_than_a_chunk(tmp: string)
   local algorithms: {Hash.Algorithm} = { "md5", "sha1", "sha256", "sha3-256", "sha512" }
   for _, algorithm in ipairs(algorithms) do
     local digest, why = Hash.file(algorithm, path)
-    assert(digest == Hash.digest(algorithm, whole), algorithm .. ": " .. why)
-    assert(why == "")
+    assert(digest == Hash.digest(algorithm, whole), algorithm .. ": " .. tostring(why))
+    assert(why == nil)
   end
-  assert(Hash.hex_file("sha256", path) == Hash.hex_sha256(whole))
+  assert(assert(Hash.hex_file("sha256", path)) == Hash.hex_sha256(whole))
 end
 
 local function test_file_digests_an_empty_file_and_one_of_exactly_a_chunk(tmp: string)
   assert(Fs.write(tmp .. "/empty", ""))
-  assert(Hash.file("sha256", tmp .. "/empty") == Hash.sha256(""))
+  assert(assert(Hash.file("sha256", tmp .. "/empty")) == Hash.sha256(""))
   local exact = string.rep("x", 1 << 20)
   assert(Fs.write(tmp .. "/exact", exact))
-  assert(Hash.file("sha256", tmp .. "/exact") == Hash.sha256(exact))
+  assert(assert(Hash.file("sha256", tmp .. "/exact")) == Hash.sha256(exact))
 end
 
 local function test_file_names_the_path_it_cannot_read(tmp: string)
   local digest, why = Hash.file("sha256", tmp .. "/missing")
-  assert(digest == nil and why:find(tmp .. "/missing", 1, true) ~= nil, why)
+  assert(digest == nil and tostring(why):find(tmp .. "/missing", 1, true) ~= nil, why)
   local hex, hex_why = Hash.hex_file("sha256", tmp .. "/missing")
-  assert(hex == nil and hex_why == why)
+  assert(hex == nil and hex_why.message == why.message)
   -- A directory opens but cannot be read.
   local dir_digest, dir_why = Hash.file("sha256", tmp)
-  assert(dir_digest == nil and dir_why:find(tmp, 1, true) ~= nil, dir_why)
+  assert(dir_digest == nil and tostring(dir_why):find(tmp, 1, true) ~= nil, dir_why)
 end

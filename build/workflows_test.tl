@@ -1135,14 +1135,15 @@ local type Value = string | boolean
 --- What `${{ <text> }}` answers on a run of `event` to `ref`, for a leg
 --- of `leg`'s values, in as much of GitHub's expression syntax as a
 --- leg's switches use: string literals, `matrix.<key>`,
---- `github.event_name`, `github.ref` and `needs.reuse.outputs.run` (`reuse`,
---- empty unless given), `==`, `!=`, `!`, `&&`, `||` and parentheses. As GitHub's docs ("Operators") say, '' and false are
+--- `github.event_name`, `github.ref`, `needs.reuse.outputs.run` (`reuse`,
+--- empty unless given) and any other name `named` holds, `==`, `!=`, `!`, `&&`, `||` and parentheses. As GitHub's docs ("Operators") say, '' and false are
 --- falsy, and `a && b` and `a || b` answer an operand, not a boolean.
 --- It compares two strings ignoring case, as GitHub does, so a
 --- literal cased otherwise than the value it names answers as it would
 --- there; a comparison of a string with a boolean, which GitHub coerces
 --- to numbers, it refuses.
-local function evaluate(text: string, leg: {string: string}, event: string, ref: string, reuse?: string): Value
+local function evaluate(text: string, leg: {string: string}, event: string, ref: string, reuse?: string,
+                        named?: {string: Value}): Value
   local inner = assert(text:match("^%${{ (.*) }}$"), "not an expression: " .. text)
   local tokens: mut {string} = {}
   local at = 1
@@ -1183,6 +1184,8 @@ local function evaluate(text: string, leg: {string: string}, event: string, ref:
     elseif token == "needs.reuse.outputs.run" then
       return reuse or ""
     end
+    local v = if named ~= nil then named[token] else nil end
+    if v ~= nil then return v end
     error("a name this test cannot answer: " .. token)
   end
   local function comparison(): Value
@@ -1240,6 +1243,40 @@ local function test_an_expression_evaluates_as_github_says()
     "a comparison of strings minds their case")
   assert(e("github.event_name != 'MERGE_GROUP' && 'a' || 'b'", "merge_group") == "b",
     "a comparison of strings minds their case")
+end
+
+--- Every job that names COSMIC_CI_EVENT gives it `push`, which stands on
+--- verdicts (cosmic_ci/orchestration.tl's `stands`), on a push, the daily
+--- scheduled run and a manual run, and keeps the run's own event, which
+--- runs every test, on the weekly run and a manual run with `every_test`.
+local function test_a_manual_run_stands_on_verdicts_unless_it_asks_for_every_test()
+  local record Case
+    event: string
+    schedule: string
+    every: boolean
+    want: string
+  end
+  local cases: {Case} = {
+    { event = "push", schedule = "", every = false, want = "push" },
+    { event = "schedule", schedule = "41 3 * * 1-6", every = false, want = "push" },
+    { event = "schedule", schedule = "41 3 * * 0", every = false, want = "schedule" },
+    { event = "workflow_dispatch", schedule = "", every = false, want = "push" },
+    { event = "workflow_dispatch", schedule = "", every = true, want = "workflow_dispatch" },
+  }
+  local seen = 0
+  for id, job in pairs(ci_workflow().jobs) do
+    local text = if job.env ~= nil then job.env["COSMIC_CI_EVENT"] else nil end
+    if text ~= nil then
+      seen = seen + 1
+      for _, case in ipairs(cases) do
+        local got = evaluate(text, {}, case.event, "refs/heads/main", nil,
+          { ["github.event.schedule"] = case.schedule, ["inputs.every_test"] = case.every })
+        assert(got == case.want, id .. " on " .. case.event .. " " .. case.schedule ..
+            " every_test=" .. tostring(case.every) .. ": " .. tostring(got))
+      end
+    end
+  end
+  assert(seen == 3, "jobs that name COSMIC_CI_EVENT: " .. tostring(seen))
 end
 
 --- The vendor part of the zig build cache's key hashes the vendored
@@ -1873,12 +1910,21 @@ local function test_the_gate_needs_every_job_and_compares_four_products()
   end
   assert(count(platform_legs("push")) == 3 and count(platform_legs("full")) == 4, "the runs' legs")
   -- prerelease.yml publishes four lanes, so only from a run of all four:
-  -- the scheduled and a manual run of main, never a push.
-  local prerelease = assert(Fs.read(DIR .. "/prerelease.yml"))
-  assert(prerelease:find("(github.event.workflow_run.event == 'schedule' || " ..
+  -- the scheduled and a manual run of main, never a push. Its `follow`
+  -- job alone reads a push's run, which publishes nothing.
+  local prerelease = assert(decoded_workflows()[DIR .. "/prerelease.yml"])
+  local publish = job_of(prerelease.jobs, "publish")["if"] or ""
+  assert(publish:find("(github.event.workflow_run.event == 'schedule' || " ..
       "github.event.workflow_run.event == 'workflow_dispatch')", 1, true) ~= nil and
-      prerelease:find("workflow_run.event == 'push'", 1, true) == nil,
+      publish:find("workflow_run.event == 'push'", 1, true) == nil,
     "prerelease.yml publishes from a run of fewer than four legs")
+  local follow = job_of(prerelease.jobs, "follow")
+  assert(map_of(follow.permissions)["contents"] == "read" and map_of(follow.permissions)["actions"] == "write",
+    "prerelease.yml's follow job's permissions")
+  local follows = follow["if"] or ""
+  assert(follows:find("github.repository == 'cosmic-lua/cosmic' && github.event.workflow_run.head_branch == 'main' && ", 1, true) == 1 and
+      follows:find("pull_request", 1, true) == nil and follows:find("merge_group", 1, true) == nil,
+    "prerelease.yml's follow job runs after a run of another repository, branch or event: " .. follows)
   for name in pairs(jobs) do
     assert(name == "platform" or name == "checked" or name == "narrowing" or name == "driver" or name == "ci",
       "ci.yml has a job " .. name)

@@ -489,7 +489,7 @@ comment beside the source, and a guide is only for a task larger than one
 symbol.
 
 - add focused `*_example.tl` files for the public modules `cosmic/` has
-  none for yet: `env` and `store`.
+  none for yet, `env` among them.
 - add mention search for prose references that `cosmic uses` cannot see.
   old's `cosmic/doc/mentions.tl` demonstrates the separate full-text query.
 - an uncaught error's guidance ([`Errors.guidance`] in [`cosmic/errors.tl`]) is
@@ -511,12 +511,11 @@ four-producer provenance join.
 - decide what “builds and tests gitboard from its own tree” means. A separately
   pinned gitboard, as on main, proves a different property from building its
   source here. Write the check only after choosing the property.
-- grow `eval/` into a fixed task suite with tested graders and known pass,
-  partial, and fail fixtures. `notes` is still the only task. The next should
-  exercise a different part of the library (child processes, the store,
-  compression, or now `http` and archives) so one task's friction is not
-  mistaken for the whole product's. old's `_eval/` is a reference for keeping
-  briefs, graders, their registry, and golden run directories consistent.
+- give each `eval/` task's grader known pass, partial and fail fixtures.
+  `eval/task/` holds seven tasks (`jobs`, `kv`, `ledger`, `mirror`, `notes`,
+  `pack`, `relay`), each graded under `eval/check/`. old's `_eval/` is a
+  reference for keeping briefs, graders, their registry, and golden run
+  directories consistent.
 - add a performance gate once stable comparison targets exist. It should
   re-measure a suspected regression against one baseline, run an A/A noise
   check, and use a third reading to break a tie. old's `_perf/gate.tl`,

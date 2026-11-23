@@ -188,7 +188,7 @@ local function with_entries(file: string, to: verb.Io,
                             body: function({Archive.Entry}): Outcome): Outcome
   if file ~= "-" then
     local entries, why = Archive.list(file)
-    if entries == nil then return fail(bare.refused, trouble_of(file, file, why)) end
+    if entries == nil then return fail(bare.refused, trouble_of(file, file, tostring(why))) end
     return body(entries)
   end
   local source, why = to.stdin()
@@ -202,14 +202,14 @@ local function with_entries(file: string, to: verb.Io,
     local entries, list_why = Archive.list(dir .. "/stdin")
     local _, _ = Fs.remove_tree(dir)
     if entries == nil then
-      return fail(bare.refused, trouble_of(file, dir .. "/stdin", list_why))
+      return fail(bare.refused, trouble_of(file, dir .. "/stdin", tostring(list_why)))
     end
     return body(entries)
   end
   local reader, open_why = Archive.open_stream(replay)
-  if reader == nil then return fail(bare.refused, trouble_of(file, file, open_why)) end
+  if reader == nil then return fail(bare.refused, trouble_of(file, file, tostring(open_why))) end
   local entries, list_why = Archive.list_reader(reader)
-  if entries == nil then return fail(bare.refused, trouble_of(file, file, list_why)) end
+  if entries == nil then return fail(bare.refused, trouble_of(file, file, tostring(list_why))) end
   return body(entries)
 end
 
@@ -489,7 +489,7 @@ end
 local function extract_streamed(file: string, source: Stream.Reader, dest: string, force: boolean,
                                 wanted: {string}, selected: function(string): boolean, to: verb.Io): Outcome
   local reader, open_why = Archive.open_stream(source)
-  if reader == nil then return fail(bare.refused, trouble_of(file, file, open_why)) end
+  if reader == nil then return fail(bare.refused, trouble_of(file, file, tostring(open_why))) end
   local inner: Archive.Reader = reader
 
   local dest_exists = false
@@ -588,7 +588,7 @@ local function extract_streamed(file: string, source: Stream.Reader, dest: strin
     return give_up(fail(bare.failed, named(file) .. ": no such member: " .. table.concat(missing, ", ")))
   end
   if clashes.count > 0 then return give_up(overwrite_refusal(dest, clashes)) end
-  if written == nil then return give_up(fail(bare.refused, why_of(extract_why))) end
+  if written == nil then return give_up(fail(bare.refused, why_of(tostring(extract_why)))) end
 
   if not dest_exists then
     local moved, move_why = Fs.rename(tree, dest)
@@ -636,7 +636,7 @@ local function extract(file: string, dest: string, force: boolean, members: {str
     -- One look first, for what a walk that writes would find too late:
     -- a member that is not in the archive, and files it would replace.
     local entries, why = Archive.list(path)
-    if entries == nil then return fail(bare.refused, trouble_of(file, path, why)) end
+    if entries == nil then return fail(bare.refused, trouble_of(file, path, tostring(why))) end
     local missing: mut {string} = {}
     for _, member in ipairs(wanted) do
       local found = false
@@ -677,7 +677,9 @@ local function extract(file: string, dest: string, force: boolean, members: {str
       links = "create",
       filter = selected,
     })
-    if written == nil then return fail(bare.refused, trouble_of(file, path, extract_why)) end
+    if written == nil then
+      return fail(bare.refused, trouble_of(file, path, tostring(extract_why)))
+    end
     return print_written(written, to)
   end, function(source: Stream.Reader): Outcome
     return extract_streamed(file, source, dest, force, wanted, selected, to)
@@ -812,7 +814,7 @@ end
 
 local function create(out: string, paths: {string}, reproducible: boolean, to: verb.Io): Outcome
   local format, format_why = Archive.format_of(out)
-  if format == nil then return fail(bare.refused, bare_message(format_why)) end
+  if format == nil then return fail(bare.refused, bare_message(tostring(format_why))) end
   local skip_file: string?
   local present_status, _ = Fs.status(out)
   local present = present_status ~= nil and present_status.exists
@@ -826,7 +828,7 @@ local function create(out: string, paths: {string}, reproducible: boolean, to: v
   -- Created only once the items are gathered: its temporary neighbor
   -- would otherwise be gathered with them.
   local writer, writer_why = Archive.create(out, { deterministic = reproducible })
-  if writer == nil then return fail(bare.refused, bare_message(writer_why)) end
+  if writer == nil then return fail(bare.refused, bare_message(tostring(writer_why))) end
   for _, item in ipairs(packed) do
     local ok: boolean
     local why: string

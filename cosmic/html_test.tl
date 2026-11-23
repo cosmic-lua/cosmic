@@ -2,6 +2,7 @@
 --- that matter, that a safe value is opaque at run time and refused by
 --- the type checker in another's place, and that `raw` and `concat`
 --- hold to their types.
+local Failure = require("cosmic.failure")
 local Html = require("cosmic.html")
 local Snippet = require("build.snippet_fixture")
 local String = require("cosmic.string")
@@ -396,11 +397,11 @@ local function test_url_query_names_a_pair_that_is_not_two_strings()
     { { "a", "b" }, { "c" } }, -- checked: any_use*2
   }
   for _, given in ipairs(cases) do
-    local part, why = (Html.url_query as function(any): any, string)(given) -- checked: cast_refused
-    assert(part == nil and why:find("is not two strings", 1, true), tostring(why))
+    local part, why = (Html.url_query as function(any): any, Failure)(given) -- checked: cast_refused
+    assert(part == nil and why.message:find("is not two strings", 1, true), tostring(why))
   end
-  local part, why = (Html.url_query as function(any): any, string)({ { "a", "b" }, { "c" } }) -- checked: cast_refused
-  assert(part == nil and why == "html: pair 2 is not two strings", why)
+  local part, why = (Html.url_query as function(any): any, Failure)({ { "a", "b" }, { "c" } }) -- checked: cast_refused
+  assert(part == nil and why.message == "html: pair 2 is not two strings", tostring(why))
 end
 
 local function test_url_query_raises_for_a_table_that_is_no_sequence()
@@ -606,22 +607,22 @@ end
 
 local function test_json_names_what_it_cannot_encode()
   local json, why = Html.json({ users = { { name = print } } })
-  assert(json == nil and why:find("/users/0/name", 1, true) ~= nil, tostring(why))
-  json, why = Html.json(0 / 0)
-  assert(json == nil and why ~= "")
+  assert(json == nil and why.message:find("/users/0/name", 1, true) ~= nil, tostring(why))
+  local nan, nan_why = Html.json(0 / 0)
+  assert(nan == nil and nan_why.message ~= "")
   local cycle: {string: any} = {}
   cycle.me = cycle -- checked: map_field
-  json, why = Html.json(cycle)
-  assert(json == nil and why ~= "")
-  json, why = Html.json("\xff")
-  assert(json == nil and why ~= "")
+  local cyclic, cyclic_why = Html.json(cycle)
+  assert(cyclic == nil and cyclic_why.message ~= "")
+  local bytes, bytes_why = Html.json("\xff")
+  assert(bytes == nil and bytes_why.message ~= "")
 end
 
 local function test_json_text_wraps_only_text_that_is_json()
   assert(Html.raw_json((assert(Html.json_text(' {"a": [1, 2]} ')))) == ' {"a": [1, 2]} ')
   for _, text in ipairs({ "", "{", "{'a':1}", "<script>", "1 2", "alert(1)" }) do
     local json, why = Html.json_text(text)
-    assert(json == nil and why ~= "", text)
+    assert(json == nil and why.message ~= "", text)
   end
 end
 

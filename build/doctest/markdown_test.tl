@@ -99,13 +99,29 @@ end
 
 local function test_refuses_an_unknown_tag()
   local blocks, trouble = markdown.parse_blocks(doc({
-    "```sh",
+    "```bash",
     "echo hi",
     "```",
   }))
   assert(blocks == nil, "expected an unknown tag to be refused")
-  assert(trouble:find("unknown fenced block tag 'sh'", 1, true) ~= nil,
+  assert(trouble:find("unknown fenced block tag 'bash'", 1, true) ~= nil,
     "got: " .. trouble)
+end
+
+local function test_reads_a_sh_block_and_refuses_a_modifier_on_one()
+  local blocks = assert(markdown.parse_blocks(doc({
+    "```sh",
+    "cosmic help",
+    "```",
+  })))
+  local found = assert(blocks[1])
+  assert(found.lang == "sh" and found.content == "cosmic help", found.lang)
+  local refused, trouble = markdown.parse_blocks(doc({
+    "```sh skip=network",
+    "cosmic help",
+    "```",
+  }))
+  assert(refused == nil and trouble:find("takes no modifiers", 1, true) ~= nil, trouble)
 end
 
 local function test_refuses_a_modifier_on_a_text_block()

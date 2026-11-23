@@ -13,6 +13,7 @@ local Sqlite = require("cosmic.sqlite")
 local Orchestration = require("cosmic_ci.orchestration")
 local PlaceTree = require("cosmic_ci.place_tree")
 local Prerelease = require("cosmic_ci.prerelease")
+local PrereleaseFollow = require("cosmic_ci.prerelease_follow")
 local Runner = require("cosmic_ci.runner")
 local Report = require("cosmic_ci.report")
 local Review = require("cosmic_ci.review")
@@ -144,6 +145,8 @@ local commands: {string:Command} = {
     usage = "", handler = Prerelease.stage_command },
   ["prerelease-publish"] = { about = "publish the staged prerelease, or verify the one there",
     usage = "", handler = Prerelease.publish_command },
+  ["prerelease-follow"] = { about = "after a run of ci on main, start a full run or retry a failed one, so a prerelease follows main",
+    usage = "", handler = PrereleaseFollow.command },
   fuzz = { about = "fuzz every property on the checked core, for fuzz.yml",
     usage = "", handler = Fuzz.fuzz },
   ["fuzz-cancelled"] = { about = "say how far a cancelled fuzz run got",

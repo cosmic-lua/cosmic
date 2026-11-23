@@ -18,15 +18,18 @@ local record Seen
   warned: mut {string}
   --- The tokens the GET answers, one each, in turn; "" answers a refusal.
   tokens: mut {string}
-  --- How many waits time out before pi exits, and its status then.
+  --- How many waits time out before the agent exits, and its status then.
   timeouts: integer
-  status: integer
+  mut status: integer
   --- The wait after which a signal is caught, 0 for none.
   mut signal_after: integer
   mut userns: boolean
   --- The command `run` fails, "" for none.
   mut failing: string
   mut clock: integer
+  --- What the agent writes to its standard error, "" for nothing.
+  mut stderr: string
+  mut log: string
 end
 
 local function result(code: integer): Child.Result
@@ -48,10 +51,12 @@ local function fake(seen: Seen): Review.Host
       if argv[1] == seen.failing then return result(1), "" end
       return result(0), ""
     end,
-    start = function(argv: {string}, env: {string:string}, cwd: string): Review.Started?, string
+    start = function(argv: {string}, env: {string:string}, cwd: string, log: string): Review.Started?, string
       seen.started[#seen.started + 1] = argv
       seen.cwd = cwd
       seen.env = env
+      seen.log = log
+      if seen.stderr ~= "" then assert(Fs.write(log, seen.stderr)) end
       return {
         wait = function(ns: integer): Child.Result?, string
           seen.waited = seen.waited + 1
@@ -91,7 +96,7 @@ local function new_seen(tokens: {string}, timeouts: integer): Seen
   for i, token in ipairs(tokens) do copy[i] = token end
   return { gets = {}, runs = {}, started = {}, cwd = "", env = {}, closed = 0, waited = 0,
     said = {}, warned = {}, tokens = copy, timeouts = timeouts, status = 3, signal_after = 0,
-    userns = false, failing = "", clock = 0 }
+    userns = false, failing = "", clock = 0, stderr = "", log = "" }
 end
 
 local function env(temp: string): mut {string:string}
@@ -114,7 +119,9 @@ local function test_review_refreshes_the_token_every_four_minutes(tmp: string)
   assert(seen.said[1] == "::add-mask::one" and seen.said[3] == "::add-mask::three")
   assert(seen.runs[1] == "sudo sysctl -qw kernel.apparmor_restrict_unprivileged_userns=0")
   assert(seen.runs[2] == "gh auth setup-git")
-  assert(assert(seen.started[1])[1] == "npx" and seen.cwd == "/work/cosmic")
+  local argv = assert(seen.started[1])
+  assert(argv[1] == "cosmic-driver" and argv[2] == "agent" and argv[3] == "ask" and seen.cwd == "/work/cosmic")
+  assert(seen.log == tmp .. "/review-identity/agent.log")
   assert(seen.env["ANTHROPIC_IDENTITY_TOKEN_FILE"] == file)
   assert(seen.env["ACTIONS_ID_TOKEN_REQUEST_URL"] == nil)
   assert(seen.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] == nil)
@@ -128,7 +135,7 @@ local function test_review_skips_the_sysctl_where_the_kernel_has_none(tmp: strin
   assert(#seen.runs == 1 and seen.runs[1] == "gh auth setup-git")
 end
 
-local function test_review_fails_before_pi_without_a_token(tmp: string)
+local function test_review_fails_before_the_agent_without_a_token(tmp: string)
   local seen = new_seen({}, 0)
   assert(Review.review(env(tmp), fake(seen)) == 1)
   assert(#seen.gets == 3, "each mint is tried 3 times")
@@ -150,7 +157,22 @@ local function test_a_failed_refresh_keeps_the_last_token(tmp: string)
   assert(#seen.warned == 2 and seen.warned[1] == "review: could not refresh the identity token: refused")
 end
 
-local function test_a_signal_ends_pi(tmp: string)
+local function test_a_failed_agent_says_only_its_complaints(tmp: string)
+  local seen = new_seen({ "one" }, 0)
+  seen.stderr = "bash git log --since=1.week\ncosmic: agent: federation: HTTP 401: denied\n"
+  assert(Review.review(env(tmp), fake(seen)) == 3)
+  assert(#seen.warned == 1 and seen.warned[1] == "cosmic: agent: federation: HTTP 401: denied", seen.warned[1])
+end
+
+local function test_an_agent_that_succeeds_says_nothing_of_its_tools(tmp: string)
+  local seen = new_seen({ "one" }, 0)
+  seen.status = 0
+  seen.stderr = "bash git log --since=1.week\ncosmic: agent: a note\n"
+  assert(Review.review(env(tmp), fake(seen)) == 0)
+  assert(#seen.warned == 0)
+end
+
+local function test_a_signal_ends_the_agent(tmp: string)
   local seen = new_seen({ "one" }, 1000)
   seen.signal_after = 2
   assert(Review.review(env(tmp), fake(seen)) == 128 + 15)
@@ -158,7 +180,7 @@ local function test_a_signal_ends_pi(tmp: string)
   assert(seen.warned[1] == "review: ended by signal 15")
 end
 
-local function test_a_failed_setup_starts_no_pi(tmp: string)
+local function test_a_failed_setup_starts_no_agent(tmp: string)
   local seen = new_seen({ "one" }, 0)
   seen.failing = "gh"
   assert(Review.review(env(tmp), fake(seen)) == 1)
