@@ -940,7 +940,7 @@ verb.spec = {
   run = function(argv: {string}): integer return verb.run(argv) end,
   bare = true,
   takes = "status, whois, cert, ping or file, and its options",
-  exits = "`tailscale` prints what the daemon answered, and nothing after; it exits 1 when the daemon could not be asked or refused, the node is not running, or no node has the address or name, 2 when it refuses its command line or a write.",
+  exits = "`tailscale` prints what the daemon answered, and nothing after; it exits 0 when it answered, 1 when the daemon could not be asked or refused, the node is not running, or no node has the address or name, 2 when it refuses its command line or a write.",
   passthrough = "its output is the daemon's answer, so its exit status is the verdict (build/tailscale_test.tl)",
 }
 
