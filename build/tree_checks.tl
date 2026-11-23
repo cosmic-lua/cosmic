@@ -119,8 +119,6 @@ allowed["build.dataset.read"] = "the reader load_text composes and falls back on
 
 allowed["cosmic.failure.timeout"] = "public API: the failure of a wait that ran past its time limit, which " ..
   "a module answers in place of the words Poll.TIMEOUT as each moves to (T) | (nil, Failure)"
-allowed["cosmic.failure.cancelled"] = "public API: the failure of a wait stopped from outside, which a module " ..
-  "answers in place of the words Poll.CANCELLED as each moves to (T) | (nil, Failure)"
 allowed["cosmic.agent.cost"] = "public API: what a reply's usage costs at the list prices, which a program that " ..
   "runs the loop reads; the loop keeps each request's cost through billed"
 allowed["cosmic.agent.billed"] = "public API: what a request cost, each attempt of a fallback at its own model's " ..
