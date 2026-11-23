@@ -277,6 +277,52 @@ local function test_a_subscription_comes_as_events_and_ends_with_the_server()
   end)
 end
 
+--- A tool that asks for a link to be opened, then answers what the person did.
+local function linking(): Server.Instance
+  return Server.new{ info = { name = "links", version = "1" }, tools = { {
+    tool = { name = "connect", inputSchema = Mcp.object_schema({}) },
+    call = function(_: {string: Json.Value}, call: Server.Call): (Mcp.ToolResult) | (nil, Failure)
+      call.keep("asked")
+      local answer, why = call.elicit("signin", Mcp.elicit_url("Sign in to connect.", "https://example.com/signin"))
+      if answer == nil then return nil, why end
+      return Mcp.result({ answer.action .. " " .. (call.state or "-") })
+    end,
+  } } }
+end
+
+--- Over HTTP a tool asks for input as it does over stdio, and the state it keeps holds only for the caller whose
+--- `Authorization` it was kept for.
+local function test_a_tool_asks_for_input_over_http_and_its_state_is_the_callers()
+  serving(linking():handler{ authorize = Server.anyone }, function(url: string)
+    local shown: mut {string} = {}
+    local session = Client.http(url, { timeout_ns = WAIT, headers = { Authorization = "Bearer one" },
+      elicit = function(e: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+        local line = e.mode .. " " .. tostring(e.url)
+        shown[#shown + 1] = line
+        return { action = "accept" }
+      end })
+    local said = assert(session:call("connect"))
+    assert(assert(said.content[1]).text == "accept asked", assert(said.content[1]).text)
+    assert(#shown == 1 and shown[1] == "url https://example.com/signin", table.concat(shown, "; "))
+    local caps = '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28",' ..
+      '"io.modelcontextprotocol/clientCapabilities":{"elicitation":{"url":{}}}}'
+    local headers: {string: string} = { ["MCP-Protocol-Version"] = Mcp.VERSION, ["Mcp-Method"] = "tools/call",
+      ["Mcp-Name"] = "connect", ["Authorization"] = "Bearer one" }
+    local first, fwhy = Json.decode(post(url, '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"connect",' ..
+        caps .. "}}", headers).body)
+    assert(first ~= nil, tostring(fwhy))
+    local result = assert(Json.object_of(assert(Json.object_of(first))["result"]))
+    local state = result["requestState"]
+    assert(state is string)
+    local other: mut {string: string} = {}
+    for k, v in pairs(headers) do other[k] = v end
+    other["Authorization"] = "Bearer two"
+    local stolen = post(url, '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"connect",' ..
+        '"requestState":' .. Json.quote(state) .. ',"inputResponses":{"signin":{"action":"accept"}},' .. caps .. "}}", other)
+    assert(stolen.body:find("requestState does not hold", 1, true) ~= nil, stolen.body)
+  end)
+end
+
 --- A body that gives its text a byte at a time.
 local class Trickle is Stream.Reader
   mut text: string

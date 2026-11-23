@@ -192,6 +192,48 @@ local record Mcp
     message?: string
   end
 
+  --- How a server asks the person at the client for input
+  --- (`elicitation/create`): a `form` the client shows, its fields as
+  --- `requestedSchema` says, or a `url` the person opens and finishes
+  --- there, for what must not pass through the client (a sign-in, a
+  --- payment).
+  enum ElicitMode
+    "form"
+    "url"
+  end
+
+  --- What a server asks the person for: what [`Mcp.elicit_form`] and
+  --- [`Mcp.elicit_url`] make, what a handler's `call.elicit` sends, and
+  --- what a client's `elicit` is given.
+  record Elicitation
+    --- How the person is asked.
+    mode: ElicitMode
+    --- Why it asks, for the person to read.
+    message: string
+    --- For a `form`: a JSON Schema of an object whose properties are
+    --- each a string, a number, an integer, a boolean or an enum.
+    requestedSchema?: {string: Json.Value}
+    --- For a `url`: what the person opens.
+    url?: string
+  end
+
+  --- What the person did with an [`Elicitation`]: `accept`ed it (sent
+  --- the form, or finished at the URL), `decline`d it, or `cancel`led it
+  --- (dismissed it with no choice).
+  enum ElicitAction
+    "accept"
+    "decline"
+    "cancel"
+  end
+
+  --- The person's answer to an [`Elicitation`].
+  record Elicited
+    --- What they did.
+    action: ElicitAction
+    --- The form's values, for a `form` that was accepted.
+    content?: {string: Json.Value}
+  end
+
   --- A resource a server offers to be read by its URI.
   record Resource
     --- The URI it is read by.
@@ -410,6 +452,19 @@ function Mcp.structured(value: {string: Json.Value}, text?: string): Mcp.ToolRes
     shown = encoded
   end
   return { content = { Mcp.text(shown) }, structuredContent = value }
+end
+
+--- A request that the person fill in a form: `message` says why, and
+--- `schema` (an [`Mcp.object_schema`] of plain fields) what it holds.
+function Mcp.elicit_form(message: string, schema: {string: Json.Value}): Mcp.Elicitation
+  return { mode = "form", message = message, requestedSchema = schema }
+end
+
+--- A request that the person open `url` and finish there: `message`
+--- says why. The client does not see what is done there, so it is for
+--- what must not pass through it.
+function Mcp.elicit_url(message: string, url: string): Mcp.Elicitation
+  return { mode = "url", message = message, url = url }
 end
 
 --- The JSON Schema of an object whose properties are `properties` and

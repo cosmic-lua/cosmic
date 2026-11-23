@@ -60,7 +60,9 @@
 --- @public
 
 local Child = require("cosmic.child")
+local Cipher = require("cosmic.cipher")
 local Clock = require("cosmic.clock")
+local Codec = require("cosmic.codec")
 local Env = require("cosmic.env")
 local Errors = require("cosmic.errors")
 local Failure = require("cosmic.failure")
@@ -72,6 +74,7 @@ local JsonSchema = require("cosmic.jsonschema")
 local Mcp = require("cosmic.mcp")
 local Net = require("cosmic.net")
 local Poll = require("cosmic.poll")
+local Rand = require("cosmic.rand")
 local Sandbox = require("cosmic.sandbox")
 local Shape = require("cosmic.shape")
 local Stream = require("cosmic.stream")
@@ -106,6 +109,35 @@ local record McpServer
     --- it (a child's, a socket's) fails with [`Poll.CANCELLED`]; what the
     --- handler answers after is not sent.
     cancelled: function(): boolean
+    --- The person's answer to `elicitation`, asked under `key` (1 to 64
+    --- bytes, one for each thing the handler asks): a tool call, a
+    --- prompt's get or a resource's read may ask the client for input
+    --- before it answers. Where the request carries the answer, as the
+    --- client's retry does, it is given, an accepted form's content held
+    --- to `requestedSchema`. Where it does not, the answer is nil and a
+    --- Failure the handler returns as it is (`return nil, why`): the
+    --- server then answers that it needs input, with each elicitation
+    --- the handler asked for, and the client asks again with the
+    --- answers. A client that cannot be asked in that mode is a Failure
+    --- of its own, for the handler to answer as an error or work
+    --- around. The protocol is stateless, so the handler runs again
+    --- from its start on the retry: what it must carry over, it gives
+    --- `keep`. The answer is the client's word, and a client may send
+    --- one unasked: an `accept` of a `url` says the person says they are
+    --- done there, so check at the far end (the sign-in, the payment)
+    --- that they are. A form that is not flat, or a URL that is not
+    --- http or https, raises.
+    elicit: function(key: string, elicitation: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+    --- What the handler gave `keep` in the round before this one, once
+    --- the server has checked that it sealed it, for this method, name
+    --- and arguments, for this caller ([`HttpSpec.principal`]), and
+    --- within [`Spec.state_ttl_ms`]; nil in the first round. The client
+    --- sees none of it. A client may send it back more than once within
+    --- that time: a handler whose step must happen once records it.
+    state?: string
+    --- Gives the next round `state`, sealed (encrypted and
+    --- authenticated) under the server's key: at most 64 KiB.
+    keep: function(state: string)
   end
 
   --- A tool, and what calls it.
@@ -191,6 +223,14 @@ local record McpServer
     --- Given what a handler raised, with its stack; nil to write it to
     --- stderr.
     on_error?: function(trouble: string)
+    --- The key that seals what handlers `keep` between the rounds of a
+    --- request that needs input: [`Cipher.key_length`] bytes nobody can
+    --- guess. Servers that share a client's requests (behind a load
+    --- balancer) share one; nil makes one at random, so the client's
+    --- retry must reach this process.
+    state_key?: string
+    --- How long sealed state stays good, in milliseconds (10 minutes).
+    state_ttl_ms?: integer
   end
 
   --- What [`McpServer.Instance.handler`] serves over HTTP.
@@ -206,6 +246,12 @@ local record McpServer
     origins?: {string}
     --- The path the endpoint answers ("/mcp"); any other is 404.
     path?: string
+    --- Who asks, for a request `authorize` let in: what a handler
+    --- `keep`s for a request is bound to, so another caller cannot send
+    --- it back. Nil binds it to the request's `Authorization` header;
+    --- a server that knows its callers otherwise (a cookie, a client
+    --- certificate, one token shared by many) names them here.
+    principal?: function(HttpServer.Request): string
   end
 
   --- What [`McpServer.Instance.answer`] makes of one message: the text to
@@ -353,6 +399,9 @@ local record State
   ttl_ms: integer
   cache_scope: McpServer.CacheScope
   hub: Hub
+  --- What seals the state handlers keep, and for how long it holds.
+  state_key: string
+  state_ttl_ns: integer
 end
 
 local TOOL_NAME <const> = "^[%w_%-.]+$"
@@ -419,11 +468,23 @@ local function state_of(spec: McpServer.Spec): State
   if page_size < 1 then refuse("page_size must be at least 1") end
   local ttl_ms = spec.ttl_ms or 0
   if ttl_ms < 0 then refuse("ttl_ms must not be negative") end
+  local state_key = spec.state_key
+  if state_key == nil then
+    local made, why = Rand.entropy(Cipher.key_length)
+    if made == nil then refuse("making a state key: " .. why) end
+    state_key = made
+  end
+  if #state_key ~= Cipher.key_length then
+    refuse("state_key must be " .. String.counted(Cipher.key_length, "byte"))
+  end
+  local state_ttl_ms = spec.state_ttl_ms or 600000
+  if state_ttl_ms < 1 then refuse("state_ttl_ms must be at least 1") end
   return {
     spec = spec, tools = spec.tools or {}, by_tool = by_tool, mirrors = mirrors, inputs = inputs, outputs = outputs,
     resources = spec.resources or {}, by_uri = by_uri, templates = spec.templates or {},
     prompts = spec.prompts or {}, by_prompt = by_prompt, page_size = page_size, ttl_ms = ttl_ms,
     cache_scope = spec.cache_scope or "private", hub = { listeners = {} },
+    state_key = state_key, state_ttl_ns = Clock.ms(state_ttl_ms),
   }
 end
 
@@ -605,6 +666,148 @@ end
 
 local raised <const> = refusal(Mcp.INTERNAL_ERROR, "the server failed to answer")
 
+-- Multi round-trip requests: a handler that needs input.
+
+--- The most a handler may keep for the next round, and the most it may ask for in one.
+local MAX_KEPT <const> = 64 * 1024
+local MAX_ASKED <const> = 16
+
+--- What a request that may need input carries and gathers: the client's answers, what the handler asks, what it
+--- keeps.
+local record Inputs
+  --- The client's answers, by key, as the retry carries them.
+  given: {string: Json.Value}
+  --- The elicitations asked this round, by key, as they are sent.
+  asked: mut {string: Json.Value}
+  mut count: integer
+  mut kept?: string
+  --- What `elicit` answers for an answer not yet given: a handler that returns it has the server ask for input.
+  needed: Failure
+  --- What the sealed state is bound to: the method, what it names, and who asks.
+  context: string
+end
+
+--- The params a retry adds.
+local record RetryParams
+  inputResponses?: any
+  requestState?: any
+  name?: string
+  uri?: string
+  arguments?: any
+end
+
+local RETRY_PARAMS <const>: Shape.Typed<RetryParams> = Shape.record_of("RetryParams")
+
+--- `state` sealed for `context`, with the time it stops holding, as text a client carries.
+local function seal(self: State, context: string, state: string): string
+  local nonce, why = Rand.entropy(Cipher.nonce_length)
+  if nonce == nil then error("mcp: sealing state: " .. why) end
+  local plain = string.pack(">i8", Clock.now_ns() + self.state_ttl_ns) .. state
+  return Codec.base64url(nonce .. Cipher.seal("chacha20-poly1305", self.state_key, nonce, plain, context))
+end
+
+--- The state `text` seals for `context`, or why it does not hold: not sealed by this server's key for this
+--- request, or past its time.
+local function unseal(self: State, context: string, text: string): (string) | (nil, string)
+  local bytes, _ = Codec.unbase64url(text)
+  if bytes == nil or #bytes < Cipher.nonce_length then return nil, "it is not this server's" end
+  local nonce, sealed = bytes:sub(1, Cipher.nonce_length), bytes:sub(Cipher.nonce_length + 1)
+  local plain, _ = Cipher.open("chacha20-poly1305", self.state_key, nonce, sealed, context)
+  if plain == nil or #plain < 8 then
+    return nil, "it is not this server's, or not for this request"
+  end
+  local expiry = string.unpack(">i8", plain)
+  if Clock.now_ns() > expiry then return nil, "it is past its time: ask again from the start" end
+  return plain:sub(9)
+end
+
+--- Whether the client declares that it may be asked for input in `mode`: a client that names neither mode takes
+--- forms.
+local function elicits(declared: {string: Json.Value}, mode: Mcp.ElicitMode): boolean
+  local raw = declared["elicitation"]
+  if raw == nil then return false end
+  local e = Json.object_of(raw)
+  if e == nil then return false end
+  if mode == "url" then return e["url"] ~= nil end
+  return e["form"] ~= nil or e["url"] == nil
+end
+
+--- The types a form's field may be.
+local FIELD_TYPES <const>: {string: boolean} = { string = true, number = true, integer = true, boolean = true }
+
+--- Why `schema` is not a form a client can show, "" where it is: an object whose properties are each a string, a
+--- number, an integer, a boolean or an enum, with no nesting.
+local function flat_form(schema: {string: Json.Value}): string
+  if schema["type"] ~= "object" then return "its type must be \"object\"" end
+  local properties = Json.object_of(schema["properties"])
+  if properties == nil then return "it has no properties object" end
+  for name, raw in pairs(properties) do
+    local field = Json.object_of(raw)
+    local kind = if field ~= nil then field["type"] else nil end
+    local listed = if field ~= nil then Json.array_of(field["enum"]) else nil end
+    if not (kind is string and FIELD_TYPES[kind] == true) and listed == nil then
+      return "the field " .. Json.quote(name) .. " is not a string, a number, an integer, a boolean or an enum"
+    end
+  end
+  return ""
+end
+
+--- The client's answer to `elicitation`, or why there is none yet, as [`McpServer.Call.elicit`] says.
+local function elicit(inputs: Inputs, declared: {string: Json.Value}, key: string,
+                      elicitation: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+  if #key < 1 or #key > 64 then error("mcp: elicit: key must be 1 to 64 bytes", 3) end
+  -- What the handler asks is checked before it is sent, so a form that cannot be is never filled in.
+  local compiled: JsonSchema.Schema? = nil
+  if elicitation.mode == "form" then
+    local schema = elicitation.requestedSchema
+    if schema == nil then error("mcp: elicit: a form needs a requestedSchema", 3) end
+    local flat = flat_form(schema)
+    if flat ~= "" then error("mcp: elicit: requestedSchema: " .. flat, 3) end
+    local made, cwhy = JsonSchema.compile(schema)
+    if made == nil then error("mcp: elicit: requestedSchema: " .. tostring(cwhy), 3) end
+    compiled = made
+  else
+    local url = elicitation.url or ""
+    if url:find("^https?://[^%s]+$") == nil then
+      error("mcp: elicit: a url must be http or https", 3)
+    end
+  end
+  if not elicits(declared, elicitation.mode) then
+    return nil, Failure.new("mcp: the client cannot be asked for input in a " .. elicitation.mode)
+  end
+  local raw = inputs.given[key]
+  if raw ~= nil then
+    local answer, _ = wire.elicited_of(raw)
+    local fits = answer ~= nil
+    local content = if answer ~= nil then answer.content else nil end
+    if answer ~= nil and answer.action == "accept" and compiled ~= nil then
+      local held, _ = compiled:check(content or {})
+      fits = held
+    end
+    -- An answer that does not fit is asked for again, as the protocol has a server do.
+    if answer ~= nil and fits then return answer end
+  end
+  if inputs.asked[key] == nil then
+    if inputs.count >= MAX_ASKED then
+      return nil, Failure.new("mcp: a handler may ask for at most " .. String.counted(MAX_ASKED, "input") .. " at once")
+    end
+    inputs.count = inputs.count + 1
+    local request = wire.elicitation(elicitation)
+    inputs.asked[key] = { method = request.method, params = request.params }
+  end
+  return nil, inputs.needed
+end
+
+--- The result that asks the client for what `inputs` gathered.
+local function input_required(self: State, inputs: Inputs): Json.Value
+  local out: mut {string: Json.Value} = { resultType = "input_required",
+    _meta = { [META_SERVER] = wire.implementation(self.spec.info) } }
+  if inputs.count > 0 then out["inputRequests"] = inputs.asked end
+  local kept = inputs.kept
+  if kept ~= nil then out["requestState"] = seal(self, inputs.context, kept) end
+  return out
+end
+
 local function list_tools(self: State, params: any): (Json.Value) | (nil, Refusal)
   local w, wrong = window(self, params, #self.tools)
   if w == nil then return nil, wrong end
@@ -615,7 +818,7 @@ local function list_tools(self: State, params: any): (Json.Value) | (nil, Refusa
   return cacheable(self, fields)
 end
 
-local function call_tool(self: State, params: any, call: McpServer.Call): (Json.Value) | (nil, Refusal)
+local function call_tool(self: State, params: any, call: McpServer.Call, inputs: Inputs): (Json.Value) | (nil, Refusal)
   local p, why = CALL_PARAMS:into(params)
   if p == nil then return nil, refusal(Mcp.INVALID_PARAMS, "tools/call: " .. why) end
   local t = self.by_tool[p.name]
@@ -643,6 +846,9 @@ local function call_tool(self: State, params: any, call: McpServer.Call): (Json.
   if not ok then
     if not call.cancelled() then report(self, "tool " .. p.name, trouble) end
     return nil, raised
+  end
+  if answered == nil and rawequal(failure, inputs.needed) then
+    return input_required(self, inputs)
   end
   local done = answered
   if done == nil then
@@ -684,7 +890,7 @@ local function list_templates(self: State, params: any): (Json.Value) | (nil, Re
   return cacheable(self, fields)
 end
 
-local function read_resource(self: State, params: any, call: McpServer.Call): (Json.Value) | (nil, Refusal)
+local function read_resource(self: State, params: any, call: McpServer.Call, inputs: Inputs): (Json.Value) | (nil, Refusal)
   local p, why = READ_PARAMS:into(params)
   if p == nil then return nil, refusal(Mcp.INVALID_PARAMS, "resources/read: " .. why) end
   local uri = p.uri
@@ -706,6 +912,7 @@ local function read_resource(self: State, params: any, call: McpServer.Call): (J
     return nil, raised
   end
   local got = contents
+  if got == nil and rawequal(failure, inputs.needed) then return input_required(self, inputs) end
   if got == nil then
     report(self, "resource " .. uri, if failure ~= nil then tostring(failure) else "failed" end)
     return nil, raised
@@ -728,7 +935,7 @@ local function list_prompts(self: State, params: any): (Json.Value) | (nil, Refu
   return cacheable(self, fields)
 end
 
-local function get_prompt(self: State, params: any, call: McpServer.Call): (Json.Value) | (nil, Refusal)
+local function get_prompt(self: State, params: any, call: McpServer.Call, inputs: Inputs): (Json.Value) | (nil, Refusal)
   local p, why = PROMPT_PARAMS:into(params)
   if p == nil then return nil, refusal(Mcp.INVALID_PARAMS, "prompts/get: " .. why) end
   local spec = self.by_prompt[p.name]
@@ -752,6 +959,7 @@ local function get_prompt(self: State, params: any, call: McpServer.Call): (Json
     return nil, raised
   end
   local done = answered
+  if done == nil and rawequal(failure, inputs.needed) then return input_required(self, inputs) end
   if done == nil then
     report(self, "prompt " .. p.name, if failure ~= nil then tostring(failure) else "failed" end)
     return nil, raised
@@ -803,6 +1011,9 @@ local record Flight
   --- Answered or cancelled: no notice of it is sent after.
   mut done: boolean
   mut cancelled: boolean
+  --- Who asks, as [`McpServer.HttpSpec.principal`] names them: what state a handler keeps is bound to; nil over
+  --- stdio, where one client is all there is.
+  principal?: string
 end
 
 --- Whether `n` is a number JSON can hold: not NaN, not infinite.
@@ -956,19 +1167,84 @@ local function dispatch(self: State, method: string, params: any, flight: Flight
   local meta, wrong = meta_of(params)
   if meta == nil then return nil, wrong end
   flight.token = meta.progress_token
-  local call: McpServer.Call = { client = meta.client, capabilities = meta.capabilities, http = http,
-    progress = progress_of(flight), cancelled = function(): boolean return flight.cancelled end }
+  local retry, _ = RETRY_PARAMS:into(params)
+  local given: {string: Json.Value} = {}
+  local state: string? = nil
+  local may_ask = method == "tools/call" or method == "prompts/get" or method == "resources/read"
+  -- The state is bound to the request it was kept for: its method, what it names (by the field the method reads),
+  -- its arguments, and who asks.
+  local named = ""
+  local digest = ""
+  if retry ~= nil then
+    local field = if method == "resources/read" then retry.uri else retry.name end
+    named = field or ""
+    if retry.arguments ~= nil then
+      local value, _ = Json.to_value(retry.arguments)
+      local text: string? = nil
+      if value ~= nil then
+        local encoded, _ = Json.encode(value)
+        if encoded ~= nil then
+          local canonical, _ = Json.canonical(encoded)
+          text = canonical
+        end
+      end
+      digest = Hash.sha256(text or "")
+    end
+  end
+  local context = method .. "\0" .. Hash.sha256(named) .. Hash.sha256(flight.principal or "") .. digest
+  if may_ask and retry ~= nil then
+    local raw = retry.inputResponses
+    if raw ~= nil then
+      local answers, _ = Json.to_object(raw)
+      if answers == nil or Json.is_array(raw) then
+        return nil, refusal(Mcp.INVALID_PARAMS, method .. ": inputResponses must be an object")
+      end
+      given = answers
+    end
+    local sealed = retry.requestState
+    if sealed ~= nil and not sealed is string then
+      return nil, refusal(Mcp.INVALID_PARAMS, method .. ": requestState must be a string")
+    end
+    if sealed is string then
+      local opened, why = unseal(self, context, sealed)
+      if opened == nil then
+        return nil, refusal(Mcp.INVALID_PARAMS, method .. ": requestState does not hold: " .. why)
+      end
+      state = opened
+    end
+  end
+  local inputs: Inputs = { given = given, asked = {}, count = 0, context = context,
+    needed = Failure.new("mcp: the client is asked for input first") }
+  local declared = meta.capabilities
+  local call: McpServer.Call = { client = meta.client, capabilities = declared, http = http,
+    progress = progress_of(flight), cancelled = function(): boolean return flight.cancelled end,
+    state = state,
+    elicit = function(key: string, elicitation: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+      return elicit(inputs, declared, key, elicitation)
+    end,
+    keep = function(kept: string)
+      if #kept > MAX_KEPT then
+        error("mcp: keep: at most " .. String.counted(MAX_KEPT, "byte"), 2)
+      end
+      inputs.kept = kept
+    end }
   if method == "server/discover" then return discover(self) end
   if method == "tools/list" and #self.tools > 0 then return list_tools(self, params) end
-  if method == "tools/call" and #self.tools > 0 then return call_tool(self, params, call) end
+  if method == "tools/call" and #self.tools > 0 then
+    return call_tool(self, params, call, inputs)
+  end
   local has_resources = #self.resources > 0 or #self.templates > 0 or self.spec.read ~= nil
   if method == "resources/list" and has_resources then return list_resources(self, params) end
   if method == "resources/templates/list" and has_resources then
     return list_templates(self, params)
   end
-  if method == "resources/read" and has_resources then return read_resource(self, params, call) end
+  if method == "resources/read" and has_resources then
+    return read_resource(self, params, call, inputs)
+  end
   if method == "prompts/list" and #self.prompts > 0 then return list_prompts(self, params) end
-  if method == "prompts/get" and #self.prompts > 0 then return get_prompt(self, params, call) end
+  if method == "prompts/get" and #self.prompts > 0 then
+    return get_prompt(self, params, call, inputs)
+  end
   if method == "subscriptions/listen" then return listen(self, params, flight, id) end
   return nil, refusal(Mcp.METHOD_NOT_FOUND, "Method not found: " .. method)
 end
@@ -1417,9 +1693,9 @@ local class EventReader is Stream.Reader
 end
 
 --- `message` answered as an event stream, its handler in a task of its own.
-local function streamed(self: State, message: wire.Message, req: HttpServer.Request): HttpServer.Reply
+local function streamed(self: State, message: wire.Message, req: HttpServer.Request, principal: string): HttpServer.Reply
   local notifier = Poll.notifier()
-  local flight: Flight = { done = false, cancelled = false }
+  local flight: Flight = { done = false, cancelled = false, principal = principal }
   local body: EventReader = { notifier = notifier, flight = flight, queue = {}, head = 1, tail = 1, finished = false,
     latest = nil, answer = nil, task = nil, skip = nil }
   flight.emit = function(text: string, lossy: boolean)
@@ -1460,6 +1736,9 @@ local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServ
   local path = spec.path or "/mcp"
   local origins = spec.origins or {}
   local authorize = spec.authorize
+  local principal_of = spec.principal or function(req: HttpServer.Request): string
+    return req.headers["authorization"] or ""
+  end
   return function(req: HttpServer.Request): HttpServer.Reply
     local origin = req.headers["origin"]
     if origin ~= nil and not allowed_origin(origin, origins) then
@@ -1503,10 +1782,10 @@ local function handler(self: State, spec: McpServer.HttpSpec): function(HttpServ
         Poll.in_task() then
       local meta, _ = meta_of(message.params)
       if meta ~= nil and (meta.progress_token ~= nil or message.method == "subscriptions/listen") then
-        return streamed(self, message, req)
+        return streamed(self, message, req, principal_of(req))
       end
     end
-    local said = answer_message(self, message, req)
+    local said = answer_message(self, message, req, { done = false, cancelled = false, principal = principal_of(req) })
     if said.body == nil then return { status = said.status } end
     return { status = said.status, headers = { ["Content-Type"] = "application/json" }, body = said.body }
   end
@@ -1650,7 +1929,8 @@ local class Running is McpServer.Instance
       info = spec.info, instructions = spec.instructions, tools = changes.tools or spec.tools,
       resources = changes.resources or spec.resources, templates = changes.templates or spec.templates,
       read = spec.read, prompts = changes.prompts or spec.prompts, page_size = spec.page_size, ttl_ms = spec.ttl_ms,
-      cache_scope = spec.cache_scope, on_error = spec.on_error,
+      cache_scope = spec.cache_scope, on_error = spec.on_error, state_key = old.state_key,
+      state_ttl_ms = spec.state_ttl_ms,
     }
     local fresh = state_of(next_spec)
     old.spec, old.tools, old.by_tool, old.mirrors = fresh.spec, fresh.tools, fresh.by_tool, fresh.mirrors

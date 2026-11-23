@@ -3,6 +3,7 @@
 --- to give cannot: the module is skipped where Linux refuses it.
 
 local Clock = require("cosmic.clock")
+local Failure = require("cosmic.failure")
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Mcp = require("cosmic.mcp")
@@ -69,7 +70,11 @@ end
 --- A call made here, not for a client: no progress to send, never cancelled.
 local function bare(): McpServer.Call
   return { capabilities = {}, progress = function(_: number, _?: number, _?: string) end,
-    cancelled = function(): boolean return false end }
+    cancelled = function(): boolean return false end,
+    elicit = function(_: string, _: Mcp.Elicitation): (Mcp.Elicited) | (nil, Failure)
+      return nil, Failure.new("no client to ask")
+    end,
+    keep = function(_: string) end }
 end
 
 --- What the tool answers for `path`; skips the test where the host gives no sandbox.
