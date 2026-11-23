@@ -8,7 +8,8 @@ local Acme = require("cosmic.acme")
 local Codec = require("cosmic.codec")
 local Http = require("cosmic.http")
 local Json = require("cosmic.json")
-local Sign = require("cosmic.sign")
+-- The raw signing operations on bytes, which the fixtures build keys of.
+local Sign = require("cosmic.internal.sign")
 
 local record acme_fixture
   --- What a CSR says: the public key (a P-256 point, or a DER

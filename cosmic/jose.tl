@@ -120,7 +120,7 @@ local record Jose
   end
 end
 
--- TODO: take PS256 once cosmic.sign verifies RSASSA-PSS, which some
+-- TODO: take PS256 once cosmic.key verifies RSASSA-PSS, which some
 -- providers sign ID tokens with when asked.
 
 --- The algorithm of [`cosmic.key`] of a key of the JOSE algorithm `alg`.
@@ -342,7 +342,7 @@ end
 --- whose algorithm is not allowed (`none` and the HMAC ones never are),
 --- whose header has `crit` members, or that no key checks. An ES256
 --- token has two spellings that verify, its signature's S and n - S
---- ([`Sign.p256_verify`]), so a list of tokens used or revoked is kept
+--- ([`cosmic.key`]'s P-256 verify), so a list of tokens used or revoked is kept
 --- by a claim (`jti`, or `sub` and `iat`), never by the token's text.
 ---
 ---     local jws = assert(Jose.verify(token, keys, { algs = { "ES256" } }))
@@ -455,12 +455,13 @@ end
 
 --- The JOSE algorithm of a key of [`cosmic.key`]'s algorithm `alg`.
 local function jose_alg(alg: Key.Alg): Jose.Alg
+  if alg == "x25519" then error("jose: an X25519 key signs nothing", 3) end
   return if alg == "p256" then "ES256" elseif alg == "rsa" then "RS256" else "EdDSA" end
 end
 
 --- The JSON Web Key of `key`, as a provider publishes it in a key set:
 --- [`Key.Public.jwk`]'s members, with `alg`, `use` of "sig" and, when
---- given, `kid`. [`Jose.key`] reads it back.
+--- given, `kid`. [`Jose.key`] reads it back. Raises on an X25519 key.
 ---
 ---     local key = Key.generate("p256")
 ---     local set = { keys = Json.array({ Jose.jwk(key.public, "2026-11") }) }
@@ -475,7 +476,8 @@ end
 
 --- The compact JWS of `payload` under `key`, with a header of the key's
 --- `alg` (ES256, RS256 or EdDSA) and the members of `header` (`kid` and
---- `typ`, say). Raises on a payload or a header that is not JSON.
+--- `typ`, say). Raises on an X25519 key, and on a payload or a header
+--- that is not JSON.
 ---
 ---     local key = Key.generate("p256")
 ---     local token = Jose.sign(key, { iss = "https://example.com", sub = "ada" }, { kid = "2026-11" })

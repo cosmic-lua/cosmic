@@ -1211,10 +1211,10 @@ entropy and DRBG modules. [`cosmic.hash`] is the Teal face of it, the
 raw [`cosmic.internal.hash`] table's `digest`, `hmac` and streaming
 hasher the bindings, and every SQLite
 handle knows the same functions, so a query hashes in place. the
-crypto subtree serves authenticated encryption (ChaCha20-Poly1305) and X25519 key
-agreement the same way: [`cosmic.cipher`] over the raw
-[`cosmic.internal.cipher`] table, each key in a PSA key slot for one
-computation. the TLS
+crypto subtree serves authenticated encryption (ChaCha20-Poly1305) the
+same way: [`cosmic.cipher`] over the raw [`cosmic.internal.cipher`]
+table, each key in a PSA key slot for one computation; [`cosmic.key`]
+agrees on X25519 secrets over the same table. the TLS
 1.2 and 1.3 client under [`cosmic.http`] (curl over c-ares and mbedtls)
 comes from the same library and the same configuration: one header,
 [`core/mbedtls_cosmic_config.h`], which every file that includes an
@@ -1230,7 +1230,7 @@ trust the default.
 
 mbedtls's PSA driver carries no Ed25519, so signatures come from
 Monocypher 4, vendored as its two portable C files: the curve, and RFC
-8032's SHA-512 over it. [`cosmic.sign`] is the Teal face of it and the
+8032's SHA-512 over it. [`cosmic.key`] is the Teal face of it and the
 raw [`cosmic.internal.sign`] table the bindings. Only Ed25519 is bound:
 Monocypher's own `crypto_eddsa_*` signs with BLAKE2b, which no Ed25519
 implementation verifies.
@@ -1513,7 +1513,7 @@ in [roadmap.md](roadmap.md).
 [`cosmic.internal.testing`]: ../cosmic/internal/testing.d.tl
 [`cosmic.proc`]: ../cosmic/proc.tl
 [`cosmic.removed`]: ../cosmic/removed.tl
-[`cosmic.sign`]: ../cosmic/sign.tl
+[`cosmic.key`]: ../cosmic/key.tl
 [`cosmic.sqlite`]: ../cosmic/sqlite.tl
 [`cosmic.store`]: ../cosmic/store.tl
 [`cosmic.sys`]: ../core/syscalls.h

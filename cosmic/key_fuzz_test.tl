@@ -1,11 +1,53 @@
---- Fuzz properties for [`cosmic.sign`]: what a seed signs verifies under
---- its public key, and [`Sign.ed25519_verify`] is total and exact -- it
+--- Fuzz properties for [`cosmic.key`]: what a seed signs verifies under
+--- its public key, and an Ed25519 key's verify is total and exact -- it
 --- answers for whatever bytes it is handed, never raises, and takes a
 --- key, message and signature only as they were signed. `FUZZ_SEED` and
 --- `FUZZ_ITERS` pick the inputs (build/fuzz/init.tl).
 
 local Fuzz = require("build.fuzz")
-local Sign = require("cosmic.sign")
+local Key = require("cosmic.key")
+
+--- The operations of each signing algorithm on bytes, through
+--- [`cosmic.key`]: the shape the vectors are written in. A secret that
+--- [`Key.secret`] refuses raises its Failure; a public key that
+--- [`Key.public`] refuses verifies nothing.
+local record Sign
+end
+
+local function secret_key(alg: Key.Alg, bytes: string): Key.Secret
+  return assert(Key.secret(alg, bytes))
+end
+
+local function verify(alg: Key.Alg, public: string, message: string, signature: string): boolean
+  local key, _ = Key.public(alg, public)
+  return key ~= nil and key:verify(message, signature)
+end
+
+function Sign.ed25519_public(seed: string): string
+  return secret_key("ed25519", seed).public.bytes
+end
+function Sign.ed25519(seed: string, message: string): string
+  return secret_key("ed25519", seed):sign(message)
+end
+function Sign.ed25519_verify(public: string, message: string, signature: string): boolean
+  return verify("ed25519", public, message, signature)
+end
+function Sign.p256_secret(): string return Key.generate("p256").secret end
+function Sign.p256_public(s: string): string return secret_key("p256", s).public.bytes end
+function Sign.p256(s: string, message: string): string
+  return secret_key("p256", s):sign(message)
+end
+function Sign.p256_verify(public: string, message: string, signature: string): boolean
+  return verify("p256", public, message, signature)
+end
+function Sign.rsa_secret(bits?: integer): string
+  return Key.generate("rsa", { bits = bits }).secret
+end
+function Sign.rsa_public(s: string): string return secret_key("rsa", s).public.bytes end
+function Sign.rsa(s: string, message: string): string return secret_key("rsa", s):sign(message) end
+function Sign.rsa_verify(public: string, message: string, signature: string): boolean
+  return verify("rsa", public, message, signature)
+end
 
 local seed <const> = string.rep("s", 32)
 local message <const> = "the message that was signed"
