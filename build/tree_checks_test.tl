@@ -970,6 +970,35 @@ local function test_a_run_names_each_check(dir: string)
   end
 end
 
+--- The checks run in copies of the process ([`build.compile_fanout`]), each over a connection of its own, tell the
+--- lines the process tells running them all itself, in the same order.
+local function test_a_run_in_copies_tells_what_the_process_tells(dir: string)
+  if Proc.cpu_count() < 2 then
+    Test.skip("this host has one processor, for which no copy is forked")
+  end
+  local own = dir .. "/fanned"
+  assert(Fs.mkdirs(own))
+  local db = fixture.database(own, {
+    ["build/thing.tl"] = source("local record thing", "end", "return thing"),
+    ["cosmic/bare.tl"] = source("--- Bare.", "local record Bare", "end",
+      "function Bare.go()", "end", "return Bare"),
+  })
+  local listed = assert(Fs.list(own))
+  local path = own .. "/" .. assert(listed[1], "the fixture wrote its database")
+  local alone = table.concat(tree_checks.run(db, ""), "\n")
+  local meminfo = fanout.meminfo
+  fanout.meminfo = "MemAvailable: 67108864 kB\n"
+  local ended = fanout.ended_well
+  local copied = table.concat(tree_checks.run(db, "", nil, nil, nil, nil, function(): Sqlite.Handle?, Sqlite.Handle?
+    local opened, _ = Sqlite.open(path)
+    return opened, nil
+  end), "\n")
+  fanout.meminfo = meminfo
+  assert(fanout.ended_well > ended, "no copy ran the checks")
+  assert(alone:find("rendered docs: ", 1, true) ~= nil, alone)
+  assert(copied == alone, "the copies told:\n" .. copied .. "\nthe process:\n" .. alone)
+end
+
 --- A public `---` doc that carries a TODO or cites the build, the C or an
 --- internal module is refused with the rule and the fix; a `--` comment
 --- may hold both, a private symbol's doc is not shown, nor is a code

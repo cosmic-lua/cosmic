@@ -3409,6 +3409,10 @@ function tree_checks.text_readers(db: Sqlite.Handle, excusing?: {string:string})
   return out
 end
 
+--- What one copy of [`run`]'s fan holds beyond the process it was forked from, as [`fanout.copies`] counts it: its own
+--- connections to the projection and what its checks read of it.
+local run_copy_bytes <const> = 256 * 1024 * 1024
+
 --- Every check over the projection `db`, each line one failure,
 --- prefixed with the check's name; none when the tree passes them all.
 --- The plurals are checked with `extra` sources besides the projection's.
@@ -3419,35 +3423,101 @@ end
 ---   whose references are checked with the docs'; none when not given
 --- @param read the plurals already found in files' texts, as [`plurals`]
 ---   takes them
+--- @param reopen where given, opens `db` and `carried` again for a copy of the process ([`build.compile_fanout`]), which
+---   cannot use the process's own connections: the checks then run in copies, each its share, and a copy that does not
+---   end well leaves its checks to the process. The lines are the same either way.
 function tree_checks.run(db: Sqlite.Handle, quickstart: string?, extra?: {{string}}, carried?: Sqlite.Handle,
-                         help?: {string: string}, read?: {string: tree_checks.Plurals}): {string}
+                         help?: {string: string}, read?: {string: tree_checks.Plurals},
+                         reopen?: function(): Sqlite.Handle?, Sqlite.Handle?): {string}
+  -- Each check, slowest first, so the copies' shares are near alike.
+  local checks: {string} = {
+    "rendered docs", "doc references", "public docs", "compiler readers", "doc anchors", "plurals",
+    "image_hash readers", "text readers", "exports", "stand-ins", "build directory", "unnamed types", "verbs",
+    "docs queries", "declarations", "restricted", "quieted",
+  }
+  local function lines_of(name: string, on: Sqlite.Handle, shown: Sqlite.Handle): {string}
+    if name == "rendered docs" then
+      return docs_checks.rendered(shown)
+    elseif name == "doc references" then
+      return docs_checks.references(shown, help)
+    elseif name == "public docs" then
+      return tree_checks.public_docs(on)
+    elseif name == "compiler readers" then
+      return tree_checks.meta_readers(on, "compiler")
+    elseif name == "doc anchors" then
+      return tree_checks.anchors(on)
+    elseif name == "plurals" then
+      return tree_checks.plurals(on, extra, nil, read)
+    elseif name == "image_hash readers" then
+      return tree_checks.meta_readers(on, "image_hash")
+    elseif name == "text readers" then
+      return tree_checks.text_readers(on)
+    elseif name == "exports" then
+      return tree_checks.exports(on)
+    elseif name == "stand-ins" then
+      return tree_checks.stand_ins(on)
+    elseif name == "build directory" then
+      return tree_checks.build_directory(on)
+    elseif name == "unnamed types" then
+      return tree_checks.unnamed_types(on)
+    elseif name == "verbs" then
+      return tree_checks.verbs(on, quickstart)
+    elseif name == "docs queries" then
+      return tree_checks.queries(on)
+    elseif name == "declarations" then
+      return tree_checks.declarations(on)
+    elseif name == "restricted" then
+      return tree_checks.restricted(on)
+    end
+    return tree_checks.quieted(on)
+  end
+  local found: mut {string: {string}} = {}
+  local copies = if reopen ~= nil then fanout.copies(#checks, Proc.cpu_count(), run_copy_bytes, nil, 2) else 0 end
+  local dir: string? = nil
+  if copies > 0 then
+    local made, _ = Fs.mkdtemp("cosmic-tree-checks-")
+    dir = made
+  end
+  if dir ~= nil and reopen ~= nil then
+    local ran = fanout.run(copies, function(copy: integer)
+      local own, own_docs = reopen()
+      local on = assert(own, "the projection does not open again")
+      local shown = own_docs or on
+      local out: mut {{string}} = {}
+      for at = copy, #checks, copies do
+        local name = assert(checks[at], "an index within the list is a check")
+        local lines = lines_of(name, on, shown)
+        out[#out + 1] = { "C", name }
+        for _, line in ipairs(lines) do out[#out + 1] = { "L", name, line } end
+      end
+      assert(Fs.write(dir .. "/" .. tostring(copy), check_memo.encode(out)))
+    end)
+    for copy = 1, copies do
+      if ran.ended[copy] == true then
+        local text, _ = Fs.read(dir .. "/" .. tostring(copy))
+        local got: mut {string: mut {string}} = {}
+        for _, fields in ipairs(check_memo.decode(text or "")) do
+          local kind, name, line = fields[1], fields[2], fields[3]
+          if kind == "C" and name ~= nil then
+            got[name] = {}
+          elseif kind == "L" and name ~= nil and line ~= nil then
+            local list = got[name]
+            if list ~= nil then list[#list + 1] = line end
+          end
+        end
+        for name, lines in pairs(got) do found[name] = lines end
+      end
+    end
+    local _, _ = Fs.remove_tree(dir)
+  end
   local out: mut {string} = {}
-  local plurals = tree_checks.plurals(db, extra, nil, read)
-  for _, line in ipairs(tree_checks.text_readers(db)) do
-    out[#out + 1] = "text readers: " .. line
-  end
-  for _, line in ipairs(tree_checks.meta_readers(db, "image_hash")) do
-    out[#out + 1] = "image_hash readers: " .. line
-  end
-  for _, check in ipairs({
-      { name = "exports", lines = tree_checks.exports(db) },
-      { name = "unnamed types", lines = tree_checks.unnamed_types(db) },
-      { name = "doc anchors", lines = tree_checks.anchors(db) },
-      { name = "compiler readers", lines = tree_checks.meta_readers(db, "compiler") },
-      { name = "build directory", lines = tree_checks.build_directory(db) },
-      { name = "stand-ins", lines = tree_checks.stand_ins(db) },
-      { name = "docs queries", lines = tree_checks.queries(db) },
-      { name = "quieted", lines = tree_checks.quieted(db) },
-      { name = "restricted", lines = tree_checks.restricted(db) },
-      { name = "declarations", lines = tree_checks.declarations(db) },
-      { name = "verbs", lines = tree_checks.verbs(db, quickstart) },
-      { name = "rendered docs", lines = docs_checks.rendered(carried or db) },
-      { name = "doc references", lines = docs_checks.references(carried or db, help) },
-      { name = "public docs", lines = tree_checks.public_docs(db) },
-      { name = "plurals", lines = plurals },
-  }) do
-    for _, line in ipairs(check.lines) do
-      out[#out + 1] = check.name .. ": " .. line
+  -- In the order the checks have always been told.
+  for _, name in ipairs({ "text readers", "image_hash readers", "exports", "unnamed types", "doc anchors",
+      "compiler readers", "build directory", "stand-ins", "docs queries", "quieted", "restricted", "declarations",
+      "verbs", "rendered docs", "doc references", "public docs", "plurals" }) do
+    local lines = found[name] or lines_of(name, db, carried or db)
+    for _, line in ipairs(lines) do
+      out[#out + 1] = name .. ": " .. line
     end
   end
   return out

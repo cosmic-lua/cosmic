@@ -96,9 +96,10 @@ end
 --- holding `each` bytes: none below two, since one copy is no quicker
 --- than the process itself; no more than the host has memory for; and no
 --- more than COSMIC_COMPILE_COPIES asks for. `bound` stands in for those
---- last two, for a test.
-function fanout.copies(count: integer, processors: integer, each: integer, bound?: integer): integer
-  local wanted = math.min(processors, fanout.most, bound or math.min(asked(), room(each)), count // fanout.least)
+--- last two, for a test. `least`, when given, stands in for
+--- [`fanout.least`], for pieces each worth a copy of its own.
+function fanout.copies(count: integer, processors: integer, each: integer, bound?: integer, least?: integer): integer
+  local wanted = math.min(processors, fanout.most, bound or math.min(asked(), room(each)), count // (least or fanout.least))
   return if wanted < 2 then 0 else wanted end
 end
 
