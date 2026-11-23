@@ -233,7 +233,15 @@ local record Cli
   --- builds: `build` prints the tool's path there, a stale tool
   --- rebuilt first, and `--out` writes a copy to dir/cosmic, which
   --- runs any project as a release does with the cores that boot
-  --- built; it takes no other option and no path
+  --- built; it takes no other option and no path.
+  ---
+  --- A file that does not compile (a test among them) holds back only
+  --- the programs that need it. The other programs are written, the
+  --- old executable of each program held back is removed, and the
+  --- exit status is 4. An import cycle, a `global` in a declaration
+  --- file, or a source that cannot be read stops the whole tree, and
+  --- nothing is written. A failure to write exits 1, and the refusal
+  --- is still named.
   build: string
   --- `cosmic db [path...]`: what the three databases in the build
   --- directory hold, each named by its path,
@@ -1097,7 +1105,7 @@ end
 local module: Module = {
   verbs = {
     run = {
-      about = "build the tree around a file and run it (COSMIC_STANDALONE=1: as --standalone)",
+      about = "build the tree around a file and run it",
       usage = "<file.tl> [args]",
     },
     standalone = {
@@ -1156,11 +1164,7 @@ local module: Module = {
       },
     },
     build = {
-      about = "write bin/<name> in the build directory per cmd/<name>/main.tl; a file that does not compile " ..
-        "(a test among them) holds out only the programs that need it: the rest are written, the earlier " ..
-        "executable of each held out is removed, and the exit status is 4. An import cycle, a `global` of a " ..
-        "declaration file or a source that cannot be read stops the whole tree and writes none. A failure to " ..
-        "write is 1 and outranks the refusal, which is still named",
+      about = "write an executable per cmd/<name>/main.tl",
       usage = "[path...]",
       spec = {
         ["--host"] = { about = "this system's native executable: no launcher, runs only here" },
@@ -1171,7 +1175,7 @@ local module: Module = {
       },
     },
     db = {
-      about = "what the databases in the build directory hold",
+      about = "what the build directory's databases hold",
       usage = "[path...]",
     },
     lsp = {
@@ -1204,7 +1208,7 @@ local module: Module = {
       },
     },
     cache = {
-      about = "trim explicitly named shared caches with this tool's formats",
+      about = "trim the shared caches named",
       usage = "trim compiles|verdicts PATH...",
       spec = {
         ["--since-ns"] = { value = "N", about = "keep rows used at or after this Unix nanosecond timestamp" },
@@ -1303,7 +1307,7 @@ local module: Module = {
       },
     },
     rand = {
-      about = "uuids, tokens, integers, picks, normal and gamma draws",
+      about = "uuids, tokens, integers, picks and draws",
       usage = "<command> ...",
       spec = {
         ["--v4"] = { about = "uuid: version 4, random (the default)" },
@@ -1320,7 +1324,7 @@ local module: Module = {
       },
     },
     qr = {
-      about = "a QR code of a text, for the terminal or as an SVG, or read one back",
+      about = "draw a QR code, or read one back",
       usage = "[options] [text...]",
       spec = {
         ["--level"] = { value = "L|M|Q|H", about = "the error correction level (default M)" },
@@ -1336,7 +1340,7 @@ local module: Module = {
       },
     },
     acme = {
-      about = "a certificate from Let's Encrypt or another ACME server",
+      about = "a certificate from Let's Encrypt",
       usage = "<key|issue> [options] [names...]",
       spec = {
         ["--rsa"] = { about = "key: an RSA key, not P-256" },
@@ -1353,7 +1357,7 @@ local module: Module = {
       },
     },
     tailscale = {
-      about = "this machine's Tailscale node: its status, a peer's identity, a certificate, Taildrop",
+      about = "this machine's Tailscale node, and Taildrop",
       usage = "<status|whois|cert|ping|file> [options] [words...]",
       spec = {
         ["--socket"] = { value = "path", about = "the daemon's socket, where it is not where it is looked for" },
@@ -1395,7 +1399,7 @@ local module: Module = {
       },
     },
     refresh = {
-      about = "update a binary's CA roots, revoked certificates and time zones",
+      about = "update a binary's certificates and time zones",
       usage = "-o <path>",
       spec = {
         ["-o"] = { value = "path", about = "write the refreshed binary here" },
@@ -1406,7 +1410,7 @@ local module: Module = {
       },
     },
     release = {
-      about = "find, verify and download cosmic's own releases",
+      about = "find, verify and download a release",
       usage = "[--commit <hex>] [--until <time>] [--list [-n <count>] | -o <file> | --cache] [--pin <file> | --launcher <file>] [--json]",
       spec = {
         ["--commit"] = { value = "hex", about = "the release whose commit starts with this, 7 to 40 hex digits" },
@@ -1421,7 +1425,7 @@ local module: Module = {
       },
     },
     agent = {
-      about = "a small coding agent: Claude, with file and shell tools held to a sandbox",
+      about = "a coding agent, Claude, held to a sandbox",
       usage = "<ask|chat|resume|rpc|sessions|prompt|policy> [options] [words...]",
       spec = {
         ["--model"] = { value = "name", about = "ask, chat, resume, rpc: opus or sonnet, the latest of each (default opus)" },
@@ -1465,7 +1469,7 @@ local module: Module = {
       },
     },
     compile = {
-      about = "Lua source for Teal files, despite type errors",
+      about = "Teal to Lua, even with type errors",
       usage = "[options] <file.tl>...",
       spec = {
         ["-o"] = { value = "dir", about = "write <name>.lua for each file in this directory" },
