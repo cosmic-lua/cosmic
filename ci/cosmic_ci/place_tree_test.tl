@@ -1,7 +1,7 @@
 --- `place-tree`, which moves CI's checkout to a path the commit and the
 --- leg choose: the same two choose the same path, so a re-run meets it
 --- again, and another leg, or another commit, chooses another -- but on
---- a gating run of a leg keyed by declarations, whose keys hold the
+--- a run that stands on verdicts, of a leg keyed by declarations, whose keys hold the
 --- path, the leg alone chooses it. The path is always one directory
 --- beside the workspace, so actions/cache's paths relative to the
 --- workspace resolve through it. The names are checked against vectors
@@ -182,8 +182,9 @@ end
 
 --- A gating run (a push, the merge queue) of a leg keyed by declared
 --- inputs, whose keys hold the tree's path, names one path for every
---- commit, the leg's own; its scheduled or a manual run, and every run
---- of any other leg, names one by the commit.
+--- commit, the leg's own; a run whose COSMIC_CI_EVENT is neither (the
+--- weekly run, a manual run with `every_test`), and every run of any
+--- other leg, names one by the commit.
 local function test_a_gating_run_keyed_by_declarations_names_the_legs_path()
   local other = "0" .. SHA:sub(2)
   for _, event in ipairs({ "push", "merge_group" }) do
