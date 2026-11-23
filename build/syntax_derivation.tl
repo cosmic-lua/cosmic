@@ -153,7 +153,7 @@ function Derivation.insert_stub(db: Sqlite.Handle, source_hash: string, file: st
       local stub = Stub.made(chunk)
       local ok, why = Sqlite.run(db, "INSERT INTO stubs (source_hash, text, pruned) VALUES (?1, ?2, ?3)",
         { text(source_hash), text(stub.text), { integer = if stub.pruned then 1 else 0 end } })
-      if not ok then return false, file .. ": " .. why end
+      if not ok then return false, file .. ": " .. tostring(why) end
       return true, ""
     end
   end
@@ -202,7 +202,7 @@ local function insert_test_inputs(db: Sqlite.Handle, source_hash: string, declar
       "INSERT INTO test_inputs (source_hash, ordinal, field, value) VALUES (?1, ?2, ?3, ?4)",
       { text(source_hash), { integer = ordinal }, text(row.field), text(row.value) })
     if not ok then
-      return false, why
+      return false, tostring(why)
     end
   end
   return true, ""
@@ -221,7 +221,7 @@ function Derivation.insert(db: Sqlite.Handle, source_hash: string, file: string,
   local function put(statement: string, cells: {Sqlite.Value}): boolean, string
     local ok, why = Sqlite.run(db, statement, cells)
     if not ok then
-      return false, file .. ": " .. why
+      return false, file .. ": " .. tostring(why)
     end
     return true, ""
   end

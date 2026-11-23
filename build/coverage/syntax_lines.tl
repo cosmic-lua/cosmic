@@ -62,7 +62,7 @@ function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source:
   local cached, select_trouble = Sqlite.text_rows(db,
     "SELECT lines FROM executable WHERE source_hash = ?1", { text(key) })
   if cached == nil then
-    return nil, select_trouble
+    return nil, tostring(select_trouble)
   end
   if #cached > 0 then
     local out: mut {integer: boolean} = {}
@@ -89,7 +89,7 @@ function Lines.executable_cached(db: Sqlite.Handle, source_hash: string, source:
     "INSERT OR IGNORE INTO executable (source_hash, lines) VALUES (?1, ?2)",
     { text(key), text(table.concat(joined, " ")) })
   if not inserted then
-    return nil, insert_trouble
+    return nil, tostring(insert_trouble)
   end
   return executable, ""
 end

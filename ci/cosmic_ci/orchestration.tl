@@ -1867,7 +1867,7 @@ function Orchestration.seed_compiles(env: {string:string},
     return false, destination .. ": already exists"
   end
   local db, open_trouble = Sqlite.open(source)
-  if db == nil then return false, source .. ": " .. open_trouble end
+  if db == nil then return false, source .. ": " .. tostring(open_trouble) end
   local quoted = (destination:gsub("'", "''"))
   local copied, copy_trouble = db:exec("VACUUM INTO '" .. quoted .. "'")
   local _, _ = db:close()

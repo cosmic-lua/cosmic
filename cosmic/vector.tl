@@ -309,7 +309,7 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
   end
   local q, why = Sqlite.query(db, sql, values)
   if not q then
-    return nil, why
+    return nil, tostring(why)
   end
   local corpus: Vector.Corpus? = nil
   local failure = ""
@@ -326,7 +326,7 @@ function Vector.load(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value},
     corpus = grown
   end
   if failure == "" then
-    failure = q:failure()
+    failure = tostring(q:failure())
   end
   q:close()
   if failure ~= "" then
@@ -357,7 +357,7 @@ function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Val
   end
   local q, why = Sqlite.query(db, sql, values)
   if not q then
-    return nil, why
+    return nil, tostring(why)
   end
   local corpus: Vector.Corpus? = nil
   local failure = ""
@@ -389,7 +389,7 @@ function Vector.load_blocks(db: Sqlite.Handle, sql: string, values?: {Sqlite.Val
     corpus = target
   end
   if failure == "" then
-    failure = q:failure()
+    failure = tostring(q:failure())
   end
   q:close()
   if failure ~= "" then

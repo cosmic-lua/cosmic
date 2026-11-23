@@ -44,13 +44,13 @@ function docs_checks.carried(whole: string, scratch: string, kept?: boolean): Sq
   if kept == true then
     if db == nil then
       local _, _ = Fs.remove(scratch)
-      return nil, open_trouble
+      return nil, tostring(open_trouble)
     end
     return db, ""
   end
   local removed, remove_trouble = Fs.remove(scratch)
   if db == nil then
-    return nil, open_trouble
+    return nil, tostring(open_trouble)
   end
   if not removed then
     local _, _ = db:close()
@@ -186,7 +186,7 @@ function docs_checks.rendered(db: Sqlite.Handle, exempt?: docs_checks.Exempt): {
       "FROM docs d WHERE d.module GLOB 'cosmic.*' AND d.module NOT LIKE '%\\_example' ESCAPE '\\' " ..
       "AND " .. symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
   if rows == nil then
-    return { "reading the docs: " .. trouble }
+    return { "reading the docs: " .. tostring(trouble) }
   end
   local shown: Sqlite.Rows = rows
 
@@ -440,7 +440,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
   local library, library_trouble = Sqlite.text_rows(db, "SELECT path FROM modules WHERE kind = 'module' AND " ..
       symbols.library_modules("path"))
   if library == nil then
-    return { "reading the modules: " .. library_trouble }
+    return { "reading the modules: " .. tostring(library_trouble) }
   end
   -- Each module of the library a closed directory keeps to itself, by its
   -- name and by its file: a public page that names one sends its reader
@@ -465,7 +465,7 @@ function docs_checks.references(db: Sqlite.Handle, help?: {string: string},
       "d.module NOT LIKE '%\\_example' ESCAPE '\\' AND d.text <> '' AND " ..
       symbols.shown_docs("d", true) .. " ORDER BY d.module, d.id")
   if rows == nil then
-    return { "reading the docs: " .. trouble }
+    return { "reading the docs: " .. tostring(trouble) }
   end
   local texts: Sqlite.Rows = rows
 

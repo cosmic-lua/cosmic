@@ -8,7 +8,7 @@ local Sqlite = require("cosmic.sqlite")
 local function scalar(db: Sqlite.Handle, sql: string): string?, string
   local rows, trouble = Sqlite.text_rows(db, sql)
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local row = rows[1]
   if #rows ~= 1 or row == nil or row:count() ~= 1 then
@@ -35,7 +35,7 @@ return function(argv: {string}): integer
   -- and a row is read through its accessors.
   local db, open_trouble = Sqlite.open(path, { writable = recover })
   if db == nil then
-    print("work database integrity: FAIL (open: " .. open_trouble .. ")")
+    print("work database integrity: FAIL (open: " .. tostring(open_trouble) .. ")")
     return 1
   end
   local page_count, page_trouble = scalar(db, "PRAGMA page_count")
@@ -46,7 +46,8 @@ return function(argv: {string}): integer
   local integrity, integrity_trouble = Sqlite.text_rows(db, "PRAGMA integrity_check")
   local closed, close_trouble = db:close()
   -- The first of these that says anything, the page count's before the rest.
-  local trouble = integrity_trouble
+  local trouble = ""
+  if integrity == nil then trouble = tostring(integrity_trouble) end
   for _, each in ipairs({ by_test_trouble, coverage_trouble, freelist_trouble, page_trouble }) do
     if each ~= "" then trouble = each end
   end

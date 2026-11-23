@@ -178,7 +178,7 @@ local function take_sqlite(lock: Lock, path: string,
                            wait_ns: integer): rebuild_lock.Taken?, string
   local db, db_trouble = Sqlite.open(path, { writable = true })
   if db == nil then
-    return nil, path .. ": " .. db_trouble
+    return nil, path .. ": " .. tostring(db_trouble)
   end
   lock.db = db
   db:busy_timeout(wait_ns)

@@ -204,10 +204,10 @@ end
 --- read, which raises nothing, so a caller holding the lock lets it go.
 local function build_verdicts(path: string): string
   local db, open_trouble = Sqlite.open(path)
-  if db == nil then return "unreadable: " .. open_trouble end
+  if db == nil then return "unreadable: " .. tostring(open_trouble) end
   local rows, trouble = Sqlite.text_rows(db, "SELECT verdict FROM builds ORDER BY run")
   local _, _ = db:close()
-  if rows == nil then return "unreadable: " .. trouble end
+  if rows == nil then return "unreadable: " .. tostring(trouble) end
   local verdicts = ""
   for i, row in ipairs(rows) do
     verdicts = verdicts .. (if i > 1 then " " else "" end) .. row:text(1)

@@ -48,7 +48,7 @@ end
 function symbols.public_modules(db: Sqlite.Handle): {string: boolean}?, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT path FROM public_modules")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string: boolean} = {}
   for _, row in ipairs(rows) do out[row:text(1)] = true end
@@ -358,7 +358,7 @@ function symbols.add_bound(into: mut {string: string}, db: Sqlite.Handle, qualif
   local held, held_trouble = Sqlite.text_rows(db, "SELECT 1 FROM " .. qualifier ..
       "sqlite_schema WHERE type = 'table' AND name = 'bound'")
   if held == nil then
-    return false, held_trouble
+    return false, tostring(held_trouble)
   end
   if #held == 0 then
     return true, ""
@@ -366,7 +366,7 @@ function symbols.add_bound(into: mut {string: string}, db: Sqlite.Handle, qualif
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, name, requires FROM " .. qualifier .. "bound ORDER BY path, name")
   if rows == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   for _, row in ipairs(rows) do
     local key = row:text(1) .. "\n" .. row:text(2)

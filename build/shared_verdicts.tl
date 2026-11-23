@@ -250,7 +250,7 @@ end
 local function has_parts(db: Sqlite.Handle): boolean?, string
   local rows, trouble = Sqlite.text_rows(db, "SELECT 1 FROM pragma_table_info('" ..
       declared .. "') WHERE name = 'parts'")
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   return #rows > 0, ""
 end
 
@@ -266,7 +266,7 @@ local function prepare(db: Sqlite.Handle): boolean, string
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('" .. declared ..
       "', '" .. stores .. "')")
-  if rows == nil then return false, trouble end
+  if rows == nil then return false, tostring(trouble) end
   if #rows > 1 then
     local named, named_trouble = has_parts(db)
     if named == nil then return false, named_trouble end
@@ -314,7 +314,7 @@ function shared_verdicts.declared(cache: shared_verdicts.Cache,
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT CAST(inflate(hits) AS TEXT), elapsed_ns FROM " .. declared .. " WHERE key = ?1",
     { text(key) })
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local row = rows[1]
   if row == nil then return nil, "" end
   return { kept = row:text(1),
@@ -327,7 +327,7 @@ function shared_verdicts.store_digest(cache: shared_verdicts.Cache,
                                       address: string): string?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT digest FROM " .. stores .. " WHERE address = ?1", { text(address) })
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   if rows[1] == nil then return nil, "" end
   return rows[1]:text(1), ""
 end
@@ -341,7 +341,7 @@ function shared_verdicts.census(cache: shared_verdicts.Cache,
                                 tests: {string:boolean}): shared_verdicts.Census?, string
   local rows, trouble = Sqlite.text_rows(cache.db,
     "SELECT test, COUNT(*) FROM " .. declared .. " GROUP BY test")
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local out: shared_verdicts.Census = { rows = 0, of_tests = 0 }
   for _, row in ipairs(rows) do
     local count = math.tointeger(tonumber(row:text(2)) or 0) or 0
@@ -381,7 +381,7 @@ end
 function shared_verdicts.held(cache: shared_verdicts.Cache): {shared_verdicts.Held}?, string
   local rows, trouble = Sqlite.text_rows(cache.db, "SELECT parts, COUNT(*) FROM " ..
       declared .. " GROUP BY parts ORDER BY COUNT(*) DESC, parts")
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local out: mut {shared_verdicts.Held} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = { parts = row:text(1), rows = math.tointeger(tonumber(row:text(2)) or 0) or 0 }
@@ -414,7 +414,7 @@ function shared_verdicts.hosts_like(cache: shared_verdicts.Cache, rest: string,
                                     own: string): {string}?, string
   local rows, trouble = Sqlite.text_rows(cache.db, "SELECT DISTINCT parts FROM " .. declared ..
       " WHERE parts LIKE '%host identity %'")
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local seen: mut {string:boolean} = {}
   local out: mut {string} = {}
   for _, row in ipairs(rows) do
@@ -480,7 +480,7 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
     for _, key in ipairs(owed.failed) do
       for _, name in ipairs(tables) do
         local ok, trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE key = ?1", { text(key) })
-        if not ok then return false, trouble end
+        if not ok then return false, tostring(trouble) end
       end
     end
     local known: mut {string:string} = {}
@@ -490,14 +490,14 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
           "origin, parts) VALUES (?1, ?2, deflate(?3), ?4, ?5, ?6, ?7)",
         { text(kept.key), text(kept.test), text(packed(kept.hits, known)),
           { integer = kept.elapsed_ns }, { integer = now_ns }, text(origin), text(parts) })
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
     end
     for _, key in ipairs(owed.used) do
       for _, name in ipairs(tables) do
         local ok, trouble = Sqlite.run(db, "UPDATE " .. name .. " SET used_ns = ?1, " ..
             "parts = CASE WHEN parts = '' THEN ?3 ELSE parts END WHERE key = ?2",
           { { integer = now_ns }, text(key), text(parts) })
-        if not ok then return false, trouble end
+        if not ok then return false, tostring(trouble) end
       end
     end
     local stored = owed.stores or {}
@@ -513,18 +513,18 @@ function shared_verdicts.settle(cache: shared_verdicts.Cache, origin: string,
       local ok, trouble = Sqlite.run(db, "INSERT OR REPLACE INTO " .. stores ..
           " (address, digest, used_ns) VALUES (?1, ?2, ?3)",
         { text(address), text(digest), { integer = now_ns } })
-      if not ok then return false, trouble end
+      if not ok then return false, tostring(trouble) end
     end
     local bounds: {Bound} = { { name = declared, key = "key" }, { name = stores, key = "address" } }
     for _, bound in ipairs(bounds) do
       local name, key = bound.name, bound.key
       local aged, age_trouble = Sqlite.run(db, "DELETE FROM " .. name .. " WHERE used_ns < ?1",
         { { integer = now_ns - kept_ns } })
-      if not aged then return false, age_trouble end
+      if not aged then return false, tostring(age_trouble) end
       local bounded, bound_trouble = Sqlite.run(db, "DELETE FROM " .. name ..
           " WHERE " .. key .. " IN (SELECT " .. key .. " FROM " .. name .. " " ..
           "ORDER BY used_ns DESC LIMIT -1 OFFSET " .. tostring(shared_verdicts.rows_kept(cache.path)) .. ")")
-      if not bounded then return false, bound_trouble end
+      if not bounded then return false, tostring(bound_trouble) end
     end
     return true, ""
   end

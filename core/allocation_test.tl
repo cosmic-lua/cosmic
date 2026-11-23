@@ -1214,7 +1214,7 @@ local function test_sqlite_existing_only_open_releases_every_refused_allocation(
         assert(held:exec("SELECT 1"))
         assert(held:close())
       else
-        assert(db == nil and why ~= "", "a missing database must be refused")
+        assert(db == nil and why ~= nil, "a missing database must be refused")
       end
     end)
     assert(ended > 0, "opening a database allocates")
@@ -1269,12 +1269,11 @@ local function test_sqlite_captured_operations_release_every_refused_allocation(
   local before = AllocationFixture.next_descriptor(tmp)
   for _, present in ipairs({ true, false }) do
     local ended = AllocationFixture.under_every_failure(function()
-      local opened = Sqlite.open_result(if present then ":memory:" else tmp .. "/absent" end)
+      local opened, why = Sqlite.open(if present then ":memory:" else tmp .. "/absent" end)
       if present then
-        assert(opened.handle ~= nil and opened.code == Sqlite.OK) -- checked: compare_disjoint
-        assert(opened.handle:close())
+        assert(assert(opened):close())
       else
-        assert(opened.handle == nil and opened.code ~= Sqlite.OK) -- checked: compare_disjoint
+        assert(opened == nil and why.code ~= Sqlite.OK)
       end
     end)
     assert(ended > 0)

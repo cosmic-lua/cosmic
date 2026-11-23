@@ -3,6 +3,7 @@
 
 local Fs = require("cosmic.fs")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 
 local Example = {} -- checked: literal_needs_type
 
@@ -12,7 +13,8 @@ local Example = {} -- checked: literal_needs_type
 function Example.open()
   local dir = assert(Fs.mkdtemp("cosmic-sqlite-example-"))
   local path = dir .. "/notes.db"
-  assert(Sqlite.open(path) == nil, "a read-only open does not create the file")
+  local absent, _ = Sqlite.open(path)
+  assert(absent == nil, "a read-only open does not create the file")
   local db = assert(Sqlite.open(path, { writable = true }))
   assert(db:exec("CREATE TABLE notes (body TEXT)"))
   assert(Sqlite.run(db, "INSERT INTO notes VALUES (?1)", { { text = "hi" } }))
@@ -22,7 +24,9 @@ function Example.open()
   local note = assert(rows[1])
   assert(note:kind(1) == "text" and note:text(1) == "hi")
   assert(frozen:close())
-  local opened, why = pcall(Sqlite.open, path, { writable = true, immutable = true })
+  local opened, why = pcall(function()
+    local _, _ = Sqlite.open(path, { writable = true, immutable = true })
+  end)
   assert(not opened and tostring(why):find("both writable and immutable", 1, true) ~= nil,
     tostring(why))
   assert(Fs.remove_tree(dir))
@@ -75,7 +79,7 @@ function Example.map()
   local none, why = Sqlite.map(db, "SELECT * FROM missing", nil, function(r: Sqlite.Row): integer
     return r:integer(1)
   end)
-  assert(none == nil and why:find("missing", 1, true) ~= nil, why)
+  assert(none == nil and tostring(why):find("missing", 1, true) ~= nil, why)
   assert(db:close())
 end
 
@@ -109,7 +113,7 @@ function Example.query()
     local q <close> = assert(Sqlite.query(db,
       "SELECT id FROM events WHERE level = ?1 ORDER BY id", { { text = "warn" } }))
     for row in q:each() do print(row:integer(1)) end
-    assert(q:failure() == "", q:failure())
+    assert(q:failure() == nil, q:failure())
   end
   assert(db:close())
 end
@@ -120,19 +124,21 @@ end
 function Example.transact()
   local db = assert(Sqlite.memory())
   assert(db:exec("CREATE TABLE t (n INTEGER)"))
-  local ok, why = Sqlite.transact(db, function(): boolean, string
+  local ok, why = Sqlite.transact(db, function(): (true) | (false, Failure)
     assert(Sqlite.run(db, "INSERT INTO t VALUES (1)"))
-    return false, "changed my mind"
+    return false, Failure.new("changed my mind")
   end)
-  assert(not ok and why == "changed my mind", why)
-  local raised, err = pcall(Sqlite.transact, db, function(): boolean, string
-    assert(Sqlite.run(db, "INSERT INTO t VALUES (2)"))
-    error("boom", 0)
+  assert(not ok and why.message == "changed my mind", tostring(why))
+  local raised, err = pcall(function()
+    local _, _ = Sqlite.transact(db, function(): (true) | (false, Failure)
+      assert(Sqlite.run(db, "INSERT INTO t VALUES (2)"))
+      error("boom", 0)
+    end)
   end)
   assert(not raised and tostring(err) == "boom", tostring(err))
   local count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
   assert(assert(count[1]):integer(1) == 0)
-  assert(Sqlite.transact(db, function(): boolean, string
+  assert(Sqlite.transact(db, function(): (true) | (false, Failure)
     return Sqlite.run(db, "INSERT INTO t VALUES (3)")
   end))
   count = assert(Sqlite.rows(db, "SELECT count(*) FROM t"))
@@ -146,21 +152,14 @@ function Example.version()
   assert(Sqlite.version:match("^3%.%d+%.%d+$") ~= nil, Sqlite.version)
 end
 
---- Codes describe an operation; its reason is for a person. A SQL error
---- such as malformed JSON says nothing about the health of the database.
+--- A failure carries SQLite's codes, which a caller tests; its message is
+--- for a person. A SQL error such as malformed JSON says nothing about the
+--- health of the database.
 function Example.captured_results()
-  local opened = Sqlite.open_result(":memory:", { writable = true })
-  local db = assert(opened.handle, opened.reason)
-  local created = Sqlite.run_result(db, "CREATE TABLE notes (body TEXT)")
-  assert(created.code == Sqlite.OK, created.reason)
-  local inserted = Sqlite.run_result(db, "INSERT INTO notes VALUES (?1)", { { text = "hello" } })
-  assert(inserted.code == Sqlite.OK, inserted.reason)
-  local cells = Sqlite.rows_result(db, "SELECT count(*) FROM notes")
-  assert(cells.code == Sqlite.OK and assert(assert(cells.rows)[1]):integer(1) == 1, cells.reason)
-  local texts = Sqlite.text_rows_result(db, "SELECT body FROM notes")
-  assert(texts.code == Sqlite.OK and assert(assert(texts.rows)[1]):text(1) == "hello", texts.reason)
-  local invalid = Sqlite.rows_result(db, "SELECT json('invalid')")
-  assert(invalid.rows == nil and invalid.code ~= Sqlite.OK)
+  local db = assert(Sqlite.memory())
+  assert(Sqlite.run(db, "CREATE TABLE notes (body TEXT)"))
+  local none, invalid = Sqlite.rows(db, "SELECT json('invalid')")
+  assert(none == nil and invalid.code ~= Sqlite.OK, "malformed JSON is refused")
   assert(invalid.code ~= Sqlite.CORRUPT and invalid.code ~= Sqlite.NOTADB)
   assert(invalid.code ~= Sqlite.BUSY and invalid.code ~= Sqlite.LOCKED)
   assert(db:close())

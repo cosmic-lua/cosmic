@@ -51,6 +51,7 @@
 local type raw_sqlite = require("cosmic.internal.sqlite")
 
 local sqlite = require("cosmic.internal.sqlite")
+local Failure = require("cosmic.failure")
 
 --- The SQLite storage class of a result cell, as [`Sqlite.Row.kind`] names
 --- it.
@@ -283,25 +284,33 @@ local function texts_of(statement: raw_sqlite.Statement): Row
   return cells_of(statement, true)
 end
 
+--- The failure SQLite answered `outcome` with, its codes kept.
+local function failed(outcome: raw_sqlite.Outcome): Failure
+  local reason = if outcome.reason ~= "" then outcome.reason else "sqlite: the call failed" end
+  return Failure.coded(reason, outcome.code, outcome.extended_code, outcome.cancelled == true)
+end
+
 --- Steps `statement` once and gives `project` the row it stands on: the
---- projection, or `nil` and "" when the statement is done, or `nil` and
---- why when the step failed. [`Sqlite.rows`], [`Sqlite.text_rows`] and
---- [`Sqlite.query`] all step through it, so they agree on what a failure
---- says.
+--- projection, or `nil` and nil when the statement is done, or `nil` and
+--- why when the step failed. [`Sqlite.rows`], [`Sqlite.text_rows`],
+--- [`Sqlite.map`] and [`Sqlite.query`] all step through it, so they agree
+--- on what a failure says.
 local function step_row<T>(statement: raw_sqlite.Statement,
-                           project: function(raw_sqlite.Statement): T): T?, string
-  local state, failure = statement:step()
-  if state == nil then
-    return nil, if failure ~= "" then failure else "sqlite: the step failed" end
-  end
-  if state == "done" then
-    return nil, ""
-  end
-  return project(statement), ""
+                           project: function(raw_sqlite.Statement): T): T?, Failure?
+  local state = statement:step_result()
+  if state is raw_sqlite.ExecResult then return nil, failed(state) end
+  if state == "done" then return nil, nil end
+  return project(statement), nil
 end
 
 -- How an object of this module is made: see the note on objects in
 -- cosmic/stream.tl.
+
+--- SQLite's result codes this module answers of its own: a library
+--- routine used against its contract, and a parameter at no position the
+--- statement has.
+local MISUSE <const> = 21
+local RANGE <const> = 25
 
 --- Finalizes `query`'s statement, once.
 local function finish(query: Query)
@@ -323,19 +332,20 @@ local class Query
   --- Internal: whether the last row has been read. No caller reads or
   --- writes it.
   mut ended: boolean
-  --- Internal: why stepping failed, "" until it does. No caller reads or
+  --- Internal: why stepping failed, nil until it does. No caller reads or
   --- writes it; [`Query.failure`] answers it.
-  mut failed: string
+  mut failed?: Failure
 
-  --- The next row, and ""; nil and "" after the last; nil and why
-  --- when stepping failed, the same again on every later read.
-  function read(self): Row?, string
-    if self.failed ~= "" then return nil, self.failed end
-    if self.ended then return nil, "" end
-    if not self.open then return nil, "sqlite: the query is closed" end
+  --- The next row; nil and nil after the last; nil and why when
+  --- stepping failed, the same again on every later read.
+  function read(self): Row?, Failure?
+    local earlier = self.failed
+    if earlier ~= nil then return nil, earlier end
+    if self.ended then return nil, nil end
+    if not self.open then return nil, Failure.coded("sqlite: the query is closed", MISUSE) end
     local row, failure = step_row(self.statement, cells_of)
     if row == nil then
-      if failure == "" then
+      if failure == nil then
         self.ended = true
       else
         self.failed = failure
@@ -343,7 +353,7 @@ local class Query
       finish(self)
       return nil, failure
     end
-    return row, ""
+    return row, nil
   end
 
   --- An iterator for a `for` loop over the rows still to come. It
@@ -355,10 +365,10 @@ local class Query
     end
   end
 
-  --- Why the rows ended early, or "" when they have not: after an
-  --- `each` loop that ran out, "" means every row was read. A `break`,
+  --- Why the rows ended early, or nil when they have not: after an
+  --- `each` loop that ran out, nil means every row was read. A `break`,
   --- or a `close` inside the loop, ends it early with no failure.
-  function failure(self): string
+  function failure(self): Failure?
     return self.failed
   end
 
@@ -399,36 +409,8 @@ local record Sqlite
   --- false and a reason for SQL containing a NUL.
   type ExecResult = raw_sqlite.ExecResult
 
-  --- An open attempt, with `handle` only on success. Outcome fields follow [`ExecResult`].
-  type OpenResult = raw_sqlite.OpenResult
   --- A prepared statement, with `statement` only on success.
   type PrepareResult = raw_sqlite.PrepareResult
-  --- All typed rows, or no rows on a captured failure.
-  record RowsResult is raw_sqlite.Outcome
-    --- Every row on success; nil on failure, including a failed later step.
-    rows?: Rows
-    --- The primary SQLite code; [`Sqlite.OK`] on success.
-    code: integer
-    --- The extended SQLite code, captured before cleanup; zero on success.
-    extended_code: integer
-    --- A diagnostic for a person; empty on success, never parsed for a decision.
-    reason: string
-    --- A busy wait stopped for an unread guard signal; see [`ExecResult`].
-    cancelled: boolean
-  end
-  --- All text rows, or no rows on a captured failure.
-  record TextRowsResult is raw_sqlite.Outcome
-    --- Every row on success; nil on failure, including a failed later step.
-    rows?: Rows
-    --- The primary SQLite code; [`Sqlite.OK`] on success.
-    code: integer
-    --- The extended SQLite code, captured before cleanup; zero on success.
-    extended_code: integer
-    --- A diagnostic for a person; empty on success, never parsed for a decision.
-    reason: string
-    --- A busy wait stopped for an unread guard signal; see [`ExecResult`].
-    cancelled: boolean
-  end
   --- Successful execution.
   OK: integer
   --- Another connection prevents the operation; extended_code can
@@ -440,6 +422,15 @@ local record Sqlite
   CORRUPT: integer
   --- SQLite did not recognize a database file.
   NOTADB: integer
+  --- A generic SQL failure: a statement SQLite refused, or a parameter
+  --- that did not bind.
+  ERROR: integer
+  --- What the core refuses before SQLite reads it: SQL with no statement
+  --- or more than one, a NUL in SQL or a path, a read of a closed query.
+  MISUSE: integer
+  --- A parameter at no position the statement has, or a position with
+  --- no parameter.
+  RANGE: integer
 
   --- One bound parameter. Its field says what SQLite is told it is, so
   --- a blob never arrives as text by accident. At most one field is
@@ -481,8 +472,9 @@ end
 
 --- Opens the database file at `path`: read-only unless `opts.writable`
 --- is true, in which case a missing file is created unless `opts.create`
---- is false. Answers the handle,
---- or `nil` and why. `opts` that is not a table raises.
+--- is false. Answers the handle, or `nil` and why, with SQLite's codes
+--- ([`Failure`]'s `code` and `extended_code`): [`Sqlite.NOTADB`] for a
+--- file that is no database. `opts` that is not a table raises.
 --- SQLite's special empty and `:memory:` paths still open temporary
 --- databases, including with `create = false`.
 ---
@@ -510,15 +502,18 @@ end
 --- answers the old one. A handle may attach 10 databases
 --- (`ATTACH DATABASE`) until `handle:limit("attached", n)` raises that,
 --- to at most 125; the refusal of one too many says so.
-function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): Sqlite.Handle?, string
-  return sqlite.open(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
-end
-
---- Opens with [`Sqlite.open`]'s options and captures SQLite's codes before
---- cleanup. A failed open has no `handle`; a successful one has code zero.
---- A path containing NUL raises, as do invalid options.
-function Sqlite.open_result(path: string, opts?: Sqlite.OpenOptions): Sqlite.OpenResult
-  return sqlite.open_result(path, opts and opts.writable, opts and opts.immutable, opts and opts.create)
+function Sqlite.open(path: string, opts?: Sqlite.OpenOptions): (Sqlite.Handle) | (nil, Failure)
+  local writable, immutable, create = opts and opts.writable, opts and opts.immutable, opts and opts.create
+  -- `open_result` raises for a path it refuses before SQLite reads it (a
+  -- NUL), where `open` answers why; any other raise `open` raises again.
+  local called, opened = pcall(sqlite.open_result, path, writable, immutable, create)
+  if not called then
+    local handle, why = sqlite.open(path, writable, immutable, create)
+    if handle ~= nil then local _, _ = handle:close() end
+    return nil, Failure.coded("sqlite: " .. why, MISUSE)
+  end
+  if opened.code ~= Sqlite.OK then return nil, failed(opened) end
+  return opened.handle
 end
 
 --- Disowns every connection this process has open: for a process that is a
@@ -536,8 +531,8 @@ end
 
 --- A writable database held in memory: it is gone when the handle
 --- closes.
-function Sqlite.memory(): Sqlite.Handle?, string
-  return sqlite.open(":memory:", true)
+function Sqlite.memory(): (Sqlite.Handle) | (nil, Failure)
+  return Sqlite.open(":memory:", { writable = true })
 end
 
 --- Raises, blaming as [`checked`] does, when a text of `texts` holds a NUL,
@@ -574,19 +569,19 @@ end
 --- Binds SQLite parameters positionally, which [`checked`] has found
 --- well formed, `highest` the greatest position they hold: the positions
 --- must be 1..N, matching the statement's own placeholders, or the
---- statement is refused with why.
-local function bind(
-    statement: Sqlite.Statement, values: {Sqlite.Value}, highest: integer
-): boolean, string
+--- statement is refused with why: [`Sqlite.RANGE`] for a position, and
+--- [`Sqlite.ERROR`] for a value SQLite would not bind. Nil where every
+--- value is bound.
+local function bind(statement: Sqlite.Statement, values: {Sqlite.Value}, highest: integer): Failure?
   local count = statement:parameters()
   if highest > count then
-    return false, "sqlite: values holds a parameter " .. tostring(highest) ..
-      ", and the statement has " .. tostring(count)
+    return Failure.coded("sqlite: values holds a parameter " .. tostring(highest) ..
+        ", and the statement has " .. tostring(count), RANGE)
   end
   for index = 1, count do
     local value = values[index]
     if value == nil then
-      return false, "sqlite: parameter " .. tostring(index) .. " has no value (use {} for NULL)"
+      return Failure.coded("sqlite: parameter " .. tostring(index) .. " has no value (use {} for NULL)", RANGE)
     end
     local ok: boolean
     local trouble: string
@@ -612,66 +607,68 @@ local function bind(
       ok, trouble = statement:bind_null(index)
     end
     if not ok then
-      return false, "sqlite: parameter " .. tostring(index) .. ": " .. trouble
+      return Failure.coded("sqlite: parameter " .. tostring(index) .. ": " .. trouble, Sqlite.ERROR)
     end
   end
-  return true, ""
+  return nil
 end
 
 --- `sql` prepared on `handle` with `values` bound, or nil and why; a
 --- statement that does not bind is finalized.
 local function prepared(handle: Sqlite.Handle, sql: string,
-                        given?: {Sqlite.Value}): Sqlite.Statement?, string
+                        given?: {Sqlite.Value}): (Sqlite.Statement) | (nil, Failure)
   local values = given or {}
   local highest = checked(values)
-  local statement, trouble = handle:prepare(sql)
-  if statement == nil then
-    return nil, trouble
+  -- The core's `prepare_result` raises for SQL it refuses before SQLite
+  -- reads it (a NUL, no statement, more than one), where `prepare`
+  -- answers why; any other raise (a closed handle) `prepare` raises again.
+  local called, opened = pcall(handle.prepare_result, handle, sql)
+  if not called then
+    local statement, why = handle:prepare(sql)
+    if statement ~= nil then statement:finalize() end
+    return nil, Failure.coded("sqlite: " .. why, MISUSE)
   end
-  local bound, why = bind(statement, values, highest)
-  if not bound then
+  if opened.code ~= Sqlite.OK then return nil, failed(opened) end
+  local statement = opened.statement
+  local why = bind(statement, values, highest)
+  if why ~= nil then
     statement:finalize()
     return nil, why
   end
-  return statement, ""
+  return statement
 end
 
---- Runs a statement that yields no rows: it answers `true` and
---- "", or `false` and why.
+--- Runs a statement that yields no rows: it answers `true`, or `false`
+--- and why, with SQLite's codes ([`Failure`]'s `code`, `extended_code`
+--- and `cancelled`: a busy wait the handle's guard stopped).
 ---
 --- `values` is a dense list indexed by SQLite's parameter index, through
 --- its highest index. Repeated named parameters share an index, and a
 --- gap in `?NNN` numbers still needs an entry (use `{}`). A missing entry
---- or an extra key answers `false` and why. A malformed [`Sqlite.Value`]
+--- or an extra key answers `false` and why ([`Sqlite.RANGE`]). A malformed [`Sqlite.Value`]
 --- (no table, a field it has no name for, more than one field) raises, as
 --- does a key that is no position from 1.
 function Sqlite.run(handle: Sqlite.Handle, sql: string,
-                    values?: {Sqlite.Value}): boolean, string
+                    values?: {Sqlite.Value}): (true) | (false, Failure)
   local statement, trouble = prepared(handle, sql, values)
-  if statement == nil then
-    return false, trouble
-  end
-  local state, failure = statement:step()
+  if statement == nil then return false, trouble end
+  local state = statement:step_result()
   statement:finalize()
-  if state == nil then
-    return false, failure
-  end
-  return true, ""
+  if state is raw_sqlite.ExecResult then return false, failed(state) end
+  return true
 end
 
 --- Every row of `statement` as `project` gives it, and the statement
 --- finalized: the rows, or `nil` and why a step failed.
 local function each_row<T>(statement: Sqlite.Statement,
-                           project: function(Sqlite.Statement): T): {T}?, string
+                           project: function(Sqlite.Statement): T): ({T}) | (nil, Failure)
   local out: mut {T} = {}
   while true do
     local row, failure = step_row(statement, project)
     if row == nil then
       statement:finalize()
-      if failure ~= "" then
-        return nil, failure
-      end
-      return out, ""
+      if failure ~= nil then return nil, failure end
+      return out
     end
     out[#out + 1] = row
   end
@@ -681,11 +678,9 @@ end
 --- columns' SQLite types. Answers the rows, or `nil` and why. `values`
 --- follows [`Sqlite.run`]'s contract.
 function Sqlite.rows(handle: Sqlite.Handle, sql: string,
-                     values?: {Sqlite.Value}): Sqlite.Rows?, string
+                     values?: {Sqlite.Value}): (Sqlite.Rows) | (nil, Failure)
   local statement, trouble = prepared(handle, sql, values)
-  if statement == nil then
-    return nil, trouble
-  end
+  if statement == nil then return nil, trouble end
   return each_row(statement, cells_of)
 end
 
@@ -709,21 +704,19 @@ end
 ---       end))
 ---     print(#found, found[2].name) -- 2  b
 function Sqlite.map<T>(handle: Sqlite.Handle, sql: string, values: {Sqlite.Value}?,
-                       project: function(Sqlite.Row): T): {T}?, string
+                       project: function(Sqlite.Row): T): ({T}) | (nil, Failure)
   local statement, trouble = prepared(handle, sql, values)
-  if statement == nil then
-    return nil, trouble
-  end
+  if statement == nil then return nil, trouble end
   local out: mut {T} = {}
   while true do
-    local state, failure = statement:step()
-    if state == nil then
+    local state = statement:step_result()
+    if state is raw_sqlite.ExecResult then
       statement:finalize()
-      return nil, if failure ~= "" then failure else "sqlite: the step failed" end
+      return nil, failed(state)
     end
     if state == "done" then
       statement:finalize()
-      return out, ""
+      return out
     end
     local called, made = pcall(project, cells_of(statement))
     if not called then
@@ -758,15 +751,11 @@ end
 ---     for row in q:each() do print(row:integer(1), row:text(2)) end
 ---     assert(q:failure() == "", q:failure())
 function Sqlite.query(handle: Sqlite.Handle, sql: string,
-                      values?: {Sqlite.Value}): Sqlite.Query?, string
+                      values?: {Sqlite.Value}): (Sqlite.Query) | (nil, Failure)
   local opened, trouble = prepared(handle, sql, values)
-  if opened == nil then
-    return nil, trouble
-  end
-  local q: Query = {
-    statement = opened, open = true, ended = false, failed = "",
-  }
-  return q, ""
+  if opened == nil then return nil, trouble end
+  local q: Query = { statement = opened, open = true, ended = false, failed = nil }
+  return q
 end
 
 --- A direct text projection for callers whose SQL already defines the
@@ -778,106 +767,10 @@ end
 --- every column and [`is_null`] as false, and raises from `integer`,
 --- `number` and `blob`: read those from [`Sqlite.rows`].
 function Sqlite.text_rows(handle: Sqlite.Handle, sql: string,
-                          values?: {Sqlite.Value}): Sqlite.Rows?, string
+                          values?: {Sqlite.Value}): (Sqlite.Rows) | (nil, Failure)
   local statement, trouble = prepared(handle, sql, values)
-  if statement == nil then
-    return nil, trouble
-  end
+  if statement == nil then return nil, trouble end
   return each_row(statement, texts_of)
-end
-
-local type Outcome = raw_sqlite.Outcome
-
--- TODO: copying into a result record is `field_fixed` on the [`Outcome`] records (held by markers), once
--- the typed helpers make each record whole from the outcome they hold instead of copying into one made first.
-local function copy_outcome(from: Outcome, to: Outcome)
-  to.code, to.extended_code = from.code, from.extended_code -- checked: field_fixed*2
-  to.reason, to.cancelled = from.reason, from.cancelled -- checked: field_fixed*2
-end
-
---- A typed helper owns preparation and binding failures alike. A bad
---- parameter shape raises, but must not leave a statement holding its handle.
-local function prepared_result(handle: Sqlite.Handle, sql: string,
-                               values?: {Sqlite.Value}): Sqlite.PrepareResult
-  local opened = handle:prepare_result(sql)
-  if opened.statement == nil then return opened end -- checked: compare_disjoint
-  local statement = opened.statement
-  if values == nil and statement:parameters() == 0 then return opened end
-  if values == nil then values = {} end
-  local called, bound = pcall(statement.bind_values_result, statement, values)
-  if not called then
-    statement:finalize()
-    error(bound, 0)
-  end
-  if bound.code ~= Sqlite.OK then
-    statement:finalize()
-    -- TODO: once cosmic/internal/sqlite.d.tl declares `statement` of a PrepareResult optional
-    -- (this file's doc of PrepareResult says "with `statement` only on success"), drop this marker.
-    opened.statement = nil -- checked: field_fixed, nil_not_allowed
-    copy_outcome(bound, opened)
-  end
-  return opened
-end
-
---- Runs once with a captured outcome, including preparation, binding and
---- stepping. Parameters have [`Sqlite.run`]'s shape; missing, extra or wrongly
---- typed parameters raise. No statement is retried or transaction rolled back.
-function Sqlite.run_result(handle: Sqlite.Handle, sql: string,
-                           values?: {Sqlite.Value}): Sqlite.ExecResult
-  local opened = prepared_result(handle, sql, values)
-  local result: Sqlite.ExecResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
-  copy_outcome(opened, result)
-  if opened.statement == nil then return result end -- checked: compare_disjoint
-  local state = opened.statement:step_result()
-  opened.statement:finalize()
-  if state is Sqlite.ExecResult then return state end
-  return result
-end
-
---- The typed step surface allocates a guard once per statement, reusing it
---- for successful rows. Only a failure makes a result record for a step.
-local function collect_result<T>(statement: Sqlite.Statement,
-                                 project: function(Sqlite.Statement): T, outcome: Outcome): {T}?
-  local rows: mut {T} = {}
-  while true do
-    local state = statement:step_result()
-    if state is Sqlite.ExecResult then
-      statement:finalize()
-      copy_outcome(state, outcome)
-      return nil
-    end
-    if state == "done" then
-      statement:finalize()
-      return rows
-    end
-    rows[#rows + 1] = project(statement)
-  end
-end
-
---- [`Sqlite.rows`] with captured SQLite codes. Any failed step discards the
---- partial rows and finalizes the statement. Parameters follow [`run_result`].
-function Sqlite.rows_result(handle: Sqlite.Handle, sql: string,
-                            values?: {Sqlite.Value}): Sqlite.RowsResult
-  local opened = prepared_result(handle, sql, values)
-  local result: Sqlite.RowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
-  copy_outcome(opened, result)
-  if opened.statement ~= nil then -- checked: compare_disjoint
-    result.rows = collect_result(opened.statement, cells_of, result) -- checked: field_fixed
-  end
-  return result
-end
-
---- [`Sqlite.text_rows`] with captured SQLite codes; otherwise follows
---- [`Sqlite.rows_result`], including discarding partial rows on failure.
-function Sqlite.text_rows_result(handle: Sqlite.Handle, sql: string,
-                                 values?: {Sqlite.Value}): Sqlite.TextRowsResult
-  local opened = prepared_result(handle, sql, values)
-  local result: Sqlite.TextRowsResult = { code = 0, extended_code = 0, reason = "", cancelled = false }
-  copy_outcome(opened, result)
-  if opened.statement ~= nil then -- checked: compare_disjoint
-    result.rows = collect_result(opened.statement, texts_of, result) -- checked: field_fixed
-  end
-  return result
 end
 
 --- Runs `work` inside a transaction and commits when it answers `true`.
@@ -894,32 +787,33 @@ end
 --- The statements of one transaction are written through the same
 --- handle:
 ---
----     local ok, why = Sqlite.transact(db, function(): boolean, string
+---     local ok, why = Sqlite.transact(db, function(): (true) | (false, Failure)
 ---       local a, trouble = Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "a" } })
 ---       if not a then return false, trouble end
 ---       return Sqlite.run(db, "INSERT INTO t (body) VALUES (?1)", { { text = "b" } })
 ---     end)
 function Sqlite.transact(handle: Sqlite.Handle,
-                         work: function(): boolean, string): boolean, string
-  local started, trouble = handle:exec("BEGIN")
-  if not started then
-    return false, trouble
-  end
-  local called, ok, why = pcall(work)
+                         work: function(): (true) | (false, Failure)): (true) | (false, Failure)
+  local started = handle:exec_result("BEGIN")
+  if started.code ~= Sqlite.OK then return false, failed(started) end
+  local called, ok, why = pcall(function(): boolean, Failure?
+    local done, trouble = work()
+    return done, trouble
+  end)
   if not called then
-    local _, _ = handle:exec("ROLLBACK")
+    local _ = handle:exec_result("ROLLBACK")
     error(ok, 0)
   end
   if not ok then
-    local _, _ = handle:exec("ROLLBACK")
-    return false, why
+    local _ = handle:exec_result("ROLLBACK")
+    return false, why or Failure.new("sqlite: transact: the work failed and said no why")
   end
-  local committed, failure = handle:exec("COMMIT")
-  if not committed then
-    local _, _ = handle:exec("ROLLBACK")
-    return false, failure
+  local committed = handle:exec_result("COMMIT")
+  if committed.code ~= Sqlite.OK then
+    local _ = handle:exec_result("ROLLBACK")
+    return false, failed(committed)
   end
-  return true, ""
+  return true
 end
 
 Sqlite.OK = 0
@@ -927,6 +821,9 @@ Sqlite.BUSY = 5
 Sqlite.LOCKED = 6
 Sqlite.CORRUPT = 11
 Sqlite.NOTADB = 26
+Sqlite.ERROR = 1
+Sqlite.MISUSE = MISUSE
+Sqlite.RANGE = RANGE
 Sqlite.version = sqlite.version
 
 return Sqlite

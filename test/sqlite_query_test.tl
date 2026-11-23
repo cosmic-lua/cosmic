@@ -22,9 +22,9 @@ local function test_a_query_reads_what_rows_reads()
   assert(second:integer(1) == 3 and second:text(2) == "n3")
   for _ = 1, 2 do
     local row, trouble = q:read()
-    assert(row == nil and trouble == "")
+    assert(row == nil and trouble == nil)
   end
-  assert(q:failure() == "")
+  assert(q:failure() == nil)
   assert(db:close())
 end
 
@@ -33,7 +33,7 @@ local function test_each_reads_every_row()
   local q = assert(Sqlite.query(db, "SELECT n FROM t ORDER BY n"))
   local total = 0
   for row in q:each() do total = total + row:integer(1) end
-  assert(total == 5050 and q:failure() == "")
+  assert(total == 5050 and q:failure() == nil)
   assert(db:close())
 end
 
@@ -79,7 +79,7 @@ local function test_a_closed_query_fails_a_read()
   q:close()
   q:close()
   local row, trouble = q:read()
-  assert(row == nil and trouble:find("closed", 1, true) ~= nil, trouble)
+  assert(row == nil and tostring(trouble):find("closed", 1, true) ~= nil, trouble)
   assert(db:close())
 end
 
@@ -88,9 +88,9 @@ end
 local function test_a_query_that_cannot_start_says_why()
   local db = numbers(1)
   local q, trouble = Sqlite.query(db, "SELECT nothing FROM nowhere")
-  assert(q == nil and trouble ~= "")
+  assert(q == nil and trouble.message ~= "")
   local unbound, why = Sqlite.query(db, "SELECT ?1")
-  assert(unbound == nil and why ~= "")
+  assert(unbound == nil and why.message ~= "")
   assert(db:close())
 end
 
@@ -105,7 +105,7 @@ local function test_a_failed_step_ends_the_rows_with_why()
   for _ in q:each() do seen = seen + 1 end
   assert(seen == 2, tostring(seen))
   local failure = q:failure()
-  assert(failure ~= "", "the failed step was not reported")
+  assert(failure ~= nil, "the failed step was not reported")
   local row, trouble = q:read()
   assert(row == nil and trouble == failure)
   assert(db:close())
@@ -120,7 +120,7 @@ local function test_a_query_reads_the_columns_the_statement_has_now()
     local q = assert(Sqlite.query(db, "SELECT * FROM t ORDER BY n"))
     assert(db:exec(change))
     local row, trouble = q:read()
-    assert(row ~= nil, change .. ": " .. trouble)
+    assert(row ~= nil, change .. ": " .. tostring(trouble))
     local want = if change:find("DROP", 1, true) then 1 else 3 end
     assert(row:count() == want, change .. ": " .. tostring(row:count()) .. " columns")
     q:close()

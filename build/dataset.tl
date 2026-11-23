@@ -81,6 +81,7 @@ local Fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local plural = require("build.plural")
 local quoted = require("build.sql_name").quoted
 
@@ -459,39 +460,39 @@ function dataset.load(handle: Sqlite.Handle, name: string, rows: dataset.Rows): 
   declared[#declared + 1] = json_column
   marks[#marks + 1] = "?" .. tostring((width + 1))
   local insert = "INSERT INTO " .. quoted(name) .. " VALUES (" .. table.concat(marks, ", ") .. ")"
-  local ok, trouble = Sqlite.transact(handle, function(): boolean, string
+  local ok, trouble = Sqlite.transact(handle, function(): (true) | (false, Failure)
     local created, why = handle:exec("CREATE TABLE " .. quoted(name) ..
         " (" .. table.concat(declared, ", ") .. ")")
     if not created then
-      return false, why
+      return false, Failure.new(why)
     end
     for number, row in ipairs(rows) do
       local values: mut {Sqlite.Value} = {}
       for index, column in ipairs(names) do
         local key = key_of[column]
         if key == nil then
-          return false, "column " .. column .. " has no key"
+          return false, Failure.new("column " .. column .. " has no key")
         end
         local value, bad = bound(row[key])
         if value == nil then
-          return false, "row " .. tostring(number) .. ", " .. column .. ": " .. bad
+          return false, Failure.new("row " .. tostring(number) .. ", " .. column .. ": " .. bad)
         end
         values[index] = value
       end
       local text, bad = Json.encode_any(row)
       if text == nil then
-        return false, "row " .. tostring(number) .. ": " .. tostring(bad)
+        return false, Failure.new("row " .. tostring(number) .. ": " .. tostring(bad))
       end
       values[#values + 1] = { text = text }
       local inserted, insert_bad = Sqlite.run(handle, insert, values)
       if not inserted then
-        return false, "row " .. tostring(number) .. ": " .. insert_bad
+        return false, Failure.new("row " .. tostring(number) .. ": " .. tostring(insert_bad))
       end
     end
-    return true, ""
+    return true
   end)
   if not ok then
-    return refuse(trouble)
+    return refuse(tostring(trouble))
   end
   local columns: mut {string} = {}
   for _, column in ipairs(names) do

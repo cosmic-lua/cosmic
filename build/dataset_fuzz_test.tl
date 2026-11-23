@@ -85,7 +85,8 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
             if utf8.len(key) == nil then text_keys = true end
           end
         end
-        if not text_keys or Sqlite.rows(db, "SELECT 1 FROM t") ~= nil then
+        local left, _ = Sqlite.rows(db, "SELECT 1 FROM t")
+        if not text_keys or left ~= nil then
           return false, "refused: " .. why
         end
         Fuzz.label("refused")
@@ -113,7 +114,7 @@ local function test_a_loaded_row_reads_back_through_json(tmp: string)
         return false, #made.columns .. " columns for " .. tostring(distinct) .. " keys"
       end
       local texts, trouble = Sqlite.text_rows(db, "SELECT _json FROM t ORDER BY rowid")
-      if texts == nil then return false, trouble end
+      if texts == nil then return false, tostring(trouble) end
       for index, row in ipairs(rows) do
         local expected = assert(Json.encode_any(row))
         if support.nth(texts, index):text(1) ~= expected then
@@ -220,7 +221,7 @@ local function test_each_key_reads_back_by_its_column(tmp: string)
           if column ~= key then Fuzz.label("renamed") end
           if not key:match("^[%a_][%w_]*$") then Fuzz.label("quoted") end
           local got, trouble = Sqlite.rows(db, 'SELECT "' .. column:gsub('"', '""') .. '" FROM t ORDER BY rowid')
-          if got == nil then return false, column .. ": " .. trouble end
+          if got == nil then return false, column .. ": " .. tostring(trouble) end
           for index, row in ipairs(rows) do
             local want = expected_cell(row[key])
             local read = support.nth(got, index)

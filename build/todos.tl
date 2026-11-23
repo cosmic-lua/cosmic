@@ -406,7 +406,7 @@ end
 --- file and line order: a row with no blame for `head` has `commit` ""
 --- and `blamed` false.
 local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
-  return Sqlite.map(db,
+  local answered, answer_why = Sqlite.map(db,
     "SELECT f.path, t.line, t.last, t.text, t.sha256, b.commit_id, " ..
       "b.author_time, b.summary, b.boundary, t.id FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
@@ -432,6 +432,8 @@ local function rows_of(db: Sqlite.Handle, head: string): {Row}?, string
           blamed = blamed,
         }
       end)
+  if not answered then return nil, tostring(answer_why) end
+  return answered, ""
 end
 
 --- Moves the blame recorded at an earlier `HEAD` on to `head`, for
@@ -450,7 +452,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
     "SELECT DISTINCT head FROM blames WHERE head != ?1 AND head != ''",
     { { text = head } })
   if heads == nil then
-    return false, trouble
+    return false, tostring(trouble)
   end
   for _, row in ipairs(heads) do
     local old = row:text(1)
@@ -471,7 +473,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
       local kept, rows_trouble = Sqlite.text_rows(db,
         "SELECT DISTINCT path FROM blames WHERE head = ?1", { { text = old } })
       if kept == nil then
-        return false, rows_trouble
+        return false, tostring(rows_trouble)
       end
       for _, each in ipairs(kept) do
         if not ignore_moved and touched[each:text(1)] ~= true then
@@ -479,7 +481,7 @@ local function carry_forward(db: Sqlite.Handle, root: string, head: string,
             "UPDATE blames SET head = ?1 WHERE head = ?2 AND path = ?3",
             { { text = head }, { text = old }, { text = each:text(1) } })
           if not ok then
-            return false, move_trouble
+            return false, tostring(move_trouble)
           end
         end
       end
@@ -501,7 +503,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
       "AND t.line = blames.line AND t.sha256 = blames.sha256)",
     { { text = head } })
   if not pruned then
-    return nil, prune_trouble
+    return nil, tostring(prune_trouble)
   end
   if head == "" then
     return 0, ""
@@ -543,7 +545,7 @@ local function blame_rows(db: Sqlite.Handle, root: string, head: string,
           { text = head }, { text = todo.commit }, { integer = todo.author_time },
           { text = todo.summary }, { integer = if todo.boundary then 1 else 0 end } })
       if not ok then
-        return nil, file .. ": " .. trouble
+        return nil, file .. ": " .. tostring(trouble)
       end
     end
   end
@@ -607,7 +609,7 @@ end
 --- comment. Read apart here, since a row is the bytes' alone and says
 --- nothing of the file's name.
 local function misses_of(db: Sqlite.Handle): {Miss}?, string
-  return Sqlite.map(db,
+  local answered, answer_why = Sqlite.map(db,
     "SELECT f.path, m.line, m.spelling FROM " ..
       "(SELECT path, sha256 FROM files UNION SELECT path, sha256 FROM tool " ..
       "UNION SELECT path, sha256 FROM scanned) f " ..
@@ -615,6 +617,8 @@ local function misses_of(db: Sqlite.Handle): {Miss}?, string
     function(row: Sqlite.Row): Miss
       return { file = row:text(1), line = row:integer(2), spelling = row:text(3) }
     end)
+  if not answered then return nil, tostring(answer_why) end
+  return answered, ""
 end
 
 --- Whether `miss` is one `todos` names: not a bare `TODO` in Markdown ([`misses_of`]).
@@ -719,7 +723,7 @@ function todos.search(db: Sqlite.Handle, query: string): {integer:integer}?, str
     end
     local retried, trouble = Sqlite.text_rows(db, sql, { { text = words } })
     if retried == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     rows = retried
   end
@@ -835,7 +839,7 @@ function todos.run(argv: {string}, at?: string, seen?: reboot.Seen): integer
       if not reboot.unchecked(root) then work.tell_busy("todos", working) end
       local opened, read_trouble = Sqlite.open(working)
       if opened == nil then
-        log:complain("todos: " .. working .. ": " .. read_trouble)
+        log:complain("todos: " .. working .. ": " .. tostring(read_trouble))
         return 1
       end
       local found, schema_trouble = work.other_schema(opened)

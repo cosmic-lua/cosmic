@@ -168,7 +168,7 @@ end
 --- The texts of column 1 of `sql`'s rows on `db`, nil and why.
 local function column(db: Sqlite.Handle, sql: string, values?: {Sqlite.Value}): {string}?, string
   local rows, trouble = Sqlite.text_rows(db, sql, values)
-  if rows == nil then return nil, trouble end
+  if rows == nil then return nil, tostring(trouble) end
   local out: mut {string} = {}
   for _, row in ipairs(rows) do out[#out + 1] = row:text(1) end
   return out, ""
@@ -182,17 +182,17 @@ end
 --- taken, or nil and why.
 local function merged(into: string, from: string): integer?, string
   local db, opened = Sqlite.open(into, { writable = true })
-  if db == nil then return nil, opened end
+  if db == nil then return nil, tostring(opened) end
   local function steps(): integer?, string
     local attached, trouble = Sqlite.run(db, "ATTACH DATABASE ?1 AS queue", { { text = from } })
-    if not attached then return nil, trouble end
+    if not attached then return nil, tostring(trouble) end
     local begun, begin_trouble = db:exec("BEGIN IMMEDIATE")
     if not begun then return nil, begin_trouble end
     local function within(): integer?, string
       local made, made_trouble = Sqlite.text_rows(db, "SELECT name, sql FROM queue.sqlite_schema " ..
           "WHERE type IN ('table', 'index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' " ..
           "AND name NOT IN (SELECT name FROM main.sqlite_schema) ORDER BY type = 'index', name")
-      if made == nil then return nil, made_trouble end
+      if made == nil then return nil, tostring(made_trouble) end
       for _, row in ipairs(made) do
         -- One statement that makes a table or an index, as SQLite keeps
         -- it: a file whose schema holds more is no cache of ours.
@@ -217,7 +217,7 @@ local function merged(into: string, from: string): integer?, string
           local list = table.concat(names, ", ")
           local ok, why = Sqlite.run(db, "INSERT OR REPLACE INTO main." .. quoted(name) .. " (" .. list ..
               ") SELECT " .. list .. " FROM queue." .. quoted(name))
-          if not ok then return nil, "taking " .. name .. ": " .. why end
+          if not ok then return nil, "taking " .. name .. ": " .. tostring(why) end
           local counted, count_trouble = column(db, "SELECT changes()")
           if counted == nil then return nil, count_trouble end
           taken = taken + (math.tointeger(tonumber(counted[1])) or 0)

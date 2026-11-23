@@ -77,7 +77,7 @@ function CheckerDeclarations.staged(db: Sqlite.Handle, root: string): CheckerDec
   local rows, trouble = Sqlite.text_rows(db, "SELECT path, sha256 FROM tool WHERE path IN (?1, ?2) ORDER BY path",
     { { text = PRELUDE }, { text = STDLIB } })
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   if #rows == 0 then
     return nil, ""

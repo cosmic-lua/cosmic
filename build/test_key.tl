@@ -42,6 +42,7 @@ local build_paths = require("build.paths")
 local Proc = require("cosmic.proc")
 local type Sandbox = require("cosmic.sandbox")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 local Store = require("cosmic.store")
 local sys = require("cosmic.sys")
 local analysis_schema = require("build.analysis_schema")
@@ -255,7 +256,7 @@ function test_key.known_verdicts(handle: Sqlite.Handle): {string:Verdict}?, stri
   local rows, trouble = Sqlite.text_rows(handle,
     "SELECT key, passed, run_at_ns, elapsed_ns FROM verdicts")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string:Verdict} = {}
   for _, row in ipairs(rows) do
@@ -272,11 +273,13 @@ end
 function test_key.record_verdict(handle: Sqlite.Handle, key: string, passed: boolean,
                                  run_at_ns: integer, run: integer,
                                  elapsed: integer): boolean, string
-  return Sqlite.run(handle,
+  local answered, answer_why = Sqlite.run(handle,
     "INSERT OR REPLACE INTO verdicts (key, passed, run_at_ns, seen, elapsed_ns) " ..
       "VALUES (?1, ?2, ?3, ?4, ?5)",
     { text(key), { integer = if passed then 1 else 0 end }, { integer = run_at_ns },
       { integer = run }, { integer = elapsed } })
+  if not answered then return false, tostring(answer_why) end
+  return answered, ""
 end
 
 --- The environment every worker this process starts has
@@ -303,10 +306,11 @@ local function binary_tables(): string?, string
       local has_web, web_trouble = Sqlite.text_rows(binary,
         "SELECT 1 FROM sqlite_master WHERE name = 'web_assets'")
       if has_web == nil then
-        looked.trouble = web_trouble
+        looked.trouble = tostring(web_trouble)
       else
         -- A binary from before the table has no assets to key on.
-        looked.value, looked.trouble = Sqlite.text_rows(binary, schema.tables_digest("", #has_web > 0))
+        local value, value_trouble = Sqlite.text_rows(binary, schema.tables_digest("", #has_web > 0))
+        looked.value, looked.trouble = value, if value ~= nil then "" else tostring(value_trouble) end
       end
     end
   end)
@@ -472,7 +476,7 @@ end
 local function module_code(db: Sqlite.Handle): {string:string}?, string
   local modules, trouble = Sqlite.rows(db, "SELECT path, chunk(bytecode) FROM modules " ..
       "WHERE kind IN ('module', 'main') AND bytecode IS NOT NULL")
-  if modules == nil then return nil, trouble end
+  if modules == nil then return nil, tostring(trouble) end
   local code: mut {string:string} = {}
   for _, row in ipairs(modules) do code[row:text(1)] = row:blob(2) end
   return code, ""
@@ -495,7 +499,7 @@ end
 --- drift apart.
 local function import_edges(db: Sqlite.Handle, code: {string:string}): {Edge}?, string
   local rows, rows_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
-  if rows == nil then return nil, rows_trouble end
+  if rows == nil then return nil, tostring(rows_trouble) end
   local edges: mut {Edge} = {}
   for index, row in ipairs(rows) do
     local bytes = code[row:text(1)]
@@ -562,7 +566,7 @@ end
 --- [`test_key.type_only_imports`] of the projection at `path`.
 local function projection_type_only(path: string): {string:{string:boolean}}?, string
   local opened, trouble = Sqlite.open(path)
-  if opened == nil then return nil, path .. ": " .. trouble end
+  if opened == nil then return nil, path .. ": " .. tostring(trouble) end
   local db: Sqlite.Handle = opened
   local found, found_trouble = test_key.type_only_imports(db)
   local _, _ = db:close()
@@ -626,7 +630,7 @@ end
 function test_key.harness(db: Sqlite.Handle): Harness?, string
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, source_hash FROM modules WHERE kind IN ('module', 'main')")
-  if modules == nil then return nil, trouble end
+  if modules == nil then return nil, tostring(trouble) end
   -- The bytecode of a module, read when first asked for: the digests
   -- read the harness's modules alone, a fifth of what the binary carries,
   -- and every run pays for each one read before its first test.
@@ -639,7 +643,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
       local rows, rows_trouble = Sqlite.rows(db, "SELECT chunk(bytecode) FROM modules " ..
           "WHERE path = ?1 AND kind IN ('module', 'main') AND bytecode IS NOT NULL", { { text = name } })
       if rows == nil then
-        code_trouble = rows_trouble
+        code_trouble = tostring(rows_trouble)
       else
         local row = rows[1]
         if row ~= nil then code[name] = row:blob(1) end
@@ -648,7 +652,7 @@ function test_key.harness(db: Sqlite.Handle): Harness?, string
     return code[name]
   end
   local imported, imports_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports")
-  if imported == nil then return nil, imports_trouble end
+  if imported == nil then return nil, tostring(imports_trouble) end
   local sources: mut {string:string} = {}
   local carried: mut {string:boolean} = {}
   for _, row in ipairs(modules) do
@@ -731,7 +735,7 @@ local function stamped_harness(binary: Sqlite.Handle, spelled: string): Harness?
   end
   local modules, trouble = Sqlite.text_rows(binary,
     "SELECT path FROM modules WHERE kind IN ('module', 'main')")
-  if modules == nil then return nil, trouble end
+  if modules == nil then return nil, tostring(trouble) end
   local carried: mut {string:boolean} = {}
   for _, row in ipairs(modules) do carried[row:text(1)] = true end
   return { modules = each, digest = digest, names = names, runs = harness_runs(), store_salt = salt,
@@ -1025,9 +1029,9 @@ function test_key.extras_rows(db: Sqlite.Handle): {{string}}?, string
       ", coalesce((SELECT lower(hex(sha256(source))) FROM stubs s WHERE s.path = modules.path), '') " ..
       "FROM modules ORDER BY path")
   if rows == nil then
-    local trouble: string
-    rows, trouble = Sqlite.text_rows(db, query .. " FROM modules ORDER BY path")
-    if rows == nil then return nil, trouble end
+    local plain, trouble = Sqlite.text_rows(db, query .. " FROM modules ORDER BY path")
+    if plain == nil then return nil, tostring(trouble) end
+    rows = plain
   end
   local out: mut {{string}} = {}
   for i, row in ipairs(rows) do out[i] = row:texts() end
@@ -1693,7 +1697,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
   local aside = out .. ".building"
   local _, _ = Fs.remove(aside)
   local opened, open_trouble = Sqlite.open(aside, { writable = true })
-  if opened == nil then return false, aside .. ": " .. open_trouble end
+  if opened == nil then return false, aside .. ": " .. tostring(open_trouble) end
   local db: Sqlite.Handle = opened
   local function fill(): boolean, string
     -- Written aside and moved into place whole, or not at all: a journal
@@ -1710,11 +1714,11 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         { "whole", whole } }) do
       local ok, why = Sqlite.run(db, "ATTACH DATABASE ?1 AS " .. attached[1], -- checked: nil_not_allowed
         { { text = attached[2] } })
-      if not ok then return false, why end
+      if not ok then return false, tostring(why) end
     end
-    local filled, fill_trouble = Sqlite.transact(db, function(): boolean, string
+    local filled, fill_trouble = Sqlite.transact(db, function(): (true) | (false, Failure)
       local ok, why = db:exec("CREATE TEMP TABLE extra (path TEXT PRIMARY KEY)")
-      if not ok then return false, why end
+      if not ok then return false, Failure.new(why) end
       for _, name in ipairs(worker.loads) do
         local inserted, insert_trouble = Sqlite.run(db,
           "INSERT OR IGNORE INTO temp.extra (path) VALUES (?1)", { { text = name } })
@@ -1737,7 +1741,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         local from_closure = statement:match("closure%.([%w_]+)")
         if (reads == nil or absent[reads] ~= true) and not (left_out and from_closure == "places") then
           local done, done_trouble = db:exec(statement)
-          if not done then return false, done_trouble end
+          if not done then return false, Failure.new(done_trouble) end
         end
       end
       if left_out then
@@ -1746,7 +1750,7 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
         for _, statement in ipairs({ "DROP TABLE main.places",
             "INSERT INTO main.meta (key, value) VALUES ('pure_store', X'31')" }) do
           local done, done_trouble = db:exec(statement)
-          if not done then return false, done_trouble end
+          if not done then return false, Failure.new(done_trouble) end
         end
       end
       for _, pair in ipairs(meta) do
@@ -1755,12 +1759,12 @@ local function write_sealed(sealing: Sealing, store: string, whole: string, out:
           { { text = pair[1] }, { text = pair[2] } })
         if not inserted then return false, insert_trouble end
       end
-      return true, ""
+      return true
     end)
     local _, _ = db:exec("DETACH closure")
     local _, _ = db:exec("DETACH program")
     local _, _ = db:exec("DETACH whole")
-    if not filled then return false, fill_trouble end
+    if not filled then return false, tostring(fill_trouble) end
     return true, ""
   end
   local filled, fill_trouble = fill()
@@ -2150,7 +2154,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   for _, m in ipairs(from.modules) do by_path[m.path] = m end
   local declaration_rows, declaration_trouble = Sqlite.text_rows(records,
     "SELECT path, file FROM inputs WHERE " .. analysis_schema.declaration("kind"))
-  if declaration_rows == nil then return records_path .. ": " .. declaration_trouble end
+  if declaration_rows == nil then return records_path .. ": " .. tostring(declaration_trouble) end
   local declarations: mut {string:string} = {}
   for _, row in ipairs(declaration_rows) do declarations[row:text(1)] = row:text(2) end
   for path in pairs(by_path) do rec.tree_names[#rec.tree_names + 1] = path end
@@ -2185,7 +2189,7 @@ function test_key.gather(rec: Recording, from: Gather): string?
   -- ([`build.declared_key`]).
   local remembered, remembered_trouble = Sqlite.text_rows(records,
     "SELECT path, signature, sha256 FROM digests")
-  if remembered == nil then return records_path .. ": " .. remembered_trouble end
+  if remembered == nil then return records_path .. ": " .. tostring(remembered_trouble) end
   local earlier: mut {{string}} = {}
   for _, row in ipairs(remembered) do earlier[#earlier + 1] = row:texts() end
   rec.digests = declared_key.digests(from.root, earlier)
@@ -2596,7 +2600,8 @@ local function keep_now(rec: Recording, job: Job, judged: Judged, elapsed: integ
     local saved, save_trouble = Sqlite.run(rec.records, "DELETE FROM verdicts WHERE key = ?1",
       { text(key) })
     if not saved then
-      rec.errors[#rec.errors + 1] = id .. ": verdict: " .. save_trouble
+      local said = id .. ": verdict: " .. tostring(save_trouble)
+      rec.errors[#rec.errors + 1] = said
     end
   end
   -- A pass another run shared under its key goes too where it failed.
@@ -2655,9 +2660,10 @@ function test_key.persist_digests(records: Sqlite.Handle, rec: Recording,
     if whole == true then kept, keep_trouble = records:exec("DELETE FROM digests") end
     for _, row in ipairs(if kept then declared_key.kept(digests) else {} end) do -- checked: literal_needs_type
       if kept then
-        kept, keep_trouble = Sqlite.run(records,
+        local inserted, insert_trouble = Sqlite.run(records,
           "INSERT OR REPLACE INTO digests (path, signature, sha256) VALUES (?1, ?2, ?3)",
           { text(row[1]), text(row[2]), text(row[3]) })
+        kept, keep_trouble = inserted, if inserted then "" else tostring(insert_trouble) end
       end
     end
     if not kept then return false, keep_trouble end

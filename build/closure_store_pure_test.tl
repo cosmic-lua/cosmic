@@ -136,7 +136,7 @@ local function test_a_pure_store_holds_no_text(tmp: string)
   for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places", "docs_fts", "examples_fts",
       "catalog_fts" }) do
     local rows, why = Sqlite.text_rows(pure, "SELECT count(*) FROM " .. table_name)
-    assert(rows == nil and why:find("no such table", 1, true) ~= nil,
+    assert(rows == nil and tostring(why):find("no such table", 1, true) ~= nil,
       table_name .. " is in the pure store, where a query of it answers nothing and does not fail")
   end
   assert(count(pure, "SELECT count(*) FROM stubs") == "0", "the stubs a test names are the only ones kept")
@@ -263,7 +263,7 @@ local function test_a_pure_store_keeps_the_stubs_of_the_modules_its_test_names(t
     "the pure store holds a module's source")
   for _, table_name in ipairs({ "docs", "uses", "links", "examples", "catalog", "places" }) do
     local rows, why = Sqlite.text_rows(db, "SELECT count(*) FROM " .. table_name)
-    assert(rows == nil and why:find("no such table", 1, true) ~= nil, table_name .. " is in the pure store")
+    assert(rows == nil and tostring(why):find("no such table", 1, true) ~= nil, table_name .. " is in the pure store")
   end
   assert(db:close())
   local _, bare = texted_store(tmp .. "/b", tmp, "bare", none, false)

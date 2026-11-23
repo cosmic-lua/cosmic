@@ -66,6 +66,7 @@
 local Fs = require("cosmic.fs")
 local Json = require("cosmic.json")
 local Sqlite = require("cosmic.sqlite")
+local Failure = require("cosmic.failure")
 
 local record Sessions
   --- One session, as `cosmic agent sessions` lists it.
@@ -228,7 +229,7 @@ end
 local function version_of(db: Sqlite.Handle): integer?, string
   local rows, why = Sqlite.rows(db, "PRAGMA user_version")
   local row = if rows ~= nil then rows[1] else nil end
-  if row == nil then return nil, why end
+  if row == nil then return nil, tostring(why) end
   return row:integer(1), ""
 end
 
@@ -245,7 +246,7 @@ function Sessions.open(path: string): Sqlite.Handle?, string
     if not made then return nil, "sessions: " .. tostring(made_why) end
   end
   local opened, why = Sqlite.open(path, { writable = true, create = true })
-  if opened == nil then return nil, "sessions: " .. path .. ": " .. why end
+  if opened == nil then return nil, "sessions: " .. path .. ": " .. tostring(why) end
   local db = opened
   local function refused(trouble: string): nil, string
     local _, _ = db:close()
@@ -278,7 +279,7 @@ function Sessions.open(path: string): Sqlite.Handle?, string
     if at == VERSION then return true, "" end
     local rows, count_why = Sqlite.rows(db, "SELECT count(*) FROM sqlite_master")
     local count = if rows ~= nil then rows[1] else nil end
-    if count == nil then return false, count_why end
+    if count == nil then return false, tostring(count_why) end
     if at ~= 0 or count:integer(1) ~= 0 then return false, "it is another program's database" end
     return db:exec(SCHEMA)
   end
@@ -296,7 +297,7 @@ end
 function Sessions.start(db: Sqlite.Handle, cwd: string, model: string, seconds: integer): integer?, string
   local ok, why = Sqlite.run(db, "INSERT INTO sessions (cwd, started, model) VALUES (?1, ?2, ?3)",
     { { text = cwd }, { integer = seconds }, { text = model } })
-  if not ok then return nil, why end
+  if not ok then return nil, tostring(why) end
   return db:last_insert_rowid(), ""
 end
 
@@ -305,13 +306,15 @@ end
 function Sessions.add(db: Sqlite.Handle, id: integer, message: Json.Value, model: string): boolean, string
   local text, why = Json.encode(message)
   if text == nil then return false, tostring(why) end
-  return Sqlite.transact(db, function(): boolean, string
+  local transacted, transact_why = Sqlite.transact(db, function(): (true) | (false, Failure)
     local ok, run_why = Sqlite.run(db, [[INSERT INTO messages (session, seq, message)
       SELECT ?1, coalesce(max(seq), 0) + 1, ?2 FROM messages WHERE session = ?1]],
       { { integer = id }, { text = text } })
     if not ok then return false, run_why end
     return Sqlite.run(db, "UPDATE sessions SET model = ?2 WHERE id = ?1", { { integer = id }, { text = model } })
   end)
+  if not transacted then return false, tostring(transact_why) end
+  return true, ""
 end
 
 --- The newest session in `cwd` that holds a message, or nil where it
@@ -319,7 +322,7 @@ end
 function Sessions.latest(db: Sqlite.Handle, cwd: string): integer?, string
   local rows, why = Sqlite.rows(db, [[SELECT id FROM sessions s WHERE cwd = ?1
     AND EXISTS (SELECT 1 FROM messages m WHERE m.session = s.id) ORDER BY id DESC LIMIT 1]], { { text = cwd } })
-  if rows == nil then return nil, why end
+  if rows == nil then return nil, tostring(why) end
   local row = rows[1]
   if row == nil then return nil, "" end
   return row:integer(1), ""
@@ -330,12 +333,12 @@ end
 function Sessions.load(db: Sqlite.Handle, id: integer): Sessions.Loaded?, string
   local found, why = Sqlite.rows(db, "SELECT model, restarts, ended FROM sessions WHERE id = ?1",
     { { integer = id } })
-  if found == nil then return nil, why end
+  if found == nil then return nil, tostring(why) end
   local row = found[1]
   if row == nil then return nil, "no session " .. tostring(id) end
   local texts, rows_why = Sqlite.map(db, "SELECT message FROM messages WHERE session = ?1 ORDER BY seq",
     { { integer = id } }, function(r: Sqlite.Row): string return r:text(1) end)
-  if texts == nil then return nil, rows_why end
+  if texts == nil then return nil, tostring(rows_why) end
   local out: mut {Json.Value} = {}
   for _, t in ipairs(texts) do
     local m, bad = Json.decode(t, { null_value = Json.null })
@@ -352,14 +355,16 @@ function Sessions.output(db: Sqlite.Handle, id: integer, o: Sessions.Output): in
   local ok, why = Sqlite.run(db, [[INSERT INTO outputs (session, tool, input, text, is_error, call)
     VALUES (?1, ?2, ?3, ?4, ?5, ?6)]], { { integer = id }, { text = o.tool }, { text = o.input }, { text = o.text },
       { integer = if o.is_error then 1 else 0 end }, call })
-  if not ok then return nil, why end
+  if not ok then return nil, tostring(why) end
   return db:last_insert_rowid(), ""
 end
 
 --- Keeps `text` as what the model read of output `id`, where that is
 --- less than the whole.
 function Sessions.shown(db: Sqlite.Handle, id: integer, text: string): boolean, string
-  return Sqlite.run(db, "UPDATE outputs SET shown = ?2 WHERE id = ?1", { { integer = id }, { text = text } })
+  local answered, answer_why = Sqlite.run(db, "UPDATE outputs SET shown = ?2 WHERE id = ?1", { { integer = id }, { text = text } })
+  if not answered then return false, tostring(answer_why) end
+  return answered, ""
 end
 
 --- What answered the tool call `call` in session `id`, as the model
@@ -370,7 +375,7 @@ function Sessions.answer(db: Sqlite.Handle, id: integer, call: string): Sessions
     function(r: Sqlite.Row): Sessions.Answer
       return { text = r:text(1), is_error = r:integer(2) ~= 0 }
     end)
-  if found == nil then return nil, why end
+  if found == nil then return nil, tostring(why) end
   return found[1], ""
 end
 
@@ -388,7 +393,7 @@ end
 --- request's id, or nil and why.
 function Sessions.request(db: Sqlite.Handle, id: integer, r: Sessions.Request): integer?, string
   local made: integer? = nil
-  local ok, why = Sqlite.transact(db, function(): boolean, string
+  local ok, why = Sqlite.transact(db, function(): (true) | (false, Failure)
     local kept, kept_why = Sqlite.run(db, "INSERT OR IGNORE INTO systems (digest, text) VALUES (digest('sha256', ?1), ?1)",
       { { text = r.system } })
     if not kept then return false, kept_why end
@@ -409,17 +414,19 @@ function Sessions.request(db: Sqlite.Handle, id: integer, r: Sessions.Request): 
         { text = r.system }, { text = r.shape }, str(r.build), str(r.request_headers), int(r.first_ms) })
     if not run then return false, run_why end
     made = db:last_insert_rowid()
-    return true, ""
+    return true
   end)
-  if not ok or made == nil then return nil, why end
+  if not ok or made == nil then return nil, tostring(why) end
   return made, ""
 end
 
 --- Keeps how often session `id`'s last turn was started again, and
 --- whether it ended for good.
 function Sessions.mark(db: Sqlite.Handle, id: integer, restarts: integer, ended: boolean): boolean, string
-  return Sqlite.run(db, "UPDATE sessions SET restarts = ?2, ended = ?3 WHERE id = ?1",
+  local answered, answer_why = Sqlite.run(db, "UPDATE sessions SET restarts = ?2, ended = ?3 WHERE id = ?1",
     { { integer = id }, { integer = restarts }, { integer = if ended then 1 else 0 end } })
+  if not answered then return false, tostring(answer_why) end
+  return answered, ""
 end
 
 --- The words of a user's message: its text, or "" where it is tool results.
@@ -432,7 +439,7 @@ end
 
 --- The newest `n` sessions in `cwd`, newest first.
 function Sessions.list(db: Sqlite.Handle, cwd: string, n: integer): {Sessions.Summary}?, string
-  return Sqlite.map(db, [[SELECT s.id, datetime(s.started, 'unixepoch', 'localtime'), s.model,
+  local answered, answer_why = Sqlite.map(db, [[SELECT s.id, datetime(s.started, 'unixepoch', 'localtime'), s.model,
       (SELECT count(*) FROM messages m WHERE m.session = s.id),
       coalesce((SELECT message FROM messages m WHERE m.session = s.id AND m.seq = 1), '{}'),
       coalesce((SELECT sum(cost) FROM requests r WHERE r.session = s.id), 0.0),
@@ -443,6 +450,8 @@ function Sessions.list(db: Sqlite.Handle, cwd: string, n: integer): {Sessions.Su
       return { id = r:integer(1), started = r:text(2), model = r:text(3), messages = r:integer(4),
         first = words(r:text(5)), cost = r:number(6), context = r:integer(7) }
     end)
+  if not answered then return nil, tostring(answer_why) end
+  return answered, ""
 end
 
 return Sessions

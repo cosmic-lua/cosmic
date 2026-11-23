@@ -97,7 +97,7 @@ local function test_a_csv_table_refuses_a_malformed_record()
 "q"z,1
 ')]]))
   local rows, why = Sqlite.text_rows(db, "SELECT * FROM temp.x")
-  assert(rows == nil and why:find("line 2: unescaped \" character", 1, true) ~= nil, why)
+  assert(rows == nil and tostring(why):find("line 2: unescaped \" character", 1, true) ~= nil, why)
   assert(db:close())
 end
 

@@ -55,7 +55,7 @@ local function test_inputs_by_hash(db: Sqlite.Handle): {string:PolicyRules.Decla
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT source_hash, field, value FROM test_inputs ORDER BY source_hash, ordinal")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local declared: mut {string:PolicyRules.Declared} = {}
   for _, row in ipairs(rows) do
@@ -115,7 +115,7 @@ local function names_by_hash(db: Sqlite.Handle,
     "SELECT source_hash, name FROM " .. table_name ..
       " ORDER BY source_hash, ordinal")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
@@ -148,7 +148,7 @@ local function embedded_edges(name: string): mut {string}?, string
     "SELECT requires FROM decl_imports WHERE path = ?1 ORDER BY requires",
     { text(name) })
   if rows == nil then
-    return nil, "decl_imports: " .. trouble
+    return nil, "decl_imports: " .. tostring(trouble)
   end
   if #rows == 0 then
     return nil, name .. ": the program's database records no edges of it (decl_imports)"
@@ -186,7 +186,7 @@ local function dependency_graph(db: Sqlite.Handle, modules: {Module}): Graph?, s
     "SELECT path, kind, source_hash FROM inputs WHERE kind <> 'vendor' " ..
       "ORDER BY path, " .. AnalysisSchema.declaration("kind") .. " DESC")
   if rows == nil then
-    return nil, rows_trouble
+    return nil, tostring(rows_trouble)
   end
   for _, row in ipairs(rows) do
     if dependencies[row:text(1)] == nil then
@@ -684,7 +684,7 @@ function plans.collect(db: Sqlite.Handle): {Module}?, string
       "LEFT JOIN stubs s ON s.source_hash = i.source_hash " ..
       "WHERE " .. AnalysisSchema.not_declaration("i.kind") .. " AND i.kind <> 'vendor' ORDER BY i.path")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local requires, requires_trouble = names_by_hash(db, "requires")
   if requires == nil then
@@ -816,7 +816,7 @@ function plans.global_refusals(db: Sqlite.Handle): {plans.GlobalRefusal}?, strin
       "ON g.source_hash = i.source_hash WHERE i.kind <> 'vendor' " ..
       "ORDER BY i.file, g.line, g.column")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {plans.GlobalRefusal} = {}
   for _, row in ipairs(rows) do
@@ -833,7 +833,7 @@ function plans.keep_references(db: Sqlite.Handle, key: string,
                                references: {SyntaxReceivers.Reference}): boolean, string
   local ok, why = Sqlite.run(db, "DELETE FROM typed_refs WHERE key = ?1", { text(key) })
   if not ok then
-    return false, why
+    return false, tostring(why)
   end
   for ordinal, entry in ipairs(references) do
     ok, why = Sqlite.run(db,
@@ -842,7 +842,7 @@ function plans.keep_references(db: Sqlite.Handle, key: string,
       { text(key), { integer = ordinal }, text(entry.module), text(entry.member),
         { integer = entry.line } })
     if not ok then
-      return false, why
+      return false, tostring(why)
     end
   end
   return true, ""

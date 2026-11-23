@@ -81,7 +81,7 @@ end
 local function ask(sql: string, values: {Sqlite.Value}): Answer
   local rows, why = Sqlite.rows(assert(held["db"], "no database open"), sql, values)
   if rows == nil then
-    return { kind = "error", bytes = "", number = 0, why = why }
+    return { kind = "error", bytes = "", number = 0, why = tostring(why) }
   end
   local row = assert(rows[1], "no row")
   local kind = row:kind(1)
@@ -1438,7 +1438,7 @@ local function check_blocks(input: string): boolean, string
     SELECT h.id, h.distance FROM b, vector_block_search(b.blk, ?1, ?2, ?3) AS h
     ORDER BY h.distance NULLS LAST, h.id LIMIT ?2
   ]], { { blob = asked }, { integer = k }, { text = metric } })
-  if rows == nil then return false, "the search over blocks failed: " .. why end
+  if rows == nil then return false, "the search over blocks failed: " .. tostring(why) end
   local hits = assert(corpus:search(asked, k, { metric = metric_of(metric) }))
   local who = ("%s %s k=%d size %d of %d rows, query %s"):format(storage, metric, k, size, kept, csv(query))
   -- What the search over blocks answers is the corpus's answer by the
@@ -1590,14 +1590,16 @@ local function check_hostile(input: string): boolean, string
   local added, trouble = pcall(target.add_block, target, block)
   if not is_block then
     if found ~= nil then return false, "a search read a block that load_blocks refused" end
-    if why:find("vector block", 1, true) == nil and why:find("is a blob", 1, true) == nil then
-      return false, "a refusal that names no block: " .. why
+    if tostring(why):find("vector block", 1, true) == nil and tostring(why):find("is a blob", 1, true) == nil then
+      return false, "a refusal that names no block: " .. tostring(why)
     end
     if added then return false, "add_block took a block that load_blocks refused" end
     Fuzz.label("not a block")
     return true, ""
   end
-  if found == nil then return false, "a search refused a block load_blocks read: " .. why end
+  if found == nil then
+    return false, "a search refused a block load_blocks read: " .. tostring(why)
+  end
   if #found > math.min(3, block_count) then return false, "more hits than rows" end
   local before: number? = nil
   for _, row in ipairs(found) do

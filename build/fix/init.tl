@@ -1581,7 +1581,7 @@ end
 --- declarations read from the working database the projection just wrote.
 local function promise_findings(root: string): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
-  if build == nil then return { "tree checks: " .. open_trouble } end
+  if build == nil then return { "tree checks: " .. tostring(open_trouble) } end
   local declared, declared_trouble = tree_checks.requirements(build)
   local unguarded, unguarded_trouble = tree_checks.unguarded_zig(build)
   local _, _ = build:close()
@@ -1605,7 +1605,7 @@ end
 --- declarations the working database holds.
 local function sealed_launch_findings(root: string, db: Sqlite.Handle): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
-  if build == nil then return { "tree checks: " .. open_trouble } end
+  if build == nil then return { "tree checks: " .. tostring(open_trouble) } end
   local unsealed, unsealed_trouble = tree_checks.unsealed(build)
   local _, _ = build:close()
   if unsealed == nil then return { "tree checks: " .. unsealed_trouble } end
@@ -1620,7 +1620,7 @@ end
 --- ([`tree_checks.pipeline`]).
 local function pipeline_findings(root: string, memo: Sqlite.Handle?): {string}
   local build, open_trouble = Sqlite.open(build_paths.resolve(root).working)
-  if build == nil then return { open_trouble } end
+  if build == nil then return { tostring(open_trouble) } end
   local lines = tree_checks.pipeline(root, build, memo)
   local _, _ = build:close()
   return lines

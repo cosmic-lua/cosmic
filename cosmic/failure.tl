@@ -34,6 +34,16 @@ local class Failure
   --- The column of that line, a byte from 1, nil when only the line is
   --- known.
   column?: integer
+  --- The library's own code for the failure, as the library names it
+  --- ([`Sqlite.BUSY`]), nil where no library answered one.
+  code?: integer
+  --- The detail the library gives beside `code` ([`cosmic.sqlite`]'s
+  --- extended result code), nil where it gives none.
+  extended_code?: integer
+  --- Whether a wait was stopped for a signal the caller's guard holds,
+  --- rather than failing on its own ([`cosmic.sqlite`]'s busy wait);
+  --- nil where nothing waited.
+  cancelled?: boolean
 
   --- The text a person reads. With a path: `path: message`, or
   --- `path:line:column: message` where the failure is at a place, as a
@@ -60,21 +70,29 @@ end
 --- A failure of `message`, about `path` when one is given, that no
 --- system call answered: its errno is 0.
 function Failure.new(message: string, path?: string): Failure
-  return { message = message, path = path, errno = 0, line = nil, column = nil }
+  return { message = message, path = path, errno = 0, line = nil, column = nil, code = nil, extended_code = nil, cancelled = nil }
 end
 
 --- A failure of `message` at `line` (and `column`, a byte from 1, when
 --- given) of a text, about `path` when one is given: what a decoder
 --- answers for what it refuses. Its errno is 0.
 function Failure.at(message: string, line: integer, column?: integer, path?: string): Failure
-  return { message = message, path = path, errno = 0, line = line, column = column }
+  return { message = message, path = path, errno = 0, line = line, column = column, code = nil, extended_code = nil, cancelled = nil }
 end
 
 --- The failure a system call answered with `errno`, about `path` when one
 --- is given: its message is the errno's, the same words on every OS
 --- ([`sys.errno_message`]).
 function Failure.system(errno: integer, path?: string): Failure
-  return { message = sys.errno_message(errno), path = path, errno = errno, line = nil, column = nil }
+  return { message = sys.errno_message(errno), path = path, errno = errno, line = nil, column = nil, code = nil, extended_code = nil, cancelled = nil }
+end
+
+--- A failure of `message` that a library answered with its own `code`,
+--- and `extended_code` and `cancelled` where it gives them: what
+--- [`cosmic.sqlite`] answers. Its errno is 0.
+function Failure.coded(message: string, code: integer, extended_code?: integer, cancelled?: boolean): Failure
+  return { message = message, path = nil, errno = 0, line = nil, column = nil, code = code,
+    extended_code = extended_code, cancelled = cancelled }
 end
 
 return Failure

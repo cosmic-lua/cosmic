@@ -141,7 +141,7 @@ end
 
 function stamps.fill(db: Sqlite.Handle, running?: Sqlite.Handle): boolean, string
   local cleared, clear_trouble = Sqlite.run(db, "DELETE FROM meta WHERE key LIKE 'stamp!_%' ESCAPE '!'", {})
-  if not cleared then return false, clear_trouble end
+  if not cleared then return false, tostring(clear_trouble) end
   local binary = running
   if binary == nil then
     local databases = Store.databases()
@@ -159,7 +159,7 @@ function stamps.fill(db: Sqlite.Handle, running?: Sqlite.Handle): boolean, strin
   for _, key in ipairs(keys) do
     local written, trouble = Sqlite.run(db, "INSERT INTO meta (key, value) VALUES (?1, ?2)",
       { { text = key }, { text = rows[key] } })
-    if not written then return false, trouble end
+    if not written then return false, tostring(trouble) end
   end
   return true, ""
 end

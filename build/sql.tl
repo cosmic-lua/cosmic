@@ -237,7 +237,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
   end
   local db, open_trouble = Sqlite.open(path, { immutable = not frames })
   if db == nil then
-    return nil, open_trouble
+    return nil, tostring(open_trouble)
   end
   if not frames then
     local later, later_trouble = has_frames()
@@ -249,7 +249,7 @@ function sql.open(source: sql.Source, between?: function()): sql.Opened?, string
       local _, _ = db:close()
       db, open_trouble = Sqlite.open(path)
       if db == nil then
-        return nil, open_trouble
+        return nil, tostring(open_trouble)
       end
     end
   end
@@ -799,7 +799,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
       local rows, trouble = Sqlite.text_rows(db, 'SELECT DISTINCT typeof("' ..
           column:gsub('"', '""') .. '")' .. from .. " ORDER BY 1")
       if rows == nil then
-        return nil, trouble
+        return nil, tostring(trouble)
       end
       local types: mut {string} = {}
       for _, row in ipairs(rows) do
@@ -815,7 +815,7 @@ local function describe(db: Sqlite.Handle, tables: {dataset.Table}): {string}?, 
     end
     local sample, trouble = Sqlite.text_rows(db, 'SELECT "_json"' .. from .. " LIMIT 1")
     if sample == nil then
-      return nil, trouble
+      return nil, tostring(trouble)
     end
     local first_sample = sample[1]
     if first_sample ~= nil then
@@ -869,7 +869,7 @@ local function run_from(parsed: Flags.Parsed, to: sql.Output,
   local source = table.concat(labels, ", ")
   local opened, memory_trouble = Sqlite.memory()
   if opened == nil then
-    complain(memory_trouble)
+    complain(tostring(memory_trouble))
     return 1
   end
   local db: Sqlite.Handle = opened

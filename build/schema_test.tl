@@ -77,7 +77,8 @@ local function test_tables_digest_holds_the_web_assets_and_reads_an_older_databa
   assert(db:exec("UPDATE web_assets SET version = '2'"))
   assert(digest_of(db, schema.tables_digest("")) ~= one, "a version moved no digest")
   assert(db:exec("DROP TABLE web_assets"))
-  assert(Sqlite.text_rows(db, schema.tables_digest("")) == nil, "the table was read though absent")
+  local absent, _ = Sqlite.text_rows(db, schema.tables_digest(""))
+  assert(absent == nil, "the table was read though absent")
   local older = digest_of(db, schema.tables_digest("", false))
   assert(older ~= empty and #older == 64)
 end

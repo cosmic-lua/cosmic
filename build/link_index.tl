@@ -417,7 +417,7 @@ function link_index.pending(db: Sqlite.Handle, root: string,
   root = absolute or root
   local found, trouble = Sqlite.text_rows(db, raw_links)
   if found == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local rows: mut {link_index.Raw} = {}
   for _, row in ipairs(found) do
@@ -489,7 +489,7 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
   local out = symbol_index.new()
   local modules, modules_trouble = Sqlite.text_rows(db, symbols.owned_modules(qualifier))
   if modules == nil then
-    return nil, modules_trouble
+    return nil, tostring(modules_trouble)
   end
   for _, row in ipairs(modules) do
     symbol_index.module(out, row:text(1))
@@ -499,7 +499,7 @@ local function index_of(db: Sqlite.Handle, qualifier: string,
     "SELECT module, symbol, source_symbol, file, kind, signature, exported, id FROM " ..
       qualifier .. "docs ORDER BY module, exported DESC, id")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   for _, row in ipairs(rows) do
     symbol_index.add(out, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
@@ -532,7 +532,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
     local database = at + 1
     local modules, modules_trouble = Sqlite.text_rows(db, symbols.owned_modules(""))
     if modules == nil then
-      return false, modules_trouble
+      return false, tostring(modules_trouble)
     end
     for _, row in ipairs(modules) do
       if held[row:text(1)] ~= true and owners[row:text(1)] == nil then
@@ -544,7 +544,7 @@ local function add_library(index: symbol_index.Index, held: {string: boolean},
       "SELECT d.module, d.symbol, d.source_symbol, d.file, d.kind, d.signature, d.exported, " ..
         "d.id, " .. symbols.shown_docs("d", true) .. " FROM docs d ORDER BY d.module, d.id")
     if rows == nil then
-      return false, rows_trouble
+      return false, tostring(rows_trouble)
     end
     for _, row in ipairs(rows) do
       symbol_index.add(index, { module = row:text(1), symbol = row:text(2), source_symbol = row:text(3),
@@ -686,7 +686,7 @@ local function resolve_and_write(db: Sqlite.Handle, pending: link_index.Pending,
         text(row.from_module), text(row.kind), text(row.form), text(row.source),
         text(row.text) })
     if not ok then
-      return false, trouble
+      return false, tostring(trouble)
     end
   end
   return true, ""
@@ -767,8 +767,10 @@ function link_index.fill(db: Sqlite.Handle, pending: link_index.Pending,
     local kept, _ = Sqlite.text_rows(db, "SELECT 1 FROM link_fill WHERE fingerprint = ?1",
       { text(fingerprint) })
     if kept ~= nil and kept[1] ~= nil then
-      return Sqlite.run(db, "INSERT INTO " .. qualifier .. "links (" .. link_columns .. ") " ..
+      local answered, answer_why = Sqlite.run(db, "INSERT INTO " .. qualifier .. "links (" .. link_columns .. ") " ..
           "SELECT " .. link_columns .. " FROM link_fill_rows")
+      if not answered then return false, tostring(answer_why) end
+      return answered, ""
     end
   end
   local before = answers(pending.memo)

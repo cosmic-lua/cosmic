@@ -131,6 +131,11 @@ allowed["cosmic.failure.path"] = "public API: the path a failure concerns, which
 allowed["cosmic.failure.line"] = "public API: the line of a decoder's refusal (Failure.at), which a caller reads " ..
   "to point at the place, as an editor jumps to it; the stdlib only prints it"
 allowed["cosmic.failure.column"] = "public API: the column of a decoder's refusal (Failure.at), read with `line`"
+allowed["cosmic.failure.extended_code"] = "public API: the extended code of a SQLite failure (Failure.coded), which " ..
+  "tells one constraint from another where `code` does not"
+allowed["cosmic.sqlite.ERROR"] = "public API: the code of a statement SQLite refused, which a caller tests"
+allowed["cosmic.sqlite.MISUSE"] = "public API: the code of SQL the core refuses before SQLite reads it, which a caller tests"
+allowed["cosmic.sqlite.RANGE"] = "public API: the code of a parameter at no position, which a caller tests"
 allowed["cosmic.defer.run"] = "the function a Defer runs, which its `__close` calls: a field of the class, set by " ..
   "Defer.new, that no caller needs to read"
 allowed["cosmic.tls.client"] = "public API: the TLS client a program connects with, Net.connect's `tls`; " ..
@@ -449,7 +454,7 @@ local function unearned(db: Sqlite.Handle): {string}?, string
       "AND p.symbol IN ('main', 'run', 'spec'))))) " ..
       "ORDER BY d.file, d.line")
   if rows == nil then
-    return nil, trouble
+    return nil, tostring(trouble)
   end
   local out: mut {string} = {}
   for _, row in ipairs(rows) do
@@ -560,12 +565,12 @@ function tree_checks.unnamed_types(db: Sqlite.Handle): {string}
       "AND d.file NOT GLOB 'cosmic/internal/*' AND d.file NOT GLOB '*_test.tl' " ..
       "AND d.file NOT GLOB '*.d.tl' ORDER BY d.module, d.line")
   if rows == nil then
-    return { "reading the docs: " .. trouble }
+    return { "reading the docs: " .. tostring(trouble) }
   end
   local sources, why = Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules")
   if sources == nil then
-    return { "reading the modules: " .. why }
+    return { "reading the modules: " .. tostring(why) }
   end
   local text: mut {string:string} = {}
   for _, row in ipairs(sources) do text[row:text(1)] = row:text(2) end
@@ -684,7 +689,7 @@ function tree_checks.anchors(db: Sqlite.Handle, expected?: {string}): {string}
     "SELECT module, symbol, kind, signature, text, file, line FROM docs WHERE " ..
       symbols.public_only("module", true) .. " ORDER BY module, id")
   if rows == nil then
-    return { "reading the public catalog: " .. trouble }
+    return { "reading the public catalog: " .. tostring(trouble) }
   end
   local all: mut {Row} = {}
   for _, r in ipairs(rows) do
@@ -811,7 +816,7 @@ function tree_checks.meta_readers(db: Sqlite.Handle, group: string, named?: {str
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if rows == nil then
-    return { "reading the modules' sources: " .. trouble }
+    return { "reading the modules' sources: " .. tostring(trouble) }
   end
   local found: mut {string: boolean} = {}
   for _, row in ipairs(rows) do
@@ -885,7 +890,7 @@ function tree_checks.build_directory(db: Sqlite.Handle, excused?: {string: strin
     "SELECT file, CAST(inflate(source) AS TEXT) FROM modules " ..
       "WHERE file GLOB '*.tl' AND file NOT GLOB '*_test.tl' ORDER BY file")
   if rows == nil then
-    return { "reading the modules' sources: " .. trouble }
+    return { "reading the modules' sources: " .. tostring(trouble) }
   end
   local out: mut {string} = {}
   local found: mut {string: boolean} = {}
@@ -1029,7 +1034,7 @@ function tree_checks.quieted(db: Sqlite.Handle, names?: {string}): {string}
       "SELECT 1 FROM docs WHERE module = ?1 AND symbol = ?2 LIMIT 1",
       { { text = module or "" }, { text = symbol or "" } })
     if rows == nil then
-      return { "reading the docs: " .. trouble }
+      return { "reading the docs: " .. tostring(trouble) }
     end
     if #rows == 0 then
       out[#out + 1] = name .. " is quieted in build/contract_rules.tl, but no module " ..
@@ -1085,7 +1090,7 @@ function tree_checks.restricted(db: Sqlite.Handle, rules?: {string: Restriction}
         "ORDER BY from_file, line",
       { { text = module or "" }, { text = symbol or "" } })
     if rows == nil then
-      return { "reading the uses: " .. trouble }
+      return { "reading the uses: " .. tostring(trouble) }
     end
     local allowed_here: mut {string: boolean} = {}
     for _, file in ipairs(rule.files) do allowed_here[file] = true end
@@ -1137,7 +1142,7 @@ function tree_checks.requirers(db: Sqlite.Handle, rules?: {string: Restriction})
     local rows, trouble = Sqlite.text_rows(db,
       "SELECT path FROM decl_imports WHERE requires = ?1 ORDER BY path", { { text = name } })
     if rows == nil then
-      return { "reading the imports: " .. trouble }
+      return { "reading the imports: " .. tostring(trouble) }
     end
     local allowed_here: mut {string: boolean} = {}
     for _, module in ipairs(rule.files) do allowed_here[module] = true end
@@ -1161,7 +1166,7 @@ function tree_checks.declarations(db: Sqlite.Handle): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM decls ORDER BY path")
   if rows == nil then
-    return { "reading the declarations: " .. trouble }
+    return { "reading the declarations: " .. tostring(trouble) }
   end
   local declared: mut {string:boolean} = {}
   for _, row in ipairs(rows) do declared[row:text(1)] = true end
@@ -1189,7 +1194,7 @@ function tree_checks.requirements(build: Sqlite.Handle): {string:{string}}?, str
   local rows, trouble = Sqlite.text_rows(build,
     "SELECT i.path, t.value FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'requires' ORDER BY i.path, t.ordinal")
-  if rows == nil then return nil, "reading the declared requirements: " .. trouble end
+  if rows == nil then return nil, "reading the declared requirements: " .. tostring(trouble) end
   local out: mut {string:mut {string}} = {}
   for _, row in ipairs(rows) do
     local names = out[row:text(1)] or {}
@@ -1211,7 +1216,7 @@ function tree_checks.unguarded_zig(build: Sqlite.Handle): {string}?, string
     "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field = 'caches' AND t.value = 'zig' AND NOT EXISTS (SELECT 1 FROM test_inputs r " ..
       "WHERE r.source_hash = t.source_hash AND r.field = 'requires' AND r.value = 'pinned_zig') ORDER BY i.path")
-  if rows == nil then return nil, "reading the declared caches: " .. trouble end
+  if rows == nil then return nil, "reading the declared caches: " .. tostring(trouble) end
   local out: mut {string} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = row:text(1) .. " is granted the zig cache and does not require pinned_zig: add " ..
@@ -1231,7 +1236,7 @@ function tree_checks.unsealed(build: Sqlite.Handle): {string:boolean}?, string
   local rows, trouble = Sqlite.text_rows(build,
     "SELECT DISTINCT i.path FROM test_inputs t JOIN inputs i ON i.source_hash = t.source_hash " ..
       "WHERE t.field IN ('tool', 'store') OR (t.field = 'requires' AND t.value = 'portable')")
-  if rows == nil then return nil, "reading the unsealed modules: " .. trouble end
+  if rows == nil then return nil, "reading the unsealed modules: " .. tostring(trouble) end
   local out: mut {string:boolean} = {}
   for _, row in ipairs(rows) do out[row:text(1)] = true end
   return out, ""
@@ -1286,7 +1291,7 @@ function tree_checks.sealed_launch(db: Sqlite.Handle, unsealed: {string:boolean}
                                    excused?: {string: string}): {string}
   local rows, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE path GLOB '*_test' ORDER BY path")
-  if rows == nil then return { "reading the modules' sources: " .. trouble } end
+  if rows == nil then return { "reading the modules' sources: " .. tostring(trouble) } end
   local allowed_here = excused or launcher_allowed
   local out: mut {string} = {}
   local seen: mut {string: boolean} = {}
@@ -1432,7 +1437,9 @@ function tree_checks.projection(root: string, standing: tree_standing.Standing):
   if not closed then
     return nil, close_trouble
   end
-  return Sqlite.open(path)
+  local answered, answer_why = Sqlite.open(path)
+  if not answered then return nil, tostring(answer_why) end
+  return answered, ""
 end
 
 --- A spec table's top-level fields as its source writes them: `name`,
@@ -1594,14 +1601,14 @@ function tree_checks.verbs(db: Sqlite.Handle, quickstart: string?): {string}
   local required, trouble = Sqlite.text_rows(db,
     "SELECT requires FROM imports WHERE path = 'build.verb_list'")
   if required == nil then
-    return { "reading the imports: " .. trouble }
+    return { "reading the imports: " .. tostring(trouble) }
   end
   local listed: mut {string:boolean} = {}
   for _, row in ipairs(required) do listed[row:text(1)] = true end
   local modules, module_trouble = Sqlite.text_rows(db,
     "SELECT path, kind, CAST(inflate(source) AS TEXT) FROM modules ORDER BY path")
   if modules == nil then
-    return { "reading the modules: " .. module_trouble }
+    return { "reading the modules: " .. tostring(module_trouble) }
   end
   local kinds: mut {string:string} = {}
   local texts: mut {string:string} = {}
@@ -1801,11 +1808,11 @@ function tree_checks.public_docs(db: Sqlite.Handle, excused?: {string: string}):
     "SELECT d.module, d.symbol, d.text, d.file, d.line FROM docs d WHERE " ..
       symbols.shown_docs("d", true) .. " AND d.text <> '' ORDER BY d.file, d.line, d.id")
   if rows == nil then
-    return { "reading the public docs: " .. trouble }
+    return { "reading the public docs: " .. tostring(trouble) }
   end
   local names, names_trouble = Sqlite.text_rows(db, "SELECT path FROM modules")
   if names == nil then
-    return { "reading the modules: " .. names_trouble }
+    return { "reading the modules: " .. tostring(names_trouble) }
   end
   local modules: mut {string: boolean} = {}
   for _, row in ipairs(names) do modules[row:text(1)] = true end
@@ -1923,7 +1930,7 @@ function tree_checks.plurals(db: Sqlite.Handle, extra?: {{string}}, excused?: {s
       "AND file GLOB '*.tl' AND file NOT GLOB '*.d.tl' AND (file GLOB 'build/*' " ..
       "OR file GLOB 'cmd/*' OR file GLOB 'cosmic/*') ORDER BY file")
   if rows == nil then
-    return { "reading the sources: " .. trouble }
+    return { "reading the sources: " .. tostring(trouble) }
   end
   local sources: mut {{string}} = {}
   for _, row in ipairs(rows) do sources[#sources + 1] = { row:text(1), row:text(2) } end
@@ -3366,16 +3373,16 @@ local text_read_allowed <const>: {string:string} = {
 function tree_checks.text_readers(db: Sqlite.Handle, excusing?: {string:string}): {string}
   local excused = excusing or text_read_allowed
   local imported, imported_trouble = Sqlite.text_rows(db, "SELECT path, requires FROM imports ORDER BY path, requires")
-  if imported == nil then return { "reading the imports: " .. imported_trouble } end
+  if imported == nil then return { "reading the imports: " .. tostring(imported_trouble) } end
   local modules, trouble = Sqlite.text_rows(db,
     "SELECT path, CAST(inflate(source) AS TEXT) FROM modules WHERE kind NOT IN ('test', 'example') ORDER BY path")
-  if modules == nil then return { "reading the modules: " .. trouble } end
+  if modules == nil then return { "reading the modules: " .. tostring(trouble) } end
   local source_of: mut {string:string} = {}
   for _, row in ipairs(modules) do source_of[row:text(1)] = row:text(2) end
   local called, called_trouble = Sqlite.text_rows(db,
     "SELECT DISTINCT from_module, symbol FROM uses WHERE module = 'cosmic.store' " ..
       "AND symbol IN ('source', 'withheld') ORDER BY from_module, symbol")
-  if called == nil then return { "reading the uses: " .. called_trouble } end
+  if called == nil then return { "reading the uses: " .. tostring(called_trouble) } end
   local how: mut {string:string} = {}
   for _, row in ipairs(called) do
     local path = row:text(1)

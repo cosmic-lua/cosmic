@@ -419,7 +419,7 @@ end
 local function store_unheld(): string
   for _, db in ipairs(store_databases()) do
     local rows, why = text_rows(db, "SELECT count(*) FROM sqlite_schema")
-    if rows == nil then return "the store cannot be read: " .. why end
+    if rows == nil then return "the store cannot be read: " .. tostring(why) end
   end
   for _, path in ipairs(store_paths()) do
     if path:sub(-4) == "-wal" then

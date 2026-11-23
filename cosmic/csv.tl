@@ -614,7 +614,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
   local first, why = Sqlite.text_rows(handle, "SELECT rowid, * FROM " .. scratch ..
       " WHERE c0 IS NOT NULL LIMIT 1")
   if first == nil then
-    return undone(why)
+    return undone(tostring(why))
   end
   local head = first[1]
   if head == nil then
@@ -659,7 +659,7 @@ function Csv.load(handle: Sqlite.Handle, name: string, source: Csv.Source): (Csv
     local short, failed = Sqlite.text_rows(handle, "SELECT rowid FROM " .. scratch .. " WHERE " .. kept ..
         " AND " .. identifier("c" .. tostring((#names - 1))) .. " IS NULL LIMIT 1")
     if short == nil then
-      return undone(failed)
+      return undone(tostring(failed))
     end
     if #short > 0 then
       return undone("record " .. short[1]:text(1) .. " has fewer fields than the header's " .. tostring(#names))
