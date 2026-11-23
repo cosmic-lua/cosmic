@@ -726,7 +726,8 @@ end
 --- relative to `root`: no leading `/` or `./` (`a.txt`, `css/main.css`),
 --- so `root .. "/" .. path` names the file. Only a regular file is
 --- listed (`-type f`). Unless `opts.follow` ([`Fs.WalkOptions`]), a
---- link is neither listed nor walked into, and nothing is stat'd. The
+--- link is neither listed nor walked into, and nothing is stat'd; with
+--- it, the walk lists what `find -L root -type f` lists. The
 --- paths are sorted bytewise, whole. `opts.skip` is asked about each
 --- entry's relative path, its bare name second, and what the listing
 --- says it is third, a [`Fs.Kind`] as [`Fs.stat`]'s `kind` names it
