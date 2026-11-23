@@ -128,3 +128,12 @@ local function test_integer_answers_a_failure_or_the_value()
     assert(value == want and why == nil, text)
   end
 end
+
+--- The Failure names the byte at fault where there is one.
+local function test_integer_failure_names_the_byte_at_fault()
+  local _, why = Number.integer("12x4")
+  local failure = assert(why)
+  assert(failure.line == 1 and failure.column == 3, tostring(failure))
+  local _, long = Number.integer("99999999999999999999")
+  assert(assert(long).column == nil)
+end

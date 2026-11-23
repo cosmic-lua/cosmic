@@ -28,19 +28,20 @@ local function safe_digits(radix: integer): integer
   return math.floor(63 / math.log(radix, 2))
 end
 
---- The integer `text` spells in `radix`, or nil and why in words.
-local function read(text: string, radix: integer): integer?, string
+--- The integer `text` spells in `radix`, or nil and why: a "parse"
+--- Failure at line 1 of `text`, and at the byte at fault where one is.
+local function read(text: string, radix: integer): (integer) | (nil, Failure)
   local negative = text:sub(1, 1) == "-"
   local first = if negative then 2 else 1 end
   if #text < first then
-    return nil, ("number: integer of %q has no digits"):format(text)
+    return nil, Failure.at(("number: integer of %q has no digits"):format(text), 1)
   end
   -- A text of letters and digits with few enough digits to fit is `tonumber`'s to
   -- read: it refuses a digit past the base, and the loop below then says
   -- which. Anything else (space, "+", a long run) is the loop's alone.
   if #text - first + 1 <= safe_digits(radix) and text:find("^%-?%w+$") ~= nil then
     local whole = math.tointeger(tonumber(text, radix))
-    if whole ~= nil then return whole, "" end
+    if whole ~= nil then return whole end
   end
   -- Built as a negative so that math.mininteger, whose magnitude no
   -- positive integer holds, reads like the rest.
@@ -48,23 +49,23 @@ local function read(text: string, radix: integer): integer?, string
   for at = first, #text do
     local digit = digit_value(text:sub(at, at), radix)
     if digit == nil then
-      return nil, ("number: integer of %q has %q at %d, which is no base %d digit"):format(
-        text, text:sub(at, at), at, radix)
+      return nil, Failure.at(("number: integer of %q has %q at %d, which is no base %d digit"):format(
+        text, text:sub(at, at), at, radix), 1, at)
     end
     if value < (math.mininteger + digit + radix - 1) // radix then
-      return nil, ("number: integer of %q is outside what an integer holds"):format(text)
+      return nil, Failure.at(("number: integer of %q is outside what an integer holds"):format(text), 1)
     end
     value = value * radix - digit
   end
-  if negative then return value, "" end
+  if negative then return value end
   if value == math.mininteger then
-    return nil, ("number: integer of %q is outside what an integer holds"):format(text)
+    return nil, Failure.at(("number: integer of %q is outside what an integer holds"):format(text), 1)
   end
-  return -value, ""
+  return -value
 end
 
 --- `base`, or 10 where nil; raises, blaming the caller's caller, where
---- it is not 2 to 36, which is the program's fault.
+--- it is not 2 to 36.
 local function radix_of(base?: integer): integer
   local radix = base or 10
   if radix < 2 or radix > 36 then
@@ -85,10 +86,11 @@ end
 ---     local none, why = Number.integer("1e2") -- nil, and why
 --- @param text string The digits to read
 --- @param base integer | nil The radix, 2 to 36; 10 when nil
+--- @return integer | nil The value, or nil
+--- @return Failure | nil Why there is none: kind "parse", at line 1 of
+--- the text and the byte at fault where there is one
 function Number.integer(text: string, base?: integer): (integer) | (nil, Failure)
-  local value, why = read(text, radix_of(base))
-  if value == nil then return nil, Failure.at(why, 1) end
-  return value
+  return read(text, radix_of(base))
 end
 
 return Number
